@@ -1,0 +1,21 @@
+{
+  "rust-analyzer.cargo.features": "all",
+  "rust-analyzer.check.command": "clippy",
+  "rust-analyzer.linkedProjects": ["src-tauri/Cargo.toml"],
+  "editor.formatOnSave": true,
+  "[rust]": {
+    "editor.defaultFormatter": "rust-lang.rust-analyzer"
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "vscode.typescript-language-features"
+  },
+  "files.watcherExclude": {
+    "**/src-tauri/target/**": true,
+    "**/node_modules/**": true
+  },
+  "search.exclude": {
+    "**/src-tauri/target": true,
+    "**/node_modules": true,
+    "**/dist": true
+  }
+}
