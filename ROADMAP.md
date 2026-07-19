@@ -723,6 +723,146 @@ Triage (fix order recommended by impact for Mahakam work):
 **Low (15 items)** — see `AUDIT-2026-07-20.md` (SSC zero-PHIE guard, ±Infinity in
 stats, i18n gaps, DB-inspector f32 depth equality, wrap-mode LAS parsing, etc.).
 
+## 4c. Field feature-request backlog (2026-07-20) — Jauhar's 16-item list
+
+Source: Jauhar's feature list of 2026-07-20. Researched by a 10-agent sweep over his
+reference library (`D:\01. Work\00. Guidebook`), real project data (SCS-PHM SCAL/phi-k
+files), the Geolog-V14 install, and the SandiBumi codebase. **Full method specs with
+equations, in-library citations (file + page), data-format samples and current-code
+audits are banked in `docs/research_2026-07/` — read the matching file before
+implementing any item below.** Item numbers = Jauhar's original ordering.
+**Verification standard for every increment: run on Balam South data (item 11) before
+sign-off**, in addition to the usual cargo test / tsc / browser checks.
+
+**Wave A — UI foundation (do first: every new suite below should be born into this
+architecture, not ported later):**
+- [ ] **(14) Tools as panes, not popups + theme compliance.** Theme fixes first
+      (independent, low-risk): kill phantom CSS vars (`--danger/--muted/--panel-2/
+      --surface-2/--bg-subtle` always render fallbacks), re-skin `.cursor-readout` +
+      `.workflow-invalid`, replace hard-coded `#b5651d/#5f7350/#888/#999` in
+      crossplot/pickett/histogram/logView TS with `plotColors()` reads. Then port
+      dialogs → dock panes following the `buildWorkflowContent` precedent, in order:
+      summary → ml → monteCarlo → multimin (easy); zones, wellGroups, composite,
+      report (medium); moduleDialog (hard — needs dockview addPanel params +
+      singleton-per-module) and autoCorr last. Keep as popups: layoutProps, curveEdit,
+      tops micro-forms, ribbon mini-forms. Fix modal.ts single-root leak for whatever
+      remains. → `code_ui_shell.md`.
+- [ ] **(4) Compact import ribbon.** Regenerate the Data tab's 15 flat buttons into
+      `buildRibbonDropdown` menus (already exists, used by Petrophysics categories):
+      Import Logs ▾ (LAS/DLIS), Import Data ▾ (core/SCAL/tops/aux/deviation), Export ▾,
+      Tools ▾ (autocorrelate/shift core/well header). Pure frontend; handlers exist.
+      Apply the same categorization pass to other crowded groups. → `code_data_db_import.md`.
+- [ ] **(12) Multi-line inspector in workflows.** Interpreted as: a spreadsheet-style
+      grid over the whole chain (rows = steps/params, columns = values) so several
+      steps' inputs/params are visible and editable at once, incl. cross-step editing
+      of a shared parameter (set RW once for all sw_* steps) — today only per-step
+      accordion editors exist. **Confirm interpretation with Jauhar before building.**
+      → `code_compute_ml_mc.md`.
+- [ ] **(2) Project open/switch, IP style.** DB is a hard-coded relative
+      `project.duckdb`; no open/new/recent. Needs: swappable `DbState` (open/close/
+      create commands + migrations on open), recent-projects list outside the project
+      DB (app-config dir), startup picker + Project-tab Open/New/recent UI, a
+      project-changed dataVersion bump so all panels reload, and `save_project_as`
+      semantics decision (copy-and-continue vs switch-to-copy). → `code_data_db_import.md`.
+
+**Wave B — leverage existing engines (small-to-medium increments, high payoff):**
+- [ ] **(13) Monte Carlo parameter sensitivity.** montecarlo.rs already samples per
+      realization but discards the draws — keep them, add Spearman rank correlation of
+      param vs output across realizations + tornado chart, plus one-at-a-time sweep
+      mode; scope selector = single tool or whole workflow (bulk). → `code_compute_ml_mc.md`.
+- [ ] **(3) ML comparison quantification.** Loop algorithms × input-curve subsets in
+      one job; leaderboard ranking; **well-grouped CV + blind-well holdout** (current
+      random 5-fold leaks depth correlation); feature importance (permutation);
+      confusion matrix for classification. exec_ml is already one-shot per call —
+      harness loops it. → `code_compute_ml_mc.md`.
+- [ ] **(9) Fluid contacts in well correlation.** New `fluid_contacts` store
+      (well/field, type OWC|GWC|GOC|GDT|ODT, depth, TVDSS flag, color), editor UI,
+      rendering in correlationPanel as horizontal lines + connectors; requires adding
+      a TVDSS depth mode to correlation (deviation.rs paths exist; contacts are flat
+      in TVDSS, not MD). Optional: show in log-view tops overlay. → `code_data_db_import.md`.
+- [ ] **(16) Well-diagram track in layout.** `Track` gains a `kind` field
+      (`"curves" | "well_diagram"`, serde-default for saved-layout compat); draw
+      casing/shoe/tubing/perfs on the 2D overlay canvas (same path as core plugs);
+      perfs already in aux_data; casing/completion needs a store + importer (reserved
+      aux_data dataset `COMPLETION`); BS available as curve. Mirror in composite/report
+      export. → `code_data_db_import.md`.
+- [ ] **(8) Rock typing + SHF building.** Rock typing: FZI/HFU (Amaefule + GHE bins),
+      Winland R35/Pittman, Lucia RFN (carbonate stringers), PGS (Permadi & Susilo ITB
+      — verify exponent vs paper), perm binning per Mahakam phi-k-laws preset (all
+      constants transcribed), electrofacies tie-in with confusion-matrix QC. SHF
+      *fitting* side (forward `sw_height` exists): Leverett-J, Brooks-Corey, Thomeer,
+      Skelt-Harrison, Cuddy FOIL/BVW (papers in library, read), log-derived per-RT
+      Sw(h), FWL scan (Cuddy Eq 19) + gradient-intersection; SCAL importers for
+      porous-plate wide tables + centrifuge workbooks (real formats captured). Fitted
+      laws export into the existing sw_height parameter table. → `ref_rocktyping_shf.md`.
+
+**Wave C — method suites from his reference canon:**
+- [ ] **(10) Thin-bed / LRLC suite** (his specialty; richest reference grounding —
+      Passey 2006 book, Bateman 1990, Thomas-Stieber 1975, Mollison/Mezzatesta 2002,
+      Klein 1995/97 + Jauhar's own Klein-plot Excel prototype, Yadav 2010, Elhadidy
+      2020, Madjid-Worthington 2012, Worthington 2000 all read). Build order inside the
+      suite: Worthington LRP screening classifier → Madjid-Worthington scenario router
+      → Thomas-Stieber per-depth solver (crossplot overlay exists) → Bateman binary-
+      lithology + Rt enhancement → Klein plot widget + Hagiwara/Fanini Vshl-Rsd tensor
+      solver, with **Elhadidy multi-well dip-fit as the no-triaxial fallback (the
+      Mahakam case)** → Passey VLSA interval Monte Carlo → (later) Mollison LSSA full
+      inversion. Note: printed Mollison eq 19-21 have suspected typos (kv/kh swapped,
+      Coates ratio inverted) — implement physics-correct forms. → `ref_thin_bed_lrlc.md`.
+- [ ] **(1a) TOC / unconventional.** Passey ΔlogR (sonic/density/neutron variants +
+      generalized calibrated form; interactive baseline picker on the overlay scale),
+      Schmoker & Myers-Jenkyns density TOC, Schmoker-Hester inverse form, uranium/Th-U
+      excess method (warn: unreliable for deltaic Type-III OM — mask coals first),
+      Meyer-Nederlof discriminant, MLR/ML TOC, RockEval/LECO calibration layer
+      (core-TOC table drives every method), brittleness index, adsorbed/free gas.
+      Rider book has the exact in-library equations. Needs one-time Hood LOM chart
+      digitization (chartdig-style). → `ref_toc_unconventional.md`.
+- [ ] **(1b) Geomechanics 1D MEM.** Phased: (i) conditioning (Faust DT, DTS regression,
+      RHOB extrapolation) + Sv integration + NCT + Eaton PP + FG (Eaton-Poisson,
+      Thiercelin-Plumb, Matthews-Kelly) + dynamic/static moduli + UCS/φ correlations;
+      (ii) Kirsch + failure criteria (Mohr-Coulomb, Mogi-Coulomb, Drucker-Prager,
+      Modified Lade — closed forms verbatim from the 221102 LAPI-ITB deck) → collapse
+      MW + mud window + max injection (CFF); (iii) Bowers loading/unloading (needed
+      for Mahakam overpressure) + breakout SHmax inversion. Ship CSB/Rokan calibrations
+      as a named preset, literature defaults as general default. → `ref_geomechanics.md`.
+- [ ] **(15) Rock physics.** Mirror Geolog GP02 (sources read from his V14 install,
+      incl. two known Geolog bugs NOT to copy): Phase 1 = Batzle-Wang fluids + VRH
+      solid mix (consumes SandiMin volumes) + fluid mixing (Reuss/patchy/Brie) +
+      Gassmann clean & Vsh variants + Vs prediction (Greenberg-Castagna iterative,
+      Han, mudrock) + elastic attributes (AI/SI/VpVs/Poisson/LMR) + reflectivity/EI
+      logs; Phase 2 = bounds + Krief/critical-porosity + contact models; Phase 3
+      (defer) = Xu-White/Xu-Payne/DEM, time-domain synthetics. Standardize SI
+      internally (Geolog mixes unit systems). → `ref_rock_physics.md`.
+
+**Wave D — new data-model suites (biggest lifts; each needs new storage):**
+- [ ] **(5) NMR suite.** Needs array-curve storage (T2 bins as LIST/FLOAT[] per depth +
+      bin-time metadata per curve-set; DLIS array channels, LAS BIN01..NN re-pack).
+      Then: CBW/BVI/FFI partition (T2cutoffs 4/33/92 ms defaults), SBVI option,
+      T2LM, Timur-Coates + SDR perm, Swirr, MPHI/MSIG QC, DMR gas-corrected porosity;
+      pseudo-Pc (Kappa/T2) with MICP calibration; MRIAN dual-water Sw (ties into his
+      LRLC work); defer dual-TW/TE typing. Coates 1999 book in library, read. → `ref_nmr.md`.
+- [ ] **(6) Image log suite.** Largest single item. Data model (pad arrays, oriented
+      array, versioned _S/_ISC/_H/_STATIC/_DYNAMIC chain per Techlog convention —
+      his annotated Techlog manual + his team's Geolog Geomage SOP are the blueprints):
+      speed correction (accelerometer + image-based), pad creation/EMEX, button
+      harmonization + dead-button repair, concatenation/orientation, static+dynamic
+      normalization; then interactive dip picking (5 modes incl. sinusoid math →
+      true dip), dip datasets + classification, auto-dip, stereonet/rose/walkout/
+      cumulative plots, structural dip removal, fracture counting w/ Terzaghi,
+      aperture (Luthi-Souhaite), image porosity + binarization + sand count (his SOP's
+      exact regressions captured). → `ref_image_core.md`.
+- [ ] **(7) Core photo digitization.** Non-destructive recipe model (original +
+      ordered ops): crop/deskew/perspective, color-card + white-balance correction,
+      CLAHE/denoise/sharpen enhancement, depth registration + stitched strip pyramid,
+      core-to-log shift (photo-proxy-log cross-correlation vs GR), WL/UV pairs,
+      log-view strip track. No reference files exist — specced from standard practice.
+      Absorbs the §4 P3 "core image input" stub. → `ref_image_core.md`.
+
+Cross-cutting notes: (11) Balam South testing is the per-increment verification
+standard, not a separate item. Items (9) and (7) supersede the §4 P3 2D-Window
+fluid-contacts note and core-image stub. New suites must land as panes (Wave A first),
+use the 15-var theme contract, manifest-driven dialogs where they fit, and expose
+outputs to Python/SQL per §5.
+
 ## 5. Standing advantages to protect
 
 - One-file DuckDB project + full SQL access.
