@@ -577,6 +577,8 @@ export interface BasicStats {
   count: number;
   mean: number;
   std: number;
+  min: number;
+  max: number;
   p5: number;
   p50: number;
   p95: number;
@@ -587,16 +589,29 @@ export function basicStats(values: ArrayLike<number>): BasicStats {
   let n = 0;
   let sum = 0;
   let sumSq = 0;
+  let min = Infinity;
+  let max = -Infinity;
   for (let i = 0; i < values.length; i++) {
     const v = values[i];
     if (Number.isNaN(v)) continue;
     n++;
     sum += v;
     sumSq += v * v;
+    if (v < min) min = v;
+    if (v > max) max = v;
   }
   const mean = n > 0 ? sum / n : NaN;
   const std = n > 1 ? Math.sqrt(Math.max(0, (sumSq - n * mean * mean) / (n - 1))) : NaN;
-  return { count: n, mean, std, p5: percentile(values, 5), p50: percentile(values, 50), p95: percentile(values, 95) };
+  return {
+    count: n,
+    mean,
+    std,
+    min: n > 0 ? min : NaN,
+    max: n > 0 ? max : NaN,
+    p5: percentile(values, 5),
+    p50: percentile(values, 50),
+    p95: percentile(values, 95),
+  };
 }
 
 export interface LinearFit {

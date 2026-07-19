@@ -121,6 +121,28 @@ Your full review is triaged in **ROADMAP.md §4** — these five landed immediat
       per well (read-only — re-import the file to change values). Tops appear
       immediately in the Wells & Tops pane and all log views/correlation.
 
+## P2-e — Histogram v2 (2026-07-20 #11)
+
+- [ ] **Properties dialog**: double-click or right-click the histogram plot (or the ⚙
+      Properties button) → one dialog holds display mode (bars/line), bins, normalize,
+      cumulative overlay, box plot, color, percentiles, statistics placement, and the
+      parameter-picker toggle. When zoomed, the first double-click resets the zoom, the
+      next one opens properties.
+- [ ] **Box plot + cumulative overlay together**: enable both on a GR histogram — the
+      P25–P75 box with P50 line and P5/P95 whiskers sits under the marker labels, and
+      the cumulative % curve (secondary color, % labels on the right edge) tracks the
+      bars. Zoom in with Ctrl+wheel: box and whiskers follow the axis.
+- [ ] **User percentiles**: type `10, 90` in Properties → P10/P90 marker lines on the
+      plot and removable chips above it (click a chip to drop that percentile). Values
+      must match what you'd read off the cumulative curve.
+- [ ] **Statistics inside the plot**: set Statistics → "Inside the plot" (chips hide) or
+      "Both" — the in-plot block shows the active stats incl. new Min/Max. Check it in a
+      dark theme too (block background must follow the theme).
+- [ ] **Universal by default**: a fresh histogram opens with NO Pick A/B rows and clicking
+      the plot does nothing — enable "Show parameter pickers" in Properties to get the
+      GR_MA/GR_SH picking workflow back. Your saved bar color / percentiles / etc. must
+      survive closing and reopening the panel.
+
 ## P2-d — Log-view layout interaction (2026-07-19 #10)
 
 - [ ] **Collapsible track headers**: ▤ in the log-view toolbar cycles full → compact

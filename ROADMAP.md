@@ -600,10 +600,17 @@ increments with REVIEW.md check items.
   **Deferred**: drag-on-canvas interval picking for edit ops (dialog takes top/bottom,
   prefilled around the clicked depth); header-mode/border persistence in sessions;
   interactive wireline-shift preview while dragging the curve.
-- **Histogram v2** (double-click or right-click opens properties, Geolog-style): box plot,
-  cumulative overlay, bin control, colors, user-input percentiles; **universal** (no
-  hard-wired GR_MA/GR_SH — parameter pickers appear only when wanted); statistics
-  (min/max/mean/std/percentiles/n) displayable inside or outside the plot.
+- ✅ **Histogram v2** (2026-07-20): Geolog-style Properties dialog (double-click /
+  right-click the plot, or ⚙ button) holding mode (bars/line), bins, normalize,
+  cumulative-% overlay (was a separate display mode — old saved props/templates
+  migrate automatically), box-plot strip (P5–P25–P50–P75–P95), custom bar color
+  (or theme accent), user percentiles (marker lines + removable chips), Min/Max
+  statistics, and statistics placement (chips above the plot / block inside it /
+  both). **Universal**: parameter pickers (Pick A/B → zone params) are now opt-in
+  via Properties — a fresh histogram is a neutral frequency tool. When zoomed,
+  double-click resets zoom first; the next double-click opens Properties.
+  **Deferred**: same properties treatment for Crossplot/Pickett arrives with their
+  v2 items below.
 - **Crossplot v2**: plot-size control, marginal histograms on X and Y, bins/colors/
   percentiles like histogram; regression options (Y-on-X, X-on-Y, RMA, linear, power,
   log); additional colormaps incl. one that survives **logarithmic Z scales** (rainbow
