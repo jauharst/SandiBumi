@@ -329,7 +329,10 @@ fn fetch_computed_curve_aligned(
     curve_name: &str,
     depth_grid: &[f32],
 ) -> duckdb::Result<Vec<f32>> {
-    let mut stmt = conn.prepare("SELECT depth, value FROM computed_curves WHERE well_id = ?1 AND curve_name = ?2")?;
+    // Case-insensitive name match: equation outputs may be saved lowercase while
+    // module/plot requests arrive uppercased — an exact compare read back all-NaN.
+    let mut stmt = conn
+        .prepare("SELECT depth, value FROM computed_curves WHERE well_id = ?1 AND upper(curve_name) = upper(?2)")?;
     let rows = stmt.query_map(params![well_id, curve_name], |row| {
         Ok((row.get::<_, f32>(0)?, row.get::<_, f32>(1)?))
     })?;

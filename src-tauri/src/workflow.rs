@@ -359,8 +359,10 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                 continue;
             }
             let mut pay = res && (swe[i] as f64) <= req.swe_max;
-            if has_perm_cut && !perm[i].is_nan() {
-                pay = pay && (perm[i] as f64) >= req.perm_min.unwrap();
+            if has_perm_cut {
+                // A sample with no PERM value cannot demonstrate it passes the cutoff —
+                // missing PERM must fail, not silently pass.
+                pay = pay && !perm[i].is_nan() && (perm[i] as f64) >= req.perm_min.unwrap();
             }
             flag_pay[i] = pay as u8 as f32;
         }

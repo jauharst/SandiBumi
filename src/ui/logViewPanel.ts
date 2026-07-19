@@ -142,7 +142,10 @@ export class LogViewPanel {
     scaleSel.value = "100";
     scaleSel.addEventListener("change", () => {
       const ratio = parseFloat(scaleSel.value);
-      this.setScale(96 / ratio);
+      // A true print-style ratio: 1 depth metre occupies (1/ratio) m on screen.
+      // At the CSS reference 96 dpi that is 96/0.0254 = 3779.5 px per metre of
+      // depth divided by the ratio (the old 96/ratio was ~39x too compressed).
+      this.setScale(96 / 0.0254 / ratio);
       setStatus(`Vertical scale set to 1:${ratio}`);
     });
     bar.appendChild(scaleSel);

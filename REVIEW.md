@@ -6,6 +6,44 @@ Work through this list when you have time; delete items as you confirm them.
 Marks: `[o]` confirmed OK (removed from this file), `[x]` confirmed wrong → logged in
 **ROADMAP.md §4 (Field-review backlog)**, `[ ]` not yet tested.
 
+## Chartbook overlay library + audit quick fixes (2026-07-20 #14)
+
+The single D-N overlay grew into a **chart overlay library** (Properties → Overlays →
+Chart overlay): every crossplot-family chart from your 2013 chartbook, digitized from
+the PDF vector artwork with the same validation stack (graduation sequences, 5-multiple
+long dashes, worked examples). Charts matching the current axes are listed first; a
+chart draws only when the plot axes actually match it (either orientation).
+
+- [ ] **CNL Por-11/12** (as before, now via the new select — old saved props migrate).
+- [ ] **EcoScope Por-18 (BPHI) / Por-19 (TNPH)** on an LWD well — these are the ones
+      that matter for your Mahakam development wells; check a known sand against the
+      sandstone line for both BPHI and TNPH inputs.
+- [ ] **adnVISION675 Por-16** if you have ADN wells.
+- [ ] **APS Por-13/14** (APLC and FPLC variants listed separately).
+- [ ] **PEF: Lith-3/4** on a PEF-RHOB crossplot — quartz ~1.65-1.8, calcite ~5.08,
+      dolomite ~3.1 curves with 10-pu labels.
+- [ ] More (sonic-neutron Por-20, density-sonic Por-22 with mineral points, Th-K
+      clay chart Lith-2, Pe-K / Pe-Th/K boxes Lith-1, Umaa-Rhomaa MID Lith-6) —
+      being validated; check the select for what's live in this build.
+
+**Audit quick fixes** (from the full senior audit — see AUDIT-2026-07-20.md and
+ROADMAP §4b for the 35-finding backlog):
+
+- [ ] **Pay summary change**: with a PERM cutoff active, samples with **missing PERM
+      now FAIL the cutoff** (they silently passed before). Re-run a pay summary on a
+      well with patchy PERM — net pay may legitimately decrease. Tell me if you'd
+      rather missing-PERM samples pass (Geolog's default behavior differs by setup).
+- [ ] **LAS import**: the file's own ~W NULL declaration is now honored (deliveries
+      using -99999 etc. no longer import sentinels as data), and **multi-word well
+      names survive** ("BALAM SOUTH-01" no longer truncates to "SOUTH-01"). Re-import
+      one such file and check the Wells pane name.
+- [ ] **Depth scale presets are now TRUE ratios** (1:200 = 1 m of well per 5 mm of
+      screen at standard DPI). They were ~39x too compressed before, so 1:200 will
+      look much more stretched than you're used to — the numbers are honest now.
+- [ ] **Tops editor**: adding a top with an existing name is an overwrite; Ctrl+Z now
+      restores the previous depth instead of deleting the top.
+- [ ] Case-insensitive computed-curve lookup (lowercase equation outputs now resolve).
+
 ## P2-f+ — D-N chartbook overlay (2026-07-20 #13)
 
 Digitized from the Schlumberger 2013 chartbook you sent (Por-11 fresh / Por-12 salt,

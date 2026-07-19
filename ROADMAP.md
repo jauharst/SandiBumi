@@ -663,6 +663,66 @@ increments with REVIEW.md check items.
   Jauhar's database as the worked example; include the outstanding review items as an
   appendix. Produce after the P1 batch lands (or on request, against the current build).
 
+## 4b. Senior-audit backlog (2026-07-20) — 35 confirmed findings, adversarially verified
+
+Jauhar asked for a full "30-year senior petrophysicist" recheck. Five parallel review
+passes (methods, frontend bugs, performance, UX, data integrity) + an adversarial
+verify pass on every high/medium claim: **35 confirmed, 0 refuted, 15 low**. Full
+detail with file:line evidence and suggested fixes in `AUDIT-2026-07-20.md`.
+Triage (fix order recommended by impact for Mahakam work):
+
+**P0 — answers are wrong or silently unsafe (petrophysics/data):**
+- [ ] MASK only blanks outputs — gr_normalize P3/P97 and log_predict KNN training still
+      consume flagged samples; masked log_predict even deletes the repaired synthetic in
+      the washouts it exists to fix (workflow.rs:186; pass the mask into module inputs).
+- [ ] sw_height uses MD, not TVD; FWL can't be negative (TVDSS) — optimistic SWH in every
+      deviated well. TVD machinery already exists (deviation.rs) but is display-only.
+- [ ] Pay summary: PERM-missing samples pass an active PERM cutoff (fixed 2026-07-20);
+      gross thickness ignores log coverage and the forward step bleeds past zone base.
+- [ ] LAS import: ~W NULL declaration ignored (only −999.25/−9999 hardcoded — fixed
+      2026-07-20); no depth-column fallback beyond DEPT/DEPTH, no duplicate/descending
+      depth guard; well name keeps only the last whitespace token (fixed 2026-07-20).
+      DLIS: −999.25-style sentinels survive; frame-0 curves can silently replace
+      same-mnemonic LAS curves.
+- [ ] Delete-then-append curve writes run without transactions — crash mid-write loses
+      curve data permanently (equations.rs:590 and every write path).
+- [ ] sw_imts clay-term Sw exponent behaves as Sw^(n*+1) — check against the intended
+      excess-conductivity form with Jauhar's LRLC notes.
+- [ ] Computed-curve lookup is case-sensitive vs uppercased requests (fixed 2026-07-20).
+- [ ] SandiMin: accepts 2 live tools for 4 unknowns (arbitrary vertex solutions);
+      CT/CXO all-zero response rows unchecked.
+
+**P1 — reliability (frontend state):**
+- [ ] Plots don't subscribe to dataVersion — stale curves shown after module runs.
+- [ ] loadWell/reload/createPlot race guards (generation tokens) for fast well/curve
+      switching; listener leaks on dispose (logViewPanel init, LogCanvasRenderer
+      window handlers, modal Escape stacking).
+- [ ] Undo: failed undo/redo vanishes silently; "Add top" overwrite undo deletes the
+      top instead of restoring the previous depth (fixed 2026-07-20).
+
+**P2 — speed at field scale (100+ wells):**
+- [ ] Long commands are synchronous Tauri commands — a chain run blocks IPC for minutes;
+      move to async/spawn_blocking + progress events.
+- [ ] Rayon over wells defeated by the single global Mutex<Connection> — per-well
+      connections or a connection pool.
+- [ ] "Binary" curve IPC ships bytes as JSON numbers (~4× size, main-thread parse) —
+      use Tauri v2 raw IPC responses (ArrayBuffer) end-to-end.
+- [ ] One query per curve per well load (~100 scans of computed_curves) — batch reads.
+- [ ] Python engine: one subprocess per well — persistent worker or batch input.
+- [ ] Crossplot redraw rebuilds color strings + re-sorts on every frame.
+
+**P3 — UX polish (veteran-interpreter friction):**
+- [ ] Depth-scale presets mislabeled (~39× off a true 1:100 — fixed 2026-07-20).
+- [ ] No units on axes/readouts (catalog has them); toFixed(2) mangles RT/perm readouts.
+- [ ] Pickett: hard-coded axes, no Properties dialog, zoom resets on reload (Pickett v2
+      is next in the P2 queue and absorbs this).
+- [ ] Correlation: stale well list after imports; missing Ctrl+wheel zoom.
+- [ ] Processing history misses equation/chain/ML runs, restores, zone/tops edits.
+- [ ] Pay-summary FLAG_* curves unversioned; cutoffs not recorded in provenance.
+
+**Low (15 items)** — see `AUDIT-2026-07-20.md` (SSC zero-PHIE guard, ±Infinity in
+stats, i18n gaps, DB-inspector f32 depth equality, wrap-mode LAS parsing, etc.).
+
 ## 5. Standing advantages to protect
 
 - One-file DuckDB project + full SQL access.

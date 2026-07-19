@@ -249,6 +249,10 @@ export class TopsEditor {
         return;
       }
       const color = colorInput.value;
+      // A same-name top makes this an overwrite — undo must RESTORE the previous
+      // depth, not delete the top outright.
+      const previous = this.tops.find((t) => t.top_name === name);
+      const prevDepth = previous?.depth;
       try {
         await upsertTop(wellId, name, d, color);
       } catch (err) {
@@ -257,9 +261,10 @@ export class TopsEditor {
       }
       bumpDataVersion();
       pushUndo({
-        label: `add top ${name}`,
+        label: prevDepth === undefined ? `add top ${name}` : `overwrite top ${name}`,
         undo: async () => {
-          await deleteTop(wellId, name);
+          if (prevDepth === undefined) await deleteTop(wellId, name);
+          else await upsertTop(wellId, name, prevDepth, null);
           bumpDataVersion();
         },
         redo: async () => {

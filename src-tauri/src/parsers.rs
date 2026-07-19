@@ -69,6 +69,20 @@ fn is_las_null(v: f32) -> bool {
     LAS_NULL_VALUES.iter().any(|null| (v - null).abs() < f32::EPSILON)
 }
 
+/// Null test honoring the file's own `~W NULL` declaration on top of the standard
+/// sentinels — deliveries using e.g. -99999 or 999.25 otherwise import as data.
+fn is_null_value(v: f32, declared: Option<f32>) -> bool {
+    is_las_null(v) || declared.is_some_and(|n| (v - n).abs() <= n.abs().max(1.0) * 1e-5)
+}
+
+/// Parse the NULL value from a `~W` block line ("NULL .  -999.25 : NULL VALUE").
+fn parse_null_line(trimmed: &str) -> Option<f32> {
+    if !trimmed.to_uppercase().starts_with("NULL") {
+        return None;
+    }
+    trimmed.split(':').next()?.split_whitespace().last()?.parse::<f32>().ok()
+}
+
 enum LasSection {
     Header,
     WellBlock,
@@ -119,6 +133,7 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
     // across multiple physical lines rather than one line per row. Accumulate tokens and
     // drain a full row's worth at a time instead of assuming line == row.
     let mut token_buffer: Vec<f32> = Vec::new();
+    let mut declared_null: Option<f32> = None;
 
     for line in reader.lines() {
         let line = line?;
@@ -138,7 +153,13 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
         }
 
         match section {
-            LasSection::Header | LasSection::WellBlock => continue,
+            LasSection::Header => continue,
+            LasSection::WellBlock => {
+                if let Some(n) = parse_null_line(trimmed) {
+                    declared_null = Some(n);
+                }
+                continue;
+            }
             LasSection::CurveBlock => {
                 if trimmed.starts_with('#') {
                     continue;
@@ -178,7 +199,7 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
                     let row: Vec<f32> = token_buffer.drain(0..expected_per_row).collect();
                     let get = |idx: Option<usize>| -> f32 {
                         idx.and_then(|i| row.get(i).copied())
-                            .map(|v| if is_las_null(v) { f32::NAN } else { v })
+                            .map(|v| if is_null_value(v, declared_null) { f32::NAN } else { v })
                             .unwrap_or(f32::NAN)
                     };
 
@@ -269,6 +290,7 @@ pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
     let mut idx_depth: Option<usize> = None;
     let mut indices_resolved = false;
     let mut token_buffer: Vec<f32> = Vec::new();
+    let mut declared_null: Option<f32> = None;
 
     for line in reader.lines() {
         let line = line?;
@@ -287,7 +309,13 @@ pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
         }
 
         match section {
-            LasSection::Header | LasSection::WellBlock => continue,
+            LasSection::Header => continue,
+            LasSection::WellBlock => {
+                if let Some(n) = parse_null_line(trimmed) {
+                    declared_null = Some(n);
+                }
+                continue;
+            }
             LasSection::CurveBlock => {
                 if trimmed.starts_with('#') {
                     continue;
@@ -327,7 +355,7 @@ pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
                 while token_buffer.len() >= expected_per_row {
                     let row: Vec<f32> = token_buffer.drain(0..expected_per_row).collect();
                     for (i, raw) in row.iter().enumerate() {
-                        let v = if is_las_null(*raw) { f32::NAN } else { *raw };
+                        let v = if is_null_value(*raw, declared_null) { f32::NAN } else { *raw };
                         columns[i].push(v);
                     }
                 }
@@ -377,12 +405,23 @@ pub fn extract_well_name<P: AsRef<Path>>(path: P) -> ParseResult<String> {
             in_well_block = trimmed.chars().nth(1).map(|c| c.to_ascii_uppercase()) == Some('W');
             continue;
         }
-        if in_well_block && trimmed.to_uppercase().starts_with("WELL") {
+        let upper = trimmed.to_uppercase();
+        let well_line = in_well_block
+            && upper.starts_with("WELL")
+            && matches!(upper.as_bytes().get(4), None | Some(b'.') | Some(b' ') | Some(b'\t'));
+        if well_line {
             if let Some(colon_idx) = trimmed.rfind(':') {
-                if let Some(value) = trimmed[..colon_idx].split_whitespace().last() {
-                    if !value.is_empty() {
-                        return Ok(value.to_string());
-                    }
+                // "WELL .        BALAM SOUTH-01   : WELL" — the value is everything
+                // between the mnemonic(+unit) and the colon, NOT just the last token
+                // (multi-word well names must survive intact).
+                let after = trimmed[4..colon_idx].trim_start();
+                let after = after.strip_prefix('.').unwrap_or(after);
+                let value = match after.find(char::is_whitespace) {
+                    Some(i) => after[i..].trim(),
+                    None => after.trim(),
+                };
+                if !value.is_empty() {
+                    return Ok(value.to_string());
                 }
             }
         }
