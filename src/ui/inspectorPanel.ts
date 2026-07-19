@@ -1,17 +1,23 @@
 import { basicSetup, EditorView } from "codemirror";
 import { python } from "@codemirror/lang-python";
-import { filterByActiveGroup } from "../state";
+import { bumpDataVersion, filterByActiveGroup, setStatus as globalStatus } from "../state";
 import {
   saveEquation,
   listEquations,
   runEquation,
   listCurveCatalog,
+  listComputedCatalog,
   listGenericCurveCatalog,
+  listLogSets,
   listWells,
+  deleteLogSet,
   pythonStatus,
+  restoreLogSet,
+  type ComputedCatalogEntry,
   type EquationDef,
   type EquationRunResult,
   type GenericCurveCatalogEntry,
+  type LogSetEntry,
 } from "../ipc";
 
 const BLANK_EQUATION: EquationDef = {
@@ -50,7 +56,12 @@ export class InspectorPanel {
   /** Last-loaded generic-store catalog for the selected well, kept so the filter box can
    *  re-render without refetching. */
   private genericEntries: GenericCurveCatalogEntry[] = [];
+  /** P1-c: current computed curves with provenance/stats + the well's set versions. */
+  private computedEntries: ComputedCatalogEntry[] = [];
+  private logSets: LogSetEntry[] = [];
   private catalogFilter = "";
+  private catalogSortKey = "name";
+  private catalogSortAsc = true;
 
   constructor(root: HTMLElement) {
     const tabButtons = Array.from(root.querySelectorAll<HTMLButtonElement>(".tab-btn"));
@@ -90,23 +101,28 @@ export class InspectorPanel {
   }
 
   public async refreshCatalog(): Promise<void> {
-    // Phase 6c: prefer the generic curve store (family/set/unit, per selected well). It
-    // holds every imported curve — PEF, CALI, multiple runs, DLIS channels — not just the
-    // fixed 6. Fall back to the legacy standard+computed catalog when no well is selected
-    // or the generic store is empty for it (e.g. a fresh project mid-migration).
+    // Per selected well: generic store (imported curves), computed curves with
+    // provenance/statistics, and the log-set version history (P1-c) render as one
+    // searchable, sortable catalog. Fall back to the legacy standard+computed reference
+    // when no well is selected or nothing well-scoped exists yet.
     const wellId = this.getSelectedWellId?.() ?? null;
     if (wellId) {
-      try {
-        this.genericEntries = await listGenericCurveCatalog(wellId);
-        if (this.genericEntries.length > 0) {
-          this.renderGenericCatalog();
-          return;
-        }
-      } catch (err) {
-        console.error("Failed to load generic curve catalog:", err);
+      const [generic, computed, sets] = await Promise.all([
+        listGenericCurveCatalog(wellId).catch(() => [] as GenericCurveCatalogEntry[]),
+        listComputedCatalog(wellId).catch(() => [] as ComputedCatalogEntry[]),
+        listLogSets(wellId).catch(() => [] as LogSetEntry[]),
+      ]);
+      this.genericEntries = generic;
+      this.computedEntries = computed;
+      this.logSets = sets;
+      if (generic.length > 0 || computed.length > 0 || sets.length > 0) {
+        this.renderGenericCatalog();
+        return;
       }
     }
     this.genericEntries = [];
+    this.computedEntries = [];
+    this.logSets = [];
     try {
       const entries = await listCurveCatalog();
       this.renderLegacyCatalog(entries);
@@ -326,35 +342,141 @@ export class InspectorPanel {
     `;
   }
 
-  /** Phase 6c generic-store catalog for the selected well: every curve with its family,
-   *  set (RAW/EDIT/FINAL), unit, source and sample count, with a live text filter. */
+  /** The selected well's full catalog: imported curves (generic store) merged with
+   *  computed curves carrying per-curve provenance (set/version/module/when) and basic
+   *  statistics; live text search + click-to-sort headers; plus the log-set version
+   *  history with Restore / Delete (P1-c "never overwrite"). */
   private renderGenericCatalog(): void {
-    const filter = this.catalogFilter.trim().toLowerCase();
-    const matches = (e: GenericCurveCatalogEntry) =>
-      filter === "" ||
-      [e.mnemonic, e.family ?? "", e.unit ?? "", e.set_name, e.source ?? ""]
-        .some((f) => f.toLowerCase().includes(filter));
+    type Row = {
+      name: string;
+      runNo: number | null;
+      unit: string;
+      family: string;
+      set: string;
+      ver: number | null;
+      source: string;
+      when: string;
+      samples: number;
+      min: number | null;
+      max: number | null;
+      mean: number | null;
+    };
+    const rows: Row[] = [
+      ...this.genericEntries.map((e) => ({
+        name: e.mnemonic,
+        runNo: e.run_no,
+        unit: e.unit ?? "",
+        family: e.family ?? "",
+        set: e.set_name,
+        ver: null,
+        source: e.source ?? "",
+        when: "",
+        samples: e.n_samples,
+        min: null,
+        max: null,
+        mean: null,
+      })),
+      ...this.computedEntries.map((e) => ({
+        name: e.curve_name,
+        runNo: null,
+        unit: "",
+        family: "",
+        set: e.set_name ?? "—",
+        ver: e.version,
+        source: e.module ?? "",
+        when: e.created_at ?? "",
+        samples: e.n_samples,
+        min: e.min,
+        max: e.max,
+        mean: e.mean,
+      })),
+    ];
 
-    const shown = this.genericEntries.filter(matches);
-    const rows = shown
+    const filter = this.catalogFilter.trim().toLowerCase();
+    const shown = rows.filter(
+      (r) =>
+        filter === "" ||
+        [r.name, r.family, r.unit, r.set, r.source, r.when, r.ver != null ? `v${r.ver}` : ""].some((f) =>
+          f.toLowerCase().includes(filter),
+        ),
+    );
+
+    const key = this.catalogSortKey as keyof Row;
+    const dir = this.catalogSortAsc ? 1 : -1;
+    shown.sort((a, b) => {
+      const av = a[key];
+      const bv = b[key];
+      if (typeof av === "number" || typeof bv === "number") {
+        return (Number(av ?? Number.NEGATIVE_INFINITY) - Number(bv ?? Number.NEGATIVE_INFINITY)) * dir;
+      }
+      return String(av ?? "").localeCompare(String(bv ?? "")) * dir;
+    });
+
+    const fmt = (v: number | null) => (v == null ? "—" : Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(3));
+    const bodyRows = shown
       .map(
-        (e) =>
-          `<tr><td>${escapeHtml(e.mnemonic)}${e.run_no != null ? `<span class="catalog-run"> · run ${e.run_no}</span>` : ""}</td>` +
-          `<td>${escapeHtml(e.unit ?? "")}</td>` +
-          `<td>${escapeHtml(e.family ?? "—")}</td>` +
-          `<td>${escapeHtml(e.set_name)}</td>` +
-          `<td>${escapeHtml(e.source ?? "")}</td>` +
-          `<td>${e.n_samples}</td></tr>`,
+        (r) =>
+          `<tr><td>${escapeHtml(r.name)}${r.runNo != null ? `<span class="catalog-run"> · run ${r.runNo}</span>` : ""}</td>` +
+          `<td>${escapeHtml(r.unit)}</td>` +
+          `<td>${escapeHtml(r.family || "—")}</td>` +
+          `<td>${escapeHtml(r.set)}${r.ver != null ? `<span class="catalog-run"> v${r.ver}</span>` : ""}</td>` +
+          `<td>${escapeHtml(r.source)}</td>` +
+          `<td>${escapeHtml(r.when || "—")}</td>` +
+          `<td>${r.samples}</td>` +
+          `<td>${fmt(r.min)}</td><td>${fmt(r.max)}</td><td>${fmt(r.mean)}</td></tr>`,
       )
       .join("");
 
+    const cols: [string, string][] = [
+      ["name", "Mnemonic"],
+      ["unit", "Unit"],
+      ["family", "Family"],
+      ["set", "Set"],
+      ["source", "Module / Source"],
+      ["when", "When"],
+      ["samples", "n"],
+      ["min", "Min"],
+      ["max", "Max"],
+      ["mean", "Mean"],
+    ];
+    const header = cols
+      .map(
+        ([k, label]) =>
+          `<th class="catalog-sortable" data-sort="${k}">${label}${
+            this.catalogSortKey === k ? (this.catalogSortAsc ? " ▲" : " ▼") : ""
+          }</th>`,
+      )
+      .join("");
+
+    // Log-set version history (newest first per set); restore any version, prune old ones.
+    const setRows = this.logSets
+      .map((s) => {
+        const tip = escapeAttr(
+          `params: ${s.params_json ?? "—"}\ninputs: ${s.inputs_json ?? "—"}\ncurves: ${s.curve_names.join(", ") || "—"}`,
+        );
+        return (
+          `<div class="catalog-set-row" title="${tip}">` +
+          `<span class="catalog-set-badge${s.is_current ? " current" : ""}">${escapeHtml(s.set_name)} v${s.version}</span>` +
+          `<span class="catalog-set-info">${escapeHtml(s.module)} · ${escapeHtml(s.created_at)} · ${escapeHtml(
+            s.curve_names.join(", ") || "(no curves)",
+          )}${s.is_current ? " · current" : ""}</span>` +
+          `<button class="catalog-set-btn" data-restore="${escapeAttr(s.set_id)}">Restore</button>` +
+          `<button class="catalog-set-btn danger" data-del="${escapeAttr(s.set_id)}">Delete</button>` +
+          `</div>`
+        );
+      })
+      .join("");
+
     this.catalogTab.innerHTML = `
-      <p class="placeholder-note">Generic curve store — ${this.genericEntries.length} curve(s) across all sets. Every imported curve (LAS, DLIS, computed) appears here.</p>
-      <input id="catalog-filter" class="catalog-filter" type="search" placeholder="Filter by mnemonic, family, unit, set…" value="${escapeAttr(this.catalogFilter)}" />
+      <input id="catalog-filter" class="catalog-filter" type="search" placeholder="Search mnemonic, set, module, unit, date…" value="${escapeAttr(this.catalogFilter)}" />
       <table class="catalog-table">
-        <thead><tr><th>Mnemonic</th><th>Unit</th><th>Family</th><th>Set</th><th>Source</th><th>Samples</th></tr></thead>
-        <tbody>${rows || `<tr><td colspan="6" class="placeholder-note">No curves match "${escapeHtml(this.catalogFilter)}"</td></tr>`}</tbody>
+        <thead><tr>${header}</tr></thead>
+        <tbody>${bodyRows || `<tr><td colspan="10" class="placeholder-note">No curves match "${escapeHtml(this.catalogFilter)}"</td></tr>`}</tbody>
       </table>
+      <div class="catalog-sets">
+        <div class="catalog-sets-title">Log sets — every run is kept as a version (nothing is overwritten)</div>
+        ${setRows || `<div class="placeholder-note">No versioned runs yet — run any module and its outputs appear here as version 1.</div>`}
+      </div>
     `;
 
     const filterInput = this.catalogTab.querySelector<HTMLInputElement>("#catalog-filter");
@@ -366,6 +488,53 @@ export class InspectorPanel {
         const again = this.catalogTab.querySelector<HTMLInputElement>("#catalog-filter");
         again?.focus();
         again?.setSelectionRange(again.value.length, again.value.length);
+      });
+    }
+    for (const th of this.catalogTab.querySelectorAll<HTMLElement>("th.catalog-sortable")) {
+      th.addEventListener("click", () => {
+        const k = th.dataset.sort!;
+        if (this.catalogSortKey === k) this.catalogSortAsc = !this.catalogSortAsc;
+        else {
+          this.catalogSortKey = k;
+          this.catalogSortAsc = true;
+        }
+        this.renderGenericCatalog();
+      });
+    }
+    for (const btn of this.catalogTab.querySelectorAll<HTMLButtonElement>("[data-restore]")) {
+      btn.addEventListener("click", async () => {
+        btn.disabled = true;
+        try {
+          const n = await restoreLogSet(btn.dataset.restore!);
+          globalStatus(`Version restored (${n} samples back in the current curves)`);
+          bumpDataVersion(); // every open panel (log views, plots, this catalog) refreshes
+        } catch (err) {
+          globalStatus(`Restore failed: ${err}`);
+          btn.disabled = false;
+        }
+      });
+    }
+    for (const btn of this.catalogTab.querySelectorAll<HTMLButtonElement>("[data-del]")) {
+      // Two-click confirm: deleting history is allowed but must be deliberate.
+      btn.addEventListener("click", async () => {
+        if (!btn.dataset.armed) {
+          btn.dataset.armed = "1";
+          btn.textContent = "Confirm delete";
+          window.setTimeout(() => {
+            btn.textContent = "Delete";
+            delete btn.dataset.armed;
+          }, 2500);
+          return;
+        }
+        btn.disabled = true;
+        try {
+          await deleteLogSet(btn.dataset.del!);
+          globalStatus("Set version deleted (current curve values kept)");
+          void this.refreshCatalog();
+        } catch (err) {
+          globalStatus(`Delete failed: ${err}`);
+          btn.disabled = false;
+        }
       });
     }
   }

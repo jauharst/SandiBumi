@@ -1,5 +1,6 @@
 import {
   listCurveCatalog,
+  listLogSets,
   listWells,
   runWorkflowModule,
   type ModuleSpec,
@@ -118,6 +119,49 @@ export async function openModuleDialog(
     formRow("Mask (optional)", maskSelect, "Flag curve (=1 bad) to blank out of every output — e.g. BADHOLE."),
   );
 
+  // --- Output set (P1-c versioning: re-run = version N+1, never overwrites) ---
+  const setInput = document.createElement("input");
+  setInput.className = "form-control";
+  setInput.type = "text";
+  setInput.value = "INTERP";
+  setInput.setAttribute("list", "log-set-names");
+  let setList = document.querySelector<HTMLDataListElement>("#log-set-names");
+  if (!setList) {
+    setList = document.createElement("datalist");
+    setList.id = "log-set-names";
+    document.body.appendChild(setList);
+  }
+  {
+    const names = new Set(["INTERP", "FINAL", "TEST"]);
+    if (selectedWell) {
+      // Existing set names of the selected well join the suggestions (best-effort).
+      listLogSets(selectedWell.well_id)
+        .then((sets) => {
+          for (const s of sets) names.add(s.set_name);
+          setList!.innerHTML = "";
+          for (const n of names) {
+            const o = document.createElement("option");
+            o.value = n;
+            setList!.appendChild(o);
+          }
+        })
+        .catch(() => {});
+    }
+    setList.innerHTML = "";
+    for (const n of names) {
+      const o = document.createElement("option");
+      o.value = n;
+      setList.appendChild(o);
+    }
+  }
+  content.appendChild(
+    formRow(
+      "Output set",
+      setInput,
+      "Outputs are versioned into this log set — a re-run becomes version N+1, never overwriting. Manage versions in the Curve Catalog.",
+    ),
+  );
+
   // --- Outputs note ---
   const outputs = spec.args.filter((a) => a.kind === "log_out").map((a) => a.name);
   const outNote = document.createElement("p");
@@ -161,7 +205,14 @@ export async function openModuleDialog(
     const logInputs: Record<string, string> = {};
     for (const [name, select] of logSelects) logInputs[name] = select.value;
 
-    const req: RunModuleRequest = { module: spec.name, well_ids: wellIds, log_inputs: logInputs, params, opts };
+    const req: RunModuleRequest = {
+      module: spec.name,
+      well_ids: wellIds,
+      log_inputs: logInputs,
+      params,
+      opts,
+      output_set: setInput.value.trim() || undefined,
+    };
     runBtn.disabled = true;
     resultBox.textContent = `Running ${spec.name} on ${wellIds.length} well(s)…`;
     try {

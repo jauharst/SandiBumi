@@ -3087,3 +3087,73 @@ input[type="number"].num-editing:focus {
   background: var(--warn);
   border: 1px solid var(--bg-panel);
 }
+
+/* --- P1-c curve catalog: sortable headers + log-set version history -------- */
+.catalog-table th.catalog-sortable {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.catalog-table th.catalog-sortable:hover {
+  color: var(--accent);
+}
+.catalog-sets {
+  margin-top: 12px;
+  border-top: 1px solid var(--border, #d8d2c4);
+  padding-top: 8px;
+}
+.catalog-sets-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+.catalog-set-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12px;
+  border-bottom: 1px dotted var(--border, #d8d2c4);
+}
+.catalog-set-badge {
+  flex: 0 0 auto;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.catalog-set-badge.current {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.catalog-set-info {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+.catalog-set-btn {
+  flex: 0 0 auto;
+  font-size: 11px;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.catalog-set-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.catalog-set-btn.danger:hover {
+  border-color: var(--warn);
+  color: var(--warn);
+}

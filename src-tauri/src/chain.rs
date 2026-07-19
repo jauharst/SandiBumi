@@ -110,11 +110,30 @@ pub(crate) fn run_chain(
     cancel: &AtomicBool,
     steps: &[ChainStep],
     well_ids: &[String],
+    output_set: Option<&str>,
 ) {
     let total_steps = steps.len();
     let wells_total = well_ids.len();
     let mut curves_written = 0usize;
     let mut errors: Vec<String> = Vec::new();
+
+    // ONE set event per well for the whole chain run: every step writes into the same
+    // version, so re-running the chain bumps the set to N+1 (never overwrites history).
+    let set_name = output_set.map(str::trim).filter(|s| !s.is_empty()).unwrap_or("INTERP");
+    let modules_list: Vec<&str> = steps.iter().map(|s| s.module.as_str()).collect();
+    let preset_sets: HashMap<String, String> = {
+        let conn = db.lock().unwrap();
+        let spec = crate::equations::LogSetSpec {
+            set_name: set_name.to_string(),
+            module: format!("workflow: {}", modules_list.join(" → ")),
+            params_json: serde_json::to_string(&modules_list).unwrap_or_default(),
+            inputs_json: String::new(),
+        };
+        well_ids
+            .iter()
+            .filter_map(|w| crate::equations::create_log_set(&conn, w, &spec).ok().map(|(id, _)| (w.clone(), id)))
+            .collect()
+    };
 
     for (i, step) in steps.iter().enumerate() {
         if cancel.load(Ordering::SeqCst) {
@@ -139,8 +158,9 @@ pub(crate) fn run_chain(
             log_inputs: step.log_inputs.clone(),
             params: step.params.clone(),
             opts: step.opts.clone(),
+            output_set: None, // preset_sets carries the chain-level set event
         };
-        let results = workflow::run_workflow_module(db, &req);
+        let results = workflow::run_workflow_module_into(db, &req, Some(&preset_sets));
         for r in &results {
             curves_written += r.output_curves.len();
             if let Some(e) = &r.error {
@@ -219,7 +239,7 @@ mod tests {
         let db = Mutex::new(conn);
         let steps = vec![step("vsh_gr"), step("phi_dn"), step("sw_indo")];
 
-        run_chain(&db, &reg, job, &cancel, &steps, &[well.clone()]);
+        run_chain(&db, &reg, job, &cancel, &steps, &[well.clone()], None);
 
         match status(&reg, job).unwrap() {
             ChainStatus::Completed { steps_run, curves_written, wells, errors } => {
@@ -252,7 +272,7 @@ mod tests {
         cancel.store(true, Ordering::SeqCst); // cancel before it starts
         let db = Mutex::new(conn);
 
-        run_chain(&db, &reg, job, &cancel, &[step("vsh_gr")], &[well.clone()]);
+        run_chain(&db, &reg, job, &cancel, &[step("vsh_gr")], &[well.clone()], None);
 
         match status(&reg, job).unwrap() {
             ChainStatus::Cancelled { at_step } => assert_eq!(at_step, 0),

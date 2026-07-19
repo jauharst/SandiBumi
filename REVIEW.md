@@ -77,6 +77,26 @@ Your full review is triaged in **ROADMAP.md §4** — these five landed immediat
       Layout** clears that panel's ●; **Save Session** clears everything. The dot means
       "not in a named save yet" — the crash autosave protects you regardless.
 
+## P1-c — Log sets: versioning, provenance, catalog search (2026-07-19 #3)
+
+- [ ] **Never overwrite**: every module dialog now has an **Output set** field (default
+      INTERP; type any name — FINAL, TEST, …). Run a module, then re-run it with different
+      parameters: the Curve Catalog's "Log sets" section shows **v1 AND v2** — the old
+      run's values are kept, not destroyed. Plots/log views show the latest (v2).
+- [ ] **Restore a version**: in Inspector → Curve Catalog, click **Restore** on v1 → all
+      open log views and plots flip back to the v1 curves. Restore v2 to return.
+- [ ] **Per-curve provenance**: the catalog now lists every computed curve's **set + version,
+      module, and timestamp** (hover a set row for the exact parameters and input curves
+      it was run with). Answering "where did this VSH come from?" is now one glance.
+- [ ] **Catalog search/filter/sort**: one search box matches mnemonic, set, module, unit,
+      or date; click any column header (Mnemonic, Set, When, n, Min, Max, Mean…) to sort,
+      click again to reverse. Statistics (n/min/max/mean) shown per computed curve.
+- [ ] **One version per chain run**: the Workflow Builder also has an Output set field —
+      a whole chain run (VSH → porosity → Sw) lands as ONE version, not one per step.
+- [ ] **Prune old versions**: Delete on a set version (two clicks — it asks "Confirm
+      delete") removes only that version's history; current curves are never touched.
+      Equation runs land in set EQUATION, ML in ML, SandiMin in SANDIMIN, automatically.
+
 Issues you marked `[x]` that need real work (all in ROADMAP §4, P1/P2): well-pin
 semantics rework, right-click lockdown (accidental refresh), TVD depth scale UI.
 Everything you marked `[o]` has been cleared out of this file.

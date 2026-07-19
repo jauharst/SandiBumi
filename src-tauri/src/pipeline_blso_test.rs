@@ -119,6 +119,7 @@ fn pipeline_blso_full_run() {
             log_inputs: HashMap::new(),
             params: HashMap::new(),
             opts: HashMap::new(),
+            output_set: None,
         };
         let t = Instant::now();
         let runs = run_workflow_module(&db, &req);
@@ -230,6 +231,7 @@ fn pipeline_blso_full_run() {
             log_inputs: HashMap::new(),
             params: HashMap::new(),
             opts: HashMap::new(),
+            output_set: None,
         };
         let _ = run_workflow_module(&db, &req);
     }
@@ -353,6 +355,7 @@ fn pipeline_blso_100well_stress() {
             log_inputs: HashMap::new(),
             params: HashMap::new(),
             opts: HashMap::new(),
+            output_set: None,
         };
         let t = Instant::now();
         let runs = run_workflow_module(&db, &req);

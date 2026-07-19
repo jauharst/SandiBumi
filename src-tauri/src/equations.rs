@@ -384,6 +384,212 @@ pub(crate) fn write_computed_curve(conn: &Connection, well_id: &str, depth: &[f3
     write_computed_curves_batch(conn, well_id, depth, &[(curve_name, values)])
 }
 
+// ---------------------------------------------------------------------------
+// P1-c log-set versioning: run events + append-only history (never overwrite)
+// ---------------------------------------------------------------------------
+
+/// Provenance of one run event into a named log set.
+#[derive(Debug, Clone)]
+pub struct LogSetSpec {
+    pub set_name: String,
+    pub module: String,
+    pub params_json: String,
+    pub inputs_json: String,
+}
+
+/// One version of a log set as listed in the catalog / Sets manager.
+#[derive(Debug, Clone, Serialize)]
+pub struct LogSetEntry {
+    pub set_id: String,
+    pub set_name: String,
+    pub version: i64,
+    pub module: String,
+    pub params_json: Option<String>,
+    pub inputs_json: Option<String>,
+    pub created_at: String,
+    pub curve_names: Vec<String>,
+    pub is_current: bool,
+}
+
+/// Registers a new run event: version = 1 + the well's highest version of `set_name`
+/// (so a re-run NEVER replaces — it becomes version N+1). Returns (set_id, version).
+pub(crate) fn create_log_set(conn: &Connection, well_id: &str, spec: &LogSetSpec) -> duckdb::Result<(String, i64)> {
+    let version: i64 = conn.query_row(
+        "SELECT COALESCE(MAX(version), 0) + 1 FROM log_sets WHERE well_id = ?1 AND set_name = ?2",
+        params![well_id, spec.set_name],
+        |r| r.get(0),
+    )?;
+    let set_id = Uuid::new_v4().to_string();
+    conn.execute(
+        "INSERT INTO log_sets (set_id, well_id, set_name, version, module, params_json, inputs_json)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![set_id, well_id, spec.set_name, version, spec.module, spec.params_json, spec.inputs_json],
+    )?;
+    Ok((set_id, version))
+}
+
+/// Versioned batch write: refreshes the CURRENT store (same delete-then-append discipline
+/// as `write_computed_curves_batch`, rows tagged with `set_id`) and appends the identical
+/// rows to the append-only archive. Prior versions' archive rows are untouched — that is
+/// the "never overwrite" guarantee; any version can be restored via `restore_log_set`.
+pub(crate) fn write_computed_curves_versioned(
+    conn: &Connection,
+    well_id: &str,
+    depth: &[f32],
+    curves: &[(&str, &[f32])],
+    set_id: &str,
+) -> duckdb::Result<()> {
+    if curves.is_empty() {
+        return Ok(());
+    }
+    let placeholders = std::iter::repeat("?").take(curves.len()).collect::<Vec<_>>().join(", ");
+    let sql = format!("DELETE FROM computed_curves WHERE well_id = ? AND curve_name IN ({placeholders})");
+    let mut del_params: Vec<&str> = Vec::with_capacity(curves.len() + 1);
+    del_params.push(well_id);
+    for (name, _) in curves {
+        del_params.push(name);
+    }
+    conn.execute(&sql, params_from_iter(del_params))?;
+
+    let mut current = conn.appender("computed_curves")?;
+    for (name, values) in curves {
+        for (d, v) in depth.iter().zip(values.iter()) {
+            current.append_row(params![well_id, d, name, v, set_id])?;
+        }
+    }
+    current.flush()?;
+
+    let mut archive = conn.appender("computed_curves_archive")?;
+    for (name, values) in curves {
+        for (d, v) in depth.iter().zip(values.iter()) {
+            archive.append_row(params![set_id, well_id, d, name, v])?;
+        }
+    }
+    archive.flush()?;
+    Ok(())
+}
+
+/// Every run event for a well, newest first, with the curves it wrote and whether any of
+/// its rows still provide the current values.
+pub(crate) fn list_log_sets(conn: &Connection, well_id: &str) -> duckdb::Result<Vec<LogSetEntry>> {
+    let mut stmt = conn.prepare(
+        "SELECT s.set_id, s.set_name, s.version, s.module, s.params_json, s.inputs_json,
+                strftime(s.created_at, '%Y-%m-%d %H:%M'),
+                EXISTS (SELECT 1 FROM computed_curves cc WHERE cc.set_id = s.set_id)
+         FROM log_sets s
+         WHERE s.well_id = ?1
+         ORDER BY s.set_name, s.version DESC",
+    )?;
+    let rows = stmt.query_map(params![well_id], |r| {
+        Ok(LogSetEntry {
+            set_id: r.get(0)?,
+            set_name: r.get(1)?,
+            version: r.get(2)?,
+            module: r.get(3)?,
+            params_json: r.get(4)?,
+            inputs_json: r.get(5)?,
+            created_at: r.get(6)?,
+            curve_names: Vec::new(),
+            is_current: r.get(7)?,
+        })
+    })?;
+    let mut entries = Vec::new();
+    for r in rows {
+        entries.push(r?);
+    }
+    // Curve names per set from the archive (one query, folded in Rust).
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT set_id, curve_name FROM computed_curves_archive WHERE well_id = ?1 ORDER BY curve_name",
+    )?;
+    let rows = stmt.query_map(params![well_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+    let mut by_set: HashMap<String, Vec<String>> = HashMap::new();
+    for r in rows {
+        let (sid, name) = r?;
+        by_set.entry(sid).or_default().push(name);
+    }
+    for e in &mut entries {
+        if let Some(names) = by_set.remove(&e.set_id) {
+            e.curve_names = names;
+        }
+    }
+    Ok(entries)
+}
+
+/// Copies a version's archived rows back into the current store (delete-then-append on
+/// exactly the curve names that version wrote). Returns the number of restored rows.
+pub(crate) fn restore_log_set(conn: &Connection, set_id: &str) -> duckdb::Result<usize> {
+    conn.execute(
+        "DELETE FROM computed_curves
+         WHERE well_id = (SELECT well_id FROM log_sets WHERE set_id = ?1)
+           AND curve_name IN (SELECT DISTINCT curve_name FROM computed_curves_archive WHERE set_id = ?1)",
+        params![set_id],
+    )?;
+    let restored = conn.execute(
+        "INSERT INTO computed_curves (well_id, depth, curve_name, value, set_id)
+         SELECT well_id, depth, curve_name, value, set_id FROM computed_curves_archive WHERE set_id = ?1",
+        params![set_id],
+    )?;
+    Ok(restored)
+}
+
+/// Deletes one version's archive rows + its log_sets row. Current values are kept (their
+/// provenance tag is cleared) so deleting history can never change any plot or result.
+pub(crate) fn delete_log_set(conn: &Connection, set_id: &str) -> duckdb::Result<()> {
+    conn.execute("UPDATE computed_curves SET set_id = NULL WHERE set_id = ?1", params![set_id])?;
+    conn.execute("DELETE FROM computed_curves_archive WHERE set_id = ?1", params![set_id])?;
+    conn.execute("DELETE FROM log_sets WHERE set_id = ?1", params![set_id])?;
+    Ok(())
+}
+
+/// Catalog of a well's CURRENT computed curves with per-curve provenance (which set
+/// version wrote it, by what module, when) and basic statistics for search/sort.
+#[derive(Debug, Clone, Serialize)]
+pub struct ComputedCatalogEntry {
+    pub curve_name: String,
+    pub set_name: Option<String>,
+    pub version: Option<i64>,
+    pub module: Option<String>,
+    pub created_at: Option<String>,
+    pub n_samples: i64,
+    pub min: Option<f64>,
+    pub max: Option<f64>,
+    pub mean: Option<f64>,
+}
+
+pub(crate) fn list_computed_catalog(conn: &Connection, well_id: &str) -> duckdb::Result<Vec<ComputedCatalogEntry>> {
+    let mut stmt = conn.prepare(
+        "SELECT cc.curve_name, s.set_name, s.version, s.module,
+                strftime(s.created_at, '%Y-%m-%d %H:%M'),
+                COUNT(*) FILTER (WHERE NOT isnan(cc.value)),
+                MIN(cc.value) FILTER (WHERE NOT isnan(cc.value)),
+                MAX(cc.value) FILTER (WHERE NOT isnan(cc.value)),
+                AVG(cc.value) FILTER (WHERE NOT isnan(cc.value))
+         FROM computed_curves cc
+         LEFT JOIN log_sets s ON s.set_id = cc.set_id
+         WHERE cc.well_id = ?1
+         GROUP BY cc.curve_name, s.set_name, s.version, s.module, s.created_at
+         ORDER BY cc.curve_name",
+    )?;
+    let rows = stmt.query_map(params![well_id], |r| {
+        Ok(ComputedCatalogEntry {
+            curve_name: r.get(0)?,
+            set_name: r.get(1)?,
+            version: r.get(2)?,
+            module: r.get(3)?,
+            created_at: r.get(4)?,
+            n_samples: r.get(5)?,
+            min: r.get(6)?,
+            max: r.get(7)?,
+            mean: r.get(8)?,
+        })
+    })?;
+    let mut entries = Vec::new();
+    for r in rows {
+        entries.push(r?);
+    }
+    Ok(entries)
+}
+
 /// Replaces any prior values for a well's given curves in a single DELETE + one Appender.
 ///
 /// Every curve name passed is fully overwritten (its old rows for this well are deleted),
@@ -414,7 +620,8 @@ pub(crate) fn write_computed_curves_batch(
     let mut appender = conn.appender("computed_curves")?;
     for (name, values) in curves {
         for (d, v) in depth.iter().zip(values.iter()) {
-            appender.append_row(params![well_id, d, name, v])?;
+            // 5th column: no set_id — this is the legacy/unversioned write path.
+            appender.append_row(params![well_id, d, name, v, None::<String>])?;
         }
     }
     appender.flush()?;
@@ -478,10 +685,29 @@ pub fn run_equation(db: &Mutex<Connection>, equation: &EquationDef, well_ids: &[
             }
 
             let conn = db.lock().unwrap();
-            if let Err(e) = write_computed_curve(&conn, well_id, &depth, &equation.output_curve, &output) {
+            if let Err(e) = write_equation_output(&conn, well_id, &depth, equation, &output) {
                 return EquationRunResult::failed(well_id.clone(), e.to_string());
             }
             EquationRunResult::success(well_id.clone(), n)
         })
         .collect()
+}
+
+/// Versioned write of one equation run's output: registers a run event in set "EQUATION"
+/// (module "equation:<name>", inputs recorded) and writes current + archive.
+pub(crate) fn write_equation_output(
+    conn: &Connection,
+    well_id: &str,
+    depth: &[f32],
+    equation: &EquationDef,
+    values: &[f32],
+) -> duckdb::Result<()> {
+    let spec = LogSetSpec {
+        set_name: "EQUATION".into(),
+        module: format!("equation:{}", equation.name),
+        params_json: String::new(),
+        inputs_json: serde_json::to_string(&equation.input_curves).unwrap_or_default(),
+    };
+    let (set_id, _) = create_log_set(conn, well_id, &spec)?;
+    write_computed_curves_versioned(conn, well_id, depth, &[(equation.output_curve.as_str(), values)], &set_id)
 }

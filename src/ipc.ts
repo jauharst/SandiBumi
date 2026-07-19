@@ -323,6 +323,8 @@ export interface RunModuleRequest {
   log_inputs: Record<string, string>;
   params: Record<string, number>;
   opts: Record<string, string>;
+  /** Log set the outputs are versioned into (re-run = version N+1). Omitted = "INTERP". */
+  output_set?: string;
 }
 
 export interface ModuleRunResult {
@@ -354,9 +356,58 @@ export type ChainStatus =
   | { state: "failed"; error: string };
 
 /** Runs a chain; resolves when finished. Poll {@link getChainStatus} with the same jobId
- * for live progress while this promise is pending. */
-export async function runWorkflowChain(jobId: string, steps: ChainStep[], wellIds: string[]): Promise<void> {
-  return invoke<void>("run_workflow_chain", { jobId, steps, wellIds });
+ * for live progress while this promise is pending. `outputSet` names the log set the
+ * whole chain run is versioned into (one version per run; default "INTERP"). */
+export async function runWorkflowChain(jobId: string, steps: ChainStep[], wellIds: string[], outputSet?: string): Promise<void> {
+  return invoke<void>("run_workflow_chain", { jobId, steps, wellIds, outputSet: outputSet ?? null });
+}
+
+// --- P1-c log-set versioning (never overwrite) ------------------------------
+
+/** One run event into a named log set (the version history of computed outputs). */
+export interface LogSetEntry {
+  set_id: string;
+  set_name: string;
+  version: number;
+  module: string;
+  params_json: string | null;
+  inputs_json: string | null;
+  created_at: string;
+  curve_names: string[];
+  /** True while any current curve value still comes from this version. */
+  is_current: boolean;
+}
+
+/** A well's version history, newest first per set. */
+export function listLogSets(wellId: string): Promise<LogSetEntry[]> {
+  return invoke<LogSetEntry[]>("list_log_sets", { wellId });
+}
+
+/** Copies an archived version back into the current store; returns restored row count. */
+export function restoreLogSet(setId: string): Promise<number> {
+  return invoke<number>("restore_log_set", { setId });
+}
+
+/** Deletes one version's history (current values are kept). */
+export function deleteLogSet(setId: string): Promise<void> {
+  return invoke<void>("delete_log_set", { setId });
+}
+
+/** Current computed curves of a well with provenance + basic statistics. */
+export interface ComputedCatalogEntry {
+  curve_name: string;
+  set_name: string | null;
+  version: number | null;
+  module: string | null;
+  created_at: string | null;
+  n_samples: number;
+  min: number | null;
+  max: number | null;
+  mean: number | null;
+}
+
+export function listComputedCatalog(wellId: string): Promise<ComputedCatalogEntry[]> {
+  return invoke<ComputedCatalogEntry[]>("list_computed_catalog", { wellId });
 }
 
 export async function getChainStatus(jobId: string): Promise<ChainStatus | null> {

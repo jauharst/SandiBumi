@@ -362,6 +362,19 @@ export async function buildWorkflowContent(
   content.appendChild(formRow("Wells", wellsHead));
   content.appendChild(wellsBox);
 
+  // --- Output set (P1-c): one version per chain run, never overwriting -------
+  const setInput = document.createElement("input");
+  setInput.type = "text";
+  setInput.value = "INTERP";
+  setInput.setAttribute("list", "log-set-names");
+  content.appendChild(
+    formRow(
+      "Output set",
+      setInput,
+      "The whole chain run is versioned into this log set (re-run = version N+1). Manage versions in the Curve Catalog.",
+    ),
+  );
+
   // --- Run bar -------------------------------------------------------------
   const progress = document.createElement("progress");
   progress.max = 1;
@@ -443,7 +456,7 @@ export async function buildWorkflowContent(
     statusLine.textContent = "Starting…";
 
     // Fire the (blocking) run without awaiting so we can poll progress meanwhile.
-    void runWorkflowChain(jobId, steps, wellIds).catch((e) => {
+    void runWorkflowChain(jobId, steps, wellIds, setInput.value.trim() || undefined).catch((e) => {
       statusLine.textContent = `Error: ${e}`;
       finishRun();
     });

@@ -23,7 +23,7 @@
 //! a unity Lagrange multiplier; components can be fixed at 0 or at their upper bound).
 //! RECON (RMS weighted residual over the live tool rows, σ units) flags model failure.
 
-use crate::equations::{fetch_curve_frame, write_computed_curves_batch};
+use crate::equations::{fetch_curve_frame, write_computed_curves_versioned};
 use duckdb::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -615,7 +615,21 @@ pub fn run_multimin(db: &Mutex<Connection>, req: &MultiminRequest) -> MultiminRe
             out_names = curves.iter().map(|(n, _)| n.clone()).collect();
         }
         let refs: Vec<(&str, &[f32])> = curves.iter().map(|(n, v)| (n.as_str(), v.as_slice())).collect();
-        let write_err = write_computed_curves_batch(&conn, well_id, &depth, &refs).err().map(|e| e.to_string());
+        let spec = crate::equations::LogSetSpec {
+            set_name: "SANDIMIN".into(),
+            module: "sandimin".into(),
+            params_json: serde_json::to_string(&serde_json::json!({
+                "components": req.components.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+                "prefix": prefix,
+            }))
+            .unwrap_or_default(),
+            inputs_json: serde_json::to_string(&req.tools.iter().map(|t| t.curve.as_str()).collect::<Vec<_>>())
+                .unwrap_or_default(),
+        };
+        let write_err = crate::equations::create_log_set(&conn, well_id, &spec)
+            .and_then(|(set_id, _)| write_computed_curves_versioned(&conn, well_id, &depth, &refs, &set_id))
+            .err()
+            .map(|e| e.to_string());
         wells.push(MultiminWellResult {
             well_id: well_id.clone(),
             rows_solved: solved,

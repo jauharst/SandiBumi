@@ -8,7 +8,7 @@
 //! `ARSHILLA_PYTHON` env var, then recent py.org per-user installs, then PATH; the first
 //! interpreter that can `import numpy` wins (cached for the session).
 
-use crate::equations::{fetch_curve_frame, write_computed_curve, EquationDef, EquationRunResult};
+use crate::equations::{fetch_curve_frame, write_equation_output, EquationDef, EquationRunResult};
 use duckdb::Connection;
 use rayon::prelude::*;
 use std::io::Write;
@@ -170,7 +170,7 @@ pub fn run_python_equation(db: &Mutex<Connection>, equation: &EquationDef, well_
                         }
                     }
                     let conn = db.lock().unwrap();
-                    match write_computed_curve(&conn, well_id, &depth, &equation.output_curve, &result) {
+                    match write_equation_output(&conn, well_id, &depth, equation, &result) {
                         Ok(()) => EquationRunResult { well_id: well_id.clone(), rows_written: depth.len(), error: None },
                         Err(e) => EquationRunResult { well_id: well_id.clone(), rows_written: 0, error: Some(e.to_string()) },
                     }

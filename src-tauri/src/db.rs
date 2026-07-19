@@ -121,6 +121,38 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             value       FLOAT
         );
 
+        -- P1-c log-set versioning (2026-07-19). `set_id` tags every current row with the
+        -- run event that produced it (NULL = legacy/unversioned). Added via ALTER so old
+        -- and fresh databases converge on the same 5-column shape from one declaration.
+        ALTER TABLE computed_curves ADD COLUMN IF NOT EXISTS set_id UUID;
+
+        -- One row per RUN EVENT into a named log set: "re-run = version N+1, never
+        -- overwrite". `version` counts up per (well, set_name); module/params/inputs are
+        -- the per-curve provenance Jauhar asked for (what made this curve, from what,
+        -- when). Deleting a set version keeps current values (their set_id goes NULL).
+        CREATE TABLE IF NOT EXISTS log_sets (
+            set_id      UUID PRIMARY KEY,
+            well_id     UUID NOT NULL,
+            set_name    VARCHAR NOT NULL,
+            version     INTEGER NOT NULL,
+            module      VARCHAR NOT NULL,     -- module name, 'workflow (N steps)', 'equation:X', ...
+            params_json VARCHAR,              -- parameters of the run
+            inputs_json VARCHAR,              -- resolved input curve mnemonics
+            created_at  TIMESTAMP NOT NULL DEFAULT now()
+        );
+
+        -- Append-only history: every versioned run's full output rows, tagged by set_id.
+        -- `computed_curves` stays the fast "current" store every panel reads; this table
+        -- is what makes re-runs non-destructive (restore any version back into current).
+        -- No PK on purpose — same appender-perf reasoning as computed_curves.
+        CREATE TABLE IF NOT EXISTS computed_curves_archive (
+            set_id      UUID NOT NULL,
+            well_id     UUID NOT NULL,
+            depth       FLOAT NOT NULL,
+            curve_name  VARCHAR NOT NULL,
+            value       FLOAT
+        );
+
         -- User-authored petrophysical equations (Rhai scripts), analogous to Geolog's
         -- loglan module registry / IP's formula library.
         CREATE TABLE IF NOT EXISTS equations (
@@ -1102,6 +1134,81 @@ mod inspector_tests {
             )
             .unwrap();
         assert!((p - 0.42).abs() < 1e-6);
+    }
+
+    /// P1-c log-set versioning: re-runs bump the version and preserve history in the
+    /// archive; any version can be restored into current; deleting a version keeps
+    /// current values (provenance tag cleared); the catalog reports provenance + stats.
+    #[test]
+    fn log_set_versioning_never_overwrites() {
+        use crate::equations::{
+            create_log_set, delete_log_set, list_computed_catalog, list_log_sets, restore_log_set,
+            write_computed_curves_versioned, LogSetSpec,
+        };
+        let conn = mem_db();
+        let w = Uuid::new_v4().to_string();
+        let depth = [1000.0f32, 1000.5, 1001.0];
+        let spec = LogSetSpec {
+            set_name: "INTERP".into(),
+            module: "vsh_gr".into(),
+            params_json: "{\"GR_MA\":25}".into(),
+            inputs_json: "[\"GR\"]".into(),
+        };
+
+        // Run 1 → version 1; run 2 (different values) → version 2.
+        let (set1, v1) = create_log_set(&conn, &w, &spec).unwrap();
+        write_computed_curves_versioned(&conn, &w, &depth, &[("VSH", &[0.10, 0.20, 0.30])], &set1).unwrap();
+        let (set2, v2) = create_log_set(&conn, &w, &spec).unwrap();
+        write_computed_curves_versioned(&conn, &w, &depth, &[("VSH", &[0.90, 0.80, 0.70])], &set2).unwrap();
+        assert_eq!((v1, v2), (1, 2), "re-run bumps the version");
+
+        let current = |d: f32| -> f32 {
+            conn.query_row(
+                "SELECT value FROM computed_curves WHERE well_id = ?1 AND curve_name = 'VSH' AND depth = ?2",
+                params![w, d],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        let n_current: i64 = conn
+            .query_row("SELECT COUNT(*) FROM computed_curves WHERE well_id = ?1 AND curve_name = 'VSH'", params![w], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n_current, 3, "current store holds exactly one generation");
+        assert!((current(1000.0) - 0.90).abs() < 1e-6, "current = latest run");
+        let n_archive: i64 = conn
+            .query_row("SELECT COUNT(*) FROM computed_curves_archive WHERE well_id = ?1", params![w], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n_archive, 6, "archive keeps BOTH generations — nothing overwritten");
+
+        // Version history lists newest first with provenance + curve names.
+        let sets = list_log_sets(&conn, &w).unwrap();
+        assert_eq!(sets.len(), 2);
+        assert_eq!((sets[0].version, sets[1].version), (2, 1));
+        assert_eq!(sets[0].module, "vsh_gr");
+        assert_eq!(sets[0].curve_names, vec!["VSH".to_string()]);
+        assert!(sets[0].is_current && !sets[1].is_current);
+
+        // Restore version 1 → current shows the old values again; archive untouched.
+        let restored = restore_log_set(&conn, &set1).unwrap();
+        assert_eq!(restored, 3);
+        assert!((current(1000.0) - 0.10).abs() < 1e-6, "restored to version 1");
+
+        // Catalog: provenance of the current value now points at version 1, stats sane.
+        let cat = list_computed_catalog(&conn, &w).unwrap();
+        let vsh = cat.iter().find(|e| e.curve_name == "VSH").unwrap();
+        assert_eq!(vsh.set_name.as_deref(), Some("INTERP"));
+        assert_eq!(vsh.version, Some(1));
+        assert_eq!(vsh.n_samples, 3);
+        assert!((vsh.min.unwrap() - 0.10).abs() < 1e-6 && (vsh.max.unwrap() - 0.30).abs() < 1e-6);
+
+        // Deleting version 2's history keeps current values; v1 remains restorable.
+        delete_log_set(&conn, &set2).unwrap();
+        assert_eq!(list_log_sets(&conn, &w).unwrap().len(), 1);
+        assert!((current(1000.0) - 0.10).abs() < 1e-6, "delete never changes current values");
+        let n_archive: i64 = conn
+            .query_row("SELECT COUNT(*) FROM computed_curves_archive WHERE well_id = ?1", params![w], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n_archive, 3, "only version 2's history removed");
     }
 }
 

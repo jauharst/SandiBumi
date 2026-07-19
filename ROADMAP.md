@@ -533,13 +533,22 @@ increments with REVIEW.md check items.
 - ✅ **Workflow builder as a pane, not a popup** (2026-07-19, P1-a): dock component
   "workflow" (singleton, in the ＋ panel menu and Petrophysics → Workflow…); closing the
   pane mid-run cancels the chain; numeric params follow the double-click-to-edit rule.
-- **Database versioning — never overwrite**: each module run writes into a **log set**
-  (user chooses "new set" or an existing one); re-runs create version N+1 instead of
-  replacing; every curve carries provenance (module, params, parent curves, timestamp —
-  the processing-history entry, linked). QC any version against any other.
-- **Set input / set output on every module**: choose which set inputs resolve from and
-  which set outputs write to (Geolog set semantics; builds on the log-set schema above).
-- **Curve catalog power features**: search (by set/unit/comments/statistics), filter, sort.
+- ✅ **Database versioning — never overwrite** (2026-07-19, P1-c): `log_sets` run-event
+  table + append-only `computed_curves_archive`; `computed_curves` stays the fast
+  "current" store (rows tagged `set_id`), so every read path is unchanged. Module runs,
+  chains (one version per chain run), equations (set EQUATION), ML (ML) and SandiMin
+  (SANDIMIN) all write versioned: re-run = version N+1, history kept, any version
+  restorable/prunable from the Curve Catalog. Provenance per run: module, params,
+  inputs, timestamp. Output-set choice in the module dialog + Workflow Builder.
+  Catalog: merged imported+computed view with set/version/module/when + n/min/max/mean,
+  one search box, click-to-sort headers. **Deferred to a later increment**: per-module
+  INPUT-set selection (reads currently resolve latest-current), unit/family columns for
+  computed curves, set-qualified log-view tracks.
+- **Set INPUT selection on modules** (remaining half of "set in/out"): choose which set
+  inputs resolve from (Geolog set semantics; output-set side shipped in P1-c above —
+  reads currently resolve the latest current values).
+- ✅ **Curve catalog power features** (2026-07-19, P1-c): one search box across
+  mnemonic/set/module/unit/date, click-to-sort columns, per-curve n/min/max/mean.
 
 ### P2 — Interpretation workflow
 

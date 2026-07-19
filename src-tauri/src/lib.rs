@@ -204,6 +204,38 @@ fn list_curve_catalog(db: tauri::State<DbState>) -> Result<Vec<equations::CurveC
     equations::list_curve_catalog(&conn).map_err(|e| e.to_string())
 }
 
+/// P1-c: every log-set run event for one well (set/version/module/params/when + curves),
+/// newest first — the version history behind "re-run = N+1, never overwrite".
+#[tauri::command]
+fn list_log_sets(db: tauri::State<DbState>, well_id: String) -> Result<Vec<equations::LogSetEntry>, String> {
+    let conn = db.0.lock().unwrap();
+    equations::list_log_sets(&conn, &well_id).map_err(|e| e.to_string())
+}
+
+/// P1-c: copies one archived set version back into the current store (its curves become
+/// the values every panel shows again). Returns the number of restored rows.
+#[tauri::command]
+fn restore_log_set(db: tauri::State<DbState>, set_id: String) -> Result<usize, String> {
+    let conn = db.0.lock().unwrap();
+    equations::restore_log_set(&conn, &set_id).map_err(|e| e.to_string())
+}
+
+/// P1-c: deletes one set version's history rows (current values are kept, provenance tag
+/// cleared) — for pruning old versions once they're no longer needed.
+#[tauri::command]
+fn delete_log_set(db: tauri::State<DbState>, set_id: String) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    equations::delete_log_set(&conn, &set_id).map_err(|e| e.to_string())
+}
+
+/// P1-c: per-well catalog of current computed curves with provenance (set/version/module/
+/// when) and basic statistics (n/min/max/mean) for the searchable catalog.
+#[tauri::command]
+fn list_computed_catalog(db: tauri::State<DbState>, well_id: String) -> Result<Vec<equations::ComputedCatalogEntry>, String> {
+    let conn = db.0.lock().unwrap();
+    equations::list_computed_catalog(&conn, &well_id).map_err(|e| e.to_string())
+}
+
 /// Phase 6: lists every curve in the generic curve store (`curve_meta`/`curve_samples`)
 /// for one well, across RAW/EDIT/FINAL sets — units/family/set-aware, unlike the legacy
 /// `list_curve_catalog` above.
@@ -558,6 +590,7 @@ fn run_workflow_chain(
     job_id: String,
     steps: Vec<chain::ChainStep>,
     well_ids: Vec<String>,
+    output_set: Option<String>,
 ) -> Result<(), String> {
     let uuid = Uuid::parse_str(&job_id).map_err(|e| format!("bad job id: {e}"))?;
     if steps.is_empty() {
@@ -567,7 +600,7 @@ fn run_workflow_chain(
         return Err("no wells selected".into());
     }
     let cancel = chain::register(registry.inner(), uuid);
-    chain::run_chain(&db.0, registry.inner(), uuid, &cancel, &steps, &well_ids);
+    chain::run_chain(&db.0, registry.inner(), uuid, &cancel, &steps, &well_ids, output_set.as_deref());
     Ok(())
 }
 
@@ -612,6 +645,10 @@ pub fn run() {
             list_equations,
             run_equation,
             list_curve_catalog,
+            list_log_sets,
+            restore_log_set,
+            delete_log_set,
+            list_computed_catalog,
             list_generic_curve_catalog,
             get_generic_curve_samples,
             import_deviation_csv,

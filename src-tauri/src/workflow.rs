@@ -21,6 +21,11 @@ pub struct RunModuleRequest {
     pub params: HashMap<String, f64>,
     /// String options from the dialog.
     pub opts: HashMap<String, String>,
+    /// Log set the outputs are versioned into ("re-run = version N+1, never overwrite").
+    /// None = the default "INTERP" set. Ignored when the caller pre-created per-well set
+    /// events (workflow chains — one version per chain run, not per step).
+    #[serde(default)]
+    pub output_set: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -80,6 +85,16 @@ fn resolve_param_arrays(
 /// Runs one module across every well: parse inputs, resolve zone parameters, evaluate,
 /// and write output curves to computed_curves. Wells are processed in parallel.
 pub fn run_workflow_module(db: &Mutex<Connection>, req: &RunModuleRequest) -> Vec<ModuleRunResult> {
+    run_workflow_module_into(db, req, None)
+}
+
+/// Like [`run_workflow_module`], but chains pass `preset_sets` (well_id → set_id) so every
+/// step of one chain run writes into the SAME set version instead of bumping per step.
+pub fn run_workflow_module_into(
+    db: &Mutex<Connection>,
+    req: &RunModuleRequest,
+    preset_sets: Option<&HashMap<String, String>>,
+) -> Vec<ModuleRunResult> {
     let spec = match modules::list_modules().into_iter().find(|m| m.name == req.module) {
         Some(s) => s,
         None => {
@@ -176,7 +191,21 @@ pub fn run_workflow_module(db: &Mutex<Connection>, req: &RunModuleRequest) -> Ve
                 let conn = db.lock().unwrap();
                 let batch: Vec<(&str, &[f32])> =
                     outputs.iter().map(|(k, v)| (k.as_str(), v.as_slice())).collect();
-                equations::write_computed_curves_batch(&conn, well_id, &depth, &batch)
+                // Versioned write: a chain supplies the shared per-well set event; a plain
+                // module run registers its own (set version N+1 — never overwrites).
+                let set_id = match preset_sets.and_then(|m| m.get(well_id.as_str())) {
+                    Some(id) => id.clone(),
+                    None => {
+                        let spec = equations::LogSetSpec {
+                            set_name: req.output_set.clone().filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "INTERP".into()),
+                            module: req.module.clone(),
+                            params_json: serde_json::to_string(&req.params).unwrap_or_default(),
+                            inputs_json: serde_json::to_string(&log_args).unwrap_or_default(),
+                        };
+                        equations::create_log_set(&conn, well_id, &spec).map_err(|e| e.to_string())?.0
+                    }
+                };
+                equations::write_computed_curves_versioned(&conn, well_id, &depth, &batch, &set_id)
                     .map_err(|e| e.to_string())?;
                 let mut names: Vec<String> = outputs.keys().cloned().collect();
                 names.sort();
@@ -442,6 +471,7 @@ mod tests {
                 log_inputs: HashMap::new(),
                 params: params.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
                 opts: opts.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+                output_set: None,
             };
             run_workflow_module(&dbm, &req)
         };
@@ -517,6 +547,7 @@ mod tests {
                 log_inputs: HashMap::new(),
                 params: params.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
                 opts: opts.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+                output_set: None,
             };
             let results = run_workflow_module(&db, &req);
             for r in &results {

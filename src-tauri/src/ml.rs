@@ -13,7 +13,7 @@
 //! Cluster ids are reordered by ascending mean of the FIRST feature curve, matching the
 //! native k-means/GMM facies modules (put GR first → class 0 = cleanest).
 
-use crate::equations::{fetch_curve_frame, write_computed_curves_batch};
+use crate::equations::{fetch_curve_frame, write_computed_curves_versioned};
 use crate::python_engine::{find_python, hide_console};
 use duckdb::Connection;
 use serde::{Deserialize, Serialize};
@@ -388,7 +388,15 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest) -> MlResult {
                     curves.push((name.clone(), full));
                 }
                 let refs: Vec<(&str, &[f32])> = curves.iter().map(|(n, v)| (n.as_str(), v.as_slice())).collect();
-                match write_computed_curves_batch(&conn, &aw.well_id, &aw.depth, &refs) {
+                let spec = crate::equations::LogSetSpec {
+                    set_name: "ML".into(),
+                    module: format!("ml:{}:{}", req.task, req.algorithm),
+                    params_json: serde_json::to_string(&req.params).unwrap_or_default(),
+                    inputs_json: serde_json::to_string(&req.feature_curves).unwrap_or_default(),
+                };
+                let versioned = crate::equations::create_log_set(&conn, &aw.well_id, &spec)
+                    .and_then(|(set_id, _)| write_computed_curves_versioned(&conn, &aw.well_id, &aw.depth, &refs, &set_id));
+                match versioned {
                     Ok(()) => wells.push(MlWellResult {
                         well_id: aw.well_id.clone(),
                         rows_predicted: m,
