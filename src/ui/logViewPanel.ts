@@ -4,6 +4,7 @@ import { appState, setStatus } from "../state";
 import { pushUndo } from "../undo";
 import { openLayoutPropsDialog } from "./layoutPropsDialog";
 import { CORE_OVERLAY_MAP } from "./plotCommon";
+import { TopsEditor } from "./topsEditor";
 import { renderDepthAxis, renderReadout, renderReportHeader, renderTrackHeaders } from "./viewerChrome";
 
 /** One dockable log-layout viewer: its own WebGPU canvas + renderer, mini view toolbar
@@ -25,6 +26,8 @@ export class LogViewPanel {
   private lastHoverDepth: number | null = null;
   /** Core plug series (CPOR/CPERM/CGD/CSW) for the loaded well; empty = no overlay. */
   private coreByName = new Map<string, TrackCurveSeries>();
+  /** Tops overlay + Petrel-style interactive editor (🏷 in the toolbar toggles editing). */
+  private topsEditor!: TopsEditor;
 
   private renderer: LogCanvasRenderer | null = null;
   private layout: Layout | null = null;
@@ -71,6 +74,7 @@ export class LogViewPanel {
     body.appendChild(this.depthAxisEl);
     body.appendChild(this.canvas);
     body.appendChild(this.coreOverlay);
+    this.topsEditor = new TopsEditor(body, this.canvas, () => this.renderer?.getVisibleDepthRange() ?? [0, 0]);
     body.appendChild(this.crosshairEl);
     body.appendChild(this.readoutEl);
     body.appendChild(this.messageEl);
@@ -142,6 +146,14 @@ export class LogViewPanel {
 
     btn("⟳", "Reset view (top of well, default scale)", () => this.resetView());
     btn("⚙", "Layout properties…", () => void this.openProperties());
+    sep();
+
+    const topsBtn = btn("🏷", "Edit tops: click to add, drag to move, double-click to rename/delete", () => {
+      const on = !this.topsEditor.editing;
+      this.topsEditor.setEditMode(on);
+      topsBtn.classList.toggle("active", on);
+      setStatus(on ? "Tops editing ON — click adds, drag moves, double-click edits" : "Tops editing off");
+    });
 
     return bar;
   }
@@ -154,8 +166,11 @@ export class LogViewPanel {
       this.refreshDepthAxis();
       this.positionCrosshair(this.lastHoverDepth);
     };
-    // Redraw core points after every rendered frame so they track pan/zoom exactly.
-    this.renderer.onFrameRendered = () => this.drawCoreOverlay();
+    // Redraw core points + tops lines after every rendered frame so they track pan/zoom.
+    this.renderer.onFrameRendered = () => {
+      this.drawCoreOverlay();
+      this.topsEditor.draw();
+    };
     this.renderer.onCursorMove = (depth, samples, trackTitle) => {
       // Emphasize the hovered track's curves in the readout and tint its header.
       const track = trackTitle ? this.layout?.tracks.find((t) => t.title === trackTitle) : undefined;
@@ -179,6 +194,7 @@ export class LogViewPanel {
       this.renderer?.resize();
       this.refreshDepthAxis();
       this.drawCoreOverlay();
+      this.topsEditor.draw();
     });
     this.resizeObserver.observe(body);
 
@@ -200,6 +216,7 @@ export class LogViewPanel {
         this.renderer?.repaint();
         this.refreshDepthAxis();
         this.drawCoreOverlay();
+        this.topsEditor.draw();
       }),
       appState.hoverDepth.subscribe((depth) => this.positionCrosshair(depth)),
       // A top clicked in the Wells & Tops pane scrolls every view of that well to it.
@@ -274,6 +291,7 @@ export class LogViewPanel {
       this.coreByName = new Map(); // no backend or no core data — overlay simply stays empty
     }
     this.drawCoreOverlay();
+    await this.topsEditor.setWell(well.well_id);
   }
 
   /** Draws core plug points over any track showing a curve with a core counterpart
@@ -445,6 +463,7 @@ export class LogViewPanel {
   dispose(): void {
     for (const unsub of this.unsubscribers) unsub();
     this.resizeObserver?.disconnect();
+    this.topsEditor.dispose();
     this.renderer?.dispose();
     this.renderer = null;
   }

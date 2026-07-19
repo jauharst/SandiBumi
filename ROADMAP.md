@@ -565,10 +565,16 @@ increments with REVIEW.md check items.
   Deferred: aux overlays on plots/log tracks (perforation flags, XRD points).
   Original ask: tops from CSV/TXT (menu is missing), petrography, XRD,
   perforation data.
-- **Tops editor, Petrel-style**: add tops set + pick markers interactively in the log view
-  (top defined at ≥2 markers), undoable; edit/save markers inside the layout; automatic
-  stratigraphic-crossing warning; tops-set selection mirrors the well pin model;
-  **marker autocorrelation** driven by a chosen log (GR, resistivity, …).
+- ✅ **Tops editor, Petrel-style** (2026-07-19): log views draw tops as labeled colored
+  lines; 🏷 toolbar toggle enables editing — click to add (name/depth/color dialog),
+  drag to move (live preview), double-click to rename/recolor/delete; all undoable;
+  automatic **stratigraphic-crossing warning** after every pick (this well's top order
+  vs the majority of other wells, `tops.rs::check_top_order`); **marker autocorrelation**
+  (Data → Autocorrelate…): source-well log shape (GR default, ±window) slid over each
+  target well ±search range → proposed depth + Pearson r, strong matches pre-ticked,
+  applied as one undoable batch (`tops.rs::autocorrelate_top`).
+  Still deferred: named tops SETS (multiple stratigraphic schemes per project — current
+  model is one set of tops per well); tops-set selection mirroring the well pin model.
 - **Well pin semantics rework**: pin ON = whole workspace follows the active well; pin
   OFF = only the pane you interact with changes (clicking a well from a histogram changes
   just that histogram). Multi-select wells everywhere (with inverse selection), pinned or

@@ -24,6 +24,7 @@ mod report;
 mod satheight;
 mod ssc;
 mod python_engine;
+mod tops;
 mod workflow;
 
 use duckdb::Connection;
@@ -591,6 +592,22 @@ fn delete_top(db: tauri::State<DbState>, well_id: String, top_name: String) -> R
     db::delete_top(&conn, &well_id, &top_name).map_err(|e| e.to_string())
 }
 
+/// Stratigraphic crossing check: warnings for top pairs in this well whose depth order
+/// contradicts the majority of other wells (run after every interactive pick/drag).
+#[tauri::command]
+fn check_top_order(db: tauri::State<DbState>, well_id: String) -> Result<Vec<String>, String> {
+    let conn = db.0.lock().unwrap();
+    tops::check_top_order(&conn, &well_id)
+}
+
+/// Proposes marker depths in target wells by correlating a log shape around the source
+/// well's pick (Petrel-style autocorrelation). Read-only — the dialog applies picks.
+#[tauri::command]
+fn autocorrelate_top(db: tauri::State<DbState>, req: tops::AutoCorrRequest) -> tops::AutoCorrResult {
+    let conn = db.0.lock().unwrap();
+    tops::autocorrelate_top(&conn, &req)
+}
+
 /// Read-only SQL over the project database (full DuckDB SQL, SELECT-only).
 #[tauri::command]
 fn run_query(db: tauri::State<DbState>, sql: String, limit: usize) -> Result<db::TablePage, String> {
@@ -729,6 +746,8 @@ pub fn run() {
             shift_core_data,
             upsert_top,
             delete_top,
+            check_top_order,
+            autocorrelate_top,
             run_query,
             export_las,
             python_status,

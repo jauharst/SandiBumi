@@ -811,6 +811,30 @@ textarea {
   z-index: 3;
 }
 
+/* Tops lines + labels; picks up pointer events only while the 🏷 edit mode is on. */
+.tops-overlay {
+  position: absolute;
+  pointer-events: none;
+  z-index: 5;
+}
+.tops-overlay.editing {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+/* Autocorrelate dialog: proposals table + Apply button. */
+.autocorr-results {
+  margin-top: 10px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.autocorr-results .lp-btn {
+  margin-top: 8px;
+}
+.autocorr-results tr.weak-match td {
+  color: var(--text-dim);
+}
+
 /* Synchronized cursor: a dashed depth line drawn in every open log view. */
 .depth-crosshair {
   position: absolute;

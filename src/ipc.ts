@@ -73,6 +73,37 @@ export function listTops(wellId: string): Promise<TopEntry[]> {
   return invoke<TopEntry[]>("list_tops", { wellId });
 }
 
+/** Crossing warnings: top pairs in this well whose order contradicts most other wells. */
+export function checkTopOrder(wellId: string): Promise<string[]> {
+  return invoke<string[]>("check_top_order", { wellId });
+}
+
+export interface AutoCorrRequest {
+  source_well_id: string;
+  top_name: string;
+  curve: string;
+  half_window: number;
+  search_range: number;
+  target_well_ids: string[];
+}
+
+export interface AutoCorrProposal {
+  well_id: string;
+  current_depth: number | null;
+  proposed_depth: number | null;
+  correlation: number;
+  error: string | null;
+}
+
+export interface AutoCorrResult {
+  proposals: AutoCorrProposal[];
+  error: string | null;
+}
+
+export function autocorrelateTop(req: AutoCorrRequest): Promise<AutoCorrResult> {
+  return invoke<AutoCorrResult>("autocorrelate_top", { req });
+}
+
 export type ScaleType = "linear" | "log";
 
 export interface CurveStyle {

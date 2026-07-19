@@ -121,6 +121,30 @@ Your full review is triaged in **ROADMAP.md §4** — these five landed immediat
       per well (read-only — re-import the file to change values). Tops appear
       immediately in the Wells & Tops pane and all log views/correlation.
 
+## P2-b — Petrel-style tops editor + autocorrelation (2026-07-19 #4/#13)
+
+- [ ] **Tops lines in the log view**: every log view now draws the well's tops as
+      colored labeled lines across all tracks (like the correlation view). They track
+      pan/zoom exactly and repaint on theme change.
+- [ ] **🏷 edit mode** (log view toolbar): toggle it on, then — **click** an empty
+      depth to add a top (name/depth/color dialog, name auto-uppercased); **drag** a
+      line to move it (dashed preview while dragging); **double-click** a line to
+      rename, change color, or delete. Mouse-wheel zoom still works while editing.
+      Everything is undoable (Ctrl+Z) and instantly visible in Wells & Tops, other
+      log views, and correlation.
+- [ ] **Crossing warnings**: after any pick/move, SandiBumi compares this well's top
+      order with every other well. If a pair is reversed vs the majority (e.g. TOP_B
+      above TOP_A here but below it elsewhere), a ⚠ warning appears in the status bar
+      naming the pair and the vote (e.g. "below it in 4 of 5 other wells").
+- [ ] **Autocorrelate…** (Data tab): pick a top in the selected (source) well, choose
+      the log (GR default), pattern window ±m and search range ±m — SandiBumi slides
+      the source log shape over each target well (active group) and proposes the
+      best-match depth with its correlation coefficient r. Strong matches (r ≥ 0.7)
+      come pre-ticked; weak ones are dimmed for your judgment. **Apply** writes the
+      ticked picks as ONE undoable batch. Try it on a marker you know — e.g. pick an
+      MFS on GR in one Balam well and propagate to the rest, then check r values
+      against your hand picks.
+
 Issues you marked `[x]` that need real work (all in ROADMAP §4, P1/P2): well-pin
 semantics rework, right-click lockdown (accidental refresh), TVD depth scale UI.
 Everything you marked `[o]` has been cleared out of this file.

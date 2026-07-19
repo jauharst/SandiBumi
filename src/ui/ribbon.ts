@@ -35,6 +35,7 @@ import { openSummaryDialog } from "./summaryDialog";
 import { openMonteCarloDialog } from "./monteCarloDialog";
 import { openMlDialog } from "./mlDialog";
 import { openMultiminDialog } from "./multiminDialog";
+import { openAutoCorrDialog } from "./autoCorrDialog";
 
 interface RibbonMenuItem {
   label: string;
@@ -158,6 +159,7 @@ export class Ribbon {
     q<HTMLButtonElement>("#import-scal-btn")?.addEventListener("click", () => void this.handleImportScal());
     q<HTMLButtonElement>("#import-tops-btn")?.addEventListener("click", () => void this.handleImportTops());
     q<HTMLButtonElement>("#import-aux-btn")?.addEventListener("click", () => this.handleImportAux());
+    q<HTMLButtonElement>("#autocorr-tops-btn")?.addEventListener("click", () => void openAutoCorrDialog());
     q<HTMLButtonElement>("#import-deviation-btn")?.addEventListener("click", () => void this.handleImportDeviation());
     q<HTMLButtonElement>("#well-header-btn")?.addEventListener("click", () => this.handleWellHeader());
     q<HTMLButtonElement>("#open-wells-btn")?.addEventListener("click", () => workspace.openWellsTops());
