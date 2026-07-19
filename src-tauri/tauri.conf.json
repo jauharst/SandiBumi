@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Arshilla",
+  "productName": "SandiBumi",
   "version": "0.1.0",
-  "identifier": "com.arshilla.petro",
+  "identifier": "com.sandibumi.petro",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -13,9 +13,10 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Arshilla",
+        "title": "SandiBumi",
         "width": 800,
-        "height": 600
+        "height": 600,
+        "dragDropEnabled": false
       }
     ],
     "security": {

@@ -27,3 +27,11 @@ dist-ssr
 # DuckDB data files (do not version well data)
 *.duckdb
 *.duckdb.wal
+
+# Local DB backups + personal reference PDFs (not for the shared repo)
+.db-backups/
+Prompt/
+
+# Machine-local Claude Code permission overrides
+.claude/settings.local.json
+*.corrupt-backup-*

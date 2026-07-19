@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Bash(npm run:*)",
+      "Bash(npm install:*)",
+      "Bash(npm ls:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx vite:*)",
+      "Bash(node:*)",
+      "Bash(cargo check:*)",
+      "Bash(cargo test:*)",
+      "Bash(cargo build:*)",
+      "Bash(cargo fmt:*)",
+      "Bash(cargo clippy:*)",
+      "PowerShell(npm run:*)",
+      "PowerShell(npm install:*)",
+      "PowerShell(npx tsc:*)",
+      "PowerShell(node:*)",
+      "PowerShell(cargo check:*)",
+      "PowerShell(cargo test:*)",
+      "PowerShell(cargo build:*)"
+    ]
+  }
+}

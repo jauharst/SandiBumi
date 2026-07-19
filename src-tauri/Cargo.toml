@@ -1,5 +1,5 @@
 [package]
-name = "arshilla"
+name = "sandibumi"
 version = "0.1.0"
 description = "Petrophysical Software Engine — multi-well log analysis (Tauri + DuckDB + WebGPU)"
 authors = ["you"]
@@ -11,7 +11,7 @@ edition = "2021"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "arshilla_lib"
+name = "sandibumi_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -20,6 +20,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
@@ -31,4 +32,16 @@ bytemuck = { version = "1", features = ["derive"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 csv = "1"
 thiserror = "2"
+base64 = "0.22"
+rhai = { version = "1", features = ["sync"] }
+
+# Size/speed-optimized shipping builds (Tauri's recommended profile). Dev builds and
+# `cargo check` are unaffected. Most of the binary is the bundled DuckDB engine —
+# link-time optimization + symbol stripping claw a large share of that back.
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
 

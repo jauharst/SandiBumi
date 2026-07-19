@@ -1,116 +1,3006 @@
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
+/* ==========================================================================
+   SandiBumi — application stylesheet
+   Earth-tone light theme (default) + dark theme via [data-theme="dark"] or
+   OS preference. Every component color flows from the :root variables below;
+   the dockview workspace consumes them through the --dv-* mapping.
+   ========================================================================== */
+
+* {
+  box-sizing: border-box;
 }
 
-.logo.typescript:hover {
-  filter: drop-shadow(0 0 2em #2d79c7);
-}
+/* --------------------------------------------------------------------------
+   Theme variables
+   -------------------------------------------------------------------------- */
+
 :root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
-
-  color: #0f0f0f;
-  background-color: #f6f6f6;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
+  --bg-app: #f2ebdc;
+  --bg-panel: #fbf7ee;
+  --bg-panel-alt: #e9dfc8;
+  --bg-hover: #f1ddc4;
+  --border: #ddd0af;
+  --border-strong: #c2ac81;
+  --text: #332a1f;
+  --text-dim: #7c6b52;
+  --accent: #b5651d;
+  --accent-dim: #8f4d15;
+  --accent-soft: #f1ddc4;
+  --accent2: #5f7350;
+  --accent2-soft: #e2e8d5;
+  --warn: #a83e2c;
+  --track-hd: #ece1c8;
 }
 
-.container {
-  margin: 0;
-  padding-top: 10vh;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  text-align: center;
-}
-
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: 0.75s;
-}
-
-.logo.tauri:hover {
-  filter: drop-shadow(0 0 2em #24c8db);
-}
-
-.row {
-  display: flex;
-  justify-content: center;
-}
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-
-a:hover {
-  color: #535bf2;
-}
-
-h1 {
-  text-align: center;
-}
-
-input,
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
-}
-
-button {
-  cursor: pointer;
-}
-
-button:hover {
-  border-color: #396cd8;
-}
-button:active {
-  border-color: #396cd8;
-  background-color: #e8e8e8;
-}
-
-input,
-button {
-  outline: none;
-}
-
-#greet-input {
-  margin-right: 5px;
+:root[data-theme="dark"] {
+  --bg-app: #1c1610;
+  --bg-panel: #241d15;
+  --bg-panel-alt: #2e2519;
+  --bg-hover: #3a2d1d;
+  --border: #3d3223;
+  --border-strong: #5a4930;
+  --text: #e8dfd0;
+  --text-dim: #a08d70;
+  --accent: #d98c3f;
+  --accent-dim: #b5651d;
+  --accent-soft: #3a2d1d;
+  --accent2: #8ca377;
+  --accent2-soft: #2c3325;
+  --warn: #d96a52;
+  --track-hd: #2e2519;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
+  :root:not([data-theme="light"]) {
+    --bg-app: #1c1610;
+    --bg-panel: #241d15;
+    --bg-panel-alt: #2e2519;
+    --bg-hover: #3a2d1d;
+    --border: #3d3223;
+    --border-strong: #5a4930;
+    --text: #e8dfd0;
+    --text-dim: #a08d70;
+    --accent: #d98c3f;
+    --accent-dim: #b5651d;
+    --accent-soft: #3a2d1d;
+    --accent2: #8ca377;
+    --accent2-soft: #2c3325;
+    --warn: #d96a52;
+    --track-hd: #2e2519;
   }
+}
 
-  a:hover {
-    color: #24c8db;
-  }
+/* --------------------------------------------------------------------------
+   Client-branded skins — colours matched to each operator/partner identity.
+   All light + professional (deliverable-adjacent). Selected explicitly from
+   the Project ▸ Appearance dropdown; not driven by OS preference.
+   -------------------------------------------------------------------------- */
 
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
-  }
-  button:active {
-    background-color: #0f0f0f69;
-  }
+/* Pertamina — official brand palette (Jauhar's swatch card, 2026-07-19):
+   red #ED1A2F / blue #006BB8 / green #A6C210 / dark #161B22 / white. */
+:root[data-theme="pertamina"] {
+  --bg-app: #eef2f6;
+  --bg-panel: #ffffff;
+  --bg-panel-alt: #e2e9f0;
+  --bg-hover: #d9e9f6;
+  --border: #cdd8e3;
+  --border-strong: #a9bccd;
+  --text: #161b22;        /* Pertamina dark */
+  --text-dim: #5a6b7a;
+  --accent: #006bb8;      /* Pertamina blue */
+  --accent-dim: #00538f;
+  --accent-soft: #d4e7f5;
+  --accent2: #a6c210;     /* Pertamina green */
+  --accent2-soft: #eef3d1;
+  --warn: #ed1a2f;        /* Pertamina red */
+  --track-hd: #e2e9f0;
+}
+
+/* Halliburton — signature red with graphite grey on neutral white. */
+:root[data-theme="halliburton"] {
+  --bg-app: #f3f3f4;
+  --bg-panel: #ffffff;
+  --bg-panel-alt: #e8e8ea;
+  --bg-hover: #f7dee1;
+  --border: #d5d5d8;
+  --border-strong: #b3b3b8;
+  --text: #1b1b1e;
+  --text-dim: #63636b;
+  --accent: #e31b23;      /* Halliburton red */
+  --accent-dim: #b3141b;
+  --accent-soft: #fbdcde;
+  --accent2: #3f4249;     /* graphite */
+  --accent2-soft: #dfe1e4;
+  --warn: #b3141b;
+  --track-hd: #e8e8ea;
+}
+
+/* Schlumberger / SLB — deep SLB blue with a bright cyan-blue secondary. */
+:root[data-theme="schlumberger"] {
+  --bg-app: #eef1f7;
+  --bg-panel: #ffffff;
+  --bg-panel-alt: #e1e7f2;
+  --bg-hover: #d8e2f5;
+  --border: #ccd5e6;
+  --border-strong: #a4b3cf;
+  --text: #101a2c;
+  --text-dim: #566073;
+  --accent: #0033a0;      /* SLB blue */
+  --accent-dim: #00246f;
+  --accent-soft: #d5e0f4;
+  --accent2: #00a3e0;     /* bright blue */
+  --accent2-soft: #d3eefb;
+  --warn: #c0392b;
+  --track-hd: #e1e7f2;
+}
+
+/* LAPI ITB — ITB institutional navy with an academic gold secondary. */
+:root[data-theme="lapi-itb"] {
+  --bg-app: #eef0f3;
+  --bg-panel: #ffffff;
+  --bg-panel-alt: #e0e4ea;
+  --bg-hover: #dae1ee;
+  --border: #cbd2dc;
+  --border-strong: #a6b0be;
+  --text: #121a24;
+  --text-dim: #5b6470;
+  --accent: #003c7d;      /* ITB navy blue */
+  --accent-dim: #002a58;
+  --accent-soft: #d4e0ef;
+  --accent2: #d99400;     /* ITB gold */
+  --accent2-soft: #f6e6c2;
+  --warn: #b33636;
+  --track-hd: #e0e4ea;
+}
+
+/* Neutral white + grey — brand-agnostic clean monochrome. */
+:root[data-theme="white"] {
+  --bg-app: #f4f5f6;
+  --bg-panel: #ffffff;
+  --bg-panel-alt: #eaebed;
+  --bg-hover: #e4e6e9;
+  --border: #d8dadd;
+  --border-strong: #b6b9be;
+  --text: #1e2124;
+  --text-dim: #6a6f75;
+  --accent: #4a5568;      /* slate grey */
+  --accent-dim: #333b49;
+  --accent-soft: #e2e5ea;
+  --accent2: #7b8794;
+  --accent2-soft: #e8ebee;
+  --warn: #c0392b;
+  --track-hd: #eaebed;
+}
+
+/* --------------------------------------------------------------------------
+   Base + app shell
+   -------------------------------------------------------------------------- */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  /* "Segoe UI Variable Text" (Win 11) honors weight 500 for real; static Segoe UI
+     would snap 500 down to 400 and make this a no-op. Base weight raised for
+     readability — de-emphasis now uses 400 explicitly, emphasis stays 600/700. */
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  background: var(--bg-app);
+}
+
+#app-shell {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100vh;
+}
+
+#dock-root {
+  min-height: 0; /* let the grid row shrink; dockview manages its own size */
+  position: relative;
+}
+
+#status-bar {
+  padding: 3px 12px;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--bg-panel-alt);
+  border-top: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+  /* Form controls default to UA weight 400; keep them as bold as the labels. */
+  font-weight: inherit;
+}
+
+/* --------------------------------------------------------------------------
+   Ribbon (Techlog/Office style)
+   -------------------------------------------------------------------------- */
+
+#ribbon {
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border-strong);
+  user-select: none;
+}
+
+.ribbon-tabstrip {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 8px;
+  background: var(--bg-panel-alt);
+  border-bottom: 1px solid var(--border);
+}
+
+.ribbon-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--accent);
+  padding: 0 14px 0 4px;
+  letter-spacing: 0.4px;
+}
+
+.ribbon-logo {
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  flex: 0 0 auto;
+}
+
+.ribbon-tab {
+  border: none;
+  background: none;
+  padding: 6px 14px;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.ribbon-tab:hover {
+  color: var(--accent);
+}
+
+.ribbon-tab.active {
+  color: var(--text);
+  background: var(--bg-panel);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+/* Fixed height so every tab's groups share the same bottom edge. */
+.ribbon-body {
+  height: 80px;
+}
+
+.ribbon-panel {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 6px 10px 4px;
+  height: 100%;
+}
+
+/* Only the active tab's panel is shown — an author display rule would otherwise
+   override the `hidden` attribute and stack every tab's groups at once. */
+.ribbon-panel[hidden] {
+  display: none;
+}
+
+.ribbon-group {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 2px 14px;
+}
+
+/* Office-style group divider: a short vertical rule, not a full-height border. */
+.ribbon-group::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 10%;
+  bottom: 10%;
+  width: 1px;
+  background: var(--border);
+}
+
+.ribbon-panel > .ribbon-group:last-child::after {
+  display: none;
+}
+
+.ribbon-group-caption {
+  font-size: 9.5px;
+  color: var(--text-dim);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.ribbon-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 5px 10px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ribbon-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ribbon-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.ribbon-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.ribbon-btn-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex: 1;
+}
+
+.ribbon-btn-compact {
+  flex-direction: row;
+  padding: 4px 9px;
+  font-size: 10.5px;
+  border: 1px solid var(--border);
+}
+
+#petro-modules {
+  display: flex;
+}
+
+/* Office-style dropdown ribbon button (large icon + label + caret, menu below). */
+.ribbon-dropdown {
+  position: relative;
+  display: flex;
+}
+
+.ribbon-caret {
+  font-size: 8px;
+  color: var(--text-dim);
+}
+
+.ribbon-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 300;
+  min-width: 220px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 0 0 6px 6px;
+  box-shadow: 0 6px 18px rgba(51, 42, 31, 0.18);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Closed until the button is clicked — the display rule above would otherwise
+   override the `hidden` attribute and leave every menu hanging open. */
+.ribbon-menu[hidden] {
+  display: none;
+}
+
+.ribbon-menu-item {
+  background: none;
+  border: none;
+  text-align: left;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--text);
+  padding: 7px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ribbon-menu-item:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.ribbon-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text);
+  flex: 1;
+}
+
+.ribbon-select,
+.ribbon-field select {
+  background: var(--bg-app);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 3px 6px;
+  font-size: 11px;
+  font-family: inherit;
+}
+
+.ribbon-stepbtn {
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-app);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.ribbon-stepbtn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ribbon-hint {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+/* --------------------------------------------------------------------------
+   Dockview theme mapping — our earth palette drives the dock chrome
+   -------------------------------------------------------------------------- */
+
+.dockview-theme-sandibumi {
+  --dv-group-view-background-color: var(--bg-panel);
+  --dv-tabs-and-actions-container-background-color: var(--bg-panel-alt);
+  --dv-tabs-and-actions-container-height: 28px;
+  --dv-tabs-and-actions-container-font-size: 11px;
+  --dv-activegroup-visiblepanel-tab-background-color: var(--bg-panel);
+  --dv-activegroup-visiblepanel-tab-color: var(--accent);
+  --dv-activegroup-hiddenpanel-tab-background-color: var(--bg-panel-alt);
+  --dv-activegroup-hiddenpanel-tab-color: var(--text-dim);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--bg-panel);
+  --dv-inactivegroup-visiblepanel-tab-color: var(--text);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--bg-panel-alt);
+  --dv-inactivegroup-hiddenpanel-tab-color: var(--text-dim);
+  --dv-tab-divider-color: var(--border);
+  --dv-separator-border: var(--border-strong);
+  --dv-drag-over-background-color: color-mix(in srgb, var(--accent) 18%, transparent);
+  --dv-drag-over-border-color: var(--accent);
+  --dv-active-sash-color: var(--accent);
+  --dv-paneview-header-border-color: var(--border);
+  --dv-icon-hover-background-color: var(--bg-hover);
+  --dv-floating-box-shadow: 0 10px 34px rgba(0, 0, 0, 0.35);
+  --dv-background-color: var(--bg-app);
+  --dv-border-radius: 3px;
+  height: 100%;
+  width: 100%;
+}
+
+/* Float / maximize buttons on each dock group's tab bar. */
+.dock-group-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+  height: 100%;
+}
+
+.dock-action-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.dock-action-btn:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+
+/* "＋ add panel" menu on a group's tab bar — appended to <body>, positioned at the
+   button, so the tab bar's overflow clipping can't cut it off. */
+.dock-add-menu {
+  position: fixed;
+  z-index: 400;
+  min-width: 180px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(51, 42, 31, 0.18);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+
+.dock-add-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
+}
+
+.dock-panel {
+  height: 100%;
+  overflow: auto;
+  background: var(--bg-panel);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+}
+
+.dock-plot {
+  padding: 10px 12px;
+}
+
+.dock-wells,
+.dock-inspector {
+  padding: 6px 8px;
+}
+
+/* --------------------------------------------------------------------------
+   Log view panel
+   -------------------------------------------------------------------------- */
+
+.dock-logview {
+  overflow: hidden;
+  padding: 0;
+}
+
+.logview-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.logview-report {
+  display: flex;
+  gap: 22px;
+  padding: 4px 12px;
+  background: var(--bg-panel-alt);
+  border-bottom: 1px solid var(--border);
+}
+
+.rh-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.rh-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+}
+
+.rh-value {
+  font-size: 11.5px;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.rh-value.empty {
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+.track-headers {
+  display: flex;
+  background: var(--track-hd);
+  border-bottom: 1px solid var(--border-strong);
+  min-height: 64px;
+}
+
+.track-header-spacer {
+  flex: 0 0 56px;
+  border-right: 1px solid var(--border);
+}
+
+.track-header {
+  flex-basis: 0;
+  min-width: 36px;
+  position: relative;
+  padding: 3px 6px 4px;
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+}
+
+/* The track under the log-canvas cursor. */
+.track-header.hover {
+  background: var(--bg-hover);
+}
+
+.track-header-title {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text);
+  text-align: center;
+  cursor: grab;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.track-header.drag-over {
+  background: var(--accent-soft);
+}
+
+.track-header-legend {
+  margin-top: 2px;
+}
+
+.curve-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  padding: 1px 0;
+}
+
+.curve-row.hidden .legend-name {
+  text-decoration: line-through;
+  opacity: 0.5;
+}
+
+.curve-row.hidden .legend-dot {
+  opacity: 0.3;
+}
+
+/* Per-panel view tools strip (depth scale, zoom, track width, reset, props, pin). */
+.logview-tools {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  flex: 0 0 auto;
+}
+
+.lv-btn {
+  min-width: 22px;
+  height: 20px;
+  padding: 0 4px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.lv-btn:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+
+.lv-btn.active {
+  color: var(--accent);
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
+.lv-scale {
+  height: 20px;
+  font-size: 10.5px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
+.lv-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  padding: 0 2px;
+}
+
+.lv-sep {
+  width: 1px;
+  height: 14px;
+  background: var(--border);
+  margin: 0 3px;
+}
+
+.legend-dot {
+  width: 14px;
+  border-top: 3px solid currentColor;
+  flex: 0 0 auto;
+}
+
+/* Discrete block curves (facies) show a striped palette swatch instead of a line color. */
+.legend-dot.blocks {
+  border-top: none;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.legend-name {
+  font-size: 10px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scale-line {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9.5px;
+  color: var(--text-dim);
+}
+
+.scale-line span {
+  cursor: text;
+}
+
+.scale-line span:hover {
+  color: var(--accent);
+}
+
+.edit-input {
+  position: fixed;
+  z-index: 200;
+  width: 64px;
+  font-size: 10.5px;
+  padding: 1px 4px;
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  background: var(--bg-panel);
+  color: var(--text);
+}
+
+.track-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 5;
+}
+
+.track-resizer:hover,
+.track-resizer.active {
+  background: var(--accent);
+  opacity: 0.5;
+}
+
+.logview-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+}
+
+/* Core plug points drawn over the WebGPU canvas (2D, redrawn per frame). */
+.core-overlay {
+  position: absolute;
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* Synchronized cursor: a dashed depth line drawn in every open log view. */
+.depth-crosshair {
+  position: absolute;
+  left: 56px; /* clear the depth axis */
+  right: 0;
+  height: 0;
+  border-top: 1px dashed var(--accent);
+  opacity: 0.75;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.depth-axis {
+  flex: 0 0 56px;
+  position: relative;
+  background: var(--bg-panel-alt);
+  border-right: 1px solid var(--border);
+}
+
+.depth-tick {
+  position: absolute;
+  right: 6px;
+  transform: translateY(-50%);
+  font-size: 10px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.log-canvas {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: block;
+}
+
+.cursor-readout {
+  position: absolute;
+  left: 64px;
+  bottom: 8px;
+  padding: 3px 10px;
+  font-size: 10.5px;
+  border-radius: 3px;
+  background: rgba(20, 15, 8, 0.78);
+  color: #f2ebdc;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.cursor-readout .readout-item {
+  margin-left: 12px;
+}
+
+/* Curves belonging to the hovered track (bright amber on the dark readout pill). */
+.cursor-readout .readout-item.em {
+  color: #ffd9a0;
+  font-weight: 700;
+}
+
+.logview-message {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--text-dim);
+  pointer-events: none;
+  padding: 16px;
+  text-align: center;
+}
+
+.logview-message:empty,
+.logview-message[hidden] {
+  display: none;
+}
+
+/* --------------------------------------------------------------------------
+   Wells & Tops panel
+   -------------------------------------------------------------------------- */
+
+.sidebar-section {
+  margin-bottom: 10px;
+}
+
+.sidebar-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-dim);
+  padding: 4px 2px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 3px;
+}
+
+.sidebar-body {
+  font-size: 11.5px;
+}
+
+.tree-node {
+  padding: 3px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-node:hover {
+  background: var(--bg-hover);
+}
+
+.tree-group {
+  font-weight: 700;
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.tree-group:hover {
+  background: none;
+}
+
+.tree-well {
+  padding-left: 16px;
+}
+
+/* The well / top interval currently driving every plot and log view. */
+.tree-selected,
+.top-selected {
+  background: var(--bg-active, var(--bg-hover));
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.tree-empty {
+  color: var(--text-dim);
+  font-style: italic;
+  padding: 3px 6px;
+}
+
+.top-node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.top-color {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+  border: 1px solid var(--border-strong);
+}
+
+.top-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.top-depth {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------------------------
+   Inspector panel (equation editor + curve catalog)
+   -------------------------------------------------------------------------- */
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+
+.tab-btn {
+  border: none;
+  background: none;
+  padding: 5px 10px;
+  font-size: 11px;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.tab-btn.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+.tab-content {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* Equation editor form: consistent vertical rhythm + aligned controls. */
+.eq-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px 2px 12px;
+}
+
+/* Blue info panel replacing the italic run-on note. */
+.eq-note {
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  padding: 7px 9px;
+}
+
+.field-row {
+  margin-bottom: 7px;
+}
+
+/* Multi-column field arrangements (Output / Units / Language etc.). */
+.field-grid {
+  display: grid;
+  gap: 8px;
+}
+.field-grid.two {
+  grid-template-columns: 1fr 1fr;
+}
+.field-grid.three {
+  grid-template-columns: 1.2fr 0.8fr 1fr;
+}
+
+.field-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 3px;
+}
+
+.field-hint {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+  font-style: italic;
+  color: var(--text-dim);
+  opacity: 0.85;
+}
+
+/* Style every control in the form, whether it sits in a .field-row, a .field-grid,
+   or directly inside its .field-label (the case the old rules missed). */
+.field-row input,
+.field-row select,
+.field-row textarea,
+.field-grid input,
+.field-grid select,
+.field-label > input,
+.field-label > select,
+.eq-form > label.field-label > input,
+.eq-form > label.field-label > select {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 3px;
+  background: var(--bg-app);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 11.5px;
+  font-family: inherit;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.field-row textarea {
+  font-family: "Cascadia Code", Consolas, monospace;
+  min-height: 110px;
+  resize: vertical;
+}
+
+.field-row input:focus,
+.field-row textarea:focus,
+.field-row select:focus,
+.field-grid input:focus,
+.field-grid select:focus,
+.field-label > input:focus,
+.field-label > select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.field-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text);
+}
+
+/* Sticky-feeling action row under the script editor. */
+.eq-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.eq-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.btn {
+  background: var(--bg-panel-alt);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  padding: 5px 14px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+.btn.btn-accent {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.btn.btn-accent:hover {
+  filter: brightness(1.08);
+}
+
+.eq-status {
+  font-size: 11px;
+  color: var(--text);
+  background: var(--bg-panel-alt);
+  border-radius: 4px;
+  padding: 6px 9px;
+}
+.eq-status.error {
+  color: var(--danger, #c0392b);
+  background: color-mix(in srgb, var(--danger, #c0392b) 12%, transparent);
+}
+
+.placeholder-note {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  font-style: italic;
+  margin: 6px 0;
+}
+
+/* --------------------------------------------------------------------------
+   Right-click context menu (personalized per active panel)
+   -------------------------------------------------------------------------- */
+.context-menu {
+  position: fixed;
+  z-index: 500;
+  min-width: 190px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  box-shadow: 0 8px 24px rgba(51, 42, 31, 0.22);
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+}
+
+.context-menu-heading {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-dim);
+  padding: 5px 9px 3px;
+}
+
+.context-menu-item {
+  text-align: left;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 11.5px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.context-menu-item:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+.context-menu-item:disabled {
+  color: var(--text-dim);
+  opacity: 0.5;
+  cursor: default;
+}
+.context-menu-item.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger, #c0392b) 14%, transparent);
+  color: var(--danger, #c0392b);
+}
+
+.context-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
+}
+
+.catalog-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.catalog-table th {
+  text-align: left;
+  color: var(--text-dim);
+  font-weight: 600;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.catalog-table td {
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.catalog-filter {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 4px 0 8px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--text);
+  background: var(--surface-2, var(--surface));
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+}
+
+.catalog-run {
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+/* --------------------------------------------------------------------------
+   Modals + forms
+   -------------------------------------------------------------------------- */
+
+/* Non-blocking dialog layer: the scrim only positions the dialog and lets every
+   pointer event through, so the user can keep working in the app while a dialog
+   is open (Techlog-style). Only the dialog itself captures the pointer. */
+.modal-scrim {
+  position: fixed;
+  inset: 0;
+  background: transparent;
+  pointer-events: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 7vh;
+  z-index: 100;
+}
+
+.modal-dialog {
+  pointer-events: auto;
+  max-width: 94vw;
+  max-height: 84vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel-alt);
+  border-radius: 6px 6px 0 0;
+  cursor: move;
+  user-select: none;
+}
+
+/* ---------- Layout Properties dialog ---------- */
+.lp-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: min(560px, 72vh);
+}
+
+.lp-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.lp-col {
+  flex: 0 0 200px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-panel-alt);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.lp-col-head {
+  display: flex;
+  gap: 4px;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.lp-iconbtn {
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-panel);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lp-iconbtn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.lp-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.lp-item {
+  padding: 7px 9px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  cursor: pointer;
+  margin-bottom: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  color: var(--text);
+}
+
+.lp-item:hover {
+  background: var(--accent-soft);
+}
+
+.lp-item.selected {
+  background: var(--accent);
+  color: #fff;
+}
+
+.lp-item-dim {
+  opacity: 0.65;
+  font-size: 10.5px;
+}
+
+.lp-detail {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 18px;
+  min-height: 0;
+  background: var(--bg-panel);
+}
+
+.lp-fieldgrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px 16px;
+  margin-bottom: 16px;
+}
+
+.lp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lp-field label {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.lp-field input,
+.lp-field select {
+  font-family: inherit;
+  font-size: 12.5px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-app);
+  color: var(--text);
+  width: 100%;
+}
+
+.lp-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-dim);
+  margin: 0 0 8px;
+}
+
+.lp-curvetable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+
+.lp-curvetable th {
+  text-align: left;
+  font-size: 10px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  font-weight: 600;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.lp-curvetable td {
+  padding: 4px 4px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.lp-curvetable input[type="text"],
+.lp-curvetable input[type="number"],
+.lp-curvetable select {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11.5px;
+  padding: 4px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-app);
+  color: var(--text);
+  width: 100%;
+}
+
+.lp-curvetable input[type="color"] {
+  width: 30px;
+  height: 24px;
+  padding: 1px;
+  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+  cursor: pointer;
+}
+
+.lp-curvetable td.lp-num {
+  width: 62px;
+}
+
+.lp-curvetable td.lp-tiny {
+  width: 34px;
+  text-align: center;
+}
+
+.lp-btn {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: 5px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-panel-alt);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.lp-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.lp-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.lp-btn.primary:hover {
+  filter: brightness(1.08);
+  color: #fff;
+}
+
+.lp-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 0 0;
+}
+
+.modal-head h3 {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.modal-close:hover {
+  color: var(--warn);
+}
+
+.modal-body {
+  padding: 12px 14px;
+  overflow-y: auto;
+}
+
+.modal-body h4 {
+  margin: 12px 0 4px;
+  font-size: 11.5px;
+  color: var(--text);
+}
+
+.modal-doc {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin: 0 0 10px;
+  line-height: 1.45;
+}
+
+.modal-hint {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  margin: 8px 0;
+}
+
+.modal-result {
+  margin-top: 10px;
+  font-size: 11px;
+}
+
+.result-ok {
+  color: var(--accent2);
+  padding: 1px 0;
+}
+
+.result-fail {
+  color: var(--warn);
+  padding: 1px 0;
+}
+
+.form-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 7px;
+}
+
+.form-label {
+  flex: 0 0 180px;
+  font-size: 11px;
+  color: var(--text);
+}
+
+.form-control {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-app);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 4px 7px;
+  font-size: 11.5px;
+  font-family: inherit;
+}
+
+.form-control:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.form-run-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 18px;
+  font-size: 11.5px;
+  cursor: pointer;
+  margin-top: 6px;
+}
+
+.form-run-btn:hover {
+  background: var(--accent-dim);
+}
+
+.form-run-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.well-checklist {
+  flex: 1;
+  max-height: 110px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 4px 7px;
+  background: var(--bg-app);
+}
+
+.well-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text);
+  padding: 1.5px 0;
+  cursor: pointer;
+}
+
+/* --------------------------------------------------------------------------
+   Zones dialog + pay summary tables
+   -------------------------------------------------------------------------- */
+
+.zone-actions {
+  margin-bottom: 6px;
+}
+
+.zone-add-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.zone-add-row .form-control {
+  flex: 1;
+}
+
+.zone-add-row .form-run-btn {
+  margin-top: 0;
+  white-space: nowrap;
+}
+
+.zone-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  margin: 4px 0 8px;
+}
+
+.zone-table th {
+  text-align: left;
+  color: var(--text-dim);
+  font-weight: 600;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.zone-table td {
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
+.zone-empty {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.zone-del {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.zone-del:hover {
+  color: var(--warn);
+}
+
+.summary-table-wrap {
+  overflow-x: auto;
+  margin-top: 8px;
+}
+
+.summary-table {
+  border-collapse: collapse;
+  font-size: 10.5px;
+  white-space: nowrap;
+  width: 100%;
+}
+
+.summary-table th {
+  text-align: right;
+  padding: 4px 8px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border-strong);
+  position: sticky;
+  top: 0;
+  background: var(--bg-panel);
+}
+
+.summary-table th:nth-child(-n + 3),
+.summary-table td:nth-child(-n + 3) {
+  text-align: left;
+}
+
+.summary-table td {
+  text-align: right;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.summary-table tr.flag-pay td {
+  background: var(--accent2-soft);
+  font-weight: 600;
+}
+
+/* --------------------------------------------------------------------------
+   Field Dashboard panel
+   -------------------------------------------------------------------------- */
+.dock-dashboard {
+  padding: 0;
+}
+.dashboard {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.dashboard-controls {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg-panel-alt);
+  border-bottom: 1px solid var(--border);
+}
+
+.dash-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.dash-num,
+.dash-sel {
+  background: var(--bg-app);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 11.5px;
+  font-family: inherit;
+}
+.dash-num {
+  width: 68px;
+}
+.dashboard-controls .btn {
+  align-self: flex-end;
+}
+
+.dashboard-status {
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dashboard-body {
+  flex: 1;
+  overflow: auto;
+  padding: 4px 12px 16px;
+}
+
+.dashboard-section {
+  margin-top: 14px;
+}
+.dashboard-section h4 {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.2px;
+}
+
+.dashboard-empty {
+  padding: 18px 4px;
+  font-size: 11.5px;
+  font-style: italic;
+  color: var(--text-dim);
+}
+
+.dashboard-grid th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+.dashboard-grid th.sortable:hover {
+  color: var(--accent);
+}
+
+/* Box plots (inline SVG, theme-aware). */
+.dashboard-boxplot {
+  margin-top: 6px;
+  max-width: 620px;
+}
+.dashboard-boxplot .bp-label {
+  fill: var(--text);
+  font-size: 10px;
+  font-weight: 600;
+}
+.dashboard-boxplot .bp-value,
+.dashboard-boxplot .bp-axis {
+  fill: var(--text-dim);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+.dashboard-boxplot .bp-box {
+  fill: var(--accent2-soft);
+  stroke: var(--accent);
+  stroke-width: 1;
+}
+.dashboard-boxplot .bp-median {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.dashboard-boxplot .bp-whisker,
+.dashboard-boxplot .bp-cap {
+  stroke: var(--text-dim);
+  stroke-width: 1;
+}
+
+/* --------------------------------------------------------------------------
+   Parameter-selection plots
+   -------------------------------------------------------------------------- */
+
+.plot-toolbar {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.plot-toolbar .form-row {
+  margin-bottom: 0;
+}
+
+.plot-toolbar .form-label {
+  flex: 0 0 auto;
+}
+
+.plot-toolbar .form-control {
+  width: 130px;
+  flex: 0 0 auto;
+}
+
+/* --------------------------------------------------------------------------
+   Database Inspector (Geolog "Text"-style editable grid)
+   -------------------------------------------------------------------------- */
+
+.dbinspector {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 8px 10px;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.dbi-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 0 0 auto;
+}
+
+.dbi-scope {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.dbi-spacer {
+  flex: 1;
+}
+
+.dbi-pageinfo {
+  font-size: 11px;
+  color: var(--text-dim);
+  min-width: 90px;
+  text-align: center;
+}
+
+.dbi-grid {
+  flex: 1;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-panel);
+}
+
+.dbgrid {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 11px;
+}
+
+.dbgrid th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-panel-alt);
+  color: var(--text);
+  text-align: left;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-strong);
+  white-space: nowrap;
+}
+
+.dbgrid th.editable::after {
+  content: " ✎";
+  color: var(--text-dim);
+  font-size: 9px;
+}
+
+.dbgrid td {
+  padding: 2px 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.dbgrid td.null {
+  color: var(--text-dim);
+}
+
+.dbgrid td.editable {
+  cursor: cell;
+}
+
+.dbgrid td.editable:hover {
+  background: var(--accent-soft);
+}
+
+.dbgrid-edit {
+  width: 100%;
+  border: 1px solid var(--accent);
+  background: var(--bg-panel);
+  color: var(--text);
+  font: inherit;
+  padding: 1px 4px;
+  box-sizing: border-box;
+}
+
+/* SQL query console. */
+.sql-input {
+  flex: 0 0 auto;
+  min-height: 110px;
+  resize: vertical;
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 11.5px;
+  color: var(--text);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+
+/* CodeMirror equation editor host (replaces the plain textarea). */
+.eq-editor {
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  margin: 4px 0 8px;
+  overflow: hidden;
+}
+
+.eq-editor .cm-editor {
+  min-height: 150px;
+  max-height: 320px;
+  font-size: 12px;
+  background: var(--bg-panel);
+  color: var(--text);
+}
+
+.eq-editor .cm-editor .cm-scroller {
+  font-family: Consolas, "Cascadia Mono", monospace;
+  overflow: auto;
+}
+
+.eq-editor .cm-editor.cm-focused {
+  outline: 1px solid var(--accent);
+}
+
+.eq-editor .cm-gutters {
+  background: var(--bg-panel-alt);
+  color: var(--text-dim);
+  border-right: 1px solid var(--border);
+}
+
+/* Statistics chips (histogram): toggle to show a stat's value + marker line. */
+.stat-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 2px 0 8px;
+}
+
+.stat-chip {
+  border: 1px solid var(--border-strong);
+  background: none;
+  border-radius: 12px;
+  padding: 3px 10px;
+  font-size: 10.5px;
+  font-family: inherit;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.stat-chip.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Plot properties row (crossplot: regression, log axes, point size, ranges). */
+.plot-props {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin: 2px 0 8px;
+}
+
+.chk-field {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.plot-props .form-control {
+  width: 58px;
+  flex: 0 0 auto;
+}
+
+/* Multi-well correlation panel: props row + a canvas that fills the rest. */
+.correlation-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 8px 10px;
+}
+
+.correlation-canvas-host {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.correlation-canvas-host canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+}
+
+.correlation-panel .plot-props .form-control {
+  width: auto;
+  min-width: 46px;
+  max-width: 190px;
+}
+
+.correlation-panel .plot-props input.num-field {
+  width: 62px;
+}
+
+/* Well checklist inside the floating menu (reuses the module dialog's row style). */
+.dock-add-menu .well-check {
+  padding: 3px 8px;
+  white-space: nowrap;
+}
+
+.plot-canvas {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: crosshair;
+}
+
+/* Histogram / crossplot / Pickett panels: a flex column so the canvas fills all remaining
+   panel height (the toolbar/props/chips/hint/pick rows keep their intrinsic size). The
+   canvas backing store is then sized to this real area at HiDPI (fitCanvasBackingStore),
+   so plots render crisply instead of being a fixed bitmap the panel stretches. */
+.plot-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.plot-content .plot-canvas {
+  flex: 1 1 auto;
+  min-height: 180px;
+  height: auto;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Well groups: the group bar in the Wells pane + the manager dialog.          */
+/* -------------------------------------------------------------------------- */
+.tree-group-bar {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding: 4px 4px 6px;
+}
+
+.tree-group-select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tree-group-manage {
+  flex: 0 0 auto;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-subtle, transparent);
+  color: var(--text);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 3px 7px;
+  font-size: 13px;
+  line-height: 1;
+}
+.tree-group-manage:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.well-group-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wg-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.wg-row {
+  display: grid;
+  grid-template-columns: 26px 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-top: 1px solid var(--border);
+}
+.wg-row:first-child {
+  border-top: none;
+}
+.wg-header {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-dim);
+  background: var(--bg-subtle, transparent);
+}
+.wg-editing {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.wg-active-col {
+  display: flex;
+  justify-content: center;
+}
+.wg-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: default;
+}
+.wg-count {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.wg-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.wg-btn {
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 2px 7px;
+  font-size: 12px;
+}
+.wg-btn:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.wg-danger:hover {
+  background: var(--warn);
+  border-color: var(--warn);
+}
+
+.wg-new-row {
+  display: flex;
+  gap: 6px;
+}
+.wg-new-row .form-control {
+  flex: 1 1 auto;
+}
+
+.wg-members-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.wg-members-controls {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.wg-members-controls .form-control {
+  flex: 1 1 auto;
+}
+.wg-well-list {
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 6px;
+}
+.wg-well-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  cursor: pointer;
+}
+.wg-save-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+.wg-save-row span {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.pick-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  margin-top: 4px;
+  cursor: pointer;
+}
+
+.pick-row.pick-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.pick-swatch {
+  width: 14px;
+  height: 4px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+
+.pick-label {
+  font-size: 11px;
+  color: var(--text);
+  flex: 0 0 70px;
+}
+
+.pick-value {
+  font-size: 11px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  flex: 0 0 80px;
+  text-align: right;
+}
+
+.pick-param {
+  flex: 0 0 120px;
+}
+
+.pick-set {
+  margin-top: 0;
+  padding: 3px 12px;
+}
+
+/* --------------------------------------------------------------------------
+   Scrollbars (WebView2 / Chromium)
+   -------------------------------------------------------------------------- */
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+  background-clip: content-box;
+}
+
+/* Composite log preview: scrollable page surface inside the export dialog. */
+.composite-preview {
+  margin-top: 8px;
+  max-height: 46vh;
+  overflow: auto;
+  background: var(--panel-2, #f4f4f4);
+  padding: 8px;
+  border-radius: 4px;
+  display: flex;
+  justify-content: center;
+}
+.composite-preview svg {
+  max-width: 100%;
+  background: #fff;
+}
+
+/* ---------- Workflow Builder dialog ---------- */
+.workflow-saved-row,
+.workflow-add-row,
+.workflow-save-row,
+.workflow-run-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.workflow-saved-row select,
+.workflow-add-row select {
+  flex: 1;
+}
+.workflow-save-row input {
+  flex: 1;
+}
+.workflow-steps {
+  list-style: none;
+  margin: 6px 0 12px;
+  padding: 0;
+  border: 1px solid var(--border, #d8d2c4);
+  border-radius: 4px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+.workflow-step {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border-bottom: 1px solid var(--border, #e6e0d2);
+}
+.workflow-step:last-child {
+  border-bottom: none;
+}
+.workflow-step-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 5px 8px;
+}
+.workflow-step-title {
+  font-size: 13px;
+}
+.workflow-step-badge {
+  flex: 1;
+  font-size: 11px;
+  color: var(--muted, #8a8170);
+}
+.workflow-step-badge-set {
+  color: var(--accent, #b5651d);
+  font-weight: 600;
+}
+.workflow-step-ctrls {
+  display: flex;
+  gap: 3px;
+}
+.workflow-step-editor {
+  padding: 6px 8px 8px;
+  background: var(--surface-2, rgba(0, 0, 0, 0.03));
+  border-top: 1px dashed var(--border, #e6e0d2);
+}
+.workflow-editor-row {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.workflow-editor-row label {
+  font-size: 12px;
+  color: var(--muted, #6f6858);
+  cursor: help;
+}
+.workflow-editor-row select,
+.workflow-editor-row input {
+  width: 100%;
+  font-size: 12px;
+  padding: 2px 4px;
+}
+.workflow-invalid {
+  border-color: #c0392b !important;
+  background: rgba(192, 57, 43, 0.08);
+}
+.workflow-editor-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+}
+.workflow-editor-outputs {
+  font-size: 11px;
+  color: var(--muted, #8a8170);
+}
+.workflow-empty {
+  padding: 10px;
+  color: var(--muted, #8a8170);
+  font-size: 12px;
+  text-align: center;
+}
+.workflow-mini {
+  min-width: 24px;
+  padding: 2px 6px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+.workflow-mini:disabled {
+  opacity: 0.35;
+}
+.workflow-wells {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 10px;
+  max-height: 130px;
+  overflow-y: auto;
+  padding: 6px 8px;
+  border: 1px solid var(--border, #d8d2c4);
+  border-radius: 4px;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+.workflow-wells-head {
+  display: flex;
+  gap: 6px;
+}
+.workflow-run-row {
+  margin-top: 6px;
+}
+.workflow-run-row .primary {
+  font-weight: 600;
+}
+.workflow-dialog progress {
+  width: 100%;
+  margin: 8px 0 4px;
+}
+.workflow-status {
+  font-size: 12px;
+  color: var(--muted, #6f6857);
+  min-height: 16px;
+}
+
+/* --- Monte Carlo dialog --------------------------------------------------- */
+.mc-dialog {
+  max-width: 620px;
+}
+.mc-chain-note {
+  font-size: 12px;
+  color: var(--accent, #b5651d);
+  margin: 2px 0 8px;
+}
+.mc-params {
+  border: 1px solid var(--border, #d8d2c4);
+  border-radius: 4px;
+  margin: 6px 0 12px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.mc-param-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border, #e6e0d2);
+}
+.mc-param-row:last-child {
+  border-bottom: none;
+}
+.mc-param-row > select {
+  font-size: 12px;
+}
+.mc-dist-fields {
+  display: flex;
+  gap: 6px;
+  flex: 1;
+}
+.mc-field {
+  display: flex;
+  flex-direction: column;
+  font-size: 10px;
+  color: var(--text-dim, #6f6857);
+  gap: 1px;
+}
+.mc-field input {
+  width: 72px;
+  font-size: 12px;
+  padding: 2px 4px;
+}
+.mc-rm {
+  margin-left: auto;
+}
+.mc-empty {
+  padding: 10px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted, #8a8170);
+}
+.mc-mini {
+  font-size: 12px;
+  padding: 2px 8px;
+}
+.mc-wells {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 10px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.mc-settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+}
+.mc-run-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 4px;
+}
+.mc-status {
+  font-size: 12px;
+  color: var(--text-dim, #6f6857);
+}
+.mc-results {
+  margin-top: 8px;
+}
+.mc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.mc-table th,
+.mc-table td {
+  border: 1px solid var(--border, #e6e0d2);
+  padding: 3px 6px;
+  text-align: right;
+  white-space: nowrap;
+}
+.mc-table th:first-child,
+.mc-table td:first-child,
+.mc-table th:nth-child(2),
+.mc-table td:nth-child(2) {
+  text-align: left;
+}
+.mc-table th {
+  background: var(--bg-panel-alt, #e9dfc8);
+  color: var(--text-dim, #6f6857);
+  font-weight: 600;
+}
+.mc-row-click {
+  cursor: pointer;
+}
+.mc-row-click:hover {
+  background: var(--bg-hover, #f1ddc4);
+}
+.mc-row-sel {
+  background: var(--accent-soft, #f1ddc4);
+}
+.mc-hist-wrap {
+  margin-top: 10px;
+}
+.mc-hist-caption {
+  font-size: 11px;
+  color: var(--text-dim, #6f6857);
+  margin-bottom: 3px;
+}
+.mc-hist {
+  width: 100%;
+  height: 200px;
+  border: 1px solid var(--border, #e6e0d2);
+  border-radius: 3px;
+  background: var(--bg-panel, #fbf7ee);
+}
+
+/* --------------------------------------------------------------------------
+   Quick access toolbar (undo / redo / save / history) — left of the ribbon tabs
+   -------------------------------------------------------------------------- */
+.qat {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  margin-right: 8px;
+  padding-right: 8px;
+  border-right: 1px solid var(--border);
+}
+.qat-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.qat-btn svg {
+  width: 16px;
+  height: 16px;
+}
+.qat-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+.qat-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.qat-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 3px;
+  background: var(--border);
+}
+
+/* --------------------------------------------------------------------------
+   Plot image export + template controls (histogram / crossplot / pickett / correlation)
+   -------------------------------------------------------------------------- */
+.plot-export-group,
+.plot-template-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.plot-export-btn {
+  border: 1px solid var(--border-strong);
+  background: var(--bg-panel);
+  color: var(--text);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 3px 8px;
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.plot-export-btn:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.plot-template-select {
+  width: 150px !important;
+  flex: 0 0 auto;
+}
+
+/* --------------------------------------------------------------------------
+   Well lock (pin) in the Wells & Tops group bar
+   -------------------------------------------------------------------------- */
+.tree-lock-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.tree-well.tree-pinned {
+  font-weight: 600;
+}
+
+/* --------------------------------------------------------------------------
+   Processing history panel
+   -------------------------------------------------------------------------- */
+.history-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.history-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.history-spacer {
+  flex: 1 1 auto;
+}
+.history-count {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.history-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 2px 0;
+}
+.history-empty {
+  padding: 14px;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.history-row {
+  display: grid;
+  grid-template-columns: 64px 74px 1fr;
+  gap: 8px;
+  align-items: baseline;
+  padding: 3px 8px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.history-row:hover {
+  background: var(--bg-hover);
+}
+.history-time {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.history-kind {
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.4px;
+}
+.history-kind-import,
+.history-kind-export {
+  color: var(--accent2);
+}
+.history-detail {
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+/* --------------------------------------------------------------------------
+   Session picker (Open Session modal) — saved workspace snapshots
+   -------------------------------------------------------------------------- */
+.session-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 320px;
+  overflow-y: auto;
+  margin-top: 6px;
+}
+.session-empty {
+  padding: 14px;
+  color: var(--text-dim);
+  font-size: 12px;
+  text-align: center;
+}
+.session-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+.session-open-btn {
+  flex: 1 1 auto;
+  text-align: left;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.session-open-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+.session-del-btn {
+  flex: 0 0 auto;
+  width: 34px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-panel);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.session-del-btn:hover {
+  background: var(--bg-hover);
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+/* --------------------------------------------------------------------------
+   Multimin dialog — tool rows + editable endpoint matrix
+   -------------------------------------------------------------------------- */
+.mm-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.mm-tool-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.mm-tool-key {
+  width: 44px;
+  font-weight: 600;
+}
+.mm-tool-curve {
+  width: 80px;
+}
+.mm-tool-sigma {
+  width: 70px;
+}
+.mm-table-wrap {
+  max-height: 260px;
+  overflow: auto;
+}
+.mm-endpoints th,
+.mm-endpoints td {
+  padding: 2px 5px;
+  text-align: center;
+  white-space: nowrap;
+}
+.mm-endpoints .mm-comp-name {
+  text-align: left;
+  font-weight: 600;
+  position: sticky;
+  left: 0;
+  background: var(--bg-panel);
+}
+.mm-cell {
+  width: 62px;
+  text-align: right;
+}
+.mm-role {
+  width: 34px;
+}
+
+/* --- Multimin (Geolog-parity) dialog additions --- */
+.mm-columns {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.mm-comp-box {
+  flex: 0 0 200px;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+.mm-comp-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  padding: 1px 0;
+  cursor: pointer;
+}
+.mm-group-head {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  margin: 6px 0 3px;
+}
+.mm-badge {
+  font-size: 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 5px;
+  color: var(--text-dim);
+  margin-left: auto;
+}
+.mm-fluid {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px 8px;
+  margin-top: 8px;
+}
+.mm-fluid-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+.mm-fluid-cell {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+}
+.mm-fluid-cell span {
+  color: var(--text-dim);
+}
+.mm-fluid-preview {
+  margin-top: 6px;
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+  color: var(--text-dim);
+}
+.mm-cell-auto {
+  color: var(--text-dim);
+  text-align: center;
+  font-size: 11px;
+}
+.mm-add-custom {
+  margin-top: 6px;
+  font-size: 12px;
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  padding: 3px 10px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.mm-add-custom:hover {
+  color: var(--text);
+  border-color: var(--accent);
 }

@@ -1,0 +1,269 @@
+//! Saturation-height modeling (Geolog PT11 equivalent): core capillary-pressure data
+//! (`scal_pc` table), Leverett-J function fitting, and the `sw_height` module that
+//! writes a saturation-vs-height-above-FWL curve (SWH).
+//!
+//! Conventions: Pc in psi, IFT (sigma*cos theta) in dyn/cm, perm in mD, porosity v/v,
+//! depths/heights in metres (converted to ft only inside the Pc gradient formula).
+//! J = 0.21645 * (Pc / IFT) * sqrt(k / phi)   (the classic oilfield-unit Leverett J)
+//! Pc_res = 0.433 * (RHO_W - RHO_HC) * h_ft   (psi; 0.433 psi/ft per unit sp. gravity)
+
+use crate::modules::{log_in, log_out, opt, param, ModuleContext, ModuleOutputs, ModuleSpec};
+use serde::Serialize;
+use std::collections::HashMap;
+
+const J_CONST: f64 = 0.21645;
+const PSI_PER_FT_PER_SG: f64 = 0.433;
+const FT_PER_M: f64 = 3.28084;
+
+// ---------------------------------------------------------------------------
+// Leverett-J fit: Sw = A * J^B by least squares in log-log space
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LeverettFit {
+    pub a: f64,
+    pub b: f64,
+    pub r2: f64,
+    pub n_points: usize,
+}
+
+/// One core capillary-pressure measurement (a row of `scal_pc`).
+#[derive(Clone)]
+pub struct ScalPoint {
+    pub pc: f32,   // psi (lab system)
+    pub sw: f32,   // v/v
+    pub perm: f32, // mD
+    pub poro: f32, // v/v
+}
+
+/// Fits Sw = A * J^B over all valid points (Sw and J strictly positive, Sw <= 1),
+/// with J computed from each sample's own perm/poro at the LAB interfacial tension.
+/// Log-log linear regression: ln Sw = ln A + B ln J. Returns None with < 3 usable points.
+pub fn fit_leverett_j(points: &[ScalPoint], ift_lab: f64) -> Option<LeverettFit> {
+    if ift_lab <= 0.0 {
+        return None;
+    }
+    let mut xs = Vec::new(); // ln J
+    let mut ys = Vec::new(); // ln Sw
+    for p in points {
+        let (pc, sw, k, phi) = (p.pc as f64, p.sw as f64, p.perm as f64, p.poro as f64);
+        if !(pc > 0.0 && sw > 0.0 && sw <= 1.0 && k > 0.0 && phi > 0.0) {
+            continue;
+        }
+        let j = J_CONST * pc / ift_lab * (k / phi).sqrt();
+        if j > 0.0 && j.is_finite() {
+            xs.push(j.ln());
+            ys.push(sw.ln());
+        }
+    }
+    let n = xs.len();
+    if n < 3 {
+        return None;
+    }
+    let nf = n as f64;
+    let sx: f64 = xs.iter().sum();
+    let sy: f64 = ys.iter().sum();
+    let sxx: f64 = xs.iter().map(|x| x * x).sum();
+    let sxy: f64 = xs.iter().zip(&ys).map(|(x, y)| x * y).sum();
+    let denom = nf * sxx - sx * sx;
+    if denom.abs() < 1e-12 {
+        return None;
+    }
+    let b = (nf * sxy - sx * sy) / denom;
+    let ln_a = (sy - b * sx) / nf;
+
+    // R² in log space (where the fit was done).
+    let mean_y = sy / nf;
+    let ss_tot: f64 = ys.iter().map(|y| (y - mean_y).powi(2)).sum();
+    let ss_res: f64 =
+        xs.iter().zip(&ys).map(|(x, y)| (y - (ln_a + b * x)).powi(2)).sum();
+    let r2 = if ss_tot > 0.0 { 1.0 - ss_res / ss_tot } else { 1.0 };
+
+    Some(LeverettFit { a: ln_a.exp(), b, r2, n_points: n })
+}
+
+// ---------------------------------------------------------------------------
+// SW_HEIGHT — saturation from height above the free-water level
+// ---------------------------------------------------------------------------
+
+pub(crate) fn sw_height_spec() -> ModuleSpec {
+    ModuleSpec {
+        name: "sw_height".into(),
+        title: "SW — Saturation-Height".into(),
+        category: "Saturation".into(),
+        doc: "SWH from height above the free-water level. LEVERETT: Pc = 0.433*(RHO_W-RHO_HC)*h_ft, \
+              J = 0.21645*Pc/IFT_RES*sqrt(PERM/PHIE), SWH = SWH_A * J^SWH_B (fit SWH_A/SWH_B from \
+              core Pc data via Import SCAL — the fit is reported there). SKELT (Skelt-Harrison): \
+              SWH = 1 - SH_A*exp(-(SH_B/(h+SH_D))^SH_C), h in metres. Below the FWL (h <= 0) \
+              SWH = 1. Result limited to [SWT_IRR, 1]. FWL is zone-overridable for stacked \
+              reservoirs with different contacts."
+            .into(),
+        args: vec![
+            opt("OPT_SWH", "Saturation-height model", "LEVERETT", &["LEVERETT", "SKELT"]),
+            param("FWL", "Free-water level depth (same reference as the well depth)", "m", 2000.0, 0.0, 20000.0),
+            param("RHO_W", "Water density", "g/cc", 1.0, 0.8, 1.3),
+            param("RHO_HC", "Hydrocarbon density", "g/cc", 0.8, 0.05, 1.1),
+            param("IFT_RES", "Reservoir sigma*cos(theta)", "dyn/cm", 26.0, 1.0, 500.0),
+            param("SWH_A", "Leverett coefficient A (from J-fit)", "", 0.5, 0.001, 100.0),
+            param("SWH_B", "Leverett exponent B (from J-fit, usually negative)", "", -0.4, -5.0, 0.0),
+            param("SH_A", "Skelt-Harrison A", "", 1.0, 0.0, 1.0),
+            param("SH_B", "Skelt-Harrison B", "m", 30.0, 0.1, 5000.0),
+            param("SH_C", "Skelt-Harrison C", "", 1.5, 0.1, 10.0),
+            param("SH_D", "Skelt-Harrison D", "m", 0.0, -100.0, 1000.0),
+            param("SWT_IRR", "Irreducible water saturation (lower clamp)", "v/v", 0.0, 0.0, 0.8),
+            log_in("PHIE", "Limited effective porosity", "v/v", "PHIE", true),
+            log_in("PERM", "Working permeability (LEVERETT only)", "mD", "PERM", false),
+            log_out("SWH", "Water saturation from height function", "v/v"),
+            log_out("HAFWL", "Height above free-water level", "m"),
+        ],
+    }
+}
+
+pub(crate) fn sw_height(ctx: &ModuleContext) -> ModuleOutputs {
+    let depth = ctx.log("DEPTH");
+    let phie = ctx.log("PHIE");
+    let perm = ctx.log("PERM");
+    let skelt = ctx.o("OPT_SWH") == "SKELT";
+
+    let mut swh_out = vec![f32::NAN; ctx.n];
+    let mut hafwl_out = vec![f32::NAN; ctx.n];
+
+    for i in 0..ctx.n {
+        let d = depth[i] as f64;
+        let pe = phie[i] as f64;
+        if d.is_nan() || pe.is_nan() {
+            continue;
+        }
+        let fwl = ctx.p("FWL", i);
+        let swt_irr = ctx.p("SWT_IRR", i);
+        let h = fwl - d; // metres above the FWL (negative below it)
+        hafwl_out[i] = h as f32;
+
+        if h <= 0.0 {
+            swh_out[i] = 1.0; // at/below the free-water level: fully water
+            continue;
+        }
+        // Tight/zero porosity carries no meaningful saturation-height signal.
+        if pe < 0.005 {
+            swh_out[i] = 1.0;
+            continue;
+        }
+
+        let sw = if skelt {
+            let a = ctx.p("SH_A", i);
+            let b = ctx.p("SH_B", i);
+            let c = ctx.p("SH_C", i);
+            let dd = ctx.p("SH_D", i);
+            if h + dd <= 0.0 {
+                1.0
+            } else {
+                1.0 - a * (-(b / (h + dd)).powf(c)).exp()
+            }
+        } else {
+            let k = perm[i] as f64;
+            if k.is_nan() || k <= 0.0 {
+                continue; // Leverett needs permeability
+            }
+            let rho_w = ctx.p("RHO_W", i);
+            let rho_hc = ctx.p("RHO_HC", i);
+            let ift = ctx.p("IFT_RES", i);
+            let pc = PSI_PER_FT_PER_SG * (rho_w - rho_hc) * (h * FT_PER_M);
+            if pc <= 0.0 || ift <= 0.0 {
+                continue;
+            }
+            let j = J_CONST * pc / ift * (k / pe).sqrt();
+            ctx.p("SWH_A", i) * j.powf(ctx.p("SWH_B", i))
+        };
+
+        swh_out[i] = sw.clamp(swt_irr.max(0.0), 1.0) as f32;
+    }
+
+    HashMap::from([("SWH".to_string(), swh_out), ("HAFWL".to_string(), hafwl_out)])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::modules::ArgKind;
+
+    fn ctx_from_spec(n: usize, logs: &[(&str, Vec<f32>)], overrides: &[(&str, f64)], opts: &[(&str, &str)]) -> ModuleContext {
+        let spec = sw_height_spec();
+        let mut params: HashMap<String, Vec<f64>> = spec
+            .args
+            .iter()
+            .filter(|a| a.kind == ArgKind::Param)
+            .map(|a| (a.name.clone(), vec![a.default.parse().unwrap(); n]))
+            .collect();
+        for (k, v) in overrides {
+            params.insert(k.to_string(), vec![*v; n]);
+        }
+        ModuleContext {
+            n,
+            logs: logs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect(),
+            params,
+            opts: opts.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+        }
+    }
+
+    #[test]
+    fn leverett_fit_recovers_synthetic_curve() {
+        // Generate points from a known Sw = 0.4 * J^-0.5 and check the fit recovers it.
+        let (a_true, b_true) = (0.4f64, -0.5f64);
+        let ift = 72.0;
+        let mut points = Vec::new();
+        for i in 1..=20 {
+            let pc = i as f64 * 2.0; // psi
+            let (k, phi) = (100.0f64, 0.25f64);
+            let j = J_CONST * pc / ift * (k / phi).sqrt();
+            let sw = (a_true * j.powf(b_true)).min(1.0);
+            points.push(ScalPoint { pc: pc as f32, sw: sw as f32, perm: k as f32, poro: phi as f32 });
+        }
+        let fit = fit_leverett_j(&points, ift).expect("fit");
+        // Points where Sw clamped to 1.0 dilute the fit slightly; stay within a few percent.
+        assert!((fit.b - b_true).abs() < 0.05, "b={}", fit.b);
+        assert!((fit.a - a_true).abs() / a_true < 0.15, "a={}", fit.a);
+        assert!(fit.r2 > 0.98, "r2={}", fit.r2);
+    }
+
+    #[test]
+    fn fit_rejects_degenerate_input() {
+        assert!(fit_leverett_j(&[], 72.0).is_none());
+        let bad = vec![ScalPoint { pc: -1.0, sw: 0.5, perm: 100.0, poro: 0.2 }; 5];
+        assert!(fit_leverett_j(&bad, 72.0).is_none());
+    }
+
+    #[test]
+    fn sw_height_leverett_transition_zone_shape() {
+        // Three samples: below FWL, just above, and far above. SWH must be 1 below the
+        // FWL and decrease with height above it.
+        let ctx = ctx_from_spec(
+            3,
+            &[
+                ("DEPTH", vec![2050.0, 1995.0, 1900.0]),
+                ("PHIE", vec![0.25, 0.25, 0.25]),
+                ("PERM", vec![200.0, 200.0, 200.0]),
+            ],
+            &[("FWL", 2000.0)],
+            &[("OPT_SWH", "LEVERETT")],
+        );
+        let out = sw_height(&ctx);
+        let swh = &out["SWH"];
+        assert_eq!(swh[0], 1.0, "below FWL is all water");
+        assert!(swh[1] > swh[2], "saturation decreases with height: {} vs {}", swh[1], swh[2]);
+        assert!(swh[2] >= 0.0 && swh[2] < 1.0);
+        assert!((out["HAFWL"][2] - 100.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn sw_height_skelt_needs_no_perm() {
+        let ctx = ctx_from_spec(
+            1,
+            &[("DEPTH", vec![1950.0]), ("PHIE", vec![0.2])], // no PERM log at all
+            &[("FWL", 2000.0)],
+            &[("OPT_SWH", "SKELT")],
+        );
+        let out = sw_height(&ctx);
+        let s = out["SWH"][0];
+        assert!(s.is_finite() && s > 0.0 && s <= 1.0, "SWH={s}");
+    }
+}

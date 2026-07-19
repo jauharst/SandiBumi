@@ -1,22 +1,27 @@
-import { invoke } from "@tauri-apps/api/core";
+import { setStatus } from "./state";
+import { initI18n } from "./i18n";
+import { applyStoredTheme } from "./theme";
+import { Ribbon } from "./ui/ribbon";
+import { Workspace } from "./ui/workspace";
+import { installUndoHotkeys } from "./undo";
+import { loadProcessLog } from "./processLog";
 
-let greetInputEl: HTMLInputElement | null;
-let greetMsgEl: HTMLElement | null;
-
-async function greet() {
-  if (greetMsgEl && greetInputEl) {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    greetMsgEl.textContent = await invoke("greet", {
-      name: greetInputEl.value,
-    });
-  }
-}
+// Apply the stored theme before first paint to avoid a flash of the wrong palette.
+applyStoredTheme();
 
 window.addEventListener("DOMContentLoaded", () => {
-  greetInputEl = document.querySelector("#greet-input");
-  greetMsgEl = document.querySelector("#greet-msg");
-  document.querySelector("#greet-form")?.addEventListener("submit", (e) => {
-    e.preventDefault();
-    greet();
-  });
+  const dockRoot = document.querySelector<HTMLElement>("#dock-root");
+  const ribbonEl = document.querySelector<HTMLElement>("#ribbon");
+  if (!dockRoot || !ribbonEl) {
+    console.error("App shell markup missing");
+    return;
+  }
+
+  // i18n first: its observer then covers everything the workspace/ribbon build.
+  initI18n();
+  const workspace = new Workspace(dockRoot);
+  new Ribbon(ribbonEl, workspace);
+  installUndoHotkeys(setStatus);
+  // Restore the project's processing history (async; the History panel updates when it lands).
+  void loadProcessLog();
 });

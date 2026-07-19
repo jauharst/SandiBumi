@@ -4,40 +4,388 @@
     <meta charset="UTF-8" />
     <link rel="stylesheet" href="/src/styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Tauri App</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <title>SandiBumi</title>
     <script type="module" src="/src/main.ts" defer></script>
   </head>
 
   <body>
-    <main class="container">
-      <h1>Welcome to Tauri</h1>
+    <div id="app-shell">
+      <div id="ribbon">
+        <div class="ribbon-tabstrip" role="tablist">
+          <span class="ribbon-brand"><img class="ribbon-logo" src="/logo-mark.svg" alt="SandiBumi" width="20" height="20" />SandiBumi</span>
+          <div class="qat" role="toolbar" aria-label="Quick access">
+            <button id="qat-undo" class="qat-btn" title="Undo (Ctrl+Z)" disabled>
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 6 3.5 9.5 7 13M3.5 9.5H12a4.5 4.5 0 0 1 0 9h-1"/></svg>
+            </button>
+            <button id="qat-redo" class="qat-btn" title="Redo (Ctrl+Y)" disabled>
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13 6l3.5 3.5L13 13M16.5 9.5H8a4.5 4.5 0 0 0 0 9h1"/></svg>
+            </button>
+            <span class="qat-sep"></span>
+            <button id="qat-save" class="qat-btn" title="Save Project As…">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M4 3h10l3 3v11H4V3Z"/><path d="M7 3v4h6V3M6 12h8v5H6v-5Z"/></svg>
+            </button>
+            <button id="qat-save-session" class="qat-btn" title="Save Session As… — the current panes, wells &amp; visualizations as a named workspace">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="14" height="14" rx="1.5"/><path d="M9 3v14M3 9h6"/><path d="M12.5 9.5v3.5M11 11.5l1.5 1.5 1.5-1.5"/></svg>
+            </button>
+            <button id="qat-open-session" class="qat-btn" title="Open Session… — restore a saved workspace (panes, wells, visualizations)">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6.5 8 6.5 9.5 8H17v8.5H3z"/><path d="M3 6.5V4h4l1.5 2"/></svg>
+            </button>
+            <span class="qat-sep"></span>
+            <button id="qat-history" class="qat-btn" title="Processing history — everything done in this project">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M10 6v4l2.5 2"/></svg>
+            </button>
+          </div>
+          <button class="ribbon-tab" data-tab="project">Project</button>
+          <button class="ribbon-tab" data-tab="data">Data</button>
+          <button class="ribbon-tab active" data-tab="petro">Petrophysics</button>
+          <button class="ribbon-tab" data-tab="advance">Advance</button>
+          <button class="ribbon-tab" data-tab="plot">Plot</button>
+          <button class="ribbon-tab" data-tab="view">View</button>
+        </div>
 
-      <div class="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/src/assets/vite.svg" class="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img
-            src="/src/assets/tauri.svg"
-            class="logo tauri"
-            alt="Tauri logo"
-          />
-        </a>
-        <a href="https://www.typescriptlang.org/docs" target="_blank">
-          <img
-            src="/src/assets/typescript.svg"
-            class="logo typescript"
-            alt="typescript logo"
-          />
-        </a>
+        <div class="ribbon-body">
+          <section class="ribbon-panel" data-panel="project" hidden>
+            <div class="ribbon-group">
+              <label class="ribbon-field">Theme
+                <select id="theme-select" class="ribbon-select">
+                  <optgroup label="Standard">
+                    <option value="light">Default</option>
+                    <option value="dark">Dark</option>
+                    <option value="system">System</option>
+                    <option value="white">White / Grey</option>
+                  </optgroup>
+                  <optgroup label="Client">
+                    <option value="pertamina">Pertamina</option>
+                    <option value="halliburton">Halliburton</option>
+                    <option value="schlumberger">Schlumberger</option>
+                    <option value="lapi-itb">LAPI ITB</option>
+                  </optgroup>
+                </select>
+              </label>
+              <span class="ribbon-group-caption">Appearance</span>
+            </div>
+            <div class="ribbon-group">
+              <label class="ribbon-field">Language
+                <!-- Option labels are native names on purpose — they are never translated. -->
+                <select id="language-select" class="ribbon-select" data-no-i18n>
+                  <option value="en">English</option>
+                  <option value="id">Bahasa Indonesia</option>
+                  <option value="su">Basa Sunda</option>
+                </select>
+              </label>
+              <span class="ribbon-group-caption">Language</span>
+            </div>
+          </section>
+
+          <section class="ribbon-panel" data-panel="data" hidden>
+            <div class="ribbon-group">
+              <div class="ribbon-btn-row">
+                <button id="import-las-btn" class="ribbon-btn">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M4 13v3a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-3M10 3v9M6.5 8.5 10 12l3.5-3.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <span class="ribbon-label">Import LAS…</span>
+                </button>
+                <button id="export-las-btn" class="ribbon-btn" title="Export the selected well's standard + computed curves as LAS 2.0">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M4 13v3a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-3M10 12V3M6.5 6.5 10 3l3.5 3.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <span class="ribbon-label">Export LAS…</span>
+                </button>
+                <button id="import-core-btn" class="ribbon-btn" title="Import routine core analysis (CPOR/CPERM/CGD/CSW) CSV for the selected well">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M6 3h6l3 3v11a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z M7 11l2.5 2.5L13 9" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <span class="ribbon-label">Import Core…</span>
+                </button>
+                <button id="import-scal-btn" class="ribbon-btn" title="Import SCAL capillary-pressure (Pc/Sw) CSV for the selected well and fit the Leverett J-function">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M6 3h6l3 3v11a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M7.5 14c2-.5 3.5-2.5 4-6" stroke-linecap="round"/>
+                  </svg>
+                  <span class="ribbon-label">Import SCAL…</span>
+                </button>
+                <button id="shift-core-btn" class="ribbon-btn" title="Shift the selected well's core plugs by a constant depth (core-to-log alignment; undoable)">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M6 4v12M6 16l-2-2.5M6 16l2-2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    <circle cx="13" cy="6" r="1.2"/><circle cx="14.5" cy="10" r="1.2"/><circle cx="13.5" cy="14" r="1.2"/>
+                  </svg>
+                  <span class="ribbon-label">Shift Core…</span>
+                </button>
+                <button id="import-dlis-btn" class="ribbon-btn" title="Import every curve from a DLIS file into the selected well (via dlisio)">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M4 6c0-1.1 2.7-2 6-2s6 .9 6 2-2.7 2-6 2-6-.9-6-2Z M4 6v8c0 1.1 2.7 2 6 2s6-.9 6-2V6" stroke-linejoin="round"/>
+                    <path d="M8.5 11.5 10 13l2.5-3" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <span class="ribbon-label">Import DLIS…</span>
+                </button>
+              </div>
+              <span class="ribbon-group-caption">Import / Export</span>
+            </div>
+            <div class="ribbon-group">
+              <div class="ribbon-btn-row">
+                <button id="import-deviation-btn" class="ribbon-btn" title="Import a deviation survey (MD/INC/AZI CSV) and compute TVD/TVDSS for the selected well">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M7 3v6c0 3 5 4 5 8" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M10 15l2 2 2-2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <span class="ribbon-label">Import Deviation…</span>
+                </button>
+                <button id="well-header-btn" class="ribbon-btn" title="Edit the selected well's header (field, TD, KB datum)">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <rect x="4" y="3" width="12" height="14" rx="1.5"/>
+                    <path d="M7 7h6M7 10h6M7 13h4" stroke-linecap="round"/>
+                  </svg>
+                  <span class="ribbon-label">Well Header…</span>
+                </button>
+              </div>
+              <span class="ribbon-group-caption">Well Data</span>
+            </div>
+            <div class="ribbon-group">
+              <div class="ribbon-btn-row">
+                <button id="open-wells-btn" class="ribbon-btn" title="Open the Wells &amp; Tops panel">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M6 3h8M10 3v10l-2.5 4h5L10 13" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M4 9h4M12 9h4" stroke-linecap="round"/>
+                  </svg>
+                  <span class="ribbon-label">Wells &amp; Tops</span>
+                </button>
+                <button id="open-inspector-btn" class="ribbon-btn" title="Open the Inspector (equations + curve catalog)">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <rect x="3" y="3" width="14" height="14" rx="1.5"/>
+                    <path d="M3 7h14M7 7v10" stroke-linecap="round"/>
+                  </svg>
+                  <span class="ribbon-label">Curve Catalog</span>
+                </button>
+                <button id="db-inspector-btn" class="ribbon-btn" title="Database Inspector — browse and edit every table (Geolog 'Text' style)">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <ellipse cx="10" cy="5" rx="6" ry="2.2"/>
+                    <path d="M4 5v10c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2V5M4 10c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2"/>
+                  </svg>
+                  <span class="ribbon-label">DB Inspector</span>
+                </button>
+                <button id="sql-query-btn" class="ribbon-btn" title="Read-only SQL console over the project database (full DuckDB SQL)">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M3 4h14v4H3zM3 8v8h14V8" stroke-linejoin="round"/>
+                    <path d="M6 12l2 2-2 2M10 16h4" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <span class="ribbon-label">SQL Query</span>
+                </button>
+              </div>
+              <span class="ribbon-group-caption">Manage</span>
+            </div>
+          </section>
+
+          <section class="ribbon-panel" data-panel="petro">
+            <div id="petro-modules"><!-- module buttons auto-generated from manifests --></div>
+            <div class="ribbon-group">
+              <button id="zones-btn" class="ribbon-btn">
+                <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M3 5h14M3 10h14M3 15h14" stroke-linecap="round"/>
+                </svg>
+                <span class="ribbon-label">Zones…</span>
+              </button>
+              <span class="ribbon-group-caption">Intervals</span>
+            </div>
+            <div class="ribbon-group">
+              <button id="paysum-btn" class="ribbon-btn">
+                <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <rect x="3" y="3" width="14" height="14" rx="1.5"/>
+                  <path d="M3 7.5h14M7.5 7.5V17M12.5 7.5V17" stroke-linecap="round"/>
+                </svg>
+                <span class="ribbon-label">Cutoffs &amp; Summary…</span>
+              </button>
+              <span class="ribbon-group-caption">Reporting</span>
+            </div>
+            <div class="ribbon-group">
+              <div class="ribbon-btn-row">
+              <button id="workflow-btn" class="ribbon-btn">
+                <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <rect x="3" y="3" width="6" height="4" rx="1"/>
+                  <rect x="11" y="8" width="6" height="4" rx="1"/>
+                  <rect x="3" y="13" width="6" height="4" rx="1"/>
+                  <path d="M9 5h4M9 15h4M14 7v1M6 7v6" stroke-linecap="round"/>
+                </svg>
+                <span class="ribbon-label">Workflow…</span>
+              </button>
+              <button id="montecarlo-btn" class="ribbon-btn">
+                <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M3 17V4M3 17h14" stroke-linecap="round"/>
+                  <rect x="5" y="11" width="2.4" height="6"/>
+                  <rect x="8.4" y="7" width="2.4" height="10"/>
+                  <rect x="11.8" y="9" width="2.4" height="8"/>
+                  <rect x="15.2" y="13" width="2.4" height="4"/>
+                </svg>
+                <span class="ribbon-label">Monte Carlo…</span>
+              </button>
+              <button id="dashboard-btn" class="ribbon-btn">
+                <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <rect x="3" y="3" width="6" height="6" rx="1"/>
+                  <rect x="11" y="3" width="6" height="6" rx="1"/>
+                  <rect x="3" y="11" width="6" height="6" rx="1"/>
+                  <rect x="11" y="11" width="6" height="6" rx="1"/>
+                </svg>
+                <span class="ribbon-label">Field Dashboard…</span>
+              </button>
+              </div>
+              <span class="ribbon-group-caption">Batch</span>
+            </div>
+          </section>
+
+          <section class="ribbon-panel" data-panel="advance" hidden>
+            <div id="advance-modules"><!-- SSC / SSPW / RtC / IMTS buttons auto-generated from manifests --></div>
+            <div class="ribbon-group">
+              <button id="multimin-btn" class="ribbon-btn" title="SandiMin — simultaneous probabilistic multi-mineral solver: N user-defined minerals/clays/fluids from density, neutron, sonic, GR, PEF, spectral and resistivity (CT/CXO) with hard unity + bound constraints">
+                <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M10 2.5 3 6.5v7L10 17.5 17 13.5v-7L10 2.5Z"/>
+                  <path d="M10 2.5v15M3 6.5l7 4 7-4M3 13.5l7-4 7 4" stroke-width="1"/>
+                </svg>
+                <span class="ribbon-label">SandiMin…</span>
+              </button>
+              <span class="ribbon-group-caption">Mineral Solver</span>
+            </div>
+            <div class="ribbon-group">
+              <button id="ml-btn" class="ribbon-btn" title="Supervised prediction (regression / classification) and unsupervised clustering / dimensionality reduction via scikit-learn">
+                <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <circle cx="4.5" cy="10" r="1.6"/>
+                  <circle cx="11" cy="4.5" r="1.6"/><circle cx="11" cy="10" r="1.6"/><circle cx="11" cy="15.5" r="1.6"/>
+                  <circle cx="16.5" cy="10" r="1.6"/>
+                  <path d="M6 9.2 9.5 5.4M6 10h3.4M6 10.8l3.5 3.9M12.6 5.4l3 3.3M12.6 10h2.3M12.6 14.6l3-3.3" stroke-linecap="round"/>
+                </svg>
+                <span class="ribbon-label">ML Models…</span>
+              </button>
+              <span class="ribbon-group-caption">Machine Learning</span>
+            </div>
+          </section>
+
+          <section class="ribbon-panel" data-panel="plot" hidden>
+            <div class="ribbon-group">
+              <div class="ribbon-btn-row">
+              <button id="new-logview-btn" class="ribbon-btn">
+                <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <rect x="3" y="3" width="14" height="14" rx="1"/>
+                  <path d="M7 3v14M12 3v14M8.5 6c1 2 0 4 1 6s0 3 .5 5" stroke-linecap="round"/>
+                </svg>
+                <span class="ribbon-label">New Log View</span>
+              </button>
+              <button id="save-layout-btn" class="ribbon-btn" title="Save the active log view's layout under a name (stored in the project database)">
+                <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M4 3h10l3 3v11H4V3Z" stroke-linejoin="round"/>
+                  <path d="M7 3v4h6V3" stroke-linejoin="round"/>
+                  <path d="M7 13h6M7 15.5h4" stroke-linecap="round"/>
+                </svg>
+                <span class="ribbon-label">Save Layout…</span>
+              </button>
+              <button id="layout-props-btn" class="ribbon-btn" title="Layout Properties — tracks, curves, colors, scales, fills">
+                <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <rect x="3" y="3" width="14" height="14" rx="1"/>
+                  <path d="M8 3v14M13 3v14M5.5 8h1.5M10 11h1.5M15 6.5h-2" stroke-linecap="round"/>
+                </svg>
+                <span class="ribbon-label">Properties…</span>
+              </button>
+              </div>
+              <span class="ribbon-group-caption">Log Views</span>
+            </div>
+            <div class="ribbon-group">
+              <label class="ribbon-field">Layout
+                <select id="layout-select"></select>
+              </label>
+              <span class="ribbon-group-caption">Active Layout</span>
+            </div>
+            <div class="ribbon-group">
+              <div class="ribbon-btn-row">
+                <button id="histogram-btn" class="ribbon-btn" title="Distribution + percentiles; pick GR_MA/GR_SH etc.">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M3 17V7h3v10M8 17V4h3v13M13 17v-7h3v7" stroke-linejoin="round"/>
+                    <path d="M2 17h16" stroke-linecap="round"/>
+                  </svg>
+                  <span class="ribbon-label">Histogram</span>
+                </button>
+                <button id="crossplot-btn" class="ribbon-btn" title="NPHI-RHOB and any curve pair, Z-colored; pick matrix/shale points">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M3 3v14h14" stroke-linecap="round"/>
+                    <circle cx="7" cy="12" r="1"/><circle cx="9.5" cy="9" r="1"/><circle cx="12" cy="11" r="1"/><circle cx="13.5" cy="6.5" r="1"/><circle cx="10.5" cy="13.5" r="1"/>
+                  </svg>
+                  <span class="ribbon-label">Crossplot</span>
+                </button>
+                <button id="pickett-btn" class="ribbon-btn" title="Log-log RT vs PHIE; pick the Sw=1 water line for Rw and M">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M3 3v14h14" stroke-linecap="round"/>
+                    <path d="M5 15 15 5" stroke-linecap="round"/>
+                    <circle cx="8" cy="10" r="1"/><circle cx="11" cy="9" r="1"/><circle cx="12.5" cy="12" r="1"/>
+                  </svg>
+                  <span class="ribbon-label">Pickett</span>
+                </button>
+              </div>
+              <span class="ribbon-group-caption">Parameter Selection</span>
+            </div>
+            <div class="ribbon-group">
+              <div class="ribbon-btn-row">
+                <button id="correlation-btn" class="ribbon-btn" title="Multi-well correlation: side-by-side strips with tops connected; flatten on a datum top">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <rect x="3" y="3" width="4" height="14" rx="0.5"/>
+                    <rect x="13" y="3" width="4" height="14" rx="0.5"/>
+                    <path d="M7 7l6 2M7 12l6 1" stroke-linecap="round" stroke-dasharray="2 1.5"/>
+                  </svg>
+                  <span class="ribbon-label">Correlation</span>
+                </button>
+              </div>
+              <span class="ribbon-group-caption">Multi-Well</span>
+            </div>
+            <div class="ribbon-group">
+              <div class="ribbon-btn-row">
+                <button id="composite-btn" class="ribbon-btn" title="Composite log plot at true print scale (1:200/500/1000) → preview and export SVG / PDF">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <rect x="4" y="2.5" width="12" height="15" rx="0.8"/>
+                    <path d="M7 6h6M7 9h6M7 12h6" stroke-linecap="round"/>
+                    <path d="M4 2.5v15" stroke-width="0.8"/>
+                  </svg>
+                  <span class="ribbon-label">Composite…</span>
+                </button>
+                <button id="report-btn" class="ribbon-btn" title="Full report PDF: cover + methodology table + zone parameters + pay summary + composite pages; batch export per well; PNG page export for slides">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M5 2.5h7l3 3v12H5z"/>
+                    <path d="M12 2.5v3h3"/>
+                    <path d="M7.5 9h5M7.5 11.5h5M7.5 14h3" stroke-linecap="round"/>
+                  </svg>
+                  <span class="ribbon-label">Report…</span>
+                </button>
+              </div>
+              <span class="ribbon-group-caption">Deliverables</span>
+            </div>
+          </section>
+
+          <section class="ribbon-panel" data-panel="view" hidden>
+            <!-- Depth scale / zoom / track width moved INTO each log view's own mini
+                 toolbar (logViewPanel.ts buildTools) so they act on that panel directly. -->
+            <div class="ribbon-group">
+              <div class="ribbon-btn-row">
+                <button id="new-window-btn" class="ribbon-btn" title="Add an empty window to the workspace — fill it with panels via its ＋ button or by dragging tabs in">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <rect x="3" y="5" width="11" height="11" rx="1"/>
+                    <path d="M16 8V4h-4M13 7l3-3" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <span class="ribbon-label">New Window</span>
+                </button>
+                <button id="reset-workspace-btn" class="ribbon-btn">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M4 10a6 6 0 1 1 1.76 4.24M4 14v-4h4" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <span class="ribbon-label">Reset Workspace</span>
+                </button>
+              </div>
+              <span class="ribbon-group-caption">Workspace</span>
+            </div>
+          </section>
+        </div>
       </div>
-      <p>Click on the Tauri logo to learn more about the framework</p>
 
-      <form class="row" id="greet-form">
-        <input id="greet-input" placeholder="Enter a name..." />
-        <button type="submit">Greet</button>
-      </form>
-      <p id="greet-msg"></p>
-    </main>
+      <div id="dock-root"></div>
+
+      <footer id="status-bar">Ready</footer>
+    </div>
+    <div id="modal-root" hidden></div>
   </body>
 </html>

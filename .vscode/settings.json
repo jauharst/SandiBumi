@@ -17,5 +17,6 @@
     "**/src-tauri/target": true,
     "**/node_modules": true,
     "**/dist": true
-  }
+  },
+  "claudeCodeChat.permissions.yoloMode": false
 }
