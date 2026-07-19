@@ -22,9 +22,20 @@ chart draws only when the plot axes actually match it (either orientation).
 - [ ] **APS Por-13/14** (APLC and FPLC variants listed separately).
 - [ ] **PEF: Lith-3/4** on a PEF-RHOB crossplot — quartz ~1.65-1.8, calcite ~5.08,
       dolomite ~3.1 curves with 10-pu labels.
-- [ ] More (sonic-neutron Por-20, density-sonic Por-22 with mineral points, Th-K
-      clay chart Lith-2, Pe-K / Pe-Th/K boxes Lith-1, Umaa-Rhomaa MID Lith-6) —
-      being validated; check the select for what's live in this build.
+- [ ] **Sonic-neutron Por-20** (both time-average AND field-observation families) on
+      a DT-NPHI crossplot — TA curves reproduce Wyllie with tf 190 to R² 0.99999.
+- [ ] **Density-sonic Por-22** (TA + FO) on a DT-RHOB crossplot, with the 7 mineral
+      points (Sylvite, Salt, Trona, Gypsum, Sulfur, Polyhalite, Anhydrite).
+- [ ] **Th-K clay chart Lith-2** on a POTA-THOR crossplot — the Th/K ratio fan is
+      drawn at the *labeled* ratios (the chartbook's own printed lines sag a few %
+      off their labels; ours are exact), plus the dashed clay/feldspar lines and
+      mineral-field labels. Judge your Mahakam illite/kaolinite mix against it.
+- [ ] **Pe-K and Pe-Th/K clay boxes Lith-1** (the Th/K variant needs the X axis in
+      log mode — turn on X log in Properties).
+- [ ] **Umaa-Rhomaa MID Lith-6** — the ternary triangle with 20/40/60/80 subdivisions
+      + K-feldspar/Barite/Anhydrite/Kaolinite/Illite/Salt points. Needs computed
+      UMAA/RHOMAA curves (equation engine for now; a dedicated module is a good next
+      increment if you want it).
 
 **Audit quick fixes** (from the full senior audit — see AUDIT-2026-07-20.md and
 ROADMAP §4b for the 35-finding backlog):
