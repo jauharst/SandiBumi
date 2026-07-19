@@ -477,6 +477,30 @@ export async function buildCrossplotContent(
     propsRow.appendChild(
       checkboxField("T-S triangle", opts.tsOverlay, (v) => {
         opts.tsOverlay = v;
+        // The construction lives on VSH (0–1) vs PHIT axes; on any other pair (e.g. the
+        // default NPHI-RHOB) it lands entirely off-scale and looks like nothing happened.
+        // Auto-switch the axes to a VSH/porosity pair when the well has one.
+        if (v && (!/VSH|VCL/i.test(xSel.value) || !/PHI/i.test(ySel.value))) {
+          const names = (sel: HTMLSelectElement) => [...sel.options].map((o) => o.value);
+          const pick = (cands: string[], pats: RegExp[]) => {
+            for (const p of pats) {
+              const hit = cands.find((n) => p.test(n));
+              if (hit) return hit;
+            }
+            return null;
+          };
+          const vsh = pick(names(xSel), [/^VSH$/i, /^VSH/i, /^VCL/i]);
+          const phi = pick(names(ySel), [/^PHIT$/i, /^PHIT/i, /^PHIE/i, /^PHI/i]);
+          if (vsh && phi) {
+            xSel.value = vsh;
+            ySel.value = phi;
+            setStatus(`T-S triangle: axes switched to ${vsh} vs ${phi}`);
+            persist();
+            xSel.dispatchEvent(new Event("change")); // one reload with both new axes
+            return;
+          }
+          setStatus("T-S triangle needs X = VSH and Y = PHIT — run VSH + Porosity modules first");
+        }
         persist();
         redraw();
       }),

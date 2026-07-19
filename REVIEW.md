@@ -26,15 +26,22 @@ Your full review is triaged in **ROADMAP.md §4** — these five landed immediat
       "Multimin — Mineral Inversion" is **removed from the Saturation dropdown** (mineral
       solving is independent of Sw); it still runs inside saved workflow chains. Tell me if
       you want the legacy one back as its own button.
-- [ ] **Typography question**: you said the text looks "a bit opaque" up close. Do you mean
-      (a) **blurry / not sharp** (likely Windows display-scaling in the WebView — tell me
-      your Settings → Display → Scale %), or (b) **too light / washed out** (I'd raise the
-      weight to semibold 600 or darken the text color)? One word back and I'll fix it.
+- [ ] **Blurry text fix** (your answer: blurry; your display is at 100% scale, so it's not
+      Windows scaling): the desktop app now launches WebView2 with `--enable-lcd-text`,
+      which forces ClearType subpixel antialiasing on GPU-composited panels (dockview
+      layers otherwise fall back to fuzzy grayscale smoothing). **Needs the `npm run tauri
+      dev` restart** (config change). Look closely at ribbon/dialog text afterward — if it
+      still reads soft, next steps are a base-size bump 12→13px and/or semibold.
+- [ ] **T-S triangle now appears** (your "not showing (?)"): the triangle is drawn on
+      VSH (0–1) vs PHIT axes — before, ticking it on the default NPHI-RHOB crossplot put
+      every line off-scale, so nothing visibly happened. Now ticking **T-S triangle**
+      auto-switches the X/Y axes to the well's VSH/PHIT curves (status bar tells you), and
+      if the well has no VSH/porosity curves yet it says to run those modules first.
+      Check: tick it on a fresh crossplot → axes flip, triangle + drag handles visible.
 
 Issues you marked `[x]` that need real work (all in ROADMAP §4, P1/P2): well-pin
-semantics rework, right-click lockdown (accidental refresh), T-S triangle (tell me what
-was wrong there), TVD depth scale UI. Everything you marked `[o]` has been cleared out
-of this file.
+semantics rework, right-click lockdown (accidental refresh), TVD depth scale UI.
+Everything you marked `[o]` has been cleared out of this file.
 
 ## Theme switch repaints everything immediately (2026-07-19)
 

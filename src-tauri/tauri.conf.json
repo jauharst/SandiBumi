@@ -16,7 +16,8 @@
         "title": "SandiBumi",
         "width": 800,
         "height": 600,
-        "dragDropEnabled": false
+        "dragDropEnabled": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --enable-lcd-text"
       }
     ],
     "security": {
