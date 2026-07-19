@@ -6,6 +6,31 @@ Work through this list when you have time; delete items as you confirm them.
 Marks: `[o]` confirmed OK (removed from this file), `[x]` confirmed wrong → logged in
 **ROADMAP.md §4 (Field-review backlog)**, `[ ]` not yet tested.
 
+## P2-f+ — D-N chartbook overlay (2026-07-20 #13)
+
+Digitized from the Schlumberger 2013 chartbook you sent (Por-11 fresh / Por-12 salt,
+extracted from the PDF's vector artwork — graduation-dash positions, not eyeballed;
+calcite identity check rms 0.13 pu, both charts' worked examples reproduce).
+
+- [ ] **Crossplot Properties → Overlays → D-N chart**: pick *Fresh mud (Por-11)* on an
+      NPHI-RHOB crossplot → quartz/calcite/dolomite curves appear with porosity
+      graduation dots + labels every 5 pu, dashed iso-porosity connectors, and curve
+      names written along the lines. Compare against your paper chartbook page 225.
+- [ ] **A real Mahakam sand interval** should plot on/left of the quartz sandstone line
+      (shale pulls points right/down toward higher NPHI). Crossplot porosity read off
+      the graduations should match your PHIE within ~1-2 pu in clean sand.
+- [ ] **Salt variant** (Por-12) shifts the curves left at high porosity — only relevant
+      if you ever work salt-mud wells; check it renders and the graduations differ from
+      Fresh.
+- [ ] **Zoom/pan**: the overlay must stay registered to the data under Ctrl+wheel zoom
+      (it's drawn in data space). Also check the flipped orientation (X=RHOB, Y=NPHI).
+- [ ] **Gating**: on a GR-RHOB plot or with a log axis the overlay silently stays off
+      (chart geometry only means something on linear NPHI-RHOB).
+- [ ] **Note**: the chartbook draws its dolomite curve for ρma **2.85** (validated
+      against the chart's own graduation ticks), while the *Matrix points* overlay keeps
+      the textbook single point at 2.87 — so Dol point and Dol curve start won't
+      coincide exactly. Tell me if you'd rather I move the matrix point to 2.85.
+
 ## Fix batch from your o/x review (2026-07-19 #2)
 
 Your full review is triaged in **ROADMAP.md §4** — these five landed immediately:

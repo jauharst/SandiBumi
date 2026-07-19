@@ -18,6 +18,7 @@ import {
   type ViewportRef,
 } from "./plotCanvas";
 import { parsePercentiles } from "./histogramPanel";
+import { DN_CHARTS, type DnMatrixCurve } from "./dnChartData";
 import {
   buildPlotTemplateBar,
   buildZoneSelect,
@@ -36,6 +37,7 @@ import { buildImageExportButtons } from "./plotExport";
 export type RegModel = "linear" | "power" | "logx" | "exp";
 export type RegMethod = "yx" | "xy" | "rma";
 export type SizeMode = "fill" | "fixed";
+export type DnOverlayKey = "none" | "fresh" | "salt";
 
 export interface CrossplotOptions {
   pointSize: number;
@@ -64,6 +66,9 @@ export interface CrossplotOptions {
   /** Qtz/Cal/Dol matrix reference points on an NPHI-RHOB plot — opt-in (universal:
    *  overlays only when requested). */
   matrixPoints: boolean;
+  /** Chartbook D-N porosity overlay (Por-11 fresh / Por-12 salt): matrix curves with
+   *  porosity graduations + iso-porosity connectors, on an NPHI-RHOB plot. */
+  dnOverlay: DnOverlayKey;
   /** Plot size: fill the panel (default) or a fixed pixel size (consistent exports). */
   sizeMode: SizeMode;
   plotW: number;
@@ -100,6 +105,7 @@ export const DEFAULT_CROSSPLOT_OPTIONS: CrossplotOptions = {
   tsPhiSd: 0.3,
   tsPhiSh: 0.15,
   matrixPoints: false,
+  dnOverlay: "none",
   sizeMode: "fill",
   plotW: 640,
   plotH: 480,
@@ -123,6 +129,7 @@ export function normalizeCrossplotOptions(raw: Partial<CrossplotOptions>): Cross
   if (!["linear", "power", "logx", "exp"].includes(opts.regModel)) opts.regModel = "linear";
   if (!["yx", "xy", "rma"].includes(opts.regMethod)) opts.regMethod = "yx";
   if (opts.sizeMode !== "fixed") opts.sizeMode = "fill";
+  if (!["none", "fresh", "salt"].includes(opts.dnOverlay)) opts.dnOverlay = "none";
   opts.plotW = Math.max(200, Math.min(2000, Math.round(opts.plotW) || DEFAULT_CROSSPLOT_OPTIONS.plotW));
   opts.plotH = Math.max(200, Math.min(2000, Math.round(opts.plotH) || DEFAULT_CROSSPLOT_OPTIONS.plotH));
   opts.bins = Math.max(5, Math.min(200, Math.round(opts.bins) || DEFAULT_CROSSPLOT_OPTIONS.bins));
@@ -299,6 +306,75 @@ const MATRIX_POINTS: { nphi: number; rhob: number; label: string }[] = [
   { nphi: 0.0, rhob: 2.71, label: "Cal" },
   { nphi: 0.02, rhob: 2.87, label: "Dol" },
 ];
+
+/** Chartbook D-N porosity overlay (Por-11/Por-12): quartz/calcite/dolomite matrix
+ *  curves with graduation dots every 5 pu and dashed iso-porosity connectors. The
+ *  digitized tables carry NPHI in p.u.; RHOB for a graduation is analytic from the
+ *  chart's own matrix/fluid densities (dolomite is drawn at 2.85 in the chartbook).
+ *  Everything is drawn in data space, so it stays registered under zoom/pan and on
+ *  either axis orientation. */
+function drawDnOverlay(plot: PlotCanvas, chartKey: "fresh" | "salt", flipped: boolean): void {
+  const chart = DN_CHARTS[chartKey];
+  const rhobOf = (c: DnMatrixCurve, phi: number): number => (phi / 100) * chart.rhof + (1 - phi / 100) * c.rmaChart;
+  const toXY = (nphiPu: number, rhob: number): [number, number] =>
+    flipped ? [rhob, nphiPu / 100] : [nphiPu / 100, rhob];
+  const { ctx } = plot;
+  const r = plot.plotRect;
+
+  // Dashed iso-porosity connectors across whichever curves reach that phi.
+  for (let phi = 0; phi <= 50; phi += 5) {
+    const line: [number, number][] = [];
+    for (const c of chart.curves) {
+      const pt = c.pts.find((p) => p[0] === phi);
+      if (pt) line.push(toXY(pt[1], rhobOf(c, phi)));
+    }
+    if (line.length >= 2) plot.drawLine(line, plot.theme.axis, 0.7, [2, 3]);
+  }
+
+  for (const c of chart.curves) {
+    plot.drawLine(
+      c.pts.map(([phi, nphi]) => toXY(nphi, rhobOf(c, phi))),
+      plot.theme.axis,
+      1.3,
+    );
+  }
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(r.x0, r.y0, r.w, r.h);
+  ctx.clip();
+  for (const c of chart.curves) {
+    ctx.font = "500 8px system-ui, sans-serif";
+    for (const [phi, nphi] of c.pts) {
+      if (phi % 5 !== 0) continue;
+      const [px, py] = plot.toPx(...toXY(nphi, rhobOf(c, phi)));
+      ctx.fillStyle = plot.theme.axis;
+      ctx.beginPath();
+      ctx.arc(px, py, 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = plot.theme.text;
+      ctx.textAlign = "right";
+      ctx.fillText(String(phi), px - 3, py - 3);
+    }
+    // Curve name written along the local slope, ~60% of the way up the curve.
+    const i = Math.max(1, Math.floor(c.pts.length * 0.6));
+    const [phiA, nphiA] = c.pts[i - 1];
+    const [phiB, nphiB] = c.pts[i];
+    const [ax, ay] = plot.toPx(...toXY(nphiA, rhobOf(c, phiA)));
+    const [bx, by] = plot.toPx(...toXY(nphiB, rhobOf(c, phiB)));
+    let angle = Math.atan2(by - ay, bx - ax);
+    if (angle > Math.PI / 2 || angle < -Math.PI / 2) angle += Math.PI;
+    ctx.save();
+    ctx.translate((ax + bx) / 2, (ay + by) / 2);
+    ctx.rotate(angle);
+    ctx.fillStyle = plot.theme.text;
+    ctx.textAlign = "center";
+    ctx.font = "600 9px system-ui, sans-serif";
+    ctx.fillText(c.name, 0, -7);
+    ctx.restore();
+  }
+  ctx.restore();
+}
 
 /** Pairs two independently-filtered core series (each keeps only its own non-NaN
  *  samples, so their indices don't line up) by matching on exact depth — only plugs
@@ -599,6 +675,12 @@ export function drawCrossplot(
       if (isND) plot.drawRefPoint(m.nphi, m.rhob, m.label);
       else plot.drawRefPoint(m.rhob, m.nphi, m.label);
     }
+  }
+
+  // Chartbook D-N porosity overlay — linear NPHI-RHOB axes only (the chart geometry
+  // has no meaning on log axes).
+  if (opts.dnOverlay !== "none" && (isND || isDN) && !opts.xLog && !opts.yLog) {
+    drawDnOverlay(plot, opts.dnOverlay, isDN);
   }
 
   // Synchronized hover: ring the sample at the depth under another view's cursor.
@@ -1021,6 +1103,14 @@ export async function buildCrossplotContent(
     const coreChk = chk("Core data (diamonds)", opts.showCore);
     const tsChk = chk("T-S triangle", opts.tsOverlay);
     const matrixChk = chk("Matrix points (Qtz/Cal/Dol on NPHI-RHOB)", opts.matrixPoints);
+    const dnSel = sel(
+      [
+        ["none", "— None —"],
+        ["fresh", "Fresh mud (Por-11, ρf 1.0)"],
+        ["salt", "Salt mud (Por-12, ρf 1.19)"],
+      ],
+      opts.dnOverlay,
+    );
     const picksChk = chk("Show parameter pickers (drag handle → zone parameters)", opts.showPicks);
 
     body.appendChild(section("Plot"));
@@ -1040,6 +1130,7 @@ export async function buildCrossplotContent(
     body.appendChild(section("Overlays"));
     body.appendChild(inline(coreChk.el, tsChk.el));
     body.appendChild(matrixChk.el);
+    body.appendChild(formRow("D-N chart", dnSel, "Chartbook matrix curves + porosity graduations (NPHI-RHOB, linear axes)"));
     body.appendChild(picksChk.el);
 
     const applyBtn = document.createElement("button");
@@ -1078,6 +1169,7 @@ export async function buildCrossplotContent(
       opts.showCore = coreChk.input.checked;
       opts.tsOverlay = tsChk.input.checked;
       opts.matrixPoints = matrixChk.input.checked;
+      opts.dnOverlay = dnSel.value as DnOverlayKey;
       opts.showPicks = picksChk.input.checked;
       Object.assign(opts, normalizeCrossplotOptions({ ...opts }));
       persist();

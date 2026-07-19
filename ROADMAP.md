@@ -624,8 +624,11 @@ increments with REVIEW.md check items.
   saved props/templates migrate (regModel derived from the axis-log flags so v1
   por-perm regressions keep their meaning). `PlotCanvas` gained per-instance margins
   + `colormapColor`/`colorRampEx` (shared — Pickett v2 can reuse them).
-  **Deferred**: D-N porosity overlay lines (sand/lime/dolo curves with porosity
-  graduations — needs chartbook digitization); marginal histograms honoring zoom
+  **Deferred**: ~~D-N porosity overlay lines~~ (DONE 2026-07-20 — Por-11/Por-12
+  digitized from the chartbook PDF's vector artwork into `dnChartData.ts`;
+  Properties → Overlays → D-N chart draws qtz/cal/dol curves + 5-pu graduations +
+  iso-porosity connectors on NPHI-RHOB, fresh & salt variants; chart dolomite is
+  ρma 2.85 per its own graduation ticks); marginal histograms honoring zoom
   viewport (they bin the full visible axis range).
 - **Pickett v2**: N together with M and Rw; free user input of line parameters (lines
   follow); Z-value coloring by a chosen log with customizable gradient.
