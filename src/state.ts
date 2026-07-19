@@ -67,24 +67,27 @@ export const appState = {
   /** Bumped whenever the set of groups or their membership changes, so the Wells pane and
    *  batch dialogs reload their group list. */
   wellGroupsVersion: new Observable<number>(0),
-  /** The pinned (locked) well id, or null when nothing is locked. Pinning a well in the
-   *  Wells & Tops pane freezes the active well universally: log views, plots, and batch
-   *  runs stay on it, and clicking other wells to browse won't switch focus until you
-   *  unpin. At most one well is pinned. */
-  pinnedWellId: new Observable<string | null>(null),
+  /** Pin ON (default): selecting a well drives the whole workspace — every log view and
+   *  plot follows. Pin OFF: viewers keep the well they're showing and only the ACTIVE
+   *  panel follows the selection (Petrel-style "working pane" model), which is how
+   *  side-by-side multi-well viewing works. Browsing panes (Tops, Inspector, DB
+   *  Inspector) and dialogs always track the selection either way. */
+  wellPinned: new Observable<boolean>(true),
+  /** Wells multi-selected in the Wells & Tops pane (Ctrl-click toggle, Shift-click
+   *  range, ⇄ invert); empty = no multi-selection. Batch dialogs pre-tick these
+   *  instead of just the active well. */
+  multiSelectedWellIds: new Observable<string[]>([]),
 };
 
-/** Pins/locks the active well (id) or clears the lock (null). The caller keeps the well
- *  already selected; this just prevents selection from moving off it. */
-export function setPinnedWell(wellId: string | null): void {
-  appState.pinnedWellId.set(wellId);
-}
-
-/** True when a well is pinned and `wellId` is a DIFFERENT well — i.e. selecting it should
- *  be blocked. A null candidate or the pinned well itself is always allowed. */
-export function isSelectionBlocked(wellId: string | null): boolean {
-  const pin = appState.pinnedWellId.get();
-  return pin !== null && wellId !== null && wellId !== pin;
+/** The wells a run/batch dialog should pre-tick: the multi-selection when one exists
+ *  (intersected with the wells actually shown), otherwise just the active well. */
+export function defaultRunWellIds(wells: WellSummary[]): Set<string> {
+  const multi = new Set(appState.multiSelectedWellIds.get());
+  if (multi.size > 0) {
+    return new Set(wells.filter((w) => multi.has(w.well_id)).map((w) => w.well_id));
+  }
+  const selected = appState.selectedWell.get();
+  return new Set(selected ? [selected.well_id] : []);
 }
 
 export function bumpDataVersion(): void {

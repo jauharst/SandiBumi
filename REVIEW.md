@@ -121,6 +121,23 @@ Your full review is triaged in **ROADMAP.md §4** — these five landed immediat
       per well (read-only — re-import the file to change values). Tops appear
       immediately in the Wells & Tops pane and all log views/correlation.
 
+## P2-c — Well pin rework + multi-select (2026-07-19 #9)
+
+- [ ] **Pin is now a mode, not a lock.** 📌 ON (default): clicking a well in Wells &
+      Tops moves EVERY log view and plot to it — the old behavior. 📌 OFF: each view
+      keeps the well it's showing; only the panel you're working in (the active tab)
+      follows your clicks. Open two log views, turn the pin off, activate the second
+      view, click different wells — only the second view changes. That's the
+      side-by-side compare workflow.
+- [ ] **The old lock is gone**: no more "Active well is locked" blocking when you
+      click other wells, and no more weird interaction with a second wells pane.
+- [ ] **Multi-select**: Ctrl-click wells to build a selection (highlighted with an
+      accent edge, count shown in the Wells label), Shift-click for a range,
+      ⇄ inverts within the visible list, plain click clears it. Then open any batch
+      dialog (module run, Workflow Builder, Multimin, ML, Monte Carlo, Cutoffs &
+      Summary) — the multi-selected wells come pre-ticked instead of just the active
+      well.
+
 ## P2-b — Petrel-style tops editor + autocorrelation (2026-07-19 #4/#13)
 
 - [ ] **Tops lines in the log view**: every log view now draws the well's tops as

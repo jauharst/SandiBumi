@@ -1,5 +1,5 @@
 import { listWells, runPaySummary, type PaySummaryRow, type WellSummary } from "../ipc";
-import { filterByActiveGroup } from "../state";
+import { defaultRunWellIds, filterByActiveGroup } from "../state";
 import { formRow, openModal } from "./modal";
 
 /** Cutoffs & Summary dialog (Geolog .paysum model): VSH/PHIE/SWE (+ optional PERM)
@@ -15,12 +15,14 @@ export async function openSummaryDialog(
   const wellBox = document.createElement("div");
   wellBox.className = "well-checklist";
   const wellChecks: { well: WellSummary; input: HTMLInputElement }[] = [];
+  const runDefaults = defaultRunWellIds(wells);
+  if (runDefaults.size === 0 && selectedWell) runDefaults.add(selectedWell.well_id);
   for (const well of wells) {
     const label = document.createElement("label");
     label.className = "well-check";
     const input = document.createElement("input");
     input.type = "checkbox";
-    input.checked = selectedWell ? well.well_id === selectedWell.well_id : false;
+    input.checked = runDefaults.has(well.well_id);
     label.appendChild(input);
     label.appendChild(document.createTextNode(well.well_name));
     wellBox.appendChild(label);

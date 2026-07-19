@@ -6,7 +6,7 @@ import {
   type MlResult,
   type WellSummary,
 } from "../ipc";
-import { appState, filterByActiveGroup } from "../state";
+import { appState, defaultRunWellIds, filterByActiveGroup } from "../state";
 import { formRow, openModal } from "./modal";
 
 /** Machine-learning dialog (Phase 10-4): one entry point for the whole catalog —
@@ -200,12 +200,14 @@ export async function openMlDialog(setStatus: (text: string) => void): Promise<v
     const box = document.createElement("div");
     box.className = "mc-wells";
     const checks = new Map<string, HTMLInputElement>();
+    const runDefaults = defaultRunWellIds(wells);
+    if (runDefaults.size === 0 && selected) runDefaults.add(selected.well_id);
     for (const w of wells) {
       const label = document.createElement("label");
       const cb = document.createElement("input");
       cb.type = "checkbox";
       cb.value = w.well_id;
-      cb.checked = defaultAll || (selected ? w.well_id === selected.well_id : false);
+      cb.checked = defaultAll || runDefaults.has(w.well_id);
       checks.set(w.well_id, cb);
       label.append(cb, document.createTextNode(` ${w.well_name}`));
       box.appendChild(label);

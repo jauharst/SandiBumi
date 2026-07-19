@@ -2772,8 +2772,10 @@ textarea {
   border-color: var(--accent);
   color: #fff;
 }
-.tree-well.tree-pinned {
-  font-weight: 600;
+/* Multi-selected wells (Ctrl/Shift-click) — batch dialogs pre-tick these. */
+.tree-well.tree-multi {
+  background: var(--bg-hover);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 /* --------------------------------------------------------------------------

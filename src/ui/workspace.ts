@@ -466,6 +466,7 @@ export class Workspace {
         applyTitle();
       });
       view.onUserEdit = () => markDirty(panelId);
+      view.isActivePanel = () => params.api.isActive;
       const unsubDirty = subscribeDirty(applyTitle);
       this.logViews.set(panelId, view);
       return () => {
@@ -613,6 +614,9 @@ export class Workspace {
           return;
         }
         if (generation > 0 && (well?.well_id ?? null) === currentWellId) return;
+        // Pin OFF = working-pane mode: an already-built plot only follows the
+        // selection while it is the active panel (fresh panels always build).
+        if (generation > 0 && !appState.wellPinned.get() && !params.api.isActive) return;
         rebuild(well);
       });
 

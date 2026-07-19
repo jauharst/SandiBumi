@@ -9,7 +9,7 @@ import {
   type MultiminResult,
   type WellSummary,
 } from "../ipc";
-import { appState, bumpDataVersion, filterByActiveGroup } from "../state";
+import { appState, bumpDataVersion, defaultRunWellIds, filterByActiveGroup } from "../state";
 import { recordProcess } from "../processLog";
 import { openModal } from "./modal";
 
@@ -360,12 +360,14 @@ export async function openMultiminDialog(setStatus: (text: string) => void): Pro
   const wellBox = document.createElement("div");
   wellBox.className = "mm-tools";
   const wellChecks = new Map<string, HTMLInputElement>();
+  const runDefaults = defaultRunWellIds(wells);
+  if (runDefaults.size === 0 && selectedWell) runDefaults.add(selectedWell.well_id);
   for (const w of wells) {
     const row = document.createElement("label");
     row.className = "mm-tool-row";
     const cb = document.createElement("input");
     cb.type = "checkbox";
-    cb.checked = w.well_id === selectedWell?.well_id;
+    cb.checked = runDefaults.has(w.well_id);
     wellChecks.set(w.well_id, cb);
     row.appendChild(cb);
     const sp = document.createElement("span");

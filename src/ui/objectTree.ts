@@ -1,16 +1,26 @@
 import { listWells, type WellSummary } from "../ipc";
-import { appState, filterByActiveGroup, isSelectionBlocked, setPinnedWell, setStatus } from "../state";
-import { recordProcess } from "../processLog";
+import { appState, filterByActiveGroup, setStatus } from "../state";
 import { activateWellGroup, openWellGroupManager, syncWellGroups } from "./wellGroups";
 
 /** Techlog/Geolog-style project object tree: Wells, and (later) their curves/zones.
  *  A group bar at the top scopes the list to the active well group (for large fields the
- *  user works one group at a time — see wellGroups.ts). */
+ *  user works one group at a time — see wellGroups.ts).
+ *
+ *  Selection model (Petrel-style):
+ *  - Plain click activates a well. With the 📌 pin ON (default) the whole workspace
+ *    follows; with it OFF only the active panel follows (viewers hold their wells).
+ *  - Ctrl-click toggles wells into a multi-selection, Shift-click selects a range,
+ *    ⇄ inverts it within the visible list. The multi-selection feeds batch dialogs
+ *    (module runs, workflows, ML, Monte Carlo, reports) as their pre-ticked wells.
+ */
 export class ObjectTree {
   private container: HTMLElement;
   public onSelectWell: ((well: WellSummary) => void) | null = null;
   /** Highlighted well; kept across refreshes (the workspace seeds it from appState). */
   public selectedWellId: string | null = null;
+  /** Anchor for Shift-click range selection (index into the visible well list). */
+  private anchorIndex = 0;
+  private visibleWells: WellSummary[] = [];
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -36,8 +46,11 @@ export class ObjectTree {
     }
 
     const wells = filterByActiveGroup(allWells);
+    this.visibleWells = wells;
+    const multi = new Set(appState.multiSelectedWellIds.get());
     const activeGroup = appState.activeWellGroup.get();
-    this.addGroupLabel(activeGroup ? `Wells — ${activeGroup.name} (${wells.length})` : `Wells (${allWells.length})`);
+    const base = activeGroup ? `Wells — ${activeGroup.name} (${wells.length})` : `Wells (${allWells.length})`;
+    this.addGroupLabel(multi.size > 0 ? `${base} • ${multi.size} selected` : base);
 
     if (allWells.length === 0) {
       this.addEmptyNote("No wells ingested yet");
@@ -48,33 +61,60 @@ export class ObjectTree {
       return;
     }
 
-    const pinnedId = appState.pinnedWellId.get();
-    for (const well of wells) {
+    wells.forEach((well, index) => {
       const node = document.createElement("div");
-      const isPinned = well.well_id === pinnedId;
       node.className =
         "tree-node tree-well" +
         (well.well_id === this.selectedWellId ? " tree-selected" : "") +
-        (isPinned ? " tree-pinned" : "");
+        (multi.has(well.well_id) ? " tree-multi" : "");
       const label = well.field_name ? `${well.well_name} (${well.field_name})` : well.well_name;
-      node.textContent = isPinned ? `📌 ${label}` : label;
-      node.title = isPinned ? `${well.well_id} — locked (pinned)` : well.well_id;
-      node.addEventListener("click", () => {
-        // While a well is locked, browsing other wells must not move the active well.
-        if (isSelectionBlocked(well.well_id)) {
-          setStatus("Active well is locked — click the 📌 lock to unpin before switching");
-          return;
-        }
-        this.selectedWellId = well.well_id;
-        for (const el of this.container.querySelectorAll(".tree-selected")) el.classList.remove("tree-selected");
-        node.classList.add("tree-selected");
-        this.onSelectWell?.(well);
-      });
+      node.textContent = label;
+      node.title = `${well.well_id}\nClick: activate • Ctrl-click: multi-select • Shift-click: range`;
+      node.addEventListener("click", (e) => this.handleWellClick(e, well, index, node));
       this.container.appendChild(node);
-    }
+    });
   }
 
-  /** The active-group selector + manage button shown above the well list. */
+  private handleWellClick(e: MouseEvent, well: WellSummary, index: number, node: HTMLElement): void {
+    if (e.ctrlKey || e.metaKey) {
+      // Toggle in/out of the multi-selection without moving the active well, so a
+      // batch set can be built while every view stays put.
+      const multi = new Set(appState.multiSelectedWellIds.get());
+      if (multi.has(well.well_id)) multi.delete(well.well_id);
+      else multi.add(well.well_id);
+      this.anchorIndex = index;
+      this.setMulti(multi);
+      return;
+    }
+    if (e.shiftKey) {
+      const [from, to] = [Math.min(this.anchorIndex, index), Math.max(this.anchorIndex, index)];
+      this.setMulti(new Set(this.visibleWells.slice(from, to + 1).map((w) => w.well_id)));
+      return;
+    }
+    // Plain click: activate this well (and clear any multi-selection).
+    this.anchorIndex = index;
+    this.selectedWellId = well.well_id;
+    if (appState.multiSelectedWellIds.get().length > 0) {
+      appState.multiSelectedWellIds.set([]);
+      void this.refresh();
+    } else {
+      for (const el of this.container.querySelectorAll(".tree-selected")) el.classList.remove("tree-selected");
+      node.classList.add("tree-selected");
+    }
+    this.onSelectWell?.(well);
+  }
+
+  private setMulti(ids: Set<string>): void {
+    appState.multiSelectedWellIds.set([...ids]);
+    setStatus(
+      ids.size > 0
+        ? `${ids.size} well${ids.size > 1 ? "s" : ""} selected — batch dialogs will pre-tick them`
+        : "Multi-selection cleared",
+    );
+    void this.refresh();
+  }
+
+  /** The active-group selector + pin/invert/manage buttons shown above the well list. */
   private buildGroupBar(groups: { group_id: string; name: string; active: boolean; member_count: number }[]): void {
     const bar = document.createElement("div");
     bar.className = "tree-group-bar";
@@ -99,28 +139,30 @@ export class ObjectTree {
 
     const pinBtn = document.createElement("button");
     pinBtn.className = "tree-group-manage tree-lock-btn";
-    const pinnedId = appState.pinnedWellId.get();
-    pinBtn.classList.toggle("active", pinnedId !== null);
-    pinBtn.textContent = pinnedId !== null ? "📌" : "📍";
-    pinBtn.title =
-      pinnedId !== null
-        ? "Active well is locked — click to unpin (let selection move again)"
-        : "Lock the active well — every view, plot, and batch run stays on it";
+    const pinned = appState.wellPinned.get();
+    pinBtn.classList.toggle("active", pinned);
+    pinBtn.textContent = "📌";
+    pinBtn.title = pinned
+      ? "Pin ON — selecting a well drives the whole workspace. Click to switch to working-pane mode (only the active panel follows)."
+      : "Pin OFF — viewers keep their wells; only the active panel follows selection. Click to make everything follow again.";
     pinBtn.addEventListener("click", () => {
-      if (appState.pinnedWellId.get() !== null) {
-        setPinnedWell(null);
-        setStatus("Active well unlocked — selection follows clicks again");
-      } else {
-        const well = appState.selectedWell.get();
-        if (!well) {
-          setStatus("Select a well first, then lock it");
-          return;
-        }
-        setPinnedWell(well.well_id);
-        setStatus(`Locked to ${well.well_name} — views and batch runs stay on it`);
-        recordProcess("Pin", `Locked active well to ${well.well_name}`, well.well_name);
-      }
+      const on = !appState.wellPinned.get();
+      appState.wellPinned.set(on);
+      setStatus(
+        on
+          ? "Pin ON — every view and plot follows the selected well"
+          : "Pin OFF — only the active panel follows; other views keep their wells",
+      );
       void this.refresh();
+    });
+
+    const invertBtn = document.createElement("button");
+    invertBtn.className = "tree-group-manage";
+    invertBtn.textContent = "⇄";
+    invertBtn.title = "Invert the multi-selection within the visible wells";
+    invertBtn.addEventListener("click", () => {
+      const current = new Set(appState.multiSelectedWellIds.get());
+      this.setMulti(new Set(this.visibleWells.filter((w) => !current.has(w.well_id)).map((w) => w.well_id)));
     });
 
     const manageBtn = document.createElement("button");
@@ -129,7 +171,7 @@ export class ObjectTree {
     manageBtn.title = "Manage well groups…";
     manageBtn.addEventListener("click", () => void openWellGroupManager());
 
-    bar.append(select, pinBtn, manageBtn);
+    bar.append(select, pinBtn, invertBtn, manageBtn);
     this.container.appendChild(bar);
   }
 

@@ -44,6 +44,9 @@ export class LogViewPanel {
   /** Fired on user edits to this panel's view state (layout properties, track widths,
    *  curve visibility) — the workspace uses it to mark the panel tab unsaved (●). */
   onUserEdit?: () => void;
+  /** Set by the workspace: whether this panel is the active dock panel. With the well
+   *  pin OFF, only the active panel follows well selection (working-pane mode). */
+  isActivePanel?: () => boolean;
 
   constructor(container: HTMLElement, setTitle: (title: string) => void) {
     this.setTitle = setTitle;
@@ -198,11 +201,12 @@ export class LogViewPanel {
     });
     this.resizeObserver.observe(body);
 
-    // Every log view follows the active well selection. Locking a well (Wells & Tops
-    // pin) works by holding the selection itself steady, so followers stay put globally.
+    // Pin ON (default): every log view follows the well selection. Pin OFF: viewers
+    // keep their wells and only the active panel follows — side-by-side multi-well.
     this.unsubscribers.push(
       appState.selectedWell.subscribe((well) => {
         if (!well || well.well_id === this.well?.well_id) return;
+        if (!appState.wellPinned.get() && this.well && !(this.isActivePanel?.() ?? true)) return;
         void this.loadWell(well);
       }),
       appState.dataVersion.subscribe(() => {

@@ -575,10 +575,16 @@ increments with REVIEW.md check items.
   applied as one undoable batch (`tops.rs::autocorrelate_top`).
   Still deferred: named tops SETS (multiple stratigraphic schemes per project — current
   model is one set of tops per well); tops-set selection mirroring the well pin model.
-- **Well pin semantics rework**: pin ON = whole workspace follows the active well; pin
-  OFF = only the pane you interact with changes (clicking a well from a histogram changes
-  just that histogram). Multi-select wells everywhere (with inverse selection), pinned or
-  not. Fix: pinning must not hide the second wells pane.
+- ✅ **Well pin semantics rework** (2026-07-19): the 📌 pin is now a MODE, not a lock.
+  Pin ON (default) = selecting a well drives the whole workspace. Pin OFF = viewers keep
+  their wells and only the ACTIVE panel follows the selection (working-pane model —
+  side-by-side multi-well viewing without per-panel pins). The old selection-blocking
+  lock is gone, which also removes the "locked" weirdness with a second wells pane.
+  **Multi-select**: Ctrl-click toggles, Shift-click ranges, ⇄ inverts within the visible
+  list; count shown in the Wells label; batch dialogs (module runs, workflow, Multimin,
+  ML, Monte Carlo, Cutoffs & Summary) pre-tick the multi-selection instead of just the
+  active well (`defaultRunWellIds`). Fresh panels always adopt the current well even
+  with pin OFF.
 - **Log-view layout interaction**: resizable (collapsible) track headers — 15 curves must
   not eat the screen; move/copy curves between tracks; customizable borders between
   tracks/columns; hover readout only on the clicked/selected track; right-click a curve →

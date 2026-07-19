@@ -7,7 +7,7 @@ import {
   type RunModuleRequest,
   type WellSummary,
 } from "../ipc";
-import { filterByActiveGroup } from "../state";
+import { defaultRunWellIds, filterByActiveGroup } from "../state";
 import { formRow, openModal } from "./modal";
 
 export interface ModuleDialogCallbacks {
@@ -39,12 +39,15 @@ export async function openModuleDialog(
   const wellBox = document.createElement("div");
   wellBox.className = "well-checklist";
   const wellChecks: { well: WellSummary; input: HTMLInputElement }[] = [];
+  // Pre-tick the Wells & Tops multi-selection when one exists, else the active well.
+  const runDefaults = defaultRunWellIds(wells);
+  if (runDefaults.size === 0 && selectedWell) runDefaults.add(selectedWell.well_id);
   for (const well of wells) {
     const label = document.createElement("label");
     label.className = "well-check";
     const input = document.createElement("input");
     input.type = "checkbox";
-    input.checked = selectedWell ? well.well_id === selectedWell.well_id : false;
+    input.checked = runDefaults.has(well.well_id);
     label.appendChild(input);
     label.appendChild(document.createTextNode(well.well_name));
     wellBox.appendChild(label);

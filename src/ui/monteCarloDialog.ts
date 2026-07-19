@@ -13,7 +13,7 @@ import {
   type Pctl,
   type WellSummary,
 } from "../ipc";
-import { appState, filterByActiveGroup } from "../state";
+import { defaultRunWellIds, filterByActiveGroup } from "../state";
 import { formRow, openModal } from "./modal";
 
 const WORKFLOW_DOC_TYPE = "workflow";
@@ -234,13 +234,13 @@ export async function openMonteCarloDialog(setStatus: (text: string) => void): P
   const wellsBox = document.createElement("div");
   wellsBox.className = "mc-wells";
   const wellChecks = new Map<string, HTMLInputElement>();
-  const selected = appState.selectedWell.get();
+  const runDefaults = defaultRunWellIds(wells);
   for (const w of wells) {
     const label = document.createElement("label");
     const cb = document.createElement("input");
     cb.type = "checkbox";
     cb.value = w.well_id;
-    cb.checked = selected ? w.well_id === selected.well_id : true;
+    cb.checked = runDefaults.size > 0 ? runDefaults.has(w.well_id) : true;
     wellChecks.set(w.well_id, cb);
     label.append(cb, document.createTextNode(` ${w.well_name}`));
     wellsBox.appendChild(label);
