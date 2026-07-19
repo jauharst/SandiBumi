@@ -18,8 +18,10 @@
     "dockview-core": "^7.0.2"
   },
   "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^5.1.1",
     "@tauri-apps/cli": "^2",
     "@webgpu/types": "^0.1.71",
+    "svelte": "^5.56.6",
     "typescript": "~5.6.2",
     "vite": "^6.0.3"
   }
