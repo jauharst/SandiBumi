@@ -59,6 +59,24 @@ Your full review is triaged in **ROADMAP.md §4** — these five landed immediat
       reopens via the ＋ panel menu too. Run/cancel/progress unchanged; closing the pane
       mid-run cancels the chain.
 
+## P1-b — Crash safe-mode, autosave, unsaved markers (2026-07-19 #3)
+
+- [ ] **Autosave**: the workspace (panes, arrangement, active well, every log view's
+      layout) autosaves every 10 seconds. Nothing to click — just know it's there.
+- [ ] **Crash recovery**: if the app dies abnormally (crash, force-kill, power loss),
+      the next launch shows a choice **before** anything loads: *Restore autosaved
+      workspace* (everything back as it was moments before the exit) or *Start in Safe
+      Mode* (clean default layout; the autosaved workspace is stashed as a "Recovered …"
+      session under Open Session, so nothing is lost). To test without crashing for real:
+      end the task from Task Manager while the app is open, then relaunch.
+- [ ] **Normal restart is less lossy now**: on a clean exit + relaunch, the app also
+      brings back the **active well** and each log view's **layout/track state** (before,
+      only the pane arrangement survived).
+- [ ] **Unsaved markers**: edit a log view (track widths, properties, curve visibility)
+      → its tab shows **●** and the QAT Save-Session button gets a red dot. **Save
+      Layout** clears that panel's ●; **Save Session** clears everything. The dot means
+      "not in a named save yet" — the crash autosave protects you regardless.
+
 Issues you marked `[x]` that need real work (all in ROADMAP §4, P1/P2): well-pin
 semantics rework, right-click lockdown (accidental refresh), TVD depth scale UI.
 Everything you marked `[o]` has been cleared out of this file.

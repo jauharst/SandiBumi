@@ -38,6 +38,10 @@ export class LogViewPanel {
   private resizeObserver: ResizeObserver | null = null;
   private setTitle: (title: string) => void;
 
+  /** Fired on user edits to this panel's view state (layout properties, track widths,
+   *  curve visibility) — the workspace uses it to mark the panel tab unsaved (●). */
+  onUserEdit?: () => void;
+
   constructor(container: HTMLElement, setTitle: (title: string) => void) {
     this.setTitle = setTitle;
 
@@ -351,8 +355,14 @@ export class LogViewPanel {
   refresh(): void {
     if (!this.layout || !this.renderer) return;
     renderTrackHeaders(this.headersEl, this.layout, this.trackWeights, this.hiddenCurves, {
-      onLayoutMutated: () => this.refresh(),
-      onCurveToggle: (curveName, hidden) => this.renderer?.setCurveHidden(curveName, hidden),
+      onLayoutMutated: () => {
+        this.onUserEdit?.();
+        this.refresh();
+      },
+      onCurveToggle: (curveName, hidden) => {
+        this.onUserEdit?.();
+        this.renderer?.setCurveHidden(curveName, hidden);
+      },
     });
     this.renderer.loadLayout(this.layout, this.series, this.trackWeights);
     for (const curveName of this.hiddenCurves) this.renderer.setCurveHidden(curveName, true);
@@ -392,6 +402,7 @@ export class LogViewPanel {
 
   /** Swaps in an edited layout, keeping user-dragged widths for surviving tracks. */
   private applyLayoutEdit(edited: Layout): void {
+    this.onUserEdit?.();
     const oldWeights = new Map(this.trackWeights);
     this.layout = edited;
     this.trackWeights.clear();
@@ -419,6 +430,7 @@ export class LogViewPanel {
   }
 
   scaleAllTracks(factor: number): { pct: number } {
+    this.onUserEdit?.();
     this.widthScalePct = Math.max(30, Math.min(300, Math.round(this.widthScalePct * factor)));
     if (this.layout) {
       for (const t of this.layout.tracks) {

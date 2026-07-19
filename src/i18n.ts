@@ -90,6 +90,9 @@ const ID: Record<string, string> = {
     "Muat ulang SandiBumi? Ruang kerja dibuka kembali dari kondisi tersimpan terakhir — pick, layout, dan isian dialog yang belum disimpan akan hilang.",
   "Number fields arm on click — double-click to edit":
     "Kolom angka terkunci saat diklik — klik dua kali untuk mengedit",
+  "SandiBumi did not close properly last time.": "SandiBumi tidak tertutup dengan benar sebelumnya.",
+  "Start in Safe Mode": "Mulai dalam Mode Aman",
+  "Restore autosaved workspace": "Pulihkan ruang kerja tersimpan otomatis",
   Apply: "Terapkan",
   Run: "Jalankan",
   Save: "Simpan",
@@ -172,6 +175,9 @@ const SU: Record<string, string> = {
     "Muat deui SandiBumi? Rohang gawé dibuka deui tina kaayaan panungtungan nu disimpen — pick, layout, jeung eusian dialog nu can disimpen bakal leungit.",
   "Number fields arm on click — double-click to edit":
     "Kolom angka konci basa diklik — klik dua kali pikeun ngédit",
+  "SandiBumi did not close properly last time.": "SandiBumi teu katutup kalayan bener saméméhna.",
+  "Start in Safe Mode": "Mimitian dina Mode Aman",
+  "Restore autosaved workspace": "Balikkeun rohang gawé nu disimpen otomatis",
   Apply: "Larapkeun",
   Run: "Jalankeun",
   Save: "Simpen",

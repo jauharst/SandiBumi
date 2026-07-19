@@ -1,6 +1,14 @@
 import { setStatus } from "./state";
 import { initI18n } from "./i18n";
 import { installInteractionGuards } from "./interactionGuard";
+import {
+  detectAbnormalExit,
+  installAutosave,
+  markSessionRunning,
+  readAutosave,
+  showCrashRecoveryDialog,
+} from "./autosave";
+import { saveDocument } from "./ipc";
 import { applyStoredTheme } from "./theme";
 import { Ribbon } from "./ui/ribbon";
 import { Workspace } from "./ui/workspace";
@@ -23,9 +31,44 @@ window.addEventListener("DOMContentLoaded", () => {
   // Interaction safety (right-click/reload lockdown, double-click-to-edit) before any
   // panel exists, so no early control escapes the guards.
   installInteractionGuards();
-  const workspace = new Workspace(dockRoot);
-  new Ribbon(ribbonEl, workspace);
-  installUndoHotkeys(setStatus);
-  // Restore the project's processing history (async; the History panel updates when it lands).
-  void loadProcessLog();
+
+  // Crash detection must read the flag BEFORE this session plants its own.
+  const crashed = detectAbnormalExit();
+  const autosave = readAutosave();
+  markSessionRunning();
+
+  const boot = (mode: "normal" | "restore-autosave" | "safe") => {
+    const workspace = new Workspace(dockRoot);
+    new Ribbon(ribbonEl, workspace);
+    installUndoHotkeys(setStatus);
+    // Restore the project's processing history (async; the History panel updates when it lands).
+    void loadProcessLog();
+
+    if (mode === "restore-autosave" && autosave) {
+      workspace.applySession(autosave);
+      setStatus("Workspace restored from the crash autosave");
+    } else if (mode === "safe") {
+      workspace.resetWorkspace();
+      // Nothing silently lost: stash the autosaved workspace as a reopenable session.
+      if (autosave) {
+        const stamp = new Date().toISOString().slice(0, 16).replace("T", " ");
+        void saveDocument("session", `Recovered ${stamp}`, JSON.stringify(autosave))
+          .then(() => setStatus(`Safe Mode — previous workspace kept as session "Recovered ${stamp}"`))
+          .catch(() => setStatus("Safe Mode — default workspace"));
+      } else {
+        setStatus("Safe Mode — default workspace");
+      }
+    } else if (autosave) {
+      // Normal launch: the dock layout came back via the workspace's own restore; the
+      // autosave adds the parts that restore can't carry (well, log-view layouts).
+      workspace.applyAutosaveExtras(autosave);
+    }
+    installAutosave(workspace);
+  };
+
+  if (crashed && autosave) {
+    showCrashRecoveryDialog((choice) => boot(choice === "restore" ? "restore-autosave" : "safe"));
+  } else {
+    boot("normal");
+  }
 });

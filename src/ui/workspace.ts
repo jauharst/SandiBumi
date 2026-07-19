@@ -8,6 +8,7 @@ import {
 } from "dockview-core";
 import "dockview-core/dist/styles/dockview.css";
 import { appState, bumpDataVersion, setStatus } from "../state";
+import { WORKSPACE_DIRTY, clearDirty, isDirty, markDirty, subscribeDirty } from "../dirty";
 import type { Layout, WellSummary } from "../ipc";
 import { LogViewPanel } from "./logViewPanel";
 import { ObjectTree } from "./objectTree";
@@ -70,6 +71,10 @@ export class Workspace {
   private dock: DockviewComponent;
   private logViews = new Map<string, LogViewPanel>();
   private counter = 0;
+  /** Layout-change events before this time don't mark the workspace dirty — set around
+   *  programmatic rebuilds (applySession/reset) and named saves, whose tab-title updates
+   *  also fire onDidLayoutChange and would otherwise re-dirty a just-saved workspace. */
+  private dirtyMuteUntil = 0;
 
   constructor(container: HTMLElement) {
     this.dock = new DockviewComponent(container, {
@@ -95,8 +100,12 @@ export class Workspace {
 
     if (!this.restore()) this.defaultWorkspace();
 
+    // Constructor's own restore/default build happens above this subscription, so it
+    // never marks the workspace dirty; only later (user) arrangement changes do.
+    this.muteDirty();
     let saveHandle: number | undefined;
     this.dock.onDidLayoutChange(() => {
+      if (Date.now() > this.dirtyMuteUntil) markDirty(WORKSPACE_DIRTY);
       if (saveHandle !== undefined) window.clearTimeout(saveHandle);
       saveHandle = window.setTimeout(() => {
         try {
@@ -441,9 +450,27 @@ export class Workspace {
 
   private createLogView(panelId: string): IContentRenderer {
     return new DomPanel("dock-logview", (host, params) => {
-      const view = new LogViewPanel(host, (title) => params.api.setTitle(title));
+      // The tab shows ● while this panel has view-state edits not yet in a named save
+      // (Save Layout / Save Session clear it). Only re-set the title when it actually
+      // changes — setTitle fires onDidLayoutChange, which must not loop the dirty flag.
+      let baseTitle = "Log View";
+      let applied = "";
+      const applyTitle = () => {
+        const decorated = (isDirty(panelId) ? "● " : "") + baseTitle;
+        if (decorated === applied) return;
+        applied = decorated;
+        params.api.setTitle(decorated);
+      };
+      const view = new LogViewPanel(host, (title) => {
+        baseTitle = title;
+        applyTitle();
+      });
+      view.onUserEdit = () => markDirty(panelId);
+      const unsubDirty = subscribeDirty(applyTitle);
       this.logViews.set(panelId, view);
       return () => {
+        unsubDirty();
+        clearDirty(panelId);
         this.logViews.delete(panelId);
         view.dispose();
       };
@@ -634,10 +661,18 @@ export class Workspace {
   }
 
   resetWorkspace(): void {
+    this.muteDirty();
     localStorage.removeItem(LAYOUT_STORAGE_KEY);
     this.dock.clear();
     this.logViews.clear();
     this.defaultWorkspace();
+    clearDirty();
+  }
+
+  /** Suppresses workspace-dirty marking for a short window around programmatic layout
+   *  changes and named saves (tab-title updates fire onDidLayoutChange too). */
+  muteDirty(ms = 1500): void {
+    this.dirtyMuteUntil = Math.max(this.dirtyMuteUntil, Date.now() + ms);
   }
 
   private freshId(prefix: string): string {
@@ -723,11 +758,17 @@ export class Workspace {
 
   /** The most recently active log view — target for ribbon scale/zoom/layout actions. */
   activeLogView(): LogViewPanel | null {
+    return this.activeLogViewEntry()?.view ?? null;
+  }
+
+  /** Same resolution as {@link activeLogView} but with the dock panel id, so a named
+   *  save can clear exactly that panel's unsaved (●) marker. */
+  activeLogViewEntry(): { id: string; view: LogViewPanel } | null {
     const active = this.dock.activePanel;
-    if (active && this.logViews.has(active.id)) return this.logViews.get(active.id)!;
+    if (active && this.logViews.has(active.id)) return { id: active.id, view: this.logViews.get(active.id)! };
     // Fall back to any open log view (e.g. a plot panel is focused).
-    const first = this.logViews.values().next();
-    return first.done ? null : first.value;
+    const first = this.logViews.entries().next();
+    return first.done ? null : { id: first.value[0], view: first.value[1] };
   }
 
   /** Called after LAS import or module/equation runs so every panel refreshes. */
@@ -755,6 +796,7 @@ export class Workspace {
    *  it at the session's well so every recreated plot/log view loads that data, then
    *  reapply each log view's saved layout (which dockview's own restore doesn't carry). */
   applySession(snap: SessionSnapshot): void {
+    this.muteDirty(3000);
     this.logViews.clear();
     this.dock.clear();
     // Point app state at the session's well BEFORE fromJSON, so panels recreated by the
@@ -764,6 +806,24 @@ export class Workspace {
     this.dock.fromJSON(snap.layout);
     // fromJSON has synchronously recreated the log-view panels (repopulating logViews via
     // createLogView), so their ids now resolve; reapply each saved layout.
+    if (snap.logViewLayouts) {
+      for (const [panelId, layout] of Object.entries(snap.logViewLayouts)) {
+        this.logViews.get(panelId)?.setLayout(layout);
+      }
+    }
+    // Everything now matches the applied session — nothing is "unsaved".
+    clearDirty();
+  }
+
+  /** After the constructor's own dock restore on a NORMAL launch: re-applies the parts
+   *  of the autosave that dockview's layout JSON doesn't carry — the active well and
+   *  each log view's layout. Panel ids that no longer exist are skipped. */
+  applyAutosaveExtras(snap: SessionSnapshot): void {
+    this.muteDirty(5000); // async well/title loads must not mark a fresh boot dirty
+    if (snap.well) {
+      appState.selectedInterval.set(null);
+      appState.selectedWell.set(snap.well);
+    }
     if (snap.logViewLayouts) {
       for (const [panelId, layout] of Object.entries(snap.logViewLayouts)) {
         this.logViews.get(panelId)?.setLayout(layout);

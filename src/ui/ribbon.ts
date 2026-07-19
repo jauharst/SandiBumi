@@ -18,6 +18,7 @@ import {
   type ModuleSpec,
 } from "../ipc";
 import { appState, bumpThemeVersion, setStatus } from "../state";
+import { anyDirty, clearDirty, subscribeDirty } from "../dirty";
 import { nextRedoLabel, nextUndoLabel, onUndoChange, pushUndo, redo, redoDepth, undo, undoDepth } from "../undo";
 import { recordProcess } from "../processLog";
 import { getTheme, setTheme, type ThemeChoice } from "../theme";
@@ -112,9 +113,19 @@ export class Ribbon {
       }
     });
     q<HTMLButtonElement>("#qat-save")?.addEventListener("click", () => void this.handleSaveProject());
-    q<HTMLButtonElement>("#qat-save-session")?.addEventListener("click", () => this.handleSaveSession());
+    const saveSessionBtn = q<HTMLButtonElement>("#qat-save-session");
+    saveSessionBtn?.addEventListener("click", () => this.handleSaveSession());
     q<HTMLButtonElement>("#qat-open-session")?.addEventListener("click", () => void this.handleOpenSession());
     q<HTMLButtonElement>("#qat-history")?.addEventListener("click", () => workspace.openHistory());
+    // Unsaved-state dot: lights while any panel/workspace state isn't in a named save yet.
+    if (saveSessionBtn) {
+      const baseTitle = saveSessionBtn.title;
+      subscribeDirty(() => {
+        const dirty = anyDirty();
+        saveSessionBtn.classList.toggle("qat-dirty", dirty);
+        saveSessionBtn.title = dirty ? `${baseTitle} — unsaved changes` : baseTitle;
+      });
+    }
 
     // --- Project ---
     q<HTMLButtonElement>("#save-project-btn")?.addEventListener("click", () => void this.handleSaveProject());
@@ -452,9 +463,10 @@ export class Ribbon {
   /** "Save Layout…" — names the active log view's current layout (tracks, styles,
    *  fills, widths are all part of it) and stores it in the project database. */
   private handleSaveLayout(): void {
-    const view = this.workspace.activeLogView();
+    const entry = this.workspace.activeLogViewEntry();
+    const view = entry?.view;
     const layout = view?.getLayout();
-    if (!view || !layout) {
+    if (!entry || !view || !layout) {
       setStatus("Open a Log View first (Plot → New Log View)");
       return;
     }
@@ -480,6 +492,10 @@ export class Ribbon {
         toSave.name = name;
         await saveDocument("layout", name, JSON.stringify(toSave));
         close();
+        // This panel's layout is now in a named save — drop its ● (the title update
+        // fires a layout event, so mute workspace-dirty around it).
+        this.workspace.muteDirty();
+        clearDirty(entry.id);
         setStatus(`Layout "${name}" saved`);
         const select = document.querySelector<HTMLSelectElement>("#layout-select");
         if (select) {
@@ -556,6 +572,9 @@ export class Ribbon {
       try {
         await saveDocument("session", name, JSON.stringify(this.workspace.snapshotSession()));
         close();
+        // Everything is captured in the named session — clear all unsaved markers.
+        this.workspace.muteDirty();
+        clearDirty();
         setStatus(`Session "${name}" saved`);
         recordProcess("Session", `Saved session "${name}"`);
       } catch (err) {

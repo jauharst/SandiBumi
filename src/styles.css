@@ -3060,3 +3060,30 @@ input[type="number"].num-editing:focus {
 .dock-workflow .workflow-dialog {
   max-width: 640px;
 }
+
+/* --- P1-b crash safe-mode + unsaved indicators ----------------------------- */
+.guard-confirm-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.guard-confirm button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+/* Unsaved-state dot on the QAT Save Session button (lit while any panel has state
+   not yet in a named save; the tab itself carries a ● prefix). */
+.qat-btn.qat-dirty {
+  position: relative;
+}
+.qat-btn.qat-dirty::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warn);
+  border: 1px solid var(--bg-panel);
+}

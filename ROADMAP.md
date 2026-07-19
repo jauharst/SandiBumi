@@ -510,11 +510,17 @@ increments with REVIEW.md check items.
 
 ### P1 — Trust & safety (protect the user's work first)
 
-- **Crash resilience**: autosave/journal of session + unsaved data; on abnormal exit, next
-  launch offers **Safe Mode** (default layout, no session restore, modules still runnable)
-  + recovery of the autosaved state.
-- **Unsaved-changes indicator**: every visualization/panel shows a dot/asterisk when its
-  state (layout, picks, templates, edits) isn't saved yet.
+- ✅ **Crash resilience** (2026-07-19, P1-b): `autosave.ts` — running-flag crash detection
+  (cleared on pagehide/beforeunload), 10-s rolling autosave of the full session snapshot
+  (dock layout + well + log-view layouts) to localStorage; abnormal exit → blocking
+  choice dialog before boot: restore autosave, or Safe Mode (default layout; autosave
+  stashed as a "Recovered …" session document). Normal launches also reapply well +
+  log-view layouts via `applyAutosaveExtras` (dockview JSON doesn't carry them).
+- ✅ **Unsaved-changes indicator** (2026-07-19, P1-b): `dirty.ts` registry — log-view user
+  edits (properties, track widths/order, curve visibility) mark the panel; its tab shows
+  ● and the QAT Save-Session button a dot; Save Layout clears that panel, Save/Open
+  Session clears all. Workspace arrangement changes mark too (title-update noise muted
+  via `muteDirty`). Dirty = "not in a named save"; the autosave runs regardless.
 - ✅ **Click-to-arm, double-click-to-edit inputs** (2026-07-19, P1-a): app-wide via
   `interactionGuard.ts` — a single click arms `input[type=number]` read-only (dashed
   outline, wheel/arrow spin blocked); double-click unlocks (solid outline, value
