@@ -121,6 +121,27 @@ Your full review is triaged in **ROADMAP.md §4** — these five landed immediat
       per well (read-only — re-import the file to change values). Tops appear
       immediately in the Wells & Tops pane and all log views/correlation.
 
+## P2-f — Crossplot v2 (2026-07-20 #12)
+
+- [ ] **Properties dialog**: double-click or right-click the crossplot (or ⚙ Properties)
+      → sectioned dialog (Plot / Axes / Z color / Regression / Overlays). The old
+      always-visible properties row is gone; the toolbar is just X/Y/Color/Zone.
+- [ ] **Marginal histograms + percentiles**: enable marginals on NPHI-RHOB — X histogram
+      on top, Y histogram on the right, aligned with the axes (RHOB's inverted axis
+      included). Percentiles `25, 75` draw dashed reference lines on both axes.
+- [ ] **Regression options**: on a PHIE-vs-PERM cloud try Power + RMA — the fit line
+      must be straight on log axes and curved on linear ones, equation + R² + method
+      tag shown top-left. Compare Y-on-X vs RMA slope on a noisy cloud (RMA steeper).
+- [ ] **Log-safe Z coloring**: color by PERM with "Log Z scale" + Viridis — low and high
+      decades must stay distinguishable (rainbow + linear crams everything in one hue);
+      the color bar is labeled "(log)".
+- [ ] **Plot size**: set Fixed 500×400 — the plot stops stretching with the pane
+      (consistent exported figures). "Fill panel" restores the old behavior.
+- [ ] **Universal defaults**: Qtz/Cal/Dol matrix points no longer appear on NPHI-RHOB
+      unless ticked in Properties; Color has a "— None —" option (custom point color
+      applies); the pick rows + drag handle can be hidden ("Show parameter pickers" —
+      still ON by default so your drag-to-set-shale-point workflow is unchanged).
+
 ## P2-e — Histogram v2 (2026-07-20 #11)
 
 - [ ] **Properties dialog**: double-click or right-click the histogram plot (or the ⚙

@@ -611,10 +611,22 @@ increments with REVIEW.md check items.
   double-click resets zoom first; the next double-click opens Properties.
   **Deferred**: same properties treatment for Crossplot/Pickett arrives with their
   v2 items below.
-- **Crossplot v2**: plot-size control, marginal histograms on X and Y, bins/colors/
-  percentiles like histogram; regression options (Y-on-X, X-on-Y, RMA, linear, power,
-  log); additional colormaps incl. one that survives **logarithmic Z scales** (rainbow
-  doesn't); universal parameters (D-N porosity overlay only when requested).
+- ✅ **Crossplot v2** (2026-07-20): sectioned Properties dialog (double-click /
+  right-click / ⚙, replacing the always-visible props row): plot size (fill panel or
+  fixed W×H px for consistent figures), marginal histograms on X and Y (axis-aligned,
+  log/inverted-safe, bin control), custom point color + "— None —" Z option, user
+  percentiles (dashed X/Y reference lines), regression = model (linear / power /
+  log10-X / exponential — drawn as a sampled polyline, so correct on any axis scaling)
+  × method (Y-on-X / X-on-Y / RMA), Z color = colormap (rainbow / **viridis**) +
+  **log Z scaling** (percentile range over positive values only), and overlays.
+  **Universal**: Qtz/Cal/Dol matrix points now opt-in (off by default); parameter
+  pickers toggleable (default ON — the draggable handle workflow is unchanged). Old
+  saved props/templates migrate (regModel derived from the axis-log flags so v1
+  por-perm regressions keep their meaning). `PlotCanvas` gained per-instance margins
+  + `colormapColor`/`colorRampEx` (shared — Pickett v2 can reuse them).
+  **Deferred**: D-N porosity overlay lines (sand/lime/dolo curves with porosity
+  graduations — needs chartbook digitization); marginal histograms honoring zoom
+  viewport (they bin the full visible axis range).
 - **Pickett v2**: N together with M and Rw; free user input of line parameters (lines
   follow); Z-value coloring by a chosen log with customizable gradient.
 - **Data prep**: **split & merge** of curves/intervals; **normalization with tops-referenced

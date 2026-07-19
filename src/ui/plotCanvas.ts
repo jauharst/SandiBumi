@@ -41,6 +41,8 @@ export function readTheme(el: HTMLElement): PlotTheme {
 
 const MARGIN = { left: 52, right: 14, top: 10, bottom: 34 };
 
+export type PlotMargin = typeof MARGIN;
+
 /** Sizes a canvas's backing store to its on-screen (CSS) size × devicePixelRatio so it
  *  renders crisply at the panel's real dimensions instead of being a fixed bitmap that CSS
  *  up-scales (the "looks like a screenshot" problem). Returns the dpr actually used. An
@@ -68,9 +70,12 @@ export class PlotCanvas {
   readonly width: number;
   readonly height: number;
   readonly dpr: number;
+  /** Effective margins; callers can widen them (e.g. marginal-histogram strips). */
+  readonly margin: PlotMargin;
 
-  constructor(canvas: HTMLCanvasElement, x: AxisSpec, y: AxisSpec) {
+  constructor(canvas: HTMLCanvasElement, x: AxisSpec, y: AxisSpec, margin?: Partial<PlotMargin>) {
     this.canvas = canvas;
+    this.margin = { ...MARGIN, ...margin };
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("2D canvas unavailable");
     this.ctx = ctx;
@@ -89,10 +94,10 @@ export class PlotCanvas {
 
   get plotRect(): { x0: number; y0: number; w: number; h: number } {
     return {
-      x0: MARGIN.left,
-      y0: MARGIN.top,
-      w: this.width - MARGIN.left - MARGIN.right,
-      h: this.height - MARGIN.top - MARGIN.bottom,
+      x0: this.margin.left,
+      y0: this.margin.top,
+      w: this.width - this.margin.left - this.margin.right,
+      h: this.height - this.margin.top - this.margin.bottom,
     };
   }
 
@@ -519,6 +524,53 @@ export function colorRamp(values: ArrayLike<number>, min: number, max: number): 
     // Piecewise hue: 220° (blue) → 0° (red).
     const hue = 220 * (1 - t);
     out[i] = `hsl(${hue.toFixed(0)}, 75%, 45%)`;
+  }
+  return out;
+}
+
+export type ColormapName = "rainbow" | "viridis";
+
+/** Viridis anchor colors (perceptually uniform — readable where the rainbow's hue
+ *  wheel loses order, and safe for log-scaled Z). Linear interpolation between stops. */
+const VIRIDIS: [number, number, number][] = [
+  [68, 1, 84], [72, 40, 120], [62, 74, 137], [49, 104, 142], [38, 130, 142],
+  [31, 158, 137], [53, 183, 121], [109, 205, 89], [180, 222, 44], [253, 231, 37],
+];
+
+/** Color at t ∈ [0,1] for a named colormap. */
+export function colormapColor(map: ColormapName, t: number): string {
+  const tc = Math.max(0, Math.min(1, t));
+  if (map === "rainbow") {
+    return `hsl(${(220 * (1 - tc)).toFixed(0)}, 75%, 45%)`;
+  }
+  const f = tc * (VIRIDIS.length - 1);
+  const i = Math.min(VIRIDIS.length - 2, Math.floor(f));
+  const u = f - i;
+  const c = VIRIDIS[i].map((v, k) => Math.round(v + (VIRIDIS[i + 1][k] - v) * u));
+  return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+}
+
+/** Per-point colors for a continuous Z with colormap choice and optional log scaling
+ *  (t computed in log10 space — a linear ramp on a log-distributed Z like permeability
+ *  crams everything into one end). NaN → dim gray; log-illegal (≤0) too. */
+export function colorRampEx(
+  values: ArrayLike<number>,
+  min: number,
+  max: number,
+  map: ColormapName,
+  log: boolean,
+): string[] {
+  const lo = log ? Math.log10(min) : min;
+  const hi = log ? Math.log10(max) : max;
+  const out: string[] = new Array(values.length);
+  for (let i = 0; i < values.length; i++) {
+    const v = values[i];
+    if (Number.isNaN(v) || (log && v <= 0)) {
+      out[i] = "rgba(128,128,128,0.35)";
+      continue;
+    }
+    const tv = log ? Math.log10(v) : v;
+    out[i] = colormapColor(map, (tv - lo) / (hi - lo));
   }
   return out;
 }
