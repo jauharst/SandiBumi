@@ -544,9 +544,14 @@ increments with REVIEW.md check items.
   one search box, click-to-sort headers. **Deferred to a later increment**: per-module
   INPUT-set selection (reads currently resolve latest-current), unit/family columns for
   computed curves, set-qualified log-view tracks.
-- **Set INPUT selection on modules** (remaining half of "set in/out"): choose which set
-  inputs resolve from (Geolog set semantics; output-set side shipped in P1-c above —
-  reads currently resolve the latest current values).
+- ✅ **Set INPUT selection on modules** (2026-07-19, P1-c follow-up): "Input set" field in
+  every module dialog and the Workflow Builder — inputs resolve from that set's archived
+  values (latest version per well, case-insensitive name); curves the set never wrote fall
+  back to the usual sources, so chains still consume earlier steps' outputs. Blank =
+  current values (unchanged default). Provenance `inputs_json` records the input set.
+  Still deferred: pinning a specific version (workaround: Restore it first), input-set on
+  ML/SandiMin dialogs, unit/family columns for computed curves, set-qualified log-view
+  tracks.
 - ✅ **Curve catalog power features** (2026-07-19, P1-c): one search box across
   mnemonic/set/module/unit/date, click-to-sort columns, per-curve n/min/max/mean.
 

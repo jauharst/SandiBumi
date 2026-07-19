@@ -111,6 +111,7 @@ pub(crate) fn run_chain(
     steps: &[ChainStep],
     well_ids: &[String],
     output_set: Option<&str>,
+    input_set: Option<&str>,
 ) {
     let total_steps = steps.len();
     let wells_total = well_ids.len();
@@ -127,7 +128,11 @@ pub(crate) fn run_chain(
             set_name: set_name.to_string(),
             module: format!("workflow: {}", modules_list.join(" → ")),
             params_json: serde_json::to_string(&modules_list).unwrap_or_default(),
-            inputs_json: String::new(),
+            inputs_json: input_set
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(|s| format!("[[\"input_set\",{}]]", serde_json::to_string(s).unwrap_or_default()))
+                .unwrap_or_default(),
         };
         well_ids
             .iter()
@@ -159,6 +164,9 @@ pub(crate) fn run_chain(
             params: step.params.clone(),
             opts: step.opts.clone(),
             output_set: None, // preset_sets carries the chain-level set event
+            // Curves a later step consumes from an earlier one are never in the input
+            // set's archive, so they still resolve from the current store — chaining works.
+            input_set: input_set.map(str::to_string),
         };
         let results = workflow::run_workflow_module_into(db, &req, Some(&preset_sets));
         for r in &results {
@@ -239,7 +247,7 @@ mod tests {
         let db = Mutex::new(conn);
         let steps = vec![step("vsh_gr"), step("phi_dn"), step("sw_indo")];
 
-        run_chain(&db, &reg, job, &cancel, &steps, &[well.clone()], None);
+        run_chain(&db, &reg, job, &cancel, &steps, &[well.clone()], None, None);
 
         match status(&reg, job).unwrap() {
             ChainStatus::Completed { steps_run, curves_written, wells, errors } => {
@@ -272,7 +280,7 @@ mod tests {
         cancel.store(true, Ordering::SeqCst); // cancel before it starts
         let db = Mutex::new(conn);
 
-        run_chain(&db, &reg, job, &cancel, &[step("vsh_gr")], &[well.clone()], None);
+        run_chain(&db, &reg, job, &cancel, &[step("vsh_gr")], &[well.clone()], None, None);
 
         match status(&reg, job).unwrap() {
             ChainStatus::Cancelled { at_step } => assert_eq!(at_step, 0),

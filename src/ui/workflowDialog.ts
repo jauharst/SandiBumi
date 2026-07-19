@@ -362,6 +362,20 @@ export async function buildWorkflowContent(
   content.appendChild(formRow("Wells", wellsHead));
   content.appendChild(wellsBox);
 
+  // --- Input set: blank = current values (chained outputs always resolve) ----
+  const inSetInput = document.createElement("input");
+  inSetInput.type = "text";
+  inSetInput.value = "";
+  inSetInput.placeholder = "(latest values)";
+  inSetInput.setAttribute("list", "log-set-names");
+  content.appendChild(
+    formRow(
+      "Input set",
+      inSetInput,
+      "Every step reads its inputs from this log set where available (latest version per well). Blank = current values.",
+    ),
+  );
+
   // --- Output set (P1-c): one version per chain run, never overwriting -------
   const setInput = document.createElement("input");
   setInput.type = "text";
@@ -456,7 +470,13 @@ export async function buildWorkflowContent(
     statusLine.textContent = "Starting…";
 
     // Fire the (blocking) run without awaiting so we can poll progress meanwhile.
-    void runWorkflowChain(jobId, steps, wellIds, setInput.value.trim() || undefined).catch((e) => {
+    void runWorkflowChain(
+      jobId,
+      steps,
+      wellIds,
+      setInput.value.trim() || undefined,
+      inSetInput.value.trim() || undefined,
+    ).catch((e) => {
       statusLine.textContent = `Error: ${e}`;
       finishRun();
     });

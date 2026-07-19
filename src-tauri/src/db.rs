@@ -1210,6 +1210,52 @@ mod inspector_tests {
             .unwrap();
         assert_eq!(n_archive, 3, "only version 2's history removed");
     }
+
+    /// Input-set selection (the read half of "set in/out"): a module asking for VSH from
+    /// set FINAL gets FINAL's archived values even after a later INTERP run replaced the
+    /// current VSH — while curves the set never wrote (GR) still resolve normally.
+    #[test]
+    fn input_set_selection_reads_archived_values() {
+        use crate::equations::{
+            create_log_set, fetch_curve_frame_from_set, write_computed_curves_versioned, LogSetSpec,
+        };
+        let conn = mem_db();
+        let w = Uuid::new_v4();
+        insert_well(&conn, w, "SET_IN_TEST", None, None, None).unwrap();
+        let depth = vec![1000.0f32, 1000.5, 1001.0];
+        let gr = vec![45.0f32, 60.0, 75.0];
+        let filler = vec![1.0f32; 3];
+        insert_standard_curves(&conn, w, depth.clone(), gr, filler.clone(), filler.clone(), filler.clone(), filler.clone(), filler).unwrap();
+        let w = w.to_string();
+
+        let spec = |set: &str| LogSetSpec {
+            set_name: set.into(),
+            module: "vsh_gr".into(),
+            params_json: String::new(),
+            inputs_json: String::new(),
+        };
+        let (final_set, _) = create_log_set(&conn, &w, &spec("FINAL")).unwrap();
+        write_computed_curves_versioned(&conn, &w, &depth, &[("VSH", &[0.10, 0.20, 0.30])], &final_set).unwrap();
+        let (interp_set, _) = create_log_set(&conn, &w, &spec("INTERP")).unwrap();
+        write_computed_curves_versioned(&conn, &w, &depth, &[("VSH", &[0.90, 0.80, 0.70])], &interp_set).unwrap();
+
+        let names = vec!["VSH".to_string(), "GR".to_string()];
+        // No input set → current values (the later INTERP run).
+        let (_, cols) = fetch_curve_frame_from_set(&conn, &w, &names, None, None).unwrap();
+        assert!((cols["VSH"][0] - 0.90).abs() < 1e-6, "default = current store");
+        // FINAL (case-insensitive) → its archived VSH; GR falls back to standard curves.
+        let (_, cols) = fetch_curve_frame_from_set(&conn, &w, &names, Some("final"), None).unwrap();
+        assert!((cols["VSH"][0] - 0.10).abs() < 1e-6, "reads the chosen set's archive");
+        assert!((cols["GR"][1] - 60.0).abs() < 1e-6, "unwritten curves fall back normally");
+        // Unknown set name degrades to the plain frame, not an error.
+        let (_, cols) = fetch_curve_frame_from_set(&conn, &w, &names, Some("NOPE"), None).unwrap();
+        assert!((cols["VSH"][0] - 0.90).abs() < 1e-6);
+        // Chain protection: when this run's OWN set already wrote VSH (an earlier step),
+        // the input set must not shadow it — the fresh current value wins.
+        let (_, cols) =
+            fetch_curve_frame_from_set(&conn, &w, &names, Some("FINAL"), Some(&interp_set)).unwrap();
+        assert!((cols["VSH"][0] - 0.90).abs() < 1e-6, "own-run outputs beat the input set");
+    }
 }
 
 /// Edits one wells-table field (name/field as text, td/kb as numbers).

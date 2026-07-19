@@ -469,6 +469,76 @@ pub(crate) fn write_computed_curves_versioned(
     Ok(())
 }
 
+/// Input-set selection: like [`fetch_curve_frame`], but any requested curve that the named
+/// log set wrote (latest version per well, name matched case-insensitively) is read from
+/// that set's ARCHIVED values instead of the current store — so a module can consume
+/// "VSH from FINAL" even after later runs replaced the current VSH. Curves the set never
+/// wrote fall back to normal resolution (raw stores, current computed), and an unknown /
+/// empty set name degrades to plain [`fetch_curve_frame`].
+///
+/// `own_set_id` is the running job's own output set event (workflow chains): curves that
+/// an EARLIER step of the same run already wrote keep their fresh current values — the
+/// input set must never shadow this run's own intermediate outputs.
+pub(crate) fn fetch_curve_frame_from_set(
+    conn: &Connection,
+    well_id: &str,
+    curve_names: &[String],
+    input_set: Option<&str>,
+    own_set_id: Option<&str>,
+) -> duckdb::Result<CurveFrame> {
+    let (depth, mut columns) = fetch_curve_frame(conn, well_id, curve_names)?;
+    let Some(set_name) = input_set.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok((depth, columns));
+    };
+    let own_curves: std::collections::HashSet<String> = match own_set_id {
+        Some(own) => {
+            let mut stmt = conn.prepare(
+                "SELECT DISTINCT upper(curve_name) FROM computed_curves_archive WHERE set_id = ?1",
+            )?;
+            let rows = stmt.query_map(params![own], |row| row.get::<_, String>(0))?;
+            rows.collect::<duckdb::Result<_>>()?
+        }
+        None => Default::default(),
+    };
+    let set_id: Option<String> = conn
+        .query_row(
+            "SELECT set_id FROM log_sets WHERE well_id = ?1 AND upper(set_name) = upper(?2)
+             ORDER BY version DESC LIMIT 1",
+            params![well_id, set_name],
+            |r| r.get(0),
+        )
+        .ok();
+    let Some(set_id) = set_id else {
+        return Ok((depth, columns));
+    };
+
+    let mut stmt = conn.prepare(
+        "SELECT depth, value FROM computed_curves_archive WHERE set_id = ?1 AND upper(curve_name) = ?2",
+    )?;
+    for name in curve_names {
+        let upper = name.trim().to_uppercase();
+        if own_curves.contains(&upper) {
+            continue; // written by an earlier step of this very run — keep the fresh values
+        }
+        let rows = stmt.query_map(params![set_id, upper], |row| {
+            Ok((row.get::<_, f32>(0)?, row.get::<_, f32>(1)?))
+        })?;
+        let mut by_depth: HashMap<u32, f32> = HashMap::new();
+        for r in rows {
+            let (d, v) = r?;
+            by_depth.insert(d.to_bits(), v);
+        }
+        if by_depth.is_empty() {
+            continue; // set never wrote this curve — keep the fallback resolution
+        }
+        columns.insert(
+            upper,
+            depth.iter().map(|d| by_depth.get(&d.to_bits()).copied().unwrap_or(f32::NAN)).collect(),
+        );
+    }
+    Ok((depth, columns))
+}
+
 /// Every run event for a well, newest first, with the curves it wrote and whether any of
 /// its rows still provide the current values.
 pub(crate) fn list_log_sets(conn: &Connection, well_id: &str) -> duckdb::Result<Vec<LogSetEntry>> {

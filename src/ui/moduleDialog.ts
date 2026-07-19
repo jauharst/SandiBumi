@@ -119,6 +119,21 @@ export async function openModuleDialog(
     formRow("Mask (optional)", maskSelect, "Flag curve (=1 bad) to blank out of every output — e.g. BADHOLE."),
   );
 
+  // --- Input set (read half of "set in/out"): blank = current values ---
+  const inSetInput = document.createElement("input");
+  inSetInput.className = "form-control";
+  inSetInput.type = "text";
+  inSetInput.value = "";
+  inSetInput.placeholder = "(latest values)";
+  inSetInput.setAttribute("list", "log-set-names");
+  content.appendChild(
+    formRow(
+      "Input set",
+      inSetInput,
+      "Read inputs from this log set's values (latest version per well). Curves the set never wrote fall back to the usual sources. Blank = current values.",
+    ),
+  );
+
   // --- Output set (P1-c versioning: re-run = version N+1, never overwrites) ---
   const setInput = document.createElement("input");
   setInput.className = "form-control";
@@ -212,6 +227,7 @@ export async function openModuleDialog(
       params,
       opts,
       output_set: setInput.value.trim() || undefined,
+      input_set: inSetInput.value.trim() || undefined,
     };
     runBtn.disabled = true;
     resultBox.textContent = `Running ${spec.name} on ${wellIds.length} well(s)…`;

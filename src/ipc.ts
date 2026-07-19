@@ -325,6 +325,9 @@ export interface RunModuleRequest {
   opts: Record<string, string>;
   /** Log set the outputs are versioned into (re-run = version N+1). Omitted = "INTERP". */
   output_set?: string;
+  /** Log set the INPUTS are read from (latest version per well); curves that set wrote
+   *  come from its archived values, others fall back. Omitted = current values. */
+  input_set?: string;
 }
 
 export interface ModuleRunResult {
@@ -357,9 +360,16 @@ export type ChainStatus =
 
 /** Runs a chain; resolves when finished. Poll {@link getChainStatus} with the same jobId
  * for live progress while this promise is pending. `outputSet` names the log set the
- * whole chain run is versioned into (one version per run; default "INTERP"). */
-export async function runWorkflowChain(jobId: string, steps: ChainStep[], wellIds: string[], outputSet?: string): Promise<void> {
-  return invoke<void>("run_workflow_chain", { jobId, steps, wellIds, outputSet: outputSet ?? null });
+ * whole chain run is versioned into (one version per run; default "INTERP"); `inputSet`
+ * makes every step read its inputs from that named set (latest version per well). */
+export async function runWorkflowChain(
+  jobId: string,
+  steps: ChainStep[],
+  wellIds: string[],
+  outputSet?: string,
+  inputSet?: string,
+): Promise<void> {
+  return invoke<void>("run_workflow_chain", { jobId, steps, wellIds, outputSet: outputSet ?? null, inputSet: inputSet ?? null });
 }
 
 // --- P1-c log-set versioning (never overwrite) ------------------------------

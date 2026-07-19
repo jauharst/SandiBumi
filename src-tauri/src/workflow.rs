@@ -26,6 +26,11 @@ pub struct RunModuleRequest {
     /// events (workflow chains — one version per chain run, not per step).
     #[serde(default)]
     pub output_set: Option<String>,
+    /// Log set the INPUTS are read from (latest version per well): curves that set wrote
+    /// come from its archived values; anything else falls back to normal resolution.
+    /// None/empty = current values (the default, same as before P1-c).
+    #[serde(default)]
+    pub input_set: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -143,10 +148,18 @@ pub fn run_workflow_module_into(
         .map(|well_id| {
             let run = || -> Result<(usize, Vec<String>), String> {
                 let curve_names: Vec<String> = log_args.iter().map(|(_, m)| m.clone()).collect();
+                // A chain's own set event: its earlier steps' outputs beat the input set.
+                let own_set = preset_sets.and_then(|m| m.get(well_id.as_str())).map(|s| s.as_str());
                 let (depth, columns, params) = {
                     let conn = db.lock().unwrap();
-                    let (depth, columns) = equations::fetch_curve_frame(&conn, well_id, &curve_names)
-                        .map_err(|e| e.to_string())?;
+                    let (depth, columns) = equations::fetch_curve_frame_from_set(
+                        &conn,
+                        well_id,
+                        &curve_names,
+                        req.input_set.as_deref(),
+                        own_set,
+                    )
+                    .map_err(|e| e.to_string())?;
                     if depth.is_empty() {
                         return Err("no curve data for well".into());
                     }
@@ -173,9 +186,14 @@ pub fn run_workflow_module_into(
                 let mask_name = req.opts.get("MASK").map(|s| s.trim()).unwrap_or("");
                 if !mask_name.is_empty() {
                     let conn = db.lock().unwrap();
-                    let (_, mcols) =
-                        equations::fetch_curve_frame(&conn, well_id, &[mask_name.to_string()])
-                            .map_err(|e| e.to_string())?;
+                    let (_, mcols) = equations::fetch_curve_frame_from_set(
+                        &conn,
+                        well_id,
+                        &[mask_name.to_string()],
+                        req.input_set.as_deref(),
+                        own_set,
+                    )
+                    .map_err(|e| e.to_string())?;
                     drop(conn);
                     if let Some(mask) = mcols.get(&mask_name.to_uppercase()) {
                         for values in outputs.values_mut() {
@@ -200,7 +218,16 @@ pub fn run_workflow_module_into(
                             set_name: req.output_set.clone().filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "INTERP".into()),
                             module: req.module.clone(),
                             params_json: serde_json::to_string(&req.params).unwrap_or_default(),
-                            inputs_json: serde_json::to_string(&log_args).unwrap_or_default(),
+                            inputs_json: {
+                                // Provenance records where inputs were read from too.
+                                let mut prov = log_args.clone();
+                                if let Some(s) =
+                                    req.input_set.as_deref().map(str::trim).filter(|s| !s.is_empty())
+                                {
+                                    prov.push(("input_set".into(), s.to_string()));
+                                }
+                                serde_json::to_string(&prov).unwrap_or_default()
+                            },
                         };
                         equations::create_log_set(&conn, well_id, &spec).map_err(|e| e.to_string())?.0
                     }
@@ -472,6 +499,7 @@ mod tests {
                 params: params.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
                 opts: opts.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
                 output_set: None,
+                input_set: None,
             };
             run_workflow_module(&dbm, &req)
         };
@@ -548,6 +576,7 @@ mod tests {
                 params: params.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
                 opts: opts.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
                 output_set: None,
+                input_set: None,
             };
             let results = run_workflow_module(&db, &req);
             for r in &results {

@@ -96,6 +96,12 @@ Your full review is triaged in **ROADMAP.md §4** — these five landed immediat
 - [ ] **Prune old versions**: Delete on a set version (two clicks — it asks "Confirm
       delete") removes only that version's history; current curves are never touched.
       Equation runs land in set EQUATION, ML in ML, SandiMin in SANDIMIN, automatically.
+- [ ] **Input set** (the other half of set in/out): run VSH into Output set **FINAL**,
+      then re-run with different parameters into **INTERP** (current values are now
+      INTERP's). Open a module that consumes VSH (e.g. sw_indo), set **Input set =
+      FINAL** → the run uses FINAL's VSH, not the current one. Blank Input set = normal
+      behavior (latest values). Works in the Workflow Builder too; curves the input set
+      never wrote (GR, RHOB…) still come from the usual sources.
 
 Issues you marked `[x]` that need real work (all in ROADMAP §4, P1/P2): well-pin
 semantics rework, right-click lockdown (accidental refresh), TVD depth scale UI.

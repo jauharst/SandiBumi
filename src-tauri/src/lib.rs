@@ -591,6 +591,7 @@ fn run_workflow_chain(
     steps: Vec<chain::ChainStep>,
     well_ids: Vec<String>,
     output_set: Option<String>,
+    input_set: Option<String>,
 ) -> Result<(), String> {
     let uuid = Uuid::parse_str(&job_id).map_err(|e| format!("bad job id: {e}"))?;
     if steps.is_empty() {
@@ -600,7 +601,7 @@ fn run_workflow_chain(
         return Err("no wells selected".into());
     }
     let cancel = chain::register(registry.inner(), uuid);
-    chain::run_chain(&db.0, registry.inner(), uuid, &cancel, &steps, &well_ids, output_set.as_deref());
+    chain::run_chain(&db.0, registry.inner(), uuid, &cancel, &steps, &well_ids, output_set.as_deref(), input_set.as_deref());
     Ok(())
 }
 
