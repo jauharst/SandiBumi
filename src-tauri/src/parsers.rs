@@ -684,3 +684,254 @@ pub fn parse_las_directory<P: AsRef<Path>>(dir: P) -> ParseResult<Vec<(String, P
 
     Ok(results)
 }
+
+// ---------------------------------------------------------------------------
+// P2 tops-style imports: formation tops (CSV/TXT) + generic point/interval
+// datasets (petrography, XRD, perforations)
+// ---------------------------------------------------------------------------
+
+/// One formation-top row from a tops file. `well` is None when the file has no
+/// well column (single-well export) — the importer falls back to the selected well.
+#[derive(Debug, Clone)]
+pub struct TopsRecord {
+    pub well: Option<String>,
+    pub top_name: String,
+    pub depth: f32,
+}
+
+const TOPS_WELL_ALIASES: [&str; 7] =
+    ["WELL", "WELLNAME", "WELL_NAME", "WELLBORE", "BOREHOLE", "UWI", "WELL_ID"];
+const TOPS_NAME_ALIASES: [&str; 9] =
+    ["TOP", "TOP_NAME", "TOPS", "MARKER", "SURFACE", "FORMATION", "HORIZON", "ZONE", "NAME"];
+const TOPS_DEPTH_ALIASES: [&str; 7] =
+    ["DEPTH", "MD", "TOP_MD", "MD_TOP", "TOP_DEPTH", "DEPT", "TVD"];
+
+/// Reads a delimited text file into (headers, rows), auto-detecting the delimiter from
+/// the first non-comment line: tab, then semicolon, then comma, else runs of whitespace.
+/// Quoted fields are honoured for the csv-crate delimiters; whitespace mode is a plain
+/// split (well names with spaces need a tab or comma file). Lines starting with '#' skip.
+fn read_delimited<P: AsRef<Path>>(path: P) -> ParseResult<(Vec<String>, Vec<Vec<String>>)> {
+    let text = std::fs::read_to_string(path)?;
+    let lines: Vec<&str> = text
+        .lines()
+        .map(str::trim_end)
+        .filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
+        .collect();
+    let Some(first) = lines.first() else {
+        return Ok((Vec::new(), Vec::new()));
+    };
+
+    let delim: Option<u8> = if first.contains('\t') {
+        Some(b'\t')
+    } else if first.contains(';') {
+        Some(b';')
+    } else if first.contains(',') {
+        Some(b',')
+    } else {
+        None // whitespace mode
+    };
+
+    let mut table: Vec<Vec<String>> = Vec::with_capacity(lines.len());
+    match delim {
+        Some(d) => {
+            let joined = lines.join("\n");
+            let mut rdr = csv::ReaderBuilder::new()
+                .delimiter(d)
+                .has_headers(false)
+                .flexible(true)
+                .from_reader(joined.as_bytes());
+            for rec in rdr.records() {
+                let rec = rec?;
+                table.push(rec.iter().map(|s| s.trim().to_string()).collect());
+            }
+        }
+        None => {
+            for line in &lines {
+                table.push(line.split_whitespace().map(str::to_string).collect());
+            }
+        }
+    }
+    if table.is_empty() {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    let headers: Vec<String> = table.remove(0).iter().map(|h| h.trim().to_uppercase()).collect();
+    Ok((headers, table))
+}
+
+/// Parses a formation-tops file (CSV or TXT — Petrel/Geolog-style exports). Needs a
+/// recognizable top-name and depth column; a well column makes it multi-well. Headerless
+/// two-column "NAME DEPTH" (or three-column "WELL NAME DEPTH") files are also accepted:
+/// if no known headers are found and the last column of the first line parses as a
+/// number, the first line is treated as data.
+pub fn parse_tops_file<P: AsRef<Path>>(path: P) -> ParseResult<Vec<TopsRecord>> {
+    let (headers, mut rows) = read_delimited(path)?;
+    if headers.is_empty() {
+        return Err(ParseError::Las("tops file is empty".into()));
+    }
+
+    let idx_name = resolve_header_index(&headers, &TOPS_NAME_ALIASES);
+    let idx_depth = resolve_header_index(&headers, &TOPS_DEPTH_ALIASES);
+    let (idx_well, idx_name, idx_depth) = match (idx_name, idx_depth) {
+        (Some(n), Some(d)) => (resolve_header_index(&headers, &TOPS_WELL_ALIASES), n, d),
+        _ => {
+            // Headerless fallback: NAME DEPTH or WELL NAME DEPTH, first line is data.
+            let last_is_num =
+                headers.last().is_some_and(|h| h.replace(',', ".").parse::<f32>().is_ok());
+            if !last_is_num || headers.len() < 2 {
+                return Err(ParseError::Las(
+                    "tops file needs TOP/MARKER/FORMATION and DEPTH/MD columns (or headerless NAME DEPTH lines)"
+                        .into(),
+                ));
+            }
+            rows.insert(0, headers.clone());
+            match headers.len() {
+                2 => (None, 0usize, 1usize),
+                _ => (Some(0usize), 1usize, 2usize),
+            }
+        }
+    };
+
+    let mut out = Vec::new();
+    for row in rows {
+        let depth = row
+            .get(idx_depth)
+            .map(|s| s.replace(',', "."))
+            .and_then(|s| s.parse::<f32>().ok());
+        let name = row.get(idx_name).map(|s| s.trim()).filter(|s| !s.is_empty());
+        let (Some(depth), Some(name)) = (depth, name) else { continue };
+        let well = idx_well
+            .and_then(|i| row.get(i))
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        out.push(TopsRecord { well, top_name: name.to_string(), depth });
+    }
+    if out.is_empty() {
+        return Err(ParseError::Las("tops file has no parsable rows".into()));
+    }
+    Ok(out)
+}
+
+/// A generic point/interval dataset (petrography, XRD, perforations): TOP (+optional
+/// BASE) depth per row, every other column an item whose values may be numeric or text.
+#[derive(Debug, Clone, Default)]
+pub struct IntervalData {
+    /// Value column headers, upper-cased, file order.
+    pub items: Vec<String>,
+    /// (top, base, raw values parallel to `items`; None = empty cell).
+    pub rows: Vec<(f32, Option<f32>, Vec<Option<String>>)>,
+}
+
+const AUX_TOP_ALIASES: [&str; 7] = ["TOP", "DEPTH", "TOP_MD", "FROM", "TOP_DEPTH", "MD", "DEPT"];
+const AUX_BASE_ALIASES: [&str; 6] = ["BASE", "BOTTOM", "TO", "BASE_MD", "BOT", "BOTTOM_DEPTH"];
+
+/// Parses a tops-style dataset file (CSV/TXT, same delimiter detection as tops): needs a
+/// TOP/DEPTH column; BASE/BOTTOM makes rows intervals; a WELL column is ignored (the
+/// import dialog binds the file to one well). All remaining columns become items.
+pub fn parse_interval_file<P: AsRef<Path>>(path: P) -> ParseResult<IntervalData> {
+    let (headers, rows) = read_delimited(path)?;
+    if headers.is_empty() {
+        return Err(ParseError::Las("data file is empty".into()));
+    }
+    let idx_top = resolve_header_index(&headers, &AUX_TOP_ALIASES)
+        .ok_or_else(|| ParseError::Las("file has no recognizable TOP/DEPTH column".into()))?;
+    let idx_base = resolve_header_index(&headers, &AUX_BASE_ALIASES);
+    let idx_well = resolve_header_index(&headers, &TOPS_WELL_ALIASES);
+
+    let skip: Vec<usize> =
+        [Some(idx_top), idx_base, idx_well].iter().flatten().copied().collect();
+    let item_idx: Vec<usize> = (0..headers.len()).filter(|i| !skip.contains(i)).collect();
+    let items: Vec<String> = item_idx.iter().map(|&i| headers[i].clone()).collect();
+    if items.is_empty() {
+        return Err(ParseError::Las("file has no value columns besides depth".into()));
+    }
+
+    let mut out = IntervalData { items, rows: Vec::new() };
+    for row in rows {
+        let top = row
+            .get(idx_top)
+            .map(|s| s.replace(',', "."))
+            .and_then(|s| s.parse::<f32>().ok());
+        let Some(top) = top else { continue };
+        let base = idx_base
+            .and_then(|i| row.get(i))
+            .map(|s| s.replace(',', "."))
+            .and_then(|s| s.parse::<f32>().ok());
+        let values: Vec<Option<String>> = item_idx
+            .iter()
+            .map(|&i| row.get(i).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()))
+            .collect();
+        out.rows.push((top, base, values));
+    }
+    if out.rows.is_empty() {
+        return Err(ParseError::Las("data file has no parsable rows".into()));
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod tops_aux_tests {
+    use super::*;
+    use std::io::Write;
+
+    fn temp(name: &str, body: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(name);
+        let mut f = File::create(&path).unwrap();
+        f.write_all(body.as_bytes()).unwrap();
+        path
+    }
+
+    #[test]
+    fn tops_csv_multiwell_aliases() {
+        let p = temp(
+            "arshilla_tops_test.csv",
+            "# exported tops\nWell Name,Surface,MD\nBALAM-1,TOP_A,1000.5\nBALAM-1,TOP_B,1100.0\nBALAM-2,TOP_A,1010.0\n,BAD_ROW,\n",
+        );
+        let recs = parse_tops_file(&p).unwrap();
+        std::fs::remove_file(&p).ok();
+        assert_eq!(recs.len(), 3, "row without depth skipped");
+        assert_eq!(recs[0].well.as_deref(), Some("BALAM-1"));
+        assert_eq!(recs[2].well.as_deref(), Some("BALAM-2"));
+        assert_eq!(recs[1].top_name, "TOP_B");
+        assert!((recs[1].depth - 1100.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn tops_txt_headerless_whitespace() {
+        let p = temp("arshilla_tops_test.txt", "TOP_A  1000.5\nTOP_B\t1100\n");
+        let recs = parse_tops_file(&p).unwrap();
+        std::fs::remove_file(&p).ok();
+        assert_eq!(recs.len(), 2);
+        assert!(recs[0].well.is_none());
+        assert_eq!(recs[0].top_name, "TOP_A");
+        assert!((recs[1].depth - 1100.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn interval_file_xrd_mixed_types() {
+        let p = temp(
+            "arshilla_xrd_test.csv",
+            "Depth,Quartz,Illite,Remarks\n2000.0,45.2,12.1,clean\n2001.0,40.0,,silty\n",
+        );
+        let d = parse_interval_file(&p).unwrap();
+        std::fs::remove_file(&p).ok();
+        assert_eq!(d.items, vec!["QUARTZ", "ILLITE", "REMARKS"]);
+        assert_eq!(d.rows.len(), 2);
+        assert_eq!(d.rows[0].0, 2000.0);
+        assert!(d.rows[0].1.is_none(), "no BASE column means point rows");
+        assert_eq!(d.rows[1].2[1], None, "empty cell stays None");
+        assert_eq!(d.rows[1].2[2].as_deref(), Some("silty"));
+    }
+
+    #[test]
+    fn interval_file_perforation_intervals() {
+        let p = temp(
+            "arshilla_perf_test.csv",
+            "FROM,TO,STATUS\n2050.0,2055.0,OPEN\n2100.0,2104.0,SQUEEZED\n",
+        );
+        let d = parse_interval_file(&p).unwrap();
+        std::fs::remove_file(&p).ok();
+        assert_eq!(d.items, vec!["STATUS"]);
+        assert_eq!(d.rows[0].1, Some(2055.0));
+        assert_eq!(d.rows[1].2[0].as_deref(), Some("SQUEEZED"));
+    }
+}
