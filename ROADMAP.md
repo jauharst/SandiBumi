@@ -585,10 +585,21 @@ increments with REVIEW.md check items.
   ML, Monte Carlo, Cutoffs & Summary) pre-tick the multi-selection instead of just the
   active well (`defaultRunWellIds`). Fresh panels always adopt the current well even
   with pin OFF.
-- **Log-view layout interaction**: resizable (collapsible) track headers — 15 curves must
-  not eat the screen; move/copy curves between tracks; customizable borders between
-  tracks/columns; hover readout only on the clicked/selected track; right-click a curve →
-  manual log editing, wireline shift, standard edit ops (undoable).
+- ✅ **Log-view layout interaction** (2026-07-19): ▤ collapsible track headers (full →
+  compact chips → titles only, plus a 34vh cap with per-track scroll); drag a curve
+  between track headers to MOVE it (Ctrl = copy), undoable; ▦ customizable track borders
+  (solid/dashed/none, width, theme-or-custom color) drawn on the overlay canvas; hover
+  readout scoped to ONE track — the clicked/selected track (header highlighted, click
+  again to release) else the track under the cursor; right-click a track → "Edit CURVE…"
+  per curve: wireline shift (whole-curve resample at d−Δ), set constant, blank (NaN),
+  interpolate across interval, scale a·v+b — `curve_edit.rs` edits whichever store holds
+  the curve (standard column / computed incl. set_id preservation / generic RAW by
+  mnemonic-then-family) via transactional read-modify-rewrite, returns the changed
+  samples' previous values as packed bytes so Ctrl+Z restores bit-exactly
+  (`restore_curve_values`); recorded in Processing History.
+  **Deferred**: drag-on-canvas interval picking for edit ops (dialog takes top/bottom,
+  prefilled around the clicked depth); header-mode/border persistence in sessions;
+  interactive wireline-shift preview while dragging the curve.
 - **Histogram v2** (double-click or right-click opens properties, Geolog-style): box plot,
   cumulative overlay, bin control, colors, user-input percentiles; **universal** (no
   hard-wired GR_MA/GR_SH — parameter pickers appear only when wanted); statistics

@@ -846,6 +846,38 @@ export function shiftCoreData(wellId: string, delta: number): Promise<number> {
   return invoke<number>("shift_core_data", { wellId, delta });
 }
 
+// --- Interactive curve editing (P2-d: log-view right-click menu) ---
+
+export interface CurveEditRequest {
+  well_id: string;
+  curve: string;
+  /** "shift" (wireline depth shift) | "set" | "blank" | "interpolate" | "scale". */
+  op: "shift" | "set" | "blank" | "interpolate" | "scale";
+  delta?: number;
+  top?: number;
+  bottom?: number;
+  value?: number;
+  mul?: number;
+  add?: number;
+}
+
+/** `data` holds the CHANGED rows' previous samples as packed `depth[n] + value[n]`
+ *  f32-LE bytes — pass it back to {@link restoreCurveValues} verbatim to undo. */
+export interface CurveEditResult {
+  affected: number;
+  store: string;
+  point_count: number;
+  data: Uint8Array | number[];
+}
+
+export function editCurve(req: CurveEditRequest): Promise<CurveEditResult> {
+  return invoke<CurveEditResult>("edit_curve", { req });
+}
+
+export function restoreCurveValues(wellId: string, curve: string, pointCount: number, data: number[]): Promise<number> {
+  return invoke<number>("restore_curve_values", { wellId, curve, pointCount, data });
+}
+
 /** Checkpoints the DuckDB project database and copies it to `destPath`. */
 export async function saveProjectAs(destPath: string): Promise<void> {
   return invoke("save_project_as", { destPath });

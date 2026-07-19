@@ -356,7 +356,7 @@ export class Workspace {
       }
       e.preventDefault();
       const group = this.dock.panels.find((p) => p.id === panelId)?.api.group ?? undefined;
-      showContextMenu(e.clientX, e.clientY, this.contextItemsFor(kind, panelId, host, group));
+      showContextMenu(e.clientX, e.clientY, this.contextItemsFor(kind, panelId, host, group, e));
     });
   }
 
@@ -367,12 +367,16 @@ export class Workspace {
     panelId: string,
     host: HTMLElement,
     group: DockviewGroupPanel | undefined,
+    event?: MouseEvent,
   ): ContextMenuEntry[] {
     const items: ContextMenuEntry[] = [];
 
     if (kind === "logview") {
       const view = this.logViews.get(panelId);
       if (view) {
+        // Right-click over a track: per-curve edit entries (wireline shift, interval
+        // set/blank/interpolate/scale) come first, then the generic view actions.
+        if (event) items.push(...view.curveMenuEntries(event));
         items.push(
           { heading: "Log View" },
           { label: "Reset view", onClick: () => view.resetView() },

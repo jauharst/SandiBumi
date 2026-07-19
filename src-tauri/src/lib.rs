@@ -1,5 +1,6 @@
 mod chain;
 mod composite;
+mod curve_edit;
 mod curves;
 mod db;
 mod decimate;
@@ -578,6 +579,29 @@ fn shift_core_data(db: tauri::State<DbState>, well_id: String, delta: f32) -> Re
     db::shift_core_depths(&conn, &well_id, delta).map_err(|e| e.to_string())
 }
 
+/// Interactive curve edit from the log view's right-click menu: wireline shift or an
+/// interval op (set/blank/interpolate/scale). Returns the previous samples for undo.
+#[tauri::command]
+fn edit_curve(db: tauri::State<DbState>, req: curve_edit::CurveEditRequest) -> Result<curve_edit::CurveEditResult, String> {
+    let conn = db.0.lock().unwrap();
+    curve_edit::edit_curve(&conn, &req)
+}
+
+/// Undo path for `edit_curve`: writes back the (depth, value) pairs a prior edit
+/// returned, in the same packed `depth[n] + value[n]` f32-LE byte convention.
+#[tauri::command]
+fn restore_curve_values(
+    db: tauri::State<DbState>,
+    well_id: String,
+    curve: String,
+    point_count: usize,
+    data: Vec<u8>,
+) -> Result<usize, String> {
+    let (depth, values) = curve_edit::unpack_pairs(point_count, &data)?;
+    let conn = db.0.lock().unwrap();
+    curve_edit::restore_curve_values(&conn, &well_id, &curve, &depth, &values)
+}
+
 /// Creates or updates a formation top.
 #[tauri::command]
 fn upsert_top(db: tauri::State<DbState>, well_id: String, top_name: String, depth: f32, color: Option<String>) -> Result<(), String> {
@@ -744,6 +768,8 @@ pub fn run() {
             update_computed_sample,
             update_core_sample,
             shift_core_data,
+            edit_curve,
+            restore_curve_values,
             upsert_top,
             delete_top,
             check_top_order,

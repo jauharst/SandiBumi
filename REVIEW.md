@@ -121,6 +121,33 @@ Your full review is triaged in **ROADMAP.md §4** — these five landed immediat
       per well (read-only — re-import the file to change values). Tops appear
       immediately in the Wells & Tops pane and all log views/correlation.
 
+## P2-d — Log-view layout interaction (2026-07-19 #10)
+
+- [ ] **Collapsible track headers**: ▤ in the log-view toolbar cycles full → compact
+      (curve names as inline chips, no scale lines) → titles only. Headers also cap at
+      ~a third of the pane and scroll inside, so a 15-curve track can't eat the screen.
+      Try it on your densest layout.
+- [ ] **Move/copy curves between tracks**: drag a curve name from one track header onto
+      another track's header — the curve MOVES there (its color/scale/fill travel with
+      it). Hold **Ctrl** while dropping to COPY instead (e.g. overlay NPHI on the GR
+      track). Ctrl+Z undoes either.
+- [ ] **Track borders**: ▦ in the toolbar — solid / dashed / none, width 1–4 px, theme
+      color (follows light/dark) or a custom color. Default is a thin solid separator
+      at every track boundary; check it looks right in dark themes too.
+- [ ] **Readout follows ONE track now**: hovering shows only the curves of the track
+      under the cursor (not all 15). CLICK a track to lock the readout to it (header
+      highlights, click again to release) — then you can run the cursor over the whole
+      layout while reading just that track's values.
+- [ ] **Right-click log editing**: right-click on a track → "Edit CURVE…" for each of
+      its curves. Ops: **Wireline shift** (whole-curve depth shift, resampled onto its
+      own grid — NaN where it slides past the logged interval), **Set constant**,
+      **Blank (erase)**, **Interpolate across** (bridge a bad interval linearly),
+      **Scale a·v + b** (recalibration). Works on raw (GR/RHOB…), computed, and
+      imported generic-store curves alike; every apply is ONE Ctrl+Z entry that
+      restores the previous samples bit-exactly, and lands in the History panel.
+      Suggested check: blank a washout interval on RHOB, interpolate across it,
+      then Ctrl+Z twice — the original curve must come back exactly.
+
 ## P2-c — Well pin rework + multi-select (2026-07-19 #9)
 
 - [ ] **Pin is now a mode, not a lock.** 📌 ON (default): clicking a well in Wells &

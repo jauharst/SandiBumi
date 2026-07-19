@@ -6,7 +6,13 @@ export interface TrackChromeCallbacks {
   onLayoutMutated: () => void;
   /** Fired on curve visibility toggle — cheap path, no geometry rebuild needed. */
   onCurveToggle: (curveName: string, hidden: boolean) => void;
+  /** Fired after a curve was dragged to another track (move, or copy with Ctrl held),
+   *  BEFORE onLayoutMutated. `before` is a snapshot of the layout pre-mutation so the
+   *  panel can push an undo action. */
+  onCurveMoved?: (before: Layout, label: string) => void;
 }
+
+const CURVE_DRAG_TYPE = "application/x-sandibumi-curve";
 
 /** Renders track headers (title, curve legend, editable scale) and wires up drag-resize,
  * drag-reorder, curve visibility toggle, and inline scale editing. `trackWeights` is
@@ -42,7 +48,7 @@ export function renderTrackHeaders(
     const legend = document.createElement("div");
     legend.className = "track-header-legend";
     for (const c of track.curves) {
-      legend.appendChild(buildCurveRow(c, hiddenCurves, callbacks));
+      legend.appendChild(buildCurveRow(c, track, hiddenCurves, callbacks));
     }
     header.appendChild(legend);
 
@@ -57,14 +63,22 @@ export function renderTrackHeaders(
 
 function buildCurveRow(
   curve: { curve_name: string; color: string; min: number; max: number; fill?: string },
+  track: Track,
   hiddenCurves: Set<string>,
   callbacks: TrackChromeCallbacks,
 ): HTMLElement {
   const wrapper = document.createElement("div");
+  wrapper.className = "curve-entry";
   const isBlocks = curve.fill === "blocks";
 
   const row = document.createElement("div");
   row.className = "curve-row" + (hiddenCurves.has(curve.curve_name) ? " hidden" : "");
+  // Drag a curve onto another track's header to MOVE it there (hold Ctrl to COPY).
+  row.draggable = true;
+  row.addEventListener("dragstart", (e) => {
+    e.dataTransfer?.setData(CURVE_DRAG_TYPE, JSON.stringify({ track: track.title, curve: curve.curve_name }));
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = "copyMove";
+  });
 
   const swatch = document.createElement("span");
   swatch.className = "legend-dot" + (isBlocks ? " blocks" : "");
@@ -196,13 +210,37 @@ function attachHeaderDragReorder(
   });
   header.addEventListener("dragover", (e) => {
     e.preventDefault();
-    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+    if (e.dataTransfer) {
+      // Curve drags copy with Ctrl held; track reorders are always a move.
+      const isCurve = e.dataTransfer.types.includes(CURVE_DRAG_TYPE);
+      e.dataTransfer.dropEffect = isCurve && e.ctrlKey ? "copy" : "move";
+    }
     header.classList.add("drag-over");
   });
   header.addEventListener("dragleave", () => header.classList.remove("drag-over"));
   header.addEventListener("drop", (e) => {
     e.preventDefault();
     header.classList.remove("drag-over");
+
+    // A curve row dropped on this track: move it here (Ctrl at drop = copy, keeping
+    // the original). The panel gets a pre-mutation snapshot for undo.
+    const curvePayload = e.dataTransfer?.getData(CURVE_DRAG_TYPE);
+    if (curvePayload) {
+      const { track: srcTitle, curve: curveName } = JSON.parse(curvePayload) as { track: string; curve: string };
+      if (srcTitle === track.title) return;
+      const src = layout.tracks.find((t) => t.title === srcTitle);
+      const style = src?.curves.find((c) => c.curve_name === curveName);
+      if (!src || !style) return;
+      if (track.curves.some((c) => c.curve_name === curveName)) return; // already shown here
+      const before = structuredClone(layout);
+      const copy = e.ctrlKey;
+      if (!copy) src.curves.splice(src.curves.indexOf(style), 1);
+      track.curves.push(copy ? structuredClone(style) : style);
+      callbacks.onCurveMoved?.(before, `${copy ? "copy" : "move"} ${curveName} → ${track.title}`);
+      callbacks.onLayoutMutated();
+      return;
+    }
+
     const srcTitle = e.dataTransfer?.getData("text/plain");
     if (!srcTitle || srcTitle === track.title) return;
     const from = layout.tracks.findIndex((t) => t.title === srcTitle);

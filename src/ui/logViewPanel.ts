@@ -2,10 +2,16 @@ import { LogCanvasRenderer } from "../LogCanvasRenderer";
 import { getCoreData, getTrackData, listCurveCatalog, type Layout, type TrackCurveSeries, type WellSummary } from "../ipc";
 import { appState, setStatus } from "../state";
 import { pushUndo } from "../undo";
+import type { ContextMenuEntry } from "./contextMenu";
+import { openCurveEditDialog } from "./curveEditDialog";
 import { openLayoutPropsDialog } from "./layoutPropsDialog";
+import { formRow, openModal } from "./modal";
 import { CORE_OVERLAY_MAP } from "./plotCommon";
 import { TopsEditor } from "./topsEditor";
 import { renderDepthAxis, renderReadout, renderReportHeader, renderTrackHeaders } from "./viewerChrome";
+
+type HeaderMode = "full" | "compact" | "collapsed";
+type BorderStyle = { style: "solid" | "dashed" | "none"; width: number; color: string };
 
 /** One dockable log-layout viewer: its own WebGPU canvas + renderer, mini view toolbar
  *  (depth scale/zoom/track width/pin), track headers, depth axis, cursor readout,
@@ -36,6 +42,15 @@ export class LogViewPanel {
   private hiddenCurves = new Set<string>();
   private widthScalePct = 100;
   private well: WellSummary | null = null;
+  /** Click a track (on the canvas or its header) to scope the hover readout to just
+   *  that track's curves; null = follow whichever track the cursor is over. */
+  private selectedTrack: string | null = null;
+  /** ▤ cycles full → compact (inline chips, no scales) → collapsed (titles only), so a
+   *  15-curve layout doesn't eat the screen. */
+  private headerMode: HeaderMode = "full";
+  /** Vertical separators between tracks, drawn on the overlay canvas. Empty color =
+   *  the theme's --border. */
+  private borders: BorderStyle = { style: "solid", width: 1, color: "" };
 
   private unsubscribers: (() => void)[] = [];
   private resizeObserver: ResizeObserver | null = null;
@@ -151,6 +166,22 @@ export class LogViewPanel {
     btn("⚙", "Layout properties…", () => void this.openProperties());
     sep();
 
+    const headerBtn = btn("▤", "Track headers: full → compact → titles only", () => {
+      this.headerMode = this.headerMode === "full" ? "compact" : this.headerMode === "compact" ? "collapsed" : "full";
+      this.applyHeaderMode();
+      headerBtn.classList.toggle("active", this.headerMode !== "full");
+      this.onUserEdit?.();
+      setStatus(
+        this.headerMode === "full"
+          ? "Track headers: full (curves + scales)"
+          : this.headerMode === "compact"
+            ? "Track headers: compact (curve chips, no scales)"
+            : "Track headers: titles only",
+      );
+    });
+    btn("▦", "Track borders…", () => this.openBordersDialog());
+    sep();
+
     const topsBtn = btn("🏷", "Edit tops: click to add, drag to move, double-click to rename/delete", () => {
       const on = !this.topsEditor.editing;
       this.topsEditor.setEditMode(on);
@@ -175,14 +206,22 @@ export class LogViewPanel {
       this.topsEditor.draw();
     };
     this.renderer.onCursorMove = (depth, samples, trackTitle) => {
-      // Emphasize the hovered track's curves in the readout and tint its header.
-      const track = trackTitle ? this.layout?.tracks.find((t) => t.title === trackTitle) : undefined;
-      const emphasize = track ? new Set(track.curves.map((c) => c.curve_name)) : undefined;
-      renderReadout(this.readoutEl, depth, samples, emphasize);
+      // The readout is scoped to ONE track: the clicked/selected one, else the track
+      // under the cursor — not every curve in the layout (Jauhar: 15 curves must not
+      // eat the screen). With no track resolved, all curves show as a fallback.
+      const focusTitle = this.selectedTrack ?? trackTitle;
+      const track = focusTitle ? this.layout?.tracks.find((t) => t.title === focusTitle) : undefined;
+      let shown = samples;
+      if (track) {
+        const names = new Set(track.curves.map((c) => c.curve_name));
+        shown = samples.filter((s) => names.has(s.curveName));
+      }
+      renderReadout(this.readoutEl, depth, shown);
       this.highlightTrack(trackTitle);
       // Broadcast so every other open log view draws a synchronized crosshair.
       appState.hoverDepth.set(depth);
     };
+    this.attachTrackSelect();
 
     try {
       await this.renderer.init();
@@ -236,6 +275,128 @@ export class LogViewPanel {
     for (const el of this.headersEl.querySelectorAll<HTMLElement>(".track-header")) {
       el.classList.toggle("hover", title !== null && el.dataset.track === title);
     }
+  }
+
+  /** The track whose horizontal extent contains the given client-X (null when off). */
+  private trackTitleAtX(clientX: number): string | null {
+    const rect = this.canvas.getBoundingClientRect();
+    if (rect.width <= 0) return null;
+    const frac = (clientX - rect.left) / rect.width;
+    for (const r of this.renderer?.getTrackRanges() ?? []) {
+      if (frac >= r.leftFrac && frac < r.rightFrac) return r.title;
+    }
+    return null;
+  }
+
+  /** A plain click (no drag) on the canvas selects/deselects the track under the
+   *  cursor — the readout then sticks to that track's curves until deselected. */
+  private attachTrackSelect(): void {
+    let down: [number, number] | null = null;
+    this.canvas.addEventListener("pointerdown", (e) => {
+      down = [e.clientX, e.clientY];
+    });
+    this.canvas.addEventListener("pointerup", (e) => {
+      if (!down) return;
+      const moved = Math.hypot(e.clientX - down[0], e.clientY - down[1]);
+      down = null;
+      if (moved > 4) return; // it was a pan, not a click
+      const title = this.trackTitleAtX(e.clientX);
+      if (!title) return;
+      this.selectedTrack = this.selectedTrack === title ? null : title;
+      this.applyTrackSelection();
+      setStatus(
+        this.selectedTrack
+          ? `Track "${this.selectedTrack}" selected — readout follows it (click it again to release)`
+          : "Track selection cleared — readout follows the cursor",
+      );
+    });
+  }
+
+  private applyTrackSelection(): void {
+    for (const el of this.headersEl.querySelectorAll<HTMLElement>(".track-header")) {
+      el.classList.toggle("selected", this.selectedTrack !== null && el.dataset.track === this.selectedTrack);
+    }
+  }
+
+  private applyHeaderMode(): void {
+    this.headersEl.classList.toggle("compact", this.headerMode === "compact");
+    this.headersEl.classList.toggle("collapsed", this.headerMode === "collapsed");
+  }
+
+  /** Small dialog for the vertical separators between tracks (style/width/color). */
+  private openBordersDialog(): void {
+    const content = document.createElement("div");
+    const styleSel = document.createElement("select");
+    styleSel.className = "form-control";
+    for (const [value, label] of [["solid", "Solid"], ["dashed", "Dashed"], ["none", "None"]]) {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = label;
+      styleSel.appendChild(opt);
+    }
+    styleSel.value = this.borders.style;
+    const widthInput = document.createElement("input");
+    widthInput.className = "form-control";
+    widthInput.type = "number";
+    widthInput.min = "1";
+    widthInput.max = "4";
+    widthInput.step = "1";
+    widthInput.value = String(this.borders.width);
+    const themeColor = document.createElement("input");
+    themeColor.type = "checkbox";
+    themeColor.checked = this.borders.color === "";
+    const colorInput = document.createElement("input");
+    colorInput.type = "color";
+    colorInput.className = "form-control";
+    colorInput.value = this.borders.color || "#888888";
+    colorInput.disabled = themeColor.checked;
+    themeColor.addEventListener("change", () => (colorInput.disabled = themeColor.checked));
+
+    content.appendChild(formRow("Style", styleSel));
+    content.appendChild(formRow("Width (px)", widthInput));
+    content.appendChild(formRow("Theme color", themeColor, "Use the theme's border color (follows light/dark)"));
+    content.appendChild(formRow("Custom color", colorInput));
+
+    const applyBtn = document.createElement("button");
+    applyBtn.className = "lp-btn";
+    applyBtn.textContent = "Apply";
+    content.appendChild(applyBtn);
+    const close = openModal("Track borders", content, 340);
+    applyBtn.addEventListener("click", () => {
+      this.borders = {
+        style: styleSel.value as BorderStyle["style"],
+        width: Math.max(1, Math.min(4, parseInt(widthInput.value, 10) || 1)),
+        color: themeColor.checked ? "" : colorInput.value,
+      };
+      this.onUserEdit?.();
+      this.drawCoreOverlay();
+      setStatus(`Track borders: ${this.borders.style}`);
+      close();
+    });
+  }
+
+  /** Right-click entries for the workspace context menu: "Edit CURVE…" for every curve
+   *  in the track under the pointer (wireline shift, set/blank/interpolate/scale). */
+  curveMenuEntries(e: MouseEvent): ContextMenuEntry[] {
+    if (!this.well || !this.renderer || !this.layout) return [];
+    const rect = this.canvas.getBoundingClientRect();
+    if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) return [];
+    const title = this.trackTitleAtX(e.clientX);
+    const track = title ? this.layout.tracks.find((t) => t.title === title) : undefined;
+    if (!track) return [];
+    const editable = track.curves.filter((c) => c.fill !== "blocks");
+    if (editable.length === 0) return [];
+    const [top, bottom] = this.renderer.getVisibleDepthRange();
+    const depth = top + ((e.clientY - rect.top) / (rect.height || 1)) * (bottom - top);
+    const well = this.well;
+    const entries: ContextMenuEntry[] = [{ heading: `Track ${track.title}` }];
+    for (const c of editable) {
+      entries.push({
+        label: `Edit ${c.curve_name}…`,
+        onClick: () => openCurveEditDialog(well.well_id, well.well_name, c.curve_name, depth),
+      });
+    }
+    return entries;
   }
 
   /** Places the synchronized crosshair line at `depth` (hidden when null/off-screen). */
@@ -315,7 +476,9 @@ export class LogViewPanel {
     const ctx = this.coreOverlay.getContext("2d");
     if (!ctx) return;
     ctx.clearRect(0, 0, w, h);
-    if (!this.renderer || !this.layout || this.coreByName.size === 0) return;
+    if (!this.renderer || !this.layout) return;
+    this.drawTrackBorders(ctx, w, h);
+    if (this.coreByName.size === 0) return;
 
     const [top, bottom] = this.renderer.getVisibleDepthRange();
     if (bottom <= top) return;
@@ -363,6 +526,30 @@ export class LogViewPanel {
     }
   }
 
+  /** Vertical separators at the interior track boundaries, in the user's chosen style
+   *  (▦ in the toolbar). Empty color follows the theme's --border on every repaint. */
+  private drawTrackBorders(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    if (this.borders.style === "none" || !this.renderer) return;
+    const color =
+      this.borders.color ||
+      getComputedStyle(this.root).getPropertyValue("--border").trim() ||
+      getComputedStyle(document.documentElement).getPropertyValue("--border").trim() ||
+      "#999";
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = this.borders.width;
+    ctx.setLineDash(this.borders.style === "dashed" ? [6, 4] : []);
+    const ranges = this.renderer.getTrackRanges();
+    for (let i = 0; i < ranges.length - 1; i++) {
+      const x = Math.round(ranges[i].rightFrac * w) + (this.borders.width % 2 === 1 ? 0.5 : 0);
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, h);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   private updateTitle(): void {
     const parts = [this.well?.well_name ?? "Log View", this.layout?.name].filter(Boolean);
     this.setTitle(parts.join(" — "));
@@ -376,6 +563,10 @@ export class LogViewPanel {
 
   refresh(): void {
     if (!this.layout || !this.renderer) return;
+    // A selected track that no longer exists (renamed/removed in properties) unsticks.
+    if (this.selectedTrack && !this.layout.tracks.some((t) => t.title === this.selectedTrack)) {
+      this.selectedTrack = null;
+    }
     renderTrackHeaders(this.headersEl, this.layout, this.trackWeights, this.hiddenCurves, {
       onLayoutMutated: () => {
         this.onUserEdit?.();
@@ -385,7 +576,17 @@ export class LogViewPanel {
         this.onUserEdit?.();
         this.renderer?.setCurveHidden(curveName, hidden);
       },
+      onCurveMoved: (before, label) => {
+        // Snapshot AFTER the drop mutation so redo replays the exact result.
+        const after = structuredClone(this.layout!);
+        pushUndo({
+          label,
+          undo: () => this.applyLayoutEdit(structuredClone(before)),
+          redo: () => this.applyLayoutEdit(structuredClone(after)),
+        });
+      },
     });
+    this.applyTrackSelection();
     this.renderer.loadLayout(this.layout, this.series, this.trackWeights);
     for (const curveName of this.hiddenCurves) this.renderer.setCurveHidden(curveName, true);
     renderReportHeader(this.reportEl, this.well, this.renderer.getDataDepthRange());
