@@ -18,7 +18,7 @@ import {
   type ViewportRef,
 } from "./plotCanvas";
 import { parsePercentiles } from "./histogramPanel";
-import { DN_CHARTS, type DnMatrixCurve } from "./dnChartData";
+import { AXIS_ALIASES, CHART_OVERLAYS, findChartOverlay, type ChartOverlayDef } from "./chartOverlays";
 import {
   buildPlotTemplateBar,
   buildZoneSelect,
@@ -37,7 +37,6 @@ import { buildImageExportButtons } from "./plotExport";
 export type RegModel = "linear" | "power" | "logx" | "exp";
 export type RegMethod = "yx" | "xy" | "rma";
 export type SizeMode = "fill" | "fixed";
-export type DnOverlayKey = "none" | "fresh" | "salt";
 
 export interface CrossplotOptions {
   pointSize: number;
@@ -66,9 +65,10 @@ export interface CrossplotOptions {
   /** Qtz/Cal/Dol matrix reference points on an NPHI-RHOB plot — opt-in (universal:
    *  overlays only when requested). */
   matrixPoints: boolean;
-  /** Chartbook D-N porosity overlay (Por-11 fresh / Por-12 salt): matrix curves with
-   *  porosity graduations + iso-porosity connectors, on an NPHI-RHOB plot. */
-  dnOverlay: DnOverlayKey;
+  /** Chartbook overlay by id from CHART_OVERLAYS ("" = none): digitized matrix
+   *  curves / mineral regions / reference lines, drawn when the plot axes match
+   *  the chart's axes (either orientation). */
+  chartOverlay: string;
   /** Plot size: fill the panel (default) or a fixed pixel size (consistent exports). */
   sizeMode: SizeMode;
   plotW: number;
@@ -105,7 +105,7 @@ export const DEFAULT_CROSSPLOT_OPTIONS: CrossplotOptions = {
   tsPhiSd: 0.3,
   tsPhiSh: 0.15,
   matrixPoints: false,
-  dnOverlay: "none",
+  chartOverlay: "",
   sizeMode: "fill",
   plotW: 640,
   plotH: 480,
@@ -129,7 +129,14 @@ export function normalizeCrossplotOptions(raw: Partial<CrossplotOptions>): Cross
   if (!["linear", "power", "logx", "exp"].includes(opts.regModel)) opts.regModel = "linear";
   if (!["yx", "xy", "rma"].includes(opts.regMethod)) opts.regMethod = "yx";
   if (opts.sizeMode !== "fixed") opts.sizeMode = "fill";
-  if (!["none", "fresh", "salt"].includes(opts.dnOverlay)) opts.dnOverlay = "none";
+  // migrate the short-lived dnOverlay option (P2-f+) to the chart registry
+  const legacyDn = (raw as { dnOverlay?: string }).dnOverlay;
+  if (raw.chartOverlay === undefined && legacyDn) {
+    opts.chartOverlay = legacyDn === "fresh" ? "por11" : legacyDn === "salt" ? "por12" : "";
+  }
+  if (typeof opts.chartOverlay !== "string" || (opts.chartOverlay !== "" && !findChartOverlay(opts.chartOverlay))) {
+    opts.chartOverlay = "";
+  }
   opts.plotW = Math.max(200, Math.min(2000, Math.round(opts.plotW) || DEFAULT_CROSSPLOT_OPTIONS.plotW));
   opts.plotH = Math.max(200, Math.min(2000, Math.round(opts.plotH) || DEFAULT_CROSSPLOT_OPTIONS.plotH));
   opts.bins = Math.max(5, Math.min(200, Math.round(opts.bins) || DEFAULT_CROSSPLOT_OPTIONS.bins));
@@ -307,61 +314,71 @@ const MATRIX_POINTS: { nphi: number; rhob: number; label: string }[] = [
   { nphi: 0.02, rhob: 2.87, label: "Dol" },
 ];
 
-/** Chartbook D-N porosity overlay (Por-11/Por-12): quartz/calcite/dolomite matrix
- *  curves with graduation dots every 5 pu and dashed iso-porosity connectors. The
- *  digitized tables carry NPHI in p.u.; RHOB for a graduation is analytic from the
- *  chart's own matrix/fluid densities (dolomite is drawn at 2.85 in the chartbook).
- *  Everything is drawn in data space, so it stays registered under zoom/pan and on
- *  either axis orientation. */
-function drawDnOverlay(plot: PlotCanvas, chartKey: "fresh" | "salt", flipped: boolean): void {
-  const chart = DN_CHARTS[chartKey];
-  const rhobOf = (c: DnMatrixCurve, phi: number): number => (phi / 100) * chart.rhof + (1 - phi / 100) * c.rmaChart;
-  const toXY = (nphiPu: number, rhob: number): [number, number] =>
-    flipped ? [rhob, nphiPu / 100] : [nphiPu / 100, rhob];
+/** Which orientation (if any) lets this chart overlay draw on the given axes. */
+export function matchOverlayAxes(def: ChartOverlayDef, xName: string, yName: string): "normal" | "flipped" | null {
+  const xs = AXIS_ALIASES[def.xAxis];
+  const ys = AXIS_ALIASES[def.yAxis];
+  const X = xName.toUpperCase();
+  const Y = yName.toUpperCase();
+  if (xs.includes(X) && ys.includes(Y)) return "normal";
+  if (xs.includes(Y) && ys.includes(X)) return "flipped";
+  return null;
+}
+
+/** Generic chartbook overlay renderer: matrix curves with graduation dots (every
+ *  5) + numeric labels (every labelEvery) + along-slope names, dashed
+ *  iso-graduation connectors, reference lines, mineral-region polygons, and
+ *  labeled reference points. Everything is drawn in data space, so it stays
+ *  registered under zoom/pan and on either axis orientation. */
+function drawChartOverlay(plot: PlotCanvas, def: ChartOverlayDef, flipped: boolean): void {
   const { ctx } = plot;
   const r = plot.plotRect;
+  const XY = (x: number, y: number): [number, number] => (flipped ? [y, x] : [x, y]);
 
-  // Dashed iso-porosity connectors across whichever curves reach that phi.
-  for (let phi = 0; phi <= 50; phi += 5) {
-    const line: [number, number][] = [];
-    for (const c of chart.curves) {
-      const pt = c.pts.find((p) => p[0] === phi);
-      if (pt) line.push(toXY(pt[1], rhobOf(c, phi)));
+  if (def.isoConnect && def.curves) {
+    const maxT = Math.max(...def.curves.flatMap((c) => c.grads.map((g) => g[0])));
+    for (let t = 0; t <= maxT; t += 5) {
+      const line: [number, number][] = [];
+      for (const c of def.curves) {
+        const g = c.grads.find((q) => q[0] === t);
+        if (g) line.push(XY(g[1], g[2]));
+      }
+      if (line.length >= 2) plot.drawLine(line, plot.theme.axis, 0.7, [2, 3]);
     }
-    if (line.length >= 2) plot.drawLine(line, plot.theme.axis, 0.7, [2, 3]);
   }
-
-  for (const c of chart.curves) {
-    plot.drawLine(
-      c.pts.map(([phi, nphi]) => toXY(nphi, rhobOf(c, phi))),
-      plot.theme.axis,
-      1.3,
-    );
+  for (const c of def.curves ?? []) {
+    plot.drawLine(c.grads.map((g) => XY(g[1], g[2])), plot.theme.axis, 1.3);
+  }
+  for (const l of def.lines ?? []) {
+    plot.drawLine(l.pts.map((p) => XY(p[0], p[1])), plot.theme.axis, 1.1, l.dash ? [5, 4] : []);
+  }
+  for (const g of def.regions ?? []) {
+    plot.drawLine([...g.poly, g.poly[0]].map((p) => XY(p[0], p[1])), plot.theme.axis, 1, [3, 3]);
   }
 
   ctx.save();
   ctx.beginPath();
   ctx.rect(r.x0, r.y0, r.w, r.h);
   ctx.clip();
-  for (const c of chart.curves) {
+  for (const c of def.curves ?? []) {
     ctx.font = "500 8px system-ui, sans-serif";
-    for (const [phi, nphi] of c.pts) {
-      if (phi % 5 !== 0) continue;
-      const [px, py] = plot.toPx(...toXY(nphi, rhobOf(c, phi)));
+    for (const [t, gx, gy] of c.grads) {
+      if (t % 5 !== 0) continue;
+      const [px, py] = plot.toPx(...XY(gx, gy));
       ctx.fillStyle = plot.theme.axis;
       ctx.beginPath();
       ctx.arc(px, py, 2, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = plot.theme.text;
-      ctx.textAlign = "right";
-      ctx.fillText(String(phi), px - 3, py - 3);
+      if (t % c.labelEvery === 0) {
+        ctx.fillStyle = plot.theme.text;
+        ctx.textAlign = "right";
+        ctx.fillText(String(t), px - 3, py - 3);
+      }
     }
-    // Curve name written along the local slope, ~60% of the way up the curve.
-    const i = Math.max(1, Math.floor(c.pts.length * 0.6));
-    const [phiA, nphiA] = c.pts[i - 1];
-    const [phiB, nphiB] = c.pts[i];
-    const [ax, ay] = plot.toPx(...toXY(nphiA, rhobOf(c, phiA)));
-    const [bx, by] = plot.toPx(...toXY(nphiB, rhobOf(c, phiB)));
+    // Curve name written along the local slope, ~60% of the way along.
+    const i = Math.max(1, Math.floor(c.grads.length * 0.6));
+    const [ax, ay] = plot.toPx(...XY(c.grads[i - 1][1], c.grads[i - 1][2]));
+    const [bx, by] = plot.toPx(...XY(c.grads[i][1], c.grads[i][2]));
     let angle = Math.atan2(by - ay, bx - ax);
     if (angle > Math.PI / 2 || angle < -Math.PI / 2) angle += Math.PI;
     ctx.save();
@@ -373,7 +390,30 @@ function drawDnOverlay(plot: PlotCanvas, chartKey: "fresh" | "salt", flipped: bo
     ctx.fillText(c.name, 0, -7);
     ctx.restore();
   }
+  ctx.font = "500 8px system-ui, sans-serif";
+  for (const l of def.lines ?? []) {
+    if (!l.label) continue;
+    const end = l.pts[l.pts.length - 1];
+    const [px, py] = plot.toPx(...XY(end[0], end[1]));
+    ctx.fillStyle = plot.theme.text;
+    ctx.textAlign = "right";
+    ctx.fillText(l.label, px - 3, py - 4);
+  }
+  for (const g of def.regions ?? []) {
+    const cx = g.poly.reduce((a, p) => a + p[0] / g.poly.length, 0);
+    const cy = g.poly.reduce((a, p) => a + p[1] / g.poly.length, 0);
+    const [px, py] = plot.toPx(...XY(cx, cy));
+    ctx.fillStyle = plot.theme.text;
+    ctx.textAlign = "center";
+    ctx.font = "500 9px system-ui, sans-serif";
+    ctx.fillText(g.label, px, py - 8);
+  }
   ctx.restore();
+
+  for (const p of def.points ?? []) {
+    const [vx, vy] = XY(p.x, p.y);
+    plot.drawRefPoint(vx, vy, p.label);
+  }
 }
 
 /** Pairs two independently-filtered core series (each keeps only its own non-NaN
@@ -677,10 +717,18 @@ export function drawCrossplot(
     }
   }
 
-  // Chartbook D-N porosity overlay — linear NPHI-RHOB axes only (the chart geometry
-  // has no meaning on log axes).
-  if (opts.dnOverlay !== "none" && (isND || isDN) && !opts.xLog && !opts.yLog) {
-    drawDnOverlay(plot, opts.dnOverlay, isDN);
+  // Chartbook overlay — drawn when the plot axes match the chart's axes. Linear
+  // axes only, except charts that themselves need a log axis (e.g. Th/K ratio).
+  const overlayDef = opts.chartOverlay ? findChartOverlay(opts.chartOverlay) : undefined;
+  if (overlayDef) {
+    const orient = matchOverlayAxes(overlayDef, xName, yName);
+    if (orient) {
+      const flipped = orient === "flipped";
+      const logOk = overlayDef.xLogNeeded
+        ? (flipped ? opts.yLog && !opts.xLog : opts.xLog && !opts.yLog)
+        : !opts.xLog && !opts.yLog;
+      if (logOk) drawChartOverlay(plot, overlayDef, flipped);
+    }
   }
 
   // Synchronized hover: ring the sample at the depth under another view's cursor.
@@ -1103,14 +1151,31 @@ export async function buildCrossplotContent(
     const coreChk = chk("Core data (diamonds)", opts.showCore);
     const tsChk = chk("T-S triangle", opts.tsOverlay);
     const matrixChk = chk("Matrix points (Qtz/Cal/Dol on NPHI-RHOB)", opts.matrixPoints);
-    const dnSel = sel(
-      [
-        ["none", "— None —"],
-        ["fresh", "Fresh mud (Por-11, ρf 1.0)"],
-        ["salt", "Salt mud (Por-12, ρf 1.19)"],
-      ],
-      opts.dnOverlay,
-    );
+    // Chart-overlay select, grouped: charts matching the CURRENT axes first.
+    const chartSel = document.createElement("select");
+    chartSel.className = "form-control";
+    const noneOpt = document.createElement("option");
+    noneOpt.value = "";
+    noneOpt.textContent = "— None —";
+    chartSel.appendChild(noneOpt);
+    const applicable = CHART_OVERLAYS.filter((d) => matchOverlayAxes(d, xSel.value, ySel.value));
+    const other = CHART_OVERLAYS.filter((d) => !matchOverlayAxes(d, xSel.value, ySel.value));
+    for (const [groupLabel, list] of [
+      ["For these axes", applicable],
+      ["Other axes (drawn only when axes match)", other],
+    ] as [string, ChartOverlayDef[]][]) {
+      if (!list.length) continue;
+      const group = document.createElement("optgroup");
+      group.label = groupLabel;
+      for (const d of list) {
+        const option = document.createElement("option");
+        option.value = d.id;
+        option.textContent = d.label;
+        group.appendChild(option);
+      }
+      chartSel.appendChild(group);
+    }
+    chartSel.value = opts.chartOverlay && findChartOverlay(opts.chartOverlay) ? opts.chartOverlay : "";
     const picksChk = chk("Show parameter pickers (drag handle → zone parameters)", opts.showPicks);
 
     body.appendChild(section("Plot"));
@@ -1130,7 +1195,7 @@ export async function buildCrossplotContent(
     body.appendChild(section("Overlays"));
     body.appendChild(inline(coreChk.el, tsChk.el));
     body.appendChild(matrixChk.el);
-    body.appendChild(formRow("D-N chart", dnSel, "Chartbook matrix curves + porosity graduations (NPHI-RHOB, linear axes)"));
+    body.appendChild(formRow("Chart overlay", chartSel, "Chartbook curves/regions digitized at vector precision — drawn when the plot axes match the chart"));
     body.appendChild(picksChk.el);
 
     const applyBtn = document.createElement("button");
@@ -1169,7 +1234,7 @@ export async function buildCrossplotContent(
       opts.showCore = coreChk.input.checked;
       opts.tsOverlay = tsChk.input.checked;
       opts.matrixPoints = matrixChk.input.checked;
-      opts.dnOverlay = dnSel.value as DnOverlayKey;
+      opts.chartOverlay = chartSel.value;
       opts.showPicks = picksChk.input.checked;
       Object.assign(opts, normalizeCrossplotOptions({ ...opts }));
       persist();
