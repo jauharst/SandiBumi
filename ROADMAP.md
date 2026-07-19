@@ -515,14 +515,18 @@ increments with REVIEW.md check items.
   + recovery of the autosaved state.
 - **Unsaved-changes indicator**: every visualization/panel shows a dot/asterisk when its
   state (layout, picks, templates, edits) isn't saved yet.
-- **Click-to-arm, double-click-to-edit inputs**: single click on a numeric field only
-  focuses/arms it; editing (caret + typing) requires double click — prevents accidental
-  parameter changes from a stray click. App-wide interaction rule.
-- **Right-click lockdown**: no browser refresh/menu anywhere it isn't ours (a stray refresh
-  clears the workspace); custom menus only where they exist. Kill default WebView menu +
-  F5/Ctrl+R (guard with a confirm), everywhere.
-- **Workflow builder as a pane, not a popup** — and "rigid": no accidental drag/click
-  parameter changes (same double-click-to-edit rule).
+- ✅ **Click-to-arm, double-click-to-edit inputs** (2026-07-19, P1-a): app-wide via
+  `interactionGuard.ts` — a single click arms `input[type=number]` read-only (dashed
+  outline, wheel/arrow spin blocked); double-click unlocks (solid outline, value
+  selected); blur re-arms. Keyboard Tab focus stays editable (deliberate); per-input
+  opt-out with `data-free-edit`.
+- ✅ **Right-click lockdown** (2026-07-19, P1-a): default WebView menu killed everywhere
+  except editable fields (their native menu is the harmless edit menu); custom panel menus
+  untouched. F5/Ctrl+R guarded by a blocking confirm; Alt+arrows and mouse back/forward
+  buttons blocked.
+- ✅ **Workflow builder as a pane, not a popup** (2026-07-19, P1-a): dock component
+  "workflow" (singleton, in the ＋ panel menu and Petrophysics → Workflow…); closing the
+  pane mid-run cancels the chain; numeric params follow the double-click-to-edit rule.
 - **Database versioning — never overwrite**: each module run writes into a **log set**
   (user chooses "new set" or an existing one); re-runs create version N+1 instead of
   replacing; every curve carries provenance (module, params, parent curves, timestamp —

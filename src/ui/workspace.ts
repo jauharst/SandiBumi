@@ -199,6 +199,7 @@ export class Workspace {
       ["New Correlation", () => this.openPlot("correlation", group)],
       "sep",
       ["Field Dashboard", () => this.openDashboard(group)],
+      ["Workflow Builder", () => this.openWorkflow(group)],
       "sep",
       ["Wells & Tops", () => this.openWellsTops(group)],
       ["Inspector", () => this.openInspector(group)],
@@ -281,6 +282,25 @@ export class Workspace {
             })
             .catch((err) => {
               host.innerHTML = `<div class="logview-message">Failed to open dashboard: ${err}</div>`;
+            });
+          return () => {
+            closed = true;
+            disposer?.();
+          };
+        });
+      case "workflow":
+        return new DomPanel("dock-workflow", (host) => {
+          let disposer: (() => void) | undefined;
+          let closed = false;
+          void import("./workflowDialog")
+            .then((m) => m.buildWorkflowContent(setStatus))
+            .then((content) => {
+              if (closed) return void content.dispose();
+              host.appendChild(content.el);
+              disposer = content.dispose;
+            })
+            .catch((err) => {
+              host.innerHTML = `<div class="logview-message">Failed to open workflow builder: ${err}</div>`;
             });
           return () => {
             closed = true;
@@ -384,6 +404,8 @@ export class Workspace {
       items.push({ heading: "Database Inspector" }, { label: "Refresh", onClick: () => bumpDataVersion() });
     } else if (kind === "dashboard") {
       items.push({ heading: "Field Dashboard" });
+    } else if (kind === "workflow") {
+      items.push({ heading: "Workflow Builder" });
     }
 
     // --- Window block (every panel) ---
@@ -658,6 +680,10 @@ export class Workspace {
 
   openDashboard(group?: DockviewGroupPanel): void {
     this.openSingleton("dashboard", "dashboard", "Field Dashboard", group);
+  }
+
+  openWorkflow(group?: DockviewGroupPanel): void {
+    this.openSingleton("workflow", "workflow", "Workflow Builder", group);
   }
 
   openHistory(group?: DockviewGroupPanel): void {

@@ -84,6 +84,12 @@ const ID: Record<string, string> = {
   Ready: "Siap",
   Cancel: "Batal",
   Close: "Tutup",
+  Reload: "Muat ulang",
+  "Workflow Builder": "Penyusun Alur Kerja",
+  "Reload SandiBumi? The workspace re-opens from its last saved state — unsaved picks, layouts and dialog inputs are lost.":
+    "Muat ulang SandiBumi? Ruang kerja dibuka kembali dari kondisi tersimpan terakhir — pick, layout, dan isian dialog yang belum disimpan akan hilang.",
+  "Number fields arm on click — double-click to edit":
+    "Kolom angka terkunci saat diklik — klik dua kali untuk mengedit",
   Apply: "Terapkan",
   Run: "Jalankan",
   Save: "Simpan",
@@ -160,6 +166,12 @@ const SU: Record<string, string> = {
   Ready: "Siap",
   Cancel: "Batal",
   Close: "Tutup",
+  Reload: "Muat deui",
+  "Workflow Builder": "Panyusun Alur Gawé",
+  "Reload SandiBumi? The workspace re-opens from its last saved state — unsaved picks, layouts and dialog inputs are lost.":
+    "Muat deui SandiBumi? Rohang gawé dibuka deui tina kaayaan panungtungan nu disimpen — pick, layout, jeung eusian dialog nu can disimpen bakal leungit.",
+  "Number fields arm on click — double-click to edit":
+    "Kolom angka konci basa diklik — klik dua kali pikeun ngédit",
   Apply: "Larapkeun",
   Run: "Jalankeun",
   Save: "Simpen",

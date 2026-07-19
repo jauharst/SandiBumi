@@ -39,6 +39,26 @@ Your full review is triaged in **ROADMAP.md §4** — these five landed immediat
       if the well has no VSH/porosity curves yet it says to run those modules first.
       Check: tick it on a fresh crossplot → axes flip, triangle + drag handles visible.
 
+## P1-a — Interaction safety batch (2026-07-19 #3)
+
+- [ ] **Right-click lockdown**: right-click anywhere that has no SandiBumi menu (ribbon,
+      buttons, tables, empty space) → **nothing** appears (the WebView menu with its
+      dangerous Refresh is gone). Panel backgrounds still show our own menus; right-click
+      inside a text box still shows the normal cut/copy/paste menu.
+- [ ] **Reload guard**: press **F5** or **Ctrl+R** → a blocking confirm appears instead of
+      an instant refresh; Cancel keeps everything, Reload restarts the workspace. Alt+←/→
+      and the mouse back/forward side-buttons do nothing.
+- [ ] **Double-click-to-edit numbers** (app-wide): single-click any numeric parameter
+      field (module dialogs, plot properties, SandiMin, zones…) → it focuses with a dashed
+      outline but typing/arrows/wheel change **nothing**; **double-click** → solid outline,
+      value selected, editing works. Tab-into-field still edits directly (deliberate).
+      Scrolling a dialog with the wheel can no longer spin a value.
+- [ ] **Workflow Builder is a pane**: Petrophysics → Workflow… now opens a docked
+      **Workflow Builder** pane (tab, movable/floatable like any panel) instead of a popup.
+      No more losing a half-built chain to a stray click; it survives layout changes and
+      reopens via the ＋ panel menu too. Run/cancel/progress unchanged; closing the pane
+      mid-run cancels the chain.
+
 Issues you marked `[x]` that need real work (all in ROADMAP §4, P1/P2): well-pin
 semantics rework, right-click lockdown (accidental refresh), TVD depth scale UI.
 Everything you marked `[o]` has been cleared out of this file.

@@ -3004,3 +3004,59 @@ textarea {
   color: var(--text);
   border-color: var(--accent);
 }
+
+/* --- P1 interaction safety (Jauhar field review 2026-07-19) ---------------- */
+/* Numeric field armed by a single click: focused but read-only until double-click. */
+input[type="number"].num-armed {
+  cursor: default;
+}
+input[type="number"].num-armed:focus {
+  outline: 1px dashed var(--accent-dim);
+  outline-offset: 1px;
+}
+input[type="number"].num-editing:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Blocking confirm for reload attempts (F5 / Ctrl+R). Unlike .modal-scrim this one
+   really blocks: a reload wipes the workspace, so the answer must be deliberate. */
+.guard-confirm-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 4000;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.guard-confirm {
+  background: var(--bg-panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.35);
+  max-width: 420px;
+  padding: 16px 18px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.guard-confirm-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+.guard-confirm button.danger {
+  background: var(--warn);
+  border-color: var(--warn);
+  color: #fff;
+}
+
+/* Workflow Builder as a dock pane (was a popup dialog). */
+.dock-workflow {
+  padding: 10px 12px;
+}
+.dock-workflow .workflow-dialog {
+  max-width: 640px;
+}

@@ -15,7 +15,7 @@ import {
   type WellSummary,
 } from "../ipc";
 import { appState, bumpDataVersion, filterByActiveGroup } from "../state";
-import { formRow, openModal } from "./modal";
+import { formRow } from "./modal";
 
 const WORKFLOW_DOC_TYPE = "workflow";
 
@@ -30,8 +30,14 @@ function emptyStep(module: string): ChainStep {
 /** Workflow Builder (Phase 9): compose an ordered list of modules and run the whole chain
  *  across many wells in one click, with live progress. Steps use each module's default
  *  parameters, which zone_params (from the Zones panel) then override per zone — so a saved
- *  chain reproduces a full interpretation. Chains persist as `workflow` documents. */
-export async function openWorkflowDialog(setStatus: (text: string) => void): Promise<void> {
+ *  chain reproduces a full interpretation. Chains persist as `workflow` documents.
+ *
+ *  Hosted as a rigid dock pane (workspace component "workflow"), not a popup — a popup
+ *  was too easy to dismiss mid-build and its inputs too easy to nudge (Jauhar 2026-07-19).
+ *  Numeric params follow the app-wide double-click-to-edit rule via interactionGuard. */
+export async function buildWorkflowContent(
+  setStatus: (text: string) => void,
+): Promise<{ el: HTMLElement; dispose: () => void }> {
   const modules = await listModules().catch(() => [] as ModuleSpec[]);
   const wells = filterByActiveGroup(await listWells().catch(() => [] as WellSummary[]));
   const catalog = await listCurveCatalog().catch(() => [] as CurveCatalogEntry[]);
@@ -469,10 +475,14 @@ export async function openWorkflowDialog(setStatus: (text: string) => void): Pro
   await refreshSaved();
   renderSteps();
 
-  const close = openModal("Workflow Builder", content, 560);
-  // Ensure polling stops if the modal is closed mid-run.
-  const origClose = close;
-  void origClose;
+  return {
+    el: content,
+    dispose: () => {
+      // Pane closed mid-run: cancel the chain and stop polling.
+      if (currentJob) void cancelWorkflowChain(currentJob).catch(() => {});
+      finishRun();
+    },
+  };
 }
 
 function button(text: string): HTMLButtonElement {

@@ -29,7 +29,6 @@ import { openCompositeDialog } from "./compositeDialog";
 import { openReportDialog } from "./reportDialog";
 import { openZonesDialog } from "./zonesDialog";
 import { openSummaryDialog } from "./summaryDialog";
-import { openWorkflowDialog } from "./workflowDialog";
 import { openMonteCarloDialog } from "./monteCarloDialog";
 import { openMlDialog } from "./mlDialog";
 import { openMultiminDialog } from "./multiminDialog";
@@ -166,9 +165,7 @@ export class Ribbon {
         onRunComplete: () => workspace.notifyDataChanged(),
       });
     });
-    q<HTMLButtonElement>("#workflow-btn")?.addEventListener("click", () => {
-      void openWorkflowDialog(setStatus);
-    });
+    q<HTMLButtonElement>("#workflow-btn")?.addEventListener("click", () => workspace.openWorkflow());
     q<HTMLButtonElement>("#montecarlo-btn")?.addEventListener("click", () => {
       void openMonteCarloDialog(setStatus);
     });

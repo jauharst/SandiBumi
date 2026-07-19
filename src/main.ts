@@ -1,5 +1,6 @@
 import { setStatus } from "./state";
 import { initI18n } from "./i18n";
+import { installInteractionGuards } from "./interactionGuard";
 import { applyStoredTheme } from "./theme";
 import { Ribbon } from "./ui/ribbon";
 import { Workspace } from "./ui/workspace";
@@ -19,6 +20,9 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // i18n first: its observer then covers everything the workspace/ribbon build.
   initI18n();
+  // Interaction safety (right-click/reload lockdown, double-click-to-edit) before any
+  // panel exists, so no early control escapes the guards.
+  installInteractionGuards();
   const workspace = new Workspace(dockRoot);
   new Ribbon(ribbonEl, workspace);
   installUndoHotkeys(setStatus);
