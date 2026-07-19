@@ -718,6 +718,53 @@ export function importCoreCsv(wellId: string, path: string): Promise<CoreImportR
   return invoke<CoreImportResult>("import_core_csv", { wellId, path });
 }
 
+// --- P2 tops-style imports: tops CSV/TXT + petrography/XRD/perforation ------
+
+export interface TopsImportResult {
+  path: string;
+  tops_written: number;
+  wells_matched: number;
+  unmatched_wells: string[];
+  error: string | null;
+}
+
+/** Imports formation tops from CSV/TXT. Multi-well files match wells by name;
+ *  files without a WELL column land in `defaultWellId` (the selected well). */
+export function importTopsCsv(defaultWellId: string | null, path: string): Promise<TopsImportResult> {
+  return invoke<TopsImportResult>("import_tops_csv", { defaultWellId, path });
+}
+
+export interface AuxImportResult {
+  path: string;
+  dataset: string;
+  rows: number;
+  items: string[];
+  error: string | null;
+}
+
+export interface AuxRow {
+  dataset: string;
+  depth_top: number;
+  depth_base: number | null;
+  item: string;
+  value_num: number | null;
+  value_text: string | null;
+}
+
+/** Imports a tops-style dataset (PETROGRAPHY / XRD / PERFORATION / custom) for one
+ *  well, replacing that well's previous rows of the same dataset. */
+export function importAuxData(wellId: string, dataset: string, path: string): Promise<AuxImportResult> {
+  return invoke<AuxImportResult>("import_aux_data", { wellId, dataset, path });
+}
+
+export function listAuxData(wellId: string, dataset: string | null): Promise<AuxRow[]> {
+  return invoke<AuxRow[]>("list_aux_data", { wellId, dataset });
+}
+
+export function listAuxDatasets(wellId: string): Promise<[string, number][]> {
+  return invoke<[string, number][]>("list_aux_datasets", { wellId });
+}
+
 export interface LeverettFit {
   a: number;
   b: number;

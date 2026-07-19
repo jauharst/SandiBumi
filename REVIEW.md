@@ -103,6 +103,24 @@ Your full review is triaged in **ROADMAP.md §4** — these five landed immediat
       behavior (latest values). Works in the Workflow Builder too; curves the input set
       never wrote (GR, RHOB…) still come from the usual sources.
 
+## P2-a — Tops-style imports (2026-07-19 #4)
+
+- [ ] **Import Tops…** (Data tab): pick a CSV or TXT tops file. With a WELL column
+      (WELL/WELLNAME/UWI…) every matching project well gets its tops in one import —
+      names match case-insensitively, unmatched names are reported in the status bar.
+      Without a WELL column the tops land in the selected well. Columns understood:
+      TOP/MARKER/SURFACE/FORMATION/HORIZON + DEPTH/MD/TOP_MD; also bare headerless
+      "NAME DEPTH" text lines. Delimiters auto-detected (comma / semicolon / tab /
+      spaces). Re-import updates depths but keeps colors you've set.
+- [ ] **Import Aux…** (Data tab): petrography, XRD, or perforation data for the
+      selected well (or a custom-named dataset). Needs a TOP/DEPTH column; a
+      BASE/TO column makes rows intervals (perforations); every other column becomes
+      an item — numbers (mineral %, grain size) and text (status, remarks) both kept.
+      Re-importing a dataset replaces only that dataset for that well.
+- [ ] **View it**: Data → DB Inspector → table "Aux Data" shows the imported rows
+      per well (read-only — re-import the file to change values). Tops appear
+      immediately in the Wells & Tops pane and all log views/correlation.
+
 Issues you marked `[x]` that need real work (all in ROADMAP §4, P1/P2): well-pin
 semantics rework, right-click lockdown (accidental refresh), TVD depth scale UI.
 Everything you marked `[o]` has been cleared out of this file.

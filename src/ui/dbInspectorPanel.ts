@@ -30,6 +30,9 @@ const TABLES: TableDef[] = [
   { key: "zones", label: "Zones", wellScoped: true, editable: ["top_depth", "bottom_depth"] },
   { key: "zone_params", label: "Zone Parameters", wellScoped: true, editable: ["value_num", "value_text"] },
   { key: "core_data", label: "Core Data", wellScoped: true, editable: ["cpor", "cperm", "cgd", "csw"] },
+  // Tops-style auxiliary datasets (petrography / XRD / perforations) — read-only view;
+  // re-import the file to change values.
+  { key: "aux_data", label: "Aux Data", wellScoped: true, editable: [] },
 ];
 
 /** Geolog "Text"-style editable grid over the project database: pick a table, page

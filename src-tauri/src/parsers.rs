@@ -769,8 +769,16 @@ pub fn parse_tops_file<P: AsRef<Path>>(path: P) -> ParseResult<Vec<TopsRecord>> 
         return Err(ParseError::Las("tops file is empty".into()));
     }
 
-    let idx_name = resolve_header_index(&headers, &TOPS_NAME_ALIASES);
+    // Depth resolves FIRST and is excluded from the name search — otherwise a header
+    // like "TOP_MD" would satisfy the name alias "TOP" (boundary rule allows '_').
     let idx_depth = resolve_header_index(&headers, &TOPS_DEPTH_ALIASES);
+    let idx_name = TOPS_NAME_ALIASES.iter().find_map(|alias| {
+        headers
+            .iter()
+            .enumerate()
+            .find(|(i, h)| Some(*i) != idx_depth && header_matches(h, alias))
+            .map(|(i, _)| i)
+    });
     let (idx_well, idx_name, idx_depth) = match (idx_name, idx_depth) {
         (Some(n), Some(d)) => (resolve_header_index(&headers, &TOPS_WELL_ALIASES), n, d),
         _ => {

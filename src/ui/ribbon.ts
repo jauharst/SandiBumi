@@ -1,9 +1,11 @@
 import { open, save } from "@tauri-apps/plugin-dialog";
 import {
   exportLas,
+  importAuxData,
   importCoreCsv,
   importDeviationCsv,
   importScalCsv,
+  importTopsCsv,
   importDlisFile,
   importLasFiles,
   deleteDocument,
@@ -154,6 +156,8 @@ export class Ribbon {
     q<HTMLButtonElement>("#shift-core-btn")?.addEventListener("click", () => this.handleShiftCore());
     q<HTMLButtonElement>("#import-dlis-btn")?.addEventListener("click", () => void this.handleImportDlis());
     q<HTMLButtonElement>("#import-scal-btn")?.addEventListener("click", () => void this.handleImportScal());
+    q<HTMLButtonElement>("#import-tops-btn")?.addEventListener("click", () => void this.handleImportTops());
+    q<HTMLButtonElement>("#import-aux-btn")?.addEventListener("click", () => this.handleImportAux());
     q<HTMLButtonElement>("#import-deviation-btn")?.addEventListener("click", () => void this.handleImportDeviation());
     q<HTMLButtonElement>("#well-header-btn")?.addEventListener("click", () => this.handleWellHeader());
     q<HTMLButtonElement>("#open-wells-btn")?.addEventListener("click", () => workspace.openWellsTops());
@@ -913,6 +917,127 @@ export class Ribbon {
         .finally(() => {
           apply.disabled = false;
         });
+    });
+  }
+
+  /** "Import Tops…" — formation tops from CSV/TXT. Multi-well files (a WELL column)
+   *  match project wells by name; single-well files land in the selected well. */
+  private async handleImportTops(): Promise<void> {
+    const well = appState.selectedWell.get();
+    let path: string | null;
+    try {
+      const selection = await open({
+        multiple: false,
+        filters: [{ name: "Tops CSV/TXT", extensions: ["csv", "txt", "asc", "dat"] }],
+      });
+      path = Array.isArray(selection) ? (selection[0] ?? null) : selection;
+    } catch (err) {
+      setStatus(`Import dialog unavailable: ${err}`);
+      return;
+    }
+    if (!path) return;
+    try {
+      const result = await importTopsCsv(well?.well_id ?? null, path);
+      if (result.error) {
+        setStatus(`Tops import failed: ${result.error}`);
+        return;
+      }
+      const unmatched = result.unmatched_wells.length
+        ? ` — unmatched well name(s): ${result.unmatched_wells.slice(0, 5).join(", ")}${result.unmatched_wells.length > 5 ? "…" : ""}`
+        : "";
+      setStatus(`Tops: ${result.tops_written} marker(s) across ${result.wells_matched} well(s)${unmatched}`);
+      recordProcess(
+        "Import",
+        `Imported tops (${result.tops_written} markers, ${result.wells_matched} wells) ← ${path}`,
+        well?.well_name,
+      );
+      this.workspace.notifyDataChanged();
+    } catch (err) {
+      setStatus(`Tops import failed: ${err}`);
+    }
+  }
+
+  /** "Import Aux…" — petrography / XRD / perforation (tops-style CSV/TXT) for the
+   *  selected well. Each import replaces the well's previous rows of that dataset. */
+  private handleImportAux(): void {
+    const well = appState.selectedWell.get();
+    if (!well) {
+      setStatus("Select a well first (Wells & Tops panel)");
+      return;
+    }
+    const content = document.createElement("div");
+    const doc = document.createElement("p");
+    doc.className = "modal-doc";
+    doc.textContent =
+      "Tops-style data: a TOP/DEPTH column (plus optional BASE/TO for intervals); every other " +
+      "column becomes an item — mineral percentages, textural values, perforation status. " +
+      "Re-importing a dataset replaces this well's previous rows of that dataset only.";
+    content.appendChild(doc);
+
+    const dsSelect = document.createElement("select");
+    dsSelect.className = "form-control";
+    for (const name of ["PETROGRAPHY", "XRD", "PERFORATION", "Custom…"]) {
+      const o = document.createElement("option");
+      o.value = name;
+      o.textContent = name;
+      dsSelect.appendChild(o);
+    }
+    content.appendChild(formRow("Dataset", dsSelect));
+    const customInput = document.createElement("input");
+    customInput.className = "form-control";
+    customInput.type = "text";
+    customInput.placeholder = "dataset name";
+    const customRow = formRow("Custom name", customInput);
+    customRow.style.display = "none";
+    content.appendChild(customRow);
+    dsSelect.addEventListener("change", () => {
+      customRow.style.display = dsSelect.value === "Custom…" ? "" : "none";
+    });
+
+    const pick = document.createElement("button");
+    pick.className = "form-run-btn";
+    pick.textContent = "Choose file & import…";
+    const resultBox = document.createElement("div");
+    resultBox.className = "modal-result";
+    content.appendChild(pick);
+    content.appendChild(resultBox);
+    openModal(`Import Aux Data — ${well.well_name}`, content, 460);
+
+    pick.addEventListener("click", async () => {
+      const dataset = dsSelect.value === "Custom…" ? customInput.value.trim() : dsSelect.value;
+      if (!dataset) {
+        resultBox.textContent = "Enter a dataset name.";
+        return;
+      }
+      let path: string | null;
+      try {
+        const selection = await open({
+          multiple: false,
+          filters: [{ name: "Tops-style CSV/TXT", extensions: ["csv", "txt", "asc", "dat"] }],
+        });
+        path = Array.isArray(selection) ? (selection[0] ?? null) : selection;
+      } catch (err) {
+        resultBox.textContent = `Import dialog unavailable: ${err}`;
+        return;
+      }
+      if (!path) return;
+      pick.disabled = true;
+      resultBox.textContent = `Importing ${dataset} for ${well.well_name}…`;
+      try {
+        const result = await importAuxData(well.well_id, dataset, path);
+        if (result.error) {
+          resultBox.textContent = `Import failed: ${result.error}`;
+          return;
+        }
+        resultBox.textContent = `Imported ${result.rows} value(s) across ${result.items.length} column(s): ${result.items.join(", ")}`;
+        setStatus(`${result.dataset}: ${result.rows} values imported for ${well.well_name}`);
+        recordProcess("Import", `Imported ${result.dataset} (${result.rows} values) ← ${path}`, well.well_name);
+        this.workspace.notifyDataChanged();
+      } catch (err) {
+        resultBox.textContent = `Import failed: ${err}`;
+      } finally {
+        pick.disabled = false;
+      }
     });
   }
 

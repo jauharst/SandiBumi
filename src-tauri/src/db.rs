@@ -211,6 +211,20 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             PRIMARY KEY (well_id, depth)
         );
 
+        -- Tops-style auxiliary datasets (petrography, XRD, perforations, …): sparse
+        -- point or interval samples in long format. One row per (depth, item); values
+        -- may be numeric (mineral %, grain size) or text (status, lithology remarks).
+        -- Import replaces per (well, dataset) — same discipline as core_data.
+        CREATE TABLE IF NOT EXISTS aux_data (
+            well_id    UUID NOT NULL,
+            dataset    VARCHAR NOT NULL,  -- 'PETROGRAPHY' | 'XRD' | 'PERFORATION' | custom
+            depth_top  FLOAT NOT NULL,
+            depth_base FLOAT,             -- NULL = point sample
+            item       VARCHAR NOT NULL,  -- source column (QUARTZ, STATUS, …)
+            value_num  FLOAT,
+            value_text VARCHAR
+        );
+
         -- Special core analysis: capillary-pressure measurements. Several Pc/Sw points
         -- per plug, so no primary key — re-import replaces per well (like core_data).
         CREATE TABLE IF NOT EXISTS scal_pc (
@@ -465,6 +479,77 @@ pub fn insert_core_data(
     Ok(())
 }
 
+/// One long-format row of a tops-style auxiliary dataset (see `aux_data` table).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AuxRow {
+    pub dataset: String,
+    pub depth_top: f32,
+    pub depth_base: Option<f32>,
+    pub item: String,
+    pub value_num: Option<f32>,
+    pub value_text: Option<String>,
+}
+
+/// Replaces one well's rows of ONE dataset (petrography / XRD / perforation import).
+pub fn insert_aux_data(conn: &Connection, well_id: &str, dataset: &str, rows: &[AuxRow]) -> DbResult<()> {
+    conn.execute(
+        "DELETE FROM aux_data WHERE well_id = ?1 AND dataset = ?2",
+        params![well_id, dataset],
+    )?;
+    let mut appender: Appender = conn.appender("aux_data")?;
+    for r in rows {
+        appender.append_row(params![
+            well_id,
+            dataset,
+            r.depth_top,
+            r.depth_base,
+            r.item,
+            r.value_num,
+            r.value_text
+        ])?;
+    }
+    appender.flush()?;
+    Ok(())
+}
+
+/// One well's auxiliary rows, all datasets or one, ordered by depth then item.
+pub fn list_aux_data(conn: &Connection, well_id: &str, dataset: Option<&str>) -> DbResult<Vec<AuxRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT dataset, depth_top, depth_base, item, value_num, value_text
+         FROM aux_data
+         WHERE well_id = ?1 AND (?2 IS NULL OR dataset = ?2)
+         ORDER BY dataset, depth_top, item",
+    )?;
+    let rows = stmt.query_map(params![well_id, dataset], |row| {
+        Ok(AuxRow {
+            dataset: row.get(0)?,
+            depth_top: row.get(1)?,
+            depth_base: row.get(2)?,
+            item: row.get(3)?,
+            value_num: row.get(4)?,
+            value_text: row.get(5)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
+/// Which auxiliary datasets a well has, with row counts (for panels/dialogs).
+pub fn list_aux_datasets(conn: &Connection, well_id: &str) -> DbResult<Vec<(String, i64)>> {
+    let mut stmt = conn.prepare(
+        "SELECT dataset, COUNT(*) FROM aux_data WHERE well_id = ?1 GROUP BY dataset ORDER BY dataset",
+    )?;
+    let rows = stmt.query_map(params![well_id], |row| Ok((row.get(0)?, row.get(1)?)))?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
 /// One capillary-pressure row as imported/fetched (see `scal_pc` table).
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ScalPcRow {
@@ -571,7 +656,8 @@ pub fn list_tops(conn: &Connection, well_id: &str) -> DbResult<Vec<TopEntry>> {
 pub fn upsert_top(conn: &Connection, well_id: &str, top_name: &str, depth: f32, color: Option<&str>) -> DbResult<()> {
     conn.execute(
         "INSERT INTO tops (well_id, top_name, depth, color) VALUES (?1, ?2, ?3, ?4)
-         ON CONFLICT (well_id, top_name) DO UPDATE SET depth = excluded.depth, color = excluded.color",
+         ON CONFLICT (well_id, top_name) DO UPDATE SET depth = excluded.depth,
+             color = COALESCE(excluded.color, tops.color)",
         params![well_id, top_name, depth, color],
     )?;
     Ok(())
@@ -767,6 +853,7 @@ const TABLE_SPECS: &[(&str, &[&str], bool, &str)] = &[
     ("zones", &["zone_name", "top_depth", "bottom_depth"], true, "top_depth"),
     ("zone_params", &["zone_name", "param_name", "value_num", "value_text"], true, "zone_name, param_name"),
     ("core_data", &["depth", "cpor", "cperm", "cgd", "csw"], true, "depth"),
+    ("aux_data", &["dataset", "depth_top", "depth_base", "item", "value_num", "value_text"], true, "dataset, depth_top, item"),
 ];
 
 #[derive(Debug, Serialize)]

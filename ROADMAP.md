@@ -557,7 +557,13 @@ increments with REVIEW.md check items.
 
 ### P2 — Interpretation workflow
 
-- **Imports (tops-style)**: tops from CSV/TXT (menu is missing), petrography, XRD,
+- ✅ **Imports (tops-style)** (2026-07-19, P2-a): "Import Tops…" (CSV/TXT, delimiter
+  auto-detect, alias headers, multi-well by WELL column or selected-well fallback,
+  headerless NAME-DEPTH accepted, upsert keeps colors) + "Import Aux…" (PETROGRAPHY /
+  XRD / PERFORATION / custom into new `aux_data` long-format table: TOP+optional BASE,
+  numeric or text values; replace per well+dataset; viewable in DB Inspector).
+  Deferred: aux overlays on plots/log tracks (perforation flags, XRD points).
+  Original ask: tops from CSV/TXT (menu is missing), petrography, XRD,
   perforation data.
 - **Tops editor, Petrel-style**: add tops set + pick markers interactively in the log view
   (top defined at ≥2 markers), undoable; edit/save markers inside the layout; automatic

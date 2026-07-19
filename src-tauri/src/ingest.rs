@@ -224,6 +224,156 @@ pub fn import_scal_csv(conn: &Connection, well_id: &str, path: &str, ift_lab: f6
     ScalImportResult { path: path.to_string(), rows: rows.len(), fit, error: None }
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct TopsImportResult {
+    pub path: String,
+    pub tops_written: usize,
+    pub wells_matched: usize,
+    /// Well names in the file that matched nothing in the project (rows skipped).
+    pub unmatched_wells: Vec<String>,
+    pub error: Option<String>,
+}
+
+/// Imports formation tops from a CSV/TXT file. Files with a WELL column update every
+/// matching well (name match, case-insensitive); files without one need
+/// `default_well_id` (the selected well). Tops upsert by (well, name) — re-import
+/// updates depths, existing colors are kept.
+pub fn import_tops_file(conn: &Connection, default_well_id: Option<&str>, path: &str) -> TopsImportResult {
+    let fail = |e: String| TopsImportResult {
+        path: path.to_string(),
+        tops_written: 0,
+        wells_matched: 0,
+        unmatched_wells: vec![],
+        error: Some(e),
+    };
+    let records = match parsers::parse_tops_file(path) {
+        Ok(r) => r,
+        Err(e) => return fail(e.to_string()),
+    };
+
+    // Project well-name → id map (upper-trimmed).
+    let mut name_to_id: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    {
+        let mut stmt = match conn.prepare("SELECT well_name, well_id FROM wells") {
+            Ok(s) => s,
+            Err(e) => return fail(e.to_string()),
+        };
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        });
+        match rows {
+            Ok(rows) => {
+                for r in rows.flatten() {
+                    name_to_id.insert(r.0.trim().to_uppercase(), r.1);
+                }
+            }
+            Err(e) => return fail(e.to_string()),
+        }
+    }
+
+    let mut written = 0usize;
+    let mut wells_hit: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut unmatched: Vec<String> = Vec::new();
+    for rec in &records {
+        let well_id = match &rec.well {
+            Some(name) => match name_to_id.get(&name.trim().to_uppercase()) {
+                Some(id) => id.clone(),
+                None => {
+                    let label = name.trim().to_string();
+                    if !unmatched.contains(&label) {
+                        unmatched.push(label);
+                    }
+                    continue;
+                }
+            },
+            None => match default_well_id {
+                Some(id) => id.to_string(),
+                None => {
+                    return fail("file has no WELL column — select a well first".into());
+                }
+            },
+        };
+        match db::upsert_top(conn, &well_id, &rec.top_name, rec.depth, None) {
+            Ok(()) => {
+                written += 1;
+                wells_hit.insert(well_id);
+            }
+            Err(e) => return fail(e.to_string()),
+        }
+    }
+    TopsImportResult {
+        path: path.to_string(),
+        tops_written: written,
+        wells_matched: wells_hit.len(),
+        unmatched_wells: unmatched,
+        error: None,
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AuxImportResult {
+    pub path: String,
+    pub dataset: String,
+    pub rows: usize,
+    /// Value columns found in the file (QUARTZ, STATUS, …).
+    pub items: Vec<String>,
+    pub error: Option<String>,
+}
+
+/// Imports a tops-style dataset (petrography / XRD / perforations) for one well,
+/// replacing that well's previous rows of the same dataset. Numeric cells land in
+/// value_num, everything else in value_text.
+pub fn import_aux_file(conn: &Connection, well_id: &str, dataset: &str, path: &str) -> AuxImportResult {
+    let fail = |e: String| AuxImportResult {
+        path: path.to_string(),
+        dataset: dataset.to_string(),
+        rows: 0,
+        items: vec![],
+        error: Some(e),
+    };
+    let exists: bool = conn
+        .query_row("SELECT 1 FROM wells WHERE well_id = ?1", params![well_id], |_| Ok(true))
+        .unwrap_or(false);
+    if !exists {
+        return fail(format!("unknown well '{well_id}'"));
+    }
+    let dataset = dataset.trim().to_uppercase();
+    if dataset.is_empty() {
+        return fail("dataset name is empty".into());
+    }
+
+    let data = match parsers::parse_interval_file(path) {
+        Ok(d) => d,
+        Err(e) => return fail(e.to_string()),
+    };
+    let mut rows: Vec<db::AuxRow> = Vec::new();
+    for (top, base, values) in &data.rows {
+        for (item, raw) in data.items.iter().zip(values) {
+            let Some(raw) = raw else { continue };
+            let num = raw.replace(',', ".").parse::<f32>().ok();
+            rows.push(db::AuxRow {
+                dataset: dataset.clone(),
+                depth_top: *top,
+                depth_base: *base,
+                item: item.clone(),
+                value_num: num,
+                value_text: if num.is_some() { None } else { Some(raw.clone()) },
+            });
+        }
+    }
+    let n = rows.len();
+    match db::insert_aux_data(conn, well_id, &dataset, &rows) {
+        Ok(()) => AuxImportResult {
+            path: path.to_string(),
+            dataset,
+            rows: n,
+            items: data.items,
+            error: None,
+        },
+        Err(e) => fail(e.to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -388,6 +538,103 @@ mod tests {
 
         // Unknown well errors cleanly.
         let bad = import_scal_csv(&conn, "nope", "x.csv", 72.0);
+        assert!(bad.error.is_some());
+    }
+
+    /// P2 tops import: multi-well CSV matches wells by name, no-well-column file needs
+    /// the selected well, re-import updates depth but keeps an existing color.
+    #[test]
+    fn tops_import_multiwell_and_default() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let w1 = Uuid::new_v4();
+        let w2 = Uuid::new_v4();
+        db::insert_well(&conn, w1, "BALAM-1", None, None, None).unwrap();
+        db::insert_well(&conn, w2, "BALAM-2", None, None, None).unwrap();
+        let id1 = w1.to_string();
+
+        let path = std::env::temp_dir().join("arshilla_tops_import.csv");
+        std::fs::write(
+            &path,
+            "WELL,TOP,MD\nbalam-1,TOP_A,1000.0\nBALAM-1,TOP_B,1100.0\nBALAM-2,TOP_A,1010.0\nGHOST-9,TOP_A,900.0\n",
+        )
+        .unwrap();
+        let res = import_tops_file(&conn, None, path.to_str().unwrap());
+        assert!(res.error.is_none(), "{:?}", res.error);
+        assert_eq!(res.tops_written, 3);
+        assert_eq!(res.wells_matched, 2, "case-insensitive well matching");
+        assert_eq!(res.unmatched_wells, vec!["GHOST-9".to_string()]);
+
+        // Give TOP_A a color, then re-import a new depth: depth moves, color survives.
+        db::upsert_top(&conn, &id1, "TOP_A", 1000.0, Some("#ff0000")).unwrap();
+        std::fs::write(&path, "WELL,TOP,MD\nBALAM-1,TOP_A,1005.0\n").unwrap();
+        let res2 = import_tops_file(&conn, None, path.to_str().unwrap());
+        assert!(res2.error.is_none());
+        let tops = db::list_tops(&conn, &id1).unwrap();
+        let a = tops.iter().find(|t| t.top_name == "TOP_A").unwrap();
+        assert!((a.depth - 1005.0).abs() < 1e-3, "re-import updates depth");
+        assert_eq!(a.color.as_deref(), Some("#ff0000"), "existing color kept");
+
+        // No WELL column: needs a default well; with one it lands there.
+        std::fs::write(&path, "TOP,DEPTH\nTOP_C,1200.0\n").unwrap();
+        let need = import_tops_file(&conn, None, path.to_str().unwrap());
+        assert!(need.error.is_some(), "no well column and no selection must error");
+        let ok = import_tops_file(&conn, Some(&id1), path.to_str().unwrap());
+        assert!(ok.error.is_none());
+        assert!(db::list_tops(&conn, &id1).unwrap().iter().any(|t| t.top_name == "TOP_C"));
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// P2 aux import: XRD point data (numeric + text cells) and perforation intervals
+    /// land in aux_data long format; re-import replaces per (well, dataset); datasets
+    /// are independent.
+    #[test]
+    fn aux_import_xrd_and_perforation() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let w = Uuid::new_v4();
+        db::insert_well(&conn, w, "AUX-1", None, None, None).unwrap();
+        let ids = w.to_string();
+
+        let xrd = std::env::temp_dir().join("arshilla_aux_xrd.csv");
+        std::fs::write(&xrd, "Depth,Quartz,Illite,Remarks\n2000.0,45.2,12.1,clean\n2001.0,40.0,,silty\n").unwrap();
+        let res = import_aux_file(&conn, &ids, "xrd", xrd.to_str().unwrap());
+        assert!(res.error.is_none(), "{:?}", res.error);
+        assert_eq!(res.dataset, "XRD", "dataset name normalized upper");
+        assert_eq!(res.rows, 5, "empty cell is skipped, text cell kept");
+
+        let rows = db::list_aux_data(&conn, &ids, Some("XRD")).unwrap();
+        assert_eq!(rows.len(), 5);
+        let quartz0 = rows.iter().find(|r| r.item == "QUARTZ" && r.depth_top == 2000.0).unwrap();
+        assert!((quartz0.value_num.unwrap() - 45.2).abs() < 1e-3);
+        assert!(quartz0.value_text.is_none());
+        let remark = rows.iter().find(|r| r.item == "REMARKS" && r.depth_top == 2001.0).unwrap();
+        assert_eq!(remark.value_text.as_deref(), Some("silty"));
+        assert!(remark.value_num.is_none());
+
+        // Perforation intervals in a second dataset; both coexist.
+        let perf = std::env::temp_dir().join("arshilla_aux_perf.csv");
+        std::fs::write(&perf, "FROM,TO,STATUS\n2050.0,2055.0,OPEN\n2100.0,2104.0,SQUEEZED\n").unwrap();
+        let res2 = import_aux_file(&conn, &ids, "PERFORATION", perf.to_str().unwrap());
+        assert!(res2.error.is_none());
+        assert_eq!(res2.rows, 2);
+        let perfs = db::list_aux_data(&conn, &ids, Some("PERFORATION")).unwrap();
+        assert_eq!(perfs[0].depth_base, Some(2055.0), "interval BASE kept");
+        assert_eq!(perfs[1].value_text.as_deref(), Some("SQUEEZED"));
+        let sets = db::list_aux_datasets(&conn, &ids).unwrap();
+        assert_eq!(sets, vec![("PERFORATION".to_string(), 2i64), ("XRD".to_string(), 5i64)]);
+
+        // Re-import of XRD replaces only XRD.
+        std::fs::write(&xrd, "Depth,Quartz\n2000.0,50.0\n").unwrap();
+        let res3 = import_aux_file(&conn, &ids, "XRD", xrd.to_str().unwrap());
+        assert!(res3.error.is_none());
+        let sets = db::list_aux_datasets(&conn, &ids).unwrap();
+        assert_eq!(sets, vec![("PERFORATION".to_string(), 2i64), ("XRD".to_string(), 1i64)]);
+        std::fs::remove_file(&xrd).ok();
+        std::fs::remove_file(&perf).ok();
+
+        // Unknown well errors cleanly.
+        let bad = import_aux_file(&conn, "nope", "XRD", "x.csv");
         assert!(bad.error.is_some());
     }
 

@@ -67,6 +67,49 @@ fn import_core_csv(db: tauri::State<DbState>, well_id: String, path: String) -> 
     ingest::import_core_csv(&conn, &well_id, &path)
 }
 
+/// Imports formation tops from a CSV/TXT file (P2). Files with a WELL column update
+/// every matching well; single-well files use `default_well_id` (the selected well).
+#[tauri::command]
+fn import_tops_csv(
+    db: tauri::State<DbState>,
+    default_well_id: Option<String>,
+    path: String,
+) -> ingest::TopsImportResult {
+    let conn = db.0.lock().unwrap();
+    ingest::import_tops_file(&conn, default_well_id.as_deref(), &path)
+}
+
+/// Imports a tops-style dataset (PETROGRAPHY / XRD / PERFORATION / custom) for one well,
+/// replacing that well's previous rows of the same dataset (P2).
+#[tauri::command]
+fn import_aux_data(
+    db: tauri::State<DbState>,
+    well_id: String,
+    dataset: String,
+    path: String,
+) -> ingest::AuxImportResult {
+    let conn = db.0.lock().unwrap();
+    ingest::import_aux_file(&conn, &well_id, &dataset, &path)
+}
+
+/// One well's auxiliary dataset rows (all datasets when `dataset` is null).
+#[tauri::command]
+fn list_aux_data(
+    db: tauri::State<DbState>,
+    well_id: String,
+    dataset: Option<String>,
+) -> Result<Vec<db::AuxRow>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_aux_data(&conn, &well_id, dataset.as_deref()).map_err(|e| e.to_string())
+}
+
+/// Which auxiliary datasets a well has, with row counts.
+#[tauri::command]
+fn list_aux_datasets(db: tauri::State<DbState>, well_id: String) -> Result<Vec<(String, i64)>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_aux_datasets(&conn, &well_id).map_err(|e| e.to_string())
+}
+
 /// Fetches a well's core plug data as CPOR/CPERM/CGD/CSW series, for overlay onto
 /// crossplots/log tracks (see `equations::fetch_core_series` for why this isn't
 /// aligned onto the standard depth grid like `get_curve_data`).
@@ -699,6 +742,10 @@ pub fn run() {
             get_chain_status,
             cancel_workflow_chain,
             import_core_csv,
+            import_tops_csv,
+            import_aux_data,
+            list_aux_data,
+            list_aux_datasets,
             import_scal_csv,
             get_scal_pc,
             render_composite,
