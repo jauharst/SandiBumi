@@ -20,7 +20,7 @@ This file is the Claude Code equivalent of `.cursorrules` (kept in this repo for
 9. **New petrophysics modules** = Rust fn + manifest in `modules.rs`; parameter dialogs auto-generate — write no UI code for them. Heavy solvers can live in their own file (e.g. `multimin.rs` — deterministic NNLS mineral inversion; do NOT confuse with `inversion.rs`, which is the separate background async stochastic-job registry) and be referenced from `modules.rs::list_modules`/`run_module`.
 10. **Module inputs are generic-store aware**: `equations::fetch_curve_frame` resolves any non-standard, non-computed curve name from `curve_meta`/`curve_samples` (set RAW) by mnemonic-then-family, so modules/equations can take PEF/CALI/DRHO/extra runs — not just the fixed six. (Log-view rendering `get_track_data` still reads only `standard_curves`.) Runs can pass `opts["MASK"]="<flag curve>"` (e.g. BADHOLE) to NaN-out flagged samples in every output.
 
-## Current state (2026-07-18)
+## Current state (2026-07-20)
 
 Phases 1–7 CODE-COMPLETE + Phase 8a shipped: dockview docking workspace, Office-style
 5-tab ribbon, light/dark/system + client-branded themes (Pertamina/Halliburton/Schlumberger/
@@ -43,8 +43,9 @@ reconstructed from spec — *SSPW needs validation vs his Geolog LAS exports*), 
 (sw_rtc excess-conductivity + sw_imts iterative mineral-textural-scaled Waxman-Smits from
 his LRLC research), `gr_normalize` (two-point percentile GRN, Rokan P3 53.68/P97 133.93)
 and `log_predict` (leave-one-out KNN synthetic logs, MAX_RAW washout rule) in `modules.rs`,
-Bunga mnemonic table merged into `curves.rs` FAMILIES. Method math is banked in auto-memory
-(`method-ssc-sspw-lqr`, `method-lrlc-imts-rtc`, `method-workflow-standards-jauhar`).
+Bunga mnemonic table merged into `curves.rs` FAMILIES. Method math is banked IN THIS REPO:
+`docs/method_ssc_sspw.md`, `docs/method_lrlc_rtc_imts.md`, `docs/workflow_standards.md`
+(portable — do not rely on any machine-local Claude auto-memory for it).
 
 Phase 8b shipped (2026-07-18) — **report generator** (`report.rs` + `reportDialog.ts`,
 Plot ribbon → Deliverables → Report…): cover → editable methodology table (persisted as
@@ -236,12 +237,44 @@ construction. Cluster ids are reordered by ascending mean of the FIRST feature c
 predictions back NaN-padded; outputs = base name + suffix (`_PROB`, `1..n`). Autoencoders
 intentionally not wired (needs PyTorch).
 
+P1/P2 field-review series shipped (2026-07-19/20, from Jauhar's ROADMAP §4 click-through):
+**P1-a** right-click/reload lockdown + double-click-to-edit + workflow builder as a pane;
+**P1-b** crash safe-mode + autosave + unsaved-change indicators; **P1-c** log sets
+(versioned outputs RAW/EDIT/FINAL, provenance, catalog search, input-set selection on
+module runs); **P2-a** tops/petrography/XRD/perforation CSV-TXT imports; **P2-b**
+Petrel-style interactive tops editor (`topsEditor.ts`; Svelte 5 is now available for new
+UI); **P2-c** well-pin semantics rework + multi-select with inverse; **P2-d** log-view
+layout interaction (collapsible headers, curve move/copy, borders, scoped readout,
+right-click curve editing); **P2-e** Histogram v2 and **P2-f** Crossplot v2 (per-plot
+properties dialogs, box plot/cumulative/percentiles, marginal histograms, regression
+options, log-safe colormaps, opt-in overlays).
+
+Chartbook overlay library shipped (2026-07-20) — `src/ui/chartOverlays.ts` (GENERATED —
+do not hand-edit; regenerate with `tools/chartdig`, see its README) holds **19 vector-
+digitized Schlumberger-2013 chart defs**: CNL Por-11/12, APS Por-13/14 (APLC+FPLC),
+adnVISION675 Por-16, EcoScope Por-18 BPHI + Por-19 TNPH, PEF Lith-3/4, sonic-neutron
+Por-20 TA+FO, density-sonic Por-22 TA+FO (+7 mineral points), Pe-K / Pe-Th/K Lith-1,
+Th-K clay Lith-2, Umaa-ρmaa MID Lith-6. Crossplot option `chartOverlay` (replaces the old
+`dnOverlay`; normalize migrates fresh→por11 / salt→por12); `matchOverlayAxes` gates
+drawing to matching axis pairs (either orientation) + log-state; the Properties dialog
+groups the chart select by applicability to the current axes.
+
+Senior audit banked (2026-07-20) — `AUDIT-2026-07-20.md`: 35 confirmed findings
+(5 review dimensions, each finding adversarially verified), triaged P0–P3 in **ROADMAP
+§4b** — that section is the active correctness/perf backlog. Six fixes already landed:
+pay-summary PERM semantics (missing PERM now FAILS an active cutoff — numbers changed),
+LAS declared-NULL honored + multi-word well names, case-insensitive computed-curve
+lookup, true depth-scale print ratios, tops-editor overwrite undo.
+
 **`REVIEW.md` is the user's pending click-through checklist — keep it current when
-shipping features.** Full roadmap and deferred items: `ROADMAP.md` (Phase 9 remaining:
-per-well parameter override table, lazy catalog loading / decimation cache / UI responsiveness
-+ 2000-well stress fixture — write-path perf done; Phase 10 done:
-facies + block track + GMM + full ML suite — supervised facies = ML classification with a
-FACIES/litho target; remaining ML deferral: autoencoders).
+shipping features.** Full roadmap and deferred items: `ROADMAP.md` (**§4b = senior-audit
+backlog, priority-ordered P0–P3**; Phase 9 remaining: per-well parameter override table,
+lazy catalog loading / decimation cache / UI responsiveness + 2000-well stress fixture —
+write-path perf done; Phase 10 done: facies + block track + GMM + full ML suite —
+supervised facies = ML classification with a FACIES/litho target; remaining ML deferral:
+autoencoders). Queued next increments: **Pickett v2** (N with M and Rw, free line params,
+Z-color gradient — absorbs the audit's Pickett findings) and a **UMAA/RHOMAA computation
+module** to feed the Lith-6 MID overlay.
 
 ## DuckDB WAL resilience
 
@@ -278,7 +311,31 @@ Vite serves raw TS modules, so in a browser at the dev URL you can
 no Tauri backend needed. In vite-only preview every `invoke` error
 ("Cannot read properties of undefined (reading 'invoke')") is benign.
 
-## Environment notes (as set up on this machine)
+## Environment notes
+
+### Setting up a NEW machine (clone → running app)
+
+`CONTRIBUTING.md` §1–2 is the canonical checklist. Summary:
+
+1. **Rust** stable-msvc via rustup; **Node.js LTS**; **VS Build Tools** C++ workload
+   (WebView2 runtime is preinstalled on Win 11).
+2. `npm install` in the repo root. DuckDB is the `bundled` Cargo feature (compiles from
+   source — the first `cargo build` is long; no system DuckDB needed).
+3. **Python 3.10+ with `numpy`** for the equation engine (subprocess — see rule 7);
+   `pip install dlisio` for DLIS import, `scikit-learn` for the ML suite. If discovery
+   fails, set `ARSHILLA_PYTHON` to the interpreter path.
+4. Try plain `npm run tauri dev` first — the vcvars 14.29 pin below is a
+   reference-machine-specific workaround, only needed if the default MSVC toolset is
+   broken.
+5. `tools/chartdig` (chart digitizer) needs `npm i pdfjs-dist@4.10.38` **in that folder**
+   and the chartbook PDF (`chartbook.pdf`, Schlumberger Log Interpretation Charts 2013 —
+   copyrighted, NOT in the repo; on the reference machine it's at
+   `D:\01. Work\00. Guidebook\chartbook.pdf`). Only needed to digitize NEW charts — the
+   extracted data is already committed in `src/ui/chartOverlays.ts`.
+6. Claude auto-memory is machine-local — everything durable lives in this file,
+   `docs/`, `ROADMAP.md`, `REVIEW.md`, `AUDIT-*.md`. Trust the repo over memory.
+
+### Reference machine (ARUNIKA / D:\XX. Arshilla)
 
 Rust, Node.js, and the MSVC linker are all installed and working — **but new shells may not pick up PATH updates from installers**. If `cargo`/`node`/`npm` report "not found," don't assume they're missing; verify with the full paths below before reinstalling anything:
 
@@ -290,12 +347,11 @@ Prepend both to `PATH` at the start of a shell session, e.g. (Git Bash):
 export PATH="/c/Program Files/nodejs:$USERPROFILE/.cargo/bin:$PATH"
 ```
 
-DuckDB uses the `bundled` Cargo feature (compiles from source), so no system DuckDB install is required. The MSVC linker was already present on this machine (verified via a real `cargo build`), so no separate Visual Studio Build Tools install was needed.
-
 ## Dev commands
 
-**IMPORTANT: MSVC toolset 14.50 on this machine is broken (missing clui.dll).** Any
-command that compiles Rust must go through vcvars pinned to 14.29:
+**IMPORTANT: MSVC toolset 14.50 on the reference machine is broken (missing clui.dll).**
+There, any command that compiles Rust must go through vcvars pinned to 14.29 (on a healthy
+machine, plain `npm run tauri dev` is fine):
 
 ```
 cmd.exe /c "call \"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat\" -vcvars_ver=14.29 && set PATH=C:\Program Files\nodejs;%USERPROFILE%\.cargo\bin;%PATH% && cd /d \"D:\XX. Arshilla\" && npm run tauri dev"
@@ -311,12 +367,40 @@ npm run tauri build           # production bundle (size-optimized [profile.relea
 
 Verify every change: `npx tsc --noEmit` + `cargo check` + a browser functional test.
 
+Two hard runtime rules (both learned the painful way):
+- **Never force-kill `npm run tauri dev`** (task-kill, shell timeout) — an unclean kill
+  mid-write corrupts the project DuckDB WAL (see "DuckDB WAL resilience" below).
+- After browser verification against the vite dev server, **stop the server so port 1420
+  is free** for the user's own `npm run tauri dev`.
+
+## Collaboration protocol (Jauhar ↔ Claude)
+
+Jauhar is a petrophysicist (Mahakam Delta, Indonesia) and a beginner programmer — explain
+in petrophysics terms, not programming jargon. The working rhythm, on every machine:
+
+1. Work the backlog (`ROADMAP.md`, currently §4b audit items + queued increments) in
+   **increments**. Each increment: implement → verify (tsc + cargo test + browser) →
+   add a `REVIEW.md` checklist entry → commit (and push once a remote exists) → send a
+   completion report that leads with outcomes and proposes the next increment.
+2. Jauhar replies **"go ahead"** to accept the proposal; anything else redirects.
+3. He field-verifies against real well data via `REVIEW.md` (`[o]` OK / `[x]` wrong /
+   `[ ]` untested) — check for new `[x]` marks at session start.
+4. **Git/GitHub**: the repo is private; credentials are Jauhar's own. Claude NEVER runs
+   `gh auth login` or handles tokens/passwords — he authenticates himself, then Claude
+   may create repos/push using his session. Commit messages: plain descriptive, avoid
+   embedded double quotes (PowerShell 5.1 quoting).
+5. Physics defaults come from documented sources (Geolog `.info` exports, his studies,
+   the chartbook) — cite the source in a comment; when a method spec conflicts with
+   code, the specs in `docs/` win.
+
 ## Project layout
 
 - `src-tauri/` — Rust backend: DuckDB access, parsers, IPC commands, petrophysics engine.
 - `src/` — TypeScript frontend: WebGPU log canvas renderer, Tauri IPC calls.
 - `src-tauri/icons/` — app icon set + brand assets: `logo.png` (master), `logo-mark.svg`/`logo-mark.png` (square monogram), `logo-full.svg`/`logo-full.png` (full lockup). Frontend favicon/ribbon assets in `public/`.
-- `Prompt/` — original phase-by-phase spec (`Claude_Implementation_Guide.pdf`).
+- `docs/` — method math + solver specs (SSC/SSPW, LRLC RtC/IMTS, workflow standards, Geolog/IP multimin extraction). Portable knowledge lives here, not in machine-local memory.
+- `tools/chartdig/` — chartbook vector digitizer (generates `src/ui/chartOverlays.ts`).
+- `Prompt/` — original phase-by-phase spec (`Claude_Implementation_Guide.pdf`). **Gitignored** — local-only, won't exist on a fresh clone.
 
 ---
 

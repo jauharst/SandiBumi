@@ -1,18 +1,23 @@
 # chartdig — chartbook curve digitizer
 
-Extracts chart curves from the Schlumberger Log Interpretation Charts 2013 PDF
-(`D:\01. Work\00. Guidebook\chartbook.pdf`) at vector precision. Used to produce
-`src/ui/dnChartData.ts` (Por-11 / Por-12 D-N porosity overlay). Reusable for
-future overlays (neutron-sonic CP/Por-20, density-sonic Por-22, M-N, …).
+Extracts chart curves from the Schlumberger Log Interpretation Charts 2013 PDF at
+vector precision. Produces `src/ui/chartOverlays.ts` (GENERATED — 19 chart defs as of
+2026-07-20: D-N Por-11..19, PEF Lith-3/4, sonic Por-20/22, Lith-1/2/6). The PDF itself
+is copyrighted and NOT in the repo (reference machine:
+`D:\01. Work\00. Guidebook\chartbook.pdf`); it is only needed to digitize NEW charts.
 
 ## Usage
 
 ```powershell
 npm install pdfjs-dist@4.10.38          # one-off, in this folder
 node extract.mjs 237 por11.json         # PDF page -> stroked vector paths + text (with CTM applied)
-node extract.mjs 238 por12.json
-node analyze7.mjs                       # calibrate, digitize, validate, emit dnChartData.ts
+node gen_dn.mjs                         # D-N family (Por-11..19) from page JSONs
+node gen_por20.mjs / gen_por22.mjs / gen_lith1.mjs / gen_lith2.mjs / gen_lith6.mjs
+node assemble.mjs                       # merge gen outputs -> src/ui/chartOverlays.ts
 ```
+
+(`analyze7.mjs` is the original single-chart Por-11/12 pipeline, kept as the
+worked-through reference implementation of the method below.)
 
 PDF page = printed page + 12 (Por-11 is printed p.225 = PDF p.237).
 
