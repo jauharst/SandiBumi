@@ -6,6 +6,38 @@ Work through this list when you have time; delete items as you confirm them.
 Marks: `[o]` confirmed OK (removed from this file), `[x]` confirmed wrong → logged in
 **ROADMAP.md §4 (Field-review backlog)**, `[ ]` not yet tested.
 
+## Wave E-17: pre-calculation module — P / T / Rmf / Ct / Cxo (2026-07-20 #19)
+
+New Prep module **Pre-Calculation (P / T / Rmf / Ct / Cxo)** in the Data Prep
+dropdown and the workflow builder (ROADMAP §4c item 17, from your KKT ONWJ
+workflow). One run writes six curves: FTEMP (**always degC** — the unit every
+downstream module assumes) plus FTEMP_F (the degF twin, for SandiMin fluid
+entry) and FPRESS as linear trends in TVDSS (gradients per depth unit of the
+TVDSS curve — per-metre values for metric wells; no TVDSS curve → measured
+depth is used), RMF at formation temperature (ARPS from a surface Rmf
+measurement, or TREND regression `RMF_A + RMF_B·log10(TVDSS)` for wells
+without mud data — the shipped defaults are the ONWJ **feet-based** fit), and
+CT = 1000/RT, CXO = 1000/RXO in mmho/m as QC/plotting conductivities (note:
+SandiMin's CT/CXO tool rows read the resistivity curves directly — don't feed
+these to them). Params are SURF_TEMP/TEMP_GRAD (own names, so zone overrides
+never cross-apply with Formation Temperature's degC-only TSURF/TGRAD); entry
+unit degF/degC via OPT_TU.
+
+- [ ] Run it on a KKT-style well with your fits (SURF_TEMP 77 / TEMP_GRAD
+      0.0260292, PSURF 44.2823 / PGRAD 0.539812, degF): FTEMP_F/FPRESS match
+      the deck's trend lines; spot-check one depth by hand; FTEMP = same in degC.
+- [ ] Deep resistivity input defaults to the RES_DEEP family (same as the sw_*
+      modules) so CT fills for wells whose deep curve is ILD/LLD/AT90 etc. —
+      confirm CT is not blank on a standard import.
+- [ ] ARPS mode: RMF at depth ≈ your surface Rmf pulled down by (T₁+6.77)/(T₂+6.77);
+      TREND mode with A 0.517068 / B −0.116517 reproduces the field regression.
+- [ ] degC mode on a metric well (e.g. SURF_TEMP 25, TEMP_GRAD 0.03 degC/m):
+      FTEMP in degC, FTEMP_F in degF, RMF still Arps-correct.
+- [ ] CT/CXO: 1000/RT and 1000/RXO, missing where RT/RXO are missing or ≤ 0.
+- [ ] Zone overrides: give one zone a different TEMP_GRAD in the Zones dialog —
+      the FTEMP trend kinks at the zone boundary (per-zone params resolve per
+      sample).
+
 ## Wave A-4: workflow grid inspector (2026-07-20 #18)
 
 The Workflow Builder pane has a **List | Grid** toggle above the step list

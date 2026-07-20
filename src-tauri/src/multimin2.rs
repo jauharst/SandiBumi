@@ -169,8 +169,9 @@ fn curve_token(name: &str) -> String {
 // Fluid property calculations (Geolog RF04 §5 / IP formulas)
 // ---------------------------------------------------------------------------
 
-/// Arps temperature conversion of a resistivity (°F form).
-fn arps_f(r: f64, from_f: f64, to_f: f64) -> f64 {
+/// Arps temperature conversion of a resistivity (°F form). Shared with the
+/// precalc Prep module in modules.rs.
+pub(crate) fn arps_f(r: f64, from_f: f64, to_f: f64) -> f64 {
     r * (from_f + 6.77) / (to_f + 6.77)
 }
 

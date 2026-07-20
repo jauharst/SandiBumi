@@ -156,6 +156,7 @@ pub fn list_modules() -> Vec<ModuleSpec> {
         crate::ssc::ssc_spec(),
         crate::ssc::sspw_spec(),
         ftemp_grad_spec(),
+        precalc_spec(),
         badhole_spec(),
         gr_hole_corr_spec(),
         nphi_env_corr_spec(),
@@ -189,6 +190,7 @@ pub fn run_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, Stri
         "phi_dn" => Ok(phi_dn(ctx)),
         "phi_son" => Ok(phi_son(ctx)),
         "ftemp_grad" => Ok(ftemp_grad(ctx)),
+        "precalc" => Ok(precalc(ctx)),
         "badhole" => Ok(badhole(ctx)),
         "gr_hole_corr" => Ok(gr_hole_corr(ctx)),
         "nphi_env_corr" => Ok(nphi_env_corr(ctx)),
@@ -623,6 +625,124 @@ fn ftemp_grad(ctx: &ModuleContext) -> ModuleOutputs {
         ftemp[i] = t as f32;
     }
     HashMap::from([("FTEMP".to_string(), ftemp)])
+}
+
+// ---------------------------------------------------------------------------
+// PRECALC — reservoir-condition pre-calculation: FTEMP, FPRESS, RMF, CT, CXO
+// (KKT ONWJ workflow, ROADMAP §4c item 17)
+// ---------------------------------------------------------------------------
+
+fn precalc_spec() -> ModuleSpec {
+    ModuleSpec {
+        name: "precalc".into(),
+        title: "Pre-Calculation (P / T / Rmf / Ct / Cxo)".into(),
+        category: "Prep".into(),
+        doc: "Reservoir-condition inputs for saturation and SandiMin work, from trend fits: \
+              formation temperature = SURF_TEMP + TEMP_GRAD*TVDSS and FPRESS = PSURF + \
+              PGRAD*TVDSS, both linear in true vertical depth. Gradients — and the TREND \
+              fit below — are per depth unit of the TVDSS curve: enter per-metre values \
+              (and a metric refit) for metric wells; the shipped defaults are the ONWJ \
+              feet-based fits. SURF_TEMP / TEMP_GRAD / RMF_TEMP are entered in OPT_TU \
+              units, but the FTEMP curve is always written in degC (the unit every \
+              downstream module assumes); FTEMP_F is the same trend in degF for SandiMin \
+              fluid-property entry. RMF at formation temperature comes either from a \
+              surface mud-filtrate measurement Arps-converted per sample (ARPS) or from a \
+              field regression RMF = RMF_A + RMF_B*log10(TVDSS) already fit at formation \
+              temperature (TREND, for wells with no mud data). CT = 1000/RT and CXO = \
+              1000/RXO are QC/plotting conductivities in mmho/m — SandiMin's CT/CXO tool \
+              rows read the RESISTIVITY curves directly and convert internally, so do not \
+              feed these curves to them. No TVDSS curve → measured DEPTH is used instead \
+              (fine for near-vertical wells)."
+            .into(),
+        args: vec![
+            opt("OPT_TU", "Temperature unit for entered params", "degF", &["degF", "degC"]),
+            param("SURF_TEMP", "Surface temperature (intercept)", "degF|degC", 77.0, -50.0, 150.0),
+            param("TEMP_GRAD", "Temperature gradient per TVDSS unit", "deg/ft|m", 0.026, 0.0005, 0.2),
+            param("PSURF", "Formation pressure intercept", "psi", 0.0, -500.0, 5000.0),
+            param("PGRAD", "Pressure gradient per TVDSS unit", "psi/ft|m", 0.433, 0.05, 5.0),
+            opt("OPT_RMF", "RMF source", "ARPS", &["ARPS", "TREND"]),
+            param("RMF_MEAS", "Rmf measured at surface (ARPS)", "ohmm", 0.2, 0.001, 20.0),
+            param("RMF_TEMP", "Rmf measurement temperature (ARPS)", "degF|degC", 75.0, -50.0, 150.0),
+            param("RMF_A", "RMF trend intercept (TREND, ONWJ ft-based fit)", "ohmm", 0.517, 0.0, 5.0),
+            param(
+                "RMF_B",
+                "RMF trend slope on log10(TVDSS) (TREND — fit must use the TVDSS curve's depth unit)",
+                "ohmm",
+                -0.1165,
+                -2.0,
+                2.0,
+            ),
+            log_in("TVDSS", "True vertical depth subsea", "ft|m", "TVDSS", false),
+            log_in("RT", "Deep resistivity", "ohmm", "RES_DEEP", false),
+            log_in("RXO", "Flushed-zone resistivity", "ohmm", "RXO", false),
+            log_out("FTEMP", "Formation temperature (always degC)", "degC"),
+            log_out("FTEMP_F", "Formation temperature in degF (SandiMin fluid entry)", "degF"),
+            log_out("FPRESS", "Formation pressure", "psi"),
+            log_out("RMF", "Mud filtrate resistivity at FTEMP", "ohmm"),
+            log_out("CT", "Deep conductivity 1000/RT (QC/plotting)", "mmho/m"),
+            log_out("CXO", "Flushed conductivity 1000/RXO (QC/plotting)", "mmho/m"),
+        ],
+    }
+}
+
+fn precalc(ctx: &ModuleContext) -> ModuleOutputs {
+    // TVDSS falls back to measured depth as a whole curve, never per sample:
+    // mixing MD and TVD samples would put artificial kinks in the trends.
+    let tvd_in = ctx.log("TVDSS");
+    let tvd: Vec<f32> =
+        if tvd_in.iter().any(|v| v.is_finite()) { tvd_in } else { ctx.log("DEPTH") };
+    let rt = ctx.log("RT");
+    let rxo = ctx.log("RXO");
+    let degc = ctx.o("OPT_TU") == "degC";
+    let trend = ctx.o("OPT_RMF") == "TREND";
+    let to_f = |t: f64| if degc { t * 1.8 + 32.0 } else { t };
+
+    let mut ftemp = vec![f32::NAN; ctx.n];
+    let mut ftemp_f = vec![f32::NAN; ctx.n];
+    let mut fpress = vec![f32::NAN; ctx.n];
+    let mut rmf = vec![f32::NAN; ctx.n];
+    let mut ct = vec![f32::NAN; ctx.n];
+    let mut cxo = vec![f32::NAN; ctx.n];
+
+    for i in 0..ctx.n {
+        let d = tvd[i] as f64;
+        if !is_missing(d) {
+            // t is in the entered (OPT_TU) unit; the FTEMP curve is ALWAYS degC —
+            // every consumer of the FTEMP mnemonic (nphi_env_corr, Rw resolution,
+            // ftemp_grad) assumes degC. FTEMP_F carries the degF twin.
+            let t = ctx.p("SURF_TEMP", i) + ctx.p("TEMP_GRAD", i) * d;
+            let t_f = to_f(t);
+            ftemp[i] = (if degc { t } else { (t - 32.0) / 1.8 }) as f32;
+            ftemp_f[i] = t_f as f32;
+            fpress[i] = (ctx.p("PSURF", i) + ctx.p("PGRAD", i) * d) as f32;
+            let r = if trend {
+                if d > 0.0 { ctx.p("RMF_A", i) + ctx.p("RMF_B", i) * d.log10() } else { MISSING }
+            } else {
+                crate::multimin2::arps_f(ctx.p("RMF_MEAS", i), to_f(ctx.p("RMF_TEMP", i)), t_f)
+            };
+            // Non-positive resistivity is physically meaningless — leave MISSING.
+            if r > 0.0 {
+                rmf[i] = r as f32;
+            }
+        }
+        let rd = rt[i] as f64;
+        if rd > 0.0 {
+            ct[i] = (1000.0 / rd) as f32;
+        }
+        let rx = rxo[i] as f64;
+        if rx > 0.0 {
+            cxo[i] = (1000.0 / rx) as f32;
+        }
+    }
+
+    HashMap::from([
+        ("FTEMP".to_string(), ftemp),
+        ("FTEMP_F".to_string(), ftemp_f),
+        ("FPRESS".to_string(), fpress),
+        ("RMF".to_string(), rmf),
+        ("CT".to_string(), ct),
+        ("CXO".to_string(), cxo),
+    ])
 }
 
 // ---------------------------------------------------------------------------
@@ -1701,6 +1821,115 @@ mod tests {
             params: params.iter().map(|(k, v)| (k.to_string(), vec![*v; n])).collect(),
             opts: opts.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
         }
+    }
+
+    #[test]
+    fn precalc_kk_fits_and_conductivities() {
+        // KKT ONWJ example fits: FTEMP = 77 + 0.0260292*TVDSS [degF],
+        // FPRESS = 44.2823 + 0.539812*TVDSS [psi], TVDSS in ft.
+        let ctx = ctx_with(
+            2,
+            &[
+                ("TVDSS", vec![5000.0, f32::NAN]),
+                ("RT", vec![5.0, 0.0]),
+                ("RXO", vec![2.0, f32::NAN]),
+            ],
+            &[
+                ("SURF_TEMP", 77.0),
+                ("TEMP_GRAD", 0.0260292),
+                ("PSURF", 44.2823),
+                ("PGRAD", 0.539812),
+                ("RMF_MEAS", 0.2),
+                ("RMF_TEMP", 75.0),
+            ],
+            &[("OPT_TU", "degF"), ("OPT_RMF", "ARPS")],
+        );
+        let out = precalc(&ctx);
+        // Params entered in degF → FTEMP_F carries the fit; FTEMP is the degC twin.
+        assert!((out["FTEMP_F"][0] - 207.146).abs() < 0.01, "FTEMP_F {}", out["FTEMP_F"][0]);
+        let degc = (207.146 - 32.0) / 1.8;
+        assert!((out["FTEMP"][0] as f64 - degc).abs() < 0.01, "FTEMP {}", out["FTEMP"][0]);
+        assert!((out["FPRESS"][0] - 2743.34).abs() < 0.1, "FPRESS {}", out["FPRESS"][0]);
+        let arps = 0.2 * (75.0 + 6.77) / (207.146 + 6.77);
+        assert!((out["RMF"][0] as f64 - arps).abs() < 1e-4, "RMF {}", out["RMF"][0]);
+        assert!((out["CT"][0] - 200.0).abs() < 1e-3);
+        assert!((out["CXO"][0] - 500.0).abs() < 1e-3);
+        // Missing TVDSS sample → trend outputs missing; RT <= 0 / missing RXO → missing.
+        assert!(out["FTEMP"][1].is_nan() && out["FTEMP_F"][1].is_nan());
+        assert!(out["FPRESS"][1].is_nan() && out["RMF"][1].is_nan());
+        assert!(out["CT"][1].is_nan() && out["CXO"][1].is_nan());
+    }
+
+    #[test]
+    fn precalc_rmf_trend_and_depth_fallback() {
+        // No TVDSS curve at all → whole-curve fallback to measured DEPTH.
+        // TREND regression (RMF = 0.517068 - 0.116517*log10(TVDSS)) is already at FTEMP.
+        let ctx = ctx_with(
+            1,
+            &[("DEPTH", vec![5000.0])],
+            &[
+                ("SURF_TEMP", 77.0),
+                ("TEMP_GRAD", 0.0260292),
+                ("PSURF", 44.2823),
+                ("PGRAD", 0.539812),
+                ("RMF_A", 0.517068),
+                ("RMF_B", -0.116517),
+            ],
+            &[("OPT_TU", "degF"), ("OPT_RMF", "TREND")],
+        );
+        let out = precalc(&ctx);
+        assert!((out["FTEMP_F"][0] - 207.146).abs() < 0.01);
+        let expect = 0.517068 - 0.116517 * 5000f64.log10();
+        assert!((out["RMF"][0] as f64 - expect).abs() < 1e-4, "RMF {}", out["RMF"][0]);
+    }
+
+    #[test]
+    fn precalc_trend_guards_nonpositive_depth_and_rmf() {
+        // log10 is undefined at TVDSS <= 0 (samples above the subsea datum) and the
+        // TREND fit goes non-positive at great depth — both must stay MISSING while
+        // FTEMP/FPRESS (plain linear trends) still compute.
+        let ctx = ctx_with(
+            3,
+            &[("TVDSS", vec![0.0, -50.0, 100000.0])],
+            &[
+                ("SURF_TEMP", 77.0),
+                ("TEMP_GRAD", 0.026),
+                ("PSURF", 0.0),
+                ("PGRAD", 0.433),
+                ("RMF_A", 0.517),
+                ("RMF_B", -0.1165),
+            ],
+            &[("OPT_TU", "degF"), ("OPT_RMF", "TREND")],
+        );
+        let out = precalc(&ctx);
+        assert!(out["RMF"][0].is_nan() && out["RMF"][1].is_nan());
+        // 0.517 - 0.1165*log10(100000) = 0.517 - 0.5825 < 0 → physically meaningless.
+        assert!(out["RMF"][2].is_nan());
+        assert!(out["FTEMP"][0].is_finite() && out["FPRESS"][1].is_finite());
+    }
+
+    #[test]
+    fn precalc_degc_mode_converts_for_arps() {
+        // Metric well: 25 degC + 0.03 degC/m at 2000 m → FTEMP 85 degC (= 185 degF).
+        // Rmf 0.2 ohmm @ 25 degC (77 degF) Arps-converted to 185 degF.
+        let ctx = ctx_with(
+            1,
+            &[("TVDSS", vec![2000.0])],
+            &[
+                ("SURF_TEMP", 25.0),
+                ("TEMP_GRAD", 0.03),
+                ("PSURF", 0.0),
+                ("PGRAD", 1.422),
+                ("RMF_MEAS", 0.2),
+                ("RMF_TEMP", 25.0),
+            ],
+            &[("OPT_TU", "degC"), ("OPT_RMF", "ARPS")],
+        );
+        let out = precalc(&ctx);
+        assert!((out["FTEMP"][0] - 85.0).abs() < 1e-3, "FTEMP {}", out["FTEMP"][0]);
+        assert!((out["FTEMP_F"][0] - 185.0).abs() < 1e-3, "FTEMP_F {}", out["FTEMP_F"][0]);
+        let expect = 0.2 * (77.0 + 6.77) / (185.0 + 6.77);
+        assert!((out["RMF"][0] as f64 - expect).abs() < 1e-4, "RMF {}", out["RMF"][0]);
     }
 
     #[test]

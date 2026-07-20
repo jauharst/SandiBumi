@@ -873,10 +873,19 @@ outputs to Python/SQL per §5.
 **Wave E — KKT ONWJ additions (Jauhar 2026-07-20; sources = his KKT ONWJ full-field
 deck + Multimin Parameters.xlsx, both extracted into `ref_kkt_onwj_wave_e.md` —
 client files stay OUT of the repo):**
-- [ ] **(17) Pre-calculation module** (deck slide 31): mud properties + temp/pressure
+- [x] **(17) Pre-calculation module** (deck slide 31): mud properties + temp/pressure
       gradients in → FTEMP, FPRESS, RMF (Arps to formation temp), CT = 1000/RT,
       CXO = 1000/RXO curves out. Prep-category manifest module; SandiMin fluid props
       should then be fillable from these outputs. → `ref_kkt_onwj_wave_e.md`.
+      *(DONE 2026-07-20: `precalc` module in modules.rs — linear FTEMP (degC
+      canonical) + FTEMP_F (degF twin) / FPRESS in TVDSS with whole-curve DEPTH
+      fallback, RMF via ARPS (shared multimin2::arps_f, degF/degC entry option) or
+      TREND log10 regression, CT/CXO mmho/m QC curves with R ≤ 0 guards; four unit
+      tests pin the KK fits + guard branches. Adversarial review 6/6 confirmed →
+      fixed: RES_DEEP default for the deep input, FTEMP degC-only (no unit clash
+      with ftemp_grad consumers), own SURF_TEMP/TEMP_GRAD param names (no zone-param
+      cross-talk), TREND ft-fit + CT/CXO-are-QC caveats in docs. SandiMin fluid-prop
+      autofill from these curves lands with item 18's SandiMin dialog work.)*
 - [ ] **(18) Wet→dry clay endpoint conversion** for the PHIT-basis (dry-clay
       framework) Sw model: φ_clay = (ρdry−ρwet)/(ρdry−1); NPHI/GR/DT rescaled onto
       the dry fraction (formulas verbatim from his xlsx). Converter in the SandiMin

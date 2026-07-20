@@ -23,8 +23,10 @@ conditions; mud data are incomplete across wells, so they are estimated from tre
   Arps to FTEMP; `multimin2::arps_f` already exists) or, when mud data are missing, a
   field regression vs depth. Example: `RMF = 0.517068 − 0.116517·log10(TVDSS)`.
 - **CT / CXO** [mmho/m]: conductivity transforms of the deep / flushed resistivities,
-  `CT = 1000/RT`, `CXO = 1000/RXO` — the linearly-additive inputs SandiMin's CT/CXO
-  rows consume.
+  `CT = 1000/RT`, `CXO = 1000/RXO` — QC/plotting curves for conductivity-space work.
+  NOTE (review 2026-07-20): SandiMin's CT/CXO tool rows read the RESISTIVITY curves
+  directly and convert internally (`(1/v)^(1/w)` in mho/m, multimin2.rs) — these
+  precalc output curves must NOT be fed to those rows.
 
 Module shape: Prep-category manifest module, per-well; params = surface temp + temp
 gradient, pressure intercept + gradient, Rmf@meas-temp + meas-temp (or regression
