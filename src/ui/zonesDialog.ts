@@ -9,14 +9,18 @@ import {
   type ZoneEntry,
   type ZoneParamEntry,
 } from "../ipc";
-import { openModal } from "./modal";
 
 /** Zone manager for the selected well: build zones from tops, add/edit/delete zones,
  *  and set per-zone interval parameter overrides (Geolog interval-parameter model —
  *  any numeric module parameter, e.g. GR_MA, GR_SH, RW, M, N, applied over that zone's
- *  depth range at run time). */
-export async function openZonesDialog(well: WellSummary, setStatus: (text: string) => void): Promise<void> {
+ *  depth range at run time).
+ *  Hosted as a dock pane (workspace component "zones"), not a popup. */
+export async function buildZonesContent(
+  well: WellSummary,
+  setStatus: (text: string) => void,
+): Promise<{ el: HTMLElement; dispose?: () => void }> {
   const content = document.createElement("div");
+  content.className = "zones-pane";
 
   const zoneList = document.createElement("div");
   const paramList = document.createElement("div");
@@ -176,6 +180,6 @@ export async function openZonesDialog(well: WellSummary, setStatus: (text: strin
   setRow.appendChild(setBtn);
   content.appendChild(setRow);
 
-  openModal(`Zones — ${well.well_name}`, content, 620);
   await refresh();
+  return { el: content };
 }

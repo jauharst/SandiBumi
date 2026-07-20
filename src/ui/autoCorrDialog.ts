@@ -7,40 +7,43 @@ import {
   type WellSummary,
 } from "../ipc";
 import { recordProcess } from "../processLog";
-import { appState, bumpDataVersion, filterByActiveGroup, setStatus } from "../state";
+import { bumpDataVersion, filterByActiveGroup } from "../state";
 import { pushUndo } from "../undo";
-import { formRow, openModal } from "./modal";
+import { formRow } from "./modal";
 
-/** Petrel-style marker autocorrelation: propagate a top picked in the selected well to
+/** Petrel-style marker autocorrelation: propagate a top picked in the source well to
  *  other wells by matching the shape of a chosen log (GR by default) around the pick.
  *  Proposals show the correlation coefficient; the user reviews, unticks weak matches,
- *  and applies — one undoable batch. */
-export async function openAutoCorrDialog(): Promise<void> {
-  const source = appState.selectedWell.get();
-  if (!source) {
-    setStatus("Select a source well in Wells & Tops first");
-    return;
-  }
+ *  and applies — one undoable batch.
+ *  Hosted as a dock pane (workspace component "autocorr") that follows the selected well, not a popup. */
+export async function buildAutoCorrContent(
+  well: WellSummary,
+  setStatus: (text: string) => void,
+): Promise<{ el: HTMLElement; dispose?: () => void }> {
+  const content = document.createElement("div");
+  content.className = "autocorr-pane";
+  const messagePane = (text: string): { el: HTMLElement } => {
+    const div = document.createElement("div");
+    div.className = "logview-message";
+    div.textContent = text;
+    content.appendChild(div);
+    return { el: content };
+  };
 
   let tops: { top_name: string }[] = [];
   let wells: WellSummary[] = [];
   try {
-    [tops, wells] = await Promise.all([listTops(source.well_id), listWells()]);
+    [tops, wells] = await Promise.all([listTops(well.well_id), listWells()]);
   } catch (err) {
-    setStatus(`Autocorrelate: ${err}`);
-    return;
+    return messagePane(`Autocorrelate: ${err}`);
   }
   if (tops.length === 0) {
-    setStatus(`No tops picked in ${source.well_name} yet — pick one in the log view first (🏷)`);
-    return;
+    return messagePane(`No tops picked in ${well.well_name} yet — pick one in the log view first (🏷)`);
   }
-  const targets = filterByActiveGroup(wells).filter((w) => w.well_id !== source.well_id);
+  const targets = filterByActiveGroup(wells).filter((w) => w.well_id !== well.well_id);
   if (targets.length === 0) {
-    setStatus("No other wells (in the active group) to correlate to");
-    return;
+    return messagePane("No other wells (in the active group) to correlate to");
   }
-
-  const content = document.createElement("div");
 
   const topSel = document.createElement("select");
   topSel.className = "form-control";
@@ -64,7 +67,7 @@ export async function openAutoCorrDialog(): Promise<void> {
   searchInput.value = "25";
   searchInput.step = "1";
 
-  content.appendChild(formRow("Source well", Object.assign(document.createElement("span"), { textContent: source.well_name })));
+  content.appendChild(formRow("Source well", Object.assign(document.createElement("span"), { textContent: well.well_name })));
   content.appendChild(formRow("Top", topSel));
   content.appendChild(formRow("Log", curveInput, "Curve whose shape is matched (GR is standard)"));
   content.appendChild(formRow("Window ± (m)", windowInput, "Half-length of the pattern window around the pick"));
@@ -79,8 +82,6 @@ export async function openAutoCorrDialog(): Promise<void> {
   resultHost.className = "autocorr-results";
   content.appendChild(resultHost);
 
-  const close = openModal("Autocorrelate top", content, 560);
-
   runBtn.addEventListener("click", () => {
     void (async () => {
       const topName = topSel.value;
@@ -92,7 +93,7 @@ export async function openAutoCorrDialog(): Promise<void> {
       let proposals: AutoCorrProposal[] = [];
       try {
         const result = await autocorrelateTop({
-          source_well_id: source.well_id,
+          source_well_id: well.well_id,
           top_name: topName,
           curve,
           half_window: halfWindow,
@@ -114,10 +115,14 @@ export async function openAutoCorrDialog(): Promise<void> {
       }
 
       renderProposals(resultHost, proposals, targets, (apply) => {
-        void applyProposals(apply, topName, close);
+        void applyProposals(apply, topName, setStatus, () => {
+          resultHost.innerHTML = "";
+        });
       });
     })();
   });
+
+  return { el: content };
 }
 
 function renderProposals(
@@ -184,7 +189,8 @@ function renderProposals(
 async function applyProposals(
   rows: { wellId: string; depth: number; oldDepth: number | null }[],
   topName: string,
-  close: () => void,
+  setStatus: (text: string) => void,
+  onApplied: () => void,
 ): Promise<void> {
   const { deleteTop } = await import("../ipc");
   const applyNew = async () => {
@@ -207,5 +213,5 @@ async function applyProposals(
   pushUndo({ label: `autocorrelate ${topName} (${rows.length} wells)`, undo: applyOld, redo: applyNew });
   recordProcess("Tops", `Autocorrelated ${topName} into ${rows.length} well(s)`);
   setStatus(`${topName} picked in ${rows.length} well(s) by autocorrelation`);
-  close();
+  onApplied();
 }

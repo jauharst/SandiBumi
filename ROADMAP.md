@@ -736,10 +736,27 @@ sign-off**, in addition to the usual cargo test / tsc / browser checks.
 
 **Wave A — UI foundation (do first: every new suite below should be born into this
 architecture, not ported later):**
-- [ ] **(14) Tools as panes, not popups + theme compliance.** _(2026-07-20: theme
-      fixes + easy-4 ports done — paysummary/ml/montecarlo/multimin are panes,
-      modal leak fixed; remaining: zones, wellGroups, composite, report,
-      moduleDialog, autoCorr.)_ Theme fixes first
+- [x] **(14) Tools as panes, not popups + theme compliance.** _(Done 2026-07-20:
+      theme fixes + easy-4 ports earlier; this increment converts the rest per
+      Jauhar's "i want all tools shows as pane, for existing and future tools" —
+      **moduleDialog is now a dock pane** (component "module", id "module:<name>",
+      spec looked up via listModules so layout restore rebuilds from the id alone →
+      EVERY current and future manifest module gets a pane automatically), plus a
+      `wellPane` host (mirrors createPlot's follow-the-selected-well pattern with a
+      `followData` rebuild) for **zones, autocorr, composite, report**. Ribbon
+      buttons + the ＋ menu + context headings + the log-view Print/export item all
+      open panes now; the "select a well first" guards became in-pane hints. Kept
+      modal on purpose: layoutProps, curveEdit, session/layout/header/shift-core,
+      imports. Adversarial review (16 agents, most died on a usage limit → findings
+      re-verified by hand on Opus): 9 real → all fixed — wellPane now catches up a
+      pin-off hint pane to a late selection, rebuilds to the hint (not a stale
+      well) on project switch so zone/report writes can't target the new DB with an
+      old well_id, guards the .catch against superseded builds, resets the tab
+      title when the well clears, and follows dataVersion so the autocorr "pick a
+      top first" message and the composite/report layout lists stop going stale;
+      module pane re-applies the Wells & Tops multi-selection and guards the
+      log-set-suggestion race; dead `failed`/`void failed` removed; autocorr i18n
+      key restored. tsc clean, browser-verified. REVIEW #24.)_ Theme fixes first
       (independent, low-risk): kill phantom CSS vars (`--danger/--muted/--panel-2/
       --surface-2/--bg-subtle` always render fallbacks), re-skin `.cursor-readout` +
       `.workflow-invalid`, replace hard-coded `#b5651d/#5f7350/#888/#999` in

@@ -9,7 +9,8 @@ import {
 import "dockview-core/dist/styles/dockview.css";
 import { appState, bumpDataVersion, setStatus } from "../state";
 import { WORKSPACE_DIRTY, clearDirty, isDirty, markDirty, subscribeDirty } from "../dirty";
-import type { Layout, WellSummary } from "../ipc";
+import { listModules, type Layout, type ModuleSpec, type WellSummary } from "../ipc";
+import { recordProcess } from "../processLog";
 import { LogViewPanel } from "./logViewPanel";
 import { ObjectTree } from "./objectTree";
 import { TopsPanel } from "./topsPanel";
@@ -214,6 +215,11 @@ export class Workspace {
       ["Monte Carlo", () => this.openMonteCarlo(group)],
       ["SandiMin Solver", () => this.openMultimin(group)],
       "sep",
+      ["Zones", () => this.openZones(group)],
+      ["Autocorrelate Tops", () => this.openAutoCorr(group)],
+      ["Composite Log", () => this.openComposite(group)],
+      ["Report", () => this.openReport(group)],
+      "sep",
       ["Wells & Tops", () => this.openWellsTops(group)],
       ["Inspector", () => this.openInspector(group)],
       ["Database Inspector", () => this.openDbInspector(group)],
@@ -317,6 +323,61 @@ export class Workspace {
           () => import("./multiminDialog").then((m) => m.buildMultiminContent(setStatus)),
           "SandiMin",
         );
+      // Auto-generated module form (panel id "module:<name>"): the spec is looked up in
+      // the backend manifest, so layout restore rebuilds the pane from its id alone and
+      // every module the backend registers gets a pane with no frontend work.
+      case "module":
+        return this.asyncPane(
+          "dock-module",
+          async () => {
+            const name = options.id.replace(/^module:/, "");
+            const spec = (await listModules()).find((s) => s.name === name);
+            if (!spec) throw new Error(`unknown module "${name}"`);
+            const m = await import("./moduleDialog");
+            return m.buildModuleContent(spec, {
+              setStatus,
+              onRunComplete: () => {
+                recordProcess("Module", `Ran ${spec.title}`, appState.selectedWell.get()?.well_name ?? null);
+                this.notifyDataChanged();
+              },
+            });
+          },
+          "module",
+        );
+      // Well-following tool panes (converted popups): wellPane rebuilds the content for
+      // each newly selected well, so the builders stay well-bound like the plot panes.
+      case "zones":
+        return this.wellPane(
+          "dock-zones",
+          "Zones",
+          "the zone manager",
+          () => import("./zonesDialog").then((m) => m.buildZonesContent),
+          true,
+        );
+      case "autocorr":
+        return this.wellPane(
+          "dock-autocorr",
+          "Autocorrelate Tops",
+          "top autocorrelation",
+          () => import("./autoCorrDialog").then((m) => m.buildAutoCorrContent),
+          true,
+        );
+      case "composite":
+        return this.wellPane(
+          "dock-composite",
+          "Composite Log",
+          "the composite log",
+          () => import("./compositeDialog").then((m) => m.buildCompositeContent),
+          true,
+        );
+      case "report":
+        return this.wellPane(
+          "dock-report",
+          "Report",
+          "the report generator",
+          () => import("./reportDialog").then((m) => m.buildReportContent),
+          true,
+        );
       case "histogram":
       case "crossplot":
       case "pickett":
@@ -350,6 +411,101 @@ export class Workspace {
         });
       return () => {
         closed = true;
+        disposer?.();
+      };
+    });
+  }
+
+  /** A singleton tool pane bound to the selected well: the content is rebuilt for each
+   *  newly selected well (same follow rules as the plots — with the pin off it only
+   *  follows to another well while active) and shows a hint until a well exists. The
+   *  builders receive the well as an argument and never track the selection themselves;
+   *  with `followData` a data-version bump rebuilds the pane's own well so its lists
+   *  (tops, wells, layouts) stay current, the way the modal era re-fetched on every open. */
+  private wellPane(
+    className: string,
+    titleBase: string,
+    label: string,
+    loadBuilder: () => Promise<
+      (well: WellSummary, setStatus: (t: string) => void) => Promise<{ el: HTMLElement; dispose?: () => void }>
+    >,
+    followData = false,
+  ): IContentRenderer {
+    return new DomPanel(className, (host, params) => {
+      let disposer: (() => void) | undefined;
+      let generation = 0;
+      let closed = false;
+      let currentWell: WellSummary | null = null;
+
+      const rebuild = (well: WellSummary | null) => {
+        const gen = ++generation;
+        disposer?.();
+        disposer = undefined;
+        host.innerHTML = "";
+        currentWell = well;
+        if (!well) {
+          // No well: reset the tab title too, or a closed project's well lingers there.
+          params.api.setTitle(titleBase);
+          host.innerHTML = `<div class="logview-message">Select a well (Wells &amp; Tops) — ${label} will follow.</div>`;
+          return;
+        }
+        params.api.setTitle(`${titleBase} — ${well.well_name}`);
+        loadBuilder()
+          .then((build) => build(well, setStatus))
+          .then((content) => {
+            if (closed || gen !== generation) {
+              content.dispose?.();
+              return;
+            }
+            host.appendChild(content.el);
+            disposer = content.dispose;
+          })
+          .catch((err) => {
+            if (closed || gen !== generation) return; // a newer build/close already won
+            host.innerHTML = `<div class="logview-message">Failed to open ${label}: ${err}</div>`;
+          });
+      };
+
+      const unsubWell = appState.selectedWell.subscribe((well) => {
+        const nextId = well?.well_id ?? null;
+        if (generation > 0 && nextId === currentWell?.well_id) return;
+        // Pin OFF = working-pane mode: an already-built pane holding a well only follows
+        // the selection to ANOTHER real well while it is the active panel. Always rebuild
+        // when the pane has no well yet (catch up to a selection) or the selection was
+        // cleared (project switch), so a stale well can never linger in the pane.
+        if (
+          generation > 0 &&
+          currentWell !== null &&
+          nextId !== null &&
+          !appState.wellPinned.get() &&
+          !params.api.isActive
+        )
+          return;
+        rebuild(well);
+      });
+
+      // Data changes (a top picked, an import, an undo, a newly saved layout) invalidate
+      // the built form's cached lists. Rebuild the pane's OWN well — not the global
+      // selection, so pin-off working panes keep their well — deferred a microtask so a
+      // bump fired from inside this pane's own action unwinds first.
+      let dataPrimed = false;
+      const unsubData = appState.dataVersion.subscribe(() => {
+        if (!followData) return;
+        if (!dataPrimed) {
+          dataPrimed = true; // the subscribe fires immediately; the first build already ran
+          return;
+        }
+        if (currentWell === null) return;
+        const at = generation;
+        queueMicrotask(() => {
+          if (!closed && at === generation) rebuild(currentWell);
+        });
+      });
+
+      return () => {
+        closed = true;
+        unsubWell();
+        unsubData();
         disposer?.();
       };
     });
@@ -413,17 +569,7 @@ export class Workspace {
           { label: "Narrow tracks", onClick: () => void view.scaleAllTracks(1 / 1.15) },
           "sep",
           { label: "Layout properties…", onClick: () => void view.openProperties() },
-          {
-            label: "Print / export layout…",
-            onClick: () => {
-              const well = appState.selectedWell.get();
-              if (!well) {
-                setStatus("Select a well first");
-                return;
-              }
-              void import("./compositeDialog").then((m) => m.openCompositeDialog(well, setStatus));
-            },
-          },
+          { label: "Print / export layout…", onClick: () => this.openComposite(group) },
         );
       }
     } else if (kind === "histogram" || kind === "crossplot" || kind === "pickett" || kind === "correlation") {
@@ -454,6 +600,16 @@ export class Workspace {
       items.push({ heading: "Monte Carlo" });
     } else if (kind === "multimin") {
       items.push({ heading: "SandiMin Solver" });
+    } else if (kind === "module") {
+      items.push({ heading: "Module" });
+    } else if (kind === "zones") {
+      items.push({ heading: "Zones" });
+    } else if (kind === "autocorr") {
+      items.push({ heading: "Autocorrelate Tops" });
+    } else if (kind === "composite") {
+      items.push({ heading: "Composite Log" });
+    } else if (kind === "report") {
+      items.push({ heading: "Report" });
     }
 
     // --- Window block (every panel) ---
@@ -782,6 +938,28 @@ export class Workspace {
 
   openMultimin(group?: DockviewGroupPanel): void {
     this.openSingleton("multimin", "multimin", "SandiMin — Mineral Solver", group);
+  }
+
+  /** Every manifest module opens as its own singleton pane (id "module:<name>"), so new
+   *  backend modules get a dockable pane automatically. */
+  openModulePane(spec: ModuleSpec, group?: DockviewGroupPanel): void {
+    this.openSingleton(`module:${spec.name}`, "module", spec.title, group);
+  }
+
+  openZones(group?: DockviewGroupPanel): void {
+    this.openSingleton("zones", "zones", "Zones", group);
+  }
+
+  openAutoCorr(group?: DockviewGroupPanel): void {
+    this.openSingleton("autocorr", "autocorr", "Autocorrelate Tops", group);
+  }
+
+  openComposite(group?: DockviewGroupPanel): void {
+    this.openSingleton("composite", "composite", "Composite Log", group);
+  }
+
+  openReport(group?: DockviewGroupPanel): void {
+    this.openSingleton("report", "report", "Report", group);
   }
 
   openLogView(group?: DockviewGroupPanel): void {

@@ -11,15 +11,17 @@ import {
   type WellSummary,
 } from "../ipc";
 import { appState } from "../state";
-import { formRow, openModal } from "./modal";
+import { formRow } from "./modal";
 
-/** Composite log deliverable dialog: pick a layout, print scale, page size and depth
+/** Composite log deliverable: pick a layout, print scale, page size and depth
  *  window, preview the rendered vector pages, and export to SVG. The composite is
- *  rendered in Rust (`render_composite`) at a physically exact print scale. */
-export async function openCompositeDialog(
+ *  rendered in Rust (`render_composite`) at a physically exact print scale.
+ *  Hosted as a dock pane (workspace component "composite") that follows the
+ *  selected well, not a popup. */
+export async function buildCompositeContent(
   well: WellSummary,
   setStatus: (text: string) => void,
-): Promise<void> {
+): Promise<{ el: HTMLElement; dispose?: () => void }> {
   // Layout choices: built-ins plus the currently active layout (deduped by name).
   const builtins = await listLayouts().catch(() => [] as Layout[]);
   const active = appState.activeLayout.get();
@@ -27,6 +29,7 @@ export async function openCompositeDialog(
   if (active && !layouts.some((l) => l.name === active.name)) layouts.unshift(active);
 
   const content = document.createElement("div");
+  content.className = "composite-pane";
 
   const layoutSel = document.createElement("select");
   layoutSel.className = "form-control";
@@ -262,5 +265,5 @@ export async function openCompositeDialog(
     }
   });
 
-  openModal(`Composite Log — ${well.well_name}`, content, 560);
+  return { el: content };
 }

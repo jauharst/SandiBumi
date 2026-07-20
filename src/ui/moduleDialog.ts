@@ -7,10 +7,10 @@ import {
   type RunModuleRequest,
   type WellSummary,
 } from "../ipc";
-import { defaultRunWellIds, filterByActiveGroup } from "../state";
-import { formRow, openModal } from "./modal";
+import { appState, defaultRunWellIds, filterByActiveGroup } from "../state";
+import { formRow } from "./modal";
 
-export interface ModuleDialogCallbacks {
+export interface ModulePaneCallbacks {
   /** Called after a successful run so the host can refresh the catalog/layout. */
   onRunComplete: (outputCurves: string[]) => void;
   setStatus: (text: string) => void;
@@ -26,19 +26,24 @@ export function maskCurveNames(curveNames: string[]): string[] {
   return [...MASK_CURVE_SUGGESTIONS.filter((s) => !curveNames.includes(s)), ...curveNames];
 }
 
-/** Opens the auto-generated parameter dialog for one module: input-curve selectors,
+/** Builds the auto-generated parameter form for one module: input-curve selectors,
  *  option dropdowns, and validated numeric parameters — all straight from the manifest
- *  (Geolog .info model). Zone-level overrides come from the Zones dialog; values here
- *  are the whole-well defaults. */
-export async function openModuleDialog(
+ *  (Geolog .info model). Hosted as a dock pane (workspace component "module", panel id
+ *  "module:<name>"), not a popup — one singleton pane per module, so every module the
+ *  backend registers gets its pane with no frontend work. The pane is persistent: the
+ *  well list and curve dropdowns refresh on data changes (keeping the user's choices),
+ *  so curves produced by one run are immediately selectable in the next. Zone-level
+ *  overrides come from the Zones pane; values here are the whole-well defaults. */
+export async function buildModuleContent(
   spec: ModuleSpec,
-  selectedWell: WellSummary | null,
-  callbacks: ModuleDialogCallbacks,
-): Promise<void> {
-  const [wells, catalog] = await Promise.all([listWells().then(filterByActiveGroup), listCurveCatalog()]);
-  const curveNames = catalog.map((c) => c.name);
+  callbacks: ModulePaneCallbacks,
+): Promise<{ el: HTMLElement; dispose: () => void }> {
+  let [wells, catalog] = await Promise.all([listWells().then(filterByActiveGroup), listCurveCatalog()]);
+  let curveNames = catalog.map((c) => c.name);
+  let disposed = false;
 
   const content = document.createElement("div");
+  content.className = "module-pane";
 
   const doc = document.createElement("p");
   doc.className = "modal-doc";
@@ -48,21 +53,27 @@ export async function openModuleDialog(
   // --- Well selection (multi) ---
   const wellBox = document.createElement("div");
   wellBox.className = "well-checklist";
-  const wellChecks: { well: WellSummary; input: HTMLInputElement }[] = [];
+  let wellChecks: { well: WellSummary; input: HTMLInputElement }[] = [];
+  const rebuildWellChecklist = (checkedIds: Set<string>) => {
+    wellBox.innerHTML = "";
+    wellChecks = [];
+    for (const well of wells) {
+      const label = document.createElement("label");
+      label.className = "well-check";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = checkedIds.has(well.well_id);
+      label.appendChild(input);
+      label.appendChild(document.createTextNode(well.well_name));
+      wellBox.appendChild(label);
+      wellChecks.push({ well, input });
+    }
+  };
   // Pre-tick the Wells & Tops multi-selection when one exists, else the active well.
   const runDefaults = defaultRunWellIds(wells);
-  if (runDefaults.size === 0 && selectedWell) runDefaults.add(selectedWell.well_id);
-  for (const well of wells) {
-    const label = document.createElement("label");
-    label.className = "well-check";
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.checked = runDefaults.has(well.well_id);
-    label.appendChild(input);
-    label.appendChild(document.createTextNode(well.well_name));
-    wellBox.appendChild(label);
-    wellChecks.push({ well, input });
-  }
+  const initialWell = appState.selectedWell.get();
+  if (runDefaults.size === 0 && initialWell) runDefaults.add(initialWell.well_id);
+  rebuildWellChecklist(runDefaults);
   content.appendChild(formRow("Wells", wellBox));
 
   // --- Args from manifest ---
@@ -70,30 +81,31 @@ export async function openModuleDialog(
   const optSelects = new Map<string, HTMLSelectElement>();
   const paramInputs = new Map<string, HTMLInputElement>();
 
+  const fillSelect = (select: HTMLSelectElement, names: string[], selected: string) => {
+    select.innerHTML = "";
+    for (const name of names) {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = name;
+      if (name === selected) option.selected = true;
+      select.appendChild(option);
+    }
+  };
+  /** Catalog names with `keep` (the current/default choice) prepended when absent, so a
+   *  selection never disappears from its own dropdown. */
+  const logChoiceNames = (keep: string) => (curveNames.includes(keep) ? curveNames : [keep, ...curveNames]);
+
   for (const arg of spec.args) {
     if (arg.kind === "log_in") {
       const select = document.createElement("select");
       select.className = "form-control";
-      const names = curveNames.includes(arg.default) ? curveNames : [arg.default, ...curveNames];
-      for (const name of names) {
-        const option = document.createElement("option");
-        option.value = name;
-        option.textContent = name;
-        if (name === arg.default) option.selected = true;
-        select.appendChild(option);
-      }
+      fillSelect(select, logChoiceNames(arg.default), arg.default);
       logSelects.set(arg.name, select);
       content.appendChild(formRow(`${arg.name} ${arg.required ? "" : "(optional)"}`, select, arg.desc));
     } else if (arg.kind === "option") {
       const select = document.createElement("select");
       select.className = "form-control";
-      for (const choice of arg.choices) {
-        const option = document.createElement("option");
-        option.value = choice;
-        option.textContent = choice;
-        if (choice === arg.default) option.selected = true;
-        select.appendChild(option);
-      }
+      fillSelect(select, arg.choices, arg.default);
       optSelects.set(arg.name, select);
       content.appendChild(formRow(arg.name, select, arg.desc));
     } else if (arg.kind === "param") {
@@ -116,18 +128,23 @@ export async function openModuleDialog(
   // BADHOLE curve produced by the Bad-Hole QC module.
   const maskSelect = document.createElement("select");
   maskSelect.className = "form-control";
-  {
+  const rebuildMaskOptions = (selected: string) => {
+    maskSelect.innerHTML = "";
     const none = document.createElement("option");
     none.value = "";
     none.textContent = "(none)";
     maskSelect.appendChild(none);
-    for (const name of maskCurveNames(curveNames)) {
+    const names = maskCurveNames(curveNames);
+    if (selected && !names.includes(selected)) names.unshift(selected);
+    for (const name of names) {
       const option = document.createElement("option");
       option.value = name;
       option.textContent = name;
+      if (name === selected) option.selected = true;
       maskSelect.appendChild(option);
     }
-  }
+  };
+  rebuildMaskOptions("");
   content.appendChild(
     formRow("Mask (optional)", maskSelect, "Flag curve (=1 bad) to blank out of every output — e.g. BADHOLE."),
   );
@@ -159,29 +176,34 @@ export async function openModuleDialog(
     setList.id = "log-set-names";
     document.body.appendChild(setList);
   }
-  {
+  // The datalist is shared/global (on document.body); refresh its suggestions from the
+  // selected well's existing set names (best-effort — fine without a backend). The epoch
+  // guard drops a slow listLogSets from a previously selected well so it can't overwrite
+  // the current well's suggestions.
+  let setSuggestEpoch = 0;
+  const refreshSetSuggestions = (well: WellSummary | null) => {
+    const epoch = ++setSuggestEpoch;
     const names = new Set(["INTERP", "FINAL", "TEST"]);
-    if (selectedWell) {
-      // Existing set names of the selected well join the suggestions (best-effort).
-      listLogSets(selectedWell.well_id)
+    const apply = () => {
+      setList!.innerHTML = "";
+      for (const n of names) {
+        const o = document.createElement("option");
+        o.value = n;
+        setList!.appendChild(o);
+      }
+    };
+    apply();
+    if (well) {
+      listLogSets(well.well_id)
         .then((sets) => {
+          if (epoch !== setSuggestEpoch) return; // a newer well's refresh already ran
           for (const s of sets) names.add(s.set_name);
-          setList!.innerHTML = "";
-          for (const n of names) {
-            const o = document.createElement("option");
-            o.value = n;
-            setList!.appendChild(o);
-          }
+          apply();
         })
         .catch(() => {});
     }
-    setList.innerHTML = "";
-    for (const n of names) {
-      const o = document.createElement("option");
-      o.value = n;
-      setList.appendChild(o);
-    }
-  }
+  };
+  refreshSetSuggestions(initialWell);
   content.appendChild(
     formRow(
       "Output set",
@@ -206,7 +228,50 @@ export async function openModuleDialog(
   content.appendChild(runBtn);
   content.appendChild(resultBox);
 
-  const close = openModal(spec.title, content, 560);
+  // --- Persistent-pane refresh: keep the pickers current without touching user choices.
+  // Data changes (imports, module runs — including this pane's own) refresh the well list
+  // and curve dropdowns in place; selecting another well only updates the pre-tick when
+  // the checklist is empty and the set-name suggestions.
+  const refreshData = async () => {
+    try {
+      const [freshWells, freshCatalog] = await Promise.all([
+        listWells().then(filterByActiveGroup),
+        listCurveCatalog(),
+      ]);
+      if (disposed) return;
+      const checkedIds = new Set(wellChecks.filter((w) => w.input.checked).map((w) => w.well.well_id));
+      wells = freshWells;
+      catalog = freshCatalog;
+      curveNames = catalog.map((c) => c.name);
+      rebuildWellChecklist(checkedIds);
+      for (const [name, select] of logSelects) {
+        const arg = spec.args.find((a) => a.name === name)!;
+        const current = select.value || arg.default;
+        fillSelect(select, logChoiceNames(current), current);
+      }
+      rebuildMaskOptions(maskSelect.value);
+    } catch {
+      // No backend / transient failure: keep the current form as-is.
+    }
+  };
+  let dataPrimed = false;
+  const unsubData = appState.dataVersion.subscribe(() => {
+    if (!dataPrimed) {
+      dataPrimed = true; // subscribe fires immediately; the initial fetch already ran
+      return;
+    }
+    void refreshData();
+  });
+  const unsubWell = appState.selectedWell.subscribe((well) => {
+    refreshSetSuggestions(well);
+    // Only when nothing is ticked yet (non-destructive): re-apply the Wells & Tops
+    // multi-selection — the batch pre-tick — so a pane opened or restored before the
+    // selection existed still gets all selected wells, not just the active one.
+    if (wellChecks.some((w) => w.input.checked)) return;
+    const defaults = defaultRunWellIds(wells);
+    if (defaults.size === 0 && well) defaults.add(well.well_id);
+    if (defaults.size > 0) rebuildWellChecklist(defaults);
+  });
 
   runBtn.addEventListener("click", async () => {
     const wellIds = wellChecks.filter((w) => w.input.checked).map((w) => w.well.well_id);
@@ -247,7 +312,6 @@ export async function openModuleDialog(
     try {
       const results = await runWorkflowModule(req);
       const ok = results.filter((r) => !r.error);
-      const failed = results.filter((r) => r.error);
       resultBox.innerHTML = "";
       for (const r of results) {
         const line = document.createElement("div");
@@ -259,14 +323,20 @@ export async function openModuleDialog(
         resultBox.appendChild(line);
       }
       callbacks.setStatus(`${spec.name}: ${ok.length}/${results.length} well(s) computed`);
-      if (ok.length > 0) {
-        callbacks.onRunComplete(outputs);
-        if (failed.length === 0) setTimeout(close, 900);
-      }
+      if (ok.length > 0) callbacks.onRunComplete(outputs);
     } catch (err) {
       resultBox.textContent = `Run failed: ${err}`;
     } finally {
       runBtn.disabled = false;
     }
   });
+
+  return {
+    el: content,
+    dispose: () => {
+      disposed = true;
+      unsubData();
+      unsubWell();
+    },
+  };
 }

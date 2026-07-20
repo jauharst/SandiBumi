@@ -16,7 +16,7 @@ import {
   type WellSummary,
 } from "../ipc";
 import { appState, filterByActiveGroup } from "../state";
-import { formRow, openModal } from "./modal";
+import { formRow } from "./modal";
 
 const TEMPLATE_DOC_TYPE = "report_template";
 const TEMPLATE_NAME = "default";
@@ -37,13 +37,15 @@ function textToRows(text: string): MethodRow[] {
     });
 }
 
-/** Report generator dialog (Phase 8b): cover + methodology table + zone parameters +
+/** Report generator (Phase 8b): cover + methodology table + zone parameters +
  *  pay summary + composite pages → one PDF, previewed page by page. The methodology
- *  table is editable and persists as a `report_template` document. */
-export async function openReportDialog(
+ *  table is editable and persists as a `report_template` document.
+ *  Hosted as a dock pane (workspace component "report") that follows the selected
+ *  well, not a popup. */
+export async function buildReportContent(
   well: WellSummary,
   setStatus: (text: string) => void,
-): Promise<void> {
+): Promise<{ el: HTMLElement; dispose?: () => void }> {
   const builtins = await listLayouts().catch(() => [] as Layout[]);
   const active = appState.activeLayout.get();
   const layouts: Layout[] = [...builtins];
@@ -51,6 +53,7 @@ export async function openReportDialog(
   const wells = filterByActiveGroup(await listWells().catch(() => [well]));
 
   const content = document.createElement("div");
+  content.className = "report-pane";
 
   const titleIn = document.createElement("input");
   titleIn.className = "form-control";
@@ -396,5 +399,5 @@ export async function openReportDialog(
     }
   });
 
-  openModal(`Report — ${well.well_name}`, content, 620);
+  return { el: content };
 }

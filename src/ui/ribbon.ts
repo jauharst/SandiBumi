@@ -33,11 +33,6 @@ import { getTheme, setTheme, type ThemeChoice } from "../theme";
 import { getLocale, setLocale, type Locale } from "../i18n";
 import type { SessionSnapshot, Workspace } from "./workspace";
 import { formRow, openModal } from "./modal";
-import { openModuleDialog } from "./moduleDialog";
-import { openCompositeDialog } from "./compositeDialog";
-import { openReportDialog } from "./reportDialog";
-import { openZonesDialog } from "./zonesDialog";
-import { openAutoCorrDialog } from "./autoCorrDialog";
 
 interface RibbonMenuItem {
   label: string;
@@ -169,14 +164,7 @@ export class Ribbon {
     q<HTMLButtonElement>("#sql-query-btn")?.addEventListener("click", () => workspace.openSqlQuery());
 
     // --- Petrophysics ---
-    q<HTMLButtonElement>("#zones-btn")?.addEventListener("click", () => {
-      const well = appState.selectedWell.get();
-      if (!well) {
-        setStatus("Select a well first (Wells & Tops panel)");
-        return;
-      }
-      void openZonesDialog(well, setStatus);
-    });
+    q<HTMLButtonElement>("#zones-btn")?.addEventListener("click", () => workspace.openZones());
     q<HTMLButtonElement>("#paysum-btn")?.addEventListener("click", () => workspace.openPaySummary());
     q<HTMLButtonElement>("#workflow-btn")?.addEventListener("click", () => workspace.openWorkflow());
     q<HTMLButtonElement>("#montecarlo-btn")?.addEventListener("click", () => workspace.openMonteCarlo());
@@ -200,22 +188,8 @@ export class Ribbon {
     q<HTMLButtonElement>("#crossplot-btn")?.addEventListener("click", () => workspace.openPlot("crossplot"));
     q<HTMLButtonElement>("#pickett-btn")?.addEventListener("click", () => workspace.openPlot("pickett"));
     q<HTMLButtonElement>("#correlation-btn")?.addEventListener("click", () => workspace.openPlot("correlation"));
-    q<HTMLButtonElement>("#composite-btn")?.addEventListener("click", () => {
-      const well = appState.selectedWell.get();
-      if (!well) {
-        setStatus("Select a well first (Wells & Tops panel)");
-        return;
-      }
-      void openCompositeDialog(well, setStatus);
-    });
-    q<HTMLButtonElement>("#report-btn")?.addEventListener("click", () => {
-      const well = appState.selectedWell.get();
-      if (!well) {
-        setStatus("Select a well first (Wells & Tops panel)");
-        return;
-      }
-      void openReportDialog(well, setStatus);
-    });
+    q<HTMLButtonElement>("#composite-btn")?.addEventListener("click", () => workspace.openComposite());
+    q<HTMLButtonElement>("#report-btn")?.addEventListener("click", () => workspace.openReport());
     const layoutSelect = q<HTMLSelectElement>("#layout-select");
     if (layoutSelect) {
       layoutSelect.addEventListener("change", () => {
@@ -303,7 +277,7 @@ export class Ribbon {
         {
           label: "Autocorrelate Tops…",
           doc: "Propagate a top from the selected well to other wells by matching a log's shape (GR by default)",
-          onPick: () => void openAutoCorrDialog(),
+          onPick: () => this.workspace.openAutoCorr(),
         },
         {
           label: "Shift Core…",
@@ -487,13 +461,9 @@ export class Ribbon {
   }
 
   private openModule(spec: ModuleSpec): void {
-    void openModuleDialog(spec, appState.selectedWell.get(), {
-      setStatus,
-      onRunComplete: () => {
-        recordProcess("Module", `Ran ${spec.title}`, appState.selectedWell.get()?.well_name ?? null);
-        this.workspace.notifyDataChanged();
-      },
-    });
+    // Each module is a singleton dock pane; run bookkeeping (process log + data-version
+    // bump) lives with the pane host in workspace.ts, so restored panes get it too.
+    this.workspace.openModulePane(spec);
   }
 
   /** Built-ins from Rust plus user-saved layouts from the `documents` table. */

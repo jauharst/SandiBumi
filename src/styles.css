@@ -3265,17 +3265,30 @@ input[type="number"].num-editing:focus {
 }
 
 /* Tool panes ported from popups (ROADMAP §4c item 14): Pay Summary, ML,
- * Monte Carlo, SandiMin. */
+ * Monte Carlo, SandiMin, the auto-generated module forms, and the well-following
+ * Zones / Autocorrelate / Composite / Report panes. */
 .dock-paysummary,
 .dock-ml,
 .dock-montecarlo,
-.dock-multimin {
+.dock-multimin,
+.dock-module,
+.dock-zones,
+.dock-autocorr,
+.dock-composite,
+.dock-report {
   padding: 10px 12px;
 }
 /* The SandiMin endpoints matrix is wide — let it use the whole pane, unlike the
  * form-column dialogs that share the .mc-dialog class. */
 .dock-multimin .mc-dialog {
   max-width: none;
+}
+/* Form-column panes keep the dialog-era column width; the composite/report previews
+ * scale with the pane instead. */
+.module-pane,
+.zones-pane,
+.autocorr-pane {
+  max-width: 620px;
 }
 
 /* --- P1-b crash safe-mode + unsaved indicators ----------------------------- */

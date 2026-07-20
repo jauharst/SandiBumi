@@ -6,6 +6,44 @@ Work through this list when you have time; delete items as you confirm them.
 Marks: `[o]` confirmed OK (removed from this file), `[x]` confirmed wrong → logged in
 **ROADMAP.md §4 (Field-review backlog)**, `[ ]` not yet tested.
 
+## All tools as dockview panes (2026-07-20 #24)
+
+Your ask: "i want all tools shows as pane, for existing and future tools." Every
+computation/analysis tool now opens as a **dockable pane** instead of a pop-up. The
+big one: the **auto-generated module form** (every Petrophysics ▸ Data Prep / VSH /
+Porosity / Saturation module) is now a pane — one per module — so you can keep
+several docked side by side and re-run each as you iterate, and **any new module I
+add in Rust gets its pane automatically** with no extra UI work. **Zones,
+Autocorrelate Tops, Composite Log, and Report** are panes too; they follow the
+selected well the way the plots do, and refresh their lists when data changes. Quick
+pop-ups stayed pop-ups on purpose (curve editor, layout properties, save/open
+session, import prompts). Adversarial review found 9 real issues, all fixed before
+this shipped (pin-off panes catching up to a selection, no stale-well writes after a
+project switch, the autocorrelate "pick a top first" message re-checking itself once
+you pick one, etc.). tsc clean; module-pane behavior browser-verified.
+
+- [ ] Open a module (e.g. Gas Correction) from the Petrophysics tab — it should
+      appear as a pane you can dock/split/float, not a pop-up. Run it; the result
+      lines stay in the pane (no auto-close). Open a second module — both panes
+      coexist (the old pop-ups could not).
+- [ ] With a module pane open, compute a curve, then open another module: the new
+      curve should already be selectable in its input dropdowns (the pane refreshes
+      its lists on data changes without losing what you'd already picked).
+- [ ] Multi-select several wells in Wells & Tops, THEN open a module: all selected
+      wells should be pre-ticked (not just the active one).
+- [ ] Open the **Zones** / **Composite** / **Report** pane with no well selected —
+      it shows "Select a well… will follow" instead of a "select a well first"
+      toast; pick a well and it fills in and the tab title updates.
+- [ ] **Autocorrelate Tops** on a well with no tops: the pane says "pick one in the
+      log view first" — go pick a top, and the pane should update itself (no need to
+      close/reopen). Apply a correlation: the proposals clear.
+- [ ] Switch projects with a Zones/Report pane docked in a background tab: it must
+      reset to the "select a well" hint, NOT keep showing a well from the old
+      project (this prevents editing the new project with a stale well).
+- [ ] Docking sanity: the panes save/restore with the workspace layout, appear in
+      the ＋ "add panel" menu, and the log-view right-click "Print / export layout…"
+      opens the Composite pane.
+
 ## Gas Correction module — iterated density de-gassing (2026-07-20 #23)
 
 **Petrophysics ▸ Data Prep ▸ Gas Correction (density, iterated)** — the KKT deck
