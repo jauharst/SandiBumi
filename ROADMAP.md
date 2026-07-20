@@ -53,7 +53,7 @@ headers below rather than as the primary structure.
 
 ### ◻ Open — do next  → [Part B](#-part-b--open-do-next)
 - **Polish tail** (§4b): ✅ all shipped — units #122, correlation #123, history-coverage #124, Pickett v2 #125, pay-summary provenance #126.
-- **Performance** (§4b): crossplot redraw memoize (#127, the one safe frontend win) — ✅ **shipped 2026-07-20**. Remaining (needs a live 100-well run to sign off): async commands (#128), connection pool [**high-risk**] (#129), raw-IPC ArrayBuffers (#131), batch reads (#130), persistent Python worker (#132).
+- **Performance** (§4b): crossplot redraw memoize (#127) ✅, **batch curve reads (#130)** ✅ and **persistent Python worker (#132)** ✅ **shipped + committed 2026-07-21** (one `IN(...)` query in `fetch_curve_frame`; one long-lived numpy worker vs per-well spawn; +3 tests, 167 pass). Remaining: raw-IPC ArrayBuffers (#131) is solo-doable; async commands (#128) and connection pool [**high-risk**] (#129) need a live 100-well run to sign off.
 - **Reliability sliver**: modal Escape-key stacking — ✅ **shipped 2026-07-20** (Escape scoped to the top dialog; single-instance already prevented leaked handlers).
 - **Interpretation-workflow open** (§4): data-prep split/merge + tops-referenced normalization, highlight tool, typography check.
 - **Feature Wave B** (§4c): MC parameter **sensitivity/tornado** (13), ML comparison + leaderboard (3), fluid contacts in correlation (9), well-diagram track (16), rock typing + SHF fitting (8).
@@ -621,8 +621,9 @@ The actionable backlog. Roughly ordered: safe frontend wins first, then Performa
 ## B1. Hardening backlog (§4b)
 
 **Performance (was "P2") — speed at field scale (100+ wells)** — all 6 mapped by a read-only
-investigation wave (file:line + risk); **none built yet**. Tasks #127–132. Architecturally invasive:
-these change DB connection semantics and **cannot be signed off without running `tauri dev` on 100+
+investigation wave (file:line + risk). **3 of 6 shipped: #127 (crossplot memoize), #130 (batch curve
+reads), #132 (persistent Python worker).** Tasks #127–132. The remaining connection-semantics items are architecturally invasive —
+they change DB connection semantics and **cannot be signed off without running `tauri dev` on 100+
 real wells** (the human can't be replaced for perf benchmarking).
 - [ ] **(#128)** Long commands are synchronous Tauri commands — `run_workflow_chain`/`run_ml`/`run_multimin`
       are sync `fn` on the IPC thread, so a chain run blocks IPC for minutes and Cancel can't fire until it
@@ -635,12 +636,21 @@ real wells** (the human can't be replaced for perf benchmarking).
 - [ ] **(#131)** "Binary" curve IPC ships bytes as JSON numbers (~4× size, main-thread parse) — use Tauri
       v2 raw IPC responses (ArrayBuffer) end-to-end (length-prefixed multi-curve buffer → Float32Array).
       Task #7 half-did this — check what exists.
-- [ ] **(#130)** One query per curve per well load (~100 scans of computed_curves) — batch to a single
-      `SELECT … WHERE well_id=? AND name IN (?..) ORDER BY depth`, partition in Rust, preserve alias
-      resolution. *(The batch-reads investigation-map agent errored mid-run; re-run its map before
-      implementing.)*
-- [ ] **(#132)** Python engine spawns one subprocess per well (re-importing numpy/sklearn each time) —
-      persistent worker reading length-framed requests on stdin, or batch all wells into one invocation.
+- [x] **(#130)** ~~One query per curve per well load (~100 scans of computed_curves)~~ — **done
+      2026-07-21.** `fetch_curve_frame` now defers every non-standard name into ONE
+      `SELECT upper(curve_name), depth, value FROM computed_curves WHERE well_id=? AND upper(curve_name)
+      IN (?..)`, buckets rows per curve + aligns them in Rust, and keeps the computed-then-generic
+      (RAW mnemonic/family alias) precedence byte-for-byte. Two new `equations::` tests pin the
+      semantics (standard passthrough, case-insensitive match, off-grid→NaN, absent→generic fallback).
+      `cargo test --lib` = 166 pass / 0 fail. Speedup is unmeasured pending a live 100-well run.
+      **Committed 2026-07-21.**
+- [x] **(#132)** ~~Python engine spawns one subprocess per well (re-importing numpy each time)~~ —
+      **done 2026-07-21.** The numpy equation engine now runs ONE persistent worker process
+      (JSON-header + raw-f32 request/response loop over stdin/stdout), reused for every well and every
+      run, instead of spawning `python.exe` per well. Per-request script-error isolation (fresh namespace
+      each request; a bad script is reported without killing the worker) + respawn-and-retry on a dead
+      worker; `run_python_equation` is now sequential over the shared worker. +1 test
+      (`worker_survives_a_script_error`). `ml.rs` was already single-spawn-per-run, so left as-is.
 - [x] **(#127)** Crossplot redraw rebuilds per-point rgb() color strings + re-sorts on every frame —
       **done 2026-07-20.** Extracted the color computation into pure `computeCrossplotColors()` and
       **memoized** it in the panel, keyed by (Z curve, colormap, log-Z, fixed color, data-generation);
@@ -681,8 +691,9 @@ real wells** (the human can't be replaced for perf benchmarking).
       the numeric-edit guard's capture-phase stop still shields a dialog from closing mid-number-edit.
       Also tears down in-flight title-bar drag listeners on close. tsc clean; REVIEW "P1".
 
-**Low (15 items)** — see `AUDIT-2026-07-20.md`. **Swept 2026-07-21 (#134): 10 safe fixes applied,
-1 already fixed, 4 held for sign-off; cargo 163 pass / tsc EXIT 0; NOT committed.**
+**Low (15 items)** — see `AUDIT-2026-07-20.md`. **Fully closed 2026-07-21: #134 applied 10 safe
+fixes (1 already fixed); #135 resolved the 4 held items per Jauhar (below). Committed — #134 in
+`2c1f67b`, #135 in `5bae536`; cargo 166 / tsc 0.**
 - [x] SSC `SWIRR_EFF` ÷0 guard (100%-shale no longer reads "all water movable") — `ssc.rs`.
 - [x] Archie `SWT_ARCH` no longer writes `+Infinity` at PHIT=0/PHIE-absent — `modules.rs` (+test).
 - [x] Simandoux SCHLUMBERGER ÷0 at VSH=1 → all-water — `modules.rs` (+test).

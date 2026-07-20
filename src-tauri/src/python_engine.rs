@@ -1,50 +1,93 @@
 //! Vectorized Python (numpy) equation engine, tp_evaluate-style: the user script sees
 //! every input curve as a float32 numpy array (NaN = missing) plus `depth`, and assigns
-//! the output curve name as an array — one exec per well, numpy does the per-sample work.
+//! the output curve name as an array — numpy does the per-sample work.
 //!
 //! Python runs as a SUBPROCESS rather than an embedded interpreter: the app binary has
 //! no link-time Python dependency, so a missing/foreign Python can never stop SandiBumi
 //! from launching — a run just fails with a clear message. Discovery order:
 //! `ARSHILLA_PYTHON` env var, then recent py.org per-user installs, then PATH; the first
 //! interpreter that can `import numpy` wins (cached for the session).
+//!
+//! **Persistent worker (perf):** rather than spawn a fresh `python.exe` per well (which
+//! re-imports numpy every time — the dominant cost of a field-scale equation run), one
+//! long-lived worker process runs a request/response loop and is reused for every well and
+//! every subsequent run in the session. Each request is a JSON header line + raw f32 input
+//! arrays; each response is a 4-byte length + JSON status (`{"ok":true}` / `{"ok":false,
+//! "error":...}`) + (on success) the output array's raw f32 bytes. A **script error is
+//! reported per request without killing the worker** (fresh namespace per request, so no
+//! state leaks between wells); if the worker process dies (broken pipe) it is respawned and
+//! the request retried once. The worker exits on its own when the app closes its stdin (EOF).
 
 use crate::equations::{fetch_curve_frame, write_equation_output, EquationDef, EquationRunResult};
 use duckdb::Connection;
-use rayon::prelude::*;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 
-/// In-process runner: reads a JSON header line then raw f32 arrays from stdin, execs the
-/// user script with numpy bound, writes the output array's raw bytes to stdout.
-const RUNNER: &str = r#"
+const NO_PYTHON: &str =
+    "no Python with numpy found — install Python 3.10+ with numpy, or set ARSHILLA_PYTHON to its python.exe";
+
+/// Persistent request/response loop: read a JSON header line + raw f32 arrays, exec the
+/// user script with numpy bound (fresh namespace each request), and reply with a
+/// length-prefixed JSON status + the output array's bytes. Loops until stdin hits EOF (the
+/// app closed the pipe), so one worker serves every well. A script exception is caught and
+/// returned as `{"ok":false}` — the loop keeps going, so one bad script never kills the
+/// worker.
+const RUNNER_LOOP: &str = r#"
 import sys, json
 import numpy as np
 
-header = json.loads(sys.stdin.buffer.readline().decode("utf-8"))
-n = header["n"]
-names = header["names"]
-out_name = header["output"]
-raw = sys.stdin.buffer.read(4 * n * len(names))
-ns = {"np": np, "numpy": np}
-for i, name in enumerate(names):
-    ns[name] = np.frombuffer(raw, dtype=np.float32, count=n, offset=4 * n * i).copy()
-try:
-    exec(compile(header["script"], "<equation>", "exec"), ns)
-except Exception as e:
-    print(f"script error: {e}", file=sys.stderr)
-    sys.exit(2)
-if out_name not in ns:
-    print(f"script never assigned the output curve '{out_name}'", file=sys.stderr)
-    sys.exit(2)
-out = np.asarray(ns[out_name], dtype=np.float32)
-if out.ndim == 0:
-    out = np.full(n, float(out), dtype=np.float32)
-if out.shape != (n,):
-    print(f"output '{out_name}' has shape {out.shape}, expected ({n},)", file=sys.stderr)
-    sys.exit(2)
-sys.stdout.buffer.write(out.tobytes())
+stdin = sys.stdin.buffer
+stdout = sys.stdout.buffer
+
+def read_exact(n):
+    if n == 0:
+        return b""
+    buf = bytearray()
+    while len(buf) < n:
+        chunk = stdin.read(n - len(buf))
+        if not chunk:
+            return None
+        buf.extend(chunk)
+    return bytes(buf)
+
+def send(obj, payload=None):
+    body = json.dumps(obj).encode("utf-8")
+    stdout.write(len(body).to_bytes(4, "little"))
+    stdout.write(body)
+    if payload is not None:
+        stdout.write(payload)
+    stdout.flush()
+
+while True:
+    line = stdin.readline()
+    if not line:
+        break  # EOF: parent closed stdin -> exit cleanly
+    try:
+        header = json.loads(line.decode("utf-8"))
+        n = int(header["n"]); names = header["names"]
+        out_name = header["output"]; script = header["script"]
+    except Exception:
+        break  # unframeable request; let the parent respawn
+    payload = read_exact(4 * n * len(names))
+    if payload is None:
+        break  # EOF mid-request
+    ns = {"np": np, "numpy": np}
+    for i, name in enumerate(names):
+        ns[name] = np.frombuffer(payload, dtype=np.float32, count=n, offset=4 * n * i).copy()
+    try:
+        exec(compile(script, "<equation>", "exec"), ns)
+        if out_name not in ns:
+            send({"ok": False, "error": f"script never assigned the output curve '{out_name}'"}); continue
+        out = np.asarray(ns[out_name], dtype=np.float32)
+        if out.ndim == 0:
+            out = np.full(n, float(out), dtype=np.float32)
+        if out.shape != (n,):
+            send({"ok": False, "error": f"output '{out_name}' has shape {out.shape}, expected ({n},)"}); continue
+        send({"ok": True}, np.ascontiguousarray(out, dtype=np.float32).tobytes())
+    except Exception as e:
+        send({"ok": False, "error": f"script error: {e}"})
 "#;
 
 /// Finds a Python with numpy, once per session.
@@ -89,56 +132,124 @@ pub fn hide_console(cmd: &mut Command) {
     }
 }
 
-/// Executes one script against one well's arrays. `names` are the lowercase variable
-/// names (starting with "depth"), `arrays` the matching f32 columns, all length `n`.
-pub fn exec_python_script(
-    python: &PathBuf,
-    script: &str,
-    names: &[String],
-    arrays: &[&[f32]],
-    n: usize,
-    output_name: &str,
-) -> Result<Vec<f32>, String> {
-    let header = serde_json::json!({ "n": n, "names": names, "output": output_name, "script": script });
+// ---------------------------------------------------------------------------
+// Persistent worker
+// ---------------------------------------------------------------------------
 
-    let mut cmd = Command::new(python);
-    cmd.args(["-c", RUNNER]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    hide_console(&mut cmd);
-    let mut child = cmd.spawn().map_err(|e| format!("failed to start python: {e}"))?;
-
-    {
-        let stdin = child.stdin.as_mut().ok_or("failed to open python stdin")?;
-        stdin.write_all(header.to_string().as_bytes()).map_err(|e| e.to_string())?;
-        stdin.write_all(b"\n").map_err(|e| e.to_string())?;
-        for arr in arrays {
-            stdin.write_all(bytemuck::cast_slice(arr)).map_err(|e| e.to_string())?;
-        }
-    } // drop closes stdin
-
-    let output = child.wait_with_output().map_err(|e| e.to_string())?;
-    if !output.status.success() {
-        let err = String::from_utf8_lossy(&output.stderr);
-        let last = err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("python failed");
-        return Err(last.trim().to_string());
-    }
-    if output.stdout.len() != n * 4 {
-        return Err(format!("python returned {} bytes, expected {}", output.stdout.len(), n * 4));
-    }
-    let mut result = vec![0f32; n];
-    bytemuck::cast_slice_mut::<f32, u8>(&mut result).copy_from_slice(&output.stdout);
-    Ok(result)
+#[derive(serde::Deserialize)]
+struct WorkerResp {
+    ok: bool,
+    #[serde(default)]
+    error: String,
 }
 
-/// Runs a python equation across wells (rayon-parallel, one subprocess per well),
-/// writing results into `computed_curves` exactly like the Rhai path.
+/// Which kind of failure an `exec` hit: `Script` = the worker is alive and reported a
+/// user-script error (report it, keep the worker); `Io` = the pipe broke / the worker died
+/// (respawn and retry).
+enum WorkerErr {
+    Io(String),
+    Script(String),
+}
+
+struct PyWorker {
+    child: Child,
+}
+
+impl PyWorker {
+    fn spawn(python: &PathBuf) -> Result<PyWorker, String> {
+        let mut cmd = Command::new(python);
+        cmd.args(["-c", RUNNER_LOOP])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null()); // errors come back framed on stdout; nothing reads stderr
+        hide_console(&mut cmd);
+        let child = cmd.spawn().map_err(|e| format!("failed to start python: {e}"))?;
+        Ok(PyWorker { child })
+    }
+
+    /// One request → one response on the live worker. Writes the header line + input arrays,
+    /// then reads the length-prefixed status and (on success) the `n`-length output array.
+    fn exec(&mut self, header_json: &str, arrays: &[&[f32]], n: usize) -> Result<Vec<f32>, WorkerErr> {
+        let io = |e: std::io::Error| WorkerErr::Io(e.to_string());
+        {
+            let stdin = self.child.stdin.as_mut().ok_or_else(|| WorkerErr::Io("worker stdin closed".into()))?;
+            stdin.write_all(header_json.as_bytes()).map_err(io)?;
+            stdin.write_all(b"\n").map_err(io)?;
+            for arr in arrays {
+                stdin.write_all(bytemuck::cast_slice(arr)).map_err(io)?;
+            }
+            stdin.flush().map_err(io)?;
+        } // stdin borrow ends before we read stdout
+        let stdout = self.child.stdout.as_mut().ok_or_else(|| WorkerErr::Io("worker stdout closed".into()))?;
+        let mut lenb = [0u8; 4];
+        stdout.read_exact(&mut lenb).map_err(io)?;
+        let len = u32::from_le_bytes(lenb) as usize;
+        if len > (1 << 20) {
+            return Err(WorkerErr::Io(format!("worker response header too large ({len} bytes)")));
+        }
+        let mut jb = vec![0u8; len];
+        stdout.read_exact(&mut jb).map_err(io)?;
+        let resp: WorkerResp =
+            serde_json::from_slice(&jb).map_err(|e| WorkerErr::Io(format!("bad worker response: {e}")))?;
+        if !resp.ok {
+            return Err(WorkerErr::Script(resp.error));
+        }
+        let mut out = vec![0f32; n];
+        stdout.read_exact(bytemuck::cast_slice_mut(&mut out)).map_err(io)?;
+        Ok(out)
+    }
+}
+
+fn worker_cell() -> &'static Mutex<Option<PyWorker>> {
+    static WORKER: OnceLock<Mutex<Option<PyWorker>>> = OnceLock::new();
+    WORKER.get_or_init(|| Mutex::new(None))
+}
+
+/// Runs one script request on the shared persistent worker, spawning it on first use and
+/// respawning once if it has died (broken pipe). A user-script error returns `Err` but
+/// leaves the worker alive for the next request.
+fn run_on_worker(header_json: &str, arrays: &[&[f32]], n: usize) -> Result<Vec<f32>, String> {
+    let python = find_python().ok_or_else(|| NO_PYTHON.to_string())?;
+    let mut guard = worker_cell().lock().unwrap_or_else(|e| e.into_inner());
+    for attempt in 0..2 {
+        if guard.is_none() {
+            *guard = Some(PyWorker::spawn(&python)?);
+        }
+        match guard.as_mut().unwrap().exec(header_json, arrays, n) {
+            Ok(out) => return Ok(out),
+            Err(WorkerErr::Script(s)) => return Err(s),
+            Err(WorkerErr::Io(e)) => {
+                *guard = None; // worker died — drop it, then respawn+retry once
+                if attempt == 1 {
+                    return Err(format!("python worker failed: {e}"));
+                }
+            }
+        }
+    }
+    unreachable!()
+}
+
+/// Runs one script (with `names`/`arrays` starting at "depth") on the persistent worker.
+/// `output` is the lowercase output variable name the script must assign.
+fn exec_script(script: &str, names: &[String], arrays: &[&[f32]], n: usize, output: &str) -> Result<Vec<f32>, String> {
+    let header = serde_json::json!({ "n": n, "names": names, "output": output, "script": script }).to_string();
+    run_on_worker(&header, arrays, n)
+}
+
+/// Runs a python equation across wells (sequentially, one shared persistent worker),
+/// writing results into `computed_curves` exactly like the Rhai path. Sequential (not
+/// rayon) because the single worker and the single `Mutex<Connection>` serialize the work
+/// anyway, and the win here is eliminating the per-well process spawn, not parallel compute.
 pub fn run_python_equation(db: &Mutex<Connection>, equation: &EquationDef, well_ids: &[String]) -> Vec<EquationRunResult> {
-    let Some(python) = find_python() else {
-        let msg = "no Python with numpy found — install Python 3.10+ with numpy, or set ARSHILLA_PYTHON to its python.exe";
-        return well_ids.iter().map(|w| EquationRunResult { well_id: w.clone(), rows_written: 0, error: Some(msg.into()) }).collect();
-    };
+    if find_python().is_none() {
+        return well_ids
+            .iter()
+            .map(|w| EquationRunResult { well_id: w.clone(), rows_written: 0, error: Some(NO_PYTHON.into()) })
+            .collect();
+    }
 
     well_ids
-        .par_iter()
+        .iter()
         .map(|well_id| {
             let (depth, columns) = {
                 let conn = db.lock().unwrap();
@@ -162,7 +273,7 @@ pub fn run_python_equation(db: &Mutex<Connection>, equation: &EquationDef, well_
             }
 
             let output_name = equation.output_curve.trim().to_lowercase();
-            match exec_python_script(&python, &equation.script, &names, &arrays, depth.len(), &output_name) {
+            match exec_script(&equation.script, &names, &arrays, depth.len(), &output_name) {
                 Ok(mut result) => {
                     for v in &mut result {
                         if !v.is_finite() {
@@ -187,25 +298,18 @@ mod tests {
 
     #[test]
     fn python_vectorized_roundtrip() {
-        let Some(python) = find_python() else {
+        if find_python().is_none() {
             eprintln!("skipping: no python+numpy on this machine");
             return;
-        };
+        }
         let depth: Vec<f32> = (0..100).map(|i| 1000.0 + i as f32 * 0.5).collect();
         let mut gr: Vec<f32> = (0..100).map(|i| 20.0 + (i as f32 % 60.0) * 2.0).collect();
         gr[7] = f32::NAN; // NaN must propagate, not crash
 
         let names = vec!["depth".to_string(), "gr".to_string()];
         let arrays: Vec<&[f32]> = vec![&depth, &gr];
-        let result = exec_python_script(
-            &python,
-            "vsh = np.clip((gr - 20.0) / (140.0 - 20.0), 0.0, 1.0)",
-            &names,
-            &arrays,
-            100,
-            "vsh",
-        )
-        .expect("python run failed");
+        let result = exec_script("vsh = np.clip((gr - 20.0) / (140.0 - 20.0), 0.0, 1.0)", &names, &arrays, 100, "vsh")
+            .expect("python run failed");
 
         assert_eq!(result.len(), 100);
         assert!((result[0] - 0.0).abs() < 1e-6);
@@ -216,14 +320,35 @@ mod tests {
 
     #[test]
     fn python_reports_script_errors() {
-        let Some(python) = find_python() else {
+        if find_python().is_none() {
             eprintln!("skipping: no python+numpy on this machine");
             return;
-        };
+        }
         let depth = vec![1.0f32, 2.0];
         let names = vec!["depth".to_string()];
         let arrays: Vec<&[f32]> = vec![&depth];
-        let err = exec_python_script(&python, "vsh = undefined_name + 1", &names, &arrays, 2, "vsh").unwrap_err();
+        let err = exec_script("vsh = undefined_name + 1", &names, &arrays, 2, "vsh").unwrap_err();
         assert!(err.contains("script error"), "got: {err}");
+    }
+
+    #[test]
+    fn worker_survives_a_script_error() {
+        // The persistent worker must isolate a per-request script error: a bad script is
+        // reported, and the SAME worker still serves the next good request (no respawn, no
+        // leaked namespace state between requests).
+        if find_python().is_none() {
+            eprintln!("skipping: no python+numpy on this machine");
+            return;
+        }
+        let depth = vec![1.0f32, 2.0, 3.0];
+        let names = vec!["depth".to_string()];
+        let arrays: Vec<&[f32]> = vec![&depth];
+
+        let err = exec_script("boom = does_not_exist + 1", &names, &arrays, 3, "boom").unwrap_err();
+        assert!(err.contains("script error"), "got: {err}");
+
+        let ok = exec_script("out = depth * 2.0", &names, &arrays, 3, "out")
+            .expect("worker should survive a prior script error and serve the next request");
+        assert_eq!(ok, vec![2.0, 4.0, 6.0]);
     }
 }

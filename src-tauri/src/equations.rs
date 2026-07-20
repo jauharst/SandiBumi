@@ -287,6 +287,11 @@ pub(crate) fn fetch_curve_frame(conn: &Connection, well_id: &str, curve_names: &
     }
 
     let mut columns: HashMap<String, Vec<f32>> = HashMap::new();
+    // Names that miss the standard six (or whose standard column is all-NaN because import
+    // matched no alias) need computed/generic resolution. Collect them first, then read their
+    // computed_curves values in ONE `IN (...)` query instead of a round-trip each — the hot
+    // path when a module chains off several previously-computed curves across many wells.
+    let mut resolve: Vec<String> = Vec::new();
     for name in curve_names {
         let upper = name.trim().to_uppercase();
         let std_col = match upper.as_str() {
@@ -299,36 +304,78 @@ pub(crate) fn fetch_curve_frame(conn: &Connection, well_id: &str, curve_names: &
             "SP" => Some(&sp),
             _ => None,
         };
-        let values = match std_col {
-            Some(col) if upper == "DEPTH" || col.iter().any(|v| !v.is_nan()) => col.clone(),
-            // An all-NaN standard column means the delivery's mnemonics matched no
-            // standard alias at import (e.g. an APS well whose only neutron is APLC):
-            // fall through to computed/generic resolution so the family dictionary
-            // can still find the curve instead of silently feeding NaN to modules.
-            _ => fetch_named_curve_aligned(conn, well_id, &upper, &depth)?,
-        };
-        columns.insert(upper, values);
+        match std_col {
+            Some(col) if upper == "DEPTH" || col.iter().any(|v| !v.is_nan()) => {
+                columns.insert(upper, col.clone());
+            }
+            // An all-NaN standard column means the delivery's mnemonics matched no standard
+            // alias at import (e.g. an APS well whose only neutron is APLC): defer to
+            // computed/generic resolution so the family dictionary can still find the curve
+            // instead of silently feeding NaN to modules.
+            _ => {
+                if !resolve.contains(&upper) {
+                    resolve.push(upper);
+                }
+            }
+        }
+    }
+
+    if !resolve.is_empty() {
+        // One batched computed_curves read for every deferred name; then per name, fall back
+        // to the generic RAW store (mnemonic/family aliased) exactly as the per-curve path did
+        // whenever the computed lookup yields nothing usable.
+        let computed = fetch_computed_curves_batch(conn, well_id, &resolve, &depth)?;
+        for upper in resolve {
+            let values = match computed.get(&upper) {
+                Some(col) if col.iter().any(|v| !v.is_nan()) => col.clone(),
+                _ => fetch_generic_curve_aligned(conn, well_id, &upper, &depth)?,
+            };
+            columns.insert(upper, values);
+        }
     }
     Ok((depth, columns))
 }
 
-/// Resolves a non-standard curve name onto the depth grid, trying (1) `computed_curves`
-/// (so equations/modules can chain off earlier results), then (2) the generic curve store
-/// (set RAW) so imported curves that were never one of the fixed six — PEF, CALI, DRHO,
-/// RXO, extra runs — are usable as module/equation inputs. The generic lookup matches on
-/// the curve's own mnemonic first, then its resolved family (so a module asking for "CALI"
-/// finds an "HCAL" curve whose family is CALI), preferring the base run.
-fn fetch_named_curve_aligned(
+/// Batched `computed_curves` read for many names at once: a single `upper(curve_name) IN
+/// (...)` query, its rows bucketed per name and each aligned onto the depth grid. Replaces N
+/// per-curve [`fetch_computed_curve_aligned`] round-trips inside [`fetch_curve_frame`]. Only
+/// names with at least one stored row appear in the returned map; a name absent from it (or
+/// present but all-NaN after alignment) is left for the caller to resolve via the generic
+/// store — preserving the computed-then-generic precedence the per-curve path had, where a
+/// non-standard curve came from the generic (RAW) store when it had no computed values.
+fn fetch_computed_curves_batch(
     conn: &Connection,
     well_id: &str,
-    curve_name: &str,
+    names_upper: &[String],
     depth_grid: &[f32],
-) -> duckdb::Result<Vec<f32>> {
-    let computed = fetch_computed_curve_aligned(conn, well_id, curve_name, depth_grid)?;
-    if computed.iter().any(|v| !v.is_nan()) {
-        return Ok(computed);
+) -> duckdb::Result<HashMap<String, Vec<f32>>> {
+    let placeholders = std::iter::repeat("?").take(names_upper.len()).collect::<Vec<_>>().join(", ");
+    let sql = format!(
+        "SELECT upper(curve_name), depth, value FROM computed_curves \
+         WHERE well_id = ? AND upper(curve_name) IN ({placeholders})"
+    );
+    let mut qp: Vec<&str> = Vec::with_capacity(names_upper.len() + 1);
+    qp.push(well_id);
+    for n in names_upper {
+        qp.push(n.as_str());
     }
-    fetch_generic_curve_aligned(conn, well_id, curve_name, depth_grid)
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_from_iter(qp), |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, f32>(1)?, row.get::<_, f32>(2)?))
+    })?;
+    // name → (depth-bits → value); last row wins per depth, matching fetch_computed_curve_aligned.
+    let mut by_name: HashMap<String, HashMap<u32, f32>> = HashMap::new();
+    for r in rows {
+        let (nm, d, v) = r?;
+        by_name.entry(nm).or_default().insert(d.to_bits(), v);
+    }
+    Ok(by_name
+        .into_iter()
+        .map(|(nm, by_depth)| {
+            let col = depth_grid.iter().map(|d| by_depth.get(&d.to_bits()).copied().unwrap_or(f32::NAN)).collect();
+            (nm, col)
+        })
+        .collect())
 }
 
 fn fetch_computed_curve_aligned(
@@ -866,4 +913,75 @@ pub(crate) fn write_equation_output(
     };
     let (set_id, _) = create_log_set(conn, well_id, &spec)?;
     write_computed_curves_versioned(conn, well_id, depth, &[(equation.output_curve.as_str(), values)], &set_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use duckdb::Connection;
+
+    /// The batched `fetch_curve_frame` must return byte-for-byte what the old per-curve path
+    /// did: standard columns straight through, computed curves matched case-insensitively and
+    /// aligned onto the depth grid (missing depths → NaN), and a name with no computed rows
+    /// falling through to the generic store (here: all-NaN, since none is registered).
+    #[test]
+    fn fetch_curve_frame_batches_computed_and_preserves_semantics() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let well = "22222222-2222-2222-2222-222222222222";
+        conn.execute_batch(&format!(
+            "INSERT INTO wells (well_id, well_name) VALUES ('{well}', 'BATCH-1');
+             INSERT INTO standard_curves (well_id, depth, gr, res_deep, nphi, rhob) VALUES
+                ('{well}', 100.0, 10.0, 2.0, 0.10, 2.40),
+                ('{well}', 101.0, 20.0, 2.0, 0.20, 2.50),
+                ('{well}', 102.0, 30.0, 2.0, 0.30, 2.60);
+             -- VSH present on the full grid; 'phie' stored LOWERCASE and only at 100/102 so
+             -- 101 must align to NaN and the uppercased request must still find it.
+             INSERT INTO computed_curves (well_id, depth, curve_name, value) VALUES
+                ('{well}', 100.0, 'VSH', 0.11),
+                ('{well}', 101.0, 'VSH', 0.22),
+                ('{well}', 102.0, 'VSH', 0.33),
+                ('{well}', 100.0, 'phie', 0.15),
+                ('{well}', 102.0, 'phie', 0.25);"
+        ))
+        .unwrap();
+
+        let names: Vec<String> =
+            ["DEPTH", "GR", "VSH", "PHIE", "MADEUP"].iter().map(|s| s.to_string()).collect();
+        let (depth, cols) = fetch_curve_frame(&conn, well, &names).unwrap();
+
+        let approx = |a: f32, b: f32| (a - b).abs() < 1e-4;
+        assert_eq!(depth, vec![100.0, 101.0, 102.0]);
+        // Every requested name is present as a column (callers rely on this).
+        for n in ["DEPTH", "GR", "VSH", "PHIE", "MADEUP"] {
+            assert!(cols.contains_key(n), "missing column {n}");
+        }
+        assert_eq!(cols["DEPTH"], depth);
+        assert!(cols["GR"].iter().zip([10.0, 20.0, 30.0]).all(|(a, b)| approx(*a, b)));
+        assert!(cols["VSH"].iter().zip([0.11, 0.22, 0.33]).all(|(a, b)| approx(*a, b)), "{:?}", cols["VSH"]);
+        // Case-insensitive match + off-grid depth 101 → NaN.
+        assert!(approx(cols["PHIE"][0], 0.15), "{:?}", cols["PHIE"]);
+        assert!(cols["PHIE"][1].is_nan(), "off-grid depth must be NaN, got {}", cols["PHIE"][1]);
+        assert!(approx(cols["PHIE"][2], 0.25));
+        // No computed rows and no generic curve registered → all NaN (generic fallback).
+        assert!(cols["MADEUP"].iter().all(|v| v.is_nan()), "absent curve should be all-NaN");
+    }
+
+    /// A single-name request still works through the `IN (?)` builder (placeholder count 1).
+    #[test]
+    fn fetch_curve_frame_single_computed_name() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let well = "33333333-3333-3333-3333-333333333333";
+        conn.execute_batch(&format!(
+            "INSERT INTO wells (well_id, well_name) VALUES ('{well}', 'BATCH-2');
+             INSERT INTO standard_curves (well_id, depth, gr, res_deep, nphi, rhob) VALUES
+                ('{well}', 500.0, 5.0, 1.0, 0.05, 2.65);
+             INSERT INTO computed_curves (well_id, depth, curve_name, value) VALUES
+                ('{well}', 500.0, 'PERM', 12.5);"
+        ))
+        .unwrap();
+        let (_d, cols) = fetch_curve_frame(&conn, well, &["PERM".to_string()]).unwrap();
+        assert!((cols["PERM"][0] - 12.5).abs() < 1e-4);
+    }
 }
