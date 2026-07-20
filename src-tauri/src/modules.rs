@@ -594,10 +594,15 @@ fn phi_son_spec() -> ModuleSpec {
         title: "Porosity from Sonic".into(),
         category: "Porosity".into(),
         doc: "WYLLIE: PHIT = (DT - DT_MA)/(DT_FL - DT_MA), shale-corrected for PHIE. \
-              RHG (Raymer-Hunt-Gardner): PHIT = 0.625*(DT - DT_MA)/DT."
+              RHG (Raymer-Hunt-Gardner): PHIT = 0.625*(DT - DT_MA)/DT. \
+              OPT_CP=ON applies the Wyllie lack-of-compaction correction (Cp = DT_SH/100): \
+              undercompacted shaly sands (e.g. shallow Mahakam delta) read porosity high on \
+              the straight time-average, so the WYLLIE porosity is divided by Cp. RHG is \
+              self-compacting and is never Cp-corrected."
             .into(),
         args: vec![
             opt("OPT_SON", "Sonic porosity method", "WYLLIE", &["WYLLIE", "RHG"]),
+            opt("OPT_CP", "Wyllie lack-of-compaction correction (Cp = DT_SH/100)", "OFF", &["OFF", "ON"]),
             param("DT_MA", "Matrix transit time", "us/ft", 55.5, 40.0, 70.0),
             param("DT_FL", "Fluid transit time", "us/ft", 189.0, 150.0, 220.0),
             param("DT_SH", "Shale transit time", "us/ft", 90.0, 60.0, 150.0),
@@ -613,6 +618,7 @@ fn phi_son(ctx: &ModuleContext) -> ModuleOutputs {
     let dt = ctx.log("DT");
     let vsh = ctx.log("VSH");
     let rhg = ctx.o("OPT_SON") == "RHG";
+    let cp_on = ctx.o("OPT_CP") == "ON";
     let mut phit_son = vec![f32::NAN; ctx.n];
     let mut phie_son = vec![f32::NAN; ctx.n];
 
@@ -625,14 +631,21 @@ fn phi_son(ctx: &ModuleContext) -> ModuleOutputs {
         let dt_fl = ctx.p("DT_FL", i);
         let dt_sh = ctx.p("DT_SH", i);
 
+        // Wyllie lack-of-compaction divisor Cp = DT_SH/100 (Hilchie): the whole time-average
+        // porosity is scaled by 1/Cp in undercompacted section. RHG is self-compacting, so Cp
+        // never applies to it (and a non-positive DT_SH degenerates to no correction).
+        let cp = if cp_on && !rhg && dt_sh > 0.0 { dt_sh / 100.0 } else { 1.0 };
+
         let pt = if rhg {
             0.625 * (d - dt_ma) / d
         } else {
-            (d - dt_ma) / (dt_fl - dt_ma)
+            (d - dt_ma) / (dt_fl - dt_ma) / cp
         };
         phit_son[i] = limit(pt, 0.0, 1.0) as f32;
         if !is_missing(v) {
-            let pe = pt - v * (dt_sh - dt_ma) / (dt_fl - dt_ma);
+            // pt already carries the 1/Cp scaling, so the shale term is divided by Cp too —
+            // the effective porosity is [raw - Vsh·shale] / Cp, per the standard shaly-sand form.
+            let pe = pt - v * (dt_sh - dt_ma) / (dt_fl - dt_ma) / cp;
             phie_son[i] = limit(pe, 0.0, 1.0) as f32;
         }
     }
@@ -2569,6 +2582,27 @@ mod tests {
         assert!(out["FTEMP"][1].is_nan() && out["FTEMP_F"][1].is_nan());
         assert!(out["FPRESS"][1].is_nan() && out["RMF"][1].is_nan());
         assert!(out["CT"][1].is_nan() && out["CXO"][1].is_nan());
+    }
+
+    #[test]
+    fn phi_son_wyllie_cp_opt_in_only_scales_wyllie() {
+        // DT=75, matrix 55.5, fluid 189, shale 90 → raw Wyllie PHIT = 19.5/133.5 = 0.146067.
+        let logs = [("DT", vec![75.0f32]), ("VSH", vec![0.0f32])];
+        let params = [("DT_MA", 55.5), ("DT_FL", 189.0), ("DT_SH", 90.0)];
+        let raw = 19.5 / 133.5;
+
+        // OPT_CP OFF (default) — plain straight time-average, unchanged.
+        let off = phi_son(&ctx_with(1, &logs, &params, &[("OPT_SON", "WYLLIE"), ("OPT_CP", "OFF")]));
+        assert!((off["PHIT_SON"][0] as f64 - raw).abs() < 1e-5, "OFF {}", off["PHIT_SON"][0]);
+
+        // OPT_CP ON — divided by Cp = DT_SH/100 = 0.9 → ~11% higher porosity.
+        let on = phi_son(&ctx_with(1, &logs, &params, &[("OPT_SON", "WYLLIE"), ("OPT_CP", "ON")]));
+        assert!((on["PHIT_SON"][0] as f64 - raw / 0.9).abs() < 1e-5, "ON {}", on["PHIT_SON"][0]);
+
+        // RHG is self-compacting: OPT_CP=ON must NOT touch its porosity.
+        let rhg_cp = phi_son(&ctx_with(1, &logs, &params, &[("OPT_SON", "RHG"), ("OPT_CP", "ON")]));
+        let rhg_expect = 0.625 * (75.0 - 55.5) / 75.0;
+        assert!((rhg_cp["PHIT_SON"][0] as f64 - rhg_expect).abs() < 1e-5, "RHG+CP {}", rhg_cp["PHIT_SON"][0]);
     }
 
     #[test]

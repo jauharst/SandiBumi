@@ -57,7 +57,7 @@ headers below rather than as the primary structure.
 - **Reliability sliver**: modal Escape-key stacking — ✅ **shipped 2026-07-20** (Escape scoped to the top dialog; single-instance already prevented leaked handlers).
 - **Interpretation-workflow open** (§4): data-prep split/merge + tops-referenced normalization, highlight tool, typography check.
 - **Feature Wave B** (§4c): MC parameter **sensitivity/tornado** (13), ML comparison + leaderboard (3), fluid contacts in correlation (9), well-diagram track (16), rock typing + SHF fitting (8).
-- **Low backlog**: 15 minor audit items.
+- **Low backlog** (§4b, 15 items): ✅ **fully closed 2026-07-21** — #134 shipped 10 safe fixes (1 already fixed); the 4 held items are now resolved per Jauhar (#135): Wyllie Cp opt-in ✅, depth-scale dropdown + mislabel ✅, quiet Ctrl+S + ribbon-Esc ✅, Bahasa Jawa + fuller id/su ✅; histogram full-range re-bin **declined (left as-is)**. cargo 164 / tsc 0, browser-verified.
 - **Carried-forward deferrals** from the build arc: per-well param override table, MC print-to-curves + per-zone distributions, missing-curve synthesis, auto-picks / auto-zonation, lazy catalog + decimation cache + 2000-well stress fixture.
 
 ### 🔮 Future — bigger lifts  → [Part C](#-part-c--future)
@@ -681,8 +681,31 @@ real wells** (the human can't be replaced for perf benchmarking).
       the numeric-edit guard's capture-phase stop still shields a dialog from closing mid-number-edit.
       Also tears down in-flight title-bar drag listeners on close. tsc clean; REVIEW "P1".
 
-**Low (15 items)** — see `AUDIT-2026-07-20.md` (SSC zero-PHIE guard, ±Infinity in stats, i18n gaps,
-DB-inspector f32 depth equality, wrap-mode LAS parsing, etc.).
+**Low (15 items)** — see `AUDIT-2026-07-20.md`. **Swept 2026-07-21 (#134): 10 safe fixes applied,
+1 already fixed, 4 held for sign-off; cargo 163 pass / tsc EXIT 0; NOT committed.**
+- [x] SSC `SWIRR_EFF` ÷0 guard (100%-shale no longer reads "all water movable") — `ssc.rs`.
+- [x] Archie `SWT_ARCH` no longer writes `+Infinity` at PHIT=0/PHIE-absent — `modules.rs` (+test).
+- [x] Simandoux SCHLUMBERGER ÷0 at VSH=1 → all-water — `modules.rs` (+test).
+- [x] ±Infinity rejected in stats/regression/percentile/scatter — `plotCanvas.ts`.
+- [x] Zone-param "Set" button surfaces write failures — `plotCommon.ts` pickRow.
+- [x] Track rename can't create duplicate titles — `layoutPropsDialog.ts`.
+- [x] Histogram: constant curves render + honest `n = X of Y` label — `histogramPanel.ts`.
+- [x] Log-view smoothness: cached clear-color + binary-search cursor — `LogCanvasRenderer.ts`.
+- [x] Well Header prefills current TD/KB (no blind datum edit) — `db.rs`/`ipc.ts`/`ribbon.ts`.
+- [x] LAS wrap-mode: truncated row → loud error, no silent column-shift — `parsers.rs` (both).
+- [x] DB-inspector edit errors on a 0-row update (no phantom edit/undo) — `db.rs` (+test assertion).
+- [x] ~~SandiMin all-zero CT/CXO response-row guard~~ — **already fixed** (`multimin2.rs`, has a test).
+- [x] Wyllie lack-of-compaction (Cp) correction — shipped as **opt-in `OPT_CP` (default OFF)** in
+      `phi_son` (+test); RHG never Cp-corrected. (#135)
+- [x] Depth-scale dropdown shows the **true live scale** + fixed the mislabel/clamp that collapsed
+      1:20/1:50/1:100 — `LogCanvasRenderer.ts`/`logViewPanel.ts` (true 1:1 = 96/0.0254 single-sourced,
+      opens 1:2000, clamp reaches 1:10). (#135)
+- [x] Quiet **Ctrl+S** session re-save (skips text inputs/CodeMirror) + **Escape** closes ribbon
+      menus — `ribbon.ts`. (Ctrl+P active-plot print deferred — fragile active-canvas resolution.) (#135)
+- [x] i18n: **Bahasa Jawa (jv)** locale added + ~55 common phrases across id/su/jv — `i18n.ts`,
+      `index.html`; jargon still English by design. (#135)
+- [~] Histogram full-range re-bin — **declined (left as-is)** by Jauhar (would change bar heights /
+      the mode-P50 read). (#135)
 
 ## B2. Interpretation-workflow open items (§4)
 

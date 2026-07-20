@@ -261,16 +261,38 @@ Frontend:
       colors are identical. Test: drag-pan a busy log view — motion is smoother; theme switch still
       repaints; the cursor readout still tracks correctly.
 
-**Held for your decision (not applied):**
-- **Wyllie sonic porosity — lack-of-compaction (Cp) correction.** Undercompacted Mahakam sections read
-  a few p.u. high on plain Wyllie. Ready to add as an **opt-in** (default OFF, `OPT_CP`, divides PHIT by
-  `DT_SH/100`) so nothing changes unless you turn it on — say the word.
-- **Histogram full-range re-bin.** Would make bins span the true data extent (no clipped tails, n
-  always = total) but changes every bar height and the displayed n — analysts read modes/P50/cutoffs
-  off these, so it needs your OK.
-- **Depth-scale dropdown reflecting the effective scale.** Currently it stays on the last-picked preset
-  after Ctrl+wheel/± zoom. Making it honest surfaces confusing ratios because of the separate
-  depth-scale-ratio mislabel bug, so it will land together with that fix.
+### Held-item resolutions (2026-07-21 — your call: 1 yes / 2 leave / 3 yes / 4 yes + Bahasa Jawa)
+
+Your answers to the four held items above. **Rust suite 164 pass / 0 fail; tsc EXIT 0; the two
+browser-observable pieces verified live in the vite preview.**
+- [ ] **Wyllie lack-of-compaction (Cp) correction — shipped as opt-in** (`modules.rs` `phi_son`,
+      `OPT_CP` **default OFF**). ON divides the WYLLIE porosity by `Cp = DT_SH/100`; RHG is
+      self-compacting and is never touched. Nothing changes until you switch it on. Test
+      (`phi_son_wyllie_cp_opt_in_only_scales_wyllie`): OFF unchanged; ON ≈ +11 % at DT_SH=90; RHG
+      unaffected. In the app: run Porosity → Sonic with OPT_CP=ON on a shallow well → PHIT rises a
+      few p.u.; OPT_CP=OFF reproduces the old numbers exactly.
+- **Histogram full-range re-bin — left as-is** at your request (bars keep clipping the extreme tails;
+      bar heights and the mode/P50 you read off them are unchanged).
+- [ ] **Depth-scale dropdown now shows the TRUE scale + the mislabel is fixed**
+      (`LogCanvasRenderer.ts`, `logViewPanel.ts`). The default was labelled "1:100" but was really
+      ~1:3937, and the `[0.02, 20]` px/unit clamp made **1:20, 1:50 and 1:100 all collapse to the same
+      zoom**. Now: a true 1:1 = `96/0.0254` px per depth unit is single-sourced; the view opens at an
+      honest **1:2000**; the clamp reaches a true 1:10; and after any Ctrl+wheel/± zoom the selector
+      re-reads the live ratio (a transient "1:N ⟳" entry when it's between presets). Test: pick 1:50
+      then 1:100 → visibly different scales (identical before); Ctrl+wheel zoom → the box tracks the
+      real ratio instead of freezing on the last preset.
+- [ ] **Quiet Ctrl+S save + Escape closes ribbon menus** (`ribbon.ts`). Ctrl/Cmd+S re-saves the
+      current session in place once it has a name (no dialog), falling back to Save Session As the
+      first time; it's ignored while typing in an input/CodeMirror so editors keep their own Save.
+      Escape closes any open ribbon dropdown without disturbing modal Escape handling. *(A Ctrl+P
+      print-active-plot shortcut was deliberately deferred — resolving "the active canvas" from the
+      ribbon is fragile; the per-plot Print button still works.)* Test: name a session, edit the
+      workspace, Ctrl+S → "Session … saved" with no dialog and the unsaved dot clears.
+- [ ] **Bahasa Jawa (jv) added + fuller Bahasa Indonesia / Basa Sunda** (`i18n.ts`, `index.html`).
+      A full Javanese (ngoko) dictionary joins id/su, and ~55 common UI phrases (New/Open/Edit/Search/
+      Print/Value/Zone/Session/… + statuses) were added to all three — petrophysics jargon still stays
+      English by design. Test: Project → Language → **Basa Jawa** → menus/buttons switch (Save→Simpen,
+      Depth→Jero, Reload→"Muat manèh"); switch back to English → everything reverts from source.
 
 ## Reference-library correctness fixes (2026-07-20)
 

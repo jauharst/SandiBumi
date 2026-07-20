@@ -55,6 +55,9 @@ export class LogViewPanel {
    *  the theme's --border. */
   private borders: BorderStyle = { style: "solid", width: 1, color: "" };
 
+  /** The "1:N" depth-scale selector, kept as a field so the view-settled callback can
+   *  re-sync it to the true live scale after a zoom/pan. */
+  private scaleSel: HTMLSelectElement | null = null;
   private unsubscribers: (() => void)[] = [];
   private resizeObserver: ResizeObserver | null = null;
   /** Monotonic token so an out-of-order loadWell (fast well switching, or a dataVersion
@@ -145,22 +148,23 @@ export class LogViewPanel {
 
     const scaleSel = document.createElement("select");
     scaleSel.className = "lv-scale";
-    scaleSel.title = "Vertical depth scale";
-    for (const ratio of [20, 50, 100, 200, 240, 500, 1000, 2000]) {
+    scaleSel.title = "Vertical depth scale (true 1:N; shows the live scale after zooming)";
+    for (const ratio of [20, 50, 100, 200, 240, 500, 1000, 2000, 5000]) {
       const opt = document.createElement("option");
       opt.value = String(ratio);
       opt.textContent = `1:${ratio}`;
       scaleSel.appendChild(opt);
     }
-    scaleSel.value = "100";
+    scaleSel.value = "2000"; // matches DEFAULT_PX_PER_UNIT (a true 1:2000 opening overview)
     scaleSel.addEventListener("change", () => {
       const ratio = parseFloat(scaleSel.value);
-      // A true print-style ratio: 1 depth metre occupies (1/ratio) m on screen.
-      // At the CSS reference 96 dpi that is 96/0.0254 = 3779.5 px per metre of
-      // depth divided by the ratio (the old 96/ratio was ~39x too compressed).
-      this.setScale(96 / 0.0254 / ratio);
+      if (!Number.isFinite(ratio) || ratio <= 0) return;
+      // A true print-style ratio: 1 depth unit occupies (1/ratio) unit on screen. The
+      // renderer owns the px-per-unit conversion (PX_PER_UNIT_1_1) so it stays single-sourced.
+      this.renderer?.setScaleRatio(ratio);
       setStatus(`Vertical scale set to 1:${ratio}`);
     });
+    this.scaleSel = scaleSel;
     bar.appendChild(scaleSel);
     btn("−", "Zoom out", () => this.stepZoom(1 / 1.25));
     btn("＋", "Zoom in", () => this.stepZoom(1.25));
@@ -219,6 +223,7 @@ export class LogViewPanel {
     this.renderer.onViewSettled = () => {
       this.refreshDepthAxis();
       this.positionCrosshair(this.lastHoverDepth);
+      this.syncScaleReadout();
     };
     // Redraw core points + tops lines after every rendered frame so they track pan/zoom.
     this.renderer.onFrameRendered = () => {
@@ -702,6 +707,37 @@ export class LogViewPanel {
   setScale(pxPerUnit: number): void {
     this.renderer?.setScale(pxPerUnit);
     this.refreshDepthAxis();
+  }
+
+  /** Re-point the "1:N" selector at the TRUE current scale after any zoom/pan/reset. When the
+   *  live ratio lands on a preset it selects it; otherwise it shows a transient "1:N ⟳" entry
+   *  so the box never lies about the scale (the old code left it stuck on the last preset). */
+  private syncScaleReadout(): void {
+    const sel = this.scaleSel;
+    if (!sel || !this.renderer) return;
+    const ratio = Math.round(this.renderer.getScaleRatio());
+    if (!Number.isFinite(ratio) || ratio <= 0) return;
+    const dyn = Array.from(sel.options).find((o) => o.dataset.dynamic === "1");
+    // A preset counts as "current" only within 0.5 of the rounded live ratio.
+    const preset = Array.from(sel.options).find(
+      (o) => o.dataset.dynamic !== "1" && Math.abs(parseFloat(o.value) - ratio) < 0.5,
+    );
+    if (preset) {
+      dyn?.remove();
+      sel.value = preset.value;
+    } else {
+      if (dyn) {
+        dyn.value = String(ratio);
+        dyn.textContent = `1:${ratio} ⟳`;
+      } else {
+        const o = document.createElement("option");
+        o.dataset.dynamic = "1";
+        o.value = String(ratio);
+        o.textContent = `1:${ratio} ⟳`;
+        sel.insertBefore(o, sel.firstChild);
+      }
+      sel.value = String(ratio);
+    }
   }
 
   /** Resets pan/zoom to the top of the well at the default depth scale. */

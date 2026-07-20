@@ -56,7 +56,17 @@ interface ReadoutSample {
   value: number;
 }
 
-const DEFAULT_PX_PER_UNIT = 96 / 100; // matches the "1:100" vertical scale preset
+// CSS px per depth unit (metre) at a true 1:1 print scale: 96 CSS px/in ÷ 0.0254 m/in.
+// A named "1:N" scale is therefore PX_PER_UNIT_1_1 / N px per depth unit.
+export const PX_PER_UNIT_1_1 = 96 / 0.0254; // ≈ 3779.5
+// Open at a 1:2000 overview (≈212 m of section in a 400 px pane) — a real, honest ratio.
+// The old 96/100 = 0.96 was labelled "1:100" but was actually ~1:3937, and the dropdown's
+// true 1:100 then clamped to 20 (see MAX_PX_PER_UNIT), so 1:20/1:50/1:100 all looked identical.
+const DEFAULT_PX_PER_UNIT = PX_PER_UNIT_1_1 / 2000;
+// Zoom bounds, shared by setScale/zoomAt so every path clamps identically. Max = a true 1:10
+// (finer than any preset); min ≈ 1:189000 (frames a whole deep well when zoomed fully out).
+const MIN_PX_PER_UNIT = 0.02;
+const MAX_PX_PER_UNIT = PX_PER_UNIT_1_1 / 10; // ≈ 378
 
 /**
  * Multi-track hardware-accelerated log viewer. Given a Layout (tracks + per-curve
@@ -450,11 +460,22 @@ export class LogCanvasRenderer {
     return out;
   }
 
-  /** Sets the vertical scale directly, e.g. from the "1:N" preset selector (pxPerUnit = 96/N). */
+  /** Sets the vertical scale directly (px per depth unit). Prefer setScaleRatio for "1:N". */
   setScale(pxPerUnit: number): void {
-    this.view.pxPerUnit = Math.min(20, Math.max(0.02, pxPerUnit));
+    this.view.pxPerUnit = Math.min(MAX_PX_PER_UNIT, Math.max(MIN_PX_PER_UNIT, pxPerUnit));
     this.dirty = true;
     this.onViewSettled?.();
+  }
+
+  /** Sets a true print-style vertical scale of 1:ratio (e.g. 200 → 1:200). */
+  setScaleRatio(ratio: number): void {
+    if (ratio > 0 && Number.isFinite(ratio)) this.setScale(PX_PER_UNIT_1_1 / ratio);
+  }
+
+  /** The current true vertical scale as the N in "1:N" (derived from the live pxPerUnit),
+   *  so the UI can show the real scale after a zoom instead of a stale preset. */
+  getScaleRatio(): number {
+    return PX_PER_UNIT_1_1 / this.view.pxPerUnit;
   }
 
   /** Multiplies the current scale by `factor`, re-centering on the currently visible midpoint. */
@@ -466,7 +487,7 @@ export class LogCanvasRenderer {
    *  natural "zoom toward the cursor" gesture used by Ctrl+scroll. */
   zoomAt(pixelY: number, factor: number): void {
     const anchorDepth = this.view.topDepth + pixelY / this.view.pxPerUnit;
-    this.view.pxPerUnit = Math.min(20, Math.max(0.02, this.view.pxPerUnit * factor));
+    this.view.pxPerUnit = Math.min(MAX_PX_PER_UNIT, Math.max(MIN_PX_PER_UNIT, this.view.pxPerUnit * factor));
     this.view.topDepth = anchorDepth - pixelY / this.view.pxPerUnit;
     this.dirty = true;
     this.onViewSettled?.();

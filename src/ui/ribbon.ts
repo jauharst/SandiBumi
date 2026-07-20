@@ -86,6 +86,9 @@ function buildRibbonDropdown(label: string, iconPath: string, items: RibbonMenuI
  *  active log view. */
 export class Ribbon {
   private layouts: Layout[] = [];
+  /** Name of the session last saved or opened, so Ctrl+S can re-save it in place without a
+   *  dialog. Null until a session has a name → Ctrl+S then falls back to Save Session As. */
+  private lastSessionName: string | null = null;
 
   constructor(root: HTMLElement, private workspace: Workspace) {
     this.attachTabs(root);
@@ -115,6 +118,29 @@ export class Ribbon {
       }
     });
     q<HTMLButtonElement>("#qat-save")?.addEventListener("click", () => void this.handleSaveProject());
+    // Ctrl/Cmd+S quietly re-saves the current session (no dialog once it has a name); Escape
+    // closes any open ribbon menu. Only intercept Ctrl+S when the target isn't a text field —
+    // an editor/CodeMirror inside a pane keeps its own Save. (Ribbon is a singleton created
+    // once in main.ts, so this window listener is registered exactly once.)
+    window.addEventListener("keydown", (e) => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === "s" || e.key === "S")) {
+        const el = e.target as HTMLElement | null;
+        const editable =
+          el?.isContentEditable ||
+          el?.tagName === "INPUT" ||
+          el?.tagName === "TEXTAREA" ||
+          el?.closest(".cm-editor") != null;
+        if (editable) return;
+        e.preventDefault();
+        void this.quickSaveSession();
+      } else if (e.key === "Escape") {
+        // Soft close: only touch open ribbon menus, and don't stop propagation so a modal's
+        // own Escape handling (scoped) is unaffected.
+        for (const menu of document.querySelectorAll<HTMLElement>(".ribbon-menu:not([hidden])")) {
+          menu.hidden = true;
+        }
+      }
+    });
     const saveSessionBtn = q<HTMLButtonElement>("#qat-save-session");
     saveSessionBtn?.addEventListener("click", () => this.handleSaveSession());
     q<HTMLButtonElement>("#qat-open-session")?.addEventListener("click", () => void this.handleOpenSession());
@@ -763,13 +789,8 @@ export class Ribbon {
       const name = nameInput.value.trim();
       if (!name) return;
       try {
-        await saveDocument("session", name, JSON.stringify(this.workspace.snapshotSession()));
+        await this.writeSession(name);
         close();
-        // Everything is captured in the named session — clear all unsaved markers.
-        this.workspace.muteDirty();
-        clearDirty();
-        setStatus(`Session "${name}" saved`);
-        recordProcess("Session", `Saved session "${name}"`);
       } catch (err) {
         setStatus(`Save failed: ${err}`);
       }
@@ -778,6 +799,32 @@ export class Ribbon {
     nameInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") void doSave();
     });
+  }
+
+  /** Persists the current workspace under `name` and clears the unsaved markers. Shared by
+   *  the Save Session dialog and the Ctrl+S quiet re-save. */
+  private async writeSession(name: string): Promise<void> {
+    await saveDocument("session", name, JSON.stringify(this.workspace.snapshotSession()));
+    this.lastSessionName = name;
+    // Everything is captured in the named session — clear all unsaved markers.
+    this.workspace.muteDirty();
+    clearDirty();
+    setStatus(`Session "${name}" saved`);
+    recordProcess("Session", `Saved session "${name}"`);
+  }
+
+  /** Ctrl+S: re-save the current session in place if it already has a name, otherwise open
+   *  the Save Session dialog to name it first. */
+  private async quickSaveSession(): Promise<void> {
+    if (this.lastSessionName) {
+      try {
+        await this.writeSession(this.lastSessionName);
+      } catch (err) {
+        setStatus(`Save failed: ${err}`);
+      }
+    } else {
+      this.handleSaveSession();
+    }
   }
 
   /** "Open Session…" — lists saved sessions; picking one rebuilds the workspace from it,
@@ -829,6 +876,7 @@ export class Ribbon {
             return;
           }
           this.workspace.applySession(snap);
+          this.lastSessionName = session.name; // Ctrl+S now re-saves this session in place
           close();
           setStatus(`Opened session "${session.name}"`);
           recordProcess("Session", `Opened session "${session.name}"`);
