@@ -884,6 +884,36 @@ export async function saveProjectAs(destPath: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Projects (open / new / recent list — "IP style" project switching)
+// ---------------------------------------------------------------------------
+
+export interface RecentProject {
+  path: string;
+  name: string;
+  /** Unix seconds of the last successful open (0 = unknown). */
+  last_opened: number;
+  exists: boolean;
+}
+
+export async function listRecentProjects(): Promise<RecentProject[]> {
+  return invoke("list_recent_projects");
+}
+
+export async function currentProject(): Promise<RecentProject> {
+  return invoke("current_project");
+}
+
+/** Switches the live connection to an existing project file. */
+export async function openProject(path: string): Promise<RecentProject> {
+  return invoke("open_project", { path });
+}
+
+/** Creates a fresh, empty project file and switches to it. */
+export async function newProject(path: string): Promise<RecentProject> {
+  return invoke("new_project", { path });
+}
+
+// ---------------------------------------------------------------------------
 // Database inspector (whitelisted tables; cells travel as strings)
 // ---------------------------------------------------------------------------
 

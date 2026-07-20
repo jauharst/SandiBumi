@@ -3147,6 +3147,18 @@ input[type="number"].num-editing:focus {
   max-width: 640px;
 }
 
+/* Recent-projects dropdown: placeholder row when the list is empty. */
+.ribbon-menu-empty {
+  padding: 6px 12px;
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.ribbon-menu-item:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 /* Tool panes ported from popups (ROADMAP §4c item 14): Pay Summary, ML,
  * Monte Carlo, SandiMin. */
 .dock-paysummary,

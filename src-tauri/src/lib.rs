@@ -21,6 +21,7 @@ mod multimin2;
 mod parsers;
 #[cfg(test)]
 mod pipeline_blso_test;
+mod project;
 mod report;
 mod satheight;
 mod ssc;
@@ -35,14 +36,79 @@ use uuid::Uuid;
 pub struct DbState(pub Mutex<Connection>);
 
 /// Checkpoints the DuckDB WAL and copies the project file to `dest_path` ("Save As").
+/// Deliberately a backup export: the app KEEPS working on the current file.
 #[tauri::command]
-fn save_project_as(db: tauri::State<DbState>, dest_path: String) -> Result<(), String> {
+fn save_project_as(
+    db: tauri::State<DbState>,
+    proj: tauri::State<project::ProjectState>,
+    dest_path: String,
+) -> Result<(), String> {
     {
         let conn = db.0.lock().unwrap();
         conn.execute_batch("CHECKPOINT;").map_err(|e| e.to_string())?;
     }
-    std::fs::copy("project.duckdb", &dest_path).map_err(|e| e.to_string())?;
+    let src = proj.0.lock().unwrap().clone();
+    std::fs::copy(&src, &dest_path).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// The recent-projects list (most recent first), for the Project ribbon dropdown.
+#[tauri::command]
+fn list_recent_projects() -> Vec<project::RecentProject> {
+    project::list_recents()
+}
+
+/// Name + path of the project currently open.
+#[tauri::command]
+fn current_project(proj: tauri::State<project::ProjectState>) -> project::RecentProject {
+    let path = proj.0.lock().unwrap().clone();
+    project::RecentProject {
+        name: project::project_name(&path),
+        path,
+        last_opened: 0,
+        exists: true,
+    }
+}
+
+/// Switches the live connection to an EXISTING project file ("IP style" open).
+#[tauri::command]
+fn open_project(
+    db: tauri::State<DbState>,
+    proj: tauri::State<project::ProjectState>,
+    chains: tauri::State<chain::ChainRegistry>,
+    path: String,
+) -> Result<project::RecentProject, String> {
+    if project::is_current(&proj, &path) {
+        return Ok(current_project(proj));
+    }
+    if chain::any_active(&chains) {
+        return Err("A workflow chain is still running — wait for it to finish before switching projects".to_string());
+    }
+    if !std::path::Path::new(&path).exists() {
+        return Err(format!("File not found: {path}"));
+    }
+    let info = project::switch_project(&db, &path)?;
+    *proj.0.lock().unwrap() = info.path.clone();
+    Ok(info)
+}
+
+/// Creates a FRESH project file (full schema, no wells) and switches to it.
+#[tauri::command]
+fn new_project(
+    db: tauri::State<DbState>,
+    proj: tauri::State<project::ProjectState>,
+    chains: tauri::State<chain::ChainRegistry>,
+    path: String,
+) -> Result<project::RecentProject, String> {
+    if chain::any_active(&chains) {
+        return Err("A workflow chain is still running — wait for it to finish before switching projects".to_string());
+    }
+    if std::path::Path::new(&path).exists() {
+        return Err(format!("{path} already exists — use Open Project to open it"));
+    }
+    let info = project::switch_project(&db, &path)?;
+    *proj.0.lock().unwrap() = info.path.clone();
+    Ok(info)
 }
 
 /// Lists every well in the project, for the object tree panel.
@@ -709,21 +775,30 @@ fn cancel_workflow_chain(registry: tauri::State<chain::ChainRegistry>, job_id: S
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // The most recently opened project that still exists, else the legacy
+    // `project.duckdb` in the cwd — so existing installs open exactly as before.
+    let startup = project::startup_path();
     // `tauri dev` restarts this binary on every source-file change, so a WAL replay
     // failure (killed mid-write) is expected to happen occasionally during
     // development — self-heal it rather than crash-looping until a human notices.
-    let conn = db::init_db_resilient("project.duckdb").expect("failed to initialize DuckDB");
+    let conn = db::init_db_resilient(&startup).expect("failed to initialize DuckDB");
     db::migrate_standard_curves_to_generic_store(&conn).expect("failed to migrate curves into the generic curve store");
     db::migrate_drop_computed_curves_pk(&conn).expect("failed to drop legacy computed_curves primary key");
+    project::register_recent(&startup);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(DbState(Mutex::new(conn)))
+        .manage(project::ProjectState(Mutex::new(project::absolute(&startup))))
         .manage(inversion::new_registry())
         .manage(chain::new_registry())
         .invoke_handler(tauri::generate_handler![
             save_project_as,
+            list_recent_projects,
+            current_project,
+            open_project,
+            new_project,
             list_wells,
             import_las_files,
             save_equation,

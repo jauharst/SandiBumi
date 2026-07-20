@@ -8,6 +8,10 @@ import {
   importTopsCsv,
   importDlisFile,
   importLasFiles,
+  currentProject,
+  listRecentProjects,
+  newProject,
+  openProject,
   deleteDocument,
   listDocuments,
   listLayouts,
@@ -18,10 +22,12 @@ import {
   updateWellField,
   type Layout,
   type ModuleSpec,
+  type RecentProject,
 } from "../ipc";
 import { appState, bumpThemeVersion, setStatus } from "../state";
 import { anyDirty, clearDirty, subscribeDirty } from "../dirty";
-import { nextRedoLabel, nextUndoLabel, onUndoChange, pushUndo, redo, redoDepth, undo, undoDepth } from "../undo";
+import { syncWellGroups } from "./wellGroups";
+import { clearUndoStacks, nextRedoLabel, nextUndoLabel, onUndoChange, pushUndo, redo, redoDepth, undo, undoDepth } from "../undo";
 import { recordProcess } from "../processLog";
 import { getTheme, setTheme, type ThemeChoice } from "../theme";
 import { getLocale, setLocale, type Locale } from "../i18n";
@@ -128,6 +134,14 @@ export class Ribbon {
 
     // --- Project ---
     q<HTMLButtonElement>("#save-project-btn")?.addEventListener("click", () => void this.handleSaveProject());
+    q<HTMLButtonElement>("#open-project-btn")?.addEventListener("click", () => void this.handleOpenProject());
+    q<HTMLButtonElement>("#new-project-btn")?.addEventListener("click", () => void this.handleNewProject());
+    this.buildRecentProjectsDropdown(root);
+    // Reflect the startup project in the window title + group caption (fails
+    // benignly in the vite-only preview where there is no backend).
+    void currentProject()
+      .then((info) => this.reflectProject(info, false))
+      .catch(() => {});
     const themeSelect = q<HTMLSelectElement>("#theme-select");
     if (themeSelect) {
       themeSelect.value = getTheme();
@@ -605,6 +619,140 @@ export class Ribbon {
       recordProcess("Project", `Saved project to ${dest}`);
     } catch (err) {
       setStatus(`Save failed: ${err}`);
+    }
+  }
+
+  /** "IP style" project switching (ROADMAP §4c item 2): open an existing .duckdb. */
+  private async handleOpenProject(): Promise<void> {
+    let path: string | null;
+    try {
+      const selection = await open({
+        multiple: false,
+        title: "Open Project",
+        filters: [{ name: "SandiBumi / DuckDB project", extensions: ["duckdb"] }],
+      });
+      path = typeof selection === "string" ? selection : null;
+    } catch (err) {
+      setStatus(`Open dialog unavailable: ${err}`);
+      return;
+    }
+    if (!path) return;
+    await this.switchProject(() => openProject(path));
+  }
+
+  /** Creates a fresh, empty project database and switches to it. */
+  private async handleNewProject(): Promise<void> {
+    let path: string | null;
+    try {
+      path = await save({
+        title: "New Project",
+        defaultPath: "new-project.duckdb",
+        filters: [{ name: "SandiBumi / DuckDB project", extensions: ["duckdb"] }],
+      });
+    } catch (err) {
+      setStatus(`Save dialog unavailable: ${err}`);
+      return;
+    }
+    if (!path) return;
+    await this.switchProject(() => newProject(path));
+  }
+
+  /** Runs one of the project-switch commands, then resets everything that referenced
+   *  the old database: selection, undo stacks, well groups, and every data-driven pane. */
+  private async switchProject(action: () => Promise<RecentProject>): Promise<void> {
+    setStatus("Switching project…");
+    let info: RecentProject;
+    try {
+      info = await action();
+    } catch (err) {
+      setStatus(`Project switch failed: ${err}`);
+      return;
+    }
+    // Old-project references are meaningless now — clear BEFORE panels reload.
+    appState.selectedInterval.set(null);
+    appState.selectedWell.set(null);
+    clearUndoStacks();
+    await syncWellGroups().catch(() => {});
+    this.reflectProject(info, true);
+    this.workspace.notifyDataChanged();
+    recordProcess("Project", `Opened project ${info.name} (${info.path})`);
+    setStatus(`Project: ${info.name}`);
+  }
+
+  /** Window title + Project group caption show which project is open. */
+  private reflectProject(info: RecentProject, announce: boolean): void {
+    document.title = `SandiBumi — ${info.name}`;
+    const caption = document.querySelector<HTMLElement>("#project-caption");
+    if (caption) {
+      caption.textContent = info.name;
+      caption.title = info.path;
+    }
+    if (announce) void this.refreshRecentMenu();
+  }
+
+  /** The Recent ▾ dropdown: a menu rebuilt from the recents list every time it opens
+   *  (unlike buildRibbonDropdown's fixed items). Missing files are disabled entries. */
+  private recentMenu: HTMLElement | null = null;
+
+  private buildRecentProjectsDropdown(root: HTMLElement): void {
+    const row = root.querySelector<HTMLElement>("#project-row");
+    if (!row) return;
+
+    const wrap = document.createElement("div");
+    wrap.className = "ribbon-dropdown";
+    const button = document.createElement("button");
+    button.className = "ribbon-btn ribbon-dropdown-btn";
+    button.innerHTML = `
+      <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"
+           stroke-linecap="round" stroke-linejoin="round"><path d="M10 5v5l3.5 2M17 10a7 7 0 1 1-7-7 7 7 0 0 1 7 7Z"/></svg>
+      <span class="ribbon-label">Recent <span class="ribbon-caret">▾</span></span>`;
+    const menu = document.createElement("div");
+    menu.className = "ribbon-menu";
+    menu.hidden = true;
+    this.recentMenu = menu;
+
+    button.addEventListener("click", () => {
+      const wasOpen = !menu.hidden;
+      for (const m of document.querySelectorAll<HTMLElement>(".ribbon-menu:not([hidden])")) m.hidden = true;
+      if (wasOpen) return;
+      void this.refreshRecentMenu().then(() => {
+        menu.hidden = false;
+      });
+    });
+
+    wrap.appendChild(button);
+    wrap.appendChild(menu);
+    row.appendChild(wrap);
+  }
+
+  private async refreshRecentMenu(): Promise<void> {
+    const menu = this.recentMenu;
+    if (!menu) return;
+    menu.innerHTML = "";
+    const [recents, current] = await Promise.all([
+      listRecentProjects().catch(() => [] as RecentProject[]),
+      currentProject().catch(() => null),
+    ]);
+    if (recents.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "ribbon-menu-empty";
+      empty.textContent = "No recent projects";
+      menu.appendChild(empty);
+      return;
+    }
+    for (const r of recents) {
+      const entry = document.createElement("button");
+      entry.className = "ribbon-menu-item";
+      entry.setAttribute("data-no-i18n", ""); // project names are user data
+      const isCurrent = current !== null && r.path === current.path;
+      entry.textContent = (isCurrent ? "● " : "") + r.name + (r.exists ? "" : "  (missing)");
+      entry.title = r.path;
+      entry.disabled = !r.exists || isCurrent;
+      entry.addEventListener("click", () => {
+        menu.hidden = true;
+        void this.switchProject(() => openProject(r.path));
+      });
+      menu.appendChild(entry);
     }
   }
 

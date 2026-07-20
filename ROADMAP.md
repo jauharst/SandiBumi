@@ -763,7 +763,10 @@ architecture, not ported later):**
       of a shared parameter (set RW once for all sw_* steps) — today only per-step
       accordion editors exist. **Confirm interpretation with Jauhar before building.**
       → `code_compute_ml_mc.md`.
-- [ ] **(2) Project open/switch, IP style.** DB is a hard-coded relative
+- [x] **(2) Project open/switch, IP style.** _(Done 2026-07-20 — project.rs recents
+      in %APPDATA%\SandiBumi, live connection swap, open/new/recent UI, reopen-last
+      at startup, chain-running guard; save_project_as stays a backup copy.)_
+      DB is a hard-coded relative
       `project.duckdb`; no open/new/recent. Needs: swappable `DbState` (open/close/
       create commands + migrations on open), recent-projects list outside the project
       DB (app-config dir), startup picker + Project-tab Open/New/recent UI, a

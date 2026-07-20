@@ -6,6 +6,29 @@ Work through this list when you have time; delete items as you confirm them.
 Marks: `[o]` confirmed OK (removed from this file), `[x]` confirmed wrong → logged in
 **ROADMAP.md §4 (Field-review backlog)**, `[ ]` not yet tested.
 
+## Wave A-3: project open/switch, IP style (2026-07-20 #17)
+
+You can now keep separate project databases (balam.duckdb, minas.duckdb, …) and
+switch between them inside the app (ROADMAP §4c item 2). Project ribbon tab, new
+group left of Appearance:
+
+- [ ] **New Project…** creates a fresh, empty .duckdb and switches to it — import a
+      couple of Balam South LAS files there, confirm they do NOT appear in your main
+      project, then switch back.
+- [ ] **Open Project…** switches to an existing file; **Recent ▾** lists the last 12
+      projects (current one marked ●, deleted files greyed "(missing)"), stored in
+      `%APPDATA%\SandiBumi\projects.json` — outside any project.
+- [ ] On switch: window title + group caption show the project name, well list /
+      plots / catalogs all reload, well selection and undo history clear (old-project
+      undo entries would corrupt the new one — deliberate).
+- [ ] **Next launch reopens the last project you had open** (falls back to the old
+      `project.duckdb` if the recents list is empty — first launch after this update
+      behaves exactly as before).
+- [ ] Switching is refused while a workflow chain is running (try it: start a long
+      chain, then Open Project — you should get a clear error, not a corrupted run).
+- [ ] Note: QAT **Save Project As** stays a backup copy (app keeps working on the
+      current file) — tell me if you'd rather it switch to the copy, IP-style.
+
 ## Wave A-2: compact import ribbon (2026-07-20 #16)
 
 The Data tab's eleven flat import buttons are now three Office-style dropdowns

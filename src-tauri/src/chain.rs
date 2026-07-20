@@ -93,6 +93,16 @@ pub(crate) fn status(registry: &ChainRegistry, job_id: Uuid) -> Option<ChainStat
     registry.lock().unwrap().get(&job_id).map(|j| j.status.clone())
 }
 
+/// True while any chain job is queued or running — switching projects mid-run would
+/// make its later steps write into the newly opened database.
+pub(crate) fn any_active(registry: &ChainRegistry) -> bool {
+    registry
+        .lock()
+        .unwrap()
+        .values()
+        .any(|j| matches!(j.status, ChainStatus::Queued | ChainStatus::Running { .. }))
+}
+
 /// Requests cancellation of a running job; the runner stops before the next step.
 pub(crate) fn cancel(registry: &ChainRegistry, job_id: Uuid) {
     if let Some(job) = registry.lock().unwrap().get(&job_id) {

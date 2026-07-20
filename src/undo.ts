@@ -27,6 +27,14 @@ export function onUndoChange(fn: () => void): () => void {
   return () => changeListeners.delete(fn);
 }
 
+/** Empties both stacks. A project switch invalidates every recorded action — replaying
+ *  one would mutate the newly opened database with the old project's values. */
+export function clearUndoStacks(): void {
+  undoStack.length = 0;
+  redoStack.length = 0;
+  notifyChange();
+}
+
 /** Records a just-performed action so Ctrl+Z can reverse it. Clears the redo branch. */
 export function pushUndo(action: UndoableAction): void {
   undoStack.push(action);
