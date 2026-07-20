@@ -60,6 +60,28 @@ pub struct TrackCurveSeries {
     pub data: Vec<u8>,
 }
 
+/// Packs a set of curve series into ONE length-prefixed binary buffer for raw-IPC transport
+/// (a `tauri::ipc::Response` → JS `ArrayBuffer`), instead of letting serde encode each
+/// `data: Vec<u8>` as a JSON number array (~4× the bytes + a main-thread `JSON.parse`).
+/// Layout, all little-endian, mirrored by `decodeCurveBuffer` in `src/ipc.ts`:
+///   [u32 curve_count]
+///   repeat curve_count times:
+///     [u32 name_byte_len][name utf8][u32 point_count][f32 depth × pc][f32 value × pc]
+/// (`depth[pc]` then `value[pc]` are already laid out in each series' `data`.)
+pub fn pack_curve_series(series: &[TrackCurveSeries]) -> Vec<u8> {
+    let cap = 4 + series.iter().map(|s| 8 + s.curve_name.len() + s.data.len()).sum::<usize>();
+    let mut buf = Vec::with_capacity(cap);
+    buf.extend_from_slice(&(series.len() as u32).to_le_bytes());
+    for s in series {
+        let name = s.curve_name.as_bytes();
+        buf.extend_from_slice(&(name.len() as u32).to_le_bytes());
+        buf.extend_from_slice(name);
+        buf.extend_from_slice(&(s.point_count as u32).to_le_bytes());
+        buf.extend_from_slice(&s.data);
+    }
+    buf
+}
+
 /// Fetches and decimates the requested curves for one well, ready for the multi-track
 /// viewer: each curve is min/max-decimated independently to `target_pixel_height`.
 pub fn fetch_track_data(
@@ -983,5 +1005,54 @@ mod tests {
         .unwrap();
         let (_d, cols) = fetch_curve_frame(&conn, well, &["PERM".to_string()]).unwrap();
         assert!((cols["PERM"][0] - 12.5).abs() < 1e-4);
+    }
+
+    /// The raw-IPC buffer must round-trip: pack two series, decode by hand exactly the way
+    /// `decodeCurveBuffer` in src/ipc.ts does, and recover names / point counts / values
+    /// (incl. NaN). Floats are read via `from_le_bytes` — NOT `cast_slice` — because the
+    /// name bytes leave the data blocks at an arbitrary (non-4-aligned) offset.
+    #[test]
+    fn pack_curve_series_roundtrips() {
+        let mk = |name: &str, depth: &[f32], value: &[f32]| {
+            let mut packed: Vec<f32> = Vec::new();
+            packed.extend_from_slice(depth);
+            packed.extend_from_slice(value);
+            TrackCurveSeries { curve_name: name.into(), point_count: depth.len(), data: bytemuck::cast_slice(&packed).to_vec() }
+        };
+        let a = mk("GR", &[100.0, 101.0], &[12.0, 34.0]);
+        let b = mk("PHIE", &[200.0, 201.0, 202.0], &[0.1, 0.2, f32::NAN]);
+        let buf = pack_curve_series(&[a, b]);
+
+        let u32_at = |off: usize| u32::from_le_bytes(buf[off..off + 4].try_into().unwrap());
+        let mut off = 0usize;
+        let count = u32_at(off) as usize;
+        off += 4;
+        assert_eq!(count, 2);
+
+        let mut got: Vec<(String, Vec<f32>, Vec<f32>)> = Vec::new();
+        for _ in 0..count {
+            let nlen = u32_at(off) as usize;
+            off += 4;
+            let name = String::from_utf8(buf[off..off + nlen].to_vec()).unwrap();
+            off += nlen;
+            let pc = u32_at(off) as usize;
+            off += 4;
+            let mut floats = Vec::with_capacity(pc * 2);
+            for k in 0..pc * 2 {
+                let p = off + k * 4;
+                floats.push(f32::from_le_bytes(buf[p..p + 4].try_into().unwrap()));
+            }
+            off += pc * 8;
+            let (d, v) = floats.split_at(pc);
+            got.push((name, d.to_vec(), v.to_vec()));
+        }
+        assert_eq!(off, buf.len(), "no trailing bytes");
+        assert_eq!(got[0].0, "GR");
+        assert_eq!(got[0].1, vec![100.0, 101.0]);
+        assert_eq!(got[0].2, vec![12.0, 34.0]);
+        assert_eq!(got[1].0, "PHIE");
+        assert_eq!(got[1].1, vec![200.0, 201.0, 202.0]);
+        assert!((got[1].2[1] - 0.2).abs() < 1e-6);
+        assert!(got[1].2[2].is_nan(), "NaN value survives the pack");
     }
 }

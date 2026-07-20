@@ -319,28 +319,34 @@ export interface TrackCurveSeries {
   value: Float32Array;
 }
 
-/** Copies raw IPC bytes (which may arrive as a plain number[] rather than a Uint8Array,
- *  depending on the IPC transport) into a fresh, alignment-safe buffer. */
-function bytesToFloat32Array(bytes: Uint8Array | number[]): Float32Array {
-  const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-  const copy = new Uint8Array(u8.byteLength);
-  copy.set(u8);
-  return new Float32Array(copy.buffer);
-}
-
-type RawCurveSeries = { curve_name: string; point_count: number; data: Uint8Array | number[] };
-
-/** Unpacks the `depth[n]` + `value[n]` raw-byte convention shared by every curve-series
- *  IPC command (per this project's rule against bulk arrays as JSON). */
-function unpackCurveSeries(raw: RawCurveSeries[]): TrackCurveSeries[] {
-  return raw.map((r) => {
-    const floats = bytesToFloat32Array(r.data);
-    return {
-      curve_name: r.curve_name,
-      depth: floats.slice(0, r.point_count),
-      value: floats.slice(r.point_count, r.point_count * 2),
-    };
-  });
+/** Decodes the length-prefixed multi-curve binary buffer produced by Rust's
+ *  `pack_curve_series` (returned as a raw `tauri::ipc::Response` → `ArrayBuffer`, so the
+ *  f32 bytes never travel as a JSON number array). Layout, all little-endian:
+ *    [u32 curve_count]
+ *    repeat: [u32 name_len][name utf8][u32 point_count][f32 depth×pc][f32 value×pc]
+ *  Each data block is `slice()`d into a fresh buffer because the preceding name bytes leave
+ *  the read offset at an arbitrary (non-4-aligned) position — a Float32Array view needs a
+ *  4-aligned offset, and slice() copies into a 0-aligned buffer. */
+function decodeCurveBuffer(buf: ArrayBuffer): TrackCurveSeries[] {
+  const view = new DataView(buf);
+  const dec = new TextDecoder();
+  let off = 0;
+  const count = view.getUint32(off, true);
+  off += 4;
+  const out: TrackCurveSeries[] = [];
+  for (let i = 0; i < count; i++) {
+    const nameLen = view.getUint32(off, true);
+    off += 4;
+    const curve_name = dec.decode(new Uint8Array(buf, off, nameLen));
+    off += nameLen;
+    const pointCount = view.getUint32(off, true);
+    off += 4;
+    const byteLen = pointCount * 2 * 4;
+    const floats = new Float32Array(buf.slice(off, off + byteLen));
+    off += byteLen;
+    out.push({ curve_name, depth: floats.slice(0, pointCount), value: floats.slice(pointCount, pointCount * 2) });
+  }
+  return out;
 }
 
 /**
@@ -349,8 +355,8 @@ function unpackCurveSeries(raw: RawCurveSeries[]): TrackCurveSeries[] {
  * project's IPC rule — unpacked here into depth/value Float32Arrays per curve.
  */
 export async function getTrackData(wellId: string, curveNames: string[], targetPixelHeight: number): Promise<TrackCurveSeries[]> {
-  const raw = await invoke<RawCurveSeries[]>("get_track_data", { wellId, curveNames, targetPixelHeight });
-  return unpackCurveSeries(raw);
+  const buf = await invoke<ArrayBuffer>("get_track_data", { wellId, curveNames, targetPixelHeight });
+  return decodeCurveBuffer(buf);
 }
 
 // ---------------------------------------------------------------------------
@@ -842,8 +848,8 @@ export async function getCurveData(
   depthMin: number | null,
   depthMax: number | null,
 ): Promise<TrackCurveSeries[]> {
-  const raw = await invoke<RawCurveSeries[]>("get_curve_data", { wellId, curveNames, depthMin, depthMax });
-  return unpackCurveSeries(raw);
+  const buf = await invoke<ArrayBuffer>("get_curve_data", { wellId, curveNames, depthMin, depthMax });
+  return decodeCurveBuffer(buf);
 }
 
 // ---------------------------------------------------------------------------
@@ -947,8 +953,8 @@ export function getScalPc(wellId: string): Promise<ScalPcRow[]> {
 /** Fetches a well's core plug data as CPOR/CPERM/CGD/CSW series (each only its own
  *  non-NaN samples, at their own depths — not resampled onto the log depth grid). */
 export async function getCoreData(wellId: string): Promise<TrackCurveSeries[]> {
-  const raw = await invoke<RawCurveSeries[]>("get_core_data", { wellId });
-  return unpackCurveSeries(raw);
+  const buf = await invoke<ArrayBuffer>("get_core_data", { wellId });
+  return decodeCurveBuffer(buf);
 }
 
 export function updateCoreSample(wellId: string, depth: number, column: string, value: number): Promise<void> {

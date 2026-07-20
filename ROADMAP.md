@@ -53,7 +53,7 @@ headers below rather than as the primary structure.
 
 ### ◻ Open — do next  → [Part B](#-part-b--open-do-next)
 - **Polish tail** (§4b): ✅ all shipped — units #122, correlation #123, history-coverage #124, Pickett v2 #125, pay-summary provenance #126.
-- **Performance** (§4b): crossplot redraw memoize (#127) ✅, **batch curve reads (#130)** ✅ and **persistent Python worker (#132)** ✅ **shipped + committed 2026-07-21** (one `IN(...)` query in `fetch_curve_frame`; one long-lived numpy worker vs per-well spawn; +3 tests, 167 pass). Remaining: raw-IPC ArrayBuffers (#131) is solo-doable; async commands (#128) and connection pool [**high-risk**] (#129) need a live 100-well run to sign off.
+- **Performance** (§4b): crossplot redraw memoize (#127) ✅, **batch curve reads (#130)** ✅ **persistent Python worker (#132)** ✅ and **raw-IPC ArrayBuffers (#131)** ✅ **shipped + committed 2026-07-21**. Remaining: async commands (#128) and connection pool [**high-risk**] (#129) both need a live 100-well run to sign off.
 - **Reliability sliver**: modal Escape-key stacking — ✅ **shipped 2026-07-20** (Escape scoped to the top dialog; single-instance already prevented leaked handlers).
 - **Interpretation-workflow open** (§4): data-prep split/merge + tops-referenced normalization, highlight tool, typography check.
 - **Feature Wave B** (§4c): MC parameter **sensitivity/tornado** (13), ML comparison + leaderboard (3), fluid contacts in correlation (9), well-diagram track (16), rock typing + SHF fitting (8).
@@ -621,8 +621,8 @@ The actionable backlog. Roughly ordered: safe frontend wins first, then Performa
 ## B1. Hardening backlog (§4b)
 
 **Performance (was "P2") — speed at field scale (100+ wells)** — all 6 mapped by a read-only
-investigation wave (file:line + risk). **3 of 6 shipped: #127 (crossplot memoize), #130 (batch curve
-reads), #132 (persistent Python worker).** Tasks #127–132. The remaining connection-semantics items are architecturally invasive —
+investigation wave (file:line + risk). **4 of 6 shipped: #127 (crossplot memoize), #130 (batch curve
+reads), #131 (raw-IPC ArrayBuffers), #132 (persistent Python worker).** Tasks #127–132. The remaining connection-semantics items are architecturally invasive —
 they change DB connection semantics and **cannot be signed off without running `tauri dev` on 100+
 real wells** (the human can't be replaced for perf benchmarking).
 - [ ] **(#128)** Long commands are synchronous Tauri commands — `run_workflow_chain`/`run_ml`/`run_multimin`
@@ -633,9 +633,17 @@ real wells** (the human can't be replaced for perf benchmarking).
       well locks the same conn. Split reads (read-only connection pool) from the single serialized writer;
       writes (computed_curves DELETE+append in `with_txn`) **must stay single-writer** to protect the
       WAL/131MB file. Corruption modes must be reasoned explicitly.
-- [ ] **(#131)** "Binary" curve IPC ships bytes as JSON numbers (~4× size, main-thread parse) — use Tauri
-      v2 raw IPC responses (ArrayBuffer) end-to-end (length-prefixed multi-curve buffer → Float32Array).
-      Task #7 half-did this — check what exists.
+- [x] **(#131)** ~~"Binary" curve IPC ships bytes as JSON numbers (~4× size, main-thread parse)~~ —
+      **done + committed 2026-07-21.** The three curve-data commands
+      (`get_track_data`/`get_curve_data`/`get_core_data`) now return ONE length-prefixed binary buffer
+      via `tauri::ipc::Response` (→ JS `ArrayBuffer`) instead of a JSON-serialized
+      `Vec<TrackCurveSeries>` whose `data: Vec<u8>` serde-encoded as a number array. New
+      `equations::pack_curve_series` (`[u32 count]{[u32 name_len][name][u32 pc][f32 depth×pc][f32
+      value×pc]}…`, LE) + frontend `decodeCurveBuffer` replacing `unpackCurveSeries`; the `ipc.ts`
+      wrapper output (`TrackCurveSeries[]` with depth/value Float32Arrays) is UNCHANGED, so no
+      plot/log-view consumer changed. +1 Rust roundtrip test + a Node format-agreement check (incl. the
+      non-4-aligned data offset after an odd-length name + NaN survival). cargo 168 / tsc 0. The runtime
+      transport (invoke → ArrayBuffer) + the real byte-size/parse win need Jauhar's live run.
 - [x] **(#130)** ~~One query per curve per well load (~100 scans of computed_curves)~~ — **done
       2026-07-21.** `fetch_curve_frame` now defers every non-standard name into ONE
       `SELECT upper(curve_name), depth, value FROM computed_curves WHERE well_id=? AND upper(curve_name)

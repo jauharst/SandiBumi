@@ -184,9 +184,10 @@ fn list_aux_datasets(db: tauri::State<DbState>, well_id: String) -> Result<Vec<(
 /// crossplots/log tracks (see `equations::fetch_core_series` for why this isn't
 /// aligned onto the standard depth grid like `get_curve_data`).
 #[tauri::command]
-fn get_core_data(db: tauri::State<DbState>, well_id: String) -> Result<Vec<equations::TrackCurveSeries>, String> {
+fn get_core_data(db: tauri::State<DbState>, well_id: String) -> Result<tauri::ipc::Response, String> {
     let conn = db.0.lock().unwrap();
-    equations::fetch_core_series(&conn, &well_id).map_err(|e| e.to_string())
+    let series = equations::fetch_core_series(&conn, &well_id).map_err(|e| e.to_string())?;
+    Ok(tauri::ipc::Response::new(equations::pack_curve_series(&series)))
 }
 
 /// Renders a composite log plot for one well at a true print scale, returning one vector
@@ -476,9 +477,11 @@ fn get_track_data(
     well_id: String,
     curve_names: Vec<String>,
     target_pixel_height: usize,
-) -> Result<Vec<equations::TrackCurveSeries>, String> {
+) -> Result<tauri::ipc::Response, String> {
     let conn = db.0.lock().unwrap();
-    equations::fetch_track_data(&conn, &well_id, &curve_names, target_pixel_height).map_err(|e| e.to_string())
+    let series = equations::fetch_track_data(&conn, &well_id, &curve_names, target_pixel_height)
+        .map_err(|e| e.to_string())?;
+    Ok(tauri::ipc::Response::new(equations::pack_curve_series(&series)))
 }
 
 /// Fetches full-resolution curve data for parameter-selection plots (histogram,
@@ -490,9 +493,11 @@ fn get_curve_data(
     curve_names: Vec<String>,
     depth_min: Option<f32>,
     depth_max: Option<f32>,
-) -> Result<Vec<equations::TrackCurveSeries>, String> {
+) -> Result<tauri::ipc::Response, String> {
     let conn = db.0.lock().unwrap();
-    equations::fetch_curve_data(&conn, &well_id, &curve_names, depth_min, depth_max).map_err(|e| e.to_string())
+    let series = equations::fetch_curve_data(&conn, &well_id, &curve_names, depth_min, depth_max)
+        .map_err(|e| e.to_string())?;
+    Ok(tauri::ipc::Response::new(equations::pack_curve_series(&series)))
 }
 
 /// Lists every deterministic module manifest — the frontend auto-generates each module's
