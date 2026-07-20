@@ -901,11 +901,20 @@ client files stay OUT of the repo):**
       follows), Rmf temp retied only when RMF actually read, raw non-precalc RMF
       refused, dry preview tracks fluid edits, CEC_eq↔RHOB-endpoint pairing hinted
       in status + tooltip. 122 cargo tests, tsc clean, browser-verified. REVIEW #22.)*
-- [ ] **(19) Gas correction, iterated** (deck slide 65): ρb_corr = RHOB +
+- [x] **(19) Gas correction, iterated** (deck slide 65): ρb_corr = RHOB +
       Φt·(1−Sw)·(1.00−ρg_res), ρg_res from SG at reservoir P&T (needs 17); outer
       loop solve→correct→re-solve until |ΔΦt| converges (IP style), NPHI analog to
       confirm. QC = PHIE-vs-Vwetclay cloud collapse (slides 66–67). Depends on (17).
       → `ref_kkt_onwj_wave_e.md`.
+      *(Done 2026-07-20: `gascorr` Prep module — Standing+Papay GASDEN (pinned
+      0.1297 g/cc at KK 2743 psi/93.9 °C), Archie in-loop Sw, 20-pass fixed point,
+      rw_args merged with required precalc FTEMP/FPRESS (computed-only resolution —
+      raw degF/kPa imports can't leak in). Adversarial review: 13 confirmed → all
+      fixed — FLAGGED default (coal/washout safety), flag > 0.5 gate, loud error on
+      missing flag data, degenerate-density/Rw guards, non-convergence → MISSING,
+      NaN-proof Archie, RHOG→GASDEN. NPHI analog deliberately not built: doc steers
+      RHOB_GC to phi_den/PHIT_GC, warns off phi_dn/SandiMin-with-NPHI. 127 tests.
+      REVIEW #23.)*
 - [ ] **(20) φmax porosity cap from compaction trend** (deck slide 64 "max core
       porosity" line): optional zone-overridable PHI_MAX (constant or TVDSS trend) in
       porosity modules + SandiMin. **Trend form to confirm with Jauhar.**

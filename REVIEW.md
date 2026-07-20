@@ -6,6 +6,37 @@ Work through this list when you have time; delete items as you confirm them.
 Marks: `[o]` confirmed OK (removed from this file), `[x]` confirmed wrong → logged in
 **ROADMAP.md §4 (Field-review backlog)**, `[ ]` not yet tested.
 
+## Gas Correction module — iterated density de-gassing (2026-07-20 #23)
+
+**Petrophysics ▸ Data Prep ▸ Gas Correction (density, iterated)** — the KKT deck
+slide-65 loop. Density porosity and Archie SWT are solved from the current density,
+then RHOB_GC = RHOB + Φt·(1−Sw)·(RHO_FL − GASDEN) replaces gas with liquid, iterated
+to |ΔΦt| < 1e-4 (non-converging samples stay MISSING). GASDEN is the real-gas density
+of an SG_GAS 0.65 gas at FPRESS/FTEMP (Standing pseudo-criticals + Papay z, pinned
+0.1297 g/cc at the KK example's 2743 psi / 93.9 °C) — **run precalc first**; FTEMP and
+FPRESS accept only precalc/log-set curves, never a raw import (a Geolog LAS's degF
+FTEMP can't sneak in as degC). Default **OPT_GATE = FLAGGED** corrects only where the
+gas flag > 0.5 (chain condflag's XOVER_FLAG, which excludes coal and washout) and
+errors loudly if the flag curve has no data; **EVERYWHERE** is there for wells without
+condflag, but beware coals/resistive washouts — high RT + low density reads as gas to
+the Archie loop. The adversarial review raised 13 confirmed findings → all fixed
+(FLAGGED default, flag > 0.5 gate, no-flag-data error, degenerate RHO_MA/RHO_FL and
+RHOB<RHO_FL and Rw≤0 guards, non-convergence → MISSING, NaN-proof Archie cap,
+computed-only P/T inputs, RHOG→GASDEN rename, doc rewrite). 127 cargo tests green.
+
+- [ ] Run precalc → condflag → Gas Correction (defaults) on a KK-style gas well: the
+      detached high-porosity gas cloud on PHIE vs wet-clay (slides 66–67) should
+      collapse after correction; RHOB_GC ≈ RHOB in water zones (self-limiting there).
+- [ ] Check a coal streak stays untouched under the FLAGGED default (XOVER_FLAG
+      excludes coal) — no phantom high-porosity pay in coals.
+- [ ] Without condflag run: the FLAGGED default must error "gas flag has no data —
+      run condflag first or set OPT_GATE = EVERYWHERE", not silently pass through.
+- [ ] Without precalc run: outputs stay MISSING (never uncorrected pass-through),
+      even if the well's LAS carries its own raw FTEMP/FPRESS curves.
+- [ ] Feed RHOB_GC to **phi_den** (or use PHIT_GC directly). Do NOT feed it to phi_dn
+      or a SandiMin solve that includes NPHI — their gas handling assumes an
+      uncorrected density-neutron pair (the module doc says this too).
+
 ## SandiMin: wet→dry clay converter + fluid autofill from precalc (2026-07-20 #22)
 
 Two additions inside the **SandiMin** pane (Advance tab), from your Multimin

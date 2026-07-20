@@ -176,6 +176,27 @@ pub fn run_workflow_module_into(
                         .unwrap_or_else(|| vec![f32::NAN; depth.len()]);
                     logs.insert(arg_name.clone(), values);
                 }
+                // Unit-contract inputs (ArgSpec.computed_only, e.g. gascorr FTEMP/FPRESS):
+                // re-resolve from computed provenance only — the frame above may have
+                // fallen back to a RAW import with the same mnemonic but the wrong unit.
+                for a in spec.args.iter().filter(|a| a.kind == ArgKind::LogIn && a.computed_only) {
+                    let mnemonic = log_args
+                        .iter()
+                        .find(|(name, _)| name == &a.name)
+                        .map(|(_, m)| m.clone())
+                        .unwrap_or_else(|| a.default.clone());
+                    let conn = db.lock().unwrap();
+                    let values = equations::fetch_computed_only_aligned(
+                        &conn,
+                        well_id,
+                        &mnemonic,
+                        &depth,
+                        req.input_set.as_deref(),
+                        own_set,
+                    )
+                    .map_err(|e| e.to_string())?;
+                    logs.insert(a.name.clone(), values);
+                }
 
                 let ctx = ModuleContext { n: depth.len(), logs, params, opts: opts.clone() };
                 let mut outputs = modules::run_module(&req.module, &ctx)?;

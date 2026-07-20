@@ -390,6 +390,65 @@ fn fetch_generic_curve_aligned(
     Ok(depth_grid.iter().map(|d| by_depth.get(&d.to_bits()).copied().unwrap_or(f32::NAN)).collect())
 }
 
+/// Computed-provenance-only resolution for unit-contract inputs (ArgSpec.computed_only,
+/// e.g. gascorr's FTEMP/FPRESS): the named input set's archived values first (matching
+/// [`fetch_curve_frame_from_set`] semantics, including the own-set precedence), then
+/// current `computed_curves` — never the RAW import store, so a Geolog LAS export's
+/// degF FTEMP cannot silently masquerade as precalc's degC output.
+pub(crate) fn fetch_computed_only_aligned(
+    conn: &Connection,
+    well_id: &str,
+    curve_name: &str,
+    depth_grid: &[f32],
+    input_set: Option<&str>,
+    own_set_id: Option<&str>,
+) -> duckdb::Result<Vec<f32>> {
+    let upper = curve_name.trim().to_uppercase();
+    // An earlier step of this very run wrote the curve: its fresh current values win.
+    let own_wrote = match own_set_id {
+        Some(own) => conn
+            .query_row(
+                "SELECT 1 FROM computed_curves_archive WHERE set_id = ?1 AND upper(curve_name) = ?2 LIMIT 1",
+                params![own, upper],
+                |_| Ok(()),
+            )
+            .is_ok(),
+        None => false,
+    };
+    if !own_wrote {
+        if let Some(set_name) = input_set.map(str::trim).filter(|s| !s.is_empty()) {
+            let set_id: Option<String> = conn
+                .query_row(
+                    "SELECT set_id FROM log_sets WHERE well_id = ?1 AND upper(set_name) = upper(?2)
+                     ORDER BY version DESC LIMIT 1",
+                    params![well_id, set_name],
+                    |r| r.get(0),
+                )
+                .ok();
+            if let Some(set_id) = set_id {
+                let mut stmt = conn.prepare(
+                    "SELECT depth, value FROM computed_curves_archive WHERE set_id = ?1 AND upper(curve_name) = ?2",
+                )?;
+                let rows = stmt.query_map(params![set_id, upper], |row| {
+                    Ok((row.get::<_, f32>(0)?, row.get::<_, f32>(1)?))
+                })?;
+                let mut by_depth: HashMap<u32, f32> = HashMap::new();
+                for r in rows {
+                    let (d, v) = r?;
+                    by_depth.insert(d.to_bits(), v);
+                }
+                if !by_depth.is_empty() {
+                    return Ok(depth_grid
+                        .iter()
+                        .map(|d| by_depth.get(&d.to_bits()).copied().unwrap_or(f32::NAN))
+                        .collect());
+                }
+            }
+        }
+    }
+    fetch_computed_curve_aligned(conn, well_id, &upper, depth_grid)
+}
+
 /// Replaces any prior values for (well_id, curve_name) with the freshly computed ones.
 pub(crate) fn write_computed_curve(conn: &Connection, well_id: &str, depth: &[f32], curve_name: &str, values: &[f32]) -> duckdb::Result<()> {
     write_computed_curves_batch(conn, well_id, depth, &[(curve_name, values)])

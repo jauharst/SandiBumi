@@ -40,6 +40,11 @@ pub struct ArgSpec {
     pub max: Option<f64>,
     /// Whether a LogIn is required (missing optional inputs become all-NaN).
     pub required: bool,
+    /// LogIn only: resolve from computed provenance (precalc outputs, log sets) and never
+    /// the RAW import store — for unit-contract inputs like FTEMP/FPRESS where a raw
+    /// curve with the same mnemonic (a Geolog LAS export's degF FTEMP) would silently
+    /// masquerade as the degC/psi curve the module assumes.
+    pub computed_only: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -62,6 +67,7 @@ pub(crate) fn param(name: &str, desc: &str, unit: &str, default: f64, min: f64, 
         min: Some(min),
         max: Some(max),
         required: true,
+        computed_only: false,
     }
 }
 
@@ -76,6 +82,7 @@ pub(crate) fn opt(name: &str, desc: &str, default: &str, choices: &[&str]) -> Ar
         min: None,
         max: None,
         required: true,
+        computed_only: false,
     }
 }
 
@@ -90,7 +97,13 @@ pub(crate) fn log_in(name: &str, desc: &str, unit: &str, default_curve: &str, re
         min: None,
         max: None,
         required,
+        computed_only: false,
     }
+}
+
+/// A [`log_in`] restricted to computed provenance (see [`ArgSpec::computed_only`]).
+pub(crate) fn log_in_computed(name: &str, desc: &str, unit: &str, default_curve: &str, required: bool) -> ArgSpec {
+    ArgSpec { computed_only: true, ..log_in(name, desc, unit, default_curve, required) }
 }
 
 pub(crate) fn log_out(name: &str, desc: &str, unit: &str) -> ArgSpec {
@@ -104,6 +117,7 @@ pub(crate) fn log_out(name: &str, desc: &str, unit: &str) -> ArgSpec {
         min: None,
         max: None,
         required: true,
+        computed_only: false,
     }
 }
 
@@ -160,6 +174,7 @@ pub fn list_modules() -> Vec<ModuleSpec> {
         badhole_spec(),
         condflag_spec(),
         nphimat_spec(),
+        gascorr_spec(),
         gr_hole_corr_spec(),
         nphi_env_corr_spec(),
         rhob_hole_corr_spec(),
@@ -196,6 +211,7 @@ pub fn run_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, Stri
         "badhole" => Ok(badhole(ctx)),
         "condflag" => Ok(condflag(ctx)),
         "nphimat" => Ok(nphimat(ctx)),
+        "gascorr" => gascorr(ctx),
         "gr_hole_corr" => Ok(gr_hole_corr(ctx)),
         "nphi_env_corr" => Ok(nphi_env_corr(ctx)),
         "rhob_hole_corr" => Ok(rhob_hole_corr(ctx)),
@@ -1192,6 +1208,179 @@ fn nphimat(ctx: &ModuleContext) -> ModuleOutputs {
         ("NPHI_SS".to_string(), ss),
         ("NPHI_DOL".to_string(), dol),
     ])
+}
+
+// ---------------------------------------------------------------------------
+// GASCORR — iterated gas correction of bulk density (KKT ONWJ deck slide 65,
+// ROADMAP §4c item 19)
+// ---------------------------------------------------------------------------
+
+fn gascorr_spec() -> ModuleSpec {
+    let mut args = vec![
+        param("RHO_MA", "Matrix density", "g/cc", 2.65, 2.0, 3.2),
+        param("RHO_FL", "Liquid (filtrate) density the correction restores", "g/cc", 1.0, 0.8, 1.3),
+        param("SG_GAS", "Gas specific gravity (air = 1)", "", 0.65, 0.55, 1.2),
+        param("A", "Tortuosity constant", "", 1.0, 0.1, 5.0),
+        param("M", "Cementation exponent", "", 2.0, 1.0, 4.0),
+        param("N", "Saturation exponent", "", 2.0, 1.0, 4.0),
+        opt("OPT_GATE", "Where to apply the correction", "FLAGGED", &["FLAGGED", "EVERYWHERE"]),
+    ];
+    // rw_args carries its own optional FTEMP input; gascorr needs FTEMP as a
+    // required input for the gas density, so swap that entry for our own.
+    args.extend(rw_args().into_iter().filter(|a| a.name != "FTEMP"));
+    args.extend([
+        log_in("RHOB", "Bulk density", "g/cc", "RHOB", true),
+        log_in("RT", "True formation resistivity", "ohmm", "RES_DEEP", true),
+        // Computed-only: a raw import named FTEMP/FPRESS may be in degF/kPa — only the
+        // precalc outputs (or a log set) satisfy the degC/psi contract.
+        log_in_computed("FTEMP", "Formation temperature (precalc)", "degC", "FTEMP", true),
+        log_in_computed("FPRESS", "Formation pressure (precalc)", "psi", "FPRESS", true),
+        log_in("GAS_FLAG", "Gas-zone flag for FLAGGED gating", "", "XOVER_FLAG", false),
+        log_out("RHOB_GC", "Gas-corrected bulk density", "g/cc"),
+        log_out("PHIT_GC", "Density porosity from the corrected RHOB (converged)", "v/v"),
+        log_out("SWT_GC", "Archie SWT at convergence", "v/v"),
+        log_out("GASDEN", "Gas density at reservoir P/T (QC)", "g/cc"),
+    ]);
+    ModuleSpec {
+        name: "gascorr".into(),
+        title: "Gas Correction (density, iterated)".into(),
+        category: "Prep".into(),
+        doc: "Removes the gas effect from RHOB (KKT ONWJ slide-65 loop): density porosity \
+              and Archie SWT are solved from the current density, then RHOB_GC = RHOB + \
+              PHIT*(1-SWT)*(RHO_FL - GASDEN) replaces the gas volume with liquid, iterated \
+              until PHIT moves less than 1e-4 (max 20 passes; non-converging samples stay \
+              MISSING). GASDEN is the real-gas density of an SG_GAS gas at FPRESS/FTEMP \
+              (Standing pseudo-criticals + Papay z-factor) — run the precalc module first; \
+              samples without P/T, RT or Rw stay MISSING rather than passing through \
+              uncorrected. The default OPT_GATE = FLAGGED corrects only where GAS_FLAG > \
+              0.5 (chain condflag's XOVER_FLAG, which already excludes coal and washout) \
+              and errors if the flag curve has no data. OPT_GATE = EVERYWHERE corrects \
+              every sample — beware: high-resistivity low-density beds (coal, resistive \
+              washouts) read as gas to the Archie loop and get large spurious corrections. \
+              QC per slides 66-67: the detached high-porosity gas cloud on PHIE vs \
+              wet-clay collapses after correction. Feed RHOB_GC to phi_den (or use \
+              PHIT_GC directly) — NOT to phi_dn or a SandiMin solve that includes NPHI: \
+              their gas handling assumes an uncorrected density-neutron pair, so a \
+              corrected RHOB with a still-gas-affected NPHI biases porosity low."
+            .into(),
+        args,
+    }
+}
+
+/// Standing pseudo-criticals + Papay z-factor → real-gas density in g/cc.
+/// Returns MISSING when pressure/temperature/gravity are unusable.
+fn gas_density_gcc(sg: f64, press_psi: f64, temp_c: f64) -> f64 {
+    if !(press_psi > 0.0) || !(temp_c > -273.15) || !(sg > 0.0) {
+        return MISSING;
+    }
+    let t_r = temp_c * 1.8 + 32.0 + 459.67; // degR
+    let tpc = 168.0 + 325.0 * sg - 12.5 * sg * sg; // degR (Standing)
+    let ppc = 677.0 + 15.0 * sg - 37.5 * sg * sg; // psia (Standing)
+    let tpr = t_r / tpc;
+    let ppr = press_psi / ppc;
+    // Papay (1968); floored — the correlation goes unphysical far outside its range.
+    let z = (1.0 - 3.53 * ppr / 10f64.powf(0.9813 * tpr)
+        + 0.274 * ppr * ppr / 10f64.powf(0.8157 * tpr))
+        .max(0.1);
+    // ρ = P·M/(z·R·T): M = 28.9647·SG lb/lb-mol, R = 10.7316 psia·ft³/(lb-mol·°R),
+    // then lb/ft³ → g/cc.
+    press_psi * 28.9647 * sg / (z * 10.7316 * t_r) / 62.428
+}
+
+fn gascorr(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
+    let rhob = ctx.log("RHOB");
+    let rt = ctx.log("RT");
+    let ftemp = ctx.log("FTEMP");
+    let fpress = ctx.log("FPRESS");
+    let flag = ctx.log("GAS_FLAG");
+    let gated = ctx.o("OPT_GATE") == "FLAGGED";
+    // A FLAGGED run whose flag curve resolved to nothing would silently correct zero
+    // samples while reporting success — indistinguishable from "no gas anywhere".
+    if gated && !flag.iter().any(|v| !v.is_nan()) {
+        let mnem = ctx.o("__IN_GAS_FLAG");
+        let name = if mnem.is_empty() { "GAS_FLAG" } else { mnem };
+        return Err(format!(
+            "OPT_GATE = FLAGGED but the gas flag '{name}' has no data — run condflag first or set OPT_GATE = EVERYWHERE"
+        ));
+    }
+
+    let mut rhob_gc = vec![f32::NAN; ctx.n];
+    let mut phit_gc = vec![f32::NAN; ctx.n];
+    let mut swt_gc = vec![f32::NAN; ctx.n];
+    let mut rhog_out = vec![f32::NAN; ctx.n];
+
+    for i in 0..ctx.n {
+        let rb = rhob[i] as f64;
+        if is_missing(rb) {
+            continue;
+        }
+        let rma = ctx.p("RHO_MA", i);
+        let rfl = ctx.p("RHO_FL", i);
+        // Zone overrides bypass dialog range checks (condflag precedent): a degenerate
+        // matrix/fluid pair — or a density below the fluid it would be corrected to —
+        // has no meaningful density porosity, so outputs stay MISSING.
+        if !(rma - rfl > 0.0) || rb <= rfl {
+            continue;
+        }
+        let dphi = |rho: f64| limit((rma - rho) / (rma - rfl), 0.0, 1.0);
+        // Gate on > 0.5, not == 1: depth-shifted flags interpolate fractional values at
+        // bed edges. MISSING flags (NaN > 0.5 is false) still pass through untouched.
+        if gated && !(flag[i] as f64 > 0.5) {
+            rhob_gc[i] = rhob[i];
+            phit_gc[i] = dphi(rb) as f32;
+            continue;
+        }
+        let rhog = gas_density_gcc(ctx.p("SG_GAS", i), fpress[i] as f64, ftemp[i] as f64);
+        let rw = resolve_rw(ctx, &ftemp, i);
+        let r = rt[i] as f64;
+        if is_missing(rhog) || is_missing(rw) || rw <= 0.0 || is_missing(r) || r <= 0.0 {
+            continue; // corrected outputs stay MISSING — no silent pass-through
+        }
+        let a = ctx.p("A", i);
+        let m = ctx.p("M", i);
+        let n_exp = ctx.p("N", i);
+        let archie = |p: f64| -> f64 {
+            if p <= 0.0 {
+                return 1.0;
+            }
+            let s = (a * rw / (p.powf(m) * r)).powf(1.0 / n_exp);
+            // f64::min would swallow a NaN term (it returns the non-NaN operand) and
+            // fabricate Sw = 1 — keep the NaN so the sample fails convergence instead.
+            if s.is_finite() { s.min(1.0) } else { f64::NAN }
+        };
+
+        let mut rho_c = rb;
+        let mut phit = dphi(rb);
+        let mut converged = false;
+        for _ in 0..20 {
+            let swt = archie(phit);
+            rho_c = rb + phit * (1.0 - swt) * (rfl - rhog);
+            let next = dphi(rho_c);
+            let done = (next - phit).abs() < 1e-4;
+            phit = next;
+            if done {
+                converged = true;
+                break;
+            }
+        }
+        if !converged {
+            // Oscillating/diverging iterate (possible at edge-of-range RHO_MA/RHO_FL or
+            // M/N combinations): writing the 20th pass would be an internally
+            // inconsistent triple masquerading as a converged answer.
+            continue;
+        }
+        rhob_gc[i] = rho_c as f32;
+        phit_gc[i] = phit as f32;
+        swt_gc[i] = archie(phit) as f32;
+        rhog_out[i] = rhog as f32;
+    }
+
+    Ok(HashMap::from([
+        ("RHOB_GC".to_string(), rhob_gc),
+        ("PHIT_GC".to_string(), phit_gc),
+        ("SWT_GC".to_string(), swt_gc),
+        ("GASDEN".to_string(), rhog_out),
+    ]))
 }
 
 // ---------------------------------------------------------------------------
@@ -2873,6 +3062,211 @@ mod tests {
         let np = nphi_env_corr(&ctx);
         // 0.30 - 0.002*(100000/100000) + 0.0001*(104-24) = 0.30 - 0.002 + 0.008 = 0.306
         assert!((np["NPHI_EC"][0] - 0.306).abs() < 1e-4, "got {}", np["NPHI_EC"][0]);
+    }
+
+    #[test]
+    fn gascorr_spec_shape() {
+        // The spec swaps rw_args' optional FTEMP for a required one — no arg
+        // name may appear twice or the dialog renders two conflicting rows.
+        let spec = gascorr_spec();
+        let mut seen = std::collections::HashSet::new();
+        for a in &spec.args {
+            assert!(seen.insert(a.name.clone()), "duplicate arg {}", a.name);
+        }
+        let ftemp = spec.args.iter().find(|a| a.name == "FTEMP").unwrap();
+        assert!(matches!(ftemp.kind, ArgKind::LogIn) && ftemp.required);
+        // A raw import named FTEMP/FPRESS may be degF/kPa — precalc outputs only.
+        assert!(ftemp.computed_only, "FTEMP must not resolve from the RAW store");
+        assert!(spec.args.iter().find(|a| a.name == "FPRESS").unwrap().computed_only);
+        let flag = spec.args.iter().find(|a| a.name == "GAS_FLAG").unwrap();
+        assert!(!flag.required, "gate flag is optional");
+        let gate = spec.args.iter().find(|a| a.name == "OPT_GATE").unwrap();
+        assert_eq!(gate.default, "FLAGGED", "safe default: EVERYWHERE overcorrects coal/washout");
+        assert!(spec.args.iter().any(|a| a.name == "OPT_RW"), "rw_args merged in");
+        // Manifest JSON for the frontend render check (visible with --nocapture).
+        println!("GASCORR_SPEC_JSON {}", serde_json::to_string(&spec).unwrap());
+    }
+
+    #[test]
+    fn gascorr_papay_gas_density_pinned() {
+        // SG 0.65 at the KK example's reservoir conditions (2743.34 psi, 93.9 degC
+        // = 5000 ft TVDSS on the KK trends): Standing Tpc 373.97 R / Ppc 670.91 psia,
+        // Papay z ~0.899 -> rho_g ~0.1297 g/cc. Hand-computed independently.
+        let rhog = gas_density_gcc(0.65, 2743.34, 93.9);
+        assert!((rhog - 0.1297).abs() < 0.001, "rhog {}", rhog);
+        // Low pressure -> near-ideal gas, much lighter.
+        let light = gas_density_gcc(0.65, 500.0, 93.9);
+        assert!((light - 0.0222).abs() < 0.001, "rhog {}", light);
+        // Unusable P/T -> MISSING.
+        assert!(gas_density_gcc(0.65, f64::NAN, 93.9).is_nan());
+        assert!(gas_density_gcc(0.65, 2743.34, f64::NAN).is_nan());
+        assert!(gas_density_gcc(0.65, -5.0, 93.9).is_nan());
+    }
+
+    #[test]
+    fn gascorr_converges_on_gas_sand_and_skips_water() {
+        // Forward-model a gas sand: true phit 0.30, Swt 0.40, gas at the KK
+        // reservoir conditions. RT is chosen so Archie (A 1, M 2, N 2, Rw 0.1)
+        // returns exactly Sw 0.40 at phit 0.30: RT = 0.1/(0.09*0.16) = 6.9444.
+        let rhog = gas_density_gcc(0.65, 2743.34, 93.9);
+        let rb_gas = 0.70 * 2.65 + 0.30 * 0.40 * 1.0 + 0.30 * 0.60 * rhog;
+        // Water zone at the same porosity: rb = 2.155, RT low -> Archie Sw >= 1.
+        let ctx = ctx_with(
+            2,
+            &[
+                ("RHOB", vec![rb_gas as f32, 2.155]),
+                ("RT", vec![6.9444, 1.0]),
+                ("FTEMP", vec![93.9, 93.9]),
+                ("FPRESS", vec![2743.34, 2743.34]),
+            ],
+            &[
+                ("RHO_MA", 2.65),
+                ("RHO_FL", 1.0),
+                ("SG_GAS", 0.65),
+                ("A", 1.0),
+                ("M", 2.0),
+                ("N", 2.0),
+                ("RW", 0.1),
+            ],
+            &[("OPT_GATE", "EVERYWHERE"), ("OPT_RW", "CONSTANT")],
+        );
+        let out = gascorr(&ctx).unwrap();
+        // Uncorrected density porosity is inflated to ~0.395; the loop must pull
+        // it back to the true 0.30 and land on the liquid-replaced density 2.155.
+        assert!((out["PHIT_GC"][0] - 0.300).abs() < 1e-3, "phit {}", out["PHIT_GC"][0]);
+        assert!((out["SWT_GC"][0] - 0.400).abs() < 2e-3, "swt {}", out["SWT_GC"][0]);
+        assert!((out["RHOB_GC"][0] - 2.155).abs() < 2e-3, "rhob_gc {}", out["RHOB_GC"][0]);
+        assert!((out["GASDEN"][0] - 0.1297).abs() < 0.001);
+        // Water zone: Sw clamps to 1, correction is exactly zero.
+        assert_eq!(out["RHOB_GC"][1], 2.155);
+        assert!((out["PHIT_GC"][1] - 0.30).abs() < 1e-4);
+        assert_eq!(out["SWT_GC"][1], 1.0);
+    }
+
+    #[test]
+    fn gascorr_flag_gate_and_missing_inputs() {
+        // FLAGGED: only flag == 1 corrects; 0 and MISSING pass RHOB through.
+        let ctx = ctx_with(
+            3,
+            &[
+                ("RHOB", vec![2.0, 2.0, 2.0]),
+                ("RT", vec![6.9444, 6.9444, 6.9444]),
+                ("FTEMP", vec![93.9, 93.9, 93.9]),
+                ("FPRESS", vec![2743.34, 2743.34, 2743.34]),
+                ("GAS_FLAG", vec![1.0, 0.0, f32::NAN]),
+            ],
+            &[
+                ("RHO_MA", 2.65),
+                ("RHO_FL", 1.0),
+                ("SG_GAS", 0.65),
+                ("A", 1.0),
+                ("M", 2.0),
+                ("N", 2.0),
+                ("RW", 0.1),
+            ],
+            &[("OPT_GATE", "FLAGGED"), ("OPT_RW", "CONSTANT")],
+        );
+        let out = gascorr(&ctx).unwrap();
+        assert!(out["RHOB_GC"][0] > 2.0, "flagged sample corrected upward");
+        assert_eq!(out["RHOB_GC"][1], 2.0, "flag 0 passes through");
+        assert_eq!(out["RHOB_GC"][2], 2.0, "flag MISSING passes through");
+        assert!(out["SWT_GC"][1].is_nan() && out["GASDEN"][1].is_nan());
+        // Missing FPRESS (precalc not run) -> corrected outputs stay MISSING,
+        // never a silent uncorrected pass-through.
+        let ctx = ctx_with(
+            1,
+            &[("RHOB", vec![2.0]), ("RT", vec![6.9444]), ("FTEMP", vec![93.9])],
+            &[("RHO_MA", 2.65), ("RHO_FL", 1.0), ("SG_GAS", 0.65), ("RW", 0.1)],
+            &[("OPT_GATE", "EVERYWHERE"), ("OPT_RW", "CONSTANT")],
+        );
+        let out = gascorr(&ctx).unwrap();
+        assert!(out["RHOB_GC"][0].is_nan() && out["PHIT_GC"][0].is_nan());
+    }
+
+    #[test]
+    fn gascorr_guards_stay_missing_or_error() {
+        let base_params: &[(&str, f64)] = &[
+            ("RHO_MA", 2.65),
+            ("RHO_FL", 1.0),
+            ("SG_GAS", 0.65),
+            ("A", 1.0),
+            ("M", 2.0),
+            ("N", 2.0),
+            ("RW", 0.1),
+        ];
+        // FLAGGED with a flag curve that resolved to nothing: a silent zero-correction
+        // run would be indistinguishable from "no gas anywhere" — must error instead.
+        let ctx = ctx_with(
+            2,
+            &[
+                ("RHOB", vec![2.0, 2.0]),
+                ("RT", vec![6.9444, 6.9444]),
+                ("FTEMP", vec![93.9, 93.9]),
+                ("FPRESS", vec![2743.34, 2743.34]),
+            ],
+            base_params,
+            &[("OPT_GATE", "FLAGGED"), ("OPT_RW", "CONSTANT")],
+        );
+        assert!(gascorr(&ctx).is_err(), "all-NaN flag under FLAGGED must be loud");
+
+        // Fractional flags (depth-shifted bed edges): > 0.5 corrects, <= 0.5 passes.
+        let ctx = ctx_with(
+            2,
+            &[
+                ("RHOB", vec![2.0, 2.0]),
+                ("RT", vec![6.9444, 6.9444]),
+                ("FTEMP", vec![93.9, 93.9]),
+                ("FPRESS", vec![2743.34, 2743.34]),
+                ("GAS_FLAG", vec![0.9, 0.4]),
+            ],
+            base_params,
+            &[("OPT_GATE", "FLAGGED"), ("OPT_RW", "CONSTANT")],
+        );
+        let out = gascorr(&ctx).unwrap();
+        assert!(out["RHOB_GC"][0] > 2.0, "flag 0.9 corrects");
+        assert_eq!(out["RHOB_GC"][1], 2.0, "flag 0.4 passes through");
+
+        // Degenerate zone overrides (bypass dialog ranges) and unphysical densities:
+        // RHO_FL >= RHO_MA, RHOB below RHO_FL, and a negative Rw all stay MISSING
+        // instead of writing plausible-looking garbage (condflag precedent).
+        for (params, what) in [
+            (&[("RHO_MA", 2.65), ("RHO_FL", 2.65), ("SG_GAS", 0.65), ("A", 1.0), ("M", 2.0), ("N", 2.0), ("RW", 0.1)][..], "RHO_FL == RHO_MA"),
+            (&[("RHO_MA", 1.0), ("RHO_FL", 2.65), ("SG_GAS", 0.65), ("A", 1.0), ("M", 2.0), ("N", 2.0), ("RW", 0.1)][..], "RHO_MA < RHO_FL"),
+            (&[("RHO_MA", 2.65), ("RHO_FL", 1.0), ("SG_GAS", 0.65), ("A", 1.0), ("M", 2.0), ("N", 2.0), ("RW", -0.05)][..], "negative RW"),
+        ] {
+            let ctx = ctx_with(
+                1,
+                &[
+                    ("RHOB", vec![2.0]),
+                    ("RT", vec![200.0]),
+                    ("FTEMP", vec![93.9]),
+                    ("FPRESS", vec![2743.34]),
+                ],
+                params,
+                &[("OPT_GATE", "EVERYWHERE"), ("OPT_RW", "CONSTANT")],
+            );
+            let out = gascorr(&ctx).unwrap();
+            assert!(
+                out["RHOB_GC"][0].is_nan() && out["PHIT_GC"][0].is_nan() && out["SWT_GC"][0].is_nan(),
+                "{what} must leave outputs MISSING"
+            );
+        }
+
+        // A washout reading below the restored fluid density has no meaningful
+        // density porosity — MISSING, not a phantom 100%-porosity gas sand.
+        let ctx = ctx_with(
+            1,
+            &[
+                ("RHOB", vec![0.95]),
+                ("RT", vec![200.0]),
+                ("FTEMP", vec![93.9]),
+                ("FPRESS", vec![2743.34]),
+            ],
+            base_params,
+            &[("OPT_GATE", "EVERYWHERE"), ("OPT_RW", "CONSTANT")],
+        );
+        let out = gascorr(&ctx).unwrap();
+        assert!(out["RHOB_GC"][0].is_nan() && out["PHIT_GC"][0].is_nan());
     }
 
     #[test]
