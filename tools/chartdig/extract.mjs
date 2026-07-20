@@ -28,6 +28,7 @@ const stack = [];
 let strokeColor = [0, 0, 0];
 let fillColor = [0, 0, 0];
 let lineWidth = 1;
+let dashed = false; // true while a non-empty dash array is set (setDash stroke property)
 
 // current path being constructed (in device space after CTM)
 let path = [];      // array of polylines: [[x,y],[x,y],...]
@@ -89,6 +90,7 @@ function emit(kind) {
       kind,
       color: kind === "fill" ? fillColor.slice() : strokeColor.slice(),
       width: lineWidth,
+      dashed,
       polys: path.map(p => p.map(([x, y]) => [Math.round(x * 100) / 100, Math.round(y * 100) / 100])),
     });
   }
@@ -99,9 +101,10 @@ const fns = opList.fnArray, args = opList.argsArray;
 for (let k = 0; k < fns.length; k++) {
   const fn = fns[k], a = args[k];
   switch (fn) {
-    case OPS.save: stack.push({ ctm: ctm.slice(), strokeColor: strokeColor.slice(), fillColor: fillColor.slice(), lineWidth }); break;
-    case OPS.restore: { const s = stack.pop(); if (s) { ctm = s.ctm; strokeColor = s.strokeColor; fillColor = s.fillColor; lineWidth = s.lineWidth; } break; }
+    case OPS.save: stack.push({ ctm: ctm.slice(), strokeColor: strokeColor.slice(), fillColor: fillColor.slice(), lineWidth, dashed }); break;
+    case OPS.restore: { const s = stack.pop(); if (s) { ctm = s.ctm; strokeColor = s.strokeColor; fillColor = s.fillColor; lineWidth = s.lineWidth; dashed = s.dashed; } break; }
     case OPS.transform: ctm = mul(ctm, a); break;
+    case OPS.setDash: dashed = Array.isArray(a[0]) && a[0].length > 0; break;
     case OPS.setStrokeRGBColor: strokeColor = [a[0], a[1], a[2]]; break;
     case OPS.setFillRGBColor: fillColor = [a[0], a[1], a[2]]; break;
     case OPS.setStrokeGray: strokeColor = [a[0], a[0], a[0]]; break;

@@ -1,0 +1,9 @@
+{
+  "name": "chartdig",
+  "private": true,
+  "type": "module",
+  "description": "Dev-time chartbook curve digitizer — NOT part of the SandiBumi app build. Keeps pdfjs-dist out of the app's dependencies (npm i here resolves locally instead of walking up to the root package.json).",
+  "dependencies": {
+    "pdfjs-dist": "4.10.38"
+  }
+}

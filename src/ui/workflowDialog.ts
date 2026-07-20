@@ -51,6 +51,14 @@ export async function buildWorkflowContent(
   const catalog = await listCurveCatalog().catch(() => [] as CurveCatalogEntry[]);
   const curveNames = catalog.map((c) => c.name);
   const moduleByName = new Map(modules.map((m) => [m.name, m]));
+  // Every module's declared outputs stay selectable as INPUTS even before any run has
+  // written them: chain steps execute in order, so "nphimat then phi_dn(NPHI = NPHI_SS)"
+  // must be expressible in a fresh project whose catalog has no computed curves yet —
+  // the same composability rule MASK_CURVE_SUGGESTIONS applies to the Mask dropdowns.
+  const moduleOutputs = [
+    ...new Set(modules.flatMap((m) => m.args.filter((a) => a.kind === "log_out").map((a) => a.name))),
+  ].filter((n) => !curveNames.includes(n));
+  const inputCurveNames = [...curveNames, ...moduleOutputs];
 
   let steps: ChainStep[] = [];
   // Steps whose parameter editor is expanded — tracked by object reference so it survives
@@ -276,7 +284,7 @@ export async function buildWorkflowContent(
 
   function logInControl(step: ChainStep, arg: ArgSpec, onChanged: () => void): HTMLSelectElement {
     const select = document.createElement("select");
-    const names = curveNames.includes(arg.default) ? curveNames : [arg.default, ...curveNames];
+    const names = inputCurveNames.includes(arg.default) ? inputCurveNames : [arg.default, ...inputCurveNames];
     for (const name of names) {
       const o = document.createElement("option");
       o.value = name;
@@ -555,8 +563,10 @@ export async function buildWorkflowContent(
     if (col.kind === "log_in") {
       // Off-catalog manifest defaults must stay pickable so Set-all can revert every
       // step to its default (which deletes the overrides), same as the per-cell select.
-      const extras = [...new Set([...col.args.values()].map((a) => a.default))].filter((d) => !curveNames.includes(d));
-      values = [...extras, ...curveNames];
+      const extras = [...new Set([...col.args.values()].map((a) => a.default))].filter(
+        (d) => !inputCurveNames.includes(d),
+      );
+      values = [...extras, ...inputCurveNames];
     } else if (col.kind === "mask") values = ["(none)", ...maskCurveNames(curveNames)];
     else {
       // Options only get a set-all control when every step offers the same choices.

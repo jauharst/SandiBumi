@@ -289,15 +289,23 @@ pub(crate) fn fetch_curve_frame(conn: &Connection, well_id: &str, curve_names: &
     let mut columns: HashMap<String, Vec<f32>> = HashMap::new();
     for name in curve_names {
         let upper = name.trim().to_uppercase();
-        let values = match upper.as_str() {
-            "DEPTH" => depth.clone(),
-            "GR" => gr.clone(),
-            "RES_DEEP" => res_deep.clone(),
-            "NPHI" => nphi.clone(),
-            "RHOB" => rhob.clone(),
-            "DT" => dt.clone(),
-            "SP" => sp.clone(),
-            other => fetch_named_curve_aligned(conn, well_id, other, &depth)?,
+        let std_col = match upper.as_str() {
+            "DEPTH" => Some(&depth),
+            "GR" => Some(&gr),
+            "RES_DEEP" => Some(&res_deep),
+            "NPHI" => Some(&nphi),
+            "RHOB" => Some(&rhob),
+            "DT" => Some(&dt),
+            "SP" => Some(&sp),
+            _ => None,
+        };
+        let values = match std_col {
+            Some(col) if upper == "DEPTH" || col.iter().any(|v| !v.is_nan()) => col.clone(),
+            // An all-NaN standard column means the delivery's mnemonics matched no
+            // standard alias at import (e.g. an APS well whose only neutron is APLC):
+            // fall through to computed/generic resolution so the family dictionary
+            // can still find the curve instead of silently feeding NaN to modules.
+            _ => fetch_named_curve_aligned(conn, well_id, &upper, &depth)?,
         };
         columns.insert(upper, values);
     }

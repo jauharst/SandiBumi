@@ -18,6 +18,7 @@ mod modules;
 mod montecarlo;
 mod multimin;
 mod multimin2;
+mod neutron_charts;
 mod parsers;
 #[cfg(test)]
 mod pipeline_blso_test;

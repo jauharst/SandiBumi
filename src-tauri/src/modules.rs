@@ -159,6 +159,7 @@ pub fn list_modules() -> Vec<ModuleSpec> {
         precalc_spec(),
         badhole_spec(),
         condflag_spec(),
+        nphimat_spec(),
         gr_hole_corr_spec(),
         nphi_env_corr_spec(),
         rhob_hole_corr_spec(),
@@ -194,6 +195,7 @@ pub fn run_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, Stri
         "precalc" => Ok(precalc(ctx)),
         "badhole" => Ok(badhole(ctx)),
         "condflag" => Ok(condflag(ctx)),
+        "nphimat" => Ok(nphimat(ctx)),
         "gr_hole_corr" => Ok(gr_hole_corr(ctx)),
         "nphi_env_corr" => Ok(nphi_env_corr(ctx)),
         "rhob_hole_corr" => Ok(rhob_hole_corr(ctx)),
@@ -1066,6 +1068,129 @@ fn condflag(ctx: &ModuleContext) -> ModuleOutputs {
         ("XOVER_FLAG".to_string(), xover),
         ("SHOULDER_FLAG".to_string(), shoulder),
         ("COND_FLAG".to_string(), cond),
+    ])
+}
+
+// ---------------------------------------------------------------------------
+// NPHIMAT — neutron matrix conversion via the chartbook porosity-equivalence
+// curves (Por-5 CNL thermal, Por-4 APS epithermal), digitized at vector
+// precision into neutron_charts.rs.
+// ---------------------------------------------------------------------------
+
+fn nphimat_spec() -> ModuleSpec {
+    ModuleSpec {
+        name: "nphimat".into(),
+        title: "Neutron Matrix Conversion".into(),
+        category: "Prep".into(),
+        doc: "Converts a neutron porosity log recorded in one matrix convention into all \
+              three (NPHI_LS / NPHI_SS / NPHI_DOL), using the chartbook porosity-equivalence \
+              curves: Por-5 for the CNL thermal tools (NPHI ratio method; TNPH \
+              environmentally corrected, with 0 and 250,000 ppm salinity variants) and Por-4 \
+              for the epithermal tools — APLC and FPLC (APS) plus the legacy sidewall SNP. \
+              Limestone units ARE apparent limestone porosity — the chart's x-axis, on which \
+              calcite is the identity — so an SS or DOL input is first inverted back to that \
+              axis, then read out along each matrix curve; the input convention passes \
+              through unchanged. Feed the output whose matrix matches your RHO_MA into \
+              density-neutron work (NPHI_SS with RHO_MA 2.65) — that removes the ~0.04 \
+              limestone-vs-sandstone offset the condflag doc warns about, so XOVER_MIN can \
+              stay at its 0.04 default. SALINITY picks the TNPH curve pair only; the other \
+              tools have a single chart curve. Apply environmental corrections \
+              (nphi_env_corr) before converting — the charts assume corrected logs. The \
+              limestone axis and dolomite curves are digitized to about -0.02..0.40; the \
+              sandstone curves leave the chart top at 40 pu true porosity (~0.32-0.36 \
+              apparent limestone), and beyond the data every curve is extended linearly on \
+              its end segment. Note NPHI_LS is also a common raw-log mnemonic: after a run, \
+              by-name lookups resolve the computed version first (the raw log keeps its \
+              provenance in the Curve Catalog)."
+            .into(),
+        args: vec![
+            opt(
+                "TOOL",
+                "Neutron measurement the log comes from (TNPH/NPHI: CNL thermal, Por-5; APLC/FPLC: APS epithermal and SNP: sidewall neutron, Por-4)",
+                "TNPH",
+                &["TNPH", "NPHI", "APLC", "FPLC", "SNP"],
+            ),
+            opt(
+                "SALINITY",
+                "Formation salinity (TNPH curves only; SALT_250K = 250,000 ppm)",
+                "FRESH",
+                &["FRESH", "SALT_250K"],
+            ),
+            opt("MATRIX_IN", "Matrix convention the input log is recorded in", "LS", &["LS", "SS", "DOL"]),
+            log_in("NPHI", "Neutron porosity log (v/v, in MATRIX_IN units)", "v/v", "NPHI", true),
+            log_out("NPHI_LS", "Neutron porosity, limestone units (apparent limestone)", "v/v"),
+            log_out("NPHI_SS", "Neutron porosity, quartz sandstone units", "v/v"),
+            log_out("NPHI_DOL", "Neutron porosity, dolomite units", "v/v"),
+        ],
+    }
+}
+
+/// Piecewise-linear read of a digitized chart curve (strictly increasing in both
+/// coordinates). `inverse` swaps the axes — true porosity back to apparent
+/// limestone. Outside the tabulated span the end segment's slope is extended.
+fn chart_lerp(table: &[(f32, f32)], v: f64, inverse: bool) -> f64 {
+    let at = |i: usize| -> (f64, f64) {
+        let (x, y) = table[i];
+        if inverse { (y as f64, x as f64) } else { (x as f64, y as f64) }
+    };
+    let seg = |i0: usize, i1: usize| -> f64 {
+        let (x0, y0) = at(i0);
+        let (x1, y1) = at(i1);
+        y0 + (v - x0) * (y1 - y0) / (x1 - x0)
+    };
+    if v <= at(0).0 {
+        return seg(0, 1);
+    }
+    for i in 1..table.len() {
+        if v <= at(i).0 {
+            return seg(i - 1, i);
+        }
+    }
+    seg(table.len() - 2, table.len() - 1)
+}
+
+/// The (sandstone, dolomite) chart tables for a tool choice.
+fn nphimat_tables(tool: &str, salt: bool) -> (&'static [(f32, f32)], &'static [(f32, f32)]) {
+    use crate::neutron_charts as nc;
+    match tool {
+        "NPHI" => (nc::CNL_NPHI_SS, nc::CNL_NPHI_DOL),
+        "APLC" => (nc::APS_APLC_SS, nc::APS_APLC_DOL),
+        "FPLC" => (nc::APS_FPLC_SS, nc::APS_FPLC_DOL),
+        "SNP" => (nc::SNP_SS, nc::SNP_DOL),
+        _ if salt => (nc::CNL_TNPH_SALT_SS, nc::CNL_TNPH_SALT_DOL),
+        _ => (nc::CNL_TNPH_FRESH_SS, nc::CNL_TNPH_FRESH_DOL),
+    }
+}
+
+fn nphimat(ctx: &ModuleContext) -> ModuleOutputs {
+    let np = ctx.log("NPHI");
+    let (t_ss, t_dol) = nphimat_tables(ctx.o("TOOL"), ctx.o("SALINITY") == "SALT_250K");
+    let matrix_in = ctx.o("MATRIX_IN");
+
+    let mut ls = vec![f32::NAN; ctx.n];
+    let mut ss = vec![f32::NAN; ctx.n];
+    let mut dol = vec![f32::NAN; ctx.n];
+    for i in 0..ctx.n {
+        let v = np[i] as f64;
+        if is_missing(v) {
+            continue;
+        }
+        let app = match matrix_in {
+            "SS" => chart_lerp(t_ss, v, true),
+            "DOL" => chart_lerp(t_dol, v, true),
+            _ => v,
+        };
+        // The input convention is copied through untouched — a chart round trip
+        // would only add interpolation noise to values we already have.
+        ls[i] = if matrix_in == "SS" || matrix_in == "DOL" { app as f32 } else { np[i] };
+        ss[i] = if matrix_in == "SS" { np[i] } else { chart_lerp(t_ss, app, false) as f32 };
+        dol[i] = if matrix_in == "DOL" { np[i] } else { chart_lerp(t_dol, app, false) as f32 };
+    }
+
+    HashMap::from([
+        ("NPHI_LS".to_string(), ls),
+        ("NPHI_SS".to_string(), ss),
+        ("NPHI_DOL".to_string(), dol),
     ])
 }
 
@@ -2595,6 +2720,122 @@ mod tests {
         assert_eq!(out["COAL_FLAG"][0], 1.0, "coal needs no DPHI and still works");
         assert!(out["TIGHT_FLAG"][1].is_nan(), "degenerate RHO_MA/RHO_FL -> no tight call");
         assert!(out["XOVER_FLAG"][1].is_nan(), "degenerate RHO_MA/RHO_FL -> no crossover call");
+    }
+
+    #[test]
+    fn nphimat_tables_are_strictly_monotone() {
+        // chart_lerp inverts the tables, so both coordinates must strictly
+        // increase — this guards regressions in the generated neutron_charts.rs.
+        use crate::neutron_charts as nc;
+        for (name, t) in [
+            ("CNL_NPHI_SS", nc::CNL_NPHI_SS),
+            ("CNL_NPHI_DOL", nc::CNL_NPHI_DOL),
+            ("CNL_TNPH_FRESH_SS", nc::CNL_TNPH_FRESH_SS),
+            ("CNL_TNPH_FRESH_DOL", nc::CNL_TNPH_FRESH_DOL),
+            ("CNL_TNPH_SALT_SS", nc::CNL_TNPH_SALT_SS),
+            ("CNL_TNPH_SALT_DOL", nc::CNL_TNPH_SALT_DOL),
+            ("APS_APLC_SS", nc::APS_APLC_SS),
+            ("APS_APLC_DOL", nc::APS_APLC_DOL),
+            ("APS_FPLC_SS", nc::APS_FPLC_SS),
+            ("APS_FPLC_DOL", nc::APS_FPLC_DOL),
+            ("SNP_SS", nc::SNP_SS),
+            ("SNP_DOL", nc::SNP_DOL),
+        ] {
+            assert!(t.len() >= 40, "{name}: only {} points", t.len());
+            for w in t.windows(2) {
+                assert!(
+                    w[1].0 > w[0].0 && w[1].1 > w[0].1,
+                    "{name}: not strictly increasing at x={}",
+                    w[1].0
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn nphimat_reproduces_por5_worked_example() {
+        // Printed on Por-5: quartz sandstone, TNPH = 18 pu apparent limestone,
+        // formation salinity 250,000 ppm -> sandstone porosity 24 pu.
+        let ctx = ctx_with(
+            2,
+            &[("NPHI", vec![0.18, f32::NAN])],
+            &[],
+            &[("TOOL", "TNPH"), ("SALINITY", "SALT_250K"), ("MATRIX_IN", "LS")],
+        );
+        let out = nphimat(&ctx);
+        assert_eq!(out["NPHI_LS"][0], 0.18, "input convention passes through untouched");
+        assert!((out["NPHI_SS"][0] - 0.24).abs() < 0.006, "book says 24 pu, got {}", out["NPHI_SS"][0]);
+        assert!(out["NPHI_DOL"][0] < 0.18, "dolomite reads below limestone");
+        for k in ["NPHI_LS", "NPHI_SS", "NPHI_DOL"] {
+            assert!(out[k][1].is_nan(), "{k}: missing input stays missing");
+        }
+    }
+
+    #[test]
+    fn nphimat_round_trip_ss_back_to_ls() {
+        // Inverse direction: a sandstone-unit log at the digitized SS reading for
+        // 18 pu apparent limestone must come back to 0.18 on the limestone axis.
+        let ctx = ctx_with(
+            1,
+            &[("NPHI", vec![0.2396])],
+            &[],
+            &[("TOOL", "TNPH"), ("SALINITY", "SALT_250K"), ("MATRIX_IN", "SS")],
+        );
+        let out = nphimat(&ctx);
+        assert_eq!(out["NPHI_SS"][0], 0.2396, "input convention passes through untouched");
+        assert!((out["NPHI_LS"][0] - 0.18).abs() < 1e-4, "got {}", out["NPHI_LS"][0]);
+    }
+
+    #[test]
+    fn nphimat_thermal_dolomite_bow_and_salinity_scope() {
+        // CNL ratio-method NPHI: the big thermal dolomite effect — 20 pu apparent
+        // limestone reads ~11.8 pu in dolomite (digitized table nodes).
+        let opts: &[(&str, &str)] = &[("TOOL", "NPHI"), ("SALINITY", "FRESH"), ("MATRIX_IN", "LS")];
+        let ctx = ctx_with(1, &[("NPHI", vec![0.20])], &[], opts);
+        let out = nphimat(&ctx);
+        assert!((out["NPHI_DOL"][0] - 0.1181).abs() < 2e-4, "got {}", out["NPHI_DOL"][0]);
+        assert!((out["NPHI_SS"][0] - 0.2460).abs() < 2e-4, "got {}", out["NPHI_SS"][0]);
+        // SALINITY only selects between TNPH curve pairs — other tools ignore it.
+        let ctx_salt = ctx_with(
+            1,
+            &[("NPHI", vec![0.20])],
+            &[],
+            &[("TOOL", "NPHI"), ("SALINITY", "SALT_250K"), ("MATRIX_IN", "LS")],
+        );
+        assert_eq!(nphimat(&ctx_salt)["NPHI_DOL"][0], out["NPHI_DOL"][0]);
+    }
+
+    #[test]
+    fn nphimat_dolomite_input_inverts_through_the_chart() {
+        let ctx = ctx_with(
+            1,
+            &[("NPHI", vec![0.05])],
+            &[],
+            &[("TOOL", "NPHI"), ("SALINITY", "FRESH"), ("MATRIX_IN", "DOL")],
+        );
+        let out = nphimat(&ctx);
+        assert_eq!(out["NPHI_DOL"][0], 0.05, "input convention passes through untouched");
+        // The recovered apparent limestone must land back on the dolomite curve...
+        let back = chart_lerp(crate::neutron_charts::CNL_NPHI_DOL, out["NPHI_LS"][0] as f64, false);
+        assert!((back - 0.05).abs() < 1e-6, "inverse then forward must close ({back})");
+        // ...and sit above the dolomite value (dolomite reads low on the chart).
+        assert!(out["NPHI_LS"][0] > 0.05 && out["NPHI_SS"][0] > out["NPHI_LS"][0]);
+    }
+
+    #[test]
+    fn nphimat_extends_beyond_the_chart_span() {
+        // 45 pu apparent limestone is past the digitized span — the conversion
+        // continues on the end-segment slope instead of clamping or blanking.
+        let ctx = ctx_with(
+            1,
+            &[("NPHI", vec![0.45])],
+            &[],
+            &[("TOOL", "TNPH"), ("SALINITY", "FRESH"), ("MATRIX_IN", "LS")],
+        );
+        let out = nphimat(&ctx);
+        let t = crate::neutron_charts::CNL_TNPH_FRESH_SS;
+        assert!(out["NPHI_SS"][0] > t[t.len() - 1].1, "extends past the last table node");
+        assert!(out["NPHI_SS"][0] < 0.60, "with a sane end-segment slope");
     }
 
     #[test]

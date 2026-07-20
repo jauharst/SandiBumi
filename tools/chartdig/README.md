@@ -2,18 +2,23 @@
 
 Extracts chart curves from the Schlumberger Log Interpretation Charts 2013 PDF at
 vector precision. Produces `src/ui/chartOverlays.ts` (GENERATED — 19 chart defs as of
-2026-07-20: D-N Por-11..19, PEF Lith-3/4, sonic Por-20/22, Lith-1/2/6). The PDF itself
-is copyrighted and NOT in the repo (reference machine:
-`D:\01. Work\00. Guidebook\chartbook.pdf`); it is only needed to digitize NEW charts.
+2026-07-20: D-N Por-11..19, PEF Lith-3/4, sonic Por-20/22, Lith-1/2/6) and
+`src-tauri/src/neutron_charts.rs` (GENERATED — Por-4/Por-5 neutron matrix equivalence
+tables for the `nphimat` module). The PDF itself is copyrighted and NOT in the repo
+(reference machine: `D:\01. Work\00. Guidebook\chartbook.pdf`); it is only needed to
+digitize NEW charts. Page-extract JSONs (`p*.json`) are working files — regenerate
+them from the PDF, don't commit them.
 
 ## Usage
 
 ```powershell
-npm install pdfjs-dist@4.10.38          # one-off, in this folder
+npm install                             # one-off, in this folder (local package.json —
+                                        # keeps pdfjs-dist out of the app's dependencies)
 node extract.mjs 237 por11.json         # PDF page -> stroked vector paths + text (with CTM applied)
 node gen_dn.mjs                         # D-N family (Por-11..19) from page JSONs
 node gen_por20.mjs / gen_por22.mjs / gen_lith1.mjs / gen_lith2.mjs / gen_lith6.mjs
 node assemble.mjs                       # merge gen outputs -> src/ui/chartOverlays.ts
+node gen_por45.mjs                      # Por-4/5 (needs p228.json/p229.json) -> neutron_charts.rs
 ```
 
 (`analyze7.mjs` is the original single-chart Por-11/12 pipeline, kept as the

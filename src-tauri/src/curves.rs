@@ -26,7 +26,7 @@ pub const FAMILIES: &[FamilySpec] = &[
     FamilySpec { family: "RHOB", canonical_unit: "g/cc", aliases: &["RHOB", "RHOZ", "RHOBED", "DEN", "ZDEN", "ROBB", "SBD2"] },
     FamilySpec { family: "DRHO", canonical_unit: "g/cc", aliases: &["DRHO", "HDRA", "ZCOR", "DCOR"] },
     FamilySpec { family: "PEF", canonical_unit: "b/e", aliases: &["PEF", "PE", "PEFZ", "PEB", "PDPE"] },
-    FamilySpec { family: "NPHI", canonical_unit: "v/v", aliases: &["NPHI", "TNPH", "NPHIED", "NPHI_LS", "NPOR", "NEUT", "APLC", "HNPO", "FSTP"] },
+    FamilySpec { family: "NPHI", canonical_unit: "v/v", aliases: &["NPHI", "TNPH", "NPHIED", "NPHI_LS", "NPOR", "NEUT", "APLC", "FPLC", "SNP", "HNPO", "FSTP"] },
     FamilySpec { family: "DT", canonical_unit: "us/ft", aliases: &["DT", "DTC", "DTCO", "AC", "DT24", "DTP", "DTCOMP"] },
     FamilySpec { family: "DTS", canonical_unit: "us/ft", aliases: &["DTS", "DTSM", "DTSH", "DTSHEAR", "DT_S"] },
     // Resistivity: deep first, then medium/shallow/micro so the primary Rt wins the "RES" bucket.

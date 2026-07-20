@@ -6,6 +6,38 @@ Work through this list when you have time; delete items as you confirm them.
 Marks: `[o]` confirmed OK (removed from this file), `[x]` confirmed wrong → logged in
 **ROADMAP.md §4 (Field-review backlog)**, `[ ]` not yet tested.
 
+## Neutron Matrix Conversion module — NPHI LS/SS/DOL (2026-07-20 #21)
+
+New Prep module **Neutron Matrix Conversion** (`nphimat`) in the Data Prep dropdown
+and workflow builder (your request 2026-07-20). Converts a neutron log recorded in
+one matrix convention into all three — **NPHI_LS / NPHI_SS / NPHI_DOL** — using the
+chartbook porosity-equivalence curves digitized at vector precision: **Por-5** for
+the CNL thermal tools (**NPHI** ratio method; **TNPH** env-corrected, FRESH / 250 kppm
+SALT variants) and **Por-4** for the epithermal tools (**APLC/FPLC** = APS, **SNP** =
+legacy sidewall). Tell it what the log is (TOOL + MATRIX_IN); the input convention
+passes through unchanged and the other two are read through the chart (SS/DOL inputs
+invert back to the apparent-limestone axis first). The book's printed worked example
+(TNPH 18 pu @ 250 kppm → sandstone 24 pu) reproduces to 0.04 pu. Feed the output
+matching your RHO_MA (NPHI_SS with 2.65) — that removes the ~0.04 LS-vs-SS offset the
+condflag doc warns about, so XOVER_MIN can stay at 0.04. Also in this increment:
+APS/legacy neutron mnemonics (APLC/FPLC/SNP/NPOR/HNPO/NEUT/FSTP) now fill the
+standard NPHI column at LAS import, an all-NaN standard column now falls back to the
+raw store (family alias) instead of silently feeding NaN to modules, and workflow-
+builder input dropdowns now offer every module's outputs so `nphimat → phi_dn
+(NPHI = NPHI_SS)` is buildable in a fresh project.
+
+- [ ] Run nphimat on a Mahakam well (TOOL matching the delivery, MATRIX_IN per the
+      LAS header — usually LS or SS): NPHI_SS ≈ NPHI_LS + 0.03-0.04 in clean sand,
+      NPHI_DOL well below both (thermal dolomite bow).
+- [ ] Sanity vs the paper chart: pick one depth, read Por-5 by hand, compare all
+      three outputs (expect agreement within ~0.5 pu).
+- [ ] Feed NPHI_SS + RHO_MA 2.65 into phi_dn / condflag: crossover in a known gas
+      sand appears at XOVER_MIN 0.04 without the limestone-unit offset fudge.
+- [ ] Workflow builder in a fresh project: chain nphimat → phi_dn with the NPHI
+      input overridden to NPHI_SS (now offered in the dropdown before any run).
+- [ ] If you have an APS well (APLC): import fills NPHI now — check the curve
+      arrives and nphimat TOOL=APLC gives sensible (small) matrix shifts.
+
 ## Data Conditioning Flags module — coal / tight / crossover + shoulder (2026-07-20 #20)
 
 New Prep module **Data Conditioning Flags** (`condflag`) in the Data Prep dropdown

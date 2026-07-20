@@ -98,7 +98,11 @@ enum LasSection {
 const DEPTH_ALIASES: [&str; 2] = ["DEPT", "DEPTH"];
 const GR_ALIASES: [&str; 2] = ["GR", "GRN"];
 const RES_ALIASES: [&str; 8] = ["RES_DEEP", "RESD", "RT", "RES", "DRES", "ILD", "LLD", "AT90"];
-const NPHI_ALIASES: [&str; 4] = ["NPHI", "TNPH", "NPHIED", "NPHI_LS"];
+// Thermal (CNL-family) names lead so they win ties over epithermal/legacy tools;
+// APS (APLC/FPLC) and sidewall (SNP) deliveries previously matched nothing and left
+// the standard NPHI column all-NaN even though the curve was imported.
+const NPHI_ALIASES: [&str; 11] =
+    ["NPHI", "TNPH", "NPHIED", "NPHI_LS", "NPOR", "APLC", "HNPO", "NEUT", "FSTP", "FPLC", "SNP"];
 const RHOB_ALIASES: [&str; 3] = ["RHOB", "RHOZ", "RHOBED"];
 const DT_ALIASES: [&str; 5] = ["DT", "DTC", "DTCO", "AC", "DT24"];
 const SP_ALIASES: [&str; 3] = ["SP", "SPC", "SPR"];

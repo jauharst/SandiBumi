@@ -925,6 +925,25 @@ client files stay OUT of the repo):**
       mask themselves but don't dilate, degenerate RHO_MA≤RHO_FL guard, NPHI
       matrix-units + Mask-on-condflag-run doc caveats, BADHOLE/COND_FLAG always
       offered in Mask dropdowns (fresh-project chain composable).)*
+- [x] **(24) Neutron matrix conversion module** (Jauhar request 2026-07-20, mid-Wave-E):
+      convert NPHI between limestone / sandstone / dolomite recording conventions.
+      *(DONE 2026-07-20: `nphimat` Prep module — chartbook Por-5 (CNL thermal: NPHI
+      ratio + TNPH fresh/250 kppm salt) and Por-4 (epithermal: APS APLC/FPLC + legacy
+      sidewall SNP) digitized at vector precision into `neutron_charts.rs` (12 tables,
+      generator `tools/chartdig/gen_por45.mjs` with hard gates: grid rms, identity
+      bias/scatter split, strict monotone, Por-4 APLC/FPLC physics identity, Por-5
+      printed worked example 23.96 vs book 24). Module pivots through the
+      apparent-limestone axis, passes the input convention through, outputs
+      NPHI_LS/NPHI_SS/NPHI_DOL; 6 unit tests. Adversarial review: 13 findings raised,
+      8 confirmed → fixed: APS/legacy mnemonics (APLC/FPLC/SNP/NPOR/HNPO/NEUT/FSTP)
+      added to parsers.rs NPHI aliases + curves.rs family; all-NaN standard column in
+      fetch_curve_frame now falls back to computed/generic resolution (APS wells no
+      longer silently all-NaN); workflow-builder log_in dropdowns offer every module's
+      log_out names (fresh-project nphimat→phi_dn chain composable); SNP no longer
+      mislabeled as APS; doc states the true SS digitized span (~0.32-0.36 apparent)
+      and the NPHI_LS computed-vs-raw shadowing rule; generator gates hardened.
+      Residual idea parked: make a required module input that resolves all-NaN a
+      per-well run error instead of a silent success.)*
 
 ## 5. Standing advantages to protect
 
