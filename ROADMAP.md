@@ -736,7 +736,10 @@ sign-off**, in addition to the usual cargo test / tsc / browser checks.
 
 **Wave A — UI foundation (do first: every new suite below should be born into this
 architecture, not ported later):**
-- [ ] **(14) Tools as panes, not popups + theme compliance.** Theme fixes first
+- [ ] **(14) Tools as panes, not popups + theme compliance.** _(2026-07-20: theme
+      fixes + easy-4 ports done — paysummary/ml/montecarlo/multimin are panes,
+      modal leak fixed; remaining: zones, wellGroups, composite, report,
+      moduleDialog, autoCorr.)_ Theme fixes first
       (independent, low-risk): kill phantom CSS vars (`--danger/--muted/--panel-2/
       --surface-2/--bg-subtle` always render fallbacks), re-skin `.cursor-readout` +
       `.workflow-invalid`, replace hard-coded `#b5651d/#5f7350/#888/#999` in
