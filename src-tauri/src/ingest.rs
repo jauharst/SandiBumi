@@ -336,7 +336,7 @@ pub fn import_locations_file(
         unmatched_wells: vec![],
         error: Some(e),
     };
-    let records = match parsers::parse_locations_file(path) {
+    let (has_well_column, records) = match parsers::parse_locations_file(path) {
         Ok(r) => r,
         Err(e) => return fail(e.to_string()),
     };
@@ -359,8 +359,14 @@ pub fn import_locations_file(
         }
     }
 
+    // All-or-nothing: a mid-file DB error must not leave some wells relocated and others not
+    // (which would otherwise report wells_located = 0 while rows are already persisted).
+    if let Err(e) = conn.execute_batch("BEGIN") {
+        return fail(e.to_string());
+    }
     let mut located: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut unmatched: Vec<String> = Vec::new();
+    let mut blank_rows = 0usize;
     for rec in &records {
         let well_id = match &rec.well {
             Some(name) => match name_to_id.get(&name.trim().to_uppercase()) {
@@ -373,16 +379,36 @@ pub fn import_locations_file(
                     continue;
                 }
             },
+            // File HAS a WELL column but this row's cell is blank/ragged — a dropped row, not
+            // a single-well file. Skip it; misrouting it to the selected well would silently
+            // overwrite an unrelated well's real surface location.
+            None if has_well_column => {
+                blank_rows += 1;
+                continue;
+            }
+            // Genuinely column-less (single-well) file → the dialog's selected well.
             None => match default_well_id {
                 Some(id) => id.to_string(),
-                None => return fail("file has no WELL column — select a well first".into()),
+                None => {
+                    let _ = conn.execute_batch("ROLLBACK");
+                    return fail("file has no WELL column — select a well first".into());
+                }
             },
         };
         let zone = rec.zone.as_deref().or(default_zone);
         if let Err(e) = db::set_well_location(conn, &well_id, Some(rec.x), Some(rec.y), zone) {
+            let _ = conn.execute_batch("ROLLBACK");
             return fail(e.to_string());
         }
         located.insert(well_id);
+    }
+    if let Err(e) = conn.execute_batch("COMMIT") {
+        let _ = conn.execute_batch("ROLLBACK");
+        return fail(e.to_string());
+    }
+    // Surface dropped blank-WELL rows so the skip is never silent.
+    if blank_rows > 0 {
+        unmatched.push(format!("{blank_rows} blank-WELL row(s)"));
     }
     LocationsImportResult {
         path: path.to_string(),
@@ -578,6 +604,113 @@ mod tests {
         assert!((path[1].tvd - 1000.0).abs() < 1e-2, "vertical section TVD == MD");
         assert!(path[2].tvd < path[2].md, "deviated station TVD shallower than MD");
         assert!((path[1].tvdss - (25.0 - 1000.0)).abs() < 1e-2, "TVDSS = datum - TVD");
+    }
+
+    /// Well-locations CSV: alias-resolved EASTING/NORTHING/ZONE headers, name→well match,
+    /// per-row zone overriding the dialog default, unmatched names reported, and re-import
+    /// overwriting a previous fix.
+    #[test]
+    fn locations_import_matches_zones_and_overwrites() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        db::insert_well(&conn, a, "MHK-1", Some("Mahakam"), None, None).unwrap();
+        db::insert_well(&conn, b, "MHK-2", Some("Mahakam"), None, None).unwrap();
+
+        // MHK-1 carries its own zone column value; MHK-2's is blank → dialog default; the
+        // third row's well isn't in the project → unmatched. Southern-hemisphere northings.
+        let path = std::env::temp_dir().join(format!("arshilla_loc_{a}.csv"));
+        std::fs::write(
+            &path,
+            "WELL,EASTING,NORTHING,ZONE\nMHK-1,485000.0,9450000.0,50S\nMHK-2,486200.5,9451750.0,\nGHOST,1,2,50S\n",
+        )
+        .unwrap();
+
+        let res = import_locations_file(&conn, None, Some("50M"), path.to_str().unwrap());
+        assert!(res.error.is_none(), "{:?}", res.error);
+        assert_eq!(res.wells_located, 2);
+        assert_eq!(res.unmatched_wells, vec!["GHOST".to_string()]);
+
+        let read = |id: &Uuid| -> (f64, f64, String) {
+            conn.query_row(
+                "SELECT surface_x, surface_y, utm_zone FROM wells WHERE well_id = ?1",
+                params![id.to_string()],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get::<_, String>(2)?)),
+            )
+            .unwrap()
+        };
+        let (x1, y1, z1) = read(&a);
+        assert!((x1 - 485000.0).abs() < 1e-6 && (y1 - 9450000.0).abs() < 1e-6);
+        assert_eq!(z1, "50S", "explicit ZONE cell wins");
+        let (_, _, z2) = read(&b);
+        assert_eq!(z2, "50M", "blank ZONE cell falls back to the dialog default");
+
+        // Re-import with a new easting overwrites rather than erroring or duplicating.
+        std::fs::write(&path, "WELL,X,Y\nMHK-1,490000.0,9460000.0\n").unwrap();
+        let res2 = import_locations_file(&conn, None, Some("50S"), path.to_str().unwrap());
+        assert!(res2.error.is_none());
+        assert_eq!(res2.wells_located, 1);
+        let (x1b, _, _) = read(&a);
+        assert!((x1b - 490000.0).abs() < 1e-6, "re-import overwrote the location");
+        std::fs::remove_file(&path).ok();
+
+        // A file with no X/Y column fails cleanly.
+        let bad = std::env::temp_dir().join(format!("arshilla_loc_bad_{a}.csv"));
+        std::fs::write(&bad, "WELL,DEPTH\nMHK-1,1000\n").unwrap();
+        let res3 = import_locations_file(&conn, None, None, bad.to_str().unwrap());
+        assert!(res3.error.is_some(), "missing coordinate columns must error");
+        std::fs::remove_file(&bad).ok();
+    }
+
+    /// A blank WELL cell in a multi-well file must NOT be routed to the selected well (that
+    /// would silently corrupt an unrelated well's surface location) — it is skipped and
+    /// surfaced. The headerless single-well fallback must still route to the selected well.
+    #[test]
+    fn locations_import_skips_blank_well_cell_not_default() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        db::insert_well(&conn, a, "MHK-1", Some("Mahakam"), None, None).unwrap();
+        db::insert_well(&conn, b, "MHK-2", Some("Mahakam"), None, None).unwrap();
+
+        // Multi-well file (HAS a WELL column) whose 2nd row's WELL cell is blank but carries
+        // valid coordinates. MHK-1 is "selected" (default_well_id = a); the blank row must
+        // not overwrite MHK-1 — MHK-1 never appears in the file.
+        let path = std::env::temp_dir().join(format!("arshilla_locblank_{a}.csv"));
+        std::fs::write(&path, "WELL,EASTING,NORTHING\nMHK-2,486000.0,9451000.0\n,999999.0,888888.0\n").unwrap();
+        let res = import_locations_file(&conn, Some(&a.to_string()), Some("50S"), path.to_str().unwrap());
+        std::fs::remove_file(&path).ok();
+
+        assert!(res.error.is_none(), "{:?}", res.error);
+        assert_eq!(res.wells_located, 1, "only MHK-2 located; the blank row is skipped, not routed to MHK-1");
+        assert!(
+            res.unmatched_wells.iter().any(|s| s.contains("blank")),
+            "blank row must be surfaced, got {:?}",
+            res.unmatched_wells
+        );
+        let x1: Option<f64> = conn
+            .query_row("SELECT surface_x FROM wells WHERE well_id = ?1", params![a.to_string()], |r| r.get(0))
+            .unwrap();
+        assert!(x1.is_none(), "selected well must be untouched by a blank-WELL row, got {x1:?}");
+        let x2: f64 = conn
+            .query_row("SELECT surface_x FROM wells WHERE well_id = ?1", params![b.to_string()], |r| r.get(0))
+            .unwrap();
+        assert!((x2 - 486000.0).abs() < 1e-6, "MHK-2 located from its named row");
+
+        // A genuinely headerless (no WELL column) single-well file still routes to the
+        // selected well — the fallback the fix must NOT break.
+        let path2 = std::env::temp_dir().join(format!("arshilla_locnohdr_{a}.csv"));
+        std::fs::write(&path2, "EASTING,NORTHING\n500000.0,9400000.0\n").unwrap();
+        let res2 = import_locations_file(&conn, Some(&a.to_string()), Some("50S"), path2.to_str().unwrap());
+        std::fs::remove_file(&path2).ok();
+        assert!(res2.error.is_none(), "{:?}", res2.error);
+        assert_eq!(res2.wells_located, 1, "headerless file routes to the selected well");
+        let x1b: f64 = conn
+            .query_row("SELECT surface_x FROM wells WHERE well_id = ?1", params![a.to_string()], |r| r.get(0))
+            .unwrap();
+        assert!((x1b - 500000.0).abs() < 1e-6, "selected well located from the headerless file");
     }
 
     /// SCAL Pc CSV import: alias headers, percent Sw/poro detection, replace-on-reimport,

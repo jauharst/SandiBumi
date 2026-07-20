@@ -209,6 +209,7 @@ export class Workspace {
       ["New Correlation", () => this.openPlot("correlation", group)],
       "sep",
       ["Field Dashboard", () => this.openDashboard(group)],
+      ["Field Map", () => this.openMap(group)],
       ["Workflow Builder", () => this.openWorkflow(group)],
       ["Cutoffs & Pay Summary", () => this.openPaySummary(group)],
       ["Cutoff Sensitivity", () => this.openCutoff(group)],
@@ -292,6 +293,12 @@ export class Workspace {
         });
       case "dashboard":
         return this.asyncPane("dock-dashboard", () => buildDashboardContent(setStatus), "dashboard");
+      case "map":
+        return this.asyncPane(
+          "dock-map",
+          () => import("./mapPanel").then((m) => m.buildMapContent(setStatus)),
+          "field map",
+        );
       case "workflow":
         return this.asyncPane(
           "dock-workflow",
@@ -597,6 +604,8 @@ export class Workspace {
       items.push({ heading: "Database Inspector" }, { label: "Refresh", onClick: () => bumpDataVersion() });
     } else if (kind === "dashboard") {
       items.push({ heading: "Field Dashboard" });
+    } else if (kind === "map") {
+      items.push({ heading: "Field Map" }, { label: "Refresh", onClick: () => bumpDataVersion() });
     } else if (kind === "workflow") {
       items.push({ heading: "Workflow Builder" });
     } else if (kind === "paysummary") {
@@ -923,6 +932,10 @@ export class Workspace {
 
   openDashboard(group?: DockviewGroupPanel): void {
     this.openSingleton("dashboard", "dashboard", "Field Dashboard", group);
+  }
+
+  openMap(group?: DockviewGroupPanel): void {
+    this.openSingleton("map", "map", "Field Map", group);
   }
 
   openWorkflow(group?: DockviewGroupPanel): void {

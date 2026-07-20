@@ -189,7 +189,10 @@ mod tests {
         let b = tmp.join("beta.duckdb");
         let conn_a = db::init_db_resilient(a.to_str().unwrap()).unwrap();
         conn_a
-            .execute_batch("INSERT INTO wells VALUES (gen_random_uuid(), 'WELL-A', NULL, NULL, NULL);")
+            .execute_batch(
+                "INSERT INTO wells (well_id, well_name, field_name, td, kb) \
+                 VALUES (gen_random_uuid(), 'WELL-A', NULL, NULL, NULL);",
+            )
             .unwrap();
         drop(conn_a);
         register_recent(a.to_str().unwrap());

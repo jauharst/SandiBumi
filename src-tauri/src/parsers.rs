@@ -862,9 +862,12 @@ pub fn parse_tops_file<P: AsRef<Path>>(path: P) -> ParseResult<Vec<TopsRecord>> 
     Ok(out)
 }
 
-/// One well-surface-location row. `well` is None when the file has no well column
-/// (single-well export) — the importer falls back to the selected well. `zone` is None
-/// when the file has no zone column, letting the importer apply a dialog-picked default.
+/// One well-surface-location row. `well` is None when this row carries no well name —
+/// either the file has no WELL column at all (single-well export), or it has one but this
+/// row's cell is blank/ragged. `parse_locations_file` returns a separate `has_well_column`
+/// flag so the importer can tell those apart (fall back to the selected well only for a
+/// genuinely column-less file; skip a blank cell in a multi-well file). `zone` is None when
+/// the file has no zone column, letting the importer apply a dialog-picked default.
 #[derive(Debug, Clone)]
 pub struct LocationRecord {
     pub well: Option<String>,
@@ -884,8 +887,10 @@ const LOC_ZONE_ALIASES: [&str; 4] = ["UTM_ZONE", "UTMZONE", "GRID_ZONE", "ZONE"]
 /// Parses a well-surface-location file (CSV/TXT). Needs recognizable easting and northing
 /// columns; a WELL column makes it multi-well; an optional ZONE column carries a per-well
 /// UTM zone (the importer supplies a default for rows/files without one). Rows whose X or
-/// Y is missing or non-numeric are skipped.
-pub fn parse_locations_file<P: AsRef<Path>>(path: P) -> ParseResult<Vec<LocationRecord>> {
+/// Y is missing or non-numeric are skipped. Returns `(has_well_column, records)` — the flag
+/// lets the importer distinguish a headerless single-well file from a multi-well file with a
+/// blank WELL cell (both yield `record.well == None`).
+pub fn parse_locations_file<P: AsRef<Path>>(path: P) -> ParseResult<(bool, Vec<LocationRecord>)> {
     let (headers, rows) = read_delimited(path)?;
     if headers.is_empty() {
         return Err(ParseError::Las("locations file is empty".into()));
@@ -919,7 +924,7 @@ pub fn parse_locations_file<P: AsRef<Path>>(path: P) -> ParseResult<Vec<Location
     if out.is_empty() {
         return Err(ParseError::Las("locations file has no parsable rows".into()));
     }
-    Ok(out)
+    Ok((idx_well.is_some(), out))
 }
 
 /// A generic point/interval dataset (petrography, XRD, perforations): TOP (+optional

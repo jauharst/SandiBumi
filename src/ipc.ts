@@ -45,10 +45,39 @@ export interface WellSummary {
   well_id: string;
   well_name: string;
   field_name: string | null;
+  /** Surface easting/northing (UTM metres) and zone label for the Field Map; null until
+   *  a location is imported or entered in the well header. */
+  surface_x?: number | null;
+  surface_y?: number | null;
+  utm_zone?: string | null;
 }
 
 export function listWells(): Promise<WellSummary[]> {
   return invoke<WellSummary[]>("list_wells");
+}
+
+export interface LocationsImportResult {
+  path: string;
+  wells_located: number;
+  unmatched_wells: string[];
+  error: string | null;
+}
+
+/** Imports well surface locations from a CSV/TXT. Multi-well files (a WELL column) match
+ *  by name; single-well files use `defaultWellId`. `defaultZone` fills the UTM zone for
+ *  rows without a ZONE column. */
+export function importWellLocations(
+  defaultWellId: string | null,
+  defaultZone: string | null,
+  path: string,
+): Promise<LocationsImportResult> {
+  return invoke<LocationsImportResult>("import_well_locations", { defaultWellId, defaultZone, path });
+}
+
+/** Wells whose surface location falls inside `polygon` (ordered [x, y] UTM-metre ring) —
+ *  the authoritative hit test behind assigning a map polygon to a well group. */
+export function wellsInPolygon(polygon: [number, number][]): Promise<WellSummary[]> {
+  return invoke<WellSummary[]>("wells_in_polygon", { polygon });
 }
 
 export interface ImportResult {

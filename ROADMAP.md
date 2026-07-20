@@ -960,10 +960,24 @@ client files stay OUT of the repo):**
       Per-zone cutoff APPLICATION inside run_pay_summary remains a noted follow-on.
       Two adversarial review passes: 13 raised → 10 confirmed, all fixed. 131 tests;
       tsc clean. REVIEW #25.)*
-- [ ] **(22) Map pane + editable polygons → well groups**: well header surface X/Y
+- [x] **(22) Map pane + editable polygons → well groups**: well header surface X/Y
       (+ import), Map pane (posted wells, zoom/pan), polygon draw/edit persisted as
       documents, point-in-polygon → well group assignment (existing well-groups
       CRUD). No X/Y or map view exists in code today. → `ref_kkt_onwj_wave_e.md`.
+      *(DONE 2026-07-20: `wells` gained surface_x/surface_y (DOUBLE — UTM S-hemisphere
+      northings ≈9.4e6 exceed f32 precision) + utm_zone; set_well_location + WellSummary
+      extended. geo.rs point_in_polygon (PNPOLY half-open) + wells_in_polygon command.
+      parsers.rs parse_locations_file (EASTING/NORTHING/ZONE aliases, returns has_well_column)
+      + ingest import_locations_file (name→id match, per-row zone over dialog default,
+      transactional). Frontend: standalone Field Map dock pane (pan/wheel-zoom/grid/scale-bar,
+      draggable polygon vertices, live TS point-in-polygon highlight, Assign→group via
+      authoritative backend), Data ▸ Import Well Locations dialog with choosable Indonesia UTM
+      zone (46–54 N/S), Well Header X/Y/zone fields. Raw UTM plotted (no reprojection —
+      multi-zone follow-on); the polygon is a transient selection tool, the persistent artifact
+      is the group membership (persisting polygon shapes as documents = noted follow-on).
+      Adversarial review: 3 confirmed, all fixed — stale-snapshot coord clobber on Well Header
+      Save (high), blank-WELL-cell misroute + partial-write (medium), fit-on-first-coords
+      (medium). 143 tests; tsc clean. REVIEW #27.)*
 - [x] **(23) Data-conditioning flags module** (Jauhar request 2026-07-20, mid-Wave-E):
       flag badhole / tight / gas-crossover / coal plus a shoulder-adjustment flag so
       lithology transitions don't leave boundary-averaged samples in the conditioned

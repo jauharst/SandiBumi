@@ -6,6 +6,55 @@ Work through this list when you have time; delete items as you confirm them.
 Marks: `[o]` confirmed OK (removed from this file), `[x]` confirmed wrong → logged in
 **ROADMAP.md §4 (Field-review backlog)**, `[ ]` not yet tested.
 
+## Field Map — well surface coordinates + polygon → group (2026-07-20 #27)
+
+**Field Map** (View/Batch ribbon map button, or the Petrophysics ▸ Field Map… button) — a
+standalone dock pane that posts wells by UTM surface location and lets you rubber-band a
+polygon to select wells into a well group. Coordinates arrive two ways: **Data ▸ Import Well
+Locations…** (a CSV/TXT with EASTING/NORTHING, optional WELL and ZONE columns, plus a
+choosable default UTM zone covering Indonesia — zones 46–54, N and S — applied to rows/files
+without a ZONE column), or per-well via **Tools ▸ Well Header** (Surface X / Surface Y / UTM
+zone fields). Coordinates persist as DOUBLE in new `wells` columns
+(surface_x/surface_y/utm_zone) — southern-hemisphere northings ≈ 9.4e6 exceed f32's ~1 m
+precision, so f64 is required. The pane draws markers with pan (drag), cursor-anchored
+wheel-zoom, a faint coordinate grid, a scale bar, and labels for ≤80 wells; the active well
+group is ringed. Draw mode: click to drop polygon vertices, close near the first vertex /
+double-click / Enter; vertices are draggable; enclosed wells highlight live (a TS
+point-in-polygon mirrors the Rust ray-cast). **Assign to group…** runs the authoritative
+backend `wells_in_polygon` (PNPOLY, half-open crossing rule) and unions the result into a new
+or existing group. Raw easting/northing is plotted directly — no reprojection; a multi-zone
+project is a documented follow-on. The polygon is a transient selection tool — the persistent
+artifact is the well-group membership (persisting polygon shapes as documents is a noted
+follow-on vs the roadmap's original wording).
+
+Adversarial review (4 lenses — geometry-math / import-parse / integration /
+frontend-robustness, each finding skeptically verified): **3 defects confirmed, all fixed; 0
+refuted.** (1) [high] Well Header Save wrote surface_x/y/zone unconditionally from a stale
+`selectedWell` snapshot that is never re-broadcast on a data change, so re-saving after an
+import (or a prior save) NULLed out the just-set coordinates — fixed by re-reading the well
+from the DB when the dialog opens, so the fields always reflect current state. (2) [medium] A
+blank WELL cell in a multi-well locations file collapsed into the same "no well column" case
+as a headerless file and was routed to the selected well, silently overwriting an unrelated
+well's location — fixed by returning a `has_well_column` flag from the parser so the importer
+only falls back to the selected well for a genuinely column-less file, and skips (and
+reports) blank-cell rows; the import loop is now wrapped in a transaction so a mid-file error
+rolls back instead of leaving a partial write reported as a total failure. (3) [medium] When
+coordinates first arrived while the pane was already open, the data-driven reload never fit
+the view, so markers rendered off-screen until a manual Fit — fixed by fitting on the first
+appearance of laid-out wells. cargo test 143/143; tsc clean.
+
+- [ ] **Data ▸ Import Well Locations…** — pick your Indonesia UTM zone (e.g. 50S for
+      Mahakam), import a CSV with WELL/EASTING/NORTHING → the status line reports N wells
+      located; open **Field Map** and confirm the wells post at the right relative geometry.
+- [ ] Import a file that has a WELL column but a blank cell in one row → that row is skipped
+      and surfaced as "1 blank-WELL row(s)", and no unrelated well's location changes.
+- [ ] **Tools ▸ Well Header** on a located well → Surface X/Y/zone show the imported values
+      (not blank); change only TD and Save → the coordinates survive (were being wiped before).
+- [ ] With Field Map already open on a project that had no coordinates, run Import Well
+      Locations → the map fits to the new wells automatically (no manual Fit needed).
+- [ ] Field Map ▸ **Draw polygon**, enclose a few wells, **Assign to group…** → the enclosed
+      wells land in the chosen/new well group; the group filter elsewhere reflects it.
+
 ## φmax porosity ceiling — phimax module (2026-07-20 #26)
 
 **Petrophysics ▸ Porosity ▸ Porosity Ceiling (φmax)** — caps a computed porosity at

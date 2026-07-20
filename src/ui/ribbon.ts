@@ -6,6 +6,7 @@ import {
   importDeviationCsv,
   importScalCsv,
   importTopsCsv,
+  importWellLocations,
   importDlisFile,
   importLasFiles,
   currentProject,
@@ -16,6 +17,7 @@ import {
   listDocuments,
   listLayouts,
   listModules,
+  listWells,
   saveDocument,
   saveProjectAs,
   shiftCoreData,
@@ -172,6 +174,7 @@ export class Ribbon {
     q<HTMLButtonElement>("#ml-btn")?.addEventListener("click", () => workspace.openMl());
     q<HTMLButtonElement>("#multimin-btn")?.addEventListener("click", () => workspace.openMultimin());
     q<HTMLButtonElement>("#dashboard-btn")?.addEventListener("click", () => workspace.openDashboard());
+    q<HTMLButtonElement>("#map-btn")?.addEventListener("click", () => workspace.openMap());
     void this.loadAllModules(root);
 
     // --- Plot ---
@@ -268,6 +271,11 @@ export class Ribbon {
           doc: "Import a deviation survey (MD/INC/AZI CSV) and compute TVD/TVDSS for the selected well",
           onPick: () => void this.handleImportDeviation(),
         },
+        {
+          label: "Import Well Locations…",
+          doc: "Import well surface coordinates (WELL/EASTING/NORTHING CSV) for the Field Map — a WELL column locates every matching well",
+          onPick: () => void this.handleImportWellLocations(),
+        },
       ],
     );
 
@@ -288,7 +296,7 @@ export class Ribbon {
         {
           label: "Well Header…",
           doc: "Edit the selected well's header (field, TD, KB datum)",
-          onPick: () => this.handleWellHeader(),
+          onPick: () => void this.handleWellHeader(),
         },
       ],
     );
@@ -1283,13 +1291,98 @@ export class Ribbon {
     datumInput.focus();
   }
 
+  /** "Import Well Locations…" — surface easting/northing (+optional per-row zone) from a
+   *  CSV/TXT for the Field Map. A WELL column locates every matching well; without one the
+   *  file locates the selected well. The chosen UTM zone (Indonesia spans 46–54, N/S) fills
+   *  rows that carry no ZONE column. */
+  private handleImportWellLocations(): void {
+    const content = document.createElement("div");
+    const doc = document.createElement("p");
+    doc.className = "modal-doc";
+    doc.textContent =
+      "CSV/TXT with EASTING/NORTHING (aliases X/Y, UTM_X/UTM_Y) columns; a WELL column locates " +
+      "every matching well, otherwise the file locates the selected well. A per-row ZONE column " +
+      "overrides the default zone below.";
+    content.appendChild(doc);
+
+    const zoneSel = document.createElement("select");
+    zoneSel.className = "form-control";
+    // Indonesian acreage runs across UTM zones 46–54, mostly southern hemisphere
+    // (Mahakam 50S; ONWJ 48S/49S) with the north straddling the equator.
+    for (const hemi of ["S", "N"]) {
+      for (let z = 46; z <= 54; z++) {
+        const o = document.createElement("option");
+        o.value = `${z}${hemi}`;
+        o.textContent = `UTM ${z}${hemi}`;
+        zoneSel.appendChild(o);
+      }
+    }
+    zoneSel.value = "50S"; // Mahakam Delta default
+    content.appendChild(formRow("Default UTM zone", zoneSel, "Applied to rows without a ZONE column"));
+
+    const pick = document.createElement("button");
+    pick.className = "form-run-btn";
+    pick.textContent = "Choose file & import…";
+    const resultBox = document.createElement("div");
+    resultBox.className = "modal-result";
+    content.appendChild(pick);
+    content.appendChild(resultBox);
+    openModal("Import Well Locations", content, 480);
+
+    pick.addEventListener("click", async () => {
+      const well = appState.selectedWell.get();
+      const zone = zoneSel.value;
+      let path: string | null;
+      try {
+        const selection = await open({
+          multiple: false,
+          filters: [{ name: "Locations CSV/TXT", extensions: ["csv", "txt", "asc", "dat"] }],
+        });
+        path = Array.isArray(selection) ? (selection[0] ?? null) : selection;
+      } catch (err) {
+        resultBox.textContent = `Import dialog unavailable: ${err}`;
+        return;
+      }
+      if (!path) return;
+      pick.disabled = true;
+      resultBox.textContent = "Importing locations…";
+      try {
+        const result = await importWellLocations(well?.well_id ?? null, zone, path);
+        if (result.error) {
+          resultBox.textContent = `Locations import failed: ${result.error}`;
+          return;
+        }
+        const unmatched = result.unmatched_wells.length
+          ? ` — unmatched: ${result.unmatched_wells.slice(0, 5).join(", ")}${result.unmatched_wells.length > 5 ? "…" : ""}`
+          : "";
+        resultBox.textContent = `Located ${result.wells_located} well(s)${unmatched}. Open Field Map to view.`;
+        setStatus(`Locations: ${result.wells_located} well(s) placed${unmatched}`);
+        recordProcess("Import", `Imported well locations (${result.wells_located} wells) ← ${path}`, well?.well_name);
+        this.workspace.notifyDataChanged();
+      } catch (err) {
+        resultBox.textContent = `Locations import failed: ${err}`;
+      } finally {
+        pick.disabled = false;
+      }
+    });
+  }
+
   /** "Well Header…" — edits the selected well's field / TD / KB datum (Phase 6c). */
-  private handleWellHeader(): void {
-    const well = appState.selectedWell.get();
-    if (!well) {
+  private async handleWellHeader(): Promise<void> {
+    const selected = appState.selectedWell.get();
+    if (!selected) {
       setStatus("Select a well first (Wells & Tops panel)");
       return;
     }
+    // `selectedWell` is a snapshot captured on tree-click and is NOT re-broadcast on a
+    // dataVersion bump, so after an import (or a prior header save) it can carry stale
+    // (often null) coordinates. Re-read the well from the DB so the X/Y/zone fields show
+    // current values — otherwise the unconditional coordinate writes below would clobber
+    // a just-imported/entered location with the stale snapshot.
+    const fresh = await listWells()
+      .then((ws) => ws.find((w) => w.well_id === selected.well_id))
+      .catch(() => undefined);
+    const well = fresh ?? selected;
     const content = document.createElement("div");
     const doc = document.createElement("p");
     doc.className = "modal-doc";
@@ -1316,6 +1409,30 @@ export class Ribbon {
     kbInput.placeholder = "KB elevation (m)";
     content.appendChild(formRow("KB (m)", kbInput, "datum for TVDSS"));
 
+    // Surface location for the Field Map — the manual-entry counterpart to the CSV importer.
+    const xInput = document.createElement("input");
+    xInput.type = "number";
+    xInput.step = "0.01";
+    xInput.className = "form-control";
+    xInput.placeholder = "easting (m)";
+    if (well.surface_x != null) xInput.value = String(well.surface_x);
+    content.appendChild(formRow("Surface X", xInput, "UTM easting"));
+
+    const yInput = document.createElement("input");
+    yInput.type = "number";
+    yInput.step = "0.01";
+    yInput.className = "form-control";
+    yInput.placeholder = "northing (m)";
+    if (well.surface_y != null) yInput.value = String(well.surface_y);
+    content.appendChild(formRow("Surface Y", yInput, "UTM northing"));
+
+    const zoneInput = document.createElement("input");
+    zoneInput.type = "text";
+    zoneInput.className = "form-control";
+    zoneInput.placeholder = "e.g. 50S";
+    if (well.utm_zone != null) zoneInput.value = well.utm_zone;
+    content.appendChild(formRow("UTM zone", zoneInput));
+
     const applyBtn = document.createElement("button");
     applyBtn.className = "form-run-btn";
     applyBtn.textContent = "Save Header";
@@ -1328,6 +1445,9 @@ export class Ribbon {
       const kb = kbInput.value.trim();
       const writes: Promise<void>[] = [
         updateWellField(well.well_id, "field_name", field === "" ? null : field),
+        updateWellField(well.well_id, "surface_x", xInput.value.trim() || null),
+        updateWellField(well.well_id, "surface_y", yInput.value.trim() || null),
+        updateWellField(well.well_id, "utm_zone", zoneInput.value.trim() || null),
       ];
       if (td !== "") writes.push(updateWellField(well.well_id, "td", td));
       if (kb !== "") writes.push(updateWellField(well.well_id, "kb", kb));

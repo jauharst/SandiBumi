@@ -9,6 +9,7 @@ mod dlis;
 mod equations;
 mod export;
 mod facies;
+mod geo;
 mod ingest;
 mod inversion;
 mod layout;
@@ -644,6 +645,31 @@ fn update_well_field(db: tauri::State<DbState>, well_id: String, field: String, 
     db::update_well_field(&conn, &well_id, &field, value.as_deref())
 }
 
+/// Imports well surface locations from a CSV/TXT (Field Map, Wave E item 22). Multi-well
+/// files (a WELL column) match project wells by name; single-well files use
+/// `default_well_id`. `default_zone` fills the UTM zone for rows without a ZONE column.
+#[tauri::command]
+fn import_well_locations(
+    db: tauri::State<DbState>,
+    default_well_id: Option<String>,
+    default_zone: Option<String>,
+    path: String,
+) -> ingest::LocationsImportResult {
+    let conn = db.0.lock().unwrap();
+    ingest::import_locations_file(&conn, default_well_id.as_deref(), default_zone.as_deref(), &path)
+}
+
+/// Returns the wells whose surface location falls inside `polygon` (an ordered
+/// `[[x, y], …]` ring in UTM metres) — the "draw a polygon → select wells" hit test
+/// behind assigning a map lasso to a well group. Wells without coordinates are excluded.
+#[tauri::command]
+fn wells_in_polygon(db: tauri::State<DbState>, polygon: Vec<[f64; 2]>) -> Result<Vec<db::WellSummary>, String> {
+    let conn = db.0.lock().unwrap();
+    let wells = db::list_wells(&conn).map_err(|e| e.to_string())?;
+    let ring: Vec<(f64, f64)> = polygon.iter().map(|p| (p[0], p[1])).collect();
+    Ok(geo::wells_in_polygon(&wells, &ring))
+}
+
 /// Edits one standard-curve sample (NaN = missing).
 #[tauri::command]
 fn update_standard_sample(db: tauri::State<DbState>, well_id: String, depth: f32, column: String, value: f32) -> Result<(), String> {
@@ -893,6 +919,8 @@ pub fn run() {
             cancel_workflow_chain,
             import_core_csv,
             import_tops_csv,
+            import_well_locations,
+            wells_in_polygon,
             import_aux_data,
             list_aux_data,
             list_aux_datasets,
