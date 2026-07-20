@@ -870,6 +870,38 @@ fluid-contacts note and core-image stub. New suites must land as panes (Wave A f
 use the 15-var theme contract, manifest-driven dialogs where they fit, and expose
 outputs to Python/SQL per §5.
 
+**Wave E — KKT ONWJ additions (Jauhar 2026-07-20; sources = his KKT ONWJ full-field
+deck + Multimin Parameters.xlsx, both extracted into `ref_kkt_onwj_wave_e.md` —
+client files stay OUT of the repo):**
+- [ ] **(17) Pre-calculation module** (deck slide 31): mud properties + temp/pressure
+      gradients in → FTEMP, FPRESS, RMF (Arps to formation temp), CT = 1000/RT,
+      CXO = 1000/RXO curves out. Prep-category manifest module; SandiMin fluid props
+      should then be fillable from these outputs. → `ref_kkt_onwj_wave_e.md`.
+- [ ] **(18) Wet→dry clay endpoint conversion** for the PHIT-basis (dry-clay
+      framework) Sw model: φ_clay = (ρdry−ρwet)/(ρdry−1); NPHI/GR/DT rescaled onto
+      the dry fraction (formulas verbatim from his xlsx). Converter in the SandiMin
+      dialog producing dry-clay component endpoints + φ_clay/CBW bookkeeping.
+      → `ref_kkt_onwj_wave_e.md`.
+- [ ] **(19) Gas correction, iterated** (deck slide 65): ρb_corr = RHOB +
+      Φt·(1−Sw)·(1.00−ρg_res), ρg_res from SG at reservoir P&T (needs 17); outer
+      loop solve→correct→re-solve until |ΔΦt| converges (IP style), NPHI analog to
+      confirm. QC = PHIE-vs-Vwetclay cloud collapse (slides 66–67). Depends on (17).
+      → `ref_kkt_onwj_wave_e.md`.
+- [ ] **(20) φmax porosity cap from compaction trend** (deck slide 64 "max core
+      porosity" line): optional zone-overridable PHI_MAX (constant or TVDSS trend) in
+      porosity modules + SandiMin. **Trend form to confirm with Jauhar.**
+      → `ref_kkt_onwj_wave_e.md`.
+- [ ] **(21) Cutoff sensitivity tools** (deck slides 84–87): Method-1 pay-sensitivity
+      sweep plots (X = candidate cutoff, Y = normalized cumulative pay per
+      well/interval, DST-interval filter; paysummary engine in a sweep loop) +
+      Method-2 DST-highlighted PHIE-vs-Vclay / PHIE-vs-Sw crossplots with draggable
+      cutoff crosshairs; picked cutoffs write into per-zone pay-summary defaults.
+      → `ref_kkt_onwj_wave_e.md`.
+- [ ] **(22) Map pane + editable polygons → well groups**: well header surface X/Y
+      (+ import), Map pane (posted wells, zoom/pan), polygon draw/edit persisted as
+      documents, point-in-polygon → well group assignment (existing well-groups
+      CRUD). No X/Y or map view exists in code today. → `ref_kkt_onwj_wave_e.md`.
+
 ## 5. Standing advantages to protect
 
 - One-file DuckDB project + full SQL access.
