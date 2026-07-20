@@ -64,6 +64,15 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             td          FLOAT,
             kb          FLOAT
         );
+        -- Surface location for the Field Map (Wave E item 22). Easting/northing are stored
+        -- as DOUBLE (UTM metres reach ~10,000,000 in the southern hemisphere — beyond FLOAT's
+        -- ~1 m precision at that magnitude). `utm_zone` is the metre grid's zone label (e.g.
+        -- "50S" for the Mahakam Delta, "48S"/"49S" for ONWJ) so multi-zone fields can be
+        -- distinguished; coordinates are plotted in their raw easting/northing. Added via
+        -- ALTER so existing databases converge on the same shape.
+        ALTER TABLE wells ADD COLUMN IF NOT EXISTS surface_x DOUBLE;
+        ALTER TABLE wells ADD COLUMN IF NOT EXISTS surface_y DOUBLE;
+        ALTER TABLE wells ADD COLUMN IF NOT EXISTS utm_zone VARCHAR;
 
         CREATE TABLE IF NOT EXISTS standard_curves (
             well_id     UUID NOT NULL,
@@ -611,17 +620,26 @@ pub struct WellSummary {
     pub well_id: String,
     pub well_name: String,
     pub field_name: Option<String>,
+    /// Surface easting/northing (UTM metres) and zone label, for the Field Map. None until
+    /// imported (Import Well Locations) or entered in the well header.
+    pub surface_x: Option<f64>,
+    pub surface_y: Option<f64>,
+    pub utm_zone: Option<String>,
 }
 
 /// Lists every well for the object tree, along with which curve tables actually hold data
 /// for it (so the tree can show real children instead of a fixed guess).
 pub fn list_wells(conn: &Connection) -> DbResult<Vec<WellSummary>> {
-    let mut stmt = conn.prepare("SELECT well_id, well_name, field_name FROM wells ORDER BY well_name")?;
+    let mut stmt = conn
+        .prepare("SELECT well_id, well_name, field_name, surface_x, surface_y, utm_zone FROM wells ORDER BY well_name")?;
     let rows = stmt.query_map([], |row| {
         Ok(WellSummary {
             well_id: row.get(0)?,
             well_name: row.get(1)?,
             field_name: row.get(2)?,
+            surface_x: row.get(3)?,
+            surface_y: row.get(4)?,
+            utm_zone: row.get(5)?,
         })
     })?;
     let mut wells = Vec::new();
@@ -1345,11 +1363,12 @@ mod inspector_tests {
     }
 }
 
-/// Edits one wells-table field (name/field as text, td/kb as numbers).
+/// Edits one wells-table field (name/field/utm_zone as text, td/kb as f32, surface_x/y as f64).
 pub fn update_well_field(conn: &Connection, well_id: &str, field: &str, value: Option<&str>) -> Result<(), String> {
     match field {
-        "well_name" | "field_name" => {
-            conn.execute(&format!("UPDATE wells SET {field} = ?1 WHERE well_id = ?2"), params![value, well_id])
+        "well_name" | "field_name" | "utm_zone" => {
+            let text = value.map(str::trim).filter(|s| !s.is_empty());
+            conn.execute(&format!("UPDATE wells SET {field} = ?1 WHERE well_id = ?2"), params![text, well_id])
                 .map_err(|e| e.to_string())?;
         }
         "td" | "kb" => {
@@ -1360,8 +1379,33 @@ pub fn update_well_field(conn: &Connection, well_id: &str, field: &str, value: O
             conn.execute(&format!("UPDATE wells SET {field} = ?1 WHERE well_id = ?2"), params![num, well_id])
                 .map_err(|e| e.to_string())?;
         }
+        "surface_x" | "surface_y" => {
+            let num: Option<f64> = match value {
+                Some(v) if !v.trim().is_empty() => Some(v.trim().parse::<f64>().map_err(|e| e.to_string())?),
+                _ => None,
+            };
+            conn.execute(&format!("UPDATE wells SET {field} = ?1 WHERE well_id = ?2"), params![num, well_id])
+                .map_err(|e| e.to_string())?;
+        }
         other => return Err(format!("field '{other}' is not editable")),
     }
+    Ok(())
+}
+
+/// Sets (or clears, with None) a well's surface location in one write — the target of the
+/// Import Well Locations CSV path. `zone` is trimmed; empty becomes NULL.
+pub fn set_well_location(
+    conn: &Connection,
+    well_id: &str,
+    x: Option<f64>,
+    y: Option<f64>,
+    zone: Option<&str>,
+) -> DbResult<()> {
+    let zone = zone.map(str::trim).filter(|s| !s.is_empty());
+    conn.execute(
+        "UPDATE wells SET surface_x = ?2, surface_y = ?3, utm_zone = ?4 WHERE well_id = ?1",
+        params![well_id, x, y, zone],
+    )?;
     Ok(())
 }
 

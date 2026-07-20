@@ -862,6 +862,66 @@ pub fn parse_tops_file<P: AsRef<Path>>(path: P) -> ParseResult<Vec<TopsRecord>> 
     Ok(out)
 }
 
+/// One well-surface-location row. `well` is None when the file has no well column
+/// (single-well export) — the importer falls back to the selected well. `zone` is None
+/// when the file has no zone column, letting the importer apply a dialog-picked default.
+#[derive(Debug, Clone)]
+pub struct LocationRecord {
+    pub well: Option<String>,
+    pub x: f64,
+    pub y: f64,
+    pub zone: Option<String>,
+}
+
+// Easting/northing aliases, most-specific first so a bare "X"/"Y" never wins over an
+// explicit column. `read_delimited` upper-cases headers, so these compare case-blind.
+const LOC_X_ALIASES: [&str; 8] = ["EASTING", "UTM_X", "SURFACE_X", "X_COORD", "XCOORD", "UTMX", "EAST", "X"];
+const LOC_Y_ALIASES: [&str; 8] = ["NORTHING", "UTM_Y", "SURFACE_Y", "Y_COORD", "YCOORD", "UTMY", "NORTH", "Y"];
+// Bare "UTM" is deliberately NOT a zone alias — it would swallow "UTM_X" via the boundary
+// rule; the zone search also excludes the resolved X/Y columns as a second guard.
+const LOC_ZONE_ALIASES: [&str; 4] = ["UTM_ZONE", "UTMZONE", "GRID_ZONE", "ZONE"];
+
+/// Parses a well-surface-location file (CSV/TXT). Needs recognizable easting and northing
+/// columns; a WELL column makes it multi-well; an optional ZONE column carries a per-well
+/// UTM zone (the importer supplies a default for rows/files without one). Rows whose X or
+/// Y is missing or non-numeric are skipped.
+pub fn parse_locations_file<P: AsRef<Path>>(path: P) -> ParseResult<Vec<LocationRecord>> {
+    let (headers, rows) = read_delimited(path)?;
+    if headers.is_empty() {
+        return Err(ParseError::Las("locations file is empty".into()));
+    }
+    let idx_x = resolve_header_index(&headers, &LOC_X_ALIASES)
+        .ok_or_else(|| ParseError::Las("file has no X / EASTING column".into()))?;
+    let idx_y = resolve_header_index(&headers, &LOC_Y_ALIASES)
+        .ok_or_else(|| ParseError::Las("file has no Y / NORTHING column".into()))?;
+    let idx_well = resolve_header_index(&headers, &TOPS_WELL_ALIASES);
+    // Zone must never resolve to the easting/northing columns already claimed above.
+    let idx_zone = LOC_ZONE_ALIASES.iter().find_map(|alias| {
+        headers
+            .iter()
+            .enumerate()
+            .find(|(i, h)| *i != idx_x && *i != idx_y && header_matches(h, alias))
+            .map(|(i, _)| i)
+    });
+
+    let mut out = Vec::new();
+    for row in &rows {
+        let x = row.get(idx_x).map(|s| s.replace(',', ".")).and_then(|s| s.parse::<f64>().ok());
+        let y = row.get(idx_y).map(|s| s.replace(',', ".")).and_then(|s| s.parse::<f64>().ok());
+        let (Some(x), Some(y)) = (x, y) else { continue };
+        if !x.is_finite() || !y.is_finite() {
+            continue;
+        }
+        let well = idx_well.and_then(|i| row.get(i)).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        let zone = idx_zone.and_then(|i| row.get(i)).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        out.push(LocationRecord { well, x, y, zone });
+    }
+    if out.is_empty() {
+        return Err(ParseError::Las("locations file has no parsable rows".into()));
+    }
+    Ok(out)
+}
+
 /// A generic point/interval dataset (petrography, XRD, perforations): TOP (+optional
 /// BASE) depth per row, every other column an item whose values may be numeric or text.
 #[derive(Debug, Clone, Default)]

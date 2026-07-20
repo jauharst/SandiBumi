@@ -311,6 +311,88 @@ pub fn import_tops_file(conn: &Connection, default_well_id: Option<&str>, path: 
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct LocationsImportResult {
+    pub path: String,
+    pub wells_located: usize,
+    /// Well names in the file that matched nothing in the project (rows skipped).
+    pub unmatched_wells: Vec<String>,
+    pub error: Option<String>,
+}
+
+/// Imports well surface locations from a CSV/TXT file. Files with a WELL column locate
+/// every matching well (name match, case-insensitive); files without one locate
+/// `default_well_id` (the selected well). `default_zone` fills the UTM zone for rows that
+/// carry no ZONE column value (the dialog's chosen zone). Re-import overwrites a well's
+/// previous location.
+pub fn import_locations_file(
+    conn: &Connection,
+    default_well_id: Option<&str>,
+    default_zone: Option<&str>,
+    path: &str,
+) -> LocationsImportResult {
+    let fail = |e: String| LocationsImportResult {
+        path: path.to_string(),
+        wells_located: 0,
+        unmatched_wells: vec![],
+        error: Some(e),
+    };
+    let records = match parsers::parse_locations_file(path) {
+        Ok(r) => r,
+        Err(e) => return fail(e.to_string()),
+    };
+
+    // Project well-name → id map (upper-trimmed), same convention as the tops importer.
+    let mut name_to_id: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    {
+        let mut stmt = match conn.prepare("SELECT well_name, well_id FROM wells") {
+            Ok(s) => s,
+            Err(e) => return fail(e.to_string()),
+        };
+        let rows = stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)));
+        match rows {
+            Ok(rows) => {
+                for r in rows.flatten() {
+                    name_to_id.insert(r.0.trim().to_uppercase(), r.1);
+                }
+            }
+            Err(e) => return fail(e.to_string()),
+        }
+    }
+
+    let mut located: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut unmatched: Vec<String> = Vec::new();
+    for rec in &records {
+        let well_id = match &rec.well {
+            Some(name) => match name_to_id.get(&name.trim().to_uppercase()) {
+                Some(id) => id.clone(),
+                None => {
+                    let label = name.trim().to_string();
+                    if !unmatched.contains(&label) {
+                        unmatched.push(label);
+                    }
+                    continue;
+                }
+            },
+            None => match default_well_id {
+                Some(id) => id.to_string(),
+                None => return fail("file has no WELL column — select a well first".into()),
+            },
+        };
+        let zone = rec.zone.as_deref().or(default_zone);
+        if let Err(e) = db::set_well_location(conn, &well_id, Some(rec.x), Some(rec.y), zone) {
+            return fail(e.to_string());
+        }
+        located.insert(well_id);
+    }
+    LocationsImportResult {
+        path: path.to_string(),
+        wells_located: located.len(),
+        unmatched_wells: unmatched,
+        error: None,
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct AuxImportResult {
     pub path: String,
     pub dataset: String,
