@@ -900,8 +900,13 @@ export class Ribbon {
     try {
       const results = await importLasFiles(paths);
       const ok = results.filter((r) => !r.error).length;
-      setStatus(`Imported ${ok}/${results.length} well(s).`);
+      const warned = results.filter((r) => r.warning);
+      const warnNote = warned.length ? ` ${warned.length} well(s) had depth issues.` : "";
+      setStatus(`Imported ${ok}/${results.length} well(s).${warnNote}`);
       recordProcess("Import", `Imported ${ok}/${results.length} LAS well(s)`);
+      for (const w of warned) {
+        recordProcess("Import", `${w.well_name ?? w.path}: ${w.warning}`, w.well_name ?? undefined);
+      }
       this.workspace.notifyDataChanged();
     } catch (err) {
       setStatus(`Import failed: ${err}`);
@@ -936,6 +941,7 @@ export class Ribbon {
         setStatus(`Core import failed: ${result.error}`);
       } else {
         setStatus(`Imported ${result.rows} core sample(s) for ${well.well_name}.`);
+        recordProcess("Import", `Imported ${result.rows} core sample(s) ← ${path}`, well.well_name);
         this.workspace.notifyDataChanged();
       }
     } catch (err) {
@@ -1023,7 +1029,13 @@ export class Ribbon {
       if (result.error) {
         setStatus(`DLIS import failed: ${result.error}`);
       } else {
-        setStatus(`Imported ${result.curves_imported} curve(s), ${result.rows} samples into ${well.well_name}.`);
+        const replacedNote = result.replaced > 0 ? ` (replaced ${result.replaced} existing curve(s))` : "";
+        setStatus(`Imported ${result.curves_imported} curve(s), ${result.rows} samples into ${well.well_name}.${replacedNote}`);
+        recordProcess(
+          "Import",
+          `Imported DLIS (${result.curves_imported} curves, ${result.rows} samples)${replacedNote} ← ${path}`,
+          well.well_name,
+        );
         this.workspace.notifyDataChanged();
       }
     } catch (err) {
@@ -1091,6 +1103,7 @@ export class Ribbon {
             resultBox.textContent = `SCAL import failed: ${result.error}`;
             return;
           }
+          recordProcess("Import", `Imported SCAL Pc data ← ${path}`, well.well_name);
           const fitText = result.fit
             ? `J-fit: A = ${result.fit.a.toFixed(4)}, B = ${result.fit.b.toFixed(4)}, ` +
               `R² = ${result.fit.r2.toFixed(3)} (${result.fit.n_points} points). ` +
@@ -1282,6 +1295,7 @@ export class Ribbon {
             setStatus(`Deviation import failed: ${result.error}`);
           } else {
             setStatus(`Imported ${result.rows} survey station(s); TVD/TVDSS computed for ${well.well_name}.`);
+            recordProcess("Import", `Imported deviation survey (${result.rows} stations) ← ${path}`, well.well_name);
             this.workspace.notifyDataChanged();
             close();
           }

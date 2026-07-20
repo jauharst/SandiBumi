@@ -9,6 +9,7 @@ import {
   type ZoneEntry,
   type ZoneParamEntry,
 } from "../ipc";
+import { recordProcess } from "../processLog";
 
 /** Zone manager for the selected well: build zones from tops, add/edit/delete zones,
  *  and set per-zone interval parameter overrides (Geolog interval-parameter model —
@@ -44,6 +45,7 @@ export async function buildZonesContent(
       del.title = "Delete zone";
       del.addEventListener("click", async () => {
         await deleteZone(well.well_id, zone.zone_name);
+        recordProcess("Zone", `Deleted zone ${zone.zone_name}`, well.well_name);
         await refresh();
       });
       tr.innerHTML = `<td>${zone.zone_name}</td><td>${zone.top_depth.toFixed(1)}</td><td>${zone.bottom_depth.toFixed(1)}</td>`;
@@ -73,6 +75,7 @@ export async function buildZonesContent(
         del.title = "Remove override";
         del.addEventListener("click", async () => {
           await setZoneParam(well.well_id, p.zone_name, p.param_name, null, null);
+          recordProcess("Zone", `Removed ${p.param_name} override on zone ${p.zone_name}`, well.well_name);
           await refresh();
         });
         const td = document.createElement("td");
@@ -95,6 +98,7 @@ export async function buildZonesContent(
   fromTopsBtn.addEventListener("click", async () => {
     const zones = await zonesFromTops(well.well_id);
     setStatus(`Built ${zones.length} zone(s) from tops for ${well.well_name}`);
+    recordProcess("Zone", `Built ${zones.length} zone(s) from tops`, well.well_name);
     await refresh();
   });
   actions.appendChild(fromTopsBtn);
@@ -130,6 +134,7 @@ export async function buildZonesContent(
     const bottom = parseFloat(botIn.value);
     if (!name || Number.isNaN(top) || Number.isNaN(bottom) || bottom <= top) return;
     await upsertZone(well.well_id, name, top, bottom);
+    recordProcess("Zone", `Set zone ${name} (${top}–${bottom})`, well.well_name);
     nameIn.value = "";
     await refresh();
   });
@@ -172,6 +177,7 @@ export async function buildZonesContent(
     const value = parseFloat(valueIn.value);
     if (!zone || !param || Number.isNaN(value)) return;
     await setZoneParam(well.well_id, zone, param, value, null);
+    recordProcess("Zone", `Set ${param} = ${value} on zone ${zone}`, well.well_name);
     await refresh();
   });
   setRow.appendChild(zoneIn);

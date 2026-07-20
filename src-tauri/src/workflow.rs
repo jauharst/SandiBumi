@@ -198,14 +198,17 @@ pub fn run_workflow_module_into(
                     logs.insert(a.name.clone(), values);
                 }
 
-                let ctx = ModuleContext { n: depth.len(), logs, params, opts: opts.clone() };
-                let mut outputs = modules::run_module(&req.module, &ctx)?;
-
-                // Optional bad-hole (or any flag) mask: samples where the mask curve == 1
-                // are set missing in every output, so flagged intervals never pollute
-                // results. The mask is resolved like any other input (generic store aware).
+                // Optional bad-hole (or any flag) mask. Resolve it BEFORE the module runs so
+                // flagged samples can be excluded from the module's INPUTS, not just its
+                // outputs. Modules that compute run-level statistics — gr_normalize's P3/P97
+                // percentiles, log_predict's KNN training set — would otherwise be anchored by
+                // casing/washout samples, and that mis-anchoring contaminates every output
+                // sample, flagged or not. The mask is resolved like any other input
+                // (generic-store aware).
                 let mask_name = req.opts.get("MASK").map(|s| s.trim()).unwrap_or("");
-                if !mask_name.is_empty() {
+                let mask: Option<Vec<f32>> = if mask_name.is_empty() {
+                    None
+                } else {
                     let conn = db.lock().unwrap();
                     let (_, mcols) = equations::fetch_curve_frame_from_set(
                         &conn,
@@ -216,12 +219,33 @@ pub fn run_workflow_module_into(
                     )
                     .map_err(|e| e.to_string())?;
                     drop(conn);
-                    if let Some(mask) = mcols.get(&mask_name.to_uppercase()) {
-                        for values in outputs.values_mut() {
+                    mcols.get(&mask_name.to_uppercase()).cloned()
+                };
+
+                // Blank flagged samples in the module INPUTS (never DEPTH) before the run, so
+                // per-run statistics only see unmasked data.
+                if let Some(mask) = &mask {
+                    for (arg_name, _) in &log_args {
+                        if let Some(values) = logs.get_mut(arg_name) {
                             for (v, m) in values.iter_mut().zip(mask.iter()) {
                                 if *m == 1.0 {
                                     *v = f32::NAN;
                                 }
+                            }
+                        }
+                    }
+                }
+
+                let ctx = ModuleContext { n: depth.len(), logs, params, opts: opts.clone() };
+                let mut outputs = modules::run_module(&req.module, &ctx)?;
+
+                // Blank flagged samples in the OUTPUTS too, so a flagged depth's result is
+                // never trusted downstream.
+                if let Some(mask) = &mask {
+                    for values in outputs.values_mut() {
+                        for (v, m) in values.iter_mut().zip(mask.iter()) {
+                            if *m == 1.0 {
+                                *v = f32::NAN;
                             }
                         }
                     }
@@ -288,6 +312,12 @@ pub struct PaySummaryRequest {
     pub swe_max: f64,
     /// Optional PERM >= perm_min added to the pay flag when PERM exists.
     pub perm_min: Option<f64>,
+    /// When true (Field Dashboard's field-wide QC pass), FLAG_* curves are written in place
+    /// without creating a versioned log set — avoids an archive version per well on every
+    /// dashboard refresh. The explicit Cutoffs & Summary run leaves this false, so its pay
+    /// flags are versioned with the cutoffs recorded in provenance (log_sets.params_json).
+    #[serde(default)]
+    pub skip_version: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -378,10 +408,40 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
 
         {
             let conn = db.lock().unwrap();
-            for (name, values) in
-                [("FLAG_SAND", &flag_sand), ("FLAG_RESERVOIR", &flag_res), ("FLAG_PAY", &flag_pay)]
-            {
-                equations::write_computed_curve(&conn, well_id, &depth, name, values).map_err(|e| e.to_string())?;
+            if req.skip_version {
+                // Field-wide QC (dashboard): overwrite FLAG_* in place, no version churn.
+                for (name, values) in
+                    [("FLAG_SAND", &flag_sand), ("FLAG_RESERVOIR", &flag_res), ("FLAG_PAY", &flag_pay)]
+                {
+                    equations::write_computed_curve(&conn, well_id, &depth, name, values).map_err(|e| e.to_string())?;
+                }
+            } else {
+                // Version the pay flags into a log set with provenance — module + the CUTOFFS
+                // that produced them + the inputs — like any other module output, so a re-run
+                // keeps history, any version is restorable/prunable from the catalog, and the
+                // cutoffs are retrievable from log_sets.params_json.
+                let params_json = serde_json::json!({
+                    "vsh_max": req.vsh_max,
+                    "phie_min": req.phie_min,
+                    "swe_max": req.swe_max,
+                    "perm_min": req.perm_min,
+                })
+                .to_string();
+                let spec = equations::LogSetSpec {
+                    set_name: "PAYFLAG".into(),
+                    module: "pay_summary".into(),
+                    params_json,
+                    inputs_json: serde_json::to_string(&curve_names).unwrap_or_default(),
+                };
+                let (set_id, _) =
+                    equations::create_log_set(&conn, well_id, &spec).map_err(|e| e.to_string())?;
+                let batch: Vec<(&str, &[f32])> = vec![
+                    ("FLAG_SAND", flag_sand.as_slice()),
+                    ("FLAG_RESERVOIR", flag_res.as_slice()),
+                    ("FLAG_PAY", flag_pay.as_slice()),
+                ];
+                equations::write_computed_curves_versioned(&conn, well_id, &depth, &batch, &set_id)
+                    .map_err(|e| e.to_string())?;
             }
         }
 
@@ -393,6 +453,8 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                     _ => &flag_pay,
                 };
                 let mut net = 0.0f64;
+                let mut net_vsh = 0.0f64;
+                let mut net_phie = 0.0f64;
                 let mut sum_vsh = 0.0f64;
                 let mut sum_phie = 0.0f64;
                 let mut sum_phie_swe = 0.0f64;
@@ -400,20 +462,30 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                 let mut hpv = 0.0f64;
 
                 for i in 0..n {
-                    let d = depth[i];
-                    if d < zone.top_depth || d >= zone.bottom_depth {
+                    // Each sample represents the forward interval [depth[i], depth[i]+step].
+                    // Clamp its contribution to the overlap with [zone.top, zone.bottom): the
+                    // last in-zone sample no longer bleeds a full step past the base, a sample
+                    // straddling the zone top is counted for its in-zone part, and net can never
+                    // exceed gross (a sub-step-thick zone previously could).
+                    let s_top = depth[i] as f64;
+                    let s_bot = (depth[i] + step[i]) as f64;
+                    let lo = s_top.max(zone.top_depth as f64);
+                    let hi = s_bot.min(zone.bottom_depth as f64);
+                    let h = hi - lo;
+                    if h <= 0.0 {
                         continue;
                     }
                     if flags[i] != 1.0 {
                         continue;
                     }
-                    let h = step[i] as f64;
                     net += h;
                     if !vsh[i].is_nan() {
                         sum_vsh += vsh[i] as f64 * h;
+                        net_vsh += h;
                     }
                     if !phie[i].is_nan() {
                         sum_phie += phie[i] as f64 * h;
+                        net_phie += h;
                         if !swe[i].is_nan() {
                             sum_phie_swe += phie[i] as f64 * swe[i] as f64 * h;
                             sum_phie_w += phie[i] as f64 * h;
@@ -433,8 +505,11 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                     gross,
                     net: net as f32,
                     ntg: if gross > 0.0 { (net / gross as f64) as f32 } else { 0.0 },
-                    avg_vsh: if net > 0.0 { (sum_vsh / net) as f32 } else { f32::NAN },
-                    avg_phie: if net > 0.0 { (sum_phie / net) as f32 } else { f32::NAN },
+                    // Averages are normalised by the net thickness over which THAT curve is
+                    // valid — not total net — so a SAND-row sample with valid VSH but missing
+                    // PHIE no longer drags avg_phie toward zero.
+                    avg_vsh: if net_vsh > 0.0 { (sum_vsh / net_vsh) as f32 } else { f32::NAN },
+                    avg_phie: if net_phie > 0.0 { (sum_phie / net_phie) as f32 } else { f32::NAN },
                     avg_swe: if sum_phie_w > 0.0 { (sum_phie_swe / sum_phie_w) as f32 } else { f32::NAN },
                     hpv: hpv as f32,
                 });
@@ -1035,6 +1110,188 @@ mod tests {
         }
     }
 
+    #[test]
+    fn mask_excludes_flagged_samples_from_gr_normalize_percentiles() {
+        use crate::db;
+        use duckdb::Connection;
+        use uuid::Uuid;
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        db::insert_well(&conn, wid, "GRN-1", None, None, Some(0.0)).unwrap();
+        let w = wid.to_string();
+
+        // Five good-hole GR samples spanning 30–70 gAPI, plus one washed-out sample at GR=500.
+        let depths = vec![1000.0f32, 1000.5, 1001.0, 1001.5, 1002.0, 1002.5];
+        let n = depths.len();
+        db::insert_standard_curves(
+            &conn,
+            wid,
+            depths.clone(),
+            vec![30.0, 40.0, 50.0, 60.0, 70.0, 500.0], // GR (outlier at the flagged sample)
+            vec![f32::NAN; n],                          // RES_DEEP
+            vec![f32::NAN; n],                          // NPHI
+            vec![f32::NAN; n],                          // RHOB
+            vec![f32::NAN; n],                          // DT
+            vec![f32::NAN; n],                          // SP
+        )
+        .unwrap();
+        // BADHOLE flag: only the GR=500 sample is bad (the mask curve, resolved like any input).
+        equations::write_computed_curve(&conn, &w, &depths, "BADHOLE", &[0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
+            .unwrap();
+
+        let dbm = Mutex::new(conn);
+        let req = RunModuleRequest {
+            module: "gr_normalize".into(),
+            well_ids: vec![w.clone()],
+            log_inputs: HashMap::new(),
+            params: HashMap::new(), // defaults: P3/P97, refs 53.68/133.93
+            opts: [("MASK".to_string(), "BADHOLE".to_string())].into_iter().collect(),
+            output_set: None,
+            input_set: None,
+        };
+        let r = run_workflow_module(&dbm, &req);
+        assert!(r[0].error.is_none(), "gr_normalize masked: {:?}", r[0].error);
+
+        let conn = dbm.lock().unwrap();
+        let (_, cols) = equations::fetch_curve_frame(&conn, &w, &["GRN".into()]).unwrap();
+        let grn = &cols["GRN"];
+        // The flagged sample is still masked out of the output.
+        assert!(grn[5].is_nan(), "flagged sample must be masked in the output");
+        // With the GR=500 outlier excluded from the percentile anchoring, the good-hole samples
+        // span the full reference range (~80 gAPI). Under the old output-only masking the
+        // outlier still anchored P97 and the good samples compressed into < ~10 gAPI.
+        let good: Vec<f32> = grn[..5].iter().copied().filter(|v| !v.is_nan()).collect();
+        let (mn, mx) = good
+            .iter()
+            .fold((f32::INFINITY, f32::NEG_INFINITY), |(a, b), &v| (a.min(v), b.max(v)));
+        assert!(mx - mn > 50.0, "good-hole GRN must span the reference range, got spread {}", mx - mn);
+    }
+
+    #[test]
+    fn pay_summary_clamps_thin_zone_and_normalizes_avg_phie_over_valid() {
+        use crate::db;
+        use duckdb::Connection;
+        use uuid::Uuid;
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        db::insert_well(&conn, wid, "PAY-1", None, None, Some(0.0)).unwrap();
+        let w = wid.to_string();
+
+        let depths = vec![1000.0f32, 1001.0, 1002.0, 1003.0];
+        let n = depths.len();
+        // Standard curves supply the depth spine; the interpretation curves are computed.
+        db::insert_standard_curves(
+            &conn, wid, depths.clone(),
+            vec![50.0; n], vec![f32::NAN; n], vec![f32::NAN; n],
+            vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
+        )
+        .unwrap();
+        // All sand; sample 1 has valid VSH but MISSING PHIE (the SAND-row dilution case).
+        equations::write_computed_curve(&conn, &w, &depths, "VSH", &[0.1, 0.1, 0.1, 0.1]).unwrap();
+        equations::write_computed_curve(&conn, &w, &depths, "PHIE", &[0.2, f32::NAN, 0.2, 0.2]).unwrap();
+        equations::write_computed_curve(&conn, &w, &depths, "SWE", &[0.3, 0.3, 0.3, 0.3]).unwrap();
+        equations::write_computed_curve(&conn, &w, &depths, "PERM", &[f32::NAN; 4]).unwrap();
+        // A zone thinner than one sample step (1.5 m vs 1.0 m steps): the last in-zone sample
+        // must not bleed past the base, so net must equal gross (1.5), not overshoot to 2.0.
+        db::upsert_zone(&conn, &w, "Z1", 1000.0, 1001.5).unwrap();
+
+        let dbm = Mutex::new(conn);
+        let req = PaySummaryRequest {
+            well_ids: vec![w.clone()],
+            vsh_max: 0.5,
+            phie_min: 0.1,
+            swe_max: 0.5,
+            perm_min: None,
+            skip_version: true,
+        };
+        let rows = run_pay_summary(&dbm, &req).unwrap();
+        let sand = rows.iter().find(|r| r.zone == "Z1" && r.flag == "SAND").expect("SAND row");
+
+        // Overlap clamp: net never exceeds gross (old forward-step gave net 2.0 > gross 1.5).
+        assert!((sand.gross - 1.5).abs() < 1e-3, "gross={}", sand.gross);
+        assert!(sand.net <= sand.gross + 1e-4, "net {} must not exceed gross {}", sand.net, sand.gross);
+        assert!((sand.net - 1.5).abs() < 1e-3, "net={}", sand.net);
+        // avg_phie normalised over PHIE-valid net (→ 0.2), not diluted by the missing-PHIE
+        // sample (old code divided sum_phie by total net → ~0.1).
+        assert!((sand.avg_phie - 0.2).abs() < 1e-3, "avg_phie={}", sand.avg_phie);
+    }
+
+    /// Polish-5: an explicit pay-summary run versions the FLAG_* curves into a PAYFLAG log set
+    /// whose provenance records the module + the cutoffs; skip_version writes in place instead.
+    #[test]
+    fn pay_summary_versions_flags_with_cutoffs_in_provenance() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        db::insert_well(&conn, wid, "PAY-PROV", None, None, Some(0.0)).unwrap();
+        let w = wid.to_string();
+        let depths = vec![1000.0f32, 1001.0, 1002.0, 1003.0];
+        let n = depths.len();
+        db::insert_standard_curves(
+            &conn, wid, depths.clone(),
+            vec![50.0; n], vec![f32::NAN; n], vec![f32::NAN; n],
+            vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
+        )
+        .unwrap();
+        equations::write_computed_curve(&conn, &w, &depths, "VSH", &[0.1; 4]).unwrap();
+        equations::write_computed_curve(&conn, &w, &depths, "PHIE", &[0.2; 4]).unwrap();
+        equations::write_computed_curve(&conn, &w, &depths, "SWE", &[0.3; 4]).unwrap();
+        equations::write_computed_curve(&conn, &w, &depths, "PERM", &[f32::NAN; 4]).unwrap();
+        db::upsert_zone(&conn, &w, "Z1", 1000.0, 1003.0).unwrap();
+        let dbm = Mutex::new(conn);
+
+        // Explicit run: versions the pay flags with the cutoffs recorded in provenance.
+        let req = PaySummaryRequest {
+            well_ids: vec![w.clone()],
+            vsh_max: 0.5,
+            phie_min: 0.1,
+            swe_max: 0.5,
+            perm_min: None,
+            skip_version: false,
+        };
+        run_pay_summary(&dbm, &req).unwrap();
+        {
+            let conn = dbm.lock().unwrap();
+            let (module, params): (String, String) = conn
+                .query_row(
+                    "SELECT module, params_json FROM log_sets WHERE well_id = ?1 AND set_name = 'PAYFLAG' ORDER BY version DESC LIMIT 1",
+                    duckdb::params![w],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .expect("a PAYFLAG log set should exist after a versioned pay-summary run");
+            assert_eq!(module, "pay_summary");
+            assert!(params.contains("\"vsh_max\":0.5"), "cutoffs in provenance: {params}");
+            assert!(params.contains("\"phie_min\":0.1"), "cutoffs in provenance: {params}");
+            assert!(params.contains("\"swe_max\":0.5"), "cutoffs in provenance: {params}");
+        }
+
+        // skip_version (dashboard/report side-effect): writes FLAG_* in place, no new version.
+        let req_skip = PaySummaryRequest {
+            well_ids: vec![w.clone()],
+            vsh_max: 0.5,
+            phie_min: 0.1,
+            swe_max: 0.5,
+            perm_min: None,
+            skip_version: true,
+        };
+        run_pay_summary(&dbm, &req_skip).unwrap();
+        {
+            let conn = dbm.lock().unwrap();
+            let versions: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM log_sets WHERE well_id = ?1 AND set_name = 'PAYFLAG'",
+                    duckdb::params![w],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(versions, 1, "skip_version must not add a PAYFLAG version");
+        }
+    }
+
     /// Full deterministic chain against real field LAS files: import → VSH(GR) →
     /// PHI(D-N) → SW(Indonesia) → PERM(Timur) → pay summary. Ignored by default
     /// (machine-specific paths); run with:
@@ -1114,7 +1371,7 @@ mod tests {
         // Pay summary over the whole wells (no zones defined → single ALL zone).
         let rows = run_pay_summary(
             &db,
-            &PaySummaryRequest { well_ids: well_ids.clone(), vsh_max: 0.5, phie_min: 0.1, swe_max: 0.6, perm_min: None },
+            &PaySummaryRequest { well_ids: well_ids.clone(), vsh_max: 0.5, phie_min: 0.1, swe_max: 0.6, perm_min: None, skip_version: true },
         )
         .expect("pay summary failed");
         assert_eq!(rows.len(), well_ids.len() * 3); // SAND/RESERVOIR/PAY per well

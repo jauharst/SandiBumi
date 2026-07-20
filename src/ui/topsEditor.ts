@@ -1,4 +1,5 @@
 import { checkTopOrder, deleteTop, listTops, upsertTop, type TopEntry } from "../ipc";
+import { recordProcess } from "../processLog";
 import { bumpDataVersion, setStatus } from "../state";
 import { pushUndo } from "../undo";
 import { formRow, openModal } from "./modal";
@@ -273,6 +274,7 @@ export class TopsEditor {
         },
       });
       setStatus(`Added top ${name} at ${d.toFixed(1)}`);
+      recordProcess("Tops", `Added top ${name} at ${d.toFixed(1)}`);
       close();
       void this.warnCrossings();
     };
@@ -344,6 +346,7 @@ export class TopsEditor {
         }
         pushUndo({ label: `edit top ${before.top_name}`, undo: applyOld, redo: applyNew });
         setStatus(`Top ${name} saved`);
+        recordProcess("Tops", `Edited top ${before.top_name}${name !== before.top_name ? ` → ${name}` : ""} @ ${d.toFixed(1)}`);
         close();
         void this.warnCrossings();
       })();
@@ -369,6 +372,7 @@ export class TopsEditor {
           },
         });
         setStatus(`Deleted top ${before.top_name}`);
+        recordProcess("Tops", `Deleted top ${before.top_name}`);
         close();
       })();
     });

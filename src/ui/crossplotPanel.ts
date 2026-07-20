@@ -948,40 +948,60 @@ export async function buildCrossplotContent(
     ctx.restore();
   };
 
-  const reload = async () => {
+  // Monotonic token so a slow curve/zone load that resolves after a newer one (fast
+  // switching) can't overwrite the newer axes' data. `preserveView` keeps the zoom/pan
+  // AND the placed parameter handle on a data refresh (module run); a user-initiated
+  // axis/zone change still re-fits and re-seeds the handle.
+  let reloadGen = 0;
+  // A reset-intent reload (axis/zone change) can be superseded by a preserveView data
+  // refresh; this sticky flag carries the "reset viewport + re-seed handle" intent to
+  // whichever reload commits, so a background bump can't strand new axes at the old zoom.
+  let resetPending = false;
+  const reload = async (preserveView = false) => {
+    const gen = ++reloadGen;
+    if (!preserveView) resetPending = true;
     const zone = zoneSel.current();
     try {
       const wanted = [xSel.value, ySel.value, ...(zSel.value ? [zSel.value] : [])];
       const series = await getCurveData(well.well_id, wanted, zone.depthMin, zone.depthMax);
+      if (gen !== reloadGen) return; // a newer reload started while we awaited
       const byName = new Map(series.map((s) => [s.curve_name, s]));
       xs = byName.get(xSel.value.toUpperCase())?.value ?? new Float32Array(0);
       ys = byName.get(ySel.value.toUpperCase())?.value ?? new Float32Array(0);
       zs = zSel.value ? (byName.get(zSel.value.toUpperCase())?.value ?? new Float32Array(0)) : new Float32Array(0);
       depths = byName.get(xSel.value.toUpperCase())?.depth ?? new Float32Array(0);
     } catch (err) {
+      if (gen !== reloadGen) return; // superseded — don't clobber newer data with this error
       setStatus(`Crossplot data load failed: ${err}`);
       xs = ys = zs = depths = new Float32Array(0);
     }
-    marker = null;
-    hoverIdx = -1;
-    viewRef.current = null; // new data → reset any zoom/pan
-    // Seed the draggable parameter point at the cloud's median so it's always visible and
-    // grabbable (the user drags it to set the shale/matrix point); only when still unset.
-    if (Number.isNaN(pickX.getValue()) || Number.isNaN(pickY.getValue())) {
-      const mx = percentile(xs, 50);
-      const my = percentile(ys, 50);
-      if (!Number.isNaN(mx) && !Number.isNaN(my)) {
-        pickX.setValue(mx);
-        pickY.setValue(my);
-        marker = [mx, my];
+    hoverIdx = -1; // the old hover index may point at a different sample now
+    if (resetPending) {
+      resetPending = false;
+      marker = null;
+      viewRef.current = null; // new data → reset any zoom/pan
+      // Seed the draggable parameter point at the cloud's median so it's always visible and
+      // grabbable (the user drags it to set the shale/matrix point); only when still unset.
+      if (Number.isNaN(pickX.getValue()) || Number.isNaN(pickY.getValue())) {
+        const mx = percentile(xs, 50);
+        const my = percentile(ys, 50);
+        if (!Number.isNaN(mx) && !Number.isNaN(my)) {
+          pickX.setValue(mx);
+          pickY.setValue(my);
+          marker = [mx, my];
+        }
       }
     }
     redraw();
   };
 
   /** Loads the well's core data once (all four series; cheap — core datasets are
-   *  small) whenever the "Core data" toggle is switched on. */
+   *  small) whenever the "Core data" toggle is switched on. Its own token (separate
+   *  from reload's — it writes only coreByName, disjoint from the curve arrays) so a
+   *  rapid core toggle supersedes an in-flight core fetch without dropping a data reload. */
+  let coreGen = 0;
   const reloadCore = async () => {
+    const gen = ++coreGen;
     if (!opts.showCore) {
       coreByName = new Map();
       redraw();
@@ -989,8 +1009,10 @@ export async function buildCrossplotContent(
     }
     try {
       const series = await getCoreData(well.well_id);
+      if (gen !== coreGen) return; // a newer core load started while we awaited
       coreByName = new Map(series.map((s) => [s.curve_name, s]));
     } catch (err) {
+      if (gen !== coreGen) return;
       setStatus(`Core data load failed: ${err}`);
       coreByName = new Map();
     }
@@ -1381,6 +1403,17 @@ export async function buildCrossplotContent(
   const detachResize = attachResizeRedraw(canvas, redraw);
   const unsubTheme = appState.themeVersion.subscribe(() => redraw());
 
+  // Re-fetch when computed curves change (module/equation run, import, undo) so the
+  // crossplot never shows stale data; keep the zoom/pan and the placed parameter handle.
+  let dataPrimed = false;
+  const unsubData = appState.dataVersion.subscribe(() => {
+    if (!dataPrimed) {
+      dataPrimed = true;
+      return;
+    }
+    void reload(true);
+  });
+
   // Synchronized hover: ring the sample nearest the depth under any log view's cursor.
   let rafId = 0;
   const unsubHover = appState.hoverDepth.subscribe((depth) => {
@@ -1402,6 +1435,7 @@ export async function buildCrossplotContent(
     dispose: () => {
       unsubHover();
       unsubTheme();
+      unsubData();
       detachZoomPan();
       detachResize();
       zoneSel.dispose();

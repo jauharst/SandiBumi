@@ -15,6 +15,7 @@ import {
 } from "../ipc";
 import { defaultRunWellIds, filterByActiveGroup } from "../state";
 import { formRow } from "./modal";
+import { recordProcess } from "../processLog";
 
 const WORKFLOW_DOC_TYPE = "workflow";
 const DEFAULT_STEPS = ["vsh_gr", "phi_dn", "sw_indo"];
@@ -306,6 +307,7 @@ export async function buildMonteCarloContent(
       statusLine.textContent = `Done in ${ms} ms · ${res.zones.length} well-zone results`;
       renderResults(results, res, moduleByName);
       setStatus(`Monte Carlo: ${req.iterations} realizations across ${wellIds.length} well(s) in ${ms} ms`);
+      recordProcess("Monte Carlo", `${req.iterations} realizations across ${wellIds.length} well(s) → ${res.zones.length} zone results`);
       if (res.errors.length) console.warn("Monte Carlo warnings:", res.errors);
     } catch (e) {
       statusLine.textContent = `Failed: ${e}`;

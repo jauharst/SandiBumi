@@ -244,6 +244,45 @@ export async function loadCurveNames(): Promise<string[]> {
   return catalog.map((c) => c.name);
 }
 
+/** Adaptive formatter for CURVE VALUES (not depths or counts). Picks decimals from the
+ *  value's magnitude so small readings keep resolution — perm 0.003 stays "0.003" instead
+ *  of the "0.00" a blanket toFixed(2) produces — and large ones aren't buried in decimals
+ *  (RT → "2151", not "2150.73"). Extreme magnitudes fall back to scientific notation.
+ *  Optionally appends a unit. Default 4 significant figures. */
+export function formatValue(v: number, opts?: { unit?: string | null; sig?: number }): string {
+  const sig = opts?.sig ?? 4;
+  let text: string;
+  if (!Number.isFinite(v)) {
+    return "—";
+  } else if (v === 0) {
+    text = "0";
+  } else {
+    const a = Math.abs(v);
+    if (a >= 1e6 || a < 1e-4) {
+      text = v.toExponential(Math.max(0, sig - 1));
+    } else {
+      const decimals = Math.min(6, Math.max(0, sig - 1 - Math.floor(Math.log10(a))));
+      text = v.toFixed(decimals);
+      if (text.includes(".")) text = text.replace(/0+$/, "").replace(/\.$/, "");
+    }
+  }
+  const unit = opts?.unit?.trim();
+  return unit ? `${text} ${unit}` : text;
+}
+
+/** Curve name → unit (non-empty) from the catalog, for readouts and axis labels that have
+ *  a curve name but not its unit. Units the catalog reports as null/blank are omitted so a
+ *  lookup miss (no unit) is indistinguishable from an absent curve. */
+export async function loadCurveUnits(): Promise<Map<string, string>> {
+  const catalog = await listCurveCatalog();
+  const units = new Map<string, string>();
+  for (const c of catalog) {
+    const u = c.units?.trim();
+    if (u) units.set(c.name, u);
+  }
+  return units;
+}
+
 export interface ZoneSelect {
   select: HTMLSelectElement;
   current: () => ZoneChoice;

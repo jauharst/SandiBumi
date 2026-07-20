@@ -1,11 +1,81 @@
-# SandiBumi — Complete Roadmap
+# SandiBumi — Development Roadmap
 
 Grounded in the Geolog V14 helpset catalog (`C:\Program Files\AspenTech\Geolog-V14\doc\helpset`,
-~120 module help books) and the original Techlog-style UX redesign plan. Updated 2026-07-17.
-This is the single current roadmap — the earlier standalone UI/UX redesign plan
-(`jolly-skipping-dove.md`) is folded into §0 below and fully superseded by this document.
+~120 module help books) and the original Techlog-style UX redesign plan. **Restructured
+2026-07-20 by status** — what's Done, what's Open, what's Future — so it's readable at a
+glance. (The earlier standalone UI/UX redesign plan `jolly-skipping-dove.md` is folded in and
+fully superseded by this document.)
 
-## 0. History — Phases 1–5 (shell, plots, data management, equations) — DONE
+## How to read this
+
+**Three status buckets** — every item lives in exactly one:
+
+| | Bucket | Meaning |
+|---|---|---|
+| ✅ | **[Part A · Done](#-part-a--done)** | shipped, tested, in the app (some carry small deferred slivers, flagged) |
+| ◻ | **[Part B · Open](#-part-b--open-do-next)** | the actionable backlog — do next |
+| 🔮 | **[Part C · Future](#-part-c--future)** | bigger lifts, planned but not scheduled |
+
+**Three label families** (unchanged — these name *kinds of work*, not status; the bare tags
+`P0`–`P3` are **retired**):
+
+| Family | Used for | IDs |
+|---|---|---|
+| **Phase** | the chronological build arc (product milestones) | Phase 1 … Phase 12 — sub-steps like `6a`/`8b`/`9-3` are detail *inside* a phase |
+| **Severity** | engineering-hardening backlog (audit/review debt), §4b | **Critical → Reliability → Performance → Polish → Low** |
+| **Wave** | new-capability feature suites (Jauhar's requests), §4c | Wave A … Wave E |
+
+**Old → new crosswalk** (so older notes, tasks, memory and REVIEW.md still map):
+- Hardening backlog (§4b): `P0`→**Critical** ✅ · `P1`→**Reliability** ✅ · `P2`→**Performance** ◻ · `P3`→**Polish** ◻ · Low ◻.
+- Field-review tiers (§4, a *different* 2026-07-19 list that also once used P1/P2/P3): `P1`→**Trust & safety** ✅ · `P2`→**Interpretation workflow** ✅ · `P3`→**New capability** (open items now live in the Wave backlog).
+- Inline provenance tags inside §4 like `(…, P1-b)` / `P2-e` are historical increment IDs from that dated review — read them through the crosswalk above.
+- Checkbox marks: `[x]` done · `[ ]` open · `[~]` partial.
+
+The old section numbers are **kept as identifiers** (§0–§5, §4b, §4c) because memory, REVIEW.md
+and the `docs/research_2026-07/` specs reference them by number — they now appear as tags on the
+headers below rather than as the primary structure.
+
+---
+
+## At a glance
+
+### ✅ Done — the bulk of the app
+- **Shell & workspace** (Phases 1–4): dockview MDI, 5-tab ribbon, light/dark/system themes, DB Inspector + undo/redo, read-only SQL panel, selection-driven workspace, i18n (EN / Bahasa Indonesia / Basa Sunda).
+- **Plots** (Phase 3 + v2s): WebGPU log view, Histogram v2, Crossplot v2, Pickett, multi-well Correlation, Field Dashboard — all HiDPI, zoom/pan, properties dialogs, export/templates.
+- **Data foundation** (Phase 6): generic curve store + units/TVD; LAS / DLIS / deviation / core / SCAL / tops / aux / well-location import.
+- **Interpretation physics** (Phases 7–8.5): deterministic module library; **SandiMin** 27-component Geolog-parity mineral solver; Sw suite (RtC / IMTS / Indonesia / dual-water); SSC / SSPW porosity; saturation-height; environmental corrections; Thomas-Stieber thin beds; Jauhar's field method suite.
+- **Deliverables** (Phase 8): composite plots at true print scale, multi-page PDF reports, batch export.
+- **Field scale** (Phase 9): workflow chains, Monte Carlo uncertainty, Field Dashboard, write-path perf hardening (100-well chain 50s→21s).
+- **Facies & ML** (Phase 10): electrofacies (k-means + GMM), full scikit-learn ML suite.
+- **Hardening**: **Critical** (8 correctness/data-integrity fixes) + **Reliability** (frontend-state races/leaks) tiers — done & adversarially verified.
+- **Feature waves**: **Wave A** (all tools as panes, compact ribbon, project picker, workflow grid) + **Wave E** (KKT ONWJ: precalc, dry-clay, gascorr, φmax, cutoff-sensitivity, map/polygons, condflag, nphimat) — all shipped.
+- **Polish so far**: units on readouts + adaptive value formatting (Polish-1); correlation well-list refresh + Ctrl-wheel zoom (Polish-2).
+
+### ◻ Open — do next  → [Part B](#-part-b--open-do-next)
+- **Polish tail** (§4b): ✅ all shipped — units #122, correlation #123, history-coverage #124, Pickett v2 #125, pay-summary provenance #126.
+- **Performance** (§4b — needs a live 100-well run to sign off): async commands (#128), connection pool [**high-risk**] (#129), raw-IPC ArrayBuffers (#131), batch reads (#130), persistent Python worker (#132); crossplot redraw memoize (#127, the one safe frontend win).
+- **Reliability sliver**: modal Escape-key stacking.
+- **Interpretation-workflow open** (§4): data-prep split/merge + tops-referenced normalization, highlight tool, typography check.
+- **Feature Wave B** (§4c): MC parameter **sensitivity/tornado** (13), ML comparison + leaderboard (3), fluid contacts in correlation (9), well-diagram track (16), rock typing + SHF fitting (8).
+- **Low backlog**: 15 minor audit items.
+- **Carried-forward deferrals** from the build arc: per-well param override table, MC print-to-curves + per-zone distributions, missing-curve synthesis, auto-picks / auto-zonation, lazy catalog + decimation cache + 2000-well stress fixture.
+
+### 🔮 Future — bigger lifts  → [Part C](#-part-c--future)
+- **Method-suite waves** (§4c Wave C): thin-bed / LRLC suite (10), TOC / unconventional (1a), 1D geomechanics MEM (1b), rock physics (15).
+- **New data-model suites** (§4c Wave D): NMR (5), image logs (6), core-photo digitization (7).
+- **Trust & reproducibility** (Phase 11): audit lineage, scenario A/B compare, command palette.
+- **Platform & extensibility** (Phase 12): user Python modules, native DLIS / LAS 3.0 / WITSML, installer + auto-update, in-app help; long game — NMR arrays, images, geomechanics, production logs.
+- **New-capability misc** (§4): 2D map window + volumetrics, plugins ribbon, panes independent of windows, data digitization tools, user-guide PDF.
+
+---
+---
+
+# ✅ PART A · DONE
+
+Shipped, tested, and in the app. A few phases carry a small **Deferred:** sliver — those open
+bits are collected in [Part B](#-part-b--open-do-next) / [Part C](#-part-c--future).
+
+## A0. History — Phases 1–5 (§0): shell, plots, data management, equations
 
 Built from the original Techlog-style redesign brief (MDI workspace, ribbon reorg, layout
 quality, plot upgrades, data management, Python equations). All five shipped, with a few
@@ -61,7 +131,6 @@ deliberate deviations from the original plan where reality disagreed with the pl
   Properties fill dropdown gained "Facies blocks"; track header shows a striped palette
   swatch + "class blocks" instead of an editable min/max scale. Min/max decimation
   passes discrete values through unaveraged, so no backend data change was needed.
-
 - **UX fix batch ✅ (2026-07-19, from Jauhar's click-through)** — Batch ribbon group
   overflow fixed (`.ribbon-btn-row`); Import DLIS moved to Import/Export; dialogs made
   non-blocking (pointer-transparent scrim, app stays clickable, Esc/✕ close); log views
@@ -69,7 +138,6 @@ deliberate deviations from the original plan where reality disagreed with the pl
   track-width moved from the View ribbon into a per-log-view mini toolbar
   (`logViewPanel.buildTools`); window resize keeps pane sizes (only the largest pane
   absorbs the delta — `workspace.relayoutKeepingPaneSizes`).
-
 - **GMM soft electrofacies ✅ (2026-07-19, Phase 10-3a)** — `gmm_facies` module in
   `facies.rs`: diagonal-covariance Gaussian mixture fitted by EM (log-sum-exp E-step,
   variance floor 1e-4), initialized from the best-of-8 k-means run so it agrees with
@@ -77,9 +145,7 @@ deliberate deviations from the original plan where reality disagreed with the pl
   GR-ordered like k-means) + **FPROB** (winning posterior 0–1) — boundary/mixed beds show
   low FPROB instead of being silently forced into a class. Same CURVE1–5 slots, z-score,
   seed determinism; auto-appears in the Facies ribbon dropdown, categorical crossplot
-  coloring matches (/FACIES/ regex), and FACIES_GMM can use the blocks track. Still
-  deferred: supervised facies on core (Python subprocess + scikit-learn), field-wide
-  pooled clustering for globally consistent labels.
+  coloring matches (/FACIES/ regex), and FACIES_GMM can use the blocks track.
 - **UI language option ✅ (2026-07-19)** — English / Bahasa Indonesia / Basa Sunda select in
   the Project ribbon tab (`src/i18n.ts`). Dictionary-driven DOM translation (text nodes +
   title/placeholder/aria-label/optgroup-label) with a MutationObserver covering dynamically
@@ -92,14 +158,12 @@ deliberate deviations from the original plan where reality disagreed with the pl
   scikit-learn in the python_engine subprocess pattern (JSON header + raw f32). Regression:
   RF, Gradient Boosting (XGBoost w/ sklearn fallback), SVR, MLP-ANN, linear/polynomial.
   Classification: SVM, KNN, RF, Gaussian NB, logistic — writes class + `_PROB`. Clustering
-  (fits POOLED apply wells → **field-wide, globally consistent ids**, closing that deferral):
-  K-Means, GMM (+`_PROB`), hierarchical, DBSCAN (noise → NaN); ids ordered by first-feature
-  mean like the native facies modules. Reduction: PCA (PC1…PCn + explained variance), t-SNE
-  (TSNE1/2, 20k-sample cap). Supervised tasks pool labelled samples from train wells and
-  predict on apply wells; incomplete rows are masked and come back NaN. Metrics (5-fold CV
-  R²/accuracy, silhouette, class/cluster counts) surface in the dialog. Autoencoders
-  deferred (needs PyTorch). Supervised facies on core = classification with target FACIES/
-  core lithology — no longer a separate deferral.
+  (fits POOLED apply wells → **field-wide, globally consistent ids**): K-Means, GMM (+`_PROB`),
+  hierarchical, DBSCAN (noise → NaN); ids ordered by first-feature mean like the native facies
+  modules. Reduction: PCA (PC1…PCn + explained variance), t-SNE (TSNE1/2, 20k-sample cap).
+  Supervised tasks pool labelled samples from train wells and predict on apply wells;
+  incomplete rows are masked and come back NaN. Metrics (5-fold CV R²/accuracy, silhouette,
+  class/cluster counts) surface in the dialog. Autoencoders deferred (needs PyTorch).
 - **Interactive plots ✅ (2026-07-19)** — the histogram/crossplot/Pickett panels were fixed
   bitmaps (720×460) CSS-stretched to the panel, so they looked like blurry screenshots.
   `PlotCanvas` now works in logical (CSS) pixels with a `fitCanvasBackingStore()` HiDPI
@@ -140,7 +204,643 @@ deliberate deviations from the original plan where reality disagreed with the pl
   (export only there); re-runnable-workflow view of the history; WebGPU log-view direct image
   capture (uses Composite instead).
 
-## 1. Where SandiBumi already matches — or beats — Geolog
+## A1. Priority gaps — all closed (§2)
+
+- ~~PT09_ThinBeds (Thomas-Stieber)~~ **DONE** — `thin_bed_ts` module (VLAM/VDISP/VSAND/PHIE_LAM).
+- ~~Correlation view~~ **DONE** — multi-well strips, tops connectors, flatten on datum.
+- ~~SpliceLogs + depth shift~~ **DONE** — `depth_shift` (zone-overridable block shift) +
+  `splice` modules; undoable core-to-log "Shift Core…".
+- ~~PT12_CoreAnalysis~~ **DONE** — core CSV import (percent→v/v, alias headers), crossplot
+  + log-track overlays, inspector editing.
+- Everything still open is in [Part B](#-part-b--open-do-next) / [Part C](#-part-c--future).
+
+## A2. Data foundation — Phase 6 (§3): arbitrary curves, units, TVD  ✅ (mostly)
+
+*Why it came first: `standard_curves` is hard-coded to 6 mnemonics (GR/RES/NPHI/RHOB/DT/SP).
+PEF, CALI, DRHO, RXO, multiple runs, arrays — none could even be imported, which blocked
+multimin (needs PEF), environmental corrections (needs CALI), bad-hole QC, and DLIS.*
+
+- ~~**Database (6a, DONE 2026-07-17)**~~: generic curve store shipped as an **additive**
+  layer alongside `standard_curves` — `curve_meta(curve_id, well_id, set_name, mnemonic, unit,
+  family, source, run_no)` + `curve_samples(curve_id, depth, value)`, curve **sets**
+  `RAW`/`EDIT`/`FINAL`, `well_path(well_id, md, inc, azi, tvd, tvdss)` for deviation.
+  `migrate_standard_curves_to_generic_store` runs on every launch, idempotently backfilling
+  GR/RES_DEEP/NPHI/RHOB/DT/SP into the generic store as set RAW with real units;
+  `upsert_curve_meta`/`insert_curve_samples`/`get_curve_samples`/`list_generic_curve_catalog`
+  are the read/write API (`db.rs`). 18 Rust tests pass (incl. an idempotency check and a
+  NaN-vs-NULL fix: DuckDB's `IS NOT NULL` is true for NaN, so the migration's "does this column
+  have real data" check needed `AND NOT isnan(col)`).
+- ~~**6b (mostly DONE 2026-07-17)**~~ — **Backend**: LAS import now keeps **every** curve.
+  `ingest::import_all_curves_into_generic_store` re-reads the file with `parsers::parse_las_2_all`
+  (streams all `~C` curves + units) and writes each into `curve_meta`/`curve_samples` as set RAW.
+  Mnemonic dictionary + unit conversion live in `curves.rs` (`family_for`, `convert_to_canonical`
+  — us/m→us/ft, kg/m³→g/cc, pu/%→v/v, mm/cm→in). Deviation survey import + minimum-curvature
+  TVD/TVDSS in `deviation.rs` (+ `parse_deviation_csv`, `db::insert_well_path`/`get_well_path`,
+  IPC `import_deviation_csv`/`get_well_path`).
+- ~~**DLIS import via `dlisio` (DONE 2026-07-17)**~~: `dlis.rs` runs `dlisio` through the Python
+  subprocess — a helper streams every scalar channel of every frame as a JSON header + raw f32
+  columns; Rust writes them into the generic store as set RAW, family-tagged + unit-canonicalized
+  (frame ordinal → `run_no`). `dlisio 1.0.4` in the SandiBumi Python env. IPC `import_dlis_file`.
+- ~~**6c — Frontend (DONE 2026-07-17)**~~: Curve Catalog shows the generic store per selected
+  well (mnemonic/unit/family/set/source/samples + live text filter, "· run N" badge), backed by
+  `list_generic_curve_catalog`, falling back to the legacy standard+computed view when no well is
+  selected. Data ribbon gained **Import DLIS…**, **Import Deviation…** (datum/KB → minimum-curvature
+  TVD/TVDSS), **Well Header…** (field/TD/KB editor).
+- **Deferred** (carried to [Part B](#b4-carried-forward-deferrals-from-the-build-arc)): rewiring
+  `get_track_data` (the log-view read path) to read from the generic store — log views still read
+  `standard_curves`, so PEF/CALI aren't drawable in a track yet. (The **module/equation** input
+  path `fetch_curve_frame` DOES fall back to the generic store — that's what unblocked
+  multimin/bad-hole.) Also deferred: a curve-set selector in the layout picker, and the optional
+  TVD depth scale in the log/correlation views (`deviation::tvd_at` + `LasFrame.depth_unit`
+  plumbing already built, `#[allow(dead_code)]`-tagged).
+- **Done when**: a real 30+ curve LAS (and a DLIS) imports whole ✓; PEF/CALI in the catalog ✓;
+  TVD matches hand calculation ✓; every existing feature still green ✓.
+
+## A3. Interpretation physics — Phase 7 (§3): the Mahakam pack  ✅
+
+- ~~**Generic-store read fallback (DONE 2026-07-17)**~~ — `equations::fetch_curve_frame` resolves
+  any non-standard, non-computed curve name from `curve_meta`/`curve_samples` (set RAW) via
+  `fetch_named_curve_aligned` → `fetch_generic_curve_aligned`, matching on mnemonic first then
+  family (so a module asking for "CALI"/"PEF"/"DRHO" finds an HCAL/PEFZ/HDRA curve by family),
+  preferring the base run. Additive — log views still read `standard_curves`.
+- ~~**Bad-hole QC (DONE 2026-07-17)**~~ — `badhole` module (Prep): BADHOLE = 1 where |DRHO| >
+  DRHO_MAX or (CALI − bit size) > DCAL_MAX (bit size from BS curve or BS_DEF), MISSING with no QC
+  curve. **Central mask capability** in the runner: any module run passing `opts["MASK"] = "<flag
+  curve>"` gets flagged samples (==1) NaN'd out of every output — zero per-module code. UI: one
+  universal "Mask (optional)" picker in the auto-generated module dialog.
+- ~~**Multimin (PT07, DONE 2026-07-17)**~~ — `multimin.rs` (separate from async-job `inversion.rs`):
+  constrained weighted least-squares 4-component inversion (SAND/CLAY/WATER/HC) from RHOB/NPHI/DT/PEF,
+  non-negative volumes via a hand-rolled Lawson-Hanson **NNLS** with a heavily-weighted unity row;
+  each tool equation scaled by 1/sigma. Outputs VOL_SAND/CLAY/WATER/HC, PHIT_MM, VSH_MM, SWT_MM,
+  RECON_ERR. Recovers a forward-modelled 70/30 clean wet sand within 2 %. 30 Rust tests.
+- ~~**Generalized Multimin — Increment A (DONE 2026-07-19)**~~ — `multimin2.rs`: ELAN-style **N
+  user-defined** minerals/fluids from an editable 15-entry library against any subset of
+  RHOB/NPHI/DT/GR/PEF/U, with **hard** unity (Σv=1) + non-negativity via equality-constrained
+  active-set NNLS over the probability simplex. Command `run_multimin`/`multimin_library`; **Advance
+  → Multimin…** dialog (editable endpoint matrix + Clay/Poro/Water roles). Outputs VOL_<comp> +
+  `<prefix>`_PHIT/VSH/SWT/RECON. 4 solver tests + suite pass.
+- ~~**Generalized Multimin v2 — Geolog parity (DONE 2026-07-19)**~~ — spec from the local Geolog-V14
+  Multimin helpset + IP2018 Mineral Solver. **27-component library** in IP dropdown order (12
+  minerals, 6 clays with CEC, 7 zone-typed fluids), **16 input logs + user-defined**. Resistivity
+  enters as conductivity via the **dual-water linear transform** (Ct^(1/w) row, w=0.75m+0.25n) —
+  Sw/Sxo come out of the volume solve itself (supersedes the old outer-loop design). Hard unity over
+  minerals+U-fluids, POROSITY (ΣX=ΣU) and BNDWAT soft σ=0.01 rows, WATER MUD re-solve, hard bounds
+  (fluids ≤0.5). New `solve_bounded_lsq`, `multimin_fluid_calc` preview, rebuilt Geolog-style dialog.
+  7 solver tests incl. Sw=0.40/Sxo=0.80 recovery from CT/CXO; 84/84 suite; tsc clean.
+- ~~**Saturation-height (PT11, DONE 2026-07-17)**~~ — `scal_pc` table + **Import SCAL…** +
+  `satheight.rs`: `fit_leverett_j` (Sw = A·J^B by log-log LSQ) and the `sw_height` module — LEVERETT
+  (needs PERM) or SKELT (no perm); SWH = 1 at/below the zone-overridable FWL; outputs SWH + HAFWL.
+  *Not built*: Skelt-Harrison auto-fit (manual params) and the Pc/J-vs-Sw QC plot (`get_scal_pc` ready).
+- ~~**Environmental corrections (PT03, DONE 2026-07-17, pragmatic analytic)**~~ — `gr_hole_corr`,
+  `nphi_env_corr` (needs FTEMP), `rhob_hole_corr` as Prep modules; coefficients are params at
+  chartbook magnitudes; a missing QC curve passes the log through uncorrected. Chart-lookup fidelity
+  stays future work.
+- ~~**Thomas-Stieber interactive crossplot (DONE 2026-07-17)**~~ — "T-S triangle" on the crossplot
+  (X=VSH, Y=PHIT): laminated + dispersed lines with **draggable endpoint handles** (sand handle sets
+  PHI_SD_MAX, shale handle sets PHI_SH → zone params on drag release, feeding `thin_bed_ts`).
+- **Done when**: multimin volumes match Geolog within tolerance ✓ (unit); SWH tracks core Sw (field
+  click-through pending, `REVIEW.md`); corrections change curves in the right direction ✓. 37 tests.
+
+## A4. Deliverables — Phase 8 (§3): composite plots & PDF reports  ✅
+
+*This is what clients and partners actually see — the LQR deliverable.*
+
+- ~~**Composite plot designer + vector export (8a, DONE 2026-07-17)**~~ — `composite.rs` renders a
+  `Layout` at a TRUE print scale (1:200/500/1000) into backend-neutral `DrawOp`s (mm space), then
+  serializes to **SVG** or a **dependency-free multi-page PDF** (hand-rolled writer, base-14
+  Helvetica — chosen over `svg2pdf`/`usvg` to avoid a heavy font-DB dep on the already-large
+  bundled-DuckDB build). Full header block, depth axis + grids, per-track frames + scales, curve
+  polylines with NaN/off-page breaks, edge fills, top lines + labels, zone bands, exact page split.
+  Data via `fetch_curve_frame` (standard/computed/generic all render). IPC `render_composite` /
+  `export_composite_svg` / `export_composite_pdf`. UI: Plot ribbon "Composite…". Verified: SVG curve
+  path exactly 233 mm tall (46.6 m × 5 mm/m at 1:200); PDF structurally validated. 42 Rust tests.
+- **Deferred — hatch lithology/facies track + text/arrow annotations** in the composite (needs a
+  facies curve → Phase 10 done, and an annotations store on `documents`).
+- ~~**Report generator (8b, DONE 2026-07-18)**~~ — `report.rs` reuses the 8a DrawOp/PDF machinery:
+  cover → methodology parameter–method–remarks table (editable, persisted as `report_template`) →
+  per-zone parameter table → pay summary table → composite pages, as one PDF. Paginated word-wrapped
+  tables. IPC `render_report` / `export_report_pdf` / `export_report_batch` / `save_png`. UI: Plot
+  ribbon → Deliverables → Report… (`reportDialog.ts`).
+- **Deferred from 8b**: histogram/crossplot pages, per-formation narrative text, bilingual headings,
+  executive-summary page, SWHF section, correlation-panel export.
+- **Done when**: one command produces a client-ready multi-page PDF for a Balam well ✓ (8a + 8b).
+
+## A5. Jauhar method suite — Phase 8.5 (§3)  ✅ (DONE 2026-07-18)
+
+*His own field-proven methods as first-class core modules, studied from the 7 reference projects
+(LQR Balam South, Glagah Kambuna, Wanda Gita, Bunga Block, LRLC research, KKT, BLSO). Math banked in
+auto-memory (`method-ssc-sspw-lqr`, `method-lrlc-imts-rtc`, `method-workflow-standards-jauhar`).*
+
+- ~~**`ssc` (Porosity)**~~ — full port of `ssc_lqr_gap_edit_jau.lls` (Kuttan/GAP 2023 SSC): gas
+  conditioning, N-D projection onto the dry rock line, sand/silt/clay fractions, PHIT from mixed
+  matrix density, CBW/CWSH bound-water split, SWIRR, GR-equivalent volumes. Deterministic replacement
+  for `RANNORMAL`; NPHIMA limit bug in the Loglan fixed deliberately (noted in the module header).
+- ~~**`sspw` (Porosity)**~~ — PHR-standard sandstone workflow; exec reconstructed from the `.info`
+  spec — **validate vs Geolog "LAS PHIT PHIE" outputs**.
+- ~~**`sw_rtc` + `sw_imts` (Saturation)**~~ — the LRLC research models: excess-conductivity
+  correction and iterative mineral-textural-scaled Waxman-Smits with Qv_eff = Qv_bulk/(1−Swirr),
+  Juhasz B(T,Rw).
+- ~~**`gr_normalize` (Prep)**~~ — two-point percentile GRN, Rokan reference defaults P3 = 53.68 /
+  P97 = 133.93 gAPI.
+- ~~**`log_predict` (Prep)**~~ — Facimage-MRGC-style synthetic logs by leave-one-out
+  distance-weighted KNN, with the MAX_RAW washout rule for RHOB.
+- ~~**Mnemonic dictionary enrichment**~~ — Bunga standardization table merged into `curves.rs`
+  FAMILIES (ROBB/SBD2/HDRA/FSTP/ATR/BDAV/RING/PSR/R25P/BSAV/SN/HORD/PEB/DT_S…).
+- **Deferred**: SSC-in-multimin presets (Wanda Gita), variable-m carbonate (SPI) module (Bunga),
+  per-zone multimin component presets (KKT), FZI rock typing module (→ Wave B item 8).
+
+## A6. Field scale — Phase 9 (§3): batch workflows, uncertainty, dashboards  ✅
+
+- **Workflow chains** ✅ (2026-07-18, inc. 1): `chain.rs` runs an ordered list of modules across
+  many wells — steps sequential, wells rayon-parallel per step via `run_workflow_module`. Progress +
+  cancellation via a pollable registry (not Tauri events): frontend supplies the job id, calls
+  `run_workflow_chain`, polls `get_chain_status`, `cancel_workflow_chain` flips a shared flag checked
+  between steps. Chains persist as `workflow` documents. Frontend: Workflow Builder
+  (`workflowDialog.ts`, Petrophysics → Batch).
+- **Per-step parameter editing** ✅ (2026-07-18, inc. 2): each step has an expandable ⚙ editor
+  (manifest-driven) — input selectors, options, validated params, universal bad-hole Mask. Only
+  non-default values are stored on the step; `zone_params` still override per zone at run time.
+  Override-count badge + Reset. Persists in the `workflow` document. **Remaining**: per-well parameter
+  override table (→ [Part B](#b4-carried-forward-deferrals-from-the-build-arc)).
+- **Monte Carlo uncertainty (PT06)** ✅ (2026-07-18, inc. 3): `montecarlo.rs` — put
+  normal/uniform/triangular distributions on any model parameter, run N seeded realizations of a chain,
+  get P10/P50/P90 net pay / NTG / avg PHIE / avg SWE / HPV **per zone** + an HPV histogram. Runs
+  **entirely in memory** (`run_module` returns curve vectors; nothing writes `computed_curves`), so it
+  sidesteps the field-scale write bottleneck — 1000 realizations finish in well under a second.
+  Rayon-parallel, each seeded from `(seed, index)` for reproducibility. UI: Petrophysics → Batch →
+  **Monte Carlo…** (`monteCarloDialog.ts`). **Deferred** (→ [Part B](#b4-carried-forward-deferrals-from-the-build-arc)):
+  per-zone parameter distributions (currently well-wide), persisted P10/P50/P90 *curves*, and
+  parameter **sensitivity/tornado** (that's Wave B item 13).
+- **Field dashboard panel** ✅ (2026-07-18, inc. 4): `dashboardPanel.ts` runs `run_pay_summary`
+  across **every** well at chosen cutoffs → per-zone aggregation table, per-zone box plots (inline SVG),
+  sortable multi-well × zone grid, filterable by flag level, CSV export. Frontend-only; reuses the
+  pay-summary command. *Caveat*: a full-field compute incurs the `computed_curves` write cost — the
+  perf-hardening increment below addressed the worst of it.
+- **Performance hardening — write path** ✅ (2026-07-19, inc. 5): killed the `computed_curves` write
+  bottleneck. Root cause (proven by the in-harness probe in `pipeline_blso_test.rs`) was the 3-column
+  `PRIMARY KEY (well_id, depth, curve_name)` — its ART uniqueness index cost ~3.4× per row. **Dropped
+  the PK** (`migrate_drop_computed_curves_pk` rebuilds the table PK-less on launch, idempotent);
+  uniqueness now guaranteed by the write discipline (DELETE target curve names before appending;
+  point-updates UPDATE in place). Also **batched** each well's whole module output into one DELETE +
+  one Appender/flush (`write_computed_curves_batch`). Net: the real 100-well × 4-module chain dropped
+  from ~50s to **21s** (~2.3×). 72 Rust tests. **Still open** (→ [Part B](#b4-carried-forward-deferrals-from-the-build-arc)):
+  lazy catalog loading, decimation cache, UI responsiveness during full-field runs, 2000-well stress
+  fixture.
+- **Done when**: a 100-well chain runs with live progress in minutes ✅ (21s); MC 1000 realizations
+  per well finishes in seconds ✅.
+
+## A7. Facies & assisted interpretation — Phase 10 (§3)  ✅ (facies shipped)
+
+- **Electrofacies (PT15)** — unsupervised k-means ✅ (2026-07-18, inc. 1): `facies.rs` `electrofacies`
+  module (Facies ribbon category). Up to 5 input curve slots (GR required; RHOB/NPHI/DT/SP optional),
+  z-scored by default, then k-means++ (dependency-free, best-of-8 restarts) partitions complete samples
+  into K facies (2–12). **Labels reordered by ascending mean of the first curve** (usually GR), so
+  FACIES 0 is cleanest and numbering is monotone in shaliness. Missing any present curve → MISSING.
+  Deterministic. Output FACIES → `computed_curves`. Frontend QC: **crossplot categorical coloring**
+  (FACIES/CLUSTER/LITHO/CLASS → fixed qualitative `FACIES_PALETTE` + swatch legend). 4 Rust tests.
+  **GMM (soft clustering)** and **field-wide pooled clustering** shipped via the ML suite (A0) and
+  `gmm_facies` (A0). **Colored FACIES block track** shipped (A0).
+- **Missing-curve synthesis** — open (→ [Part B](#b4-carried-forward-deferrals-from-the-build-arc)):
+  train per-field regressors to predict DT/NPHI where absent; holdout-well R² report.
+- **Auto-picks** — open (→ [Part B](#b4-carried-forward-deferrals-from-the-build-arc)): per-zone
+  GR_MA/GR_SH percentile suggestions, change-point auto-zonation, spike/outlier QC across the field.
+
+## A8. Field review — Trust & safety + Interpretation workflow (§4)  ✅
+
+The complete feature/fix list from Jauhar's o/x click-through (2026-07-19). Two tiers here are **done**;
+the Interpretation-workflow tier has a few open items pulled into [Part B](#b2-interpretation-workflow-open-4).
+
+### Done same-day (2026-07-19)
+- ✅ **Ctrl+wheel = zoom** on histogram/crossplot/Pickett; plain wheel scrolls the page.
+- ✅ **Pertamina theme** now uses the official palette (#ED1A2F / #006BB8 / #A6C210 / #161B22).
+- ✅ **"Light" renamed "Default"** in the theme dropdown.
+- ✅ **Advance tab regrouped**: one "Advance Methods" group = SSC, SSPW, RtC, IMTS, **Thin Beds**.
+- ✅ **Multimin renamed → SandiMin**; the legacy fixed 4-component "Multimin — Mineral Inversion" is
+  removed from the Saturation dropdown (still callable from saved chains).
+- ✅ **Repo made collaboration-ready**: .gitignore hardened, CONTRIBUTING.md added, work committed
+  to git (remote hosting = Jauhar's choice).
+
+### Trust & safety — DONE  _(field-review tier, was "P1"; protect the user's work first)_
+- ✅ **Crash resilience** (P1-b): `autosave.ts` — running-flag crash detection, 10-s rolling autosave
+  of the full session snapshot to localStorage; abnormal exit → blocking choice before boot (restore
+  autosave, or Safe Mode). Normal launches reapply well + log-view layouts via `applyAutosaveExtras`.
+- ✅ **Unsaved-changes indicator** (P1-b): `dirty.ts` registry — log-view edits mark the panel (tab ●,
+  QAT Save-Session dot); Save Layout clears that panel, Save/Open Session clears all.
+- ✅ **Click-to-arm, double-click-to-edit inputs** (P1-a): app-wide via `interactionGuard.ts` — a
+  single click arms `input[type=number]` read-only; double-click unlocks; blur re-arms. Tab focus stays
+  editable; per-input opt-out with `data-free-edit`.
+- ✅ **Right-click lockdown** (P1-a): default WebView menu killed except editable fields; F5/Ctrl+R
+  guarded by a blocking confirm; Alt+arrows and mouse back/forward blocked.
+- ✅ **Workflow builder as a pane, not a popup** (P1-a): dock component "workflow" (singleton); closing
+  the pane mid-run cancels the chain.
+- ✅ **Database versioning — never overwrite** (P1-c): `log_sets` run-event table + append-only
+  `computed_curves_archive`; `computed_curves` stays the fast "current" store (rows tagged `set_id`).
+  Module runs, chains, equations (EQUATION), ML (ML), SandiMin (SANDIMIN) all write versioned; re-run =
+  version N+1, any version restorable/prunable. Provenance per run: module, params, inputs, timestamp.
+  Catalog: merged view with set/version/module/when + n/min/max/mean, one search box, click-to-sort.
+- ✅ **Set INPUT selection on modules** (P1-c follow-up): "Input set" field in every module dialog and
+  the Workflow Builder; inputs resolve from that set's archived values, falling back to the usual
+  sources. Blank = current values. Provenance `inputs_json` records the input set.
+- ✅ **Curve catalog power features** (P1-c): one search box across mnemonic/set/module/unit/date,
+  click-to-sort columns, per-curve n/min/max/mean.
+
+### Interpretation workflow — DONE  _(field-review tier, was "P2")_
+- ✅ **Imports (tops-style)** (P2-a): "Import Tops…" (CSV/TXT, alias headers, multi-well) + "Import
+  Aux…" (PETROGRAPHY / XRD / PERFORATION / custom into `aux_data`). Deferred: aux overlays on plots.
+- ✅ **Tops editor, Petrel-style**: log views draw tops as labeled colored lines; 🏷 toolbar toggle
+  enables click-add / drag-move / double-click edit (all undoable); **stratigraphic-crossing warning**
+  (`tops.rs::check_top_order`); **marker autocorrelation** (Data → Autocorrelate…, `autocorrelate_top`).
+  Deferred: named tops SETS (multiple schemes per project).
+- ✅ **Well pin semantics rework**: the 📌 pin is now a MODE. Pin ON = selecting a well drives the
+  whole workspace. Pin OFF = viewers keep their wells, only the ACTIVE panel follows. **Multi-select**:
+  Ctrl-click toggles, Shift-click ranges, ⇄ inverts; batch dialogs pre-tick the multi-selection
+  (`defaultRunWellIds`).
+- ✅ **Log-view layout interaction**: ▤ collapsible track headers; drag a curve between tracks to MOVE
+  (Ctrl = copy), undoable; ▦ customizable track borders; hover readout scoped to ONE track; right-click
+  → "Edit CURVE…" (shift/const/blank/interpolate/scale) via `curve_edit.rs` transactional read-modify-
+  rewrite, undoable bit-exactly (`restore_curve_values`), recorded in Processing History.
+- ✅ **Histogram v2** (2026-07-20): Geolog-style Properties dialog (mode, bins, normalize, cumulative-%,
+  box-plot strip P5–P25–P50–P75–P95, custom bar color, user percentiles, Min/Max, statistics placement).
+  Parameter pickers now opt-in — a fresh histogram is a neutral frequency tool.
+- ✅ **Crossplot v2** (2026-07-20): sectioned Properties dialog — plot size (fill or fixed W×H),
+  marginal histograms on X/Y, custom point color + "— None —" Z, user percentiles, regression = model
+  (linear/power/log10-X/exponential) × method (Y-on-X / X-on-Y / RMA), Z color = colormap
+  (rainbow / **viridis**) + **log Z scaling**, overlays. Matrix points + pickers now opt-in.
+  ~~D-N porosity overlay~~ DONE 2026-07-20 (Por-11/Por-12 digitized into `dnChartData.ts`; fresh & salt
+  variants; chart dolomite ρma 2.85 per its own graduation ticks).
+
+## A9. Hardening — Critical & Reliability tiers (§4b)  ✅
+
+Jauhar asked for a full "30-year senior petrophysicist" recheck. Five parallel review passes
+(methods, frontend bugs, performance, UX, data integrity) + an adversarial verify pass on every
+high/medium claim: **35 confirmed, 0 refuted, 15 low**. Full detail with file:line evidence in
+`AUDIT-2026-07-20.md`. The Performance / Polish / Low tiers are open — see [Part B](#b1-hardening-backlog-4b).
+
+**Critical (was "P0") — answers were wrong or silently unsafe** — all eight fixed + unit-tested
+2026-07-20, both residuals closed under #118 (lib suite 160 pass / 0 fail, tsc clean; click-through in
+REVIEW.md "P0 senior-audit backlog"). #118 was adversarially reviewed (4 lenses → per-finding verify;
+5 confirmed findings folded in below).
+- [x] MASK now blanks module INPUTS before the run, not just outputs — gr_normalize P3/P97 and
+      log_predict KNN training see only unmasked samples, and the masked log_predict synthetic survives
+      inside the washout. (workflow.rs; test `mask_excludes_flagged_samples_from_gr_normalize_percentiles`.)
+- [x] sw_height takes an optional TVD input (defaults to MD) and accepts a negative-TVDSS FWL, so
+      deviated-well SWH is no longer optimistic. (satheight.rs; negative-TVDSS test.)
+- [x] Pay summary: sample thickness clamped to zone overlap (net ≤ gross, no step bleed past base),
+      SAND avg_phie normalised over valid-PHIE thickness, PERM-missing excluded. (workflow.rs; test
+      `pay_summary_clamps_thin_zone_and_normalizes_avg_phie_over_valid`.)
+- [x] LAS/DLIS import: ~W NULL now parsed (`declared_null`), multi-word well name fixed, DLIS sentinels
+      screened + per-frame run numbers so a frame-0 channel no longer silently overwrites a same-mnemonic
+      LAS curve. **#118:** `parse_las_2` falls back to column 0 for TDEP/MD/other-indexed files, and
+      `sanitize_curve_columns` drops non-finite + duplicate depths (first kept) so a spliced/repeat-depth
+      LAS imports instead of aborting on the (well_id, depth) PK. The *generic* store is sanitized the
+      same way via `sanitize_las_frame`; an all-null-depth file errors instead of committing an empty
+      orphan well; MD/TDEP dropped from the alias list so an auxiliary track can't steal depth; ±0.0
+      normalized in the dedup key; non-monotonic depth surfaced as a warning. (parsers.rs, ingest.rs;
+      tests `duplicate_depth_las_imports_standard_and_generic_curves`,
+      `all_null_depth_las_errors_without_creating_well`, `parse_las_2_auxiliary_md_curve_does_not_steal_depth`,
+      `sanitize_dedups_signed_zero_depths`, `parse_las_2_tdep_index_populates_depth`.)
+- [x] All delete-then-append writers wrapped in a `with_txn` BEGIN/COMMIT/ROLLBACK (db.rs; applied
+      across equations.rs, db.rs, ingest.rs).
+- [x] sw_imts clay term now divides by Sw (Sw^(n*−1) Waxman-Smits tail) so it credits clay conductivity
+      in pay. (lrlc.rs; test `imts_credits_clay_conductivity_in_pay_zone`; memory corrected.)
+- [x] Computed-curve lookup is case-insensitive (fixed 2026-07-20).
+- [x] SandiMin refuses < (components−1) input tools up front and skips under-live samples. (multimin2.rs;
+      test `rejects_underdetermined_request`.) **#118:** an all-zero CT/CXO response row is now also
+      rejected (test `rejects_all_zero_conductivity_row`).
+
+**Reliability (was "P1") — frontend state** — done & adversarially verified (6/0 + second-pass clean;
+REVIEW.md P1 section):
+- [x] Plots subscribe to dataVersion — histogram/crossplot/pickett/correlation/log-view now
+      reload(preserveView=true) on a dataVersion bump (dataPrimed-guarded); stale curves after a module
+      run are gone. (2026-07-20.)
+- [x] loadWell/reload/createPlot race guards (generation tokens) + a sticky reset flag
+      (resetPending / viewResetPending) so a superseded reset intent still fires once; listener leaks on
+      dispose fixed (logViewPanel init disposes the LOCAL renderer since dispose() nulls the field;
+      LogCanvasRenderer removes its window pointerup/pointermove handlers and cancels the rAF loop via a
+      cleanups array). (2026-07-20.)
+- [x] Undo: failed undo/redo no longer vanishes silently; "Add top" overwrite undo restores the previous
+      depth instead of deleting the top (fixed 2026-07-20).
+- **Open sliver** → [Part B](#b1-hardening-backlog-4b): modal Escape-key stacking.
+
+## A10. Feature waves shipped — Wave A + Wave E (§4c)
+
+Source: Jauhar's 2026-07-20 feature list, researched by a 10-agent sweep over his reference library,
+real project data, the Geolog-V14 install, and the codebase. **Full method specs are banked in
+`docs/research_2026-07/` — read the matching file before implementing any Part B/C wave item.** Item
+numbers = Jauhar's original ordering. **Per-increment verification standard: run on Balam South data
+(item 11)** in addition to cargo test / tsc / browser checks.
+
+**Wave A — UI foundation (done first so every new suite is born into it):**
+- [x] **(14) Tools as panes, not popups + theme compliance.** _(Done 2026-07-20)_ **moduleDialog is
+      now a dock pane** (component "module", id "module:<name>", spec via listModules so layout restore
+      rebuilds from the id alone → EVERY current/future manifest module gets a pane automatically), plus
+      a `wellPane` host for **zones, autocorr, composite, report**. Ribbon buttons + the ＋ menu + the
+      log-view Print/export item all open panes; "select a well first" guards became in-pane hints. Kept
+      modal on purpose: layoutProps, curveEdit, session/layout/header/shift-core, imports. Theme fixes:
+      killed phantom CSS vars, re-skinned `.cursor-readout`/`.workflow-invalid`, replaced hard-coded hex
+      in crossplot/pickett/histogram/logView TS with `plotColors()`. Adversarial review (16 agents → hand
+      re-verify on Opus): 9 real → all fixed. REVIEW #24. → `code_ui_shell.md`.
+- [x] **(4) Compact import ribbon.** _(Done 2026-07-20)_ Import Logs ▾ / Import Data ▾ / Export ▾ /
+      Tools ▾ via `buildRibbonDropdown`, i18n'd; Manage group kept. → `code_data_db_import.md`.
+- [x] **(12) Multi-line inspector in workflows.** _(Done 2026-07-20)_ Workflow Builder List|Grid toggle:
+      rows = steps, columns = union of args, Set-all row edits a shared parameter (RW across sw_*) on every
+      step that takes it; per-step delete-if-default + manifest-limit validation preserved; view choice
+      persisted. → `code_compute_ml_mc.md`.
+- [x] **(2) Project open/switch, IP style.** _(Done 2026-07-20)_ `project.rs` recents in
+      %APPDATA%\SandiBumi, live connection swap, open/new/recent UI, reopen-last at startup, chain-running
+      guard; save_project_as stays a backup copy. → `code_data_db_import.md`.
+
+**Wave E — KKT ONWJ additions (Jauhar 2026-07-20; sources = his KKT ONWJ full-field deck +
+Multimin Parameters.xlsx, extracted into `ref_kkt_onwj_wave_e.md` — client files stay OUT of the repo):**
+- [x] **(17) Pre-calculation module** (deck slide 31): mud + temp/pressure gradients → FTEMP, FPRESS,
+      RMF (Arps to formation temp), CT = 1000/RT, CXO = 1000/RXO. _(DONE 2026-07-20: `precalc` module —
+      linear FTEMP (degC canonical) + FTEMP_F / FPRESS in TVDSS with whole-curve DEPTH fallback, RMF via
+      ARPS (shared `multimin2::arps_f`) or TREND log10 regression, CT/CXO mmho/m QC curves with R ≤ 0
+      guards; four unit tests. Adversarial review 6/6 → fixed: RES_DEEP default, FTEMP degC-only, own
+      SURF_TEMP/TEMP_GRAD names, TREND ft-fit + CT/CXO-are-QC caveats.)_
+- [x] **(18) Wet→dry clay endpoint conversion** for the PHIT-basis Sw model: φ_clay = (ρdry−ρwet)/(ρdry−1);
+      NPHI/GR/DT rescaled onto the dry fraction. _(DONE 2026-07-20: `dry_clay_calc` + `fluid_from_precalc`
+      in multimin2.rs, converter panel + precalc autofill in the SandiMin pane. CBW bookkeeping settled
+      against deck slide 59 (SWB = VOL_UBNDWAT/PHIT); CEC_eq inverts the BNDWAT multiplier so the solver
+      enforces v_bw = φ/(1−φ)·v_dryclay with no solver change. Unphysical-pick guards. Adversarial review
+      15 → 7 confirmed → all fixed. 122 tests. REVIEW #22.)_
+- [x] **(19) Gas correction, iterated** (deck slide 65): ρb_corr = RHOB + Φt·(1−Sw)·(1.00−ρg_res), outer
+      loop solve→correct→re-solve until |ΔΦt| converges. Depends on (17). _(Done 2026-07-20: `gascorr`
+      Prep module — Standing+Papay GASDEN, Archie in-loop Sw, 20-pass fixed point, rw_args merged with
+      required precalc FTEMP/FPRESS (computed-only). Adversarial review 13 → all fixed. NPHI analog
+      deliberately not built (doc steers RHOB_GC → phi_den/PHIT_GC). 127 tests. REVIEW #23.)_
+- [x] **(20) φmax porosity cap from compaction trend** (deck slide 64): optional zone-overridable
+      PHI_MAX in porosity modules + SandiMin. _(DONE 2026-07-20: `phimax` Porosity module — MODE
+      constant/linear/athy; φmax = PHIMAX0 or PHIMAX0 − GRAD·(TVDSS−REF)/1000 or PHIMAX0·exp(−ATHY_K·…);
+      TVDSS positive-down, whole-curve DEPTH fallback; all 4 params zone-overridable. Outputs <PHI>_CAP +
+      <PHI>_MAX. Jauhar chose the TVDSS trend (linear + athy shipped). Ultracode review 0 confirmed / 4
+      refuted, +2 guards. 136 tests. REVIEW #26.)_
+- [x] **(21) Cutoff sensitivity tools** (deck slides 84–87): Method-1 pay-sensitivity sweep plots +
+      Method-2 DST-highlighted crossplots with draggable cutoff crosshairs; picked cutoffs write per-zone
+      pay-summary defaults. _(DONE 2026-07-20: one "cutoff" dock pane, Sweep / DST-Crossplot toggle.
+      `compute_sweep`/`run_cutoff_sweep` reuse the pay-summary math via extracted `classify_sample`
+      (byte-identical, tested); NET/HPV/NTG; zone + DST-interval filter. Frontend: per-well sweep lines
+      with pick-and-write, DST crossplot with draggable crosshair, save-as-default. Two review passes:
+      13 → 10 confirmed, all fixed. 131 tests. REVIEW #25.)_ Per-zone cutoff APPLICATION inside
+      run_pay_summary remains a noted follow-on.
+- [x] **(22) Map pane + editable polygons → well groups**: well header surface X/Y, Map pane, polygon
+      draw/edit, point-in-polygon → well group. _(DONE 2026-07-20: `wells` gained surface_x/surface_y
+      (DOUBLE — S-hemisphere northings exceed f32) + utm_zone; `geo.rs` point_in_polygon (PNPOLY) +
+      wells_in_polygon; `parse_locations_file` + `import_locations_file`. Frontend: standalone Field Map
+      pane (pan/wheel-zoom/grid/scale-bar, draggable polygon vertices, live highlight, Assign→group),
+      Import Well Locations dialog with Indonesia UTM zone (46–54 N/S), Well Header X/Y/zone. Raw UTM (no
+      reprojection — multi-zone follow-on). Adversarial review: 3 confirmed, all fixed. 143 tests. REVIEW #27.)_
+- [x] **(23) Data-conditioning flags module** (mid-Wave-E request): flag badhole / tight / gas-crossover
+      / coal + a shoulder-adjustment flag. _(DONE 2026-07-20: `condflag` Prep module — COAL_FLAG
+      (density/neutron/sonic, BADHOLE-excluded), TIGHT_FLAG, XOVER_FLAG, SHOULDER_FLAG (dilation of
+      coal/tight + ≥MIN_THICK badhole), COND_FLAG combined mask; MIN_THICK despike with NaN-bridged runs;
+      8 tests. Adversarial review 12 → 8 confirmed → fixed: RHO_MA/RHO_FL shared with porosity modules,
+      NaN-in-bed despike bridging, degenerate-guard, doc caveats, BADHOLE/COND_FLAG always in Mask
+      dropdowns.)_
+- [x] **(24) Neutron matrix conversion module** (mid-Wave-E request): convert NPHI between limestone /
+      sandstone / dolomite conventions. _(DONE 2026-07-20: `nphimat` Prep module — chartbook Por-5 (CNL
+      thermal) and Por-4 (epithermal APS + legacy SNP) digitized at vector precision into
+      `neutron_charts.rs` (12 tables, generator `tools/chartdig/gen_por45.mjs` with hard gates). Pivots
+      through the apparent-limestone axis, outputs NPHI_LS/NPHI_SS/NPHI_DOL; 6 tests. Adversarial review
+      13 → 8 confirmed → fixed: APS/legacy mnemonics added to aliases + family; all-NaN standard column in
+      fetch_curve_frame falls back to computed/generic (APS wells no longer all-NaN); workflow-builder
+      log_in dropdowns offer every module's log_out; SNP no longer mislabeled as APS.)_
+
+Cross-cutting notes: (11) Balam South testing is the per-increment verification standard, not a separate
+item. New suites must land as panes (Wave A first), use the 15-var theme contract, manifest-driven
+dialogs where they fit, and expose outputs to Python/SQL per §5.
+
+---
+---
+
+# ◻ PART B · OPEN (do next)
+
+The actionable backlog. Roughly ordered: safe frontend wins first, then Performance (which needs a live
+100-well run to sign off), then the Wave B feature suites, then carried-forward deferrals.
+
+## B1. Hardening backlog (§4b)
+
+**Performance (was "P2") — speed at field scale (100+ wells)** — all 6 mapped by a read-only
+investigation wave (file:line + risk); **none built yet**. Tasks #127–132. Architecturally invasive:
+these change DB connection semantics and **cannot be signed off without running `tauri dev` on 100+
+real wells** (the human can't be replaced for perf benchmarking).
+- [ ] **(#128)** Long commands are synchronous Tauri commands — `run_workflow_chain`/`run_ml`/`run_multimin`
+      are sync `fn` on the IPC thread, so a chain run blocks IPC for minutes and Cancel can't fire until it
+      finishes. Move to async + spawn_blocking + progress events. Interacts with the pool item below (the
+      global `Mutex<Connection>` still serializes spawn_blocking on the lock).
+- [ ] **(#129) [HIGH-RISK]** Rayon over wells is defeated by the single global `Mutex<Connection>` — every
+      well locks the same conn. Split reads (read-only connection pool) from the single serialized writer;
+      writes (computed_curves DELETE+append in `with_txn`) **must stay single-writer** to protect the
+      WAL/131MB file. Corruption modes must be reasoned explicitly.
+- [ ] **(#131)** "Binary" curve IPC ships bytes as JSON numbers (~4× size, main-thread parse) — use Tauri
+      v2 raw IPC responses (ArrayBuffer) end-to-end (length-prefixed multi-curve buffer → Float32Array).
+      Task #7 half-did this — check what exists.
+- [ ] **(#130)** One query per curve per well load (~100 scans of computed_curves) — batch to a single
+      `SELECT … WHERE well_id=? AND name IN (?..) ORDER BY depth`, partition in Rust, preserve alias
+      resolution. *(The batch-reads investigation-map agent errored mid-run; re-run its map before
+      implementing.)*
+- [ ] **(#132)** Python engine spawns one subprocess per well (re-importing numpy/sklearn each time) —
+      persistent worker reading length-framed requests on stdin, or batch all wells into one invocation.
+- [ ] **(#127)** Crossplot redraw rebuilds per-point rgb() color strings + re-sorts on every frame — cache
+      colors by z-bin + pre-sorted index once per load; keep only the viewport transform per-frame.
+      **The one pure-frontend, low-risk Performance win.**
+
+**Polish (was "P3") — UX (veteran-interpreter friction):**
+- [x] Depth-scale presets mislabeled (~39× off a true 1:100 — fixed 2026-07-20).
+- [x] **(Polish-1, #122)** Units on readouts + adaptive value formatting — `formatValue()`/`loadCurveUnits()`
+      in plotCommon; the cursor readout keeps small-value resolution (perm 0.003, not 0.00), trims big
+      values (RT → 2151), appends the catalog unit; cached per-load, refreshed on dataVersion. tsc clean.
+      (2026-07-20; REVIEW.md "Polish — UX".)
+- [x] **(Polish-2, #123)** Correlation stale well list + missing Ctrl+wheel zoom —
+      `correlationPanel.refreshWells()` re-fetches the well list on dataVersion (imports appear, deletes
+      drop, group re-applies) + Ctrl/Cmd+wheel zoom about the cursor (matching attachZoomPan). tsc clean.
+      (2026-07-20; REVIEW.md.)
+- [x] **(Polish-3, #124)** Processing history now audits equation/chain/ML/MC runs, log-set
+      restore/delete, zone add/edit/delete + params, manual tops edits, DLIS/deviation/SCAL/core
+      imports, cutoff saves, map polygon→group — exhaustive `recordProcess()` sweep. (2026-07-20.)
+- [x] **(Polish-4, #125)** Pickett v2 — ⚙/right-click Properties dialog (configurable RT/PHIE axes,
+      point size, color-by-curve rainbow/viridis+logZ) persisted via `plotprops`; toolbar M/Rw fields
+      (typed line follows, picks fill the same fields). Absorbs the §4 Interpretation-workflow "Pickett
+      v2" item. (2026-07-20.)
+- [x] **(Polish-5, #126) [backend]** Pay-summary FLAG_* curves now versioned into a **PAYFLAG** log set
+      with provenance (module `pay_summary` + the cutoffs in `log_sets.params_json` + inputs) on the
+      explicit run; Dashboard/report set `skip_version` to overwrite in place (no churn). Atomic via
+      `with_txn`; test `pay_summary_versions_flags_with_cutoffs_in_provenance`. (2026-07-20.)
+
+**Reliability sliver (was "P1"):**
+- [ ] Modal Escape-key stacking (overlapping dialogs share one Escape handler) — not addressed by the
+      2026-07-20 wave; most tools are dock panes now, so deferred to a modal-lifecycle pass.
+
+**Low (15 items)** — see `AUDIT-2026-07-20.md` (SSC zero-PHIE guard, ±Infinity in stats, i18n gaps,
+DB-inspector f32 depth equality, wrap-mode LAS parsing, etc.).
+
+## B2. Interpretation-workflow open items (§4)
+
+_(field-review tier, was "P2"; the rest of the tier is done in [A8](#a8-field-review--trust--safety--interpretation-workflow-4).)_
+- [ ] **Pickett v2**: N together with M and Rw; free user input of line parameters (lines follow);
+      Z-value coloring by a chosen log with customizable gradient. (Tracked as Polish-4/#125 above.)
+- [ ] **Data prep**: **split & merge** of curves/intervals; **normalization with tops-referenced
+      intervals** — reference top/bottom from a chosen tops set; missing marker → nearest stratigraphic
+      marker (top → shallowest, bottom → deepest); percentiles extrapolated over the whole interval and
+      normalized together.
+- [ ] **Highlight tool** (Geolog-style): multiple depth highlights, same or different colors; convert
+      highlights → tops.
+- [ ] **Typography**: text reads slightly fuzzy/washed-out up close — investigate WebView2 rendering
+      (display scaling, weight, contrast). Waiting on Jauhar to say whether it's blurriness or lightness.
+
+## B3. Feature Wave B (§4c) — leverage existing engines (small-to-medium, high payoff)
+
+- [ ] **(13) Monte Carlo parameter sensitivity.** montecarlo.rs already samples per realization but
+      **discards the draws** — keep them, add Spearman rank correlation of param vs output across
+      realizations + **tornado chart**, plus a one-at-a-time sweep mode; scope selector = single tool or
+      whole workflow (bulk). *(This is what "MC sensitivity analysis" means — the uncertainty engine is
+      done in [A6](#a6-field-scale--phase-9-3-batch-workflows-uncertainty-dashboards--); this adds the
+      sensitivity ranking.)* → `code_compute_ml_mc.md`.
+- [ ] **(3) ML comparison quantification.** Loop algorithms × input-curve subsets in one job; leaderboard
+      ranking; **well-grouped CV + blind-well holdout** (current random 5-fold leaks depth correlation);
+      feature importance (permutation); confusion matrix. exec_ml is already one-shot per call — harness
+      loops it. → `code_compute_ml_mc.md`.
+- [ ] **(9) Fluid contacts in well correlation.** New `fluid_contacts` store (well/field, type
+      OWC|GWC|GOC|GDT|ODT, depth, TVDSS flag, color), editor UI, rendering in correlationPanel as
+      horizontal lines + connectors; requires adding a **TVDSS depth mode** to correlation (contacts are
+      flat in TVDSS, not MD; deviation.rs paths exist). Optional: show in log-view tops overlay.
+      Supersedes the §4 New-capability 2D-Window fluid-contacts note. → `code_data_db_import.md`.
+- [ ] **(16) Well-diagram track in layout.** `Track` gains a `kind` field (`"curves" | "well_diagram"`,
+      serde-default for saved-layout compat); draw casing/shoe/tubing/perfs on the 2D overlay canvas;
+      perfs already in aux_data; casing/completion needs a store + importer (reserved aux_data dataset
+      `COMPLETION`); BS available as curve. Mirror in composite/report export. → `code_data_db_import.md`.
+- [ ] **(8) Rock typing + SHF building.** Rock typing: FZI/HFU (Amaefule + GHE bins), Winland R35/Pittman,
+      Lucia RFN, PGS (Permadi & Susilo ITB — verify exponent vs paper), perm binning per Mahakam phi-k-laws
+      preset, electrofacies tie-in with confusion-matrix QC. SHF *fitting* side (forward `sw_height` exists):
+      Leverett-J, Brooks-Corey, Thomeer, Skelt-Harrison, Cuddy FOIL/BVW, log-derived per-RT Sw(h), FWL scan
+      (Cuddy Eq 19) + gradient-intersection; SCAL importers for porous-plate wide tables + centrifuge
+      workbooks. Fitted laws export into the existing sw_height parameter table. → `ref_rocktyping_shf.md`.
+
+## B4. Carried-forward deferrals from the build arc
+
+Small-to-medium open bits left behind by shipped phases (each linked from its phase above):
+- **Log-view read path from the generic store** (Phase 6): rewire `get_track_data` so PEF/CALI are
+  drawable in a track; curve-set selector in the layout picker; optional TVD depth scale in log/correlation
+  (plumbing already built, dead-code-tagged).
+- **Per-well parameter override table** in the Workflow Builder (Phase 9-2).
+- **Monte Carlo** (Phase 9-3): per-zone parameter distributions (currently well-wide); persisted
+  P10/P50/P90 *curves*. *(Plus the §4 New-capability "print LOW/BASE/HIGH curves" item in [C5](#c5-new-capability-misc-4).)*
+- **Full-field responsiveness** (Phase 9-5): lazy catalog loading, decimation cache, keep the UI responsive
+  during full-field runs, 2000-well synthetic stress fixture (100-well is the current proof).
+- **Missing-curve synthesis** (Phase 10): per-field regressors for DT/NPHI where absent, with holdout-well
+  R² report.
+- **Auto-picks** (Phase 10): per-zone GR_MA/GR_SH percentile suggestions, change-point auto-zonation,
+  field-wide spike/outlier QC.
+- **Smaller UI deferrals**: draggable cutoff polygon / per-axis zoom lock (interactive plots); rule-based
+  auto-membership + create-group-from-multiselect (well groups); named tops SETS; templates on
+  Pickett/Correlation; composite hatch-lithology track + annotations; report histogram/crossplot pages +
+  narrative/bilingual/exec-summary/SWHF/correlation-export.
+
+---
+---
+
+# 🔮 PART C · FUTURE
+
+Bigger lifts, planned but not scheduled. The method-suite and data-model waves each have a full spec in
+`docs/research_2026-07/` — read it before starting.
+
+## C1. Method-suite waves — Wave C (§4c): from Jauhar's reference canon
+
+- [ ] **(10) Thin-bed / LRLC suite** (his specialty; richest reference grounding — Passey 2006, Bateman
+      1990, Thomas-Stieber 1975, Mollison/Mezzatesta 2002, Klein 1995/97 + Jauhar's own Klein-plot Excel,
+      Yadav 2010, Elhadidy 2020, Madjid-Worthington 2012, Worthington 2000 all read). Build order:
+      Worthington LRP screening → Madjid-Worthington scenario router → Thomas-Stieber per-depth solver
+      (crossplot overlay exists) → Bateman binary-lithology + Rt enhancement → Klein plot widget +
+      Hagiwara/Fanini Vshl-Rsd tensor solver, with **Elhadidy multi-well dip-fit as the no-triaxial
+      fallback (the Mahakam case)** → Passey VLSA interval Monte Carlo → (later) Mollison LSSA full
+      inversion. Note: printed Mollison eq 19-21 have suspected typos (kv/kh swapped, Coates ratio
+      inverted) — implement physics-correct forms. → `ref_thin_bed_lrlc.md`.
+- [ ] **(1a) TOC / unconventional.** Passey ΔlogR (sonic/density/neutron + generalized calibrated form;
+      interactive baseline picker), Schmoker & Myers-Jenkyns density TOC, Schmoker-Hester inverse, uranium
+      excess (warn: unreliable for deltaic Type-III OM — mask coals first), Meyer-Nederlof discriminant,
+      MLR/ML TOC, RockEval/LECO calibration layer, brittleness index, adsorbed/free gas. Needs one-time Hood
+      LOM chart digitization. → `ref_toc_unconventional.md`.
+- [ ] **(1b) Geomechanics 1D MEM.** Phased: (i) conditioning (Faust DT, DTS regression, RHOB extrapolation)
+      + Sv integration + NCT + Eaton PP + FG (Eaton-Poisson, Thiercelin-Plumb, Matthews-Kelly) + dynamic/
+      static moduli + UCS/φ correlations; (ii) Kirsch + failure criteria (Mohr-Coulomb, Mogi-Coulomb,
+      Drucker-Prager, Modified Lade — closed forms from the 221102 LAPI-ITB deck) → collapse MW + mud window
+      + max injection (CFF); (iii) Bowers loading/unloading (needed for Mahakam overpressure) + breakout
+      SHmax inversion. Ship CSB/Rokan calibrations as a named preset. → `ref_geomechanics.md`.
+- [ ] **(15) Rock physics.** Mirror Geolog GP02 (incl. two known Geolog bugs NOT to copy): Phase 1 =
+      Batzle-Wang fluids + VRH solid mix (consumes SandiMin volumes) + fluid mixing (Reuss/patchy/Brie) +
+      Gassmann clean & Vsh + Vs prediction (Greenberg-Castagna iterative, Han, mudrock) + elastic attributes
+      (AI/SI/VpVs/Poisson/LMR) + reflectivity/EI; Phase 2 = bounds + Krief/critical-porosity + contact
+      models; Phase 3 (defer) = Xu-White/Xu-Payne/DEM, time-domain synthetics. Standardize SI internally.
+      → `ref_rock_physics.md`.
+
+## C2. New data-model suites — Wave D (§4c): biggest lifts, each needs new storage
+
+- [ ] **(5) NMR suite.** Needs array-curve storage (T2 bins as LIST/FLOAT[] per depth + bin-time metadata;
+      DLIS array channels, LAS BIN01..NN re-pack). Then CBW/BVI/FFI partition (T2cutoffs 4/33/92 ms
+      defaults), SBVI, T2LM, Timur-Coates + SDR perm, Swirr, MPHI/MSIG QC, DMR gas-corrected porosity;
+      pseudo-Pc (Kappa/T2) with MICP calibration; MRIAN dual-water Sw (ties into his LRLC work); defer
+      dual-TW/TE typing. Coates 1999 in library, read. → `ref_nmr.md`.
+- [ ] **(6) Image log suite.** Largest single item. Data model (pad arrays, oriented array, versioned
+      _S/_ISC/_H/_STATIC/_DYNAMIC chain per Techlog convention): speed correction, pad creation/EMEX, button
+      harmonization + dead-button repair, concatenation/orientation, static+dynamic normalization; then
+      interactive dip picking (5 modes → true dip), dip datasets + classification, auto-dip, stereonet/rose/
+      walkout/cumulative plots, structural dip removal, fracture counting w/ Terzaghi, aperture
+      (Luthi-Souhaite), image porosity + binarization + sand count. → `ref_image_core.md`.
+- [ ] **(7) Core photo digitization.** Non-destructive recipe model: crop/deskew/perspective, color-card +
+      white-balance, CLAHE/denoise/sharpen, depth registration + stitched strip pyramid, core-to-log shift
+      (photo-proxy-log cross-correlation vs GR), WL/UV pairs, log-view strip track. Absorbs the §4
+      New-capability "core image input" stub. → `ref_image_core.md`.
+
+## C3. Trust & reproducibility — Phase 11 (§3)
+
+- **Audit trail & lineage**: every module/equation run and data edit logged (`runs` table: params, inputs,
+  timestamps); any computed curve can answer "how was I made?" with its full ancestry. *(Log-set provenance
+  from Wave A P1-c is a partial down-payment on this.)*
+- **Interpretation scenarios**: named parameter sets; run the same chain under scenario A/B; diff view
+  (curve overlay + per-zone stats delta).
+- **Project operations**: autosave checkpoints, crash-safe WAL, merge wells from another project file.
+  *(Autosave + WAL resilience already shipped; merge is the new part.)*
+- **UX**: per-project workspace persistence, command palette (Ctrl+K).
+- **Done when**: scenario A/B compare works end-to-end and lineage is visible for every curve.
+
+## C4. Platform & extensibility — Phase 12 (§3): the finish line
+
+- **User-defined Python modules**: a manifest (JSON) + Python script drops into a project `modules/` folder
+  and appears in the ribbon with an auto-generated dialog — your personal Loglan library, shareable as
+  plain files. *(Overlaps the §4 New-capability "Plugins" item.)*
+- **Native DLIS** (replace the dlisio bridge if it ever limits), LAS 3.0, WITSML later.
+- **Distribution**: Tauri installer + auto-update, bundled sample project, in-app method help per module (F1).
+- **Long game (demand-driven)**: NMR T2 (array_logs table already exists), borehole images, geomechanics,
+  production logs. *(NMR/images/geomech now have dedicated Wave C/D specs above.)*
+- **Done when**: a colleague installs SandiBumi from an installer, imports a DLIS, runs your shared Python
+  module, and exports a PDF report — zero developer tools involved.
+
+## C5. New-capability misc (§4)
+
+_(field-review tier, was "P3"; longer-horizon items not already absorbed by a Wave above.)_
+- **SandiMin**: optional nonlinear Sw equation in the solve loop (iterate to convergence —
+  Indonesia/Simandoux-style inside the inversion, not just the dual-water CT row).
+- **Monte Carlo "finalize → print to curves"**: write LOW / BASE / HIGH curves from the chosen result
+  percentiles (named by result value, not optimist/pessimist case, computed internally).
+- **Plugins (Advance ribbon)**: user-authored Python and Loglan modules — variable declarations + code,
+  manifest-style, shareable as files. *(= Phase 12 user-modules.)*
+- **2D Window (new ribbon)**: lateral analysis — per-well X/Y (directional-survey-corrected at each marker),
+  thickness & weighted-property maps per marker interval, category-based maps, contours + wells posted with
+  Z-value gradient; later fluid contacts and simple volumetrics. *(Fluid-contacts part → Wave B item 9.)*
+- **Panes independent of windows**: any pane floatable/resizable like a window; windows become pure grouping
+  containers.
+- **Data tools (separate, later per Jauhar)**: log digitization, core image input (→ Wave D item 7),
+  XRD/petrography digitization.
+- **User guide PDF**: topic-by-topic, step-by-step with screenshots from the real app using Jauhar's
+  database as the worked example; include the outstanding review items as an appendix. Produce against the
+  current build or on request.
+
+---
+---
+
+# Reference
+
+## R1. Where SandiBumi already matches — or beats — Geolog (§1)
 
 | Geolog module | SandiBumi equivalent | Notes |
 |---|---|---|
@@ -156,864 +856,10 @@ deliberate deviations from the original plan where reality disagreed with the pl
 | FileImporter/FileExporter (LAS) | Import LAS / Export LAS | LAS 2.0 both directions incl. computed curves. |
 | RF01_Database | DuckDB single-file project | Columnar, transactional, one file to copy = whole project ("Save Project As"). |
 | WellCatalog / WellInventory | Wells & Tops panel | Object tree + tops; inventory columns can come from SQL panel. |
-| AuditTrail | (partial) undo stack | Session undo exists; a persistent audit log would be a small addition on `documents`. |
+| AuditTrail | log sets + undo stack | Session undo + versioned log sets with provenance; full lineage is Phase 11. |
 | GS5 shortcuts / docking | dockview workspace | Float/dock/tab/split/maximize any panel — more flexible than Geolog's MDI. |
 
-## 2. Priority gaps — status
-
-- ~~PT09_ThinBeds (Thomas-Stieber)~~ **DONE** — `thin_bed_ts` module (VLAM/VDISP/VSAND/PHIE_LAM).
-- ~~Correlation view~~ **DONE** — multi-well strips, tops connectors, flatten on datum.
-- ~~SpliceLogs + depth shift~~ **DONE** — `depth_shift` (zone-overridable block shift) +
-  `splice` modules; undoable core-to-log "Shift Core…".
-- ~~PT12_CoreAnalysis~~ **DONE** — core CSV import (percent→v/v, alias headers), crossplot
-  + log-track overlays, inspector editing.
-- Everything still open is folded into the master plan below.
-
-## 3. Master plan — Phases 6–12 (to best-in-class)
-
-Phases 1–5 built the shell, plots, data management, and the equation/module engines.
-Each phase below is independently shippable, sized like Phases 1–5, and ends with:
-`cargo test` + `tsc` green, a browser functional test, benchmark fixtures vs Geolog
-output where applicable, and a click-through on real Balam/Minas/Mahakam data.
-
-### Phase 6 — Data foundation: arbitrary curves, units, TVD
-
-*Why first: `standard_curves` is hard-coded to 6 mnemonics (GR/RES/NPHI/RHOB/DT/SP).
-PEF, CALI, DRHO, RXO, multiple runs, arrays — none can even be imported. This blocks
-multimin (needs PEF), environmental corrections (needs CALI), bad-hole QC, and DLIS.*
-
-- ~~**Database (6a, DONE 2026-07-17)**~~: generic curve store shipped as an **additive**
-  layer alongside `standard_curves` (not a replacement yet, to avoid a risky one-shot
-  rewrite of every read path) — `curve_meta(curve_id, well_id, set_name, mnemonic, unit,
-  family, source, run_no)` + `curve_samples(curve_id, depth, value)`, curve **sets**
-  `RAW`/`EDIT`/`FINAL`, `well_path(well_id, md, inc, azi, tvd, tvdss)` for deviation
-  (schema only — TVD calc is 6b). `migrate_standard_curves_to_generic_store` runs on
-  every launch, idempotently backfilling GR/RES_DEEP/NPHI/RHOB/DT/SP into the generic
-  store as set RAW with real units; `upsert_curve_meta`/`insert_curve_samples`/
-  `get_curve_samples`/`list_generic_curve_catalog` are the read/write API (`db.rs`), wired
-  to new IPC commands `list_generic_curve_catalog`/`get_generic_curve_samples`. Nothing
-  that currently reads `standard_curves` was touched — this only proves the store works
-  and gives 6b a real place to write new curves into. 18 Rust tests pass (added
-  `generic_store_migration_and_manual_curve`, incl. an idempotency check and a NaN-vs-NULL
-  fix: DuckDB's `IS NOT NULL` is true for NaN, so the migration's "does this column have
-  real data" check needed `AND NOT isnan(col)`).
-- ~~**6b (mostly DONE 2026-07-17)**~~ — **Backend**: LAS import now keeps **every** curve.
-  `ingest::import_all_curves_into_generic_store` (called after the legacy standard-curve
-  insert, failure is non-fatal) re-reads the file with the new `parsers::parse_las_2_all`
-  (streams all `~C` curves + units, not just the fixed 6) and writes each into
-  `curve_meta`/`curve_samples` as set RAW. Mnemonic dictionary + unit conversion live in
-  the new `curves.rs` (`family_for`, `convert_to_canonical` — us/m→us/ft, kg/m³→g/cc,
-  pu/%→v/v, mm/cm→in; families GR/SP/CALI/BS/RHOB/DRHO/PEF/NPHI/DT/DTS/RES_*/RXO). Deviation
-  survey import + minimum-curvature TVD/TVDSS in the new `deviation.rs` (+ `parse_deviation_csv`,
-  `db::insert_well_path`/`get_well_path`, IPC `import_deviation_csv`/`get_well_path`).
-  the end-to-end LAS-with-PEF/CALI/metric-sonic import + vertical/deviated TVD check.
-- ~~**DLIS import via `dlisio` (DONE 2026-07-17)**~~: new `dlis.rs` runs `dlisio` through
-  the Python subprocess — a helper script streams every scalar channel of every frame as a
-  JSON header + raw f32 depth/value columns; Rust writes them into the generic store as set
-  RAW, family-tagged + unit-canonicalized (frame ordinal → `run_no`). `dlisio 1.0.4`
-  installed into the SandiBumi Python env. IPC `import_dlis_file`. Real-file test is
-  `--ignored` (gated on `ARSHILLA_TEST_DLIS`); the `read_f32` round-trip + the runner's
-  dlisio-import/bad-path path are covered/smoke-tested.
-- ~~**6c — Frontend (DONE 2026-07-17)**~~: Curve Catalog now shows the generic store per
-  selected well (mnemonic/unit/family/set/source/samples columns + a live text filter over
-  all of those, with a "· run N" badge), backed by `list_generic_curve_catalog`, falling
-  back to the legacy standard+computed view when no well is selected. Data ribbon gained
-  **Import DLIS…**, **Import Deviation…** (datum/KB prompt → minimum-curvature TVD/TVDSS),
-  and **Well Header…** (field/TD/KB editor). Browser-verified: all three ribbon buttons
-  render; the catalog filter narrows a 4-curve synthetic set to the one CALI curve by
-  *family* match ("HCAL · run 1"). tsc + cargo green.
-- **Deferred to a later pass** (not blocking — the store is populated and surfaced):
-  rewiring `get_track_data` (the **log-view** read path) to *read from* the generic store —
-  log views still read `standard_curves`, so PEF/CALI aren't drawable in a track yet. (The
-  **module/equation** input path `fetch_curve_frame` DOES now fall back to the generic store,
-  done in Phase 7 — that's what unblocked multimin/bad-hole.) Also still deferred: a curve-set
-  selector in the layout picker, and the optional TVD depth scale in the log/correlation views
-  (its `deviation::tvd_at` + `LasFrame.depth_unit` plumbing is already built and
-  `#[allow(dead_code)]`-tagged).
-- **Done when**: a real 30+ curve LAS (and a DLIS) imports whole ✓; PEF/CALI in the catalog ✓;
-  TVD matches hand calculation ✓; every existing feature still green ✓.
-
-### Phase 7 — Interpretation physics II (the Mahakam pack)
-
-- ~~**Generic-store read fallback (DONE 2026-07-17)**~~ — the deferred Phase 6 unblocker,
-  pulled forward because multimin needs PEF and bad-hole needs CALI, and both live only
-  in the generic store. `equations::fetch_curve_frame` now resolves any non-standard,
-  non-computed curve name from `curve_meta`/`curve_samples` (set RAW) via a new
-  `fetch_named_curve_aligned` → `fetch_generic_curve_aligned`, matching on mnemonic first
-  then family (so a module asking for "CALI"/"PEF"/"DRHO" finds an HCAL/PEFZ/HDRA curve by
-  family), preferring the base run. Additive — log views still read `standard_curves`; this
-  only widens what modules/equations can take as input.
-- ~~**Bad-hole QC (DONE 2026-07-17)**~~ — `badhole` module (`modules.rs`, Prep category):
-  BADHOLE = 1 where |DRHO| > DRHO_MAX or (CALI − bit size) > DCAL_MAX (bit size from BS
-  curve or BS_DEF), 0 in good hole, MISSING with no QC curve. **Central mask capability**
-  in the runner: any module run passing `opts["MASK"] = "<flag curve>"` gets flagged
-  samples (==1) NaN'd out of every output — zero per-module code, mask resolved generic-
-  store-aware. UI: one universal "Mask (optional)" picker in the auto-generated module
-  dialog (`moduleDialog.ts`) feeding `opts.MASK`, default (none).
-- ~~**Multimin (PT07, DONE 2026-07-17)**~~ — `multimin.rs` (kept separate from the existing
-  async-job `inversion.rs`): constrained weighted least-squares 4-component inversion
-  (SAND/CLAY/WATER/HC) from RHOB/NPHI/DT/PEF (any subset present), non-negative volumes via
-  a hand-rolled Lawson-Hanson **NNLS** with a heavily-weighted unity row as a soft
-  constraint; each tool equation scaled by 1/sigma. Endpoints + sigmas are params. Outputs
-  VOL_SAND/CLAY/WATER/HC, PHIT_MM, VSH_MM, SWT_MM, RECON_ERR (RMS residual in sigma units).
-  Wired as a module (auto-generated dialog). Verified: recovers a forward-modelled 70/30
-  clean wet sand within 2 %, and the runner integration test proves PEF is read from the
-  generic store end-to-end. 30 Rust tests pass.
-- ~~**Generalized Multimin — Increment A (DONE 2026-07-19)**~~ — `multimin2.rs` (separate from
-  the fixed `multimin.rs` above): ELAN-style **N user-defined** minerals/fluids from an editable
-  15-entry library (quartz…halite + water/oil/gas) against any subset of RHOB/NPHI/DT/GR/PEF/U,
-  with **hard** unity (Σv=1) + non-negativity via equality-constrained active-set NNLS over the
-  probability simplex. Bespoke command `run_multimin`/`multimin_library`; dedicated **Advance →
-  Multimin…** dialog (editable endpoint matrix + per-component Clay/Poro/Water roles). Outputs
-  VOL_<comp> + `<prefix>`_PHIT/VSH/SWT/RECON. 4 solver tests (2 % recovery, exact unity, boundary
-  non-neg, library) + full suite pass.
-- ~~**Generalized Multimin v2 — Geolog parity (DONE 2026-07-19)**~~ — spec extracted from the local
-  Geolog-V14 Multimin helpset + IP2018 Mineral Solver (docs/multimin_geolog_spec.md,
-  docs/multimin_ip_spec.md). **27-component library** in IP dropdown order (12 minerals, 6 clays
-  with CEC, 7 zone-typed fluids Sxo/Sw/BoundWater), **16 input logs** (density, neutron, sonic, PEF,
-  U, total+spectral GR, Vp/Vs, CT, CXO, EPT, EATT, Sigma) **+ user-defined inputs**. Resistivity
-  enters as conductivity via the **dual-water linear transform** (Ct^(1/w) row, w=0.75m+0.25n; CT
-  sees the unflushed zone, CXO the flushed) — Sw/Sxo now come out of the volume solve itself
-  (supersedes the old Increment-B outer-loop design). Geolog program constraints: hard unity over
-  minerals+U-fluids, POROSITY (ΣX=ΣU) and BNDWAT (96·CEC·ρ/(T°C+298)·α, matches Geolog's 0.1841
-  Illite multiplier) as soft σ=0.01 rows, WATER MUD re-solve, hard per-component bounds (fluids
-  ≤0.5). New `solve_bounded_lsq` (free/at-0/at-hi active set + unity KKT), `multimin_fluid_calc`
-  preview command, rebuilt Geolog-style dialog. 7 solver tests incl. Sw=0.40/Sxo=0.80 recovery
-  from CT/CXO; 84/84 suite; tsc clean; browser-verified.
-- ~~**Saturation-height (PT11, DONE 2026-07-17)**~~ — `scal_pc` table (Pc/Sw points with
-  per-plug perm/poro; replace-on-reimport like core_data) + **Import SCAL…** (Data ribbon;
-  alias headers, percent Sw/poro auto-detected) + `satheight.rs`: `fit_leverett_j`
-  (Sw = A·J^B by log-log LSQ at the lab sigma·cosθ; A/B/R²/n reported straight back in the
-  import dialog) and the `sw_height` module — LEVERETT (Pc = 0.433·Δρ·h_ft → J → SWH,
-  needs PERM) or SKELT (Skelt-Harrison 1 − A·exp(−(B/(h+D))^C), no perm needed); SWH = 1
-  at/below the zone-overridable FWL; outputs SWH + HAFWL. *Not built*: Skelt-Harrison
-  auto-fit (params are manual) and the Pc/J-vs-Sw QC plot (`get_scal_pc` IPC is ready).
-  *Caveat*: FWL/height work in the well's native depth (MD) until the TVD scale lands.
-- ~~**Environmental corrections (PT03, DONE 2026-07-17, pragmatic analytic)**~~ —
-  `gr_hole_corr` (GR·(1+K_GR·enlargement)), `nphi_env_corr` (linearized temperature +
-  salinity terms; temperature term needs FTEMP), `rhob_hole_corr` (upward beyond HD_REF)
-  as Prep modules; coefficients are params at chartbook magnitudes; a missing QC curve
-  passes the log through uncorrected. Chart-lookup fidelity stays future work.
-- ~~**Thomas-Stieber interactive crossplot (DONE 2026-07-17)**~~ — "T-S triangle" checkbox
-  on the crossplot panel (meant for X=VSH, Y=PHIT): laminated line, dispersed line down to
-  the pore-filling minimum at VSH = PHI_SD, and **draggable endpoint handles** — sand
-  handle (VSH=0) sets PHI_SD_MAX, shale handle (VSH=1) sets PHI_SH, written to the selected
-  zone's params on drag release (feeding `thin_bed_ts`). Drag swallows the click so it
-  doesn't double as a point pick; endpoints persist with the plot properties.
-- **Done when**: multimin volumes on a benchmark well match Geolog within tolerance ✓ (unit);
-  SWH tracks core Sw (pending field click-through, `REVIEW.md`); corrections change curves
-  in the right direction ✓ (unit-tested direction + magnitude; field check pending).
-  37 Rust tests + tsc green.
-
-### Phase 8 — Deliverables: composite plots & PDF reports
-
-*This is what clients and partners actually see — the LQR deliverable.*
-
-- ~~**Composite plot designer + vector export (8a, DONE 2026-07-17)**~~ — `composite.rs`
-  renders a `Layout` at a TRUE print scale (1:200/500/1000) into a backend-neutral list of
-  `DrawOp`s (mm space), then serializes to **SVG** (screen preview + export) or a
-  **dependency-free multi-page PDF** (hand-rolled writer, base-14 Helvetica so no font files
-  are embedded — chosen over `svg2pdf`/`usvg` to avoid a heavy font-DB dep tree on the
-  already-large bundled-DuckDB build). Page 1 carries the full header block (well/field/TD/KB,
-  layout, scale, interval); later pages a running header. Depth axis with nice-stepped
-  major/minor grid + labels, per-track frames + linear/log vertical grids + min/max scale
-  annotations, curve polylines with NaN/off-page breaks, Techlog-style edge fills (alpha in
-  SVG; blended-to-white in PDF), formation-top lines + labels, alternating zone bands. Page
-  splitting is exact (page 1 shorter for the header). Curve data comes through
-  `fetch_curve_frame`, so standard/computed/generic-store curves all render. IPC:
-  `render_composite` (per-page SVG + metadata), `export_composite_svg` (one file per page),
-  `export_composite_pdf`. UI: Plot ribbon "Composite…" → dialog with layout/scale/page-size/
-  depth-range controls, in-dialog page preview with prev/next, Save SVG… and Save PDF….
-  Verified: SVG renders in-browser with a curve path exactly 233 mm tall (= 46.6 m × 5 mm/m
-  at 1:200, print scale physically exact); PDF is structurally validated (all xref offsets
-  resolve, 2 pages, valid trailer, Tj/re operators, Helvetica). 42 Rust tests + tsc green.
-- **Deferred — hatch lithology/facies track + text/arrow annotations** in the composite
-  (needs a facies curve → Phase 10, and an annotations store on `documents`).
-- ~~**Report generator (8b, DONE 2026-07-18)**~~ — `report.rs` reuses the 8a DrawOp/PDF
-  machinery: cover page → methodology parameter–method–remarks table (editable, persisted
-  as a `report_template` document; default reflects Jauhar's standard workflow) → per-zone
-  parameter table (zone_params) → pay summary table (run_pay_summary cutoffs) → composite
-  pages, as one PDF. Paginated word-wrapped tables with repeated header rows. IPC:
-  `render_report` (SVG preview), `export_report_pdf`, `export_report_batch` (one PDF per
-  well into a folder), `save_png` (frontend-rasterized page PNG for slides). UI: Plot
-  ribbon → Deliverables → Report… (`reportDialog.ts`).
-- **Deferred from 8b**: histogram/crossplot pages in the report, per-formation narrative
-  text, bilingual headings, executive-summary page, SWHF section, correlation-panel export.
-- **Done when**: one command produces a client-ready multi-page PDF for a Balam well —
-  composite PDF ✓ (8a); full templated report ✓ (8b).
-
-### Phase 8.5 — Jauhar method suite (DONE 2026-07-18)
-
-*His own field-proven methods as first-class core modules, studied from the 7 reference
-projects (LQR Balam South, Glagah Kambuna, Wanda Gita, Bunga Block, LRLC research, KKT,
-BLSO). Math banked in auto-memory (`method-ssc-sspw-lqr`, `method-lrlc-imts-rtc`,
-`method-workflow-standards-jauhar`).*
-
-- ~~**`ssc` (Porosity)**~~ — full port of `ssc_lqr_gap_edit_jau.lls` (Kuttan/GAP 2023 SSC):
-  gas conditioning, N-D projection onto the dry rock line, sand/silt/clay fractions,
-  PHIT from mixed matrix density, CBW/CWSH bound-water split, SWIRR, GR-equivalent
-  volumes. Deterministic replacement for `RANNORMAL`; NPHIMA limit bug in the Loglan
-  fixed deliberately (noted in the module header).
-- ~~**`sspw` (Porosity)**~~ — PHR-standard sandstone workflow; exec reconstructed from the
-  `.info` spec (body not on disk) — **validate vs Geolog "LAS PHIT PHIE" outputs**.
-- ~~**`sw_rtc` + `sw_imts` (Saturation)**~~ — the LRLC research models: excess-conductivity
-  correction (0.45·CAPBW + 0.0057·Qv − 0.0071, RSF 2.25) and iterative
-  mineral-textural-scaled Waxman-Smits with Qv_eff = Qv_bulk/(1−Swirr), Juhasz B(T,Rw).
-- ~~**`gr_normalize` (Prep)**~~ — two-point percentile GRN, Rokan reference defaults
-  P3 = 53.68 / P97 = 133.93 gAPI.
-- ~~**`log_predict` (Prep)**~~ — Facimage-MRGC-style synthetic logs by leave-one-out
-  distance-weighted KNN, with the MAX_RAW washout rule for RHOB.
-- ~~**Mnemonic dictionary enrichment**~~ — Bunga standardization table merged into
-  `curves.rs` FAMILIES (ROBB/SBD2/HDRA/FSTP/ATR/BDAV/RING/PSR/R25P/BSAV/SN/HORD/PEB/DT_S…).
-- **Deferred**: SSC-in-multimin presets (Wanda Gita style), variable-m carbonate (SPI)
-  module (Bunga), per-zone multimin component presets (KKT), FZI rock typing module.
-
-### Phase 9 — Field scale: batch workflows, uncertainty, dashboards
-
-- **Workflow chains** ✅ (2026-07-18, increment 1): `chain.rs` runs an ordered list of
-  modules across many wells — steps sequential (later steps consume earlier outputs),
-  wells rayon-parallel per step via `run_workflow_module`. Progress + cancellation via a
-  pollable registry (same pattern as `inversion.rs`, not Tauri events): frontend supplies
-  the job id, calls `run_workflow_chain`, polls `get_chain_status`, `cancel_workflow_chain`
-  flips a shared flag checked between steps. Chains persist as `workflow` documents.
-  Frontend: Workflow Builder (`workflowDialog.ts`, Petrophysics → Batch). Steps run at
-  manifest defaults, overridden per zone by `zone_params`.
-- **Per-step parameter editing** ✅ (2026-07-18, increment 2): each step in the builder has
-  an expandable ⚙ editor (manifest-driven, like the module dialog) — input-curve selectors,
-  option dropdowns, validated numeric params, and the universal bad-hole Mask. Only values
-  that differ from the manifest default are stored on the step (untouched step = empty maps
-  = pure manifest + zone_params behaviour), and `zone_params` still override these whole-well
-  values per zone at run time (step param only shifts the base). An override-count badge marks
-  customized steps; Reset clears them. Persists in the `workflow` document. **Remaining**:
-  per-well parameter override table.
-- **Monte Carlo uncertainty (PT06)** ✅ (2026-07-18, increment 3): `montecarlo.rs` — put
-  normal/uniform/triangular distributions on any model parameter, run N seeded realizations of
-  a chain, get P10/P50/P90 net pay / NTG / avg PHIE / avg SWE / HPV **per zone** + an HPV
-  histogram. Runs **entirely in memory** (`run_module` returns curve vectors; nothing writes
-  `computed_curves`), so it sidesteps the field-scale write bottleneck — 1000 realizations
-  finish in well under a second. Realizations are rayon-parallel, each seeded from
-  `(seed, index)` for reproducibility. UI: Petrophysics → Batch → **Monte Carlo…**
-  (`monteCarloDialog.ts`) — pick a saved chain (or the default VSH→φ→Sw), add uncertain
-  parameters (candidates auto-derived from the chain's module params), set cutoffs/iterations,
-  run → results table + theme-aware HPV histogram with P10/P50/P90 markers.
-  **Deferred**: per-zone parameter distributions (currently well-wide) and persisted
-  P10/P50/P90 *curves*.
-- **Field dashboard panel** ✅ (2026-07-18, increment 4): `dashboardPanel.ts` — a dock panel
-  (Petrophysics → Batch → **Field Dashboard…**, also on the ＋ add-panel menu) that runs the
-  existing `run_pay_summary` engine across **every** well at chosen VSH/PHIE/SWE(/PERM) cutoffs,
-  then shows: a **per-zone aggregation** table (well count, Σ net, Σ HPV, mean N/G, net-weighted
-  mean PHIE/SWE), **per-zone box plots** (min/Q1/median/Q3/max, inline theme-aware SVG) for a
-  selectable metric (PHIE/SWE/N-G/HPV/Net), and a **sortable** multi-well × zone interval grid,
-  filterable by flag level (PAY/RESERVOIR/SAND), with **CSV export**. Frontend-only — no new
-  backend; reuses the pay-summary command (which writes FLAG_* curves as a side effect, same as
-  Cutoffs & Summary). Browser-verified with synthetic data (grid/aggregation/box plots render,
-  column sort toggles asc/desc). *Caveat*: because it drives `run_pay_summary` per well, a
-  full-field compute incurs the known `computed_curves` write cost — the perf-hardening
-  increment below addresses that.
-- **Performance hardening — write path** ✅ (2026-07-19, increment 5): killed the
-  `computed_curves` write bottleneck. Root cause (proven by the in-harness probe in
-  `pipeline_blso_test.rs`) was the 3-column `PRIMARY KEY (well_id, depth, curve_name)` — its
-  ART uniqueness index cost ~3.4× per inserted row (468k vs 1589k rows/s). **Dropped the PK**
-  (`db.rs` schema + `migrate_drop_computed_curves_pk`, which rebuilds the table PK-less on
-  launch for existing projects, idempotent via `duckdb_constraints()`); uniqueness is now
-  guaranteed by the write discipline (`write_computed_curves_batch` DELETEs a well's target
-  curve names before appending; point-updates UPDATE in place — no path inserts a duplicate).
-  Also **batched** each well's whole module output into one DELETE + one Appender/flush
-  (`equations::write_computed_curves_batch`, used by `workflow.rs`) instead of one cycle per
-  curve. Net: the real 100-well × 4-module chain dropped from ~50s to **21s** end-to-end
-  (~2.3×; compute/reads/single-writer lock don't speed up). 72 Rust tests (2 new: PK-drop
-  migration preserves rows + is idempotent; batch write overwrites-not-duplicates + keeps
-  point-update working). **Still open** (non-write, deferred): lazy catalog loading, a
-  decimation cache, keeping the UI responsive during full-field runs, and the 2000-well
-  synthetic stress fixture (100-well is the current proof).
-- **Done when**: a 100-well chain runs with live progress in minutes ✅ (21s); MC with 1000
-  realizations per well finishes in seconds ✅ (in-memory, Phase 9-3).
-
-### Phase 10 — Facies & assisted interpretation (pull ahead of Geolog)
-
-- **Electrofacies (PT15)** — unsupervised k-means shipped ✅ (2026-07-18, increment 1):
-  `facies.rs` `electrofacies` module (new **Facies** ribbon category). Runs per well through
-  the standard module framework (whole-vector, like `log_predict`): up to 5 input curve slots
-  (GR required; RHOB/NPHI/DT/SP optional — an absent curve drops that feature dimension),
-  each z-scored by default (OPT_STANDARDIZE=NONE to skip), then k-means++ (dependency-free
-  SplitMix64 seed, best-of-8 restarts, empty-cluster reseed to worst-fit point) partitions the
-  complete samples into K facies (2–12). **Cluster labels are reordered by the ascending mean
-  of the first supplied curve** (usually GR), so FACIES 0 is the cleanest class and numbering is
-  monotone in shaliness — giving approximate cross-well comparability despite per-well
-  clustering. A sample missing any present curve → FACIES = MISSING. Deterministic for a fixed
-  seed. Output: FACIES (integer 0..K-1), written to `computed_curves` like any module (mask +
-  chain + zone_params machinery all free). Frontend QC: **crossplot categorical coloring** —
-  discrete curves (name matches FACIES/CLUSTER/LITHO/CLASS, or values look like small integers)
-  now get a fixed qualitative palette (`FACIES_PALETTE`, Tableau-10-ish, wraps past 12) + a
-  swatch legend instead of the continuous ramp (`plotCanvas.ts`: `faciesColor`,
-  `categoricalColors`, `looksDiscrete`, `distinctValues`). 4 Rust unit tests (separation,
-  MISSING propagation, determinism, GR-ordering) + tsc green; browser-verified a 3-facies
-  NPHI-RHOB cloud renders with correct palette + F0/F1/F2 legend.
-  **Deferred to increment 2**: the dedicated **colored FACIES block track** in the log view
-  (needs a discrete-block geometry mode grouping contiguous samples by class + palette, built
-  on the existing WebGPU fill pipeline, plus a layout/curve-style tag) — FACIES currently
-  renders as a step curve. **Deferred to increment 3**: **GMM** (soft clustering) and
-  **supervised mode** trained on core facies via the Python subprocess + scikit-learn, and
-  **field-wide clustering** (pool samples across wells for globally consistent labels).
-- **Missing-curve synthesis**: train per-field regressors to predict DT/NPHI where absent;
-  holdout-well R² report so it's honest.
-- **Auto-picks**: per-zone GR_MA/GR_SH percentile suggestions, change-point auto-zonation,
-  spike/outlier QC report across the field.
-- **Done when**: facies on Minas reproduce the manual sand/shale zonation; synthesized
-  curves ship with their holdout metrics.
-
-### Phase 11 — Trust & reproducibility (the professional layer)
-
-- **Audit trail & lineage**: every module/equation run and data edit logged (`runs` table:
-  params, inputs, timestamps); any computed curve can answer "how was I made?" with its
-  full ancestry.
-- **Interpretation scenarios**: named parameter sets; run the same chain under scenario
-  A/B; diff view (curve overlay + per-zone stats delta).
-- **Project operations**: autosave checkpoints, crash-safe WAL, merge wells from another
-  project file.
-- **UX**: per-project workspace persistence, command palette (Ctrl+K).
-- **Done when**: scenario A/B compare works end-to-end and lineage is visible for every
-  curve in the project.
-
-### Phase 12 — Platform & extensibility (the finish line)
-
-- **User-defined Python modules**: a manifest (JSON) + Python script drops into a project
-  `modules/` folder and appears in the ribbon with an auto-generated dialog — your
-  personal Loglan library, shareable as plain files.
-- **Native DLIS** (replace the dlisio bridge if it ever limits), LAS 3.0, WITSML later.
-- **Distribution**: Tauri installer + auto-update, bundled sample project, in-app method
-  help per module (F1).
-- **Long game (demand-driven)**: NMR T2 (array_logs table already exists), borehole
-  images, geomechanics, production logs.
-- **Done when**: a colleague installs SandiBumi from an installer, imports a DLIS, runs
-  your shared Python module, and exports a PDF report — zero developer tools involved.
-
-## 4. Field-review backlog — Jauhar's o/x click-through (2026-07-19)
-
-The complete feature/fix list from Jauhar's full review. Items marked **✅ done** were fixed
-the same day; the rest are ordered by suggested priority (P1 = affects daily trust/safety,
-P2 = interpretation workflow, P3 = new capability). Each should be delivered in small
-increments with REVIEW.md check items.
-
-### Done same-day (2026-07-19)
-
-- ✅ **Ctrl+wheel = zoom** on histogram/crossplot/Pickett; plain wheel scrolls the page.
-- ✅ **Pertamina theme** now uses the official palette (#ED1A2F / #006BB8 / #A6C210 / #161B22).
-- ✅ **"Light" renamed "Default"** in the theme dropdown.
-- ✅ **Advance tab regrouped**: one "Advance Methods" group = SSC, SSPW, RtC, IMTS, **Thin
-  Beds** (moved out of Petrophysics). SSPW no longer sits under a "Sand-Silt-Clay" caption.
-- ✅ **Multimin renamed → SandiMin** (no trademark collision); the legacy fixed 4-component
-  "Multimin — Mineral Inversion" is removed from the Saturation dropdown (mineral solving is
-  independent of Sw; still callable from saved workflow chains).
-- ✅ **Repo made collaboration-ready**: .gitignore hardened, CONTRIBUTING.md added, work
-  committed to git (remote hosting = Jauhar's choice, see CONTRIBUTING.md).
-
-### P1 — Trust & safety (protect the user's work first)
-
-- ✅ **Crash resilience** (2026-07-19, P1-b): `autosave.ts` — running-flag crash detection
-  (cleared on pagehide/beforeunload), 10-s rolling autosave of the full session snapshot
-  (dock layout + well + log-view layouts) to localStorage; abnormal exit → blocking
-  choice dialog before boot: restore autosave, or Safe Mode (default layout; autosave
-  stashed as a "Recovered …" session document). Normal launches also reapply well +
-  log-view layouts via `applyAutosaveExtras` (dockview JSON doesn't carry them).
-- ✅ **Unsaved-changes indicator** (2026-07-19, P1-b): `dirty.ts` registry — log-view user
-  edits (properties, track widths/order, curve visibility) mark the panel; its tab shows
-  ● and the QAT Save-Session button a dot; Save Layout clears that panel, Save/Open
-  Session clears all. Workspace arrangement changes mark too (title-update noise muted
-  via `muteDirty`). Dirty = "not in a named save"; the autosave runs regardless.
-- ✅ **Click-to-arm, double-click-to-edit inputs** (2026-07-19, P1-a): app-wide via
-  `interactionGuard.ts` — a single click arms `input[type=number]` read-only (dashed
-  outline, wheel/arrow spin blocked); double-click unlocks (solid outline, value
-  selected); blur re-arms. Keyboard Tab focus stays editable (deliberate); per-input
-  opt-out with `data-free-edit`.
-- ✅ **Right-click lockdown** (2026-07-19, P1-a): default WebView menu killed everywhere
-  except editable fields (their native menu is the harmless edit menu); custom panel menus
-  untouched. F5/Ctrl+R guarded by a blocking confirm; Alt+arrows and mouse back/forward
-  buttons blocked.
-- ✅ **Workflow builder as a pane, not a popup** (2026-07-19, P1-a): dock component
-  "workflow" (singleton, in the ＋ panel menu and Petrophysics → Workflow…); closing the
-  pane mid-run cancels the chain; numeric params follow the double-click-to-edit rule.
-- ✅ **Database versioning — never overwrite** (2026-07-19, P1-c): `log_sets` run-event
-  table + append-only `computed_curves_archive`; `computed_curves` stays the fast
-  "current" store (rows tagged `set_id`), so every read path is unchanged. Module runs,
-  chains (one version per chain run), equations (set EQUATION), ML (ML) and SandiMin
-  (SANDIMIN) all write versioned: re-run = version N+1, history kept, any version
-  restorable/prunable from the Curve Catalog. Provenance per run: module, params,
-  inputs, timestamp. Output-set choice in the module dialog + Workflow Builder.
-  Catalog: merged imported+computed view with set/version/module/when + n/min/max/mean,
-  one search box, click-to-sort headers. **Deferred to a later increment**: per-module
-  INPUT-set selection (reads currently resolve latest-current), unit/family columns for
-  computed curves, set-qualified log-view tracks.
-- ✅ **Set INPUT selection on modules** (2026-07-19, P1-c follow-up): "Input set" field in
-  every module dialog and the Workflow Builder — inputs resolve from that set's archived
-  values (latest version per well, case-insensitive name); curves the set never wrote fall
-  back to the usual sources, so chains still consume earlier steps' outputs. Blank =
-  current values (unchanged default). Provenance `inputs_json` records the input set.
-  Still deferred: pinning a specific version (workaround: Restore it first), input-set on
-  ML/SandiMin dialogs, unit/family columns for computed curves, set-qualified log-view
-  tracks.
-- ✅ **Curve catalog power features** (2026-07-19, P1-c): one search box across
-  mnemonic/set/module/unit/date, click-to-sort columns, per-curve n/min/max/mean.
-
-### P2 — Interpretation workflow
-
-- ✅ **Imports (tops-style)** (2026-07-19, P2-a): "Import Tops…" (CSV/TXT, delimiter
-  auto-detect, alias headers, multi-well by WELL column or selected-well fallback,
-  headerless NAME-DEPTH accepted, upsert keeps colors) + "Import Aux…" (PETROGRAPHY /
-  XRD / PERFORATION / custom into new `aux_data` long-format table: TOP+optional BASE,
-  numeric or text values; replace per well+dataset; viewable in DB Inspector).
-  Deferred: aux overlays on plots/log tracks (perforation flags, XRD points).
-  Original ask: tops from CSV/TXT (menu is missing), petrography, XRD,
-  perforation data.
-- ✅ **Tops editor, Petrel-style** (2026-07-19): log views draw tops as labeled colored
-  lines; 🏷 toolbar toggle enables editing — click to add (name/depth/color dialog),
-  drag to move (live preview), double-click to rename/recolor/delete; all undoable;
-  automatic **stratigraphic-crossing warning** after every pick (this well's top order
-  vs the majority of other wells, `tops.rs::check_top_order`); **marker autocorrelation**
-  (Data → Autocorrelate…): source-well log shape (GR default, ±window) slid over each
-  target well ±search range → proposed depth + Pearson r, strong matches pre-ticked,
-  applied as one undoable batch (`tops.rs::autocorrelate_top`).
-  Still deferred: named tops SETS (multiple stratigraphic schemes per project — current
-  model is one set of tops per well); tops-set selection mirroring the well pin model.
-- ✅ **Well pin semantics rework** (2026-07-19): the 📌 pin is now a MODE, not a lock.
-  Pin ON (default) = selecting a well drives the whole workspace. Pin OFF = viewers keep
-  their wells and only the ACTIVE panel follows the selection (working-pane model —
-  side-by-side multi-well viewing without per-panel pins). The old selection-blocking
-  lock is gone, which also removes the "locked" weirdness with a second wells pane.
-  **Multi-select**: Ctrl-click toggles, Shift-click ranges, ⇄ inverts within the visible
-  list; count shown in the Wells label; batch dialogs (module runs, workflow, Multimin,
-  ML, Monte Carlo, Cutoffs & Summary) pre-tick the multi-selection instead of just the
-  active well (`defaultRunWellIds`). Fresh panels always adopt the current well even
-  with pin OFF.
-- ✅ **Log-view layout interaction** (2026-07-19): ▤ collapsible track headers (full →
-  compact chips → titles only, plus a 34vh cap with per-track scroll); drag a curve
-  between track headers to MOVE it (Ctrl = copy), undoable; ▦ customizable track borders
-  (solid/dashed/none, width, theme-or-custom color) drawn on the overlay canvas; hover
-  readout scoped to ONE track — the clicked/selected track (header highlighted, click
-  again to release) else the track under the cursor; right-click a track → "Edit CURVE…"
-  per curve: wireline shift (whole-curve resample at d−Δ), set constant, blank (NaN),
-  interpolate across interval, scale a·v+b — `curve_edit.rs` edits whichever store holds
-  the curve (standard column / computed incl. set_id preservation / generic RAW by
-  mnemonic-then-family) via transactional read-modify-rewrite, returns the changed
-  samples' previous values as packed bytes so Ctrl+Z restores bit-exactly
-  (`restore_curve_values`); recorded in Processing History.
-  **Deferred**: drag-on-canvas interval picking for edit ops (dialog takes top/bottom,
-  prefilled around the clicked depth); header-mode/border persistence in sessions;
-  interactive wireline-shift preview while dragging the curve.
-- ✅ **Histogram v2** (2026-07-20): Geolog-style Properties dialog (double-click /
-  right-click the plot, or ⚙ button) holding mode (bars/line), bins, normalize,
-  cumulative-% overlay (was a separate display mode — old saved props/templates
-  migrate automatically), box-plot strip (P5–P25–P50–P75–P95), custom bar color
-  (or theme accent), user percentiles (marker lines + removable chips), Min/Max
-  statistics, and statistics placement (chips above the plot / block inside it /
-  both). **Universal**: parameter pickers (Pick A/B → zone params) are now opt-in
-  via Properties — a fresh histogram is a neutral frequency tool. When zoomed,
-  double-click resets zoom first; the next double-click opens Properties.
-  **Deferred**: same properties treatment for Crossplot/Pickett arrives with their
-  v2 items below.
-- ✅ **Crossplot v2** (2026-07-20): sectioned Properties dialog (double-click /
-  right-click / ⚙, replacing the always-visible props row): plot size (fill panel or
-  fixed W×H px for consistent figures), marginal histograms on X and Y (axis-aligned,
-  log/inverted-safe, bin control), custom point color + "— None —" Z option, user
-  percentiles (dashed X/Y reference lines), regression = model (linear / power /
-  log10-X / exponential — drawn as a sampled polyline, so correct on any axis scaling)
-  × method (Y-on-X / X-on-Y / RMA), Z color = colormap (rainbow / **viridis**) +
-  **log Z scaling** (percentile range over positive values only), and overlays.
-  **Universal**: Qtz/Cal/Dol matrix points now opt-in (off by default); parameter
-  pickers toggleable (default ON — the draggable handle workflow is unchanged). Old
-  saved props/templates migrate (regModel derived from the axis-log flags so v1
-  por-perm regressions keep their meaning). `PlotCanvas` gained per-instance margins
-  + `colormapColor`/`colorRampEx` (shared — Pickett v2 can reuse them).
-  **Deferred**: ~~D-N porosity overlay lines~~ (DONE 2026-07-20 — Por-11/Por-12
-  digitized from the chartbook PDF's vector artwork into `dnChartData.ts`;
-  Properties → Overlays → D-N chart draws qtz/cal/dol curves + 5-pu graduations +
-  iso-porosity connectors on NPHI-RHOB, fresh & salt variants; chart dolomite is
-  ρma 2.85 per its own graduation ticks); marginal histograms honoring zoom
-  viewport (they bin the full visible axis range).
-- **Pickett v2**: N together with M and Rw; free user input of line parameters (lines
-  follow); Z-value coloring by a chosen log with customizable gradient.
-- **Data prep**: **split & merge** of curves/intervals; **normalization with tops-referenced
-  intervals** — reference top/bottom from a chosen tops set; missing marker → nearest
-  stratigraphic marker (top → shallowest, bottom → deepest); percentiles extrapolated over
-  the whole interval and normalized together.
-- **Highlight tool** (Geolog-style): multiple depth highlights, same or different colors;
-  convert highlights → tops.
-- **Typography**: text reads slightly fuzzy/washed-out up close — investigate WebView2
-  rendering (display scaling, weight, contrast). Waiting on Jauhar to say whether it's
-  blurriness or lightness (see REVIEW.md).
-
-### P3 — New capability
-
-- **SandiMin**: optional nonlinear Sw equation in the solve loop (iterate to convergence —
-  Indonesia/Simandoux-style inside the inversion, not just the dual-water CT row).
-- **Monte Carlo**: "finalize parameters → print to curves": write LOW / BASE / HIGH curves
-  from the chosen result percentiles (named by result value, not optimist/pessimist case,
-  computed internally).
-- **Plugins (Advance ribbon)**: user-authored Python and Loglan modules — variable
-  declarations + code, manifest-style, shareable as files.
-- **2D Window (new ribbon)**: lateral analysis — per-well X/Y (directional-survey-corrected
-  at each marker), thickness & weighted-property maps per marker interval, category-based
-  maps (property/weight/algorithm), contours + wells posted with Z-value gradient; later
-  fluid contacts and simple volumetrics.
-- **Panes independent of windows**: any pane floatable/resizable like a window; windows
-  become pure grouping containers.
-- **Data tools (separate, later per Jauhar)**: log digitization, core image input,
-  XRD/petrography digitization.
-- **User guide PDF**: topic-by-topic, step-by-step with screenshots from the real app using
-  Jauhar's database as the worked example; include the outstanding review items as an
-  appendix. Produce after the P1 batch lands (or on request, against the current build).
-
-## 4b. Senior-audit backlog (2026-07-20) — 35 confirmed findings, adversarially verified
-
-Jauhar asked for a full "30-year senior petrophysicist" recheck. Five parallel review
-passes (methods, frontend bugs, performance, UX, data integrity) + an adversarial
-verify pass on every high/medium claim: **35 confirmed, 0 refuted, 15 low**. Full
-detail with file:line evidence and suggested fixes in `AUDIT-2026-07-20.md`.
-Triage (fix order recommended by impact for Mahakam work):
-
-**P0 — answers are wrong or silently unsafe (petrophysics/data):**
-- [ ] MASK only blanks outputs — gr_normalize P3/P97 and log_predict KNN training still
-      consume flagged samples; masked log_predict even deletes the repaired synthetic in
-      the washouts it exists to fix (workflow.rs:186; pass the mask into module inputs).
-- [ ] sw_height uses MD, not TVD; FWL can't be negative (TVDSS) — optimistic SWH in every
-      deviated well. TVD machinery already exists (deviation.rs) but is display-only.
-- [ ] Pay summary: PERM-missing samples pass an active PERM cutoff (fixed 2026-07-20);
-      gross thickness ignores log coverage and the forward step bleeds past zone base.
-- [ ] LAS import: ~W NULL declaration ignored (only −999.25/−9999 hardcoded — fixed
-      2026-07-20); no depth-column fallback beyond DEPT/DEPTH, no duplicate/descending
-      depth guard; well name keeps only the last whitespace token (fixed 2026-07-20).
-      DLIS: −999.25-style sentinels survive; frame-0 curves can silently replace
-      same-mnemonic LAS curves.
-- [ ] Delete-then-append curve writes run without transactions — crash mid-write loses
-      curve data permanently (equations.rs:590 and every write path).
-- [ ] sw_imts clay-term Sw exponent behaves as Sw^(n*+1) — check against the intended
-      excess-conductivity form with Jauhar's LRLC notes.
-- [ ] Computed-curve lookup is case-sensitive vs uppercased requests (fixed 2026-07-20).
-- [ ] SandiMin: accepts 2 live tools for 4 unknowns (arbitrary vertex solutions);
-      CT/CXO all-zero response rows unchecked.
-
-**P1 — reliability (frontend state):**
-- [ ] Plots don't subscribe to dataVersion — stale curves shown after module runs.
-- [ ] loadWell/reload/createPlot race guards (generation tokens) for fast well/curve
-      switching; listener leaks on dispose (logViewPanel init, LogCanvasRenderer
-      window handlers, modal Escape stacking).
-- [ ] Undo: failed undo/redo vanishes silently; "Add top" overwrite undo deletes the
-      top instead of restoring the previous depth (fixed 2026-07-20).
-
-**P2 — speed at field scale (100+ wells):**
-- [ ] Long commands are synchronous Tauri commands — a chain run blocks IPC for minutes;
-      move to async/spawn_blocking + progress events.
-- [ ] Rayon over wells defeated by the single global Mutex<Connection> — per-well
-      connections or a connection pool.
-- [ ] "Binary" curve IPC ships bytes as JSON numbers (~4× size, main-thread parse) —
-      use Tauri v2 raw IPC responses (ArrayBuffer) end-to-end.
-- [ ] One query per curve per well load (~100 scans of computed_curves) — batch reads.
-- [ ] Python engine: one subprocess per well — persistent worker or batch input.
-- [ ] Crossplot redraw rebuilds color strings + re-sorts on every frame.
-
-**P3 — UX polish (veteran-interpreter friction):**
-- [ ] Depth-scale presets mislabeled (~39× off a true 1:100 — fixed 2026-07-20).
-- [ ] No units on axes/readouts (catalog has them); toFixed(2) mangles RT/perm readouts.
-- [ ] Pickett: hard-coded axes, no Properties dialog, zoom resets on reload (Pickett v2
-      is next in the P2 queue and absorbs this).
-- [ ] Correlation: stale well list after imports; missing Ctrl+wheel zoom.
-- [ ] Processing history misses equation/chain/ML runs, restores, zone/tops edits.
-- [ ] Pay-summary FLAG_* curves unversioned; cutoffs not recorded in provenance.
-
-**Low (15 items)** — see `AUDIT-2026-07-20.md` (SSC zero-PHIE guard, ±Infinity in
-stats, i18n gaps, DB-inspector f32 depth equality, wrap-mode LAS parsing, etc.).
-
-## 4c. Field feature-request backlog (2026-07-20) — Jauhar's 16-item list
-
-Source: Jauhar's feature list of 2026-07-20. Researched by a 10-agent sweep over his
-reference library (`D:\01. Work\00. Guidebook`), real project data (SCS-PHM SCAL/phi-k
-files), the Geolog-V14 install, and the SandiBumi codebase. **Full method specs with
-equations, in-library citations (file + page), data-format samples and current-code
-audits are banked in `docs/research_2026-07/` — read the matching file before
-implementing any item below.** Item numbers = Jauhar's original ordering.
-**Verification standard for every increment: run on Balam South data (item 11) before
-sign-off**, in addition to the usual cargo test / tsc / browser checks.
-
-**Wave A — UI foundation (do first: every new suite below should be born into this
-architecture, not ported later):**
-- [x] **(14) Tools as panes, not popups + theme compliance.** _(Done 2026-07-20:
-      theme fixes + easy-4 ports earlier; this increment converts the rest per
-      Jauhar's "i want all tools shows as pane, for existing and future tools" —
-      **moduleDialog is now a dock pane** (component "module", id "module:<name>",
-      spec looked up via listModules so layout restore rebuilds from the id alone →
-      EVERY current and future manifest module gets a pane automatically), plus a
-      `wellPane` host (mirrors createPlot's follow-the-selected-well pattern with a
-      `followData` rebuild) for **zones, autocorr, composite, report**. Ribbon
-      buttons + the ＋ menu + context headings + the log-view Print/export item all
-      open panes now; the "select a well first" guards became in-pane hints. Kept
-      modal on purpose: layoutProps, curveEdit, session/layout/header/shift-core,
-      imports. Adversarial review (16 agents, most died on a usage limit → findings
-      re-verified by hand on Opus): 9 real → all fixed — wellPane now catches up a
-      pin-off hint pane to a late selection, rebuilds to the hint (not a stale
-      well) on project switch so zone/report writes can't target the new DB with an
-      old well_id, guards the .catch against superseded builds, resets the tab
-      title when the well clears, and follows dataVersion so the autocorr "pick a
-      top first" message and the composite/report layout lists stop going stale;
-      module pane re-applies the Wells & Tops multi-selection and guards the
-      log-set-suggestion race; dead `failed`/`void failed` removed; autocorr i18n
-      key restored. tsc clean, browser-verified. REVIEW #24.)_ Theme fixes first
-      (independent, low-risk): kill phantom CSS vars (`--danger/--muted/--panel-2/
-      --surface-2/--bg-subtle` always render fallbacks), re-skin `.cursor-readout` +
-      `.workflow-invalid`, replace hard-coded `#b5651d/#5f7350/#888/#999` in
-      crossplot/pickett/histogram/logView TS with `plotColors()` reads. Then port
-      dialogs → dock panes following the `buildWorkflowContent` precedent, in order:
-      summary → ml → monteCarlo → multimin (easy); zones, wellGroups, composite,
-      report (medium); moduleDialog (hard — needs dockview addPanel params +
-      singleton-per-module) and autoCorr last. Keep as popups: layoutProps, curveEdit,
-      tops micro-forms, ribbon mini-forms. Fix modal.ts single-root leak for whatever
-      remains. → `code_ui_shell.md`.
-- [x] **(4) Compact import ribbon.** _(Done 2026-07-20 — Import Logs ▾ / Import
-      Data ▾ / Tools ▾ via buildRibbonDropdown, i18n'd; Manage group kept.)_
-      Regenerate the Data tab's 15 flat buttons into
-      `buildRibbonDropdown` menus (already exists, used by Petrophysics categories):
-      Import Logs ▾ (LAS/DLIS), Import Data ▾ (core/SCAL/tops/aux/deviation), Export ▾,
-      Tools ▾ (autocorrelate/shift core/well header). Pure frontend; handlers exist.
-      Apply the same categorization pass to other crowded groups. → `code_data_db_import.md`.
-- [x] **(12) Multi-line inspector in workflows.** _(Done 2026-07-20 — interpretation
-      confirmed; Workflow Builder List|Grid toggle: rows = steps, columns = union of
-      args, Set-all row edits a shared parameter (RW across sw_*) on every step that
-      takes it, per-step delete-if-default + manifest-limit validation preserved,
-      view choice persisted.)_ → `code_compute_ml_mc.md`.
-- [x] **(2) Project open/switch, IP style.** _(Done 2026-07-20 — project.rs recents
-      in %APPDATA%\SandiBumi, live connection swap, open/new/recent UI, reopen-last
-      at startup, chain-running guard; save_project_as stays a backup copy.)_
-      DB is a hard-coded relative
-      `project.duckdb`; no open/new/recent. Needs: swappable `DbState` (open/close/
-      create commands + migrations on open), recent-projects list outside the project
-      DB (app-config dir), startup picker + Project-tab Open/New/recent UI, a
-      project-changed dataVersion bump so all panels reload, and `save_project_as`
-      semantics decision (copy-and-continue vs switch-to-copy). → `code_data_db_import.md`.
-
-**Wave B — leverage existing engines (small-to-medium increments, high payoff):**
-- [ ] **(13) Monte Carlo parameter sensitivity.** montecarlo.rs already samples per
-      realization but discards the draws — keep them, add Spearman rank correlation of
-      param vs output across realizations + tornado chart, plus one-at-a-time sweep
-      mode; scope selector = single tool or whole workflow (bulk). → `code_compute_ml_mc.md`.
-- [ ] **(3) ML comparison quantification.** Loop algorithms × input-curve subsets in
-      one job; leaderboard ranking; **well-grouped CV + blind-well holdout** (current
-      random 5-fold leaks depth correlation); feature importance (permutation);
-      confusion matrix for classification. exec_ml is already one-shot per call —
-      harness loops it. → `code_compute_ml_mc.md`.
-- [ ] **(9) Fluid contacts in well correlation.** New `fluid_contacts` store
-      (well/field, type OWC|GWC|GOC|GDT|ODT, depth, TVDSS flag, color), editor UI,
-      rendering in correlationPanel as horizontal lines + connectors; requires adding
-      a TVDSS depth mode to correlation (deviation.rs paths exist; contacts are flat
-      in TVDSS, not MD). Optional: show in log-view tops overlay. → `code_data_db_import.md`.
-- [ ] **(16) Well-diagram track in layout.** `Track` gains a `kind` field
-      (`"curves" | "well_diagram"`, serde-default for saved-layout compat); draw
-      casing/shoe/tubing/perfs on the 2D overlay canvas (same path as core plugs);
-      perfs already in aux_data; casing/completion needs a store + importer (reserved
-      aux_data dataset `COMPLETION`); BS available as curve. Mirror in composite/report
-      export. → `code_data_db_import.md`.
-- [ ] **(8) Rock typing + SHF building.** Rock typing: FZI/HFU (Amaefule + GHE bins),
-      Winland R35/Pittman, Lucia RFN (carbonate stringers), PGS (Permadi & Susilo ITB
-      — verify exponent vs paper), perm binning per Mahakam phi-k-laws preset (all
-      constants transcribed), electrofacies tie-in with confusion-matrix QC. SHF
-      *fitting* side (forward `sw_height` exists): Leverett-J, Brooks-Corey, Thomeer,
-      Skelt-Harrison, Cuddy FOIL/BVW (papers in library, read), log-derived per-RT
-      Sw(h), FWL scan (Cuddy Eq 19) + gradient-intersection; SCAL importers for
-      porous-plate wide tables + centrifuge workbooks (real formats captured). Fitted
-      laws export into the existing sw_height parameter table. → `ref_rocktyping_shf.md`.
-
-**Wave C — method suites from his reference canon:**
-- [ ] **(10) Thin-bed / LRLC suite** (his specialty; richest reference grounding —
-      Passey 2006 book, Bateman 1990, Thomas-Stieber 1975, Mollison/Mezzatesta 2002,
-      Klein 1995/97 + Jauhar's own Klein-plot Excel prototype, Yadav 2010, Elhadidy
-      2020, Madjid-Worthington 2012, Worthington 2000 all read). Build order inside the
-      suite: Worthington LRP screening classifier → Madjid-Worthington scenario router
-      → Thomas-Stieber per-depth solver (crossplot overlay exists) → Bateman binary-
-      lithology + Rt enhancement → Klein plot widget + Hagiwara/Fanini Vshl-Rsd tensor
-      solver, with **Elhadidy multi-well dip-fit as the no-triaxial fallback (the
-      Mahakam case)** → Passey VLSA interval Monte Carlo → (later) Mollison LSSA full
-      inversion. Note: printed Mollison eq 19-21 have suspected typos (kv/kh swapped,
-      Coates ratio inverted) — implement physics-correct forms. → `ref_thin_bed_lrlc.md`.
-- [ ] **(1a) TOC / unconventional.** Passey ΔlogR (sonic/density/neutron variants +
-      generalized calibrated form; interactive baseline picker on the overlay scale),
-      Schmoker & Myers-Jenkyns density TOC, Schmoker-Hester inverse form, uranium/Th-U
-      excess method (warn: unreliable for deltaic Type-III OM — mask coals first),
-      Meyer-Nederlof discriminant, MLR/ML TOC, RockEval/LECO calibration layer
-      (core-TOC table drives every method), brittleness index, adsorbed/free gas.
-      Rider book has the exact in-library equations. Needs one-time Hood LOM chart
-      digitization (chartdig-style). → `ref_toc_unconventional.md`.
-- [ ] **(1b) Geomechanics 1D MEM.** Phased: (i) conditioning (Faust DT, DTS regression,
-      RHOB extrapolation) + Sv integration + NCT + Eaton PP + FG (Eaton-Poisson,
-      Thiercelin-Plumb, Matthews-Kelly) + dynamic/static moduli + UCS/φ correlations;
-      (ii) Kirsch + failure criteria (Mohr-Coulomb, Mogi-Coulomb, Drucker-Prager,
-      Modified Lade — closed forms verbatim from the 221102 LAPI-ITB deck) → collapse
-      MW + mud window + max injection (CFF); (iii) Bowers loading/unloading (needed
-      for Mahakam overpressure) + breakout SHmax inversion. Ship CSB/Rokan calibrations
-      as a named preset, literature defaults as general default. → `ref_geomechanics.md`.
-- [ ] **(15) Rock physics.** Mirror Geolog GP02 (sources read from his V14 install,
-      incl. two known Geolog bugs NOT to copy): Phase 1 = Batzle-Wang fluids + VRH
-      solid mix (consumes SandiMin volumes) + fluid mixing (Reuss/patchy/Brie) +
-      Gassmann clean & Vsh variants + Vs prediction (Greenberg-Castagna iterative,
-      Han, mudrock) + elastic attributes (AI/SI/VpVs/Poisson/LMR) + reflectivity/EI
-      logs; Phase 2 = bounds + Krief/critical-porosity + contact models; Phase 3
-      (defer) = Xu-White/Xu-Payne/DEM, time-domain synthetics. Standardize SI
-      internally (Geolog mixes unit systems). → `ref_rock_physics.md`.
-
-**Wave D — new data-model suites (biggest lifts; each needs new storage):**
-- [ ] **(5) NMR suite.** Needs array-curve storage (T2 bins as LIST/FLOAT[] per depth +
-      bin-time metadata per curve-set; DLIS array channels, LAS BIN01..NN re-pack).
-      Then: CBW/BVI/FFI partition (T2cutoffs 4/33/92 ms defaults), SBVI option,
-      T2LM, Timur-Coates + SDR perm, Swirr, MPHI/MSIG QC, DMR gas-corrected porosity;
-      pseudo-Pc (Kappa/T2) with MICP calibration; MRIAN dual-water Sw (ties into his
-      LRLC work); defer dual-TW/TE typing. Coates 1999 book in library, read. → `ref_nmr.md`.
-- [ ] **(6) Image log suite.** Largest single item. Data model (pad arrays, oriented
-      array, versioned _S/_ISC/_H/_STATIC/_DYNAMIC chain per Techlog convention —
-      his annotated Techlog manual + his team's Geolog Geomage SOP are the blueprints):
-      speed correction (accelerometer + image-based), pad creation/EMEX, button
-      harmonization + dead-button repair, concatenation/orientation, static+dynamic
-      normalization; then interactive dip picking (5 modes incl. sinusoid math →
-      true dip), dip datasets + classification, auto-dip, stereonet/rose/walkout/
-      cumulative plots, structural dip removal, fracture counting w/ Terzaghi,
-      aperture (Luthi-Souhaite), image porosity + binarization + sand count (his SOP's
-      exact regressions captured). → `ref_image_core.md`.
-- [ ] **(7) Core photo digitization.** Non-destructive recipe model (original +
-      ordered ops): crop/deskew/perspective, color-card + white-balance correction,
-      CLAHE/denoise/sharpen enhancement, depth registration + stitched strip pyramid,
-      core-to-log shift (photo-proxy-log cross-correlation vs GR), WL/UV pairs,
-      log-view strip track. No reference files exist — specced from standard practice.
-      Absorbs the §4 P3 "core image input" stub. → `ref_image_core.md`.
-
-Cross-cutting notes: (11) Balam South testing is the per-increment verification
-standard, not a separate item. Items (9) and (7) supersede the §4 P3 2D-Window
-fluid-contacts note and core-image stub. New suites must land as panes (Wave A first),
-use the 15-var theme contract, manifest-driven dialogs where they fit, and expose
-outputs to Python/SQL per §5.
-
-**Wave E — KKT ONWJ additions (Jauhar 2026-07-20; sources = his KKT ONWJ full-field
-deck + Multimin Parameters.xlsx, both extracted into `ref_kkt_onwj_wave_e.md` —
-client files stay OUT of the repo):**
-- [x] **(17) Pre-calculation module** (deck slide 31): mud properties + temp/pressure
-      gradients in → FTEMP, FPRESS, RMF (Arps to formation temp), CT = 1000/RT,
-      CXO = 1000/RXO curves out. Prep-category manifest module; SandiMin fluid props
-      should then be fillable from these outputs. → `ref_kkt_onwj_wave_e.md`.
-      *(DONE 2026-07-20: `precalc` module in modules.rs — linear FTEMP (degC
-      canonical) + FTEMP_F (degF twin) / FPRESS in TVDSS with whole-curve DEPTH
-      fallback, RMF via ARPS (shared multimin2::arps_f, degF/degC entry option) or
-      TREND log10 regression, CT/CXO mmho/m QC curves with R ≤ 0 guards; four unit
-      tests pin the KK fits + guard branches. Adversarial review 6/6 confirmed →
-      fixed: RES_DEEP default for the deep input, FTEMP degC-only (no unit clash
-      with ftemp_grad consumers), own SURF_TEMP/TEMP_GRAD param names (no zone-param
-      cross-talk), TREND ft-fit + CT/CXO-are-QC caveats in docs. SandiMin fluid-prop
-      autofill from these curves lands with item 18's SandiMin dialog work.)*
-- [x] **(18) Wet→dry clay endpoint conversion** for the PHIT-basis (dry-clay
-      framework) Sw model: φ_clay = (ρdry−ρwet)/(ρdry−1); NPHI/GR/DT rescaled onto
-      the dry fraction (formulas verbatim from his xlsx). Converter in the SandiMin
-      dialog producing dry-clay component endpoints + φ_clay/CBW bookkeeping.
-      → `ref_kkt_onwj_wave_e.md`.
-      *(DONE 2026-07-20: `dry_clay_calc` + `fluid_from_precalc` in multimin2.rs,
-      converter panel + precalc autofill row in the SandiMin pane. CBW bookkeeping
-      settled against deck slide 59 (bound water = explicit solved volume, SWB =
-      VOL_UBNDWAT/PHIT): CEC_eq inverts the existing BNDWAT multiplier so the solver
-      enforces v_bw = φ/(1−φ)·v_dryclay with no solver change. Unphysical-pick guards
-      (percent NPHI, GR ≤ 0, DT below 189·φ). Adversarial review 15 raised → 7
-      confirmed → all fixed: pane now subscribes to the well selection (zone list
-      follows), Rmf temp retied only when RMF actually read, raw non-precalc RMF
-      refused, dry preview tracks fluid edits, CEC_eq↔RHOB-endpoint pairing hinted
-      in status + tooltip. 122 cargo tests, tsc clean, browser-verified. REVIEW #22.)*
-- [x] **(19) Gas correction, iterated** (deck slide 65): ρb_corr = RHOB +
-      Φt·(1−Sw)·(1.00−ρg_res), ρg_res from SG at reservoir P&T (needs 17); outer
-      loop solve→correct→re-solve until |ΔΦt| converges (IP style), NPHI analog to
-      confirm. QC = PHIE-vs-Vwetclay cloud collapse (slides 66–67). Depends on (17).
-      → `ref_kkt_onwj_wave_e.md`.
-      *(Done 2026-07-20: `gascorr` Prep module — Standing+Papay GASDEN (pinned
-      0.1297 g/cc at KK 2743 psi/93.9 °C), Archie in-loop Sw, 20-pass fixed point,
-      rw_args merged with required precalc FTEMP/FPRESS (computed-only resolution —
-      raw degF/kPa imports can't leak in). Adversarial review: 13 confirmed → all
-      fixed — FLAGGED default (coal/washout safety), flag > 0.5 gate, loud error on
-      missing flag data, degenerate-density/Rw guards, non-convergence → MISSING,
-      NaN-proof Archie, RHOG→GASDEN. NPHI analog deliberately not built: doc steers
-      RHOB_GC to phi_den/PHIT_GC, warns off phi_dn/SandiMin-with-NPHI. 127 tests.
-      REVIEW #23.)*
-- [x] **(20) φmax porosity cap from compaction trend** (deck slide 64 "max core
-      porosity" line): optional zone-overridable PHI_MAX (constant or TVDSS trend) in
-      porosity modules + SandiMin. **Trend form to confirm with Jauhar.**
-      → `ref_kkt_onwj_wave_e.md`.
-      *(DONE 2026-07-20: new `phimax` Porosity module — MODE constant/linear/athy;
-      φmax = PHIMAX0 (constant) or PHIMAX0 − GRAD·(TVDSS−REF)/1000 (linear) or
-      PHIMAX0·exp(−ATHY_K·(TVDSS−REF)/1000) (athy). TVDSS positive-downward matching
-      precalc, whole-curve DEPTH fallback; all 4 params zone-overridable. Outputs
-      <PHI>_CAP = min(PHI,φmax) + <PHI>_MAX ceiling curve; auto-dialog, appears in the
-      Porosity dropdown. Standalone post-cap (works on any porosity incl. SandiMin PHIT);
-      solver-internal φmax box constraint + survey→TVDSS-curve bridge noted as follow-ons.
-      Jauhar chose the TVDSS trend (linear + athy both shipped). Ultracode 4-lens review:
-      0 confirmed / 4 refuted, +2 regression guards added. 136 tests; tsc clean. REVIEW #26.)*
-- [x] **(21) Cutoff sensitivity tools** (deck slides 84–87): Method-1 pay-sensitivity
-      sweep plots (X = candidate cutoff, Y = normalized cumulative pay per
-      well/interval, DST-interval filter; paysummary engine in a sweep loop) +
-      Method-2 DST-highlighted PHIE-vs-Vclay / PHIE-vs-Sw crossplots with draggable
-      cutoff crosshairs; picked cutoffs write into per-zone pay-summary defaults.
-      → `ref_kkt_onwj_wave_e.md`. *(DONE 2026-07-20: one singleton "cutoff" dock pane,
-      Sweep / DST-Crossplot toggle. Backend `compute_sweep`/`run_cutoff_sweep` in
-      workflow.rs reuse the pay-summary math via an extracted `classify_sample`
-      (byte-identical parity, tested); NET/HPV/NTG metrics; optional zone + DST-interval
-      filter; overlapping DST intervals unioned. Frontend cutoffDialog.ts: per-well sweep
-      lines with pick-and-write, DST crossplot with draggable crosshair, save-as-pay-
-      summary-default (documents "cutoffs"/"__default__", preloaded by summaryDialog).
-      Per-zone cutoff APPLICATION inside run_pay_summary remains a noted follow-on.
-      Two adversarial review passes: 13 raised → 10 confirmed, all fixed. 131 tests;
-      tsc clean. REVIEW #25.)*
-- [x] **(22) Map pane + editable polygons → well groups**: well header surface X/Y
-      (+ import), Map pane (posted wells, zoom/pan), polygon draw/edit persisted as
-      documents, point-in-polygon → well group assignment (existing well-groups
-      CRUD). No X/Y or map view exists in code today. → `ref_kkt_onwj_wave_e.md`.
-      *(DONE 2026-07-20: `wells` gained surface_x/surface_y (DOUBLE — UTM S-hemisphere
-      northings ≈9.4e6 exceed f32 precision) + utm_zone; set_well_location + WellSummary
-      extended. geo.rs point_in_polygon (PNPOLY half-open) + wells_in_polygon command.
-      parsers.rs parse_locations_file (EASTING/NORTHING/ZONE aliases, returns has_well_column)
-      + ingest import_locations_file (name→id match, per-row zone over dialog default,
-      transactional). Frontend: standalone Field Map dock pane (pan/wheel-zoom/grid/scale-bar,
-      draggable polygon vertices, live TS point-in-polygon highlight, Assign→group via
-      authoritative backend), Data ▸ Import Well Locations dialog with choosable Indonesia UTM
-      zone (46–54 N/S), Well Header X/Y/zone fields. Raw UTM plotted (no reprojection —
-      multi-zone follow-on); the polygon is a transient selection tool, the persistent artifact
-      is the group membership (persisting polygon shapes as documents = noted follow-on).
-      Adversarial review: 3 confirmed, all fixed — stale-snapshot coord clobber on Well Header
-      Save (high), blank-WELL-cell misroute + partial-write (medium), fit-on-first-coords
-      (medium). 143 tests; tsc clean. REVIEW #27.)*
-- [x] **(23) Data-conditioning flags module** (Jauhar request 2026-07-20, mid-Wave-E):
-      flag badhole / tight / gas-crossover / coal plus a shoulder-adjustment flag so
-      lithology transitions don't leave boundary-averaged samples in the conditioned
-      data. *(DONE 2026-07-20: `condflag` Prep module in modules.rs — COAL_FLAG
-      (density/neutron/sonic criteria, BADHOLE-excluded so washouts aren't coal),
-      TIGHT_FLAG (DPHI & NPHI < TIGHT_PHI on the porosity modules' shared
-      RHO_MA/RHO_FL), XOVER_FLAG (DPHI−NPHI > XOVER_MIN, coal/badhole-excluded),
-      SHOULDER_FLAG (dilation of coal/tight beds + ≥MIN_THICK badhole intervals by
-      SHOULDER depth units), COND_FLAG combined mask; MIN_THICK despike with
-      NaN-bridged runs; 8 unit tests. Adversarial review: 12 findings raised, 8
-      confirmed → fixed: RHO_MA/RHO_FL shared with porosity modules (no split-brain
-      zone overrides vs ssc's RHOB_MA), NaN-in-bed despike bridging, badhole blips
-      mask themselves but don't dilate, degenerate RHO_MA≤RHO_FL guard, NPHI
-      matrix-units + Mask-on-condflag-run doc caveats, BADHOLE/COND_FLAG always
-      offered in Mask dropdowns (fresh-project chain composable).)*
-- [x] **(24) Neutron matrix conversion module** (Jauhar request 2026-07-20, mid-Wave-E):
-      convert NPHI between limestone / sandstone / dolomite recording conventions.
-      *(DONE 2026-07-20: `nphimat` Prep module — chartbook Por-5 (CNL thermal: NPHI
-      ratio + TNPH fresh/250 kppm salt) and Por-4 (epithermal: APS APLC/FPLC + legacy
-      sidewall SNP) digitized at vector precision into `neutron_charts.rs` (12 tables,
-      generator `tools/chartdig/gen_por45.mjs` with hard gates: grid rms, identity
-      bias/scatter split, strict monotone, Por-4 APLC/FPLC physics identity, Por-5
-      printed worked example 23.96 vs book 24). Module pivots through the
-      apparent-limestone axis, passes the input convention through, outputs
-      NPHI_LS/NPHI_SS/NPHI_DOL; 6 unit tests. Adversarial review: 13 findings raised,
-      8 confirmed → fixed: APS/legacy mnemonics (APLC/FPLC/SNP/NPOR/HNPO/NEUT/FSTP)
-      added to parsers.rs NPHI aliases + curves.rs family; all-NaN standard column in
-      fetch_curve_frame now falls back to computed/generic resolution (APS wells no
-      longer silently all-NaN); workflow-builder log_in dropdowns offer every module's
-      log_out names (fresh-project nphimat→phi_dn chain composable); SNP no longer
-      mislabeled as APS; doc states the true SS digitized span (~0.32-0.36 apparent)
-      and the NPHI_LS computed-vs-raw shadowing rule; generator gates hardened.
-      Residual idea parked: make a required module input that resolves all-NaN a
-      per-well run error instead of a silent success.)*
-
-## 5. Standing advantages to protect
+## R2. Standing advantages to protect (§5)
 
 - One-file DuckDB project + full SQL access.
 - Python/numpy as the scripting surface (every new feature should expose its data to it).

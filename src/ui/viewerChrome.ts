@@ -1,5 +1,6 @@
 import type { Layout, Track, WellSummary } from "../ipc";
 import { FACIES_PALETTE } from "./plotCanvas";
+import { formatValue } from "./plotCommon";
 
 export interface TrackChromeCallbacks {
   /** Fired after resize, reorder, or scale edit — needs a full geometry rebuild. */
@@ -270,6 +271,7 @@ export function renderReadout(
   depth: number | null,
   samples: { curveName: string; value: number }[],
   emphasize?: Set<string>,
+  units?: Map<string, string>,
 ): void {
   if (depth === null) {
     container.hidden = true;
@@ -283,7 +285,7 @@ export function renderReadout(
   for (const s of samples) {
     const item = document.createElement("span");
     item.className = "readout-item" + (emphasize?.has(s.curveName) ? " em" : "");
-    item.textContent = `${s.curveName}: ${Number.isNaN(s.value) ? "—" : s.value.toFixed(2)}`;
+    item.textContent = `${s.curveName}: ${formatValue(s.value, { unit: units?.get(s.curveName) })}`;
     container.appendChild(item);
   }
 }

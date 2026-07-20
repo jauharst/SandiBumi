@@ -817,6 +817,7 @@ export class Workspace {
             getState = content.getState;
           })
           .catch((err) => {
+            if (closed || gen !== generation) return; // a newer build/close already won
             host.innerHTML = `<div class="logview-message">Failed to open ${kind}: ${err}</div>`;
           });
       };

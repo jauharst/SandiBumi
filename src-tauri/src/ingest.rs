@@ -11,6 +11,8 @@ pub struct ImportResult {
     pub well_id: Option<String>,
     pub well_name: Option<String>,
     pub rows: usize,
+    /// Non-fatal note for a successful import, e.g. rows dropped for a bad/duplicate depth.
+    pub warning: Option<String>,
     pub error: Option<String>,
 }
 
@@ -34,16 +36,54 @@ pub fn import_las_files(conn: &Connection, paths: &[String]) -> Vec<ImportResult
         .into_iter()
         .map(|(path, result)| match result {
             Ok((well_name, columns)) => insert_parsed_well(conn, path, well_name, columns),
-            Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, error: Some(e.to_string()) },
+            Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()) },
         })
         .collect()
 }
 
-fn insert_parsed_well(conn: &Connection, path: String, well_name: String, columns: CurveColumns) -> ImportResult {
+fn insert_parsed_well(conn: &Connection, path: String, well_name: String, mut columns: CurveColumns) -> ImportResult {
     let well_id = Uuid::new_v4();
+    // Drop non-finite / duplicate depths so the (well_id, depth) PK can't trip and abort the
+    // whole file (which would also orphan the well row); report what was removed.
+    let report = parsers::sanitize_curve_columns(&mut columns);
     let rows = columns.depth.len();
 
-    let result: db::DbResult<()> = (|| {
+    // Every row dropped (all depths missing/duplicate — e.g. an unrecognized index whose
+    // column 0 is entirely the null sentinel): don't commit a curve-less orphan well, error.
+    if rows == 0 {
+        return ImportResult {
+            path,
+            well_id: None,
+            well_name: None,
+            rows: 0,
+            warning: None,
+            error: Some(format!(
+                "no importable rows: {} had missing depth, {} duplicated an earlier depth",
+                report.nonfinite, report.duplicate
+            )),
+        };
+    }
+
+    // A LAS index is monotonic by spec; a non-monotonic depth after sanitation usually means
+    // column 0 was not the true index (an unrecognized-mnemonic file whose first curve is data,
+    // imported as depth via the column-0 fallback) — surface it rather than import silently.
+    let non_monotonic = columns.depth.windows(2).any(|w| w[0] < w[1])
+        && columns.depth.windows(2).any(|w| w[0] > w[1]);
+    let mut notes: Vec<String> = Vec::new();
+    if !report.is_clean() {
+        notes.push(format!(
+            "dropped {} row(s) with missing depth and {} with duplicate depth",
+            report.nonfinite, report.duplicate
+        ));
+    }
+    if non_monotonic {
+        notes.push("depth index is non-monotonic — column 0 may not be the true depth curve".to_string());
+    }
+    let warning = (!notes.is_empty()).then(|| notes.join("; "));
+
+    // Well row + standard curves as one transaction: a failure rolls the well row back
+    // instead of stranding a curve-less orphan (with_txn = BEGIN/COMMIT/ROLLBACK).
+    let result: db::DbResult<()> = db::with_txn(conn, |conn| {
         db::insert_well(conn, well_id, &well_name, None, None, None)?;
         db::insert_standard_curves(
             conn,
@@ -57,7 +97,7 @@ fn insert_parsed_well(conn: &Connection, path: String, well_name: String, column
             columns.sp,
         )?;
         Ok(())
-    })();
+    });
 
     match result {
         Ok(()) => {
@@ -69,9 +109,9 @@ fn insert_parsed_well(conn: &Connection, path: String, well_name: String, column
             if let Err(e) = import_all_curves_into_generic_store(conn, &well_id.to_string(), &path) {
                 eprintln!("warning: generic-store import for {well_name} failed (standard curves still imported): {e}");
             }
-            ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), rows, error: None }
+            ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), rows, warning, error: None }
         }
-        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, error: Some(e.to_string()) },
+        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()) },
     }
 }
 
@@ -80,10 +120,16 @@ fn insert_parsed_well(conn: &Connection, path: String, well_name: String, column
 /// conversion is known. The unit stored is the canonical one when converted, else the
 /// file's original unit.
 pub fn import_all_curves_into_generic_store(conn: &Connection, well_id: &str, path: &str) -> db::DbResult<()> {
-    let frame = match parsers::parse_las_2_all(path) {
+    let mut frame = match parsers::parse_las_2_all(path) {
         Ok(f) => f,
         Err(e) => return Err(db::DbError::LengthMismatch(format!("parse_las_2_all: {e}"))),
     };
+    // curve_samples has PK (curve_id, depth) just like standard_curves, so the same non-finite
+    // / duplicate depths the standard-curves path drops would otherwise abort each curve's
+    // insert here — silently, since this whole import is best-effort (its Err is only logged).
+    // Sanitize depth + every curve in lockstep before writing (identical keep-set to the
+    // standard path, so both stores hold the same rows for the same file).
+    parsers::sanitize_las_frame(&mut frame);
     if frame.depth.is_empty() {
         return Ok(());
     }
@@ -604,6 +650,71 @@ mod tests {
         assert!((path[1].tvd - 1000.0).abs() < 1e-2, "vertical section TVD == MD");
         assert!(path[2].tvd < path[2].md, "deviated station TVD shallower than MD");
         assert!((path[1].tvdss - (25.0 - 1000.0)).abs() < 1e-2, "TVDSS = datum - TVD");
+    }
+
+    /// #118 follow-up: a spliced LAS with a duplicate depth must import cleanly on BOTH the
+    /// standard-curves AND the generic-store path. The generic path re-parses the file and
+    /// writes curve_samples (curve_id, depth) PK, so without the same depth dedup it aborts
+    /// silently (Err only logged), leaving the well missing its PEF/extra curves.
+    #[test]
+    fn duplicate_depth_las_imports_standard_and_generic_curves() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+
+        // Two rows at 1000.0 (a re-spliced section) plus PEF beyond the standard 6.
+        let las = "~Version\nVERS. 2.0 :\n\
+                   ~Curve\nDEPT .M : depth\nGR .GAPI : gamma\nPEF .B/E : pe\n\
+                   ~ASCII\n1000.0 55.0 5.1\n1000.0 56.0 5.2\n1000.5 60.0 5.0\n";
+        let path = std::env::temp_dir().join("arshilla_dupdepth_test.las");
+        std::fs::write(&path, las).unwrap();
+
+        let results = import_las_files(&conn, &[path.to_str().unwrap().to_string()]);
+        std::fs::remove_file(&path).ok();
+
+        assert_eq!(results.len(), 1);
+        let r = &results[0];
+        assert!(r.error.is_none(), "import must succeed, got {:?}", r.error);
+        assert_eq!(r.rows, 2, "duplicate 1000.0 row dropped → 2 unique depths");
+        assert!(
+            r.warning.as_deref().unwrap_or("").contains("duplicate"),
+            "duplicate-depth warning surfaced, got {:?}",
+            r.warning
+        );
+
+        let ids = r.well_id.clone().unwrap();
+        let n_std: i64 = conn
+            .query_row("SELECT COUNT(*) FROM standard_curves WHERE well_id = ?1", params![ids], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n_std, 2, "standard_curves deduped to 2 rows");
+        // The generic store must ALSO carry PEF — not silently missing from a PK abort.
+        let catalog = db::list_generic_curve_catalog(&conn, &ids).unwrap();
+        let pef = catalog.iter().find(|c| c.mnemonic == "PEF").expect("PEF must reach the generic store");
+        assert_eq!(pef.n_samples, 2, "generic PEF deduped to 2 rows, not aborted");
+    }
+
+    /// #118 follow-up: a file whose (unrecognized) index column is entirely the null sentinel
+    /// leaves zero rows after depth sanitation. That must ERROR — not commit a curve-less
+    /// orphan well — and must create no wells row.
+    #[test]
+    fn all_null_depth_las_errors_without_creating_well() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+
+        // XREF (unrecognized index) at column 0, every value the -999.25 null sentinel.
+        let las = "~Version\nVERS. 2.0 :\n~Well\nNULL. -999.25 :\n\
+                   ~Curve\nXREF .M : idx\nGR .GAPI : gamma\n\
+                   ~ASCII\n-999.25 55.0\n-999.25 60.0\n";
+        let path = std::env::temp_dir().join("arshilla_allnull_depth_test.las");
+        std::fs::write(&path, las).unwrap();
+
+        let results = import_las_files(&conn, &[path.to_str().unwrap().to_string()]);
+        std::fs::remove_file(&path).ok();
+
+        let r = &results[0];
+        assert!(r.error.is_some(), "all-null depth must error, not create an empty well");
+        assert!(r.well_id.is_none(), "no well_id on the errored import");
+        let n_wells: i64 = conn.query_row("SELECT COUNT(*) FROM wells", [], |r| r.get(0)).unwrap();
+        assert_eq!(n_wells, 0, "no orphan well row created");
     }
 
     /// Well-locations CSV: alias-resolved EASTING/NORTHING/ZONE headers, name→well match,

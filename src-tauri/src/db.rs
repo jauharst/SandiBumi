@@ -464,6 +464,29 @@ pub fn insert_standard_curves(
     Ok(())
 }
 
+/// Runs `f` inside a single transaction: BEGIN, then COMMIT on Ok / ROLLBACK on Err. Makes a
+/// delete-then-append sequence atomic, so an unclean process kill mid-write (the app's most
+/// common failure mode — `tauri dev` restarts on every source change; see `init_db_resilient`)
+/// can't leave the DELETE committed with the never-flushed append lost. NOTE: DuckDB has no
+/// nested transactions — never call a `with_txn`-wrapped writer from inside another one.
+pub fn with_txn<T, E, F>(conn: &Connection, f: F) -> Result<T, E>
+where
+    F: FnOnce(&Connection) -> Result<T, E>,
+    E: From<duckdb::Error>,
+{
+    conn.execute_batch("BEGIN")?;
+    match f(conn) {
+        Ok(v) => {
+            conn.execute_batch("COMMIT")?;
+            Ok(v)
+        }
+        Err(e) => {
+            let _ = conn.execute_batch("ROLLBACK");
+            Err(e)
+        }
+    }
+}
+
 /// Bulk-inserts core plug data for one well, replacing any prior rows for that well
 /// (re-import overwrites rather than duplicating).
 pub fn insert_core_data(
@@ -479,13 +502,15 @@ pub fn insert_core_data(
     if cpor.len() != n || cperm.len() != n || cgd.len() != n || csw.len() != n {
         return Err(DbError::LengthMismatch(format!("expected all core columns to have length {n}")));
     }
-    conn.execute("DELETE FROM core_data WHERE well_id = ?1", params![well_id])?;
-    let mut appender: Appender = conn.appender("core_data")?;
-    for i in 0..n {
-        appender.append_row(params![well_id, depths[i], cpor[i], cperm[i], cgd[i], csw[i]])?;
-    }
-    appender.flush()?;
-    Ok(())
+    with_txn(conn, |conn| {
+        conn.execute("DELETE FROM core_data WHERE well_id = ?1", params![well_id])?;
+        let mut appender: Appender = conn.appender("core_data")?;
+        for i in 0..n {
+            appender.append_row(params![well_id, depths[i], cpor[i], cperm[i], cgd[i], csw[i]])?;
+        }
+        appender.flush()?;
+        Ok(())
+    })
 }
 
 /// One long-format row of a tops-style auxiliary dataset (see `aux_data` table).
@@ -501,24 +526,26 @@ pub struct AuxRow {
 
 /// Replaces one well's rows of ONE dataset (petrography / XRD / perforation import).
 pub fn insert_aux_data(conn: &Connection, well_id: &str, dataset: &str, rows: &[AuxRow]) -> DbResult<()> {
-    conn.execute(
-        "DELETE FROM aux_data WHERE well_id = ?1 AND dataset = ?2",
-        params![well_id, dataset],
-    )?;
-    let mut appender: Appender = conn.appender("aux_data")?;
-    for r in rows {
-        appender.append_row(params![
-            well_id,
-            dataset,
-            r.depth_top,
-            r.depth_base,
-            r.item,
-            r.value_num,
-            r.value_text
-        ])?;
-    }
-    appender.flush()?;
-    Ok(())
+    with_txn(conn, |conn| {
+        conn.execute(
+            "DELETE FROM aux_data WHERE well_id = ?1 AND dataset = ?2",
+            params![well_id, dataset],
+        )?;
+        let mut appender: Appender = conn.appender("aux_data")?;
+        for r in rows {
+            appender.append_row(params![
+                well_id,
+                dataset,
+                r.depth_top,
+                r.depth_base,
+                r.item,
+                r.value_num,
+                r.value_text
+            ])?;
+        }
+        appender.flush()?;
+        Ok(())
+    })
 }
 
 /// One well's auxiliary rows, all datasets or one, ordered by depth then item.
@@ -573,13 +600,15 @@ pub struct ScalPcRow {
 /// Bulk-inserts SCAL capillary-pressure rows for one well, replacing any prior rows
 /// (re-import overwrites, like `insert_core_data`).
 pub fn insert_scal_pc(conn: &Connection, well_id: &str, rows: &[ScalPcRow]) -> DbResult<()> {
-    conn.execute("DELETE FROM scal_pc WHERE well_id = ?1", params![well_id])?;
-    let mut appender: Appender = conn.appender("scal_pc")?;
-    for r in rows {
-        appender.append_row(params![well_id, r.sample_no, r.depth, r.perm, r.poro, r.pc, r.sw])?;
-    }
-    appender.flush()?;
-    Ok(())
+    with_txn(conn, |conn| {
+        conn.execute("DELETE FROM scal_pc WHERE well_id = ?1", params![well_id])?;
+        let mut appender: Appender = conn.appender("scal_pc")?;
+        for r in rows {
+            appender.append_row(params![well_id, r.sample_no, r.depth, r.perm, r.poro, r.pc, r.sw])?;
+        }
+        appender.flush()?;
+        Ok(())
+    })
 }
 
 pub fn get_scal_pc(conn: &Connection, well_id: &str) -> DbResult<Vec<ScalPcRow>> {
@@ -795,15 +824,17 @@ pub fn delete_well_group(conn: &Connection, group_id: &str) -> DbResult<()> {
 
 /// Replaces a group's membership with exactly `well_ids`.
 pub fn set_well_group_members(conn: &Connection, group_id: &str, well_ids: &[String]) -> DbResult<()> {
-    conn.execute("DELETE FROM well_group_members WHERE group_id = ?1", params![group_id])?;
-    for w in well_ids {
-        conn.execute(
-            "INSERT INTO well_group_members (group_id, well_id) VALUES (?1, ?2)
-             ON CONFLICT (group_id, well_id) DO NOTHING",
-            params![group_id, w],
-        )?;
-    }
-    Ok(())
+    with_txn(conn, |conn| {
+        conn.execute("DELETE FROM well_group_members WHERE group_id = ?1", params![group_id])?;
+        for w in well_ids {
+            conn.execute(
+                "INSERT INTO well_group_members (group_id, well_id) VALUES (?1, ?2)
+                 ON CONFLICT (group_id, well_id) DO NOTHING",
+                params![group_id, w],
+            )?;
+        }
+        Ok(())
+    })
 }
 
 /// Sets the single active group, or clears it when `group_id` is None. At most one group
@@ -846,14 +877,16 @@ pub fn zones_from_tops(conn: &Connection, well_id: &str) -> DbResult<Vec<ZoneEnt
         )
         .unwrap_or(0.0);
 
-    conn.execute("DELETE FROM zones WHERE well_id = ?1", params![well_id])?;
-    let mut zones = Vec::new();
-    for (i, top) in tops.iter().enumerate() {
-        let bottom = tops.get(i + 1).map(|t| t.depth).unwrap_or_else(|| max_depth.max(top.depth));
-        upsert_zone(conn, well_id, &top.top_name, top.depth, bottom)?;
-        zones.push(ZoneEntry { zone_name: top.top_name.clone(), top_depth: top.depth, bottom_depth: bottom });
-    }
-    Ok(zones)
+    with_txn(conn, |conn| {
+        conn.execute("DELETE FROM zones WHERE well_id = ?1", params![well_id])?;
+        let mut zones = Vec::new();
+        for (i, top) in tops.iter().enumerate() {
+            let bottom = tops.get(i + 1).map(|t| t.depth).unwrap_or_else(|| max_depth.max(top.depth));
+            upsert_zone(conn, well_id, &top.top_name, top.depth, bottom)?;
+            zones.push(ZoneEntry { zone_name: top.top_name.clone(), top_depth: top.depth, bottom_depth: bottom });
+        }
+        Ok(zones)
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1582,13 +1615,15 @@ pub fn insert_curve_samples(conn: &Connection, curve_id: &str, depths: &[f32], v
             values.len()
         )));
     }
-    conn.execute("DELETE FROM curve_samples WHERE curve_id = ?1", params![curve_id])?;
-    let mut appender: Appender = conn.appender("curve_samples")?;
-    for i in 0..depths.len() {
-        appender.append_row(params![curve_id, depths[i], values[i]])?;
-    }
-    appender.flush()?;
-    Ok(())
+    with_txn(conn, |conn| {
+        conn.execute("DELETE FROM curve_samples WHERE curve_id = ?1", params![curve_id])?;
+        let mut appender: Appender = conn.appender("curve_samples")?;
+        for i in 0..depths.len() {
+            appender.append_row(params![curve_id, depths[i], values[i]])?;
+        }
+        appender.flush()?;
+        Ok(())
+    })
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1622,13 +1657,15 @@ pub struct WellPathStation {
 
 /// Replaces the deviation survey (with computed TVD/TVDSS) for one well.
 pub fn insert_well_path(conn: &Connection, well_id: &str, stations: &[crate::deviation::Station]) -> DbResult<()> {
-    conn.execute("DELETE FROM well_path WHERE well_id = ?1", params![well_id])?;
-    let mut appender: Appender = conn.appender("well_path")?;
-    for s in stations {
-        appender.append_row(params![well_id, s.md, s.inc, s.azi, s.tvd, s.tvdss])?;
-    }
-    appender.flush()?;
-    Ok(())
+    with_txn(conn, |conn| {
+        conn.execute("DELETE FROM well_path WHERE well_id = ?1", params![well_id])?;
+        let mut appender: Appender = conn.appender("well_path")?;
+        for s in stations {
+            appender.append_row(params![well_id, s.md, s.inc, s.azi, s.tvd, s.tvdss])?;
+        }
+        appender.flush()?;
+        Ok(())
+    })
 }
 
 /// Reads one well's deviation survey (ordered by MD) for TVD-aware display.

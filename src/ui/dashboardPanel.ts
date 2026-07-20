@@ -239,6 +239,7 @@ export async function buildDashboardContent(
         phie_min: parseFloat(phieIn.value),
         swe_max: parseFloat(sweIn.value),
         perm_min: Number.isNaN(permRaw) ? null : permRaw,
+        skip_version: true, // field-wide QC — overwrite FLAG_* in place, don't version per well each refresh
       });
       const flags = new Set(allRows.map((r) => r.flag));
       statusEl.textContent = `${wellIds.length} well(s) · ${allRows.length} zone-rows across ${flags.size} flag level(s). FLAG curves written.`;

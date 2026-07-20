@@ -11,6 +11,7 @@
 
 import { fitCanvasBackingStore, readTheme } from "./plotCanvas";
 import { createWellGroup, listWellGroups, listWells, setWellGroupMembers, wellsInPolygon } from "../ipc";
+import { recordProcess } from "../processLog";
 import { appState, bumpWellGroupsVersion } from "../state";
 import { syncWellGroups } from "./wellGroups";
 import { formRow, openModal } from "./modal";
@@ -537,11 +538,13 @@ async function openAssignDialog(
         }
         await createWellGroup(name, ids);
         setStatus(`Created group “${name}” with ${ids.length} well(s).`);
+        recordProcess("Group", `Created group "${name}" from map polygon (${ids.length} wells)`);
       } else {
         const g = groups.find((x) => x.group_id === targetSel.value)!;
         const union = [...new Set([...g.well_ids, ...ids])];
         await setWellGroupMembers(g.group_id, union);
         setStatus(`Group “${g.name}” now has ${union.length} well(s) (+${union.length - g.well_ids.length}).`);
+        recordProcess("Group", `Assigned ${ids.length} well(s) to "${g.name}" from map polygon`);
       }
       await syncWellGroups();
       bumpWellGroupsVersion();

@@ -65,7 +65,7 @@ pub fn parse_geolog_csv<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
 /// Standard LAS null value sentinels, mapped strictly to `f32::NAN`.
 const LAS_NULL_VALUES: [f32; 2] = [-999.25, -9999.0];
 
-fn is_las_null(v: f32) -> bool {
+pub(crate) fn is_las_null(v: f32) -> bool {
     LAS_NULL_VALUES.iter().any(|null| (v - null).abs() < f32::EPSILON)
 }
 
@@ -95,6 +95,12 @@ enum LasSection {
 /// most populated (non-null) samples wins; priority order only breaks ties. So a raw GR is
 /// preferred over a normalized GRN when both are populated, but an all-null placeholder
 /// (e.g. an empty simulated NPHIED) is skipped in favour of its populated sibling NPHI_LS.
+// Only the LAS 2.0 index mnemonics DEPT/DEPTH. TDEP (Schlumberger) / MD indexes are handled
+// by the column-0 fallback in parse_las_2 / parse_las_2_all, NOT listed here: the LAS index
+// is always the first column, and matching TDEP/MD by name would let an auxiliary MD or TDEP
+// *track* sitting in a later column steal the depth role from the true first-column index. So
+// depth resolves to the first DEPT/DEPTH curve, else column 0 — never an all-NaN depth that
+// would trip the standard_curves (well_id, depth) PK.
 const DEPTH_ALIASES: [&str; 2] = ["DEPT", "DEPTH"];
 const GR_ALIASES: [&str; 2] = ["GR", "GRN"];
 const RES_ALIASES: [&str; 8] = ["RES_DEEP", "RESD", "RT", "RES", "DRES", "ILD", "LLD", "AT90"];
@@ -178,7 +184,10 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
                     continue;
                 }
                 if !indices_resolved {
-                    idx_depth = resolve_curve_index(&curve_names, &DEPTH_ALIASES);
+                    // Fall back to column 0 (the LAS index column) when no mnemonic matches,
+                    // matching parse_las_2_all — a TDEP/MD/other-indexed file must not produce
+                    // an all-NaN depth column.
+                    idx_depth = resolve_curve_index(&curve_names, &DEPTH_ALIASES).or(Some(0));
                     let alias_sets =
                         [&GR_ALIASES[..], &RES_ALIASES, &NPHI_ALIASES, &RHOB_ALIASES, &DT_ALIASES, &SP_ALIASES];
                     for (k, aliases) in alias_sets.iter().enumerate() {
@@ -244,6 +253,73 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
     Ok(cols)
 }
 
+/// Summary of what `sanitize_curve_columns` removed, so the importer can report it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DepthSanitizeReport {
+    /// Rows dropped because the depth index was non-finite (unresolved/blank/NaN sentinel).
+    pub nonfinite: usize,
+    /// Rows dropped because their depth duplicated an earlier kept row.
+    pub duplicate: usize,
+}
+
+impl DepthSanitizeReport {
+    pub fn total(&self) -> usize {
+        self.nonfinite + self.duplicate
+    }
+    pub fn is_clean(&self) -> bool {
+        self.total() == 0
+    }
+}
+
+/// Row indices to keep so a depth column can satisfy a `(…, depth)` PRIMARY KEY: drops
+/// non-finite depths and depths duplicating an earlier kept row (first occurrence wins, file
+/// order preserved). Shared by [`sanitize_curve_columns`] and [`sanitize_las_frame`] so the
+/// standard-curves and generic-store import paths drop identical rows for the same file.
+fn depth_keep_indices(depth: &[f32]) -> (Vec<usize>, DepthSanitizeReport) {
+    let n = depth.len();
+    let mut keep: Vec<usize> = Vec::with_capacity(n);
+    let mut seen: std::collections::HashSet<u32> = std::collections::HashSet::with_capacity(n);
+    let mut report = DepthSanitizeReport::default();
+    for (i, &d) in depth.iter().enumerate() {
+        if !d.is_finite() {
+            report.nonfinite += 1;
+            continue;
+        }
+        // Normalize signed zero: +0.0 and -0.0 have distinct bit patterns but DuckDB's FLOAT
+        // PK treats them equal, so a +0.0/-0.0 pair must dedup here too. NaN already excluded.
+        let key = if d == 0.0 { 0u32 } else { d.to_bits() };
+        if !seen.insert(key) {
+            report.duplicate += 1;
+            continue;
+        }
+        keep.push(i);
+    }
+    (keep, report)
+}
+
+/// Drops rows the `standard_curves` (well_id, depth) PRIMARY KEY cannot accept: a non-finite
+/// depth (an unrecognized/blank index that resolved to NaN) or a depth that duplicates an
+/// earlier row (a spliced/merged LAS with repeat sections). Without this, a single such file
+/// aborts the whole import with a cryptic PK-constraint error and leaves an orphan well row.
+/// The first occurrence of each finite depth is kept in file order; reads re-sort by depth
+/// (`fetch_curve_frame … ORDER BY depth`), so storage order here is irrelevant. A clean
+/// column is left untouched (no reallocation).
+pub fn sanitize_curve_columns(cols: &mut CurveColumns) -> DepthSanitizeReport {
+    let (keep, report) = depth_keep_indices(&cols.depth);
+    if report.is_clean() {
+        return report;
+    }
+    let take = |src: &[f32]| -> Vec<f32> { keep.iter().map(|&i| src[i]).collect() };
+    cols.depth = take(&cols.depth);
+    cols.gr = take(&cols.gr);
+    cols.res = take(&cols.res);
+    cols.nphi = take(&cols.nphi);
+    cols.rhob = take(&cols.rhob);
+    cols.dt = take(&cols.dt);
+    cols.sp = take(&cols.sp);
+    report
+}
+
 /// All curve-column indices whose mnemonic matches one of `aliases`, in alias-priority order.
 fn resolve_curve_candidates(curve_names: &[String], aliases: &[&str]) -> Vec<usize> {
     aliases
@@ -276,6 +352,25 @@ pub struct LasFrame {
     pub depth_unit: Option<String>,
     pub depth: Vec<f32>,
     pub curves: Vec<RawLasCurve>,
+}
+
+/// Applies the same depth sanitation as [`sanitize_curve_columns`] to a full [`LasFrame`]:
+/// drops rows with a non-finite or duplicate depth from `depth` and every curve's `values`
+/// in lockstep, so the generic `curve_samples` (curve_id, depth) PK can't trip on the same
+/// spliced/merged LAS the standard-curves path guards against. A clean frame is untouched.
+pub fn sanitize_las_frame(frame: &mut LasFrame) -> DepthSanitizeReport {
+    let (keep, report) = depth_keep_indices(&frame.depth);
+    if report.is_clean() {
+        return report;
+    }
+    let take = |src: &[f32]| -> Vec<f32> {
+        keep.iter().map(|&i| src.get(i).copied().unwrap_or(f32::NAN)).collect()
+    };
+    frame.depth = take(&frame.depth);
+    for c in &mut frame.curves {
+        c.values = take(&c.values);
+    }
+    report
 }
 
 /// Parses a LAS 2.0 file keeping **all** curves (mnemonic + unit + values), streaming the
@@ -1049,5 +1144,113 @@ mod tops_aux_tests {
         assert_eq!(d.items, vec!["STATUS"]);
         assert_eq!(d.rows[0].1, Some(2055.0));
         assert_eq!(d.rows[1].2[0].as_deref(), Some("SQUEEZED"));
+    }
+}
+
+#[cfg(test)]
+mod las_depth_tests {
+    use super::*;
+    use std::io::Write;
+
+    fn temp(name: &str, body: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(name);
+        let mut f = File::create(&path).unwrap();
+        f.write_all(body.as_bytes()).unwrap();
+        path
+    }
+
+    // Build a CurveColumns whose companion curves carry their row index as a marker value, so
+    // a test can prove the companion columns were filtered in lockstep with the depth column.
+    fn cols_from(depth: Vec<f32>) -> CurveColumns {
+        let seq: Vec<f32> = (0..depth.len()).map(|i| i as f32).collect();
+        CurveColumns {
+            depth,
+            gr: seq.clone(),
+            res: seq.clone(),
+            nphi: seq.clone(),
+            rhob: seq.clone(),
+            dt: seq.clone(),
+            sp: seq,
+        }
+    }
+
+    #[test]
+    fn sanitize_drops_nonfinite_and_duplicate_depths() {
+        // depths: 2000, NaN, 2001, 2000 (dup of row 0), 2002 → keep rows 0, 2, 4.
+        let mut c = cols_from(vec![2000.0, f32::NAN, 2001.0, 2000.0, 2002.0]);
+        let rep = sanitize_curve_columns(&mut c);
+        assert_eq!(rep.nonfinite, 1, "one NaN depth dropped");
+        assert_eq!(rep.duplicate, 1, "one duplicate depth dropped");
+        assert!(!rep.is_clean());
+        assert_eq!(c.depth, vec![2000.0, 2001.0, 2002.0]);
+        // Companion columns must follow the same kept indices (0, 2, 4), not slide.
+        assert_eq!(c.gr, vec![0.0, 2.0, 4.0]);
+        assert_eq!(c.sp, vec![0.0, 2.0, 4.0]);
+    }
+
+    #[test]
+    fn sanitize_leaves_clean_columns_untouched() {
+        let mut c = cols_from(vec![2000.0, 2000.5, 2001.0]);
+        let rep = sanitize_curve_columns(&mut c);
+        assert!(rep.is_clean() && rep.total() == 0);
+        assert_eq!(c.depth.len(), 3);
+        assert_eq!(c.gr, vec![0.0, 1.0, 2.0]);
+    }
+
+    #[test]
+    fn parse_las_2_tdep_index_populates_depth() {
+        // Index mnemonic is TDEP (Schlumberger), not DEPT/DEPTH; -999.25 sentinel in GR.
+        let body = "~VERSION\nVERS. 2.0 :\n~WELL\nNULL. -999.25 :\nWELL. XX : NAME\n\
+                    ~CURVE\nTDEP.M :\nGR.API :\n~ASCII\n2000.0 55.0\n2000.5 60.0\n2001.0 -999.25\n";
+        let p = temp("arshilla_tdep_test.las", body);
+        let cols = parse_las_2(&p).unwrap();
+        std::fs::remove_file(&p).ok();
+        assert_eq!(cols.depth.len(), 3);
+        assert!(
+            cols.depth.iter().all(|d| d.is_finite()),
+            "a TDEP-indexed file must populate depth, got {:?}",
+            cols.depth
+        );
+        assert!((cols.depth[2] - 2001.0).abs() < 1e-3);
+        assert!(cols.gr[2].is_nan(), "-999.25 sentinel must map to NaN");
+    }
+
+    #[test]
+    fn parse_las_2_unrecognized_index_falls_back_to_column0() {
+        // No DEPT/DEPTH mnemonic — the first column is still the LAS index.
+        let body = "~CURVE\nXREF.M :\nGR.API :\n~ASCII\n1000.0 10.0\n1000.5 12.0\n";
+        let p = temp("arshilla_xref_test.las", body);
+        let cols = parse_las_2(&p).unwrap();
+        std::fs::remove_file(&p).ok();
+        assert_eq!(cols.depth, vec![1000.0, 1000.5], "unrecognized index must fall back to column 0");
+    }
+
+    #[test]
+    fn parse_las_2_auxiliary_md_curve_does_not_steal_depth() {
+        // Column 0 is the true index under an unrecognized mnemonic (TVDSS); a real MD curve
+        // sits at column 2. Depth must come from column 0, NOT the MD auxiliary curve — MD is
+        // deliberately absent from DEPTH_ALIASES so it can't override the column-0 index.
+        let body = "~CURVE\nTVDSS.M :\nGR.API :\nMD.M :\n~ASCII\n\
+                    1000.0 55.0 3000.0\n1000.5 60.0 3000.5\n1001.0 62.0 3001.0\n";
+        let p = temp("arshilla_aux_md_test.las", body);
+        let cols = parse_las_2(&p).unwrap();
+        std::fs::remove_file(&p).ok();
+        assert_eq!(
+            cols.depth,
+            vec![1000.0, 1000.5, 1001.0],
+            "depth must be the column-0 index (TVDSS), not the MD curve at column 2"
+        );
+    }
+
+    #[test]
+    fn sanitize_dedups_signed_zero_depths() {
+        // +0.0 and -0.0 have distinct bit patterns but DuckDB's FLOAT PK treats them equal,
+        // so the -0.0 must be dropped as a duplicate of the +0.0 (row 0), keeping rows 0 and 2.
+        let mut c = cols_from(vec![0.0, -0.0, 1.0]);
+        let rep = sanitize_curve_columns(&mut c);
+        assert_eq!(rep.nonfinite, 0);
+        assert_eq!(rep.duplicate, 1, "-0.0 duplicates +0.0 under DuckDB FLOAT equality");
+        assert_eq!(c.depth.len(), 2);
+        assert_eq!(c.gr, vec![0.0, 2.0], "companion follows kept indices 0 and 2");
     }
 }

@@ -85,6 +85,8 @@ export interface ImportResult {
   well_id: string | null;
   well_name: string | null;
   rows: number;
+  /** Non-fatal note for a successful import (e.g. rows dropped for a bad/duplicate depth). */
+  warning: string | null;
   error: string | null;
 }
 
@@ -766,6 +768,9 @@ export interface PaySummaryRequest {
   phie_min: number;
   swe_max: number;
   perm_min: number | null;
+  /** Field Dashboard sets this true so its field-wide QC pass writes FLAG_* in place instead
+   *  of versioning the pay flags (with the cutoffs in provenance) per well on every refresh. */
+  skip_version?: boolean;
 }
 
 export interface PaySummaryRow {
@@ -1122,6 +1127,8 @@ export interface DlisImportResult {
   path: string;
   curves_imported: number;
   rows: number;
+  /** Existing RAW curves at the same (mnemonic, run) that this import overwrote. */
+  replaced: number;
   error: string | null;
 }
 

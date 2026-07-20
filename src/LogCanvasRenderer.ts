@@ -84,6 +84,9 @@ export class LogCanvasRenderer {
   private view: ViewState = { topDepth: 0, pxPerUnit: DEFAULT_PX_PER_UNIT };
   private dirty = true;
   private running = false;
+  /** Teardown for listeners attached to `window` (they outlive the removed canvas) and
+   *  any pending timers, run in dispose() so a closed log view leaks nothing. */
+  private cleanups: Array<() => void> = [];
 
   public onViewSettled: (() => void) | null = null;
 
@@ -506,16 +509,27 @@ export class LogCanvasRenderer {
       dragging = true;
       lastY = e.clientY;
     });
-    window.addEventListener("pointerup", () => {
+    // A drag must keep panning when the pointer leaves the canvas, so these live on
+    // `window` — which means they survive the canvas being removed on panel close. Keep
+    // named references and remove them in dispose(), or every closed log view leaks one
+    // pointerup + one pointermove that keep firing (and pin this renderer) for the app's life.
+    const onWindowPointerUp = () => {
       dragging = false;
-    });
-    window.addEventListener("pointermove", (e) => {
+    };
+    const onWindowPointerMove = (e: PointerEvent) => {
       if (!dragging) return;
       const dy = e.clientY - lastY;
       lastY = e.clientY;
       this.view.topDepth -= dy / this.view.pxPerUnit;
       this.dirty = true;
       scheduleSettled();
+    };
+    window.addEventListener("pointerup", onWindowPointerUp);
+    window.addEventListener("pointermove", onWindowPointerMove);
+    this.cleanups.push(() => {
+      window.removeEventListener("pointerup", onWindowPointerUp);
+      window.removeEventListener("pointermove", onWindowPointerMove);
+      if (settleHandle !== undefined) window.clearTimeout(settleHandle);
     });
     this.canvas.addEventListener(
       "wheel",
@@ -622,6 +636,8 @@ export class LogCanvasRenderer {
   /** Stops the loop and releases GPU resources (called when a dock panel closes). */
   dispose(): void {
     this.stop();
+    for (const c of this.cleanups) c();
+    this.cleanups = [];
     for (const c of this.curves) {
       c.vertexBuffer.destroy();
       c.fillVertexBuffer?.destroy();

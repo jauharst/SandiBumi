@@ -512,31 +512,35 @@ pub(crate) fn write_computed_curves_versioned(
     if curves.is_empty() {
         return Ok(());
     }
-    let placeholders = std::iter::repeat("?").take(curves.len()).collect::<Vec<_>>().join(", ");
-    let sql = format!("DELETE FROM computed_curves WHERE well_id = ? AND curve_name IN ({placeholders})");
-    let mut del_params: Vec<&str> = Vec::with_capacity(curves.len() + 1);
-    del_params.push(well_id);
-    for (name, _) in curves {
-        del_params.push(name);
-    }
-    conn.execute(&sql, params_from_iter(del_params))?;
-
-    let mut current = conn.appender("computed_curves")?;
-    for (name, values) in curves {
-        for (d, v) in depth.iter().zip(values.iter()) {
-            current.append_row(params![well_id, d, name, v, set_id])?;
+    // Atomic: DELETE current + append current + append archive must land as one unit, so a
+    // crash can't strand the DELETE with the current-store append lost.
+    crate::db::with_txn(conn, |conn| {
+        let placeholders = std::iter::repeat("?").take(curves.len()).collect::<Vec<_>>().join(", ");
+        let sql = format!("DELETE FROM computed_curves WHERE well_id = ? AND curve_name IN ({placeholders})");
+        let mut del_params: Vec<&str> = Vec::with_capacity(curves.len() + 1);
+        del_params.push(well_id);
+        for (name, _) in curves {
+            del_params.push(name);
         }
-    }
-    current.flush()?;
+        conn.execute(&sql, params_from_iter(del_params))?;
 
-    let mut archive = conn.appender("computed_curves_archive")?;
-    for (name, values) in curves {
-        for (d, v) in depth.iter().zip(values.iter()) {
-            archive.append_row(params![set_id, well_id, d, name, v])?;
+        let mut current = conn.appender("computed_curves")?;
+        for (name, values) in curves {
+            for (d, v) in depth.iter().zip(values.iter()) {
+                current.append_row(params![well_id, d, name, v, set_id])?;
+            }
         }
-    }
-    archive.flush()?;
-    Ok(())
+        current.flush()?;
+
+        let mut archive = conn.appender("computed_curves_archive")?;
+        for (name, values) in curves {
+            for (d, v) in depth.iter().zip(values.iter()) {
+                archive.append_row(params![set_id, well_id, d, name, v])?;
+            }
+        }
+        archive.flush()?;
+        Ok(())
+    })
 }
 
 /// Input-set selection: like [`fetch_curve_frame`], but any requested curve that the named
@@ -658,27 +662,35 @@ pub(crate) fn list_log_sets(conn: &Connection, well_id: &str) -> duckdb::Result<
 /// Copies a version's archived rows back into the current store (delete-then-append on
 /// exactly the curve names that version wrote). Returns the number of restored rows.
 pub(crate) fn restore_log_set(conn: &Connection, set_id: &str) -> duckdb::Result<usize> {
-    conn.execute(
-        "DELETE FROM computed_curves
-         WHERE well_id = (SELECT well_id FROM log_sets WHERE set_id = ?1)
-           AND curve_name IN (SELECT DISTINCT curve_name FROM computed_curves_archive WHERE set_id = ?1)",
-        params![set_id],
-    )?;
-    let restored = conn.execute(
-        "INSERT INTO computed_curves (well_id, depth, curve_name, value, set_id)
-         SELECT well_id, depth, curve_name, value, set_id FROM computed_curves_archive WHERE set_id = ?1",
-        params![set_id],
-    )?;
-    Ok(restored)
+    // Atomic: the DELETE of current rows and the re-INSERT from the archive must not be split
+    // by a crash (which would drop the current rows and leave them un-restored).
+    crate::db::with_txn(conn, |conn| {
+        conn.execute(
+            "DELETE FROM computed_curves
+             WHERE well_id = (SELECT well_id FROM log_sets WHERE set_id = ?1)
+               AND curve_name IN (SELECT DISTINCT curve_name FROM computed_curves_archive WHERE set_id = ?1)",
+            params![set_id],
+        )?;
+        let restored = conn.execute(
+            "INSERT INTO computed_curves (well_id, depth, curve_name, value, set_id)
+             SELECT well_id, depth, curve_name, value, set_id FROM computed_curves_archive WHERE set_id = ?1",
+            params![set_id],
+        )?;
+        Ok(restored)
+    })
 }
 
 /// Deletes one version's archive rows + its log_sets row. Current values are kept (their
 /// provenance tag is cleared) so deleting history can never change any plot or result.
 pub(crate) fn delete_log_set(conn: &Connection, set_id: &str) -> duckdb::Result<()> {
-    conn.execute("UPDATE computed_curves SET set_id = NULL WHERE set_id = ?1", params![set_id])?;
-    conn.execute("DELETE FROM computed_curves_archive WHERE set_id = ?1", params![set_id])?;
-    conn.execute("DELETE FROM log_sets WHERE set_id = ?1", params![set_id])?;
-    Ok(())
+    // Atomic: clearing provenance + dropping archive rows + dropping the log_sets row must not
+    // be split by a crash (which could orphan archive rows or a dangling set_id reference).
+    crate::db::with_txn(conn, |conn| {
+        conn.execute("UPDATE computed_curves SET set_id = NULL WHERE set_id = ?1", params![set_id])?;
+        conn.execute("DELETE FROM computed_curves_archive WHERE set_id = ?1", params![set_id])?;
+        conn.execute("DELETE FROM log_sets WHERE set_id = ?1", params![set_id])?;
+        Ok(())
+    })
 }
 
 /// Catalog of a well's CURRENT computed curves with per-curve provenance (which set
@@ -747,25 +759,29 @@ pub(crate) fn write_computed_curves_batch(
     if curves.is_empty() {
         return Ok(());
     }
-    // One DELETE covering exactly the curve names about to be rewritten.
-    let placeholders = std::iter::repeat("?").take(curves.len()).collect::<Vec<_>>().join(", ");
-    let sql = format!("DELETE FROM computed_curves WHERE well_id = ? AND curve_name IN ({placeholders})");
-    let mut del_params: Vec<&str> = Vec::with_capacity(curves.len() + 1);
-    del_params.push(well_id);
-    for (name, _) in curves {
-        del_params.push(name);
-    }
-    conn.execute(&sql, params_from_iter(del_params))?;
-
-    let mut appender = conn.appender("computed_curves")?;
-    for (name, values) in curves {
-        for (d, v) in depth.iter().zip(values.iter()) {
-            // 5th column: no set_id — this is the legacy/unversioned write path.
-            appender.append_row(params![well_id, d, name, v, None::<String>])?;
+    // Atomic delete-then-append: an unclean kill mid-write must not leave the DELETE committed
+    // with the never-flushed append lost (this unversioned path has no archive to recover from).
+    crate::db::with_txn(conn, |conn| {
+        // One DELETE covering exactly the curve names about to be rewritten.
+        let placeholders = std::iter::repeat("?").take(curves.len()).collect::<Vec<_>>().join(", ");
+        let sql = format!("DELETE FROM computed_curves WHERE well_id = ? AND curve_name IN ({placeholders})");
+        let mut del_params: Vec<&str> = Vec::with_capacity(curves.len() + 1);
+        del_params.push(well_id);
+        for (name, _) in curves {
+            del_params.push(name);
         }
-    }
-    appender.flush()?;
-    Ok(())
+        conn.execute(&sql, params_from_iter(del_params))?;
+
+        let mut appender = conn.appender("computed_curves")?;
+        for (name, values) in curves {
+            for (d, v) in depth.iter().zip(values.iter()) {
+                // 5th column: no set_id — this is the legacy/unversioned write path.
+                appender.append_row(params![well_id, d, name, v, None::<String>])?;
+            }
+        }
+        appender.flush()?;
+        Ok(())
+    })
 }
 
 /// Runs `equation` across every well in `well_ids` concurrently via `rayon`. The Rhai

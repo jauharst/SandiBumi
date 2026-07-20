@@ -18,6 +18,7 @@ import {
 import { bumpDataVersion, defaultRunWellIds, filterByActiveGroup } from "../state";
 import { formRow } from "./modal";
 import { maskCurveNames } from "./moduleDialog";
+import { recordProcess } from "../processLog";
 
 const WORKFLOW_DOC_TYPE = "workflow";
 const VIEW_KEY = "sandibumi.workflowView";
@@ -819,6 +820,7 @@ export async function buildWorkflowContent(
     progress.max = steps.length;
     progress.value = 0;
     statusLine.textContent = "Starting…";
+    recordProcess("Workflow", `Ran chain (${steps.length} step(s) × ${wellIds.length} well(s))`);
 
     // Fire the (blocking) run without awaiting so we can poll progress meanwhile.
     void runWorkflowChain(

@@ -8,6 +8,7 @@ import {
 } from "../ipc";
 import { appState, defaultRunWellIds, filterByActiveGroup } from "../state";
 import { formRow } from "./modal";
+import { recordProcess } from "../processLog";
 
 /** Machine-learning dialog (Phase 10-4): one entry point for the whole catalog —
  *  supervised regression/classification (fit on labelled train wells, predict on apply
@@ -388,6 +389,7 @@ export async function buildMlContent(
       } else {
         statusLine.textContent = `Done in ${ms} ms → ${res.outputs.join(", ")}`;
         setStatus(`${algo.label}: wrote ${res.outputs.join(", ")} to ${applyIds.length} well(s)`);
+        recordProcess("ML", `${algo.label}: wrote ${res.outputs.join(", ")} to ${applyIds.length} well(s)`);
       }
       renderResults(results, res);
     } catch (e) {

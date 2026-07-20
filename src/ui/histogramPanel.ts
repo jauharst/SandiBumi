@@ -494,19 +494,35 @@ export async function buildHistogramContent(
     }
   };
 
-  const reload = async () => {
+  // Monotonic token so a slow curve/zone load that resolves after a newer one (fast
+  // switching) can't overwrite the newer data. `preserveView` keeps the zoom/pan on a
+  // data refresh (module run) while a user-initiated curve/zone change still re-fits.
+  let reloadGen = 0;
+  // A reset-intent reload (curve/zone change) can be superseded by a preserveView data
+  // refresh; this sticky flag carries the "reset the viewport" intent to whichever reload
+  // actually commits, so a background bump can't strand the new curve at the old zoom.
+  let resetPending = false;
+  const reload = async (preserveView = false) => {
+    const gen = ++reloadGen;
+    if (!preserveView) resetPending = true;
     const zone = zoneSel.current();
     try {
       const series = await getCurveData(well.well_id, [curveSel.value], zone.depthMin, zone.depthMax);
+      if (gen !== reloadGen) return; // a newer reload started while we awaited
       values = series[0]?.value ?? new Float32Array(0);
       depths = series[0]?.depth ?? new Float32Array(0);
     } catch (err) {
+      if (gen !== reloadGen) return; // superseded — don't clobber newer data with this error
       setStatus(`Histogram data load failed: ${err}`);
       values = new Float32Array(0);
       depths = new Float32Array(0);
     }
     stats = basicStats(values);
-    viewRef.current = null; // new data → reset any zoom/pan
+    hoverValue = null; // the old hover marker points at a stale value after new data
+    if (resetPending) {
+      viewRef.current = null; // new data → reset any zoom/pan
+      resetPending = false;
+    }
     renderChips();
     redraw();
   };
@@ -676,6 +692,18 @@ export async function buildHistogramContent(
   const detachResize = attachResizeRedraw(canvas, redraw);
   const unsubTheme = appState.themeVersion.subscribe(() => redraw());
 
+  // Re-fetch when computed curves change (module/equation run, import, undo) so the
+  // histogram never shows stale data; keep the current zoom/pan. The primed flag drops
+  // subscribe's immediate fire so the trailing `await reload()` stays the only build load.
+  let dataPrimed = false;
+  const unsubData = appState.dataVersion.subscribe(() => {
+    if (!dataPrimed) {
+      dataPrimed = true;
+      return;
+    }
+    void reload(true);
+  });
+
   // Synchronized hover: mark this curve's value at the depth under any log view's cursor.
   let rafId = 0;
   const unsubHover = appState.hoverDepth.subscribe((depth) => {
@@ -698,6 +726,7 @@ export async function buildHistogramContent(
     dispose: () => {
       unsubHover();
       unsubTheme();
+      unsubData();
       detachZoomPan();
       detachResize();
       zoneSel.dispose();

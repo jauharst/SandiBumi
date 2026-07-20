@@ -106,12 +106,15 @@ pub struct DlisImportResult {
     pub path: String,
     pub curves_imported: usize,
     pub rows: usize,
+    /// Existing RAW curves at the same (mnemonic, run) that this import overwrote — surfaced
+    /// so a re-import (or any provenance collision) is never silent.
+    pub replaced: usize,
     pub error: Option<String>,
 }
 
 /// Imports every scalar channel of a DLIS file into one existing well's generic curve store.
 pub fn import_dlis_file(conn: &Connection, well_id: &str, path: &str) -> DlisImportResult {
-    let fail = |e: String| DlisImportResult { path: path.to_string(), curves_imported: 0, rows: 0, error: Some(e) };
+    let fail = |e: String| DlisImportResult { path: path.to_string(), curves_imported: 0, rows: 0, replaced: 0, error: Some(e) };
 
     let exists: bool = conn
         .query_row("SELECT 1 FROM wells WHERE well_id = ?1", params![well_id], |_| Ok(true))
@@ -153,6 +156,7 @@ pub fn import_dlis_file(conn: &Connection, well_id: &str, path: &str) -> DlisImp
     let mut offset = 0usize;
     let mut curves_imported = 0usize;
     let mut total_rows = 0usize;
+    let mut replaced = 0usize;
     for meta in &header.curves {
         let bytes = meta.n * 4;
         let end = offset + 2 * bytes;
@@ -163,10 +167,13 @@ pub fn import_dlis_file(conn: &Connection, well_id: &str, path: &str) -> DlisImp
         let mut values = read_f32(&payload[offset + bytes..end]);
         offset = end;
 
-        // DLIS absent/sentinel values arrive as non-finite or huge magnitudes; normalize
-        // to NaN (the project-wide missing convention).
+        // DLIS absent/sentinel values arrive as non-finite or huge magnitudes; normalize to
+        // NaN (the project-wide missing convention). Producers also embed LAS-style
+        // -999.25/-9999 sentinels (RP66 has no standard null) — screen them with the same set
+        // the LAS paths use, and do it BEFORE unit canonicalization so a survivor can't be
+        // unit-scaled into an unrecognizable value.
         for v in &mut values {
-            if !v.is_finite() || v.abs() > 1e30 {
+            if !v.is_finite() || v.abs() > 1e30 || crate::parsers::is_las_null(*v) {
                 *v = f32::NAN;
             }
         }
@@ -179,7 +186,23 @@ pub fn import_dlis_file(conn: &Connection, well_id: &str, path: &str) -> DlisImp
                 unit = Some(f.canonical_unit.to_string());
             }
         }
-        let run_no = if meta.run == 0 { None } else { Some(meta.run) };
+        // Give DLIS frames their own run numbering (frame 0 → run 0). The old frame-0 → NULL
+        // mapping collided with LAS RAW curves (also run_no NULL), so a DLIS silently
+        // overwrote same-mnemonic LAS curves. Using Some(run) keeps both, preserving provenance.
+        let run_no = Some(meta.run);
+
+        // Report (don't hide) any genuine overwrite — e.g. re-importing the same DLIS.
+        let collides: bool = conn
+            .query_row(
+                "SELECT 1 FROM curve_meta WHERE well_id = ?1 AND set_name = 'RAW' AND mnemonic = ?2
+                 AND run_no IS NOT DISTINCT FROM ?3",
+                params![well_id, &meta.mnemonic, run_no],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        if collides {
+            replaced += 1;
+        }
 
         let res: db::DbResult<()> = (|| {
             let curve_id = db::upsert_curve_meta(conn, well_id, "RAW", &meta.mnemonic, unit.as_deref(), family, Some("DLIS import"), run_no)?;
@@ -195,7 +218,7 @@ pub fn import_dlis_file(conn: &Connection, well_id: &str, path: &str) -> DlisImp
         }
     }
 
-    DlisImportResult { path: path.to_string(), curves_imported, rows: total_rows, error: None }
+    DlisImportResult { path: path.to_string(), curves_imported, rows: total_rows, replaced, error: None }
 }
 
 fn read_f32(bytes: &[u8]) -> Vec<f32> {

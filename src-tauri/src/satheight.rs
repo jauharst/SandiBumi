@@ -96,11 +96,14 @@ pub(crate) fn sw_height_spec() -> ModuleSpec {
               core Pc data via Import SCAL — the fit is reported there). SKELT (Skelt-Harrison): \
               SWH = 1 - SH_A*exp(-(SH_B/(h+SH_D))^SH_C), h in metres. Below the FWL (h <= 0) \
               SWH = 1. Result limited to [SWT_IRR, 1]. FWL is zone-overridable for stacked \
-              reservoirs with different contacts."
+              reservoirs with different contacts. Height is measured from the TVD input when a \
+              TVD curve is supplied (else measured depth) so deviated wells are not over-stated \
+              — MD height overstates true height by ~1/cos(inc); enter FWL on the SAME reference \
+              (a negative value for a sub-sea TVDSS FWL)."
             .into(),
         args: vec![
             opt("OPT_SWH", "Saturation-height model", "LEVERETT", &["LEVERETT", "SKELT"]),
-            param("FWL", "Free-water level depth (same reference as the well depth)", "m", 2000.0, 0.0, 20000.0),
+            param("FWL", "Free-water level (same reference as the vertical-depth input; negative = subsea TVDSS)", "m", 2000.0, -10000.0, 20000.0),
             param("RHO_W", "Water density", "g/cc", 1.0, 0.8, 1.3),
             param("RHO_HC", "Hydrocarbon density", "g/cc", 0.8, 0.05, 1.1),
             param("IFT_RES", "Reservoir sigma*cos(theta)", "dyn/cm", 26.0, 1.0, 500.0),
@@ -113,6 +116,7 @@ pub(crate) fn sw_height_spec() -> ModuleSpec {
             param("SWT_IRR", "Irreducible water saturation (lower clamp)", "v/v", 0.0, 0.0, 0.8),
             log_in("PHIE", "Limited effective porosity", "v/v", "PHIE", true),
             log_in("PERM", "Working permeability (LEVERETT only)", "mD", "PERM", false),
+            log_in("TVD", "True vertical (sub-sea) depth for height; defaults to measured depth", "m", "TVD", false),
             log_out("SWH", "Water saturation from height function", "v/v"),
             log_out("HAFWL", "Height above free-water level", "m"),
         ],
@@ -121,6 +125,7 @@ pub(crate) fn sw_height_spec() -> ModuleSpec {
 
 pub(crate) fn sw_height(ctx: &ModuleContext) -> ModuleOutputs {
     let depth = ctx.log("DEPTH");
+    let tvd = ctx.log("TVD");
     let phie = ctx.log("PHIE");
     let perm = ctx.log("PERM");
     let skelt = ctx.o("OPT_SWH") == "SKELT";
@@ -129,14 +134,20 @@ pub(crate) fn sw_height(ctx: &ModuleContext) -> ModuleOutputs {
     let mut hafwl_out = vec![f32::NAN; ctx.n];
 
     for i in 0..ctx.n {
-        let d = depth[i] as f64;
         let pe = phie[i] as f64;
-        if d.is_nan() || pe.is_nan() {
+        // Vertical depth for the height calc: prefer the TVD curve so deviated wells aren't
+        // over-stated (MD height overstates true height above the contact by ~1/cos(inc));
+        // fall back to measured depth when no TVD is supplied.
+        let dv = {
+            let t = tvd[i] as f64;
+            if t.is_nan() { depth[i] as f64 } else { t }
+        };
+        if dv.is_nan() || pe.is_nan() {
             continue;
         }
         let fwl = ctx.p("FWL", i);
         let swt_irr = ctx.p("SWT_IRR", i);
-        let h = fwl - d; // metres above the FWL (negative below it)
+        let h = fwl - dv; // metres above the FWL (negative below it); FWL shares dv's reference
         hafwl_out[i] = h as f32;
 
         if h <= 0.0 {
@@ -265,5 +276,28 @@ mod tests {
         let out = sw_height(&ctx);
         let s = out["SWH"][0];
         assert!(s.is_finite() && s > 0.0 && s <= 1.0, "SWH={s}");
+    }
+
+    #[test]
+    fn sw_height_uses_tvd_and_allows_tvdss_fwl() {
+        // Deviated well: measured depth (3000) runs well ahead of true vertical depth. With a
+        // sub-sea (negative TVDSS) FWL and a TVD curve, height must come from TVD, not MD.
+        // Using MD, h = -1400 - 3000 = -4400 ⇒ below FWL ⇒ SWH = 1 (the optimistic-pay bug);
+        // using TVD, h = -1400 - (-1450) = +50 m ⇒ transition zone ⇒ SWH < 1.
+        let ctx = ctx_from_spec(
+            1,
+            &[
+                ("DEPTH", vec![3000.0]),
+                ("TVD", vec![-1450.0]),
+                ("PHIE", vec![0.25]),
+                ("PERM", vec![200.0]),
+            ],
+            &[("FWL", -1400.0)],
+            &[("OPT_SWH", "LEVERETT")],
+        );
+        let out = sw_height(&ctx);
+        assert!((out["HAFWL"][0] - 50.0).abs() < 1e-3, "HAFWL={}", out["HAFWL"][0]);
+        let s = out["SWH"][0];
+        assert!(s.is_finite() && s > 0.0 && s < 1.0, "SWH in transition zone: {s}");
     }
 }

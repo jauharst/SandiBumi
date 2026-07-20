@@ -480,7 +480,7 @@ pub fn run_multimin(db: &Mutex<Connection>, req: &MultiminRequest) -> MultiminRe
     let t_c = req.fluid.as_ref().map(|p| (p.ftemp_f - 32.0) * 5.0 / 9.0).unwrap_or(25.0);
     let mut weights: Vec<f64> = Vec::with_capacity(tools.len());
     let mut rows: Vec<Vec<f64>> = Vec::with_capacity(tools.len());
-    let mut cond_w: Vec<Option<f64>> = Vec::with_capacity(tools.len()); // Some(w) → transform measurement
+    let mut tkind: Vec<TKind> = Vec::with_capacity(tools.len());
     for t in &tools {
         let key = t.key.trim().to_uppercase();
         if is_cond_key(&key) {
@@ -502,11 +502,47 @@ pub fn run_multimin(db: &Mutex<Connection>, req: &MultiminRequest) -> MultiminRe
                     row[i] = fc.cbw_x.powf(inv_w);
                 }
             }
+            // An all-zero conductivity row is the bogus equation 0 = Ct^(1/w): it happens when
+            // the model has no water/bound-water in this tool's zone (e.g. CT but only X-zone
+            // water). The whole-model no-water case is caught earlier; this catches the
+            // per-zone case that slips past it.
+            if row.iter().all(|&e| e == 0.0) {
+                let need = if key == "CT" { "U-zone (deep) water or bound-water" } else { "X-zone (flushed) water or bound-water" };
+                return fail(&format!(
+                    "{key} selected but the model has no {need} component — its response row is all zero"
+                ));
+            }
             let auto_sigma = if key == "CT" { fc.u_ct } else { fc.u_cxo };
             let sigma = if t.sigma > 0.0 { t.sigma } else { auto_sigma };
             weights.push(1.0 / sigma.max(1e-9));
             rows.push(row);
-            cond_w.push(Some(fc.w));
+            tkind.push(TKind::Cond(fc.w));
+        } else if is_pef_key(&key) {
+            // PEF is a PER-ELECTRON index and does NOT mix by volume; only U = Pe·ρe
+            // does. Build the mixing row from the U endpoints and convert the measured
+            // PEF curve to U per sample (see the sample loop / rho_e).
+            if t.sigma <= 0.0 {
+                return fail(&format!("tool {key} needs a positive uncertainty"));
+            }
+            let row: Vec<f64> = req
+                .components
+                .iter()
+                .map(|c| {
+                    if c.kind.eq_ignore_ascii_case("fluid") && c.zone.eq_ignore_ascii_case("U") {
+                        0.0
+                    } else {
+                        *c.endpoints.get("U").unwrap_or(&f64::NAN)
+                    }
+                })
+                .collect();
+            if row.iter().any(|e| !e.is_finite()) {
+                return fail(
+                    "PEF selected but a component is missing its U (b/cc) endpoint — PEF is converted to U before mixing",
+                );
+            }
+            weights.push(1.0 / t.sigma); // base; the per-sample weight also divides by ρe
+            rows.push(row);
+            tkind.push(TKind::Pef(t.sigma));
         } else {
             if t.sigma <= 0.0 {
                 return fail(&format!("tool {key} needs a positive uncertainty"));
@@ -528,7 +564,7 @@ pub fn run_multimin(db: &Mutex<Connection>, req: &MultiminRequest) -> MultiminRe
             }
             weights.push(1.0 / t.sigma);
             rows.push(row);
-            cond_w.push(None);
+            tkind.push(TKind::Plain);
         }
     }
 
@@ -609,13 +645,32 @@ pub fn run_multimin(db: &Mutex<Connection>, req: &MultiminRequest) -> MultiminRe
     let prefix = if prefix.is_empty() { "MM" } else { prefix };
 
     let fetch_names: Vec<String> = tools.iter().map(|t| t.curve.trim().to_uppercase()).collect();
+    // PEF→U conversion needs the density curve even when RHOB is not itself a tool.
+    // Resolve the density source and fetch it alongside (without disturbing tool_cols).
+    let density_name: Option<String> = if tkind.iter().any(|k| matches!(k, TKind::Pef(_))) {
+        Some(
+            tools
+                .iter()
+                .find(|t| t.key.trim().eq_ignore_ascii_case("RHOB"))
+                .map(|t| t.curve.trim().to_uppercase())
+                .unwrap_or_else(|| "RHOB".to_string()),
+        )
+    } else {
+        None
+    };
+    let mut all_fetch = fetch_names.clone();
+    if let Some(d) = &density_name {
+        if !all_fetch.contains(d) {
+            all_fetch.push(d.clone());
+        }
+    }
 
     let mut out_names: Vec<String> = Vec::new();
     let mut wells: Vec<MultiminWellResult> = Vec::new();
 
     let conn = db.lock().unwrap();
     for well_id in &req.apply_well_ids {
-        let (depth, cols) = match fetch_curve_frame(&conn, well_id, &fetch_names) {
+        let (depth, cols) = match fetch_curve_frame(&conn, well_id, &all_fetch) {
             Ok(v) => v,
             Err(e) => {
                 wells.push(MultiminWellResult {
@@ -629,6 +684,7 @@ pub fn run_multimin(db: &Mutex<Connection>, req: &MultiminRequest) -> MultiminRe
         };
         let ns = depth.len();
         let tool_cols: Vec<&Vec<f32>> = fetch_names.iter().map(|nm| cols.get(nm).unwrap()).collect();
+        let rhob_col: Option<&Vec<f32>> = density_name.as_ref().and_then(|d| cols.get(d));
 
         let mut vol: Vec<Vec<f32>> = vec![vec![f32::NAN; ns]; n];
         let mut recon = vec![f32::NAN; ns];
@@ -640,18 +696,29 @@ pub fn run_multimin(db: &Mutex<Connection>, req: &MultiminRequest) -> MultiminRe
             let mut b: Vec<f64> = Vec::with_capacity(tools.len() + soft.len());
             let mut live_tools = 0usize;
             for (t, tcol) in tool_cols.iter().enumerate() {
-                let mut v = tcol[i] as f64;
-                if !v.is_finite() {
+                let raw = tcol[i] as f64;
+                if !raw.is_finite() {
                     continue;
                 }
-                if let Some(w_exp) = cond_w[t] {
-                    // Resistivity (ohmm) → conductivity (mho/m) → ^(1/w) transform.
-                    if v <= 1e-4 {
-                        continue;
+                let (v, w) = match tkind[t] {
+                    TKind::Plain => (raw, weights[t]),
+                    TKind::Cond(w_exp) => {
+                        // Resistivity (ohmm) → conductivity (mho/m) → ^(1/w) transform.
+                        if raw <= 1e-4 {
+                            continue;
+                        }
+                        ((1.0 / raw).powf(1.0 / w_exp), weights[t])
                     }
-                    v = (1.0 / v).powf(1.0 / w_exp);
-                }
-                let w = weights[t];
+                    TKind::Pef(sig) => {
+                        // U = Pe·ρe (volumetric); its uncertainty in U space is σ_PEF·ρe.
+                        let rhob = match rhob_col.map(|c| c[i] as f64) {
+                            Some(rb) if rb.is_finite() && rb > 0.0 => rb,
+                            _ => continue,
+                        };
+                        let re = rho_e(rhob);
+                        (raw * re, 1.0 / (sig * re).max(1e-9))
+                    }
+                };
                 a.push(rows[t].iter().map(|e| e * w).collect());
                 b.push(v * w);
                 live_tools += 1;
@@ -777,6 +844,33 @@ pub fn run_multimin(db: &Mutex<Connection>, req: &MultiminRequest) -> MultiminRe
 fn is_cond_key(key: &str) -> bool {
     let k = key.trim().to_uppercase();
     k == "CT" || k == "CXO"
+}
+
+fn is_pef_key(key: &str) -> bool {
+    key.trim().eq_ignore_ascii_case("PEF")
+}
+
+/// Litho-Density electron density from bulk density: inverse of ρₐ = 1.0704·ρₑ − 0.1883.
+fn rho_e(rhob: f64) -> f64 {
+    (rhob + 0.1883) / 1.0704
+}
+
+/// Volumetric photoelectric factor U = Pe·ρₑ — the quantity that mixes linearly by
+/// volume. Per-electron PEF does NOT, so a measured PEF reading is converted to U here
+/// before it enters the linear system. `None` for a non-physical RHOB.
+fn pef_to_u(pef: f64, rhob: f64) -> Option<f64> {
+    (pef.is_finite() && rhob.is_finite() && rhob > 0.0).then(|| pef * rho_e(rhob))
+}
+
+/// How a tool's measurement enters the least-squares system.
+#[derive(Clone, Copy)]
+enum TKind {
+    /// Endpoint response mixes linearly (RHOB, NPHI, DT, GR, U, …).
+    Plain,
+    /// Resistivity → conductivity^(1/w) transform (CT/CXO); carries w.
+    Cond(f64),
+    /// PEF → U = Pe·ρe conversion before mixing; carries the PEF-space σ.
+    Pef(f64),
 }
 
 // ---------------------------------------------------------------------------
@@ -1355,6 +1449,358 @@ mod tests {
         let wsxo = lib.iter().find(|c| c.name == "Water Sxo").unwrap();
         assert_eq!(wsxo.zone, "X");
         assert!((wsxo.max_vol - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn pef_converts_to_u_before_mixing() {
+        // U mixes volumetrically; PEF does not. Use a pyritic sand — pyrite's high ρe
+        // makes the two paths diverge sharply (a quartz/calcite pair nearly coincides
+        // because their ρe are almost equal). The true U is the volume average, and the
+        // PEF a tool would read is U/ρe. Converting that PEF back through rho_e must
+        // recover U, while linearly mixing the raw PEF endpoints gives a wrong answer.
+        let (q, py) = (lib_get("Quartz"), lib_get("Pyrite"));
+        let (vq, vp) = (0.85, 0.15);
+        let u_true = vq * q.endpoints["U"] + vp * py.endpoints["U"];
+        let rhob = vq * q.endpoints["RHOB"] + vp * py.endpoints["RHOB"];
+        let pef_read = u_true / rho_e(rhob);
+
+        let u_back = pef_to_u(pef_read, rhob).unwrap();
+        assert!((u_back - u_true).abs() < 1e-9, "U round-trip: {u_back} vs {u_true}");
+
+        let pef_linear = vq * q.endpoints["PEF"] + vp * py.endpoints["PEF"];
+        assert!(
+            (pef_linear - pef_read).abs() > 0.5,
+            "raw-PEF volumetric mixing ({pef_linear:.3}) must differ from the U path ({pef_read:.3})"
+        );
+        assert!(pef_to_u(5.0, -1.0).is_none(), "non-physical RHOB rejected");
+        assert!(pef_to_u(f64::NAN, 2.5).is_none(), "non-finite PEF rejected");
+    }
+
+    #[test]
+    fn rejects_underdetermined_request() {
+        // 4 components under hard unity need at least n−1 = 3 independent tool logs; offering
+        // only 2 leaves the system under-determined (a whole subspace of vertex solutions).
+        // The solver must refuse the run up front rather than emit arbitrary volumes. The
+        // gate fires on request shape alone, before any DB access, so an empty db is fine.
+        let q = lib_get("Quartz");
+        let ill = lib_get("Illite");
+        let cal = lib_get("Calcite");
+        let mut wat = lib_get("Water Sxo");
+        wat.zone = String::new();
+        let req = MultiminRequest {
+            components: vec![q, ill, cal, wat],
+            tools: vec![
+                ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.03 },
+                ToolSpec { key: "NPHI".into(), curve: "NPHI".into(), sigma: 0.03 },
+            ],
+            apply_well_ids: vec!["dummy-well".into()],
+            output_prefix: "MM".into(),
+            unity: true,
+            fluid: None,
+        };
+        let conn = Mutex::new(Connection::open_in_memory().unwrap());
+        let res = run_multimin(&conn, &req);
+        let err = res.error.as_deref().unwrap_or("");
+        assert!(
+            err.contains("need at least"),
+            "expected an under-determination refusal, got {:?}",
+            res.error
+        );
+        assert!(res.wells.is_empty(), "no wells should be processed on a refused request");
+    }
+
+    #[test]
+    fn rejects_all_zero_conductivity_row() {
+        // CT reads U-zone (deep) water, but the model's only water is X-zone (Water Sxo), so
+        // the CT response row is all zero — a bogus 0 = Ct^(1/w) equation. The whole-model
+        // no-water guard passes (X water exists), so this per-zone case must be caught here.
+        let q = lib_get("Quartz");
+        let ill = lib_get("Illite");
+        let wx = lib_get("Water Sxo"); // zone X only — nothing in the U (deep) zone
+        let props = FluidProps {
+            rw: 0.3,
+            rw_temp_f: 77.0,
+            rmf: 0.1,
+            rmf_temp_f: 62.0,
+            ftemp_f: 148.0,
+            m: 2.0,
+            n: 2.0,
+            mud_type: "WATER".into(),
+        };
+        let req = MultiminRequest {
+            components: vec![q, ill, wx],
+            tools: vec![
+                ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.03 },
+                ToolSpec { key: "NPHI".into(), curve: "NPHI".into(), sigma: 0.03 },
+                ToolSpec { key: "CT".into(), curve: "RT".into(), sigma: 0.0 },
+            ],
+            apply_well_ids: vec!["dummy-well".into()],
+            output_prefix: "MM".into(),
+            unity: true,
+            fluid: Some(props),
+        };
+        let conn = Mutex::new(Connection::open_in_memory().unwrap());
+        let res = run_multimin(&conn, &req);
+        let err = res.error.as_deref().unwrap_or("");
+        assert!(
+            err.contains("all zero"),
+            "expected an all-zero conductivity-row refusal, got {:?}",
+            res.error
+        );
+    }
+
+    /// End-to-end smoke test for both reference fixes, driven through the actual DB path
+    /// (fetch_curve_frame → run_multimin with a PEF tool → write; and run_module vsh_dn
+    /// with GR). #[ignore] so the normal suite never touches it. If SANDIBUMI_E2E_DB
+    /// points at a project.duckdb copy with a RHOB+NPHI+GR well, it runs on that REAL
+    /// field data; otherwise it seeds a synthetic well through the real schema + write
+    /// path so the new run_multimin PEF branch and vsh_dn output are still exercised
+    /// against DB-resident curves. Run with:
+    ///   [SANDIBUMI_E2E_DB=<copy.duckdb>] cargo test --lib -- \
+    ///       --ignored --nocapture e2e_pef_and_vsh_on_real_well
+    #[test]
+    #[ignore]
+    fn e2e_pef_and_vsh_on_real_well() {
+        // Best RHOB+NPHI+GR well in a DB, preferring one that also has PEF.
+        fn pick_well(db: &Mutex<Connection>, wells: &[crate::db::WellSummary]) -> Option<(String, [usize; 5])> {
+            let need: Vec<String> =
+                ["RHOB", "NPHI", "DT", "GR", "PEF"].iter().map(|s| s.to_string()).collect();
+            let cnt = |cols: &HashMap<String, Vec<f32>>, k: &str| {
+                cols.get(k).map(|v| v.iter().filter(|x| x.is_finite()).count()).unwrap_or(0)
+            };
+            let mut best: Option<(String, [usize; 5], usize)> = None;
+            for w in wells {
+                let cols = match {
+                    let c = db.lock().unwrap();
+                    fetch_curve_frame(&c, &w.well_id, &need)
+                } {
+                    Ok((_d, cols)) => cols,
+                    Err(_) => continue,
+                };
+                let cov = [cnt(&cols, "RHOB"), cnt(&cols, "NPHI"), cnt(&cols, "DT"), cnt(&cols, "GR"), cnt(&cols, "PEF")];
+                if cov[0] == 0 || cov[1] == 0 || cov[3] == 0 {
+                    continue;
+                }
+                let score = cov[0] + cov[1] + cov[3] + if cov[4] > 0 { 10_000_000 } else { 0 };
+                if best.as_ref().map(|b| score > b.2).unwrap_or(true) {
+                    best = Some((w.well_id.clone(), cov, score));
+                }
+            }
+            best.map(|(id, cov, _)| (id, cov))
+        }
+
+        // Seed a synthetic well by forward-modeling a quartz/illite/water mix with the
+        // library's own endpoints, so run_multimin should recover it near-exactly and the
+        // PEF curve (stored as U/ρe, the tool reading) round-trips through the PEF→U path.
+        fn build_synthetic() -> (Mutex<Connection>, String, bool) {
+            let conn = Connection::open_in_memory().expect("in-memory db");
+            crate::db::create_schema(&conn).expect("schema");
+            let wid = "11111111-1111-1111-1111-111111111111";
+            conn.execute_batch(&format!(
+                "INSERT INTO wells (well_id, well_name, field_name) VALUES ('{wid}','SYNTH-1','E2E');"
+            ))
+            .expect("insert well");
+            let lib = multimin_library();
+            let ep = |nm: &str, k: &str| lib.iter().find(|c| c.name == nm).unwrap().endpoints[k];
+            let (n, top, step) = (300usize, 2000.0f64, 0.5f64);
+            // fetch_curve_frame reads gr/res_deep/nphi/rhob as NON-optional f32, so
+            // res_deep must be non-null (every real well has resistivity); give it a constant.
+            let mut sc = String::from("INSERT INTO standard_curves (well_id, depth, gr, res_deep, nphi, rhob, dt) VALUES ");
+            let mut pf = String::from("INSERT INTO computed_curves (well_id, depth, curve_name, value) VALUES ");
+            for i in 0..n {
+                let depth = top + i as f64 * step;
+                let t = i as f64 / (n - 1) as f64;
+                // Smoothly varying, in-bounds mix (water ≤ 0.35, illite ≤ 0.5).
+                let vi = 0.05 + 0.40 * (t * 9.42).sin().powi(2);
+                let vw = 0.05 + 0.25 * ((t * 6.28).cos() * 0.5 + 0.5);
+                let vq = (1.0 - vi - vw).max(0.0);
+                let s = vq + vi + vw;
+                let (vq, vi, vw) = (vq / s, vi / s, vw / s);
+                let mix = |k: &str| vq * ep("Quartz", k) + vi * ep("Illite", k) + vw * ep("Water Sxo", k);
+                let (gr, nphi, rhob, dt, u) = (mix("GR"), mix("NPHI"), mix("RHOB"), mix("DT"), mix("U"));
+                let pef = u / rho_e(rhob);
+                sc += &format!("('{wid}',{depth},{gr},2.0,{nphi},{rhob},{dt}),");
+                pf += &format!("('{wid}',{depth},'PEF',{pef}),");
+            }
+            sc.pop();
+            sc.push(';');
+            pf.pop();
+            pf.push(';');
+            conn.execute_batch(&sc).expect("insert standard_curves");
+            conn.execute_batch(&pf).expect("insert PEF");
+            (Mutex::new(conn), wid.to_string(), true)
+        }
+
+        let mut synthetic = false;
+        let picked = std::env::var("SANDIBUMI_E2E_DB").ok().and_then(|path| match Connection::open(&path) {
+            Ok(conn) => {
+                let db = Mutex::new(conn);
+                let wells = { let c = db.lock().unwrap(); crate::db::list_wells(&c).unwrap_or_default() };
+                match pick_well(&db, &wells) {
+                    Some((wid, cov)) => {
+                        eprintln!("using REAL db {path}: {} wells; well {wid} cov RHOB/NPHI/DT/GR/PEF = {cov:?}", wells.len());
+                        Some((db, wid, cov[4] > 0))
+                    }
+                    None => {
+                        eprintln!("real db {path} opened but has no RHOB+NPHI+GR well — using synthetic");
+                        None
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("could not open SANDIBUMI_E2E_DB ({e}) — using synthetic");
+                None
+            }
+        });
+        let (db, well_id, has_pef) = picked.unwrap_or_else(|| {
+            synthetic = true;
+            let s = build_synthetic();
+            eprintln!("using SYNTHETIC forward-modeled well {} (300 samples, quartz/illite/water)", s.1);
+            s
+        });
+
+        {
+            let c = db.lock().unwrap();
+            let raw: i64 = c
+                .query_row("SELECT count(*) FROM standard_curves WHERE well_id = ?1", duckdb::params![well_id], |r| r.get(0))
+                .unwrap_or(-1);
+            let (nd, nr, np) = fetch_curve_frame(&c, &well_id, &["RHOB".into(), "PEF".into()])
+                .map(|(d, cols)| {
+                    let fin = |k: &str| cols.get(k).map(|v| v.iter().filter(|x| x.is_finite()).count()).unwrap_or(0);
+                    (d.len(), fin("RHOB"), fin("PEF"))
+                })
+                .unwrap_or((999_999, 0, 0));
+            eprintln!("debug: standard_curves rows={raw}; fetch depths={nd} finiteRHOB={nr} finitePEF={np}");
+        }
+
+        // ---- Fix 1: multimin with a PEF tool (converted to U per sample) ----
+        let lib = multimin_library();
+        let get = |nm: &str| lib.iter().find(|c| c.name == nm).cloned().unwrap();
+        let q = get("Quartz");
+        let ill = get("Illite");
+        let mut wat = get("Water Sxo");
+        wat.zone = String::new(); // shared water: enters unity + seen by all tools
+        let comps = vec![q, ill, wat];
+
+        let base_tools = || {
+            vec![
+                ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.0264 },
+                ToolSpec { key: "NPHI".into(), curve: "NPHI".into(), sigma: 0.014 },
+                ToolSpec { key: "DT".into(), curve: "DT".into(), sigma: 1.951 },
+                ToolSpec { key: "GR".into(), curve: "GR".into(), sigma: 6.0 },
+            ]
+        };
+        let run = |prefix: &str, with_pef: bool| -> MultiminWellResult {
+            let mut tools = base_tools();
+            if with_pef {
+                tools.push(ToolSpec { key: "PEF".into(), curve: "PEF".into(), sigma: 0.3 });
+            }
+            let req = MultiminRequest {
+                components: comps.clone(),
+                tools,
+                apply_well_ids: vec![well_id.clone()],
+                output_prefix: prefix.into(),
+                unity: true,
+                fluid: None,
+            };
+            let res = run_multimin(&db, &req);
+            assert!(res.error.is_none(), "run_multimin error: {:?}", res.error);
+            res.wells.into_iter().next().unwrap()
+        };
+
+        let no_pef = run("MMNOPEF", false);
+        eprintln!(
+            "multimin (no PEF): solved={} mean_recon={:.4} err={:?}",
+            no_pef.rows_solved, no_pef.mean_recon, no_pef.error
+        );
+        assert!(no_pef.rows_solved > 0, "no samples solved without PEF");
+
+        if has_pef {
+            let with_pef = run("MMPEF", true);
+            eprintln!(
+                "multimin (+PEF→U): solved={} mean_recon={:.4}",
+                with_pef.rows_solved, with_pef.mean_recon
+            );
+            assert!(with_pef.rows_solved > 0, "PEF run solved no samples");
+            assert!(with_pef.mean_recon.is_finite(), "PEF run recon not finite");
+            if synthetic {
+                // PEF was stored as U_true/ρe; the PEF→U path must reconstruct U_true,
+                // so the converted row fits the true volumes and RECON stays ~0. A wrong
+                // (raw-PEF) mix would leave this row inconsistent and inflate RECON.
+                assert!(
+                    with_pef.mean_recon < 0.05,
+                    "synthetic PEF→U row should fit near-perfectly; recon={}",
+                    with_pef.mean_recon
+                );
+            }
+            // Hard-unity guarantees Σvol=1; verify on the written curves.
+            let cols = {
+                let c = db.lock().unwrap();
+                fetch_curve_frame(
+                    &c,
+                    &well_id,
+                    &["VOL_QUARTZ".into(), "VOL_ILLITE".into(), "VOL_WATER_SXO".into()],
+                )
+                .unwrap()
+                .1
+            };
+            let (mut n_ok, mut sum_err_max) = (0usize, 0.0f32);
+            for i in 0..cols["VOL_QUARTZ"].len() {
+                let s = cols["VOL_QUARTZ"][i] + cols["VOL_ILLITE"][i] + cols["VOL_WATER_SXO"][i];
+                if s.is_finite() {
+                    n_ok += 1;
+                    sum_err_max = sum_err_max.max((s - 1.0).abs());
+                }
+            }
+            eprintln!("  VOL rows summing to 1: {n_ok}, max |Σvol−1| = {sum_err_max:.2e}");
+            assert!(n_ok > 0 && sum_err_max < 1e-3, "unity violated on written VOL curves");
+        }
+
+        // ---- Fix 2: vsh_dn clay-type guard on real GR ----
+        let (depth, cols) = {
+            let c = db.lock().unwrap();
+            fetch_curve_frame(&c, &well_id, &["RHOB".into(), "NPHI".into(), "GR".into()]).unwrap()
+        };
+        let nsamp = depth.len();
+        let logs: HashMap<String, Vec<f32>> = ["RHOB", "NPHI", "GR"]
+            .iter()
+            .map(|k| (k.to_string(), cols[*k].clone()))
+            .collect();
+        let params: HashMap<String, Vec<f64>> = [
+            ("RHO_MA", 2.645),
+            ("RHO_SH", 2.5),
+            ("RHO_FL", 1.0),
+            ("NPHI_MA", -0.02),
+            ("NPHI_SH", 0.35),
+            ("NPHI_FL", 1.0),
+            ("GR_MA", 15.0),
+            ("GR_SH", 120.0),
+            ("FLAG_TOL", 0.25),
+        ]
+        .iter()
+        .map(|(k, v)| (k.to_string(), vec![*v; nsamp]))
+        .collect();
+        let ctx = crate::modules::ModuleContext { n: nsamp, logs, params, opts: HashMap::new() };
+        let out = crate::modules::run_module("vsh_dn", &ctx).expect("vsh_dn run");
+        let flag = &out["VSH_DN_FLAG"];
+        let vsh = &out["VSH"];
+        let (mut n_flag, mut n_eval, mut vsh_min, mut vsh_max) = (0usize, 0usize, f32::MAX, f32::MIN);
+        for i in 0..nsamp {
+            if flag[i].is_finite() {
+                n_eval += 1;
+                if flag[i] == 1.0 {
+                    n_flag += 1;
+                }
+                vsh_min = vsh_min.min(vsh[i]);
+                vsh_max = vsh_max.max(vsh[i]);
+            }
+        }
+        eprintln!(
+            "vsh_dn: evaluated={n_eval} flagged={n_flag} ({:.1}%), VSH∈[{vsh_min:.3},{vsh_max:.3}]",
+            100.0 * n_flag as f32 / n_eval.max(1) as f32
+        );
+        assert!(n_eval > 0, "vsh_dn produced no evaluated samples");
+        assert!(vsh_min >= 0.0 && vsh_max <= 1.0, "limited VSH out of [0,1]");
     }
 
     #[test]

@@ -6,7 +6,7 @@ import type { ContextMenuEntry } from "./contextMenu";
 import { openCurveEditDialog } from "./curveEditDialog";
 import { openLayoutPropsDialog } from "./layoutPropsDialog";
 import { formRow, openModal } from "./modal";
-import { CORE_OVERLAY_MAP } from "./plotCommon";
+import { CORE_OVERLAY_MAP, loadCurveUnits } from "./plotCommon";
 import { TopsEditor } from "./topsEditor";
 import { renderDepthAxis, renderReadout, renderReportHeader, renderTrackHeaders } from "./viewerChrome";
 
@@ -37,6 +37,9 @@ export class LogViewPanel {
 
   private renderer: LogCanvasRenderer | null = null;
   private layout: Layout | null = null;
+  /** Curve name → unit, refreshed with each load (also on dataVersion). Feeds the cursor
+   *  readout so RT shows "ohm.m", PHI "v/v", etc. Empty until the first successful load. */
+  private curveUnits = new Map<string, string>();
   private series: TrackCurveSeries[] = [];
   private trackWeights = new Map<string, number>();
   private hiddenCurves = new Set<string>();
@@ -54,6 +57,16 @@ export class LogViewPanel {
 
   private unsubscribers: (() => void)[] = [];
   private resizeObserver: ResizeObserver | null = null;
+  /** Monotonic token so an out-of-order loadWell (fast well switching, or a dataVersion
+   *  bump mid-load) can't render a stale well's series over a newer one. */
+  private loadGen = 0;
+  /** Set in dispose(); the un-awaited initRenderer checks it so subscriptions/observers
+   *  aren't registered after the panel already closed (they would leak forever). */
+  private disposed = false;
+  /** A well switch (keepView=false) asks to reset the scroll; a coincident dataVersion
+   *  refresh (keepView=true) can win the loadGen race, so carry the reset intent here
+   *  and honour it on whichever load commits — else the new well inherits the old scroll. */
+  private viewResetPending = false;
   private setTitle: (title: string) => void;
 
   /** Fired on user edits to this panel's view state (layout properties, track widths,
@@ -198,7 +211,11 @@ export class LogViewPanel {
   private async initRenderer(body: HTMLElement): Promise<void> {
     this.canvas.width = this.canvas.clientWidth || 400;
     this.canvas.height = this.canvas.clientHeight || 400;
-    this.renderer = new LogCanvasRenderer(this.canvas);
+    // Keep a LOCAL reference: LogCanvasRenderer.init() attaches its window listeners and
+    // starts the rAF loop only AFTER its WebGPU awaits, so if dispose() lands during init
+    // it nulls this.renderer before those exist. The disposed-guard below must dispose
+    // this captured instance (which finished init) — not the nulled field — to tear them down.
+    const renderer = (this.renderer = new LogCanvasRenderer(this.canvas));
     this.renderer.onViewSettled = () => {
       this.refreshDepthAxis();
       this.positionCrosshair(this.lastHoverDepth);
@@ -219,7 +236,7 @@ export class LogViewPanel {
         const names = new Set(track.curves.map((c) => c.curve_name));
         shown = samples.filter((s) => names.has(s.curveName));
       }
-      renderReadout(this.readoutEl, depth, shown);
+      renderReadout(this.readoutEl, depth, shown, undefined, this.curveUnits);
       this.highlightTrack(trackTitle);
       // Broadcast so every other open log view draws a synchronized crosshair.
       appState.hoverDepth.set(depth);
@@ -227,12 +244,23 @@ export class LogViewPanel {
     this.attachTrackSelect();
 
     try {
-      await this.renderer.init();
+      await renderer.init();
       this.message("");
     } catch (err) {
       console.error("WebGPU init failed:", err);
       this.message("WebGPU unavailable — viewer disabled");
       this.renderer = null;
+    }
+
+    // The panel may have been closed while WebGPU was initializing — dispose() already ran
+    // (with empty unsubscribers and no ResizeObserver), so registering them below would
+    // leak them forever. Dispose the LOCAL instance (init() just attached its window
+    // listeners + rAF loop, and dispose() already nulled this.renderer so a field deref
+    // would be a no-op) and stop. dispose() is idempotent, so the earlier call is harmless.
+    if (this.disposed) {
+      renderer.dispose();
+      this.renderer = null;
+      return;
     }
 
     this.resizeObserver = new ResizeObserver(() => {
@@ -440,25 +468,51 @@ export class LogViewPanel {
 
   async loadWell(well: WellSummary, keepView = false): Promise<void> {
     if (!this.layout || !this.renderer) return;
+    // Capture a token before the first await; a newer loadWell (fast switch) or dispose
+    // supersedes this one and we bail before writing this.series/coreByName. this.well is
+    // set synchronously and NOT rolled back — a newer load already advanced it.
+    const gen = ++this.loadGen;
+    if (!keepView) this.viewResetPending = true;
     this.well = well;
     this.updateTitle();
     const curveNames = Array.from(new Set(this.layout.tracks.flatMap((t) => t.curves.map((c) => c.curve_name))));
     try {
-      this.series = await getTrackData(well.well_id, curveNames, this.canvas.clientHeight || 400);
-      if (!keepView) this.renderer.resetView();
+      const [series, units] = await Promise.all([
+        getTrackData(well.well_id, curveNames, this.canvas.clientHeight || 400),
+        loadCurveUnits().catch(() => new Map<string, string>()),
+      ]);
+      if (gen !== this.loadGen || !this.renderer) return; // superseded or disposed
+      this.series = series;
+      this.curveUnits = units;
+      if (this.viewResetPending) {
+        this.renderer.resetView();
+        this.viewResetPending = false;
+      }
       this.refresh();
       setStatus(`Loaded well ${well.well_name}`);
     } catch (err) {
+      if (gen !== this.loadGen) return;
       console.error("Failed to load track data:", err);
       setStatus(`Failed to load curve data: ${err}`);
+      // The winning load failed: drop the previous well's series so the (already updated)
+      // title and the rendered curves can't diverge — show the well as empty instead.
+      this.series = [];
+      if (this.viewResetPending) {
+        this.renderer?.resetView();
+        this.viewResetPending = false;
+      }
+      this.refresh();
     }
     try {
       const core = await getCoreData(well.well_id);
+      if (gen !== this.loadGen) return;
       this.coreByName = new Map(core.map((s) => [s.curve_name, s]));
     } catch {
+      if (gen !== this.loadGen) return;
       this.coreByName = new Map(); // no backend or no core data — overlay simply stays empty
     }
     this.drawCoreOverlay();
+    if (gen !== this.loadGen || !this.renderer) return;
     await this.topsEditor.setWell(well.well_id);
   }
 
@@ -675,6 +729,7 @@ export class LogViewPanel {
   }
 
   dispose(): void {
+    this.disposed = true;
     for (const unsub of this.unsubscribers) unsub();
     this.resizeObserver?.disconnect();
     this.topsEditor.dispose();

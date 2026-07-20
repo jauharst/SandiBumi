@@ -1,6 +1,7 @@
 import { basicSetup, EditorView } from "codemirror";
 import { python } from "@codemirror/lang-python";
 import { bumpDataVersion, filterByActiveGroup, setStatus as globalStatus } from "../state";
+import { recordProcess } from "../processLog";
 import {
   saveEquation,
   listEquations,
@@ -316,6 +317,7 @@ export class InspectorPanel {
     try {
       const results = await runEquation(this.current.equation_id, wellIds);
       this.setStatus(summarizeRun(results));
+      recordProcess("Equation", `Ran "${this.current.name}" on ${wellIds.length} well(s)`);
       await this.refreshCatalog();
     } catch (err) {
       console.error("Equation run failed:", err);
@@ -507,6 +509,7 @@ export class InspectorPanel {
         try {
           const n = await restoreLogSet(btn.dataset.restore!);
           globalStatus(`Version restored (${n} samples back in the current curves)`);
+          recordProcess("Log set", `Restored a curve version (${n} samples)`);
           bumpDataVersion(); // every open panel (log views, plots, this catalog) refreshes
         } catch (err) {
           globalStatus(`Restore failed: ${err}`);
@@ -530,6 +533,7 @@ export class InspectorPanel {
         try {
           await deleteLogSet(btn.dataset.del!);
           globalStatus("Set version deleted (current curve values kept)");
+          recordProcess("Log set", "Deleted a curve-set version");
           void this.refreshCatalog();
         } catch (err) {
           globalStatus(`Delete failed: ${err}`);

@@ -224,8 +224,16 @@ fn zone_metrics(
     let mut sum_phie_w = 0.0f64;
     let mut hpv = 0.0f64;
     for i in 0..depth.len() {
-        let d = depth[i];
-        if d < zone.top_depth || d >= zone.bottom_depth {
+        // Clamp each sample's forward interval to its overlap with the zone (mirrors
+        // run_pay_summary): the last in-zone sample no longer bleeds a full step past the
+        // base, and net can never exceed gross — so MC P10/P50/P90 net/NTG/HPV agree with
+        // the pay summary.
+        let s_top = depth[i] as f64;
+        let s_bot = (depth[i] + step[i]) as f64;
+        let lo = s_top.max(zone.top_depth as f64);
+        let hi = s_bot.min(zone.bottom_depth as f64);
+        let h = hi - lo;
+        if h <= 0.0 {
             continue;
         }
         let v = vsh[i] as f64;
@@ -235,13 +243,15 @@ fn zone_metrics(
             continue;
         }
         let mut pay = v <= cut.vsh_max && p >= cut.phie_min && s <= cut.swe_max;
-        if has_perm_cut && !perm[i].is_nan() {
-            pay = pay && (perm[i] as f64) >= cut.perm_min.unwrap();
+        if has_perm_cut {
+            // A sample with no PERM value cannot demonstrate it passes the cutoff — missing
+            // PERM must fail, not silently pass (matches run_pay_summary's classify_sample, so
+            // MC and the pay summary agree for identical cutoffs).
+            pay = pay && !perm[i].is_nan() && (perm[i] as f64) >= cut.perm_min.unwrap();
         }
         if !pay {
             continue;
         }
-        let h = step[i] as f64;
         net += h;
         sum_phie += p * h;
         sum_phie_swe += p * s * h;

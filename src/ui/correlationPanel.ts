@@ -289,7 +289,12 @@ export async function buildCorrelationContent(
   }
 
   // --- Data loading ---
+  // Monotonic token: a rapid well-toggle / curve change / dataVersion bump can leave an
+  // older Promise.all in flight; whichever reload started last wins, so a stale set of
+  // strips can't replace the current one. reload() preserves the pan/zoom viewport.
+  let reloadGen = 0;
   async function reload(): Promise<void> {
+    const gen = ++reloadGen;
     const chosen = wells.filter((w) => included.has(w.well_id));
     const loaded = await Promise.all(
       chosen.map(async (well): Promise<WellStrip> => {
@@ -309,9 +314,29 @@ export async function buildCorrelationContent(
         return { well, series, tops, shift: 0, hasDatum: false };
       }),
     );
+    if (gen !== reloadGen) return; // a newer reload started while we awaited
     strips = loaded;
     applyDatum();
     refreshDatumChoices();
+  }
+
+  /** Re-fetches the well list so the Wells menu and strips track the current project after
+   *  an import, delete, or active-group change — reload() alone only re-reads curves for the
+   *  wells already included, so a freshly imported well never appeared. New wells join the
+   *  included set (they show as strips immediately); wells that no longer exist drop out. */
+  async function refreshWells(): Promise<void> {
+    let latest: WellSummary[];
+    try {
+      latest = filterByActiveGroup(await listWells());
+    } catch {
+      return; // keep the current list if the fetch fails
+    }
+    const known = new Set(wells.map((w) => w.well_id));
+    const live = new Set(latest.map((w) => w.well_id));
+    for (const w of latest) if (!known.has(w.well_id)) included.add(w.well_id);
+    for (const id of Array.from(included)) if (!live.has(id)) included.delete(id);
+    wells = latest;
+    refreshWellsBtn();
   }
 
   /** Recomputes per-well flattening shifts from the chosen datum top. */
@@ -444,7 +469,19 @@ export async function buildCorrelationContent(
     "wheel",
     (e) => {
       e.preventDefault();
-      viewTop += e.deltaY / pxPerUnit;
+      if (e.ctrlKey || e.metaKey) {
+        // Ctrl/Cmd+wheel zooms about the cursor depth — same convention (and factors) as
+        // attachZoomPan on the other plots (in = shrink the depth window). Plain wheel keeps
+        // panning through depth (there's no competing page scroll inside a dock pane).
+        const rect = canvas.getBoundingClientRect();
+        const y = Math.max(HEADER_H, e.clientY - rect.top);
+        const anchor = viewTop + (y - HEADER_H) / pxPerUnit;
+        const f = e.deltaY < 0 ? 0.83 : 1.2;
+        pxPerUnit /= f;
+        viewTop = anchor - (y - HEADER_H) / pxPerUnit;
+      } else {
+        viewTop += e.deltaY / pxPerUnit;
+      }
       draw();
     },
     { passive: false },
@@ -485,8 +522,19 @@ export async function buildCorrelationContent(
 
   const resizeObserver = new ResizeObserver(() => draw());
   resizeObserver.observe(canvasHost);
+  // The primed flag drops subscribe's immediate fire so the trailing `await reload()`
+  // below stays the only build-time load (no double fetch at construction).
+  let dataPrimed = false;
   const unsubData = appState.dataVersion.subscribe(() => {
-    void reload().then(draw);
+    if (!dataPrimed) {
+      dataPrimed = true;
+      return;
+    }
+    // Refresh the well list first (imports/deletions/group change), THEN re-read curves —
+    // reload() alone left a stale Wells menu that never showed a newly imported well.
+    void refreshWells()
+      .then(() => reload())
+      .then(draw);
   });
   // Colours come from CSS vars at draw time; a theme switch only needs a repaint.
   const unsubTheme = appState.themeVersion.subscribe(() => draw());

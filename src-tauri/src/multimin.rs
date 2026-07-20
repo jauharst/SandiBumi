@@ -120,9 +120,14 @@ pub(crate) fn multimin(ctx: &ModuleContext) -> ModuleOutputs {
             ctx.p("SIG_PEF", i),
         );
 
-        // Need at least two tool equations to constrain a 4-component model with unity.
+        // Degrees of freedom: 4 unknowns (SAND/CLAY/WATER/HC) need at least 3 tool equations
+        // so that with the unity row the system is determined. With only 2 live tools the
+        // solve is underdetermined — NNLS returns an arbitrary vertex of a 1-parameter family
+        // (and, being an exact fit, RECON_ERR reads ~0, so the QC curve would flag nothing).
+        // Skip rather than emit a solver-path artifact for the water/HC split and SWT_MM.
+        // (Matches multimin2's min_tools = n_components − soft_rows − unity rule.)
         let n_tools = rows.len();
-        if n_tools < 2 {
+        if n_tools < 3 {
             continue;
         }
 
@@ -378,5 +383,17 @@ mod tests {
         let ctx = ctx_one(&[("RHOB", 2.4)]); // only one tool → underdetermined, skip
         let out = multimin(&ctx);
         assert!(out["VOL_SAND"][0].is_nan());
+    }
+
+    #[test]
+    fn multimin_skips_two_tools_for_four_unknowns() {
+        // RHOB+NPHI only = 2 tool rows + unity = 3 equations for 4 unknowns: underdetermined.
+        // Must skip (all NaN) rather than emit an arbitrary NNLS vertex with a spurious ~0
+        // RECON_ERR — the failure mode the >= 3 gate exists to prevent.
+        let ctx = ctx_one(&[("RHOB", 2.3), ("NPHI", 0.25)]);
+        let out = multimin(&ctx);
+        assert!(out["VOL_SAND"][0].is_nan(), "sand should be NaN when underdetermined");
+        assert!(out["SWT_MM"][0].is_nan(), "SWT_MM should be NaN when underdetermined");
+        assert!(out["RECON_ERR"][0].is_nan(), "RECON_ERR should be NaN when skipped");
     }
 }

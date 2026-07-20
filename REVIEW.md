@@ -6,6 +6,175 @@ Work through this list when you have time; delete items as you confirm them.
 Marks: `[o]` confirmed OK (removed from this file), `[x]` confirmed wrong → logged in
 **ROADMAP.md §4 (Field-review backlog)**, `[ ]` not yet tested.
 
+## P0 senior-audit backlog — correctness & data-integrity fixes (2026-07-20)
+
+The eight P0 findings from `AUDIT-2026-07-20.md` (ROADMAP §4b), plus the LAS-import
+robustness residual (#118) that closing them surfaced, are implemented and unit-tested
+(full lib suite **160 pass / 0 fail**, tsc clean). These are the ones that made answers
+wrong or silently lost data, so they matter most for Mahakam work:
+
+- [ ] **MASK now blanks module INPUTS, not just outputs** (workflow.rs). Run **GR
+      Normalize** (or **Log Predict**) with a BADHOLE / COND_FLAG curve set as the
+      **Mask**. The well P3/P97 (and the KNN training set) are now computed from the
+      unmasked samples only — casing/washout/hot-streak GR no longer shifts the two-point
+      transform, so good-hole output stops drifting. For log_predict the repaired synthetic
+      now survives *inside* the masked (washout) interval it exists to fill, instead of
+      being blanked there. Test: `mask_excludes_flagged_samples_from_gr_normalize_percentiles`.
+- [ ] **SW-height uses TVD and allows a subsea FWL** (satheight.rs). The sw_height module
+      now takes an optional **TVD** input (defaults to measured depth when absent) and the
+      **FWL** field accepts negative (subsea TVDSS) values. On a deviated well, height above
+      the contact — and therefore SWH — is no longer optimistically overstated by ~1/cos(inc).
+      Run on a deviated Mahakam well with the TVD curve mapped and confirm SWH rises vs the
+      old MD-based result. Test: the negative-TVDSS deviated case in satheight.rs.
+- [ ] **Pay summary: thin-zone clamp + honest averages** (workflow.rs). Each sample's
+      thickness is clamped to its overlap with the zone, so the last in-zone sample no longer
+      bleeds a full step past the zone base and **net can never exceed gross** (sub-step-thick
+      zones). SAND-row `avg_phie` is normalised over the thickness where PHIE is actually
+      valid, so a sample with good VSH but missing PHIE no longer drags the average toward
+      zero. Cross-check a well with thin zones / patchy PHIE against the old numbers. Test:
+      `pay_summary_clamps_thin_zone_and_normalizes_avg_phie_over_valid`.
+- [ ] **Crash-safe curve writes** (db.rs `with_txn`). Every delete-then-append writer
+      (computed curves, restore/delete log set, core/aux/SCAL/curve-sample/well-path inserts,
+      group members, zones-from-tops) now runs inside a single BEGIN/COMMIT/ROLLBACK, so an
+      app kill mid-write can no longer leave the DELETE committed but the re-append lost.
+      Nothing to click — just note that a tauri-dev restart mid-run won't silently drop curves.
+- [ ] **IMTS clay-conductivity direction fixed** (lrlc.rs sw_imts). The excess-conductivity
+      term now *divides* by Sw (Waxman-Smits `Cw + B·Qv_eff/Sw`), so it grows as hydrocarbon
+      displaces water instead of vanishing. IMTS SwE now sits at/just below Waxman-Smits in
+      pay (the old `·Sw` form gave Sw^(n*+1) and over-stated Sw exactly in the LRLC pay this
+      method exists to find). Re-run sw_imts on an LRLC interval and confirm SwE dropped.
+      Test: `imts_credits_clay_conductivity_in_pay_zone`.
+- [ ] **DLIS null sentinels + no silent overwrite** (dlis.rs). DLIS absent/sentinel values
+      (−999.25/−9999, non-finite, |v|>1e30) are screened to MISSING on import, and each DLIS
+      frame gets its own run number so a frame-0 channel no longer silently replaces a
+      same-mnemonic LAS curve — the status line reports "replaced N existing curve(s)" when a
+      collision does happen. Re-import a DLIS over a well that already has LAS curves and check
+      the replaced-count note.
+- [ ] **SandiMin refuses under-determined models** (multimin2.rs). Selecting fewer than
+      (components − 1) input tools is now rejected up front ("need at least N input logs to
+      constrain M components") instead of solving to an arbitrary vertex, and per-sample the
+      solver skips depths with too few live curves. Test: `rejects_underdetermined_request`.
+- [ ] **LAS import survives duplicate/odd-depth files on BOTH stores** (parsers.rs, ingest.rs).
+      Non-finite and duplicate depths are dropped (first occurrence kept) before insert, so a
+      **spliced/merged LAS with a repeated depth section** imports instead of aborting on the
+      `(well_id, depth)` PK — and the fix now covers the *generic* store too (PEF/CALI/extra
+      runs), which previously PK-failed silently and left the well without those curves. Extras:
+      a Schlumberger **TDEP**-indexed (or any non-`DEPT`) file resolves depth via the first
+      column; an auxiliary **MD/TDEP track** in a later column can no longer steal the depth
+      role from the true first-column index; a file whose depth is entirely null now **errors
+      cleanly** instead of creating an empty orphan well; and a non-monotonic depth (column 0
+      wasn't really the index) is surfaced as an import warning. The dropped/duplicate/odd-index
+      counts appear in the import status line and History. Import a re-spliced LAS and a TDEP
+      file and confirm both load with the expected row counts. Tests:
+      `duplicate_depth_las_imports_standard_and_generic_curves`,
+      `all_null_depth_las_errors_without_creating_well`,
+      `parse_las_2_auxiliary_md_curve_does_not_steal_depth`,
+      `sanitize_dedups_signed_zero_depths`, `parse_las_2_tdep_index_populates_depth`.
+
+## P1 — reliability (frontend state) (2026-07-20)
+
+The three P1 reliability findings from ROADMAP §4b (stale plots, async races, listener
+leaks). Frontend-only (TypeScript, `tsc` clean); these are async-lifecycle behaviors with
+no unit tests, so they were hardened by an adversarial review (4 lenses → per-finding
+skeptical verify: **6 confirmed / 0 refuted**, all fixed — including one real HIGH bug in
+the first-pass init guard) plus a focused **second-pass verify of the fixes** (renderer-dispose
++ sticky-reset lenses: **clean, 0 defects**). Click-through in `npm run tauri dev`:
+
+- [ ] **Plots refresh after a module run, keeping their viewport** (histogramPanel,
+      crossplotPanel, pickettPanel, correlationPanel, logViewPanel). Open a Histogram of
+      PHIE (zoom in), then run a module/equation that recomputes PHIE (or import / undo —
+      anything that bumps `dataVersion`). The plot now re-reads the new curve **in place**,
+      preserving your current zoom/pan, instead of showing the pre-run curve until you close
+      and reopen the panel. Each builder subscribes to `appState.dataVersion` and calls
+      `reload(preserveView=true)`; a `dataPrimed` guard swallows the subscribe's immediate
+      fire so nothing double-loads on open.
+- [ ] **Fast well/curve/zone switching never shows stale data** (loadWell, reload,
+      createPlot). Click quickly through 5 wells in the Log view, or spam curve/zone changes
+      in the Crossplot/Pickett/Histogram. A slow earlier load can no longer land after and
+      overwrite a newer selection — each async load captures a generation token before its
+      first `await` and bails if superseded. And a viewport **reset** intent (switching wells
+      / changing the curve) still fires exactly once even if a `preserveView` refresh commits
+      first, via a sticky `resetPending`/`viewResetPending` flag — so you neither keep a stale
+      zoom that should have reset nor lose a reset that a background refresh raced past.
+- [ ] **Opening/closing Log panels doesn't leak listeners or GPU loops** (logViewPanel
+      dispose, LogCanvasRenderer). Repeatedly open and close Log view panels. The renderer's
+      `window` pointerup/pointermove handlers are now removed and its `requestAnimationFrame`
+      loop cancelled on `dispose()` (previously leaked one set per open); disposing a panel
+      *during* WebGPU init now disposes the fully-initialized local renderer rather than a
+      no-op on an already-nulled field. Nothing visible per-close, but memory/handler count
+      stays flat over a long session.
+
+## Polish — UX (veteran-interpreter friction) (2026-07-20)
+
+Hardening-backlog **Polish** tier (ROADMAP §4b, was "P3"). Small, mostly-frontend fixes;
+each tsc-clean. Mapped by a read-only investigation wave before implementing.
+
+- [ ] **Cursor readout: real units + no more mangled values** (plotCommon.ts `formatValue`,
+      viewerChrome.ts `renderReadout`, logViewPanel.ts). The log-view cursor readout used a
+      blanket `toFixed(2)`, which flattened permeability 0.003 → "0.00" and showed no units.
+      It now uses an adaptive significant-figures formatter (perm stays "0.003", RT reads
+      "2151", φ "0.18") and appends the unit the curve catalog already carries (RT "ohm.m",
+      PHI "v/v", RHOB "g/cc"). Units are cached per well-load and refresh on `dataVersion`.
+      Test: hover the log view over a permeability track and a deep-resistivity track — values
+      keep resolution and each shows its unit. (Values whose catalog unit is blank show no unit.)
+- [ ] **Correlation: fresh well list + Ctrl+wheel zoom** (correlationPanel.ts). The Wells
+      menu was built once and never refreshed, so a newly imported well never appeared. It now
+      re-fetches the well list on `dataVersion` — new wells appear (and draw as strips), deleted
+      wells drop out, active-group filter re-applies. Also added **Ctrl/Cmd+wheel zoom about the
+      cursor** (same factors as the other plots); plain wheel still pans through depth. Test:
+      open Correlation, import/deviation-load another well → it shows up without reopening the
+      panel; Ctrl+wheel over the strips zooms at the cursor depth.
+- [ ] **Processing history now covers every operation** (processLog.ts + call sites across
+      ribbon / inspectorPanel / mlDialog / monteCarloDialog / workflowDialog / zonesDialog /
+      topsEditor / mapPanel / cutoffDialog). The audit trail (History panel / QAT History)
+      previously logged only LAS import/export, module runs, core shift, well header, curve edits,
+      project/session, exports. It now ALSO records: **DLIS / deviation / SCAL / core / tops
+      imports; equation runs; ML runs; Monte Carlo; workflow chains; log-set restore/delete; zone
+      add/edit/delete + per-zone parameter overrides; manual tops add/edit/delete; cutoff-default
+      saves; map-polygon→group assignment.** Test: perform each and confirm it appears in the
+      History panel with the right `[kind]` and detail. (Batch/field-wide actions — equation, ML,
+      MC, workflow, log-set, cutoffs — intentionally show no well name.)
+- [ ] **Pickett v2 — properties dialog, typed M/Rw, configurable axes, Z-color** (pickettPanel.ts).
+      The Pickett plot's RT/PHIE axes were hard-coded (0.1–1000 / 0.01–1) with no properties
+      dialog. Now a **⚙ / right-click Properties** dialog sets RT & PHIE axis ranges, point size,
+      and **color-by-curve** (rainbow/viridis, optional log-Z), persisted via plotprops. The
+      toolbar gained **M and Rw** fields next to N — type them and the Sw=1 / iso-Sw lines follow;
+      a two-point pick still fits the line and fills the same M/Rw fields (one shared source).
+      Zoom/pan and the line survive a data refresh (P1 preserveView). Test: open Pickett on a well
+      with RES_DEEP + computed PHIE; pick two points on the wet trend → M/Rw fill and lines draw;
+      type a different Rw → lines follow; right-click → set RT axis 0.2–200 and color by SW/VSH →
+      points recolor; reopen the panel → settings persist.
+- [ ] **Pay-summary provenance — FLAG_* versioned + cutoffs recorded** (workflow.rs, backend).
+      run_pay_summary wrote FLAG_SAND/RESERVOIR/PAY with the old in-place `write_computed_curve`
+      — no version history, and the VSH/PHIE/SWE cutoffs that produced them were recorded nowhere.
+      Now the explicit **Cutoffs & Pay Summary** run versions the three flags into a **PAYFLAG**
+      log set whose provenance = module `pay_summary` + the cutoffs (in `log_sets.params_json`) +
+      inputs, exactly like every other module output — so a re-run keeps history and any version
+      is restorable/prunable from the Curve Catalog. The **Field Dashboard** and **report** passes
+      set `skip_version` (field-wide QC side-effect) so they keep overwriting in place — no version
+      churn per refresh. Test `pay_summary_versions_flags_with_cutoffs_in_provenance` (161 lib
+      tests pass / 0 fail / 7 ignored; tsc clean). Click-through: run Cutoffs & Pay Summary on a
+      well → Curve Catalog shows a PAYFLAG version whose provenance lists the cutoffs; re-run →
+      version N+1; run the Field Dashboard → FLAG_* update but no new version piles up.
+
+## Reference-library correctness fixes (2026-07-20)
+
+Two physics fixes distilled from the ITB team reference shelf (Ellis Ch12/14, Halliburton FE Ch27):
+
+- [ ] **Multimin — PEF now converts to U before mixing.** In the Multimin (SandiMin) dialog,
+      select **Photoelectric (PEF)** as an input tool (instead of, or alongside, U) and run on
+      a well with a PEF curve + RHOB. Confirm VOL_* volumes are sensible and RECON is low in
+      clean zones. Physics: per-electron PEF does NOT mix by volume — the solver now converts
+      the PEF curve to U = Pe·ρe per sample (ρe from RHOB) and mixes against the U endpoints.
+      Picking U directly is unchanged. Needs a RHOB curve present; where RHOB is missing the
+      PEF row is simply skipped that sample.
+- [ ] **VSH from Density-Neutron — new VSH_DN_FLAG clay-type guard.** Run **VSH from
+      Density-Neutron** with the optional **GR** input mapped and set GR_MA/GR_SH/FLAG_TOL.
+      Confirm a new `VSH_DN_FLAG` curve = 1 where the N-D VSH is off-model (gas crossover /
+      beyond the shale point) or diverges from the GR VSH by more than FLAG_TOL (0.25 v/v
+      default) — the signature of clay-type or gas ambiguity. Leaving GR unmapped still flags
+      off-model samples. VSH/VSH_DN themselves are unchanged.
+
 ## Field Map — well surface coordinates + polygon → group (2026-07-20 #27)
 
 **Field Map** (View/Batch ribbon map button, or the Petrophysics ▸ Field Map… button) — a

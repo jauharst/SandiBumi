@@ -321,7 +321,12 @@ fn vsh_dn_spec() -> ModuleSpec {
         title: "VSH from Density-Neutron".into(),
         category: "VSH".into(),
         doc: "Two-log crossplot VSH: the (RHOB, NPHI) point's position between the clean \
-              matrix line and the shale point. Density in g/cc."
+              matrix line and the shale point. Density in g/cc. CAUTION: the neutron shale \
+              response is hydroxyl-driven, so a single NPHI_SH endpoint is clay-type \
+              sensitive — a 4-OH clay (illite/smectite) gives ~12 p.u. N-D separation vs \
+              ~35 p.u. for an 8-OH clay (kaolinite/chlorite). Supply GR to raise \
+              VSH_DN_FLAG where the N-D VSH diverges from the clay-type-insensitive GR VSH \
+              (clay-type or gas ambiguity), or falls off the matrix–shale–fluid triangle."
             .into(),
         args: vec![
             param("RHO_MA", "Matrix density", "g/cc", 2.645, 2.0, 3.2),
@@ -330,10 +335,15 @@ fn vsh_dn_spec() -> ModuleSpec {
             param("NPHI_MA", "Matrix neutron porosity", "v/v", -0.02, -0.15, 0.5),
             param("NPHI_SH", "Shale neutron porosity", "v/v", 0.35, 0.0, 0.8),
             param("NPHI_FL", "Fluid neutron porosity", "v/v", 1.0, 0.5, 1.2),
+            param("GR_MA", "Clean GR (clay-type cross-check)", "API", 15.0, 0.0, 150.0),
+            param("GR_SH", "Shale GR (clay-type cross-check)", "API", 120.0, 40.0, 400.0),
+            param("FLAG_TOL", "Flag |VSH(N-D) − VSH(GR)| above this", "v/v", 0.25, 0.05, 1.0),
             log_in("RHOB", "Density log", "g/cc", "RHOB", true),
             log_in("NPHI", "Neutron porosity log", "v/v", "NPHI", true),
+            log_in("GR", "Gamma ray (optional clay-type cross-check)", "API", "GR", false),
             log_out("VSH_DN", "VSH from density-neutron (unlimited)", "v/v"),
             log_out("VSH", "Limited volume of shale", "v/v"),
+            log_out("VSH_DN_FLAG", "1 where N-D VSH is unreliable (off-model, or diverges from GR VSH)", "flag"),
         ],
     }
 }
@@ -341,8 +351,10 @@ fn vsh_dn_spec() -> ModuleSpec {
 fn vsh_dn(ctx: &ModuleContext) -> ModuleOutputs {
     let rho = ctx.log("RHOB");
     let nphi = ctx.log("NPHI");
+    let gr = ctx.log("GR");
     let mut vsh_dn_out = vec![f32::NAN; ctx.n];
     let mut vsh_out = vec![f32::NAN; ctx.n];
+    let mut flag_out = vec![f32::NAN; ctx.n];
 
     for i in 0..ctx.n {
         let (r, np) = (rho[i] as f64, nphi[i] as f64);
@@ -361,10 +373,34 @@ fn vsh_dn(ctx: &ModuleContext) -> ModuleOutputs {
         let d = (rho_sh - rho_fl) * (nphi_fl - nphi_ma);
         let v = (a - b) / (c - d);
         vsh_dn_out[i] = v as f32;
-        vsh_out[i] = limit(v, 0.0, 1.0) as f32;
+        let v_lim = limit(v, 0.0, 1.0);
+        vsh_out[i] = v_lim as f32;
+
+        // Clay-type / gas guard. A single N-D VSH is only as trustworthy as NPHI_SH,
+        // whose value depends on clay hydroxyl count (Ellis Ch14/21). Flag samples that
+        // fall off the matrix–shale–fluid triangle, or — when GR is supplied — whose N-D
+        // VSH diverges from the clay-type-insensitive GR VSH.
+        let mut unreliable = v < -0.05 || v > 1.05;
+        if !unreliable {
+            let g = gr[i] as f64;
+            let gr_ma = ctx.p("GR_MA", i);
+            let gr_sh = ctx.p("GR_SH", i);
+            let tol = ctx.p("FLAG_TOL", i);
+            if g.is_finite() && tol.is_finite() && (gr_sh - gr_ma).abs() > 1e-6 {
+                let vsh_gr = ((g - gr_ma) / (gr_sh - gr_ma)).clamp(0.0, 1.0);
+                if (v_lim - vsh_gr).abs() > tol {
+                    unreliable = true;
+                }
+            }
+        }
+        flag_out[i] = if unreliable { 1.0 } else { 0.0 };
     }
 
-    HashMap::from([("VSH_DN".to_string(), vsh_dn_out), ("VSH".to_string(), vsh_out)])
+    HashMap::from([
+        ("VSH_DN".to_string(), vsh_dn_out),
+        ("VSH".to_string(), vsh_out),
+        ("VSH_DN_FLAG".to_string(), flag_out),
+    ])
 }
 
 // ---------------------------------------------------------------------------
@@ -2520,6 +2556,59 @@ mod tests {
         assert!(out["FTEMP"][1].is_nan() && out["FTEMP_F"][1].is_nan());
         assert!(out["FPRESS"][1].is_nan() && out["RMF"][1].is_nan());
         assert!(out["CT"][1].is_nan() && out["CXO"][1].is_nan());
+    }
+
+    #[test]
+    fn vsh_dn_flags_offmodel_and_gr_divergence() {
+        // Sample 0: clean sand at the matrix point, GR clean → VSH≈0, consistent → not flagged.
+        // Sample 1: N-D reads very shaly (VSH≈0.92) but GR reads clean → divergence → flagged.
+        // Sample 2: RHOB well below matrix → VSH off the triangle (<0) → flagged even w/o GR help.
+        let ctx = ctx_with(
+            3,
+            &[
+                ("RHOB", vec![2.65, 2.55, 2.20]),
+                ("NPHI", vec![0.00, 0.30, 0.00]),
+                ("GR", vec![15.0, 15.0, 15.0]),
+            ],
+            &[
+                ("RHO_MA", 2.65),
+                ("RHO_SH", 2.50),
+                ("RHO_FL", 1.00),
+                ("NPHI_MA", 0.00),
+                ("NPHI_SH", 0.35),
+                ("NPHI_FL", 1.00),
+                ("GR_MA", 15.0),
+                ("GR_SH", 120.0),
+                ("FLAG_TOL", 0.25),
+            ],
+            &[],
+        );
+        let out = vsh_dn(&ctx);
+        assert_eq!(out["VSH_DN_FLAG"][0], 0.0, "clean & consistent → not flagged");
+        assert_eq!(out["VSH_DN_FLAG"][1], 1.0, "N-D shaly but GR clean → flagged");
+        assert_eq!(out["VSH_DN_FLAG"][2], 1.0, "off-model crossover → flagged");
+        assert!(out["VSH_DN"][2] < 0.0, "sample 2 sits below the matrix line");
+
+        // Without GR the divergence path is inert, but off-model detection still fires.
+        let ctx_no_gr = ctx_with(
+            2,
+            &[("RHOB", vec![2.55, 2.20]), ("NPHI", vec![0.30, 0.00])],
+            &[
+                ("RHO_MA", 2.65),
+                ("RHO_SH", 2.50),
+                ("RHO_FL", 1.00),
+                ("NPHI_MA", 0.00),
+                ("NPHI_SH", 0.35),
+                ("NPHI_FL", 1.00),
+                ("GR_MA", 15.0),
+                ("GR_SH", 120.0),
+                ("FLAG_TOL", 0.25),
+            ],
+            &[],
+        );
+        let out2 = vsh_dn(&ctx_no_gr);
+        assert_eq!(out2["VSH_DN_FLAG"][0], 0.0, "no GR → shaly point not divergence-flagged");
+        assert_eq!(out2["VSH_DN_FLAG"][1], 1.0, "off-model still flagged without GR");
     }
 
     #[test]

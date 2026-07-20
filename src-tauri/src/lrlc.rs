@@ -141,7 +141,7 @@ pub fn sw_imts_spec() -> ModuleSpec {
               referenced to the ACTIVE water — Qv_eff = Qv_bulk/(1−Swirr), where Qv_bulk \
               is built from clay volumes (kaolinite/illite) times literature CEC constants \
               (8 / 25 meq/100g), calibrated to lab CEC by scaling factor S. Iterates \
-              Ct = SwT^N*/F*·(Cw + B·Qv_eff·SwT) with F* = A/PHIT^M* and Juhasz B(T, Rw) \
+              Ct = SwT^N*/F*·(Cw + B·Qv_eff/SwT) with F* = A/PHIT^M* and Juhasz B(T, Rw) \
               until SwT is stable. SWE from CBW. VKAOL/VILL default to SSC's VDCL and a \
               zero illite curve; S ≈ lab CEC / XRD-theoretical CEC (typically < 1)."
             .into(),
@@ -212,10 +212,14 @@ pub fn sw_imts(ctx: &ModuleContext) -> ModuleOutputs {
         let fstar = a / pt.powf(mstar);
         let b = juhasz_b(temp_c, rw).max(0.0);
 
-        // Iterate SwT^n*/F*·(Cw + B·Qv_eff·SwT) = Ct, seeded with the Archie-like value.
+        // Iterate SwT^n*/F*·(Cw + B·Qv_eff/SwT) = Ct, seeded with the Archie-like value.
         let mut sw = limit((fstar * ct / cw).powf(1.0 / nstar), 0.01, 1.0);
         for _ in 0..100 {
-            let denom = cw + b * qv_eff * sw;
+            // Waxman-Smits form: the excess-conductivity term is referenced to the ACTIVE
+            // water, so it DIVIDES by Sw — it grows as hydrocarbon displaces water instead of
+            // vanishing (the old `* sw` gave Sw^(n*+1), understating clay conductivity and
+            // overstating Sw in pay). Floor Sw to keep the division finite near zero.
+            let denom = cw + b * qv_eff / sw.max(1e-6);
             if denom <= 0.0 {
                 sw = f64::NAN;
                 break;
@@ -365,6 +369,35 @@ mod tests {
         let expect = ((1.0 / 0.25_f64.powf(1.9)) * (1.0 / 8.0) * 0.3).powf(1.0 / 1.9) as f32;
         assert!((out["SWT_IMTS"][0] - expect).abs() < 1e-4, "{} vs {}", out["SWT_IMTS"][0], expect);
         assert_eq!(out["QVEFF"][0], 0.0);
+    }
+
+    #[test]
+    fn imts_credits_clay_conductivity_in_pay_zone() {
+        // High-Rt clayey pay zone. The excess-conductivity term references the ACTIVE water
+        // (divides by Sw), so as hydrocarbon displaces water the clay conductivity is credited
+        // MORE, not less — pulling IMTS SwT well below the Archie seed (~0.67·seed here). The
+        // old (·Sw) form let the clay term vanish in pay (Sw^(n*+1)), leaving SwT ≈ 0.93·seed;
+        // this assertion fails under that bug.
+        let spec = sw_imts_spec();
+        let ctx = ctx_with(
+            vec![
+                ("RT", vec![20.0]),
+                ("PHIT", vec![0.25]),
+                ("VKAOL", vec![0.20]),
+                ("VILL", vec![0.05]),
+                ("SWIRR", vec![0.30]),
+            ],
+            &spec,
+            1,
+        );
+        let out = sw_imts(&ctx);
+        let swt = out["SWT_IMTS"][0] as f64;
+        assert!(swt > 0.0 && swt <= 1.0, "SwT out of range: {swt}");
+        let seed = ((1.0 / 0.25_f64.powf(1.9)) * (1.0 / 20.0) / (1.0 / 0.3)).powf(1.0 / 1.9);
+        assert!(
+            swt < 0.85 * seed,
+            "IMTS must credit clay conductivity in pay: {swt} vs seed {seed}"
+        );
     }
 
     #[test]

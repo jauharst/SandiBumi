@@ -373,6 +373,7 @@ fn report_pages(
                 phie_min: spec.phie_min,
                 swe_max: spec.swe_max,
                 perm_min: spec.perm_min,
+                skip_version: true, // report render side-effect — don't version the pay flags
             },
         )
         .unwrap_or_default();

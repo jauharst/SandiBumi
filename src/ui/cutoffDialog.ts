@@ -9,6 +9,7 @@ import {
   type CutoffSweepResult,
   type WellSummary,
 } from "../ipc";
+import { recordProcess } from "../processLog";
 import { appState, bumpDataVersion, defaultRunWellIds, filterByActiveGroup } from "../state";
 import { formRow } from "./modal";
 import { PlotCanvas, attachResizeRedraw, faciesColor, fitCanvasBackingStore, readTheme, type AxisSpec } from "./plotCanvas";
@@ -765,6 +766,7 @@ export async function buildCutoffContent(
     try {
       await saveDocument("cutoffs", "__default__", JSON.stringify(payload));
       bumpDataVersion();
+      recordProcess("Cutoffs", `Saved default cutoffs (VSH ≤ ${payload.vsh_max}, PHIE ≥ ${payload.phie_min}, SWE ≤ ${payload.swe_max})`);
       setStatus(
         `Saved pay-summary default cutoffs (VSH ≤ ${payload.vsh_max}, PHIE ≥ ${payload.phie_min}, SWE ≤ ${payload.swe_max}). Open Cutoffs & Pay Summary to use them.`,
       );
