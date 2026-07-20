@@ -167,6 +167,7 @@ pub fn list_modules() -> Vec<ModuleSpec> {
         phi_den_spec(),
         phi_dn_spec(),
         phi_son_spec(),
+        phimax_spec(),
         crate::ssc::ssc_spec(),
         crate::ssc::sspw_spec(),
         ftemp_grad_spec(),
@@ -206,6 +207,7 @@ pub fn run_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, Stri
         "phi_den" => Ok(phi_den(ctx)),
         "phi_dn" => Ok(phi_dn(ctx)),
         "phi_son" => Ok(phi_son(ctx)),
+        "phimax" => Ok(phimax(ctx)),
         "ftemp_grad" => Ok(ftemp_grad(ctx)),
         "precalc" => Ok(precalc(ctx)),
         "badhole" => Ok(badhole(ctx)),
@@ -600,6 +602,93 @@ fn phi_son(ctx: &ModuleContext) -> ModuleOutputs {
     }
 
     HashMap::from([("PHIT_SON".to_string(), phit_son), ("PHIE_SON".to_string(), phie_son)])
+}
+
+// ---------------------------------------------------------------------------
+// PHIMAX — porosity ceiling from a compaction trend (deck slide 64 "max core
+// porosity" line). Caps a computed porosity at the field's compaction-controlled
+// upper limit, per-zone overridable, as a CONSTANT or a TVDSS trend.
+// ---------------------------------------------------------------------------
+
+fn phimax_spec() -> ModuleSpec {
+    ModuleSpec {
+        name: "phimax".into(),
+        title: "Porosity Ceiling (φmax)".into(),
+        category: "Porosity".into(),
+        doc: "Caps an input porosity at a maximum ceiling — the field's compaction-\
+              controlled upper limit (the crossplot 'max core porosity' line). The ceiling \
+              is CONSTANT (PHIMAX0, per-zone overridable), or a TVDSS compaction TREND: \
+              LINEAR (φmax = PHIMAX0 − PHIMAX_GRAD·(TVDSS − TVDSS_REF)/1000) or ATHY \
+              exponential (φmax = PHIMAX0·exp(−ATHY_K·(TVDSS − TVDSS_REF)/1000)). TVDSS is a \
+              POSITIVE-downward depth-below-datum curve (same convention as precalc), so \
+              DEEPER = larger TVDSS = lower ceiling; all four params are per-zone \
+              overridable. No TVDSS curve → measured DEPTH is used instead (fine for near-\
+              vertical wells; the trend then reads against MD). Writes <PHI>_CAP = \
+              min(PHI, φmax) preserving MISSING, and the ceiling curve <PHI>_MAX for QC \
+              overlay; the input porosity is never modified. Constant mode ignores TVDSS."
+            .into(),
+        args: vec![
+            opt("MODE", "Ceiling model", "linear", &["constant", "linear", "athy"]),
+            param("PHIMAX0", "φmax at TVDSS_REF (also the CONSTANT cap value)", "v/v", 0.40, 0.0, 1.0),
+            param("TVDSS_REF", "Reference TVDSS where φmax = PHIMAX0", "ft|m", 0.0, -30000.0, 30000.0),
+            param("PHIMAX_GRAD", "LINEAR: φmax lost per 1000 TVDSS units deeper", "v/v per 1000", 0.03, -1.0, 1.0),
+            param("ATHY_K", "ATHY: compaction coefficient per 1000 TVDSS units", "1/1000", 0.10, 0.0, 5.0),
+            log_in("PHI", "Porosity to cap", "v/v", "PHIE", true),
+            log_in("TVDSS", "True vertical depth subsea (trend modes)", "ft|m", "TVDSS", false),
+            log_out("PHI_CAP", "Capped porosity (named <input>_CAP)", "v/v"),
+            log_out("PHI_MAX", "φmax ceiling curve (named <input>_MAX)", "v/v"),
+        ],
+    }
+}
+
+fn phimax(ctx: &ModuleContext) -> ModuleOutputs {
+    let phi = ctx.log("PHI");
+    let mode = ctx.o("MODE");
+    // TVDSS falls back to measured depth as a WHOLE curve, never per sample (matching
+    // precalc) — mixing MD and TVD samples would kink the trend. Constant mode never
+    // touches it. Positive-downward convention: deeper = larger value = lower ceiling.
+    let tvd_in = ctx.log("TVDSS");
+    let tvd: Vec<f32> =
+        if tvd_in.iter().any(|v| v.is_finite()) { tvd_in } else { ctx.log("DEPTH") };
+
+    let src = ctx.o("__IN_PHI");
+    let cap_name = if src.is_empty() { "PHI_CAP".to_string() } else { format!("{src}_CAP") };
+    let max_name = if src.is_empty() { "PHI_MAX".to_string() } else { format!("{src}_MAX") };
+
+    let mut capped = vec![f32::NAN; ctx.n];
+    let mut ceiling = vec![f32::NAN; ctx.n];
+    for i in 0..ctx.n {
+        let p0 = ctx.p("PHIMAX0", i);
+        let phi_max = match mode {
+            "constant" => p0,
+            "linear" | "athy" => {
+                let d = tvd[i] as f64;
+                if is_missing(d) {
+                    MISSING
+                } else {
+                    // dz > 0 when the sample is DEEPER than the reference (larger TVDSS/MD).
+                    let dz = (d - ctx.p("TVDSS_REF", i)) / 1000.0;
+                    if mode == "linear" {
+                        p0 - ctx.p("PHIMAX_GRAD", i) * dz
+                    } else {
+                        p0 * (-ctx.p("ATHY_K", i) * dz).exp()
+                    }
+                }
+            }
+            _ => p0,
+        };
+        // A porosity ceiling below 0 or above 1 is meaningless; clamp (MISSING passes through).
+        let phi_max = limit(phi_max, 0.0, 1.0);
+        ceiling[i] = phi_max as f32;
+
+        let pv = phi[i] as f64;
+        if is_missing(pv) {
+            continue; // capped stays MISSING wherever the input porosity is MISSING
+        }
+        // Where the ceiling is MISSING (e.g. trend with no depth), pass porosity through uncapped.
+        capped[i] = (if is_missing(phi_max) { pv } else { pv.min(phi_max) }) as f32;
+    }
+    HashMap::from([(cap_name, capped), (max_name, ceiling)])
 }
 
 // ---------------------------------------------------------------------------
@@ -2503,6 +2592,108 @@ mod tests {
         assert!((out["FTEMP_F"][0] - 185.0).abs() < 1e-3, "FTEMP_F {}", out["FTEMP_F"][0]);
         let expect = 0.2 * (77.0 + 6.77) / (185.0 + 6.77);
         assert!((out["RMF"][0] as f64 - expect).abs() < 1e-4, "RMF {}", out["RMF"][0]);
+    }
+
+    #[test]
+    fn phimax_constant_caps_and_preserves_missing() {
+        // CONSTANT ceiling 0.40, no TVDSS needed. Output names derive from __IN_PHI.
+        let ctx = ctx_with(
+            4,
+            &[("PHI", vec![0.30, 0.45, f32::NAN, 0.40])],
+            &[("PHIMAX0", 0.40), ("TVDSS_REF", 0.0), ("PHIMAX_GRAD", 0.03), ("ATHY_K", 0.10)],
+            &[("MODE", "constant"), ("__IN_PHI", "PHIE")],
+        );
+        let out = phimax(&ctx);
+        let cap = &out["PHIE_CAP"];
+        let mx = &out["PHIE_MAX"];
+        assert!((cap[0] - 0.30).abs() < 1e-6, "below ceiling unchanged: {}", cap[0]);
+        assert!((cap[1] - 0.40).abs() < 1e-6, "above ceiling capped: {}", cap[1]);
+        assert!(cap[2].is_nan(), "MISSING input stays MISSING");
+        assert!((cap[3] - 0.40).abs() < 1e-6, "exactly at ceiling: {}", cap[3]);
+        // Ceiling is a constant, emitted at every sample — even where the input is MISSING.
+        for m in mx {
+            assert!((m - 0.40).abs() < 1e-6, "constant ceiling everywhere: {m}");
+        }
+    }
+
+    #[test]
+    fn phimax_linear_trend_falls_with_depth() {
+        // TVDSS_REF 5000, grad 0.05 per 1000 units. At 5000 → ceiling PHIMAX0=0.40;
+        // at 6000 (1000 deeper) → 0.40 − 0.05 = 0.35. Positive-downward TVDSS.
+        let ctx = ctx_with(
+            2,
+            &[("PHI", vec![0.50, 0.50]), ("TVDSS", vec![5000.0, 6000.0])],
+            &[("PHIMAX0", 0.40), ("TVDSS_REF", 5000.0), ("PHIMAX_GRAD", 0.05), ("ATHY_K", 0.10)],
+            &[("MODE", "linear"), ("__IN_PHI", "PHIE")],
+        );
+        let out = phimax(&ctx);
+        assert!((out["PHIE_MAX"][0] - 0.40).abs() < 1e-6, "at ref: {}", out["PHIE_MAX"][0]);
+        assert!((out["PHIE_MAX"][1] - 0.35).abs() < 1e-6, "1000 deeper: {}", out["PHIE_MAX"][1]);
+        // PHI 0.50 caps to the ceiling at both depths.
+        assert!((out["PHIE_CAP"][0] - 0.40).abs() < 1e-6);
+        assert!((out["PHIE_CAP"][1] - 0.35).abs() < 1e-6);
+    }
+
+    #[test]
+    fn phimax_athy_exponential_and_depth_fallback() {
+        // No TVDSS curve → whole-curve fallback to DEPTH (MD). Athy: ceiling = 0.30·exp(−k·dz).
+        // TVDSS_REF 0, k 0.5: at MD 0 → 0.30; at MD 1000 → 0.30·exp(−0.5) = 0.181959.
+        let ctx = ctx_with(
+            2,
+            &[("PHI", vec![0.40, 0.40]), ("DEPTH", vec![0.0, 1000.0])],
+            &[("PHIMAX0", 0.30), ("TVDSS_REF", 0.0), ("PHIMAX_GRAD", 0.03), ("ATHY_K", 0.5)],
+            &[("MODE", "athy"), ("__IN_PHI", "PHIT")],
+        );
+        let out = phimax(&ctx);
+        assert!((out["PHIT_MAX"][0] - 0.30).abs() < 1e-6, "at ref: {}", out["PHIT_MAX"][0]);
+        let deep = 0.30 * (-0.5f64).exp();
+        assert!((out["PHIT_MAX"][1] as f64 - deep).abs() < 1e-6, "athy decay: {}", out["PHIT_MAX"][1]);
+        assert!((out["PHIT_CAP"][0] - 0.30).abs() < 1e-6, "capped to ceiling at ref");
+        assert!((out["PHIT_CAP"][1] as f64 - deep).abs() < 1e-6, "capped to decayed ceiling");
+    }
+
+    #[test]
+    fn phimax_clamps_ceiling_to_unit_range() {
+        // A trend that drives the ceiling out of [0,1] is clamped (deliberate guard):
+        // sample 0 — linear grad 1.0 per 1000, 30000 deep → raw −29.6 → clamped 0.0 → porosity forced to 0.
+        // sample 1 — negative grad lifts the ceiling to 1.5 → clamped 1.0 → 0.80 passes through uncapped.
+        let ctx = ctx_with(
+            2,
+            &[("PHI", vec![0.30, 0.80]), ("TVDSS", vec![30000.0, 1000.0])],
+            &[("PHIMAX0", 0.40), ("TVDSS_REF", 0.0), ("PHIMAX_GRAD", 1.0), ("ATHY_K", 0.10)],
+            &[("MODE", "linear"), ("__IN_PHI", "PHIE")],
+        );
+        let out = phimax(&ctx);
+        assert!((out["PHIE_MAX"][0] - 0.0).abs() < 1e-6, "sub-zero ceiling clamps to 0: {}", out["PHIE_MAX"][0]);
+        assert!((out["PHIE_CAP"][0] - 0.0).abs() < 1e-6, "porosity forced to 0 below crossover");
+        // Re-run sample 1 in a config where the ceiling exceeds 1 (negative gradient).
+        let ctx2 = ctx_with(
+            1,
+            &[("PHI", vec![0.80]), ("TVDSS", vec![1000.0])],
+            &[("PHIMAX0", 0.50), ("TVDSS_REF", 0.0), ("PHIMAX_GRAD", -1.0), ("ATHY_K", 0.10)],
+            &[("MODE", "linear"), ("__IN_PHI", "PHIE")],
+        );
+        let out2 = phimax(&ctx2);
+        assert!((out2["PHIE_MAX"][0] - 1.0).abs() < 1e-6, "super-unit ceiling clamps to 1: {}", out2["PHIE_MAX"][0]);
+        assert!((out2["PHIE_CAP"][0] - 0.80).abs() < 1e-6, "0.80 passes through under a 1.0 ceiling");
+    }
+
+    #[test]
+    fn phimax_partial_nan_tvdss_passes_through_uncapped() {
+        // A PARTIALLY finite TVDSS keeps the whole curve (fallback only fires when ALL samples are
+        // non-finite): the NaN-depth sample gets a MISSING ceiling and its porosity passes through
+        // uncapped — the documented per-sample semantics under the whole-curve fallback policy.
+        let ctx = ctx_with(
+            2,
+            &[("PHI", vec![0.50, 0.50]), ("TVDSS", vec![5000.0, f32::NAN])],
+            &[("PHIMAX0", 0.40), ("TVDSS_REF", 5000.0), ("PHIMAX_GRAD", 0.05), ("ATHY_K", 0.10)],
+            &[("MODE", "linear"), ("__IN_PHI", "PHIE")],
+        );
+        let out = phimax(&ctx);
+        assert!((out["PHIE_MAX"][0] - 0.40).abs() < 1e-6, "finite-depth sample capped: {}", out["PHIE_MAX"][0]);
+        assert!((out["PHIE_CAP"][0] - 0.40).abs() < 1e-6);
+        assert!(out["PHIE_MAX"][1].is_nan(), "NaN-depth sample → MISSING ceiling");
+        assert!((out["PHIE_CAP"][1] - 0.50).abs() < 1e-6, "NaN-depth porosity passes through uncapped");
     }
 
     #[test]

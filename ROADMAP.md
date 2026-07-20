@@ -932,10 +932,19 @@ client files stay OUT of the repo):**
       NaN-proof Archie, RHOG→GASDEN. NPHI analog deliberately not built: doc steers
       RHOB_GC to phi_den/PHIT_GC, warns off phi_dn/SandiMin-with-NPHI. 127 tests.
       REVIEW #23.)*
-- [ ] **(20) φmax porosity cap from compaction trend** (deck slide 64 "max core
+- [x] **(20) φmax porosity cap from compaction trend** (deck slide 64 "max core
       porosity" line): optional zone-overridable PHI_MAX (constant or TVDSS trend) in
       porosity modules + SandiMin. **Trend form to confirm with Jauhar.**
       → `ref_kkt_onwj_wave_e.md`.
+      *(DONE 2026-07-20: new `phimax` Porosity module — MODE constant/linear/athy;
+      φmax = PHIMAX0 (constant) or PHIMAX0 − GRAD·(TVDSS−REF)/1000 (linear) or
+      PHIMAX0·exp(−ATHY_K·(TVDSS−REF)/1000) (athy). TVDSS positive-downward matching
+      precalc, whole-curve DEPTH fallback; all 4 params zone-overridable. Outputs
+      <PHI>_CAP = min(PHI,φmax) + <PHI>_MAX ceiling curve; auto-dialog, appears in the
+      Porosity dropdown. Standalone post-cap (works on any porosity incl. SandiMin PHIT);
+      solver-internal φmax box constraint + survey→TVDSS-curve bridge noted as follow-ons.
+      Jauhar chose the TVDSS trend (linear + athy both shipped). Ultracode 4-lens review:
+      0 confirmed / 4 refuted, +2 regression guards added. 136 tests; tsc clean. REVIEW #26.)*
 - [x] **(21) Cutoff sensitivity tools** (deck slides 84–87): Method-1 pay-sensitivity
       sweep plots (X = candidate cutoff, Y = normalized cumulative pay per
       well/interval, DST-interval filter; paysummary engine in a sweep loop) +

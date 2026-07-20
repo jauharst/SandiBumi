@@ -6,6 +6,50 @@ Work through this list when you have time; delete items as you confirm them.
 Marks: `[o]` confirmed OK (removed from this file), `[x]` confirmed wrong → logged in
 **ROADMAP.md §4 (Field-review backlog)**, `[ ]` not yet tested.
 
+## φmax porosity ceiling — phimax module (2026-07-20 #26)
+
+**Petrophysics ▸ Porosity ▸ Porosity Ceiling (φmax)** — caps a computed porosity at
+the field's compaction-controlled upper limit (the deck slide-64 "max core porosity"
+line). A `MODE` dropdown picks the ceiling model: **constant** (a flat `PHIMAX0`,
+per-zone overridable — the literal max-line), **linear** (`φmax = PHIMAX0 −
+PHIMAX_GRAD·(TVDSS − TVDSS_REF)/1000`), or **athy** (`φmax = PHIMAX0·exp(−ATHY_K·
+(TVDSS − TVDSS_REF)/1000)`, the exponential compaction law). TVDSS is a
+positive-downward depth-below-datum curve (same convention as **precalc**), so deeper
+= larger TVDSS = lower ceiling; with no TVDSS curve it falls back whole-curve to
+measured DEPTH (fine for near-vertical wells). All four parameters are zone-overridable,
+so each formation (Post-Main / Main / Massive / Talang Akar) can carry its own ceiling
+or its own trend coefficients. Writes `<PHI>_CAP = min(PHI, φmax)` (preserving MISSING)
+and the ceiling curve `<PHI>_MAX` for a QC overlay; the input porosity is never
+modified. The dialog is auto-generated from the manifest, so it appears in the Porosity
+dropdown with no bespoke UI. Standalone by design — it caps *any* porosity output
+(phi_den/phi_dn/phi_son or SandiMin's PHIT); a solver-internal φmax box constraint is a
+noted follow-on.
+
+Adversarial review (4 lenses — math / integration / edge / contract — each finding
+verified): **0 defects confirmed, 4 refuted** (all were test-coverage/doc-completeness
+notes over correct, deliberate behaviour). Two of the flagged-untested paths were
+locked in with regression guards anyway: the ceiling clamp to [0,1] (a sub-zero trend
+ceiling forces porosity to 0; a super-unit one clamps to 1), and the partial-NaN TVDSS
+pass-through (a NaN-depth sample gets a MISSING ceiling and passes porosity through
+uncapped). cargo test 136/136; tsc clean.
+
+- [ ] **Petrophysics ▸ Porosity ▸ Porosity Ceiling (φmax)** opens (auto-dialog). Run
+      **constant** mode, PHIMAX0 = your field max (e.g. 0.35), input **PHIE** → the
+      `PHIE_CAP` curve should equal PHIE below 0.35 and flatten at 0.35 above it;
+      `PHIE_MAX` is a flat 0.35 line.
+- [ ] Crossplot `PHIE_CAP` vs depth (or overlay `PHIE_MAX` on the porosity track) — the
+      capped cloud should sit under the ceiling with no points poking above it.
+- [ ] Switch to **linear** (or **athy**) with your TVDSS trend: PHIMAX0 at a shallow
+      `TVDSS_REF`, a sensible `PHIMAX_GRAD` (or `ATHY_K`). `PHIE_MAX` should fall with
+      depth; confirm a deep zone's ceiling is lower than a shallow zone's.
+- [ ] Set **per-zone** `PHIMAX0` (or trend coeffs) in Zones/zone params and re-run —
+      each formation's ceiling should honour its own value.
+- [ ] Well with **no TVDSS curve**: linear/athy should still run (trend reads against MD
+      DEPTH) — sanity-check that the ceiling still declines with depth. Deviated wells
+      want a real TVDSS curve (survey→TVDSS bridge is a follow-on).
+- [ ] Feed `PHIE_CAP` into **Cutoffs & Pay Summary** as the PHIE input — pay should drop
+      where the cap trimmed optimistic porosity.
+
 ## Cutoff Sensitivity pane (2026-07-20 #25)
 
 **Reporting ▸ Cutoff Sensitivity** — two ways to defend a VSH/PHIE/SWE pay cutoff
