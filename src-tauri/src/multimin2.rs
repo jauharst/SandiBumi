@@ -228,6 +228,138 @@ fn bndwat_multiplier(cec: f64, rho_gcc: f64, t_c: f64, alpha: f64) -> f64 {
 }
 
 // ---------------------------------------------------------------------------
+// Wet-clay → dry-clay endpoint conversion (KKT ONWJ Multimin Parameters.xlsx)
+// ---------------------------------------------------------------------------
+
+/// Wet-clay log readings picked in a shale interval, plus the assumed dry-clay
+/// density (2.70 marine / 2.78 deltaic in the KKT ONWJ study).
+#[derive(Debug, Clone, Deserialize)]
+pub struct WetClayInput {
+    pub rhob_wet: f64,
+    pub nphi_wet: f64,
+    pub gr_wet: f64,
+    #[serde(default)]
+    pub dt_wet: Option<f64>,
+    pub rho_dry: f64,
+    /// Current fluid properties — the CEC equivalent uses their T and α_u so the
+    /// solver's BNDWAT constraint reproduces the φ_clay bookkeeping exactly.
+    #[serde(default)]
+    pub fluid: Option<FluidProps>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DryClayCalc {
+    /// Clay-bound porosity — the water fraction of the WET clay volume.
+    pub phi_clay: f64,
+    pub rhob_dry: f64,
+    pub nphi_dry: f64,
+    pub gr_dry: f64,
+    pub dt_dry: Option<f64>,
+    /// Bound-water tie for the dry-clay framework: v_bw = cbw_ratio · v_dryclay
+    /// (CBW = φ_clay · V_wetclay and V_wetclay = V_dryclay / (1 − φ_clay)).
+    pub cbw_ratio: f64,
+    /// CEC (meq/g) that makes the solver's Dual-Water BNDWAT constraint enforce
+    /// exactly cbw_ratio at the given fluid conditions — set it on the clay
+    /// component together with the dry endpoints.
+    pub cec_equiv: f64,
+}
+
+/// The xlsx conversion, verbatim (water at 1.00 g/cc and 189 µs/ft):
+///   φ_clay   = (ρ_dry − ρ_wet) / (ρ_dry − 1.0)
+///   NPHI_dry = (NPHI_wet − φ_clay) / (1 − φ_clay)
+///   GR_dry   =  GR_wet / (1 − φ_clay)
+///   DT_dry   = (DT_wet − 189·φ_clay) / (1 − φ_clay)
+/// Deck slide 59 confirms the bookkeeping: bound water is an explicit solved
+/// fluid volume (SWB = V_bw / PHIT), which is what cbw_ratio/cec_equiv feed.
+pub fn dry_clay_calc(inp: &WetClayInput) -> Result<DryClayCalc, String> {
+    const RHO_W: f64 = 1.0;
+    const DT_W: f64 = 189.0;
+    if !(inp.rhob_wet > RHO_W) {
+        return Err("wet-clay RHOB must exceed 1.0 g/cc (the water density)".into());
+    }
+    if !(inp.rho_dry > inp.rhob_wet) {
+        return Err("dry-clay density must exceed the wet-clay RHOB reading".into());
+    }
+    if !(inp.nphi_wet > 0.0 && inp.nphi_wet <= 1.0) {
+        return Err("wet-clay NPHI must be a fraction in (0, 1] v/v — not percent".into());
+    }
+    if !(inp.gr_wet > 0.0) {
+        return Err("wet-clay GR must be positive".into());
+    }
+    let phi = (inp.rho_dry - inp.rhob_wet) / (inp.rho_dry - RHO_W);
+    let dry = 1.0 - phi;
+    if let Some(d) = inp.dt_wet {
+        if !(d > DT_W * phi) {
+            return Err(format!(
+                "wet-clay DT must exceed the water term 189·φ_clay = {:.1} µs/ft",
+                DT_W * phi
+            ));
+        }
+    }
+    let cbw_ratio = phi / dry;
+    let (t_c, alpha) = match &inp.fluid {
+        Some(p) => ((p.ftemp_f - 32.0) * 5.0 / 9.0, fluid_calc(p).alpha_u),
+        None => (25.0, 1.0),
+    };
+    // Invert bndwat_multiplier (the clay's RHOB endpoint becomes ρ_dry on apply).
+    let cec_equiv = cbw_ratio * (t_c + 298.0) / (alpha * 96.0 * inp.rho_dry);
+    Ok(DryClayCalc {
+        phi_clay: phi,
+        rhob_dry: inp.rho_dry,
+        nphi_dry: (inp.nphi_wet - phi) / dry,
+        gr_dry: inp.gr_wet / dry,
+        dt_dry: inp.dt_wet.map(|d| (d - DT_W * phi) / dry),
+        cbw_ratio,
+        cec_equiv,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Fluid-property autofill from the precalc module's output curves
+// ---------------------------------------------------------------------------
+
+/// Zone-averaged fluid entries read from precalc outputs (FTEMP_F in °F and RMF
+/// in ohmm at formation temperature). `None` when the curve has no finite sample
+/// in the interval — precalc has not been run, or the zone is empty.
+#[derive(Debug, Clone, Serialize)]
+pub struct PrecalcFluid {
+    pub ftemp_f: Option<f64>,
+    pub rmf: Option<f64>,
+    pub n_ftemp: usize,
+    pub n_rmf: usize,
+}
+
+pub fn fluid_from_precalc(
+    db: &Mutex<Connection>,
+    well_id: &str,
+    top: Option<f64>,
+    bottom: Option<f64>,
+) -> Result<PrecalcFluid, String> {
+    let conn = db.lock().unwrap();
+    let names = vec!["FTEMP_F".to_string(), "RMF".to_string()];
+    let (depth, cols) = fetch_curve_frame(&conn, well_id, &names).map_err(|e| e.to_string())?;
+    let in_range = |d: f32| -> bool {
+        let d = d as f64;
+        top.is_none_or(|t| d >= t) && bottom.is_none_or(|b| d <= b)
+    };
+    let mean_of = |name: &str| -> (Option<f64>, usize) {
+        let col = cols.get(name).expect("requested curve present");
+        let mut s = 0.0;
+        let mut n = 0usize;
+        for (i, v) in col.iter().enumerate() {
+            if v.is_finite() && depth[i].is_finite() && in_range(depth[i]) {
+                s += *v as f64;
+                n += 1;
+            }
+        }
+        (if n > 0 { Some(s / n as f64) } else { None }, n)
+    };
+    let (ftemp_f, n_ftemp) = mean_of("FTEMP_F");
+    let (rmf, n_rmf) = mean_of("RMF");
+    Ok(PrecalcFluid { ftemp_f, rmf, n_ftemp, n_rmf })
+}
+
+// ---------------------------------------------------------------------------
 // Run
 // ---------------------------------------------------------------------------
 
@@ -1223,5 +1355,102 @@ mod tests {
         let wsxo = lib.iter().find(|c| c.name == "Water Sxo").unwrap();
         assert_eq!(wsxo.zone, "X");
         assert!((wsxo.max_vol - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn dry_clay_matches_the_kkt_example() {
+        // Multimin Parameters.xlsx, KK-1 Post Main: dry clay 2.70, wet 2.18333,
+        // wet NPHI 0.489583, wet GR 110 -> phi_clay 0.3039, NPHI 0.2667, GR 158.0.
+        let dc = dry_clay_calc(&WetClayInput {
+            rhob_wet: 2.18333,
+            nphi_wet: 0.489583,
+            gr_wet: 110.0,
+            dt_wet: None,
+            rho_dry: 2.70,
+            fluid: None,
+        })
+        .unwrap();
+        assert!((dc.phi_clay - 0.303922).abs() < 1e-5, "phi_clay {}", dc.phi_clay);
+        assert!((dc.nphi_dry - 0.2667).abs() < 3e-4, "nphi_dry {}", dc.nphi_dry);
+        assert!((dc.gr_dry - 158.0).abs() < 0.1, "gr_dry {}", dc.gr_dry);
+        assert_eq!(dc.rhob_dry, 2.70);
+        assert!(dc.dt_dry.is_none(), "no wet DT picked -> no dry DT");
+        assert!((dc.cbw_ratio - dc.phi_clay / (1.0 - dc.phi_clay)).abs() < 1e-12);
+    }
+
+    #[test]
+    fn dry_clay_cec_reproduces_the_bndwat_tie() {
+        // The equivalent CEC must make the solver's BNDWAT multiplier equal the
+        // phi_clay ratio at the SAME fluid conditions (T and alpha_u), and the DT
+        // conversion must follow the 189 us/ft water line.
+        let fluid = FluidProps {
+            rw: 0.305,
+            rw_temp_f: 77.0,
+            rmf: 0.10,
+            rmf_temp_f: 62.0,
+            ftemp_f: 148.0,
+            m: 1.86,
+            n: 1.78,
+            mud_type: "WATER".into(),
+        };
+        let dc = dry_clay_calc(&WetClayInput {
+            rhob_wet: 2.18333,
+            nphi_wet: 0.489583,
+            gr_wet: 110.0,
+            dt_wet: Some(110.0),
+            rho_dry: 2.70,
+            fluid: Some(fluid.clone()),
+        })
+        .unwrap();
+        let fc = fluid_calc(&fluid);
+        let t_c = (fluid.ftemp_f - 32.0) * 5.0 / 9.0;
+        let k = bndwat_multiplier(dc.cec_equiv, dc.rhob_dry, t_c, fc.alpha_u);
+        assert!((k - dc.cbw_ratio).abs() < 1e-9, "k {} vs ratio {}", k, dc.cbw_ratio);
+        let phi = dc.phi_clay;
+        let want_dt = (110.0 - 189.0 * phi) / (1.0 - phi);
+        assert!((dc.dt_dry.unwrap() - want_dt).abs() < 1e-9);
+    }
+
+    #[test]
+    fn dry_clay_rejects_degenerate_densities() {
+        let base = WetClayInput {
+            rhob_wet: 2.18,
+            nphi_wet: 0.49,
+            gr_wet: 110.0,
+            dt_wet: None,
+            rho_dry: 2.70,
+            fluid: None,
+        };
+        let wet_too_light = WetClayInput { rhob_wet: 0.9, ..base.clone() };
+        assert!(dry_clay_calc(&wet_too_light).is_err(), "wet RHOB below water density");
+        let dry_below_wet = WetClayInput { rho_dry: 2.10, ..base.clone() };
+        assert!(dry_clay_calc(&dry_below_wet).is_err(), "dry density below wet reading");
+        assert!(dry_clay_calc(&base).is_ok());
+    }
+
+    #[test]
+    fn dry_clay_rejects_unphysical_picks() {
+        // Geolog-habit percent entry, blank-field zero coercion, and a wet DT
+        // below the 189·φ water term must all error instead of producing
+        // negative dry endpoints silently.
+        let base = WetClayInput {
+            rhob_wet: 2.18333,
+            nphi_wet: 0.489583,
+            gr_wet: 110.0,
+            dt_wet: None,
+            rho_dry: 2.70,
+            fluid: None,
+        };
+        let pct = WetClayInput { nphi_wet: 48.9583, ..base.clone() };
+        assert!(dry_clay_calc(&pct).is_err(), "percent NPHI entry");
+        let blank_nphi = WetClayInput { nphi_wet: 0.0, ..base.clone() };
+        assert!(dry_clay_calc(&blank_nphi).is_err(), "blank NPHI coerced to 0");
+        let blank_gr = WetClayInput { gr_wet: 0.0, ..base.clone() };
+        assert!(dry_clay_calc(&blank_gr).is_err(), "blank GR coerced to 0");
+        // phi_clay ~0.3039 -> water term 189*phi ~57.4 us/ft.
+        let dt_low = WetClayInput { dt_wet: Some(50.0), ..base.clone() };
+        assert!(dry_clay_calc(&dt_low).is_err(), "DT below the water term");
+        let dt_ok = WetClayInput { dt_wet: Some(110.0), ..base.clone() };
+        assert!(dry_clay_calc(&dt_ok).is_ok());
     }
 }

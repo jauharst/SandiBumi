@@ -6,6 +6,38 @@ Work through this list when you have time; delete items as you confirm them.
 Marks: `[o]` confirmed OK (removed from this file), `[x]` confirmed wrong → logged in
 **ROADMAP.md §4 (Field-review backlog)**, `[ ]` not yet tested.
 
+## SandiMin: wet→dry clay converter + fluid autofill from precalc (2026-07-20 #22)
+
+Two additions inside the **SandiMin** pane (Advance tab), from your Multimin
+Parameters.xlsx workflow (Wave E item 18). **Wet clay → dry clay** panel: enter the
+wet-clay picks from a shale interval (RHOB/NPHI/GR, optional DT) and the assumed
+dry-clay density (2.70 marine / 2.78 deltaic per the KKT deck slide 60); it computes
+φ_clay = (ρdry−ρwet)/(ρdry−1) and the dry endpoints with the xlsx formulas verbatim
+(water 1.00 g/cc, 189 µs/ft), previews them live, and **Apply** writes them to the
+chosen clay, ticks it + BoundWater, and sets a **CEC_eq** on the clay that makes the
+solver's Dual-Water bound-water constraint enforce exactly v_bw = φ/(1−φ)·v_dryclay —
+the deck's slide-59 bookkeeping (SWB = VOL_UBNDWAT/PHIT). Unphysical picks error
+instead of applying: NPHI must be a fraction (percent entry rejected — Geolog habit
+guard), GR positive, wet DT above the 189·φ water term. **Autofill from precalc**
+(fluid box): pick a zone of the selected well and **Read** — fills Formation temp
+from FTEMP_F and the Rmf sample from precalc's RMF (retied to formation temp, an
+Arps no-op, only when both curves came back; a raw RMF without FTEMP_F is refused
+as not-precalc). The zone dropdown follows your well selection live.
+
+- [ ] KK-1 Post Main check: wet 2.18333/0.48958/110 with dry density 2.70 → the
+      preview must read φ_clay 0.3039, NPHI 0.2667, GR 158.0 (the xlsx values).
+- [ ] Apply to Illite, then run SandiMin with CT on: solved VOL_UBNDWAT/VOL_DRYCLAY
+      should sit at ~0.4366 (= φ/(1−φ)) in clay-rich intervals; SWB = VOL_UBNDWAT/PHIT
+      comparable to the deck's slide-59 CWB-panel behaviour.
+- [ ] Note the pairing rule: CEC_eq is tied to the clay's **RHOB endpoint** and the
+      fluid **T/Rw/α** at Apply time — if you edit any of those afterwards, re-Apply
+      (the status line and the CEC column tooltip both say so now).
+- [ ] Autofill on a precalc'd well: Read (whole well and one zone) fills FTEMP/Rmf
+      and the previews update; on a well without precalc it must refuse with "run
+      the precalc module first", not fill garbage.
+- [ ] Switch wells with the SandiMin pane open: the autofill zone list must follow
+      the selection (it re-reads the new well's zones).
+
 ## Neutron Matrix Conversion module — NPHI LS/SS/DOL (2026-07-20 #21)
 
 New Prep module **Neutron Matrix Conversion** (`nphimat`) in the Data Prep dropdown

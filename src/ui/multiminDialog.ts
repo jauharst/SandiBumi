@@ -1,6 +1,9 @@
 import {
   listWells,
+  listZones,
+  multiminDryClay,
   multiminFluidCalc,
+  multiminFluidFromPrecalc,
   multiminLibrary,
   runMultimin,
   type MmComponent,
@@ -8,6 +11,7 @@ import {
   type MultiminRequest,
   type MultiminResult,
   type WellSummary,
+  type ZoneEntry,
 } from "../ipc";
 import { appState, bumpDataVersion, defaultRunWellIds, filterByActiveGroup } from "../state";
 import { recordProcess } from "../processLog";
@@ -22,6 +26,10 @@ import { recordProcess } from "../processLog";
  *  - Constraints are automatic (Geolog program constraints): hard unity over
  *    minerals + unflushed fluids, POROSITY (ΣX = ΣU), BNDWAT (bound water tied to clay
  *    CEC), WATER MUD (Sxo ≥ Sw for WBM), and hard box bounds per component.
+ *
+ *  - Wet→dry clay converter (KKT ONWJ workflow): wet-clay picks + dry density →
+ *    dry endpoints + CEC equivalent so BNDWAT solves v_bw = φ_clay/(1−φ_clay)·v_dryclay.
+ *  - Fluid autofill: zone-averaged FTEMP_F / RMF from the precalc module's curves.
  *
  *  Physics defaults are single-sourced in Rust (`multimin_library`); this dialog edits
  *  a working copy. Spec: docs/multimin_geolog_spec.md + docs/multimin_ip_spec.md. */
@@ -83,7 +91,7 @@ export async function buildMultiminContent(
     msg.textContent = "SandiMin library unavailable — backend not reachable.";
     return { el: msg, dispose: () => {} };
   }
-  const selectedWell = appState.selectedWell.get();
+  let selectedWell = appState.selectedWell.get();
 
   // --- Working state --------------------------------------------------------
   const overrides = new Map<string, Map<string, number>>();
@@ -249,7 +257,214 @@ export async function buildMultiminContent(
   const fluidPreview = document.createElement("div");
   fluidPreview.className = "mm-fluid-preview";
   fluidBox.appendChild(fluidPreview);
+
+  // --- Autofill FTEMP / RMF from the precalc module's curves (zone-averaged) ---
+  const autofillRow = document.createElement("div");
+  autofillRow.className = "mm-tool-row";
+  const autoLab = document.createElement("span");
+  autoLab.className = "mm-tool-key";
+  autoLab.textContent = "Autofill from precalc";
+  autoLab.title = "Reads the well's FTEMP_F and RMF curves (precalc module outputs), averaged over the chosen zone";
+  autofillRow.appendChild(autoLab);
+  const zoneSel = document.createElement("select");
+  const wholeOpt = document.createElement("option");
+  wholeOpt.value = "";
+  wholeOpt.textContent = "(whole well)";
+  zoneSel.appendChild(wholeOpt);
+  let zoneList: ZoneEntry[] = [];
+  function refreshZones(): void {
+    zoneList = [];
+    while (zoneSel.options.length > 1) zoneSel.remove(1);
+    zoneSel.value = "";
+    if (!selectedWell) return;
+    const wid = selectedWell.well_id;
+    listZones(wid)
+      .then((zs) => {
+        if (selectedWell?.well_id !== wid) return;
+        zoneList = zs;
+        for (const z of zs) {
+          const o = document.createElement("option");
+          o.value = z.zone_name;
+          o.textContent = z.zone_name;
+          zoneSel.appendChild(o);
+        }
+      })
+      .catch(() => {});
+  }
+  // The pane is a persistent singleton — track the well selection like the
+  // other panes do (fires immediately, doing the initial zone fill).
+  const unsubWell = appState.selectedWell.subscribe((w) => {
+    selectedWell = w;
+    refreshZones();
+  });
+  autofillRow.appendChild(zoneSel);
+  const autofillBtn = document.createElement("button");
+  autofillBtn.type = "button";
+  autofillBtn.textContent = "Read";
+  autofillBtn.addEventListener("click", async () => {
+    const well = selectedWell ?? wells.find((w) => wellChecks.get(w.well_id)?.checked);
+    if (!well) {
+      setStatus("SandiMin autofill: select a well first");
+      return;
+    }
+    const zone = zoneList.find((z) => z.zone_name === zoneSel.value);
+    try {
+      const pf = await multiminFluidFromPrecalc(well.well_id, zone?.top_depth ?? null, zone?.bottom_depth ?? null);
+      if (pf.ftemp_f === null && pf.rmf === null) {
+        setStatus(`SandiMin autofill: no FTEMP_F/RMF samples on ${well.well_name} — run the precalc module first`);
+        return;
+      }
+      if (pf.ftemp_f === null) {
+        // An RMF curve resolved without FTEMP_F — a raw import, not a precalc
+        // output, so its reference temperature is unknown. Apply nothing.
+        setStatus(
+          `SandiMin autofill: ${well.well_name} has an RMF curve but no FTEMP_F — ` +
+            `not a precalc output, nothing applied (run the precalc module first)`,
+        );
+        return;
+      }
+      ftInp.value = pf.ftemp_f.toFixed(1);
+      if (pf.rmf !== null) {
+        rmfInp.value = pf.rmf.toFixed(4);
+        // Precalc's RMF is already at formation temperature — retie the sample
+        // temperature only when an RMF value actually came back with it.
+        rmfTInp.value = pf.ftemp_f.toFixed(1);
+      }
+      refreshFluidPreview();
+      refreshDryPreview();
+      const where = zone ? zone.zone_name : "whole well";
+      setStatus(
+        `SandiMin autofill (${well.well_name}, ${where}): FTEMP ${pf.ftemp_f.toFixed(1)} °F, ` +
+          `RMF ${pf.rmf?.toFixed(4) ?? "—"} ohmm (${pf.n_ftemp}/${pf.n_rmf} samples)`,
+      );
+    } catch (e) {
+      setStatus(`SandiMin autofill failed: ${e}`);
+    }
+  });
+  autofillRow.appendChild(autofillBtn);
+  fluidBox.appendChild(autofillRow);
   content.appendChild(fluidBox);
+
+  // --- Wet clay → dry clay converter (KKT ONWJ xlsx workflow) ---------------
+  // Pick wet-clay readings in a shale interval, assume a dry-clay density, and
+  // the backend derives the dry endpoints + the CEC that makes the BNDWAT
+  // constraint solve bound water as v_bw = φ_clay/(1−φ_clay) · v_dryclay.
+  const dryBox = document.createElement("div");
+  dryBox.className = "mm-fluid";
+  const dryHead = document.createElement("div");
+  dryHead.className = "mm-group-head";
+  dryHead.textContent = "Wet clay → dry clay (PHIT-basis endpoints)";
+  dryBox.appendChild(dryHead);
+  const dryGrid = document.createElement("div");
+  dryGrid.className = "mm-fluid-grid";
+  dryBox.appendChild(dryGrid);
+
+  const wetRhobInp = numInput(2.18);
+  const wetNphiInp = numInput(0.49);
+  const wetGrInp = numInput(110);
+  const wetDtInp = document.createElement("input");
+  wetDtInp.type = "number";
+  wetDtInp.step = "any";
+  wetDtInp.style.width = "64px";
+  wetDtInp.placeholder = "(none)";
+  const dryRhoInp = numInput(2.7);
+  const claySel = document.createElement("select");
+  for (const c of library.filter((c) => c.kind === "clay")) {
+    const o = document.createElement("option");
+    o.value = c.name;
+    o.textContent = c.name;
+    if (c.name === "Illite") o.selected = true;
+    claySel.appendChild(o);
+  }
+  const dryFields: [string, HTMLElement][] = [
+    ["Wet RHOB (g/cc)", wetRhobInp],
+    ["Wet NPHI (v/v)", wetNphiInp],
+    ["Wet GR (API)", wetGrInp],
+    ["Wet DT (µs/ft)", wetDtInp],
+    ["Dry clay density (g/cc)", dryRhoInp],
+    ["Apply to clay", claySel],
+  ];
+  for (const [lab, inp] of dryFields) {
+    const cell = document.createElement("label");
+    cell.className = "mm-fluid-cell";
+    const sp = document.createElement("span");
+    sp.textContent = lab;
+    cell.appendChild(sp);
+    cell.appendChild(inp);
+    dryGrid.appendChild(cell);
+  }
+  const dryPreview = document.createElement("div");
+  dryPreview.className = "mm-fluid-preview";
+  dryBox.appendChild(dryPreview);
+  const dryApplyRow = document.createElement("div");
+  dryApplyRow.className = "mm-tool-row";
+  const dryApplyBtn = document.createElement("button");
+  dryApplyBtn.type = "button";
+  dryApplyBtn.textContent = "Apply to clay + include BoundWater";
+  dryApplyRow.appendChild(dryApplyBtn);
+  dryBox.appendChild(dryApplyRow);
+  content.appendChild(dryBox);
+
+  function readWetClay() {
+    return {
+      rhob_wet: Number(wetRhobInp.value) || 0,
+      nphi_wet: Number(wetNphiInp.value) || 0,
+      gr_wet: Number(wetGrInp.value) || 0,
+      dt_wet: wetDtInp.value.trim() === "" ? null : Number(wetDtInp.value),
+      rho_dry: Number(dryRhoInp.value) || 0,
+      fluid: readFluid(),
+    };
+  }
+
+  let dryTimer: number | undefined;
+  function refreshDryPreview(): void {
+    window.clearTimeout(dryTimer);
+    dryTimer = window.setTimeout(() => {
+      multiminDryClay(readWetClay())
+        .then((dc) => {
+          const dt = dc.dt_dry === null ? "—" : dc.dt_dry.toFixed(1);
+          dryPreview.textContent =
+            `φ_clay=${dc.phi_clay.toFixed(4)}  →  RHOB ${dc.rhob_dry.toFixed(3)}  NPHI ${dc.nphi_dry.toFixed(4)}` +
+            `  GR ${dc.gr_dry.toFixed(1)}  DT ${dt}  |  v_bw = ${dc.cbw_ratio.toFixed(4)}·v_dryclay` +
+            `  (CEC_eq ${dc.cec_equiv.toFixed(4)} meq/g at current fluid T/α)`;
+        })
+        .catch((e) => {
+          dryPreview.textContent = String(e);
+        });
+    }, 250);
+  }
+  for (const [, inp] of dryFields) inp.addEventListener("input", refreshDryPreview);
+  refreshDryPreview();
+
+  dryApplyBtn.addEventListener("click", async () => {
+    let dc;
+    try {
+      dc = await multiminDryClay(readWetClay());
+    } catch (e) {
+      setStatus(`Dry-clay conversion: ${e}`);
+      return;
+    }
+    const clay = claySel.value;
+    const m = overrides.get(clay);
+    if (!m) return;
+    m.set("RHOB", Number(dc.rhob_dry.toFixed(3)));
+    m.set("NPHI", Number(dc.nphi_dry.toFixed(4)));
+    m.set("GR", Number(dc.gr_dry.toFixed(1)));
+    if (dc.dt_dry !== null) m.set("DT", Number(dc.dt_dry.toFixed(1)));
+    cecMap.set(clay, Number(dc.cec_equiv.toFixed(4)));
+    included.add(clay);
+    compChecks.get(clay)!.checked = true;
+    // The dry-clay framework needs bound water solved explicitly (PHIT basis).
+    if (overrides.has("BoundWater")) {
+      included.add("BoundWater");
+      compChecks.get("BoundWater")!.checked = true;
+    }
+    renderTable();
+    setStatus(
+      `SandiMin: dry-clay endpoints applied to ${clay} — φ_clay ${dc.phi_clay.toFixed(4)}, ` +
+        `CEC_eq ${dc.cec_equiv.toFixed(4)} meq/g (re-apply if fluid T/Rw/α or this clay's RHOB endpoint change)`,
+    );
+  });
 
   function readFluid(): MmFluidProps {
     return {
@@ -280,8 +495,13 @@ export async function buildMultiminContent(
         });
     }, 250);
   }
-  for (const [, inp] of fluidFields) inp.addEventListener("input", refreshFluidPreview);
-  mudSel.addEventListener("change", refreshFluidPreview);
+  // Fluid T/Rw changes also move the dry-clay panel's CEC_eq — keep both fresh.
+  const refreshBothPreviews = (): void => {
+    refreshFluidPreview();
+    refreshDryPreview();
+  };
+  for (const [, inp] of fluidFields) inp.addEventListener("input", refreshBothPreviews);
+  mudSel.addEventListener("change", refreshBothPreviews);
   refreshFluidPreview();
 
   function updateFluidVisibility(): void {
@@ -304,7 +524,10 @@ export async function buildMultiminContent(
     for (const h of ["Component", ...active.map((t) => t.key), "CEC", "Max"]) {
       const th = document.createElement("th");
       th.textContent = h;
-      if (h === "CEC") th.title = "Cation exchange capacity (meq/g, clays) — drives the bound-water constraint";
+      if (h === "CEC")
+        th.title =
+          "Cation exchange capacity (meq/g, clays) — drives the bound-water constraint. " +
+          "A converter-derived CEC_eq is paired to the clay's RHOB endpoint — re-Apply after editing either.";
       if (h === "Max") th.title = "Upper volume bound (hard)";
       hr.appendChild(th);
     }
@@ -501,5 +724,12 @@ export async function buildMultiminContent(
     }
   });
 
-  return { el: content, dispose: () => window.clearTimeout(previewTimer) };
+  return {
+    el: content,
+    dispose: () => {
+      window.clearTimeout(previewTimer);
+      window.clearTimeout(dryTimer);
+      unsubWell();
+    },
+  };
 }

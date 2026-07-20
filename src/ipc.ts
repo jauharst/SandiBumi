@@ -648,6 +648,46 @@ export function multiminFluidCalc(props: MmFluidProps): Promise<MmFluidCalc> {
   return invoke<MmFluidCalc>("multimin_fluid_calc", { props });
 }
 
+/** Wet-clay picks + assumed dry-clay density for the wet→dry endpoint conversion. */
+export interface MmWetClayInput {
+  rhob_wet: number;
+  nphi_wet: number;
+  gr_wet: number;
+  dt_wet: number | null;
+  rho_dry: number;
+  fluid: MmFluidProps | null;
+}
+
+export interface MmDryClayCalc {
+  phi_clay: number;
+  rhob_dry: number;
+  nphi_dry: number;
+  gr_dry: number;
+  dt_dry: number | null;
+  cbw_ratio: number;
+  cec_equiv: number;
+}
+
+export function multiminDryClay(input: MmWetClayInput): Promise<MmDryClayCalc> {
+  return invoke<MmDryClayCalc>("multimin_dry_clay", { input });
+}
+
+/** Zone-averaged FTEMP_F / RMF from the precalc module's output curves. */
+export interface MmPrecalcFluid {
+  ftemp_f: number | null;
+  rmf: number | null;
+  n_ftemp: number;
+  n_rmf: number;
+}
+
+export function multiminFluidFromPrecalc(
+  wellId: string,
+  top: number | null,
+  bottom: number | null,
+): Promise<MmPrecalcFluid> {
+  return invoke<MmPrecalcFluid>("multimin_fluid_from_precalc", { wellId, top, bottom });
+}
+
 export interface ZoneEntry {
   zone_name: string;
   top_depth: number;

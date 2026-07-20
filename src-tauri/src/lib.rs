@@ -549,6 +549,25 @@ fn multimin_fluid_calc(props: multimin2::FluidProps) -> multimin2::FluidCalc {
     multimin2::fluid_calc(&props)
 }
 
+/// Wet-clay → dry-clay endpoint conversion (KKT ONWJ xlsx workflow) for the
+/// SandiMin dialog's converter panel.
+#[tauri::command]
+fn multimin_dry_clay(input: multimin2::WetClayInput) -> Result<multimin2::DryClayCalc, String> {
+    multimin2::dry_clay_calc(&input)
+}
+
+/// Zone-averaged FTEMP_F / RMF read from the precalc module's output curves, for
+/// the SandiMin fluid-properties autofill.
+#[tauri::command]
+fn multimin_fluid_from_precalc(
+    db: tauri::State<DbState>,
+    well_id: String,
+    top: Option<f64>,
+    bottom: Option<f64>,
+) -> Result<multimin2::PrecalcFluid, String> {
+    multimin2::fluid_from_precalc(&db.0, &well_id, top, bottom)
+}
+
 /// Lists the zones defined for a well.
 #[tauri::command]
 fn list_zones(db: tauri::State<DbState>, well_id: String) -> Result<Vec<db::ZoneEntry>, String> {
@@ -857,6 +876,8 @@ pub fn run() {
             run_multimin,
             multimin_library,
             multimin_fluid_calc,
+            multimin_dry_clay,
+            multimin_fluid_from_precalc,
             start_inversion,
             get_inversion_status,
             run_workflow_chain,

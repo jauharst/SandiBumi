@@ -886,11 +886,21 @@ client files stay OUT of the repo):**
       with ftemp_grad consumers), own SURF_TEMP/TEMP_GRAD param names (no zone-param
       cross-talk), TREND ft-fit + CT/CXO-are-QC caveats in docs. SandiMin fluid-prop
       autofill from these curves lands with item 18's SandiMin dialog work.)*
-- [ ] **(18) Wet→dry clay endpoint conversion** for the PHIT-basis (dry-clay
+- [x] **(18) Wet→dry clay endpoint conversion** for the PHIT-basis (dry-clay
       framework) Sw model: φ_clay = (ρdry−ρwet)/(ρdry−1); NPHI/GR/DT rescaled onto
       the dry fraction (formulas verbatim from his xlsx). Converter in the SandiMin
       dialog producing dry-clay component endpoints + φ_clay/CBW bookkeeping.
       → `ref_kkt_onwj_wave_e.md`.
+      *(DONE 2026-07-20: `dry_clay_calc` + `fluid_from_precalc` in multimin2.rs,
+      converter panel + precalc autofill row in the SandiMin pane. CBW bookkeeping
+      settled against deck slide 59 (bound water = explicit solved volume, SWB =
+      VOL_UBNDWAT/PHIT): CEC_eq inverts the existing BNDWAT multiplier so the solver
+      enforces v_bw = φ/(1−φ)·v_dryclay with no solver change. Unphysical-pick guards
+      (percent NPHI, GR ≤ 0, DT below 189·φ). Adversarial review 15 raised → 7
+      confirmed → all fixed: pane now subscribes to the well selection (zone list
+      follows), Rmf temp retied only when RMF actually read, raw non-precalc RMF
+      refused, dry preview tracks fluid edits, CEC_eq↔RHOB-endpoint pairing hinted
+      in status + tooltip. 122 cargo tests, tsc clean, browser-verified. REVIEW #22.)*
 - [ ] **(19) Gas correction, iterated** (deck slide 65): ρb_corr = RHOB +
       Φt·(1−Sw)·(1.00−ρg_res), ρg_res from SG at reservoir P&T (needs 17); outer
       loop solve→correct→re-solve until |ΔΦt| converges (IP style), NPHI analog to
