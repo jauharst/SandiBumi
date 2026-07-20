@@ -6,6 +6,21 @@ Work through this list when you have time; delete items as you confirm them.
 Marks: `[o]` confirmed OK (removed from this file), `[x]` confirmed wrong → logged in
 **ROADMAP.md §4 (Field-review backlog)**, `[ ]` not yet tested.
 
+## Wave A-2: compact import ribbon (2026-07-20 #16)
+
+The Data tab's eleven flat import buttons are now three Office-style dropdowns
+(ROADMAP §4c item 4) — same handlers, just organized:
+
+- [ ] **Import Logs ▾** (LAS, DLIS), **Import Data ▾** (Core, SCAL, Tops, Aux,
+      Deviation), **Export LAS** (unchanged flat button), **Tools ▾**
+      (Autocorrelate Tops, Shift Core, Well Header). Run one import of each kind —
+      behaviour must be identical to the old buttons; tooltips moved onto the
+      menu entries.
+- [ ] Only one menu opens at a time; picking an item or clicking elsewhere closes it.
+- [ ] Bahasa Indonesia / Basa Sunda: the new labels translate (Impor Log / Impor
+      Data / Alat) including the previously untranslated Import Tops / Import Aux /
+      Autocorrelate entries.
+
 ## Wave A-1: tool panes + theme compliance (2026-07-20 #15)
 
 Four tools moved from popup dialogs to dock panes (ROADMAP §4c item 14) — they now

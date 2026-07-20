@@ -147,17 +147,8 @@ export class Ribbon {
     }
 
     // --- Data ---
-    q<HTMLButtonElement>("#import-las-btn")?.addEventListener("click", () => void this.handleImport());
     q<HTMLButtonElement>("#export-las-btn")?.addEventListener("click", () => void this.handleExport());
-    q<HTMLButtonElement>("#import-core-btn")?.addEventListener("click", () => void this.handleImportCore());
-    q<HTMLButtonElement>("#shift-core-btn")?.addEventListener("click", () => this.handleShiftCore());
-    q<HTMLButtonElement>("#import-dlis-btn")?.addEventListener("click", () => void this.handleImportDlis());
-    q<HTMLButtonElement>("#import-scal-btn")?.addEventListener("click", () => void this.handleImportScal());
-    q<HTMLButtonElement>("#import-tops-btn")?.addEventListener("click", () => void this.handleImportTops());
-    q<HTMLButtonElement>("#import-aux-btn")?.addEventListener("click", () => this.handleImportAux());
-    q<HTMLButtonElement>("#autocorr-tops-btn")?.addEventListener("click", () => void openAutoCorrDialog());
-    q<HTMLButtonElement>("#import-deviation-btn")?.addEventListener("click", () => void this.handleImportDeviation());
-    q<HTMLButtonElement>("#well-header-btn")?.addEventListener("click", () => this.handleWellHeader());
+    this.buildDataDropdowns(root);
     q<HTMLButtonElement>("#open-wells-btn")?.addEventListener("click", () => workspace.openWellsTops());
     q<HTMLButtonElement>("#open-inspector-btn")?.addEventListener("click", () => workspace.openInspector());
     q<HTMLButtonElement>("#db-inspector-btn")?.addEventListener("click", () => workspace.openDbInspector());
@@ -232,6 +223,90 @@ export class Ribbon {
       workspace.resetWorkspace();
       setStatus("Workspace reset to default");
     });
+  }
+
+  /** Compact Data-tab import/export (ROADMAP §4c item 4): the eleven flat buttons are
+   *  now three Office-style dropdowns around the static Export LAS button. Tooltips
+   *  carry the per-format guidance the old buttons' title attributes held. */
+  private buildDataDropdowns(root: HTMLElement): void {
+    const row = root.querySelector<HTMLElement>("#data-io-row");
+    const exportBtn = root.querySelector<HTMLButtonElement>("#export-las-btn");
+    if (!row || !exportBtn) return;
+
+    const importLogs = buildRibbonDropdown(
+      "Import Logs",
+      "M4 13v3a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-3M10 3v9M6.5 8.5 10 12l3.5-3.5",
+      [
+        {
+          label: "Import LAS…",
+          doc: "Import an LAS 2.0 file as a new well (every curve, family-aliased)",
+          onPick: () => void this.handleImport(),
+        },
+        {
+          label: "Import DLIS…",
+          doc: "Import every curve from a DLIS file into the selected well (via dlisio)",
+          onPick: () => void this.handleImportDlis(),
+        },
+      ],
+    );
+
+    const importData = buildRibbonDropdown(
+      "Import Data",
+      "M6 3h6l3 3v11a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z M7 11l2.5 2.5L13 9",
+      [
+        {
+          label: "Import Core…",
+          doc: "Import routine core analysis (CPOR/CPERM/CGD/CSW) CSV for the selected well",
+          onPick: () => void this.handleImportCore(),
+        },
+        {
+          label: "Import SCAL…",
+          doc: "Import SCAL capillary-pressure (Pc/Sw) CSV for the selected well and fit the Leverett J-function",
+          onPick: () => void this.handleImportScal(),
+        },
+        {
+          label: "Import Tops…",
+          doc: "Import formation tops from CSV/TXT — a WELL column updates every matching well; without one, tops land in the selected well",
+          onPick: () => void this.handleImportTops(),
+        },
+        {
+          label: "Import Aux…",
+          doc: "Import petrography, XRD or perforation data (tops-style CSV/TXT) for the selected well",
+          onPick: () => this.handleImportAux(),
+        },
+        {
+          label: "Import Deviation…",
+          doc: "Import a deviation survey (MD/INC/AZI CSV) and compute TVD/TVDSS for the selected well",
+          onPick: () => void this.handleImportDeviation(),
+        },
+      ],
+    );
+
+    const tools = buildRibbonDropdown(
+      "Tools",
+      "M3 6c2-2 3 2 5 0s3 2 5 0 3 2 4 1M3 13c2-2 3 2 5 0s3 2 5 0 3 2 4 1M10 8v3",
+      [
+        {
+          label: "Autocorrelate Tops…",
+          doc: "Propagate a top from the selected well to other wells by matching a log's shape (GR by default)",
+          onPick: () => void openAutoCorrDialog(),
+        },
+        {
+          label: "Shift Core…",
+          doc: "Shift the selected well's core plugs by a constant depth (core-to-log alignment; undoable)",
+          onPick: () => this.handleShiftCore(),
+        },
+        {
+          label: "Well Header…",
+          doc: "Edit the selected well's header (field, TD, KB datum)",
+          onPick: () => this.handleWellHeader(),
+        },
+      ],
+    );
+
+    row.insertBefore(importLogs, exportBtn);
+    row.insertBefore(importData, exportBtn);
+    row.appendChild(tools);
   }
 
   private attachTabs(root: HTMLElement): void {
