@@ -750,7 +750,9 @@ architecture, not ported later):**
       singleton-per-module) and autoCorr last. Keep as popups: layoutProps, curveEdit,
       tops micro-forms, ribbon mini-forms. Fix modal.ts single-root leak for whatever
       remains. → `code_ui_shell.md`.
-- [ ] **(4) Compact import ribbon.** Regenerate the Data tab's 15 flat buttons into
+- [x] **(4) Compact import ribbon.** _(Done 2026-07-20 — Import Logs ▾ / Import
+      Data ▾ / Tools ▾ via buildRibbonDropdown, i18n'd; Manage group kept.)_
+      Regenerate the Data tab's 15 flat buttons into
       `buildRibbonDropdown` menus (already exists, used by Petrophysics categories):
       Import Logs ▾ (LAS/DLIS), Import Data ▾ (core/SCAL/tops/aux/deviation), Export ▾,
       Tools ▾ (autocorrelate/shift core/well header). Pure frontend; handlers exist.
