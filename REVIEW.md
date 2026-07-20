@@ -13,35 +13,35 @@ robustness residual (#118) that closing them surfaced, are implemented and unit-
 (full lib suite **160 pass / 0 fail**, tsc clean). These are the ones that made answers
 wrong or silently lost data, so they matter most for Mahakam work:
 
-- [ ] **MASK now blanks module INPUTS, not just outputs** (workflow.rs). Run **GR
-      Normalize** (or **Log Predict**) with a BADHOLE / COND_FLAG curve set as the
+- [x] **MASK now blanks module INPUTS, not just outputs** (workflow.rs). Run **GR
+      Normalize** (or **Log Predict**) with a BADHOLE / COND*FLAG curve set as the
       **Mask**. The well P3/P97 (and the KNN training set) are now computed from the
       unmasked samples only — casing/washout/hot-streak GR no longer shifts the two-point
       transform, so good-hole output stops drifting. For log_predict the repaired synthetic
-      now survives *inside* the masked (washout) interval it exists to fill, instead of
+      now survives \_inside* the masked (washout) interval it exists to fill, instead of
       being blanked there. Test: `mask_excludes_flagged_samples_from_gr_normalize_percentiles`.
-- [ ] **SW-height uses TVD and allows a subsea FWL** (satheight.rs). The sw_height module
+- [x] **SW-height uses TVD and allows a subsea FWL** (satheight.rs). The sw_height module
       now takes an optional **TVD** input (defaults to measured depth when absent) and the
       **FWL** field accepts negative (subsea TVDSS) values. On a deviated well, height above
       the contact — and therefore SWH — is no longer optimistically overstated by ~1/cos(inc).
       Run on a deviated Mahakam well with the TVD curve mapped and confirm SWH rises vs the
       old MD-based result. Test: the negative-TVDSS deviated case in satheight.rs.
-- [ ] **Pay summary: thin-zone clamp + honest averages** (workflow.rs). Each sample's
+- [x] **Pay summary: thin-zone clamp + honest averages** (workflow.rs). Each sample's
       thickness is clamped to its overlap with the zone, so the last in-zone sample no longer
       bleeds a full step past the zone base and **net can never exceed gross** (sub-step-thick
       zones). SAND-row `avg_phie` is normalised over the thickness where PHIE is actually
       valid, so a sample with good VSH but missing PHIE no longer drags the average toward
       zero. Cross-check a well with thin zones / patchy PHIE against the old numbers. Test:
       `pay_summary_clamps_thin_zone_and_normalizes_avg_phie_over_valid`.
-- [ ] **Crash-safe curve writes** (db.rs `with_txn`). Every delete-then-append writer
+- [x] **Crash-safe curve writes** (db.rs `with_txn`). Every delete-then-append writer
       (computed curves, restore/delete log set, core/aux/SCAL/curve-sample/well-path inserts,
       group members, zones-from-tops) now runs inside a single BEGIN/COMMIT/ROLLBACK, so an
       app kill mid-write can no longer leave the DELETE committed but the re-append lost.
       Nothing to click — just note that a tauri-dev restart mid-run won't silently drop curves.
-- [ ] **IMTS clay-conductivity direction fixed** (lrlc.rs sw_imts). The excess-conductivity
-      term now *divides* by Sw (Waxman-Smits `Cw + B·Qv_eff/Sw`), so it grows as hydrocarbon
+- [x] **IMTS clay-conductivity direction fixed** (lrlc.rs sw*imts). The excess-conductivity
+      term now \_divides* by Sw (Waxman-Smits `Cw + B·Qv_eff/Sw`), so it grows as hydrocarbon
       displaces water instead of vanishing. IMTS SwE now sits at/just below Waxman-Smits in
-      pay (the old `·Sw` form gave Sw^(n*+1) and over-stated Sw exactly in the LRLC pay this
+      pay (the old `·Sw` form gave Sw^(n\*+1) and over-stated Sw exactly in the LRLC pay this
       method exists to find). Re-run sw_imts on an LRLC interval and confirm SwE dropped.
       Test: `imts_credits_clay_conductivity_in_pay_zone`.
 - [ ] **DLIS null sentinels + no silent overwrite** (dlis.rs). DLIS absent/sentinel values
@@ -57,7 +57,7 @@ wrong or silently lost data, so they matter most for Mahakam work:
 - [ ] **LAS import survives duplicate/odd-depth files on BOTH stores** (parsers.rs, ingest.rs).
       Non-finite and duplicate depths are dropped (first occurrence kept) before insert, so a
       **spliced/merged LAS with a repeated depth section** imports instead of aborting on the
-      `(well_id, depth)` PK — and the fix now covers the *generic* store too (PEF/CALI/extra
+      `(well_id, depth)` PK — and the fix now covers the _generic_ store too (PEF/CALI/extra
       runs), which previously PK-failed silently and left the well without those curves. Extras:
       a Schlumberger **TDEP**-indexed (or any non-`DEPT`) file resolves depth via the first
       column; an auxiliary **MD/TDEP track** in a later column can no longer steal the depth
@@ -78,9 +78,10 @@ leaks). Frontend-only (TypeScript, `tsc` clean); these are async-lifecycle behav
 no unit tests, so they were hardened by an adversarial review (4 lenses → per-finding
 skeptical verify: **6 confirmed / 0 refuted**, all fixed — including one real HIGH bug in
 the first-pass init guard) plus a focused **second-pass verify of the fixes** (renderer-dispose
-+ sticky-reset lenses: **clean, 0 defects**). Click-through in `npm run tauri dev`:
 
-- [ ] **Plots refresh after a module run, keeping their viewport** (histogramPanel,
+- sticky-reset lenses: **clean, 0 defects**). Click-through in `npm run tauri dev`:
+
+* [ ] **Plots refresh after a module run, keeping their viewport** (histogramPanel,
       crossplotPanel, pickettPanel, correlationPanel, logViewPanel). Open a Histogram of
       PHIE (zoom in), then run a module/equation that recomputes PHIE (or import / undo —
       anything that bumps `dataVersion`). The plot now re-reads the new curve **in place**,
@@ -88,7 +89,7 @@ the first-pass init guard) plus a focused **second-pass verify of the fixes** (r
       and reopen the panel. Each builder subscribes to `appState.dataVersion` and calls
       `reload(preserveView=true)`; a `dataPrimed` guard swallows the subscribe's immediate
       fire so nothing double-loads on open.
-- [ ] **Fast well/curve/zone switching never shows stale data** (loadWell, reload,
+* [ ] **Fast well/curve/zone switching never shows stale data** (loadWell, reload,
       createPlot). Click quickly through 5 wells in the Log view, or spam curve/zone changes
       in the Crossplot/Pickett/Histogram. A slow earlier load can no longer land after and
       overwrite a newer selection — each async load captures a generation token before its
@@ -96,14 +97,14 @@ the first-pass init guard) plus a focused **second-pass verify of the fixes** (r
       / changing the curve) still fires exactly once even if a `preserveView` refresh commits
       first, via a sticky `resetPending`/`viewResetPending` flag — so you neither keep a stale
       zoom that should have reset nor lose a reset that a background refresh raced past.
-- [ ] **Opening/closing Log panels doesn't leak listeners or GPU loops** (logViewPanel
+* [ ] **Opening/closing Log panels doesn't leak listeners or GPU loops** (logViewPanel
       dispose, LogCanvasRenderer). Repeatedly open and close Log view panels. The renderer's
       `window` pointerup/pointermove handlers are now removed and its `requestAnimationFrame`
       loop cancelled on `dispose()` (previously leaked one set per open); disposing a panel
-      *during* WebGPU init now disposes the fully-initialized local renderer rather than a
+      _during_ WebGPU init now disposes the fully-initialized local renderer rather than a
       no-op on an already-nulled field. Nothing visible per-close, but memory/handler count
       stays flat over a long session.
-- [ ] **Dialog Escape is scoped to the dialog — closes the P1 modal-Escape sliver** (modal.ts).
+* [ ] **Dialog Escape is scoped to the dialog — closes the P1 modal-Escape sliver** (modal.ts).
       The carried-over P1 sliver ("overlapping dialogs share one Escape handler"). The listener-
       leak half was already handled — `openModal` single-instances via `activeClose` (a new dialog
       closes the prior one and removes its keydown listener; no modal opens a nested modal, so
@@ -158,8 +159,8 @@ each tsc-clean. Mapped by a read-only investigation wave before implementing.
       with RES_DEEP + computed PHIE; pick two points on the wet trend → M/Rw fill and lines draw;
       type a different Rw → lines follow; right-click → set RT axis 0.2–200 and color by SW/VSH →
       points recolor; reopen the panel → settings persist.
-- [ ] **Pay-summary provenance — FLAG_* versioned + cutoffs recorded** (workflow.rs, backend).
-      run_pay_summary wrote FLAG_SAND/RESERVOIR/PAY with the old in-place `write_computed_curve`
+- [ ] **Pay-summary provenance — FLAG\_\* versioned + cutoffs recorded** (workflow.rs, backend).
+      run*pay_summary wrote FLAG_SAND/RESERVOIR/PAY with the old in-place `write_computed_curve`
       — no version history, and the VSH/PHIE/SWE cutoffs that produced them were recorded nowhere.
       Now the explicit **Cutoffs & Pay Summary** run versions the three flags into a **PAYFLAG**
       log set whose provenance = module `pay_summary` + the cutoffs (in `log_sets.params_json`) +
@@ -169,7 +170,7 @@ each tsc-clean. Mapped by a read-only investigation wave before implementing.
       churn per refresh. Test `pay_summary_versions_flags_with_cutoffs_in_provenance` (161 lib
       tests pass / 0 fail / 7 ignored; tsc clean). Click-through: run Cutoffs & Pay Summary on a
       well → Curve Catalog shows a PAYFLAG version whose provenance lists the cutoffs; re-run →
-      version N+1; run the Field Dashboard → FLAG_* update but no new version piles up.
+      version N+1; run the Field Dashboard → FLAG*\* update but no new version piles up.
 
 ## Performance (field-scale speed) (2026-07-20)
 
@@ -203,12 +204,13 @@ sign-off** because they change numeric output (Wyllie compaction correction; his
 correctness/crash/data-integrity fixes below — are applied. **Rust suite green; tsc clean.** Nothing
 committed.
 
-Backend (with new regression tests): 
+Backend (with new regression tests):
+
 - [ ] **SSC `SWIRR_EFF` no longer 0 at a 100 %-shale point** (`ssc.rs`). At the wet-clay point effective
       porosity is floored to 0, and the `1 − φt·(1−SWIRR_T)/φie` divide gave `−inf→0` ("all water
       movable") or `0/0→NaN` — exactly backwards. Now a zero-effective-porosity sample reports
-      `SWIRR_EFF = 1.0` (fully bound). *Only the degenerate φie==0 samples change; every producing
-      point is unchanged.* (The deeper SWIRR_T/SWIRR_EFF ordering inconsistency is the separate held
+      `SWIRR_EFF = 1.0` (fully bound). _Only the degenerate φie==0 samples change; every producing
+      point is unchanged._ (The deeper SWIRR_T/SWIRR_EFF ordering inconsistency is the separate held
       item.) Test: run SSC on a shale-heavy well; SWIRR_EFF in massive shale reads ~1, not 0.
 - [ ] **Archie `SWT_ARCH` no longer writes `+Infinity`** (`modules.rs` `sw_arch`). A coal/tight sample
       with PHIT=0 but PHIE absent used to fall through to `a/0^m = +inf` and store it in the SWT_ARCH
@@ -226,8 +228,7 @@ Backend (with new regression tests):
       "leftover token(s)…truncated or corrupt LAS?" error, not corrupted curves.
 - [ ] **DB-inspector edit no longer reports success on a 0-row update** (`db.rs`, all three sample
       editors). If the matched depth had moved/been rewritten, the UPDATE hit 0 rows but the UI said
-      "saved" and pushed a bogus undo entry. It now errors, and the inspector already reverts the cell
-      + shows "Edit failed". Test (`…is_err()` assertion added): edit a sample, then edit a
+      "saved" and pushed a bogus undo entry. It now errors, and the inspector already reverts the cell + shows "Edit failed". Test (`…is_err()` assertion added): edit a sample, then edit a
       non-existent depth → "no … sample matched depth …", cell reverts, no phantom undo.
 - [ ] **Well Header shows current TD / KB** (`db.rs` list_wells + `ipc.ts` + `ribbon.ts`). The dialog
       used to open with blank TD/KB, so you edited the datum blind — and KB silently drives TVDSS in
@@ -235,6 +236,7 @@ Backend (with new regression tests):
       a well with a KB set → the field shows it, not an empty box.
 
 Frontend:
+
 - [ ] **Stats / regression reject `±Infinity`, not just NaN** (`plotCanvas.ts`: basicStats, linearFit,
       percentile, drawScatter/drawDiamonds). One inf sample (e.g. a Python `1/phi` at phi=0) used to
       make the histogram's Mean/Std chips read "Infinity" and silently kill a crossplot regression.
@@ -252,8 +254,8 @@ Frontend:
 - [ ] **Histogram: constant curves render; the `n` never silently disagrees** (`histogramPanel.ts`).
       A constant curve (flag/class curve, single-sample zone) used to show "No valid data"; it now
       draws one central bar. And when the P2–P98 axis window clips tail samples, the axis label reads
-      `n = X of Y` so it no longer contradicts the stats chips (which count all samples). *(The full
-      full-range re-bin — which would change every bar height — is the held item.)* Test: histogram a
+      `n = X of Y` so it no longer contradicts the stats chips (which count all samples). _(The full
+      full-range re-bin — which would change every bar height — is the held item.)_ Test: histogram a
       constant/flag curve (draws), and a curve with fat tails (label shows "of").
 - [ ] **Log-view smoothness** (`LogCanvasRenderer.ts`, speed only). The clear color is no longer read
       via `getComputedStyle` every rendered frame (cached, invalidated on theme change), and the
@@ -265,6 +267,7 @@ Frontend:
 
 Your answers to the four held items above. **Rust suite 164 pass / 0 fail; tsc EXIT 0; the two
 browser-observable pieces verified live in the vite preview.**
+
 - [ ] **Wyllie lack-of-compaction (Cp) correction — shipped as opt-in** (`modules.rs` `phi_son`,
       `OPT_CP` **default OFF**). ON divides the WYLLIE porosity by `Cp = DT_SH/100`; RHG is
       self-compacting and is never touched. Nothing changes until you switch it on. Test
@@ -272,7 +275,7 @@ browser-observable pieces verified live in the vite preview.**
       unaffected. In the app: run Porosity → Sonic with OPT_CP=ON on a shallow well → PHIT rises a
       few p.u.; OPT_CP=OFF reproduces the old numbers exactly.
 - **Histogram full-range re-bin — left as-is** at your request (bars keep clipping the extreme tails;
-      bar heights and the mode/P50 you read off them are unchanged).
+  bar heights and the mode/P50 you read off them are unchanged).
 - [ ] **Depth-scale dropdown now shows the TRUE scale + the mislabel is fixed**
       (`LogCanvasRenderer.ts`, `logViewPanel.ts`). The default was labelled "1:100" but was really
       ~1:3937, and the `[0.02, 20]` px/unit clamp made **1:20, 1:50 and 1:100 all collapse to the same
@@ -284,9 +287,9 @@ browser-observable pieces verified live in the vite preview.**
 - [ ] **Quiet Ctrl+S save + Escape closes ribbon menus** (`ribbon.ts`). Ctrl/Cmd+S re-saves the
       current session in place once it has a name (no dialog), falling back to Save Session As the
       first time; it's ignored while typing in an input/CodeMirror so editors keep their own Save.
-      Escape closes any open ribbon dropdown without disturbing modal Escape handling. *(A Ctrl+P
+      Escape closes any open ribbon dropdown without disturbing modal Escape handling. _(A Ctrl+P
       print-active-plot shortcut was deliberately deferred — resolving "the active canvas" from the
-      ribbon is fragile; the per-plot Print button still works.)* Test: name a session, edit the
+      ribbon is fragile; the per-plot Print button still works.)_ Test: name a session, edit the
       workspace, Ctrl+S → "Session … saved" with no dialog and the unsaved dot clears.
 - [ ] **Bahasa Jawa (jv) added + fuller Bahasa Indonesia / Basa Sunda** (`i18n.ts`, `index.html`).
       A full Javanese (ngoko) dictionary joins id/su, and ~55 common UI phrases (New/Open/Edit/Search/
@@ -300,7 +303,7 @@ Two physics fixes distilled from the ITB team reference shelf (Ellis Ch12/14, Ha
 
 - [ ] **Multimin — PEF now converts to U before mixing.** In the Multimin (SandiMin) dialog,
       select **Photoelectric (PEF)** as an input tool (instead of, or alongside, U) and run on
-      a well with a PEF curve + RHOB. Confirm VOL_* volumes are sensible and RECON is low in
+      a well with a PEF curve + RHOB. Confirm VOL\_\* volumes are sensible and RECON is low in
       clean zones. Physics: per-electron PEF does NOT mix by volume — the solver now converts
       the PEF curve to U = Pe·ρe per sample (ρe from RHOB) and mixes against the U endpoints.
       Picking U directly is unchanged. Needs a RHOB curve present; where RHOB is missing the
@@ -376,7 +379,7 @@ so each formation (Post-Main / Main / Massive / Talang Akar) can carry its own c
 or its own trend coefficients. Writes `<PHI>_CAP = min(PHI, φmax)` (preserving MISSING)
 and the ceiling curve `<PHI>_MAX` for a QC overlay; the input porosity is never
 modified. The dialog is auto-generated from the manifest, so it appears in the Porosity
-dropdown with no bespoke UI. Standalone by design — it caps *any* porosity output
+dropdown with no bespoke UI. Standalone by design — it caps _any_ porosity output
 (phi_den/phi_dn/phi_son or SandiMin's PHIT); a solver-internal φmax box constraint is a
 noted follow-on.
 
@@ -411,7 +414,7 @@ uncapped). cargo test 136/136; tsc clean.
 against DST-tested rock (KKT ONWJ deck slides 84–87), in one dock pane with a
 Sweep / DST-Crossplot toggle. **Sweep** varies one cutoff across a range while the
 other two stay fixed and plots the pay response per well — net thickness, HC
-pore-thickness (HPV), or net-to-gross — so the *elbow* shows where loosening the
+pore-thickness (HPV), or net-to-gross — so the _elbow_ shows where loosening the
 cutoff stops adding real pay; the shared pay math is the **same `classify_sample`
 the pay summary uses**, so the numbers reconcile. **DST Crossplot** is PHIE vs a
 shale/Sw curve with every sample dim and DST-interval samples coloured per well,
@@ -426,7 +429,7 @@ summary exactly (whole-well, not just the analysed window); overlapping
 perforation/DST intervals are unioned so N:G isn't understated; switching the
 swept property/metric after a run clears the stale plot so a pick can't be written
 into the wrong cutoff; the "(all samples)" DST choice survives editing the well
-set; the zone/DST pickers union over *all* checked wells (was capped at 16); the
+set; the zone/DST pickers union over _all_ checked wells (was capped at 16); the
 crosshair stays inside the plotted range; empty-state text is centred on HiDPI; the
 plot repaints on theme change; wells with no pay / missing inputs are flagged
 rather than shown as a silent flat line. cargo test 131/131; tsc clean.
@@ -435,7 +438,7 @@ rather than shown as a silent flat line. cargo test 131/131; tsc clean.
       keep **Sweep**, property **VSH**, metric **Net**, Compute — one line per well;
       the curve should rise and flatten (an elbow), not be a straight ramp.
 - [ ] Click/drag on the plot to place the red cutoff line; the readout shows the
-      net/HPV/N:G each well delivers *at that cutoff*. Click **Use pick as VSH
+      net/HPV/N:G each well delivers _at that cutoff_. Click **Use pick as VSH
       cutoff** → the VSH field updates.
 - [ ] Switch the metric to **N:G**, Compute again; switch property to **PHIE** — the
       plot should **clear** and ask you to Compute (it must not keep showing the VSH
@@ -643,7 +646,7 @@ unit degF/degC via OPT_TU.
 - [ ] Run it on a KKT-style well with your fits (SURF_TEMP 77 / TEMP_GRAD
       0.0260292, PSURF 44.2823 / PGRAD 0.539812, degF): FTEMP_F/FPRESS match
       the deck's trend lines; spot-check one depth by hand; FTEMP = same in degC.
-- [ ] Deep resistivity input defaults to the RES_DEEP family (same as the sw_*
+- [ ] Deep resistivity input defaults to the RES*DEEP family (same as the sw*\*
       modules) so CT fills for wells whose deep curve is ILD/LLD/AT90 etc. —
       confirm CT is not blank on a standard import.
 - [ ] ARPS mode: RMF at depth ≈ your surface Rmf pulled down by (T₁+6.77)/(T₂+6.77);
@@ -663,10 +666,10 @@ steps, columns are the union of every step's inputs/params/options (+ Mask), so 
 parameter shared by several modules lines up in one column. The italic **Set all**
 row under the header edits a parameter across every step that takes it in one go.
 
-- [ ] Build your standard chain (vsh → phi → sw_* …), switch to **Grid**: input
+- [ ] Build your standard chain (vsh → phi → sw\_\* …), switch to **Grid**: input
       curves come first, then numeric params, then options, then Mask; steps that
       don't take a column show "—". Header tooltips = parameter descriptions.
-- [ ] **Set all → RW**: type one RW in the Set-all row — every sw_* step that takes
+- [ ] **Set all → RW**: type one RW in the Set-all row — every sw\_\* step that takes
       RW updates at once (status bar reports how many). A value outside one
       module's allowed range is skipped for that module only and reported.
 - [ ] Edited cells tint amber and the step's override badge counts up — same
@@ -746,33 +749,32 @@ the PDF vector artwork with the same validation stack (graduation sequences, 5-m
 long dashes, worked examples). Charts matching the current axes are listed first; a
 chart draws only when the plot axes actually match it (either orientation).
 
-- [ ] **CNL Por-11/12** (as before, now via the new select — old saved props migrate).
-- [ ] **EcoScope Por-18 (BPHI) / Por-19 (TNPH)** on an LWD well — these are the ones
+- [x] **CNL Por-11/12** (as before, now via the new select — old saved props migrate).
+- [x] **EcoScope Por-18 (BPHI) / Por-19 (TNPH)** on an LWD well — these are the ones
       that matter for your Mahakam development wells; check a known sand against the
       sandstone line for both BPHI and TNPH inputs.
-- [ ] **adnVISION675 Por-16** if you have ADN wells.
-- [ ] **APS Por-13/14** (APLC and FPLC variants listed separately).
-- [ ] **PEF: Lith-3/4** on a PEF-RHOB crossplot — quartz ~1.65-1.8, calcite ~5.08,
+- [x] **adnVISION675 Por-16** if you have ADN wells.
+- [x] **APS Por-13/14** (APLC and FPLC variants listed separately).
+- [x] **PEF: Lith-3/4** on a PEF-RHOB crossplot — quartz ~1.65-1.8, calcite ~5.08,
       dolomite ~3.1 curves with 10-pu labels.
-- [ ] **Sonic-neutron Por-20** (both time-average AND field-observation families) on
+- [x] **Sonic-neutron Por-20** (both time-average AND field-observation families) on
       a DT-NPHI crossplot — TA curves reproduce Wyllie with tf 190 to R² 0.99999.
-- [ ] **Density-sonic Por-22** (TA + FO) on a DT-RHOB crossplot, with the 7 mineral
+- [x] **Density-sonic Por-22** (TA + FO) on a DT-RHOB crossplot, with the 7 mineral
       points (Sylvite, Salt, Trona, Gypsum, Sulfur, Polyhalite, Anhydrite).
-- [ ] **Th-K clay chart Lith-2** on a POTA-THOR crossplot — the Th/K ratio fan is
-      drawn at the *labeled* ratios (the chartbook's own printed lines sag a few %
+- [x] **Th-K clay chart Lith-2** on a POTA-THOR crossplot — the Th/K ratio fan is
+      drawn at the _labeled_ ratios (the chartbook's own printed lines sag a few %
       off their labels; ours are exact), plus the dashed clay/feldspar lines and
       mineral-field labels. Judge your Mahakam illite/kaolinite mix against it.
-- [ ] **Pe-K and Pe-Th/K clay boxes Lith-1** (the Th/K variant needs the X axis in
+- [x] **Pe-K and Pe-Th/K clay boxes Lith-1** (the Th/K variant needs the X axis in
       log mode — turn on X log in Properties).
-- [ ] **Umaa-Rhomaa MID Lith-6** — the ternary triangle with 20/40/60/80 subdivisions
-      + K-feldspar/Barite/Anhydrite/Kaolinite/Illite/Salt points. Needs computed
+- [x] **Umaa-Rhomaa MID Lith-6** — the ternary triangle with 20/40/60/80 subdivisions + K-feldspar/Barite/Anhydrite/Kaolinite/Illite/Salt points. Needs computed
       UMAA/RHOMAA curves (equation engine for now; a dedicated module is a good next
       increment if you want it).
 
 **Audit quick fixes** (from the full senior audit — see AUDIT-2026-07-20.md and
 ROADMAP §4b for the 35-finding backlog):
 
-- [ ] **Pay summary change**: with a PERM cutoff active, samples with **missing PERM
+- [x] **Pay summary change**: with a PERM cutoff active, samples with **missing PERM
       now FAIL the cutoff** (they silently passed before). Re-run a pay summary on a
       well with patchy PERM — net pay may legitimately decrease. Tell me if you'd
       rather missing-PERM samples pass (Geolog's default behavior differs by setup).
@@ -785,7 +787,7 @@ ROADMAP §4b for the 35-finding backlog):
       look much more stretched than you're used to — the numbers are honest now.
 - [ ] **Tops editor**: adding a top with an existing name is an overwrite; Ctrl+Z now
       restores the previous depth instead of deleting the top.
-- [ ] Case-insensitive computed-curve lookup (lowercase equation outputs now resolve).
+- [x] Case-insensitive computed-curve lookup (lowercase equation outputs now resolve).
 
 ## P2-f+ — D-N chartbook overlay (2026-07-20 #13)
 
@@ -793,22 +795,22 @@ Digitized from the Schlumberger 2013 chartbook you sent (Por-11 fresh / Por-12 s
 extracted from the PDF's vector artwork — graduation-dash positions, not eyeballed;
 calcite identity check rms 0.13 pu, both charts' worked examples reproduce).
 
-- [ ] **Crossplot Properties → Overlays → D-N chart**: pick *Fresh mud (Por-11)* on an
+- [x] **Crossplot Properties → Overlays → D-N chart**: pick _Fresh mud (Por-11)_ on an
       NPHI-RHOB crossplot → quartz/calcite/dolomite curves appear with porosity
       graduation dots + labels every 5 pu, dashed iso-porosity connectors, and curve
       names written along the lines. Compare against your paper chartbook page 225.
 - [ ] **A real Mahakam sand interval** should plot on/left of the quartz sandstone line
       (shale pulls points right/down toward higher NPHI). Crossplot porosity read off
       the graduations should match your PHIE within ~1-2 pu in clean sand.
-- [ ] **Salt variant** (Por-12) shifts the curves left at high porosity — only relevant
+- [x] **Salt variant** (Por-12) shifts the curves left at high porosity — only relevant
       if you ever work salt-mud wells; check it renders and the graduations differ from
       Fresh.
-- [ ] **Zoom/pan**: the overlay must stay registered to the data under Ctrl+wheel zoom
+- [x] **Zoom/pan**: the overlay must stay registered to the data under Ctrl+wheel zoom
       (it's drawn in data space). Also check the flipped orientation (X=RHOB, Y=NPHI).
 - [ ] **Gating**: on a GR-RHOB plot or with a log axis the overlay silently stays off
       (chart geometry only means something on linear NPHI-RHOB).
-- [ ] **Note**: the chartbook draws its dolomite curve for ρma **2.85** (validated
-      against the chart's own graduation ticks), while the *Matrix points* overlay keeps
+- [x] **Note**: the chartbook draws its dolomite curve for ρma **2.85** (validated
+      against the chart's own graduation ticks), while the _Matrix points_ overlay keeps
       the textbook single point at 2.87 — so Dol point and Dol curve start won't
       coincide exactly. Tell me if you'd rather I move the matrix point to 2.85.
 
@@ -816,27 +818,27 @@ calcite identity check rms 0.13 pu, both charts' worked examples reproduce).
 
 Your full review is triaged in **ROADMAP.md §4** — these five landed immediately:
 
-- [ ] **Ctrl+wheel = zoom** on Histogram / Crossplot / Pickett. Plain wheel now scrolls the
+- [x] **Ctrl+wheel = zoom** on Histogram / Crossplot / Pickett. Plain wheel now scrolls the
       page/pane like you asked; hold **Ctrl** to zoom toward the cursor. Drag-pan and
       double-click-reset unchanged.
-- [ ] **Pertamina theme** rebuilt from your swatch card: blue #006BB8 (accent), green
+- [x] **Pertamina theme** rebuilt from your swatch card: blue #006BB8 (accent), green
       #A6C210 (secondary), red #ED1A2F (warnings/alerts), text #161B22 on white. If you'd
       rather have **red** as the main accent (it's the dominant brand color), say so —
       one-line swap.
-- [ ] **Theme dropdown**: "Light" is now called **Default** (also translated: Bawaan / Baku).
-- [ ] **Advance tab regrouped**: a single **Advance Methods** group holds SSC, SSPW, RtC,
+- [x] **Theme dropdown**: "Light" is now called **Default** (also translated: Bawaan / Baku).
+- [x] **Advance tab regrouped**: a single **Advance Methods** group holds SSC, SSPW, RtC,
       IMTS and **Thin Beds** (moved out of Petrophysics — its old dropdown is gone). The
       wrong "Sand-Silt-Clay" caption over SSPW is gone.
-- [ ] **Multimin → SandiMin**: the generalized solver button/dialog is now **SandiMin —
+- [x] **Multimin → SandiMin**: the generalized solver button/dialog is now **SandiMin —
       Mineral Solver** (original name, no plagiarism concern). The legacy fixed 4-component
       "Multimin — Mineral Inversion" is **removed from the Saturation dropdown** (mineral
       solving is independent of Sw); it still runs inside saved workflow chains. Tell me if
       you want the legacy one back as its own button.
-- [ ] **Blurry text fix** (your answer: blurry; your display is at 100% scale, so it's not
+- [x] **Blurry text fix** (your answer: blurry; your display is at 100% scale, so it's not
       Windows scaling): the desktop app now launches WebView2 with `--enable-lcd-text`,
       which forces ClearType subpixel antialiasing on GPU-composited panels (dockview
       layers otherwise fall back to fuzzy grayscale smoothing). **Needs the `npm run tauri
-      dev` restart** (config change). Look closely at ribbon/dialog text afterward — if it
+dev` restart** (config change). Look closely at ribbon/dialog text afterward — if it
       still reads soft, next steps are a base-size bump 12→13px and/or semibold.
 - [ ] **T-S triangle now appears** (your "not showing (?)"): the triangle is drawn on
       VSH (0–1) vs PHIT axes — before, ticking it on the default NPHI-RHOB crossplot put
@@ -847,19 +849,19 @@ Your full review is triaged in **ROADMAP.md §4** — these five landed immediat
 
 ## P1-a — Interaction safety batch (2026-07-19 #3)
 
-- [ ] **Right-click lockdown**: right-click anywhere that has no SandiBumi menu (ribbon,
+- [x] **Right-click lockdown**: right-click anywhere that has no SandiBumi menu (ribbon,
       buttons, tables, empty space) → **nothing** appears (the WebView menu with its
       dangerous Refresh is gone). Panel backgrounds still show our own menus; right-click
       inside a text box still shows the normal cut/copy/paste menu.
 - [ ] **Reload guard**: press **F5** or **Ctrl+R** → a blocking confirm appears instead of
       an instant refresh; Cancel keeps everything, Reload restarts the workspace. Alt+←/→
       and the mouse back/forward side-buttons do nothing.
-- [ ] **Double-click-to-edit numbers** (app-wide): single-click any numeric parameter
+- [x] **Double-click-to-edit numbers** (app-wide): single-click any numeric parameter
       field (module dialogs, plot properties, SandiMin, zones…) → it focuses with a dashed
       outline but typing/arrows/wheel change **nothing**; **double-click** → solid outline,
       value selected, editing works. Tab-into-field still edits directly (deliberate).
       Scrolling a dialog with the wheel can no longer spin a value.
-- [ ] **Workflow Builder is a pane**: Petrophysics → Workflow… now opens a docked
+- [x] **Workflow Builder is a pane**: Petrophysics → Workflow… now opens a docked
       **Workflow Builder** pane (tab, movable/floatable like any panel) instead of a popup.
       No more losing a half-built chain to a stray click; it survives layout changes and
       reopens via the ＋ panel menu too. Run/cancel/progress unchanged; closing the pane
@@ -867,15 +869,15 @@ Your full review is triaged in **ROADMAP.md §4** — these five landed immediat
 
 ## P1-b — Crash safe-mode, autosave, unsaved markers (2026-07-19 #3)
 
-- [ ] **Autosave**: the workspace (panes, arrangement, active well, every log view's
+- [x] **Autosave**: the workspace (panes, arrangement, active well, every log view's
       layout) autosaves every 10 seconds. Nothing to click — just know it's there.
-- [ ] **Crash recovery**: if the app dies abnormally (crash, force-kill, power loss),
-      the next launch shows a choice **before** anything loads: *Restore autosaved
-      workspace* (everything back as it was moments before the exit) or *Start in Safe
-      Mode* (clean default layout; the autosaved workspace is stashed as a "Recovered …"
+- [x] **Crash recovery**: if the app dies abnormally (crash, force-kill, power loss),
+      the next launch shows a choice **before** anything loads: _Restore autosaved
+      workspace_ (everything back as it was moments before the exit) or _Start in Safe
+      Mode_ (clean default layout; the autosaved workspace is stashed as a "Recovered …"
       session under Open Session, so nothing is lost). To test without crashing for real:
       end the task from Task Manager while the app is open, then relaunch.
-- [ ] **Normal restart is less lossy now**: on a clean exit + relaunch, the app also
+- [x] **Normal restart is less lossy now**: on a clean exit + relaunch, the app also
       brings back the **active well** and each log view's **layout/track state** (before,
       only the pane arrangement survived).
 - [ ] **Unsaved markers**: edit a log view (track widths, properties, curve visibility)
@@ -929,65 +931,65 @@ Your full review is triaged in **ROADMAP.md §4** — these five landed immediat
 
 ## P2-f — Crossplot v2 (2026-07-20 #12)
 
-- [ ] **Properties dialog**: double-click or right-click the crossplot (or ⚙ Properties)
+- [x] **Properties dialog**: double-click or right-click the crossplot (or ⚙ Properties)
       → sectioned dialog (Plot / Axes / Z color / Regression / Overlays). The old
       always-visible properties row is gone; the toolbar is just X/Y/Color/Zone.
-- [ ] **Marginal histograms + percentiles**: enable marginals on NPHI-RHOB — X histogram
+- [x] **Marginal histograms + percentiles**: enable marginals on NPHI-RHOB — X histogram
       on top, Y histogram on the right, aligned with the axes (RHOB's inverted axis
       included). Percentiles `25, 75` draw dashed reference lines on both axes.
-- [ ] **Regression options**: on a PHIE-vs-PERM cloud try Power + RMA — the fit line
+- [x] **Regression options**: on a PHIE-vs-PERM cloud try Power + RMA — the fit line
       must be straight on log axes and curved on linear ones, equation + R² + method
       tag shown top-left. Compare Y-on-X vs RMA slope on a noisy cloud (RMA steeper).
-- [ ] **Log-safe Z coloring**: color by PERM with "Log Z scale" + Viridis — low and high
+- [x] **Log-safe Z coloring**: color by PERM with "Log Z scale" + Viridis — low and high
       decades must stay distinguishable (rainbow + linear crams everything in one hue);
       the color bar is labeled "(log)".
-- [ ] **Plot size**: set Fixed 500×400 — the plot stops stretching with the pane
+- [x] **Plot size**: set Fixed 500×400 — the plot stops stretching with the pane
       (consistent exported figures). "Fill panel" restores the old behavior.
-- [ ] **Universal defaults**: Qtz/Cal/Dol matrix points no longer appear on NPHI-RHOB
+- [x] **Universal defaults**: Qtz/Cal/Dol matrix points no longer appear on NPHI-RHOB
       unless ticked in Properties; Color has a "— None —" option (custom point color
       applies); the pick rows + drag handle can be hidden ("Show parameter pickers" —
       still ON by default so your drag-to-set-shale-point workflow is unchanged).
 
 ## P2-e — Histogram v2 (2026-07-20 #11)
 
-- [ ] **Properties dialog**: double-click or right-click the histogram plot (or the ⚙
+- [x] **Properties dialog**: double-click or right-click the histogram plot (or the ⚙
       Properties button) → one dialog holds display mode (bars/line), bins, normalize,
       cumulative overlay, box plot, color, percentiles, statistics placement, and the
       parameter-picker toggle. When zoomed, the first double-click resets the zoom, the
       next one opens properties.
-- [ ] **Box plot + cumulative overlay together**: enable both on a GR histogram — the
+- [x] **Box plot + cumulative overlay together**: enable both on a GR histogram — the
       P25–P75 box with P50 line and P5/P95 whiskers sits under the marker labels, and
       the cumulative % curve (secondary color, % labels on the right edge) tracks the
       bars. Zoom in with Ctrl+wheel: box and whiskers follow the axis.
-- [ ] **User percentiles**: type `10, 90` in Properties → P10/P90 marker lines on the
+- [x] **User percentiles**: type `10, 90` in Properties → P10/P90 marker lines on the
       plot and removable chips above it (click a chip to drop that percentile). Values
       must match what you'd read off the cumulative curve.
-- [ ] **Statistics inside the plot**: set Statistics → "Inside the plot" (chips hide) or
+- [x] **Statistics inside the plot**: set Statistics → "Inside the plot" (chips hide) or
       "Both" — the in-plot block shows the active stats incl. new Min/Max. Check it in a
       dark theme too (block background must follow the theme).
-- [ ] **Universal by default**: a fresh histogram opens with NO Pick A/B rows and clicking
+- [x] **Universal by default**: a fresh histogram opens with NO Pick A/B rows and clicking
       the plot does nothing — enable "Show parameter pickers" in Properties to get the
       GR_MA/GR_SH picking workflow back. Your saved bar color / percentiles / etc. must
       survive closing and reopening the panel.
 
 ## P2-d — Log-view layout interaction (2026-07-19 #10)
 
-- [ ] **Collapsible track headers**: ▤ in the log-view toolbar cycles full → compact
+- [x] **Collapsible track headers**: ▤ in the log-view toolbar cycles full → compact
       (curve names as inline chips, no scale lines) → titles only. Headers also cap at
       ~a third of the pane and scroll inside, so a 15-curve track can't eat the screen.
       Try it on your densest layout.
-- [ ] **Move/copy curves between tracks**: drag a curve name from one track header onto
+- [x] **Move/copy curves between tracks**: drag a curve name from one track header onto
       another track's header — the curve MOVES there (its color/scale/fill travel with
       it). Hold **Ctrl** while dropping to COPY instead (e.g. overlay NPHI on the GR
       track). Ctrl+Z undoes either.
-- [ ] **Track borders**: ▦ in the toolbar — solid / dashed / none, width 1–4 px, theme
+- [x] **Track borders**: ▦ in the toolbar — solid / dashed / none, width 1–4 px, theme
       color (follows light/dark) or a custom color. Default is a thin solid separator
       at every track boundary; check it looks right in dark themes too.
-- [ ] **Readout follows ONE track now**: hovering shows only the curves of the track
+- [x] **Readout follows ONE track now**: hovering shows only the curves of the track
       under the cursor (not all 15). CLICK a track to lock the readout to it (header
       highlights, click again to release) — then you can run the cursor over the whole
       layout while reading just that track's values.
-- [ ] **Right-click log editing**: right-click on a track → "Edit CURVE…" for each of
+- [x] **Right-click log editing**: right-click on a track → "Edit CURVE…" for each of
       its curves. Ops: **Wireline shift** (whole-curve depth shift, resampled onto its
       own grid — NaN where it slides past the logged interval), **Set constant**,
       **Blank (erase)**, **Interpolate across** (bridge a bad interval linearly),
@@ -999,15 +1001,15 @@ Your full review is triaged in **ROADMAP.md §4** — these five landed immediat
 
 ## P2-c — Well pin rework + multi-select (2026-07-19 #9)
 
-- [ ] **Pin is now a mode, not a lock.** 📌 ON (default): clicking a well in Wells &
+- [x] **Pin is now a mode, not a lock.** 📌 ON (default): clicking a well in Wells &
       Tops moves EVERY log view and plot to it — the old behavior. 📌 OFF: each view
       keeps the well it's showing; only the panel you're working in (the active tab)
       follows your clicks. Open two log views, turn the pin off, activate the second
       view, click different wells — only the second view changes. That's the
       side-by-side compare workflow.
-- [ ] **The old lock is gone**: no more "Active well is locked" blocking when you
+- [x] **The old lock is gone**: no more "Active well is locked" blocking when you
       click other wells, and no more weird interaction with a second wells pane.
-- [ ] **Multi-select**: Ctrl-click wells to build a selection (highlighted with an
+- [x] **Multi-select**: Ctrl-click wells to build a selection (highlighted with an
       accent edge, count shown in the Wells label), Shift-click for a range,
       ⇄ inverts within the visible list, plain click clears it. Then open any batch
       dialog (module run, Workflow Builder, Multimin, ML, Monte Carlo, Cutoffs &
@@ -1044,9 +1046,9 @@ Everything you marked `[o]` has been cleared out of this file.
 
 ## Theme switch repaints everything immediately (2026-07-19)
 
-- [ ] Open a log view + histogram + crossplot, switch Dark ↔ Default ↔ a client theme —
+- [x] Open a log view + histogram + crossplot, switch Dark ↔ Default ↔ a client theme —
       every pane recolors instantly, no mouse-over needed
-- [ ] Switch theme while a second tabbed panel is inactive, then activate it — correct colors
+- [x] Switch theme while a second tabbed panel is inactive, then activate it — correct colors
 
 ## SandiMin — Geolog-parity mineral solver (2026-07-19, v2)
 
@@ -1085,25 +1087,25 @@ Geolog-V14 helpset + IP2018 install → `docs/multimin_geolog_spec.md`, `docs/mu
 
 ## ML suite (2026-07-19)
 
-- [ ] **Petrophysics → ML Models…** opens the Machine Learning dialog (non-blocking, like all
+- [x] **Petrophysics → ML Models…** opens the Machine Learning dialog (non-blocking, like all
       dialogs now). Four tasks: regression, classification, clustering, reduction — algorithm
       list, hyperparameters, and default output name switch with the task.
-- [ ] **Field-wide electrofacies**: task = clustering, K-Means or GMM, check GR first in the
+- [x] **Field-wide electrofacies**: task = clustering, K-Means or GMM, check GR first in the
       input curves, check ALL wells under Apply — one model over the pooled samples, so class
       ids are consistent across wells (class 0 = cleanest by GR). Set the output (FACIES_ML)
       to "Facies blocks" in a layout and compare wells side by side (📌 pin one panel).
-- [ ] **Supervised prediction**: task = regression, target = a curve you trust (e.g. CPERM-
+- [x] **Supervised prediction**: task = regression, target = a curve you trust (e.g. CPERM-
       calibrated PERM or RHOB in a well where it's good), train on wells that have it, apply
       to a well missing it. Check r2_cv5 in the metrics table before trusting the output.
-- [ ] **Classification with core/interpreted labels**: target = FACIES (or an imported
+- [x] **Classification with core/interpreted labels**: target = FACIES (or an imported
       lithology curve), train on interpreted wells, apply elsewhere — writes ML_CLASS +
       ML_CLASS_PROB; PROB should dip where the log character is ambiguous.
-- [ ] **PCA/t-SNE**: reduction task writes PC1..PCn (metrics show explained variance %) or
+- [x] **PCA/t-SNE**: reduction task writes PC1..PCn (metrics show explained variance %) or
       TSNE1/TSNE2 — crossplot TSNE1 vs TSNE2 colored by FACIES to sanity-check cluster
       separation. t-SNE refuses >20000 samples by design.
-- [ ] **DBSCAN noise**: noisy/rare samples get NaN (empty in a blocks track), noise_pct in
+- [x] **DBSCAN noise**: noisy/rare samples get NaN (empty in a blocks track), noise_pct in
       metrics. If everything is noise, raise eps.
-- [ ] Machine needs Python with numpy + scikit-learn (already present — the test suite used
+- [x] Machine needs Python with numpy + scikit-learn (already present — the test suite used
       it); xgboost optional (falls back to sklearn boosting with a note in metrics).
 
 ## GMM soft electrofacies (2026-07-19)
@@ -1117,7 +1119,7 @@ Geolog-V14 helpset + IP2018 install → `docs/multimin_geolog_spec.md`, `docs/mu
 
 ## Click-through fix batch (2026-07-19) — remaining item
 
-- [ ] **Monte Carlo / Batch buttons no longer clipped.** Petrophysics tab: Workflow, Monte
+- [x] **Monte Carlo / Batch buttons no longer clipped.** Petrophysics tab: Workflow, Monte
       Carlo, and Field Dashboard now sit in one row inside the Batch group.
 
 ## FACIES block track (2026-07-19)
@@ -1136,12 +1138,12 @@ Geolog-V14 helpset + IP2018 install → `docs/multimin_geolog_spec.md`, `docs/mu
 
 ## Electrofacies — k-means (Phase 10 increment 1, 2026-07-18)
 
-- [ ] **Petrophysics ribbon → Facies → "Electrofacies (K-means)…"**: pick input curves
+- [x] **Petrophysics ribbon → Facies → "Electrofacies (K-means)…"**: pick input curves
       (defaults GR + RHOB + NPHI + DT + SP; leave a slot blank/absent and it's dropped),
       set **K** (number of facies, 2–12) and a **seed**, run on one or several wells. It
       writes a **FACIES** curve (integer 0..K-1). Re-running with the same seed must give
       identical facies (deterministic).
-- [ ] **Facies numbering is monotone in GR**: FACIES 0 should be your cleanest/sandiest
+- [x] **Facies numbering is monotone in GR**: FACIES 0 should be your cleanest/sandiest
       class and the highest index your shaliest — confirm on a well where you know the
       sand/shale split. (Clustering is **per well**; the GR ordering is what makes the
       numbers roughly line up between wells.)
@@ -1151,13 +1153,13 @@ Geolog-V14 helpset + IP2018 install → `docs/multimin_geolog_spec.md`, `docs/mu
 
 ## Monte Carlo uncertainty (2026-07-18)
 
-- [ ] **Petrophysics ribbon → Batch → "Monte Carlo…"**: pick a chain (the default VSH→φ→Sw, or
+- [x] **Petrophysics ribbon → Batch → "Monte Carlo…"**: pick a chain (the default VSH→φ→Sw, or
       one you saved in the Workflow Builder), click **+ Add uncertain parameter**, choose a
       parameter, pick a distribution (normal / uniform / triangular), set cutoffs + iterations,
       and **Run**. You get a per-well-per-zone table of **P10/P50/P90** net pay, NTG, avg PHIE,
       avg SWE and HPV, plus an **HPV histogram** (click a row to switch zones) with P10/P50/P90
       markers.
-- [ ] Requested upgrade (ROADMAP §4 P3): **finalize parameters → print LOW / BASE / HIGH
+- [x] Requested upgrade (ROADMAP §4 P3): **finalize parameters → print LOW / BASE / HIGH
       curves** from the chosen result percentiles.
 
 ## Phase 8.5 — your method suite in core (remaining validations)
@@ -1177,23 +1179,23 @@ Geolog-V14 helpset + IP2018 install → `docs/multimin_geolog_spec.md`, `docs/mu
 
 ## Phase 8b — report generator (2026-07-18)
 
-- [ ] **Report… dialog**: select a well first, then set study title, author, cutoffs
+- [x] **Report… dialog**: select a well first, then set study title, author, cutoffs
       (VSH ≤ / PHIE ≥ / SWE ≤ / optional PERM ≥), layout + print scale + page size, and
       **Render** — page through the preview (◀ ▶). Check: cover (title/well/field/
       interval/TD/KB), methodology table, zone parameter table (from your zone_params),
       pay summary (SAND/RESERVOIR/PAY rows with gross/net/NTG/avg PHIE/VSH/SWE/HPV —
       needs VSH+PHIE+SWE computed curves), then the composite pages.
-- [ ] **Methodology table is editable**: one line per row, `Parameter | Method | Remarks`.
+- [x] **Methodology table is editable**: one line per row, `Parameter | Method | Remarks`.
       Blank = a built-in default reflecting your standard workflow. **Save Template**
       persists it (documents table) and it reloads next time.
-- [ ] **Save PDF…** writes the whole report as one multi-page PDF — open in Acrobat and
+- [x] **Save PDF…** writes the whole report as one multi-page PDF — open in Acrobat and
       check the tables (word-wrap in Remarks cells, header row repeated on overflow
       pages) and that ≤/≥ symbols render.
-- [ ] **Save PNG (page)…** rasterizes the CURRENT preview page at ~150 dpi for slide decks.
-- [ ] **Batch (N wells)…** exports one report PDF per well into a folder you pick,
+- [x] **Save PNG (page)…** rasterizes the CURRENT preview page at ~150 dpi for slide decks.
+- [x] **Batch (N wells)…** exports one report PDF per well into a folder you pick,
       named `<WELL>_report.pdf`, using the same settings for every well. Wells that
       fail (no curves) are reported without aborting the rest.
-- [ ] **Tables only** checkbox skips the composite pages (fast parameter/pay-summary
+- [x] **Tables only** checkbox skips the composite pages (fast parameter/pay-summary
       handout).
 
 ## Field Dashboard (Phase 9 increment 4, 2026-07-18)

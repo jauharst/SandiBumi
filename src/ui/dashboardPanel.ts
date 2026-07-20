@@ -32,7 +32,11 @@ const GRID_COLS: { key: SortKey; label: string; digits?: number; num: boolean }[
   { key: "hpv", label: "HPV (m)", digits: 2, num: true },
 ];
 
-const fmt = (v: number, d = 2) => (Number.isNaN(v) ? "—" : v.toFixed(d));
+// Guards null/undefined/NaN/Infinity → "—". Note: the Rust backend's f64::NAN
+// crosses the IPC boundary as JSON `null` (serde_json has no NaN), so a plain
+// Number.isNaN check would miss it and `null.toFixed()` would throw.
+const fmt = (v: number | null | undefined, d = 2) =>
+  typeof v === "number" && Number.isFinite(v) ? v.toFixed(d) : "—";
 
 export async function buildDashboardContent(
   setStatus: (text: string) => void,
@@ -239,7 +243,9 @@ export async function buildDashboardContent(
         phie_min: parseFloat(phieIn.value),
         swe_max: parseFloat(sweIn.value),
         perm_min: Number.isNaN(permRaw) ? null : permRaw,
-        skip_version: true, // field-wide QC — overwrite FLAG_* in place, don't version per well each refresh
+        // Dashboard is read-only: compute the stats, persist nothing. Skips ~1,600 FLAG-curve
+        // write transactions per Compute. Persisting flags stays with Cutoffs & Summary.
+        stats_only: true,
       });
       const flags = new Set(allRows.map((r) => r.flag));
       statusEl.textContent = `${wellIds.length} well(s) · ${allRows.length} zone-rows across ${flags.size} flag level(s). FLAG curves written.`;
@@ -357,6 +363,7 @@ function exportCsv(rows: PaySummaryRow[], flag: string): void {
     lines.push(
       GRID_COLS.map((c) => {
         const v = r[c.key];
+        if (v == null) return ""; // null (backend NaN→null) → empty cell, not the string "null"
         return typeof v === "number" ? (Number.isNaN(v) ? "" : v) : `"${String(v).replace(/"/g, '""')}"`;
       }).join(","),
     );

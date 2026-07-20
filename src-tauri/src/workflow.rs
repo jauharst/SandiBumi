@@ -318,6 +318,13 @@ pub struct PaySummaryRequest {
     /// flags are versioned with the cutoffs recorded in provenance (log_sets.params_json).
     #[serde(default)]
     pub skip_version: bool,
+    /// When true, compute and return the per-zone statistics WITHOUT persisting any FLAG_*
+    /// curves at all. The Field Dashboard sets this: it recomputes on every cutoff tweak and
+    /// only consumes the returned rows, so writing 3 FLAG curves × every well each refresh
+    /// (~1,600 delete+append+flush transactions on 540 wells) was pure waste that dominated
+    /// its runtime. Persisting flags stays the job of the explicit Cutoffs & Summary run.
+    #[serde(default)]
+    pub stats_only: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -406,7 +413,7 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
             flag_pay[i] = fp;
         }
 
-        {
+        if !req.stats_only {
             let conn = db.lock().unwrap();
             if req.skip_version {
                 // Field-wide QC (dashboard): overwrite FLAG_* in place, no version churn.
@@ -1207,6 +1214,7 @@ mod tests {
             swe_max: 0.5,
             perm_min: None,
             skip_version: true,
+            stats_only: false,
         };
         let rows = run_pay_summary(&dbm, &req).unwrap();
         let sand = rows.iter().find(|r| r.zone == "Z1" && r.flag == "SAND").expect("SAND row");
@@ -1252,6 +1260,7 @@ mod tests {
             swe_max: 0.5,
             perm_min: None,
             skip_version: false,
+            stats_only: false,
         };
         run_pay_summary(&dbm, &req).unwrap();
         {
@@ -1277,6 +1286,7 @@ mod tests {
             swe_max: 0.5,
             perm_min: None,
             skip_version: true,
+            stats_only: false,
         };
         run_pay_summary(&dbm, &req_skip).unwrap();
         {
@@ -1289,6 +1299,85 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(versions, 1, "skip_version must not add a PAYFLAG version");
+        }
+    }
+
+    /// Performance fix (Field Dashboard): stats_only computes and returns the same per-zone
+    /// rows as a writing run, but persists NOTHING — no FLAG_* computed curves and no PAYFLAG
+    /// log set. This is what removes the ~1,600 write transactions per dashboard Compute.
+    #[test]
+    fn pay_summary_stats_only_persists_nothing() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        db::insert_well(&conn, wid, "STATS-ONLY", None, None, Some(0.0)).unwrap();
+        let w = wid.to_string();
+        let depths = vec![1000.0f32, 1001.0, 1002.0, 1003.0];
+        let n = depths.len();
+        db::insert_standard_curves(
+            &conn, wid, depths.clone(),
+            vec![50.0; n], vec![f32::NAN; n], vec![f32::NAN; n],
+            vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
+        )
+        .unwrap();
+        equations::write_computed_curve(&conn, &w, &depths, "VSH", &[0.1; 4]).unwrap();
+        equations::write_computed_curve(&conn, &w, &depths, "PHIE", &[0.2; 4]).unwrap();
+        equations::write_computed_curve(&conn, &w, &depths, "SWE", &[0.3; 4]).unwrap();
+        equations::write_computed_curve(&conn, &w, &depths, "PERM", &[f32::NAN; 4]).unwrap();
+        db::upsert_zone(&conn, &w, "Z1", 1000.0, 1003.0).unwrap();
+        let dbm = Mutex::new(conn);
+
+        let base = PaySummaryRequest {
+            well_ids: vec![w.clone()],
+            vsh_max: 0.5,
+            phie_min: 0.1,
+            swe_max: 0.5,
+            perm_min: None,
+            skip_version: false,
+            stats_only: true,
+        };
+        let rows_stats = run_pay_summary(&dbm, &base).unwrap();
+        assert!(!rows_stats.is_empty(), "stats_only must still return the summary rows");
+
+        // Nothing was persisted: no FLAG_* curves, no PAYFLAG log set.
+        {
+            let conn = dbm.lock().unwrap();
+            let flag_curves: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM computed_curves WHERE well_id = ?1 AND curve_name LIKE 'FLAG_%'",
+                    duckdb::params![w],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(flag_curves, 0, "stats_only must not write any FLAG_* curve");
+            let payflag_sets: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM log_sets WHERE well_id = ?1 AND set_name = 'PAYFLAG'",
+                    duckdb::params![w],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(payflag_sets, 0, "stats_only must not create a PAYFLAG log set");
+        }
+
+        // Same cutoffs, now writing in place: identical row count + matching PAY net, and
+        // FLAG_* curves now exist — confirming stats_only changed persistence only, not math.
+        let writing = PaySummaryRequest { stats_only: false, skip_version: true, ..base.clone() };
+        let rows_write = run_pay_summary(&dbm, &writing).unwrap();
+        assert_eq!(rows_stats.len(), rows_write.len(), "stats_only must not change the rows returned");
+        let pay_a = rows_stats.iter().find(|r| r.flag == "PAY").expect("PAY row (stats)");
+        let pay_b = rows_write.iter().find(|r| r.flag == "PAY").expect("PAY row (write)");
+        assert!((pay_a.net - pay_b.net).abs() < 1e-4, "stats_only net {} vs writing net {}", pay_a.net, pay_b.net);
+        {
+            let conn = dbm.lock().unwrap();
+            let flag_curves: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM computed_curves WHERE well_id = ?1 AND curve_name LIKE 'FLAG_%'",
+                    duckdb::params![w],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert!(flag_curves > 0, "the writing run must persist FLAG_* curves");
         }
     }
 
@@ -1371,7 +1460,7 @@ mod tests {
         // Pay summary over the whole wells (no zones defined → single ALL zone).
         let rows = run_pay_summary(
             &db,
-            &PaySummaryRequest { well_ids: well_ids.clone(), vsh_max: 0.5, phie_min: 0.1, swe_max: 0.6, perm_min: None, skip_version: true },
+            &PaySummaryRequest { well_ids: well_ids.clone(), vsh_max: 0.5, phie_min: 0.1, swe_max: 0.6, perm_min: None, skip_version: true, stats_only: false },
         )
         .expect("pay summary failed");
         assert_eq!(rows.len(), well_ids.len() * 3); // SAND/RESERVOIR/PAY per well

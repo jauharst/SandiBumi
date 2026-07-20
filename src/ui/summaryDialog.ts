@@ -102,8 +102,11 @@ export async function buildSummaryContent(
   return { el: content, dispose: () => {} };
 }
 
-function fmt(v: number, digits = 2): string {
-  return Number.isNaN(v) ? "—" : v.toFixed(digits);
+function fmt(v: number | null | undefined, digits = 2): string {
+  // f64::NAN from the Rust pay-summary crosses IPC as JSON `null` (serde_json has
+  // no NaN), so guard null/undefined too — a bare Number.isNaN would let it reach
+  // null.toFixed() and throw.
+  return typeof v === "number" && Number.isFinite(v) ? v.toFixed(digits) : "—";
 }
 
 function renderTable(container: HTMLElement, rows: PaySummaryRow[]): void {

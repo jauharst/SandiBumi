@@ -374,6 +374,7 @@ fn report_pages(
                 swe_max: spec.swe_max,
                 perm_min: spec.perm_min,
                 skip_version: true, // report render side-effect — don't version the pay flags
+                stats_only: false,  // report persists FLAG_* in place (unchanged behavior)
             },
         )
         .unwrap_or_default();

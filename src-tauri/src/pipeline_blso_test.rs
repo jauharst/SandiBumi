@@ -178,6 +178,7 @@ fn pipeline_blso_full_run() {
         swe_max: 0.60,
         perm_min: None,
         skip_version: true,
+        stats_only: false,
     };
     match run_pay_summary(&db, &pay_req) {
         Ok(rows) => {
@@ -385,7 +386,7 @@ fn pipeline_blso_100well_stress() {
     let t = Instant::now();
     let pay = run_pay_summary(
         &db,
-        &PaySummaryRequest { well_ids: ids.clone(), vsh_max: 0.5, phie_min: 0.10, swe_max: 0.60, perm_min: None, skip_version: true },
+        &PaySummaryRequest { well_ids: ids.clone(), vsh_max: 0.5, phie_min: 0.10, swe_max: 0.60, perm_min: None, skip_version: true, stats_only: false },
     );
     println!("  pay_summary(100 wells) {:?} → {} rows", t.elapsed(), pay.map(|r| r.len()).unwrap_or(0));
 

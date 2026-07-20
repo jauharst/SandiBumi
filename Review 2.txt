@@ -1,0 +1,15 @@
+Well
+- we should have interface of las loading (percentage of input processed), it shows not responding instead
+- give option to define "set" for imported data
+- still 2 panes of wells instead of 1?
+- loading 500 wells is painful, more than 20 minutes, it takes up to 60% of my CPU (30% in average), (AMD Ryzen 9HX), imagine low specs comp, it should be below 5 minutes
+- we need option to rename, edit well header, add, delete, or duplicate wells?
+
+Tops
+- Tops input tools should be inside import/export 
+
+Ribbon and Tools
+- For tools that have dropdown menu, better we have additional mini arrow so user know that he have option there
+
+Whole
+- it takes up to 5 minutes to deploy my software, it should be less than 30 seconds

@@ -206,7 +206,7 @@ mod tests {
         assert_eq!(startup_path(), absolute(a.to_str().unwrap()));
 
         // Live swap: state starts on A (1 well), switches to fresh B (0 wells), back to A.
-        let state = DbState(Mutex::new(db::init_db_resilient(a.to_str().unwrap()).unwrap()));
+        let state = DbState(std::sync::Arc::new(Mutex::new(db::init_db_resilient(a.to_str().unwrap()).unwrap())));
         let wells = |s: &DbState| -> i64 {
             s.0.lock()
                 .unwrap()

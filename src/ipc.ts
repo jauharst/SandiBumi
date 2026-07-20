@@ -781,6 +781,10 @@ export interface PaySummaryRequest {
   /** Field Dashboard sets this true so its field-wide QC pass writes FLAG_* in place instead
    *  of versioning the pay flags (with the cutoffs in provenance) per well on every refresh. */
   skip_version?: boolean;
+  /** Compute + return the per-zone stats WITHOUT persisting any FLAG_* curves. The Field
+   *  Dashboard sets this: it only reads the returned rows, so writing flags per well on every
+   *  cutoff tweak was the dominant cost. Flag persistence stays with Cutoffs & Summary. */
+  stats_only?: boolean;
 }
 
 export interface PaySummaryRow {
@@ -793,9 +797,11 @@ export interface PaySummaryRow {
   gross: number;
   net: number;
   ntg: number;
-  avg_vsh: number;
-  avg_phie: number;
-  avg_swe: number;
+  // The Rust engine emits f32::NAN for zone×flag rows with no valid in-zone samples, and
+  // Tauri/serde_json encodes non-finite floats as JSON null — so these arrive as null, not NaN.
+  avg_vsh: number | null;
+  avg_phie: number | null;
+  avg_swe: number | null;
   hpv: number;
 }
 

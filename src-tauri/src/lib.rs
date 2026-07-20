@@ -32,10 +32,16 @@ mod tops;
 mod workflow;
 
 use duckdb::Connection;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
-pub struct DbState(pub Mutex<Connection>);
+/// The one live DuckDB connection, behind a Mutex for single-writer safety and an Arc so a
+/// long-running command can `clone()` it and move the handle into a background worker thread
+/// (`tauri::async_runtime::spawn_blocking`) — the foundation for running heavy jobs off the
+/// IPC/main thread (#128). project::switch_project swaps the Connection *inside* this Mutex, so
+/// a background job holding an Arc clone transparently follows a project switch; the job
+/// registries' `any_active` guards block a switch while a job is still running.
+pub struct DbState(pub Arc<Mutex<Connection>>);
 
 /// Checkpoints the DuckDB WAL and copies the project file to `dest_path` ("Save As").
 /// Deliberately a backup export: the app KEEPS working on the current file.
@@ -809,7 +815,25 @@ fn run_workflow_chain(
         return Err("no wells selected".into());
     }
     let cancel = chain::register(registry.inner(), uuid);
-    chain::run_chain(&db.0, registry.inner(), uuid, &cancel, &steps, &well_ids, output_set.as_deref(), input_set.as_deref());
+    // Run OFF the IPC/main thread so the window stays responsive and the frontend's
+    // get_chain_status poll + Cancel button are actually serviced *during* the run. As a sync
+    // command this blocked the event loop for the whole multi-minute chain — which is exactly
+    // why the existing progress bar sat frozen at "Starting…". db.0 is an Arc<Mutex<Connection>>
+    // so we clone the handle into the worker; the chain registry is already an Arc.
+    let db = db.0.clone();
+    let registry = registry.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        chain::run_chain(
+            &db,
+            &registry,
+            uuid,
+            &cancel,
+            &steps,
+            &well_ids,
+            output_set.as_deref(),
+            input_set.as_deref(),
+        );
+    });
     Ok(())
 }
 
@@ -847,7 +871,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .manage(DbState(Mutex::new(conn)))
+        .manage(DbState(Arc::new(Mutex::new(conn))))
         .manage(project::ProjectState(Mutex::new(project::absolute(&startup))))
         .manage(inversion::new_registry())
         .manage(chain::new_registry())
