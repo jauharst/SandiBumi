@@ -910,6 +910,21 @@ client files stay OUT of the repo):**
       (+ import), Map pane (posted wells, zoom/pan), polygon draw/edit persisted as
       documents, point-in-polygon → well group assignment (existing well-groups
       CRUD). No X/Y or map view exists in code today. → `ref_kkt_onwj_wave_e.md`.
+- [x] **(23) Data-conditioning flags module** (Jauhar request 2026-07-20, mid-Wave-E):
+      flag badhole / tight / gas-crossover / coal plus a shoulder-adjustment flag so
+      lithology transitions don't leave boundary-averaged samples in the conditioned
+      data. *(DONE 2026-07-20: `condflag` Prep module in modules.rs — COAL_FLAG
+      (density/neutron/sonic criteria, BADHOLE-excluded so washouts aren't coal),
+      TIGHT_FLAG (DPHI & NPHI < TIGHT_PHI on the porosity modules' shared
+      RHO_MA/RHO_FL), XOVER_FLAG (DPHI−NPHI > XOVER_MIN, coal/badhole-excluded),
+      SHOULDER_FLAG (dilation of coal/tight beds + ≥MIN_THICK badhole intervals by
+      SHOULDER depth units), COND_FLAG combined mask; MIN_THICK despike with
+      NaN-bridged runs; 8 unit tests. Adversarial review: 12 findings raised, 8
+      confirmed → fixed: RHO_MA/RHO_FL shared with porosity modules (no split-brain
+      zone overrides vs ssc's RHOB_MA), NaN-in-bed despike bridging, badhole blips
+      mask themselves but don't dilate, degenerate RHO_MA≤RHO_FL guard, NPHI
+      matrix-units + Mask-on-condflag-run doc caveats, BADHOLE/COND_FLAG always
+      offered in Mask dropdowns (fresh-project chain composable).)*
 
 ## 5. Standing advantages to protect
 

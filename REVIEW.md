@@ -6,6 +6,42 @@ Work through this list when you have time; delete items as you confirm them.
 Marks: `[o]` confirmed OK (removed from this file), `[x]` confirmed wrong → logged in
 **ROADMAP.md §4 (Field-review backlog)**, `[ ]` not yet tested.
 
+## Data Conditioning Flags module — coal / tight / crossover + shoulder (2026-07-20 #20)
+
+New Prep module **Data Conditioning Flags** (`condflag`) in the Data Prep dropdown
+and workflow builder (your request 2026-07-20). One run writes five 0/1 flag
+curves: **COAL_FLAG** (RHOB < 1.9 & NPHI > 0.35, plus DT > 100 µs/ft where a sonic
+exists; samples with BADHOLE = 1 are never called coal — washouts mimic coal),
+**TIGHT_FLAG** (density porosity and NPHI both < 0.05; DPHI uses **RHO_MA/RHO_FL —
+the same params and zone overrides as the density-porosity modules**),
+**XOVER_FLAG** (gas crossover DPHI − NPHI > 0.04; coal and bad hole excluded —
+NPHI must be matrix-consistent with RHO_MA, else raise XOVER_MIN to ~0.08 for
+limestone-unit neutron), **SHOULDER_FLAG** (the adjustment you asked for: samples
+within SHOULDER of a coal/tight bed edge — or a bad-hole interval ≥ MIN_THICK —
+carry boundary-averaged readings and get flagged so no shoulder log survives the
+mask), and **COND_FLAG** (combined mask: coal | tight | badhole | shoulder, plus
+crossover only when OPT_XCOND = YES). Beds thinner than MIN_THICK are dropped as
+spikes; a missing sample inside a bed does not split it. MIN_THICK/SHOULDER are
+in the depth curve's unit (defaults suit metres — roughly ×3 for feet). Run
+badhole first; feed COND_FLAG as the Mask on later runs, but leave the Mask empty
+on the condflag run itself. BADHOLE and COND_FLAG are now always offered in every
+Mask dropdown, even in a fresh project where they haven't been computed yet.
+
+- [ ] Run badhole → condflag on a Mahakam well with coals: COAL_FLAG picks the
+      coal streaks (check against the density track), and no coal call inside
+      washouts.
+- [ ] TIGHT_FLAG on a calcite-cemented/tight streak; XOVER_FLAG on a known gas
+      sand; crossover NOT flagged over coals.
+- [ ] SHOULDER_FLAG brackets each coal/tight bed by ~SHOULDER depth units; a
+      lone one-sample BADHOLE blip is masked in COND_FLAG but does NOT dilate.
+- [ ] MIN_THICK: single-sample spikes dropped; a real bed with one null sample
+      in the middle is kept whole.
+- [ ] Feed COND_FLAG as Mask on a porosity run: flagged + shoulder samples go
+      missing in the outputs; confirm COND_FLAG appears in the Mask dropdown of
+      a fresh workflow before condflag has ever run.
+- [ ] Zone overrides: RHO_MA 2.71 in a carbonate zone shifts TIGHT/XOVER there
+      (same override the density-porosity modules use).
+
 ## Wave E-17: pre-calculation module — P / T / Rmf / Ct / Cxo (2026-07-20 #19)
 
 New Prep module **Pre-Calculation (P / T / Rmf / Ct / Cxo)** in the Data Prep

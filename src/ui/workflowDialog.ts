@@ -17,6 +17,7 @@ import {
 } from "../ipc";
 import { bumpDataVersion, defaultRunWellIds, filterByActiveGroup } from "../state";
 import { formRow } from "./modal";
+import { maskCurveNames } from "./moduleDialog";
 
 const WORKFLOW_DOC_TYPE = "workflow";
 const VIEW_KEY = "sandibumi.workflowView";
@@ -341,7 +342,7 @@ export async function buildWorkflowContent(
     none.value = "";
     none.textContent = "(none)";
     select.appendChild(none);
-    for (const name of curveNames) {
+    for (const name of maskCurveNames(curveNames)) {
       const o = document.createElement("option");
       o.value = name;
       o.textContent = name;
@@ -556,7 +557,7 @@ export async function buildWorkflowContent(
       // step to its default (which deletes the overrides), same as the per-cell select.
       const extras = [...new Set([...col.args.values()].map((a) => a.default))].filter((d) => !curveNames.includes(d));
       values = [...extras, ...curveNames];
-    } else if (col.kind === "mask") values = ["(none)", ...curveNames];
+    } else if (col.kind === "mask") values = ["(none)", ...maskCurveNames(curveNames)];
     else {
       // Options only get a set-all control when every step offers the same choices.
       const lists = [...col.args.values()].map((a) => a.choices.join("\n"));

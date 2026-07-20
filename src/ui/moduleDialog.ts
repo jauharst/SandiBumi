@@ -16,6 +16,16 @@ export interface ModuleDialogCallbacks {
   setStatus: (text: string) => void;
 }
 
+/** Flag curves offered as Mask choices even before they first exist in the catalog,
+ *  so the canonical chain (badhole → condflag → solvers with Mask) is composable in a
+ *  fresh project. The catalog only lists curves that have actually been computed. */
+export const MASK_CURVE_SUGGESTIONS = ["BADHOLE", "COND_FLAG"];
+
+/** Catalog names with the well-known flag curves prepended when absent. */
+export function maskCurveNames(curveNames: string[]): string[] {
+  return [...MASK_CURVE_SUGGESTIONS.filter((s) => !curveNames.includes(s)), ...curveNames];
+}
+
 /** Opens the auto-generated parameter dialog for one module: input-curve selectors,
  *  option dropdowns, and validated numeric parameters — all straight from the manifest
  *  (Geolog .info model). Zone-level overrides come from the Zones dialog; values here
@@ -111,7 +121,7 @@ export async function openModuleDialog(
     none.value = "";
     none.textContent = "(none)";
     maskSelect.appendChild(none);
-    for (const name of curveNames) {
+    for (const name of maskCurveNames(curveNames)) {
       const option = document.createElement("option");
       option.value = name;
       option.textContent = name;

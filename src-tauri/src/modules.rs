@@ -158,6 +158,7 @@ pub fn list_modules() -> Vec<ModuleSpec> {
         ftemp_grad_spec(),
         precalc_spec(),
         badhole_spec(),
+        condflag_spec(),
         gr_hole_corr_spec(),
         nphi_env_corr_spec(),
         rhob_hole_corr_spec(),
@@ -192,6 +193,7 @@ pub fn run_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, Stri
         "ftemp_grad" => Ok(ftemp_grad(ctx)),
         "precalc" => Ok(precalc(ctx)),
         "badhole" => Ok(badhole(ctx)),
+        "condflag" => Ok(condflag(ctx)),
         "gr_hole_corr" => Ok(gr_hole_corr(ctx)),
         "nphi_env_corr" => Ok(nphi_env_corr(ctx)),
         "rhob_hole_corr" => Ok(rhob_hole_corr(ctx)),
@@ -808,6 +810,263 @@ fn badhole(ctx: &ModuleContext) -> ModuleOutputs {
     }
 
     HashMap::from([("BADHOLE".to_string(), flag)])
+}
+
+// ---------------------------------------------------------------------------
+// CONDFLAG — data-conditioning flags: coal / tight / gas crossover, plus a
+// shoulder adjustment so lithology transitions don't survive the mask
+// ---------------------------------------------------------------------------
+
+fn condflag_spec() -> ModuleSpec {
+    ModuleSpec {
+        name: "condflag".into(),
+        title: "Data Conditioning Flags".into(),
+        category: "Prep".into(),
+        doc: "Flags samples whose density/neutron readings should not feed porosity or \
+              mineral solving. COAL_FLAG: RHOB < COAL_RHOB and NPHI > COAL_NPHI, plus DT > \
+              COAL_DT where a sonic exists; a washed-out hole mimics coal, so samples with \
+              BADHOLE = 1 are never called coal. TIGHT_FLAG: density porosity (from RHO_MA \
+              / RHO_FL — the same parameters, and zone overrides, as the density-porosity \
+              modules) and NPHI both below TIGHT_PHI. XOVER_FLAG: gas crossover, density \
+              porosity exceeding NPHI by more than XOVER_MIN — coal and bad hole are \
+              excluded because they fake the same light-density signature. NPHI must be in \
+              matrix units consistent with RHO_MA: limestone-unit neutron against a \
+              sandstone RHO_MA reads about 0.04 low in clean water sand, right at the \
+              XOVER_MIN default — convert the neutron first, or raise XOVER_MIN to ~0.08. \
+              Flagged beds thinner than MIN_THICK are dropped as spikes (missing samples \
+              inside a bed do not split it). SHOULDER_FLAG is the transition adjustment: \
+              logs average across bed boundaries, so samples within SHOULDER of a coal / \
+              tight bed — or a bad-hole interval at least MIN_THICK thick — still carry \
+              mixed readings; masking only the bed itself would leave those shoulder values \
+              in the conditioned data. COND_FLAG combines coal, tight, bad hole and \
+              shoulder (and crossover when OPT_XCOND = YES — leave NO when gas zones will \
+              be corrected rather than discarded); feed it as the Mask on later module \
+              runs, but leave the Mask empty on the condflag run itself — masking this run \
+              with BADHOLE would blank COND_FLAG exactly where it must read 1. MIN_THICK \
+              and SHOULDER are in the depth curve's unit — the defaults suit metres, \
+              roughly triple them for feet. Run the badhole module first so its flag is \
+              available here."
+            .into(),
+        args: vec![
+            param("RHO_MA", "Matrix density", "g/cc", 2.645, 2.0, 3.2),
+            param("RHO_FL", "Fluid density", "g/cc", 1.0, 0.5, 1.5),
+            param("COAL_RHOB", "Coal: density below", "g/cc", 1.9, 1.2, 2.4),
+            param("COAL_NPHI", "Coal: neutron above", "v/v", 0.35, 0.15, 0.8),
+            param("COAL_DT", "Coal: sonic above (when DT present)", "us/ft", 100.0, 70.0, 160.0),
+            param("TIGHT_PHI", "Tight: both porosities below", "v/v", 0.05, 0.0, 0.2),
+            param(
+                "XOVER_MIN",
+                "Crossover: DPHI - NPHI above (~0.08 for limestone-unit NPHI)",
+                "v/v",
+                0.04,
+                0.0,
+                0.3,
+            ),
+            param("MIN_THICK", "Drop flagged beds thinner than", "m|ft", 0.25, 0.0, 10.0),
+            param("SHOULDER", "Shoulder width beyond bed edges", "m|ft", 0.5, 0.0, 5.0),
+            opt("OPT_XCOND", "Include gas crossover in COND_FLAG", "NO", &["NO", "YES"]),
+            log_in("RHOB", "Density log", "g/cc", "RHOB", true),
+            log_in("NPHI", "Neutron porosity log (matrix units matching RHO_MA)", "v/v", "NPHI", true),
+            log_in("DT", "Sonic transit time log", "us/ft", "DT", false),
+            log_in("BADHOLE", "Bad-hole flag from the badhole module", "", "BADHOLE", false),
+            log_out("COAL_FLAG", "Coal flag (1 = coal)", ""),
+            log_out("TIGHT_FLAG", "Tight-zone flag (1 = tight)", ""),
+            log_out("XOVER_FLAG", "Gas crossover flag (1 = crossover)", ""),
+            log_out("SHOULDER_FLAG", "Bed-transition shoulder flag (1 = shoulder)", ""),
+            log_out("COND_FLAG", "Combined conditioning mask (1 = exclude)", ""),
+        ],
+    }
+}
+
+/// Consecutive runs of flag == 1.0 (missing breaks a run), as inclusive index pairs.
+fn flag_runs(flag: &[f32]) -> Vec<(usize, usize)> {
+    let mut runs = Vec::new();
+    let mut start: Option<usize> = None;
+    for (i, &f) in flag.iter().enumerate() {
+        if f == 1.0 {
+            start.get_or_insert(i);
+        } else if let Some(s) = start.take() {
+            runs.push((s, i - 1));
+        }
+    }
+    if let Some(s) = start {
+        runs.push((s, flag.len() - 1));
+    }
+    runs
+}
+
+/// Runs of flag == 1.0 with fragments merged when only missing samples separate
+/// them — a null reading inside a bed must not split it into despikable slivers.
+fn bridged_runs(flag: &[f32]) -> Vec<(usize, usize)> {
+    let mut merged: Vec<(usize, usize)> = Vec::new();
+    for (s, e) in flag_runs(flag) {
+        if let Some(last) = merged.last_mut() {
+            if flag[last.1 + 1..s].iter().all(|v| v.is_nan()) {
+                last.1 = e;
+                continue;
+            }
+        }
+        merged.push((s, e));
+    }
+    merged
+}
+
+/// Median sample spacing of the depth curve (0.0 when it cannot be measured).
+fn median_spacing(depth: &[f32]) -> f64 {
+    let mut d: Vec<f64> = depth
+        .windows(2)
+        .filter(|w| w[0].is_finite() && w[1].is_finite())
+        .map(|w| (w[1] - w[0]).abs() as f64)
+        .collect();
+    if d.is_empty() {
+        return 0.0;
+    }
+    d.sort_by(|a, b| a.total_cmp(b));
+    d[d.len() / 2]
+}
+
+fn condflag(ctx: &ModuleContext) -> ModuleOutputs {
+    let depth = ctx.log("DEPTH");
+    let rhob = ctx.log("RHOB");
+    let nphi = ctx.log("NPHI");
+    let dt = ctx.log("DT");
+    let bh = ctx.log("BADHOLE");
+    let xcond = ctx.o("OPT_XCOND") == "YES";
+
+    let mut coal = vec![f32::NAN; ctx.n];
+    let mut tight = vec![f32::NAN; ctx.n];
+    let mut xover = vec![f32::NAN; ctx.n];
+
+    for i in 0..ctx.n {
+        let (rb, np) = (rhob[i] as f64, nphi[i] as f64);
+        if is_missing(rb) || is_missing(np) {
+            continue;
+        }
+        let washout = bh[i] == 1.0;
+        let d = dt[i] as f64;
+        let coal_hit = rb < ctx.p("COAL_RHOB", i)
+            && np > ctx.p("COAL_NPHI", i)
+            && (is_missing(d) || d > ctx.p("COAL_DT", i));
+        coal[i] = if coal_hit && !washout { 1.0 } else { 0.0 };
+
+        // Zone overrides bypass dialog range checks, so a degenerate matrix/fluid
+        // pair (den <= 0) can still arrive: DPHI is meaningless then — leave the
+        // density-porosity flags missing rather than flagging on +/-inf.
+        let den = ctx.p("RHO_MA", i) - ctx.p("RHO_FL", i);
+        if den <= 0.0 {
+            continue;
+        }
+        let dphi = (ctx.p("RHO_MA", i) - rb) / den;
+
+        let tp = ctx.p("TIGHT_PHI", i);
+        tight[i] = if dphi < tp && np < tp { 1.0 } else { 0.0 };
+
+        let x_hit = dphi - np > ctx.p("XOVER_MIN", i) && !coal_hit && !washout;
+        xover[i] = if x_hit { 1.0 } else { 0.0 };
+    }
+
+    // Spike removal: a one- or two-sample "bed" is log noise, not lithology.
+    // Thickness counts one sample spacing beyond the run's depth extent; runs are
+    // bridged across missing samples so a null inside a bed can't shave it thin.
+    let dz = median_spacing(&depth);
+    for flag in [&mut coal, &mut tight, &mut xover] {
+        for (s, e) in bridged_runs(flag) {
+            let min_thick = ctx.p("MIN_THICK", s);
+            let extent = (depth[e] - depth[s]).abs() as f64 + dz;
+            if extent.is_finite() && min_thick > 0.0 && extent < min_thick {
+                for f in &mut flag[s..=e] {
+                    if *f == 1.0 {
+                        *f = 0.0;
+                    }
+                }
+            }
+        }
+    }
+
+    // A bad-hole interval only earns shoulders when it is a real bed (>= MIN_THICK):
+    // a single-sample DRHO blip masks itself via COND_FLAG, but dilating around it
+    // would throw away good rock on both sides.
+    let mut bh_bed = vec![0.0_f32; ctx.n];
+    for (s, e) in bridged_runs(&bh) {
+        let min_thick = ctx.p("MIN_THICK", s);
+        let extent = (depth[e] - depth[s]).abs() as f64 + dz;
+        if !extent.is_finite() || min_thick <= 0.0 || extent >= min_thick {
+            for (j, b) in bh_bed[s..=e].iter_mut().enumerate() {
+                if bh[s + j] == 1.0 {
+                    *b = 1.0;
+                }
+            }
+        }
+    }
+
+    // Shoulder adjustment: walk outward from every coal/tight/bad-hole bed edge
+    // and flag samples still within SHOULDER of the boundary — their readings
+    // average the two lithologies and would pollute results if left unmasked.
+    let bed: Vec<f32> = (0..ctx.n)
+        .map(|i| {
+            if coal[i] == 1.0 || tight[i] == 1.0 || bh_bed[i] == 1.0 {
+                1.0
+            } else {
+                0.0
+            }
+        })
+        .collect();
+    let mut shoulder = vec![f32::NAN; ctx.n];
+    for i in 0..ctx.n {
+        if depth[i].is_finite() {
+            shoulder[i] = 0.0;
+        }
+    }
+    for (s, e) in flag_runs(&bed) {
+        let sh_top = ctx.p("SHOULDER", s);
+        if sh_top > 0.0 && depth[s].is_finite() {
+            let mut j = s;
+            while j > 0 {
+                j -= 1;
+                if bed[j] == 1.0
+                    || !depth[j].is_finite()
+                    || ((depth[s] - depth[j]).abs() as f64) > sh_top
+                {
+                    break;
+                }
+                shoulder[j] = 1.0;
+            }
+        }
+        let sh_base = ctx.p("SHOULDER", e);
+        if sh_base > 0.0 && depth[e].is_finite() {
+            let mut j = e;
+            while j + 1 < ctx.n {
+                j += 1;
+                if bed[j] == 1.0
+                    || !depth[j].is_finite()
+                    || ((depth[j] - depth[e]).abs() as f64) > sh_base
+                {
+                    break;
+                }
+                shoulder[j] = 1.0;
+            }
+        }
+    }
+
+    let mut cond = vec![f32::NAN; ctx.n];
+    for i in 0..ctx.n {
+        let parts = [coal[i], tight[i], bh[i], if xcond { xover[i] } else { f32::NAN }];
+        if parts.iter().any(|&v| v == 1.0) || shoulder[i] == 1.0 {
+            cond[i] = 1.0;
+        } else if parts.iter().any(|&v| v.is_finite()) {
+            // Shoulder alone never marks a sample evaluable: with no QC input at
+            // all the combined flag stays MISSING, matching the badhole module.
+            cond[i] = 0.0;
+        }
+    }
+
+    HashMap::from([
+        ("COAL_FLAG".to_string(), coal),
+        ("TIGHT_FLAG".to_string(), tight),
+        ("XOVER_FLAG".to_string(), xover),
+        ("SHOULDER_FLAG".to_string(), shoulder),
+        ("COND_FLAG".to_string(), cond),
+    ])
 }
 
 // ---------------------------------------------------------------------------
@@ -2083,6 +2342,259 @@ mod tests {
         assert_eq!(f[1], 1.0, "big DRHO");
         assert_eq!(f[2], 1.0, "washout");
         assert!(f[3].is_nan(), "no QC curves at all -> missing");
+    }
+
+    /// Full parameter set for condflag tests; individual tests override entries.
+    fn condflag_params() -> Vec<(&'static str, f64)> {
+        vec![
+            ("RHO_MA", 2.645),
+            ("RHO_FL", 1.0),
+            ("COAL_RHOB", 1.9),
+            ("COAL_NPHI", 0.35),
+            ("COAL_DT", 100.0),
+            ("TIGHT_PHI", 0.05),
+            ("XOVER_MIN", 0.04),
+            ("MIN_THICK", 0.0),
+            ("SHOULDER", 0.0),
+        ]
+    }
+
+    #[test]
+    fn condflag_detects_coal_tight_and_crossover() {
+        // Half-metre sampling; despike and shoulder disabled to isolate detection.
+        let ctx = ctx_with(
+            6,
+            &[
+                ("DEPTH", vec![1000.0, 1000.5, 1001.0, 1001.5, 1002.0, 1002.5]),
+                //             shale   coal    fast-DT tight   gas     no-NPHI
+                ("RHOB", vec![2.45, 1.40, 1.40, 2.62, 2.20, 2.30]),
+                ("NPHI", vec![0.30, 0.45, 0.45, 0.02, 0.15, f32::NAN]),
+                ("DT", vec![90.0, 120.0, 60.0, 55.0, 80.0, 85.0]),
+            ],
+            &condflag_params(),
+            &[],
+        );
+        let out = condflag(&ctx);
+        assert_eq!(out["COAL_FLAG"][1], 1.0, "light + hydrogen-rich + slow sonic = coal");
+        assert_eq!(out["COAL_FLAG"][2], 0.0, "fast sonic vetoes the coal call");
+        assert_eq!(out["TIGHT_FLAG"][3], 1.0, "DPHI 0.015 and NPHI 0.02 both under cutoff");
+        assert_eq!(out["XOVER_FLAG"][4], 1.0, "DPHI 0.271 vs NPHI 0.15 = gas crossover");
+        assert_eq!(out["XOVER_FLAG"][1], 0.0, "coal is not crossover");
+        assert_eq!(out["XOVER_FLAG"][0], 0.0, "shale: NPHI over DPHI, no crossover");
+        assert_eq!(out["COAL_FLAG"][0], 0.0);
+        assert_eq!(out["TIGHT_FLAG"][0], 0.0);
+        assert!(out["COAL_FLAG"][5].is_nan(), "missing NPHI -> flags missing");
+        // Default OPT_XCOND=NO keeps gas crossover out of the combined mask.
+        assert_eq!(out["COND_FLAG"][1], 1.0);
+        assert_eq!(out["COND_FLAG"][4], 0.0, "crossover excluded from mask by default");
+        assert!(out["COND_FLAG"][5].is_nan());
+    }
+
+    #[test]
+    fn condflag_washout_is_not_coal_and_xcond_option() {
+        // Sample 0 reads exactly like coal but sits in washed-out hole.
+        let ctx = ctx_with(
+            4,
+            &[
+                ("DEPTH", vec![1000.0, 1000.5, 1001.0, 1001.5]),
+                ("RHOB", vec![1.40, 1.40, 2.20, 2.45]),
+                ("NPHI", vec![0.45, 0.45, 0.15, 0.30]),
+                ("DT", vec![120.0, 120.0, 80.0, 90.0]),
+                ("BADHOLE", vec![1.0, 0.0, 0.0, f32::NAN]),
+            ],
+            &condflag_params(),
+            &[("OPT_XCOND", "YES")],
+        );
+        let out = condflag(&ctx);
+        assert_eq!(out["COAL_FLAG"][0], 0.0, "washout mimics coal -> not coal");
+        assert_eq!(out["XOVER_FLAG"][0], 0.0, "washout mimics crossover -> not crossover");
+        assert_eq!(out["COND_FLAG"][0], 1.0, "still masked, via the bad-hole flag");
+        assert_eq!(out["COAL_FLAG"][1], 1.0, "same readings in gauge hole = coal");
+        assert_eq!(out["COND_FLAG"][2], 1.0, "OPT_XCOND=YES pulls crossover into the mask");
+        assert_eq!(out["COND_FLAG"][3], 0.0, "clean shale, missing BADHOLE -> good");
+    }
+
+    #[test]
+    fn condflag_min_thick_drops_spikes() {
+        let mut params = condflag_params();
+        for p in &mut params {
+            if p.0 == "MIN_THICK" {
+                p.1 = 0.6;
+            }
+        }
+        // One-sample coal spike (0.5 m counting sample spacing) vs a two-sample
+        // bed (1.0 m) at half-metre sampling.
+        let coal_rb = 1.4_f32;
+        let coal_np = 0.45_f32;
+        let ctx = ctx_with(
+            9,
+            &[
+                ("DEPTH", (0..9).map(|i| 1000.0 + 0.5 * i as f32).collect()),
+                ("RHOB", vec![2.45, 2.45, coal_rb, 2.45, 2.45, coal_rb, coal_rb, 2.45, 2.45]),
+                ("NPHI", vec![0.30, 0.30, coal_np, 0.30, 0.30, coal_np, coal_np, 0.30, 0.30]),
+            ],
+            &params,
+            &[],
+        );
+        let out = condflag(&ctx);
+        assert_eq!(out["COAL_FLAG"][2], 0.0, "one-sample spike dropped by MIN_THICK");
+        assert_eq!(out["COND_FLAG"][2], 0.0);
+        assert_eq!(out["COAL_FLAG"][5], 1.0, "real two-sample bed survives");
+        assert_eq!(out["COAL_FLAG"][6], 1.0);
+    }
+
+    #[test]
+    fn condflag_shoulder_extends_past_bed_edges() {
+        let mut params = condflag_params();
+        for p in &mut params {
+            if p.0 == "SHOULDER" {
+                p.1 = 1.0;
+            }
+        }
+        // Coal bed at samples 4-6; SHOULDER 1.0 at 0.5 m sampling reaches two
+        // samples beyond each edge.
+        let n = 11;
+        let mut rb = vec![2.45_f32; n];
+        let mut np = vec![0.30_f32; n];
+        for i in 4..=6 {
+            rb[i] = 1.4;
+            np[i] = 0.45;
+        }
+        let ctx = ctx_with(
+            n,
+            &[
+                ("DEPTH", (0..n).map(|i| 1000.0 + 0.5 * i as f32).collect()),
+                ("RHOB", rb),
+                ("NPHI", np),
+            ],
+            &params,
+            &[],
+        );
+        let out = condflag(&ctx);
+        let sh = &out["SHOULDER_FLAG"];
+        assert_eq!(&sh[..], &[0., 0., 1., 1., 0., 0., 0., 1., 1., 0., 0.]);
+        for i in 2..=8 {
+            assert_eq!(out["COND_FLAG"][i], 1.0, "bed + shoulders all masked (i={i})");
+        }
+        assert_eq!(out["COND_FLAG"][1], 0.0, "1.5 m from the bed edge is beyond SHOULDER");
+        assert_eq!(out["COND_FLAG"][9], 0.0);
+    }
+
+    #[test]
+    fn condflag_coal_without_sonic_and_missing_inputs() {
+        // No DT curve at all -> coal decided on density/neutron alone.
+        let ctx = ctx_with(
+            3,
+            &[
+                ("DEPTH", vec![1000.0, 1000.5, 1001.0]),
+                ("RHOB", vec![1.40, 2.45, f32::NAN]),
+                ("NPHI", vec![0.45, 0.30, 0.30]),
+            ],
+            &condflag_params(),
+            &[],
+        );
+        let out = condflag(&ctx);
+        assert_eq!(out["COAL_FLAG"][0], 1.0, "no sonic -> two-criteria coal call");
+        assert_eq!(out["COAL_FLAG"][1], 0.0);
+        assert!(out["COAL_FLAG"][2].is_nan(), "missing RHOB -> flags missing");
+        assert!(out["TIGHT_FLAG"][2].is_nan());
+        assert!(out["XOVER_FLAG"][2].is_nan());
+        assert!(out["COND_FLAG"][2].is_nan(), "nothing evaluable -> mask missing");
+    }
+
+    #[test]
+    fn condflag_null_inside_bed_does_not_split_it() {
+        let mut params = condflag_params();
+        for p in &mut params {
+            if p.0 == "MIN_THICK" {
+                p.1 = 0.6;
+            }
+        }
+        // 3-sample coal bed with a null NPHI in the middle: each fragment alone
+        // (0.5 m) is thinner than MIN_THICK, but the bridged bed (1.5 m) survives.
+        let ctx = ctx_with(
+            7,
+            &[
+                ("DEPTH", (0..7).map(|i| 1000.0 + 0.5 * i as f32).collect()),
+                ("RHOB", vec![2.45, 2.45, 1.40, 1.40, 1.40, 2.45, 2.45]),
+                ("NPHI", vec![0.30, 0.30, 0.45, f32::NAN, 0.45, 0.30, 0.30]),
+            ],
+            &params,
+            &[],
+        );
+        let out = condflag(&ctx);
+        assert_eq!(out["COAL_FLAG"][2], 1.0, "bed fragment kept despite the null between");
+        assert_eq!(out["COAL_FLAG"][4], 1.0);
+        assert!(out["COAL_FLAG"][3].is_nan(), "the null sample itself stays missing");
+    }
+
+    #[test]
+    fn condflag_badhole_blip_masks_itself_but_earns_no_shoulder() {
+        let mut params = condflag_params();
+        for p in &mut params {
+            if p.0 == "MIN_THICK" {
+                p.1 = 0.6;
+            }
+            if p.0 == "SHOULDER" {
+                p.1 = 1.0;
+            }
+        }
+        // Single-sample bad-hole blip at i2; real washout bed at i6-i8.
+        let n = 12;
+        let mut bh = vec![0.0_f32; n];
+        bh[2] = 1.0;
+        for i in 6..=8 {
+            bh[i] = 1.0;
+        }
+        let ctx = ctx_with(
+            n,
+            &[
+                ("DEPTH", (0..n).map(|i| 1000.0 + 0.5 * i as f32).collect()),
+                ("RHOB", vec![2.45; n]),
+                ("NPHI", vec![0.30; n]),
+                ("BADHOLE", bh),
+            ],
+            &params,
+            &[],
+        );
+        let out = condflag(&ctx);
+        assert_eq!(out["COND_FLAG"][2], 1.0, "the blip sample itself stays masked");
+        assert_eq!(out["SHOULDER_FLAG"][1], 0.0, "no dilation around a one-sample blip");
+        assert_eq!(out["SHOULDER_FLAG"][3], 0.0);
+        assert_eq!(out["SHOULDER_FLAG"][5], 1.0, "the real washout bed dilates");
+        assert_eq!(out["SHOULDER_FLAG"][4], 1.0);
+        assert_eq!(out["SHOULDER_FLAG"][9], 1.0);
+        assert_eq!(out["SHOULDER_FLAG"][10], 1.0);
+        assert_eq!(out["SHOULDER_FLAG"][11], 0.0, "1.5 m out is beyond SHOULDER");
+    }
+
+    #[test]
+    fn condflag_degenerate_density_params_skip_dphi_flags() {
+        // Zone overrides bypass dialog validation, so RHO_MA <= RHO_FL can reach
+        // the module: DPHI-based flags must go missing, never fire on +/-inf.
+        let mut params = condflag_params();
+        for p in &mut params {
+            if p.0 == "RHO_MA" {
+                p.1 = 1.0;
+            }
+            if p.0 == "RHO_FL" {
+                p.1 = 1.2;
+            }
+        }
+        let ctx = ctx_with(
+            2,
+            &[
+                ("DEPTH", vec![1000.0, 1000.5]),
+                ("RHOB", vec![1.40, 2.45]),
+                ("NPHI", vec![0.45, 0.30]),
+            ],
+            &params,
+            &[],
+        );
+        let out = condflag(&ctx);
+        assert_eq!(out["COAL_FLAG"][0], 1.0, "coal needs no DPHI and still works");
+        assert!(out["TIGHT_FLAG"][1].is_nan(), "degenerate RHO_MA/RHO_FL -> no tight call");
+        assert!(out["XOVER_FLAG"][1].is_nan(), "degenerate RHO_MA/RHO_FL -> no crossover call");
     }
 
     #[test]
