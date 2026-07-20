@@ -209,6 +209,10 @@ export class Workspace {
       "sep",
       ["Field Dashboard", () => this.openDashboard(group)],
       ["Workflow Builder", () => this.openWorkflow(group)],
+      ["Cutoffs & Pay Summary", () => this.openPaySummary(group)],
+      ["Machine Learning", () => this.openMl(group)],
+      ["Monte Carlo", () => this.openMonteCarlo(group)],
+      ["SandiMin Solver", () => this.openMultimin(group)],
       "sep",
       ["Wells & Tops", () => this.openWellsTops(group)],
       ["Inspector", () => this.openInspector(group)],
@@ -280,42 +284,39 @@ export class Workspace {
           return () => panel.dispose();
         });
       case "dashboard":
-        return new DomPanel("dock-dashboard", (host) => {
-          let disposer: (() => void) | undefined;
-          let closed = false;
-          buildDashboardContent(setStatus)
-            .then((content) => {
-              if (closed) return void content.dispose?.();
-              host.appendChild(content.el);
-              disposer = content.dispose;
-            })
-            .catch((err) => {
-              host.innerHTML = `<div class="logview-message">Failed to open dashboard: ${err}</div>`;
-            });
-          return () => {
-            closed = true;
-            disposer?.();
-          };
-        });
+        return this.asyncPane("dock-dashboard", () => buildDashboardContent(setStatus), "dashboard");
       case "workflow":
-        return new DomPanel("dock-workflow", (host) => {
-          let disposer: (() => void) | undefined;
-          let closed = false;
-          void import("./workflowDialog")
-            .then((m) => m.buildWorkflowContent(setStatus))
-            .then((content) => {
-              if (closed) return void content.dispose();
-              host.appendChild(content.el);
-              disposer = content.dispose;
-            })
-            .catch((err) => {
-              host.innerHTML = `<div class="logview-message">Failed to open workflow builder: ${err}</div>`;
-            });
-          return () => {
-            closed = true;
-            disposer?.();
-          };
-        });
+        return this.asyncPane(
+          "dock-workflow",
+          () => import("./workflowDialog").then((m) => m.buildWorkflowContent(setStatus)),
+          "workflow builder",
+        );
+      // Tool panes ported from popups (ROADMAP §4c item 14): dynamic imports keep
+      // workspace.ts free of ribbon↔dialog cycles, same as the workflow builder.
+      case "paysummary":
+        return this.asyncPane(
+          "dock-paysummary",
+          () => import("./summaryDialog").then((m) => m.buildSummaryContent(setStatus)),
+          "pay summary",
+        );
+      case "ml":
+        return this.asyncPane(
+          "dock-ml",
+          () => import("./mlDialog").then((m) => m.buildMlContent(setStatus)),
+          "machine learning",
+        );
+      case "montecarlo":
+        return this.asyncPane(
+          "dock-montecarlo",
+          () => import("./monteCarloDialog").then((m) => m.buildMonteCarloContent(setStatus)),
+          "Monte Carlo",
+        );
+      case "multimin":
+        return this.asyncPane(
+          "dock-multimin",
+          () => import("./multiminDialog").then((m) => m.buildMultiminContent(setStatus)),
+          "SandiMin",
+        );
       case "histogram":
       case "crossplot":
       case "pickett":
@@ -326,6 +327,32 @@ export class Workspace {
           host.textContent = `Unknown panel: ${options.name}`;
         });
     }
+  }
+
+  /** A DomPanel whose content resolves asynchronously (dynamic import + async builder):
+   *  drops the build result if the panel closed meanwhile, always runs the dispose. */
+  private asyncPane(
+    className: string,
+    load: () => Promise<{ el: HTMLElement; dispose?: () => void }>,
+    label: string,
+  ): IContentRenderer {
+    return new DomPanel(className, (host) => {
+      let disposer: (() => void) | undefined;
+      let closed = false;
+      load()
+        .then((content) => {
+          if (closed) return void content.dispose?.();
+          host.appendChild(content.el);
+          disposer = content.dispose;
+        })
+        .catch((err) => {
+          host.innerHTML = `<div class="logview-message">Failed to open ${label}: ${err}</div>`;
+        });
+      return () => {
+        closed = true;
+        disposer?.();
+      };
+    });
   }
 
   /** Adds a new (empty) window beside `group` — the user's Split Right / Split Down. */
@@ -419,6 +446,14 @@ export class Workspace {
       items.push({ heading: "Field Dashboard" });
     } else if (kind === "workflow") {
       items.push({ heading: "Workflow Builder" });
+    } else if (kind === "paysummary") {
+      items.push({ heading: "Cutoffs & Pay Summary" });
+    } else if (kind === "ml") {
+      items.push({ heading: "Machine Learning" });
+    } else if (kind === "montecarlo") {
+      items.push({ heading: "Monte Carlo" });
+    } else if (kind === "multimin") {
+      items.push({ heading: "SandiMin Solver" });
     }
 
     // --- Window block (every panel) ---
@@ -731,6 +766,22 @@ export class Workspace {
 
   openHistory(group?: DockviewGroupPanel): void {
     this.openSingleton("history", "history", "Processing History", group);
+  }
+
+  openPaySummary(group?: DockviewGroupPanel): void {
+    this.openSingleton("paysummary", "paysummary", "Cutoffs & Pay Summary", group);
+  }
+
+  openMl(group?: DockviewGroupPanel): void {
+    this.openSingleton("ml", "ml", "Machine Learning", group);
+  }
+
+  openMonteCarlo(group?: DockviewGroupPanel): void {
+    this.openSingleton("montecarlo", "montecarlo", "Monte Carlo", group);
+  }
+
+  openMultimin(group?: DockviewGroupPanel): void {
+    this.openSingleton("multimin", "multimin", "SandiMin — Mineral Solver", group);
   }
 
   openLogView(group?: DockviewGroupPanel): void {

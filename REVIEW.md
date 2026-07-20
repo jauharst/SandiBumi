@@ -6,6 +6,27 @@ Work through this list when you have time; delete items as you confirm them.
 Marks: `[o]` confirmed OK (removed from this file), `[x]` confirmed wrong → logged in
 **ROADMAP.md §4 (Field-review backlog)**, `[ ]` not yet tested.
 
+## Wave A-1: tool panes + theme compliance (2026-07-20 #15)
+
+Four tools moved from popup dialogs to dock panes (ROADMAP §4c item 14) — they now
+dock/float/tab like the Workflow Builder and can't be dismissed by a stray click:
+
+- [ ] **Cutoffs & Pay Summary**, **ML Models**, **Monte Carlo**, **SandiMin** ribbon
+      buttons each open a PANE (singleton: clicking again focuses the existing one).
+      Run each on Balam South data — results should be identical to the old popups.
+- [ ] The ＋ add-panel menu on any window now lists all four (under Workflow Builder);
+      the right-click menu inside each pane shows its own heading.
+- [ ] SandiMin's endpoints matrix now uses the full pane width (was capped at 620px).
+- [ ] Panes reopen after an app restart (from the autosaved workspace) in their
+      docked position — internal selections (cutoff values etc.) reset, same as the
+      Workflow Builder.
+- [ ] **Theme check** (switch to Dark, then Pertamina): the log-view cursor readout
+      pill now inverts with the theme (was unreadable in dark); crossplot/Pickett/
+      histogram pick swatches + histogram pick markers follow the theme accents
+      (Pertamina = blue/lime, was always brown/green); core-plug diamond outlines
+      visible in dark; workflow invalid-input red and error text use the theme warn
+      color; the composite preview surface is no longer light grey in dark themes.
+
 ## Chartbook overlay library + audit quick fixes (2026-07-20 #14)
 
 The single D-N overlay grew into a **chart overlay library** (Properties → Overlays →

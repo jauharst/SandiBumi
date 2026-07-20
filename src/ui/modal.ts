@@ -2,9 +2,15 @@
  *  NOT block the rest of the app — the scrim is pointer-transparent (see styles.css),
  *  so the user can keep clicking panels/ribbon while the dialog stays open.
  *  Returns a close function; Escape and the ✕ button close. */
+let activeClose: (() => void) | null = null;
+
 export function openModal(title: string, content: HTMLElement, widthPx = 520): () => void {
   const root = document.querySelector<HTMLElement>("#modal-root");
   if (!root) return () => {};
+
+  // Only one dialog exists at a time (single #modal-root): close the previous one
+  // properly so its document-level keydown listener doesn't leak.
+  activeClose?.();
 
   root.hidden = false;
   root.innerHTML = "";
@@ -66,12 +72,14 @@ export function openModal(title: string, content: HTMLElement, widthPx = 520): (
     root.hidden = true;
     root.innerHTML = "";
     document.removeEventListener("keydown", onKey);
+    if (activeClose === close) activeClose = null;
   };
   const onKey = (e: KeyboardEvent) => {
     if (e.key === "Escape") close();
   };
   closeBtn.addEventListener("click", close);
   document.addEventListener("keydown", onKey);
+  activeClose = close;
   return close;
 }
 

@@ -13,6 +13,7 @@ import {
   looksDiscrete,
   percentile,
   PlotCanvas,
+  readTheme,
   type ColormapName,
   type Viewport,
   type ViewportRef,
@@ -841,8 +842,9 @@ export async function buildCrossplotContent(
       "Ctrl+wheel = zoom, drag background = pan.";
   };
 
-  const pickX = pickRow("X pick", "#b5651d", "NPHI_SH", well, zoneSel.current, setStatus);
-  const pickY = pickRow("Y pick", "#5f7350", "RHO_SH", well, zoneSel.current, setStatus);
+  const tc = readTheme(document.documentElement);
+  const pickX = pickRow("X pick", tc.accent, "NPHI_SH", well, zoneSel.current, setStatus);
+  const pickY = pickRow("Y pick", tc.accent2, "RHO_SH", well, zoneSel.current, setStatus);
   const picksWrap = document.createElement("div");
   picksWrap.append(pickX.row, pickY.row);
   content.appendChild(picksWrap);
@@ -886,7 +888,7 @@ export async function buildCrossplotContent(
       const ctx = canvas.getContext("2d")!;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.font = "500 12px system-ui, sans-serif";
-      ctx.fillStyle = "#888";
+      ctx.fillStyle = readTheme(canvas).text;
       ctx.textAlign = "center";
       ctx.fillText("No valid data for these curves/zone.", canvas.width / 2, canvas.height / 2);
       return;

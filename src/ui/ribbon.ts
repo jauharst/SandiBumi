@@ -31,10 +31,6 @@ import { openModuleDialog } from "./moduleDialog";
 import { openCompositeDialog } from "./compositeDialog";
 import { openReportDialog } from "./reportDialog";
 import { openZonesDialog } from "./zonesDialog";
-import { openSummaryDialog } from "./summaryDialog";
-import { openMonteCarloDialog } from "./monteCarloDialog";
-import { openMlDialog } from "./mlDialog";
-import { openMultiminDialog } from "./multiminDialog";
 import { openAutoCorrDialog } from "./autoCorrDialog";
 
 interface RibbonMenuItem {
@@ -176,22 +172,11 @@ export class Ribbon {
       }
       void openZonesDialog(well, setStatus);
     });
-    q<HTMLButtonElement>("#paysum-btn")?.addEventListener("click", () => {
-      void openSummaryDialog(appState.selectedWell.get(), {
-        setStatus,
-        onRunComplete: () => workspace.notifyDataChanged(),
-      });
-    });
+    q<HTMLButtonElement>("#paysum-btn")?.addEventListener("click", () => workspace.openPaySummary());
     q<HTMLButtonElement>("#workflow-btn")?.addEventListener("click", () => workspace.openWorkflow());
-    q<HTMLButtonElement>("#montecarlo-btn")?.addEventListener("click", () => {
-      void openMonteCarloDialog(setStatus);
-    });
-    q<HTMLButtonElement>("#ml-btn")?.addEventListener("click", () => {
-      void openMlDialog(setStatus);
-    });
-    q<HTMLButtonElement>("#multimin-btn")?.addEventListener("click", () => {
-      void openMultiminDialog(setStatus);
-    });
+    q<HTMLButtonElement>("#montecarlo-btn")?.addEventListener("click", () => workspace.openMonteCarlo());
+    q<HTMLButtonElement>("#ml-btn")?.addEventListener("click", () => workspace.openMl());
+    q<HTMLButtonElement>("#multimin-btn")?.addEventListener("click", () => workspace.openMultimin());
     q<HTMLButtonElement>("#dashboard-btn")?.addEventListener("click", () => workspace.openDashboard());
     void this.loadAllModules(root);
 

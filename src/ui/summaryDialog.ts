@@ -1,16 +1,18 @@
 import { listWells, runPaySummary, type PaySummaryRow, type WellSummary } from "../ipc";
-import { defaultRunWellIds, filterByActiveGroup } from "../state";
-import { formRow, openModal } from "./modal";
+import { appState, bumpDataVersion, defaultRunWellIds, filterByActiveGroup } from "../state";
+import { formRow } from "./modal";
 
-/** Cutoffs & Summary dialog (Geolog .paysum model): VSH/PHIE/SWE (+ optional PERM)
+/** Cutoffs & Pay Summary (Geolog .paysum model): VSH/PHIE/SWE (+ optional PERM)
  *  cutoffs → SAND / RESERVOIR / PAY flags → per-well per-zone statistics table.
- *  Also writes FLAG_SAND / FLAG_RESERVOIR / FLAG_PAY curves for the layout. */
-export async function openSummaryDialog(
-  selectedWell: WellSummary | null,
-  callbacks: { onRunComplete: () => void; setStatus: (text: string) => void },
-): Promise<void> {
+ *  Also writes FLAG_SAND / FLAG_RESERVOIR / FLAG_PAY curves for the layout.
+ *  Hosted as a dock pane (workspace component "paysummary"), not a popup. */
+export async function buildSummaryContent(
+  setStatus: (text: string) => void,
+): Promise<{ el: HTMLElement; dispose: () => void }> {
+  const selectedWell = appState.selectedWell.get();
   const wells = filterByActiveGroup(await listWells());
   const content = document.createElement("div");
+  content.className = "summary-pane";
 
   const wellBox = document.createElement("div");
   wellBox.className = "well-checklist";
@@ -57,8 +59,6 @@ export async function openSummaryDialog(
   resultBox.className = "modal-result";
   content.appendChild(resultBox);
 
-  openModal("Cutoffs & Pay Summary", content, 900);
-
   runBtn.addEventListener("click", async () => {
     const wellIds = wellChecks.filter((w) => w.input.checked).map((w) => w.well.well_id);
     if (wellIds.length === 0) {
@@ -77,14 +77,16 @@ export async function openSummaryDialog(
         perm_min: Number.isNaN(permRaw) ? null : permRaw,
       });
       renderTable(resultBox, rows);
-      callbacks.setStatus(`Pay summary: ${rows.length} rows; FLAG curves written`);
-      callbacks.onRunComplete();
+      setStatus(`Pay summary: ${rows.length} rows; FLAG curves written`);
+      bumpDataVersion();
     } catch (err) {
       resultBox.textContent = `Summary failed: ${err}`;
     } finally {
       runBtn.disabled = false;
     }
   });
+
+  return { el: content, dispose: () => {} };
 }
 
 function fmt(v: number, digits = 2): string {

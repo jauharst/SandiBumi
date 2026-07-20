@@ -7,7 +7,7 @@ import {
   type WellSummary,
 } from "../ipc";
 import { appState, defaultRunWellIds, filterByActiveGroup } from "../state";
-import { formRow, openModal } from "./modal";
+import { formRow } from "./modal";
 
 /** Machine-learning dialog (Phase 10-4): one entry point for the whole catalog —
  *  supervised regression/classification (fit on labelled train wells, predict on apply
@@ -133,7 +133,10 @@ const TASKS: TaskSpec[] = [
 
 const DEFAULT_FEATURES = ["GR", "NPHI", "RHOB", "RES_DEEP", "DT"];
 
-export async function openMlDialog(setStatus: (text: string) => void): Promise<void> {
+/** Hosted as a dock pane (workspace component "ml"), not a popup. */
+export async function buildMlContent(
+  setStatus: (text: string) => void,
+): Promise<{ el: HTMLElement; dispose: () => void }> {
   const [wells, catalog] = await Promise.all([
     listWells().then(filterByActiveGroup).catch(() => [] as WellSummary[]),
     listCurveCatalog().catch(() => []),
@@ -395,7 +398,7 @@ export async function openMlDialog(setStatus: (text: string) => void): Promise<v
   });
 
   refreshAlgos();
-  openModal("Machine Learning", content, 660);
+  return { el: content, dispose: () => {} };
 }
 
 function fmtMetric(v: unknown): string {

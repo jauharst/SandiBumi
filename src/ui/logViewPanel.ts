@@ -486,7 +486,13 @@ export class LogViewPanel {
     const [top, bottom] = this.renderer.getVisibleDepthRange();
     if (bottom <= top) return;
     ctx.lineWidth = 1;
-    ctx.strokeStyle = "rgba(0, 0, 0, 0.65)";
+    // Diamond outlines follow the theme's text color (65% alpha) so they stay
+    // visible on dark themes — near-black was invisible there.
+    const outline =
+      getComputedStyle(this.root).getPropertyValue("--text").trim() ||
+      getComputedStyle(document.documentElement).getPropertyValue("--text").trim() ||
+      "#332a1f";
+    ctx.strokeStyle = /^#[0-9a-fA-F]{6}$/.test(outline) ? `${outline}a6` : outline;
 
     for (const range of this.renderer.getTrackRanges()) {
       const track = this.layout.tracks.find((t) => t.title === range.title);

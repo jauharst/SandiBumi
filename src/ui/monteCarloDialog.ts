@@ -14,7 +14,7 @@ import {
   type WellSummary,
 } from "../ipc";
 import { defaultRunWellIds, filterByActiveGroup } from "../state";
-import { formRow, openModal } from "./modal";
+import { formRow } from "./modal";
 
 const WORKFLOW_DOC_TYPE = "workflow";
 const DEFAULT_STEPS = ["vsh_gr", "phi_dn", "sw_indo"];
@@ -43,7 +43,10 @@ function emptyStep(module: string): ChainStep {
 /** Monte Carlo uncertainty (Phase 9): put distributions on model parameters, run N seeded
  *  realizations of a chain in memory, and read the P10/P50/P90 spread of net pay / NTG /
  *  PHIE / SWE / HPV per zone plus an HPV histogram. */
-export async function openMonteCarloDialog(setStatus: (text: string) => void): Promise<void> {
+/** Hosted as a dock pane (workspace component "montecarlo"), not a popup. */
+export async function buildMonteCarloContent(
+  setStatus: (text: string) => void,
+): Promise<{ el: HTMLElement; dispose: () => void }> {
   const modules = await listModules().catch(() => [] as ModuleSpec[]);
   const wells = filterByActiveGroup(await listWells().catch(() => [] as WellSummary[]));
   const moduleByName = new Map(modules.map((m) => [m.name, m]));
@@ -314,7 +317,7 @@ export async function openMonteCarloDialog(setStatus: (text: string) => void): P
   describeSteps();
   refreshCandidates();
   renderMcRows();
-  openModal("Monte Carlo Uncertainty", content, 640);
+  return { el: content, dispose: () => {} };
 }
 
 function toDist(r: McRow): McDistribution {

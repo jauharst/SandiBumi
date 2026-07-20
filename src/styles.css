@@ -904,6 +904,8 @@ textarea {
   display: block;
 }
 
+/* Inverted pill: text color as background, panel color as text, so it stays a
+ * contrast overlay in every theme (dark pill on light themes, light on dark). */
 .cursor-readout {
   position: absolute;
   left: 64px;
@@ -911,8 +913,8 @@ textarea {
   padding: 3px 10px;
   font-size: 10.5px;
   border-radius: 3px;
-  background: rgba(20, 15, 8, 0.78);
-  color: #f2ebdc;
+  background: color-mix(in srgb, var(--text) 80%, transparent);
+  color: var(--bg-panel);
   pointer-events: none;
   white-space: nowrap;
 }
@@ -921,9 +923,10 @@ textarea {
   margin-left: 12px;
 }
 
-/* Curves belonging to the hovered track (bright amber on the dark readout pill). */
+/* Curves belonging to the hovered track (accent lightened toward the panel tone
+ * so it pops against the inverted pill in both light and dark themes). */
 .cursor-readout .readout-item.em {
-  color: #ffd9a0;
+  color: color-mix(in srgb, var(--accent) 55%, var(--bg-panel));
   font-weight: 700;
 }
 
@@ -1218,8 +1221,8 @@ textarea {
   padding: 6px 9px;
 }
 .eq-status.error {
-  color: var(--danger, #c0392b);
-  background: color-mix(in srgb, var(--danger, #c0392b) 12%, transparent);
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
 }
 
 .placeholder-note {
@@ -1274,8 +1277,8 @@ textarea {
   cursor: default;
 }
 .context-menu-item.danger:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--danger, #c0392b) 14%, transparent);
-  color: var(--danger, #c0392b);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  color: var(--warn);
 }
 
 .context-menu-sep {
@@ -1310,7 +1313,7 @@ textarea {
   padding: 4px 8px;
   font-size: 11px;
   color: var(--text);
-  background: var(--surface-2, var(--surface));
+  background: var(--bg-panel);
   border: 1px solid var(--border-strong);
   border-radius: 4px;
 }
@@ -2256,7 +2259,7 @@ textarea {
 .tree-group-manage {
   flex: 0 0 auto;
   border: 1px solid var(--border-strong);
-  background: var(--bg-subtle, transparent);
+  background: transparent;
   color: var(--text);
   border-radius: 4px;
   cursor: pointer;
@@ -2300,7 +2303,7 @@ textarea {
   text-transform: uppercase;
   letter-spacing: 0.03em;
   color: var(--text-dim);
-  background: var(--bg-subtle, transparent);
+  background: transparent;
 }
 .wg-editing {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
@@ -2464,7 +2467,7 @@ textarea {
   margin-top: 8px;
   max-height: 46vh;
   overflow: auto;
-  background: var(--panel-2, #f4f4f4);
+  background: var(--bg-panel-alt);
   padding: 8px;
   border-radius: 4px;
   display: flex;
@@ -2522,7 +2525,7 @@ textarea {
 .workflow-step-badge {
   flex: 1;
   font-size: 11px;
-  color: var(--muted, #8a8170);
+  color: var(--text-dim);
 }
 .workflow-step-badge-set {
   color: var(--accent, #b5651d);
@@ -2534,7 +2537,7 @@ textarea {
 }
 .workflow-step-editor {
   padding: 6px 8px 8px;
-  background: var(--surface-2, rgba(0, 0, 0, 0.03));
+  background: var(--bg-panel-alt);
   border-top: 1px dashed var(--border, #e6e0d2);
 }
 .workflow-editor-row {
@@ -2546,7 +2549,7 @@ textarea {
 }
 .workflow-editor-row label {
   font-size: 12px;
-  color: var(--muted, #6f6858);
+  color: var(--text-dim);
   cursor: help;
 }
 .workflow-editor-row select,
@@ -2556,8 +2559,8 @@ textarea {
   padding: 2px 4px;
 }
 .workflow-invalid {
-  border-color: #c0392b !important;
-  background: rgba(192, 57, 43, 0.08);
+  border-color: var(--warn) !important;
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
 }
 .workflow-editor-footer {
   display: flex;
@@ -2568,11 +2571,11 @@ textarea {
 }
 .workflow-editor-outputs {
   font-size: 11px;
-  color: var(--muted, #8a8170);
+  color: var(--text-dim);
 }
 .workflow-empty {
   padding: 10px;
-  color: var(--muted, #8a8170);
+  color: var(--text-dim);
   font-size: 12px;
   text-align: center;
 }
@@ -2613,7 +2616,7 @@ textarea {
 }
 .workflow-status {
   font-size: 12px;
-  color: var(--muted, #6f6857);
+  color: var(--text-dim);
   min-height: 16px;
 }
 
@@ -2670,7 +2673,7 @@ textarea {
   padding: 10px;
   text-align: center;
   font-size: 12px;
-  color: var(--muted, #8a8170);
+  color: var(--text-dim);
 }
 .mc-mini {
   font-size: 12px;
@@ -3142,6 +3145,20 @@ input[type="number"].num-editing:focus {
 }
 .dock-workflow .workflow-dialog {
   max-width: 640px;
+}
+
+/* Tool panes ported from popups (ROADMAP §4c item 14): Pay Summary, ML,
+ * Monte Carlo, SandiMin. */
+.dock-paysummary,
+.dock-ml,
+.dock-montecarlo,
+.dock-multimin {
+  padding: 10px 12px;
+}
+/* The SandiMin endpoints matrix is wide — let it use the whole pane, unlike the
+ * form-column dialogs that share the .mc-dialog class. */
+.dock-multimin .mc-dialog {
+  max-width: none;
 }
 
 /* --- P1-b crash safe-mode + unsaved indicators ----------------------------- */

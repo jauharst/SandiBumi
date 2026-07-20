@@ -6,6 +6,7 @@ import {
   attachZoomPan,
   fitCanvasBackingStore,
   PlotCanvas,
+  readTheme,
   type Viewport,
   type ViewportRef,
 } from "./plotCanvas";
@@ -149,8 +150,9 @@ export async function buildPickettContent(
     "Needs a computed porosity curve (run a Porosity module first).";
   content.appendChild(hint);
 
-  const pickM = pickRow("M (slope)", "#b5651d", "M", well, zoneSel.current, setStatus);
-  const pickRw = pickRow("Rw @ FT", "#5f7350", "RW", well, zoneSel.current, setStatus);
+  const tc = readTheme(document.documentElement);
+  const pickM = pickRow("M (slope)", tc.accent, "M", well, zoneSel.current, setStatus);
+  const pickRw = pickRow("Rw @ FT", tc.accent2, "RW", well, zoneSel.current, setStatus);
   content.appendChild(pickM.row);
   content.appendChild(pickRw.row);
 

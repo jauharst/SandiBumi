@@ -8,6 +8,7 @@ import {
   fitCanvasBackingStore,
   percentile,
   PlotCanvas,
+  readTheme,
   type BasicStats,
   type Viewport,
   type ViewportRef,
@@ -435,7 +436,8 @@ export async function buildHistogramContent(
 
   // Two picks with radio-style activation; hidden until enabled in Properties.
   const [p1Default, p2Default] = defaultPickParams(curveSel.value);
-  const theme = { a: "#b5651d", b: "#5f7350" };
+  const tc = readTheme(document.documentElement);
+  const theme = { a: tc.accent, b: tc.accent2 };
   const pickA = pickRow("Pick A", theme.a, p1Default, well, zoneSel.current, setStatus);
   const pickB = pickRow("Pick B", theme.b, p2Default, well, zoneSel.current, setStatus);
   let active: "A" | "B" = "A";
@@ -486,7 +488,7 @@ export async function buildHistogramContent(
       const ctx = canvas.getContext("2d")!;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.font = "500 12px system-ui, sans-serif";
-      ctx.fillStyle = "#888";
+      ctx.fillStyle = readTheme(canvas).text;
       ctx.textAlign = "center";
       ctx.fillText("No valid data for this curve/zone.", canvas.width / 2, canvas.height / 2);
     }

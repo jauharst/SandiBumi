@@ -11,7 +11,6 @@ import {
 } from "../ipc";
 import { appState, bumpDataVersion, defaultRunWellIds, filterByActiveGroup } from "../state";
 import { recordProcess } from "../processLog";
-import { openModal } from "./modal";
 
 /** Generalized Multimin dialog — Geolog Multimin / IP Mineral Solver style.
  *
@@ -69,14 +68,20 @@ function numInput(value: number, width = 64, step = "any"): HTMLInputElement {
   return inp;
 }
 
-export async function openMultiminDialog(setStatus: (text: string) => void): Promise<void> {
+/** Hosted as a dock pane (workspace component "multimin"), not a popup. */
+export async function buildMultiminContent(
+  setStatus: (text: string) => void,
+): Promise<{ el: HTMLElement; dispose: () => void }> {
   const [wells, library] = await Promise.all([
     listWells().then(filterByActiveGroup).catch(() => [] as WellSummary[]),
     multiminLibrary().catch(() => [] as MmComponent[]),
   ]);
   if (library.length === 0) {
     setStatus("SandiMin library unavailable (backend not reachable)");
-    return;
+    const msg = document.createElement("div");
+    msg.className = "logview-message";
+    msg.textContent = "SandiMin library unavailable — backend not reachable.";
+    return { el: msg, dispose: () => {} };
   }
   const selectedWell = appState.selectedWell.get();
 
@@ -411,8 +416,6 @@ export async function openMultiminDialog(setStatus: (text: string) => void): Pro
   content.appendChild(runRow);
   content.appendChild(resultBox);
 
-  const close = openModal("SandiMin — Mineral Solver", content, 940);
-
   runBtn.addEventListener("click", async () => {
     const comps: MmComponent[] = library
       .filter((c) => included.has(c.name))
@@ -498,5 +501,5 @@ export async function openMultiminDialog(setStatus: (text: string) => void): Pro
     }
   });
 
-  void close;
+  return { el: content, dispose: () => window.clearTimeout(previewTimer) };
 }
