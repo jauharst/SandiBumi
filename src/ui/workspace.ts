@@ -211,6 +211,7 @@ export class Workspace {
       ["Field Dashboard", () => this.openDashboard(group)],
       ["Workflow Builder", () => this.openWorkflow(group)],
       ["Cutoffs & Pay Summary", () => this.openPaySummary(group)],
+      ["Cutoff Sensitivity", () => this.openCutoff(group)],
       ["Machine Learning", () => this.openMl(group)],
       ["Monte Carlo", () => this.openMonteCarlo(group)],
       ["SandiMin Solver", () => this.openMultimin(group)],
@@ -304,6 +305,12 @@ export class Workspace {
           "dock-paysummary",
           () => import("./summaryDialog").then((m) => m.buildSummaryContent(setStatus)),
           "pay summary",
+        );
+      case "cutoff":
+        return this.asyncPane(
+          "dock-cutoff",
+          () => import("./cutoffDialog").then((m) => m.buildCutoffContent(setStatus)),
+          "cutoff sensitivity",
         );
       case "ml":
         return this.asyncPane(
@@ -594,6 +601,8 @@ export class Workspace {
       items.push({ heading: "Workflow Builder" });
     } else if (kind === "paysummary") {
       items.push({ heading: "Cutoffs & Pay Summary" });
+    } else if (kind === "cutoff") {
+      items.push({ heading: "Cutoff Sensitivity" });
     } else if (kind === "ml") {
       items.push({ heading: "Machine Learning" });
     } else if (kind === "montecarlo") {
@@ -926,6 +935,10 @@ export class Workspace {
 
   openPaySummary(group?: DockviewGroupPanel): void {
     this.openSingleton("paysummary", "paysummary", "Cutoffs & Pay Summary", group);
+  }
+
+  openCutoff(group?: DockviewGroupPanel): void {
+    this.openSingleton("cutoff", "cutoff", "Cutoff Sensitivity", group);
   }
 
   openMl(group?: DockviewGroupPanel): void {

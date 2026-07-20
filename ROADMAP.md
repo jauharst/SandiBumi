@@ -936,12 +936,21 @@ client files stay OUT of the repo):**
       porosity" line): optional zone-overridable PHI_MAX (constant or TVDSS trend) in
       porosity modules + SandiMin. **Trend form to confirm with Jauhar.**
       → `ref_kkt_onwj_wave_e.md`.
-- [ ] **(21) Cutoff sensitivity tools** (deck slides 84–87): Method-1 pay-sensitivity
+- [x] **(21) Cutoff sensitivity tools** (deck slides 84–87): Method-1 pay-sensitivity
       sweep plots (X = candidate cutoff, Y = normalized cumulative pay per
       well/interval, DST-interval filter; paysummary engine in a sweep loop) +
       Method-2 DST-highlighted PHIE-vs-Vclay / PHIE-vs-Sw crossplots with draggable
       cutoff crosshairs; picked cutoffs write into per-zone pay-summary defaults.
-      → `ref_kkt_onwj_wave_e.md`.
+      → `ref_kkt_onwj_wave_e.md`. *(DONE 2026-07-20: one singleton "cutoff" dock pane,
+      Sweep / DST-Crossplot toggle. Backend `compute_sweep`/`run_cutoff_sweep` in
+      workflow.rs reuse the pay-summary math via an extracted `classify_sample`
+      (byte-identical parity, tested); NET/HPV/NTG metrics; optional zone + DST-interval
+      filter; overlapping DST intervals unioned. Frontend cutoffDialog.ts: per-well sweep
+      lines with pick-and-write, DST crossplot with draggable crosshair, save-as-pay-
+      summary-default (documents "cutoffs"/"__default__", preloaded by summaryDialog).
+      Per-zone cutoff APPLICATION inside run_pay_summary remains a noted follow-on.
+      Two adversarial review passes: 13 raised → 10 confirmed, all fixed. 131 tests;
+      tsc clean. REVIEW #25.)*
 - [ ] **(22) Map pane + editable polygons → well groups**: well header surface X/Y
       (+ import), Map pane (posted wells, zoom/pan), polygon draw/edit persisted as
       documents, point-in-polygon → well group assignment (existing well-groups

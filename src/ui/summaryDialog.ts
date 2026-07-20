@@ -1,6 +1,18 @@
-import { listWells, runPaySummary, type PaySummaryRow, type WellSummary } from "../ipc";
+import { listDocuments, listWells, runPaySummary, type PaySummaryRow, type WellSummary } from "../ipc";
 import { appState, bumpDataVersion, defaultRunWellIds, filterByActiveGroup } from "../state";
 import { formRow } from "./modal";
+
+/** Cutoffs picked in the Cutoff Sensitivity pane are saved as documents "cutoffs"/"__default__";
+ *  the pay summary preloads them so a picked set flows straight into the report defaults. */
+async function loadDefaultCutoffs(): Promise<{ vsh_max?: number; phie_min?: number; swe_max?: number; perm_min?: number | null } | null> {
+  try {
+    const docs = await listDocuments("cutoffs");
+    const doc = docs.find((d) => d.name === "__default__");
+    return doc ? JSON.parse(doc.json) : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Cutoffs & Pay Summary (Geolog .paysum model): VSH/PHIE/SWE (+ optional PERM)
  *  cutoffs → SAND / RESERVOIR / PAY flags → per-well per-zone statistics table.
@@ -40,10 +52,11 @@ export async function buildSummaryContent(
     input.value = value;
     return input;
   };
-  const vshIn = numInput("0.5");
-  const phieIn = numInput("0.1");
-  const sweIn = numInput("0.6");
-  const permIn = numInput("");
+  const saved = await loadDefaultCutoffs();
+  const vshIn = numInput(saved?.vsh_max != null ? String(saved.vsh_max) : "0.5");
+  const phieIn = numInput(saved?.phie_min != null ? String(saved.phie_min) : "0.1");
+  const sweIn = numInput(saved?.swe_max != null ? String(saved.swe_max) : "0.6");
+  const permIn = numInput(saved?.perm_min != null ? String(saved.perm_min) : "");
   permIn.placeholder = "(off)";
   content.appendChild(formRow("VSH ≤", vshIn, "Sand cutoff"));
   content.appendChild(formRow("PHIE ≥", phieIn, "Reservoir cutoff"));

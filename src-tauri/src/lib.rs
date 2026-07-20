@@ -514,6 +514,13 @@ fn run_pay_summary(db: tauri::State<DbState>, req: workflow::PaySummaryRequest) 
     workflow::run_pay_summary(&db.0, &req)
 }
 
+/// Cutoff-sensitivity sweep (Method 1): pay metric vs a swept cutoff, per well. Reads
+/// VSH/PHIE/SWE/PERM and writes nothing.
+#[tauri::command]
+fn run_cutoff_sweep(db: tauri::State<DbState>, req: workflow::CutoffSweepRequest) -> Result<workflow::CutoffSweepResult, String> {
+    workflow::run_cutoff_sweep(&db.0, &req)
+}
+
 /// Monte Carlo uncertainty: N seeded realizations of a chain with parameter distributions,
 /// returning P10/P50/P90 net pay / NTG / PHIE / SWE / HPV + an HPV histogram per zone. Runs
 /// entirely in memory (no computed_curves writes).
@@ -850,6 +857,7 @@ pub fn run() {
             list_modules,
             run_workflow_module,
             run_pay_summary,
+            run_cutoff_sweep,
             run_monte_carlo,
             list_zones,
             upsert_zone,

@@ -3268,6 +3268,7 @@ input[type="number"].num-editing:focus {
  * Monte Carlo, SandiMin, the auto-generated module forms, and the well-following
  * Zones / Autocorrelate / Composite / Report panes. */
 .dock-paysummary,
+.dock-cutoff,
 .dock-ml,
 .dock-montecarlo,
 .dock-multimin,
@@ -3277,6 +3278,106 @@ input[type="number"].num-editing:focus {
 .dock-composite,
 .dock-report {
   padding: 10px 12px;
+}
+
+/* --- Cutoff Sensitivity pane (Wave E item 21) ------------------------------ */
+.cutoff-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cutoff-mode-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cutoff-seg {
+  display: inline-flex;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.cutoff-seg-btn {
+  padding: 3px 12px;
+  border: none;
+  border-right: 1px solid var(--border-strong);
+  background: var(--bg-inset, var(--bg-app));
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+}
+.cutoff-seg-btn:last-child {
+  border-right: none;
+}
+.cutoff-seg-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+.cutoff-pair {
+  display: flex;
+  gap: 6px;
+}
+.cutoff-pair .form-control {
+  width: 5.5em;
+}
+.cutoff-presets {
+  display: flex;
+  gap: 6px;
+}
+.cutoff-inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text);
+}
+.cutoff-canvas {
+  width: 100%;
+  height: 340px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  touch-action: none;
+}
+.cutoff-readout {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  min-height: 1.3em;
+}
+.cutoff-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.cutoff-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--text);
+}
+.cutoff-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.cutoff-pickbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+.cutoff-btn {
+  padding: 4px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--bg-inset, var(--bg-app));
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+}
+.cutoff-btn:hover {
+  border-color: var(--accent);
 }
 /* The SandiMin endpoints matrix is wide — let it use the whole pane, unlike the
  * form-column dialogs that share the .mc-dialog class. */

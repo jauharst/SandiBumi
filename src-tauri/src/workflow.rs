@@ -361,31 +361,19 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
             };
         }
 
-        // Flags per sample: NaN inputs exclude the sample (flag stays NaN).
+        // Flags per sample: NaN inputs exclude the sample (flag stays NaN). Single-sourced
+        // through `classify_sample` so the sweep engine below applies identical cutoff logic.
         let mut flag_sand = vec![f32::NAN; n];
         let mut flag_res = vec![f32::NAN; n];
         let mut flag_pay = vec![f32::NAN; n];
         for i in 0..n {
-            if vsh[i].is_nan() {
-                continue;
-            }
-            let sand = (vsh[i] as f64) <= req.vsh_max;
-            flag_sand[i] = sand as u8 as f32;
-            if phie[i].is_nan() {
-                continue;
-            }
-            let res = sand && (phie[i] as f64) >= req.phie_min;
-            flag_res[i] = res as u8 as f32;
-            if swe[i].is_nan() {
-                continue;
-            }
-            let mut pay = res && (swe[i] as f64) <= req.swe_max;
-            if has_perm_cut {
-                // A sample with no PERM value cannot demonstrate it passes the cutoff —
-                // missing PERM must fail, not silently pass.
-                pay = pay && !perm[i].is_nan() && (perm[i] as f64) >= req.perm_min.unwrap();
-            }
-            flag_pay[i] = pay as u8 as f32;
+            let (fs, fr, fp) = classify_sample(
+                vsh[i], phie[i], swe[i], perm[i],
+                req.vsh_max, req.phie_min, req.swe_max, req.perm_min, has_perm_cut,
+            );
+            flag_sand[i] = fs;
+            flag_res[i] = fr;
+            flag_pay[i] = fp;
         }
 
         {
@@ -457,11 +445,494 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
     Ok(all_rows)
 }
 
+// ---------------------------------------------------------------------------
+// Cutoff sensitivity (ROADMAP Wave E item 21) — sweep the pay engine over a range
+// of candidate cutoffs, holding the other two fixed, to find the elbow where pay
+// stops responding to the cutoff. Method 1 of the KKT ONWJ cutoff study (slides 84–87);
+// Method 2 (the DST-highlighted crossplots) lives in the frontend cutoff pane.
+// ---------------------------------------------------------------------------
+
+/// Per-sample SAND / RESERVOIR / PAY classification against the cutoffs, matching the
+/// Geolog .paysum NaN propagation: a missing VSH excludes all three (returns NaN,NaN,NaN);
+/// a missing PHIE excludes RESERVOIR and PAY; a missing SWE excludes PAY. Each returned
+/// value is `f32::NAN` when the sample is excluded, else `0.0`/`1.0`. `has_perm_cut` is the
+/// caller's decision that a PERM cutoff is active (perm_min set and PERM present in the set).
+#[inline]
+fn classify_sample(
+    vsh: f32,
+    phie: f32,
+    swe: f32,
+    perm: f32,
+    vsh_max: f64,
+    phie_min: f64,
+    swe_max: f64,
+    perm_min: Option<f64>,
+    has_perm_cut: bool,
+) -> (f32, f32, f32) {
+    if vsh.is_nan() {
+        return (f32::NAN, f32::NAN, f32::NAN);
+    }
+    let sand = (vsh as f64) <= vsh_max;
+    let fs = sand as u8 as f32;
+    if phie.is_nan() {
+        return (fs, f32::NAN, f32::NAN);
+    }
+    let res = sand && (phie as f64) >= phie_min;
+    let fr = res as u8 as f32;
+    if swe.is_nan() {
+        return (fs, fr, f32::NAN);
+    }
+    let mut pay = res && (swe as f64) <= swe_max;
+    if has_perm_cut {
+        // A sample with no PERM value cannot demonstrate it passes the cutoff — missing
+        // PERM must fail, not silently pass (same rule as run_pay_summary).
+        pay = pay && !perm.is_nan() && (perm as f64) >= perm_min.unwrap();
+    }
+    (fs, fr, pay as u8 as f32)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SweepProp {
+    Vsh,
+    Phie,
+    Swe,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Metric {
+    Net,
+    Hpv,
+    Ntg,
+}
+
+/// Evaluates the pay metric at every candidate cutoff. Pure over pre-assembled arrays so it
+/// is unit-testable without a database; `included[i]` gates a sample into the analysis
+/// (zone ∩ DST membership), `gross` is the geometric denominator for NTG. Returns
+/// (cutoffs, values, peak) where `peak` is the maximum value over the sweep.
+#[allow(clippy::too_many_arguments)]
+fn compute_sweep(
+    vsh: &[f32],
+    phie: &[f32],
+    swe: &[f32],
+    perm: &[f32],
+    step: &[f32],
+    included: &[bool],
+    prop: SweepProp,
+    fixed_vsh: f64,
+    fixed_phie: f64,
+    fixed_swe: f64,
+    perm_min: Option<f64>,
+    sweep_min: f64,
+    sweep_max: f64,
+    steps: usize,
+    metric: Metric,
+    gross: f64,
+) -> (Vec<f64>, Vec<f64>, f64) {
+    let steps = steps.clamp(2, 500);
+    let n = vsh.len();
+    // A PERM cutoff only applies when a PERM curve exists for the well. Scoped over the WHOLE
+    // frame (not just the analysed subset) so the PAY metric agrees with run_pay_summary, which
+    // decides has_perm_cut once per well before any zone/DST filtering. Judging it over the
+    // included subset alone would silently disable the gate on a zone/DST slice that happens to
+    // hold no PERM, so identical cutoffs could report more pay here than in the pay summary.
+    let has_perm_cut = perm_min.is_some() && perm.iter().any(|v| !v.is_nan());
+
+    let mut cutoffs = Vec::with_capacity(steps);
+    let mut values = Vec::with_capacity(steps);
+    let mut peak = f64::NEG_INFINITY;
+
+    for k in 0..steps {
+        let t = k as f64 / (steps - 1) as f64;
+        let cut = sweep_min + (sweep_max - sweep_min) * t;
+        let (mut vsh_max, mut phie_min, mut swe_max) = (fixed_vsh, fixed_phie, fixed_swe);
+        match prop {
+            SweepProp::Vsh => vsh_max = cut,
+            SweepProp::Phie => phie_min = cut,
+            SweepProp::Swe => swe_max = cut,
+        }
+
+        let mut net = 0.0f64;
+        let mut hpv = 0.0f64;
+        for i in 0..n {
+            if !included[i] {
+                continue;
+            }
+            let (_s, _r, pay) = classify_sample(
+                vsh[i], phie[i], swe[i], perm[i], vsh_max, phie_min, swe_max, perm_min, has_perm_cut,
+            );
+            if pay == 1.0 {
+                let h = step[i] as f64;
+                net += h;
+                if !phie[i].is_nan() && !swe[i].is_nan() {
+                    hpv += phie[i] as f64 * (1.0 - swe[i] as f64) * h;
+                }
+            }
+        }
+
+        let value = match metric {
+            Metric::Net => net,
+            Metric::Hpv => hpv,
+            Metric::Ntg => {
+                if gross > 0.0 {
+                    net / gross
+                } else {
+                    0.0
+                }
+            }
+        };
+        cutoffs.push(cut);
+        values.push(value);
+        if value > peak {
+            peak = value;
+        }
+    }
+    if !peak.is_finite() {
+        peak = 0.0;
+    }
+    (cutoffs, values, peak)
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CutoffSweepRequest {
+    pub well_ids: Vec<String>,
+    /// Which cutoff to sweep: "VSH" | "PHIE" | "SWE".
+    pub property: String,
+    /// Fixed values for the two cutoffs NOT being swept (the swept one's field is ignored).
+    pub vsh_max: f64,
+    pub phie_min: f64,
+    pub swe_max: f64,
+    pub perm_min: Option<f64>,
+    pub sweep_min: f64,
+    pub sweep_max: f64,
+    pub steps: usize,
+    /// Metric plotted on Y: "NET" (net thickness) | "HPV" (hydrocarbon pore-thickness) | "NTG".
+    pub metric: String,
+    /// Restrict to one named zone; None/empty = whole well.
+    #[serde(default)]
+    pub zone: Option<String>,
+    /// Restrict to samples inside an aux_data interval set (e.g. "PERFORATION" / "DST");
+    /// None/empty = every sample in the zone.
+    #[serde(default)]
+    pub dst_dataset: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CutoffSweepSeries {
+    pub well_id: String,
+    pub well_name: String,
+    pub cutoffs: Vec<f64>,
+    pub values: Vec<f64>,
+    /// Maximum value over the sweep (the frontend normalises each well to its own peak).
+    pub peak: f64,
+    /// Geometric gross thickness of the analysed interval (NTG denominator).
+    pub gross: f64,
+    /// Number of samples that entered the analysis (0 ⇒ nothing to plot; UI warns).
+    pub n_samples: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CutoffSweepResult {
+    pub series: Vec<CutoffSweepSeries>,
+    pub property: String,
+    pub metric: String,
+}
+
+/// Collapses an aux_data set to its distinct, non-overlapping depth intervals (rows with a
+/// base depth, merged) for DST/perforation filtering. Point rows (no base) are ignored — a
+/// test needs an interval, not a marker. Overlapping or touching intervals are unioned so a
+/// re-perforation or redundant row cannot inflate the summed DST gross (the NTG denominator):
+/// membership already counts each sample once (via `any`), so the gross must too.
+fn aux_intervals(rows: &[db::AuxRow]) -> Vec<(f32, f32)> {
+    let mut iv: Vec<(f32, f32)> = rows
+        .iter()
+        .filter_map(|r| r.depth_base.map(|b| (r.depth_top, b)))
+        .filter(|(t, b)| b > t)
+        .collect();
+    iv.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    let mut merged: Vec<(f32, f32)> = Vec::with_capacity(iv.len());
+    for (t, b) in iv {
+        match merged.last_mut() {
+            Some(last) if t <= last.1 => {
+                if b > last.1 {
+                    last.1 = b;
+                }
+            }
+            _ => merged.push((t, b)),
+        }
+    }
+    merged
+}
+
+/// Method 1 of the cutoff study: for each well, sweep one cutoff across `[sweep_min,
+/// sweep_max]` (holding the other two fixed) and report the pay metric at each step, so the
+/// user can pick the cutoff at the response elbow. Reads VSH/PHIE/SWE/PERM, filters to an
+/// optional zone and optional DST interval set, and writes nothing (pure analysis).
+pub fn run_cutoff_sweep(
+    db: &Mutex<Connection>,
+    req: &CutoffSweepRequest,
+) -> Result<CutoffSweepResult, String> {
+    let prop = match req.property.to_uppercase().as_str() {
+        "VSH" => SweepProp::Vsh,
+        "PHIE" => SweepProp::Phie,
+        "SWE" => SweepProp::Swe,
+        other => return Err(format!("unknown sweep property '{other}' (VSH|PHIE|SWE)")),
+    };
+    let metric = match req.metric.to_uppercase().as_str() {
+        "NET" => Metric::Net,
+        "HPV" => Metric::Hpv,
+        "NTG" => Metric::Ntg,
+        other => return Err(format!("unknown metric '{other}' (NET|HPV|NTG)")),
+    };
+    if !(req.sweep_max > req.sweep_min) {
+        return Err("sweep max must be greater than sweep min".into());
+    }
+    let steps = req.steps.clamp(2, 500);
+    let dst_name = req.dst_dataset.as_deref().filter(|s| !s.is_empty());
+    let zone_name = req.zone.as_deref().filter(|s| !s.is_empty());
+    let curve_names: Vec<String> = vec!["VSH".into(), "PHIE".into(), "SWE".into(), "PERM".into()];
+    let mut series = Vec::new();
+
+    for well_id in &req.well_ids {
+        let conn = db.lock().unwrap();
+        let well_name: String = conn
+            .query_row(
+                "SELECT well_name FROM wells WHERE well_id = ?1",
+                duckdb::params![well_id],
+                |row| row.get(0),
+            )
+            .unwrap_or_else(|_| well_id.clone());
+        let (depth, columns) =
+            equations::fetch_curve_frame(&conn, well_id, &curve_names).map_err(|e| e.to_string())?;
+        if depth.is_empty() {
+            drop(conn);
+            // A well with no curves still gets a 0-sample row so it shows in the legend as
+            // "(0 samples)" rather than vanishing and making the well count undercount.
+            series.push(CutoffSweepSeries {
+                well_id: well_id.clone(),
+                well_name,
+                cutoffs: Vec::new(),
+                values: Vec::new(),
+                peak: 0.0,
+                gross: 0.0,
+                n_samples: 0,
+            });
+            continue;
+        }
+        let zones = db::list_zones(&conn, well_id).map_err(|e| e.to_string())?;
+        let dst = match dst_name {
+            Some(ds) => {
+                let rows = db::list_aux_data(&conn, well_id, Some(ds)).map_err(|e| e.to_string())?;
+                Some(aux_intervals(&rows))
+            }
+            None => None,
+        };
+        drop(conn);
+
+        let n = depth.len();
+        let vsh = &columns["VSH"];
+        let phie = &columns["PHIE"];
+        let swe = &columns["SWE"];
+        let perm = &columns["PERM"];
+
+        // Sample thickness: forward depth difference, last sample reuses the previous step
+        // (same convention as run_pay_summary).
+        let mut step = vec![0.0f32; n];
+        for i in 0..n {
+            step[i] = if i + 1 < n {
+                depth[i + 1] - depth[i]
+            } else if i > 0 {
+                step[i - 1]
+            } else {
+                0.0
+            };
+        }
+
+        // Zone bounds: a named zone that a well lacks yields an empty (0-sample) series so
+        // the run still returns a row for that well rather than silently dropping it.
+        let (ztop, zbot) = match zone_name {
+            Some(z) => match zones.iter().find(|zz| zz.zone_name == z) {
+                Some(zz) => (zz.top_depth, zz.bottom_depth),
+                None => {
+                    series.push(CutoffSweepSeries {
+                        well_id: well_id.clone(),
+                        well_name,
+                        cutoffs: Vec::new(),
+                        values: Vec::new(),
+                        peak: 0.0,
+                        gross: 0.0,
+                        n_samples: 0,
+                    });
+                    continue;
+                }
+            },
+            None => (depth[0], *depth.last().unwrap()),
+        };
+
+        let in_dst = |d: f32| -> bool {
+            match &dst {
+                None => true,
+                Some(iv) => iv.iter().any(|(t, b)| d >= *t && d < *b),
+            }
+        };
+        let mut included = vec![false; n];
+        let mut n_incl = 0usize;
+        for i in 0..n {
+            let d = depth[i];
+            if d >= ztop && d < zbot && in_dst(d) {
+                included[i] = true;
+                n_incl += 1;
+            }
+        }
+
+        // Geometric gross (NTG denominator): DST intervals clipped to the zone, else the
+        // whole zone length.
+        let gross = match &dst {
+            None => (zbot - ztop).max(0.0) as f64,
+            Some(iv) => iv
+                .iter()
+                .map(|(t, b)| {
+                    let lo = (*t).max(ztop);
+                    let hi = (*b).min(zbot);
+                    (hi - lo).max(0.0) as f64
+                })
+                .sum(),
+        };
+
+        let (cutoffs, values, peak) = compute_sweep(
+            vsh, phie, swe, perm, &step, &included, prop, req.vsh_max, req.phie_min, req.swe_max,
+            req.perm_min, req.sweep_min, req.sweep_max, steps, metric, gross,
+        );
+        series.push(CutoffSweepSeries {
+            well_id: well_id.clone(),
+            well_name,
+            cutoffs,
+            values,
+            peak,
+            gross,
+            n_samples: n_incl,
+        });
+    }
+
+    Ok(CutoffSweepResult {
+        series,
+        property: req.property.to_uppercase(),
+        metric: req.metric.to_uppercase(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ingest;
     use std::collections::HashMap;
+
+    /// The shared cutoff classifier must reproduce the .paysum NaN propagation exactly:
+    /// a missing input excludes it and everything downstream, and a missing PERM fails an
+    /// active PERM cutoff instead of passing.
+    #[test]
+    fn classify_sample_nan_propagation() {
+        // Clean pay (no perm cut).
+        assert_eq!(
+            classify_sample(0.2, 0.2, 0.3, f32::NAN, 0.5, 0.1, 0.6, None, false),
+            (1.0, 1.0, 1.0)
+        );
+        // Missing VSH → all excluded.
+        let (s, r, p) = classify_sample(f32::NAN, 0.2, 0.3, f32::NAN, 0.5, 0.1, 0.6, None, false);
+        assert!(s.is_nan() && r.is_nan() && p.is_nan());
+        // Missing PHIE → SAND set, RES/PAY excluded.
+        let (s, r, p) = classify_sample(0.2, f32::NAN, 0.3, f32::NAN, 0.5, 0.1, 0.6, None, false);
+        assert_eq!(s, 1.0);
+        assert!(r.is_nan() && p.is_nan());
+        // Missing SWE → SAND+RES set, PAY excluded.
+        let (s, r, p) = classify_sample(0.2, 0.2, f32::NAN, f32::NAN, 0.5, 0.1, 0.6, None, false);
+        assert_eq!((s, r), (1.0, 1.0));
+        assert!(p.is_nan());
+        // Fails the sand cutoff → SAND 0 cascades to RES/PAY 0.
+        assert_eq!(
+            classify_sample(0.9, 0.2, 0.3, f32::NAN, 0.5, 0.1, 0.6, None, false),
+            (0.0, 0.0, 0.0)
+        );
+        // Active PERM cutoff: missing PERM fails; sufficient PERM passes.
+        let (_, _, p) = classify_sample(0.2, 0.2, 0.3, f32::NAN, 0.5, 0.1, 0.6, Some(1.0), true);
+        assert_eq!(p, 0.0);
+        let (_, _, p) = classify_sample(0.2, 0.2, 0.3, 5.0, 0.5, 0.1, 0.6, Some(1.0), true);
+        assert_eq!(p, 1.0);
+    }
+
+    /// Sweeping the VSH (sand) cutoff upward can only admit more pay, so the metric is
+    /// monotone non-decreasing; the peak lands at the most permissive cutoff.
+    #[test]
+    fn cutoff_sweep_vsh_monotone() {
+        let vsh = [0.1f32, 0.3, 0.5, 0.7, 0.9];
+        let phie = [0.2f32; 5];
+        let swe = [0.3f32; 5];
+        let perm = [f32::NAN; 5];
+        let step = [1.0f32; 5];
+        let incl = [true; 5];
+        let (cuts, vals, peak) = compute_sweep(
+            &vsh, &phie, &swe, &perm, &step, &incl, SweepProp::Vsh, 0.5, 0.1, 0.6, None, 0.0, 1.0,
+            11, Metric::Net, 5.0,
+        );
+        assert_eq!(cuts.len(), 11);
+        for w in vals.windows(2) {
+            assert!(w[1] >= w[0] - 1e-9, "not monotone: {:?}", vals);
+        }
+        assert!((vals[0] - 0.0).abs() < 1e-9); // cutoff 0.0 → no sample has VSH ≤ 0
+        assert!((peak - 5.0).abs() < 1e-9); // cutoff 1.0 → all 5 m of pay
+    }
+
+    /// NTG divides by the geometric gross; the DST `included` mask drops samples and scales
+    /// net down accordingly.
+    #[test]
+    fn cutoff_sweep_ntg_and_dst_mask() {
+        let vsh = [0.2f32; 4];
+        let phie = [0.2f32; 4];
+        let swe = [0.3f32; 4];
+        let perm = [f32::NAN; 4];
+        let step = [1.0f32; 4];
+        // All four samples, gross 4 → every sample pays at a generous SWE cutoff → NTG 1.0.
+        let all = [true; 4];
+        let (_, vals, _) = compute_sweep(
+            &vsh, &phie, &swe, &perm, &step, &all, SweepProp::Swe, 0.5, 0.1, 0.6, None, 0.0, 1.0, 3,
+            Metric::Ntg, 4.0,
+        );
+        assert!((vals[2] - 1.0).abs() < 1e-9);
+        // DST mask keeps only two samples → NET tops out at 2 m.
+        let half = [true, true, false, false];
+        let (_, vals2, _) = compute_sweep(
+            &vsh, &phie, &swe, &perm, &step, &half, SweepProp::Swe, 0.5, 0.1, 0.6, None, 0.0, 1.0,
+            3, Metric::Net, 2.0,
+        );
+        assert!((vals2[2] - 2.0).abs() < 1e-9);
+    }
+
+    /// Overlapping perforation/DST rows must union, not double-count: two rows (2000,2010) and
+    /// (2005,2015) cover 15 m, not 20 m, so the NTG gross stays consistent with net thickness.
+    #[test]
+    fn aux_intervals_merges_overlaps() {
+        let row = |t: f32, b: Option<f32>| db::AuxRow {
+            dataset: "DST".into(),
+            depth_top: t,
+            depth_base: b,
+            item: String::new(),
+            value_num: None,
+            value_text: None,
+        };
+        // Overlapping + a nested + an exact duplicate + a point row (dropped).
+        let rows = vec![
+            row(2000.0, Some(2010.0)),
+            row(2005.0, Some(2015.0)), // overlaps the first → union to (2000,2015)
+            row(2006.0, Some(2008.0)), // nested inside → absorbed
+            row(2005.0, Some(2015.0)), // exact duplicate → absorbed
+            row(2100.0, None),         // point row → ignored
+            row(2050.0, Some(2050.0)), // zero-length → ignored
+            row(2030.0, Some(2040.0)), // disjoint → its own interval
+        ];
+        let iv = aux_intervals(&rows);
+        assert_eq!(iv, vec![(2000.0, 2015.0), (2030.0, 2040.0)]);
+        let gross: f32 = iv.iter().map(|(t, b)| b - t).sum();
+        assert!((gross - 25.0).abs() < 1e-4, "gross should be 15+10, got {gross}");
+    }
 
     /// Phase 7 wiring test — no field files, no vcvars: a well whose PEF, DRHO and CALI
     /// live ONLY in the generic curve store (never the fixed six) drives (1) multimin,

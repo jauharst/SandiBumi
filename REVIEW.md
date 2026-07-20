@@ -6,6 +6,55 @@ Work through this list when you have time; delete items as you confirm them.
 Marks: `[o]` confirmed OK (removed from this file), `[x]` confirmed wrong → logged in
 **ROADMAP.md §4 (Field-review backlog)**, `[ ]` not yet tested.
 
+## Cutoff Sensitivity pane (2026-07-20 #25)
+
+**Reporting ▸ Cutoff Sensitivity** — two ways to defend a VSH/PHIE/SWE pay cutoff
+against DST-tested rock (KKT ONWJ deck slides 84–87), in one dock pane with a
+Sweep / DST-Crossplot toggle. **Sweep** varies one cutoff across a range while the
+other two stay fixed and plots the pay response per well — net thickness, HC
+pore-thickness (HPV), or net-to-gross — so the *elbow* shows where loosening the
+cutoff stops adding real pay; the shared pay math is the **same `classify_sample`
+the pay summary uses**, so the numbers reconcile. **DST Crossplot** is PHIE vs a
+shale/Sw curve with every sample dim and DST-interval samples coloured per well,
+plus a draggable red crosshair at the candidate cutoffs. Either mode's pick writes
+into the VSH/PHIE/SWE fields and can be **saved as the pay-summary default** so the
+cutoff you defended flows straight into the report. Optional zone and DST/perf
+filters scope both modes.
+
+Adversarial review raised 13, confirmed 10 (from two independent full passes),
+all fixed before shipping: the sweep's PERM-cutoff scope now matches the pay
+summary exactly (whole-well, not just the analysed window); overlapping
+perforation/DST intervals are unioned so N:G isn't understated; switching the
+swept property/metric after a run clears the stale plot so a pick can't be written
+into the wrong cutoff; the "(all samples)" DST choice survives editing the well
+set; the zone/DST pickers union over *all* checked wells (was capped at 16); the
+crosshair stays inside the plotted range; empty-state text is centred on HiDPI; the
+plot repaints on theme change; wells with no pay / missing inputs are flagged
+rather than shown as a silent flat line. cargo test 131/131; tsc clean.
+
+- [ ] **Reporting ▸ Cutoff Sensitivity** opens as a dock pane. Tick a few wells,
+      keep **Sweep**, property **VSH**, metric **Net**, Compute — one line per well;
+      the curve should rise and flatten (an elbow), not be a straight ramp.
+- [ ] Click/drag on the plot to place the red cutoff line; the readout shows the
+      net/HPV/N:G each well delivers *at that cutoff*. Click **Use pick as VSH
+      cutoff** → the VSH field updates.
+- [ ] Switch the metric to **N:G**, Compute again; switch property to **PHIE** — the
+      plot should **clear** and ask you to Compute (it must not keep showing the VSH
+      sweep while the button says "PHIE").
+- [ ] Cross-check one well against **Cutoffs & Pay Summary** at the same fixed
+      VSH/PHIE/SWE (whole well, no zone/DST): the sweep's Net at those cutoffs should
+      match the pay summary's Net for that well. Repeat with a **PERM ≥** cutoff set.
+- [ ] **DST Crossplot** mode with a well that has a DST/perf set: dim cloud + coloured
+      DST points; drag the crosshair; **Apply crosshair → cutoffs** writes PHIE and
+      VSH (or SWE if the X curve is an Sw). Pick a "PHIE vs Sw" preset and confirm the
+      Apply maps to SWE.
+- [ ] Pick a DST set, then switch the DST dropdown to **(all samples)**, then tick/untick
+      a well — the dropdown must **stay** on "(all samples)" (not snap back to the DST set).
+- [ ] **Save as pay-summary default** → open **Cutoffs & Pay Summary**: its VSH/PHIE/SWE
+      inputs should already carry your saved cutoffs.
+- [ ] Switch the app theme with the pane open — the plot repaints immediately in the
+      new palette (no stale colours).
+
 ## All tools as dockview panes (2026-07-20 #24)
 
 Your ask: "i want all tools shows as pane, for existing and future tools." Every

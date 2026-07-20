@@ -759,6 +759,43 @@ export async function runPaySummary(req: PaySummaryRequest): Promise<PaySummaryR
   return invoke<PaySummaryRow[]>("run_pay_summary", { req });
 }
 
+/** Cutoff-sensitivity sweep (Method 1 of the cutoff study): sweep one cutoff over a range,
+ *  holding the other two fixed, and report the pay metric per well at each step. */
+export interface CutoffSweepRequest {
+  well_ids: string[];
+  property: "VSH" | "PHIE" | "SWE";
+  vsh_max: number;
+  phie_min: number;
+  swe_max: number;
+  perm_min: number | null;
+  sweep_min: number;
+  sweep_max: number;
+  steps: number;
+  metric: "NET" | "HPV" | "NTG";
+  zone: string | null;
+  dst_dataset: string | null;
+}
+
+export interface CutoffSweepSeries {
+  well_id: string;
+  well_name: string;
+  cutoffs: number[];
+  values: number[];
+  peak: number;
+  gross: number;
+  n_samples: number;
+}
+
+export interface CutoffSweepResult {
+  series: CutoffSweepSeries[];
+  property: string;
+  metric: string;
+}
+
+export async function runCutoffSweep(req: CutoffSweepRequest): Promise<CutoffSweepResult> {
+  return invoke<CutoffSweepResult>("run_cutoff_sweep", { req });
+}
+
 /** Full-resolution curve data for parameter-selection plots, optionally windowed to a
  *  depth interval. Binary transport, unpacked to Float32Arrays like getTrackData. */
 export async function getCurveData(
