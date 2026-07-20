@@ -6,6 +6,30 @@ Work through this list when you have time; delete items as you confirm them.
 Marks: `[o]` confirmed OK (removed from this file), `[x]` confirmed wrong → logged in
 **ROADMAP.md §4 (Field-review backlog)**, `[ ]` not yet tested.
 
+## Wave A-4: workflow grid inspector (2026-07-20 #18)
+
+The Workflow Builder pane has a **List | Grid** toggle above the step list
+(ROADMAP §4c item 12). Grid = the multi-line inspector: rows are your chain's
+steps, columns are the union of every step's inputs/params/options (+ Mask), so a
+parameter shared by several modules lines up in one column. The italic **Set all**
+row under the header edits a parameter across every step that takes it in one go.
+
+- [ ] Build your standard chain (vsh → phi → sw_* …), switch to **Grid**: input
+      curves come first, then numeric params, then options, then Mask; steps that
+      don't take a column show "—". Header tooltips = parameter descriptions.
+- [ ] **Set all → RW**: type one RW in the Set-all row — every sw_* step that takes
+      RW updates at once (status bar reports how many). A value outside one
+      module's allowed range is skipped for that module only and reported.
+- [ ] Edited cells tint amber and the step's override badge counts up — same
+      only-store-differences rule as the per-step editors, so a value typed equal
+      to a module's default clears that override (cell untints). Zone params still
+      override these whole-well values per zone at run time, as before.
+- [ ] **Set all → Mask** sets opts.MASK (e.g. BADHOLE) on every step in one edit.
+- [ ] Toggle List ↔ Grid: values, badges and invalid-input flagging stay in sync
+      (both views edit the same steps). The chosen view is remembered.
+- [ ] Save the workflow, reload it, re-run — saved JSON is unchanged in shape, so
+      old saved workflows load into the grid fine.
+
 ## Wave A-3: project open/switch, IP style (2026-07-20 #17)
 
 You can now keep separate project databases (balam.duckdb, minas.duckdb, …) and

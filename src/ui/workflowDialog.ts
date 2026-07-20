@@ -8,6 +8,7 @@ import {
   listWells,
   runWorkflowChain,
   saveDocument,
+  type ArgSpec,
   type ChainStatus,
   type ChainStep,
   type CurveCatalogEntry,
@@ -18,6 +19,7 @@ import { bumpDataVersion, defaultRunWellIds, filterByActiveGroup } from "../stat
 import { formRow } from "./modal";
 
 const WORKFLOW_DOC_TYPE = "workflow";
+const VIEW_KEY = "sandibumi.workflowView";
 
 interface WorkflowDoc {
   steps: ChainStep[];
@@ -34,7 +36,12 @@ function emptyStep(module: string): ChainStep {
  *
  *  Hosted as a rigid dock pane (workspace component "workflow"), not a popup — a popup
  *  was too easy to dismiss mid-build and its inputs too easy to nudge (Jauhar 2026-07-19).
- *  Numeric params follow the app-wide double-click-to-edit rule via interactionGuard. */
+ *  Numeric params follow the app-wide double-click-to-edit rule via interactionGuard.
+ *
+ *  Steps can be edited two ways (List/Grid toggle): per-step accordion editors, or the
+ *  multi-line grid inspector — rows = steps, columns = the union of every step's args,
+ *  so a shared parameter (RW across the sw_* steps) lines up in one column and the
+ *  Set-all row writes it to every step that takes it in a single edit. */
 export async function buildWorkflowContent(
   setStatus: (text: string) => void,
 ): Promise<{ el: HTMLElement; dispose: () => void }> {
@@ -48,6 +55,8 @@ export async function buildWorkflowContent(
   // Steps whose parameter editor is expanded — tracked by object reference so it survives
   // reordering (move swaps references, not indices).
   const expanded = new Set<ChainStep>();
+  // "list" = one accordion editor per step; "grid" = the multi-line inspector.
+  let view: "list" | "grid" = localStorage.getItem(VIEW_KEY) === "grid" ? "grid" : "list";
   let polling: number | null = null;
   let running = false;
 
@@ -160,11 +169,39 @@ export async function buildWorkflowContent(
   addRow.append(moduleSelect, addBtn);
   content.appendChild(formRow("Add module", addRow, "Steps run top-to-bottom; later steps use earlier outputs (VSH → porosity → saturation)."));
 
+  const listBtn = miniButton("List", () => setView("list"));
+  listBtn.title = "One collapsible parameter editor per step";
+  const gridBtn = miniButton("Grid", () => setView("grid"));
+  gridBtn.title = "All steps' parameters in one editable grid — the Set-all row edits a shared parameter across every step";
+  const viewToggle = document.createElement("div");
+  viewToggle.className = "workflow-view-toggle";
+  viewToggle.append(listBtn, gridBtn);
+  content.appendChild(viewToggle);
+
   const stepsList = document.createElement("ol");
   stepsList.className = "workflow-steps";
-  content.appendChild(stepsList);
+  const gridWrap = document.createElement("div");
+  gridWrap.className = "workflow-grid-wrap";
+  content.append(stepsList, gridWrap);
+
+  function setView(v: "list" | "grid"): void {
+    view = v;
+    localStorage.setItem(VIEW_KEY, v);
+    renderSteps();
+  }
 
   function renderSteps(): void {
+    listBtn.classList.toggle("workflow-mini-active", view === "list");
+    gridBtn.classList.toggle("workflow-mini-active", view === "grid");
+    // The grid needs the whole pane width; the form column keeps its 640px cap.
+    content.classList.toggle("workflow-grid-active", view === "grid");
+    stepsList.style.display = view === "list" ? "" : "none";
+    gridWrap.style.display = view === "grid" ? "" : "none";
+    if (view === "list") renderListView();
+    else renderGridView();
+  }
+
+  function renderListView(): void {
     stepsList.innerHTML = "";
     if (steps.length === 0) {
       const empty = document.createElement("li");
@@ -230,89 +267,115 @@ export async function buildWorkflowContent(
     badge.classList.toggle("workflow-step-badge-set", n > 0);
   }
 
-  /** Inline per-step editor: input curves, options, and numeric params straight from the
-   *  module manifest. Only values that differ from the manifest default are stored on the
-   *  step, so an untouched step keeps empty maps (pure manifest + zone_params behaviour).
-   *  Zone parameters still override these whole-well values per zone at run time. */
-  function buildStepEditor(step: ChainStep, spec: ModuleSpec, badge: HTMLElement): HTMLElement {
-    const box = document.createElement("div");
-    box.className = "workflow-step-editor";
+  // --- Shared per-arg controls -------------------------------------------------------
+  // Only values that differ from the manifest default are stored on the step, so an
+  // untouched control keeps the step's maps empty (pure manifest + zone_params
+  // behaviour). Zone parameters still override these whole-well values per zone at run
+  // time. The same builders back both the accordion and the grid so semantics match.
 
-    for (const arg of spec.args) {
-      if (arg.kind === "log_in") {
-        const select = document.createElement("select");
-        const names = curveNames.includes(arg.default) ? curveNames : [arg.default, ...curveNames];
-        for (const name of names) {
-          const o = document.createElement("option");
-          o.value = name;
-          o.textContent = name;
-          select.appendChild(o);
-        }
-        select.value = step.log_inputs[arg.name] ?? arg.default;
-        select.addEventListener("change", () => {
-          if (select.value === arg.default) delete step.log_inputs[arg.name];
-          else step.log_inputs[arg.name] = select.value;
-          updateBadge(step, badge);
-        });
-        box.appendChild(editorRow(`${arg.name}${arg.required ? "" : " (opt)"}`, select, arg.desc));
-      } else if (arg.kind === "option") {
-        const select = document.createElement("select");
-        for (const choice of arg.choices) {
-          const o = document.createElement("option");
-          o.value = choice;
-          o.textContent = choice;
-          select.appendChild(o);
-        }
-        select.value = step.opts[arg.name] ?? arg.default;
-        select.addEventListener("change", () => {
-          if (select.value === arg.default) delete step.opts[arg.name];
-          else step.opts[arg.name] = select.value;
-          updateBadge(step, badge);
-        });
-        box.appendChild(editorRow(arg.name, select, arg.desc));
-      } else if (arg.kind === "param") {
-        const input = document.createElement("input");
-        input.type = "number";
-        input.step = "any";
-        input.value = step.params[arg.name] !== undefined ? String(step.params[arg.name]) : arg.default;
-        if (arg.min !== null) input.min = String(arg.min);
-        if (arg.max !== null) input.max = String(arg.max);
-        const defaultNum = parseFloat(arg.default);
-        input.addEventListener("change", () => {
-          const v = parseFloat(input.value);
-          if (Number.isNaN(v) || (arg.min !== null && v < arg.min) || (arg.max !== null && v > arg.max)) {
-            input.classList.add("workflow-invalid");
-            return;
-          }
-          input.classList.remove("workflow-invalid");
-          if (v === defaultNum) delete step.params[arg.name];
-          else step.params[arg.name] = v;
-          updateBadge(step, badge);
-        });
-        const unit = arg.unit ? ` [${arg.unit}]` : "";
-        box.appendChild(editorRow(`${arg.name}${unit}`, input, arg.desc));
-      }
+  function logInControl(step: ChainStep, arg: ArgSpec, onChanged: () => void): HTMLSelectElement {
+    const select = document.createElement("select");
+    const names = curveNames.includes(arg.default) ? curveNames : [arg.default, ...curveNames];
+    for (const name of names) {
+      const o = document.createElement("option");
+      o.value = name;
+      o.textContent = name;
+      select.appendChild(o);
     }
+    select.value = step.log_inputs[arg.name] ?? arg.default;
+    select.addEventListener("change", () => {
+      if (select.value === arg.default) delete step.log_inputs[arg.name];
+      else step.log_inputs[arg.name] = select.value;
+      onChanged();
+    });
+    return select;
+  }
 
-    // Universal bad-hole mask (opts.MASK) — same capability the module dialog exposes.
-    const maskSelect = document.createElement("select");
+  function optionControl(step: ChainStep, arg: ArgSpec, onChanged: () => void): HTMLSelectElement {
+    const select = document.createElement("select");
+    for (const choice of arg.choices) {
+      const o = document.createElement("option");
+      o.value = choice;
+      o.textContent = choice;
+      select.appendChild(o);
+    }
+    select.value = step.opts[arg.name] ?? arg.default;
+    select.addEventListener("change", () => {
+      if (select.value === arg.default) delete step.opts[arg.name];
+      else step.opts[arg.name] = select.value;
+      onChanged();
+    });
+    return select;
+  }
+
+  function paramControl(step: ChainStep, arg: ArgSpec, onChanged: () => void): HTMLInputElement {
+    const input = document.createElement("input");
+    input.type = "number";
+    input.step = "any";
+    input.value = step.params[arg.name] !== undefined ? String(step.params[arg.name]) : arg.default;
+    if (arg.min !== null) input.min = String(arg.min);
+    if (arg.max !== null) input.max = String(arg.max);
+    const defaultNum = parseFloat(arg.default);
+    input.addEventListener("change", () => {
+      const v = parseFloat(input.value);
+      if (Number.isNaN(v) || (arg.min !== null && v < arg.min) || (arg.max !== null && v > arg.max)) {
+        input.classList.add("workflow-invalid");
+        const lim = [arg.min !== null ? `min ${arg.min}` : "", arg.max !== null ? `max ${arg.max}` : ""]
+          .filter(Boolean)
+          .join(", ");
+        setStatus(`${arg.name}: "${input.value}" not applied${lim ? ` (${lim})` : ""} — the stored value still runs`);
+        return;
+      }
+      input.classList.remove("workflow-invalid");
+      if (v === defaultNum) delete step.params[arg.name];
+      else step.params[arg.name] = v;
+      onChanged();
+    });
+    return input;
+  }
+
+  /** Universal bad-hole mask (opts.MASK) — same capability the module dialog exposes. */
+  function maskControl(step: ChainStep, onChanged: () => void): HTMLSelectElement {
+    const select = document.createElement("select");
     const none = document.createElement("option");
     none.value = "";
     none.textContent = "(none)";
-    maskSelect.appendChild(none);
+    select.appendChild(none);
     for (const name of curveNames) {
       const o = document.createElement("option");
       o.value = name;
       o.textContent = name;
-      maskSelect.appendChild(o);
+      select.appendChild(o);
     }
-    maskSelect.value = step.opts.MASK ?? "";
-    maskSelect.addEventListener("change", () => {
-      if (maskSelect.value) step.opts.MASK = maskSelect.value;
+    select.value = step.opts.MASK ?? "";
+    select.addEventListener("change", () => {
+      if (select.value) step.opts.MASK = select.value;
       else delete step.opts.MASK;
-      updateBadge(step, badge);
+      onChanged();
     });
-    box.appendChild(editorRow("Mask (opt)", maskSelect, "Flag curve (=1 bad) blanked from every output — e.g. BADHOLE."));
+    return select;
+  }
+
+  const MASK_DESC = "Flag curve (=1 bad) blanked from every output — e.g. BADHOLE.";
+
+  /** Inline per-step editor: input curves, options, and numeric params straight from the
+   *  module manifest. */
+  function buildStepEditor(step: ChainStep, spec: ModuleSpec, badge: HTMLElement): HTMLElement {
+    const box = document.createElement("div");
+    box.className = "workflow-step-editor";
+    const onChanged = (): void => updateBadge(step, badge);
+
+    for (const arg of spec.args) {
+      if (arg.kind === "log_in") {
+        box.appendChild(editorRow(`${arg.name}${arg.required ? "" : " (opt)"}`, logInControl(step, arg, onChanged), arg.desc));
+      } else if (arg.kind === "option") {
+        box.appendChild(editorRow(arg.name, optionControl(step, arg, onChanged), arg.desc));
+      } else if (arg.kind === "param") {
+        const unit = arg.unit ? ` [${arg.unit}]` : "";
+        box.appendChild(editorRow(`${arg.name}${unit}`, paramControl(step, arg, onChanged), arg.desc));
+      }
+    }
+    box.appendChild(editorRow("Mask (opt)", maskControl(step, onChanged), MASK_DESC));
 
     const outputs = spec.args.filter((a) => a.kind === "log_out").map((a) => a.name);
     const footer = document.createElement("div");
@@ -337,6 +400,282 @@ export async function buildWorkflowContent(
     if (j < 0 || j >= steps.length) return;
     [steps[i], steps[j]] = [steps[j], steps[i]];
     renderSteps();
+  }
+
+  // --- Grid view (multi-line inspector) ------------------------------------
+  // Rows = steps, columns = the union of every step's manifest args (curves first, then
+  // numeric params, then options, MASK last). A parameter shared by several modules
+  // lines up in one column; a step that doesn't take a column's arg shows "—".
+
+  type GridKind = "log_in" | "param" | "option" | "mask";
+  interface GridCol {
+    kind: GridKind;
+    name: string;
+    unit: string;
+    desc: string;
+    /** Per-step manifest arg — defaults and limits can differ per module. */
+    args: Map<ChainStep, ArgSpec>;
+  }
+
+  function gridColumns(): GridCol[] {
+    // Column order follows the module MANIFEST order (not chain order), so moving a
+    // step up/down never shuffles the columns; kinds still group curves → params →
+    // options, with the universal Mask last.
+    const stepsByModule = new Map<string, ChainStep[]>();
+    for (const step of steps) {
+      if (!stepsByModule.has(step.module)) stepsByModule.set(step.module, []);
+      stepsByModule.get(step.module)!.push(step);
+    }
+    const by = new Map<string, GridCol>();
+    for (const spec of modules) {
+      const own = stepsByModule.get(spec.name);
+      if (!own) continue;
+      for (const arg of spec.args) {
+        if (arg.kind === "log_out") continue;
+        const key = `${arg.kind}:${arg.name}`;
+        let col = by.get(key);
+        if (!col) {
+          col = { kind: arg.kind, name: arg.name, unit: arg.unit, desc: arg.desc, args: new Map() };
+          by.set(key, col);
+        }
+        for (const step of own) {
+          if (!col.args.has(step)) col.args.set(step, arg);
+        }
+      }
+    }
+    const rank: GridKind[] = ["log_in", "param", "option"];
+    const cols = [...by.values()].sort((a, b) => rank.indexOf(a.kind) - rank.indexOf(b.kind));
+    cols.push({ kind: "mask", name: "MASK", unit: "", desc: MASK_DESC, args: new Map() });
+    return cols;
+  }
+
+  function hasOverride(step: ChainStep, col: GridCol): boolean {
+    if (col.kind === "param") return step.params[col.name] !== undefined;
+    if (col.kind === "log_in") return step.log_inputs[col.name] !== undefined;
+    return step.opts[col.kind === "mask" ? "MASK" : col.name] !== undefined;
+  }
+
+  // Live grid controls, keyed by column then step, so a Set-all edit refreshes the
+  // affected column IN PLACE — no rebuild, so scroll position, focus and any
+  // .workflow-invalid state elsewhere in the grid are untouched.
+  const colKey = (col: GridCol): string => `${col.kind}:${col.name}`;
+  const gridCells = new Map<string, Map<ChainStep, { control: HTMLInputElement | HTMLSelectElement; td: HTMLTableCellElement }>>();
+  const gridBadges = new Map<ChainStep, HTMLElement>();
+
+  function refreshColumn(col: GridCol): void {
+    const cells = gridCells.get(colKey(col));
+    if (!cells) return;
+    for (const [step, { control, td }] of cells) {
+      const arg = col.args.get(step);
+      if (col.kind === "param" && arg) {
+        control.value = step.params[arg.name] !== undefined ? String(step.params[arg.name]) : arg.default;
+        control.classList.remove("workflow-invalid");
+      } else if (col.kind === "log_in" && arg) {
+        control.value = step.log_inputs[arg.name] ?? arg.default;
+      } else if (col.kind === "option" && arg) {
+        control.value = step.opts[arg.name] ?? arg.default;
+      } else if (col.kind === "mask") {
+        control.value = step.opts.MASK ?? "";
+      }
+      td.classList.toggle("workflow-grid-mod", hasOverride(step, col));
+      const badge = gridBadges.get(step);
+      if (badge) updateBadge(step, badge);
+    }
+  }
+
+  function gridCell(step: ChainStep, col: GridCol, badge: HTMLElement, known: boolean): HTMLTableCellElement {
+    const td = document.createElement("td");
+    const arg = col.args.get(step);
+    if (!known || (col.kind !== "mask" && !arg)) {
+      td.className = "workflow-grid-na";
+      td.textContent = "—";
+      return td;
+    }
+    const onChanged = (): void => {
+      updateBadge(step, badge);
+      td.classList.toggle("workflow-grid-mod", hasOverride(step, col));
+    };
+    let control: HTMLInputElement | HTMLSelectElement;
+    if (col.kind === "mask") control = maskControl(step, onChanged);
+    else if (col.kind === "log_in") control = logInControl(step, arg!, onChanged);
+    else if (col.kind === "option") control = optionControl(step, arg!, onChanged);
+    else control = paramControl(step, arg!, onChanged);
+    td.title = arg?.desc || col.desc;
+    td.classList.toggle("workflow-grid-mod", hasOverride(step, col));
+    td.appendChild(control);
+    let cells = gridCells.get(colKey(col));
+    if (!cells) {
+      cells = new Map();
+      gridCells.set(colKey(col), cells);
+    }
+    cells.set(step, { control, td });
+    return td;
+  }
+
+  /** Set-all row cell: one edit fans out to every step that takes this arg. Values are
+   *  validated against each step's own manifest limits; per-step delete-if-default keeps
+   *  the override semantics identical to editing the cells one by one. */
+  function setAllCell(col: GridCol): HTMLTableCellElement {
+    const td = document.createElement("td");
+    if (col.kind === "param") {
+      const input = document.createElement("input");
+      input.type = "number";
+      input.step = "any";
+      input.placeholder = "all";
+      input.addEventListener("change", () => {
+        const v = parseFloat(input.value);
+        if (Number.isNaN(v)) return;
+        let applied = 0;
+        let skipped = 0;
+        for (const [step, arg] of col.args) {
+          if ((arg.min !== null && v < arg.min) || (arg.max !== null && v > arg.max)) {
+            skipped++;
+            continue;
+          }
+          if (v === parseFloat(arg.default)) delete step.params[arg.name];
+          else step.params[arg.name] = v;
+          applied++;
+        }
+        refreshColumn(col);
+        setStatus(
+          `${col.name} = ${v} set on ${applied} step${applied === 1 ? "" : "s"}` +
+            (skipped ? ` (${skipped} skipped: out of range)` : ""),
+        );
+      });
+      td.appendChild(input);
+      return td;
+    }
+    const select = document.createElement("select");
+    const ph = document.createElement("option");
+    ph.value = "";
+    ph.textContent = "(set all)";
+    select.appendChild(ph);
+    let values: string[];
+    if (col.kind === "log_in") {
+      // Off-catalog manifest defaults must stay pickable so Set-all can revert every
+      // step to its default (which deletes the overrides), same as the per-cell select.
+      const extras = [...new Set([...col.args.values()].map((a) => a.default))].filter((d) => !curveNames.includes(d));
+      values = [...extras, ...curveNames];
+    } else if (col.kind === "mask") values = ["(none)", ...curveNames];
+    else {
+      // Options only get a set-all control when every step offers the same choices.
+      const lists = [...col.args.values()].map((a) => a.choices.join("\n"));
+      if (lists.length === 0 || !lists.every((l) => l === lists[0])) {
+        td.className = "workflow-grid-na";
+        td.textContent = "—";
+        return td;
+      }
+      values = [...col.args.values()][0].choices;
+    }
+    for (const v of values) {
+      const o = document.createElement("option");
+      o.value = v;
+      o.textContent = v;
+      select.appendChild(o);
+    }
+    select.addEventListener("change", () => {
+      const v = select.value;
+      if (!v) return;
+      let applied = 0;
+      if (col.kind === "mask") {
+        for (const step of steps) {
+          if (!moduleByName.has(step.module)) continue;
+          if (v === "(none)") delete step.opts.MASK;
+          else step.opts.MASK = v;
+          applied++;
+        }
+      } else if (col.kind === "log_in") {
+        for (const [step, arg] of col.args) {
+          if (v === arg.default) delete step.log_inputs[arg.name];
+          else step.log_inputs[arg.name] = v;
+          applied++;
+        }
+      } else {
+        for (const [step, arg] of col.args) {
+          if (v === arg.default) delete step.opts[arg.name];
+          else step.opts[arg.name] = v;
+          applied++;
+        }
+      }
+      refreshColumn(col);
+      setStatus(`${col.kind === "mask" ? "Mask" : col.name} set on ${applied} step${applied === 1 ? "" : "s"}`);
+    });
+    td.appendChild(select);
+    return td;
+  }
+
+  function renderGridView(): void {
+    // Structural rebuilds (add/move/remove/load/view toggle) must not lose the scroll
+    // position — the grid is wider than the pane for any realistic chain.
+    const scrollX = gridWrap.scrollLeft;
+    const scrollY = gridWrap.scrollTop;
+    gridWrap.innerHTML = "";
+    gridCells.clear();
+    gridBadges.clear();
+    if (steps.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "workflow-empty";
+      empty.textContent = "No steps yet — add modules above.";
+      gridWrap.appendChild(empty);
+      return;
+    }
+    const cols = gridColumns();
+    const table = document.createElement("table");
+    table.className = "workflow-grid";
+
+    const thead = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    const corner = document.createElement("th");
+    corner.textContent = "Step";
+    headRow.appendChild(corner);
+    for (const col of cols) {
+      const th = document.createElement("th");
+      th.textContent = col.kind === "mask" ? "Mask" : col.name;
+      if (col.unit) {
+        const u = document.createElement("span");
+        u.className = "workflow-grid-unit";
+        u.textContent = col.unit;
+        th.appendChild(u);
+      }
+      th.title = col.desc;
+      headRow.appendChild(th);
+    }
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    const allRow = document.createElement("tr");
+    allRow.className = "workflow-grid-allrow";
+    const allTh = document.createElement("th");
+    allTh.textContent = "Set all";
+    allTh.title = "Edits in this row apply to every step that takes the parameter";
+    allRow.appendChild(allTh);
+    for (const col of cols) {
+      allRow.appendChild(setAllCell(col));
+    }
+    tbody.appendChild(allRow);
+
+    steps.forEach((step, i) => {
+      const spec = moduleByName.get(step.module);
+      const tr = document.createElement("tr");
+      const th = document.createElement("th");
+      const title = document.createElement("span");
+      title.textContent = `${i + 1}. ${spec?.title ?? step.module}`;
+      const badge = document.createElement("span");
+      badge.className = "workflow-step-badge";
+      updateBadge(step, badge);
+      gridBadges.set(step, badge);
+      th.append(title, badge);
+      tr.appendChild(th);
+      for (const col of cols) {
+        tr.appendChild(gridCell(step, col, badge, !!spec));
+      }
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    gridWrap.appendChild(table);
+    gridWrap.scrollLeft = scrollX;
+    gridWrap.scrollTop = scrollY;
   }
 
   // --- Wells ---------------------------------------------------------------

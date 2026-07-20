@@ -757,12 +757,11 @@ architecture, not ported later):**
       Import Logs ▾ (LAS/DLIS), Import Data ▾ (core/SCAL/tops/aux/deviation), Export ▾,
       Tools ▾ (autocorrelate/shift core/well header). Pure frontend; handlers exist.
       Apply the same categorization pass to other crowded groups. → `code_data_db_import.md`.
-- [ ] **(12) Multi-line inspector in workflows.** Interpreted as: a spreadsheet-style
-      grid over the whole chain (rows = steps/params, columns = values) so several
-      steps' inputs/params are visible and editable at once, incl. cross-step editing
-      of a shared parameter (set RW once for all sw_* steps) — today only per-step
-      accordion editors exist. **Confirm interpretation with Jauhar before building.**
-      → `code_compute_ml_mc.md`.
+- [x] **(12) Multi-line inspector in workflows.** _(Done 2026-07-20 — interpretation
+      confirmed; Workflow Builder List|Grid toggle: rows = steps, columns = union of
+      args, Set-all row edits a shared parameter (RW across sw_*) on every step that
+      takes it, per-step delete-if-default + manifest-limit validation preserved,
+      view choice persisted.)_ → `code_compute_ml_mc.md`.
 - [x] **(2) Project open/switch, IP style.** _(Done 2026-07-20 — project.rs recents
       in %APPDATA%\SandiBumi, live connection swap, open/new/recent UI, reopen-last
       at startup, chain-running guard; save_project_as stays a backup copy.)_
