@@ -227,6 +227,17 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
         }
     }
 
+    // A short/truncated ~A row leaves tokens that never fill a complete column set; from
+    // that point on every value is shifted a column left (GR lands in RES, etc.). Fail
+    // loudly rather than silently mis-columning the rest of the file.
+    if !token_buffer.is_empty() {
+        return Err(ParseError::Las(format!(
+            "ASCII data ended with {} leftover token(s) not forming a full {}-column row (truncated or corrupt LAS?)",
+            token_buffer.len(),
+            curve_names.len()
+        )));
+    }
+
     // Choose, per standard curve, the candidate column with the most finite samples (ties
     // broken by alias priority, since we scan in priority order and only replace on strictly
     // greater coverage). This skips all-null placeholder columns in favour of a populated one.
@@ -460,6 +471,17 @@ pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
                 }
             }
         }
+    }
+
+    // A short/truncated ~A row leaves tokens that never fill a complete column set; from
+    // that point on every value is shifted a column left. Fail loudly rather than silently
+    // mis-columning the rest of the file.
+    if !token_buffer.is_empty() {
+        return Err(ParseError::Las(format!(
+            "ASCII data ended with {} leftover token(s) not forming a full {}-column row (truncated or corrupt LAS?)",
+            token_buffer.len(),
+            curve_names.len()
+        )));
     }
 
     let depth_idx = idx_depth.unwrap_or(0);

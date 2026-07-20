@@ -103,6 +103,20 @@ the first-pass init guard) plus a focused **second-pass verify of the fixes** (r
       *during* WebGPU init now disposes the fully-initialized local renderer rather than a
       no-op on an already-nulled field. Nothing visible per-close, but memory/handler count
       stays flat over a long session.
+- [ ] **Dialog Escape is scoped to the dialog — closes the P1 modal-Escape sliver** (modal.ts).
+      The carried-over P1 sliver ("overlapping dialogs share one Escape handler"). The listener-
+      leak half was already handled — `openModal` single-instances via `activeClose` (a new dialog
+      closes the prior one and removes its keydown listener; no modal opens a nested modal, so
+      there's no stack). The remaining gap: the dialog's Escape was a `document`-level handler that
+      closed the dialog but didn't `stopPropagation`, so one Escape also bubbled to `window`/app-level
+      Escape handlers. It now stops there — kept on the **bubble** phase so the numeric-edit guard's
+      capture-phase `stopPropagation` still shields a dialog from closing while you edit a number
+      field. Also tears down any in-flight title-bar drag listeners on close (no leak if a dialog is
+      dismissed mid-drag). tsc clean. Test: start drawing a **map polygon**, open any dialog (⚙
+      Properties, an import dialog…), press **Escape** → the dialog closes and the half-drawn polygon
+      is **still there** (Escape no longer cancels it too); double-click a number field in a dialog,
+      press Escape → you exit the field's edit mode and the **dialog stays open**; a second Escape
+      closes the dialog.
 
 ## Polish — UX (veteran-interpreter friction) (2026-07-20)
 
@@ -156,6 +170,107 @@ each tsc-clean. Mapped by a read-only investigation wave before implementing.
       tests pass / 0 fail / 7 ignored; tsc clean). Click-through: run Cutoffs & Pay Summary on a
       well → Curve Catalog shows a PAYFLAG version whose provenance lists the cutoffs; re-run →
       version N+1; run the Field Dashboard → FLAG_* update but no new version piles up.
+
+## Performance (field-scale speed) (2026-07-20)
+
+Hardening-backlog **Performance** tier (ROADMAP §4b, was "P2"). The rest of the tier (#128–132)
+changes DB/IPC semantics and needs a live 100-well benchmark to sign off; this first item is the
+one pure-frontend, low-risk win.
+
+- [ ] **Crossplot: Z coloring memoized across pan/zoom/hover** (crossplotPanel.ts). Every crossplot
+      redraw rebuilt the whole per-point color array from scratch — for a continuous Z that's **two
+      `percentile` sorts** (each allocates + sorts a NaN-filtered copy of all samples) plus an
+      N-length `colorRampEx` string array; for a discrete Z, an N-length `categoricalColors` map.
+      That ran on **every** pan-drag / zoom-wheel / handle-drag `mousemove` and every synchronized-
+      hover frame, even though the colors depend only on the Z data + colormap, never the viewport.
+      The color computation is now a pure `computeCrossplotColors()` that the panel **memoizes**,
+      keyed by (Z curve, colormap, log-Z, fixed color, data generation); pan/zoom/hover reuse the
+      cached array and only a data or color-setting change recomputes. Output is pixel-identical —
+      this is a speed change only, most visible on dense (100-well / full-field) clouds. tsc clean.
+      Test: open a crossplot colored by a curve (e.g. NPHI-RHOB by GR, or a PERM Z with log-Z on),
+      drag the parameter handle / Ctrl+wheel-zoom / pan / hover from a log view — motion stays
+      smooth on a big cloud; the colors, color-bar range, and facies legend are unchanged; switching
+      the Z curve, colormap, or log-Z toggle still recolors immediately; a module re-run (dataVersion)
+      recolors against the new data.
+
+## Low-tier correctness & data-integrity sweep (2026-07-21)
+
+The 15 low-severity findings from `AUDIT-2026-07-20.md` (never adversarially verified at audit time)
+were each re-checked against the current code by an independent per-finding verifier. One was
+**already fixed** (SandiMin all-zero conductivity-row guard, `multimin2.rs`), two are **held for your
+sign-off** because they change numeric output (Wyllie compaction correction; histogram re-bin), one is
+**held to land with the depth-scale-ratio fix** (scale-dropdown staleness). The rest — the safe
+correctness/crash/data-integrity fixes below — are applied. **Rust suite green; tsc clean.** Nothing
+committed.
+
+Backend (with new regression tests): 
+- [ ] **SSC `SWIRR_EFF` no longer 0 at a 100 %-shale point** (`ssc.rs`). At the wet-clay point effective
+      porosity is floored to 0, and the `1 − φt·(1−SWIRR_T)/φie` divide gave `−inf→0` ("all water
+      movable") or `0/0→NaN` — exactly backwards. Now a zero-effective-porosity sample reports
+      `SWIRR_EFF = 1.0` (fully bound). *Only the degenerate φie==0 samples change; every producing
+      point is unchanged.* (The deeper SWIRR_T/SWIRR_EFF ordering inconsistency is the separate held
+      item.) Test: run SSC on a shale-heavy well; SWIRR_EFF in massive shale reads ~1, not 0.
+- [ ] **Archie `SWT_ARCH` no longer writes `+Infinity`** (`modules.rs` `sw_arch`). A coal/tight sample
+      with PHIT=0 but PHIE absent used to fall through to `a/0^m = +inf` and store it in the SWT_ARCH
+      curve, poisoning catalog min/max and plot autoscale. The zero-porosity "all water" guard now
+      keys on PHIT alone. Test (regression `sw_arch_zero_porosity_missing_phie_is_all_water_not_inf`):
+      the curve catalog's SWT_ARCH min/max stays finite over coal/tight zones.
+- [ ] **Simandoux (SCHLUMBERGER) no longer divides by zero at VSH=1** (`modules.rs` `sw_sim`). Pure
+      shale hit a `1/(1−VSH)` singularity and the sample was silently dropped; it now resolves to
+      all-water (SWE=1), matching the low-porosity and Indonesia branches. Test:
+      `sw_sim_schlumberger_pure_shale_is_all_water`.
+- [ ] **LAS import fails loudly on a truncated row** (`parsers.rs`, both parsers). A physically short
+      `~A` row used to shift every following value one column left silently (GR into RES, RHOB into
+      DT) for the rest of the file. Leftover tokens at EOF now raise a clear import error instead of
+      mis-columning. Test: import a LAS whose last data line is cut mid-row → you get an explicit
+      "leftover token(s)…truncated or corrupt LAS?" error, not corrupted curves.
+- [ ] **DB-inspector edit no longer reports success on a 0-row update** (`db.rs`, all three sample
+      editors). If the matched depth had moved/been rewritten, the UPDATE hit 0 rows but the UI said
+      "saved" and pushed a bogus undo entry. It now errors, and the inspector already reverts the cell
+      + shows "Edit failed". Test (`…is_err()` assertion added): edit a sample, then edit a
+      non-existent depth → "no … sample matched depth …", cell reverts, no phantom undo.
+- [ ] **Well Header shows current TD / KB** (`db.rs` list_wells + `ipc.ts` + `ribbon.ts`). The dialog
+      used to open with blank TD/KB, so you edited the datum blind — and KB silently drives TVDSS in
+      deviation import. TD/KB are now carried on `WellSummary` and prefilled. Test: open Well Header on
+      a well with a KB set → the field shows it, not an empty box.
+
+Frontend:
+- [ ] **Stats / regression reject `±Infinity`, not just NaN** (`plotCanvas.ts`: basicStats, linearFit,
+      percentile, drawScatter/drawDiamonds). One inf sample (e.g. a Python `1/phi` at phi=0) used to
+      make the histogram's Mean/Std chips read "Infinity" and silently kill a crossplot regression.
+      Now non-finite values are skipped everywhere. Test: compute an equation that divides by a
+      zero-porosity sample, then histogram/crossplot it — chips and the fit stay sane.
+- [ ] **Zone-param "Set" button surfaces write failures** (`plotCommon.ts` pickRow — histogram Pick
+      A/B, Pickett M/Rw). A rejected `setZoneParam` used to be swallowed while the status still said
+      "set". It now shows "Failed to set …". Test: (hard to force by hand) — behaviour only differs on
+      a backend write error; the success path is unchanged.
+- [ ] **Duplicate track titles prevented** (`layoutPropsDialog.ts`). Renaming a track to an existing
+      track's title collapsed both in every title-keyed lookup (weights, cursor hit-testing, core
+      overlay, drag-drop). A colliding rename is now auto-suffixed ("RES 2"). Test: in Layout
+      Properties, rename a track to another track's exact name → it becomes "name 2"; retyping a
+      track's own name is a no-op.
+- [ ] **Histogram: constant curves render; the `n` never silently disagrees** (`histogramPanel.ts`).
+      A constant curve (flag/class curve, single-sample zone) used to show "No valid data"; it now
+      draws one central bar. And when the P2–P98 axis window clips tail samples, the axis label reads
+      `n = X of Y` so it no longer contradicts the stats chips (which count all samples). *(The full
+      full-range re-bin — which would change every bar height — is the held item.)* Test: histogram a
+      constant/flag curve (draws), and a curve with fat tails (label shows "of").
+- [ ] **Log-view smoothness** (`LogCanvasRenderer.ts`, speed only). The clear color is no longer read
+      via `getComputedStyle` every rendered frame (cached, invalidated on theme change), and the
+      cursor readout uses a binary search instead of scanning every sample per mouse-move. Values and
+      colors are identical. Test: drag-pan a busy log view — motion is smoother; theme switch still
+      repaints; the cursor readout still tracks correctly.
+
+**Held for your decision (not applied):**
+- **Wyllie sonic porosity — lack-of-compaction (Cp) correction.** Undercompacted Mahakam sections read
+  a few p.u. high on plain Wyllie. Ready to add as an **opt-in** (default OFF, `OPT_CP`, divides PHIT by
+  `DT_SH/100`) so nothing changes unless you turn it on — say the word.
+- **Histogram full-range re-bin.** Would make bins span the true data extent (no clipped tails, n
+  always = total) but changes every bar height and the displayed n — analysts read modes/P50/cutoffs
+  off these, so it needs your OK.
+- **Depth-scale dropdown reflecting the effective scale.** Currently it stays on the last-picked preset
+  after Ctrl+wheel/± zoom. Making it honest surfaces confusing ratios because of the separate
+  depth-scale-ratio mislabel bug, so it will land together with that fix.
 
 ## Reference-library correctness fixes (2026-07-20)
 

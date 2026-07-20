@@ -58,6 +58,8 @@ mod tests {
             well_id: name.to_string(),
             well_name: name.to_string(),
             field_name: None,
+            td: None,
+            kb: None,
             surface_x: x,
             surface_y: y,
             utm_zone: None,

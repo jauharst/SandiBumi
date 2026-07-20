@@ -498,6 +498,50 @@ function drawMarginals(plot: PlotCanvas, xs: Float32Array, ys: Float32Array, bin
   ctx.restore();
 }
 
+/** Precomputed per-point Z coloring for the scatter — the redraw's heaviest step (two
+ *  percentile sorts + an N-length color array, or the categorical palette map). It depends
+ *  only on the Z data + colormap, never the viewport, so the panel caches it and reuses it
+ *  across pan/zoom/hover frames (see the `zColors` memo in buildCrossplotContent). */
+export interface CrossplotColors {
+  /** Per-point colors, or undefined to fall back to the theme accent in drawScatter. */
+  colors: string[] | undefined;
+  /** True when Z is a discrete class curve (facies/cluster) → categorical legend. */
+  categorical: boolean;
+  /** Continuous color-bar range; NaN when categorical, no Z, or degenerate. */
+  zLo: number;
+  zHi: number;
+}
+
+/** Builds the Z coloring + legend range. `fillColor` is the solid point color used when
+ *  there's no Z but an explicit color is set (opts.color); pass "" for the theme-accent
+ *  default. Pure — same inputs give the same output, which is what lets the panel memoize
+ *  it (the two percentile sorts + N-length allocations here dominated the pan/zoom redraw). */
+export function computeCrossplotColors(
+  zName: string,
+  zs: Float32Array,
+  pointCount: number,
+  colormap: ColormapName,
+  zLog: boolean,
+  fillColor: string,
+): CrossplotColors {
+  const hasZ = zName !== "" && zs.length > 0;
+  const categorical = hasZ && (/FACIES|CLUSTER|LITHO|CLASS/i.test(zName) || looksDiscrete(zs));
+  let zLo = NaN;
+  let zHi = NaN;
+  let colors: string[] | undefined;
+  if (categorical) {
+    colors = categoricalColors(zs);
+  } else if (hasZ) {
+    // Log Z: percentile over the positive values only, else ≤0 junk wrecks the range.
+    const zForRange = zLog ? Float32Array.from([...zs].filter((v) => !Number.isNaN(v) && v > 0)) : zs;
+    zLo = percentile(zForRange, 5);
+    zHi = percentile(zForRange, 95);
+    if (!Number.isNaN(zLo) && zLo !== zHi) colors = colorRampEx(zs, zLo, zHi, colormap, zLog);
+  }
+  if (!colors && fillColor) colors = new Array(pointCount).fill(fillColor);
+  return { colors, categorical, zLo, zHi };
+}
+
 export function drawCrossplot(
   canvas: HTMLCanvasElement,
   xName: string,
@@ -509,6 +553,7 @@ export function drawCrossplot(
   opts: CrossplotOptions = DEFAULT_CROSSPLOT_OPTIONS,
   hoverIdx = -1,
   view: Viewport | null = null,
+  precolors: CrossplotColors | null = null,
 ): PlotCanvas | null {
   fitCanvasBackingStore(canvas);
   const auto = (values: Float32Array): { min: number; max: number } | null => {
@@ -567,23 +612,13 @@ export function drawCrossplot(
   const pointColor = opts.color || plot.theme.accent;
 
   // Z coloring only when a Z curve is selected. Discrete class curves (electrofacies,
-  // clusters) get categorical coloring + a swatch legend; continuous curves get the
-  // chosen colormap (optionally log10-scaled) + a color bar.
+  // clusters) get categorical coloring + a swatch legend; continuous curves get the chosen
+  // colormap (optionally log10-scaled) + a color bar. This is the redraw's heaviest step and
+  // is viewport-independent, so the panel memoizes it and passes it in; we only compute it
+  // here when a caller (or a test) doesn't supply one.
   const hasZ = zName !== "" && zs.length > 0;
-  const categorical = hasZ && (/FACIES|CLUSTER|LITHO|CLASS/i.test(zName) || looksDiscrete(zs));
-  let zLo = NaN;
-  let zHi = NaN;
-  let colors: string[] | undefined;
-  if (categorical) {
-    colors = categoricalColors(zs);
-  } else if (hasZ) {
-    // Log Z: percentile over the positive values only, else ≤0 junk wrecks the range.
-    const zForRange = opts.zLog ? Float32Array.from([...zs].filter((v) => !Number.isNaN(v) && v > 0)) : zs;
-    zLo = percentile(zForRange, 5);
-    zHi = percentile(zForRange, 95);
-    if (!Number.isNaN(zLo) && zLo !== zHi) colors = colorRampEx(zs, zLo, zHi, opts.colormap, opts.zLog);
-  }
-  if (!colors && opts.color) colors = new Array(xs.length).fill(pointColor);
+  const { colors, categorical, zLo, zHi } =
+    precolors ?? computeCrossplotColors(zName, zs, xs.length, opts.colormap, opts.zLog, opts.color);
   plot.drawScatter(xs, ys, colors, Math.max(0.5, opts.pointSize));
 
   if (opts.marginals) drawMarginals(plot, xs, ys, opts.bins, pointColor);
@@ -882,8 +917,26 @@ export async function buildCrossplotContent(
   let hoverIdx = -1;
   const viewRef: ViewportRef = { current: null };
 
+  // Memoized Z coloring — the redraw's heaviest step (two percentile sorts + an N-length
+  // color array). It's viewport-independent, so recompute it only when the Z data or the
+  // color settings actually change, not on every pan/zoom/hover frame. `dataGen` bumps
+  // whenever reload() swaps in new arrays; colormap/zLog/color come from opts (a Properties
+  // apply triggers a plain redraw, not a reload, so they must be part of the key).
+  let dataGen = 0;
+  let colorMemo: { key: string; value: CrossplotColors } | null = null;
+  const zColors = (): CrossplotColors => {
+    const key = `${zSel.value} ${opts.colormap} ${opts.zLog} ${opts.color} ${dataGen}`;
+    if (!colorMemo || colorMemo.key !== key) {
+      colorMemo = {
+        key,
+        value: computeCrossplotColors(zSel.value, zs, xs.length, opts.colormap, opts.zLog, opts.color),
+      };
+    }
+    return colorMemo.value;
+  };
+
   const redraw = () => {
-    plot = drawCrossplot(canvas, xSel.value, ySel.value, zSel.value, xs, ys, zs, opts, hoverIdx, viewRef.current);
+    plot = drawCrossplot(canvas, xSel.value, ySel.value, zSel.value, xs, ys, zs, opts, hoverIdx, viewRef.current, zColors());
     if (!plot) {
       const ctx = canvas.getContext("2d")!;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -992,6 +1045,7 @@ export async function buildCrossplotContent(
         }
       }
     }
+    dataGen++; // new arrays are in place — invalidate the memoized Z coloring
     redraw();
   };
 

@@ -218,7 +218,15 @@ pub fn ssc(ctx: &ModuleContext) -> ModuleOutputs {
         let mut bw = cbw + cwsh;
 
         let swirr_t = limit(bw / phit, 0.0, 1.0);
-        let swirr_eff = limit(1.0 - phit * (1.0 - swirr_t) / phie, 0.0, 1.0);
+        // Guard the /phie divide: at the wet-clay point phie is floored to 0, where the
+        // original expression gives -inf->0 ("all water movable") or 0/0->NaN. A zero-
+        // effective-porosity sample is fully bound, so report 1.0. (Only degenerate
+        // phie==0 samples change; every phie>0 result is unchanged.)
+        let swirr_eff = if phie > 0.0 {
+            limit(1.0 - phit * (1.0 - swirr_t) / phie, 0.0, 1.0)
+        } else {
+            1.0
+        };
 
         // Capillary bound water conditioning (Loglan order preserved; the RANNORMAL
         // draw is replaced with its deterministic mean).

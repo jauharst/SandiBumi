@@ -649,6 +649,11 @@ pub struct WellSummary {
     pub well_id: String,
     pub well_name: String,
     pub field_name: Option<String>,
+    /// Total depth and Kelly-bushing elevation (metres). None until entered in the well
+    /// header. Surfaced here so the header dialog can prefill them instead of opening blank —
+    /// KB silently drives TVDSS in deviation import, so a blind edit poisons every TVDSS.
+    pub td: Option<f32>,
+    pub kb: Option<f32>,
     /// Surface easting/northing (UTM metres) and zone label, for the Field Map. None until
     /// imported (Import Well Locations) or entered in the well header.
     pub surface_x: Option<f64>,
@@ -659,16 +664,19 @@ pub struct WellSummary {
 /// Lists every well for the object tree, along with which curve tables actually hold data
 /// for it (so the tree can show real children instead of a fixed guess).
 pub fn list_wells(conn: &Connection) -> DbResult<Vec<WellSummary>> {
-    let mut stmt = conn
-        .prepare("SELECT well_id, well_name, field_name, surface_x, surface_y, utm_zone FROM wells ORDER BY well_name")?;
+    let mut stmt = conn.prepare(
+        "SELECT well_id, well_name, field_name, td, kb, surface_x, surface_y, utm_zone FROM wells ORDER BY well_name",
+    )?;
     let rows = stmt.query_map([], |row| {
         Ok(WellSummary {
             well_id: row.get(0)?,
             well_name: row.get(1)?,
             field_name: row.get(2)?,
-            surface_x: row.get(3)?,
-            surface_y: row.get(4)?,
-            utm_zone: row.get(5)?,
+            td: row.get(3)?,
+            kb: row.get(4)?,
+            surface_x: row.get(5)?,
+            surface_y: row.get(6)?,
+            utm_zone: row.get(7)?,
         })
     })?;
     let mut wells = Vec::new();
@@ -1272,6 +1280,13 @@ mod inspector_tests {
             )
             .unwrap();
         assert!((p - 0.42).abs() < 1e-6);
+
+        // A depth that matches no row must ERROR (0-row UPDATE), not report silent success —
+        // otherwise the DB inspector shows a phantom edit and pushes a bogus undo entry.
+        assert!(
+            update_computed_sample(&conn, &a, 4321.0, "PHIE", 0.1).is_err(),
+            "editing a non-existent depth must error, not silently affect 0 rows"
+        );
     }
 
     /// P1-c log-set versioning: re-runs bump the version and preserve history in the
@@ -1448,11 +1463,17 @@ pub fn update_standard_sample(conn: &Connection, well_id: &str, depth: f32, colu
     if !EDITABLE.contains(&column) {
         return Err(format!("column '{column}' is not editable"));
     }
-    conn.execute(
-        &format!("UPDATE standard_curves SET {column} = ?1 WHERE well_id = ?2 AND depth = ?3"),
-        params![value, well_id, depth],
-    )
-    .map_err(|e| e.to_string())?;
+    let n = conn
+        .execute(
+            &format!("UPDATE standard_curves SET {column} = ?1 WHERE well_id = ?2 AND depth = ?3"),
+            params![value, well_id, depth],
+        )
+        .map_err(|e| e.to_string())?;
+    if n == 0 {
+        return Err(format!(
+            "no standard-curve sample matched depth {depth} — the row may have moved or been rewritten; refresh and retry"
+        ));
+    }
     Ok(())
 }
 
@@ -1472,21 +1493,33 @@ pub fn update_core_sample(conn: &Connection, well_id: &str, depth: f32, column: 
     if !EDITABLE.contains(&column) {
         return Err(format!("column '{column}' is not editable"));
     }
-    conn.execute(
-        &format!("UPDATE core_data SET {column} = ?1 WHERE well_id = ?2 AND depth = ?3"),
-        params![value, well_id, depth],
-    )
-    .map_err(|e| e.to_string())?;
+    let n = conn
+        .execute(
+            &format!("UPDATE core_data SET {column} = ?1 WHERE well_id = ?2 AND depth = ?3"),
+            params![value, well_id, depth],
+        )
+        .map_err(|e| e.to_string())?;
+    if n == 0 {
+        return Err(format!(
+            "no core sample matched depth {depth} — the row may have moved or been rewritten; refresh and retry"
+        ));
+    }
     Ok(())
 }
 
 /// Edits one computed-curve sample value.
 pub fn update_computed_sample(conn: &Connection, well_id: &str, depth: f32, curve_name: &str, value: f32) -> Result<(), String> {
-    conn.execute(
-        "UPDATE computed_curves SET value = ?1 WHERE well_id = ?2 AND depth = ?3 AND curve_name = ?4",
-        params![value, well_id, depth, curve_name],
-    )
-    .map_err(|e| e.to_string())?;
+    let n = conn
+        .execute(
+            "UPDATE computed_curves SET value = ?1 WHERE well_id = ?2 AND depth = ?3 AND curve_name = ?4",
+            params![value, well_id, depth, curve_name],
+        )
+        .map_err(|e| e.to_string())?;
+    if n == 0 {
+        return Err(format!(
+            "no {curve_name} sample matched depth {depth} — the row may have moved or been rewritten; refresh and retry"
+        ));
+    }
     Ok(())
 }
 

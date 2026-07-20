@@ -1414,6 +1414,7 @@ export class Ribbon {
     tdInput.step = "0.1";
     tdInput.className = "form-control";
     tdInput.placeholder = "total depth (m)";
+    if (well.td != null) tdInput.value = String(well.td);
     content.appendChild(formRow("TD (m)", tdInput));
 
     const kbInput = document.createElement("input");
@@ -1421,6 +1422,9 @@ export class Ribbon {
     kbInput.step = "0.1";
     kbInput.className = "form-control";
     kbInput.placeholder = "KB elevation (m)";
+    // Show the CURRENT KB — it silently drives TVDSS in deviation import, so editing it blind
+    // (the old behaviour: always-empty field) risked poisoning every TVDSS.
+    if (well.kb != null) kbInput.value = String(well.kb);
     content.appendChild(formRow("KB (m)", kbInput, "datum for TVDSS"));
 
     // Surface location for the Field Map — the manual-entry counterpart to the CSV importer.

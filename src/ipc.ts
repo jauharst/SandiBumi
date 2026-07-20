@@ -45,6 +45,10 @@ export interface WellSummary {
   well_id: string;
   well_name: string;
   field_name: string | null;
+  /** Total depth and Kelly-bushing elevation (metres); null until entered in the well header.
+   *  Carried so the header dialog can prefill them instead of opening blank (KB drives TVDSS). */
+  td?: number | null;
+  kb?: number | null;
   /** Surface easting/northing (UTM metres) and zone label for the Field Map; null until
    *  a location is imported or entered in the well header. */
   surface_x?: number | null;

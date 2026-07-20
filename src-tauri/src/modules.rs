@@ -1741,8 +1741,11 @@ fn sw_arch(ctx: &ModuleContext) -> ModuleOutputs {
         if is_missing(pt) {
             continue;
         }
-        // Coal / zero porosity: everything water (Geolog convention).
-        if pt == 0.0 && pe == 0.0 {
+        // Coal / zero porosity: everything water (Geolog convention). Keyed on total
+        // porosity alone — at pt==0 the formation factor a/pt^m blows up to +inf
+        // regardless of PHIE, so we must catch it here even when PHIE is absent (NaN);
+        // otherwise SWT_ARCH stores +Infinity and poisons catalog stats/autoscale.
+        if pt == 0.0 {
             swt_arch[i] = 1.0;
             swt_out[i] = 1.0;
             swe_out[i] = 1.0;
@@ -1952,6 +1955,16 @@ fn sw_sim(ctx: &ModuleContext) -> ModuleOutputs {
         }
         let rw = resolve_rw(ctx, &ftemp, i);
         if is_missing(r) || is_missing(vs) || is_missing(rw) {
+            continue;
+        }
+        // SCHLUMBERGER g1 carries a 1/(1-VSH) term that is singular at VSH=1; treat pure
+        // shale as all water (same convention as the low-PHIE branch above; the MODIFIED
+        // and Indonesia variants stay finite at VSH=1). Without this the div-by-zero makes
+        // calc_sw diverge to MISSING and the sample is silently dropped.
+        if !modified && vs >= 1.0 {
+            swe_sim[i] = 1.0;
+            swe_out[i] = 1.0;
+            vol_uwat[i] = pe as f32;
             continue;
         }
         let a = ctx.p("A", i);
@@ -2814,6 +2827,46 @@ mod tests {
         let out = sw_arch(&ctx);
         assert!((out["SWT"][0] - 0.4).abs() < 1e-4, "SWT was {}", out["SWT"][0]);
         assert!((out["SWE"][0] - 0.4).abs() < 1e-4);
+    }
+
+    #[test]
+    fn sw_arch_zero_porosity_missing_phie_is_all_water_not_inf() {
+        // PHIT=0 (coal/tight) with PHIE absent (NaN): the formation factor a/pt^m blows up.
+        // The guard must key on pt==0 regardless of PHIE, so SWT_ARCH reads 1.0 (all water),
+        // NOT +Infinity — otherwise the raw curve poisons catalog min/max and plot autoscale.
+        let ctx = ctx_with(
+            1,
+            &[("RT", vec![10.0]), ("PHIT", vec![0.0]), ("PHIE", vec![f32::NAN])],
+            &[("A", 1.0), ("M", 2.0), ("N", 2.0), ("RW", 0.1), ("SWT_IRR", 0.0)],
+            &[("OPT_RW", "CONSTANT")],
+        );
+        let out = sw_arch(&ctx);
+        assert!(out["SWT_ARCH"][0].is_finite(), "SWT_ARCH must be finite, was {}", out["SWT_ARCH"][0]);
+        assert_eq!(out["SWT_ARCH"][0], 1.0);
+        assert_eq!(out["SWT"][0], 1.0);
+    }
+
+    #[test]
+    fn sw_sim_schlumberger_pure_shale_is_all_water() {
+        // SCHLUMBERGER g1 carries a 1/(1-VSH) term singular at VSH=1; pure shale must resolve
+        // to all-water (SWE=1) instead of dividing by zero and silently dropping the sample.
+        let ctx = ctx_with(
+            1,
+            &[("RT", vec![5.0]), ("PHIE", vec![0.2]), ("VSH", vec![1.0])],
+            &[
+                ("A", 1.0),
+                ("M", 2.0),
+                ("N", 2.0),
+                ("RW", 0.1),
+                ("C", 2.0),
+                ("RT_SH", 4.0),
+                ("SWE_IRR", 0.0),
+            ],
+            &[("OPT_RW", "CONSTANT"), ("OPT_SIM", "SCHLUMBERGER")],
+        );
+        let out = sw_sim(&ctx);
+        assert!(out["SWE"][0].is_finite(), "SWE must be finite at VSH=1, was {}", out["SWE"][0]);
+        assert_eq!(out["SWE"][0], 1.0);
     }
 
     #[test]

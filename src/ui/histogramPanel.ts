@@ -157,8 +157,11 @@ export function drawHistogram(
   fitCanvasBackingStore(canvas);
   const p2 = percentile(values, 2);
   const p98 = percentile(values, 98);
-  if (Number.isNaN(p2) || Number.isNaN(p98) || p2 === p98) return null;
-  const pad = (p98 - p2) * 0.08;
+  if (Number.isNaN(p2) || Number.isNaN(p98)) return null;
+  // Floor the pad so a legitimately constant curve (p2 === p98, e.g. a flag/class curve or a
+  // single-sample zone) still gets a positive-width window and renders one central bar,
+  // instead of the old p2===p98 guard bailing out to a false "No valid data".
+  const pad = (p98 - p2) * 0.08 || Math.max(Math.abs(p2) * 0.01, 1e-6);
   // Bin edges always span the full data range; a zoom/pan viewport only changes the
   // visible X window (the axis), so bars keep their identity as you zoom in.
   const min = p2 - pad;
@@ -170,10 +173,15 @@ export function drawHistogram(
   const { counts, edges, n } = computeHistogram(values, min, max, bins);
   if (n === 0) return null;
 
+  const stats = basicStats(values);
   const yScale = opts.normalize ? 100 / n : 1;
   const peak = Math.max(...counts, 1) * yScale;
   const yMax = peak * 1.06;
-  const yLabel = opts.normalize ? `% of samples (n=${n})` : `Count (n=${n})`;
+  // The P2–P98 axis window can clip tail samples, so the in-window n is below the total valid
+  // count that the stats chips show. Surface both ("n = X of Y") so the two never silently
+  // disagree — a real QC trap for anyone standardizing GR on P3/P97 tails.
+  const nLabel = stats.count > n ? `${n} of ${stats.count}` : `${n}`;
+  const yLabel = opts.normalize ? `% of samples (n=${nLabel})` : `Count (n=${nLabel})`;
 
   const plot = new PlotCanvas(
     canvas,
@@ -199,8 +207,6 @@ export function drawHistogram(
     const points: [number, number][] = counts.map((c, i) => [(edges[i] + edges[i + 1]) / 2, c * yScale]);
     plot.drawLine(points, barColor, 1.8);
   }
-
-  const stats = basicStats(values);
 
   // Cumulative % overlay: 0–100% mapped to the full plot height, labeled on the right.
   if (opts.cumulative) {

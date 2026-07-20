@@ -60,10 +60,13 @@ export function openLayoutPropsDialog(
     curves: [],
   });
 
-  function uniqueTitle(base: string): string {
+  // `except` lets the rename path dedupe against OTHER tracks while leaving the track's own
+  // current name alone (re-typing your own name is a no-op, not "name 2"). Insert/Duplicate
+  // pass no `except` and behave exactly as before.
+  function uniqueTitle(base: string, except?: Track): string {
     let title = base;
     let i = 2;
-    while (working.tracks.some((t) => t.title === title)) title = `${base} ${i++}`;
+    while (working.tracks.some((t) => t !== except && t.title === title)) title = `${base} ${i++}`;
     return title;
   }
 
@@ -195,7 +198,9 @@ export function openLayoutPropsDialog(
       field(
         "Track title",
         textInput(track.title, (v) => {
-          track.title = v || track.title;
+          // Track title is the primary key for weights, cursor hit-testing, core overlay and
+          // drag-drop — a duplicate collapses two tracks into one. Suffix a colliding rename.
+          track.title = uniqueTitle(v || track.title, track);
           renderTrackList();
         }),
       ),

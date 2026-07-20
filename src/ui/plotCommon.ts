@@ -406,8 +406,14 @@ export function pickRow(
     const param = paramIn.value.trim().toUpperCase();
     if (!param || Number.isNaN(value)) return;
     const zone = getZone();
-    await setZoneParam(well.well_id, zone.zoneName, param, value, null);
-    setStatus(`${param} = ${value.toPrecision(4)} set on zone '${zone.zoneName}' of ${well.well_name}`);
+    try {
+      await setZoneParam(well.well_id, zone.zoneName, param, value, null);
+      setStatus(`${param} = ${value.toPrecision(4)} set on zone '${zone.zoneName}' of ${well.well_name}`);
+    } catch (err) {
+      // Never report success on a rejected write — a swallowed failure makes the user
+      // believe GR_MA/RW landed on the zone when it never reached the module runs.
+      setStatus(`Failed to set ${param}: ${err}`);
+    }
   });
 
   row.appendChild(swatch);

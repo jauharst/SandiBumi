@@ -1,7 +1,7 @@
 /** Minimal dialog helper: renders `content` in a centered, draggable dialog that does
  *  NOT block the rest of the app — the scrim is pointer-transparent (see styles.css),
  *  so the user can keep clicking panels/ribbon while the dialog stays open.
- *  Returns a close function; Escape and the ✕ button close. */
+ *  Returns a close function; Escape (scoped to this dialog) and the ✕ button close. */
 let activeClose: (() => void) | null = null;
 
 export function openModal(title: string, content: HTMLElement, widthPx = 520): () => void {
@@ -41,6 +41,9 @@ export function openModal(title: string, content: HTMLElement, widthPx = 520): (
   scrim.appendChild(dialog);
   root.appendChild(scrim);
 
+  // Tracks the teardown for an in-flight title-bar drag so close() can run it too.
+  let dragCleanup: (() => void) | null = null;
+
   // Drag-to-move: grab the title bar anywhere except the close button. The dialog is
   // centered by the scrim's flex layout until the first drag, then pinned via left/top.
   head.addEventListener("pointerdown", (e) => {
@@ -63,19 +66,32 @@ export function openModal(title: string, content: HTMLElement, widthPx = 520): (
     const onUp = () => {
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointerup", onUp);
+      dragCleanup = null;
     };
     document.addEventListener("pointermove", onMove);
     document.addEventListener("pointerup", onUp);
+    // If the dialog is closed mid-drag (Escape / ✕ while the pointer is still down),
+    // close() runs this so the document-level drag listeners never outlive the dialog.
+    dragCleanup = onUp;
   });
 
   const close = () => {
     root.hidden = true;
     root.innerHTML = "";
     document.removeEventListener("keydown", onKey);
+    dragCleanup?.(); // detach any in-flight title-bar drag listeners
     if (activeClose === close) activeClose = null;
   };
   const onKey = (e: KeyboardEvent) => {
-    if (e.key === "Escape") close();
+    if (e.key !== "Escape") return;
+    // Escape belongs to the top dialog only. Stop it here so it doesn't also reach
+    // window/app-level Escape handlers — e.g. cancelling an in-progress map polygon
+    // (mapPanel) while a dialog is open. Keep this on the BUBBLE phase, NOT capture: the
+    // numeric-edit guard (interactionGuard.ts) stops Escape in capture phase while a
+    // number field is being edited, which must shield the dialog from closing — a capture
+    // listener here would defeat that and close the dialog mid-edit.
+    e.stopPropagation();
+    close();
   };
   closeBtn.addEventListener("click", close);
   document.addEventListener("keydown", onKey);

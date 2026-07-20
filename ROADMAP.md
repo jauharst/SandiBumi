@@ -53,8 +53,8 @@ headers below rather than as the primary structure.
 
 ### ◻ Open — do next  → [Part B](#-part-b--open-do-next)
 - **Polish tail** (§4b): ✅ all shipped — units #122, correlation #123, history-coverage #124, Pickett v2 #125, pay-summary provenance #126.
-- **Performance** (§4b — needs a live 100-well run to sign off): async commands (#128), connection pool [**high-risk**] (#129), raw-IPC ArrayBuffers (#131), batch reads (#130), persistent Python worker (#132); crossplot redraw memoize (#127, the one safe frontend win).
-- **Reliability sliver**: modal Escape-key stacking.
+- **Performance** (§4b): crossplot redraw memoize (#127, the one safe frontend win) — ✅ **shipped 2026-07-20**. Remaining (needs a live 100-well run to sign off): async commands (#128), connection pool [**high-risk**] (#129), raw-IPC ArrayBuffers (#131), batch reads (#130), persistent Python worker (#132).
+- **Reliability sliver**: modal Escape-key stacking — ✅ **shipped 2026-07-20** (Escape scoped to the top dialog; single-instance already prevented leaked handlers).
 - **Interpretation-workflow open** (§4): data-prep split/merge + tops-referenced normalization, highlight tool, typography check.
 - **Feature Wave B** (§4c): MC parameter **sensitivity/tornado** (13), ML comparison + leaderboard (3), fluid contacts in correlation (9), well-diagram track (16), rock typing + SHF fitting (8).
 - **Low backlog**: 15 minor audit items.
@@ -520,7 +520,7 @@ REVIEW.md P1 section):
       cleanups array). (2026-07-20.)
 - [x] Undo: failed undo/redo no longer vanishes silently; "Add top" overwrite undo restores the previous
       depth instead of deleting the top (fixed 2026-07-20).
-- **Open sliver** → [Part B](#b1-hardening-backlog-4b): modal Escape-key stacking.
+- [x] Modal Escape-key stacking sliver — ✅ **shipped 2026-07-20** (Escape scoped to the top dialog; see §B1 / REVIEW "P1").
 
 ## A10. Feature waves shipped — Wave A + Wave E (§4c)
 
@@ -641,9 +641,13 @@ real wells** (the human can't be replaced for perf benchmarking).
       implementing.)*
 - [ ] **(#132)** Python engine spawns one subprocess per well (re-importing numpy/sklearn each time) —
       persistent worker reading length-framed requests on stdin, or batch all wells into one invocation.
-- [ ] **(#127)** Crossplot redraw rebuilds per-point rgb() color strings + re-sorts on every frame — cache
-      colors by z-bin + pre-sorted index once per load; keep only the viewport transform per-frame.
-      **The one pure-frontend, low-risk Performance win.**
+- [x] **(#127)** Crossplot redraw rebuilds per-point rgb() color strings + re-sorts on every frame —
+      **done 2026-07-20.** Extracted the color computation into pure `computeCrossplotColors()` and
+      **memoized** it in the panel, keyed by (Z curve, colormap, log-Z, fixed color, data-generation);
+      the two `percentile` sorts + N-length color array now run once per data/setting change instead of
+      per pan/zoom/hover frame — only the viewport transform + scatter draw stay per-frame. Output
+      pixel-identical (speed-only). tsc clean; REVIEW.md "Performance". **The one pure-frontend,
+      low-risk Performance win — shipped.**
 
 **Polish (was "P3") — UX (veteran-interpreter friction):**
 - [x] Depth-scale presets mislabeled (~39× off a true 1:100 — fixed 2026-07-20).
@@ -667,9 +671,15 @@ real wells** (the human can't be replaced for perf benchmarking).
       explicit run; Dashboard/report set `skip_version` to overwrite in place (no churn). Atomic via
       `with_txn`; test `pay_summary_versions_flags_with_cutoffs_in_provenance`. (2026-07-20.)
 
-**Reliability sliver (was "P1"):**
-- [ ] Modal Escape-key stacking (overlapping dialogs share one Escape handler) — not addressed by the
-      2026-07-20 wave; most tools are dock panes now, so deferred to a modal-lifecycle pass.
+**Reliability sliver (was "P1") — ✅ CLOSED 2026-07-20:**
+- [x] Modal Escape-key stacking (overlapping dialogs share one Escape handler) — **done 2026-07-20**
+      (modal.ts). The listener-leak half was already handled by `openModal`'s single-instance
+      `activeClose` (a new dialog closes the prior + removes its keydown listener; no modal nests, so
+      no stack needed). Closed the remaining gap: the dialog's `document`-level Escape now
+      `stopPropagation`s so one Escape no longer also fires window/app-level Escape handlers (e.g.
+      cancelling an in-progress map polygon while a dialog is open) — kept on the **bubble** phase so
+      the numeric-edit guard's capture-phase stop still shields a dialog from closing mid-number-edit.
+      Also tears down in-flight title-bar drag listeners on close. tsc clean; REVIEW "P1".
 
 **Low (15 items)** — see `AUDIT-2026-07-20.md` (SSC zero-PHIE guard, ±Infinity in stats, i18n gaps,
 DB-inspector f32 depth equality, wrap-mode LAS parsing, etc.).

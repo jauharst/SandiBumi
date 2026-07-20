@@ -84,6 +84,10 @@ export class LogCanvasRenderer {
   private view: ViewState = { topDepth: 0, pxPerUnit: DEFAULT_PX_PER_UNIT };
   private dirty = true;
   private running = false;
+  /** Cached clear color read from --bg-panel. getComputedStyle forces a style recalc, and a
+   *  drag-pan marks every frame dirty, so we read it once and only re-read on a theme change
+   *  (repaint() clears this). The color only changes when the theme does. */
+  private cachedBgColor: string | null = null;
   /** Teardown for listeners attached to `window` (they outlive the removed canvas) and
    *  any pending timers, run in dispose() so a closed log view leaks nothing. */
   private cleanups: Array<() => void> = [];
@@ -599,6 +603,7 @@ export class LogCanvasRenderer {
   /** Requests a redraw on the next frame with the data already loaded — used when only
    *  presentation changed (e.g. theme colors, read from CSS vars at render time). */
   repaint(): void {
+    this.cachedBgColor = null; // theme may have changed — re-read --bg-panel next frame
     this.dirty = true;
   }
 
@@ -652,12 +657,15 @@ export class LogCanvasRenderer {
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData);
 
     const encoder = this.device.createCommandEncoder();
-    // Detached canvases (inactive dockview tab) report empty computed styles — fall back
-    // to the root element so the clear color tracks the active theme, not the light default.
-    const bgColor =
-      getComputedStyle(this.canvas).getPropertyValue("--bg-panel").trim() ||
-      getComputedStyle(document.documentElement).getPropertyValue("--bg-panel").trim();
-    const clear = hexToRgba(bgColor || "#fbf7ee");
+    if (this.cachedBgColor === null) {
+      // Detached canvases (inactive dockview tab) report empty computed styles — fall back
+      // to the root element so the clear color tracks the active theme, not the light default.
+      this.cachedBgColor =
+        getComputedStyle(this.canvas).getPropertyValue("--bg-panel").trim() ||
+        getComputedStyle(document.documentElement).getPropertyValue("--bg-panel").trim() ||
+        "#fbf7ee";
+    }
+    const clear = hexToRgba(this.cachedBgColor);
     const pass = encoder.beginRenderPass({
       colorAttachments: [
         {
@@ -691,16 +699,23 @@ export class LogCanvasRenderer {
 }
 
 function nearestValue(series: TrackCurveSeries, depth: number): number {
-  let closestIdx = 0;
-  let closestDist = Infinity;
-  for (let i = 0; i < series.depth.length; i++) {
-    const dist = Math.abs(series.depth[i] - depth);
-    if (dist < closestDist) {
-      closestDist = dist;
-      closestIdx = i;
-    }
+  const depths = series.depth;
+  const n = depths.length;
+  if (n === 0) return NaN;
+  // depths are sorted ascending (LAS index) — binary-search the insertion point instead of
+  // the old O(n) per-pointermove scan, then pick the closer of the two neighbours. Ties go to
+  // the earlier index, matching the old strict `dist < closestDist`, so the value is identical.
+  let lo = 0;
+  let hi = n - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (depths[mid] < depth) lo = mid + 1;
+    else hi = mid;
   }
-  return series.value[closestIdx];
+  if (lo > 0 && Math.abs(depths[lo - 1] - depth) <= Math.abs(depths[lo] - depth)) {
+    return series.value[lo - 1];
+  }
+  return series.value[lo];
 }
 
 function hexToRgba(hex: string): [number, number, number, number] {

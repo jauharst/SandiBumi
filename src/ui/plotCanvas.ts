@@ -253,7 +253,7 @@ export class PlotCanvas {
     for (let i = 0; i < xs.length; i++) {
       const vx = xs[i];
       const vy = ys[i];
-      if (Number.isNaN(vx) || Number.isNaN(vy)) continue;
+      if (!Number.isFinite(vx) || !Number.isFinite(vy)) continue;
       if (this.x.log && vx <= 0) continue;
       if (this.y.log && vy <= 0) continue;
       const [px, py] = this.toPx(vx, vy);
@@ -327,7 +327,7 @@ export class PlotCanvas {
     for (let i = 0; i < xs.length; i++) {
       const vx = xs[i];
       const vy = ys[i];
-      if (Number.isNaN(vx) || Number.isNaN(vy)) continue;
+      if (!Number.isFinite(vx) || !Number.isFinite(vy)) continue;
       if (this.x.log && vx <= 0) continue;
       if (this.y.log && vy <= 0) continue;
       const [px, py] = this.toPx(vx, vy);
@@ -645,7 +645,9 @@ export function basicStats(values: ArrayLike<number>): BasicStats {
   let max = -Infinity;
   for (let i = 0; i < values.length; i++) {
     const v = values[i];
-    if (Number.isNaN(v)) continue;
+    // Reject ±Infinity too (not just NaN): a Python equation like 1/phi at phi=0 emits
+    // inf into computed_curves, and one inf makes mean/max read "Infinity" and std NaN.
+    if (!Number.isFinite(v)) continue;
     n++;
     sum += v;
     sumSq += v * v;
@@ -692,7 +694,9 @@ export function linearFit(
   for (let i = 0; i < len; i++) {
     let x = xs[i];
     let y = ys[i];
-    if (Number.isNaN(x) || Number.isNaN(y)) continue;
+    // Reject ±Infinity as well as NaN — one inf pair corrupts the regression sums
+    // (den = n·sxx − sx² becomes NaN, so the fit silently vanishes).
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
     if (xLog) {
       if (x <= 0) continue;
       x = Math.log10(x);
@@ -718,12 +722,12 @@ export function linearFit(
   return { a, b, r2, n };
 }
 
-/** NaN-filtering percentile (p in 0–100) over a Float32Array. */
+/** Percentile (p in 0–100) over a Float32Array, skipping non-finite (NaN/±Infinity) values. */
 export function percentile(values: ArrayLike<number>, p: number): number {
   const clean: number[] = [];
   for (let i = 0; i < values.length; i++) {
     const v = values[i];
-    if (!Number.isNaN(v)) clean.push(v);
+    if (Number.isFinite(v)) clean.push(v);
   }
   if (clean.length === 0) return NaN;
   clean.sort((a, b) => a - b);
