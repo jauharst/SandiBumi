@@ -332,6 +332,7 @@ export class Workspace {
       ["Machine Learning", () => this.openMl(group)],
       ["Monte Carlo", () => this.openMonteCarlo(group)],
       ["SHF Fit (Cuddy FOIL)", () => this.openShf(group)],
+      ["Facies Tie-in (RT confusion)", () => this.openFaciesTie(group)],
       ["SandiMin Solver", () => this.openMultimin(group)],
       "sep",
       ["Zones", () => this.openZones(group)],
@@ -476,6 +477,12 @@ export class Workspace {
           "dock-shf",
           () => import("./shfDialog").then((m) => m.buildShfContent(setStatus)),
           "SHF fit",
+        );
+      case "faciesTie":
+        return this.asyncPane(
+          "dock-facies-tie",
+          () => import("./faciesTieDialog").then((m) => m.buildFaciesTieContent(setStatus)),
+          "facies tie-in",
         );
       case "multimin":
         return this.asyncPane(
@@ -1283,6 +1290,10 @@ export class Workspace {
 
   openShf(group?: DockviewGroupPanel): void {
     this.openSingleton("shf", "shf", "SHF Fit (Cuddy FOIL)", group);
+  }
+
+  openFaciesTie(group?: DockviewGroupPanel): void {
+    this.openSingleton("faciesTie", "faciesTie", "Facies Tie-in", group);
   }
 
   openMultimin(group?: DockviewGroupPanel): void {

@@ -222,6 +222,59 @@ pub fn lucia_rfn_module(ctx: &ModuleContext) -> ModuleOutputs {
     HashMap::from([("RFN".into(), rfn), ("RT_LUCIA".into(), rt)])
 }
 
+// --------------------------------------------------------------------------------------------
+// Cutoff-based electrofacies / rock-type classification (Wave B item 8, increment 2) — the
+// log-domain half of the electrofacies tie-in (ref_rocktyping_shf.md §Cutoff-based electrofacies
+// tie-in): assign a 3-class rock-type ladder from Vsh + PHIE cutoffs so core rock types can be
+// propagated to uncored intervals. RT 1 = best (clean, porous), 2 = moderate, 3 = non-net.
+// --------------------------------------------------------------------------------------------
+
+pub fn rt_cutoff_spec() -> ModuleSpec {
+    ModuleSpec {
+        name: "rt_cutoff".into(),
+        title: "Rock Type from Cutoffs (electrofacies)".into(),
+        category: "Rock Typing".into(),
+        doc: "Log-domain rock-type class from a Vsh + PHIE cutoff ladder — the electrofacies half \
+              of the rock-typing tie-in. RT_LOG = 1 (best: Vsh ≤ VSH1 and PHIE ≥ PHI1), 2 (moderate: \
+              Vsh ≤ VSH2 and PHIE ≥ PHI2), else 3 (non-net). Requires VSH1 ≤ VSH2 and PHI1 ≥ PHI2. \
+              Feed the result to the confusion-matrix QC (Rock Typing ▸ Facies Tie-in) to validate \
+              it against a core-derived RT curve, then attach per-class phi-k / SHF laws. Samples \
+              with missing Vsh or PHIE stay MISSING."
+            .into(),
+        args: vec![
+            param("VSH1", "Vsh cutoff for RT1 (best)", "v/v", 0.15, 0.0, 1.0),
+            param("PHI1", "PHIE cutoff for RT1 (best)", "v/v", 0.12, 0.0, 1.0),
+            param("VSH2", "Vsh cutoff for RT2 (moderate)", "v/v", 0.35, 0.0, 1.0),
+            param("PHI2", "PHIE cutoff for RT2 (moderate)", "v/v", 0.06, 0.0, 1.0),
+            log_in("VSH", "Shale volume", "v/v", "VSH", true),
+            log_in("PHIE", "Effective porosity", "v/v", "PHIE", true),
+            log_out("RT_LOG", "Cutoff rock-type class (1/2/3)", "-"),
+        ],
+    }
+}
+
+pub fn rt_cutoff(ctx: &ModuleContext) -> ModuleOutputs {
+    let vsh = ctx.log("VSH");
+    let phie = ctx.log("PHIE");
+    let mut rt = vec![f32::NAN; ctx.n];
+    for i in 0..ctx.n {
+        let v = vsh[i] as f64;
+        let p = phie[i] as f64;
+        if !(v.is_finite() && p.is_finite()) {
+            continue;
+        }
+        let (vsh1, phi1, vsh2, phi2) = (ctx.p("VSH1", i), ctx.p("PHI1", i), ctx.p("VSH2", i), ctx.p("PHI2", i));
+        rt[i] = if v <= vsh1 && p >= phi1 {
+            1.0
+        } else if v <= vsh2 && p >= phi2 {
+            2.0
+        } else {
+            3.0
+        };
+    }
+    HashMap::from([("RT_LOG".into(), rt)])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -307,5 +360,24 @@ mod tests {
         // Out-of-range inputs → MISSING.
         assert!(!lucia_rfn(0.0, 10.0).is_finite());
         assert!(!lucia_rfn(0.2, -1.0).is_finite());
+    }
+
+    #[test]
+    fn rt_cutoff_ladders_by_vsh_and_phie() {
+        let n = 4;
+        let mut logs = HashMap::new();
+        logs.insert("VSH".to_string(), vec![0.10f32, 0.30, 0.60, f32::NAN]);
+        logs.insert("PHIE".to_string(), vec![0.20f32, 0.10, 0.03, 0.20]);
+        let mut params = HashMap::new();
+        params.insert("VSH1".to_string(), vec![0.15; n]);
+        params.insert("PHI1".to_string(), vec![0.12; n]);
+        params.insert("VSH2".to_string(), vec![0.35; n]);
+        params.insert("PHI2".to_string(), vec![0.06; n]);
+        let c = ModuleContext { n, logs, params, opts: HashMap::new() };
+        let out = rt_cutoff(&c);
+        assert_eq!(out["RT_LOG"][0], 1.0); // clean + porous → RT1
+        assert_eq!(out["RT_LOG"][1], 2.0); // moderate → RT2
+        assert_eq!(out["RT_LOG"][2], 3.0); // shaly + tight → non-net RT3
+        assert!(!out["RT_LOG"][3].is_finite()); // missing Vsh → MISSING
     }
 }

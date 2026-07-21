@@ -832,6 +832,35 @@ export function runShfFit(req: ShfFitRequest): Promise<ShfFitResult> {
   return invoke<ShfFitResult>("run_shf_fit", { req });
 }
 
+/** Electrofacies tie-in QC: confusion matrix of a predicted log RT curve vs a reference/core RT. */
+export interface FaciesConfusionRequest {
+  well_ids: string[];
+  pred_curve: string;
+  ref_curve: string;
+}
+
+export interface RefClassRow {
+  ref_label: number;
+  dominant_pred: number;
+  purity: number;
+  count: number;
+}
+
+export interface FaciesConfusionResult {
+  ref_labels: number[];
+  pred_labels: number[];
+  /** matrix[i][j] = count where reference == ref_labels[i] and prediction == pred_labels[j]. */
+  matrix: number[][];
+  per_ref: RefClassRow[];
+  overall_purity: number;
+  n: number;
+  error: string | null;
+}
+
+export function runFaciesConfusion(req: FaciesConfusionRequest): Promise<FaciesConfusionResult> {
+  return invoke<FaciesConfusionResult>("run_facies_confusion", { req });
+}
+
 // --- Generalized Multimin (multi-mineral inversion) -----------------------
 
 /** A mineral, clay, or fluid component (fluids are zone-typed X/U). */

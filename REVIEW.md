@@ -59,7 +59,15 @@ through in the real app with field data. Nothing committed.**
       *(3 new tests: Brooks-Corey recovers a synthetic curve, Skelt reaches R²>0.98 + monotone Sw, both
       reject too-few points.)* **Try:** SHF Fit ▸ pick Brooks-Corey / Skelt-Harrison. **Still open
       (increment 2 remainder, task #158):** Thomeer Pc fit (MICP), SCAL porous-plate + centrifuge
-      importers, electrofacies confusion-matrix tie-in, Pittman full rX table, Ward HFU option.
+      importers, Pittman full rX table, Ward HFU option.
+- [ ] **(8) increment 2 — electrofacies tie-in (2026-07-22):** two parts. **Rock Type from Cutoffs**
+      module (Petrophysics ▸ Rock Typing) — a Vsh + PHIE cutoff ladder → **RT_LOG** (1 best / 2 moderate
+      / 3 non-net), to propagate rock types to uncored intervals. **Facies Tie-in** pane (workspace ▸
+      *Facies Tie-in (RT confusion)*) — cross-tabulates the predicted log RT against a reference/core RT
+      curve across wells and reports the **confusion matrix + dominant-class purity** (the check that
+      the log classification faithfully reproduces core rock types). *(3 new tests: the cutoff ladder
+      classifies clean/moderate/shaly correctly, the confusion tally scores purity, empty input is
+      rejected.)* **Try:** run `rt_cutoff` to make RT_LOG, then Facies Tie-in ▸ RT_LOG vs your core RT.
 
 ## Round 2 — panes, shift-select, MC plot props + table + polish (2026-07-21, Jauhar feedback batch #2)
 

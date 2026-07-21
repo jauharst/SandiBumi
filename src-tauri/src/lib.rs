@@ -9,6 +9,7 @@ mod dlis;
 mod equations;
 mod export;
 mod facies;
+mod facies_tie;
 mod geo;
 mod health;
 mod ingest;
@@ -844,6 +845,19 @@ async fn run_shf_fit(
         .map_err(|e| e.to_string())
 }
 
+/// Electrofacies tie-in QC (Wave B item 8, increment 2): confusion matrix + dominant-class purity
+/// of a predicted log rock-type curve against a reference/core rock-type curve. Off-thread.
+#[tauri::command]
+async fn run_facies_confusion(
+    db: tauri::State<'_, DbState>,
+    req: facies_tie::FaciesConfusionRequest,
+) -> Result<facies_tie::FaciesConfusionResult, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || facies_tie::run_facies_confusion(&conn, &req))
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Generalized multi-mineral inversion: N user-defined components against N tools, with hard
 /// unity + non-negativity. Writes VOL_<component> + derived PHIT/VSH/SWT/RECON curves. Async +
 /// off-thread via the job registry — the solve no longer freezes the IPC thread, and the
@@ -1426,6 +1440,7 @@ pub fn run() {
             run_ml_eval,
             run_cuddy_foil,
             run_shf_fit,
+            run_facies_confusion,
             run_multimin,
             multimin_library,
             multimin_fluid_calc,
