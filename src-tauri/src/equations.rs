@@ -612,6 +612,123 @@ pub(crate) fn write_computed_curves_versioned(
     })
 }
 
+/// One well's versioned output, for the batched multi-well writer.
+pub(crate) struct WellWrite {
+    pub well_id: String,
+    pub depth: Vec<f32>,
+    pub curves: Vec<(String, Vec<f32>)>,
+    pub set_id: String,
+}
+
+/// Batched [`create_log_set`]: registers one run event per well inside a SINGLE transaction
+/// instead of one auto-committed INSERT (= one WAL fsync) per well. Returns well_id → set_id.
+/// Versioning is identical (each well gets 1 + its own MAX(version) for `set_name`).
+pub(crate) fn create_log_sets_batch(
+    conn: &Connection,
+    well_ids: &[String],
+    spec: &LogSetSpec,
+) -> duckdb::Result<HashMap<String, String>> {
+    // Plan every well's version from the CURRENT committed state FIRST (reads only — wells are
+    // distinct so there is no cross-well dependency), THEN INSERT them all in one transaction.
+    // Reading MAX(version) *after* an INSERT inside the same transaction trips a DuckDB internal
+    // error, so the reads deliberately precede all writes.
+    let mut planned: Vec<(String, i64, String)> = Vec::with_capacity(well_ids.len());
+    for well_id in well_ids {
+        let version: i64 = conn.query_row(
+            "SELECT COALESCE(MAX(version), 0) + 1 FROM log_sets WHERE well_id = ?1 AND set_name = ?2",
+            params![well_id, spec.set_name],
+            |r| r.get(0),
+        )?;
+        planned.push((well_id.clone(), version, Uuid::new_v4().to_string()));
+    }
+    crate::db::with_txn(conn, |conn| {
+        for (well_id, version, set_id) in &planned {
+            conn.execute(
+                "INSERT INTO log_sets (set_id, well_id, set_name, version, module, params_json, inputs_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![set_id, well_id, spec.set_name, version, spec.module, spec.params_json, spec.inputs_json],
+            )?;
+        }
+        Ok::<(), duckdb::Error>(())
+    })?;
+    Ok(planned.into_iter().map(|(w, _, s)| (w, s)).collect())
+}
+
+/// Batched [`write_computed_curves_versioned`]: writes MANY wells' outputs in ONE transaction.
+///
+/// The earlier version mirrored the single-well path per well — one DELETE + a fresh current
+/// appender + a fresh archive appender for every well. At field scale (544 wells) that is 544
+/// full-table DELETE scans of `computed_curves` plus 1088 appender open/flush/drop cycles, and it
+/// dominated the between-step "pause" the user saw. This version keeps the identical semantics
+/// (same delete-then-append discipline, same current+archive double-write, each well's rows still
+/// carrying that well's own `set_id`) but restructures the work so it runs in seconds:
+///
+///   Phase 1 — clear the CURRENT store. Wells are grouped by their exact curve-set (every well in
+///   a workflow step writes the same curves, so this is normally ONE group), and each group is
+///   cleared with a single `DELETE ... WHERE well_id IN (…) AND curve_name IN (…)` — one table
+///   pass for the whole batch instead of one per well. Deleting the exact (wells × curves) cross
+///   product is safe *because every well in a group has exactly that curve-set*.
+///
+///   Phase 2/3 — append. With every DELETE already done, ONE appender per table may span all
+///   wells: the DuckDB "appender can't span DML on the same table" constraint only forbids
+///   interleaving a DELETE while an appender is open, which never happens here.
+pub(crate) fn write_computed_curves_versioned_batch(conn: &Connection, wells: &[WellWrite]) -> duckdb::Result<()> {
+    if wells.iter().all(|w| w.curves.is_empty()) {
+        return Ok(());
+    }
+    crate::db::with_txn(conn, |conn| {
+        // Phase 1: group wells by identical curve-set, then one DELETE per group.
+        use std::collections::BTreeMap;
+        let mut groups: BTreeMap<Vec<&str>, Vec<&str>> = BTreeMap::new();
+        for w in wells {
+            if w.curves.is_empty() {
+                continue;
+            }
+            let mut names: Vec<&str> = w.curves.iter().map(|(n, _)| n.as_str()).collect();
+            names.sort_unstable();
+            names.dedup();
+            groups.entry(names).or_default().push(w.well_id.as_str());
+        }
+        for (curves, well_ids) in &groups {
+            let wph = std::iter::repeat("?").take(well_ids.len()).collect::<Vec<_>>().join(", ");
+            let cph = std::iter::repeat("?").take(curves.len()).collect::<Vec<_>>().join(", ");
+            let sql =
+                format!("DELETE FROM computed_curves WHERE well_id IN ({wph}) AND curve_name IN ({cph})");
+            let mut p: Vec<&str> = Vec::with_capacity(well_ids.len() + curves.len());
+            p.extend(well_ids.iter().copied());
+            p.extend(curves.iter().copied());
+            conn.execute(&sql, params_from_iter(p))?;
+        }
+
+        // Phase 2: one appender for the CURRENT store across every well.
+        {
+            let mut current = conn.appender("computed_curves")?;
+            for w in wells {
+                for (name, values) in &w.curves {
+                    for (d, v) in w.depth.iter().zip(values.iter()) {
+                        current.append_row(params![w.well_id, d, name, v, w.set_id])?;
+                    }
+                }
+            }
+            current.flush()?;
+        }
+
+        // Phase 3: one appender for the append-only ARCHIVE across every well.
+        {
+            let mut archive = conn.appender("computed_curves_archive")?;
+            for w in wells {
+                for (name, values) in &w.curves {
+                    for (d, v) in w.depth.iter().zip(values.iter()) {
+                        archive.append_row(params![w.set_id, w.well_id, d, name, v])?;
+                    }
+                }
+            }
+            archive.flush()?;
+        }
+        Ok(())
+    })
+}
+
 /// Input-set selection: like [`fetch_curve_frame`], but any requested curve that the named
 /// log set wrote (latest version per well, name matched case-insensitively) is read from
 /// that set's ARCHIVED values instead of the current store — so a module can consume
@@ -726,6 +843,20 @@ pub(crate) fn list_log_sets(conn: &Connection, well_id: &str) -> duckdb::Result<
         }
     }
     Ok(entries)
+}
+
+/// Distinct constellation (log-set) names across the whole project, alphabetical. The
+/// module and workflow dialogs run across many wells at once, so their input/output
+/// pickers need the project-wide name list — a single well's `list_log_sets` would miss
+/// names that only exist on other wells.
+pub(crate) fn list_log_set_names(conn: &Connection) -> duckdb::Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT DISTINCT set_name FROM log_sets ORDER BY set_name")?;
+    let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+    let mut names = Vec::new();
+    for r in rows {
+        names.push(r?);
+    }
+    Ok(names)
 }
 
 /// Copies a version's archived rows back into the current store (delete-then-append on
@@ -858,11 +989,21 @@ pub(crate) fn write_computed_curves_batch(
 /// worker threads; each depth sample gets a fresh `Scope` with input curve values bound
 /// as lowercase variables. Any NaN input short-circuits straight to a NaN output, so the
 /// script itself never has to special-case missing data.
-pub fn run_equation(db: &Mutex<Connection>, equation: &EquationDef, well_ids: &[String]) -> Vec<EquationRunResult> {
+pub fn run_equation(
+    db: &Mutex<Connection>,
+    equation: &EquationDef,
+    well_ids: &[String],
+    progress: Option<&crate::jobs::JobHandle>,
+) -> Vec<EquationRunResult> {
     let engine = Engine::new();
     let ast: AST = match engine.compile(&equation.script) {
         Ok(ast) => ast,
         Err(e) => {
+            if let Some(p) = progress {
+                for w in well_ids {
+                    p.finish_item(w, crate::jobs::ItemState::Failed, Some(format!("script error: {e}")));
+                }
+            }
             return well_ids
                 .iter()
                 .map(|w| EquationRunResult::failed(w.clone(), format!("script error: {e}")))
@@ -875,14 +1016,25 @@ pub fn run_equation(db: &Mutex<Connection>, equation: &EquationDef, well_ids: &[
     well_ids
         .par_iter()
         .map(|well_id| {
+            if let Some(p) = progress {
+                p.start_item(well_id);
+            }
             let (depth, columns) = {
                 let conn = db.lock().unwrap();
                 match fetch_curve_frame(&conn, well_id, &equation.input_curves) {
                     Ok(v) => v,
-                    Err(e) => return EquationRunResult::failed(well_id.clone(), e.to_string()),
+                    Err(e) => {
+                        if let Some(p) = progress {
+                            p.finish_item(well_id, crate::jobs::ItemState::Failed, Some(e.to_string()));
+                        }
+                        return EquationRunResult::failed(well_id.clone(), e.to_string());
+                    }
                 }
             };
             if depth.is_empty() {
+                if let Some(p) = progress {
+                    p.finish_item(well_id, crate::jobs::ItemState::Failed, Some("no curve data for well".into()));
+                }
                 return EquationRunResult::failed(well_id.clone(), "no curve data for well".into());
             }
 
@@ -911,7 +1063,13 @@ pub fn run_equation(db: &Mutex<Connection>, equation: &EquationDef, well_ids: &[
 
             let conn = db.lock().unwrap();
             if let Err(e) = write_equation_output(&conn, well_id, &depth, equation, &output) {
+                if let Some(p) = progress {
+                    p.finish_item(well_id, crate::jobs::ItemState::Failed, Some(e.to_string()));
+                }
                 return EquationRunResult::failed(well_id.clone(), e.to_string());
+            }
+            if let Some(p) = progress {
+                p.finish_item(well_id, crate::jobs::ItemState::Ok, None);
             }
             EquationRunResult::success(well_id.clone(), n)
         })

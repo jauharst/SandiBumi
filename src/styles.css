@@ -239,6 +239,11 @@ textarea {
   padding: 0 8px;
   background: var(--bg-panel-alt);
   border-bottom: 1px solid var(--border);
+  /* Narrow the app and the brand + quick-access + tabs stay reachable by scroll instead of
+     being clipped — the whole chrome adjusts to the window like an Office ribbon. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
 }
 
 .ribbon-brand {
@@ -291,6 +296,11 @@ textarea {
   gap: 0;
   padding: 6px 10px 4px;
   height: 100%;
+  /* When the window is too narrow to show every group, scroll rather than clip — the tools
+     stay reachable and the ribbon reflows with the app. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
 }
 
 /* Only the active tab's panel is shown — an author display rule would otherwise
@@ -391,9 +401,11 @@ textarea {
 }
 
 .ribbon-menu {
-  position: absolute;
-  top: 100%;
-  left: 0;
+  /* Fixed (viewport-positioned; coords set by ribbon.ts positionRibbonMenu on open) so the
+     menu ESCAPES the ribbon panel's overflow clip. .ribbon-panel scrolls horizontally when the
+     window is narrow (overflow-x:auto), and an absolutely-positioned child would be clipped by
+     that scroll container — a fixed descendant is laid out against the viewport instead. */
+  position: fixed;
   z-index: 300;
   min-width: 220px;
   background: var(--bg-panel);
@@ -1646,6 +1658,20 @@ textarea {
 .result-fail {
   color: var(--warn);
   padding: 1px 0;
+}
+
+/* Contextual Help modal (the ? quick-access tool → guide for the active panel). */
+.help-body {
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.5;
+  margin: 0 0 12px;
+}
+.help-note {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  font-style: italic;
+  margin: 0;
 }
 
 .form-row {
@@ -3564,4 +3590,284 @@ input[type="number"].num-editing:focus {
 .catalog-set-btn.danger:hover {
   border-color: var(--warn);
   color: var(--warn);
+}
+
+/* --- Universal Processing panel (Phase 11) --------------------------------- */
+.proc-panel {
+  /* Status colors: ok=green, warned=amber, failed=app red, running=accent.
+     Green/amber are fixed values that read on both light and dark panels. */
+  --proc-ok: #3c9a5f;
+  --proc-warn: #c9902b;
+  --proc-fail: var(--warn);
+  --proc-run: var(--accent);
+  height: 100%;
+  overflow: auto;
+  background: var(--bg-app);
+  color: var(--text);
+  font-size: 12px;
+}
+.proc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+}
+.proc-empty {
+  padding: 20px 12px;
+  color: var(--text-dim);
+  text-align: center;
+}
+.proc-job {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  padding: 8px 10px;
+}
+.proc-job-running {
+  border-color: var(--accent);
+}
+.proc-job-failed {
+  border-color: var(--proc-fail);
+}
+.proc-job-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.proc-kind {
+  font-weight: 600;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.proc-label {
+  flex: 1;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.proc-phase {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.proc-phase-running {
+  color: var(--proc-run);
+  border-color: var(--proc-run);
+}
+.proc-phase-completed {
+  color: var(--proc-ok);
+  border-color: var(--proc-ok);
+}
+.proc-phase-failed {
+  color: var(--proc-fail);
+  border-color: var(--proc-fail);
+}
+.proc-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.proc-bar-wrap {
+  flex: 1;
+  height: 8px;
+  border-radius: 5px;
+  background: var(--bg-panel-alt);
+  overflow: hidden;
+}
+.proc-bar-fill {
+  height: 100%;
+  width: 0;
+  background: var(--proc-run);
+  transition: width 0.2s ease;
+}
+.proc-job-completed .proc-bar-fill {
+  background: var(--proc-ok);
+}
+.proc-job-failed .proc-bar-fill {
+  background: var(--proc-fail);
+}
+.proc-job-cancelled .proc-bar-fill {
+  background: var(--text-dim);
+}
+.proc-pct {
+  min-width: 34px;
+  text-align: right;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.proc-cancel {
+  padding: 2px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--bg-panel-alt);
+  color: var(--text);
+  cursor: pointer;
+}
+.proc-cancel:hover:not(:disabled) {
+  border-color: var(--proc-fail);
+  color: var(--proc-fail);
+}
+.proc-cancel:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.proc-sub {
+  margin-top: 5px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.proc-counts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.proc-count {
+  font-variant-numeric: tabular-nums;
+}
+.proc-count-running { color: var(--proc-run); }
+.proc-count-ok { color: var(--proc-ok); }
+.proc-count-warned { color: var(--proc-warn); }
+.proc-count-failed { color: var(--proc-fail); }
+.proc-count-pending { color: var(--text-dim); }
+.proc-toggle {
+  margin-left: auto;
+  padding: 1px 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 11px;
+}
+.proc-toggle:hover {
+  color: var(--accent);
+}
+.proc-items {
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 240px;
+  overflow: auto;
+}
+.proc-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.proc-item-icon {
+  width: 12px;
+  text-align: center;
+  flex: none;
+}
+.proc-item-running .proc-item-icon { color: var(--proc-run); }
+.proc-item-warned .proc-item-icon { color: var(--proc-warn); }
+.proc-item-failed .proc-item-icon { color: var(--proc-fail); }
+.proc-item-label {
+  white-space: nowrap;
+}
+.proc-item-msg {
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.proc-item-note {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* Bulk failure/warning families: one card per distinct reason (which wells, why, what to do),
+   instead of one row per well — so the same error across hundreds of wells reads as a single
+   actionable report. */
+.proc-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0;
+  border-top: 1px dotted var(--border);
+}
+.proc-group:first-child {
+  border-top: none;
+}
+.proc-group-head {
+  font-weight: 600;
+}
+.proc-group-summary {
+  overflow-wrap: anywhere;
+}
+.proc-group.proc-item-failed .proc-group-summary { color: var(--proc-fail); }
+.proc-group.proc-item-warned .proc-group-summary { color: var(--proc-warn); }
+.proc-group-wells {
+  padding-left: 18px;
+  color: var(--text-dim);
+  font-size: 10.5px;
+  overflow-wrap: anywhere;
+}
+.proc-group-advice {
+  padding-left: 18px;
+  color: var(--text);
+  font-size: 10.5px;
+  font-style: italic;
+}
+
+/* --- Hardware Health Monitor (Phase 11) ------------------------------------ */
+.health-panel {
+  --health-ok: #3c9a5f;
+  --health-warn: #c9902b;
+  --health-bad: var(--warn);
+  height: 100%;
+  overflow: auto;
+  background: var(--bg-app);
+  color: var(--text);
+  font-size: 12px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.health-row {
+  display: grid;
+  grid-template-columns: 96px 1fr 66px;
+  align-items: center;
+  gap: 8px;
+}
+.health-label {
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.health-bar-wrap {
+  height: 12px;
+  border-radius: 6px;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.health-bar-fill {
+  height: 100%;
+  width: 0;
+  background: var(--text-dim);
+  transition: width 0.3s ease, background-color 0.3s ease;
+}
+.health-bar-fill.health-green { background: var(--health-ok); }
+.health-bar-fill.health-yellow { background: var(--health-warn); }
+.health-bar-fill.health-red { background: var(--health-bad); }
+.health-val {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.health-note {
+  margin-top: 2px;
+  color: var(--text-dim);
+  font-size: 11px;
 }

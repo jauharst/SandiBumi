@@ -19,7 +19,11 @@ pub struct ImportResult {
 /// Parses every given LAS file concurrently via `rayon` (CPU-bound), then inserts each
 /// well and its curves into DuckDB sequentially — the connection is behind a single lock,
 /// so only the parsing step benefits from parallelism, which is also the expensive part.
-pub fn import_las_files(conn: &Connection, paths: &[String]) -> Vec<ImportResult> {
+pub fn import_las_files(
+    conn: &Connection,
+    paths: &[String],
+    progress: Option<&crate::jobs::JobHandle>,
+) -> Vec<ImportResult> {
     let parsed: Vec<(String, Result<(String, CurveColumns), ParseError>)> = paths
         .par_iter()
         .map(|path| {
@@ -34,9 +38,27 @@ pub fn import_las_files(conn: &Connection, paths: &[String]) -> Vec<ImportResult
 
     parsed
         .into_iter()
-        .map(|(path, result)| match result {
-            Ok((well_name, columns)) => insert_parsed_well(conn, path, well_name, columns),
-            Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()) },
+        .map(|(path, result)| {
+            if let Some(p) = progress {
+                let base = path.rsplit(['/', '\\']).next().unwrap_or(&path);
+                p.set_current(Some(format!("Importing {base}")));
+                p.start_item(&path);
+            }
+            let out = match result {
+                Ok((well_name, columns)) => insert_parsed_well(conn, path.clone(), well_name, columns),
+                Err(e) => ImportResult { path: path.clone(), well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()) },
+            };
+            if let Some(p) = progress {
+                let (state, msg) = if out.error.is_some() {
+                    (crate::jobs::ItemState::Failed, out.error.clone())
+                } else if out.warning.is_some() {
+                    (crate::jobs::ItemState::Warned, out.warning.clone())
+                } else {
+                    (crate::jobs::ItemState::Ok, None)
+                };
+                p.finish_item(&path, state, msg);
+            }
+            out
         })
         .collect()
 }
@@ -668,7 +690,7 @@ mod tests {
         let path = std::env::temp_dir().join("arshilla_dupdepth_test.las");
         std::fs::write(&path, las).unwrap();
 
-        let results = import_las_files(&conn, &[path.to_str().unwrap().to_string()]);
+        let results = import_las_files(&conn, &[path.to_str().unwrap().to_string()], None);
         std::fs::remove_file(&path).ok();
 
         assert_eq!(results.len(), 1);
@@ -707,7 +729,7 @@ mod tests {
         let path = std::env::temp_dir().join("arshilla_allnull_depth_test.las");
         std::fs::write(&path, las).unwrap();
 
-        let results = import_las_files(&conn, &[path.to_str().unwrap().to_string()]);
+        let results = import_las_files(&conn, &[path.to_str().unwrap().to_string()], None);
         std::fs::remove_file(&path).ok();
 
         let r = &results[0];
@@ -992,7 +1014,7 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
         let conn = db::init_db(db_path.to_str().unwrap()).expect("init_db failed");
 
-        let results = import_las_files(&conn, &paths);
+        let results = import_las_files(&conn, &paths, None);
         for r in &results {
             println!(
                 "{} -> well_name={:?} rows={} error={:?}",

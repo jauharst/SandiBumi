@@ -311,6 +311,14 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             well_id     UUID NOT NULL,
             PRIMARY KEY (group_id, well_id)
         );
+        -- Marks that the one-time standard_curves -> generic-store backfill has completed for a
+        -- well (ALL six columns processed, whether they had data or not). Without this the
+        -- migration re-scanned standard_curves for absent columns (DT/SP) on EVERY launch —
+        -- ~20 s on a 540-well project. A well is recorded once fully processed, so later opens
+        -- skip it; a newly imported well is simply absent here and gets migrated on the next open.
+        CREATE TABLE IF NOT EXISTS curve_migration_done (
+            well_id     UUID PRIMARY KEY
+        );
         "#,
     )?;
     Ok(())
@@ -335,7 +343,11 @@ pub fn migrate_standard_curves_to_generic_store(conn: &Connection) -> DbResult<(
     const UNITS: &[(&str, &str)] =
         &[("GR", "gAPI"), ("RES", "ohm.m"), ("NPHI", "v/v"), ("RHOB", "g/cc"), ("DT", "us/ft"), ("SP", "mV")];
 
-    let mut stmt = conn.prepare("SELECT well_id FROM wells")?;
+    // Only wells not yet fully backfilled. Once a well is in curve_migration_done it is skipped
+    // entirely, so this whole function is ~instant on an already-migrated project instead of
+    // re-scanning standard_curves for every well's absent columns on each launch.
+    let mut stmt = conn
+        .prepare("SELECT well_id FROM wells WHERE well_id NOT IN (SELECT well_id FROM curve_migration_done)")?;
     let well_ids: Vec<String> = stmt.query_map([], |r| r.get::<_, String>(0))?.filter_map(|r| r.ok()).collect();
     drop(stmt);
 
@@ -376,6 +388,14 @@ pub fn migrate_standard_curves_to_generic_store(conn: &Connection) -> DbResult<(
                 params![curve_id, well_id],
             )?;
         }
+        // All six columns processed (data-bearing ones copied, absent ones skipped) — record the
+        // well so subsequent opens never re-scan it. Idempotent: on a crash between a partial
+        // copy and this insert, the next run re-processes the well and the per-column
+        // `already`-migrated check keeps it from duplicating curves.
+        conn.execute(
+            "INSERT INTO curve_migration_done (well_id) VALUES (?1) ON CONFLICT DO NOTHING",
+            params![well_id],
+        )?;
     }
     Ok(())
 }
@@ -1138,6 +1158,50 @@ mod inspector_tests {
         assert_eq!(pef_id, pef_id2);
     }
 
+    /// Launch-perf fix: the migration records each processed well in `curve_migration_done` so it
+    /// is never re-scanned on later opens (the ~20 s-per-launch cost on 540 wells), while a well
+    /// imported AFTER a migration still gets backfilled on the next run.
+    #[test]
+    fn migration_marks_wells_done_and_only_touches_new_wells() {
+        let conn = mem_db();
+        let a = Uuid::new_v4();
+        insert_well(&conn, a, "A", None, None, None).unwrap();
+        // GR/RES/NPHI/RHOB have data; DT/SP are absent (all NaN) — the columns that used to be
+        // re-scanned every boot because no sentinel was planted for them.
+        insert_standard_curves(
+            &conn, a, vec![1000.0, 1001.0],
+            vec![50.0, 60.0], vec![10.0, 11.0], vec![0.3, 0.3], vec![2.4, 2.4],
+            vec![f32::NAN, f32::NAN], vec![f32::NAN, f32::NAN],
+        )
+        .unwrap();
+        migrate_standard_curves_to_generic_store(&conn).unwrap();
+
+        // Well A is now marked done (all six columns, incl. absent DT/SP).
+        let done_a: i64 = conn
+            .query_row("SELECT COUNT(*) FROM curve_migration_done WHERE well_id = ?1", params![a.to_string()], |r| r.get(0))
+            .unwrap();
+        assert_eq!(done_a, 1, "A should be recorded as migrated");
+
+        // Import a second well AFTER the first migration — only it should be processed next run.
+        let b = Uuid::new_v4();
+        insert_well(&conn, b, "B", None, None, None).unwrap();
+        insert_standard_curves(
+            &conn, b, vec![2000.0, 2001.0],
+            vec![70.0, 80.0], vec![5.0, 6.0], vec![0.2, 0.2], vec![2.5, 2.5],
+            vec![f32::NAN, f32::NAN], vec![f32::NAN, f32::NAN],
+        )
+        .unwrap();
+        migrate_standard_curves_to_generic_store(&conn).unwrap();
+
+        // B is now migrated and marked; A is untouched (still exactly one GR, not duplicated).
+        let cat_b = list_generic_curve_catalog(&conn, &b.to_string()).unwrap();
+        assert!(cat_b.iter().any(|c| c.mnemonic == "GR"), "new well B migrates on the next open");
+        let done_all: i64 = conn.query_row("SELECT COUNT(*) FROM curve_migration_done", [], |r| r.get(0)).unwrap();
+        assert_eq!(done_all, 2, "both wells recorded as migrated");
+        let cat_a = list_generic_curve_catalog(&conn, &a.to_string()).unwrap();
+        assert_eq!(cat_a.iter().filter(|c| c.mnemonic == "GR").count(), 1, "A must not be re-migrated/duplicated");
+    }
+
     #[test]
     fn readonly_query_selects_and_rejects() {
         let conn = mem_db();
@@ -1362,6 +1426,81 @@ mod inspector_tests {
             .query_row("SELECT COUNT(*) FROM computed_curves_archive WHERE well_id = ?1", params![w], |r| r.get(0))
             .unwrap();
         assert_eq!(n_archive, 3, "only version 2's history removed");
+    }
+
+    /// Batched multi-well versioned write (the field-scale write path): many wells land in ONE
+    /// transaction via the grouped-DELETE + single-appender-per-table fast path. Locks the two
+    /// things that path must not break — (1) grouping wells by curve-set and deleting the exact
+    /// (wells × curves) cross product never touches a curve a well doesn't have, and (2) a re-run
+    /// replaces current values while the archive keeps every generation, per well independently.
+    #[test]
+    fn batched_versioned_write_is_correct_across_wells_and_reruns() {
+        use crate::equations::{
+            create_log_sets_batch, list_log_sets, write_computed_curves_versioned_batch, LogSetSpec,
+            WellWrite,
+        };
+        let conn = mem_db();
+        let w1 = Uuid::new_v4().to_string();
+        let w2 = Uuid::new_v4().to_string();
+        let depth = vec![1000.0f32, 1000.5, 1001.0];
+        let spec = LogSetSpec {
+            set_name: "INTERP".into(),
+            module: "phi_den".into(),
+            params_json: "{}".into(),
+            inputs_json: "[\"RHOB\"]".into(),
+        };
+        // Deliberately DIFFERENT curve-sets per well → two DELETE groups, so a bug that deletes
+        // the union cross product would wipe w2's non-existent PHIE row or strand w1's PHIE.
+        let run = |conn: &Connection, vsh1: [f32; 3], phie1: [f32; 3], vsh2: [f32; 3]| {
+            let ids = [w1.clone(), w2.clone()];
+            let sets = create_log_sets_batch(conn, &ids, &spec).unwrap();
+            let writes = vec![
+                WellWrite {
+                    well_id: w1.clone(),
+                    depth: depth.clone(),
+                    curves: vec![("VSH".into(), vsh1.to_vec()), ("PHIE".into(), phie1.to_vec())],
+                    set_id: sets[&w1].clone(),
+                },
+                WellWrite {
+                    well_id: w2.clone(),
+                    depth: depth.clone(),
+                    curves: vec![("VSH".into(), vsh2.to_vec())],
+                    set_id: sets[&w2].clone(),
+                },
+            ];
+            write_computed_curves_versioned_batch(conn, &writes).unwrap();
+        };
+        let cur = |well: &str, curve: &str, d: f32| -> f32 {
+            conn.query_row(
+                "SELECT value FROM computed_curves WHERE well_id = ?1 AND curve_name = ?2 AND depth = ?3",
+                params![well, curve, d],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        let count = |sql: &str, well: &str| -> i64 {
+            conn.query_row(sql, params![well], |r| r.get(0)).unwrap()
+        };
+
+        run(&conn, [0.10, 0.20, 0.30], [0.15, 0.16, 0.17], [0.40, 0.50, 0.60]);
+        assert!((cur(&w1, "VSH", 1000.0) - 0.10).abs() < 1e-6);
+        assert!((cur(&w1, "PHIE", 1000.0) - 0.15).abs() < 1e-6);
+        assert!((cur(&w2, "VSH", 1000.0) - 0.40).abs() < 1e-6);
+        assert_eq!(count("SELECT COUNT(*) FROM computed_curves WHERE well_id = ?1", &w1), 6);
+        assert_eq!(count("SELECT COUNT(*) FROM computed_curves WHERE well_id = ?1", &w2), 3);
+
+        // Re-run: current is replaced (still one generation each), archive accumulates both.
+        run(&conn, [0.90, 0.80, 0.70], [0.25, 0.26, 0.27], [0.44, 0.55, 0.66]);
+        assert!((cur(&w1, "VSH", 1000.0) - 0.90).abs() < 1e-6, "re-run replaces current");
+        assert!((cur(&w1, "PHIE", 1000.0) - 0.25).abs() < 1e-6);
+        assert!((cur(&w2, "VSH", 1000.0) - 0.44).abs() < 1e-6);
+        assert_eq!(count("SELECT COUNT(*) FROM computed_curves WHERE well_id = ?1", &w1), 6, "current still one generation");
+        assert_eq!(count("SELECT COUNT(*) FROM computed_curves WHERE well_id = ?1", &w2), 3);
+        assert_eq!(count("SELECT COUNT(*) FROM computed_curves_archive WHERE well_id = ?1", &w1), 12, "archive keeps both runs");
+        assert_eq!(count("SELECT COUNT(*) FROM computed_curves_archive WHERE well_id = ?1", &w2), 6);
+
+        assert_eq!(list_log_sets(&conn, &w1).unwrap().len(), 2, "two versions recorded per well");
+        assert_eq!(list_log_sets(&conn, &w2).unwrap().len(), 2);
     }
 
     /// Input-set selection (the read half of "set in/out"): a module asking for VSH from

@@ -458,7 +458,11 @@ fn run_realization(
 
 /// Runs the Monte Carlo study across the requested wells. All computation is in memory; the
 /// only DB access is the per-well input read in [`build_plans`].
-pub fn run_monte_carlo(db: &Mutex<Connection>, req: &McRequest) -> McResult {
+pub fn run_monte_carlo(
+    db: &Mutex<Connection>,
+    req: &McRequest,
+    progress: Option<&crate::jobs::JobHandle>,
+) -> McResult {
     let iterations = req.iterations.clamp(1, 100_000);
     let specs: HashMap<String, modules::ModuleSpec> =
         modules::list_modules().into_iter().map(|s| (s.name.clone(), s)).collect();
@@ -472,7 +476,14 @@ pub fn run_monte_carlo(db: &Mutex<Connection>, req: &McRequest) -> McResult {
     let mut zones_out: Vec<McZoneResult> = Vec::new();
     let mut errors: Vec<String> = Vec::new();
 
-    for well_id in &req.well_ids {
+    for (wi, well_id) in req.well_ids.iter().enumerate() {
+        if let Some(p) = progress {
+            if p.is_cancelled() {
+                break;
+            }
+            p.set_current(Some(format!("Monte Carlo: well {}/{}", wi + 1, req.well_ids.len())));
+            p.start_item(well_id);
+        }
         // One-time DB phase: build plans + read inputs + zonation.
         let (plans, raw_pool, depth, step_thick, mut zones, well_name) = {
             let conn = db.lock().unwrap();
@@ -482,6 +493,9 @@ pub fn run_monte_carlo(db: &Mutex<Connection>, req: &McRequest) -> McResult {
             match build_plans(&conn, well_id, &req.steps, &specs) {
                 Ok((p, rp, d, st, z)) => (p, rp, d, st, z, well_name),
                 Err(e) => {
+                    if let Some(p) = progress {
+                        p.finish_item(well_id, crate::jobs::ItemState::Failed, Some(e.to_string()));
+                    }
                     errors.push(format!("{well_id}: {e}"));
                     continue;
                 }
@@ -540,6 +554,9 @@ pub fn run_monte_carlo(db: &Mutex<Connection>, req: &McRequest) -> McResult {
                 hist_w,
             });
         }
+        if let Some(p) = progress {
+            p.finish_item(well_id, crate::jobs::ItemState::Ok, None);
+        }
     }
 
     McResult { zones: zones_out, errors }
@@ -595,7 +612,7 @@ mod tests {
         let dbm = Mutex::new(conn);
 
         let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 8.0 } }];
-        let res = run_monte_carlo(&dbm, &base_request(&well, mc.clone(), 500, 42));
+        let res = run_monte_carlo(&dbm, &base_request(&well, mc.clone(), 500, 42), None);
         assert!(res.errors.is_empty(), "unexpected errors: {:?}", res.errors);
         assert_eq!(res.zones.len(), 1);
         let z = &res.zones[0];
@@ -607,7 +624,7 @@ mod tests {
         assert_eq!(z.hpv_hist.iter().sum::<u32>(), 500);
 
         // Same seed → identical result (reproducible).
-        let res2 = run_monte_carlo(&dbm, &base_request(&well, mc, 500, 42));
+        let res2 = run_monte_carlo(&dbm, &base_request(&well, mc, 500, 42), None);
         assert_eq!(res.zones[0].hpv.p50, res2.zones[0].hpv.p50);
         assert_eq!(res.zones[0].hpv.mean, res2.zones[0].hpv.mean);
     }
@@ -621,7 +638,7 @@ mod tests {
 
         // sd = 0 → every realization identical → P10 == P50 == P90, sd ≈ 0.
         let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 0.0 } }];
-        let res = run_monte_carlo(&dbm, &base_request(&well, mc, 200, 7));
+        let res = run_monte_carlo(&dbm, &base_request(&well, mc, 200, 7), None);
         let z = &res.zones[0];
         assert_eq!(z.hpv.p10, z.hpv.p90, "no variance should collapse the spread");
         assert!(z.hpv.sd.abs() < 1e-6, "sd should be ~0, got {}", z.hpv.sd);

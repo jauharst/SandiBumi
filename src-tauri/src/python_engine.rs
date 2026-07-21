@@ -240,8 +240,18 @@ fn exec_script(script: &str, names: &[String], arrays: &[&[f32]], n: usize, outp
 /// writing results into `computed_curves` exactly like the Rhai path. Sequential (not
 /// rayon) because the single worker and the single `Mutex<Connection>` serialize the work
 /// anyway, and the win here is eliminating the per-well process spawn, not parallel compute.
-pub fn run_python_equation(db: &Mutex<Connection>, equation: &EquationDef, well_ids: &[String]) -> Vec<EquationRunResult> {
+pub fn run_python_equation(
+    db: &Mutex<Connection>,
+    equation: &EquationDef,
+    well_ids: &[String],
+    progress: Option<&crate::jobs::JobHandle>,
+) -> Vec<EquationRunResult> {
     if find_python().is_none() {
+        if let Some(p) = progress {
+            for w in well_ids {
+                p.finish_item(w, crate::jobs::ItemState::Failed, Some(NO_PYTHON.into()));
+            }
+        }
         return well_ids
             .iter()
             .map(|w| EquationRunResult { well_id: w.clone(), rows_written: 0, error: Some(NO_PYTHON.into()) })
@@ -250,15 +260,32 @@ pub fn run_python_equation(db: &Mutex<Connection>, equation: &EquationDef, well_
 
     well_ids
         .iter()
-        .map(|well_id| {
+        .enumerate()
+        .map(|(wi, well_id)| {
+            if let Some(p) = progress {
+                if p.is_cancelled() {
+                    p.finish_item(well_id, crate::jobs::ItemState::Warned, Some("cancelled".into()));
+                    return EquationRunResult { well_id: well_id.clone(), rows_written: 0, error: Some("cancelled".into()) };
+                }
+                p.set_current(Some(format!("Python equation: well {}/{}", wi + 1, well_ids.len())));
+                p.start_item(well_id);
+            }
             let (depth, columns) = {
                 let conn = db.lock().unwrap();
                 match fetch_curve_frame(&conn, well_id, &equation.input_curves) {
                     Ok(v) => v,
-                    Err(e) => return EquationRunResult { well_id: well_id.clone(), rows_written: 0, error: Some(e.to_string()) },
+                    Err(e) => {
+                        if let Some(p) = progress {
+                            p.finish_item(well_id, crate::jobs::ItemState::Failed, Some(e.to_string()));
+                        }
+                        return EquationRunResult { well_id: well_id.clone(), rows_written: 0, error: Some(e.to_string()) };
+                    }
                 }
             };
             if depth.is_empty() {
+                if let Some(p) = progress {
+                    p.finish_item(well_id, crate::jobs::ItemState::Failed, Some("no curve data for well".into()));
+                }
                 return EquationRunResult { well_id: well_id.clone(), rows_written: 0, error: Some("no curve data for well".into()) };
             }
 

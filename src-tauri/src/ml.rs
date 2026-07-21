@@ -268,7 +268,7 @@ struct ApplyWell {
     error: Option<String>,
 }
 
-pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest) -> MlResult {
+pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::jobs::JobHandle>) -> MlResult {
     let supervised = matches!(req.task.as_str(), "regression" | "classification");
     let features: Vec<String> =
         req.feature_curves.iter().map(|c| c.trim().to_uppercase()).filter(|c| !c.is_empty()).collect();
@@ -365,6 +365,11 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest) -> MlResult {
         return fail("no complete samples in the apply wells (every row has at least one missing input)");
     }
 
+    // The fit + predict is one opaque subprocess; show it as an indeterminate phase, then report
+    // the per-well writeback (the panel's items are the apply wells).
+    if let Some(p) = progress {
+        p.set_current(Some(format!("Training {} model on {} samples…", req.algorithm, n_train)));
+    }
     let y_opt = if supervised { Some(y_train.as_slice()) } else { None };
     match exec_ml(&python, &req.task, &req.algorithm, &req.params, d, &x_train, y_opt, &x_apply, n_apply) {
         Err(e) => fail(&e),
@@ -373,8 +378,17 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest) -> MlResult {
             let mut wells = Vec::new();
             let conn = db.lock().unwrap();
             let mut start = 0usize;
+            if let Some(p) = progress {
+                p.set_current(Some("Writing predictions…".into()));
+            }
             for aw in &apply {
+                if let Some(p) = progress {
+                    p.start_item(&aw.well_id);
+                }
                 if let Some(e) = &aw.error {
+                    if let Some(p) = progress {
+                        p.finish_item(&aw.well_id, crate::jobs::ItemState::Failed, Some(e.clone()));
+                    }
                     wells.push(MlWellResult { well_id: aw.well_id.clone(), rows_predicted: 0, error: Some(e.clone()) });
                     continue;
                 }
@@ -397,16 +411,31 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest) -> MlResult {
                 let versioned = crate::equations::create_log_set(&conn, &aw.well_id, &spec)
                     .and_then(|(set_id, _)| write_computed_curves_versioned(&conn, &aw.well_id, &aw.depth, &refs, &set_id));
                 match versioned {
-                    Ok(()) => wells.push(MlWellResult {
-                        well_id: aw.well_id.clone(),
-                        rows_predicted: m,
-                        error: (m == 0).then(|| "no complete samples in this well".to_string()),
-                    }),
-                    Err(e) => wells.push(MlWellResult {
-                        well_id: aw.well_id.clone(),
-                        rows_predicted: 0,
-                        error: Some(e.to_string()),
-                    }),
+                    Ok(()) => {
+                        if let Some(p) = progress {
+                            let (st, msg) = if m == 0 {
+                                (crate::jobs::ItemState::Warned, Some("no complete samples in this well".to_string()))
+                            } else {
+                                (crate::jobs::ItemState::Ok, None)
+                            };
+                            p.finish_item(&aw.well_id, st, msg);
+                        }
+                        wells.push(MlWellResult {
+                            well_id: aw.well_id.clone(),
+                            rows_predicted: m,
+                            error: (m == 0).then(|| "no complete samples in this well".to_string()),
+                        });
+                    }
+                    Err(e) => {
+                        if let Some(p) = progress {
+                            p.finish_item(&aw.well_id, crate::jobs::ItemState::Failed, Some(e.to_string()));
+                        }
+                        wells.push(MlWellResult {
+                            well_id: aw.well_id.clone(),
+                            rows_predicted: 0,
+                            error: Some(e.to_string()),
+                        });
+                    }
                 }
                 start += m;
             }

@@ -465,6 +465,12 @@ export function listLogSets(wellId: string): Promise<LogSetEntry[]> {
   return invoke<LogSetEntry[]>("list_log_sets", { wellId });
 }
 
+/** Distinct constellation (log-set) names across the project — for the input/output
+ *  constellation pickers in the module and workflow dialogs (which span many wells). */
+export function listLogSetNames(): Promise<string[]> {
+  return invoke<string[]>("list_log_set_names");
+}
+
 /** Copies an archived version back into the current store; returns restored row count. */
 export function restoreLogSet(setId: string): Promise<number> {
   return invoke<number>("restore_log_set", { setId });
@@ -498,6 +504,58 @@ export async function getChainStatus(jobId: string): Promise<ChainStatus | null>
 
 export async function cancelWorkflowChain(jobId: string): Promise<void> {
   return invoke<void>("cancel_workflow_chain", { jobId });
+}
+
+// --- Universal jobs (Phase 11): one progress/cancel channel for every long op -----------
+
+/** One item (usually a well) within a job. Mirrors Rust `jobs::JobItem`. */
+export interface JobItem {
+  key: string;
+  label: string;
+  state: "pending" | "running" | "ok" | "warned" | "failed";
+  message: string | null;
+}
+
+/** A running or finished job for the universal Processing panel. Mirrors `jobs::JobView`. */
+export interface JobView {
+  id: string;
+  kind: string;
+  label: string;
+  phase: "queued" | "running" | "completed" | "cancelled" | "failed";
+  total: number;
+  done: number;
+  current: string | null;
+  items: JobItem[];
+  error: string | null;
+  seq: number;
+}
+
+/** Snapshot of every job, most recent first — polled by the Processing panel. */
+export async function listJobs(): Promise<JobView[]> {
+  return invoke<JobView[]>("list_jobs");
+}
+
+/** Requests cancellation of one job (flips the shared flag the runner checks per well). */
+export async function cancelJob(jobId: string): Promise<void> {
+  return invoke<void>("cancel_job", { jobId });
+}
+
+// --- Performance Monitor (Phase 11) -----------------------------------------------------
+
+/** System-resource snapshot for the Performance panel. Percentages are 0..100; null =
+ *  unavailable on this platform. Mirrors Rust `health::HealthSnapshot`. */
+export interface HealthSnapshot {
+  mem_system: number | null;
+  cpu_load: number | null;
+  user_objects: number | null;
+  gdi_objects: number | null;
+  user_count: number | null;
+  gdi_count: number | null;
+}
+
+/** One cheap system-resource reading (memory / GPU memory / USER + GDI object counts). */
+export async function healthSnapshot(): Promise<HealthSnapshot> {
+  return invoke<HealthSnapshot>("health_snapshot");
 }
 
 // --- Monte Carlo uncertainty (Phase 9) ------------------------------------

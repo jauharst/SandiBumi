@@ -1,6 +1,6 @@
 import {
   listCurveCatalog,
-  listLogSets,
+  listLogSetNames,
   listWells,
   runWorkflowModule,
   type ModuleSpec,
@@ -45,10 +45,9 @@ export async function buildModuleContent(
   const content = document.createElement("div");
   content.className = "module-pane";
 
-  const doc = document.createElement("p");
-  doc.className = "modal-doc";
-  doc.textContent = spec.doc;
-  content.appendChild(doc);
+  // The method narration/formula used to sit here as a paragraph. It moved to the on-demand
+  // Help tool (the ? in the quick-access bar → "Help — <this module>"), which reads spec.doc,
+  // so the form stays uncluttered and the same text is the seed for the future HTML help library.
 
   // --- Well selection (multi) ---
   const wellBox = document.createElement("div");
@@ -149,66 +148,66 @@ export async function buildModuleContent(
     formRow("Mask (optional)", maskSelect, "Flag curve (=1 bad) to blank out of every output — e.g. BADHOLE."),
   );
 
-  // --- Input set (read half of "set in/out"): blank = current values ---
-  const inSetInput = document.createElement("input");
-  inSetInput.className = "form-control";
-  inSetInput.type = "text";
-  inSetInput.value = "";
-  inSetInput.placeholder = "(latest values)";
-  inSetInput.setAttribute("list", "log-set-names");
+  // --- Input cons (read half of "cons in/out"): strict dropdown, blank = current values ---
+  const inSetSelect = document.createElement("select");
+  inSetSelect.className = "form-control";
+  const inSetLatest = document.createElement("option");
+  inSetLatest.value = "";
+  inSetLatest.textContent = "(latest values)";
+  inSetSelect.appendChild(inSetLatest);
   content.appendChild(
     formRow(
-      "Input set",
-      inSetInput,
-      "Read inputs from this log set's values (latest version per well). Curves the set never wrote fall back to the usual sources. Blank = current values.",
+      "Input cons",
+      inSetSelect,
+      "Read inputs from this constellation's values (latest version per well). Curves it never wrote fall back to the usual sources. Blank = current values.",
     ),
   );
 
-  // --- Output set (P1-c versioning: re-run = version N+1, never overwrites) ---
+  // --- Output cons (P1-c versioning: re-run = version N+1, never overwrites). Editable
+  // combobox — pick an existing constellation or type a brand-new name. ---
   const setInput = document.createElement("input");
   setInput.className = "form-control";
   setInput.type = "text";
   setInput.value = "INTERP";
-  setInput.setAttribute("list", "log-set-names");
-  let setList = document.querySelector<HTMLDataListElement>("#log-set-names");
-  if (!setList) {
-    setList = document.createElement("datalist");
-    setList.id = "log-set-names";
-    document.body.appendChild(setList);
+  setInput.setAttribute("list", "log-cons-names");
+  let consList = document.querySelector<HTMLDataListElement>("#log-cons-names");
+  if (!consList) {
+    consList = document.createElement("datalist");
+    consList.id = "log-cons-names";
+    document.body.appendChild(consList);
   }
-  // The datalist is shared/global (on document.body); refresh its suggestions from the
-  // selected well's existing set names (best-effort — fine without a backend). The epoch
-  // guard drops a slow listLogSets from a previously selected well so it can't overwrite
-  // the current well's suggestions.
-  let setSuggestEpoch = 0;
-  const refreshSetSuggestions = (well: WellSummary | null) => {
-    const epoch = ++setSuggestEpoch;
-    const names = new Set(["INTERP", "FINAL", "TEST"]);
-    const apply = () => {
-      setList!.innerHTML = "";
-      for (const n of names) {
-        const o = document.createElement("option");
-        o.value = n;
-        setList!.appendChild(o);
-      }
-    };
-    apply();
-    if (well) {
-      listLogSets(well.well_id)
-        .then((sets) => {
-          if (epoch !== setSuggestEpoch) return; // a newer well's refresh already ran
-          for (const s of sets) names.add(s.set_name);
-          apply();
-        })
-        .catch(() => {});
-    }
+  // Fill both pickers from the project's existing constellation names. Input is a strict
+  // dropdown (you can only read from one that exists); output offers them as suggestions
+  // plus the common defaults. The input select keeps the user's current choice across
+  // refreshes (a new run, or a well switch, can add names).
+  const refreshConsPickers = () => {
+    void listLogSetNames()
+      .then((names) => {
+        const keep = inSetSelect.value;
+        while (inSetSelect.options.length > 1) inSetSelect.remove(1);
+        for (const n of names) {
+          const o = document.createElement("option");
+          o.value = n;
+          o.textContent = n;
+          inSetSelect.appendChild(o);
+        }
+        if ([...inSetSelect.options].some((o) => o.value === keep)) inSetSelect.value = keep;
+        const seeds = [...new Set(["INTERP", "FINAL", "TEST", ...names])];
+        consList!.innerHTML = "";
+        for (const n of seeds) {
+          const o = document.createElement("option");
+          o.value = n;
+          consList!.appendChild(o);
+        }
+      })
+      .catch(() => {});
   };
-  refreshSetSuggestions(initialWell);
+  refreshConsPickers();
   content.appendChild(
     formRow(
-      "Output set",
+      "Output cons",
       setInput,
-      "Outputs are versioned into this log set — a re-run becomes version N+1, never overwriting. Manage versions in the Curve Catalog.",
+      "Outputs are versioned into this constellation — a re-run becomes version N+1, never overwriting. Pick an existing one or type a new name. Manage versions in the Curve Catalog.",
     ),
   );
 
@@ -263,7 +262,7 @@ export async function buildModuleContent(
     void refreshData();
   });
   const unsubWell = appState.selectedWell.subscribe((well) => {
-    refreshSetSuggestions(well);
+    refreshConsPickers();
     // Only when nothing is ticked yet (non-destructive): re-apply the Wells & Tops
     // multi-selection — the batch pre-tick — so a pane opened or restored before the
     // selection existed still gets all selected wells, not just the active one.
@@ -305,25 +304,24 @@ export async function buildModuleContent(
       params,
       opts,
       output_set: setInput.value.trim() || undefined,
-      input_set: inSetInput.value.trim() || undefined,
+      input_set: inSetSelect.value.trim() || undefined,
     };
     runBtn.disabled = true;
-    resultBox.textContent = `Running ${spec.name} on ${wellIds.length} well(s)…`;
+    // Live progress and the per-well ✓/⚠/✗ breakdown now live in the Processing panel (this
+    // run reports into the shared job registry). Surface that panel and keep only a one-line
+    // outcome here, so the form isn't a second, redundant results log.
+    resultBox.className = "modal-result";
+    resultBox.textContent = `Running ${spec.name} on ${wellIds.length} well(s)… see the Processing panel for progress.`;
+    window.dispatchEvent(new Event("sandibumi:open-processing"));
     try {
       const results = await runWorkflowModule(req);
-      const ok = results.filter((r) => !r.error);
-      resultBox.innerHTML = "";
-      for (const r of results) {
-        const line = document.createElement("div");
-        const well = wells.find((w) => w.well_id === r.well_id);
-        line.textContent = r.error
-          ? `✗ ${well?.well_name ?? r.well_id}: ${r.error}`
-          : `✓ ${well?.well_name ?? r.well_id}: ${r.rows_written} samples → ${r.output_curves.join(", ")}`;
-        line.className = r.error ? "result-fail" : "result-ok";
-        resultBox.appendChild(line);
-      }
-      callbacks.setStatus(`${spec.name}: ${ok.length}/${results.length} well(s) computed`);
-      if (ok.length > 0) callbacks.onRunComplete(outputs);
+      const ok = results.filter((r) => !r.error).length;
+      const failed = results.length - ok;
+      resultBox.textContent = failed
+        ? `${ok}/${results.length} well(s) computed — ${failed} need attention. Open Processing → details for the report.`
+        : `All ${ok} well(s) computed. Per-well details are in the Processing panel.`;
+      callbacks.setStatus(`${spec.name}: ${ok}/${results.length} well(s) computed`);
+      if (ok > 0) callbacks.onRunComplete(outputs);
     } catch (err) {
       resultBox.textContent = `Run failed: ${err}`;
     } finally {

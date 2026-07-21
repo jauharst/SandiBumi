@@ -89,16 +89,25 @@ fn resolve_param_arrays(
 
 /// Runs one module across every well: parse inputs, resolve zone parameters, evaluate,
 /// and write output curves to computed_curves. Wells are processed in parallel.
+///
+/// The `run_workflow_module` Tauri command now calls [`run_workflow_module_into`] directly (to
+/// pass a job handle + cancel flag), so this no-progress convenience wrapper is used only by the
+/// test suite — hence `allow(dead_code)` for the lib-proper build.
+#[allow(dead_code)]
 pub fn run_workflow_module(db: &Mutex<Connection>, req: &RunModuleRequest) -> Vec<ModuleRunResult> {
-    run_workflow_module_into(db, req, None)
+    run_workflow_module_into(db, req, None, None, None)
 }
 
 /// Like [`run_workflow_module`], but chains pass `preset_sets` (well_id → set_id) so every
-/// step of one chain run writes into the SAME set version instead of bumping per step.
+/// step of one chain run writes into the SAME set version instead of bumping per step, and an
+/// optional `cancel` flag lets a running chain skip the remaining wells mid-step so Cancel takes
+/// effect within a well or two instead of after the whole step finishes.
 pub fn run_workflow_module_into(
     db: &Mutex<Connection>,
     req: &RunModuleRequest,
     preset_sets: Option<&HashMap<String, String>>,
+    cancel: Option<&std::sync::atomic::AtomicBool>,
+    progress: Option<&crate::jobs::JobHandle>,
 ) -> Vec<ModuleRunResult> {
     let spec = match modules::list_modules().into_iter().find(|m| m.name == req.module) {
         Some(s) => s,
@@ -143,10 +152,32 @@ pub fn run_workflow_module_into(
         opts.insert(format!("__IN_{arg_name}"), mnemonic.trim().to_uppercase());
     }
 
-    req.well_ids
+    // Phase 1 outcome per well. Outputs are held in memory so Phase 2 can write EVERY well in
+    // one batched transaction (vs a fsync-bound delete+append transaction per well — the
+    // dominant field-scale write cost). Nothing is written to computed_curves during Phase 1.
+    enum Outcome {
+        Skipped,
+        Failed(String),
+        Computed { depth: Vec<f32>, outputs: HashMap<String, Vec<f32>> },
+    }
+
+    let outcomes: Vec<Outcome> = req
+        .well_ids
         .par_iter()
         .map(|well_id| {
-            let run = || -> Result<(usize, Vec<String>), String> {
+            // Cooperative cancellation: once a chain sets its flag, the wells rayon hasn't
+            // started yet skip all fetch/compute/write and return a no-op, so the in-flight
+            // par_iter drains in ~a well or two instead of grinding through every remaining
+            // well. The chain re-checks the flag between steps and finalizes as Cancelled.
+            if cancel.map_or(false, |c| c.load(std::sync::atomic::Ordering::SeqCst)) {
+                return Outcome::Skipped;
+            }
+            // Live per-well progress for the universal Processing panel. With rayon, several
+            // wells show "running" at once — an honest picture of the parallel work.
+            if let Some(p) = progress {
+                p.start_item(well_id);
+            }
+            let compute = || -> Result<(Vec<f32>, HashMap<String, Vec<f32>>), String> {
                 let curve_names: Vec<String> = log_args.iter().map(|(_, m)| m.clone()).collect();
                 // A chain's own set event: its earlier steps' outputs beat the input set.
                 let own_set = preset_sets.and_then(|m| m.get(well_id.as_str())).map(|s| s.as_str());
@@ -251,47 +282,142 @@ pub fn run_workflow_module_into(
                     }
                 }
 
-                let conn = db.lock().unwrap();
-                let batch: Vec<(&str, &[f32])> =
-                    outputs.iter().map(|(k, v)| (k.as_str(), v.as_slice())).collect();
-                // Versioned write: a chain supplies the shared per-well set event; a plain
-                // module run registers its own (set version N+1 — never overwrites).
-                let set_id = match preset_sets.and_then(|m| m.get(well_id.as_str())) {
-                    Some(id) => id.clone(),
-                    None => {
-                        let spec = equations::LogSetSpec {
-                            set_name: req.output_set.clone().filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "INTERP".into()),
-                            module: req.module.clone(),
-                            params_json: serde_json::to_string(&req.params).unwrap_or_default(),
-                            inputs_json: {
-                                // Provenance records where inputs were read from too.
-                                let mut prov = log_args.clone();
-                                if let Some(s) =
-                                    req.input_set.as_deref().map(str::trim).filter(|s| !s.is_empty())
-                                {
-                                    prov.push(("input_set".into(), s.to_string()));
-                                }
-                                serde_json::to_string(&prov).unwrap_or_default()
-                            },
-                        };
-                        equations::create_log_set(&conn, well_id, &spec).map_err(|e| e.to_string())?.0
-                    }
-                };
-                equations::write_computed_curves_versioned(&conn, well_id, &depth, &batch, &set_id)
-                    .map_err(|e| e.to_string())?;
-                let mut names: Vec<String> = outputs.keys().cloned().collect();
-                names.sort();
-                Ok((depth.len(), names))
+                Ok((depth, outputs))
             };
 
-            match run() {
-                Ok((rows, names)) => ModuleRunResult {
+            let outcome = match compute() {
+                Ok((depth, outputs)) => Outcome::Computed { depth, outputs },
+                Err(e) => Outcome::Failed(e),
+            };
+            if let Some(p) = progress {
+                match &outcome {
+                    Outcome::Computed { outputs, .. } if !outputs.is_empty() => {
+                        p.finish_item(well_id, crate::jobs::ItemState::Ok, None)
+                    }
+                    Outcome::Computed { .. } => {
+                        p.finish_item(well_id, crate::jobs::ItemState::Warned, Some("no output".into()))
+                    }
+                    Outcome::Failed(e) => {
+                        p.finish_item(well_id, crate::jobs::ItemState::Failed, Some(e.clone()))
+                    }
+                    Outcome::Skipped => {}
+                }
+            }
+            outcome
+        })
+        .collect();
+
+    // ---- Phase 2: ONE batched, versioned write for every well that produced output. ----
+    // Set ids: a chain supplies its shared per-well event via `preset_sets`; a plain module run
+    // allocates version N+1 per well (batched into one transaction). Then every well's curves
+    // land in a SINGLE transaction instead of a delete+append+flush transaction per well.
+    let succ_ids: Vec<String> = req
+        .well_ids
+        .iter()
+        .zip(outcomes.iter())
+        .filter_map(|(w, o)| match o {
+            Outcome::Computed { outputs, .. } if !outputs.is_empty() => Some(w.clone()),
+            _ => None,
+        })
+        .collect();
+
+    let mut set_err: Option<String> = None;
+    let set_ids: HashMap<String, String> = if succ_ids.is_empty() {
+        HashMap::new()
+    } else if let Some(preset) = preset_sets {
+        succ_ids.iter().filter_map(|w| preset.get(w).map(|s| (w.clone(), s.clone()))).collect()
+    } else {
+        let set_spec = equations::LogSetSpec {
+            set_name: req.output_set.clone().filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "INTERP".into()),
+            module: req.module.clone(),
+            params_json: serde_json::to_string(&req.params).unwrap_or_default(),
+            inputs_json: {
+                // Provenance records where inputs were read from too.
+                let mut prov = log_args.clone();
+                if let Some(s) = req.input_set.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                    prov.push(("input_set".into(), s.to_string()));
+                }
+                serde_json::to_string(&prov).unwrap_or_default()
+            },
+        };
+        let conn = db.lock().unwrap();
+        match equations::create_log_sets_batch(&conn, &succ_ids, &set_spec) {
+            Ok(m) => m,
+            Err(e) => {
+                set_err = Some(e.to_string());
+                HashMap::new()
+            }
+        }
+    };
+
+    let mut writes: Vec<equations::WellWrite> = Vec::with_capacity(succ_ids.len());
+    for (well_id, o) in req.well_ids.iter().zip(outcomes.iter()) {
+        if let Outcome::Computed { depth, outputs } = o {
+            if outputs.is_empty() {
+                continue;
+            }
+            if let Some(set_id) = set_ids.get(well_id) {
+                writes.push(equations::WellWrite {
                     well_id: well_id.clone(),
-                    rows_written: rows,
-                    output_curves: names,
-                    error: None,
-                },
-                Err(e) => ModuleRunResult { well_id: well_id.clone(), rows_written: 0, output_curves: vec![], error: Some(e) },
+                    depth: depth.clone(),
+                    curves: outputs.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+                    set_id: set_id.clone(),
+                });
+            }
+        }
+    }
+
+    // The batched write is one big transaction with no per-well signal, so without this the
+    // panel's bar sits at the step boundary looking frozen. Name the wait so it reads as
+    // working, not stuck. (The panel polls the job registry, not the DB, so this shows even
+    // while the write holds the DB lock.)
+    if let Some(p) = progress {
+        if !writes.is_empty() {
+            p.set_current(Some(format!("Writing {} well(s)…", writes.len())));
+        }
+    }
+    let write_err: Option<String> = if writes.is_empty() {
+        None
+    } else {
+        let conn = db.lock().unwrap();
+        equations::write_computed_curves_versioned_batch(&conn, &writes).err().map(|e| e.to_string())
+    };
+
+    // A Phase-2 set-allocation or write failure downgrades the affected wells in the panel —
+    // their compute finished OK but nothing was persisted, so they must not read as green.
+    if let Some(p) = progress {
+        if let Some(e) = &set_err {
+            for w in &succ_ids {
+                p.mark_item(w, crate::jobs::ItemState::Failed, Some(e.clone()));
+            }
+        } else if let Some(e) = &write_err {
+            for wr in &writes {
+                p.mark_item(&wr.well_id, crate::jobs::ItemState::Failed, Some(e.clone()));
+            }
+        }
+    }
+
+    // Per-well results, in the original well order.
+    req.well_ids
+        .iter()
+        .zip(outcomes.iter())
+        .map(|(well_id, o)| match o {
+            Outcome::Skipped => ModuleRunResult { well_id: well_id.clone(), rows_written: 0, output_curves: vec![], error: None },
+            Outcome::Failed(e) => ModuleRunResult { well_id: well_id.clone(), rows_written: 0, output_curves: vec![], error: Some(e.clone()) },
+            Outcome::Computed { depth, outputs } => {
+                if outputs.is_empty() {
+                    ModuleRunResult { well_id: well_id.clone(), rows_written: 0, output_curves: vec![], error: None }
+                } else if let Some(e) = &set_err {
+                    ModuleRunResult { well_id: well_id.clone(), rows_written: 0, output_curves: vec![], error: Some(e.clone()) }
+                } else if !set_ids.contains_key(well_id) {
+                    ModuleRunResult { well_id: well_id.clone(), rows_written: 0, output_curves: vec![], error: Some("no output set allocated for well".into()) }
+                } else if let Some(e) = &write_err {
+                    ModuleRunResult { well_id: well_id.clone(), rows_written: 0, output_curves: vec![], error: Some(e.clone()) }
+                } else {
+                    let mut names: Vec<String> = outputs.keys().cloned().collect();
+                    names.sort();
+                    ModuleRunResult { well_id: well_id.clone(), rows_written: depth.len(), output_curves: names, error: None }
+                }
             }
         })
         .collect()
@@ -1381,6 +1507,106 @@ mod tests {
         }
     }
 
+    /// Cancel responsiveness: with the chain cancel flag already set, run_workflow_module_into
+    /// skips every well (no fetch/compute/write) and returns clean no-ops — so a Cancel drains a
+    /// running step's remaining wells in ~a well or two instead of grinding through all of them.
+    #[test]
+    fn module_run_skips_all_wells_when_cancelled() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        db::insert_well(&conn, wid, "CANCELME", None, None, None).unwrap();
+        let w = wid.to_string();
+        let n = 8usize;
+        let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        db::insert_standard_curves(
+            &conn, wid, depths,
+            vec![45.0; n], vec![f32::NAN; n], vec![0.2; n], vec![2.4; n], vec![f32::NAN; n], vec![f32::NAN; n],
+        )
+        .unwrap();
+        let dbm = Mutex::new(conn);
+
+        let req = RunModuleRequest {
+            module: "vsh_gr".into(),
+            well_ids: vec![w.clone()],
+            log_inputs: HashMap::new(),
+            params: HashMap::new(),
+            opts: HashMap::new(),
+            output_set: None,
+            input_set: None,
+        };
+
+        // Flag already set → every well is a no-op, nothing written.
+        let cancel = std::sync::atomic::AtomicBool::new(true);
+        let results = run_workflow_module_into(&dbm, &req, None, Some(&cancel), None);
+        assert_eq!(results.len(), 1);
+        assert!(results[0].error.is_none(), "cancel skip is a clean no-op, not an error");
+        assert_eq!(results[0].rows_written, 0, "a cancelled well writes nothing");
+        {
+            let conn = dbm.lock().unwrap();
+            let vsh: i64 = conn
+                .query_row("SELECT COUNT(*) FROM computed_curves WHERE well_id = ?1 AND curve_name = 'VSH'", duckdb::params![w], |r| r.get(0))
+                .unwrap();
+            assert_eq!(vsh, 0, "no VSH curve should be written when cancelled");
+        }
+
+        // Control: the same run WITHOUT the flag DOES write VSH — proving the skip above was the
+        // cancel, not a broken fixture.
+        let results2 = run_workflow_module_into(&dbm, &req, None, None, None);
+        assert!(results2[0].error.is_none(), "uncancelled: {:?}", results2[0].error);
+        assert!(results2[0].rows_written > 0, "uncancelled run must write VSH");
+    }
+
+    /// Batched write (perf refactor): a module run over MANY wells writes each well's own curve
+    /// correctly in ONE transaction — rows are not crossed between wells and per-well set
+    /// versioning is intact (one INTERP set per well).
+    #[test]
+    fn batched_module_run_writes_every_well_correctly() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let mk = |name: &str, gr: f32| -> String {
+            let id = uuid::Uuid::new_v4();
+            db::insert_well(&conn, id, name, None, None, None).unwrap();
+            let n = 5usize;
+            let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+            db::insert_standard_curves(
+                &conn, id, depth,
+                vec![gr; n], vec![f32::NAN; n], vec![0.2; n], vec![2.4; n], vec![f32::NAN; n], vec![f32::NAN; n],
+            )
+            .unwrap();
+            id.to_string()
+        };
+        let a = mk("A", 40.0); // low GR → low VSH
+        let b = mk("B", 90.0); // high GR → high VSH
+        let dbm = Mutex::new(conn);
+
+        let req = RunModuleRequest {
+            module: "vsh_gr".into(),
+            well_ids: vec![a.clone(), b.clone()],
+            log_inputs: HashMap::new(),
+            params: HashMap::new(),
+            opts: HashMap::new(),
+            output_set: None,
+            input_set: None,
+        };
+        let results = run_workflow_module(&dbm, &req);
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|r| r.error.is_none()), "batched run errored: {results:?}");
+        assert!(results.iter().all(|r| r.rows_written > 0), "every well must write rows");
+
+        let conn = dbm.lock().unwrap();
+        let vsh = |w: &str| -> Vec<f32> {
+            equations::fetch_curve_frame(&conn, w, &["VSH".into()]).unwrap().1["VSH"].clone()
+        };
+        let (va, vb) = (vsh(&a), vsh(&b));
+        assert!(va.iter().all(|v| !v.is_nan()) && vb.iter().all(|v| !v.is_nan()), "both wells got finite VSH");
+        assert!(va[0] < vb[0], "rows not crossed: low-GR A VSH {} < high-GR B VSH {}", va[0], vb[0]);
+        let sets: i64 = conn
+            .query_row("SELECT COUNT(*) FROM log_sets WHERE set_name = 'INTERP'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(sets, 2, "one INTERP set version per well after the batch");
+    }
+
     /// Full deterministic chain against real field LAS files: import → VSH(GR) →
     /// PHI(D-N) → SW(Indonesia) → PERM(Timur) → pay summary. Ignored by default
     /// (machine-specific paths); run with:
@@ -1401,7 +1627,7 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
         let conn = crate::db::init_db(db_path.to_str().unwrap()).expect("init_db failed");
 
-        let results = ingest::import_las_files(&conn, &paths);
+        let results = ingest::import_las_files(&conn, &paths, None);
         let well_ids: Vec<String> = results
             .iter()
             .map(|r| r.well_id.clone().unwrap_or_else(|| panic!("import failed: {:?}", r.error)))

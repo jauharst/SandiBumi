@@ -69,7 +69,7 @@ fn pipeline_blso_full_run() {
     // ---- 1. Import -------------------------------------------------------
     let paths: Vec<String> = LAS_FILES.iter().map(|s| s.to_string()).collect();
     let t0 = Instant::now();
-    let results = crate::ingest::import_las_files(&conn, &paths);
+    let results = crate::ingest::import_las_files(&conn, &paths, None);
     println!("\n=== IMPORT ({:?}) ===", t0.elapsed());
     for r in &results {
         println!(
@@ -279,7 +279,7 @@ fn pipeline_blso_100well_stress() {
 
     // Import one real well, then read back its standard curves to clone.
     let one = vec![LAS_FILES[0].to_string()];
-    let res = crate::ingest::import_las_files(&conn, &one);
+    let res = crate::ingest::import_las_files(&conn, &one, None);
     let src_id = res[0].well_id.clone().expect("import");
 
     let mut depth = Vec::new();

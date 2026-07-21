@@ -13,3 +13,8 @@ Ribbon and Tools
 
 Whole
 - it takes up to 5 minutes to deploy my software, it should be less than 30 seconds
+
+Clean narration >> click for help
+resize app behaviour to panes window ribbon
+look at the bottom, it should be on details in processing, not here
+for details, it should give report what wells failed and why, what should user do, if it same dont repeat by well but as 1 bulk error report

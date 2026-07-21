@@ -448,7 +448,11 @@ fn classify(comps: &[Component]) -> ZoneSets {
     z
 }
 
-pub fn run_multimin(db: &Mutex<Connection>, req: &MultiminRequest) -> MultiminResult {
+pub fn run_multimin(
+    db: &Mutex<Connection>,
+    req: &MultiminRequest,
+    progress: Option<&crate::jobs::JobHandle>,
+) -> MultiminResult {
     let n = req.components.len();
     if n < 2 {
         return fail("select at least two components");
@@ -668,11 +672,24 @@ pub fn run_multimin(db: &Mutex<Connection>, req: &MultiminRequest) -> MultiminRe
     let mut out_names: Vec<String> = Vec::new();
     let mut wells: Vec<MultiminWellResult> = Vec::new();
 
+    let n_wells = req.apply_well_ids.len();
     let conn = db.lock().unwrap();
-    for well_id in &req.apply_well_ids {
+    for (wi, well_id) in req.apply_well_ids.iter().enumerate() {
+        // Cooperative cancel + live per-well progress into the Processing panel. The panel polls
+        // the (separate) jobs registry, so these updates land even while this holds the DB lock.
+        if let Some(p) = progress {
+            if p.is_cancelled() {
+                break;
+            }
+            p.set_current(Some(format!("SandiMin: well {}/{}", wi + 1, n_wells)));
+            p.start_item(well_id);
+        }
         let (depth, cols) = match fetch_curve_frame(&conn, well_id, &all_fetch) {
             Ok(v) => v,
             Err(e) => {
+                if let Some(p) = progress {
+                    p.finish_item(well_id, crate::jobs::ItemState::Failed, Some(e.to_string()));
+                }
                 wells.push(MultiminWellResult {
                     well_id: well_id.clone(),
                     rows_solved: 0,
@@ -830,6 +847,17 @@ pub fn run_multimin(db: &Mutex<Connection>, req: &MultiminRequest) -> MultiminRe
             .and_then(|(set_id, _)| write_computed_curves_versioned(&conn, well_id, &depth, &refs, &set_id))
             .err()
             .map(|e| e.to_string());
+        if let Some(p) = progress {
+            // A write failure is Failed; a solve that produced nothing is a Warned caveat; else Ok.
+            let (state, msg) = if let Some(e) = &write_err {
+                (crate::jobs::ItemState::Failed, Some(e.clone()))
+            } else if solved == 0 {
+                (crate::jobs::ItemState::Warned, Some("no solvable samples (too few live input logs)".to_string()))
+            } else {
+                (crate::jobs::ItemState::Ok, None)
+            };
+            p.finish_item(well_id, state, msg);
+        }
         wells.push(MultiminWellResult {
             well_id: well_id.clone(),
             rows_solved: solved,
@@ -1499,7 +1527,7 @@ mod tests {
             fluid: None,
         };
         let conn = Mutex::new(Connection::open_in_memory().unwrap());
-        let res = run_multimin(&conn, &req);
+        let res = run_multimin(&conn, &req, None);
         let err = res.error.as_deref().unwrap_or("");
         assert!(
             err.contains("need at least"),
@@ -1540,7 +1568,7 @@ mod tests {
             fluid: Some(props),
         };
         let conn = Mutex::new(Connection::open_in_memory().unwrap());
-        let res = run_multimin(&conn, &req);
+        let res = run_multimin(&conn, &req, None);
         let err = res.error.as_deref().unwrap_or("");
         assert!(
             err.contains("all zero"),
@@ -1703,7 +1731,7 @@ mod tests {
                 unity: true,
                 fluid: None,
             };
-            let res = run_multimin(&db, &req);
+            let res = run_multimin(&db, &req, None);
             assert!(res.error.is_none(), "run_multimin error: {:?}", res.error);
             res.wells.into_iter().next().unwrap()
         };

@@ -4,6 +4,7 @@ import {
   getChainStatus,
   listCurveCatalog,
   listDocuments,
+  listLogSetNames,
   listModules,
   listWells,
   runWorkflowChain,
@@ -714,38 +715,64 @@ export async function buildWorkflowContent(
   content.appendChild(formRow("Wells", wellsHead));
   content.appendChild(wellsBox);
 
-  // --- Input set: blank = current values (chained outputs always resolve) ----
-  const inSetInput = document.createElement("input");
-  inSetInput.type = "text";
-  inSetInput.value = "";
-  inSetInput.placeholder = "(latest values)";
-  inSetInput.setAttribute("list", "log-set-names");
+  // --- Input cons: strict dropdown of existing constellations (you can only read from
+  // one that exists); blank = current values (chained outputs always resolve) ----------
+  const inSetSelect = document.createElement("select");
+  const inSetLatest = document.createElement("option");
+  inSetLatest.value = "";
+  inSetLatest.textContent = "(latest values)";
+  inSetSelect.appendChild(inSetLatest);
   content.appendChild(
     formRow(
-      "Input set",
-      inSetInput,
-      "Every step reads its inputs from this log set where available (latest version per well). Blank = current values.",
+      "Input cons",
+      inSetSelect,
+      "Every step reads its inputs from this constellation where available (latest version per well). Blank = current values.",
     ),
   );
 
-  // --- Output set (P1-c): one version per chain run, never overwriting -------
+  // --- Output cons (P1-c): one version per chain run, never overwriting. Editable
+  // combobox — pick an existing constellation or type a brand-new name. -----------------
   const setInput = document.createElement("input");
   setInput.type = "text";
   setInput.value = "INTERP";
-  setInput.setAttribute("list", "log-set-names");
+  setInput.setAttribute("list", "log-cons-names");
+  let consList = document.querySelector<HTMLDataListElement>("#log-cons-names");
+  if (!consList) {
+    consList = document.createElement("datalist");
+    consList.id = "log-cons-names";
+    document.body.appendChild(consList);
+  }
   content.appendChild(
     formRow(
-      "Output set",
+      "Output cons",
       setInput,
-      "The whole chain run is versioned into this log set (re-run = version N+1). Manage versions in the Curve Catalog.",
+      "The whole chain run is versioned into this constellation (re-run = version N+1). Pick an existing one or type a new name. Manage versions in the Curve Catalog.",
     ),
   );
 
+  // Fill both pickers from the project's existing constellation names. Input is strict
+  // (dropdown only); output offers them as datalist suggestions plus the common defaults.
+  void listLogSetNames()
+    .then((names) => {
+      for (const n of names) {
+        const o = document.createElement("option");
+        o.value = n;
+        o.textContent = n;
+        inSetSelect.appendChild(o);
+      }
+      const seeds = [...new Set(["INTERP", "FINAL", "TEST", ...names])];
+      consList!.innerHTML = "";
+      for (const n of seeds) {
+        const o = document.createElement("option");
+        o.value = n;
+        consList!.appendChild(o);
+      }
+    })
+    .catch(() => {});
+
   // --- Run bar -------------------------------------------------------------
-  const progress = document.createElement("progress");
-  progress.max = 1;
-  progress.value = 0;
-  progress.style.display = "none";
+  // No inline progress bar here — the universal Processing panel owns the live bar, per-well
+  // status and Cancel. This dialog keeps only a one-line status for quick confirmation.
   const statusLine = document.createElement("div");
   statusLine.className = "workflow-status";
   const runBtn = button("Run chain");
@@ -769,12 +796,8 @@ export async function buildWorkflowContent(
   function applyStatus(s: ChainStatus | null): void {
     if (!s) return;
     if (s.state === "running") {
-      progress.style.display = "";
-      progress.max = s.total_steps;
-      progress.value = s.step + (s.wells_done >= s.wells_total ? 1 : 0);
-      statusLine.textContent = `Step ${s.step + 1}/${s.total_steps}: ${moduleByName.get(s.module)?.title ?? s.module}`;
+      statusLine.textContent = `Step ${s.step + 1}/${s.total_steps}: ${moduleByName.get(s.module)?.title ?? s.module} — see Processing panel`;
     } else if (s.state === "completed") {
-      progress.value = progress.max;
       const errNote = s.errors.length ? ` — ${s.errors.length} well/step warnings` : "";
       statusLine.textContent = `Done: ${s.steps_run} steps, ${s.curves_written} curves across ${s.wells} wells${errNote}`;
       if (s.errors.length) console.warn("chain warnings:", s.errors);
@@ -816,11 +839,11 @@ export async function buildWorkflowContent(
     running = true;
     runBtn.disabled = true;
     cancelBtn.disabled = false;
-    progress.style.display = "";
-    progress.max = steps.length;
-    progress.value = 0;
-    statusLine.textContent = "Starting…";
+    statusLine.textContent = "Starting… (progress in the Processing panel)";
     recordProcess("Workflow", `Ran chain (${steps.length} step(s) × ${wellIds.length} well(s))`);
+    // Pop open the universal Processing panel so live per-well progress + Cancel are visible
+    // without the user hunting for it (the ribbon listens for this).
+    window.dispatchEvent(new CustomEvent("sandibumi:open-processing"));
 
     // Fire the (blocking) run without awaiting so we can poll progress meanwhile.
     void runWorkflowChain(
@@ -828,7 +851,7 @@ export async function buildWorkflowContent(
       steps,
       wellIds,
       setInput.value.trim() || undefined,
-      inSetInput.value.trim() || undefined,
+      inSetSelect.value.trim() || undefined,
     ).catch((e) => {
       statusLine.textContent = `Error: ${e}`;
       finishRun();
@@ -847,10 +870,14 @@ export async function buildWorkflowContent(
   });
 
   cancelBtn.addEventListener("click", async () => {
-    if (currentJob) await cancelWorkflowChain(currentJob).catch(() => {});
+    if (!currentJob) return;
+    // The run drains in a well or two; the poll confirms the Cancelled state shortly after.
+    cancelBtn.disabled = true;
+    statusLine.textContent = "Cancelling…";
+    await cancelWorkflowChain(currentJob).catch(() => {});
   });
 
-  content.append(runRow, progress, statusLine);
+  content.append(runRow, statusLine);
 
   // Save controls live at the bottom with the name field.
   const saveRow = document.createElement("div");

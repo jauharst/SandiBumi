@@ -122,9 +122,16 @@ pub(crate) fn run_chain(
     well_ids: &[String],
     output_set: Option<&str>,
     input_set: Option<&str>,
+    // Universal Processing panel handle (same `cancel` flag). Reports per-well progress in
+    // addition to the chain-specific `ChainStatus` the Workflow Builder polls.
+    job: Option<&crate::jobs::JobHandle>,
 ) {
     let total_steps = steps.len();
     let wells_total = well_ids.len();
+    // One "unit" per (well, step): the panel's bar fills smoothly from 0 to steps × wells.
+    if let Some(j) = job {
+        j.running(total_steps * wells_total);
+    }
     let mut curves_written = 0usize;
     let mut errors: Vec<String> = Vec::new();
 
@@ -144,15 +151,16 @@ pub(crate) fn run_chain(
                 .map(|s| format!("[[\"input_set\",{}]]", serde_json::to_string(s).unwrap_or_default()))
                 .unwrap_or_default(),
         };
-        well_ids
-            .iter()
-            .filter_map(|w| crate::equations::create_log_set(&conn, w, &spec).ok().map(|(id, _)| (w.clone(), id)))
-            .collect()
+        // One transaction for every well's set event (was one auto-committed INSERT + fsync each).
+        crate::equations::create_log_sets_batch(&conn, well_ids, &spec).unwrap_or_default()
     };
 
     for (i, step) in steps.iter().enumerate() {
         if cancel.load(Ordering::SeqCst) {
             set_status(registry, job_id, ChainStatus::Cancelled { at_step: i });
+            if let Some(j) = job {
+                j.cancelled();
+            }
             return;
         }
         set_status(
@@ -166,6 +174,9 @@ pub(crate) fn run_chain(
                 wells_total,
             },
         );
+        if let Some(j) = job {
+            j.set_current(Some(format!("Step {}/{}: {}", i + 1, total_steps, step.module)));
+        }
 
         let req = RunModuleRequest {
             module: step.module.clone(),
@@ -178,7 +189,7 @@ pub(crate) fn run_chain(
             // set's archive, so they still resolve from the current store — chaining works.
             input_set: input_set.map(str::to_string),
         };
-        let results = workflow::run_workflow_module_into(db, &req, Some(&preset_sets));
+        let results = workflow::run_workflow_module_into(db, &req, Some(&preset_sets), Some(cancel), job);
         for r in &results {
             curves_written += r.output_curves.len();
             if let Some(e) = &r.error {
@@ -199,11 +210,25 @@ pub(crate) fn run_chain(
         );
     }
 
+    // A cancel during the LAST step drains it (wells skip via the per-well check) but there is
+    // no next-step iteration to catch the flag, so confirm once more before reporting success —
+    // otherwise a late cancel would misreport as Completed.
+    if cancel.load(Ordering::SeqCst) {
+        set_status(registry, job_id, ChainStatus::Cancelled { at_step: total_steps.saturating_sub(1) });
+        if let Some(j) = job {
+            j.cancelled();
+        }
+        return;
+    }
+
     set_status(
         registry,
         job_id,
         ChainStatus::Completed { steps_run: total_steps, curves_written, wells: wells_total, errors },
     );
+    if let Some(j) = job {
+        j.complete();
+    }
 }
 
 #[cfg(test)]
@@ -257,7 +282,7 @@ mod tests {
         let db = Mutex::new(conn);
         let steps = vec![step("vsh_gr"), step("phi_dn"), step("sw_indo")];
 
-        run_chain(&db, &reg, job, &cancel, &steps, &[well.clone()], None, None);
+        run_chain(&db, &reg, job, &cancel, &steps, &[well.clone()], None, None, None);
 
         match status(&reg, job).unwrap() {
             ChainStatus::Completed { steps_run, curves_written, wells, errors } => {
@@ -290,7 +315,7 @@ mod tests {
         cancel.store(true, Ordering::SeqCst); // cancel before it starts
         let db = Mutex::new(conn);
 
-        run_chain(&db, &reg, job, &cancel, &[step("vsh_gr")], &[well.clone()], None, None);
+        run_chain(&db, &reg, job, &cancel, &[step("vsh_gr")], &[well.clone()], None, None, None);
 
         match status(&reg, job).unwrap() {
             ChainStatus::Cancelled { at_step } => assert_eq!(at_step, 0),

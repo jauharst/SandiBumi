@@ -2,9 +2,91 @@
 
 Everything below is implemented, unit/integration-tested, and browser-smoke-tested,
 but has **not** been clicked through in the real desktop app with real field data.
-Work through this list when you have time; delete items as you confirm them.
-Marks: `[o]` confirmed OK (removed from this file), `[x]` confirmed wrong → logged in
-**ROADMAP.md §4 (Field-review backlog)**, `[ ]` not yet tested.
+Work through this list when you have time, marking items as you go.
+Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked. If something is
+**wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
+**ROADMAP.md §4 (Field-review backlog)**.
+
+## 540-well test — perf & crash fixes (2026-07-21)
+
+From your ~540-well stress test. A read-only 5-agent diagnosis traced every "not responding"
+freeze to one root cause (heavy commands run **synchronously on the UI thread**) plus a specific
+speed bug per subsystem. **Rust 176 pass / 0 fail; tsc EXIT 0. Nothing committed.** The async
+piece can't be verified without running the app, so these especially want your click-through.
+
+- [ ] **Field Dashboard no longer crashes on ~540 wells** (dashboardPanel.ts, summaryDialog.ts).
+      "Compute failed: TypeError: Cannot read properties of null (reading 'toFixed')" was a zero-net
+      zone row whose avg VSH/PHIE/SWE come back as NaN → serde encodes non-finite floats as JSON
+      **null**, and the old `Number.isNaN` guard doesn't catch null. The formatter now shows "—" for
+      null/NaN. Test: **Field Dashboard ▸ Compute** across all wells → the grid renders (empty
+      aggregates show "—"), no crash. Same latent fix in the single-well **Cutoffs & Summary** table.
+- [ ] **Field Dashboard is fast now** (workflow.rs `stats_only`). Compute took >5 min because it
+      secretly wrote 3 FLAG_* curves per well (~1,600 DB transactions) on every press, though the
+      panel only reads the returned numbers. It now computes the stats without persisting anything.
+      Test: Compute on all wells → **seconds, not minutes**; tweak a cutoff and re-Compute → still
+      fast. Behavior change to note: the dashboard no longer leaves FLAG_* curves in the wells —
+      persist those from **Cutoffs & Pay Summary** (unchanged) when you actually want them written.
+      Test `pay_summary_stats_only_persists_nothing`.
+- [ ] **Workflow chain runs without freezing the app + live progress works** (lib.rs — `DbState` is
+      now `Arc<Mutex<Connection>>`; `run_workflow_chain` now runs on a background thread). Build a
+      chain (e.g. vsh_gr → phi_dn → sw_indo) and run it on a batch of wells: (a) the window stays
+      **draggable/responsive** during the run (was frozen "not responding"), (b) the **progress bar
+      advances** step-by-step, and (c) **Cancel** actually stops it. This is the first of the async
+      conversions — import, dashboard, multimin, Monte Carlo and equations will follow the *same*
+      pattern, so confirming this one works validates the whole approach.
+- [ ] **A chain of many wells now finishes in seconds, and Cancel is near-instant**
+      (workflow.rs two-phase batched write; equations.rs `create_log_sets_batch` +
+      `write_computed_curves_versioned_batch`; chain.rs). The 30-min chain / 30-min-to-cancel
+      was ~2 fsync-bound DB transactions **per well** per step (≈1,000 commits on 500 wells). Each
+      step now computes every well in parallel (reads only), then does **one** batched versioned
+      write — ~2 commits per step. Cancel is checked per well, so it drains in a well or two.
+      Test: run a chain (vsh_gr → phi_dn → sw_indo) on a big well set → **seconds**, and **Cancel
+      stops almost immediately**. Test `batched_module_run_writes_every_well_correctly` proves two
+      wells write distinct, un-crossed, correctly-versioned results.
+- [ ] **Cancel empties the progress bar** (workflowDialog.ts). Pressing **Cancel** now clears the
+      bar to empty (and hides it) the instant you click, then the status confirms "Cancelled at
+      step N". Test: start a chain, hit Cancel → the bar goes empty right away.
+- [ ] **Input/Output are now "cons" (constellation) pickers, not free text** (workflowDialog.ts,
+      moduleDialog.ts, new `list_log_set_names` command). Terminology changed from "set" to **cons**
+      throughout the UI (Workflow, module dialogs, Curve Catalog "Constellations"). **Input cons** is
+      a strict dropdown of existing constellations (blank = latest values — you can only read from
+      one that exists). **Output cons** is an editable combobox: pick an existing constellation *or*
+      type a brand-new name. Both are filled from the project's real constellation names. Test: open
+      Workflow / any module → Input cons lists your existing constellations; Output cons suggests
+      them but also accepts a new name like `FINAL2`.
+- [ ] **Universal Processing panel — live per-well progress + Cancel for the whole run**
+      (new `jobs.rs` registry + `list_jobs`/`cancel_job`; `processingPanel.ts`; ribbon **Processing**
+      button). New dock panel that shows, for a running workflow chain: a **progress bar with an
+      integrated Cancel**, the current **"Step 2/3: sw_indo"** line, a live **counts row**
+      (▶ running · ✓ done · ⚠ warned · ✗ failed · ⏳ pending), and a **details** toggle listing the
+      *notable* wells (running/warned/failed) with messages — so you can see **which well failed and
+      why** at 500-well scale without a 500-row dump. It **auto-opens** when you press Run in the
+      Workflow Builder, or open it anytime from the **Processing** ribbon button. Cancel here shares
+      the *same* flag as the run, so it stops the chain whether launched from the panel or the
+      builder. This is the reusable spine: import, module runs, multimin, Monte Carlo and reports
+      will each report into it as they move off the IPC thread. Test: Run a chain → the Processing
+      panel opens and fills live; click a well's ⚠/✗ in details to read the message; hit Cancel →
+      the bar stops within a well or two.
+- [ ] **Processing panel: the step-boundary "pause" now says what it's doing** (workflow.rs).
+      Each chain step computes every well (bar fills), then does ONE big batched DB write with no
+      per-well signal — so the bar used to sit at the boundary / 100% looking frozen. It now shows
+      **"Writing N well(s)…"** during that write, so the wait reads as working, not stuck. Test: run
+      a chain and watch between steps and at the end → the current line reads "Writing … well(s)"
+      during the pause, then advances/completes.
+- [ ] **Workflow Builder no longer shows its own redundant progress bar** (workflowDialog.ts). The
+      inline `<progress>` bar is gone now that the Processing panel owns the live bar + Cancel; the
+      builder keeps a one-line status ("Step 2/2: … — see Processing panel", "Done: …"). Test: run a
+      chain → progress shows only in the Processing panel; the builder just shows a status line.
+- [ ] **Hardware Health Monitor** (new `health.rs` + `health_snapshot` command; `healthPanel.ts`;
+      ribbon **Health** button). A Petrel-PHM-style panel of four colour-coded gauges — **MEM System**
+      (system memory %), **GPU Memory** (GPU video-memory current/budget %), **USER Objects** and
+      **GDI Objects** (this process's handle counts vs the 10,000-per-process ceiling — the classic
+      desktop-leak signal, raw count shown in the value). **Green < 60% · Yellow 60–80% · Red > 80%**,
+      polled every 1.5 s. Open from the **Health** ribbon button (next to Processing). Metrics are
+      Windows-only; any unavailable value shows **n/a** (so if GPU Memory reads "n/a" on your machine,
+      tell me — the DXGI path is best-effort and I'll adjust). Note: this is GPU *memory* load, not
+      engine-utilisation % (that needs PDH GPU counters — a possible refinement). Test: open Health →
+      MEM/USER/GDI show live %; leave a few heavy panels open and watch GDI/USER climb.
 
 ## P0 senior-audit backlog — correctness & data-integrity fixes (2026-07-20)
 
@@ -1208,6 +1290,32 @@ Geolog-V14 helpset + IP2018 install → `docs/multimin_geolog_spec.md`, `docs/mu
 - [ ] **QC plot for sat-height**: the Pc/J-vs-Sw QC plot with the fitted curve + core
       points overlaid is NOT built yet — the `get_scal_pc` IPC is ready for it. Say "go"
       when you want it.
+
+## Module-panel cleanup, Help tool, bulk Processing report, responsive resize (2026-07-21)
+
+Five asks from your VSH-panel screenshot (SandiMin deferred for later review).
+
+- [ ] **Module form no longer lists per-well results**: run a module (e.g. VSH from
+      Gamma Ray) — the form now shows one summary line ("All N well(s) computed. Per-well
+      details are in the Processing panel." or "…N need attention…") and the Processing
+      panel comes forward. The old `✓ well: samples → curves` list is gone from the form.
+- [ ] **Per-well detail lives in Processing → details**: expand a job's **▸ details** —
+      running wells show individually; the narration paragraph that used to sit at the top
+      of the module form is gone (it moved to Help, below).
+- [ ] **Bulk failure report**: when many wells fail the SAME way, Processing → details shows
+      **one card per reason** — "N well(s) failed — <message>", the well list (first 12 +
+      "…(+K more)"), and a "→ what to do" advice line — instead of one row per well.
+- [ ] **Help (?) tool**: click the **?** in the top quick-access bar (or right-click any
+      panel → **Help for this panel…**). A guide opens for whatever panel is active — a
+      module pane shows that method's description; other panels show a short blurb. (This is
+      the placeholder that will later link to the full illustrated help library.)
+- [ ] **Ribbon dropdowns still work**: open **Petrophysics → VSH/Porosity/Saturation**, and
+      **Data → Import Logs/Import Data/Tools**, and **Project → Recent** — each menu must drop
+      fully below the ribbon (this was a regression the review caught and fixed).
+- [ ] **Resize the whole window**: the ribbon stays reachable (scrolls if very narrow) and
+      the panes reflow. **Wells & Tops, Processing, and Performance keep their size**; the log
+      view / plots / inspector absorb the change. (Vertically, the Wells list — which scrolls —
+      takes the slack while the Performance gauges stay fixed.)
 
 ---
 

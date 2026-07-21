@@ -4,8 +4,10 @@ import {
   type DockviewGroupPanel,
   type GroupPanelPartInitParameters,
   type IContentRenderer,
+  type IDockviewPanel,
   type IHeaderActionsRenderer,
 } from "dockview-core";
+import { openModal } from "./modal";
 import "dockview-core/dist/styles/dockview.css";
 import { appState, bumpDataVersion, setStatus } from "../state";
 import { WORKSPACE_DIRTY, clearDirty, isDirty, markDirty, subscribeDirty } from "../dirty";
@@ -100,6 +102,7 @@ export class Workspace {
     resizeObserver.observe(container);
 
     if (!this.restore()) this.defaultWorkspace();
+    this.ensureMonitorsBelowWells();
 
     // Constructor's own restore/default build happens above this subscription, so it
     // never marks the workspace dirty; only later (user) arrangement changes do.
@@ -118,21 +121,30 @@ export class Workspace {
     });
   }
 
-  /** Window resize should NOT proportionally squeeze every pane (dockview's hardcoded
-   *  behavior): side panes keep their user-set size and only the largest pane — the main
-   *  content area — absorbs the delta. Snapshot sizes, layout, restore all but the largest.
-   *  Sash drags are untouched (they don't go through this path), so manual pane resizing
-   *  still works exactly as before. */
+  /** The panels that anchor the workspace — Wells & Tops, Processing, Performance — are
+   *  Jauhar's "main manoeuvre": resizing the whole application must leave them the size he
+   *  set. Everything else (log views, plots, inspector) is content and flexes to absorb the
+   *  delta, the way an Office window keeps its navigation rail fixed while the document area
+   *  reflows. We snapshot the anchor groups, let dockview do its proportional relayout, then
+   *  pin the anchors back to their sizes — the remaining space redistributes across the
+   *  content panes. Sash drags don't come through here, so manual resizing is untouched.
+   *
+   *  Widths are fully honoured for all three anchors (they share the left column, and the
+   *  content column to the right absorbs horizontal delta). Height is the one compromise: when
+   *  Wells & Tops sits stacked above the Processing/Performance group in the SAME column, a
+   *  vertical window change has to land somewhere in that column — the restore order leaves the
+   *  fixed-height monitor gauges pinned and lets the Wells list (which scrolls) take the delta,
+   *  which is the desired behaviour. */
+  private static readonly ANCHOR_PANEL_IDS = ["wellsTops", "processing", "health"];
+
   private relayoutKeepingPaneSizes(width: number, height: number): void {
-    const groups = this.dock.groups.filter((g) => g.api.location.type === "grid");
-    const before = groups.map((g) => ({ g, w: g.width, h: g.height }));
-    let largest = before[0];
-    for (const entry of before) {
-      if (entry.w * entry.h > (largest?.w ?? 0) * (largest?.h ?? 0)) largest = entry;
+    const anchors = new Map<DockviewGroupPanel, { w: number; h: number }>();
+    for (const id of Workspace.ANCHOR_PANEL_IDS) {
+      const g = this.dock.panels.find((p) => p.id === id)?.api.group;
+      if (g && g.api.location.type === "grid" && !anchors.has(g)) anchors.set(g, { w: g.width, h: g.height });
     }
     this.dock.layout(width, height);
-    for (const { g, w, h } of before) {
-      if (g === largest?.g) continue;
+    for (const [g, { w, h }] of anchors) {
       if (g.width !== w || g.height !== h) g.api.setSize({ width: w, height: h });
     }
   }
@@ -304,6 +316,18 @@ export class Workspace {
           "dock-workflow",
           () => import("./workflowDialog").then((m) => m.buildWorkflowContent(setStatus)),
           "workflow builder",
+        );
+      case "processing":
+        return this.asyncPane(
+          "dock-processing",
+          () => import("./processingPanel").then((m) => m.buildProcessingContent(setStatus)),
+          "processing",
+        );
+      case "health":
+        return this.asyncPane(
+          "dock-health",
+          () => import("./healthPanel").then((m) => m.buildHealthContent(setStatus)),
+          "performance monitor",
         );
       // Tool panes ported from popups (ROADMAP §4c item 14): dynamic imports keep
       // workspace.ts free of ribbon↔dialog cycles, same as the workflow builder.
@@ -608,6 +632,10 @@ export class Workspace {
       items.push({ heading: "Field Map" }, { label: "Refresh", onClick: () => bumpDataVersion() });
     } else if (kind === "workflow") {
       items.push({ heading: "Workflow Builder" });
+    } else if (kind === "processing") {
+      items.push({ heading: "Processing" });
+    } else if (kind === "health") {
+      items.push({ heading: "Performance" });
     } else if (kind === "paysummary") {
       items.push({ heading: "Cutoffs & Pay Summary" });
     } else if (kind === "cutoff") {
@@ -630,8 +658,12 @@ export class Workspace {
       items.push({ heading: "Report" });
     }
 
-    // --- Window block (every panel) ---
+    // --- Help (every panel): opens the same contextual guide as the quick-access ? button. ---
     if (items.length) items.push("sep");
+    items.push({ label: "Help for this panel…", onClick: () => void this.openHelpForPanelId(panelId) });
+
+    // --- Window block (every panel) ---
+    items.push("sep");
     items.push({ heading: "Window" });
     const inGrid = group?.api.location.type === "grid";
     if (group && inGrid) {
@@ -863,6 +895,28 @@ export class Workspace {
     log.api.setActive();
   }
 
+  /** Processing + Performance monitors dock below the Wells & Tops pane and default to visible
+   *  (the user asked for them always showing). Adds whichever is missing — tabbed together in a
+   *  group directly below the wells pane; an instance the user already moved elsewhere is left in
+   *  place. Runs after both the default build AND a layout restore, so older saved layouts (which
+   *  predate these panels) pick them up too. */
+  private ensureMonitorsBelowWells(): void {
+    const wellsGroup = this.dock.panels.find((p) => p.id === "wellsTops")?.api.group;
+    let monitorGroup = this.dock.panels.find((p) => p.id === "processing")?.api.group;
+    const add = (id: string, component: string, title: string): void => {
+      if (this.dock.panels.some((p) => p.id === id)) return;
+      const position = monitorGroup
+        ? { referenceGroup: monitorGroup }
+        : wellsGroup
+          ? { referenceGroup: wellsGroup, direction: "below" as const }
+          : undefined;
+      const panel = this.dock.addPanel({ id, component, title, position });
+      monitorGroup = panel.api.group; // the second monitor tabs into the first's group
+    };
+    add("processing", "processing", "Processing");
+    add("health", "health", "Performance");
+  }
+
   private restore(): boolean {
     const stored = localStorage.getItem(LAYOUT_STORAGE_KEY);
     if (!stored) return false;
@@ -884,6 +938,7 @@ export class Workspace {
     this.dock.clear();
     this.logViews.clear();
     this.defaultWorkspace();
+    this.ensureMonitorsBelowWells();
     clearDirty();
   }
 
@@ -941,6 +996,93 @@ export class Workspace {
 
   openWorkflow(group?: DockviewGroupPanel): void {
     this.openSingleton("workflow", "workflow", "Workflow Builder", group);
+  }
+
+  /** Universal Processing panel — live progress + Cancel for every long op. Safe to call
+   *  repeatedly (singleton); the Workflow Builder auto-opens it when a chain starts. */
+  openProcessing(group?: DockviewGroupPanel): void {
+    this.openSingleton("processing", "processing", "Processing", group);
+  }
+
+  /** Performance Monitor — CPU / system memory / USER + GDI object gauges. */
+  openHealth(group?: DockviewGroupPanel): void {
+    this.openSingleton("health", "health", "Performance", group);
+  }
+
+  /** Placeholder help copy keyed by panel kind — the seed for the future HTML help library.
+   *  The Help tool (the ? in the quick-access bar) resolves the ACTIVE panel to its kind and
+   *  shows this; module panes instead surface their manifest doc (spec.doc, the narration that
+   *  used to sit in the form). When the illustrated HTML help set lands, swap an entry here for
+   *  a link into it — this map is the single wiring point. */
+  private static readonly PANEL_HELP: Record<string, string> = {
+    logview:
+      "Log View — the depth-track viewer. Add/arrange tracks and curves from the mini toolbar, right-click a curve to edit it, and pick a saved Layout from the Plot tab. It follows the well selected in Wells & Tops.",
+    wellsTops:
+      "Wells & Tops — the project's control panel. Pick a well to drive every plot, view and tool; window to a top to focus plots on that interval; manage well groups and pick/edit tops.",
+    inspector:
+      "Inspector — the Equation Editor (write custom curves in Python or the expression language) and the Curve Catalog (every stored curve, its versions and provenance).",
+    dbInspector: "Database Inspector — browse and edit any project table directly, Geolog 'Text' style.",
+    sqlQuery: "SQL Query — a read-only DuckDB SQL console over the project database.",
+    history: "Processing History — the audit trail of everything done in this project, saveable to file.",
+    dashboard: "Field Dashboard — field-wide pay and quality tiles across all wells (or the active group).",
+    map: "Field Map — wells plotted by surface location; draw a polygon to capture them into a well group.",
+    workflow: "Workflow Builder — chain modules into a repeatable pipeline and run it across many wells; progress shows in the Processing panel.",
+    processing:
+      "Processing — live progress, the well being worked, per-reason ✓/⚠/✗ outcomes and a Cancel button for every long operation. Expand 'details' for the grouped failure report.",
+    health: "Performance — CPU, system memory and USER/GDI object-handle gauges for this session.",
+    paysummary: "Cutoffs & Pay Summary — apply VSH/PHIE/SW cutoffs and summarise net/gross pay per zone and well.",
+    cutoff: "Cutoff Sensitivity — sweep net pay against VSH/PHIE/SW cutoffs and read them off DST-highlighted crossplots.",
+    ml: "Machine Learning — supervised prediction (regression/classification) and unsupervised clustering/reduction via scikit-learn.",
+    montecarlo: "Monte Carlo — propagate input uncertainty through the interpretation to P10/P50/P90 volumes.",
+    multimin: "SandiMin — the simultaneous probabilistic multi-mineral solver. (Full guide is being written.)",
+    zones: "Zones — define depth zones and per-zone parameters that override the whole-well defaults used by modules.",
+    autocorr: "Autocorrelate Tops — propagate a top from one well to others by matching a log's shape.",
+    composite: "Composite Log — lay out a print-scale (1:200/500/1000) log plot and export it to SVG or PDF.",
+    report: "Report — build a full PDF (cover, methodology, zone parameters, pay summary, composite pages); batch per well.",
+    histogram: "Histogram — distribution and percentiles for any curve; pick matrix/shale parameters straight off it.",
+    crossplot: "Crossplot — any curve pair, Z-coloured, with matrix/shale points you can drag to write zone parameters live.",
+    pickett: "Pickett — log-log RT vs PHIE; drag the Sw=1 water line to read Rw and the cementation exponent m.",
+    correlation: "Correlation — side-by-side well strips with tops connected; flatten on a datum top.",
+  };
+
+  /** Open contextual help for whichever panel is active — the quick-access ? button. */
+  async openHelpForActivePanel(): Promise<void> {
+    await this.openHelpForPanel(this.dock.activePanel ?? undefined);
+  }
+
+  /** Open help for a specific panel by id — used by the panel's right-click menu, where the
+   *  right-clicked panel isn't necessarily the active one. */
+  async openHelpForPanelId(panelId: string): Promise<void> {
+    await this.openHelpForPanel(this.dock.panels.find((p) => p.id === panelId));
+  }
+
+  private async openHelpForPanel(panel?: IDockviewPanel): Promise<void> {
+    if (!panel) {
+      setStatus("Click a panel first, then press Help (?) for its guide.");
+      return;
+    }
+    const title = panel.title ?? "Panel";
+    let body: string;
+    if (panel.id.startsWith("module:")) {
+      const name = panel.id.slice("module:".length);
+      const spec = await listModules()
+        .then((all) => all.find((s) => s.name === name))
+        .catch(() => undefined);
+      body = spec?.doc ?? "Documentation for this module is unavailable.";
+    } else {
+      const kind = panel.id.split("-")[0];
+      body = Workspace.PANEL_HELP[kind] ?? "Documentation for this panel is coming soon.";
+    }
+    const content = document.createElement("div");
+    const bodyEl = document.createElement("p");
+    bodyEl.className = "help-body";
+    bodyEl.textContent = body;
+    content.appendChild(bodyEl);
+    const note = document.createElement("p");
+    note.className = "help-note";
+    note.textContent = "Illustrated help for each panel will open here in a later release.";
+    content.appendChild(note);
+    openModal(`Help — ${title}`, content, 480);
   }
 
   openHistory(group?: DockviewGroupPanel): void {

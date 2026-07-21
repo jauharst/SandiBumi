@@ -35,6 +35,16 @@ thiserror = "2"
 base64 = "0.22"
 rhai = { version = "1", features = ["sync"] }
 
+# Windows resource metrics for the Health Monitor panel (system memory load, per-process
+# USER/GDI object counts, total CPU load via GetSystemTimes). Version matches the one Tauri
+# already pulls in (0.61), so this only widens features — no second copy of the crate.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+] }
+
 # Size/speed-optimized shipping builds (Tauri's recommended profile). Dev builds and
 # `cargo check` are unaffected. Most of the binary is the bundled DuckDB engine —
 # link-time optimization + symbol stripping claw a large share of that back.

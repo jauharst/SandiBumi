@@ -10,8 +10,10 @@ mod equations;
 mod export;
 mod facies;
 mod geo;
+mod health;
 mod ingest;
 mod inversion;
+mod jobs;
 mod layout;
 mod lrlc;
 mod ml;
@@ -84,13 +86,14 @@ fn open_project(
     db: tauri::State<DbState>,
     proj: tauri::State<project::ProjectState>,
     chains: tauri::State<chain::ChainRegistry>,
+    jobs_reg: tauri::State<jobs::JobRegistry>,
     path: String,
 ) -> Result<project::RecentProject, String> {
     if project::is_current(&proj, &path) {
         return Ok(current_project(proj));
     }
-    if chain::any_active(&chains) {
-        return Err("A workflow chain is still running — wait for it to finish before switching projects".to_string());
+    if chain::any_active(&chains) || jobs::any_active(&jobs_reg) {
+        return Err("A background job is still running — wait for it to finish before switching projects".to_string());
     }
     if !std::path::Path::new(&path).exists() {
         return Err(format!("File not found: {path}"));
@@ -106,10 +109,11 @@ fn new_project(
     db: tauri::State<DbState>,
     proj: tauri::State<project::ProjectState>,
     chains: tauri::State<chain::ChainRegistry>,
+    jobs_reg: tauri::State<jobs::JobRegistry>,
     path: String,
 ) -> Result<project::RecentProject, String> {
-    if chain::any_active(&chains) {
-        return Err("A workflow chain is still running — wait for it to finish before switching projects".to_string());
+    if chain::any_active(&chains) || jobs::any_active(&jobs_reg) {
+        return Err("A background job is still running — wait for it to finish before switching projects".to_string());
     }
     if std::path::Path::new(&path).exists() {
         return Err(format!("{path} already exists — use Open Project to open it"));
@@ -130,42 +134,79 @@ fn list_wells(db: tauri::State<DbState>) -> Result<Vec<db::WellSummary>, String>
 /// one well + its standard curves per file. Per-file failures are reported individually
 /// rather than aborting the whole batch.
 #[tauri::command]
-fn import_las_files(db: tauri::State<DbState>, paths: Vec<String>) -> Vec<ingest::ImportResult> {
-    let conn = db.0.lock().unwrap();
-    ingest::import_las_files(&conn, &paths)
+async fn import_las_files(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    paths: Vec<String>,
+) -> Result<Vec<ingest::ImportResult>, String> {
+    // One job item per file (label = basename) so the Processing panel shows "WELL_12.las ✓".
+    let items: Vec<(String, String)> = paths
+        .iter()
+        .map(|p| (p.clone(), p.rsplit(['/', '\\']).next().unwrap_or(p).to_string()))
+        .collect();
+    let total = paths.len();
+    let conn = db.0.clone();
+    let reg = jobs_reg.inner().clone();
+    jobs::run_job(reg, "Import LAS", format!("{total} file(s)"), items, total, move |job| {
+        let c = conn.lock().unwrap();
+        ingest::import_las_files(&c, &paths, Some(&job))
+    })
+    .await
 }
 
 /// Parses a routine-core-analysis CSV and replaces the given well's core plug data
 /// (CPOR/CPERM/CGD/CSW, alias-resolved headers, sparse/irregular depths).
 #[tauri::command]
-fn import_core_csv(db: tauri::State<DbState>, well_id: String, path: String) -> ingest::CoreImportResult {
-    let conn = db.0.lock().unwrap();
-    ingest::import_core_csv(&conn, &well_id, &path)
+async fn import_core_csv(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    well_id: String,
+    path: String,
+) -> Result<ingest::CoreImportResult, String> {
+    let conn = db.0.clone();
+    let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
+    jobs::run_simple_job(jobs_reg.inner().clone(), "Import core", base, move || {
+        let c = conn.lock().unwrap();
+        Ok(ingest::import_core_csv(&c, &well_id, &path))
+    })
+    .await
 }
 
 /// Imports formation tops from a CSV/TXT file (P2). Files with a WELL column update
 /// every matching well; single-well files use `default_well_id` (the selected well).
 #[tauri::command]
-fn import_tops_csv(
-    db: tauri::State<DbState>,
+async fn import_tops_csv(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
     default_well_id: Option<String>,
     path: String,
-) -> ingest::TopsImportResult {
-    let conn = db.0.lock().unwrap();
-    ingest::import_tops_file(&conn, default_well_id.as_deref(), &path)
+) -> Result<ingest::TopsImportResult, String> {
+    let conn = db.0.clone();
+    let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
+    jobs::run_simple_job(jobs_reg.inner().clone(), "Import tops", base, move || {
+        let c = conn.lock().unwrap();
+        Ok(ingest::import_tops_file(&c, default_well_id.as_deref(), &path))
+    })
+    .await
 }
 
 /// Imports a tops-style dataset (PETROGRAPHY / XRD / PERFORATION / custom) for one well,
 /// replacing that well's previous rows of the same dataset (P2).
 #[tauri::command]
-fn import_aux_data(
-    db: tauri::State<DbState>,
+async fn import_aux_data(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
     well_id: String,
     dataset: String,
     path: String,
-) -> ingest::AuxImportResult {
-    let conn = db.0.lock().unwrap();
-    ingest::import_aux_file(&conn, &well_id, &dataset, &path)
+) -> Result<ingest::AuxImportResult, String> {
+    let conn = db.0.clone();
+    let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
+    jobs::run_simple_job(jobs_reg.inner().clone(), "Import dataset", base, move || {
+        let c = conn.lock().unwrap();
+        Ok(ingest::import_aux_file(&c, &well_id, &dataset, &path))
+    })
+    .await
 }
 
 /// One well's auxiliary dataset rows (all datasets when `dataset` is null).
@@ -199,53 +240,107 @@ fn get_core_data(db: tauri::State<DbState>, well_id: String) -> Result<tauri::ip
 /// Renders a composite log plot for one well at a true print scale, returning one vector
 /// SVG per depth page plus page metadata (Phase 8 deliverables).
 #[tauri::command]
-fn render_composite(db: tauri::State<DbState>, spec: composite::CompositeSpec) -> Result<composite::CompositeResult, String> {
-    let conn = db.0.lock().unwrap();
-    composite::render_composite(&conn, &spec)
+async fn render_composite(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    spec: composite::CompositeSpec,
+) -> Result<composite::CompositeResult, String> {
+    let conn = db.0.clone();
+    jobs::run_simple_job(jobs_reg.inner().clone(), "Composite", "render composite", move || {
+        let c = conn.lock().unwrap();
+        composite::render_composite(&c, &spec)
+    })
+    .await
 }
 
 /// Renders a composite and writes it to disk as SVG (one file per page when multi-page),
 /// returning the paths written.
 #[tauri::command]
-fn export_composite_svg(db: tauri::State<DbState>, spec: composite::CompositeSpec, dest_path: String) -> Result<Vec<String>, String> {
-    let conn = db.0.lock().unwrap();
-    let result = composite::render_composite(&conn, &spec)?;
-    composite::export_svg_files(&result, &dest_path)
+async fn export_composite_svg(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    spec: composite::CompositeSpec,
+    dest_path: String,
+) -> Result<Vec<String>, String> {
+    let conn = db.0.clone();
+    jobs::run_simple_job(jobs_reg.inner().clone(), "Composite", "export SVG", move || {
+        let c = conn.lock().unwrap();
+        let result = composite::render_composite(&c, &spec)?;
+        composite::export_svg_files(&result, &dest_path)
+    })
+    .await
 }
 
 /// Renders a composite as a single multi-page PDF and writes it to `dest_path`.
 #[tauri::command]
-fn export_composite_pdf(db: tauri::State<DbState>, spec: composite::CompositeSpec, dest_path: String) -> Result<String, String> {
-    let conn = db.0.lock().unwrap();
-    let pdf = composite::render_composite_pdf(&conn, &spec)?;
-    std::fs::write(&dest_path, pdf).map_err(|e| e.to_string())?;
-    Ok(dest_path)
+async fn export_composite_pdf(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    spec: composite::CompositeSpec,
+    dest_path: String,
+) -> Result<String, String> {
+    let conn = db.0.clone();
+    jobs::run_simple_job(jobs_reg.inner().clone(), "Composite", "export PDF", move || {
+        let c = conn.lock().unwrap();
+        let pdf = composite::render_composite_pdf(&c, &spec)?;
+        std::fs::write(&dest_path, pdf).map_err(|e| e.to_string())?;
+        Ok(dest_path)
+    })
+    .await
 }
 
 /// Renders the full report (cover → methodology table → zone parameters → pay summary →
 /// composite log pages) as per-page SVGs for the dialog preview.
 #[tauri::command]
-fn render_report(db: tauri::State<DbState>, spec: report::ReportSpec) -> Result<composite::CompositeResult, String> {
-    report::render_report(&db.0, &spec)
+async fn render_report(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    spec: report::ReportSpec,
+) -> Result<composite::CompositeResult, String> {
+    let conn = db.0.clone();
+    jobs::run_simple_job(jobs_reg.inner().clone(), "Report", "render report", move || {
+        report::render_report(&conn, &spec)
+    })
+    .await
 }
 
 /// Renders the full report as one multi-page PDF and writes it to `dest_path`.
 #[tauri::command]
-fn export_report_pdf(db: tauri::State<DbState>, spec: report::ReportSpec, dest_path: String) -> Result<String, String> {
-    let pdf = report::render_report_pdf(&db.0, &spec)?;
-    std::fs::write(&dest_path, pdf).map_err(|e| e.to_string())?;
-    Ok(dest_path)
+async fn export_report_pdf(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    spec: report::ReportSpec,
+    dest_path: String,
+) -> Result<String, String> {
+    let conn = db.0.clone();
+    jobs::run_simple_job(jobs_reg.inner().clone(), "Report", "export PDF", move || {
+        let pdf = report::render_report_pdf(&conn, &spec)?;
+        std::fs::write(&dest_path, pdf).map_err(|e| e.to_string())?;
+        Ok(dest_path)
+    })
+    .await
 }
 
 /// Batch report export: one PDF per well into `dest_dir` (named `<WELL>_report.pdf`).
 /// Returns the written paths; per-well failures are reported without aborting the rest.
 #[tauri::command]
-fn export_report_batch(db: tauri::State<DbState>, spec: report::ReportSpec, well_ids: Vec<String>, dest_dir: String) -> Result<Vec<String>, String> {
-    let (written, errors) = report::export_report_batch(&db.0, &spec, &well_ids, &dest_dir)?;
-    if !errors.is_empty() {
-        return Err(format!("wrote {} file(s); failed: {}", written.len(), errors.join("; ")));
-    }
-    Ok(written)
+async fn export_report_batch(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    spec: report::ReportSpec,
+    well_ids: Vec<String>,
+    dest_dir: String,
+) -> Result<Vec<String>, String> {
+    let conn = db.0.clone();
+    let label = format!("{} report(s)", well_ids.len());
+    jobs::run_simple_job(jobs_reg.inner().clone(), "Report batch", label, move || {
+        let (written, errors) = report::export_report_batch(&conn, &spec, &well_ids, &dest_dir)?;
+        if !errors.is_empty() {
+            return Err(format!("wrote {} file(s); failed: {}", written.len(), errors.join("; ")));
+        }
+        Ok(written)
+    })
+    .await
 }
 
 /// Writes a base64-encoded PNG (rasterized by the frontend from a report/composite SVG
@@ -264,9 +359,20 @@ fn save_png(dest_path: String, data_base64: String) -> Result<String, String> {
 /// Parses a SCAL capillary-pressure CSV, replaces the well's `scal_pc` rows, and returns
 /// the Leverett-J fit (Sw = A·J^B) at the given lab IFT for use in the sw_height module.
 #[tauri::command]
-fn import_scal_csv(db: tauri::State<DbState>, well_id: String, path: String, ift_lab: f64) -> ingest::ScalImportResult {
-    let conn = db.0.lock().unwrap();
-    ingest::import_scal_csv(&conn, &well_id, &path, ift_lab)
+async fn import_scal_csv(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    well_id: String,
+    path: String,
+    ift_lab: f64,
+) -> Result<ingest::ScalImportResult, String> {
+    let conn = db.0.clone();
+    let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
+    jobs::run_simple_job(jobs_reg.inner().clone(), "Import SCAL", base, move || {
+        let c = conn.lock().unwrap();
+        Ok(ingest::import_scal_csv(&c, &well_id, &path, ift_lab))
+    })
+    .await
 }
 
 /// Fetches a well's SCAL Pc/Sw points (for the saturation-height QC plot).
@@ -294,20 +400,34 @@ fn list_equations(db: tauri::State<DbState>) -> Result<Vec<equations::EquationDe
 /// writing results into `computed_curves`. Dispatches per the equation's language:
 /// "python" → vectorized numpy subprocess engine, anything else → the Rhai path.
 #[tauri::command]
-fn run_equation(db: tauri::State<DbState>, equation_id: String, well_ids: Vec<String>) -> Result<Vec<equations::EquationRunResult>, String> {
-    let equation = {
+async fn run_equation(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    equation_id: String,
+    well_ids: Vec<String>,
+) -> Result<Vec<equations::EquationRunResult>, String> {
+    let (equation, items) = {
         let conn = db.0.lock().unwrap();
-        equations::list_equations(&conn)
+        let equation = equations::list_equations(&conn)
             .map_err(|e| e.to_string())?
             .into_iter()
             .find(|e| e.equation_id == equation_id)
-            .ok_or_else(|| format!("equation {equation_id} not found"))?
+            .ok_or_else(|| format!("equation {equation_id} not found"))?;
+        let items = well_items(&conn, &well_ids);
+        (equation, items)
     };
-    if equation.language == "python" {
-        Ok(python_engine::run_python_equation(&db.0, &equation, &well_ids))
-    } else {
-        Ok(equations::run_equation(&db.0, &equation, &well_ids))
-    }
+    let total = well_ids.len();
+    let conn = db.0.clone();
+    let reg = jobs_reg.inner().clone();
+    let label = format!("equation: {}", equation.name);
+    jobs::run_job(reg, "Equation", label, items, total, move |job| {
+        if equation.language == "python" {
+            python_engine::run_python_equation(&conn, &equation, &well_ids, Some(&job))
+        } else {
+            equations::run_equation(&conn, &equation, &well_ids, Some(&job))
+        }
+    })
+    .await
 }
 
 /// Reports which Python interpreter (with numpy) the equation engine will use, if any —
@@ -330,6 +450,14 @@ fn list_curve_catalog(db: tauri::State<DbState>) -> Result<Vec<equations::CurveC
 fn list_log_sets(db: tauri::State<DbState>, well_id: String) -> Result<Vec<equations::LogSetEntry>, String> {
     let conn = db.0.lock().unwrap();
     equations::list_log_sets(&conn, &well_id).map_err(|e| e.to_string())
+}
+
+/// Distinct constellation (log-set) names across the project — powers the input/output
+/// constellation pickers in the module and workflow dialogs (which run across many wells).
+#[tauri::command]
+fn list_log_set_names(db: tauri::State<DbState>) -> Result<Vec<String>, String> {
+    let conn = db.0.lock().unwrap();
+    equations::list_log_set_names(&conn).map_err(|e| e.to_string())
 }
 
 /// P1-c: copies one archived set version back into the current store (its curves become
@@ -375,14 +503,20 @@ fn get_generic_curve_samples(db: tauri::State<DbState>, curve_id: String) -> Res
 /// Phase 6: imports a deviation-survey CSV for one well, computing minimum-curvature
 /// TVD/TVDSS and storing it in `well_path`.
 #[tauri::command]
-fn import_deviation_csv(
-    db: tauri::State<DbState>,
+async fn import_deviation_csv(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
     well_id: String,
     path: String,
     datum_elevation: Option<f32>,
-) -> ingest::CoreImportResult {
-    let conn = db.0.lock().unwrap();
-    ingest::import_deviation_csv(&conn, &well_id, &path, datum_elevation)
+) -> Result<ingest::CoreImportResult, String> {
+    let conn = db.0.clone();
+    let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
+    jobs::run_simple_job(jobs_reg.inner().clone(), "Import deviation", base, move || {
+        let c = conn.lock().unwrap();
+        Ok(ingest::import_deviation_csv(&c, &well_id, &path, datum_elevation))
+    })
+    .await
 }
 
 /// Phase 6: reads one well's deviation survey (with computed TVD/TVDSS) for TVD-aware views.
@@ -395,9 +529,19 @@ fn get_well_path(db: tauri::State<DbState>, well_id: String) -> Result<Vec<db::W
 /// Phase 6: imports every scalar channel of a DLIS file into one existing well's generic
 /// curve store (via `dlisio` through the Python subprocess).
 #[tauri::command]
-fn import_dlis_file(db: tauri::State<DbState>, well_id: String, path: String) -> dlis::DlisImportResult {
-    let conn = db.0.lock().unwrap();
-    dlis::import_dlis_file(&conn, &well_id, &path)
+async fn import_dlis_file(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    well_id: String,
+    path: String,
+) -> Result<dlis::DlisImportResult, String> {
+    let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
+    let conn = db.0.clone();
+    jobs::run_simple_job(jobs_reg.inner().clone(), "Import DLIS", base, move || {
+        let c = conn.lock().unwrap();
+        Ok(dlis::import_dlis_file(&c, &well_id, &path))
+    })
+    .await
 }
 
 /// Lists every formation top for a well, for the Tops panel.
@@ -513,46 +657,150 @@ fn list_modules() -> Vec<modules::ModuleSpec> {
     modules::list_modules()
 }
 
-/// Runs one deterministic module across the given wells (rayon-parallel), resolving
-/// interval parameters per zone and writing outputs to computed_curves.
+/// well_id → (well_id, well_name) pairs for a job's item list, so the Processing panel shows
+/// well names instead of UUIDs. One cheap query; ids without a matching row fall back to the id.
+fn well_items(conn: &duckdb::Connection, well_ids: &[String]) -> Vec<(String, String)> {
+    let mut names: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    if let Ok(mut stmt) = conn.prepare("SELECT well_id, well_name FROM wells") {
+        if let Ok(rows) = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))) {
+            for row in rows.flatten() {
+                names.insert(row.0, row.1);
+            }
+        }
+    }
+    well_ids
+        .iter()
+        .map(|id| (id.clone(), names.get(id).cloned().unwrap_or_else(|| id.clone())))
+        .collect()
+}
+
+/// Runs one deterministic module across the given wells (rayon-parallel), resolving interval
+/// parameters per zone and writing outputs to computed_curves. Async + off-thread via the job
+/// registry, so it reports live per-well progress and a Cancel in the Processing panel and never
+/// blocks the IPC thread. Returns the same per-well result list as before.
 #[tauri::command]
-fn run_workflow_module(db: tauri::State<DbState>, req: workflow::RunModuleRequest) -> Vec<workflow::ModuleRunResult> {
-    workflow::run_workflow_module(&db.0, &req)
+async fn run_workflow_module(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    req: workflow::RunModuleRequest,
+) -> Result<Vec<workflow::ModuleRunResult>, String> {
+    let items = {
+        let conn = db.0.lock().unwrap();
+        well_items(&conn, &req.well_ids)
+    };
+    let total = req.well_ids.len();
+    let conn = db.0.clone();
+    let reg = jobs_reg.inner().clone();
+    jobs::run_job(reg, "Module", req.module.clone(), items, total, move |job| {
+        workflow::run_workflow_module_into(&conn, &req, None, Some(&job.cancel), Some(&job))
+    })
+    .await
 }
 
 /// Computes the cutoff/lumping pay summary per well per zone, writing FLAG_* curves.
 #[tauri::command]
-fn run_pay_summary(db: tauri::State<DbState>, req: workflow::PaySummaryRequest) -> Result<Vec<workflow::PaySummaryRow>, String> {
-    workflow::run_pay_summary(&db.0, &req)
+async fn run_pay_summary(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    req: workflow::PaySummaryRequest,
+) -> Result<Vec<workflow::PaySummaryRow>, String> {
+    let conn = db.0.clone();
+    // The Field Dashboard's automatic field-wide QC pass (stats_only + skip_version) runs on
+    // every refresh — keep it silent (off-thread, but no job card) so it doesn't flood the
+    // Processing panel. A user-initiated pay summary still shows a job.
+    if req.stats_only && req.skip_version {
+        return tauri::async_runtime::spawn_blocking(move || workflow::run_pay_summary(&conn, &req))
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    jobs::run_simple_job(jobs_reg.inner().clone(), "Pay summary", "cutoffs & pay", move || {
+        workflow::run_pay_summary(&conn, &req)
+    })
+    .await
 }
 
 /// Cutoff-sensitivity sweep (Method 1): pay metric vs a swept cutoff, per well. Reads
 /// VSH/PHIE/SWE/PERM and writes nothing.
 #[tauri::command]
-fn run_cutoff_sweep(db: tauri::State<DbState>, req: workflow::CutoffSweepRequest) -> Result<workflow::CutoffSweepResult, String> {
-    workflow::run_cutoff_sweep(&db.0, &req)
+async fn run_cutoff_sweep(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    req: workflow::CutoffSweepRequest,
+) -> Result<workflow::CutoffSweepResult, String> {
+    let conn = db.0.clone();
+    let label = format!("cutoff sweep: {}", req.property);
+    jobs::run_simple_job(jobs_reg.inner().clone(), "Cutoff sweep", label, move || {
+        workflow::run_cutoff_sweep(&conn, &req)
+    })
+    .await
 }
 
 /// Monte Carlo uncertainty: N seeded realizations of a chain with parameter distributions,
 /// returning P10/P50/P90 net pay / NTG / PHIE / SWE / HPV + an HPV histogram per zone. Runs
-/// entirely in memory (no computed_curves writes).
+/// entirely in memory (no computed_curves writes). Async + off-thread with live per-well
+/// progress + Cancel in the Processing panel.
 #[tauri::command]
-fn run_monte_carlo(db: tauri::State<DbState>, req: montecarlo::McRequest) -> montecarlo::McResult {
-    montecarlo::run_monte_carlo(&db.0, &req)
+async fn run_monte_carlo(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    req: montecarlo::McRequest,
+) -> Result<montecarlo::McResult, String> {
+    let items = {
+        let conn = db.0.lock().unwrap();
+        well_items(&conn, &req.well_ids)
+    };
+    let total = req.well_ids.len();
+    let conn = db.0.clone();
+    let reg = jobs_reg.inner().clone();
+    jobs::run_job(reg, "Monte Carlo", "uncertainty".to_string(), items, total, move |job| {
+        montecarlo::run_monte_carlo(&conn, &req, Some(&job))
+    })
+    .await
 }
 
-/// Phase 10-4: machine-learning bridge — supervised regression/classification and
-/// unsupervised clustering/dimensionality reduction via scikit-learn subprocess.
+/// Phase 10-4: machine-learning bridge — supervised regression/classification and unsupervised
+/// clustering/dimensionality reduction via scikit-learn subprocess. Async + off-thread; the
+/// Processing panel shows the training phase then the per-well writeback.
 #[tauri::command]
-fn run_ml(db: tauri::State<DbState>, req: ml::MlRequest) -> ml::MlResult {
-    ml::run_ml(&db.0, &req)
+async fn run_ml(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    req: ml::MlRequest,
+) -> Result<ml::MlResult, String> {
+    let items = {
+        let conn = db.0.lock().unwrap();
+        well_items(&conn, &req.apply_well_ids)
+    };
+    let total = req.apply_well_ids.len();
+    let conn = db.0.clone();
+    let reg = jobs_reg.inner().clone();
+    jobs::run_job(reg, "Machine learning", req.algorithm.clone(), items, total, move |job| {
+        ml::run_ml(&conn, &req, Some(&job))
+    })
+    .await
 }
 
-/// Generalized multi-mineral inversion: N user-defined components against N tools, with
-/// hard unity + non-negativity. Writes VOL_<component> + derived PHIT/VSH/SWT/RECON curves.
+/// Generalized multi-mineral inversion: N user-defined components against N tools, with hard
+/// unity + non-negativity. Writes VOL_<component> + derived PHIT/VSH/SWT/RECON curves. Async +
+/// off-thread via the job registry — the solve no longer freezes the IPC thread, and the
+/// Processing panel shows live per-well progress + Cancel. Same per-well result payload.
 #[tauri::command]
-fn run_multimin(db: tauri::State<DbState>, req: multimin2::MultiminRequest) -> multimin2::MultiminResult {
-    multimin2::run_multimin(&db.0, &req)
+async fn run_multimin(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    req: multimin2::MultiminRequest,
+) -> Result<multimin2::MultiminResult, String> {
+    let items = {
+        let conn = db.0.lock().unwrap();
+        well_items(&conn, &req.apply_well_ids)
+    };
+    let total = req.apply_well_ids.len();
+    let conn = db.0.clone();
+    let reg = jobs_reg.inner().clone();
+    jobs::run_job(reg, "SandiMin", "mineral solver".to_string(), items, total, move |job| {
+        multimin2::run_multimin(&conn, &req, Some(&job))
+    })
+    .await
 }
 
 /// The built-in mineral/fluid endpoint library (editable defaults for the Multimin dialog).
@@ -660,14 +908,20 @@ fn update_well_field(db: tauri::State<DbState>, well_id: String, field: String, 
 /// files (a WELL column) match project wells by name; single-well files use
 /// `default_well_id`. `default_zone` fills the UTM zone for rows without a ZONE column.
 #[tauri::command]
-fn import_well_locations(
-    db: tauri::State<DbState>,
+async fn import_well_locations(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
     default_well_id: Option<String>,
     default_zone: Option<String>,
     path: String,
-) -> ingest::LocationsImportResult {
-    let conn = db.0.lock().unwrap();
-    ingest::import_locations_file(&conn, default_well_id.as_deref(), default_zone.as_deref(), &path)
+) -> Result<ingest::LocationsImportResult, String> {
+    let conn = db.0.clone();
+    let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
+    jobs::run_simple_job(jobs_reg.inner().clone(), "Import locations", base, move || {
+        let c = conn.lock().unwrap();
+        Ok(ingest::import_locations_file(&c, default_well_id.as_deref(), default_zone.as_deref(), &path))
+    })
+    .await
 }
 
 /// Returns the wells whose surface location falls inside `polygon` (an ordered
@@ -757,9 +1011,17 @@ fn check_top_order(db: tauri::State<DbState>, well_id: String) -> Result<Vec<Str
 /// Proposes marker depths in target wells by correlating a log shape around the source
 /// well's pick (Petrel-style autocorrelation). Read-only — the dialog applies picks.
 #[tauri::command]
-fn autocorrelate_top(db: tauri::State<DbState>, req: tops::AutoCorrRequest) -> tops::AutoCorrResult {
-    let conn = db.0.lock().unwrap();
-    tops::autocorrelate_top(&conn, &req)
+async fn autocorrelate_top(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    req: tops::AutoCorrRequest,
+) -> Result<tops::AutoCorrResult, String> {
+    let conn = db.0.clone();
+    jobs::run_simple_job(jobs_reg.inner().clone(), "Autocorrelate", "top correlation", move || {
+        let c = conn.lock().unwrap();
+        Ok(tops::autocorrelate_top(&c, &req))
+    })
+    .await
 }
 
 /// Read-only SQL over the project database (full DuckDB SQL, SELECT-only).
@@ -771,9 +1033,18 @@ fn run_query(db: tauri::State<DbState>, sql: String, limit: usize) -> Result<db:
 
 /// Exports one well (standard + computed curves) as a LAS 2.0 file; returns row count.
 #[tauri::command]
-fn export_las(db: tauri::State<DbState>, well_id: String, dest_path: String) -> Result<usize, String> {
-    let conn = db.0.lock().unwrap();
-    export::export_las(&conn, &well_id, &dest_path)
+async fn export_las(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    well_id: String,
+    dest_path: String,
+) -> Result<usize, String> {
+    let conn = db.0.clone();
+    jobs::run_simple_job(jobs_reg.inner().clone(), "Export LAS", "write LAS", move || {
+        let c = conn.lock().unwrap();
+        export::export_las(&c, &well_id, &dest_path)
+    })
+    .await
 }
 
 /// Kicks off a long-running stochastic multi-mineral inversion on a background thread and
@@ -801,6 +1072,7 @@ fn get_inversion_status(
 fn run_workflow_chain(
     db: tauri::State<DbState>,
     registry: tauri::State<chain::ChainRegistry>,
+    jobs_reg: tauri::State<jobs::JobRegistry>,
     job_id: String,
     steps: Vec<chain::ChainStep>,
     well_ids: Vec<String>,
@@ -815,6 +1087,28 @@ fn run_workflow_chain(
         return Err("no wells selected".into());
     }
     let cancel = chain::register(registry.inner(), uuid);
+    // Universal Processing-panel job: ONE shared cancel flag drives both registries, so Cancel
+    // works from the Workflow Builder or the universal panel. Item labels are well names so the
+    // panel shows "WELL_12" rather than a UUID.
+    let items: Vec<(String, String)> = {
+        let conn = db.0.lock().unwrap();
+        let mut names: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        if let Ok(mut stmt) = conn.prepare("SELECT well_id, well_name FROM wells") {
+            if let Ok(rows) =
+                stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+            {
+                for row in rows.flatten() {
+                    names.insert(row.0, row.1);
+                }
+            }
+        }
+        well_ids
+            .iter()
+            .map(|id| (id.clone(), names.get(id).cloned().unwrap_or_else(|| id.clone())))
+            .collect()
+    };
+    let label = steps.iter().map(|s| s.module.as_str()).collect::<Vec<_>>().join(" → ");
+    let job = jobs::register(jobs_reg.inner(), uuid, "Workflow chain", label, items, cancel.clone());
     // Run OFF the IPC/main thread so the window stays responsive and the frontend's
     // get_chain_status poll + Cancel button are actually serviced *during* the run. As a sync
     // command this blocked the event loop for the whole multi-minute chain — which is exactly
@@ -822,7 +1116,15 @@ fn run_workflow_chain(
     // so we clone the handle into the worker; the chain registry is already an Arc.
     let db = db.0.clone();
     let registry = registry.inner().clone();
-    tokio::task::spawn_blocking(move || {
+    // Plain OS thread, NOT tokio::spawn_blocking: a sync #[tauri::command] runs on the main
+    // event-loop thread, which is NOT a Tokio runtime worker, so tokio::task::spawn_blocking
+    // panics there ("must be called from the context of a Tokio runtime") and aborts the app
+    // the instant Run is clicked. std::thread has no runtime-context requirement. run_chain is
+    // ordinary blocking code and every captured value (Arc DB handle, Arc registry, Arc cancel
+    // flag, the owned Vecs) is Send + 'static; the DB connection is already used off-thread by
+    // rayon under this same Mutex, so cross-thread use is sound. A panic inside stays on this
+    // thread (it can't abort the process); the job simply stops reporting progress.
+    std::thread::spawn(move || {
         chain::run_chain(
             &db,
             &registry,
@@ -832,9 +1134,35 @@ fn run_workflow_chain(
             &well_ids,
             output_set.as_deref(),
             input_set.as_deref(),
+            Some(&job),
         );
     });
     Ok(())
+}
+
+/// Hardware Health Monitor snapshot — system memory %, this process's USER/GDI object %, and
+/// GPU video-memory %. Cheap; the Health panel polls it on a timer. Windows-only metrics
+/// (other targets return all-None → the panel shows "n/a").
+#[tauri::command]
+fn health_snapshot() -> health::HealthSnapshot {
+    health::snapshot()
+}
+
+/// Snapshot of every job for the universal Processing panel — most recent first. Reads only
+/// the (separate) job registry mutex, never the DB, so the poll stays responsive even while a
+/// heavy chain holds the DB lock on its worker thread.
+#[tauri::command]
+fn list_jobs(jobs_reg: tauri::State<jobs::JobRegistry>) -> Vec<jobs::JobView> {
+    jobs::list(jobs_reg.inner())
+}
+
+/// Requests cancellation of one job by id (flips the shared flag the runner checks per well),
+/// so a Cancel from the universal panel stops the same run the Workflow Builder started.
+#[tauri::command]
+fn cancel_job(jobs_reg: tauri::State<jobs::JobRegistry>, job_id: String) {
+    if let Ok(uuid) = Uuid::parse_str(&job_id) {
+        jobs::cancel(jobs_reg.inner(), uuid);
+    }
 }
 
 /// Polls the progress/result of a running workflow chain.
@@ -863,9 +1191,20 @@ pub fn run() {
     // `tauri dev` restarts this binary on every source-file change, so a WAL replay
     // failure (killed mid-write) is expected to happen occasionally during
     // development — self-heal it rather than crash-looping until a human notices.
+    // Boot timing (stderr, visible in the `tauri dev` terminal). These three steps run BEFORE
+    // the window is created, so their sum IS the black-screen time on a large project. The logs
+    // pinpoint which one dominates the ~5-min open on the 540-well / ~2 GB file so the fix can
+    // target it precisely (DB open vs the standard-curves backfill vs the PK-drop check).
+    let boot = std::time::Instant::now();
     let conn = db::init_db_resilient(&startup).expect("failed to initialize DuckDB");
+    eprintln!("[boot] init_db_resilient: {:?}  ({startup})", boot.elapsed());
+    let t = std::time::Instant::now();
     db::migrate_standard_curves_to_generic_store(&conn).expect("failed to migrate curves into the generic curve store");
+    eprintln!("[boot] migrate_standard_curves_to_generic_store: {:?}", t.elapsed());
+    let t = std::time::Instant::now();
     db::migrate_drop_computed_curves_pk(&conn).expect("failed to drop legacy computed_curves primary key");
+    eprintln!("[boot] migrate_drop_computed_curves_pk: {:?}", t.elapsed());
+    eprintln!("[boot] total pre-window DB init: {:?}", boot.elapsed());
     project::register_recent(&startup);
 
     tauri::Builder::default()
@@ -875,6 +1214,7 @@ pub fn run() {
         .manage(project::ProjectState(Mutex::new(project::absolute(&startup))))
         .manage(inversion::new_registry())
         .manage(chain::new_registry())
+        .manage(jobs::new_registry())
         .invoke_handler(tauri::generate_handler![
             save_project_as,
             list_recent_projects,
@@ -888,6 +1228,7 @@ pub fn run() {
             run_equation,
             list_curve_catalog,
             list_log_sets,
+            list_log_set_names,
             restore_log_set,
             delete_log_set,
             list_computed_catalog,
@@ -946,6 +1287,9 @@ pub fn run() {
             run_workflow_chain,
             get_chain_status,
             cancel_workflow_chain,
+            list_jobs,
+            cancel_job,
+            health_snapshot,
             import_core_csv,
             import_tops_csv,
             import_well_locations,

@@ -470,13 +470,13 @@ export class InspectorPanel {
       .join("");
 
     this.catalogTab.innerHTML = `
-      <input id="catalog-filter" class="catalog-filter" type="search" placeholder="Search mnemonic, set, module, unit, date…" value="${escapeAttr(this.catalogFilter)}" />
+      <input id="catalog-filter" class="catalog-filter" type="search" placeholder="Search mnemonic, cons, module, unit, date…" value="${escapeAttr(this.catalogFilter)}" />
       <table class="catalog-table">
         <thead><tr>${header}</tr></thead>
         <tbody>${bodyRows || `<tr><td colspan="10" class="placeholder-note">No curves match "${escapeHtml(this.catalogFilter)}"</td></tr>`}</tbody>
       </table>
       <div class="catalog-sets">
-        <div class="catalog-sets-title">Log sets — every run is kept as a version (nothing is overwritten)</div>
+        <div class="catalog-sets-title">Constellations — every run is kept as a version (nothing is overwritten)</div>
         ${setRows || `<div class="placeholder-note">No versioned runs yet — run any module and its outputs appear here as version 1.</div>`}
       </div>
     `;
@@ -509,7 +509,7 @@ export class InspectorPanel {
         try {
           const n = await restoreLogSet(btn.dataset.restore!);
           globalStatus(`Version restored (${n} samples back in the current curves)`);
-          recordProcess("Log set", `Restored a curve version (${n} samples)`);
+          recordProcess("Constellation", `Restored a curve version (${n} samples)`);
           bumpDataVersion(); // every open panel (log views, plots, this catalog) refreshes
         } catch (err) {
           globalStatus(`Restore failed: ${err}`);
@@ -532,8 +532,8 @@ export class InspectorPanel {
         btn.disabled = true;
         try {
           await deleteLogSet(btn.dataset.del!);
-          globalStatus("Set version deleted (current curve values kept)");
-          recordProcess("Log set", "Deleted a curve-set version");
+          globalStatus("Constellation version deleted (current curve values kept)");
+          recordProcess("Constellation", "Deleted a constellation version");
           void this.refreshCatalog();
         } catch (err) {
           globalStatus(`Delete failed: ${err}`);

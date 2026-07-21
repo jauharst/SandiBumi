@@ -42,6 +42,15 @@ interface RibbonMenuItem {
   onPick: () => void;
 }
 
+/** Places a `.ribbon-menu` (position:fixed) just below its button, clamped to the viewport.
+ *  Fixed positioning is what lets the menu escape the ribbon panel's horizontal-scroll clip,
+ *  so the coordinates must be set here on every open rather than by CSS `top:100%`. */
+function positionRibbonMenu(menu: HTMLElement, anchor: HTMLElement): void {
+  const rect = anchor.getBoundingClientRect();
+  menu.style.left = `${Math.max(4, Math.min(rect.left, window.innerWidth - 228))}px`;
+  menu.style.top = `${rect.bottom}px`;
+}
+
 /** An Office-style dropdown ribbon button: large icon + label + ▾, opening a menu of
  *  method items below it. */
 function buildRibbonDropdown(label: string, iconPath: string, items: RibbonMenuItem[]): HTMLElement {
@@ -73,7 +82,9 @@ function buildRibbonDropdown(label: string, iconPath: string, items: RibbonMenuI
   button.addEventListener("click", () => {
     const wasOpen = !menu.hidden;
     for (const m of document.querySelectorAll<HTMLElement>(".ribbon-menu:not([hidden])")) m.hidden = true;
-    menu.hidden = wasOpen;
+    if (wasOpen) return;
+    positionRibbonMenu(menu, button);
+    menu.hidden = false;
   });
 
   wrap.appendChild(button);
@@ -145,6 +156,9 @@ export class Ribbon {
     saveSessionBtn?.addEventListener("click", () => this.handleSaveSession());
     q<HTMLButtonElement>("#qat-open-session")?.addEventListener("click", () => void this.handleOpenSession());
     q<HTMLButtonElement>("#qat-history")?.addEventListener("click", () => workspace.openHistory());
+    // Contextual Help (?): opens a guide for whichever panel is active — the future hook for
+    // the illustrated HTML help library, keyed to the "current active panel".
+    q<HTMLButtonElement>("#qat-help")?.addEventListener("click", () => void workspace.openHelpForActivePanel());
     // Unsaved-state dot: lights while any panel/workspace state isn't in a named save yet.
     if (saveSessionBtn) {
       const baseTitle = saveSessionBtn.title;
@@ -196,6 +210,12 @@ export class Ribbon {
     q<HTMLButtonElement>("#paysum-btn")?.addEventListener("click", () => workspace.openPaySummary());
     q<HTMLButtonElement>("#cutoff-sens-btn")?.addEventListener("click", () => workspace.openCutoff());
     q<HTMLButtonElement>("#workflow-btn")?.addEventListener("click", () => workspace.openWorkflow());
+    q<HTMLButtonElement>("#processing-btn")?.addEventListener("click", () => workspace.openProcessing());
+    q<HTMLButtonElement>("#health-btn")?.addEventListener("click", () => workspace.openHealth());
+    // The Workflow Builder fires this when a chain starts so the universal Processing panel
+    // pops open on its own — the user shouldn't have to hunt for progress. Ribbon is a
+    // singleton created once in main.ts, so this window listener is registered exactly once.
+    window.addEventListener("sandibumi:open-processing", () => workspace.openProcessing());
     q<HTMLButtonElement>("#montecarlo-btn")?.addEventListener("click", () => workspace.openMonteCarlo());
     q<HTMLButtonElement>("#ml-btn")?.addEventListener("click", () => workspace.openMl());
     q<HTMLButtonElement>("#multimin-btn")?.addEventListener("click", () => workspace.openMultimin());
@@ -721,6 +741,7 @@ export class Ribbon {
       for (const m of document.querySelectorAll<HTMLElement>(".ribbon-menu:not([hidden])")) m.hidden = true;
       if (wasOpen) return;
       void this.refreshRecentMenu().then(() => {
+        positionRibbonMenu(menu, button);
         menu.hidden = false;
       });
     });
