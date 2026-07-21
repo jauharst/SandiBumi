@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
-/// A user-authored petrophysical equation (Rhai script), analogous to a Geolog loglan
+/// A user-authored petrophysical equation (Rhai script), analogous to a Loglan
 /// module or an IP formula: a name, a script body, its declared input curve mnemonics,
 /// and the curve it produces.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -462,7 +462,7 @@ fn fetch_generic_curve_aligned(
 /// Computed-provenance-only resolution for unit-contract inputs (ArgSpec.computed_only,
 /// e.g. gascorr's FTEMP/FPRESS): the named input set's archived values first (matching
 /// [`fetch_curve_frame_from_set`] semantics, including the own-set precedence), then
-/// current `computed_curves` — never the RAW import store, so a Geolog LAS export's
+/// current `computed_curves` — never the RAW import store, so a commercial LAS export's
 /// degF FTEMP cannot silently masquerade as precalc's degC output.
 pub(crate) fn fetch_computed_only_aligned(
     conn: &Connection,

@@ -39,7 +39,7 @@ Composite…).
 
 Phase 8.5 shipped (2026-07-18) — **Jauhar's method suite** ported from his 7 reference
 projects: `ssc.rs` (SSC Kuttan/GAP-2023 port of `ssc_lqr_gap_edit_jau.lls` + SSPW
-reconstructed from spec — *SSPW needs validation vs his Geolog LAS exports*), `lrlc.rs`
+reconstructed from spec — *SSPW needs validation vs his the reference suite LAS exports*), `lrlc.rs`
 (sw_rtc excess-conductivity + sw_imts iterative mineral-textural-scaled Waxman-Smits from
 his LRLC research), `gr_normalize` (two-point percentile GRN, Rokan P3 53.68/P97 133.93)
 and `log_predict` (leave-one-out KNN synthetic logs, MAX_RAW washout rule) in `modules.rs`,
@@ -186,20 +186,20 @@ right after `dock.fromJSON` (which synchronously recreates the log-view panels, 
 the `logViews` map). Plot-panel internal state (selected curves/props) is still not carried —
 extend the snapshot the same way if that's needed.
 
-Generalized Multimin v2 (2026-07-19) — `src-tauri/src/multimin2.rs` is a Geolog-Multimin/IP-Mineral-
+Generalized Multimin v2 (2026-07-19) — `src-tauri/src/multimin2.rs` is a the reference suite-Multimin/IP-Mineral-
 Solver-style optimizer, SEPARATE from the fixed 4-component `multimin.rs` (untouched). Spec was
-extracted from the local Geolog-V14 helpset + IP2018 install: `docs/multimin_geolog_spec.md` and
+extracted from the local the reference install helpset + IP2018 install: `docs/multimin_ref_spec.md` and
 `docs/multimin_ip_spec.md` — consult those before touching the physics. Architecture:
 `Component{name, kind: mineral|clay|fluid, zone: ""|X|U, fluid_type, endpoints, cec, max_vol}`;
-27-entry `LIB` (IP dropdown order; merged Geolog/IP endpoint defaults over 14 tool keys — RHOB,
+27-entry `LIB` (IP dropdown order; merged the reference suite/IP endpoint defaults over 14 tool keys — RHOB,
 NPHI, DT, GR, PEF, U, THOR, POTA, URAN, VP, VS, EPT, EATT, SIGMA). Zone convention: only CT (deep
 conductivity) sees U-zone fluids, everything else sees X-zone; CT/CXO tools take a RESISTIVITY
 curve, converted per sample to conductivity and entered as the DUAL WATER LINEAR row
 Ct^(1/w) = Σ v·C^(1/w) with w = 0.75m+0.25n (fluid_calc: Arps→Cw/Cmf, Bateman-Konen salinity,
 Cbw = 0.0007(T+8.5)(T+298), α expansion below 20,455 ppm; auto σ = 0.03·C^(1/w)). Constraints:
 hard UNITY over minerals+U-fluids (X excluded) via KKT equality; hard box 0≤v≤max_vol (fluids
-0.5); soft σ=0.01 rows (Geolog "Tool" constraints) POROSITY (ΣX=ΣU) and BNDWAT
-(Σ 96·CEC·ρ/(T°C+298)·α·v_clay = v_bw, reproduces Geolog's 0.1841 Illite multiplier); WATER MUD
+0.5); soft σ=0.01 rows (the reference suite "Tool" constraints) POROSITY (ΣX=ΣU) and BNDWAT
+(Σ 96·CEC·ρ/(T°C+298)·α·v_clay = v_bw, reproduces the reference suite's 0.1841 Illite multiplier); WATER MUD
 (ΣXwater ≥ ΣUwater, WBM) enforced by re-solve on violation. Solver `solve_bounded_lsq` = active-set
 with three states (free / at-0 / at-hi), fixed-at-hi folded into KKT RHS. Outputs VOL_<comp> +
 `<prefix>`_PHIE/PHIT/SWE/SWT (+SXOT/MOVEDHC with X/U split)/VSH/RECON. Commands: `run_multimin`,
@@ -389,7 +389,7 @@ in petrophysics terms, not programming jargon. The working rhythm, on every mach
    `gh auth login` or handles tokens/passwords — he authenticates himself, then Claude
    may create repos/push using his session. Commit messages: plain descriptive, avoid
    embedded double quotes (PowerShell 5.1 quoting).
-5. Physics defaults come from documented sources (Geolog `.info` exports, his studies,
+5. Physics defaults come from documented sources (the reference suite `.info` exports, his studies,
    the chartbook) — cite the source in a comment; when a method spec conflicts with
    code, the specs in `docs/` win.
 
@@ -398,7 +398,7 @@ in petrophysics terms, not programming jargon. The working rhythm, on every mach
 - `src-tauri/` — Rust backend: DuckDB access, parsers, IPC commands, petrophysics engine.
 - `src/` — TypeScript frontend: WebGPU log canvas renderer, Tauri IPC calls.
 - `src-tauri/icons/` — app icon set + brand assets: `logo.png` (master), `logo-mark.svg`/`logo-mark.png` (square monogram), `logo-full.svg`/`logo-full.png` (full lockup). Frontend favicon/ribbon assets in `public/`.
-- `docs/` — method math + solver specs (SSC/SSPW, LRLC RtC/IMTS, workflow standards, Geolog/IP multimin extraction). Portable knowledge lives here, not in machine-local memory.
+- `docs/` — method math + solver specs (SSC/SSPW, LRLC RtC/IMTS, workflow standards, the reference suite/IP multimin extraction). Portable knowledge lives here, not in machine-local memory.
 - `tools/chartdig/` — chartbook vector digitizer (generates `src/ui/chartOverlays.ts`).
 - `Prompt/` — original phase-by-phase spec (`Claude_Implementation_Guide.pdf`). **Gitignored** — local-only, won't exist on a fresh clone.
 

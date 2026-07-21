@@ -17,7 +17,7 @@ pub enum ParseError {
 
 pub type ParseResult<T> = Result<T, ParseError>;
 
-/// A single deserialized row from a Geolog CSV export.
+/// A single deserialized row from a generic curve CSV export.
 #[derive(Debug, Clone, Deserialize)]
 pub struct LogDataRow {
     pub depth: f32,
@@ -41,8 +41,8 @@ pub struct CurveColumns {
     pub sp: Vec<f32>,
 }
 
-/// Parses a Geolog CSV export into columnar arrays, mapping missing values to `f32::NAN`.
-pub fn parse_geolog_csv<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
+/// Parses a generic curve CSV export into columnar arrays, mapping missing values to `f32::NAN`.
+pub fn parse_csv_export<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
     let file = File::open(path)?;
     let mut rdr = csv::ReaderBuilder::new()
         .has_headers(true)
@@ -90,7 +90,7 @@ enum LasSection {
     AsciiData,
 }
 
-/// Priority-ordered mnemonic aliases per target curve, mirroring the alias tables Geolog/IP
+/// Priority-ordered mnemonic aliases per target curve, mirroring the alias tables commercial suites/IP
 /// ship (e.g. IP's CurveAlias.txt). Among the aliases present in a file, the one with the
 /// most populated (non-null) samples wins; priority order only breaks ties. So a raw GR is
 /// preferred over a normalized GRN when both are populated, but an all-null placeholder
@@ -918,7 +918,7 @@ fn read_delimited<P: AsRef<Path>>(path: P) -> ParseResult<(Vec<String>, Vec<Vec<
     Ok((headers, table))
 }
 
-/// Parses a formation-tops file (CSV or TXT — Petrel/Geolog-style exports). Needs a
+/// Parses a formation-tops file (CSV or TXT — Petrel-style exports). Needs a
 /// recognizable top-name and depth column; a well column makes it multi-well. Headerless
 /// two-column "NAME DEPTH" (or three-column "WELL NAME DEPTH") files are also accepted:
 /// if no known headers are found and the last column of the first line parses as a

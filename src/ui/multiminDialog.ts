@@ -16,14 +16,14 @@ import {
 import { appState, bumpDataVersion, defaultRunWellIds, filterByActiveGroup } from "../state";
 import { recordProcess } from "../processLog";
 
-/** Generalized Multimin dialog — Geolog Multimin / IP Mineral Solver style.
+/** Generalized Multimin dialog — commercial mineral-solver style.
  *
  *  - 27-component library (minerals, clays with CEC, zone-typed fluids: Sxo = flushed,
  *    Sw = unflushed) with editable endpoints and per-component max-volume bounds.
  *  - 16 input logs + user-defined inputs, each with a curve mnemonic and uncertainty σ
  *    (weight = 1/σ²). CT/CXO take a RESISTIVITY curve; the backend converts it to
  *    conductivity and builds the dual-water linear row Ct^(1/w) = Σ v·C^(1/w).
- *  - Constraints are automatic (Geolog program constraints): hard unity over
+ *  - Constraints are automatic (program constraints): hard unity over
  *    minerals + unflushed fluids, POROSITY (ΣX = ΣU), BNDWAT (bound water tied to clay
  *    CEC), WATER MUD (Sxo ≥ Sw for WBM), and hard box bounds per component.
  *
@@ -32,7 +32,7 @@ import { recordProcess } from "../processLog";
  *  - Fluid autofill: zone-averaged FTEMP_F / RMF from the precalc module's curves.
  *
  *  Physics defaults are single-sourced in Rust (`multimin_library`); this dialog edits
- *  a working copy. Spec: docs/multimin_geolog_spec.md + docs/multimin_ip_spec.md. */
+ *  a working copy. Spec: docs/multimin_ref_spec.md + docs/multimin_ip_spec.md. */
 
 interface ToolRow {
   key: string;

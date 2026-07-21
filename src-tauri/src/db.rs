@@ -162,8 +162,7 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             value       FLOAT
         );
 
-        -- User-authored petrophysical equations (Rhai scripts), analogous to Geolog's
-        -- loglan module registry / IP's formula library.
+        -- User-authored petrophysical equations (Rhai scripts): a per-project formula/module registry.
         CREATE TABLE IF NOT EXISTS equations (
             equation_id     UUID PRIMARY KEY,
             name            VARCHAR NOT NULL UNIQUE,
@@ -177,7 +176,7 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
         -- 'rhai' (per-sample scripts, legacy) or 'python' (vectorized numpy, default for new).
         ALTER TABLE equations ADD COLUMN IF NOT EXISTS language VARCHAR DEFAULT 'rhai';
 
-        -- Formation tops / interval markers, analogous to Geolog's TOPS_GEO.TOPS interval log.
+        -- Formation tops / interval markers (a per-well tops interval log).
         CREATE TABLE IF NOT EXISTS tops (
             well_id     UUID NOT NULL,
             top_name    VARCHAR NOT NULL,
@@ -186,7 +185,7 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             PRIMARY KEY (well_id, top_name)
         );
 
-        -- Depth intervals per well, analogous to Geolog's zoned interval sets. Modules
+        -- Depth intervals per well (zoned interval sets). Modules
         -- resolve their interval parameters per zone at run time.
         CREATE TABLE IF NOT EXISTS zones (
             well_id      UUID NOT NULL,
@@ -196,7 +195,7 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             PRIMARY KEY (well_id, zone_name)
         );
 
-        -- Per-zone interval parameter values (Geolog: interval logs like GR_MA, GR_SH,
+        -- Per-zone interval parameter values (interval logs like GR_MA, GR_SH,
         -- RW, M, N). zone_name '*' holds whole-well defaults.
         CREATE TABLE IF NOT EXISTS zone_params (
             well_id      UUID NOT NULL,
@@ -205,6 +204,19 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             value_num    FLOAT,
             value_text   VARCHAR,
             PRIMARY KEY (well_id, zone_name, param_name)
+        );
+
+        -- Informal colored depth-interval highlights for the log view (mark pay, bad hole,
+        -- intervals of interest). Unlike zones they carry a color + free label and need no
+        -- unique name, so they are keyed by a client-generated id and may overlap freely.
+        CREATE TABLE IF NOT EXISTS highlights (
+            well_id      UUID NOT NULL,
+            highlight_id VARCHAR NOT NULL,
+            top_depth    FLOAT NOT NULL,
+            bottom_depth FLOAT NOT NULL,
+            color        VARCHAR,
+            label        VARCHAR,
+            PRIMARY KEY (well_id, highlight_id)
         );
 
         -- Core plug measurements (routine core analysis), sparse/irregular depths that do
@@ -436,7 +448,7 @@ pub fn migrate_drop_computed_curves_pk(conn: &Connection) -> DbResult<()> {
 }
 
 /// A single standard LAS curve row, used for deserializing incoming parsed data
-/// (LAS 2.0 / Geolog CSV) before batch insertion.
+/// (LAS 2.0 / generic curve CSV) before batch insertion.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StandardCurveRow {
     pub depth: f32,
@@ -713,7 +725,7 @@ pub struct TopEntry {
     pub color: Option<String>,
 }
 
-/// Lists the formation tops for one well, ordered by depth (Geolog's TOPS_GEO.TOPS
+/// Lists the formation tops for one well, ordered by depth (a formation-tops
 /// equivalent — the Tops panel's data source).
 pub fn list_tops(conn: &Connection, well_id: &str) -> DbResult<Vec<TopEntry>> {
     let mut stmt = conn.prepare("SELECT top_name, depth, color FROM tops WHERE well_id = ?1 ORDER BY depth")?;
@@ -770,6 +782,62 @@ pub fn upsert_zone(conn: &Connection, well_id: &str, zone_name: &str, top_depth:
 pub fn delete_zone(conn: &Connection, well_id: &str, zone_name: &str) -> DbResult<()> {
     conn.execute("DELETE FROM zones WHERE well_id = ?1 AND zone_name = ?2", params![well_id, zone_name])?;
     conn.execute("DELETE FROM zone_params WHERE well_id = ?1 AND zone_name = ?2", params![well_id, zone_name])?;
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HighlightEntry {
+    pub highlight_id: String,
+    pub top_depth: f32,
+    pub bottom_depth: f32,
+    pub color: Option<String>,
+    pub label: Option<String>,
+}
+
+pub fn list_highlights(conn: &Connection, well_id: &str) -> DbResult<Vec<HighlightEntry>> {
+    let mut stmt = conn.prepare(
+        "SELECT highlight_id, top_depth, bottom_depth, color, label FROM highlights WHERE well_id = ?1 ORDER BY top_depth",
+    )?;
+    let rows = stmt.query_map(params![well_id], |row| {
+        Ok(HighlightEntry {
+            highlight_id: row.get(0)?,
+            top_depth: row.get(1)?,
+            bottom_depth: row.get(2)?,
+            color: row.get(3)?,
+            label: row.get(4)?,
+        })
+    })?;
+    let mut highlights = Vec::new();
+    for r in rows {
+        highlights.push(r?);
+    }
+    Ok(highlights)
+}
+
+pub fn upsert_highlight(
+    conn: &Connection,
+    well_id: &str,
+    highlight_id: &str,
+    top_depth: f32,
+    bottom_depth: f32,
+    color: Option<&str>,
+    label: Option<&str>,
+) -> DbResult<()> {
+    conn.execute(
+        "INSERT INTO highlights (well_id, highlight_id, top_depth, bottom_depth, color, label) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+         ON CONFLICT (well_id, highlight_id) DO UPDATE SET
+             top_depth = excluded.top_depth, bottom_depth = excluded.bottom_depth,
+             color = excluded.color, label = excluded.label",
+        params![well_id, highlight_id, top_depth, bottom_depth, color, label],
+    )?;
+    Ok(())
+}
+
+pub fn delete_highlight(conn: &Connection, well_id: &str, highlight_id: &str) -> DbResult<()> {
+    conn.execute(
+        "DELETE FROM highlights WHERE well_id = ?1 AND highlight_id = ?2",
+        params![well_id, highlight_id],
+    )?;
     Ok(())
 }
 
@@ -918,7 +986,7 @@ pub fn zones_from_tops(conn: &Connection, well_id: &str) -> DbResult<Vec<ZoneEnt
 }
 
 // ---------------------------------------------------------------------------
-// Database inspector (Geolog "Text" equivalent): paged reads over a whitelist
+// Database inspector (spreadsheet-grid equivalent): paged reads over a whitelist
 // of tables + explicit single-cell update commands. The frontend never sends
 // SQL — table and column names are validated against these specs.
 // ---------------------------------------------------------------------------
@@ -1000,7 +1068,7 @@ pub fn get_table_page(
     run().map_err(|e| e.to_string())
 }
 
-/// Runs one read-only SELECT (Geolog SQL equivalent, but full DuckDB SQL: joins,
+/// Runs one read-only SELECT (a SQL console, full DuckDB SQL: joins,
 /// window functions, aggregates). Anything that isn't a single SELECT/WITH statement
 /// is rejected before execution.
 pub fn run_readonly_query(conn: &Connection, sql: &str, limit: usize) -> Result<TablePage, String> {

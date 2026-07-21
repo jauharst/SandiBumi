@@ -28,7 +28,7 @@ as last resort. RSHAL: SN, AHT##(shallowest), SFLU, R25P, BSAV. RMIC: MSFL.
 RHOB: RHOB/ROBB/RHOZ/SBD2. DRHO: HDRA/DRHO. NPHI: NPHI/TNPH/FSTP. PEF: PEFZ/PE/PEB/PEF.
 DTCO: DTC/DT. DTS: DT_S/DTSM. CALI: CALI/HORD/HCAL.
 
-## Synthetic logs (Facimage MRGC in Geolog; SandiBumi mirror = `log_predict` KNN module)
+## Synthetic logs (Facimage MRGC in the reference suite; SandiBumi mirror = `log_predict` KNN module)
 
 - Synthetic RHOB from GRN + clean-RHOB association; **keep raw RHOB where synthetic <
   raw** (washout only pushes RHOB down — the MAX_RAW rule).
@@ -36,7 +36,7 @@ DTCO: DTC/DT. DTS: DT_S/DTSM. CALI: CALI/HORD/HCAL.
   correlation, then generate for wells missing NPHI. Also synthetic DT and U for multimin
   coverage.
 
-## Multimin standards (KKT = Geolog Multimin, Herron-Matteson response defaults)
+## Multimin standards (KKT = the reference suite Multimin, Herron-Matteson response defaults)
 
 - Per-zone per-well models (e.g. kk2_main / massive / postmain / taf / taf_gas).
   Components: QUARTZ+KAOLIN (+CALCITE in massive) + flushed & unflushed fluids

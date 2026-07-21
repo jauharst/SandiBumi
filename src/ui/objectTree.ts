@@ -2,7 +2,7 @@ import { listWells, type WellSummary } from "../ipc";
 import { appState, filterByActiveGroup, setStatus } from "../state";
 import { activateWellGroup, openWellGroupManager, syncWellGroups } from "./wellGroups";
 
-/** Techlog/Geolog-style project object tree: Wells, and (later) their curves/zones.
+/** Project object tree: Wells, and (later) their curves/zones.
  *  A group bar at the top scopes the list to the active well group (for large fields the
  *  user works one group at a time — see wellGroups.ts).
  *

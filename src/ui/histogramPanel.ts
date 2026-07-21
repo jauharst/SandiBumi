@@ -336,7 +336,7 @@ export function drawHistogram(
 /** Histogram panel: pick a curve + zone window; everything about the display (bars/line,
  *  bins, normalize, cumulative overlay, box plot, color, user percentiles, statistics
  *  placement, parameter pickers) lives in a Properties dialog opened by double-click,
- *  right-click, or the ⚙ button — Geolog-style. Follows the synchronized depth cursor
+ *  right-click, or the ⚙ button. Follows the synchronized depth cursor
  *  of the log views (red marker = value at the hovered depth). */
 export async function buildHistogramContent(
   well: WellSummary,
@@ -533,7 +533,7 @@ export async function buildHistogramContent(
     redraw();
   };
 
-  // Properties dialog — everything about the display in one place (Geolog-style).
+  // Properties dialog — everything about the display in one place.
   const openProps = () => {
     const body = document.createElement("div");
 

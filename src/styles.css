@@ -324,9 +324,11 @@ textarea {
   font-weight: 600;
 }
 
-/* Fixed height so every tab's groups share the same bottom edge. */
+/* Fixed height so every tab's groups share the same bottom edge; positioning context for
+   the overflow chevrons. */
 .ribbon-body {
   height: 80px;
+  position: relative;
 }
 
 .ribbon-panel {
@@ -335,17 +337,58 @@ textarea {
   gap: 0;
   padding: 6px 10px 4px;
   height: 100%;
-  /* When the window is too narrow to show every group, scroll rather than clip — the tools
-     stay reachable and the ribbon reflows with the app. */
+  /* When the window is too narrow to show every group, the panel still scrolls — but the raw
+     scrollbar is hidden in favour of the ‹ › overflow chevrons (see .ribbon-overflow), so the
+     user reaches every tool by clicking an arrow box (Office-style) rather than a thin bar. */
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: thin;
+  scrollbar-width: none;
+}
+.ribbon-panel::-webkit-scrollbar {
+  height: 0;
+  width: 0;
 }
 
 /* Only the active tab's panel is shown — an author display rule would otherwise
    override the `hidden` attribute and stack every tab's groups at once. */
 .ribbon-panel[hidden] {
   display: none;
+}
+
+/* Office-style ribbon overflow chevrons: a boxed ‹ / › at an overflowing edge that scrolls the
+   active group row a page at a time. Shown only when there is hidden content that way. */
+.ribbon-overflow {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: var(--bg-panel);
+  color: var(--text-dim);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 20;
+}
+.ribbon-overflow:hover {
+  color: var(--accent);
+  background: var(--bg-hover);
+}
+.ribbon-overflow[hidden] {
+  display: none;
+}
+.ribbon-overflow-left {
+  left: 0;
+  border-right: 1px solid var(--border);
+  box-shadow: 6px 0 6px -4px rgba(0, 0, 0, 0.18);
+}
+.ribbon-overflow-right {
+  right: 0;
+  border-left: 1px solid var(--border);
+  box-shadow: -6px 0 6px -4px rgba(0, 0, 0, 0.18);
 }
 
 .ribbon-group {
@@ -905,6 +948,24 @@ textarea {
 .tops-overlay.editing {
   pointer-events: auto;
   cursor: crosshair;
+}
+
+/* Colored highlight bands: below the tops layer so top lines/labels stay legible. */
+.highlights-overlay {
+  position: absolute;
+  pointer-events: none;
+  z-index: 4;
+}
+.highlights-overlay.editing {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+/* Edit-highlight dialog: Save / Convert to zone / Delete on one wrapping row. */
+.hl-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
 }
 
 /* Autocorrelate dialog: proposals table + Apply button. */
@@ -2129,7 +2190,7 @@ textarea {
 }
 
 /* --------------------------------------------------------------------------
-   Database Inspector (Geolog "Text"-style editable grid)
+   Database Inspector (spreadsheet-style editable grid)
    -------------------------------------------------------------------------- */
 
 .dbinspector {
@@ -3254,7 +3315,7 @@ textarea {
   width: 34px;
 }
 
-/* --- Multimin (Geolog-parity) dialog additions --- */
+/* --- Mineral-solver dialog additions --- */
 .mm-columns {
   display: flex;
   gap: 12px;

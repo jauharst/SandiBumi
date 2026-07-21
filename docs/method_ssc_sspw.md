@@ -51,7 +51,7 @@ Spec params: NPHI must be sandstone units; NPHI_MAT 0, RHOB_MAT 2.65, NPHI_SH 0.
 RHOB_SH 2.4, RHOB_DSH 2.71 (dry shale grain density), VOL_CBW_SH 0.1, SWIRR_MIN 0.
 Outputs PHIT/PHIE/PHIFF_SSPW, VOL_CLYBNDWAT, VOL_CAPBNDWAT, VOL_BOUNDWAT, SWIRR_SSPW.
 
-**SSPW was reconstructed from spec, not source — needs validation against his Geolog LAS
+**SSPW was reconstructed from spec, not source — needs validation against his the reference suite LAS
 exports** (open REVIEW item).
 
 Related: `method_lrlc_rtc_imts.md` (uses CAPBW from these models), `workflow_standards.md`.

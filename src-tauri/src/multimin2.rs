@@ -1,8 +1,8 @@
 //! Generalized Multimin — user-defined multi-mineral / fluid optimizer, modeled on
-//! Geolog Multimin and IP's Mineral Solver (spec extracted from both installs, see
-//! docs/multimin_geolog_spec.md and docs/multimin_ip_spec.md).
+//! the reference multi-mineral solver and IP's Mineral Solver (spec extracted from both installs, see
+//! docs/multimin_ref_spec.md and docs/multimin_ip_spec.md).
 //!
-//! Formulation (Geolog convention):
+//! Formulation (standard convention):
 //! - One volume vector per depth frame: minerals + clays (common to both zones) plus
 //!   flushed-zone (X / Sxo) and unflushed-zone (U / Sw) fluid sets.
 //! - Every tool responds to X-zone fluids except the deep conductivity CT, which sees
@@ -11,10 +11,10 @@
 //!   w = 0.75·m + 0.25·n the response row  Ct^(1/w) = Σ v_i · C_i^(1/w)  is linear in
 //!   the volumes (C_i = fluid conductivity endpoints; minerals/hydrocarbons are 0).
 //!   The measured resistivity curve is converted (C = 1/R) and transformed before entering
-//!   the system. Row uncertainty (Geolog): U_ct = 0.03·Cw^(1/w), U_cxo = 0.03·Cmf^(1/w).
+//!   the system. Row uncertainty: U_ct = 0.03·Cw^(1/w), U_cxo = 0.03·Cmf^(1/w).
 //! - Hard constraints: Σ(minerals + clays + U-zone fluids) = 1 (UNITY, X fluids excluded)
 //!   and per-component box bounds 0 ≤ v ≤ max_vol (fluids default 0.5).
-//! - Soft "Tool" constraints at σ = 0.01 (Geolog treats these as pseudo-measurements):
+//! - Soft "Tool" constraints at σ = 0.01 (treated as pseudo-measurements):
 //!   POROSITY (Σ X fluids = Σ U fluids) and BNDWAT (bound water tied to clay volumes via
 //!   k = 96·CEC·ρ_clay / (T°C + 298) · α, the Dual-Water clay-bound-water multiplier).
 //!   WATER MUD (Sxo ≥ Sw for water-based mud) is enforced by a re-solve when violated.
@@ -51,7 +51,7 @@ pub struct Component {
     /// Cation exchange capacity, meq/g (clays; drives the bound-water constraint).
     #[serde(default)]
     pub cec: f64,
-    /// Upper volume bound (Geolog default: 1.0 minerals, 0.5 fluids).
+    /// Upper volume bound (default: 1.0 minerals, 0.5 fluids).
     #[serde(default = "default_one")]
     pub max_vol: f64,
 }
@@ -166,7 +166,7 @@ fn curve_token(name: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Fluid property calculations (Geolog RF04 §5 / IP formulas)
+// Fluid property calculations (reference fluid formulas / IP)
 // ---------------------------------------------------------------------------
 
 /// Arps temperature conversion of a resistivity (°F form). Shared with the
@@ -221,7 +221,7 @@ pub fn fluid_calc(p: &FluidProps) -> FluidCalc {
     }
 }
 
-/// Clay-bound-water multiplier k so that v_bw = k · v_dryclay (Geolog RF04 5.03):
+/// Clay-bound-water multiplier k so that v_bw = k · v_dryclay (reference spec 5.03):
 /// k = α · 96 · CEC[meq/g] · ρ_clay[g/cc] / (T°C + 298).
 fn bndwat_multiplier(cec: f64, rho_gcc: f64, t_c: f64, alpha: f64) -> f64 {
     alpha * 96.0 * cec * rho_gcc / (t_c + 298.0)
@@ -363,7 +363,7 @@ pub fn fluid_from_precalc(
 // Run
 // ---------------------------------------------------------------------------
 
-const SIGMA_CONSTRAINT: f64 = 0.01; // Geolog's nominal Tool-constraint uncertainty
+const SIGMA_CONSTRAINT: f64 = 0.01; // nominal Tool-constraint uncertainty
 
 struct ZoneSets {
     /// Unity coefficients (1 for minerals/clays/U-and-shared fluids, 0 for X fluids).
@@ -1133,7 +1133,7 @@ fn solve_linear_opt(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
 }
 
 // ---------------------------------------------------------------------------
-// Endpoint library — Geolog RF04 §6.2 + IP2018 MINDEF.PAR defaults, merged.
+// Endpoint library — reference §6.2 + IP2018 MINDEF.PAR defaults, merged.
 // Display units: RHOB g/cc, NPHI v/v, DT us/ft, GR API, PEF b/e, U b/cc,
 // THOR ppm, POTA %, URAN ppm, VP km/s, VS km/s, EPT ns/m, EATT dB/m, SIGMA c.u.
 // CT/CXO endpoints are computed from the fluid properties at run time.
@@ -1163,7 +1163,7 @@ const fn fl(name: &'static str, zone: &'static str, fluid_type: &'static str, v:
     LibRow { name, kind: "fluid", zone, fluid_type, cec: 0.0, max_vol: 0.5, v }
 }
 
-/// Merged Geolog/IP default library, in IP's mineral-dropdown order (Jauhar's screenshot).
+/// Merged reference/IP default library, in IP's mineral-dropdown order (Jauhar's screenshot).
 #[rustfmt::skip]
 const LIB: &[LibRow] = &[
     //                       RHOB   NPHI    DT     GR    PEF     U    THOR  POTA  URAN   EPT  SIGMA
@@ -1418,7 +1418,7 @@ mod tests {
         let n = comps.len();
         let t_c = (148.0 - 32.0) * 5.0 / 9.0;
         let k = bndwat_multiplier(ill.cec, ill.endpoints["RHOB"], t_c, 1.0);
-        assert!((k - 0.184).abs() < 0.01, "Geolog reference multiplier: got {k}");
+        assert!((k - 0.184).abs() < 0.01, "reference multiplier: got {k}");
 
         let truth = [0.60, 0.20, k * 0.20, 1.0 - 0.60 - 0.20 - k * 0.20];
         let keys = ["RHOB", "NPHI", "DT", "GR"];
@@ -1440,8 +1440,8 @@ mod tests {
     }
 
     #[test]
-    fn fluid_calc_matches_geolog_reference() {
-        // Geolog's default-model example: Rw 0.43 @ 77F, Rmf 0.10 @ 62F, FT 148F, m=n=2.
+    fn fluid_calc_matches_reference() {
+        // reference default-model example: Rw 0.43 @ 77F, Rmf 0.10 @ 62F, FT 148F, m=n=2.
         let props = FluidProps {
             rw: 0.43,
             rw_temp_f: 77.0,
@@ -1454,7 +1454,7 @@ mod tests {
         };
         let fc = fluid_calc(&props);
         assert!((fc.w - 2.0).abs() < 1e-9);
-        // Geolog shows U FreeW CT response 4.298 mho/m and salinity ~13,048 ppm.
+        // The reference shows U FreeW CT response 4.298 mho/m and salinity ~13,048 ppm.
         assert!((fc.cw - 4.3).abs() < 0.2, "Cw {}", fc.cw);
         assert!((fc.salinity_w_ppm - 13_048.0).abs() < 800.0, "S {}", fc.salinity_w_ppm);
         assert!(fc.cmf > fc.cw, "filtrate is saltier here: Cmf {} Cw {}", fc.cmf, fc.cw);
@@ -1904,7 +1904,7 @@ mod tests {
 
     #[test]
     fn dry_clay_rejects_unphysical_picks() {
-        // Geolog-habit percent entry, blank-field zero coercion, and a wet DT
+        // percent-entry habit, blank-field zero coercion, and a wet DT
         // below the 189·φ water term must all error instead of producing
         // negative dry endpoints silently.
         let base = WetClayInput {

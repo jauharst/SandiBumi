@@ -1,6 +1,6 @@
 //! Sand-Silt-Clay (SSC) and Sandstone Petrophysical Workflow (SSPW) modules.
 //!
-//! SSC is a faithful port of Jauhar's Geolog Loglan `ssc_lqr_gap_edit_jau.lls`
+//! SSC is a faithful port of Jauhar's Loglan `ssc_lqr_gap_edit_jau.lls`
 //! ("Modifikasi Metoda Sand Silt Clay untuk Perhitungan Zona LQR", GAP 2023, after
 //! Kuttan et al., "Log Interpretation in the Malay Basin", 21st SPWLA). Designed for
 //! very fine grained sediments with fresh–brackish formation water, where classic
@@ -11,7 +11,7 @@
 //! water only; capillary-bound water stays inside PHIE, and PHIFF = PHIT − CBW −
 //! CAPBW is what can actually flow. The Loglan exec body is not on disk, so the
 //! arithmetic here is reconstructed from the module spec (`porosity_sspw.lls`) and
-//! the same physics the SSC source spells out — verify against Geolog LAS output.
+//! the same physics the SSC source spells out — verify against the reference LAS output.
 //!
 //! Deviations from the Loglan, both deliberate:
 //! - `RANNORMAL(SWIRR_MIN*PHIT, 0.005)` becomes deterministic `SWIRR_MIN*PHIT`.
@@ -53,7 +53,7 @@ pub fn ssc_spec() -> ModuleSpec {
               matrix density from the fraction mix, PHIT from density. Bound water is split \
               into clay-bound (CBW) and capillary-bound in silt/shale (CWSH): PHIE = PHIT − \
               VWCL·PHIT_CL, PHIFF = PHIT − CBW − CWSH, SWIRR_T = BW/PHIT. GR-equivalent \
-              volumes rescale the SSC volumes to honour VSHGR. Defaults are the LQR Geolog \
+              volumes rescale the SSC volumes to honour VSHGR. Defaults are the LQR reference \
               values."
             .into(),
         args: vec![
@@ -319,7 +319,7 @@ pub fn sspw_spec() -> ModuleSpec {
               CAPBW = VSH·(PHIT_SH − VOL_CBW_SH). Key message: PHIE = PHIT − CBW (clay \
               bound only); PHIFF = PHIT − CBW − CAPBW is the movable-fluid porosity; \
               SWIRR = (CBW+CAPBW)/PHIT floored at SWIRR_MIN. NPHI must be sandstone units. \
-              Exec arithmetic reconstructed from the Geolog spec — check against Geolog \
+              Exec arithmetic reconstructed from the reference spec — check against the reference \
               PHIT/PHIE LAS output."
             .into(),
         args: vec![

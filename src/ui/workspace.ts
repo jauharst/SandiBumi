@@ -1074,7 +1074,7 @@ export class Workspace {
       "Wells & Tops — the project's control panel. Pick a well to drive every plot, view and tool; window to a top to focus plots on that interval; manage well groups and pick/edit tops.",
     inspector:
       "Inspector — the Equation Editor (write custom curves in Python or the expression language) and the Curve Catalog (every stored curve, its versions and provenance).",
-    dbInspector: "Database Inspector — browse and edit any project table directly, Geolog 'Text' style.",
+    dbInspector: "Database Inspector — browse and edit any project table directly, spreadsheet-style.",
     sqlQuery: "SQL Query — a read-only DuckDB SQL console over the project database.",
     history: "Processing History — the audit trail of everything done in this project, saveable to file.",
     dashboard: "Field Dashboard — field-wide pay and quality tiles across all wells (or the active group).",

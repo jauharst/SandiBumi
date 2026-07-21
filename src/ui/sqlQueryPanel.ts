@@ -13,7 +13,7 @@ JOIN wells w USING (well_id)
 GROUP BY w.well_name
 ORDER BY w.well_name`;
 
-/** Read-only SQL console over the project database — Geolog SQL's role, but with the
+/** Read-only SQL console over the project database — a SQL console's role, but with the
  *  whole of DuckDB SQL (joins, window functions, aggregates, QUALIFY, PIVOT...). */
 export class SqlQueryPanel {
   constructor(host: HTMLElement) {

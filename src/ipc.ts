@@ -658,7 +658,7 @@ export function runMl(req: MlRequest): Promise<MlResult> {
 
 // --- Generalized Multimin (multi-mineral inversion) -----------------------
 
-/** A mineral, clay, or fluid component (Geolog-style: fluids are zone-typed X/U). */
+/** A mineral, clay, or fluid component (fluids are zone-typed X/U). */
 export interface MmComponent {
   name: string;
   /** "mineral" | "clay" | "fluid" */
@@ -807,6 +807,33 @@ export async function deleteZone(wellId: string, zoneName: string): Promise<void
 
 export async function zonesFromTops(wellId: string): Promise<ZoneEntry[]> {
   return invoke<ZoneEntry[]>("zones_from_tops", { wellId });
+}
+
+export interface HighlightEntry {
+  highlight_id: string;
+  top_depth: number;
+  bottom_depth: number;
+  color: string | null;
+  label: string | null;
+}
+
+export function listHighlights(wellId: string): Promise<HighlightEntry[]> {
+  return invoke<HighlightEntry[]>("list_highlights", { wellId });
+}
+
+export function upsertHighlight(
+  wellId: string,
+  highlightId: string,
+  topDepth: number,
+  bottomDepth: number,
+  color: string | null,
+  label: string | null,
+): Promise<void> {
+  return invoke("upsert_highlight", { wellId, highlightId, topDepth, bottomDepth, color, label });
+}
+
+export function deleteHighlight(wellId: string, highlightId: string): Promise<void> {
+  return invoke("delete_highlight", { wellId, highlightId });
 }
 
 export interface ZoneParamEntry {

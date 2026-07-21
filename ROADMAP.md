@@ -1,6 +1,6 @@
 # SandiBumi — Development Roadmap
 
-Grounded in the Geolog V14 helpset catalog (`C:\Program Files\AspenTech\Geolog-V14\doc\helpset`,
+Grounded in the the reference suite V14 helpset catalog (`C:\Program Files\AspenTech\the reference install\doc\helpset`,
 ~120 module help books) and the original Techlog-style UX redesign plan. **Restructured
 2026-07-20 by status** — what's Done, what's Open, what's Future — so it's readable at a
 glance. (The earlier standalone UI/UX redesign plan `jolly-skipping-dove.md` is folded in and
@@ -43,7 +43,7 @@ headers below rather than as the primary structure.
 - **Shell & workspace** (Phases 1–4): dockview MDI, 5-tab ribbon, light/dark/system themes, DB Inspector + undo/redo, read-only SQL panel, selection-driven workspace, i18n (EN / Bahasa Indonesia / Basa Sunda).
 - **Plots** (Phase 3 + v2s): WebGPU log view, Histogram v2, Crossplot v2, Pickett, multi-well Correlation, Field Dashboard — all HiDPI, zoom/pan, properties dialogs, export/templates.
 - **Data foundation** (Phase 6): generic curve store + units/TVD; LAS / DLIS / deviation / core / SCAL / tops / aux / well-location import.
-- **Interpretation physics** (Phases 7–8.5): deterministic module library; **SandiMin** 27-component Geolog-parity mineral solver; Sw suite (RtC / IMTS / Indonesia / dual-water); SSC / SSPW porosity; saturation-height; environmental corrections; Thomas-Stieber thin beds; Jauhar's field method suite.
+- **Interpretation physics** (Phases 7–8.5): deterministic module library; **SandiMin** 27-component the reference suite-parity mineral solver; Sw suite (RtC / IMTS / Indonesia / dual-water); SSC / SSPW porosity; saturation-height; environmental corrections; Thomas-Stieber thin beds; Jauhar's field method suite.
 - **Deliverables** (Phase 8): composite plots at true print scale, multi-page PDF reports, batch export.
 - **Field scale** (Phase 9): workflow chains, Monte Carlo uncertainty, Field Dashboard, write-path perf hardening (100-well chain 50s→21s).
 - **Facies & ML** (Phase 10): electrofacies (k-means + GMM), full scikit-learn ML suite.
@@ -279,13 +279,13 @@ multimin (needs PEF), environmental corrections (needs CALI), bad-hole QC, and D
   active-set NNLS over the probability simplex. Command `run_multimin`/`multimin_library`; **Advance
   → Multimin…** dialog (editable endpoint matrix + Clay/Poro/Water roles). Outputs VOL_<comp> +
   `<prefix>`_PHIT/VSH/SWT/RECON. 4 solver tests + suite pass.
-- ~~**Generalized Multimin v2 — Geolog parity (DONE 2026-07-19)**~~ — spec from the local Geolog-V14
+- ~~**Generalized Multimin v2 — the reference suite parity (DONE 2026-07-19)**~~ — spec from the local the reference install
   Multimin helpset + IP2018 Mineral Solver. **27-component library** in IP dropdown order (12
   minerals, 6 clays with CEC, 7 zone-typed fluids), **16 input logs + user-defined**. Resistivity
   enters as conductivity via the **dual-water linear transform** (Ct^(1/w) row, w=0.75m+0.25n) —
   Sw/Sxo come out of the volume solve itself (supersedes the old outer-loop design). Hard unity over
   minerals+U-fluids, POROSITY (ΣX=ΣU) and BNDWAT soft σ=0.01 rows, WATER MUD re-solve, hard bounds
-  (fluids ≤0.5). New `solve_bounded_lsq`, `multimin_fluid_calc` preview, rebuilt Geolog-style dialog.
+  (fluids ≤0.5). New `solve_bounded_lsq`, `multimin_fluid_calc` preview, rebuilt the reference suite-style dialog.
   7 solver tests incl. Sw=0.40/Sxo=0.80 recovery from CT/CXO; 84/84 suite; tsc clean.
 - ~~**Saturation-height (PT11, DONE 2026-07-17)**~~ — `scal_pc` table + **Import SCAL…** +
   `satheight.rs`: `fit_leverett_j` (Sw = A·J^B by log-log LSQ) and the `sw_height` module — LEVERETT
@@ -298,7 +298,7 @@ multimin (needs PEF), environmental corrections (needs CALI), bad-hole QC, and D
 - ~~**Thomas-Stieber interactive crossplot (DONE 2026-07-17)**~~ — "T-S triangle" on the crossplot
   (X=VSH, Y=PHIT): laminated + dispersed lines with **draggable endpoint handles** (sand handle sets
   PHI_SD_MAX, shale handle sets PHI_SH → zone params on drag release, feeding `thin_bed_ts`).
-- **Done when**: multimin volumes match Geolog within tolerance ✓ (unit); SWH tracks core Sw (field
+- **Done when**: multimin volumes match the reference suite within tolerance ✓ (unit); SWH tracks core Sw (field
   click-through pending, `REVIEW.md`); corrections change curves in the right direction ✓. 37 tests.
 
 ## A4. Deliverables — Phase 8 (§3): composite plots & PDF reports  ✅
@@ -336,7 +336,7 @@ auto-memory (`method-ssc-sspw-lqr`, `method-lrlc-imts-rtc`, `method-workflow-sta
   matrix density, CBW/CWSH bound-water split, SWIRR, GR-equivalent volumes. Deterministic replacement
   for `RANNORMAL`; NPHIMA limit bug in the Loglan fixed deliberately (noted in the module header).
 - ~~**`sspw` (Porosity)**~~ — PHR-standard sandstone workflow; exec reconstructed from the `.info`
-  spec — **validate vs Geolog "LAS PHIT PHIE" outputs**.
+  spec — **validate vs the reference suite "LAS PHIT PHIE" outputs**.
 - ~~**`sw_rtc` + `sw_imts` (Saturation)**~~ — the LRLC research models: excess-conductivity
   correction and iterative mineral-textural-scaled Waxman-Smits with Qv_eff = Qv_bulk/(1−Swirr),
   Juhasz B(T,Rw).
@@ -459,7 +459,7 @@ the Interpretation-workflow tier has a few open items pulled into [Part B](#b2-i
   (Ctrl = copy), undoable; ▦ customizable track borders; hover readout scoped to ONE track; right-click
   → "Edit CURVE…" (shift/const/blank/interpolate/scale) via `curve_edit.rs` transactional read-modify-
   rewrite, undoable bit-exactly (`restore_curve_values`), recorded in Processing History.
-- ✅ **Histogram v2** (2026-07-20): Geolog-style Properties dialog (mode, bins, normalize, cumulative-%,
+- ✅ **Histogram v2** (2026-07-20): the reference suite-style Properties dialog (mode, bins, normalize, cumulative-%,
   box-plot strip P5–P25–P50–P75–P95, custom bar color, user percentiles, Min/Max, statistics placement).
   Parameter pickers now opt-in — a fresh histogram is a neutral frequency tool.
 - ✅ **Crossplot v2** (2026-07-20): sectioned Properties dialog — plot size (fill or fixed W×H),
@@ -525,7 +525,7 @@ REVIEW.md P1 section):
 ## A10. Feature waves shipped — Wave A + Wave E (§4c)
 
 Source: Jauhar's 2026-07-20 feature list, researched by a 10-agent sweep over his reference library,
-real project data, the Geolog-V14 install, and the codebase. **Full method specs are banked in
+real project data, the the reference install install, and the codebase. **Full method specs are banked in
 `docs/research_2026-07/` — read the matching file before implementing any Part B/C wave item.** Item
 numbers = Jauhar's original ordering. **Per-increment verification standard: run on Balam South data
 (item 11)** in addition to cargo test / tsc / browser checks.
@@ -735,7 +735,7 @@ _(field-review tier, was "P2"; the rest of the tier is done in [A8](#a8-field-re
       intervals** — reference top/bottom from a chosen tops set; missing marker → nearest stratigraphic
       marker (top → shallowest, bottom → deepest); percentiles extrapolated over the whole interval and
       normalized together.
-- [ ] **Highlight tool** (Geolog-style): multiple depth highlights, same or different colors; convert
+- [ ] **Highlight tool** (the reference suite-style): multiple depth highlights, same or different colors; convert
       highlights → tops.
 - [ ] **Typography**: text reads slightly fuzzy/washed-out up close — investigate WebView2 rendering
       (display scaling, weight, contrast). Waiting on Jauhar to say whether it's blurriness or lightness.
@@ -818,7 +818,7 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       Drucker-Prager, Modified Lade — closed forms from the 221102 LAPI-ITB deck) → collapse MW + mud window
       + max injection (CFF); (iii) Bowers loading/unloading (needed for Mahakam overpressure) + breakout
       SHmax inversion. Ship CSB/Rokan calibrations as a named preset. → `ref_geomechanics.md`.
-- [ ] **(15) Rock physics.** Mirror Geolog GP02 (incl. two known Geolog bugs NOT to copy): Phase 1 =
+- [ ] **(15) Rock physics.** Mirror the reference suite GP02 (incl. two known the reference suite bugs NOT to copy): Phase 1 =
       Batzle-Wang fluids + VRH solid mix (consumes SandiMin volumes) + fluid mixing (Reuss/patchy/Brie) +
       Gassmann clean & Vsh + Vs prediction (Greenberg-Castagna iterative, Han, mudrock) + elastic attributes
       (AI/SI/VpVs/Poisson/LMR) + reflectivity/EI; Phase 2 = bounds + Krief/critical-porosity + contact
@@ -892,24 +892,24 @@ _(field-review tier, was "P3"; longer-horizon items not already absorbed by a Wa
 
 # Reference
 
-## R1. Where SandiBumi already matches — or beats — Geolog (§1)
+## R1. Where SandiBumi already matches — or beats — the reference suite (§1)
 
-| Geolog module | SandiBumi equivalent | Notes |
+| the reference suite module | SandiBumi equivalent | Notes |
 |---|---|---|
-| Layout | Log View panels (WebGPU) | GPU-rendered, curve fills, synchronized crosshair across views, per-panel layouts, saved layouts. Faster pan/zoom than Geolog's redraw. |
+| Layout | Log View panels (WebGPU) | GPU-rendered, curve fills, synchronized crosshair across views, per-panel layouts, saved layouts. Faster pan/zoom than the reference suite's redraw. |
 | Frequency | Histogram panel | Bars/line/cumulative, selectable statistic chips, normalization, click-to-pick → zone params. |
 | Xplot | Crossplot panel | Z-coloring, matrix points, least-squares regression + R² in lin/log space, click-to-pick. |
 | PT04_ParameterPick | Histogram/Crossplot/Pickett picks | Picks write directly into zone parameters. |
 | PT05_Determin | Deterministic module library | Ported Loglan modules (vsh, porosity, sw, perm, prep/ftemp), manifest-driven dialogs, multi-well parallel runs. |
 | PT13_PaySummary / PaySummary / PayModel | Cutoffs & Summary | Cutoff/lumping engine with FLAG_* curves and per-zone HPV table. |
 | Loglan / RF05_TclTk | **Python + numpy equations** | Vectorized numpy beats Loglan for expressiveness; no compile step; NaN-native. Rhai kept for legacy. |
-| Text | Database Inspector | Editable grid over every table, paged, **with undo (Ctrl+Z) — Geolog has no undo there**. |
-| RF06_GeologSQL / Query | **SQL Query panel** | Full DuckDB SQL (joins, window functions, aggregates) vs GeologSQL's narrow dialect. Clear superiority. |
+| Text | Database Inspector | Editable grid over every table, paged, **with undo (Ctrl+Z) — the reference suite has no undo there**. |
+| RF06 SQL / Query | **SQL Query panel** | Full DuckDB SQL (joins, window functions, aggregates) vs the reference suite's narrow SQL dialect. Clear superiority. |
 | FileImporter/FileExporter (LAS) | Import LAS / Export LAS | LAS 2.0 both directions incl. computed curves. |
 | RF01_Database | DuckDB single-file project | Columnar, transactional, one file to copy = whole project ("Save Project As"). |
 | WellCatalog / WellInventory | Wells & Tops panel | Object tree + tops; inventory columns can come from SQL panel. |
 | AuditTrail | log sets + undo stack | Session undo + versioned log sets with provenance; full lineage is Phase 11. |
-| GS5 shortcuts / docking | dockview workspace | Float/dock/tab/split/maximize any panel — more flexible than Geolog's MDI. |
+| GS5 shortcuts / docking | dockview workspace | Float/dock/tab/split/maximize any panel — more flexible than the reference suite's MDI. |
 
 ## R2. Standing advantages to protect (§5)
 

@@ -1,8 +1,8 @@
 import { listTops, type TopEntry } from "../ipc";
 import type { TopInterval } from "../state";
 
-/** Formation tops for the currently selected well — SandiBumi's equivalent of Geolog's
- * TOPS_GEO.TOPS interval log panel. Clicking a top selects the interval from it down to
+/** Formation tops for the currently selected well — SandiBumi's own formation-tops
+ * interval panel. Clicking a top selects the interval from it down to
  * the next top (or TD); clicking it again deselects. */
 export class TopsPanel {
   private container: HTMLElement;

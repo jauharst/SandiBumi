@@ -3,7 +3,7 @@
 //! decides which family bucket it belongs to (so the catalog can group and the modules can
 //! find it) and rescales its samples into SandiBumi's canonical unit for that family.
 //!
-//! This mirrors what Geolog's tool/curve dictionaries and IP's CurveAlias.txt do, but kept
+//! This mirrors what commercial tool/curve dictionaries and IP's CurveAlias.txt do, but kept
 //! small and code-resident (no external reference file to drift out of sync).
 
 /// Canonical family + its canonical unit. Families are deliberately coarse — enough to

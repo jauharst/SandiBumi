@@ -28,7 +28,7 @@ export function maskCurveNames(curveNames: string[]): string[] {
 
 /** Builds the auto-generated parameter form for one module: input-curve selectors,
  *  option dropdowns, and validated numeric parameters — all straight from the manifest
- *  (Geolog .info model). Hosted as a dock pane (workspace component "module", panel id
+ *  (module-manifest model). Hosted as a dock pane (workspace component "module", panel id
  *  "module:<name>"), not a popup — one singleton pane per module, so every module the
  *  backend registers gets its pane with no frontend work. The pane is persistent: the
  *  well list and curve dropdowns refresh on data changes (keeping the user's choices),

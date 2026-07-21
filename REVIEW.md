@@ -7,6 +7,46 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Highlight tool + ribbon overflow + trademark scrub + typography (2026-07-21)
+
+B2 UI/workflow polish + two follow-ups. **tsc EXIT 0; `cargo check --tests` EXIT 0; Rust 177 pass / 0 fail.** Nothing committed yet.
+
+- [ ] **Ribbon overflow chevrons (Office-style)** (ribbon.ts, styles.css). When the window is too narrow
+      to show all the tools on a tab, the raw scrollbar is gone — a boxed **‹ / ›** appears at the
+      overflowing edge and scrolls the group row a page at a time (like PowerPoint's ribbon). Test: narrow
+      the window until a tab's groups don't all fit → a **›** box appears at the right edge; click it →
+      the row scrolls and a **‹** appears at the left; at the end only **‹** shows. Switch tabs / resize →
+      the chevrons re-evaluate. (Verified live: at 720px the Petrophysics row overflows 238px, right
+      chevron shows at scroll-start, left appears after scrolling, correct box at the right edge.)
+
+- [ ] **Highlight tool — colored depth bands in the Log View** (new `highlightsOverlay.ts`; `highlights`
+      table + `list/upsert/delete_highlight` in db.rs/lib.rs; IPC in ipc.ts). Open a **Log View**, then
+      in that view's toolbar click **🖍** (next to the 🏷 tops button). Drag vertically over a depth
+      interval → a **translucent colored band** appears across the tracks and an **Edit highlight**
+      dialog opens. Give it a label (e.g. "Pay") + color → **Save**. Add a couple more with different
+      colors. Test: (a) bands render across all tracks, translucent so curves read through; (b) they
+      **track pan/zoom**; (c) switch to another well and back → bands **persist** and reload; (d)
+      **double-click** a band → dialog to recolor / relabel / edit top+bottom / **Delete** / **Convert
+      to zone**; (e) **Convert to zone** creates a zone (check it appears in **Zones** / pay summary);
+      (f) **Ctrl+Z** undoes add / edit / delete / convert; (g) **🖍 and 🏷 are mutually exclusive** —
+      turning one on turns the other off. Bands sit **below** the tops lines so tops stay legible.
+- [ ] **Text sharpness — font hinting** (tauri.conf.json `additionalBrowserArgs`). You flagged text as
+      slightly fuzzy/washed-out. I confirmed the CSS is clean and contrast is already high (~12.9:1), so
+      it's not a color issue — the softness is Chromium's GPU grayscale AA (WebGPU forces GPU on) plus
+      Windows display scaling. I added `--font-render-hinting=medium`. **This only takes effect on a full
+      relaunch** (`npm run tauri dev` restart). Test: relaunch, eyeball the panel text vs before. If it's
+      still soft, check **Windows Settings ▸ Display ▸ Scale** — at 125%/150% the webview raster-scales;
+      tell me and we can add a text-size control or bump the base font. (Not verifiable from my side —
+      the browser tools can't reproduce WebView2 rendering.)
+- [ ] **AspenTech trademark scrubbed repo-wide (keeping Loglan)** (per your request — "except loglan").
+      The prior-tool name is now gone from the whole tree — shipped app, code comments, and dev docs —
+      except: **Loglan / `.lls`** (kept deliberately: SandiBumi runs Loglan, so those stay), your real
+      data-folder paths in test fixtures (can't rename your disk), the English word "geology", and your
+      own verbatim words in `Review.txt`. The comment/doc pass replaced the vendor name with neutral
+      wording ("the reference suite", "commercial suite", etc.). Nothing to click-test — grep the repo
+      for the old name and you'll only find the exceptions above. Test the one user-visible change: hover
+      the **DB Inspector** ribbon button + open **Help** → reads "spreadsheet-style".
+
 ## 540-well test — perf & crash fixes (2026-07-21)
 
 From your ~540-well stress test. A read-only 5-agent diagnosis traced every "not responding"
@@ -585,7 +625,7 @@ then RHOB_GC = RHOB + Φt·(1−Sw)·(RHO_FL − GASDEN) replaces gas with liqui
 to |ΔΦt| < 1e-4 (non-converging samples stay MISSING). GASDEN is the real-gas density
 of an SG_GAS 0.65 gas at FPRESS/FTEMP (Standing pseudo-criticals + Papay z, pinned
 0.1297 g/cc at the KK example's 2743 psi / 93.9 °C) — **run precalc first**; FTEMP and
-FPRESS accept only precalc/log-set curves, never a raw import (a Geolog LAS's degF
+FPRESS accept only precalc/log-set curves, never a raw import (a the reference suite LAS's degF
 FTEMP can't sneak in as degC). Default **OPT_GATE = FLAGGED** corrects only where the
 gas flag > 0.5 (chain condflag's XOVER_FLAG, which excludes coal and washout) and
 errors loudly if the flag curve has no data; **EVERYWHERE** is there for wells without
@@ -619,7 +659,7 @@ dry-clay density (2.70 marine / 2.78 deltaic per the KKT deck slide 60); it comp
 chosen clay, ticks it + BoundWater, and sets a **CEC_eq** on the clay that makes the
 solver's Dual-Water bound-water constraint enforce exactly v_bw = φ/(1−φ)·v_dryclay —
 the deck's slide-59 bookkeeping (SWB = VOL_UBNDWAT/PHIT). Unphysical picks error
-instead of applying: NPHI must be a fraction (percent entry rejected — Geolog habit
+instead of applying: NPHI must be a fraction (percent entry rejected — the reference suite habit
 guard), GR positive, wet DT above the 189·φ water term. **Autofill from precalc**
 (fluid box): pick a zone of the selected well and **Read** — fills Formation temp
 from FTEMP_F and the Rmf sample from precalc's RMF (retied to formation temp, an
@@ -859,7 +899,7 @@ ROADMAP §4b for the 35-finding backlog):
 - [x] **Pay summary change**: with a PERM cutoff active, samples with **missing PERM
       now FAIL the cutoff** (they silently passed before). Re-run a pay summary on a
       well with patchy PERM — net pay may legitimately decrease. Tell me if you'd
-      rather missing-PERM samples pass (Geolog's default behavior differs by setup).
+      rather missing-PERM samples pass (the reference suite's default behavior differs by setup).
 - [ ] **LAS import**: the file's own ~W NULL declaration is now honored (deliveries
       using -99999 etc. no longer import sentinels as data), and **multi-word well
       names survive** ("BALAM SOUTH-01" no longer truncates to "SOUTH-01"). Re-import
@@ -1132,10 +1172,10 @@ Everything you marked `[o]` has been cleared out of this file.
       every pane recolors instantly, no mouse-over needed
 - [x] Switch theme while a second tabbed panel is inactive, then activate it — correct colors
 
-## SandiMin — Geolog-parity mineral solver (2026-07-19, v2)
+## SandiMin — the reference suite-parity mineral solver (2026-07-19, v2)
 
-Rebuilt to Geolog Multimin / IP Mineral Solver conventions (spec extracted from your
-Geolog-V14 helpset + IP2018 install → `docs/multimin_geolog_spec.md`, `docs/multimin_ip_spec.md`).
+Rebuilt to the reference suite Multimin / IP Mineral Solver conventions (spec extracted from your
+the reference install helpset + IP2018 install → `docs/multimin_ref_spec.md`, `docs/multimin_ip_spec.md`).
 
 - [ ] **Advance → SandiMin…** now shows the full IP mineral list, grouped: 12 minerals (Calcite,
       Quartz, Dolomite, Orthoclase, Albite, Anhydrite, Halite, Gypsum, Pyrite, Siderite, Muscovite,
@@ -1148,10 +1188,10 @@ Geolog-V14 helpset + IP2018 install → `docs/multimin_geolog_spec.md`, `docs/mu
       by default and **CXO (from RXO)** optional — CT/CXO take a RESISTIVITY mnemonic; the backend
       converts to conductivity (dual-water linear: Ct^(1/w) row, w = 0.75m + 0.25n). Their σ is
       auto (0.03·C^(1/w)) unless you type one. **+ Add user-defined input** adds a custom log with
-      its own endpoint column (default σ 0.015, Geolog's user-defined default).
+      its own endpoint column (default σ 0.015, the reference suite's user-defined default).
 - [ ] **Endpoints matrix**: editable per component×tool; unflushed-zone fluid cells show "—" for
-      nuclear tools (only CT sees them — Geolog convention); CT/CXO cells show "auto"; per-row
-      **Max** bound (fluids default 0.5, Geolog's cap).
+      nuclear tools (only CT sees them — the reference suite convention); CT/CXO cells show "auto"; per-row
+      **Max** bound (fluids default 0.5, the reference suite's cap).
 - [ ] **Fluid properties** panel (visible when CT/CXO on): Rw@temp, Rmf@temp, formation temp, m, n,
       mud type. The preview line shows the computed w, Cw, Cmf, Cbw, α(x/u) and auto CT/CXO σ —
       sanity-check Cw against your Pickett Rw (Cw = 1/Rw@FT, mho/m).
@@ -1161,7 +1201,7 @@ Geolog-V14 helpset + IP2018 install → `docs/multimin_geolog_spec.md`, `docs/mu
       **MM_SWT is sensible vs your sw_indo/RtC runs** (this is the new resistivity coupling —
       "resistivity convert to ct and cxo" as requested), and MM_RECON spikes where the model fails.
 - [ ] Add **BoundWater** with Illite selected: VOL_BOUNDWATER should track ≈ 0.18×VOL_ILLITE at
-      ~150°F (the Geolog dual-water bound-water constraint, k = 96·CEC·ρ/(T°C+298)).
+      ~150°F (the the reference suite dual-water bound-water constraint, k = 96·CEC·ρ/(T°C+298)).
 - [ ] Add **Oil Sxo + Oil Sw** with CXO available: SXOT ≥ SWT in water-based mud (WATER MUD
       constraint) and MM_MOVEDHC = unflushed HC − flushed HC ≥ 0 across invaded pay.
 - [ ] Requested upgrade (ROADMAP §4 P3): optional **nonlinear Sw equation iterated to
@@ -1249,14 +1289,14 @@ Geolog-V14 helpset + IP2018 install → `docs/multimin_geolog_spec.md`, `docs/mu
 - [ ] **SSC — Sand-Silt-Clay (Advance tab)**: run on an LQR-style well with
       GRN + RHOB + NPHI (sandstone units). Check VSAND/VSILT/VDCL/VWCL, PHIT/PHIE/PHIFF,
       CBW/CWSH/BW, SWIRR_T/SWIRR_EFF and the `*_GR` GR-equivalent volumes against your
-      Geolog run. Defaults are the LQR `.info` values (wet clay 2.3/0.6, dry clay 2.71,
+      the reference suite run. Defaults are the LQR `.info` values (wet clay 2.3/0.6, dry clay 2.71,
       wet silt NPHI 0.3, DCLF_SI 0.1). Two deliberate deviations, flag if they matter:
       (1) `RANNORMAL(SWIRR_MIN·PHIT, 0.005)` is deterministic here; (2) the Loglan's
       NPHIMA limit 0.5–5 (a copy-paste of the RHOMA limit) is corrected to 0–1.
 - [ ] **SSPW (Advance tab)**: the Loglan exec body wasn't on disk, so the
       arithmetic (PHIT from VSH-mixed dry matrix, CBW = VSH·VOL_CBW_SH,
       CAPBW = VSH·(PHIT_SH − VOL_CBW_SH), PHIE = PHIT − CBW, PHIFF, SWIRR floor) is
-      **reconstructed from the spec — please validate against your Geolog "LAS PHIT
+      **reconstructed from the spec — please validate against your the reference suite "LAS PHIT
       PHIE" exports** and tell me any systematic difference; I'll adjust the equations.
 
 ## Phase 8b — report generator (2026-07-18)

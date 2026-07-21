@@ -101,8 +101,13 @@ export class Ribbon {
    *  dialog. Null until a session has a name → Ctrl+S then falls back to Save Session As. */
   private lastSessionName: string | null = null;
 
+  /** Set by initRibbonOverflow — lets tab switches and async module loads re-check whether
+   *  the overflow chevrons should show. */
+  private updateRibbonOverflow?: () => void;
+
   constructor(root: HTMLElement, private workspace: Workspace) {
     this.attachTabs(root);
+    this.initRibbonOverflow(root);
 
     const q = <T extends HTMLElement>(sel: string) => root.querySelector<T>(sel);
 
@@ -362,6 +367,7 @@ export class Ribbon {
         const target = tab.dataset.tab!;
         for (const t of tabs) t.classList.toggle("active", t === tab);
         for (const [key, el] of panels) el.hidden = key !== target;
+        this.updateRibbonOverflow?.(); // the newly shown panel may over/under-flow differently
       });
     }
   }
@@ -389,6 +395,60 @@ export class Ribbon {
     if (petroEl) this.renderCategoryModules(petroEl, modules);
     const advanceEl = root.querySelector<HTMLElement>("#advance-modules");
     if (advanceEl) this.renderAdvancedModules(advanceEl, modules);
+    // The Petrophysics/Advance panels just gained their group content, so their scroll width
+    // changed — re-check whether the overflow chevrons are needed.
+    this.updateRibbonOverflow?.();
+  }
+
+  /** PowerPoint-style ribbon overflow: when the active tab's group row is wider than the
+   *  window, show a chevron box at each overflowing edge (scroll ‹ / more ›) instead of a raw
+   *  scrollbar, so the user can always reach every tool. Chevrons appear only in the direction
+   *  that has hidden content and scroll the active panel a page at a time. */
+  private initRibbonOverflow(root: HTMLElement): void {
+    const body = root.querySelector<HTMLElement>(".ribbon-body");
+    if (!body) return;
+    const panels = Array.from(root.querySelectorAll<HTMLElement>(".ribbon-panel"));
+
+    const mkChevron = (side: "left" | "right", glyph: string, label: string): HTMLButtonElement => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = `ribbon-overflow ribbon-overflow-${side}`;
+      b.setAttribute("aria-label", label);
+      b.title = label;
+      b.textContent = glyph;
+      b.hidden = true;
+      return b;
+    };
+    const left = mkChevron("left", "‹", "Scroll ribbon left");
+    const right = mkChevron("right", "›", "Show more ribbon tools");
+    body.append(left, right);
+
+    const activePanel = (): HTMLElement | null => panels.find((p) => !p.hidden) ?? null;
+    const update = (): void => {
+      const p = activePanel();
+      if (!p) {
+        left.hidden = true;
+        right.hidden = true;
+        return;
+      }
+      const max = p.scrollWidth - p.clientWidth;
+      const overflowing = max > 1;
+      left.hidden = !overflowing || p.scrollLeft <= 1;
+      right.hidden = !overflowing || p.scrollLeft >= max - 1;
+    };
+    const scrollActive = (dir: number): void => {
+      const p = activePanel();
+      if (!p) return;
+      p.scrollBy({ left: dir * Math.max(120, p.clientWidth * 0.7), behavior: "smooth" });
+    };
+    left.addEventListener("click", () => scrollActive(-1));
+    right.addEventListener("click", () => scrollActive(1));
+
+    for (const p of panels) p.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    new ResizeObserver(update).observe(body);
+    this.updateRibbonOverflow = update;
+    requestAnimationFrame(update); // after first layout settles
   }
 
   /** Builds the Petrophysics tab from the backend manifests: one Office-style dropdown

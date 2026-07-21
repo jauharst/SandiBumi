@@ -1,4 +1,4 @@
-//! Saturation-height modeling (Geolog PT11 equivalent): core capillary-pressure data
+//! Saturation-height modeling: core capillary-pressure data
 //! (`scal_pc` table), Leverett-J function fitting, and the `sw_height` module that
 //! writes a saturation-vs-height-above-FWL curve (SWH).
 //!

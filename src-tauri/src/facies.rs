@@ -1,5 +1,5 @@
 //! Electrofacies — unsupervised k-means clustering over chosen log curves, producing a
-//! discrete FACIES curve (Geolog PT15 equivalent, unsupervised mode).
+//! discrete FACIES curve (unsupervised electrofacies).
 //!
 //! Runs per well through the standard module framework (whole-vector, like `log_predict`):
 //! every depth where all *present* input curves exist becomes a sample in a standardized

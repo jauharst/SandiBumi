@@ -1,7 +1,7 @@
-# Geolog Multimin — extracted specification (from Geolog-V14 helpset, 2026-07-19)
+# the reference suite Multimin — extracted specification (from the reference install helpset, 2026-07-19)
 
-Research basis for SandiBumi generalized multimin (multimin2) Geolog-parity work.
-Sources: `C:\Program Files\AspenTech\Geolog-V14\doc\helpset\{MultiminModel, RF04_Multimin, PT07_Multimin, MultiminAnalysis, RF03_LogsMods}`.
+Research basis for SandiBumi generalized multimin (multimin2) the reference suite-parity work.
+Sources: `C:\Program Files\AspenTech\the reference install\doc\helpset\{MultiminModel, RF04_Multimin, PT07_Multimin, MultiminAnalysis, RF03_LogsMods}`.
 
 ## A. Flushed (X) / Unflushed (U) zone model
 
@@ -129,7 +129,7 @@ Verification: DOF check + conflict check; condition number = log10(SVD norm rati
 Per-frame quality logs: CONDNUM; QUALITY = sqrt(Delta^2 / chi2_95%(ntool-3)) (<1 good); NFUN (iteration count).
 Predicted per-volume errors = sqrt(diag(A^-1)) * QUALITY.
 
-## I. Default wireline response endpoints (RF04 6.2) — Geolog values
+## I. Default wireline response endpoints (RF04 6.2) — the reference suite values
 
 Internal units metric: RHOB kg/m3, DT us/m, NPHI frac, U barns/cc, GR API, Th/U ppm, K %, Sigma c.u., EPT ns/m.
 Clays are DRY-clay responses. `*` = computed at runtime from fluid properties. U-zone fluids: all responses 0 except DT.
@@ -181,7 +181,7 @@ DT us/ft conversion: /3.2808. E.g. Quartz 50.4, Calcite 47.8, Dolomite 43.5, Ill
 - U: oil 0.000119*rho_eoil.
 - CBW conductivity: Cbw = 0.0007*(T_C+8.5)*(T_C+298).
 - KCl mud: GR_xfw = 4.8*KCL_MUD wt%; K_xfw = 0.524*KCL_MUD.
-- Arps: conductivity temperature conversion via (T+21.5) ratios (Geolog standard).
+- Arps: conductivity temperature conversion via (T+21.5) ratios (the reference suite standard).
 
 ## K. Output-log suite (tp_multimin)
 
@@ -195,7 +195,7 @@ wet <log>_WET; normalized VOL_<min>_NORM; extra saturations SO_XT/SG_XT/SO_UT/SG
 - The DUAL WATER LINEAR trick: with w = 0.75m + 0.25n, the CT row becomes LINEAR in volumes:
   `Ct^(1/w) = v_ubw*Cubw^(1/w) + v_ufw*Cufw^(1/w)` — transform the measured conductivity and the fluid
   conductivity endpoints by ^(1/w) before assembling the row; minerals/HC get 0. Same for CXO with X volumes/Cmf.
-  Geolog's NONLINEAR mode = linear solve first, then SQP refinement (Powell VF02 + watchdog) — linear is a
+  the reference suite's NONLINEAR mode = linear solve first, then SQP refinement (Powell VF02 + watchdog) — linear is a
   supported production method on its own.
 - CT/CXO row uncertainty (already in transformed units): U_Cxo = 0.03*Cmf^(1/w), U_Ct = 0.03*Cfw^(1/w).
 - QUALITY = sqrt(Delta^2 / chi2_95(ntool-3)); < 1 good. CONDNUM = log10(cond(A)) via SVD, A = P'UP.

@@ -12,7 +12,7 @@ import {
 import { recordProcess } from "../processLog";
 
 /** Zone manager for the selected well: build zones from tops, add/edit/delete zones,
- *  and set per-zone interval parameter overrides (Geolog interval-parameter model —
+ *  and set per-zone interval parameter overrides (interval-parameter model —
  *  any numeric module parameter, e.g. GR_MA, GR_SH, RW, M, N, applied over that zone's
  *  depth range at run time).
  *  Hosted as a dock pane (workspace component "zones"), not a popup. */

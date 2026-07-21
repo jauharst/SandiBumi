@@ -651,7 +651,7 @@ fn get_curve_data(
 }
 
 /// Lists every deterministic module manifest — the frontend auto-generates each module's
-/// parameter dialog from these (Geolog .info equivalent).
+/// parameter dialog from these (module-manifest model).
 #[tauri::command]
 fn list_modules() -> Vec<modules::ModuleSpec> {
     modules::list_modules()
@@ -854,6 +854,36 @@ fn upsert_zone(db: tauri::State<DbState>, well_id: String, zone_name: String, to
 fn delete_zone(db: tauri::State<DbState>, well_id: String, zone_name: String) -> Result<(), String> {
     let conn = db.0.lock().unwrap();
     db::delete_zone(&conn, &well_id, &zone_name).map_err(|e| e.to_string())
+}
+
+/// Lists the informal colored highlights for a well.
+#[tauri::command]
+fn list_highlights(db: tauri::State<DbState>, well_id: String) -> Result<Vec<db::HighlightEntry>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_highlights(&conn, &well_id).map_err(|e| e.to_string())
+}
+
+/// Creates or updates a highlight (keyed by client-generated id).
+#[tauri::command]
+fn upsert_highlight(
+    db: tauri::State<DbState>,
+    well_id: String,
+    highlight_id: String,
+    top_depth: f32,
+    bottom_depth: f32,
+    color: Option<String>,
+    label: Option<String>,
+) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    db::upsert_highlight(&conn, &well_id, &highlight_id, top_depth, bottom_depth, color.as_deref(), label.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+/// Deletes a highlight.
+#[tauri::command]
+fn delete_highlight(db: tauri::State<DbState>, well_id: String, highlight_id: String) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    db::delete_highlight(&conn, &well_id, &highlight_id).map_err(|e| e.to_string())
 }
 
 /// Rebuilds a well's zones from its formation tops (each top starts a zone).
@@ -1258,6 +1288,9 @@ pub fn run() {
             list_zones,
             upsert_zone,
             delete_zone,
+            list_highlights,
+            upsert_highlight,
+            delete_highlight,
             zones_from_tops,
             list_zone_params,
             set_zone_param,

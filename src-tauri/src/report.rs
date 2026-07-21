@@ -40,7 +40,7 @@ pub struct ReportSpec {
     /// Methodology table rows; empty = built-in default template.
     #[serde(default)]
     pub methodology: Vec<MethodRow>,
-    /// Pay-summary cutoffs (Geolog .paysum convention).
+    /// Pay-summary cutoffs (pay-summary convention).
     pub vsh_max: f64,
     pub phie_min: f64,
     pub swe_max: f64,

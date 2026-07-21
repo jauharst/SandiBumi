@@ -17,7 +17,7 @@
         "width": 800,
         "height": 600,
         "dragDropEnabled": false,
-        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --enable-lcd-text"
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --enable-lcd-text --font-render-hinting=medium"
       }
     ],
     "security": {

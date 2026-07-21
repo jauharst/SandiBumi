@@ -1,5 +1,5 @@
 //! Multimin — constrained weighted least-squares mineral/fluid inversion
-//! (Geolog PT07 equivalent). A four-component model (SAND, CLAY, WATER, HYDROCARBON)
+//! (a multi-mineral model). A four-component model (SAND, CLAY, WATER, HYDROCARBON)
 //! is solved per depth sample against whichever of RHOB/NPHI/DT/PEF are present, with a
 //! non-negativity constraint (NNLS, Lawson-Hanson active set) and a heavily-weighted
 //! unity equation (sum of volumes = 1) folded in as a soft constraint — the standard

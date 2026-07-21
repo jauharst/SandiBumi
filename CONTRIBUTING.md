@@ -45,7 +45,7 @@ can corrupt the project's DuckDB WAL. Let it exit on its own. Recovery exists
 | `CLAUDE.md` | **Read first.** Hard-won machine/runtime rules (Python discovery, WAL resilience, toolset pin, dockview quirks). |
 | `ROADMAP.md` | Full plan + **§4 = current field-review backlog** (priority-ordered). |
 | `REVIEW.md` | Click-through checklist for features awaiting field verification. Mark `[o]` = OK, `[x]` = wrong, leave `[ ]` untested. |
-| `docs/` | Method specs (Geolog/IP mineral-solver extraction, etc.). |
+| `docs/` | Method specs (the reference suite/IP mineral-solver extraction, etc.). |
 
 ## 4. How we work
 
@@ -59,7 +59,7 @@ can corrupt the project's DuckDB WAL. Let it exit on its own. Recovery exists
   `modules.rs` — the dialog UI is auto-generated. Keep physics in Rust, single-sourced.
 - **Verification bar** before merging: `npx tsc --noEmit` clean, `cargo check` clean,
   `cargo test` green, and a manual smoke of the touched panel.
-- **Petrophysics defaults** come from documented sources (Geolog `.info` exports, field
+- **Petrophysics defaults** come from documented sources (the reference suite `.info` exports, field
   studies) — cite the source in a comment when adding constants.
 
 ## 5. Remote / sharing

@@ -58,7 +58,7 @@ pub enum ScaleType {
     Log,
 }
 
-/// One vertical track in a layout, analogous to a Geolog `.layout` track/scale block.
+/// One vertical track in a layout, analogous to a track/scale layout block.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Track {
     pub title: String,
@@ -67,7 +67,7 @@ pub struct Track {
     pub curves: Vec<CurveStyle>,
 }
 
-/// A named, reusable track layout — SandiBumi's equivalent of Geolog's `.layout` registry.
+/// A named, reusable track layout — SandiBumi's reusable track-layout registry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Layout {
     pub name: String,

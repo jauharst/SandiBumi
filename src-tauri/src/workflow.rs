@@ -1,6 +1,6 @@
 //! Workflow runner: executes deterministic modules across wells (rayon-parallel),
-//! resolving interval parameters per zone (Geolog-style), and the cutoff/summary
-//! engine modeled on Geolog's .paysum specs.
+//! resolving interval parameters per zone (interval-parameter style), and the cutoff/summary
+//! engine modeled on pay-summary specs.
 
 use crate::db;
 use crate::equations;
@@ -43,7 +43,7 @@ pub struct ModuleRunResult {
 
 /// Builds per-sample parameter arrays for every Param arg: dialog value (or manifest
 /// default) as the base, then zone_params overrides — '*' applies well-wide, named zones
-/// apply over their depth range. This is the Geolog interval-parameter model.
+/// apply over their depth range. This is the interval-parameter model.
 fn resolve_param_arrays(
     conn: &Connection,
     well_id: &str,
@@ -424,7 +424,7 @@ pub fn run_workflow_module_into(
 }
 
 // ---------------------------------------------------------------------------
-// Pay summary — cutoffs → flags → per-zone statistics (Geolog .paysum model)
+// Pay summary — cutoffs → flags → per-zone statistics (pay-summary model)
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Deserialize)]
@@ -466,7 +466,7 @@ pub struct PaySummaryRow {
     pub ntg: f32,
     pub avg_vsh: f32,
     pub avg_phie: f32,
-    /// PHIE-weighted average SWE (Geolog .paysum convention).
+    /// PHIE-weighted average SWE (pay-summary convention).
     pub avg_swe: f32,
     pub hpv: f32, // sum of PHIE*(1-SWE)*thickness over net
 }
@@ -661,7 +661,7 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
 // ---------------------------------------------------------------------------
 
 /// Per-sample SAND / RESERVOIR / PAY classification against the cutoffs, matching the
-/// Geolog .paysum NaN propagation: a missing VSH excludes all three (returns NaN,NaN,NaN);
+/// Pay-summary NaN propagation: a missing VSH excludes all three (returns NaN,NaN,NaN);
 /// a missing PHIE excludes RESERVOIR and PAY; a missing SWE excludes PAY. Each returned
 /// value is `f32::NAN` when the sample is excluded, else `0.0`/`1.0`. `has_perm_cut` is the
 /// caller's decision that a PERM cutoff is active (perm_min set and PERM present in the set).

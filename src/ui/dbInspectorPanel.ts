@@ -35,7 +35,7 @@ const TABLES: TableDef[] = [
   { key: "aux_data", label: "Aux Data", wellScoped: true, editable: [] },
 ];
 
-/** Geolog "Text"-style editable grid over the project database: pick a table, page
+/** Spreadsheet-style editable grid over the project database: pick a table, page
  *  through rows, double-click a cell to edit. Every edit goes through a whitelisted
  *  IPC command, refreshes open views, and lands on the undo stack (Ctrl+Z). */
 export class DbInspectorPanel {

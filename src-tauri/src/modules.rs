@@ -1,13 +1,13 @@
-//! Deterministic petrophysics module library, ported from Geolog-V14 Loglan sources
+//! Deterministic petrophysics module library, ported from Loglan sources
 //! (vsh_gr.lls, vsh_dn.lls, phi_den.lls, phi_dn.lls, sw_arch.lls, sw_indo.lls, sw_sim.lls,
 //! perm_wyllie_rose.lls, perm_coates.lls) with the same MISSING semantics (`f32::NAN`),
 //! LIMIT clamping, and per-frame evaluation model.
 //!
-//! Each module carries a manifest (mirroring Geolog's `.info` files) that the frontend
+//! Each module carries a manifest (`.info`-style) that the frontend
 //! uses to auto-generate its parameter dialog: numeric interval parameters with defaults
 //! and validation ranges, string options with fixed choices, and input/output logs.
 //!
-//! Density convention: g/cc (matching LAS field data), not Geolog's kg/m3.
+//! Density convention: g/cc (matching LAS field data), not the kg/m3 some suites use.
 
 use serde::Serialize;
 use std::collections::HashMap;
@@ -42,7 +42,7 @@ pub struct ArgSpec {
     pub required: bool,
     /// LogIn only: resolve from computed provenance (precalc outputs, log sets) and never
     /// the RAW import store — for unit-contract inputs like FTEMP/FPRESS where a raw
-    /// curve with the same mnemonic (a Geolog LAS export's degF FTEMP) would silently
+    /// curve with the same mnemonic (a commercial LAS export's degF FTEMP) would silently
     /// masquerade as the degC/psi curve the module assumes.
     pub computed_only: bool,
 }
@@ -241,7 +241,7 @@ pub fn run_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, Stri
 }
 
 // ---------------------------------------------------------------------------
-// VSH_GR — Volume of shale from gamma ray (Geolog vsh_gr.lls)
+// VSH_GR — Volume of shale from gamma ray (Loglan vsh_gr.lls)
 // ---------------------------------------------------------------------------
 
 fn vsh_gr_spec() -> ModuleSpec {
@@ -312,7 +312,7 @@ fn vsh_gr(ctx: &ModuleContext) -> ModuleOutputs {
 }
 
 // ---------------------------------------------------------------------------
-// VSH_DN — Volume of shale from density-neutron crossplot (Geolog vsh_dn.lls)
+// VSH_DN — Volume of shale from density-neutron crossplot (Loglan vsh_dn.lls)
 // ---------------------------------------------------------------------------
 
 fn vsh_dn_spec() -> ModuleSpec {
@@ -404,7 +404,7 @@ fn vsh_dn(ctx: &ModuleContext) -> ModuleOutputs {
 }
 
 // ---------------------------------------------------------------------------
-// PHI_DEN — Porosity from density log (Geolog phi_den.lls)
+// PHI_DEN — Porosity from density log (Loglan phi_den.lls)
 // ---------------------------------------------------------------------------
 
 fn phi_den_spec() -> ModuleSpec {
@@ -489,7 +489,7 @@ fn phi_den(ctx: &ModuleContext) -> ModuleOutputs {
 }
 
 // ---------------------------------------------------------------------------
-// PHI_DN — Porosity from density-neutron (Geolog phi_dn.lls structure; analytic
+// PHI_DN — Porosity from density-neutron (Loglan phi_dn.lls structure; analytic
 // crossplot instead of proprietary service-company chart lookups)
 // ---------------------------------------------------------------------------
 
@@ -500,8 +500,8 @@ fn phi_dn_spec() -> ModuleSpec {
         category: "Porosity".into(),
         doc: "Shale-corrects RHOB and NPHI to 'shale reduced' values, then combines density \
               porosity and neutron porosity: AVERAGE = (PHID+PHIN)/2, GAS_RMS = sqrt((PHID²+PHIN²)/2) \
-              for gas-bearing zones. (Geolog uses service-company chart lookups here; this is the \
-              standard analytic equivalent.) PHIE = PHIX*(1-VSH); PHIT = PHIE + VSH*PHIT_SH."
+              for gas-bearing zones. (Commercial suites use service-company chart lookups here; \
+              this is the standard analytic equivalent.) PHIE = PHIX*(1-VSH); PHIT = PHIE + VSH*PHIT_SH."
             .into(),
         args: vec![
             opt("OPT_XPLOT", "Crossplot combination method", "AVERAGE", &["AVERAGE", "GAS_RMS"]),
@@ -555,7 +555,7 @@ fn phi_dn(ctx: &ModuleContext) -> ModuleOutputs {
             continue;
         }
 
-        // Shale-reduce the input logs (same limits as the Geolog source, in g/cc).
+        // Shale-reduce the input logs (same limits as the Loglan source, in g/cc).
         let rhosr = limit((r - v * rho_sh) / (1.0 - v), 1.95, 3.0);
         let nphisr = limit((np - v * nphi_sh) / (1.0 - v), -0.015, 0.40);
 
@@ -1522,7 +1522,7 @@ fn gascorr(ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
 }
 
 // ---------------------------------------------------------------------------
-// Environmental corrections (Geolog PT03, pragmatic analytic set). These are
+// Environmental corrections (pragmatic analytic set). These are
 // linearized, coefficient-driven equivalents of the service-company chartbook
 // corrections — the coefficients are parameters with chartbook-magnitude defaults,
 // so they can be tuned per tool/field. Chart-lookup fidelity comes later (ROADMAP).
@@ -1658,7 +1658,7 @@ fn rhob_hole_corr(ctx: &ModuleContext) -> ModuleOutputs {
 }
 
 // ---------------------------------------------------------------------------
-// Shared Rw resolution (Geolog sw_*.lls): constant, Arps-corrected measurement,
+// Shared Rw resolution (Loglan sw_*.lls): constant, Arps-corrected measurement,
 // or salinity conversion (Bateman-Konen / Kennedy).
 // ---------------------------------------------------------------------------
 
@@ -1688,7 +1688,7 @@ fn resolve_rw(ctx: &ModuleContext, ftemp: &[f32], i: usize) -> f64 {
             if is_missing(ft) || is_missing(salw) {
                 return MISSING;
             }
-            // Kennedy above 39161 ppm, Bateman-Konen below (Geolog sw_arch.lls).
+            // Kennedy above 39161 ppm, Bateman-Konen below (Loglan sw_arch.lls).
             if salw > 39161.0 {
                 let rw75 = if salw <= 275000.0 {
                     1.0 / (24.30853
@@ -1708,7 +1708,7 @@ fn resolve_rw(ctx: &ModuleContext, ftemp: &[f32], i: usize) -> f64 {
 }
 
 // ---------------------------------------------------------------------------
-// SW_ARCH — Water saturation, Archie (Geolog sw_arch.lls)
+// SW_ARCH — Water saturation, Archie (Loglan sw_arch.lls)
 // ---------------------------------------------------------------------------
 
 fn sw_arch_spec() -> ModuleSpec {
@@ -1754,7 +1754,7 @@ fn sw_arch(ctx: &ModuleContext) -> ModuleOutputs {
         if is_missing(pt) {
             continue;
         }
-        // Coal / zero porosity: everything water (Geolog convention). Keyed on total
+        // Coal / zero porosity: everything water (standard convention). Keyed on total
         // porosity alone — at pt==0 the formation factor a/pt^m blows up to +inf
         // regardless of PHIE, so we must catch it here even when PHIE is absent (NaN);
         // otherwise SWT_ARCH stores +Infinity and poisons catalog stats/autoscale.
@@ -1789,7 +1789,7 @@ fn sw_arch(ctx: &ModuleContext) -> ModuleOutputs {
             };
             let swe_irr = if swtsh >= 1.0 { 0.0 } else { ((swt_irr - swtsh) / (1.0 - swtsh)).max(0.0) };
             let mut swe_l = limit(swe, swe_irr, 1.0);
-            // Low effective porosity clean-up (Geolog: PHIE < 0.005 → all water).
+            // Low effective porosity clean-up (convention: PHIE < 0.005 → all water).
             if pe < 0.005 {
                 swe_l = 1.0;
                 swt_out[i] = 1.0;
@@ -1808,7 +1808,7 @@ fn sw_arch(ctx: &ModuleContext) -> ModuleOutputs {
 }
 
 // ---------------------------------------------------------------------------
-// SW_INDO — Water saturation, Indonesia / Poupon-Leveaux (Geolog sw_indo.lls)
+// SW_INDO — Water saturation, Indonesia / Poupon-Leveaux (Loglan sw_indo.lls)
 // ---------------------------------------------------------------------------
 
 fn sw_indo_spec() -> ModuleSpec {
@@ -1896,7 +1896,7 @@ fn sw_indo(ctx: &ModuleContext) -> ModuleOutputs {
 }
 
 // ---------------------------------------------------------------------------
-// SW_SIM — Water saturation, Simandoux (Geolog sw_sim.lls, Newton-Raphson solver)
+// SW_SIM — Water saturation, Simandoux (Loglan sw_sim.lls, Newton-Raphson solver)
 // ---------------------------------------------------------------------------
 
 fn sw_sim_spec() -> ModuleSpec {
@@ -1930,7 +1930,7 @@ fn sw_sim_spec() -> ModuleSpec {
     }
 }
 
-/// Newton-Raphson solve of g1*s^n + g2*s + g3 = 0, exactly as Geolog's CALC_SW subroutine.
+/// Newton-Raphson solve of g1*s^n + g2*s + g3 = 0, exactly as the Loglan CALC_SW subroutine.
 fn calc_sw(g1: f64, g2: f64, g3: f64, n: f64) -> f64 {
     let mut sat = 0.5_f64;
     for _ in 0..20 {
@@ -2012,7 +2012,7 @@ fn sw_sim(ctx: &ModuleContext) -> ModuleOutputs {
 }
 
 // ---------------------------------------------------------------------------
-// PERM_WYLLIE_ROSE — Permeability, Wyllie-Rose family (Geolog perm_wyllie_rose.lls)
+// PERM_WYLLIE_ROSE — Permeability, Wyllie-Rose family (Loglan perm_wyllie_rose.lls)
 // ---------------------------------------------------------------------------
 
 fn perm_wyllie_rose_spec() -> ModuleSpec {
@@ -2020,7 +2020,7 @@ fn perm_wyllie_rose_spec() -> ModuleSpec {
         name: "perm_wyllie_rose".into(),
         title: "Permeability — Wyllie-Rose".into(),
         category: "Permeability".into(),
-        doc: "PERM = (C * PHIE^D / SWE_IRR^E)^2, mD. Defaults per method from Geolog: \
+        doc: "PERM = (C * PHIE^D / SWE_IRR^E)^2, mD. Defaults per method: \
               TIMUR C=100 D=2.25 E=1; MORRIS_BIGGS_OIL C=250 D=3 E=1; MORRIS_BIGGS_GAS C=79 D=3 E=1; \
               TIXIER C=250 D=3 E=1."
             .into(),
@@ -2056,7 +2056,7 @@ fn perm_wyllie_rose(ctx: &ModuleContext) -> ModuleOutputs {
 }
 
 // ---------------------------------------------------------------------------
-// PERM_COATES — Permeability, Coates FFI (Geolog perm_coates.lls)
+// PERM_COATES — Permeability, Coates FFI (Loglan perm_coates.lls)
 // ---------------------------------------------------------------------------
 
 fn perm_coates_spec() -> ModuleSpec {
@@ -2130,7 +2130,7 @@ fn perm_transform(ctx: &ModuleContext) -> ModuleOutputs {
 
 // ---------------------------------------------------------------------------
 // THIN_BED_TS — Thomas-Stieber laminated sand-shale decomposition
-// (Geolog PT09_ThinBeds equivalent; Thomas & Stieber, 1975)
+// (thin-beds model; Thomas & Stieber, 1975)
 // ---------------------------------------------------------------------------
 
 fn thin_bed_ts_spec() -> ModuleSpec {
@@ -2199,7 +2199,7 @@ fn thin_bed_ts(ctx: &ModuleContext) -> ModuleOutputs {
 }
 
 // ---------------------------------------------------------------------------
-// DEPTH_SHIFT — block depth shift of one curve (Geolog SpliceLogs/shift equivalent)
+// DEPTH_SHIFT — block depth shift of one curve (log splice/shift)
 // ---------------------------------------------------------------------------
 
 fn depth_shift_spec() -> ModuleSpec {

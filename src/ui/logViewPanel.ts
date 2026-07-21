@@ -7,6 +7,7 @@ import { openCurveEditDialog } from "./curveEditDialog";
 import { openLayoutPropsDialog } from "./layoutPropsDialog";
 import { formRow, openModal } from "./modal";
 import { CORE_OVERLAY_MAP, loadCurveUnits } from "./plotCommon";
+import { HighlightsOverlay } from "./highlightsOverlay";
 import { TopsEditor } from "./topsEditor";
 import { renderDepthAxis, renderReadout, renderReportHeader, renderTrackHeaders } from "./viewerChrome";
 
@@ -34,6 +35,8 @@ export class LogViewPanel {
   private coreByName = new Map<string, TrackCurveSeries>();
   /** Tops overlay + Petrel-style interactive editor (🏷 in the toolbar toggles editing). */
   private topsEditor!: TopsEditor;
+  /** Colored highlight bands + interactive editor (🖍 in the toolbar toggles editing). */
+  private highlightsOverlay!: HighlightsOverlay;
 
   private renderer: LogCanvasRenderer | null = null;
   private layout: Layout | null = null;
@@ -108,6 +111,8 @@ export class LogViewPanel {
     body.appendChild(this.depthAxisEl);
     body.appendChild(this.canvas);
     body.appendChild(this.coreOverlay);
+    // Highlights sit just below the tops layer (lower z-index) so top lines stay legible.
+    this.highlightsOverlay = new HighlightsOverlay(body, this.canvas, () => this.renderer?.getVisibleDepthRange() ?? [0, 0]);
     this.topsEditor = new TopsEditor(body, this.canvas, () => this.renderer?.getVisibleDepthRange() ?? [0, 0]);
     body.appendChild(this.crosshairEl);
     body.appendChild(this.readoutEl);
@@ -206,8 +211,27 @@ export class LogViewPanel {
       const on = !this.topsEditor.editing;
       this.topsEditor.setEditMode(on);
       topsBtn.classList.toggle("active", on);
+      if (on) {
+        // Only one on-plot editor captures the overlay at a time.
+        this.highlightsOverlay.setEditMode(false);
+        highlightsBtn.classList.remove("active");
+      }
       setStatus(on ? "Tops editing ON — click adds, drag moves, double-click edits" : "Tops editing off");
     });
+    const highlightsBtn = btn(
+      "🖍",
+      "Highlight intervals: drag to paint a colored band; double-click a band to recolor / label / convert to zone / delete",
+      () => {
+        const on = !this.highlightsOverlay.editing;
+        this.highlightsOverlay.setEditMode(on);
+        highlightsBtn.classList.toggle("active", on);
+        if (on) {
+          this.topsEditor.setEditMode(false);
+          topsBtn.classList.remove("active");
+        }
+        setStatus(on ? "Highlight editing ON — drag paints a band, double-click edits/converts" : "Highlight editing off");
+      },
+    );
 
     return bar;
   }
@@ -228,6 +252,7 @@ export class LogViewPanel {
     // Redraw core points + tops lines after every rendered frame so they track pan/zoom.
     this.renderer.onFrameRendered = () => {
       this.drawCoreOverlay();
+      this.highlightsOverlay.draw();
       this.topsEditor.draw();
     };
     this.renderer.onCursorMove = (depth, samples, trackTitle) => {
@@ -519,6 +544,7 @@ export class LogViewPanel {
     this.drawCoreOverlay();
     if (gen !== this.loadGen || !this.renderer) return;
     await this.topsEditor.setWell(well.well_id);
+    await this.highlightsOverlay.setWell(well.well_id);
   }
 
   /** Draws core plug points over any track showing a curve with a core counterpart
@@ -769,6 +795,7 @@ export class LogViewPanel {
     for (const unsub of this.unsubscribers) unsub();
     this.resizeObserver?.disconnect();
     this.topsEditor.dispose();
+    this.highlightsOverlay.dispose();
     this.renderer?.dispose();
     this.renderer = null;
   }

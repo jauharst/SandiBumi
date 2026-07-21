@@ -99,7 +99,7 @@ export async function buildReportContent(
   scalePageWrap.appendChild(scaleSel);
   scalePageWrap.appendChild(pageSel);
 
-  // Cutoffs (Geolog .paysum convention).
+  // Cutoffs (pay-summary convention).
   const cutoffWrap = document.createElement("div");
   cutoffWrap.style.display = "flex";
   cutoffWrap.style.gap = "6px";

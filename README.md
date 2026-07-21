@@ -1,7 +1,7 @@
 # SandiBumi
 
 **SandiBumi** is a Windows desktop application for multi-well petrophysical log analysis,
-built for real field workflows (Mahakam Delta / Indonesian basins): 2000+ wells, Geolog-class
+built for real field workflows (Mahakam Delta / Indonesian basins): 2000+ wells, the reference suite-class
 deterministic modules, and print-quality deliverables — in a single installer with no
 external database or runtime dependencies.
 
@@ -15,7 +15,7 @@ Stack: **Tauri v2** (Rust) + **DuckDB** (embedded, bundled) + **vanilla TypeScri
 - **Petrophysics**: manifest-driven module library (VSH, porosity, Sw families,
   environmental corrections, bad-hole QC + universal mask), Jauhar-method suite
   (SSC/SSPW sand-silt-clay + bound-water, LRLC RtC & IMTS saturation), SandiMin
-  multi-mineral optimizer (Geolog-Multimin-class, 27-component library, conductivity
+  multi-mineral optimizer (the reference suite-Multimin-class, 27-component library, conductivity
   coupling), saturation-height, GR normalization, KNN synthetic logs, electrofacies
   (k-means/GMM) + scikit-learn ML suite, workflow chains + Monte Carlo uncertainty,
   pay summary + field dashboard.

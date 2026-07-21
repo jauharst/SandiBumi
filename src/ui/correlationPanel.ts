@@ -4,7 +4,7 @@ import { percentile, readTheme } from "./plotCanvas";
 import { curveSelect, loadCurveNames, loadPlotProps, savePlotProps, type PlotContent } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
 
-/** Multi-well correlation view (Geolog Well Correlation equivalent): the included
+/** Multi-well correlation view (well-correlation view): the included
  *  wells drawn as side-by-side strips of one shared curve, formation tops connected
  *  between adjacent wells, optionally flattened on a datum top. */
 

@@ -1,4 +1,4 @@
-//! Composite log plot (Geolog Artist / composite-plot equivalent). Renders a `Layout`
+//! Composite log plot (composite-plot equivalent). Renders a `Layout`
 //! at a TRUE print scale (1:200 / 1:500 / 1:1000) as one page per depth window — a header
 //! block, a depth axis, curve tracks (linear/log with grids, curve polylines and edge
 //! fills), formation-top lines, and zone bands.

@@ -14,7 +14,7 @@ async function loadDefaultCutoffs(): Promise<{ vsh_max?: number; phie_min?: numb
   }
 }
 
-/** Cutoffs & Pay Summary (Geolog .paysum model): VSH/PHIE/SWE (+ optional PERM)
+/** Cutoffs & Pay Summary (pay-summary model): VSH/PHIE/SWE (+ optional PERM)
  *  cutoffs → SAND / RESERVOIR / PAY flags → per-well per-zone statistics table.
  *  Also writes FLAG_SAND / FLAG_RESERVOIR / FLAG_PAY curves for the layout.
  *  Hosted as a dock pane (workspace component "paysummary"), not a popup. */
