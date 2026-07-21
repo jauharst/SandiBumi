@@ -194,12 +194,51 @@ body {
 #app-shell {
   display: grid;
   grid-template-rows: auto 1fr auto;
+  /* Pin the single column to the window width. Without minmax(0,1fr) the implicit `auto` column
+     grows to the ribbon's min-content (~960px), so on a narrower window the ribbon, dock and
+     status bar all overflow the viewport instead of the ribbon scrolling and the dock reflowing.
+     minmax(0,…) lets the column shrink below content; each child then handles its own overflow. */
+  grid-template-columns: minmax(0, 1fr);
   height: 100vh;
+  width: 100vw;
+  overflow: hidden;
 }
 
 #dock-root {
-  min-height: 0; /* let the grid row shrink; dockview manages its own size */
+  /* Let the grid cell shrink in BOTH axes; dockview manages its own size and overflow. Without
+     min-width:0 a grid item defaults to min-width:auto (= min-content), so the dock is forced
+     wider than a narrow window and overflows instead of reflowing to fit. */
+  min-height: 0;
+  min-width: 0;
   position: relative;
+}
+
+/* Blank content placeholder — shown only when every real content pane is closed, so the fixed
+   sidebar never stretches to fill the window. */
+.dock-canvas {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-app);
+}
+.canvas-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  opacity: 0.4;
+  user-select: none;
+  text-align: center;
+  padding: 20px;
+}
+.canvas-logo {
+  filter: grayscale(0.2);
+  opacity: 0.7;
+}
+.canvas-hint {
+  font-size: 12px;
+  color: var(--text-dim);
 }
 
 #status-bar {

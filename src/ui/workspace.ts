@@ -30,6 +30,9 @@ import { showContextMenu, type ContextMenuEntry } from "./contextMenu";
 import { imageExportMenuEntries } from "./plotExport";
 
 const LAYOUT_STORAGE_KEY = "sandibumi.workspace";
+/** Id of the blank content-area placeholder shown only when every real content pane is closed
+ *  (so the fixed-width sidebar never stretches to fill the window). */
+const CANVAS_ID = "canvas";
 
 type PlotKind = "histogram" | "crossplot" | "pickett" | "correlation";
 
@@ -72,6 +75,7 @@ class DomPanel implements IContentRenderer {
  *  inspector) are focused if already open; log views and plots always open fresh. */
 export class Workspace {
   private dock: DockviewComponent;
+  private rootContainer!: HTMLElement;
   private logViews = new Map<string, LogViewPanel>();
   private counter = 0;
   /** Layout-change events before this time don't mark the workspace dirty — set around
@@ -80,6 +84,7 @@ export class Workspace {
   private dirtyMuteUntil = 0;
 
   constructor(container: HTMLElement) {
+    this.rootContainer = container;
     this.dock = new DockviewComponent(container, {
       // A DockviewTheme object (not `className`) is what actually applies the theme class;
       // otherwise dockview falls back to its default dark "abyss" theme.
@@ -96,19 +101,32 @@ export class Workspace {
     // Drive the dock's layout from the container size explicitly — the built-in
     // auto-resize does not reliably fire an initial layout, leaving groups at 100px.
     this.dock.layout(container.clientWidth, container.clientHeight);
-    const resizeObserver = new ResizeObserver(() => {
-      this.relayoutKeepingPaneSizes(container.clientWidth, container.clientHeight);
-    });
+    // Reflow on resize. `forceResize=true` is essential: without it dockview no-ops when it
+    // thinks its cached size is unchanged, so the inner grid never redistributes and the panes
+    // "stay" as the window grows. We drive it from BOTH a ResizeObserver (catches container
+    // changes: ribbon height, devtools) AND the window resize event (the reliable signal when
+    // the whole application window is resized — the ResizeObserver alone was not firing for it).
+    const relayout = () => this.dock.layout(container.clientWidth, container.clientHeight, true);
+    const resizeObserver = new ResizeObserver(() => relayout());
     resizeObserver.observe(container);
+    window.addEventListener("resize", relayout);
 
     if (!this.restore()) this.defaultWorkspace();
     this.ensureMonitorsBelowWells();
+    this.ensureContentPlaceholder();
+    this.lockAnchorGroups();
+    // Settle all sizes after the build (locks + any placeholder) so a layout restored in a
+    // stretched/zero-width state comes up correctly.
+    this.dock.layout(container.clientWidth, container.clientHeight, true);
 
     // Constructor's own restore/default build happens above this subscription, so it
     // never marks the workspace dirty; only later (user) arrangement changes do.
     this.muteDirty();
     let saveHandle: number | undefined;
     this.dock.onDidLayoutChange(() => {
+      // A closed last content pane brings the blank Workspace placeholder in (and any newly
+      // opened content takes it back out) — keeps the fixed sidebar from stretching to fill.
+      this.ensureContentPlaceholder();
       if (Date.now() > this.dirtyMuteUntil) markDirty(WORKSPACE_DIRTY);
       if (saveHandle !== undefined) window.clearTimeout(saveHandle);
       saveHandle = window.setTimeout(() => {
@@ -122,30 +140,52 @@ export class Workspace {
   }
 
   /** The panels that anchor the workspace — Wells & Tops, Processing, Performance — are
-   *  Jauhar's "main manoeuvre": resizing the whole application must leave them the size he
-   *  set. Everything else (log views, plots, inspector) is content and flexes to absorb the
-   *  delta, the way an Office window keeps its navigation rail fixed while the document area
-   *  reflows. We snapshot the anchor groups, let dockview do its proportional relayout, then
-   *  pin the anchors back to their sizes — the remaining space redistributes across the
-   *  content panes. Sash drags don't come through here, so manual resizing is untouched.
-   *
-   *  Widths are fully honoured for all three anchors (they share the left column, and the
-   *  content column to the right absorbs horizontal delta). Height is the one compromise: when
-   *  Wells & Tops sits stacked above the Processing/Performance group in the SAME column, a
-   *  vertical window change has to land somewhere in that column — the restore order leaves the
-   *  fixed-height monitor gauges pinned and lets the Wells list (which scrolls) take the delta,
-   *  which is the desired behaviour. */
+   *  Jauhar's "main manoeuvre": a fixed-width sidebar that must NOT auto-resize, neither when
+   *  the whole application window is resized nor when a neighbouring content panel is closed.
+   *  We enforce this with dockview group constraints (minimumWidth == maximumWidth): on any
+   *  relayout dockview flexes only the UNCONSTRAINED content panes (log views, plots, inspector)
+   *  and leaves the sidebar exactly its size. So the window resize fills through the content, and
+   *  closing a content pane hands its room to the other content — never to the sidebar (which
+   *  would "accidentally resize" it). Locked once per group instance (WeakSet) so a reopened or
+   *  moved anchor gets re-locked, and we never re-issue an identical constraint in a loop. */
   private static readonly ANCHOR_PANEL_IDS = ["wellsTops", "processing", "health"];
+  private readonly lockedGroups = new WeakSet<DockviewGroupPanel>();
 
-  private relayoutKeepingPaneSizes(width: number, height: number): void {
-    const anchors = new Map<DockviewGroupPanel, { w: number; h: number }>();
+  private lockAnchorGroups(): void {
     for (const id of Workspace.ANCHOR_PANEL_IDS) {
-      const g = this.dock.panels.find((p) => p.id === id)?.api.group;
-      if (g && g.api.location.type === "grid" && !anchors.has(g)) anchors.set(g, { w: g.width, h: g.height });
+      const group = this.dock.panels.find((p) => p.id === id)?.api.group;
+      if (!group || group.api.location.type !== "grid" || this.lockedGroups.has(group)) continue;
+      // Pick a sane sidebar width. A width over ~450 means the layout was restored in a stretched
+      // state (e.g. saved while the sidebar was the only pane) — reset to the default rather than
+      // lock the sidebar at full width. Otherwise respect the user's width within reason.
+      const raw = group.width || 260;
+      const width = raw > 450 ? 260 : Math.max(raw, 180);
+      group.api.setConstraints({ minimumWidth: width, maximumWidth: width });
+      group.api.setSize({ width });
+      this.lockedGroups.add(group);
     }
-    this.dock.layout(width, height);
-    for (const [g, { w, h }] of anchors) {
-      if (g.width !== w || g.height !== h) g.api.setSize({ width: w, height: h });
+  }
+
+  /** Keeps a blank "Workspace" pane in the CONTENT area whenever every real content pane (log
+   *  views, plots, tools) has been closed, so the fixed-width sidebar (Wells & Tops / Processing /
+   *  Performance) never has to stretch to fill the window — Jauhar asked for blank space there
+   *  rather than the main panes resizing. Added when content hits zero, removed the moment any
+   *  content opens, so it is invisible during normal work. The two conditions are stable fixpoints
+   *  (after adding, the pane exists so the add branch stops; after removing, content exists so the
+   *  remove branch stops), hence calling this on every layout change cannot loop. */
+  private ensureContentPlaceholder(): void {
+    const anchors = new Set<string>(Workspace.ANCHOR_PANEL_IDS);
+    const hasCanvas = this.dock.panels.some((p) => p.id === CANVAS_ID);
+    const hasContent = this.dock.panels.some((p) => p.id !== CANVAS_ID && !anchors.has(p.id));
+    if (!hasContent && !hasCanvas) {
+      this.muteDirty();
+      this.dock.addPanel({ id: CANVAS_ID, component: "canvas", title: "Workspace", position: { direction: "right" } });
+      // Next to the width-locked sidebar dockview can create the new pane at width 0; force a
+      // relayout so it fills the free space instead of leaving the window mostly blank.
+      this.dock.layout(this.rootContainer.clientWidth, this.rootContainer.clientHeight, true);
+    } else if (hasContent && hasCanvas) {
+      this.muteDirty();
+      this.dock.panels.find((p) => p.id === CANVAS_ID)?.api.close();
     }
   }
 
@@ -285,6 +325,14 @@ export class Workspace {
     switch (options.name) {
       case "logview":
         return this.createLogView(options.id);
+      case "canvas":
+        return new DomPanel("dock-canvas", (host) => {
+          host.innerHTML = `
+            <div class="canvas-empty">
+              <img class="canvas-logo" src="/logo-mark.svg" alt="" width="52" height="52" />
+              <div class="canvas-hint">Open a Log View or a plot from the ribbon to get started.</div>
+            </div>`;
+        });
       case "wellsTops":
         return this.createWellsTops();
       case "inspector":
@@ -939,6 +987,8 @@ export class Workspace {
     this.logViews.clear();
     this.defaultWorkspace();
     this.ensureMonitorsBelowWells();
+    this.ensureContentPlaceholder();
+    this.lockAnchorGroups();
     clearDirty();
   }
 
@@ -960,14 +1010,17 @@ export class Workspace {
     if (existing) {
       if (group && existing.api.group !== group) existing.api.moveTo({ group, position: "center" });
       existing.api.setActive();
-      return;
+    } else {
+      this.dock.addPanel({
+        id,
+        component,
+        title,
+        position: group ? { referenceGroup: group } : { direction: component === "wellsTops" ? "left" : "right" },
+      });
     }
-    this.dock.addPanel({
-      id,
-      component,
-      title,
-      position: group ? { referenceGroup: group } : { direction: component === "wellsTops" ? "left" : "right" },
-    });
+    // A reopened/moved anchor (Wells & Tops / Processing / Performance) is a new group instance —
+    // re-lock its width so it stays fixed like the rest of the sidebar.
+    this.lockAnchorGroups();
   }
 
   openWellsTops(group?: DockviewGroupPanel): void {
@@ -1217,6 +1270,8 @@ export class Workspace {
         this.logViews.get(panelId)?.setLayout(layout);
       }
     }
+    this.ensureContentPlaceholder();
+    this.lockAnchorGroups();
     // Everything now matches the applied session — nothing is "unsaved".
     clearDirty();
   }

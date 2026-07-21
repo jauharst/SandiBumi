@@ -1312,10 +1312,14 @@ Five asks from your VSH-panel screenshot (SandiMin deferred for later review).
 - [ ] **Ribbon dropdowns still work**: open **Petrophysics → VSH/Porosity/Saturation**, and
       **Data → Import Logs/Import Data/Tools**, and **Project → Recent** — each menu must drop
       fully below the ribbon (this was a regression the review caught and fixed).
-- [ ] **Resize the whole window**: the ribbon stays reachable (scrolls if very narrow) and
-      the panes reflow. **Wells & Tops, Processing, and Performance keep their size**; the log
-      view / plots / inspector absorb the change. (Vertically, the Wells list — which scrolls —
-      takes the slack while the Performance gauges stay fixed.)
+- [ ] **Resize the whole window**: the content panes (log views / plots / inspector) reflow to
+      fill; **Wells & Tops, Processing, and Performance keep their width** (they're a fixed
+      sidebar now). Try both wider and narrower — nothing should get clipped or leave dead space,
+      and the ribbon stays reachable (scrolls if very narrow).
+- [ ] **Close panes without the sidebar growing**: close a plot/log view — the freed space goes
+      to the other content, NOT to the sidebar. Close *everything* down to just the sidebar and a
+      blank **Workspace** pane fills the rest (rather than the sidebar stretching); open any log
+      view/plot and the blank pane disappears again.
 
 ---
 
