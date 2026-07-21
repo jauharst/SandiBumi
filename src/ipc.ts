@@ -1277,6 +1277,23 @@ export function importScalCsv(wellId: string, path: string, iftLab: number): Pro
   return invoke<ScalImportResult>("import_scal_csv", { wellId, path, iftLab });
 }
 
+/** SCAL Pc file shapes the importer understands: "long" flat Pc/Sw rows, "porous_plate"
+ *  Corelab-style wide tables (pressure columns × plug rows), "centrifuge" per-plug
+ *  key-value blocks + Pc/Sw tables, or "auto" to sniff each file. */
+export type ScalFormat = "auto" | "long" | "porous_plate" | "centrifuge";
+
+/** Multi-file SCAL Pc import (e.g. a set of single-plug centrifuge exports): all files
+ *  land in ONE combined replace-write of the well's scal_pc rows, with the Leverett-J
+ *  fit over the pooled points. */
+export function importScalFiles(
+  wellId: string,
+  paths: string[],
+  format: ScalFormat,
+  iftLab: number,
+): Promise<ScalImportResult> {
+  return invoke<ScalImportResult>("import_scal_files", { wellId, paths, format, iftLab });
+}
+
 export function getScalPc(wellId: string): Promise<ScalPcRow[]> {
   return invoke<ScalPcRow[]>("get_scal_pc", { wellId });
 }

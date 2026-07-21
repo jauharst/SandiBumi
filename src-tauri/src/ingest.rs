@@ -254,21 +254,70 @@ pub struct ScalImportResult {
     pub error: Option<String>,
 }
 
-/// Parses a SCAL capillary-pressure CSV, replaces the well's `scal_pc` rows, and fits
-/// the Leverett-J function (Sw = A·J^B) over the points at `ift_lab` (sigma·cosθ of the
-/// lab fluid system, dyn/cm — e.g. 72 air-brine, 367 air-mercury).
+/// Parses a SCAL capillary-pressure CSV (flat/long shape), replaces the well's `scal_pc`
+/// rows, and fits the Leverett-J function (Sw = A·J^B) over the points at `ift_lab`
+/// (sigma·cosθ of the lab fluid system, dyn/cm — e.g. 72 air-brine, 367 air-mercury).
 pub fn import_scal_csv(conn: &Connection, well_id: &str, path: &str, ift_lab: f64) -> ScalImportResult {
+    import_scal_files(conn, well_id, &[path.to_string()], "long", ift_lab)
+}
+
+/// Multi-file, multi-format SCAL Pc import. Each file is parsed with `format` — "long"
+/// (flat Pc/Sw CSV), "porous_plate" (Corelab-style wide table: pressure columns × plug
+/// rows), "centrifuge" (per-plug key-value blocks + Pc/Sw tables), or "auto" to sniff
+/// each file — so a set of single-plug centrifuge exports imports in one shot. The
+/// combined records REPLACE the well's `scal_pc` rows (same discipline as re-import),
+/// then the Leverett-J function is fitted over all points at `ift_lab`.
+pub fn import_scal_files(
+    conn: &Connection,
+    well_id: &str,
+    paths: &[String],
+    format: &str,
+    ift_lab: f64,
+) -> ScalImportResult {
+    let joined = paths.join("; ");
+    let fail = |error: String| ScalImportResult { path: joined.clone(), rows: 0, fit: None, error: Some(error) };
+
     let exists: bool = conn
         .query_row("SELECT 1 FROM wells WHERE well_id = ?1", params![well_id], |_| Ok(true))
         .unwrap_or(false);
     if !exists {
-        return ScalImportResult { path: path.to_string(), rows: 0, fit: None, error: Some(format!("unknown well '{well_id}'")) };
+        return fail(format!("unknown well '{well_id}'"));
+    }
+    if paths.is_empty() {
+        return fail("no files selected".into());
     }
 
-    let records = match parsers::parse_scal_csv(path) {
-        Ok(r) => r,
-        Err(e) => return ScalImportResult { path: path.to_string(), rows: 0, fit: None, error: Some(e.to_string()) },
-    };
+    let mut records: Vec<parsers::ScalPcRecord> = Vec::new();
+    for path in paths {
+        let base = path.rsplit(['/', '\\']).next().unwrap_or(path);
+        let fmt = if format == "auto" {
+            match parsers::sniff_scal_format(path) {
+                Ok(f) => f,
+                Err(e) => return fail(format!("{base}: {e}")),
+            }
+        } else {
+            format
+        };
+        let parsed = match fmt {
+            "long" => parsers::parse_scal_csv(path),
+            "porous_plate" => parsers::parse_scal_wide_csv(path),
+            "centrifuge" => parsers::parse_scal_centrifuge_csv(path),
+            other => return fail(format!("unknown SCAL format '{other}'")),
+        };
+        match parsed {
+            Ok(mut r) => records.append(&mut r),
+            Err(e) => return fail(format!("{base} ({fmt}): {e}")),
+        }
+    }
+    // A structurally-valid file can still yield zero points (header-only export, cells in
+    // a format no rule parses). Refuse the replace-write then — otherwise a degenerate
+    // re-import would silently DELETE the well's existing SCAL dataset.
+    if records.is_empty() {
+        return fail(
+            "no Pc/Sw data rows parsed from the selected file(s) — nothing was imported and the well's existing SCAL points are untouched (check the file format choice)".into(),
+        );
+    }
+
     let rows: Vec<db::ScalPcRow> = records
         .iter()
         .map(|r| db::ScalPcRow {
@@ -281,7 +330,7 @@ pub fn import_scal_csv(conn: &Connection, well_id: &str, path: &str, ift_lab: f6
         })
         .collect();
     if let Err(e) = db::insert_scal_pc(conn, well_id, &rows) {
-        return ScalImportResult { path: path.to_string(), rows: 0, fit: None, error: Some(e.to_string()) };
+        return fail(e.to_string());
     }
 
     let points: Vec<crate::satheight::ScalPoint> = records
@@ -289,7 +338,7 @@ pub fn import_scal_csv(conn: &Connection, well_id: &str, path: &str, ift_lab: f6
         .map(|r| crate::satheight::ScalPoint { pc: r.pc, sw: r.sw, perm: r.perm, poro: r.poro })
         .collect();
     let fit = crate::satheight::fit_leverett_j(&points, ift_lab);
-    ScalImportResult { path: path.to_string(), rows: rows.len(), fit, error: None }
+    ScalImportResult { path: joined, rows: rows.len(), fit, error: None }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -887,6 +936,90 @@ mod tests {
         // Unknown well errors cleanly.
         let bad = import_scal_csv(&conn, "nope", "x.csv", 72.0);
         assert!(bad.error.is_some());
+    }
+
+    /// Multi-file SCAL import (increment 2): two single-plug centrifuge exports sniffed
+    /// by "auto" land in one combined replace-write; a later porous-plate import REPLACES
+    /// them (not appends); a bad file fails the whole import with the filename named.
+    #[test]
+    fn scal_import_files_multi_format_and_replace() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well_id = Uuid::new_v4();
+        db::insert_well(&conn, well_id, "SCAL-2", None, None, None).unwrap();
+        let ids = well_id.to_string();
+
+        let cf = |sample: &str, depth: f32| {
+            format!(
+                "SAMPLE,{sample}\nDEPTH,{depth}\nPERM,45.0\nPORO,18.0\n\
+                 Speed (RPM),Pc (psi),Sw (%PV)\n500,2.1,95.0\n1000,8.4,78.2\n2000,33.6,55.4\n4000,120.0,41.0\n"
+            )
+        };
+        let p1 = std::env::temp_dir().join(format!("sandibumi_scal_cf1_{ids}.csv"));
+        let p2 = std::env::temp_dir().join(format!("sandibumi_scal_cf2_{ids}.csv"));
+        std::fs::write(&p1, cf("12A", 2695.3)).unwrap();
+        std::fs::write(&p2, cf("S-16A", 2701.8)).unwrap();
+        let paths = vec![p1.to_str().unwrap().to_string(), p2.to_str().unwrap().to_string()];
+
+        let res = import_scal_files(&conn, &ids, &paths, "auto", 72.0);
+        assert!(res.error.is_none(), "{:?}", res.error);
+        assert_eq!(res.rows, 8, "both plugs land in one combined import");
+        assert!(res.fit.is_some(), "J-fit solves over the pooled points");
+        let rows = db::get_scal_pc(&conn, &ids).unwrap();
+        assert_eq!(rows.len(), 8);
+        assert!(rows.iter().any(|r| r.sample_no == Some(12)) && rows.iter().any(|r| r.sample_no == Some(16)));
+
+        // A porous-plate re-import replaces the centrifuge set (write discipline).
+        let wide = "Sample,Depth (m),Perm (mD),Poro (%),1,2,4,8\n4,2001.5,150.0,22.5,98.5,95.2,88.1,79.4\n";
+        let p3 = std::env::temp_dir().join(format!("sandibumi_scal_pp_{ids}.csv"));
+        std::fs::write(&p3, wide).unwrap();
+        let res2 = import_scal_files(&conn, &ids, &[p3.to_str().unwrap().to_string()], "porous_plate", 72.0);
+        assert!(res2.error.is_none(), "{:?}", res2.error);
+        assert_eq!(res2.rows, 4);
+        assert_eq!(db::get_scal_pc(&conn, &ids).unwrap().len(), 4, "replace, not append");
+
+        // One bad file fails the whole import and names the file.
+        let res3 = import_scal_files(
+            &conn,
+            &ids,
+            &[p1.to_str().unwrap().to_string(), "missing_dir/nope.csv".to_string()],
+            "auto",
+            72.0,
+        );
+        assert!(res3.error.as_deref().is_some_and(|e| e.contains("nope.csv")));
+        assert_eq!(db::get_scal_pc(&conn, &ids).unwrap().len(), 4, "failed import leaves prior rows intact");
+
+        for p in [&p1, &p2, &p3] {
+            std::fs::remove_file(p).ok();
+        }
+    }
+
+    /// Post-review hardening: a structurally-valid file that parses to ZERO points must
+    /// refuse the replace-write instead of silently wiping the well's existing SCAL data.
+    #[test]
+    fn scal_import_zero_rows_leaves_existing_data() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well_id = Uuid::new_v4();
+        db::insert_well(&conn, well_id, "SCAL-3", None, None, None).unwrap();
+        let ids = well_id.to_string();
+
+        let good = std::env::temp_dir().join(format!("sandibumi_scal_good_{ids}.csv"));
+        std::fs::write(&good, "PC,SW\n5,0.55\n10,0.45\n20,0.35\n").unwrap();
+        let res = import_scal_files(&conn, &ids, &[good.to_str().unwrap().to_string()], "long", 72.0);
+        assert!(res.error.is_none(), "{:?}", res.error);
+        assert_eq!(db::get_scal_pc(&conn, &ids).unwrap().len(), 3);
+
+        // Header-only export (e.g. a filtered/template sheet) → error, data intact.
+        let empty = std::env::temp_dir().join(format!("sandibumi_scal_empty_{ids}.csv"));
+        std::fs::write(&empty, "PC,SW\n").unwrap();
+        let res2 = import_scal_files(&conn, &ids, &[empty.to_str().unwrap().to_string()], "auto", 72.0);
+        assert!(res2.error.as_deref().is_some_and(|e| e.contains("untouched")), "{:?}", res2.error);
+        assert_eq!(db::get_scal_pc(&conn, &ids).unwrap().len(), 3, "existing points survive");
+
+        for p in [&good, &empty] {
+            std::fs::remove_file(p).ok();
+        }
     }
 
     /// P2 tops import: multi-well CSV matches wells by name, no-well-column file needs

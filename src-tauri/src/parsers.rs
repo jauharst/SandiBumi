@@ -563,7 +563,7 @@ pub struct CoreColumns {
 }
 
 const CORE_DEPTH_ALIASES: [&str; 3] = ["DEPTH", "DEPT", "MD"];
-const CORE_CPOR_ALIASES: [&str; 6] = ["CPOR", "CORE_POR", "PHI_CORE", "CPHI", "POROSITY", "POR"];
+const CORE_CPOR_ALIASES: [&str; 7] = ["CPOR", "CORE_POR", "PHI_CORE", "CPHI", "POROSITY", "PORO", "POR"];
 const CORE_CPERM_ALIASES: [&str; 8] = ["CPERM", "CORE_PERM", "KAIR", "KL", "KH", "PERMEABILITY", "PERM", "K"];
 const CORE_CGD_ALIASES: [&str; 4] = ["CGD", "GRAIN_DENSITY", "GRAIN_DEN", "RHOG"];
 const CORE_CSW_ALIASES: [&str; 3] = ["CSW", "CORE_SW", "SW"];
@@ -661,8 +661,10 @@ const SCAL_SW_ALIASES: [&str; 4] = ["SW", "SAT", "WATER_SATURATION", "SWI"];
 /// SW columns; SAMPLE/DEPTH/PERM/PORO are optional per-plug context. Sw in percent is
 /// detected and divided down; porosity likewise.
 pub fn parse_scal_csv<P: AsRef<Path>>(path: P) -> ParseResult<Vec<ScalPcRecord>> {
-    let file = File::open(path)?;
-    let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(BufReader::new(file));
+    let delim = scal_delimiter(&path)?;
+    let file = File::open(&path)?;
+    let mut rdr =
+        csv::ReaderBuilder::new().delimiter(delim).has_headers(true).from_reader(BufReader::new(file));
 
     let headers: Vec<String> = rdr.headers()?.iter().map(|h| h.trim().to_uppercase()).collect();
     let idx_pc = resolve_header_index(&headers, &SCAL_PC_ALIASES)
@@ -678,11 +680,7 @@ pub fn parse_scal_csv<P: AsRef<Path>>(path: P) -> ParseResult<Vec<ScalPcRecord>>
     for result in rdr.records() {
         let record = result?;
         let get = |idx: Option<usize>| -> f32 {
-            idx.and_then(|i| record.get(i))
-                .map(|s| s.trim())
-                .filter(|s| !s.is_empty())
-                .and_then(|s| s.parse::<f32>().ok())
-                .unwrap_or(f32::NAN)
+            idx.and_then(|i| record.get(i)).and_then(parse_f32_cell).unwrap_or(f32::NAN)
         };
         let pc = get(Some(idx_pc));
         let sw = get(Some(idx_sw));
@@ -690,9 +688,7 @@ pub fn parse_scal_csv<P: AsRef<Path>>(path: P) -> ParseResult<Vec<ScalPcRecord>>
             continue;
         }
         out.push(ScalPcRecord {
-            sample_no: idx_sample
-                .and_then(|i| record.get(i))
-                .and_then(|s| s.trim().parse::<i32>().ok()),
+            sample_no: idx_sample.and_then(|i| record.get(i)).and_then(parse_sample_no),
             depth: {
                 let d = get(idx_depth);
                 if d.is_nan() { None } else { Some(d) }
@@ -716,6 +712,357 @@ pub fn parse_scal_csv<P: AsRef<Path>>(path: P) -> ParseResult<Vec<ScalPcRecord>>
         r.poro = *p;
     }
     Ok(out)
+}
+
+/// Sample/plug ids in SCAL deliveries are usually plain numbers ("4") but centrifuge
+/// workbooks often letter them ("12A", "S-16A"): fall back to the first run of digits.
+fn parse_sample_no(s: &str) -> Option<i32> {
+    let t = s.trim();
+    if let Ok(n) = t.parse::<i32>() {
+        return Some(n);
+    }
+    let start = t.find(|c: char| c.is_ascii_digit())?;
+    let digits: String = t[start..].chars().take_while(|c| c.is_ascii_digit()).collect();
+    digits.parse::<i32>().ok()
+}
+
+/// Parses a numeric cell tolerantly: plain f32 first, then the Excel regional shapes lab
+/// exports actually contain — thousands separators ("1,250", "2,695.3": every comma group
+/// is exactly 3 digits) and a lone decimal comma ("98,5" → 98.5, only in ';'-delimited or
+/// quoted cells). Anything ambiguous stays unparsed (None) rather than guessed.
+fn parse_f32_cell(s: &str) -> Option<f32> {
+    let t = s.trim();
+    if t.is_empty() {
+        return None;
+    }
+    if let Ok(v) = t.parse::<f32>() {
+        return Some(v);
+    }
+    // Thousands groups: "1,250" / "2,695.3" — the last group may carry the decimal point.
+    let groups: Vec<&str> = t.split(',').collect();
+    if groups.len() >= 2
+        && !groups[0].is_empty()
+        && groups[1..].iter().enumerate().all(|(i, g)| {
+            let last = i + 1 == groups.len() - 1;
+            let int_part = if last { g.split('.').next().unwrap_or("") } else { g };
+            int_part.len() == 3
+                && int_part.chars().all(|c| c.is_ascii_digit())
+                && (!last || g.chars().all(|c| c.is_ascii_digit() || c == '.'))
+        })
+    {
+        if let Ok(v) = t.replace(',', "").parse::<f32>() {
+            return Some(v);
+        }
+    }
+    // Regional decimal comma: exactly one comma, no dot ("98,5", "2,1").
+    if t.matches(',').count() == 1 && !t.contains('.') {
+        if let Ok(v) = t.replace(',', ".").parse::<f32>() {
+            return Some(v);
+        }
+    }
+    None
+}
+
+/// Detects a SCAL file's delimiter: Excel under Indonesian/European regional settings
+/// writes ';' as the list separator. Decided from the first non-empty line only, so
+/// decimal commas inside data cells cannot outvote the real separator.
+fn scal_delimiter<P: AsRef<Path>>(path: P) -> ParseResult<u8> {
+    let file = File::open(&path)?;
+    for line in std::io::BufRead::lines(BufReader::new(file)) {
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let semis = line.matches(';').count();
+        let commas = line.matches(',').count();
+        return Ok(if semis > commas { b';' } else { b',' });
+    }
+    Ok(b',')
+}
+
+/// Parses a pressure-column header cell ("8", "45 psi", "1,000") to psi. Trailing unit
+/// words and parens are stripped; a cell with no leading number ("Remarks") is not a
+/// pressure column.
+fn parse_pressure_header(s: &str) -> Option<f32> {
+    let t = s
+        .trim()
+        .trim_end_matches(|c: char| c.is_ascii_alphabetic() || c.is_whitespace() || c == '(' || c == ')');
+    parse_f32_cell(t).filter(|p| *p > 0.0)
+}
+
+/// How many usable cells a raw CSV row has (flexible readers keep trailing empties).
+fn non_empty_cells(record: &csv::StringRecord) -> usize {
+    record.iter().filter(|c| !c.trim().is_empty()).count()
+}
+
+/// Parses a porous-plate capillary-pressure table in the wide lab-report shape
+/// (Corelab-style): free-form preamble lines (company/well/OB-stress), then a header row
+/// with SAMPLE / DEPTH / PERM / PORO columns plus one column per pressure step whose
+/// header IS the pressure in psi (1, 2, 4, 8, ... 150), then one row per plug whose cells
+/// are brine saturation in %PV. Unpivots to the long Pc/Sw records `scal_pc` stores.
+pub fn parse_scal_wide_csv<P: AsRef<Path>>(path: P) -> ParseResult<Vec<ScalPcRecord>> {
+    let delim = scal_delimiter(&path)?;
+    let file = File::open(&path)?;
+    let mut rdr = csv::ReaderBuilder::new()
+        .delimiter(delim)
+        .has_headers(false)
+        .flexible(true)
+        .from_reader(BufReader::new(file));
+
+    // Locate the header row: the first row with a recognizable SAMPLE column AND at least
+    // three numeric-headed pressure columns (a real porous-plate table has ~12; requiring 3
+    // keeps preamble rows that merely contain a stray number from matching).
+    let mut idx_sample = None;
+    let mut idx_depth = None;
+    let mut idx_perm = None;
+    let mut idx_poro = None;
+    let mut pressure_cols: Vec<(usize, f32)> = Vec::new(); // (column index, Pc psi)
+    let mut out = Vec::new();
+    let mut header_found = false;
+
+    for result in rdr.records() {
+        let record = result?;
+        if !header_found {
+            let headers: Vec<String> = record.iter().map(|h| h.trim().to_uppercase()).collect();
+            let s = resolve_header_index(&headers, &SCAL_SAMPLE_ALIASES);
+            if s.is_none() {
+                continue;
+            }
+            let d = resolve_header_index(&headers, &CORE_DEPTH_ALIASES);
+            let k = resolve_header_index(&headers, &CORE_CPERM_ALIASES);
+            let p = resolve_header_index(&headers, &CORE_CPOR_ALIASES);
+            let meta: Vec<usize> = [s, d, k, p].iter().flatten().copied().collect();
+            let pcols: Vec<(usize, f32)> = headers
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| !meta.contains(i))
+                .filter_map(|(i, h)| parse_pressure_header(h).map(|pc| (i, pc)))
+                .collect();
+            if pcols.len() < 3 {
+                continue; // not the table header — keep scanning the preamble
+            }
+            (idx_sample, idx_depth, idx_perm, idx_poro) = (s, d, k, p);
+            pressure_cols = pcols;
+            header_found = true;
+            continue;
+        }
+
+        // Data row: one plug.
+        let get = |idx: Option<usize>| -> f32 {
+            idx.and_then(|i| record.get(i)).and_then(parse_f32_cell).unwrap_or(f32::NAN)
+        };
+        let sample_no = idx_sample.and_then(|i| record.get(i)).and_then(parse_sample_no);
+        let depth = {
+            let d = get(idx_depth);
+            if d.is_nan() { None } else { Some(d) }
+        };
+        // A real plug row always identifies itself (sample and/or depth). Rows that don't —
+        // repeated per-page header rows (whose pressure headers ARE numbers and would
+        // otherwise import as phantom Sw points), "Average"/stat footers, units rows —
+        // are layout, not data.
+        if sample_no.is_none() && depth.is_none() {
+            continue;
+        }
+        let perm = get(idx_perm);
+        let poro = get(idx_poro);
+        for &(col, pc) in &pressure_cols {
+            let sw = record.get(col).and_then(parse_f32_cell);
+            if let Some(sw) = sw {
+                out.push(ScalPcRecord { sample_no, depth, perm, poro, pc, sw });
+            }
+        }
+    }
+
+    if !header_found {
+        return Err(ParseError::Las(
+            "porous-plate CSV: no header row with a SAMPLE column and pressure (psi) columns".into(),
+        ));
+    }
+
+    // %PV → v/v over the whole file (same heuristic as every core/SCAL import).
+    let mut sws: Vec<f32> = out.iter().map(|r| r.sw).collect();
+    percent_to_fraction(&mut sws);
+    for (r, s) in out.iter_mut().zip(&sws) {
+        r.sw = *s;
+    }
+    let mut poros: Vec<f32> = out.iter().map(|r| r.poro).collect();
+    percent_to_fraction(&mut poros);
+    for (r, p) in out.iter_mut().zip(&poros) {
+        r.poro = *p;
+    }
+    Ok(out)
+}
+
+/// Parses a centrifuge capillary-pressure delivery: one or more per-plug blocks, each a
+/// short key-value header (SAMPLE / DEPTH / PERM / PORO lines, one per row) followed by a
+/// Pc/Sw table (extra columns like speed-RPM are ignored). A new SAMPLE line starts the
+/// next plug — the shape of the digitized per-plug workbooks merged into one CSV; a file
+/// holding a single plug (one block) is the same format.
+pub fn parse_scal_centrifuge_csv<P: AsRef<Path>>(path: P) -> ParseResult<Vec<ScalPcRecord>> {
+    let delim = scal_delimiter(&path)?;
+    let file = File::open(&path)?;
+    let mut rdr = csv::ReaderBuilder::new()
+        .delimiter(delim)
+        .has_headers(false)
+        .flexible(true)
+        .from_reader(BufReader::new(file));
+
+    let mut sample_no: Option<i32> = None;
+    let mut depth: Option<f32> = None;
+    let mut perm = f32::NAN;
+    let mut poro = f32::NAN;
+    let mut idx_pc: Option<usize> = None;
+    let mut idx_sw: Option<usize> = None;
+    let mut out: Vec<ScalPcRecord> = Vec::new();
+
+    for result in rdr.records() {
+        let record = result?;
+        let cells: Vec<String> = record.iter().map(|c| c.trim().to_uppercase()).collect();
+        if non_empty_cells(&record) == 0 {
+            continue;
+        }
+
+        // Key-value metadata line: exactly (key, value) — never a table row, which has
+        // its Pc AND Sw cells (plus usually a speed column) populated.
+        if non_empty_cells(&record) <= 2 && !cells.is_empty() {
+            let key = &cells[0];
+            let val_kv: Option<&str> = record.iter().skip(1).map(str::trim).find(|s| !s.is_empty());
+            if SCAL_SAMPLE_ALIASES.iter().any(|a| header_matches(key, a)) {
+                // New plug block: reset the per-plug metadata but CARRY OVER idx_pc/idx_sw —
+                // hand-merged workbooks often paste the (Speed, Pc, Sw) table header only
+                // above the first block; resetting it here would silently drop every
+                // later plug's rows.
+                sample_no = val_kv.and_then(parse_sample_no);
+                depth = None;
+                perm = f32::NAN;
+                poro = f32::NAN;
+                continue;
+            }
+            if CORE_DEPTH_ALIASES.iter().any(|a| header_matches(key, a)) {
+                depth = val_kv.and_then(parse_f32_cell);
+                continue;
+            }
+            if CORE_CPERM_ALIASES.iter().any(|a| header_matches(key, a)) {
+                perm = val_kv.and_then(parse_f32_cell).unwrap_or(f32::NAN);
+                continue;
+            }
+            if CORE_CPOR_ALIASES.iter().any(|a| header_matches(key, a)) {
+                poro = val_kv.and_then(parse_f32_cell).unwrap_or(f32::NAN);
+                continue;
+            }
+        }
+
+        // Table header row (PC + SW columns present).
+        let pc_col = resolve_header_index(&cells, &SCAL_PC_ALIASES);
+        let sw_col = resolve_header_index(&cells, &SCAL_SW_ALIASES);
+        if let (Some(p), Some(s)) = (pc_col, sw_col) {
+            idx_pc = Some(p);
+            idx_sw = Some(s);
+            continue;
+        }
+
+        // Data row under the current block's table header.
+        if let (Some(ip), Some(is)) = (idx_pc, idx_sw) {
+            let num = |i: usize| -> f32 { record.get(i).and_then(parse_f32_cell).unwrap_or(f32::NAN) };
+            let (pc, sw) = (num(ip), num(is));
+            if !pc.is_nan() && !sw.is_nan() {
+                out.push(ScalPcRecord { sample_no, depth, perm, poro, pc, sw });
+            }
+        }
+    }
+
+    if out.is_empty() {
+        return Err(ParseError::Las(
+            "centrifuge CSV: no Pc/Sw rows found (expected SAMPLE/DEPTH/PERM/PORO key-value lines then a PC/SW table per plug)".into(),
+        ));
+    }
+
+    let mut sws: Vec<f32> = out.iter().map(|r| r.sw).collect();
+    percent_to_fraction(&mut sws);
+    for (r, s) in out.iter_mut().zip(&sws) {
+        r.sw = *s;
+    }
+    let mut poros: Vec<f32> = out.iter().map(|r| r.poro).collect();
+    percent_to_fraction(&mut poros);
+    for (r, p) in out.iter_mut().zip(&poros) {
+        r.poro = *p;
+    }
+    Ok(out)
+}
+
+/// Sniffs which SCAL Pc shape a file is, scanning the first rows for each format's
+/// structural signature: a SAMPLE header row with ≥3 numeric pressure columns
+/// (porous-plate wide), a header row with PC and SW columns (flat long table), or the
+/// centrifuge block signature. A 2-cell `SAMPLE, <id>` line alone is NOT proof of the
+/// block format — cover sheets write "No. of Samples,6" / "Sample Type,plug" too — so it
+/// only ARMS a candidate; the centrifuge verdict needs corroboration: a following
+/// DEPTH/PERM/PORO key-value line with a numeric value, or a PC/SW table header WITHOUT
+/// per-row SAMPLE/DEPTH columns.
+pub fn sniff_scal_format<P: AsRef<Path>>(path: P) -> ParseResult<&'static str> {
+    let delim = scal_delimiter(&path)?;
+    let file = File::open(&path)?;
+    let mut rdr = csv::ReaderBuilder::new()
+        .delimiter(delim)
+        .has_headers(false)
+        .flexible(true)
+        .from_reader(BufReader::new(file));
+
+    let mut armed = false; // saw a `SAMPLE, <id>` key-value line
+    for (i, result) in rdr.records().enumerate() {
+        if i >= 50 {
+            break;
+        }
+        let record = result?;
+        let cells: Vec<String> = record.iter().map(|c| c.trim().to_uppercase()).collect();
+        if cells.is_empty() || non_empty_cells(&record) == 0 {
+            continue;
+        }
+
+        // Exactly (key, value) rows — a lone "Sample preparation:" preamble cell must not match.
+        if non_empty_cells(&record) == 2 && !cells[0].is_empty() {
+            if SCAL_SAMPLE_ALIASES.iter().any(|a| header_matches(&cells[0], a)) {
+                armed = true;
+                continue;
+            }
+            // An armed SAMPLE line followed by a numeric DEPTH/PERM/PORO key-value line
+            // is the per-plug block header — that combination doesn't occur in cover sheets.
+            let is_meta_key = [&CORE_DEPTH_ALIASES[..], &CORE_CPERM_ALIASES[..], &CORE_CPOR_ALIASES[..]]
+                .iter()
+                .any(|al| al.iter().any(|a| header_matches(&cells[0], a)));
+            let val_numeric =
+                record.iter().skip(1).map(str::trim).find(|s| !s.is_empty()).and_then(parse_f32_cell);
+            if armed && is_meta_key && val_numeric.is_some() {
+                return Ok("centrifuge");
+            }
+        }
+
+        if let Some(s) = resolve_header_index(&cells, &SCAL_SAMPLE_ALIASES) {
+            let d = resolve_header_index(&cells, &CORE_DEPTH_ALIASES);
+            let k = resolve_header_index(&cells, &CORE_CPERM_ALIASES);
+            let p = resolve_header_index(&cells, &CORE_CPOR_ALIASES);
+            let meta: Vec<usize> = [Some(s), d, k, p].iter().flatten().copied().collect();
+            let n_pressure = cells
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| !meta.contains(i))
+                .filter(|(_, h)| parse_pressure_header(h).is_some())
+                .count();
+            if n_pressure >= 3 {
+                return Ok("porous_plate");
+            }
+        }
+        if resolve_header_index(&cells, &SCAL_PC_ALIASES).is_some()
+            && resolve_header_index(&cells, &SCAL_SW_ALIASES).is_some()
+        {
+            // A PC/SW header carrying per-row SAMPLE or DEPTH columns is a flat long
+            // table even after a sample-ish cover line; a bare (Speed,)PC,SW header
+            // inside an armed block is the centrifuge table.
+            let flat = resolve_header_index(&cells, &SCAL_SAMPLE_ALIASES).is_some()
+                || resolve_header_index(&cells, &CORE_DEPTH_ALIASES).is_some();
+            return Ok(if armed && !flat { "centrifuge" } else { "long" });
+        }
+    }
+    Ok("long")
 }
 
 #[cfg(test)]
@@ -770,6 +1117,234 @@ mod core_csv_tests {
         assert!(header_matches("KAIR MD", "KAIR"));
         assert!(!header_matches("KB", "K"), "'K' must not match 'KB'");
         assert!(!header_matches("POROSITY", "POR"), "'POR' must not swallow other words (POROSITY has its own alias)");
+    }
+}
+
+#[cfg(test)]
+mod scal_import_format_tests {
+    use super::*;
+    use std::io::Write;
+
+    fn write_temp_csv(name: &str, body: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(name);
+        let mut f = File::create(&path).unwrap();
+        f.write_all(body.as_bytes()).unwrap();
+        path
+    }
+
+    /// The Corelab-style porous-plate delivery: preamble lines, OB stress note, pressure
+    /// columns as headers, %PV cells, one missing cell, a units row, and a footer.
+    const WIDE_BODY: &str = "\
+TOTAL INDONESIE,,,\n\
+POROUS PLATE CAPILLARY PRESSURE,,,\n\
+OVERBURDEN PRESSURE: 4915 PSI,,,\n\
+,,,\n\
+Sample,Depth (m),Perm (mD),Poro (%),1,2,4,8,10,20\n\
+,m,mD,%,psi,psi,psi,psi,psi,psi\n\
+4,2001.5,150.0,22.5,98.5,95.2,88.1,79.4,76.0,68.2\n\
+7,2010.2,12.0,18.0,99.0,97.5,93.0,,86.5,80.1\n\
+AVERAGE,,,,,,,,,\n";
+
+    #[test]
+    fn scal_wide_porous_plate_unpivots() {
+        let path = write_temp_csv("sandibumi_scal_wide_test.csv", WIDE_BODY);
+        let recs = parse_scal_wide_csv(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+
+        assert_eq!(recs.len(), 11, "6 + 5 cells (one missing) unpivot to 11 Pc points");
+        let s4: Vec<&ScalPcRecord> = recs.iter().filter(|r| r.sample_no == Some(4)).collect();
+        assert_eq!(s4.len(), 6);
+        assert!((s4[0].pc - 1.0).abs() < 1e-6, "Pc comes from the column header");
+        assert!((s4[5].pc - 20.0).abs() < 1e-6);
+        assert!((s4[0].sw - 0.985).abs() < 1e-4, "%PV cells convert to v/v");
+        assert!((s4[0].perm - 150.0).abs() < 1e-3, "plug perm repeats on every point");
+        assert!((s4[0].poro - 0.225).abs() < 1e-4, "percent poro converts to v/v");
+        assert_eq!(s4[0].depth, Some(2001.5));
+        let s7: Vec<&ScalPcRecord> = recs.iter().filter(|r| r.sample_no == Some(7)).collect();
+        assert_eq!(s7.len(), 5, "the empty 8-psi cell yields no point");
+        assert!(!s7.iter().any(|r| (r.pc - 8.0).abs() < 1e-6));
+    }
+
+    #[test]
+    fn scal_wide_without_header_errors() {
+        let path = write_temp_csv("sandibumi_scal_wide_bad_test.csv", "just,some,text\n1,2,3\n");
+        let err = parse_scal_wide_csv(&path);
+        std::fs::remove_file(&path).ok();
+        assert!(err.is_err(), "a file with no porous-plate header must error, not import 0 rows");
+    }
+
+    /// Two per-plug centrifuge blocks merged into one CSV (the digitized-workbook shape):
+    /// key-value plug headers, a speed column the importer must ignore, Sw in %PV.
+    const CENTRIFUGE_BODY: &str = "\
+SAMPLE,12A\n\
+DEPTH (m),2695.3\n\
+PERM (mD),45.2\n\
+PORO (%),18.3\n\
+Speed (RPM),Pc (psi),Sw (%PV)\n\
+500,2.1,95.0\n\
+1000,8.4,78.2\n\
+2000,33.6,55.4\n\
+,,\n\
+SAMPLE,S-16A\n\
+DEPTH,2701.8\n\
+PERM,3.4\n\
+PORO,12.1\n\
+Speed (RPM),Pc (psi),Sw (%PV)\n\
+500,2.0,99.0\n\
+2000,32.0,71.5\n";
+
+    #[test]
+    fn scal_centrifuge_blocks_parse() {
+        let path = write_temp_csv("sandibumi_scal_cf_test.csv", CENTRIFUGE_BODY);
+        let recs = parse_scal_centrifuge_csv(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+
+        assert_eq!(recs.len(), 5);
+        let b1: Vec<&ScalPcRecord> = recs.iter().filter(|r| r.sample_no == Some(12)).collect();
+        assert_eq!(b1.len(), 3, "lettered plug id '12A' keeps its numeric part");
+        assert_eq!(b1[0].depth, Some(2695.3));
+        assert!((b1[0].perm - 45.2).abs() < 1e-3);
+        assert!((b1[0].poro - 0.183).abs() < 1e-4, "percent poro converts to v/v");
+        assert!((b1[1].pc - 8.4).abs() < 1e-3);
+        assert!((b1[1].sw - 0.782).abs() < 1e-4, "%PV Sw converts to v/v");
+        let b2: Vec<&ScalPcRecord> = recs.iter().filter(|r| r.sample_no == Some(16)).collect();
+        assert_eq!(b2.len(), 2, "'S-16A' → 16; second block's metadata does not leak from the first");
+        assert_eq!(b2[0].depth, Some(2701.8));
+        assert!((b2[0].perm - 3.4).abs() < 1e-3);
+    }
+
+    #[test]
+    fn scal_centrifuge_without_table_errors() {
+        let path = write_temp_csv("sandibumi_scal_cf_bad_test.csv", "SAMPLE,12A\nDEPTH,2695.3\n");
+        let err = parse_scal_centrifuge_csv(&path);
+        std::fs::remove_file(&path).ok();
+        assert!(err.is_err(), "a block with no Pc/Sw table must error");
+    }
+
+    #[test]
+    fn scal_sniff_detects_all_three_formats() {
+        let wide = write_temp_csv("sandibumi_scal_sniff_wide.csv", WIDE_BODY);
+        let cf = write_temp_csv("sandibumi_scal_sniff_cf.csv", CENTRIFUGE_BODY);
+        let long = write_temp_csv(
+            "sandibumi_scal_sniff_long.csv",
+            "SAMPLE,DEPTH,PERM,PORO,PC,SW\n1,2000.5,150,22,5,0.55\n",
+        );
+        let w = sniff_scal_format(&wide).unwrap();
+        let c = sniff_scal_format(&cf).unwrap();
+        let l = sniff_scal_format(&long).unwrap();
+        for p in [&wide, &cf, &long] {
+            std::fs::remove_file(p).ok();
+        }
+        assert_eq!(w, "porous_plate");
+        assert_eq!(c, "centrifuge");
+        assert_eq!(l, "long");
+    }
+
+    #[test]
+    fn scal_sample_no_letter_suffixes() {
+        assert_eq!(parse_sample_no("4"), Some(4));
+        assert_eq!(parse_sample_no("12A"), Some(12));
+        assert_eq!(parse_sample_no("S-16A"), Some(16));
+        assert_eq!(parse_sample_no("plug"), None);
+    }
+
+    // ---- post-review hardening (ultracode review 2026-07-22) ----
+
+    /// Repeated per-page header rows (whose pressure headers ARE numbers) and numeric
+    /// "Average" footer rows must not import as phantom plugs.
+    #[test]
+    fn scal_wide_skips_repeated_headers_and_numeric_footers() {
+        let body = "\
+Sample,Depth (m),Perm (mD),Poro (%),1,2,4,8,10,20\n\
+4,2001.5,150.0,22.5,98.5,95.2,88.1,79.4,76.0,68.2\n\
+Sample,Depth (m),Perm (mD),Poro (%),1,2,4,8,10,20\n\
+7,2010.2,12.0,18.0,99.0,97.5,93.0,,86.5,80.1\n\
+Average,,132.5,20.3,96.2,94.1,88.0,79.0,76.0,68.0\n";
+        let path = write_temp_csv("sandibumi_scal_wide_phantom_test.csv", body);
+        let recs = parse_scal_wide_csv(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+        assert_eq!(recs.len(), 11, "only the two real plugs import (6 + 5 points)");
+        assert!(recs.iter().all(|r| r.sample_no.is_some()), "no phantom sample-less rows");
+    }
+
+    /// Hand-merged centrifuge workbooks often paste the table header only above the first
+    /// block — later blocks must reuse it, not silently vanish.
+    #[test]
+    fn scal_centrifuge_header_carries_over_blocks() {
+        let body = "\
+SAMPLE,12A\nDEPTH,2695.3\nPERM,45.2\nPORO,18.3\n\
+Speed (RPM),Pc (psi),Sw (%PV)\n500,2.1,95.0\n1000,8.4,78.2\n\
+SAMPLE,S-16A\nDEPTH,2701.8\nPERM,3.4\nPORO,12.1\n\
+500,2.0,99.0\n2000,32.0,71.5\n";
+        let path = write_temp_csv("sandibumi_scal_cf_carry_test.csv", body);
+        let recs = parse_scal_centrifuge_csv(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+        assert_eq!(recs.len(), 4, "block 2 rows parse via the carried-over header");
+        let b2: Vec<&ScalPcRecord> = recs.iter().filter(|r| r.sample_no == Some(16)).collect();
+        assert_eq!(b2.len(), 2);
+        assert_eq!(b2[0].depth, Some(2701.8), "block 2 keeps its own metadata");
+        assert!((b2[1].pc - 32.0).abs() < 1e-3);
+    }
+
+    /// Cover-sheet key-value lines ("No. of Samples,6", "Sample Type,plug") must not trip
+    /// the centrifuge signature; the real header decides. A bare PC/SW table under a
+    /// SAMPLE line still sniffs centrifuge.
+    #[test]
+    fn scal_sniff_ignores_cover_sheet_kv_lines() {
+        let wide = format!("No. of Samples,2\nSample Type,Horizontal plug\n{WIDE_BODY}");
+        let long = "Sample Type,plug\nSAMPLE,DEPTH,PERM,PORO,PC,SW\n1,2000.5,150,22,5,0.55\n";
+        let cf_min = "SAMPLE,12A\nPc (psi),Sw (%PV)\n2.1,95.0\n8.4,78.2\n";
+        let pw = write_temp_csv("sandibumi_scal_sniff_cover_wide.csv", &wide);
+        let pl = write_temp_csv("sandibumi_scal_sniff_cover_long.csv", long);
+        let pc = write_temp_csv("sandibumi_scal_sniff_min_cf.csv", cf_min);
+        let w = sniff_scal_format(&pw).unwrap();
+        let l = sniff_scal_format(&pl).unwrap();
+        let c = sniff_scal_format(&pc).unwrap();
+        for p in [&pw, &pl, &pc] {
+            std::fs::remove_file(p).ok();
+        }
+        assert_eq!(w, "porous_plate", "cover KV lines must not hijack a wide file");
+        assert_eq!(l, "long", "a PC/SW header with per-row SAMPLE columns is flat");
+        assert_eq!(c, "centrifuge", "SAMPLE line + bare PC/SW header is a block file");
+    }
+
+    /// Indonesian/European Excel exports: ';' list separator with ',' decimals.
+    #[test]
+    fn scal_semicolon_and_decimal_comma_parse() {
+        let body = "\
+SAMPLE;12A\nDEPTH;2695,3\nPERM;45,2\nPORO;18,3\n\
+Speed (RPM);Pc (psi);Sw (%PV)\n500;2,1;95,0\n1000;8,4;78,2\n2000;33,6;55,4\n";
+        let path = write_temp_csv("sandibumi_scal_semicolon_test.csv", body);
+        assert_eq!(sniff_scal_format(&path).unwrap(), "centrifuge");
+        let recs = parse_scal_centrifuge_csv(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+        assert_eq!(recs.len(), 3);
+        assert_eq!(recs[0].depth, Some(2695.3), "decimal-comma depth parses");
+        assert!((recs[0].perm - 45.2).abs() < 1e-3);
+        assert!((recs[1].pc - 8.4).abs() < 1e-3);
+        assert!((recs[1].sw - 0.782).abs() < 1e-4, "%PV with decimal comma converts");
+    }
+
+    #[test]
+    fn scal_numeric_cell_regional_formats() {
+        assert_eq!(parse_f32_cell("98.5"), Some(98.5));
+        assert_eq!(parse_f32_cell("2,695.3"), Some(2695.3), "thousands + decimal point");
+        assert_eq!(parse_f32_cell("1,250"), Some(1250.0), "thousands group");
+        assert_eq!(parse_f32_cell("1,000"), Some(1000.0), "3-digit group reads as thousands");
+        assert_eq!(parse_f32_cell("98,5"), Some(98.5), "lone decimal comma");
+        assert_eq!(parse_f32_cell("1,0"), Some(1.0), "short group reads as decimal comma");
+        assert_eq!(parse_f32_cell("Remarks"), None);
+        assert_eq!(parse_f32_cell(""), None);
+    }
+
+    /// The flat/long parser keeps lettered plug ids the same way the other formats do.
+    #[test]
+    fn scal_long_lettered_sample_ids() {
+        let path = write_temp_csv("sandibumi_scal_long_letter_test.csv", "SAMPLE,PC,SW\n12A,5,0.55\n12A,10,0.45\n");
+        let recs = parse_scal_csv(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+        assert_eq!(recs.len(), 2);
+        assert_eq!(recs[0].sample_no, Some(12), "'12A' keeps its numeric part in the long parser too");
     }
 }
 

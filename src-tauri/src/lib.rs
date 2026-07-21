@@ -378,6 +378,32 @@ async fn import_scal_csv(
     .await
 }
 
+/// Multi-file, multi-format SCAL Pc import (increment 2): flat/long CSVs, Corelab-style
+/// porous-plate wide tables, and per-plug centrifuge block files ("auto" sniffs each
+/// file). All files land in ONE combined replace-write of the well's `scal_pc` rows,
+/// with the Leverett-J fit over the pooled points.
+#[tauri::command]
+async fn import_scal_files(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    well_id: String,
+    paths: Vec<String>,
+    format: String,
+    ift_lab: f64,
+) -> Result<ingest::ScalImportResult, String> {
+    let conn = db.0.clone();
+    let detail = if paths.len() == 1 {
+        paths[0].rsplit(['/', '\\']).next().unwrap_or(&paths[0]).to_string()
+    } else {
+        format!("{} files", paths.len())
+    };
+    jobs::run_simple_job(jobs_reg.inner().clone(), "Import SCAL", detail, move || {
+        let c = conn.lock().unwrap();
+        Ok(ingest::import_scal_files(&c, &well_id, &paths, &format, ift_lab))
+    })
+    .await
+}
+
 /// Fetches a well's SCAL Pc/Sw points (for the saturation-height QC plot).
 #[tauri::command]
 fn get_scal_pc(db: tauri::State<DbState>, well_id: String) -> Result<Vec<db::ScalPcRow>, String> {
@@ -1462,6 +1488,7 @@ pub fn run() {
             list_aux_data,
             list_aux_datasets,
             import_scal_csv,
+            import_scal_files,
             get_scal_pc,
             render_composite,
             export_composite_svg,

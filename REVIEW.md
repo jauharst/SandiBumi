@@ -58,8 +58,8 @@ through in the real app with field data. Nothing committed.**
       log-derived Sw-vs-height cloud, with a Sw-vs-H scatter + fitted-curve overlay and a params/R² table.
       *(3 new tests: Brooks-Corey recovers a synthetic curve, Skelt reaches R²>0.98 + monotone Sw, both
       reject too-few points.)* **Try:** SHF Fit ▸ pick Brooks-Corey / Skelt-Harrison. **Still open
-      (increment 2 remainder, task #158):** Thomeer Pc fit (MICP), SCAL porous-plate + centrifuge
-      importers, Pittman full rX table, Ward HFU option.
+      (increment 2 remainder, task #158):** Thomeer Pc fit (MICP), Pittman full rX table, Ward HFU
+      option *(SCAL porous-plate + centrifuge importers: done, see below)*.
 - [ ] **(8) increment 2 — electrofacies tie-in (2026-07-22):** two parts. **Rock Type from Cutoffs**
       module (Petrophysics ▸ Rock Typing) — a Vsh + PHIE cutoff ladder → **RT_LOG** (1 best / 2 moderate
       / 3 non-net), to propagate rock types to uncored intervals. **Facies Tie-in** pane (workspace ▸
@@ -68,6 +68,39 @@ through in the real app with field data. Nothing committed.**
       the log classification faithfully reproduces core rock types). *(3 new tests: the cutoff ladder
       classifies clean/moderate/shaly correctly, the confusion tally scores purity, empty input is
       rejected.)* **Try:** run `rt_cutoff` to make RT_LOG, then Facies Tie-in ▸ RT_LOG vs your core RT.
+- [ ] **(8) increment 2 — SCAL importers (2026-07-22):** **Import SCAL…** (Data ▸ Import Data) now
+      takes **multiple files** and **three formats** (or **Auto-detect** per file): the existing flat
+      PC/SW CSV, the **porous-plate wide table** (Corelab-style: preamble junk tolerated, pressure
+      columns 1…150 psi as headers, one row per plug with Sample/Depth/Perm/Poro, cells = brine Sw
+      %PV — unpivoted to long Pc points), and **centrifuge per-plug blocks** (SAMPLE/DEPTH/PERM/PORO
+      key-value lines then a Pc/Sw table; several blocks per file, or multi-select one file per plug —
+      the digitized-workbook shape). All selected files land in ONE combined replace-write of the
+      well's `scal_pc` rows, then the Leverett-J fit runs over the pooled points as before. Lettered
+      plug ids ("12A", "S-16A") keep their numeric part; %PV and %-porosity auto-convert; a bad file
+      fails the whole import (nothing partial) and names the file. Also fixed on the way: a `PORO`
+      header now resolves as porosity in every core/SCAL CSV import (it previously matched no alias).
+      *(6 new tests: wide-table unpivot incl. a missing cell, headerless-file rejection, two-block
+      centrifuge parse with no metadata leak between plugs, table-less block rejection, the format
+      sniffer on all three shapes, multi-file import + replace-not-append + bad-file atomicity.)*
+      **Try:** Import SCAL… ▸ multi-select your W-MND-1 porous-plate/centrifuge CSV exports ▸
+      Auto-detect ▸ Import & Fit; then re-import to confirm points replace, and check SHF Fit sees
+      the pooled cloud.
+      **Post-review hardening (same day, ultracode 3-lens adversarial review — 10 confirmed
+      findings, all fixed):** (1) an import that parses ZERO points now refuses the replace-write
+      instead of silently wiping the well's existing SCAL data; (2) auto-detect no longer misroutes
+      files whose cover sheets contain "No. of Samples,6"/"Sample Type,plug" lines — the centrifuge
+      verdict now needs corroboration (a numeric DEPTH/PERM/PORO key-value line or a bare PC/SW
+      header); (3) merged centrifuge files where the table header appears only above the first plug
+      no longer silently drop plugs 2..N (header carries over); (4) repeated per-page header rows
+      and numeric "Average" footers in wide tables no longer import as phantom Sw points (a data
+      row must carry a sample id or depth); (5) regional Excel formats parse: ';' list separator
+      (sniffed from line 1) and ',' decimals/thousands ("2,695.3", "98,5", "1,000"); (6) the flat
+      parser keeps lettered plug ids ("12A"→12) like the other two. The dialog also now warns: ONE
+      lab fluid system per import (mixed air-brine + mercury multi-selects would bias the pooled
+      J-fit). *(+7 tests, suite 211 passed / 0 failed, tsc EXIT 0.)* **Deferred to the Thomeer /
+      J-from-SCAL chunk:** a per-row fluid-system/IFT column in `scal_pc` (schema migration) so
+      mixed-system imports can be stored and standardized properly, per the reference doc's long-
+      table spec.
 
 ## Round 2 — panes, shift-select, MC plot props + table + polish (2026-07-21, Jauhar feedback batch #2)
 

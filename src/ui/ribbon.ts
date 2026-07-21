@@ -4,7 +4,7 @@ import {
   importAuxData,
   importCoreCsv,
   importDeviationCsv,
-  importScalCsv,
+  importScalFiles,
   importTopsCsv,
   importWellLocations,
   importDlisFile,
@@ -304,7 +304,7 @@ export class Ribbon {
         },
         {
           label: "Import SCAL…",
-          doc: "Import SCAL capillary-pressure (Pc/Sw) CSV for the selected well and fit the Leverett J-function",
+          doc: "Import SCAL capillary pressure (flat CSV, porous-plate wide table, or per-plug centrifuge files) for the selected well and fit the Leverett J-function",
           onPick: () => void this.handleImportScal(),
         },
         {
@@ -1177,37 +1177,54 @@ export class Ribbon {
     }
   }
 
-  /** "Import Deviation…" — loads an MD/INC/AZI survey CSV and computes minimum-curvature
-   *  TVD/TVDSS for the selected well. Prompts for the datum (KB) elevation. */
-  /** "Import SCAL…" — replaces the well's capillary-pressure (Pc/Sw) points from a CSV
-   *  and fits the Leverett J-function, reporting SWH_A/SWH_B for the sw_height module. */
+  /** "Import SCAL…" — replaces the well's capillary-pressure (Pc/Sw) points from one or
+   *  more files (flat CSV, porous-plate wide table, or per-plug centrifuge blocks) and
+   *  fits the Leverett J-function, reporting SWH_A/SWH_B for the sw_height module. */
   private async handleImportScal(): Promise<void> {
     const well = appState.selectedWell.get();
     if (!well) {
       setStatus("Select a well first (Wells & Tops panel)");
       return;
     }
-    let path: string | null;
+    let paths: string[];
     try {
       const selection = await open({
-        multiple: false,
-        filters: [{ name: "SCAL Pc CSV", extensions: ["csv"] }],
+        multiple: true,
+        filters: [{ name: "SCAL Pc files", extensions: ["csv", "txt"] }],
       });
-      path = Array.isArray(selection) ? (selection[0] ?? null) : selection;
+      paths = Array.isArray(selection) ? selection : selection ? [selection] : [];
     } catch (err) {
       setStatus(`Import dialog unavailable: ${err}`);
       return;
     }
-    if (!path) return;
+    if (paths.length === 0) return;
 
     const content = document.createElement("div");
     const doc = document.createElement("p");
     doc.className = "modal-doc";
     doc.textContent =
-      "Imports capillary-pressure points (PC/SW columns; SAMPLE/DEPTH/PERM/PORO optional) and fits " +
-      "the Leverett J-function Sw = A·J^B. The lab sigma·cosθ converts Pc to J: 72 air-brine, " +
-      "367 air-mercury, 26 oil-brine. Carry the fitted A/B into SW — Saturation-Height (SWH_A/SWH_B).";
+      `Imports capillary-pressure points from ${paths.length} file(s) — flat Pc/Sw tables, ` +
+      "porous-plate wide tables (pressure columns × plug rows, cells = Sw %PV), or per-plug " +
+      "centrifuge blocks (multi-select one file per plug) — then fits the Leverett J-function " +
+      "Sw = A·J^B. The lab sigma·cosθ converts Pc to J: 72 air-brine, 367 air-mercury, " +
+      "26 oil-brine. Carry the fitted A/B into SW — Saturation-Height (SWH_A/SWH_B). " +
+      "One import = ONE lab fluid system: don't mix air-brine and mercury deliveries in a " +
+      "single multi-select — their Pc scales differ and the pooled J-fit would be biased.";
     content.appendChild(doc);
+    const fmtSel = document.createElement("select");
+    fmtSel.className = "form-control";
+    for (const [value, label] of [
+      ["auto", "Auto-detect per file"],
+      ["long", "Flat table (PC/SW columns)"],
+      ["porous_plate", "Porous plate (wide, pressure columns)"],
+      ["centrifuge", "Centrifuge (per-plug blocks)"],
+    ] as const) {
+      const o = document.createElement("option");
+      o.value = value;
+      o.textContent = label;
+      fmtSel.appendChild(o);
+    }
+    content.appendChild(formRow("File format", fmtSel, "How each file's Pc/Sw points are laid out"));
     const iftInput = document.createElement("input");
     iftInput.type = "number";
     iftInput.step = "0.1";
@@ -1231,13 +1248,14 @@ export class Ribbon {
       }
       apply.disabled = true;
       resultBox.textContent = `Importing SCAL data for ${well.well_name}…`;
-      void importScalCsv(well.well_id, path, ift)
+      const fmt = fmtSel.value as "auto" | "long" | "porous_plate" | "centrifuge";
+      void importScalFiles(well.well_id, paths, fmt, ift)
         .then((result) => {
           if (result.error) {
             resultBox.textContent = `SCAL import failed: ${result.error}`;
             return;
           }
-          recordProcess("Import", `Imported SCAL Pc data ← ${path}`, well.well_name);
+          recordProcess("Import", `Imported SCAL Pc data (${fmt}) ← ${result.path}`, well.well_name);
           const fitText = result.fit
             ? `J-fit: A = ${result.fit.a.toFixed(4)}, B = ${result.fit.b.toFixed(4)}, ` +
               `R² = ${result.fit.r2.toFixed(3)} (${result.fit.n_points} points). ` +
@@ -1377,6 +1395,8 @@ export class Ribbon {
     });
   }
 
+  /** "Import Deviation…" — loads an MD/INC/AZI survey CSV and computes minimum-curvature
+   *  TVD/TVDSS for the selected well. Prompts for the datum (KB) elevation. */
   private async handleImportDeviation(): Promise<void> {
     const well = appState.selectedWell.get();
     if (!well) {
