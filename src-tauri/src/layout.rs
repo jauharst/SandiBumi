@@ -58,12 +58,25 @@ pub enum ScaleType {
     Log,
 }
 
+/// What a track draws. "curves" is the normal log track; "well_diagram" ignores curves and
+/// instead draws casing / shoe / tubing / perforations from the well's COMPLETION + PERFORATION
+/// aux datasets. `#[serde(default)]` on the field keeps old saved layouts (no `kind`) loading.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TrackKind {
+    #[default]
+    Curves,
+    WellDiagram,
+}
+
 /// One vertical track in a layout, analogous to a track/scale layout block.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Track {
     pub title: String,
     pub width_weight: f32,
     pub scale_type: ScaleType,
+    #[serde(default)]
+    pub kind: TrackKind,
     pub curves: Vec<CurveStyle>,
 }
 
@@ -83,18 +96,21 @@ pub fn standard_layout() -> Layout {
                 title: "GR".into(),
                 width_weight: 1.0,
                 scale_type: ScaleType::Linear,
+                kind: TrackKind::Curves,
                 curves: vec![filled("GR", "#5f7350", 0.0, 150.0, "left", 0.25)],
             },
             Track {
                 title: "RES_DEEP".into(),
                 width_weight: 1.0,
                 scale_type: ScaleType::Log,
+                kind: TrackKind::Curves,
                 curves: vec![curve("RES_DEEP", "#a83e2c", 0.2, 2000.0)],
             },
             Track {
                 title: "NPHI / RHOB".into(),
                 width_weight: 1.0,
                 scale_type: ScaleType::Linear,
+                kind: TrackKind::Curves,
                 curves: vec![
                     // NPHI runs right-to-left (porosity convention) via a reversed min/max.
                     curve("NPHI", "#3d6a9e", 0.45, -0.15),
@@ -115,24 +131,28 @@ pub fn interpretation_layout() -> Layout {
                 title: "GR".into(),
                 width_weight: 1.0,
                 scale_type: ScaleType::Linear,
+                kind: TrackKind::Curves,
                 curves: vec![filled("GR", "#5f7350", 0.0, 150.0, "left", 0.25)],
             },
             Track {
                 title: "RES_DEEP".into(),
                 width_weight: 1.0,
                 scale_type: ScaleType::Log,
+                kind: TrackKind::Curves,
                 curves: vec![curve("RES_DEEP", "#a83e2c", 0.2, 2000.0)],
             },
             Track {
                 title: "VSH".into(),
                 width_weight: 1.0,
                 scale_type: ScaleType::Linear,
+                kind: TrackKind::Curves,
                 curves: vec![filled("VSH", "#8d6e63", 0.0, 1.0, "left", 0.3)],
             },
             Track {
                 title: "PHIE / PHIT".into(),
                 width_weight: 1.0,
                 scale_type: ScaleType::Linear,
+                kind: TrackKind::Curves,
                 curves: vec![
                     // Porosity convention: decreasing to the right.
                     curve("PHIT", "#54a0ff", 0.5, 0.0),
@@ -143,18 +163,21 @@ pub fn interpretation_layout() -> Layout {
                 title: "SWE".into(),
                 width_weight: 1.0,
                 scale_type: ScaleType::Linear,
+                kind: TrackKind::Curves,
                 curves: vec![curve("SWE", "#00b8d4", 0.0, 1.0)],
             },
             Track {
                 title: "PERM".into(),
                 width_weight: 1.0,
                 scale_type: ScaleType::Log,
+                kind: TrackKind::Curves,
                 curves: vec![curve("PERM", "#b5651d", 0.01, 10000.0)],
             },
             Track {
                 title: "PAY".into(),
                 width_weight: 0.5,
                 scale_type: ScaleType::Linear,
+                kind: TrackKind::Curves,
                 curves: vec![
                     filled("FLAG_PAY", "#5f7350", 0.0, 1.0, "left", 0.55),
                     filled("FLAG_RESERVOIR", "#c2ac81", 0.0, 1.0, "left", 0.35),
@@ -174,18 +197,21 @@ pub fn facies_layout() -> Layout {
                 title: "GR".into(),
                 width_weight: 1.0,
                 scale_type: ScaleType::Linear,
+                kind: TrackKind::Curves,
                 curves: vec![filled("GR", "#5f7350", 0.0, 150.0, "left", 0.25)],
             },
             Track {
                 title: "RES_DEEP".into(),
                 width_weight: 1.0,
                 scale_type: ScaleType::Log,
+                kind: TrackKind::Curves,
                 curves: vec![curve("RES_DEEP", "#a83e2c", 0.2, 2000.0)],
             },
             Track {
                 title: "NPHI / RHOB".into(),
                 width_weight: 1.0,
                 scale_type: ScaleType::Linear,
+                kind: TrackKind::Curves,
                 curves: vec![
                     curve("NPHI", "#3d6a9e", 0.45, -0.15),
                     curve("RHOB", "#b5651d", 1.95, 2.95),
@@ -195,6 +221,7 @@ pub fn facies_layout() -> Layout {
                 title: "FACIES".into(),
                 width_weight: 0.6,
                 scale_type: ScaleType::Linear,
+                kind: TrackKind::Curves,
                 curves: vec![block_curve("FACIES", 12.0)],
             },
         ],

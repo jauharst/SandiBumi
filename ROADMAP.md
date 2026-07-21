@@ -742,26 +742,31 @@ _(field-review tier, was "P2"; the rest of the tier is done in [A8](#a8-field-re
 
 ## B3. Feature Wave B (§4c) — leverage existing engines (small-to-medium, high payoff)
 
-- [ ] **(13) Monte Carlo parameter sensitivity.** montecarlo.rs already samples per realization but
+**Status 2026-07-22:** (13) shipped+committed `d64bdc7`. (9) fluid contacts, (3) ML leaderboard,
+(16) well-diagram track — all built + cargo-tested + tsc-clean, NOT committed, NOT field-verified.
+(8) rock typing + SHF — **increment 1 done** (rocktyping module FZI/GHE/Winland/PGS + Cuddy FOIL
+SHF fit + FWL scan, unit-tested); **increment 2 open** (task-tracked separately).
+
+- [x] **(13) Monte Carlo parameter sensitivity.** montecarlo.rs already samples per realization but
       **discards the draws** — keep them, add Spearman rank correlation of param vs output across
       realizations + **tornado chart**, plus a one-at-a-time sweep mode; scope selector = single tool or
       whole workflow (bulk). *(This is what "MC sensitivity analysis" means — the uncertainty engine is
       done in [A6](#a6-field-scale--phase-9-3-batch-workflows-uncertainty-dashboards--); this adds the
       sensitivity ranking.)* → `code_compute_ml_mc.md`.
-- [ ] **(3) ML comparison quantification.** Loop algorithms × input-curve subsets in one job; leaderboard
+- [x] **(3) ML comparison quantification.** Loop algorithms × input-curve subsets in one job; leaderboard
       ranking; **well-grouped CV + blind-well holdout** (current random 5-fold leaks depth correlation);
       feature importance (permutation); confusion matrix. exec_ml is already one-shot per call — harness
       loops it. → `code_compute_ml_mc.md`.
-- [ ] **(9) Fluid contacts in well correlation.** New `fluid_contacts` store (well/field, type
+- [x] **(9) Fluid contacts in well correlation.** New `fluid_contacts` store (well/field, type
       OWC|GWC|GOC|GDT|ODT, depth, TVDSS flag, color), editor UI, rendering in correlationPanel as
       horizontal lines + connectors; requires adding a **TVDSS depth mode** to correlation (contacts are
       flat in TVDSS, not MD; deviation.rs paths exist). Optional: show in log-view tops overlay.
       Supersedes the §4 New-capability 2D-Window fluid-contacts note. → `code_data_db_import.md`.
-- [ ] **(16) Well-diagram track in layout.** `Track` gains a `kind` field (`"curves" | "well_diagram"`,
+- [x] **(16) Well-diagram track in layout.** `Track` gains a `kind` field (`"curves" | "well_diagram"`,
       serde-default for saved-layout compat); draw casing/shoe/tubing/perfs on the 2D overlay canvas;
       perfs already in aux_data; casing/completion needs a store + importer (reserved aux_data dataset
       `COMPLETION`); BS available as curve. Mirror in composite/report export. → `code_data_db_import.md`.
-- [ ] **(8) Rock typing + SHF building.** Rock typing: FZI/HFU (Amaefule + GHE bins), Winland R35/Pittman,
+- [~] **(8) Rock typing + SHF building.** *Increment 1 shipped: `rocktyping.rs` module (RQI/FZI + GHE bins, Winland R35, PGS) + `shf_fit.rs` Cuddy FOIL fit + FWL scan (unit-tested). Increment 2 open — see below.* Rock typing: FZI/HFU (Amaefule + GHE bins), Winland R35/Pittman,
       Lucia RFN, PGS (Permadi & Susilo ITB — verify exponent vs paper), perm binning per Mahakam phi-k-laws
       preset, electrofacies tie-in with confusion-matrix QC. SHF *fitting* side (forward `sw_height` exists):
       Leverett-J, Brooks-Corey, Thomeer, Skelt-Harrison, Cuddy FOIL/BVW, log-derived per-RT Sw(h), FWL scan

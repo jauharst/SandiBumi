@@ -200,6 +200,18 @@ pub(crate) fn render_pages(conn: &Connection, spec: &CompositeSpec) -> Result<(V
 
     let tops = crate::db::list_tops(conn, &spec.well_id).map_err(|e| e.to_string())?;
     let zones = crate::db::list_zones(conn, &spec.well_id).map_err(|e| e.to_string())?;
+    // Well-diagram tracks (if any) draw these; absent datasets simply yield an empty diagram.
+    let has_diagram = spec.layout.tracks.iter().any(|t| t.kind == crate::layout::TrackKind::WellDiagram);
+    let completion = if has_diagram {
+        crate::db::list_aux_data(conn, &spec.well_id, Some("COMPLETION")).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let perforations = if has_diagram {
+        crate::db::list_aux_data(conn, &spec.well_id, Some("PERFORATION")).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
 
     let (pw, ph) = spec.page_size.dims();
     let mm_per_m = 1000.0 / spec.scale as f64;
@@ -218,7 +230,8 @@ pub(crate) fn render_pages(conn: &Connection, spec: &CompositeSpec) -> Result<(V
         let m_this = if first { m_per_page_first } else { m_per_page_run };
         let d1 = (d0 + m_this).min(bottom);
         let ops = build_page(
-            spec, &header, &depth, &columns, &tops, &zones, pw, ph, mm_per_m, first, d0 as f32, d1 as f32, idx,
+            spec, &header, &depth, &columns, &tops, &zones, &completion, &perforations, pw, ph, mm_per_m, first,
+            d0 as f32, d1 as f32, idx,
         );
         pages.push(PageOps { ops, top: d0 as f32, bot: d1 as f32, idx });
         d0 = d1;
@@ -289,6 +302,8 @@ fn build_page(
     columns: &HashMap<String, Vec<f32>>,
     tops: &[crate::db::TopEntry],
     zones: &[crate::db::ZoneEntry],
+    completion: &[crate::db::AuxRow],
+    perforations: &[crate::db::AuxRow],
     pw: f64,
     ph: f64,
     mm_per_m: f64,
@@ -398,10 +413,14 @@ fn build_page(
             stroke: Some("#333333".into()),
             sw: 0.2,
         });
-        draw_vgrid(&mut ops, track, tx0, tx1, grid_top, grid_bot);
-        for cs in &track.curves {
-            let Some(vals) = columns.get(&cs.curve_name.trim().to_uppercase()) else { continue };
-            draw_curve(&mut ops, cs, track.scale_type, vals, depth, tx0, tx1, page_top, page_bot, &y_of);
+        if track.kind == crate::layout::TrackKind::WellDiagram {
+            draw_well_diagram(&mut ops, completion, perforations, tx0, tx1, page_top, page_bot, &y_of);
+        } else {
+            draw_vgrid(&mut ops, track, tx0, tx1, grid_top, grid_bot);
+            for cs in &track.curves {
+                let Some(vals) = columns.get(&cs.curve_name.trim().to_uppercase()) else { continue };
+                draw_curve(&mut ops, cs, track.scale_type, vals, depth, tx0, tx1, page_top, page_bot, &y_of);
+            }
         }
         draw_track_header(&mut ops, track, tx0, tx1, track_top, grid_top);
     }
@@ -479,6 +498,106 @@ fn draw_header(
             bold: true,
             s: format!("{}  \u{2014}  1:{}  (p.{})", header.name, spec.scale, idx + 1),
         });
+    }
+}
+
+/// Well-diagram track (Track kind = well_diagram): schematic casing/tubing strings with shoe
+/// markers + perforation ticks, from COMPLETION (value_num = OD in inches) and PERFORATION aux.
+#[allow(clippy::too_many_arguments)]
+fn draw_well_diagram(
+    ops: &mut Vec<DrawOp>,
+    casing: &[crate::db::AuxRow],
+    perfs: &[crate::db::AuxRow],
+    tx0: f64,
+    tx1: f64,
+    page_top: f32,
+    page_bot: f32,
+    y_of: &impl Fn(f32) -> f64,
+) {
+    let cx = (tx0 + tx1) / 2.0;
+    let span = tx1 - tx0;
+    let max_half = span * 0.36;
+    let max_od = casing.iter().filter_map(|c| c.value_num).fold(1.0_f32, f32::max).max(1.0);
+
+    for c in casing {
+        let top_d = c.depth_top;
+        let base_d = c.depth_base.unwrap_or(page_bot);
+        if base_d < page_top || top_d > page_bot {
+            continue;
+        }
+        let od = c.value_num.unwrap_or(max_od);
+        let half = ((od / max_od) as f64 * max_half).max(0.8);
+        let yt = y_of(top_d.clamp(page_top, page_bot));
+        let yb = y_of(base_d.clamp(page_top, page_bot));
+        for sx in [cx - half, cx + half] {
+            ops.push(DrawOp::Line { x1: sx, y1: yt, x2: sx, y2: yb, stroke: "#5a5a5a".into(), sw: 0.4 });
+        }
+        // Shoe markers (small filled squares) at the casing base.
+        if c.depth_base.is_some() && base_d >= page_top && base_d <= page_bot {
+            for sx in [cx - half, cx + half] {
+                ops.push(DrawOp::Rect {
+                    x: sx - 0.6,
+                    y: yb - 1.2,
+                    w: 1.2,
+                    h: 1.2,
+                    fill: Some("#333333".into()),
+                    stroke: None,
+                    sw: 0.0,
+                });
+            }
+        }
+        // OD label at the top of the string (only when its top is on this page).
+        if top_d >= page_top && top_d <= page_bot {
+            let label = c
+                .value_text
+                .clone()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| c.value_num.map(|od| format!("{od}\"")).unwrap_or_else(|| c.item.clone()));
+            ops.push(DrawOp::Text {
+                x: cx,
+                y: yt - 0.8,
+                size: 2.2,
+                anchor: Anchor::Middle,
+                color: "#333333".into(),
+                bold: false,
+                s: label,
+            });
+        }
+    }
+
+    // Perforations: red ticks radiating from the well centre over each perf interval.
+    let tick_half = (span * 0.28).min(max_half);
+    for p in perfs {
+        let d_top = p.depth_top;
+        let d_bot = p.depth_base.unwrap_or(p.depth_top);
+        if d_top > page_bot || d_bot < page_top {
+            continue;
+        }
+        let ylo = y_of(d_top.min(d_bot).clamp(page_top, page_bot));
+        let yhi = y_of(d_top.max(d_bot).clamp(page_top, page_bot));
+        let mut yy = ylo;
+        loop {
+            ops.push(DrawOp::Line {
+                x1: cx - tick_half,
+                y1: yy,
+                x2: cx - tick_half * 0.4,
+                y2: yy,
+                stroke: "#c0392b".into(),
+                sw: 0.4,
+            });
+            ops.push(DrawOp::Line {
+                x1: cx + tick_half * 0.4,
+                y1: yy,
+                x2: cx + tick_half,
+                y2: yy,
+                stroke: "#c0392b".into(),
+                sw: 0.4,
+            });
+            yy += 1.5;
+            if yy > yhi {
+                break;
+            }
+        }
     }
 }
 

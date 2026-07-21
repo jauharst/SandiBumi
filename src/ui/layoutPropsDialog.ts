@@ -57,6 +57,7 @@ export function openLayoutPropsDialog(
     title: uniqueTitle("New Track"),
     width_weight: 1,
     scale_type: "linear",
+    kind: "curves",
     curves: [],
   });
 
@@ -207,6 +208,15 @@ export function openLayoutPropsDialog(
     );
     grid.appendChild(
       field(
+        "Track type",
+        selectInput(track.kind ?? "curves", [["curves", "Curves"], ["well_diagram", "Well diagram"]], (v) => {
+          track.kind = v;
+          renderDetail();
+        }),
+      ),
+    );
+    grid.appendChild(
+      field(
         "Value scale",
         selectInput(track.scale_type, [["linear", "Linear"], ["log", "Logarithmic"]], (v) => {
           track.scale_type = v;
@@ -222,6 +232,18 @@ export function openLayoutPropsDialog(
       ),
     );
     detail.appendChild(grid);
+
+    // A well-diagram track ignores curves: it draws casing / shoe / tubing / perforations from
+    // the well's COMPLETION + PERFORATION aux datasets instead.
+    if ((track.kind ?? "curves") === "well_diagram") {
+      const note = document.createElement("div");
+      note.className = "lp-section-title";
+      note.style.fontWeight = "400";
+      note.textContent =
+        "Draws casing / shoe / tubing / perforations from the well's COMPLETION and PERFORATION datasets (Data ▸ Import aux data). No curves needed.";
+      detail.appendChild(note);
+      return;
+    }
 
     const sectionTitle = document.createElement("div");
     sectionTitle.className = "lp-section-title";

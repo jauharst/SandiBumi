@@ -506,6 +506,406 @@ pub(crate) fn exec_ml(
     Ok((hdr.metrics, outs))
 }
 
+// ---------------------------------------------------------------------------------------------
+// Model-comparison leaderboard (Wave B item 3): evaluate algorithm x feature-subset combos with
+// BLIND-WELL cross-validation (whole wells held out via GroupKFold — the plain random 5-fold in
+// ML_RUNNER leaks depth correlation because adjacent samples from one well land in both folds),
+// plus permutation feature importance and a confusion matrix. One python round-trip evaluates
+// every combo (single sklearn import); no curves are written — this ranks approaches to pick from.
+// ---------------------------------------------------------------------------------------------
+
+const ML_EVAL_RUNNER: &str = r#"
+import sys, json
+import numpy as np
+
+def fail(msg):
+    print(msg, file=sys.stderr)
+    sys.exit(2)
+
+header = json.loads(sys.stdin.buffer.readline().decode("utf-8"))
+task = header["task"]; d = header["d"]; n = header["n_train"]
+folds = int(header.get("folds", 5)); seed = int(header.get("seed", 42))
+standardize = bool(header.get("standardize", True)); combos = header["combos"]
+total = n * d + n + n
+raw = sys.stdin.buffer.read(4 * total)
+if len(raw) != 4 * total:
+    fail("truncated input stream")
+X = np.frombuffer(raw, dtype=np.float32, count=n * d, offset=0).reshape(n, d).astype(np.float64)
+y = np.frombuffer(raw, dtype=np.float32, count=n, offset=4 * n * d).astype(np.float64)
+groups = np.frombuffer(raw, dtype=np.float32, count=n, offset=4 * (n * d + n)).astype(np.int64)
+
+try:
+    import sklearn  # noqa: F401
+except ImportError:
+    fail("scikit-learn is not installed for this Python - run: pip install scikit-learn")
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import GroupKFold, KFold
+from sklearn.inspection import permutation_importance
+from sklearn.metrics import r2_score, accuracy_score, f1_score, confusion_matrix
+
+# StandardScaler is per-column, so subselecting standardized columns == standardizing the subset.
+Xs = StandardScaler().fit_transform(X) if standardize else X
+
+def make_model(algo):
+    if task == "regression":
+        if algo == "rf":
+            from sklearn.ensemble import RandomForestRegressor
+            return RandomForestRegressor(n_estimators=200, random_state=seed, n_jobs=-1)
+        if algo == "gbdt":
+            try:
+                from xgboost import XGBRegressor
+                return XGBRegressor(n_estimators=300, learning_rate=0.1, max_depth=4, random_state=seed, verbosity=0)
+            except ImportError:
+                from sklearn.ensemble import HistGradientBoostingRegressor
+                return HistGradientBoostingRegressor(random_state=seed)
+        if algo == "svr":
+            from sklearn.svm import SVR
+            return SVR(C=10.0, epsilon=0.1)
+        if algo == "ann":
+            from sklearn.neural_network import MLPRegressor
+            return MLPRegressor(hidden_layer_sizes=(64, 32), max_iter=500, random_state=seed)
+        if algo == "linear":
+            from sklearn.linear_model import LinearRegression
+            return LinearRegression()
+    else:
+        if algo == "svm":
+            from sklearn.svm import SVC
+            return SVC(C=10.0, random_state=seed)
+        if algo == "knn":
+            from sklearn.neighbors import KNeighborsClassifier
+            return KNeighborsClassifier(n_neighbors=7)
+        if algo == "rf":
+            from sklearn.ensemble import RandomForestClassifier
+            return RandomForestClassifier(n_estimators=200, random_state=seed, n_jobs=-1)
+        if algo == "gnb":
+            from sklearn.naive_bayes import GaussianNB
+            return GaussianNB()
+        if algo == "logreg":
+            from sklearn.linear_model import LogisticRegression
+            return LogisticRegression(C=1.0, max_iter=1000)
+    return None
+
+ng = int(len(np.unique(groups)))
+use_group = ng >= 2
+nsplits = min(folds, ng) if use_group else min(folds, n)
+nsplits = max(2, nsplits)
+splitter = GroupKFold(n_splits=nsplits) if use_group else KFold(n_splits=nsplits, shuffle=True, random_state=seed)
+SP = list(splitter.split(Xs, y, groups)) if use_group else list(splitter.split(Xs, y))
+
+clf = task == "classification"
+yt = y.astype(int) if clf else y
+labels = sorted(int(v) for v in np.unique(yt)) if clf else None
+scoring = "accuracy" if clf else "r2"
+
+rows = []
+for combo in combos:
+    algo = combo["algorithm"]; fidx = combo["feat_idx"]
+    Xc = Xs[:, fidx]
+    oof = np.full(n, np.nan)
+    fold_scores = []
+    err = None
+    try:
+        for tr, te in SP:
+            m = make_model(algo)
+            if m is None:
+                err = "unknown algorithm '" + str(algo) + "'"; break
+            m.fit(Xc[tr], yt[tr])
+            pred = m.predict(Xc[te])
+            oof[te] = pred
+            fold_scores.append(accuracy_score(yt[te], pred.astype(int)) if clf else r2_score(y[te], pred))
+    except Exception as e:
+        err = str(e)
+    if err is not None:
+        rows.append({"algorithm": algo, "feat_idx": fidx, "error": err})
+        continue
+    metrics = {}
+    if clf:
+        oofi = oof.astype(int)
+        score = float(accuracy_score(yt, oofi))
+        metrics["macro_f1"] = float(f1_score(yt, oofi, average="macro", zero_division=0))
+        conf = confusion_matrix(yt, oofi, labels=labels).tolist()
+        labs = labels
+    else:
+        score = float(r2_score(y, oof))
+        metrics["rmse"] = float(np.sqrt(np.mean((y - oof) ** 2)))
+        conf = None; labs = None
+    imp = [float("nan")] * len(fidx)
+    try:
+        mfull = make_model(algo)
+        mfull.fit(Xc, yt)
+        pi = permutation_importance(mfull, Xc, yt, n_repeats=5, random_state=seed, scoring=scoring)
+        imp = [float(v) for v in pi.importances_mean]
+    except Exception:
+        pass
+    rows.append({"algorithm": algo, "feat_idx": fidx, "score": score,
+                 "score_std": float(np.std(fold_scores)), "metrics": metrics,
+                 "importances": imp, "confusion": conf, "labels": labs})
+
+out = {"rows": rows, "n_groups": ng, "n_splits": int(nsplits),
+       "cv": "blind-well GroupKFold" if use_group else "random KFold"}
+sys.stdout.buffer.write((json.dumps(out) + "\n").encode("utf-8"))
+"#;
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MlEvalRequest {
+    /// "regression" | "classification" (supervised only — the leaderboard needs a target).
+    pub task: String,
+    pub feature_curves: Vec<String>,
+    pub target_curve: String,
+    pub train_well_ids: Vec<String>,
+    /// Algorithm ids to compare (same ids as ML_RUNNER); empty → nothing to do.
+    pub algorithms: Vec<String>,
+    /// Feature subsets to try (each a subset of feature_curves by name); empty → the full set only.
+    #[serde(default)]
+    pub subsets: Vec<Vec<String>>,
+    #[serde(default)]
+    pub standardize: bool,
+    #[serde(default)]
+    pub seed: Option<i64>,
+    #[serde(default)]
+    pub folds: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MlEvalRow {
+    pub algorithm: String,
+    pub features: Vec<String>,
+    pub score: Option<f64>,
+    pub score_std: Option<f64>,
+    pub metrics: serde_json::Value,
+    pub importances: Vec<f64>,
+    pub confusion: Option<Vec<Vec<i64>>>,
+    pub labels: Option<Vec<i64>>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MlEvalResult {
+    pub rows: Vec<MlEvalRow>,
+    pub n_train: usize,
+    pub n_groups: usize,
+    pub cv: String,
+    pub n_splits: usize,
+    pub note: Option<String>,
+    pub error: Option<String>,
+}
+
+fn eval_fail(msg: &str) -> MlEvalResult {
+    MlEvalResult {
+        rows: vec![],
+        n_train: 0,
+        n_groups: 0,
+        cv: String::new(),
+        n_splits: 0,
+        note: None,
+        error: Some(msg.to_string()),
+    }
+}
+
+/// Cap on total (algorithm x subset) combos evaluated in one leaderboard run — a full-subset
+/// sweep over many curves would otherwise fit thousands of models. Excess is dropped with a note.
+const MAX_COMBOS: usize = 80;
+
+pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult {
+    if !matches!(req.task.as_str(), "regression" | "classification") {
+        return eval_fail("the leaderboard is for supervised tasks (regression or classification)");
+    }
+    let features: Vec<String> =
+        req.feature_curves.iter().map(|c| c.trim().to_uppercase()).filter(|c| !c.is_empty()).collect();
+    if features.is_empty() {
+        return eval_fail("select at least one input curve");
+    }
+    let target = req.target_curve.trim().to_uppercase();
+    if target.is_empty() {
+        return eval_fail("choose a target curve to compare against");
+    }
+    let algos: Vec<String> =
+        req.algorithms.iter().map(|a| a.trim().to_string()).filter(|a| !a.is_empty()).collect();
+    if algos.is_empty() {
+        return eval_fail("no algorithms selected to compare");
+    }
+    if req.train_well_ids.len() < 2 {
+        return eval_fail("blind-well comparison needs at least 2 training wells (whole wells are held out)");
+    }
+    let Some(python) = find_python() else {
+        return eval_fail("no Python with numpy found - install Python 3.10+ with numpy + scikit-learn");
+    };
+
+    // Pool complete labelled samples across the training wells, tracking each sample's well index
+    // so python can hold out whole wells (GroupKFold).
+    let d = features.len();
+    let mut x_train: Vec<f32> = Vec::new();
+    let mut y_train: Vec<f32> = Vec::new();
+    let mut groups: Vec<f32> = Vec::new();
+    {
+        let conn = db.lock().unwrap();
+        let mut fetch_names = features.clone();
+        fetch_names.push(target.clone());
+        for (g, well_id) in req.train_well_ids.iter().enumerate() {
+            let Ok((depth, cols)) = fetch_curve_frame(&conn, well_id, &fetch_names) else { continue };
+            let Some(tv) = cols.get(&target) else { continue };
+            let Some(fcols) = features.iter().map(|f| cols.get(f)).collect::<Option<Vec<_>>>() else { continue };
+            for i in 0..depth.len() {
+                if tv[i].is_finite() && fcols.iter().all(|c| c[i].is_finite()) {
+                    for c in &fcols {
+                        x_train.push(c[i]);
+                    }
+                    y_train.push(tv[i]);
+                    groups.push(g as f32);
+                }
+            }
+        }
+    }
+    let n_train = y_train.len();
+    if n_train < 20 {
+        return eval_fail(&format!(
+            "only {n_train} labelled samples across the training wells - need at least 20 for cross-validation"
+        ));
+    }
+    let n_groups = req.train_well_ids.len();
+
+    // Build the (algorithm x subset) combos as feature-index lists into `features`.
+    let idx_of = |name: &str| features.iter().position(|f| f == name);
+    let mut subset_idx: Vec<Vec<usize>> = Vec::new();
+    if req.subsets.is_empty() {
+        subset_idx.push((0..d).collect());
+    } else {
+        let mut seen: std::collections::HashSet<Vec<usize>> = std::collections::HashSet::new();
+        for sub in &req.subsets {
+            let mut idx: Vec<usize> =
+                sub.iter().filter_map(|n| idx_of(&n.trim().to_uppercase())).collect();
+            idx.sort_unstable();
+            idx.dedup();
+            if !idx.is_empty() && seen.insert(idx.clone()) {
+                subset_idx.push(idx);
+            }
+        }
+        if subset_idx.is_empty() {
+            subset_idx.push((0..d).collect());
+        }
+    }
+    let mut combos: Vec<(String, Vec<usize>)> = Vec::new();
+    for a in &algos {
+        for s in &subset_idx {
+            combos.push((a.clone(), s.clone()));
+        }
+    }
+    let mut note = None;
+    if combos.len() > MAX_COMBOS {
+        note = Some(format!(
+            "evaluated the first {MAX_COMBOS} of {} algorithm×subset combos (cap) — narrow the algorithms or subsets",
+            combos.len()
+        ));
+        combos.truncate(MAX_COMBOS);
+    }
+
+    let seed = req.seed.unwrap_or(42);
+    let folds = req.folds.unwrap_or(5).clamp(2, 10);
+    match exec_ml_eval(&python, &req.task, d, n_train, &x_train, &y_train, &groups, &combos, req.standardize, seed, folds) {
+        Err(e) => eval_fail(&e),
+        Ok(py) => {
+            let mut rows: Vec<MlEvalRow> = py
+                .rows
+                .into_iter()
+                .map(|r| MlEvalRow {
+                    algorithm: r.algorithm,
+                    features: r.feat_idx.iter().filter_map(|&i| features.get(i).cloned()).collect(),
+                    score: r.score,
+                    score_std: r.score_std,
+                    metrics: r.metrics,
+                    importances: r.importances,
+                    confusion: r.confusion,
+                    labels: r.labels,
+                    error: r.error,
+                })
+                .collect();
+            // Best first: successful rows by score desc, errored rows last.
+            rows.sort_by(|a, b| match (a.score, b.score) {
+                (Some(x), Some(y)) => y.partial_cmp(&x).unwrap_or(std::cmp::Ordering::Equal),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
+            });
+            MlEvalResult { rows, n_train, n_groups: py.n_groups.max(n_groups), cv: py.cv, n_splits: py.n_splits, note, error: None }
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct PyEvalRow {
+    algorithm: String,
+    feat_idx: Vec<usize>,
+    #[serde(default)]
+    score: Option<f64>,
+    #[serde(default)]
+    score_std: Option<f64>,
+    #[serde(default)]
+    metrics: serde_json::Value,
+    #[serde(default)]
+    importances: Vec<f64>,
+    #[serde(default)]
+    confusion: Option<Vec<Vec<i64>>>,
+    #[serde(default)]
+    labels: Option<Vec<i64>>,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct PyEvalOut {
+    rows: Vec<PyEvalRow>,
+    n_groups: usize,
+    n_splits: usize,
+    cv: String,
+}
+
+/// One python round-trip evaluating every combo. Returns parsed rows (feature INDICES; the caller
+/// maps them back to names).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn exec_ml_eval(
+    python: &PathBuf,
+    task: &str,
+    d: usize,
+    n_train: usize,
+    x_train: &[f32],
+    y_train: &[f32],
+    groups: &[f32],
+    combos: &[(String, Vec<usize>)],
+    standardize: bool,
+    seed: i64,
+    folds: usize,
+) -> Result<PyEvalOut, String> {
+    let combos_json: Vec<serde_json::Value> = combos
+        .iter()
+        .map(|(a, idx)| serde_json::json!({ "algorithm": a, "feat_idx": idx }))
+        .collect();
+    let header = serde_json::json!({
+        "task": task, "d": d, "n_train": n_train,
+        "standardize": standardize, "seed": seed, "folds": folds, "combos": combos_json,
+    });
+
+    let mut cmd = Command::new(python);
+    cmd.args(["-c", ML_EVAL_RUNNER]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    hide_console(&mut cmd);
+    let mut child = cmd.spawn().map_err(|e| format!("failed to start python: {e}"))?;
+    {
+        let stdin = child.stdin.as_mut().ok_or("failed to open python stdin")?;
+        stdin.write_all(header.to_string().as_bytes()).map_err(|e| e.to_string())?;
+        stdin.write_all(b"\n").map_err(|e| e.to_string())?;
+        stdin.write_all(bytemuck::cast_slice(x_train)).map_err(|e| e.to_string())?;
+        stdin.write_all(bytemuck::cast_slice(y_train)).map_err(|e| e.to_string())?;
+        stdin.write_all(bytemuck::cast_slice(groups)).map_err(|e| e.to_string())?;
+    }
+    let output = child.wait_with_output().map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr);
+        let last = err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("python ML comparison failed");
+        return Err(last.trim().to_string());
+    }
+    let nl = output.stdout.iter().position(|&b| b == b'\n').unwrap_or(output.stdout.len());
+    serde_json::from_slice(&output.stdout[..nl]).map_err(|e| format!("bad ML comparison result: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -630,5 +1030,68 @@ mod tests {
         let ev = metrics["explained_variance_pct"].as_array().unwrap();
         let total: f64 = ev.iter().map(|v| v.as_f64().unwrap()).sum();
         assert!(total > 99.0, "explained variance = {total}%");
+    }
+
+    #[test]
+    fn eval_leaderboard_blind_well_cv_ranks_linear_top() {
+        let Some(py) = python_with_sklearn() else {
+            eprintln!("skipping: no python+sklearn on this machine");
+            return;
+        };
+        // 3 wells (groups), single feature, exact y = 2x + 1. Under blind-well GroupKFold the
+        // linear model must generalize (R^2 ~ 1) to the held-out well; compare linear vs rf.
+        let mut x = Vec::new();
+        let mut y = Vec::new();
+        let mut g = Vec::new();
+        for well in 0..3 {
+            for i in 0..40 {
+                let xv = (well * 40 + i) as f32 * 0.5;
+                x.push(xv);
+                y.push(2.0 * xv + 1.0);
+                g.push(well as f32);
+            }
+        }
+        let combos = vec![("linear".to_string(), vec![0usize]), ("rf".to_string(), vec![0usize])];
+        let out = exec_ml_eval(&py, "regression", 1, y.len(), &x, &y, &g, &combos, false, 42, 3)
+            .expect("eval run failed");
+        assert_eq!(out.cv, "blind-well GroupKFold");
+        assert_eq!(out.n_groups, 3);
+        let lin = out.rows.iter().find(|r| r.algorithm == "linear").expect("linear row");
+        assert!(lin.error.is_none(), "linear errored: {:?}", lin.error);
+        assert!(lin.score.unwrap() > 0.999, "linear blind-well R2 = {:?}", lin.score);
+        assert_eq!(lin.importances.len(), 1);
+    }
+
+    #[test]
+    fn eval_leaderboard_classification_returns_confusion() {
+        let Some(py) = python_with_sklearn() else {
+            eprintln!("skipping: no python+sklearn on this machine");
+            return;
+        };
+        // 3 wells, two separable 2-D blobs per well labelled 0/1. Blind-well accuracy ~1 and a
+        // 2x2 confusion matrix must come back with the class labels.
+        let mut x = Vec::new();
+        let mut y = Vec::new();
+        let mut g = Vec::new();
+        for well in 0..3 {
+            for i in 0..30 {
+                let j = (i % 6) as f32 * 0.01;
+                x.extend_from_slice(&[j, j]);
+                y.push(0.0);
+                g.push(well as f32);
+                x.extend_from_slice(&[10.0 + j, 10.0 + j]);
+                y.push(1.0);
+                g.push(well as f32);
+            }
+        }
+        let combos = vec![("knn".to_string(), vec![0usize, 1usize])];
+        let out = exec_ml_eval(&py, "classification", 2, y.len(), &x, &y, &g, &combos, true, 42, 3)
+            .expect("eval run failed");
+        let row = &out.rows[0];
+        assert!(row.error.is_none(), "knn errored: {:?}", row.error);
+        assert!(row.score.unwrap() > 0.99, "blind-well accuracy = {:?}", row.score);
+        let conf = row.confusion.as_ref().expect("confusion matrix");
+        assert_eq!(conf.len(), 2);
+        assert_eq!(row.labels.as_ref().unwrap(), &vec![0i64, 1]);
     }
 }

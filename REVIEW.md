@@ -7,6 +7,48 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 3 — Feature Wave B chain (2026-07-22): fluid contacts, ML leaderboard, well-diagram, rock typing + SHF
+
+Four Wave B features built back-to-back after the round-2 commit (`d64bdc7`). Each is tsc-clean and
+either cargo-tested or cargo-check-clean; the novel math in each is unit-tested. **Not yet clicked
+through in the real app with field data. Nothing committed.**
+
+- [ ] **(9) Fluid contacts in Correlation.** New `fluid_contacts` store (well/field/global scope,
+      OWC/GWC/GOC/GDT/ODT/FWL, depth, TVDSS flag, colour) + editor (Correlation ▸ **Contacts…**).
+      Contacts draw as horizontal lines + cross-well connectors. New **MD / TVDSS depth mode** on the
+      Correlation toolbar: in TVDSS a TVDSS-stored contact is **flat across every well** (converted per
+      well via the TVDSS curve; falls back to MD == TVDSS for vertical wells). *(Verified: the TVDSS↔MD
+      round-trip math — a TVDSS contact renders flat across two wells with different deviation, an MD
+      contact flat only in MD mode; cargo check + tsc clean.)* **Try:** open Correlation, add an OWC as
+      TVDSS, switch MD↔TVDSS, watch it flatten.
+- [ ] **(3) ML comparison leaderboard.** In the ML pane (supervised tasks), a **Compare algorithms**
+      button ranks every algorithm × a curve-subset strategy (full / leave-one-out / singles) by
+      **blind-well GroupKFold CV** — whole wells are held out, fixing the depth-leak in the old random
+      5-fold. Shows a sortable leaderboard (R²/accuracy + RMSE/macro-F1), **permutation importance** bars,
+      and a **confusion matrix** for the selected row. *(Verified: 2 new Rust tests exercise the real
+      sklearn GroupKFold path — blind-well R²≈1 for a linear law across 3 wells, 2×2 confusion for a
+      classifier. Needs ≥2 train wells.)* **Try:** ML ▸ regression, pick ≥2 train wells + curves ▸ Compare.
+- [ ] **(16) Well-diagram track.** Any layout track can be set to **kind = Well diagram** (Layout editor ▸
+      Track type). It draws casing/tubing/liner strings (with shoe symbols) + perforation ticks from the
+      well's **COMPLETION** and **PERFORATION** aux datasets (Data ▸ Import aux data; value_num = OD in
+      inches, depth_top..depth_base = the run). Renders in the log view **and** the composite/report SVG.
+      Old saved layouts still load (kind defaults to "curves"). *(Verified: cargo check + tsc clean;
+      renderer skips curves for diagram tracks so nothing draws underneath.)* **Try:** import a COMPLETION
+      CSV, add a track, set it to Well diagram.
+- [ ] **(8) Rock typing + SHF — increment 1.** Two pieces:
+      **(a) Rock Typing module** (Petrophysics ribbon ▸ new *Rock Typing* group) — from φ + k writes
+      RQI, PHIZ, FZI (Amaefule), Winland **R35**, PGS **PGEOM/PSTRUC**, an **RT class** (GHE fixed FZI
+      bins or Winland port classes) and **PERM_RT** (class-grouped geometric-mean-FZI perm estimate).
+      *(4 unit tests: FZI→GHE7 for φ0.2/k100, Winland R35→macro, perm predictor, MISSING handling.)*
+      **(b) Cuddy FOIL SHF fit** (workspace ▸ **SHF Fit (Cuddy FOIL)**) — pools computed PHIE/SW/TVDSS
+      across wells, fits **BVW = a·H^b** above the FWL with a BVW-vs-H log-log crossplot, and an optional
+      **FWL scan** (Cuddy 1993 Eq 19) that finds the common contact. *(3 unit tests: recovers a known
+      power law, rejects degenerate input, scan lands on the true 2000 m contact.)*
+      **NOTE (per the reference doc):** the PGS exponent (3.5) and GHE bins are literature/recall values —
+      flagged in the module doc for verification before field release. **Deferred to increment 2:** Lucia
+      RFN, Thomeer/Brooks-Corey/Skelt-Harrison Pc fits, SCAL porous-plate/centrifuge importers, the
+      Mahakam phi-k-law perm-binning preset, and the electrofacies confusion-matrix tie-in.
+
 ## Round 2 — panes, shift-select, MC plot props + table + polish (2026-07-21, Jauhar feedback batch #2)
 
 Follow-up batch after the first round: (1) Shift-select was painting a native blue text

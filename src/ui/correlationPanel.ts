@@ -1,8 +1,31 @@
-import { getTrackData, listTops, listWells, type TopEntry, type TrackCurveSeries, type WellSummary } from "../ipc";
+import {
+  deleteFluidContact,
+  getTrackData,
+  listFluidContacts,
+  listTops,
+  listWells,
+  upsertFluidContact,
+  type FluidContact,
+  type TopEntry,
+  type TrackCurveSeries,
+  type WellSummary,
+} from "../ipc";
 import { appState, filterByActiveGroup } from "../state";
+import { openModal } from "./modal";
 import { percentile, readTheme } from "./plotCanvas";
 import { curveSelect, loadCurveNames, loadPlotProps, savePlotProps, type PlotContent } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
+
+/** Default marker colors per contact type (a stored color overrides these). */
+const CONTACT_COLORS: Record<string, string> = {
+  OWC: "#2f6fed",
+  GWC: "#e0483d",
+  GOC: "#e08a1e",
+  GDT: "#b58a2b",
+  ODT: "#3b7a57",
+  FWL: "#8e44ad",
+};
+const CONTACT_TYPES = ["OWC", "GWC", "GOC", "GDT", "ODT", "FWL"];
 
 /** Multi-well correlation view (well-correlation view): the included
  *  wells drawn as side-by-side strips of one shared curve, formation tops connected
@@ -15,6 +38,10 @@ export interface CorrelationOptions {
   max: number | null;
   /** Top name to flatten on; "" = measured depth. */
   datum: string;
+  /** Depth axis: measured depth, or true vertical depth subsea (contacts are flat in TVDSS). */
+  depthMode: "md" | "tvdss";
+  /** Draw fluid contacts (OWC/GWC/…) as horizontal lines across the strips. */
+  showContacts: boolean;
 }
 
 export const DEFAULT_CORRELATION_OPTIONS: CorrelationOptions = {
@@ -22,15 +49,58 @@ export const DEFAULT_CORRELATION_OPTIONS: CorrelationOptions = {
   min: 0,
   max: 150,
   datum: "",
+  depthMode: "md",
+  showContacts: true,
 };
+
+/** Finite (MD, TVDSS) pairs for one well, ascending in MD (hence in TVDSS). */
+interface TvdssMap {
+  md: Float64Array;
+  ss: Float64Array;
+}
 
 interface WellStrip {
   well: WellSummary;
   series: TrackCurveSeries | null;
   tops: TopEntry[];
-  /** Display depth = MD - shift (flattening); 0 when the well lacks the datum top. */
+  /** MD→TVDSS lookup built from the well's TVDSS curve; null → treat MD as TVDSS (vertical well). */
+  tv: TvdssMap | null;
+  /** Display depth = displayOf(MD) - shift (flattening); 0 when the well lacks the datum top. */
   shift: number;
   hasDatum: boolean;
+}
+
+/** Linear interpolation on an ascending x-grid, clamped flat beyond the ends. */
+function interpAsc(xs: Float64Array, ys: Float64Array, x: number): number {
+  const n = xs.length;
+  if (n === 0) return x;
+  if (x <= xs[0]) return ys[0];
+  if (x >= xs[n - 1]) return ys[n - 1];
+  let lo = 0;
+  let hi = n - 1;
+  while (hi - lo > 1) {
+    const m = (lo + hi) >> 1;
+    if (xs[m] <= x) lo = m;
+    else hi = m;
+  }
+  const t = (x - xs[lo]) / (xs[hi] - xs[lo]);
+  return ys[lo] + t * (ys[hi] - ys[lo]);
+}
+
+/** Builds the finite (MD, TVDSS) lookup for a well from its TVDSS curve, or null if unusable. */
+function buildTvdssMap(series: TrackCurveSeries | null): TvdssMap | null {
+  if (!series) return null;
+  const md: number[] = [];
+  const ss: number[] = [];
+  for (let i = 0; i < series.depth.length; i++) {
+    const d = series.depth[i];
+    const v = series.value[i];
+    if (Number.isFinite(d) && Number.isFinite(v)) {
+      md.push(d);
+      ss.push(v);
+    }
+  }
+  return md.length >= 2 ? { md: Float64Array.from(md), ss: Float64Array.from(ss) } : null;
 }
 
 const AXIS_W = 52;
@@ -75,14 +145,39 @@ export async function buildCorrelationContent(
   let viewTop = 0;
   let pxPerUnit = 1;
   let hoverY: number | null = null;
+  /** All fluid contacts in the project; each strip renders the ones that apply to it. */
+  let contacts: FluidContact[] = [];
+
+  // --- Depth-mode helpers: measured depth vs TVDSS -----------------------------------------
+  /** MD → TVDSS via the well's TVDSS curve (identity when the well has none — vertical well). */
+  const mdToTvdss = (s: WellStrip, md: number): number => (s.tv ? interpAsc(s.tv.md, s.tv.ss, md) : md);
+  /** TVDSS → MD (inverse of the above; TVDSS rises monotonically with MD). */
+  const tvdssToMd = (s: WellStrip, ss: number): number => (s.tv ? interpAsc(s.tv.ss, s.tv.md, ss) : ss);
+  /** Raw display depth (before flattening) for a measured depth, in the active depth mode. */
+  const displayOf = (s: WellStrip, md: number): number => (opts.depthMode === "tvdss" ? mdToTvdss(s, md) : md);
+  /** A contact's display depth (after flattening) inside one strip. A TVDSS contact in TVDSS
+   *  mode round-trips back to its own depth for every well → the line is perfectly flat. */
+  const contactDisplay = (s: WellStrip, c: FluidContact): number => {
+    const md = c.is_tvdss ? tvdssToMd(s, c.depth) : c.depth;
+    return displayOf(s, md) - s.shift;
+  };
+  /** Whether a contact applies to a well: explicit well, else field, else global. */
+  const contactApplies = (c: FluidContact, well: WellSummary): boolean => {
+    if (c.well_id) return c.well_id === well.well_id;
+    if (c.field_name) return c.field_name === well.field_name;
+    return true;
+  };
+  const contactColor = (c: FluidContact): string => c.color || CONTACT_COLORS[c.contact_type] || "#888";
 
   const displayExtent = (): [number, number] => {
     let lo = Infinity;
     let hi = -Infinity;
     for (const s of strips) {
       if (!s.series || s.series.depth.length === 0) continue;
-      lo = Math.min(lo, s.series.depth[0] - s.shift);
-      hi = Math.max(hi, s.series.depth[s.series.depth.length - 1] - s.shift);
+      const a = displayOf(s, s.series.depth[0]) - s.shift;
+      const b = displayOf(s, s.series.depth[s.series.depth.length - 1]) - s.shift;
+      lo = Math.min(lo, a, b);
+      hi = Math.max(hi, a, b);
     }
     return lo < hi ? [lo, hi] : [0, 100];
   };
@@ -221,7 +316,7 @@ export async function buildCorrelationContent(
         }
         const frac = Math.min(1, Math.max(0, (v - vMin) / (vMax - vMin)));
         const x = left + frac * stripW;
-        const y = yOf(s.series.depth[k] - s.shift);
+        const y = yOf(displayOf(s, s.series.depth[k]) - s.shift);
         if (pen) ctx.lineTo(x, y);
         else ctx.moveTo(x, y);
         pen = true;
@@ -234,7 +329,7 @@ export async function buildCorrelationContent(
     const topY = (s: WellStrip, name: string): number | null => {
       const top = s.tops.find((t) => t.top_name === name);
       if (!top) return null;
-      const y = yOf(top.depth - s.shift);
+      const y = yOf(displayOf(s, top.depth) - s.shift);
       return y >= HEADER_H && y <= h ? y : null;
     };
     const allTopNames = Array.from(new Set(active.flatMap((s) => s.tops.map((t) => t.top_name))));
@@ -274,6 +369,61 @@ export async function buildCorrelationContent(
       ctx.setLineDash([]);
     }
 
+    // Fluid contacts: solid horizontal markers across each applicable strip, with a small
+    // triangle at the left edge and dashed cross-well connectors. A TVDSS contact drawn in
+    // TVDSS mode round-trips to its own depth in every well, so its line is perfectly flat.
+    if (opts.showContacts && contacts.length) {
+      ctx.font = "600 10px system-ui";
+      ctx.textBaseline = "bottom";
+      for (const c of contacts) {
+        if (!active.some((s) => contactApplies(c, s.well))) continue;
+        const color = contactColor(c);
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        const ys = active.map((s) => {
+          if (!contactApplies(c, s.well)) return null;
+          const y = yOf(contactDisplay(s, c));
+          return y >= HEADER_H && y <= h ? y : null;
+        });
+        let labeled = false;
+        active.forEach((_s, i) => {
+          const y = ys[i];
+          if (y === null) return;
+          const left = stripLeft(i);
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(left, y);
+          ctx.lineTo(left + stripW, y);
+          ctx.stroke();
+          // Left-edge triangle marker distinguishes contacts from tops.
+          ctx.beginPath();
+          ctx.moveTo(left, y - 4);
+          ctx.lineTo(left, y + 4);
+          ctx.lineTo(left + 7, y);
+          ctx.closePath();
+          ctx.fill();
+          if (!labeled) {
+            ctx.textAlign = "left";
+            const lbl = c.label || `${c.contact_type} ${Math.round(c.depth)}${c.is_tvdss ? "ss" : ""}`;
+            ctx.fillText(lbl, left + 9, y - 1);
+            labeled = true;
+          }
+        });
+        ctx.setLineDash([5, 3]);
+        ctx.lineWidth = 1.2;
+        for (let i = 0; i + 1 < active.length; i++) {
+          const y1 = ys[i];
+          const y2 = ys[i + 1];
+          if (y1 === null || y2 === null) continue;
+          ctx.beginPath();
+          ctx.moveTo(stripLeft(i) + stripW, y1);
+          ctx.lineTo(stripLeft(i + 1), y2);
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+      }
+    }
+
     // Hover crosshair.
     if (hoverY !== null && hoverY > HEADER_H) {
       ctx.strokeStyle = theme.accent;
@@ -296,26 +446,34 @@ export async function buildCorrelationContent(
   async function reload(): Promise<void> {
     const gen = ++reloadGen;
     const chosen = wells.filter((w) => included.has(w.well_id));
-    const loaded = await Promise.all(
-      chosen.map(async (well): Promise<WellStrip> => {
-        let series: TrackCurveSeries | null = null;
-        let tops: TopEntry[] = [];
-        try {
-          const data = await getTrackData(well.well_id, [opts.curve], 1400);
-          series = data.find((s) => s.curve_name === opts.curve) ?? null;
-        } catch {
-          series = null;
-        }
-        try {
-          tops = await listTops(well.well_id);
-        } catch {
-          tops = [];
-        }
-        return { well, series, tops, shift: 0, hasDatum: false };
-      }),
-    );
+    // TVDSS rides along in the same batch read so a TVDSS-mode switch needs no refetch.
+    const names = Array.from(new Set([opts.curve, "TVDSS"]));
+    const [loaded, loadedContacts] = await Promise.all([
+      Promise.all(
+        chosen.map(async (well): Promise<WellStrip> => {
+          let series: TrackCurveSeries | null = null;
+          let tv: TvdssMap | null = null;
+          let tops: TopEntry[] = [];
+          try {
+            const data = await getTrackData(well.well_id, names, 1400);
+            series = data.find((s) => s.curve_name === opts.curve) ?? null;
+            tv = buildTvdssMap(data.find((s) => s.curve_name === "TVDSS") ?? null);
+          } catch {
+            series = null;
+          }
+          try {
+            tops = await listTops(well.well_id);
+          } catch {
+            tops = [];
+          }
+          return { well, series, tops, tv, shift: 0, hasDatum: false };
+        }),
+      ),
+      listFluidContacts().catch(() => [] as FluidContact[]),
+    ]);
     if (gen !== reloadGen) return; // a newer reload started while we awaited
     strips = loaded;
+    contacts = loadedContacts;
     applyDatum();
     refreshDatumChoices();
   }
@@ -344,7 +502,8 @@ export async function buildCorrelationContent(
     for (const s of strips) {
       const top = opts.datum ? s.tops.find((t) => t.top_name === opts.datum) : undefined;
       s.hasDatum = !!top;
-      s.shift = top ? top.depth : 0;
+      // Shift is in display space, so re-derive it whenever the depth mode changes too.
+      s.shift = top ? displayOf(s, top.depth) : 0;
     }
   }
 
@@ -442,11 +601,209 @@ export async function buildCorrelationContent(
     return b;
   };
 
+  const depthModeSel = document.createElement("select");
+  depthModeSel.className = "form-control";
+  depthModeSel.title = "Depth axis — measured depth, or TVDSS (fluid contacts are flat in TVDSS)";
+  for (const [val, lbl] of [
+    ["md", "MD"],
+    ["tvdss", "TVDSS"],
+  ] as const) {
+    const o = document.createElement("option");
+    o.value = val;
+    o.textContent = lbl;
+    depthModeSel.appendChild(o);
+  }
+  depthModeSel.value = opts.depthMode;
+  depthModeSel.addEventListener("change", () => {
+    opts.depthMode = depthModeSel.value === "tvdss" ? "tvdss" : "md";
+    persist();
+    applyDatum(); // shift is in display space → re-derive for the new mode
+    fit();
+  });
+
+  // --- Fluid-contacts editor ---
+  const scopeValue = (c: FluidContact): string =>
+    c.well_id ? `well:${c.well_id}` : c.field_name ? `field:${c.field_name}` : "";
+  const applyScope = (c: FluidContact, value: string): void => {
+    if (value.startsWith("well:")) {
+      c.well_id = value.slice(5);
+      c.field_name = null;
+    } else if (value.startsWith("field:")) {
+      c.field_name = value.slice(6);
+      c.well_id = null;
+    } else {
+      c.well_id = null;
+      c.field_name = null;
+    }
+  };
+
+  function openContactsEditor(): void {
+    const body = document.createElement("div");
+    body.className = "contacts-editor";
+
+    const showRow = document.createElement("label");
+    showRow.className = "contacts-show";
+    const showBox = document.createElement("input");
+    showBox.type = "checkbox";
+    showBox.checked = opts.showContacts;
+    showBox.addEventListener("change", () => {
+      opts.showContacts = showBox.checked;
+      persist();
+      draw();
+    });
+    showRow.append(showBox, document.createTextNode(" Show contacts in the view"));
+    body.appendChild(showRow);
+
+    const table = document.createElement("div");
+    table.className = "contacts-table";
+    body.appendChild(table);
+
+    const fields = Array.from(new Set(wells.map((w) => w.field_name).filter((f): f is string => !!f))).sort();
+
+    const save = async (c: FluidContact): Promise<void> => {
+      await upsertFluidContact(c).catch((e) => setStatus(`Contact save failed: ${e}`));
+      draw();
+    };
+
+    const renderRows = (): void => {
+      table.innerHTML = "";
+      if (!contacts.length) {
+        const empty = document.createElement("div");
+        empty.className = "contacts-empty";
+        empty.textContent = "No fluid contacts yet — add one below.";
+        table.appendChild(empty);
+      }
+      for (const c of contacts) {
+        const row = document.createElement("div");
+        row.className = "contacts-row";
+
+        const typeSel = document.createElement("select");
+        typeSel.className = "form-control";
+        for (const t of CONTACT_TYPES) {
+          const o = document.createElement("option");
+          o.value = t;
+          o.textContent = t;
+          typeSel.appendChild(o);
+        }
+        if (!CONTACT_TYPES.includes(c.contact_type)) {
+          const o = document.createElement("option");
+          o.value = c.contact_type;
+          o.textContent = c.contact_type;
+          typeSel.appendChild(o);
+        }
+        typeSel.value = c.contact_type;
+        typeSel.addEventListener("change", () => {
+          c.contact_type = typeSel.value;
+          void save(c);
+        });
+
+        const depthInput = document.createElement("input");
+        depthInput.type = "number";
+        depthInput.className = "form-control num-field";
+        depthInput.value = String(c.depth);
+        depthInput.addEventListener("change", () => {
+          const v = Number(depthInput.value);
+          if (Number.isFinite(v)) {
+            c.depth = v;
+            void save(c);
+          }
+        });
+
+        const ssLabel = document.createElement("label");
+        ssLabel.className = "contacts-ss";
+        const ssBox = document.createElement("input");
+        ssBox.type = "checkbox";
+        ssBox.checked = c.is_tvdss;
+        ssBox.addEventListener("change", () => {
+          c.is_tvdss = ssBox.checked;
+          void save(c);
+        });
+        ssLabel.append(ssBox, document.createTextNode(" TVDSS"));
+
+        const scopeSel = document.createElement("select");
+        scopeSel.className = "form-control";
+        const gOpt = document.createElement("option");
+        gOpt.value = "";
+        gOpt.textContent = "All wells";
+        scopeSel.appendChild(gOpt);
+        for (const f of fields) {
+          const o = document.createElement("option");
+          o.value = `field:${f}`;
+          o.textContent = `Field: ${f}`;
+          scopeSel.appendChild(o);
+        }
+        for (const w of wells) {
+          const o = document.createElement("option");
+          o.value = `well:${w.well_id}`;
+          o.textContent = `Well: ${w.well_name}`;
+          scopeSel.appendChild(o);
+        }
+        scopeSel.value = scopeValue(c);
+        scopeSel.addEventListener("change", () => {
+          applyScope(c, scopeSel.value);
+          void save(c);
+        });
+
+        const colorInput = document.createElement("input");
+        colorInput.type = "color";
+        colorInput.className = "contacts-color";
+        colorInput.value = contactColor(c);
+        colorInput.title = "Marker color";
+        colorInput.addEventListener("change", () => {
+          c.color = colorInput.value;
+          void save(c);
+        });
+
+        const del = document.createElement("button");
+        del.className = "form-control contacts-del";
+        del.textContent = "✕";
+        del.title = "Delete contact";
+        del.addEventListener("click", () => {
+          void deleteFluidContact(c.contact_id).then(() => {
+            contacts = contacts.filter((x) => x.contact_id !== c.contact_id);
+            renderRows();
+            draw();
+          });
+        });
+
+        row.append(typeSel, depthInput, ssLabel, scopeSel, colorInput, del);
+        table.appendChild(row);
+      }
+    };
+
+    const addBtn = document.createElement("button");
+    addBtn.className = "form-control contacts-add";
+    addBtn.textContent = "＋ Add contact";
+    addBtn.addEventListener("click", () => {
+      const c: FluidContact = {
+        contact_id: crypto.randomUUID(),
+        field_name: null,
+        well_id: null,
+        contact_type: "OWC",
+        depth: Math.round(viewTop + 50),
+        is_tvdss: opts.depthMode === "tvdss",
+        color: null,
+        label: null,
+      };
+      contacts.push(c);
+      void upsertFluidContact(c).then(() => {
+        renderRows();
+        draw();
+      });
+    });
+    body.appendChild(addBtn);
+
+    renderRows();
+    openModal("Fluid contacts", body, 640);
+  }
+
   props.appendChild(wellsBtn);
   props.appendChild(curveSel);
   props.appendChild(numField("min", opts.min, (v) => (opts.min = v)));
   props.appendChild(numField("max", opts.max, (v) => (opts.max = v)));
   props.appendChild(datumSel);
+  props.appendChild(depthModeSel);
+  props.appendChild(mkBtn("Contacts…", "Add / edit fluid contacts (OWC, GWC, …)", openContactsEditor));
   props.appendChild(mkBtn("Fit", "Fit all wells vertically", fit));
   props.appendChild(mkBtn("＋", "Zoom in", () => {
     zoomAtCenter(1.25);
@@ -508,7 +865,10 @@ export async function buildCorrelationContent(
     const idx = Math.floor((x - AXIS_W) / slot);
     const disp = viewTop + (y - HEADER_H) / pxPerUnit;
     if (idx >= 0 && idx < active.length && y > HEADER_H) {
-      appState.hoverDepth.set(disp + active[idx].shift);
+      const s = active[idx];
+      const unflattened = disp + s.shift; // display depth without flattening
+      // Other views expect measured depth, so undo the TVDSS mapping before broadcasting.
+      appState.hoverDepth.set(opts.depthMode === "tvdss" ? tvdssToMd(s, unflattened) : unflattened);
     } else {
       appState.hoverDepth.set(null);
     }

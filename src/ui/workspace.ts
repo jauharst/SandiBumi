@@ -331,6 +331,7 @@ export class Workspace {
       ["Cutoff Sensitivity", () => this.openCutoff(group)],
       ["Machine Learning", () => this.openMl(group)],
       ["Monte Carlo", () => this.openMonteCarlo(group)],
+      ["SHF Fit (Cuddy FOIL)", () => this.openShf(group)],
       ["SandiMin Solver", () => this.openMultimin(group)],
       "sep",
       ["Zones", () => this.openZones(group)],
@@ -469,6 +470,12 @@ export class Workspace {
           "dock-montecarlo",
           () => import("./monteCarloDialog").then((m) => m.buildMonteCarloContent(setStatus)),
           "Monte Carlo",
+        );
+      case "shf":
+        return this.asyncPane(
+          "dock-shf",
+          () => import("./shfDialog").then((m) => m.buildShfContent(setStatus)),
+          "SHF fit",
         );
       case "multimin":
         return this.asyncPane(
@@ -1272,6 +1279,10 @@ export class Workspace {
 
   openMonteCarlo(group?: DockviewGroupPanel): void {
     this.openSingleton("montecarlo", "montecarlo", "Monte Carlo", group);
+  }
+
+  openShf(group?: DockviewGroupPanel): void {
+    this.openSingleton("shf", "shf", "SHF Fit (Cuddy FOIL)", group);
   }
 
   openMultimin(group?: DockviewGroupPanel): void {

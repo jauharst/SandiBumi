@@ -2456,6 +2456,62 @@ textarea {
   white-space: nowrap;
 }
 
+/* Fluid-contacts editor (correlation panel → Contacts…). */
+.contacts-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.contacts-show,
+.contacts-ss {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.contacts-table {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.contacts-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.contacts-row .form-control {
+  height: 26px;
+}
+.contacts-row .num-field {
+  width: 78px;
+}
+.contacts-row select {
+  min-width: 64px;
+  max-width: 150px;
+}
+.contacts-color {
+  width: 30px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+}
+.contacts-del {
+  margin-left: auto;
+  min-width: 28px;
+}
+.contacts-add {
+  align-self: flex-start;
+}
+.contacts-empty {
+  font-size: 12px;
+  opacity: 0.7;
+  padding: 4px 0;
+}
+
 .plot-canvas {
   display: block;
   width: 100%;
@@ -3124,6 +3180,64 @@ textarea {
 .mc-row-sel {
   background: var(--accent-soft, #f1ddc4);
 }
+
+/* ML comparison leaderboard (Wave B item 3). */
+.ml-compare-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ml-leaderboard .ml-lb-row {
+  cursor: pointer;
+}
+.ml-leaderboard .ml-lb-row:hover {
+  background: var(--bg-hover, #f1ddc4);
+}
+.ml-leaderboard tr.mc-best td {
+  font-weight: 700;
+}
+.ml-leaderboard tr.ml-sel {
+  background: var(--accent-soft, #f1ddc4);
+}
+.ml-detail {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ml-imp-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+.ml-imp-name {
+  flex: 0 0 90px;
+  text-align: right;
+  color: var(--text-dim, #6f6857);
+}
+.ml-imp-bar-wrap {
+  flex: 1 1 auto;
+  height: 12px;
+  background: var(--bg-panel-alt, #e9dfc8);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.ml-imp-bar {
+  height: 100%;
+  background: var(--accent, #9c6b3f);
+}
+.ml-imp-val {
+  flex: 0 0 56px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.ml-confusion .ml-diag {
+  font-weight: 700;
+  background: var(--accent-soft, #f1ddc4);
+}
+
 .mc-hist-wrap {
   margin-top: 10px;
 }

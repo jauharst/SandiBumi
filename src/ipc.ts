@@ -157,6 +157,9 @@ export interface Track {
   title: string;
   width_weight: number;
   scale_type: ScaleType;
+  /** "curves" (normal log track) or "well_diagram" (casing/shoe/perforations). Optional for
+   *  backward compat with saved layouts; absent = "curves". */
+  kind?: "curves" | "well_diagram";
   curves: CurveStyle[];
 }
 
@@ -715,6 +718,87 @@ export function runMl(req: MlRequest): Promise<MlResult> {
   return invoke<MlResult>("run_ml", { req });
 }
 
+/** Model-comparison leaderboard (Wave B item 3). */
+export interface MlEvalRequest {
+  task: "regression" | "classification";
+  feature_curves: string[];
+  target_curve: string;
+  train_well_ids: string[];
+  algorithms: string[];
+  /** Feature subsets to try (each a subset of feature_curves); empty → full set only. */
+  subsets: string[][];
+  standardize: boolean;
+  seed: number;
+  folds: number;
+}
+
+export interface MlEvalRow {
+  algorithm: string;
+  features: string[];
+  /** Blind-well CV score: R² (regression) or accuracy (classification); null if it errored. */
+  score: number | null;
+  score_std: number | null;
+  metrics: Record<string, unknown>;
+  importances: number[];
+  confusion: number[][] | null;
+  labels: number[] | null;
+  error: string | null;
+}
+
+export interface MlEvalResult {
+  rows: MlEvalRow[];
+  n_train: number;
+  n_groups: number;
+  cv: string;
+  n_splits: number;
+  note: string | null;
+  error: string | null;
+}
+
+/** Ranks algorithm × feature-subset combos by blind-well (GroupKFold) CV, with permutation
+ *  importance + confusion matrix. Evaluation only — writes no curves. */
+export function runMlEval(req: MlEvalRequest): Promise<MlEvalResult> {
+  return invoke<MlEvalResult>("run_ml_eval", { req });
+}
+
+/** Cuddy FOIL / BVW saturation-height fit (Wave B item 8, SHF side). */
+export interface CuddyFoilRequest {
+  well_ids: string[];
+  phie_curve: string;
+  sw_curve: string;
+  tvdss_curve: string;
+  fwl: number;
+  min_phi: number;
+  scan: boolean;
+  scan_lo: number;
+  scan_hi: number;
+  scan_step: number;
+}
+
+export interface FoilPoint {
+  h: number;
+  bvw: number;
+  well_id: string;
+}
+
+export interface CuddyFoilResult {
+  a: number;
+  b: number;
+  r2: number;
+  n_points: number;
+  fwl_used: number;
+  fwl_best: number | null;
+  points: FoilPoint[];
+  scan: { fwl: number; residual: number }[];
+  error: string | null;
+}
+
+/** Fits BVW = a·H^b (Cuddy FOIL) from computed PHIE/SW/TVDSS across wells; optionally scans the
+ *  common FWL (Cuddy Eq 19). Evaluation only — writes no curves. */
+export function runCuddyFoil(req: CuddyFoilRequest): Promise<CuddyFoilResult> {
+  return invoke<CuddyFoilResult>("run_cuddy_foil", { req });
+}
+
 // --- Generalized Multimin (multi-mineral inversion) -----------------------
 
 /** A mineral, clay, or fluid component (fluids are zone-typed X/U). */
@@ -893,6 +977,41 @@ export function upsertHighlight(
 
 export function deleteHighlight(wellId: string, highlightId: string): Promise<void> {
   return invoke("delete_highlight", { wellId, highlightId });
+}
+
+/** A fluid contact (OWC/GWC/GOC/GDT/ODT/FWL). Scope: well_id set → that well; field_name set
+ *  (well_id null) → every well in that field; both null → a global datum on every well. */
+export interface FluidContact {
+  contact_id: string;
+  field_name: string | null;
+  well_id: string | null;
+  contact_type: string;
+  depth: number;
+  /** true → depth is TVDSS (draws flat across wells); false → measured depth. */
+  is_tvdss: boolean;
+  color: string | null;
+  label: string | null;
+}
+
+export function listFluidContacts(): Promise<FluidContact[]> {
+  return invoke<FluidContact[]>("list_fluid_contacts", {});
+}
+
+export function upsertFluidContact(c: FluidContact): Promise<void> {
+  return invoke("upsert_fluid_contact", {
+    contactId: c.contact_id,
+    fieldName: c.field_name,
+    wellId: c.well_id,
+    contactType: c.contact_type,
+    depth: c.depth,
+    isTvdss: c.is_tvdss,
+    color: c.color,
+    label: c.label,
+  });
+}
+
+export function deleteFluidContact(contactId: string): Promise<void> {
+  return invoke("delete_fluid_contact", { contactId });
 }
 
 export interface ZoneParamEntry {

@@ -497,6 +497,11 @@ export class Ribbon {
         "Facies",
         "M5 6a1.5 1.5 0 1 0 0-.01M11 5a1.5 1.5 0 1 0 0-.01M14.5 9a1.5 1.5 0 1 0 0-.01M6 11a1.5 1.5 0 1 0 0-.01M11.5 13.5a1.5 1.5 0 1 0 0-.01",
       ],
+      "Rock Typing": [
+        "Rock Typing",
+        "Rock Typing",
+        "M4 14l3-5 3 3 3-6 3 8M3 16h14",
+      ],
     };
     const order = Object.keys(CATEGORIES);
 

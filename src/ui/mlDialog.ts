@@ -2,6 +2,9 @@ import {
   listCurveCatalog,
   listWells,
   runMl,
+  runMlEval,
+  type MlEvalResult,
+  type MlEvalRow,
   type MlRequest,
   type MlResult,
   type WellSummary,
@@ -319,6 +322,7 @@ export async function buildMlContent(
     algoDesc.textContent = algo.desc;
     targetRow.style.display = task.supervised ? "" : "none";
     trainRow.style.display = task.supervised ? "" : "none";
+    compareRow.style.display = task.supervised ? "" : "none";
     if (!outEdited) outInput.value = algo.out ?? task.defaultOut;
     renderParams();
   }
@@ -344,9 +348,92 @@ export async function buildMlContent(
   runRow.append(runBtn, statusLine);
   content.appendChild(runRow);
 
+  // --- Compare (leaderboard) — supervised only ------------------------------
+  const subsetSel = document.createElement("select");
+  for (const [val, lbl] of [
+    ["full", "Full set only"],
+    ["loco", "Leave-one-curve-out"],
+    ["singles", "Full + each single curve"],
+  ] as const) {
+    const o = document.createElement("option");
+    o.value = val;
+    o.textContent = lbl;
+    subsetSel.appendChild(o);
+  }
+  const compareBtn = document.createElement("button");
+  compareBtn.type = "button";
+  compareBtn.textContent = "Compare algorithms";
+  compareBtn.title = "Rank every algorithm (× curve subsets) by blind-well cross-validation — writes no curves";
+  const compareStatus = document.createElement("div");
+  compareStatus.className = "mc-status";
+  const compareRow = formRow("Compare", (() => {
+    const wrap = document.createElement("div");
+    wrap.className = "ml-compare-row";
+    wrap.append(subsetSel, compareBtn, compareStatus);
+    return wrap;
+  })(), "Leaderboard: blind-well GroupKFold CV (whole wells held out) + permutation importance + confusion matrix. Needs ≥2 train wells.");
+  content.appendChild(compareRow);
+
   const results = document.createElement("div");
   results.className = "mc-results";
   content.appendChild(results);
+
+  const buildSubsets = (features: string[], strategy: string): string[][] => {
+    const full = features.slice();
+    if (strategy === "loco" && features.length > 1) {
+      return [full, ...features.map((_, i) => features.filter((_, j) => j !== i))];
+    }
+    if (strategy === "singles" && features.length > 1) {
+      return [full, ...features.map((f) => [f])];
+    }
+    return [full];
+  };
+
+  compareBtn.addEventListener("click", async () => {
+    if (!task.supervised) return;
+    const features = [...featChecks.entries()].filter(([, cb]) => cb.checked).map(([n]) => n);
+    const trainIds = [...train.checks.entries()].filter(([, cb]) => cb.checked).map(([id]) => id);
+    if (features.length === 0) {
+      setStatus("Check at least one input curve");
+      return;
+    }
+    if (trainIds.length < 2) {
+      setStatus("Blind-well comparison needs at least 2 training wells");
+      return;
+    }
+    compareBtn.disabled = true;
+    runBtn.disabled = true;
+    compareStatus.textContent = "Comparing… (blind-well CV over all combos)";
+    const t0 = performance.now();
+    try {
+      const res = await runMlEval({
+        task: task.id as "regression" | "classification",
+        feature_curves: features,
+        target_curve: targetSel.value,
+        train_well_ids: trainIds,
+        algorithms: task.algos.map((a) => a.id),
+        subsets: buildSubsets(features, subsetSel.value),
+        standardize: stdCb.checked,
+        seed: Math.round(parseFloat(seedInput.value) || 42),
+        folds: 5,
+      });
+      const ms = Math.round(performance.now() - t0);
+      if (res.error) {
+        compareStatus.textContent = `Failed: ${res.error}`;
+      } else {
+        compareStatus.textContent =
+          `${res.rows.length} combos • ${res.cv} (${res.n_splits} folds, ${res.n_groups} wells) • ${ms} ms` +
+          (res.note ? ` • ${res.note}` : "");
+        recordProcess("ML", `Leaderboard: compared ${task.algos.length} algorithms on ${features.length} curves`);
+      }
+      renderLeaderboard(results, res, task.id === "classification");
+    } catch (e) {
+      compareStatus.textContent = `Failed: ${e}`;
+    } finally {
+      compareBtn.disabled = false;
+      runBtn.disabled = false;
+    }
+  });
 
   const hint = document.createElement("div");
   hint.className = "mc-chain-note";
@@ -456,4 +543,122 @@ function renderResults(host: HTMLElement, res: MlResult): void {
     wellsTable.appendChild(tr);
   }
   host.appendChild(wellsTable);
+}
+
+/** Leaderboard table (best first) + a details panel (permutation importance + confusion matrix)
+ *  for the selected row. Backend already sorts rows by blind-well score descending. */
+function renderLeaderboard(host: HTMLElement, res: MlEvalResult, isClf: boolean): void {
+  host.innerHTML = "";
+  if (res.error || !res.rows.length) return;
+  const scoreLabel = isClf ? "Accuracy" : "R²";
+  const secLabel = isClf ? "macro-F1" : "RMSE";
+
+  const table = document.createElement("table");
+  table.className = "mc-table ml-leaderboard";
+  const head = document.createElement("tr");
+  for (const h of ["#", "Algorithm", "Curves", scoreLabel, "±", secLabel]) {
+    const th = document.createElement("th");
+    th.textContent = h;
+    head.appendChild(th);
+  }
+  table.appendChild(head);
+
+  const detail = document.createElement("div");
+  detail.className = "ml-detail";
+
+  const firstOkRow = res.rows.find((r) => !r.error) ?? null;
+  res.rows.forEach((row, i) => {
+    const tr = document.createElement("tr");
+    const sec = isClf ? row.metrics?.["macro_f1"] : row.metrics?.["rmse"];
+    const cells = row.error
+      ? [String(i + 1), row.algorithm, row.features.join(", "), "error", "—", row.error]
+      : [
+          String(i + 1),
+          row.algorithm,
+          row.features.join(", "),
+          row.score != null ? row.score.toFixed(4) : "—",
+          row.score_std != null ? `±${row.score_std.toFixed(3)}` : "",
+          typeof sec === "number" ? sec.toFixed(4) : "—",
+        ];
+    for (const c of cells) {
+      const td = document.createElement("td");
+      td.textContent = c;
+      tr.appendChild(td);
+    }
+    if (!row.error && i === 0) tr.classList.add("mc-best");
+    if (!row.error) {
+      tr.classList.add("ml-lb-row");
+      if (row === firstOkRow) tr.classList.add("ml-sel");
+      tr.addEventListener("click", () => {
+        for (const r of table.querySelectorAll(".ml-sel")) r.classList.remove("ml-sel");
+        tr.classList.add("ml-sel");
+        renderEvalDetail(detail, row, isClf);
+      });
+    }
+    table.appendChild(tr);
+  });
+
+  host.appendChild(table);
+  host.appendChild(detail);
+  if (firstOkRow) renderEvalDetail(detail, firstOkRow, isClf);
+}
+
+function renderEvalDetail(host: HTMLElement, row: MlEvalRow, isClf: boolean): void {
+  host.innerHTML = "";
+  if (row.importances?.length) {
+    const title = document.createElement("div");
+    title.className = "mc-chain-note";
+    title.textContent = `Permutation importance — ${row.algorithm} (${row.features.join(", ")})`;
+    host.appendChild(title);
+    const maxAbs = Math.max(1e-9, ...row.importances.map((v) => Math.abs(v)));
+    row.features.forEach((f, i) => {
+      const v = row.importances[i] ?? 0;
+      const line = document.createElement("div");
+      line.className = "ml-imp-row";
+      const name = document.createElement("span");
+      name.className = "ml-imp-name";
+      name.textContent = f;
+      const barWrap = document.createElement("div");
+      barWrap.className = "ml-imp-bar-wrap";
+      const bar = document.createElement("div");
+      bar.className = "ml-imp-bar";
+      bar.style.width = `${(Math.max(0, v) / maxAbs) * 100}%`;
+      const val = document.createElement("span");
+      val.className = "ml-imp-val";
+      val.textContent = Number.isFinite(v) ? v.toFixed(4) : "—";
+      barWrap.appendChild(bar);
+      line.append(name, barWrap, val);
+      host.appendChild(line);
+    });
+  }
+  if (isClf && row.confusion && row.labels) {
+    const cap = document.createElement("div");
+    cap.className = "mc-chain-note";
+    cap.textContent = "Confusion matrix (row = actual, col = predicted)";
+    host.appendChild(cap);
+    const t = document.createElement("table");
+    t.className = "mc-table ml-confusion";
+    const head = document.createElement("tr");
+    head.appendChild(document.createElement("th"));
+    for (const l of row.labels) {
+      const th = document.createElement("th");
+      th.textContent = String(l);
+      head.appendChild(th);
+    }
+    t.appendChild(head);
+    row.confusion.forEach((rowArr, r) => {
+      const tr = document.createElement("tr");
+      const rh = document.createElement("th");
+      rh.textContent = String(row.labels?.[r] ?? r);
+      tr.appendChild(rh);
+      rowArr.forEach((n, c) => {
+        const td = document.createElement("td");
+        td.textContent = String(n);
+        if (r === c) td.className = "ml-diag";
+        tr.appendChild(td);
+      });
+      t.appendChild(tr);
+    });
+    host.appendChild(t);
+  }
 }

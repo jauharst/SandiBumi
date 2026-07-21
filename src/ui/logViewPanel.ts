@@ -1,5 +1,14 @@
 import { LogCanvasRenderer } from "../LogCanvasRenderer";
-import { getCoreData, getTrackData, listCurveCatalog, type Layout, type TrackCurveSeries, type WellSummary } from "../ipc";
+import {
+  getCoreData,
+  getTrackData,
+  listAuxData,
+  listCurveCatalog,
+  type AuxRow,
+  type Layout,
+  type TrackCurveSeries,
+  type WellSummary,
+} from "../ipc";
 import { appState, setStatus } from "../state";
 import { pushUndo } from "../undo";
 import type { ContextMenuEntry } from "./contextMenu";
@@ -33,6 +42,9 @@ export class LogViewPanel {
   private lastHoverDepth: number | null = null;
   /** Core plug series (CPOR/CPERM/CGD/CSW) for the loaded well; empty = no overlay. */
   private coreByName = new Map<string, TrackCurveSeries>();
+  /** Completion (casing/tubing/liner) + perforation rows for the loaded well, drawn in any
+   *  track whose kind is "well_diagram". Both come from aux_data (COMPLETION / PERFORATION). */
+  private wellDiagram: { casing: AuxRow[]; perfs: AuxRow[] } = { casing: [], perfs: [] };
   /** Tops overlay + Petrel-style interactive editor (🏷 in the toolbar toggles editing). */
   private topsEditor!: TopsEditor;
   /** Colored highlight bands + interactive editor (🖍 in the toolbar toggles editing). */
@@ -541,6 +553,17 @@ export class LogViewPanel {
       if (gen !== this.loadGen) return;
       this.coreByName = new Map(); // no backend or no core data — overlay simply stays empty
     }
+    try {
+      const [casing, perfs] = await Promise.all([
+        listAuxData(well.well_id, "COMPLETION").catch(() => [] as AuxRow[]),
+        listAuxData(well.well_id, "PERFORATION").catch(() => [] as AuxRow[]),
+      ]);
+      if (gen !== this.loadGen) return;
+      this.wellDiagram = { casing, perfs };
+    } catch {
+      if (gen !== this.loadGen) return;
+      this.wellDiagram = { casing: [], perfs: [] };
+    }
     this.drawCoreOverlay();
     if (gen !== this.loadGen || !this.renderer) return;
     await this.topsEditor.setWell(well.well_id);
@@ -566,6 +589,7 @@ export class LogViewPanel {
     ctx.clearRect(0, 0, w, h);
     if (!this.renderer || !this.layout) return;
     this.drawTrackBorders(ctx, w, h);
+    this.drawWellDiagram(ctx, w, h);
     if (this.coreByName.size === 0) return;
 
     const [top, bottom] = this.renderer.getVisibleDepthRange();
@@ -616,6 +640,92 @@ export class LogViewPanel {
           ctx.stroke();
         }
         break; // one core series per track — the first curve with a counterpart wins
+      }
+    }
+  }
+
+  /** Well-diagram tracks (Track.kind === "well_diagram"): schematic casing/tubing/liner strings
+   *  with shoe symbols and perforation ticks, from the well's COMPLETION + PERFORATION aux
+   *  datasets (value_num = OD in inches; depth_top..depth_base = the run). */
+  private drawWellDiagram(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    if (!this.renderer || !this.layout) return;
+    const diagramTracks = new Set(
+      this.layout.tracks.filter((t) => (t.kind ?? "curves") === "well_diagram").map((t) => t.title),
+    );
+    if (diagramTracks.size === 0) return;
+    const { casing, perfs } = this.wellDiagram;
+
+    const [top, bottom] = this.renderer.getVisibleDepthRange();
+    if (bottom <= top) return;
+    const yOf = (d: number) => ((d - top) / (bottom - top)) * h;
+    const clampY = (y: number) => Math.max(0, Math.min(h, y));
+    const text = getComputedStyle(this.root).getPropertyValue("--text").trim() || "#332a1f";
+    const maxOd = Math.max(1, ...casing.map((c) => c.value_num ?? 0));
+
+    for (const range of this.renderer.getTrackRanges()) {
+      if (!diagramTracks.has(range.title)) continue;
+      const left = range.leftFrac * w;
+      const span = (range.rightFrac - range.leftFrac) * w;
+      const cx = left + span / 2;
+      const maxHalf = span * 0.36;
+
+      // Casing / tubing / liner strings: two vertical lines with a shoe at the base.
+      for (const c of casing) {
+        const od = c.value_num ?? maxOd;
+        const half = Math.max(3, (od / maxOd) * maxHalf);
+        const yTop = clampY(yOf(c.depth_top));
+        const yBot = clampY(yOf(c.depth_base ?? bottom));
+        if (yBot <= 0 || yTop >= h) continue;
+        ctx.strokeStyle = "#5a5a5a";
+        ctx.lineWidth = 1.5;
+        for (const sx of [cx - half, cx + half]) {
+          ctx.beginPath();
+          ctx.moveTo(sx, yTop);
+          ctx.lineTo(sx, yBot);
+          ctx.stroke();
+        }
+        // Shoe: small filled triangles at the casing base, pointing inward.
+        if (c.depth_base != null && yBot > 0 && yBot < h) {
+          ctx.fillStyle = "#333333";
+          for (const dir of [-1, 1]) {
+            const sx = cx + dir * half;
+            ctx.beginPath();
+            ctx.moveTo(sx, yBot);
+            ctx.lineTo(sx - dir * 5, yBot);
+            ctx.lineTo(sx, yBot - 6);
+            ctx.closePath();
+            ctx.fill();
+          }
+        }
+        // OD label at the top of the string.
+        const label = c.value_text || (c.value_num != null ? `${c.value_num}"` : c.item);
+        if (label && yTop > 8 && yTop < h) {
+          ctx.fillStyle = text;
+          ctx.font = "9px system-ui";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "bottom";
+          ctx.fillText(label, cx, yTop - 1, Math.max(20, span - 4));
+        }
+      }
+
+      // Perforations: red ticks radiating from the well centre over the perf interval.
+      ctx.strokeStyle = "#c0392b";
+      ctx.lineWidth = 1.5;
+      const tickHalf = Math.min(maxHalf, span * 0.28);
+      for (const p of perfs) {
+        const y0 = yOf(p.depth_top);
+        const y1 = yOf(p.depth_base ?? p.depth_top);
+        const lo = clampY(Math.min(y0, y1));
+        const hi = clampY(Math.max(y0, y1));
+        for (let y = lo; y <= Math.max(lo, hi); y += 5) {
+          if (y < 0 || y > h) continue;
+          ctx.beginPath();
+          ctx.moveTo(cx - tickHalf, y);
+          ctx.lineTo(cx - tickHalf * 0.4, y);
+          ctx.moveTo(cx + tickHalf * 0.4, y);
+          ctx.lineTo(cx + tickHalf, y);
+          ctx.stroke();
+        }
       }
     }
   }

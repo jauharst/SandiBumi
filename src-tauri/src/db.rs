@@ -219,6 +219,23 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             PRIMARY KEY (well_id, highlight_id)
         );
 
+        -- Fluid contacts (OWC/GWC/GOC/GDT/ODT/FWL) for the correlation view. A contact is
+        -- a single depth, not an interval, and is flat in TVDSS across a field (is_tvdss=true).
+        -- Scope: well_id set -> that well only; field_name set (well_id NULL) -> every well in
+        -- that field; both NULL -> a global datum applied to every well. Keyed by a
+        -- client-generated id so several contacts (and duplicates) may coexist freely.
+        CREATE TABLE IF NOT EXISTS fluid_contacts (
+            contact_id   VARCHAR NOT NULL,
+            field_name   VARCHAR,           -- field scope (NULL when well-scoped or global)
+            well_id      VARCHAR,           -- well scope (NULL when field-scoped or global)
+            contact_type VARCHAR NOT NULL,  -- OWC | GWC | GOC | GDT | ODT | FWL | custom
+            depth        DOUBLE NOT NULL,
+            is_tvdss     BOOLEAN NOT NULL,  -- true = depth is TVDSS (flat across wells), false = MD
+            color        VARCHAR,
+            label        VARCHAR,
+            PRIMARY KEY (contact_id)
+        );
+
         -- Core plug measurements (routine core analysis), sparse/irregular depths that do
         -- NOT align with the standard_curves depth grid — kept in its own table rather
         -- than computed_curves so overlay panels can fetch it at its own resolution.
@@ -845,6 +862,73 @@ pub fn delete_highlight(conn: &Connection, well_id: &str, highlight_id: &str) ->
         "DELETE FROM highlights WHERE well_id = ?1 AND highlight_id = ?2",
         params![well_id, highlight_id],
     )?;
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FluidContact {
+    pub contact_id: String,
+    pub field_name: Option<String>,
+    pub well_id: Option<String>,
+    pub contact_type: String,
+    pub depth: f64,
+    pub is_tvdss: bool,
+    pub color: Option<String>,
+    pub label: Option<String>,
+}
+
+/// Every fluid contact in the project. There are few of these (one per reservoir/field),
+/// so the correlation view fetches them all and decides per well which apply.
+pub fn list_fluid_contacts(conn: &Connection) -> DbResult<Vec<FluidContact>> {
+    let mut stmt = conn.prepare(
+        "SELECT contact_id, field_name, well_id, contact_type, depth, is_tvdss, color, label
+         FROM fluid_contacts ORDER BY depth",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(FluidContact {
+            contact_id: row.get(0)?,
+            field_name: row.get(1)?,
+            well_id: row.get(2)?,
+            contact_type: row.get(3)?,
+            depth: row.get(4)?,
+            is_tvdss: row.get(5)?,
+            color: row.get(6)?,
+            label: row.get(7)?,
+        })
+    })?;
+    let mut contacts = Vec::new();
+    for r in rows {
+        contacts.push(r?);
+    }
+    Ok(contacts)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn upsert_fluid_contact(
+    conn: &Connection,
+    contact_id: &str,
+    field_name: Option<&str>,
+    well_id: Option<&str>,
+    contact_type: &str,
+    depth: f64,
+    is_tvdss: bool,
+    color: Option<&str>,
+    label: Option<&str>,
+) -> DbResult<()> {
+    conn.execute(
+        "INSERT INTO fluid_contacts (contact_id, field_name, well_id, contact_type, depth, is_tvdss, color, label)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+         ON CONFLICT (contact_id) DO UPDATE SET
+             field_name = excluded.field_name, well_id = excluded.well_id,
+             contact_type = excluded.contact_type, depth = excluded.depth,
+             is_tvdss = excluded.is_tvdss, color = excluded.color, label = excluded.label",
+        params![contact_id, field_name, well_id, contact_type, depth, is_tvdss, color, label],
+    )?;
+    Ok(())
+}
+
+pub fn delete_fluid_contact(conn: &Connection, contact_id: &str) -> DbResult<()> {
+    conn.execute("DELETE FROM fluid_contacts WHERE contact_id = ?1", params![contact_id])?;
     Ok(())
 }
 

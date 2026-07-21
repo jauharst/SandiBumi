@@ -27,7 +27,9 @@ mod parsers;
 mod pipeline_blso_test;
 mod project;
 mod report;
+mod rocktyping;
 mod satheight;
+mod shf_fit;
 mod ssc;
 mod python_engine;
 mod tops;
@@ -801,6 +803,34 @@ async fn run_ml(
     .await
 }
 
+/// Model-comparison leaderboard (Wave B item 3): blind-well GroupKFold CV over algorithm ×
+/// feature-subset combos, with permutation importance + confusion matrix. Evaluation only — it
+/// writes no curves. Off-thread so the fit/predict sweep doesn't freeze the IPC thread.
+#[tauri::command]
+async fn run_ml_eval(
+    db: tauri::State<'_, DbState>,
+    req: ml::MlEvalRequest,
+) -> Result<ml::MlEvalResult, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || ml::run_ml_eval(&conn, &req))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Cuddy FOIL / fractal BVW saturation-height fit (Wave B item 8, SHF side): pools computed
+/// PHIE/SW/TVDSS across wells, fits BVW = a·H^b above the FWL, and optionally scans for the common
+/// free-water level (Cuddy 1993 Eq 19). Off-thread; writes no curves.
+#[tauri::command]
+async fn run_cuddy_foil(
+    db: tauri::State<'_, DbState>,
+    req: shf_fit::CuddyFoilRequest,
+) -> Result<shf_fit::CuddyFoilResult, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || shf_fit::run_cuddy_foil(&conn, &req))
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Generalized multi-mineral inversion: N user-defined components against N tools, with hard
 /// unity + non-negativity. Writes VOL_<component> + derived PHIT/VSH/SWT/RECON curves. Async +
 /// off-thread via the job registry — the solve no longer freezes the IPC thread, and the
@@ -905,6 +935,49 @@ fn upsert_highlight(
 fn delete_highlight(db: tauri::State<DbState>, well_id: String, highlight_id: String) -> Result<(), String> {
     let conn = db.0.lock().unwrap();
     db::delete_highlight(&conn, &well_id, &highlight_id).map_err(|e| e.to_string())
+}
+
+/// Lists every fluid contact in the project (the correlation view filters per well).
+#[tauri::command]
+fn list_fluid_contacts(db: tauri::State<DbState>) -> Result<Vec<db::FluidContact>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_fluid_contacts(&conn).map_err(|e| e.to_string())
+}
+
+/// Creates or updates a fluid contact (keyed by client-generated id).
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+fn upsert_fluid_contact(
+    db: tauri::State<DbState>,
+    contact_id: String,
+    field_name: Option<String>,
+    well_id: Option<String>,
+    contact_type: String,
+    depth: f64,
+    is_tvdss: bool,
+    color: Option<String>,
+    label: Option<String>,
+) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    db::upsert_fluid_contact(
+        &conn,
+        &contact_id,
+        field_name.as_deref(),
+        well_id.as_deref(),
+        &contact_type,
+        depth,
+        is_tvdss,
+        color.as_deref(),
+        label.as_deref(),
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// Deletes a fluid contact.
+#[tauri::command]
+fn delete_fluid_contact(db: tauri::State<DbState>, contact_id: String) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    db::delete_fluid_contact(&conn, &contact_id).map_err(|e| e.to_string())
 }
 
 /// Rebuilds a well's zones from its formation tops (each top starts a zone).
@@ -1315,6 +1388,9 @@ pub fn run() {
             list_highlights,
             upsert_highlight,
             delete_highlight,
+            list_fluid_contacts,
+            upsert_fluid_contact,
+            delete_fluid_contact,
             zones_from_tops,
             list_zone_params,
             set_zone_param,
@@ -1334,6 +1410,8 @@ pub fn run() {
             export_las,
             python_status,
             run_ml,
+            run_ml_eval,
+            run_cuddy_foil,
             run_multimin,
             multimin_library,
             multimin_fluid_calc,
