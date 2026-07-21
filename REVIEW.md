@@ -45,9 +45,15 @@ through in the real app with field data. Nothing committed.**
       **FWL scan** (Cuddy 1993 Eq 19) that finds the common contact. *(3 unit tests: recovers a known
       power law, rejects degenerate input, scan lands on the true 2000 m contact.)*
       **NOTE (per the reference doc):** the PGS exponent (3.5) and GHE bins are literature/recall values —
-      flagged in the module doc for verification before field release. **Deferred to increment 2:** Lucia
-      RFN, Thomeer/Brooks-Corey/Skelt-Harrison Pc fits, SCAL porous-plate/centrifuge importers, the
-      Mahakam phi-k-law perm-binning preset, and the electrofacies confusion-matrix tie-in.
+      flagged in the module doc for verification before field release.
+- [ ] **(8) increment 2 — first chunk (2026-07-22):** **Lucia Rock-Fabric Number** module
+      (Petrophysics ▸ Rock Typing, carbonate) — inverts the Jennings-Lucia transform analytically for
+      RFN + a 1–3 class; completes the FZI / Winland / PGS / Lucia rock-typing quartet. *(1 new test:
+      Lucia round-trips RFN 1.0/3.0.)* **Try:** run it on a well with carbonate stringers. *(A Mahakam
+      phi-k perm preset was built and tested but PULLED from the repo — those are proprietary Pertamina
+      Hulu Mahakam production constants; kept out per the client-data rule.)* **Still open (increment 2
+      remainder, task #158):** Thomeer / Brooks-Corey / Skelt-Harrison Pc fits, SCAL porous-plate +
+      centrifuge importers, electrofacies confusion-matrix tie-in, Pittman full rX table, Ward HFU option.
 
 ## Round 2 — panes, shift-select, MC plot props + table + polish (2026-07-21, Jauhar feedback batch #2)
 

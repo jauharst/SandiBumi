@@ -143,6 +143,85 @@ pub fn rocktyping(ctx: &ModuleContext) -> ModuleOutputs {
     ])
 }
 
+// --------------------------------------------------------------------------------------------
+// Lucia Rock-Fabric Number (Wave B item 8, increment 2) — carbonate rock typing (Lucia 1995;
+// Jennings & Lucia 2003, SPE 78740). Global transform log10 k = (A − B·log10 RFN) +
+// (C − D·log10 RFN)·log10 φip. It is LINEAR in r = log10 RFN, so RFN inverts analytically:
+//   r = (A + C·log10 φip − log10 k) / (B + D·log10 φip).
+// Classes: RFN 0.5–1.5 = Class 1 (grainstone), 1.5–2.5 = Class 2, 2.5–4 = Class 3 (mud-dominated).
+// Mahakam is clastic-dominated, so this is secondary (carbonate stringers). CONSTANTS from the
+// paper via ref_rocktyping_shf.md — VERIFY before field release.
+// --------------------------------------------------------------------------------------------
+
+const LUCIA_A: f64 = 9.7982;
+const LUCIA_B: f64 = 12.0838;
+const LUCIA_C: f64 = 8.6711;
+const LUCIA_D: f64 = 8.2965;
+
+/// Rock-fabric number from interparticle porosity (frac) and permeability (mD); NaN if the
+/// transform is ill-conditioned (denominator ~0) or inputs are out of range.
+fn lucia_rfn(phi_ip: f64, k: f64) -> f64 {
+    if !(phi_ip.is_finite() && k.is_finite()) || phi_ip <= 0.0 || phi_ip >= 1.0 || k <= 0.0 {
+        return f64::NAN;
+    }
+    let lphi = phi_ip.log10();
+    let denom = LUCIA_B + LUCIA_D * lphi;
+    if denom.abs() < 1e-6 {
+        return f64::NAN;
+    }
+    let r = (LUCIA_A + LUCIA_C * lphi - k.log10()) / denom;
+    10f64.powf(r)
+}
+
+fn lucia_class(rfn: f64) -> f64 {
+    if !rfn.is_finite() {
+        f64::NAN
+    } else if rfn < 1.5 {
+        1.0
+    } else if rfn < 2.5 {
+        2.0
+    } else if rfn <= 4.0 {
+        3.0
+    } else {
+        f64::NAN // outside the calibrated 0.5–4 band
+    }
+}
+
+pub fn lucia_rfn_spec() -> ModuleSpec {
+    ModuleSpec {
+        name: "lucia_rfn".into(),
+        title: "Lucia Rock-Fabric Number (carbonate)".into(),
+        category: "Rock Typing".into(),
+        doc: "Carbonate rock typing by Lucia rock-fabric number (Jennings & Lucia 2003). Inverts \
+              the global transform log10 k = (A − B·log10 RFN) + (C − D·log10 RFN)·log10 φip \
+              analytically for RFN, then bins: RFN 0.5–1.5 = Class 1 (grainstone), 1.5–2.5 = \
+              Class 2, 2.5–4 = Class 3 (mud-dominated). PHI should be INTERPARTICLE porosity \
+              (subtract vuggy/separate-vug porosity if available); k in mD. Writes RFN and \
+              RT_LUCIA (1–3; MISSING outside the 0.5–4 band). Clastic-dominated fields use this \
+              only for carbonate stringers. Constants transcribed from the paper — verify first."
+            .into(),
+        args: vec![
+            log_in("PHI", "Interparticle porosity", "v/v", "PHIE", true),
+            log_in("PERM", "Permeability", "mD", "PERM", true),
+            log_out("RFN", "Lucia rock-fabric number", "-"),
+            log_out("RT_LUCIA", "Lucia class (1–3)", "-"),
+        ],
+    }
+}
+
+pub fn lucia_rfn_module(ctx: &ModuleContext) -> ModuleOutputs {
+    let phi = ctx.log("PHI");
+    let perm = ctx.log("PERM");
+    let mut rfn = vec![f32::NAN; ctx.n];
+    let mut rt = vec![f32::NAN; ctx.n];
+    for i in 0..ctx.n {
+        let v = lucia_rfn(phi[i] as f64, perm[i] as f64);
+        rfn[i] = v as f32;
+        rt[i] = lucia_class(v) as f32;
+    }
+    HashMap::from([("RFN".into(), rfn), ("RT_LUCIA".into(), rt)])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -205,5 +284,28 @@ mod tests {
             assert!(!out["FZI"][i].is_finite(), "sample {i} should be MISSING");
             assert!(!out["RT"][i].is_finite());
         }
+    }
+
+    fn rel(a: f64, b: f64) -> f64 {
+        (a - b).abs() / b.abs().max(1e-12)
+    }
+
+    #[test]
+    fn lucia_rfn_round_trips_and_classes() {
+        // Forward-compute k from a known RFN via the same transform, then invert: RFN must return.
+        let fwd = |rfn: f64, phi: f64| {
+            let r = rfn.log10();
+            let lk = (LUCIA_A - LUCIA_B * r) + (LUCIA_C - LUCIA_D * r) * phi.log10();
+            10f64.powf(lk)
+        };
+        let k1 = fwd(1.0, 0.20);
+        assert!(rel(lucia_rfn(0.20, k1), 1.0) < 1e-4, "got {}", lucia_rfn(0.20, k1));
+        assert_eq!(lucia_class(lucia_rfn(0.20, k1)), 1.0);
+        let k3 = fwd(3.0, 0.15);
+        assert!(rel(lucia_rfn(0.15, k3), 3.0) < 1e-4, "got {}", lucia_rfn(0.15, k3));
+        assert_eq!(lucia_class(lucia_rfn(0.15, k3)), 3.0);
+        // Out-of-range inputs → MISSING.
+        assert!(!lucia_rfn(0.0, 10.0).is_finite());
+        assert!(!lucia_rfn(0.2, -1.0).is_finite());
     }
 }

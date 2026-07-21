@@ -195,6 +195,7 @@ pub fn list_modules() -> Vec<ModuleSpec> {
         crate::multimin::multimin_spec(),
         crate::satheight::sw_height_spec(),
         crate::rocktyping::rocktyping_spec(),
+        crate::rocktyping::lucia_rfn_spec(),
         crate::facies::electrofacies_spec(),
         crate::facies::gmm_facies_spec(),
     ]
@@ -227,6 +228,7 @@ pub fn run_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, Stri
         "multimin" => Ok(crate::multimin::multimin(ctx)),
         "sw_height" => Ok(crate::satheight::sw_height(ctx)),
         "rocktyping" => Ok(crate::rocktyping::rocktyping(ctx)),
+        "lucia_rfn" => Ok(crate::rocktyping::lucia_rfn_module(ctx)),
         "electrofacies" => Ok(crate::facies::electrofacies(ctx)),
         "gmm_facies" => Ok(crate::facies::gmm_facies(ctx)),
         "sw_arch" => Ok(sw_arch(ctx)),
