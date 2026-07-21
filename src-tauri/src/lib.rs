@@ -831,6 +831,19 @@ async fn run_cuddy_foil(
         .map_err(|e| e.to_string())
 }
 
+/// Height-domain SHF fit (Wave B item 8, increment 2): Brooks-Corey or Skelt-Harrison fitted to
+/// the log-derived Sw-vs-height cloud. Off-thread; writes no curves.
+#[tauri::command]
+async fn run_shf_fit(
+    db: tauri::State<'_, DbState>,
+    req: shf_fit::ShfFitRequest,
+) -> Result<shf_fit::ShfFitResult, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || shf_fit::run_shf_fit(&conn, &req))
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Generalized multi-mineral inversion: N user-defined components against N tools, with hard
 /// unity + non-negativity. Writes VOL_<component> + derived PHIT/VSH/SWT/RECON curves. Async +
 /// off-thread via the job registry — the solve no longer freezes the IPC thread, and the
@@ -1412,6 +1425,7 @@ pub fn run() {
             run_ml,
             run_ml_eval,
             run_cuddy_foil,
+            run_shf_fit,
             run_multimin,
             multimin_library,
             multimin_fluid_calc,

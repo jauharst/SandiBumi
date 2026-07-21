@@ -121,6 +121,212 @@ pub fn foil_fwl_scan(samples: &[(f64, f64)], lo: f64, hi: f64, step: f64) -> (Ve
 }
 
 // --------------------------------------------------------------------------------------------
+// Height-domain SHF forms fitted to a log-derived Sw-vs-H cloud (Wave B item 8, increment 2):
+// Brooks-Corey and Skelt-Harrison, complementing the FOIL/BVW fit above. Both take (H, Sw) points
+// (H = height above FWL) and return parameters + R² + a sampled fitted curve for the crossplot.
+// --------------------------------------------------------------------------------------------
+
+/// Brooks-Corey height form: Sw = Swirr + (1−Swirr)·(He/H)^λ for H ≥ He (Sw = 1 below He).
+#[derive(Debug, Clone, Copy)]
+pub struct BrooksCoreyFit {
+    pub swirr: f64,
+    pub he: f64,
+    pub lambda: f64,
+    pub r2: f64,
+    pub n: usize,
+}
+
+/// Fits Brooks-Corey by gridding Swirr and, for each, a log-log linear fit of the effective
+/// saturation Se=(Sw−Swirr)/(1−Swirr) against H (log Se = λ·log He − λ·log H). Picks the Swirr
+/// with the best R². Robust and derivative-free. Needs ≥3 usable points.
+pub fn fit_brooks_corey(points: &[(f64, f64)]) -> Option<BrooksCoreyFit> {
+    let clean: Vec<(f64, f64)> = points
+        .iter()
+        .copied()
+        .filter(|&(h, sw)| h.is_finite() && sw.is_finite() && h > 0.0 && sw > 0.0 && sw <= 1.0)
+        .collect();
+    if clean.len() < 3 {
+        return None;
+    }
+    let min_sw = clean.iter().map(|&(_, s)| s).fold(f64::INFINITY, f64::min);
+    let mut best: Option<BrooksCoreyFit> = None;
+    // Swirr must be below the lowest observed Sw; sweep a grid up to 95% of it.
+    let hi = (min_sw * 0.95).max(0.0);
+    let steps = 40;
+    for i in 0..=steps {
+        let swirr = hi * i as f64 / steps as f64;
+        // Linear fit of log10 Se vs log10 H over points with 0 < Se < 1.
+        let mut xs = Vec::new();
+        let mut ys = Vec::new();
+        for &(h, sw) in &clean {
+            let se = (sw - swirr) / (1.0 - swirr);
+            if se > 1e-6 && se < 1.0 {
+                xs.push(h.log10());
+                ys.push(se.log10());
+            }
+        }
+        let n = xs.len();
+        if n < 3 {
+            continue;
+        }
+        let mx = xs.iter().sum::<f64>() / n as f64;
+        let my = ys.iter().sum::<f64>() / n as f64;
+        let (mut sxx, mut sxy, mut syy) = (0.0, 0.0, 0.0);
+        for k in 0..n {
+            let dx = xs[k] - mx;
+            let dy = ys[k] - my;
+            sxx += dx * dx;
+            sxy += dx * dy;
+            syy += dy * dy;
+        }
+        if sxx <= 0.0 {
+            continue;
+        }
+        let slope = sxy / sxx; // = −λ
+        let lambda = -slope;
+        if lambda <= 0.0 {
+            continue; // Se must fall with height
+        }
+        let intercept = my - slope * mx; // = λ·log10 He
+        let he = 10f64.powf(intercept / lambda);
+        let r2 = if syy > 0.0 { (sxy * sxy) / (sxx * syy) } else { 1.0 };
+        let cand = BrooksCoreyFit { swirr, he, lambda, r2: r2.clamp(0.0, 1.0), n };
+        if best.map(|b| cand.r2 > b.r2).unwrap_or(true) {
+            best = Some(cand);
+        }
+    }
+    best
+}
+
+/// Skelt-Harrison height form: Sw(H) = 1 − A·exp(−(B/(H+D))^C).
+#[derive(Debug, Clone, Copy)]
+pub struct SkeltFit {
+    pub a: f64,
+    pub b: f64,
+    pub c: f64,
+    pub d: f64,
+    pub r2: f64,
+    pub n: usize,
+}
+
+fn skelt_sw(a: f64, b: f64, c: f64, d: f64, h: f64) -> f64 {
+    let hd = h + d;
+    if hd <= 0.0 {
+        return 1.0;
+    }
+    1.0 - a * (-(b / hd).powf(c)).exp()
+}
+
+/// Compact bounded Nelder-Mead simplex minimizer (fixed iteration budget). `f` returns the loss;
+/// `lo`/`hi` clamp each dimension. Derivative-free — fine for the small 4-parameter Skelt fit.
+fn nelder_mead<F: Fn(&[f64; 4]) -> f64>(f: F, x0: [f64; 4], lo: [f64; 4], hi: [f64; 4], iters: usize) -> [f64; 4] {
+    let clamp = |x: [f64; 4]| -> [f64; 4] {
+        let mut o = x;
+        for i in 0..4 {
+            o[i] = o[i].clamp(lo[i], hi[i]);
+        }
+        o
+    };
+    // Build the initial simplex (5 vertices).
+    let mut simplex: Vec<[f64; 4]> = vec![clamp(x0)];
+    for i in 0..4 {
+        let mut v = x0;
+        let step = (hi[i] - lo[i]) * 0.1 + 1e-3;
+        v[i] += step;
+        simplex.push(clamp(v));
+    }
+    let mut fvals: Vec<f64> = simplex.iter().map(|v| f(v)).collect();
+    for _ in 0..iters {
+        // Order by loss.
+        let mut idx: Vec<usize> = (0..simplex.len()).collect();
+        idx.sort_by(|&a, &b| fvals[a].partial_cmp(&fvals[b]).unwrap_or(std::cmp::Ordering::Equal));
+        let best = idx[0];
+        let worst = idx[idx.len() - 1];
+        let second = idx[idx.len() - 2];
+        // Centroid of all but the worst.
+        let mut cen = [0.0; 4];
+        for (&j, _) in idx.iter().zip(0..idx.len() - 1) {
+            for k in 0..4 {
+                cen[k] += simplex[j][k];
+            }
+        }
+        for k in 0..4 {
+            cen[k] /= (idx.len() - 1) as f64;
+        }
+        let reflect = |coef: f64| -> [f64; 4] {
+            let mut r = [0.0; 4];
+            for k in 0..4 {
+                r[k] = cen[k] + coef * (cen[k] - simplex[worst][k]);
+            }
+            clamp(r)
+        };
+        let xr = reflect(1.0);
+        let fr = f(&xr);
+        if fr < fvals[best] {
+            let xe = reflect(2.0);
+            let fe = f(&xe);
+            if fe < fr {
+                simplex[worst] = xe;
+                fvals[worst] = fe;
+            } else {
+                simplex[worst] = xr;
+                fvals[worst] = fr;
+            }
+        } else if fr < fvals[second] {
+            simplex[worst] = xr;
+            fvals[worst] = fr;
+        } else {
+            let xc = reflect(0.5);
+            let fc = f(&xc);
+            if fc < fvals[worst] {
+                simplex[worst] = xc;
+                fvals[worst] = fc;
+            } else {
+                // Shrink toward the best.
+                for &j in idx.iter().skip(1) {
+                    for k in 0..4 {
+                        simplex[j][k] = simplex[best][k] + 0.5 * (simplex[j][k] - simplex[best][k]);
+                    }
+                    simplex[j] = clamp(simplex[j]);
+                    fvals[j] = f(&simplex[j]);
+                }
+            }
+        }
+    }
+    let bi = (0..fvals.len()).min_by(|&a, &b| fvals[a].partial_cmp(&fvals[b]).unwrap()).unwrap();
+    simplex[bi]
+}
+
+/// Fits Skelt-Harrison by Nelder-Mead on the sum of squared Sw residuals. Needs ≥4 usable points.
+pub fn fit_skelt(points: &[(f64, f64)]) -> Option<SkeltFit> {
+    let clean: Vec<(f64, f64)> = points
+        .iter()
+        .copied()
+        .filter(|&(h, sw)| h.is_finite() && sw.is_finite() && h > 0.0 && sw > 0.0 && sw <= 1.0)
+        .collect();
+    if clean.len() < 4 {
+        return None;
+    }
+    let min_sw = clean.iter().map(|&(_, s)| s).fold(f64::INFINITY, f64::min);
+    let mut hs: Vec<f64> = clean.iter().map(|&(h, _)| h).collect();
+    hs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let hmed = hs[hs.len() / 2];
+    let sse = |p: &[f64; 4]| -> f64 {
+        clean.iter().map(|&(h, sw)| (sw - skelt_sw(p[0], p[1], p[2], p[3], h)).powi(2)).sum()
+    };
+    let x0 = [(1.0 - min_sw).clamp(0.05, 1.0), hmed.max(1.0), 1.0, 0.0];
+    let lo = [0.05, 1e-3, 0.1, 0.0];
+    let hi = [1.0, hmed * 20.0 + 100.0, 10.0, hmed.max(10.0)];
+    let best = nelder_mead(sse, x0, lo, hi, 400);
+    // R² from the residual sum of squares vs the total.
+    let mean_sw = clean.iter().map(|&(_, s)| s).sum::<f64>() / clean.len() as f64;
+    let ss_tot: f64 = clean.iter().map(|&(_, s)| (s - mean_sw).powi(2)).sum();
+    let ss_res = sse(&best);
+    let r2 = if ss_tot > 0.0 { (1.0 - ss_res / ss_tot).clamp(0.0, 1.0) } else { 1.0 };
+    Some(SkeltFit { a: best[0], b: best[1], c: best[2], d: best[3], r2, n: clean.len() })
+}
+
+// --------------------------------------------------------------------------------------------
 // DB-backed command: pool computed PHIE/SW/TVDSS across wells, fit the field-wide FOIL, and
 // (optionally) scan for the common FWL. Returns the (H, BVW) scatter for the crossplot too.
 // --------------------------------------------------------------------------------------------
@@ -265,6 +471,143 @@ pub fn run_cuddy_foil(db: &Mutex<Connection>, req: &CuddyFoilRequest) -> CuddyFo
     }
 }
 
+// --------------------------------------------------------------------------------------------
+// DB-backed command for the height-domain forms (Brooks-Corey / Skelt-Harrison): pool the
+// log-derived Sw-vs-H cloud and fit the chosen form. Returns the scatter + a sampled fit curve.
+// --------------------------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ShfFitRequest {
+    pub well_ids: Vec<String>,
+    pub phie_curve: String,
+    pub sw_curve: String,
+    pub tvdss_curve: String,
+    pub fwl: f64,
+    #[serde(default)]
+    pub min_phi: f64,
+    /// "brooks_corey" | "skelt".
+    pub method: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ShfPoint {
+    pub h: f64,
+    pub sw: f64,
+    pub well_id: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ShfFitResult {
+    pub method: String,
+    pub params: Vec<(String, f64)>,
+    pub r2: f64,
+    pub n_points: usize,
+    pub points: Vec<ShfPoint>,
+    /// Sampled fitted Sw(H) curve for the overlay: (H, Sw) pairs across the data range.
+    pub curve: Vec<(f64, f64)>,
+    pub error: Option<String>,
+}
+
+fn shf_err(method: &str, msg: &str) -> ShfFitResult {
+    ShfFitResult {
+        method: method.to_string(),
+        params: vec![],
+        r2: f64::NAN,
+        n_points: 0,
+        points: vec![],
+        curve: vec![],
+        error: Some(msg.to_string()),
+    }
+}
+
+pub fn run_shf_fit(db: &Mutex<Connection>, req: &ShfFitRequest) -> ShfFitResult {
+    if req.well_ids.is_empty() {
+        return shf_err(&req.method, "select at least one well");
+    }
+    let phie = req.phie_curve.trim().to_uppercase();
+    let sw = req.sw_curve.trim().to_uppercase();
+    let tvdss = req.tvdss_curve.trim().to_uppercase();
+    if phie.is_empty() || sw.is_empty() || tvdss.is_empty() {
+        return shf_err(&req.method, "PHIE, SW and TVDSS curves are all required");
+    }
+
+    // Pool (well, H=FWL−TVDSS, Sw) above the FWL, above the porosity cutoff.
+    let mut samples: Vec<(String, f64, f64)> = Vec::new();
+    {
+        let conn = db.lock().unwrap();
+        let names = vec![phie.clone(), sw.clone(), tvdss.clone()];
+        for well_id in &req.well_ids {
+            let Ok((_d, cols)) = fetch_curve_frame(&conn, well_id, &names) else { continue };
+            let (Some(pv), Some(sv), Some(tv)) = (cols.get(&phie), cols.get(&sw), cols.get(&tvdss)) else {
+                continue;
+            };
+            let n = pv.len().min(sv.len()).min(tv.len());
+            for i in 0..n {
+                let (p, s, t) = (pv[i] as f64, sv[i] as f64, tv[i] as f64);
+                let h = req.fwl - t;
+                if p.is_finite() && s.is_finite() && t.is_finite() && p > req.min_phi && h > 0.0 && s > 0.0 && s <= 1.0 {
+                    samples.push((well_id.clone(), h, s));
+                }
+            }
+        }
+    }
+    if samples.len() < 4 {
+        return shf_err(&req.method, "not enough Sw samples above the FWL / porosity cutoff");
+    }
+
+    let pts: Vec<(f64, f64)> = samples.iter().map(|(_, h, s)| (*h, *s)).collect();
+    let hmin = pts.iter().map(|&(h, _)| h).fold(f64::INFINITY, f64::min).max(1e-3);
+    let hmax = pts.iter().map(|&(h, _)| h).fold(f64::NEG_INFINITY, f64::max);
+
+    let (params, r2, n, model): (Vec<(String, f64)>, f64, usize, Box<dyn Fn(f64) -> f64>) =
+        match req.method.as_str() {
+            "brooks_corey" => {
+                let Some(f) = fit_brooks_corey(&pts) else {
+                    return shf_err(&req.method, "Brooks-Corey fit failed (too few points in the transition zone)");
+                };
+                let (swirr, he, lambda) = (f.swirr, f.he, f.lambda);
+                (
+                    vec![("swirr".into(), f.swirr), ("he".into(), f.he), ("lambda".into(), f.lambda)],
+                    f.r2,
+                    f.n,
+                    Box::new(move |h: f64| if h >= he { swirr + (1.0 - swirr) * (he / h).powf(lambda) } else { 1.0 }),
+                )
+            }
+            "skelt" => {
+                let Some(f) = fit_skelt(&pts) else {
+                    return shf_err(&req.method, "Skelt-Harrison fit failed");
+                };
+                let (a, b, c, d) = (f.a, f.b, f.c, f.d);
+                (
+                    vec![("A".into(), f.a), ("B".into(), f.b), ("C".into(), f.c), ("D".into(), f.d)],
+                    f.r2,
+                    f.n,
+                    Box::new(move |h: f64| skelt_sw(a, b, c, d, h)),
+                )
+            }
+            other => return shf_err(&req.method, &format!("unknown SHF method '{other}'")),
+        };
+
+    // Sampled fit curve across the observed H range.
+    let steps = 60usize;
+    let curve: Vec<(f64, f64)> = (0..=steps)
+        .map(|i| {
+            let h = hmin + (hmax - hmin) * i as f64 / steps as f64;
+            (h, model(h).clamp(0.0, 1.0))
+        })
+        .collect();
+
+    // Decimated scatter.
+    let stride = (samples.len() / MAX_FOIL_POINTS).max(1);
+    let points: Vec<ShfPoint> = samples
+        .iter()
+        .step_by(stride)
+        .map(|(w, h, s)| ShfPoint { h: *h, sw: *s, well_id: w.clone() })
+        .collect();
+
+    ShfFitResult { method: req.method.clone(), params, r2, n_points: n, points, curve, error: None }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -302,5 +645,42 @@ mod tests {
         assert!(!curve.is_empty());
         let best = best.expect("best fwl");
         assert!((best - fwl_true).abs() <= 0.5, "best fwl = {best}");
+    }
+
+    #[test]
+    fn brooks_corey_recovers_synthetic_curve() {
+        // Sw = 0.15 + 0.85·(5/H)^0.5 sampled above the entry height; fit must recover the params.
+        let (swirr, he, lambda): (f64, f64, f64) = (0.15, 5.0, 0.5);
+        let pts: Vec<(f64, f64)> = [8.0f64, 10.0, 20.0, 40.0, 80.0, 160.0, 320.0]
+            .iter()
+            .map(|&h| (h, swirr + (1.0 - swirr) * (he / h).powf(lambda)))
+            .collect();
+        let fit = fit_brooks_corey(&pts).expect("bc fit");
+        assert!(fit.r2 > 0.995, "r2={}", fit.r2);
+        assert!((fit.lambda - lambda).abs() < 0.1, "lambda={}", fit.lambda);
+        assert!((fit.swirr - swirr).abs() < 0.03, "swirr={}", fit.swirr);
+        assert!((fit.he - he).abs() < 1.5, "he={}", fit.he);
+    }
+
+    #[test]
+    fn skelt_fits_synthetic_curve_well() {
+        // Sw = 1 − 0.85·exp(−(20/H)^1.5); Nelder-Mead must reach a high-R² fit (params are not
+        // uniquely identifiable, so assert fit quality + monotonic decrease, not exact params).
+        let pts: Vec<(f64, f64)> = [5.0, 10.0, 20.0, 40.0, 80.0, 160.0]
+            .iter()
+            .map(|&h| (h, 1.0 - 0.85 * (-(20.0f64 / h).powf(1.5)).exp()))
+            .collect();
+        let fit = fit_skelt(&pts).expect("skelt fit");
+        assert!(fit.r2 > 0.98, "r2={}", fit.r2);
+        // Fitted Sw must fall from shallow (small H) to deep (large H).
+        let hi = skelt_sw(fit.a, fit.b, fit.c, fit.d, 10.0);
+        let lo = skelt_sw(fit.a, fit.b, fit.c, fit.d, 160.0);
+        assert!(hi > lo, "Sw not decreasing: {hi} !> {lo}");
+    }
+
+    #[test]
+    fn height_fits_reject_too_few_points() {
+        assert!(fit_brooks_corey(&[(10.0, 0.5), (20.0, 0.4)]).is_none());
+        assert!(fit_skelt(&[(10.0, 0.5), (20.0, 0.4), (30.0, 0.3)]).is_none());
     }
 }

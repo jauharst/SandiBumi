@@ -1,13 +1,19 @@
-import { listCurveCatalog, runCuddyFoil, type CuddyFoilResult } from "../ipc";
+import {
+  listCurveCatalog,
+  runCuddyFoil,
+  runShfFit,
+  type CuddyFoilResult,
+  type ShfFitResult,
+} from "../ipc";
 import { formRow } from "./modal";
 import { readTheme } from "./plotCanvas";
 import { recordProcess } from "../processLog";
 import { buildWellScope } from "./wellScope";
 
-/** Saturation-height FUNCTION fitting — Cuddy FOIL / fractal BVW (Wave B item 8, SHF side).
- *  Pools computed PHIE/SW/TVDSS across the scoped wells, fits BVW = Sw·φ = a·H^b above the
- *  free-water level, and optionally scans for the common FWL (Cuddy 1993 Eq 19). Writes no
- *  curves — it produces the field-wide law (a, b) for the forward sw_height apply. */
+/** Saturation-height FUNCTION fitting (Wave B item 8, SHF side). Pools computed PHIE/SW/TVDSS
+ *  across the scoped wells and fits a chosen SHF form above the free-water level:
+ *  Cuddy FOIL (BVW = a·H^b, + FWL scan), Brooks-Corey, or Skelt-Harrison. Writes no curves —
+ *  it produces the field-wide law for the forward sw_height apply. */
 export async function buildShfContent(
   setStatus: (text: string) => void,
 ): Promise<{ el: HTMLElement; dispose: () => void }> {
@@ -17,6 +23,19 @@ export async function buildShfContent(
 
   const content = document.createElement("div");
   content.className = "mc-dialog";
+
+  const methodSel = document.createElement("select");
+  for (const [val, lbl] of [
+    ["foil", "Cuddy FOIL (BVW = a·H^b)"],
+    ["brooks_corey", "Brooks-Corey"],
+    ["skelt", "Skelt-Harrison"],
+  ] as const) {
+    const o = document.createElement("option");
+    o.value = val;
+    o.textContent = lbl;
+    methodSel.appendChild(o);
+  }
+  content.appendChild(formRow("SHF form", methodSel, "FOIL fits bulk-volume water (log-log); Brooks-Corey / Skelt fit Sw vs height."));
 
   const curveSel = (preferred: string[]): HTMLSelectElement => {
     const sel = document.createElement("select");
@@ -69,7 +88,14 @@ export async function buildShfContent(
     return f;
   };
   scanWrap.append(scanLabel, mkField("FWL lo", scanLo), mkField("FWL hi", scanHi), mkField("step", scanStep));
-  content.appendChild(formRow("FWL scan", scanWrap, "When on, steps a common FWL over [lo, hi] and picks the tightest FOIL fit."));
+  const scanRow = formRow("FWL scan", scanWrap, "When on, steps a common FWL over [lo, hi] and picks the tightest FOIL fit.");
+  content.appendChild(scanRow);
+
+  // The FWL scan only applies to the FOIL form.
+  methodSel.addEventListener("change", () => {
+    scanRow.style.display = methodSel.value === "foil" ? "" : "none";
+    runBtn.textContent = methodSel.value === "foil" ? "Fit FOIL" : "Fit SHF";
+  });
 
   const runBtn = document.createElement("button");
   runBtn.type = "button";
@@ -101,30 +127,48 @@ export async function buildShfContent(
     runBtn.disabled = true;
     statusLine.textContent = "Fitting…";
     const t0 = performance.now();
+    const method = methodSel.value;
+    const common = {
+      well_ids: wellIds,
+      phie_curve: phieSel.value,
+      sw_curve: swSel.value,
+      tvdss_curve: tvdSel.value,
+      fwl: parseFloat(fwlInput.value) || 0,
+      min_phi: parseFloat(minPhiInput.value) || 0,
+    };
     try {
-      const res = await runCuddyFoil({
-        well_ids: wellIds,
-        phie_curve: phieSel.value,
-        sw_curve: swSel.value,
-        tvdss_curve: tvdSel.value,
-        fwl: parseFloat(fwlInput.value) || 0,
-        min_phi: parseFloat(minPhiInput.value) || 0,
-        scan: scanCb.checked,
-        scan_lo: parseFloat(scanLo.value) || 0,
-        scan_hi: parseFloat(scanHi.value) || 0,
-        scan_step: parseFloat(scanStep.value) || 0.5,
-      });
-      const ms = Math.round(performance.now() - t0);
-      if (res.error) {
-        statusLine.textContent = `Failed: ${res.error}`;
-        results.innerHTML = "";
+      if (method === "foil") {
+        const res = await runCuddyFoil({
+          ...common,
+          scan: scanCb.checked,
+          scan_lo: parseFloat(scanLo.value) || 0,
+          scan_hi: parseFloat(scanHi.value) || 0,
+          scan_step: parseFloat(scanStep.value) || 0.5,
+        });
+        const ms = Math.round(performance.now() - t0);
+        if (res.error) {
+          statusLine.textContent = `Failed: ${res.error}`;
+          results.innerHTML = "";
+        } else {
+          statusLine.textContent =
+            `a=${res.a.toExponential(4)}, b=${res.b.toFixed(4)}, R²=${res.r2.toFixed(4)} • ${res.n_points} pts • ${ms} ms` +
+            (res.fwl_best != null ? ` • FWL=${res.fwl_best.toFixed(1)}` : "");
+          if (res.fwl_best != null) fwlInput.value = res.fwl_best.toFixed(2);
+          recordProcess("SHF", `Cuddy FOIL fit: BVW=${res.a.toExponential(3)}·H^${res.b.toFixed(3)} (R²=${res.r2.toFixed(3)})`);
+          renderResults(results, res);
+        }
       } else {
-        statusLine.textContent =
-          `a=${res.a.toExponential(4)}, b=${res.b.toFixed(4)}, R²=${res.r2.toFixed(4)} • ${res.n_points} pts • ${ms} ms` +
-          (res.fwl_best != null ? ` • FWL=${res.fwl_best.toFixed(1)}` : "");
-        if (res.fwl_best != null) fwlInput.value = res.fwl_best.toFixed(2);
-        recordProcess("SHF", `Cuddy FOIL fit: BVW=${res.a.toExponential(3)}·H^${res.b.toFixed(3)} (R²=${res.r2.toFixed(3)})`);
-        renderResults(results, res);
+        const res = await runShfFit({ ...common, method: method as "brooks_corey" | "skelt" });
+        const ms = Math.round(performance.now() - t0);
+        if (res.error) {
+          statusLine.textContent = `Failed: ${res.error}`;
+          results.innerHTML = "";
+        } else {
+          const ps = res.params.map(([k, v]) => `${k}=${v.toFixed(3)}`).join(", ");
+          statusLine.textContent = `${res.method}: ${ps} • R²=${res.r2.toFixed(4)} • ${res.n_points} pts • ${ms} ms`;
+          recordProcess("SHF", `${res.method} fit: ${ps} (R²=${res.r2.toFixed(3)})`);
+          renderShfResults(results, res);
+        }
       }
     } catch (e) {
       statusLine.textContent = `Failed: ${e}`;
@@ -302,4 +346,110 @@ function drawScan(canvas: HTMLCanvasElement, res: CuddyFoilResult): void {
     ctx.stroke();
     ctx.setLineDash([]);
   }
+}
+
+/** Height-domain fit results: param table + a Sw-vs-height scatter with the fitted curve. */
+function renderShfResults(host: HTMLElement, res: ShfFitResult): void {
+  host.innerHTML = "";
+
+  const summary = document.createElement("table");
+  summary.className = "mc-table";
+  const rows: [string, string][] = res.params.map(([k, v]) => [k, v.toFixed(5)] as [string, string]);
+  rows.push(["R²", res.r2.toFixed(5)]);
+  rows.push(["points fitted", String(res.n_points)]);
+  for (const [k, v] of rows) {
+    const tr = document.createElement("tr");
+    const th = document.createElement("th");
+    th.textContent = k;
+    const td = document.createElement("td");
+    td.textContent = v;
+    tr.append(th, td);
+    summary.appendChild(tr);
+  }
+  host.appendChild(summary);
+
+  const cap = document.createElement("div");
+  cap.className = "mc-hist-caption";
+  cap.textContent = `Sw vs height above FWL (log H) with the fitted ${res.method} curve`;
+  host.appendChild(cap);
+  const canvas = document.createElement("canvas");
+  canvas.className = "mc-hist";
+  host.appendChild(canvas);
+  drawShfFit(canvas, res);
+}
+
+/** Sw (linear, 0–1) vs height (log10) scatter + the fitted Sw(H) curve. */
+function drawShfFit(canvas: HTMLCanvasElement, res: ShfFitResult): void {
+  const theme = readTheme(canvas);
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth || 360;
+  const h = canvas.clientHeight || 200;
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = theme.bg;
+  ctx.fillRect(0, 0, w, h);
+
+  const pts = res.points.filter((p) => p.h > 0 && p.sw > 0);
+  if (pts.length === 0) return;
+  const lx = pts.map((p) => Math.log10(p.h));
+  const xmin = Math.min(...lx, ...res.curve.filter(([hh]) => hh > 0).map(([hh]) => Math.log10(hh)));
+  const xmax = Math.max(...lx, ...res.curve.filter(([hh]) => hh > 0).map(([hh]) => Math.log10(hh)));
+  const padL = 40;
+  const padB = 22;
+  const X = (v: number) => padL + ((v - xmin) / (xmax - xmin || 1)) * (w - padL - 8);
+  const Y = (sw: number) => 8 + (1 - Math.min(1, Math.max(0, sw))) * (h - padB - 8); // Sw 0..1
+
+  // Axes.
+  ctx.strokeStyle = theme.axis;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(padL, 8);
+  ctx.lineTo(padL, h - padB);
+  ctx.lineTo(w - 8, h - padB);
+  ctx.stroke();
+  ctx.fillStyle = theme.text;
+  ctx.font = "10px system-ui";
+  ctx.textAlign = "center";
+  ctx.fillText("log10 H (height above FWL)", (padL + w) / 2, h - 4);
+  ctx.save();
+  ctx.translate(11, (h - padB) / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText("Sw", 0, 0);
+  ctx.restore();
+  // Sw gridlines at 0 / 0.5 / 1.
+  ctx.strokeStyle = theme.grid;
+  ctx.globalAlpha = 0.4;
+  for (const sw of [0, 0.5, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(padL, Y(sw));
+    ctx.lineTo(w - 8, Y(sw));
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  // Scatter.
+  ctx.fillStyle = theme.accent2;
+  for (let i = 0; i < pts.length; i++) {
+    ctx.beginPath();
+    ctx.arc(X(lx[i]), Y(pts[i].sw), 1.6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Fitted curve.
+  ctx.strokeStyle = theme.accent;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  let pen = false;
+  for (const [hh, sw] of res.curve) {
+    if (!(hh > 0)) continue;
+    const x = X(Math.log10(hh));
+    const y = Y(sw);
+    if (pen) ctx.lineTo(x, y);
+    else ctx.moveTo(x, y);
+    pen = true;
+  }
+  ctx.stroke();
 }

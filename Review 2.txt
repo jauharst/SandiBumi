@@ -18,3 +18,13 @@ Clean narration >> click for help
 resize app behaviour to panes window ribbon
 look at the bottom, it should be on details in processing, not here
 for details, it should give report what wells failed and why, what should user do, if it same dont repeat by well but as 1 bulk error report
+
+monte carlo
+sandimin
+rock typing
+shf
+autocorrelate
+correlation window + fluid contact
+unconventional / shale suite
+
+

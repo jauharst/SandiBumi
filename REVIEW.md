@@ -51,9 +51,15 @@ through in the real app with field data. Nothing committed.**
       RFN + a 1–3 class; completes the FZI / Winland / PGS / Lucia rock-typing quartet. *(1 new test:
       Lucia round-trips RFN 1.0/3.0.)* **Try:** run it on a well with carbonate stringers. *(A Mahakam
       phi-k perm preset was built and tested but PULLED from the repo — those are proprietary Pertamina
-      Hulu Mahakam production constants; kept out per the client-data rule.)* **Still open (increment 2
-      remainder, task #158):** Thomeer / Brooks-Corey / Skelt-Harrison Pc fits, SCAL porous-plate +
-      centrifuge importers, electrofacies confusion-matrix tie-in, Pittman full rX table, Ward HFU option.
+      Hulu Mahakam production constants; kept out per the client-data rule.)*
+- [ ] **(8) increment 2 — SHF forms (2026-07-22):** the **SHF Fit** pane got a form selector — besides
+      Cuddy FOIL it now fits **Brooks-Corey** (Sw = Swirr + (1−Swirr)·(He/H)^λ, via a Swirr-grid + log-log
+      linear fit) and **Skelt-Harrison** (Sw = 1 − A·exp(−(B/(H+D))^C), via a compact Nelder-Mead) to the
+      log-derived Sw-vs-height cloud, with a Sw-vs-H scatter + fitted-curve overlay and a params/R² table.
+      *(3 new tests: Brooks-Corey recovers a synthetic curve, Skelt reaches R²>0.98 + monotone Sw, both
+      reject too-few points.)* **Try:** SHF Fit ▸ pick Brooks-Corey / Skelt-Harrison. **Still open
+      (increment 2 remainder, task #158):** Thomeer Pc fit (MICP), SCAL porous-plate + centrifuge
+      importers, electrofacies confusion-matrix tie-in, Pittman full rX table, Ward HFU option.
 
 ## Round 2 — panes, shift-select, MC plot props + table + polish (2026-07-21, Jauhar feedback batch #2)
 

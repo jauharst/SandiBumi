@@ -799,6 +799,39 @@ export function runCuddyFoil(req: CuddyFoilRequest): Promise<CuddyFoilResult> {
   return invoke<CuddyFoilResult>("run_cuddy_foil", { req });
 }
 
+/** Height-domain SHF fit (Brooks-Corey / Skelt-Harrison) to the log-derived Sw-vs-height cloud. */
+export interface ShfFitRequest {
+  well_ids: string[];
+  phie_curve: string;
+  sw_curve: string;
+  tvdss_curve: string;
+  fwl: number;
+  min_phi: number;
+  method: "brooks_corey" | "skelt";
+}
+
+export interface ShfPoint {
+  h: number;
+  sw: number;
+  well_id: string;
+}
+
+export interface ShfFitResult {
+  method: string;
+  /** Named fitted parameters, e.g. [["swirr", …], ["he", …], ["lambda", …]]. */
+  params: [string, number][];
+  r2: number;
+  n_points: number;
+  points: ShfPoint[];
+  /** Sampled fitted Sw(H) curve as [H, Sw] pairs. */
+  curve: [number, number][];
+  error: string | null;
+}
+
+export function runShfFit(req: ShfFitRequest): Promise<ShfFitResult> {
+  return invoke<ShfFitResult>("run_shf_fit", { req });
+}
+
 // --- Generalized Multimin (multi-mineral inversion) -----------------------
 
 /** A mineral, clay, or fluid component (fluids are zone-typed X/U). */
