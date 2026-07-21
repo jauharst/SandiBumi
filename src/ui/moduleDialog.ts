@@ -1,14 +1,13 @@
 import {
   listCurveCatalog,
   listLogSetNames,
-  listWells,
   runWorkflowModule,
   type ModuleSpec,
   type RunModuleRequest,
-  type WellSummary,
 } from "../ipc";
-import { appState, defaultRunWellIds, filterByActiveGroup } from "../state";
+import { appState } from "../state";
 import { formRow } from "./modal";
+import { buildWellScope } from "./wellScope";
 
 export interface ModulePaneCallbacks {
   /** Called after a successful run so the host can refresh the catalog/layout. */
@@ -38,9 +37,10 @@ export async function buildModuleContent(
   spec: ModuleSpec,
   callbacks: ModulePaneCallbacks,
 ): Promise<{ el: HTMLElement; dispose: () => void }> {
-  let [wells, catalog] = await Promise.all([listWells().then(filterByActiveGroup), listCurveCatalog()]);
+  let catalog = await listCurveCatalog();
   let curveNames = catalog.map((c) => c.name);
   let disposed = false;
+  const scope = await buildWellScope();
 
   const content = document.createElement("div");
   content.className = "module-pane";
@@ -49,31 +49,10 @@ export async function buildModuleContent(
   // Help tool (the ? in the quick-access bar → "Help — <this module>"), which reads spec.doc,
   // so the form stays uncluttered and the same text is the seed for the future HTML help library.
 
-  // --- Well selection (multi) ---
-  const wellBox = document.createElement("div");
-  wellBox.className = "well-checklist";
-  let wellChecks: { well: WellSummary; input: HTMLInputElement }[] = [];
-  const rebuildWellChecklist = (checkedIds: Set<string>) => {
-    wellBox.innerHTML = "";
-    wellChecks = [];
-    for (const well of wells) {
-      const label = document.createElement("label");
-      label.className = "well-check";
-      const input = document.createElement("input");
-      input.type = "checkbox";
-      input.checked = checkedIds.has(well.well_id);
-      label.appendChild(input);
-      label.appendChild(document.createTextNode(well.well_name));
-      wellBox.appendChild(label);
-      wellChecks.push({ well, input });
-    }
-  };
-  // Pre-tick the Wells & Tops multi-selection when one exists, else the active well.
-  const runDefaults = defaultRunWellIds(wells);
-  const initialWell = appState.selectedWell.get();
-  if (runDefaults.size === 0 && initialWell) runDefaults.add(initialWell.well_id);
-  rebuildWellChecklist(runDefaults);
-  content.appendChild(formRow("Wells", wellBox));
+  // --- Well selection (scope, not a checklist) ---
+  // The scope resolves against live state at run time (group / ★ pinned / selection / all), so a
+  // 2000-well field never needs a well-by-well checklist here.
+  content.appendChild(scope.el);
 
   // --- Args from manifest ---
   const logSelects = new Map<string, HTMLSelectElement>();
@@ -233,16 +212,10 @@ export async function buildModuleContent(
   // the checklist is empty and the set-name suggestions.
   const refreshData = async () => {
     try {
-      const [freshWells, freshCatalog] = await Promise.all([
-        listWells().then(filterByActiveGroup),
-        listCurveCatalog(),
-      ]);
+      const freshCatalog = await listCurveCatalog();
       if (disposed) return;
-      const checkedIds = new Set(wellChecks.filter((w) => w.input.checked).map((w) => w.well.well_id));
-      wells = freshWells;
       catalog = freshCatalog;
       curveNames = catalog.map((c) => c.name);
-      rebuildWellChecklist(checkedIds);
       for (const [name, select] of logSelects) {
         const arg = spec.args.find((a) => a.name === name)!;
         const current = select.value || arg.default;
@@ -261,21 +234,14 @@ export async function buildModuleContent(
     }
     void refreshData();
   });
-  const unsubWell = appState.selectedWell.subscribe((well) => {
-    refreshConsPickers();
-    // Only when nothing is ticked yet (non-destructive): re-apply the Wells & Tops
-    // multi-selection — the batch pre-tick — so a pane opened or restored before the
-    // selection existed still gets all selected wells, not just the active one.
-    if (wellChecks.some((w) => w.input.checked)) return;
-    const defaults = defaultRunWellIds(wells);
-    if (defaults.size === 0 && well) defaults.add(well.well_id);
-    if (defaults.size > 0) rebuildWellChecklist(defaults);
-  });
+  // The cons pickers can gain names as the active well changes; the well scope tracks live state
+  // on its own, so nothing well-related to re-tick here.
+  const unsubWell = appState.selectedWell.subscribe(() => refreshConsPickers());
 
   runBtn.addEventListener("click", async () => {
-    const wellIds = wellChecks.filter((w) => w.input.checked).map((w) => w.well.well_id);
+    const wellIds = scope.getWellIds();
     if (wellIds.length === 0) {
-      resultBox.textContent = "Select at least one well.";
+      resultBox.textContent = "No wells in scope — pick a group, pin/select wells, or choose All.";
       return;
     }
 
@@ -335,6 +301,7 @@ export async function buildModuleContent(
       disposed = true;
       unsubData();
       unsubWell();
+      scope.dispose();
     },
   };
 }

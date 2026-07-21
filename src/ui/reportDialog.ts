@@ -4,7 +4,6 @@ import {
   exportReportPdf,
   listDocuments,
   listLayouts,
-  listWells,
   renderReport,
   saveDocument,
   savePng,
@@ -15,8 +14,9 @@ import {
   type ReportSpec,
   type WellSummary,
 } from "../ipc";
-import { appState, filterByActiveGroup } from "../state";
+import { appState } from "../state";
 import { formRow } from "./modal";
+import { buildWellScope } from "./wellScope";
 
 const TEMPLATE_DOC_TYPE = "report_template";
 const TEMPLATE_NAME = "default";
@@ -50,7 +50,14 @@ export async function buildReportContent(
   const active = appState.activeLayout.get();
   const layouts: Layout[] = [...builtins];
   if (active && !layouts.some((l) => l.name === active.name)) layouts.unshift(active);
-  const wells = filterByActiveGroup(await listWells().catch(() => [well]));
+  // Batch export runs over the scope selector (group / ★ pinned / selection / all); the single
+  // Render/PDF/PNG buttons still target this pane's own well. The Batch button's count tracks
+  // the live scope.
+  const scope = await buildWellScope({
+    onChange: (ids) => {
+      batchBtn.textContent = `Batch (${ids.length} wells)…`;
+    },
+  });
 
   const content = document.createElement("div");
   content.className = "report-pane";
@@ -159,6 +166,9 @@ export async function buildReportContent(
   content.appendChild(formRow("Tables only (no composite)", tablesOnly));
   content.appendChild(formRow("Methodology table", methodTa, "Parameter | Method | Remarks per line; blank = default"));
 
+  // Scope for the Batch export below (Render/PDF/PNG act on this pane's single well).
+  content.appendChild(scope.el);
+
   const btnRow = document.createElement("div");
   btnRow.className = "pick-row";
   const renderBtn = document.createElement("button");
@@ -174,7 +184,7 @@ export async function buildReportContent(
   pngBtn.disabled = true;
   const batchBtn = document.createElement("button");
   batchBtn.className = "form-run-btn";
-  batchBtn.textContent = `Batch (${wells.length} wells)…`;
+  batchBtn.textContent = `Batch (${scope.getWellIds().length} wells)…`;
   btnRow.appendChild(renderBtn);
   btnRow.appendChild(pdfBtn);
   btnRow.appendChild(pngBtn);
@@ -377,6 +387,11 @@ export async function buildReportContent(
       status.textContent = spec;
       return;
     }
+    const wellIds = scope.getWellIds();
+    if (wellIds.length === 0) {
+      status.textContent = "No wells in scope — pick a group, pin/select wells, or choose All.";
+      return;
+    }
     let dir: string | null;
     try {
       const picked = await open({ directory: true, multiple: false });
@@ -387,9 +402,9 @@ export async function buildReportContent(
     }
     if (!dir) return;
     batchBtn.disabled = true;
-    status.textContent = `Exporting ${wells.length} report(s)…`;
+    status.textContent = `Exporting ${wellIds.length} report(s)…`;
     try {
-      const paths = await exportReportBatch(spec, wells.map((w) => w.well_id), dir);
+      const paths = await exportReportBatch(spec, wellIds, dir);
       status.textContent = `Wrote ${paths.length} report PDF(s) to ${dir}`;
       setStatus(`Batch report export: ${paths.length} well(s).`);
     } catch (err) {
@@ -399,5 +414,5 @@ export async function buildReportContent(
     }
   });
 
-  return { el: content };
+  return { el: content, dispose: () => scope.dispose() };
 }

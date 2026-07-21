@@ -77,6 +77,10 @@ export const appState = {
    *  range, ⇄ invert); empty = no multi-selection. Batch dialogs pre-tick these
    *  instead of just the active well. */
   multiSelectedWellIds: new Observable<string[]>([]),
+  /** Persisted "pinned" wells — a favourites subset independent of groups (the ★ toggle in the
+   *  Wells pane). Reused by the shared well-scope selector as a one-click run scope. Loaded from
+   *  the project on open and kept in sync as pins toggle. */
+  pinnedWellIds: new Observable<string[]>([]),
 };
 
 /** The wells a run/batch dialog should pre-tick: the multi-selection when one exists

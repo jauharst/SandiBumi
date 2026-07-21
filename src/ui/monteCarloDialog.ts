@@ -1,21 +1,22 @@
 import {
   listDocuments,
   listModules,
-  listWells,
   runMonteCarlo,
   type ChainStep,
   type McDistribution,
+  type McMetricSet,
   type McParam,
   type McRequest,
   type McResult,
+  type McSensParam,
+  type McSensZone,
   type McZoneResult,
   type ModuleSpec,
   type Pctl,
-  type WellSummary,
 } from "../ipc";
-import { defaultRunWellIds, filterByActiveGroup } from "../state";
 import { formRow } from "./modal";
 import { recordProcess } from "../processLog";
+import { buildWellScope } from "./wellScope";
 
 const WORKFLOW_DOC_TYPE = "workflow";
 const DEFAULT_STEPS = ["vsh_gr", "phi_dn", "sw_indo"];
@@ -37,6 +38,25 @@ interface ParamCandidate {
   desc: string;
 }
 
+/** User-tweakable look of the HPV histogram (the ⚙ properties panel). `barColor`/height blank →
+ *  fall back to the theme accent / CSS default, so a fresh run tracks the active theme. */
+interface HistOptions {
+  height: number;
+  barColor: string; // "" → theme --accent
+  showMarkers: boolean; // P10/P50/P90 dashed lines
+  showGrid: boolean; // horizontal frequency gridlines
+  showYAxis: boolean; // frequency tick labels on the left
+}
+
+/** User-tweakable look of the tornado. Height 0 → auto-size to the parameter count. */
+interface TornOptions {
+  height: number;
+  loColor: string; // "" → theme --accent  (the low-side / negative bars)
+  hiColor: string; // "" → theme --accent2 (the high-side / positive bars)
+  showStripes: boolean; // zebra row backgrounds
+  showRho: boolean; // ρ annotations (still gated by significance)
+}
+
 function emptyStep(module: string): ChainStep {
   return { module, log_inputs: {}, params: {}, opts: {} };
 }
@@ -49,17 +69,22 @@ export async function buildMonteCarloContent(
   setStatus: (text: string) => void,
 ): Promise<{ el: HTMLElement; dispose: () => void }> {
   const modules = await listModules().catch(() => [] as ModuleSpec[]);
-  const wells = filterByActiveGroup(await listWells().catch(() => [] as WellSummary[]));
   const moduleByName = new Map(modules.map((m) => [m.name, m]));
+  const scope = await buildWellScope();
 
   let steps: ChainStep[] = DEFAULT_STEPS.map(emptyStep);
   let mcRows: McRow[] = [];
+
+  // Plot look, held at pane scope so tweaks survive re-runs (renderResults reads these each time).
+  const histOpts: HistOptions = { height: 220, barColor: "", showMarkers: true, showGrid: true, showYAxis: true };
+  const tornOpts: TornOptions = { height: 0, loColor: "", hiColor: "", showStripes: true, showRho: true };
 
   const content = document.createElement("div");
   content.className = "mc-dialog";
 
   // --- Chain source --------------------------------------------------------
   const chainSelect = document.createElement("select");
+  chainSelect.className = "form-control";
   const defaultOpt = document.createElement("option");
   defaultOpt.value = "";
   defaultOpt.textContent = "Default: VSH → Porosity → SW-Indo";
@@ -177,6 +202,7 @@ export async function buildMonteCarloContent(
       el.className = "mc-param-row";
 
       const paramSel = document.createElement("select");
+      paramSel.className = "mc-param-sel";
       for (const c of candidates) {
         const o = document.createElement("option");
         o.value = c.name;
@@ -192,6 +218,7 @@ export async function buildMonteCarloContent(
       });
 
       const kindSel = document.createElement("select");
+      kindSel.className = "mc-dist-sel";
       for (const k of ["normal", "uniform", "triangular"] as DistKind[]) {
         const o = document.createElement("option");
         o.value = k;
@@ -234,39 +261,40 @@ export async function buildMonteCarloContent(
   content.appendChild(formRow("Uncertainty", mcHead, "Distributions are sampled well-wide; parameters you don't vary follow their zone values."));
   content.appendChild(mcList);
 
-  // --- Wells ---------------------------------------------------------------
-  const wellsBox = document.createElement("div");
-  wellsBox.className = "mc-wells";
-  const wellChecks = new Map<string, HTMLInputElement>();
-  const runDefaults = defaultRunWellIds(wells);
-  for (const w of wells) {
-    const label = document.createElement("label");
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.value = w.well_id;
-    cb.checked = runDefaults.size > 0 ? runDefaults.has(w.well_id) : true;
-    wellChecks.set(w.well_id, cb);
-    label.append(cb, document.createTextNode(` ${w.well_name}`));
-    wellsBox.appendChild(label);
-  }
-  content.appendChild(formRow("Wells", wellsBox));
+  // --- Wells (scope, not a checklist) --------------------------------------
+  content.appendChild(scope.el);
 
   // --- Settings (cutoffs + run controls) -----------------------------------
   const iters = numField("Iterations", 1000, 1, 100000);
   const seed = numField("Seed", 42, 0, 1e9);
   const bins = numField("HPV bins", 12, 3, 60);
+  const pctlSel = percentileField();
   const vshMax = numField("VSH ≤", 0.5, 0, 1);
   const phieMin = numField("PHIE ≥", 0.08, 0, 1);
   const sweMax = numField("SWE ≤", 0.5, 0, 1);
   const permMin = numField("PERM ≥ (blank=off)", NaN, 0, 1e6);
   const grid = document.createElement("div");
   grid.className = "mc-settings";
-  for (const f of [iters, seed, bins, vshMax, phieMin, sweMax, permMin]) grid.appendChild(f.el);
-  content.appendChild(formRow("Settings", grid, "Cutoffs match the pay summary; PERM cutoff applies only where a PERM curve exists."));
+  for (const f of [iters, seed, bins, pctlSel, vshMax, phieMin, sweMax, permMin]) grid.appendChild(f.el);
+  content.appendChild(formRow("Settings", grid, "Cutoffs match the pay summary; PERM cutoff applies only where a PERM curve exists. The percentile pair drives both the reported spread and the tornado sweep."));
 
-  // --- Run + results -------------------------------------------------------
+  // --- Sensitivity options -------------------------------------------------
+  const sensChk = checkbox("Rank sensitivity (Spearman)", true);
+  const tornChk = checkbox("Tornado sweep (P10 / P90)", true);
+  const sensBox = document.createElement("div");
+  sensBox.className = "mc-sens-opts";
+  sensBox.append(sensChk.el, tornChk.el);
+  content.appendChild(
+    formRow(
+      "Sensitivity",
+      sensBox,
+      "Rank correlation ranks each parameter's pull on the outputs across all realizations; the tornado sweeps each one to its P10/P90 with the rest held at their medians.",
+    ),
+  );
+
+  // --- Run ------------------------------------------------------------------
   const runBtn = button("Run Monte Carlo");
-  runBtn.classList.add("primary");
+  runBtn.className = "form-run-btn mc-run-btn";
   const statusLine = document.createElement("div");
   statusLine.className = "mc-status";
   const runRow = document.createElement("div");
@@ -274,18 +302,28 @@ export async function buildMonteCarloContent(
   runRow.append(runBtn, statusLine);
   content.appendChild(runRow);
 
-  const results = document.createElement("div");
-  results.className = "mc-results";
-  content.appendChild(results);
+  // --- Results: histogram (top), tornado (middle), TABLE (bottom, per Jauhar) ----
+  const histHost = document.createElement("div");
+  histHost.className = "mc-results mc-hist-host";
+  content.appendChild(histHost);
+
+  const sensHost = document.createElement("div");
+  sensHost.className = "mc-sens";
+  content.appendChild(sensHost);
+
+  const tableHost = document.createElement("div");
+  tableHost.className = "mc-table-host";
+  content.appendChild(tableHost);
 
   runBtn.addEventListener("click", async () => {
-    const wellIds = [...wellChecks.entries()].filter(([, cb]) => cb.checked).map(([id]) => id);
+    const wellIds = scope.getWellIds();
     if (wellIds.length === 0) {
-      setStatus("Select at least one well");
+      setStatus("No wells in scope — pick a group, pin/select wells, or choose All");
       return;
     }
     const mcParams: McParam[] = mcRows.map((r) => ({ param: r.param, dist: toDist(r) }));
     const pm = permMin.value();
+    const [loP, hiP] = pctlSel.value();
     const req: McRequest = {
       well_ids: wellIds,
       steps,
@@ -297,15 +335,20 @@ export async function buildMonteCarloContent(
       swe_max: sweMax.value(),
       perm_min: Number.isFinite(pm) ? pm : null,
       bins: Math.round(bins.value()),
+      low_pctl: loP,
+      high_pctl: hiP,
+      sensitivity: sensChk.checked(),
+      tornado: tornChk.checked(),
     };
     runBtn.disabled = true;
-    statusLine.textContent = "Running…";
+    statusLine.textContent = `Running ${req.iterations.toLocaleString()} realizations × ${wellIds.length} well(s)…`;
     const t0 = performance.now();
     try {
       const res = await runMonteCarlo(req);
       const ms = Math.round(performance.now() - t0);
       statusLine.textContent = `Done in ${ms} ms · ${res.zones.length} well-zone results`;
-      renderResults(results, res, moduleByName);
+      renderResults(histHost, tableHost, res, histOpts);
+      renderSensitivity(sensHost, res, req.iterations, tornOpts);
       setStatus(`Monte Carlo: ${req.iterations} realizations across ${wellIds.length} well(s) in ${ms} ms`);
       recordProcess("Monte Carlo", `${req.iterations} realizations across ${wellIds.length} well(s) → ${res.zones.length} zone results`);
       if (res.errors.length) console.warn("Monte Carlo warnings:", res.errors);
@@ -319,7 +362,65 @@ export async function buildMonteCarloContent(
   describeSteps();
   refreshCandidates();
   renderMcRows();
-  return { el: content, dispose: () => {} };
+  return {
+    el: content,
+    dispose: () => {
+      scope.dispose();
+      disconnectCanvasObservers();
+    },
+  };
+}
+
+// A live percentile-pair picker (drives the reported spread AND the tornado input sweep).
+const PCTL_PAIRS: { label: string; lo: number; hi: number }[] = [
+  { label: "P10 / P90", lo: 0.1, hi: 0.9 },
+  { label: "P25 / P75", lo: 0.25, hi: 0.75 },
+  { label: "P5 / P95", lo: 0.05, hi: 0.95 },
+  { label: "P1 / P99", lo: 0.01, hi: 0.99 },
+];
+function percentileField(): { el: HTMLElement; value: () => [number, number] } {
+  const sel = document.createElement("select");
+  for (const p of PCTL_PAIRS) {
+    const o = document.createElement("option");
+    o.value = `${p.lo}:${p.hi}`;
+    o.textContent = p.label;
+    sel.appendChild(o);
+  }
+  const el = wrap("Percentiles", sel);
+  return {
+    el,
+    value: () => {
+      const [lo, hi] = sel.value.split(":").map(Number);
+      return [lo, hi];
+    },
+  };
+}
+
+/** Percentile fraction → "P10"/"P90"/"P5" style label. */
+function pctLabel(p: number): string {
+  return `P${Math.round(p * 100)}`;
+}
+
+// Canvas resize/redraw management — the histogram and tornado canvases are CSS-100%-wide, so a
+// pane resize must re-rasterize them at the new width (otherwise the browser scales a stale
+// bitmap → the blurry "stretch" the user reported). One ResizeObserver per live canvas.
+const canvasObservers: ResizeObserver[] = [];
+function disconnectCanvasObservers(): void {
+  for (const ro of canvasObservers) ro.disconnect();
+  canvasObservers.length = 0;
+}
+function observeCanvas(canvas: HTMLCanvasElement, draw: () => void): void {
+  if (typeof ResizeObserver === "undefined") return;
+  let w = -1;
+  const ro = new ResizeObserver(() => {
+    const cw = Math.round(canvas.clientWidth);
+    if (cw > 0 && cw !== w) {
+      w = cw;
+      draw();
+    }
+  });
+  ro.observe(canvas);
+  canvasObservers.push(ro);
 }
 
 function toDist(r: McRow): McDistribution {
@@ -330,150 +431,560 @@ function toDist(r: McRow): McDistribution {
 
 // --- Results rendering ------------------------------------------------------
 
+interface PctLabels {
+  lo: string;
+  mid: string;
+  hi: string;
+}
+
 function fmt(v: number, dp = 2): string {
   return Number.isFinite(v) ? v.toFixed(dp) : "—";
 }
-function cell(p: Pctl, dp = 2): string {
-  return `${fmt(p.p50, dp)}  (${fmt(p.p10, dp)}–${fmt(p.p90, dp)})`;
+
+/** A right-aligned numeric cell: the P50 as the headline number, with the (lo–hi) band as a
+ *  quieter sub-line when `range` is on. Keeps the table scannable instead of cramming three
+ *  numbers into every cell. */
+function numCell(p: Pctl, dp: number, range: boolean): HTMLTableCellElement {
+  const td = document.createElement("td");
+  const mid = document.createElement("span");
+  mid.className = "mc-cell-mid";
+  mid.textContent = fmt(p.mid, dp);
+  td.appendChild(mid);
+  if (range) {
+    const rng = document.createElement("span");
+    rng.className = "mc-cell-range";
+    rng.textContent = `${fmt(p.lo, dp)} – ${fmt(p.hi, dp)}`;
+    td.appendChild(rng);
+  }
+  return td;
 }
 
-function renderResults(host: HTMLElement, res: McResult, moduleByName: Map<string, ModuleSpec>): void {
-  void moduleByName;
-  host.innerHTML = "";
+function renderResults(histHost: HTMLElement, tableHost: HTMLElement, res: McResult, histOpts: HistOptions): void {
+  disconnectCanvasObservers();
+  histHost.innerHTML = "";
+  tableHost.innerHTML = "";
   if (res.zones.length === 0) {
-    host.textContent = "No results (no curve data or no zones matched).";
+    histHost.textContent = "No results (no curve data or no zones matched).";
     return;
   }
 
-  const table = document.createElement("table");
-  table.className = "mc-table";
-  const head = document.createElement("tr");
-  for (const h of ["Well", "Zone", "Net pay P50 (P10–P90)", "NTG", "Avg PHIE", "Avg SWE", "HPV P50 (P10–P90)"]) {
-    const th = document.createElement("th");
-    th.textContent = h;
-    head.appendChild(th);
-  }
-  table.appendChild(head);
-  res.zones.forEach((z, i) => {
-    const tr = document.createElement("tr");
-    tr.className = "mc-row-click";
-    const cells = [
-      z.well_name,
-      z.zone,
-      cell(z.net, 1),
-      cell(z.ntg, 3),
-      cell(z.avg_phie, 3),
-      cell(z.avg_swe, 3),
-      cell(z.hpv, 2),
-    ];
-    for (const c of cells) {
-      const td = document.createElement("td");
-      td.textContent = c;
-      tr.appendChild(td);
-    }
-    tr.addEventListener("click", () => {
-      for (const r of table.querySelectorAll(".mc-row-sel")) r.classList.remove("mc-row-sel");
-      tr.classList.add("mc-row-sel");
-      drawHistogram(canvas, z);
-    });
-    if (i === 0) tr.classList.add("mc-row-sel");
-    table.appendChild(tr);
-  });
-  host.appendChild(table);
+  const labels: PctLabels = { lo: pctLabel(res.low_pctl), mid: "P50", hi: pctLabel(res.high_pctl) };
+  const band = `${labels.lo}–${labels.hi}`;
+
+  // --- Histogram (top) ------------------------------------------------------
+  const canvas = document.createElement("canvas");
+  canvas.className = "mc-hist";
+  canvas.style.height = `${histOpts.height}px`;
+  let shownZone = res.zones[0];
+  const drawHist = () => drawHistogram(canvas, shownZone, labels, histOpts);
+  const applyHist = () => {
+    canvas.style.height = `${histOpts.height}px`;
+    drawHist();
+  };
 
   const histWrap = document.createElement("div");
   histWrap.className = "mc-hist-wrap";
+  const histHead = document.createElement("div");
+  histHead.className = "mc-plot-head";
   const caption = document.createElement("div");
   caption.className = "mc-hist-caption";
-  caption.textContent = "HPV distribution (click a row) — bars, with P10 / P50 / P90 markers";
-  const canvas = document.createElement("canvas");
-  canvas.className = "mc-hist";
-  canvas.width = 600;
-  canvas.height = 200;
-  histWrap.append(caption, canvas);
-  host.appendChild(histWrap);
+  caption.textContent = `HPV distribution (click a table row) — bars with ${labels.lo} / ${labels.mid} / ${labels.hi} markers`;
+  const histGear = gearButton();
+  histHead.append(caption, histGear);
+  const histProps = buildHistProps(histOpts, applyHist);
+  histGear.addEventListener("click", () => (histProps.hidden = !histProps.hidden));
+  histWrap.append(histHead, histProps, canvas);
+  histHost.appendChild(histWrap);
 
-  drawHistogram(canvas, res.zones[0]);
+  // --- Table (bottom) -------------------------------------------------------
+  const table = document.createElement("table");
+  table.className = "mc-table";
+  const thead = document.createElement("thead");
+  const head = document.createElement("tr");
+  const cols: { label: string; sub?: string }[] = [
+    { label: "Well" },
+    { label: "Zone" },
+    { label: "Gross" },
+    { label: "Net pay", sub: band },
+    { label: "NTG", sub: "P50" },
+    { label: "Avg PHIE", sub: "P50" },
+    { label: "Avg SWE", sub: "P50" },
+    { label: "HPV", sub: band },
+  ];
+  for (const c of cols) {
+    const th = document.createElement("th");
+    th.textContent = c.label;
+    if (c.sub) {
+      const s = document.createElement("span");
+      s.className = "mc-th-sub";
+      s.textContent = c.sub;
+      th.appendChild(s);
+    }
+    head.appendChild(th);
+  }
+  thead.appendChild(head);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  res.zones.forEach((z, i) => {
+    const tr = document.createElement("tr");
+    tr.className = "mc-row-click";
+    const wellTd = document.createElement("td");
+    wellTd.textContent = z.well_name;
+    const zoneTd = document.createElement("td");
+    zoneTd.textContent = z.zone;
+    const grossTd = document.createElement("td");
+    grossTd.className = "mc-cell-num";
+    grossTd.textContent = fmt(z.gross, 1);
+    tr.append(wellTd, zoneTd, grossTd);
+    tr.append(
+      numCell(z.net, 1, true),
+      numCell(z.ntg, 3, false),
+      numCell(z.avg_phie, 3, false),
+      numCell(z.avg_swe, 3, false),
+      numCell(z.hpv, 2, true),
+    );
+    tr.addEventListener("click", () => {
+      for (const r of table.querySelectorAll(".mc-row-sel")) r.classList.remove("mc-row-sel");
+      tr.classList.add("mc-row-sel");
+      shownZone = z;
+      drawHist();
+    });
+    if (i === 0) tr.classList.add("mc-row-sel");
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+
+  const tableCap = document.createElement("div");
+  tableCap.className = "mc-table-caption";
+  tableCap.textContent = "Per well-zone volumes — click a row to plot its HPV distribution above";
+  const tableWrap = document.createElement("div");
+  tableWrap.className = "mc-table-wrap";
+  tableWrap.appendChild(table);
+  tableHost.append(tableCap, tableWrap);
+
+  applyHist();
+  observeCanvas(canvas, drawHist);
 }
 
 function cssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "#888";
 }
 
-function drawHistogram(canvas: HTMLCanvasElement, z: McZoneResult): void {
+/** A CSS colour string coerced to a 6-digit `#rrggbb` (what <input type=color> needs); falls back
+ *  when the value is a name/rgb()/var that a colour input can't seed from. */
+function toHexColor(v: string, fallback: string): string {
+  const s = v.trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(s)) return s.toLowerCase();
+  if (/^#[0-9a-fA-F]{3}$/.test(s)) return `#${s[1]}${s[1]}${s[2]}${s[2]}${s[3]}${s[3]}`.toLowerCase();
+  return fallback;
+}
+
+/** "Nice" round step (1/2/5 × 10ⁿ) so ~`target` frequency gridlines land on tidy counts. */
+function niceStep(max: number, target = 4): number {
+  const raw = max / Math.max(1, target) || 1;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const norm = raw / mag;
+  const step = (norm >= 5 ? 5 : norm >= 2 ? 2 : 1) * mag;
+  return step > 0 ? step : 1;
+}
+
+function drawHistogram(canvas: HTMLCanvasElement, z: McZoneResult, labels: PctLabels, opts: HistOptions): void {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   const dpr = window.devicePixelRatio || 1;
   const W = canvas.clientWidth || 600;
-  const H = 200;
+  const H = canvas.clientHeight || 200;
   canvas.width = W * dpr;
   canvas.height = H * dpr;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, W, H);
 
-  const accent = cssVar("--accent");
+  const barCol = opts.barColor || cssVar("--accent");
   const accent2 = cssVar("--accent2");
   const text = cssVar("--text-dim");
   const border = cssVar("--border");
 
-  const pad = { l: 8, r: 8, t: 10, b: 22 };
+  const binVals = z.hpv_hist;
+  const maxCount = Math.max(1, ...binVals);
+  const step = niceStep(maxCount, 4);
+  const yMax = step * Math.ceil(maxCount / step); // tidy ceiling ≥ tallest bar
+
+  const pad = { l: opts.showYAxis ? 40 : 10, r: 12, t: 12, b: 30 };
   const plotW = W - pad.l - pad.r;
   const plotH = H - pad.t - pad.b;
-  const bins = z.hpv_hist;
-  const maxCount = Math.max(1, ...bins);
-  const bw = plotW / Math.max(1, bins.length);
+  ctx.font = "500 10px system-ui, sans-serif";
+
+  // Frequency gridlines + y-axis tick labels (what makes it read as a real histogram).
+  if (opts.showGrid || opts.showYAxis) {
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    for (let t = 0; t <= yMax + 1e-9; t += step) {
+      const y = pad.t + plotH - (t / yMax) * plotH;
+      if (opts.showGrid) {
+        ctx.strokeStyle = border;
+        ctx.globalAlpha = 0.4;
+        ctx.beginPath();
+        ctx.moveTo(pad.l, y + 0.5);
+        ctx.lineTo(pad.l + plotW, y + 0.5);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+      if (opts.showYAxis) {
+        ctx.fillStyle = text;
+        ctx.fillText(String(Math.round(t)), pad.l - 6, y);
+      }
+    }
+    if (opts.showYAxis) {
+      ctx.save();
+      ctx.translate(11, pad.t + plotH / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillStyle = text;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("count", 0, 0);
+      ctx.restore();
+    }
+  }
 
   // Bars.
-  ctx.fillStyle = accent;
-  bins.forEach((c, i) => {
-    const h = (c / maxCount) * plotH;
+  const bw = plotW / Math.max(1, binVals.length);
+  binVals.forEach((c, i) => {
+    const h = (c / yMax) * plotH;
+    ctx.fillStyle = barCol;
     ctx.fillRect(pad.l + i * bw + 1, pad.t + plotH - h, Math.max(1, bw - 2), h);
   });
 
-  // Baseline + axis labels (HPV range).
+  // Baseline + x tick labels across the HPV range.
   ctx.strokeStyle = border;
+  ctx.globalAlpha = 1;
   ctx.beginPath();
   ctx.moveTo(pad.l, pad.t + plotH + 0.5);
   ctx.lineTo(pad.l + plotW, pad.t + plotH + 0.5);
   ctx.stroke();
 
-  const hi = z.hist_lo + z.hist_w * bins.length;
+  const hiVal = z.hist_lo + z.hist_w * binVals.length;
+  const midVal = (z.hist_lo + hiVal) / 2;
   ctx.fillStyle = text;
-  ctx.font = "500 10px system-ui, sans-serif";
   ctx.textBaseline = "top";
   ctx.textAlign = "left";
-  ctx.fillText(`${z.hist_lo.toFixed(1)}`, pad.l, pad.t + plotH + 5);
+  ctx.fillText(z.hist_lo.toFixed(1), pad.l, pad.t + plotH + 5);
+  ctx.textAlign = "center";
+  ctx.fillText(midVal.toFixed(1), pad.l + plotW / 2, pad.t + plotH + 5);
   ctx.textAlign = "right";
-  ctx.fillText(`${hi.toFixed(1)} (HPV)`, pad.l + plotW, pad.t + plotH + 5);
+  ctx.fillText(hiVal.toFixed(1), pad.l + plotW, pad.t + plotH + 5);
+  ctx.textAlign = "center";
+  ctx.fillText("HPV", pad.l + plotW / 2, pad.t + plotH + 17);
 
   // P10/P50/P90 markers.
-  const xFor = (v: number): number => {
-    const span = z.hist_w * bins.length || 1;
-    return pad.l + ((v - z.hist_lo) / span) * plotW;
+  if (opts.showMarkers) {
+    const xFor = (v: number): number => {
+      const span = z.hist_w * binVals.length || 1;
+      return pad.l + ((v - z.hist_lo) / span) * plotW;
+    };
+    const marks: [number, string][] = [
+      [z.hpv.lo, labels.lo],
+      [z.hpv.mid, labels.mid],
+      [z.hpv.hi, labels.hi],
+    ];
+    ctx.textBaseline = "top";
+    for (const [v, lbl] of marks) {
+      if (!Number.isFinite(v)) continue;
+      const x = Math.max(pad.l, Math.min(pad.l + plotW, xFor(v)));
+      ctx.strokeStyle = accent2;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(x, pad.t);
+      ctx.lineTo(x, pad.t + plotH);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = accent2;
+      ctx.textAlign = "center";
+      ctx.fillText(lbl, x, pad.t - 1);
+    }
+  }
+}
+
+// --- Sensitivity / tornado rendering ---------------------------------------
+
+type MetricKey = "hpv" | "net" | "ntg" | "avg_phie" | "avg_swe";
+const METRICS: { key: MetricKey; label: string; dp: number }[] = [
+  { key: "hpv", label: "HPV", dp: 2 },
+  { key: "net", label: "Net pay", dp: 1 },
+  { key: "ntg", label: "NTG", dp: 3 },
+  { key: "avg_phie", label: "Avg PHIE", dp: 3 },
+  { key: "avg_swe", label: "Avg SWE", dp: 3 },
+];
+
+function mval(m: McMetricSet | null, k: MetricKey): number {
+  return m ? m[k] : NaN;
+}
+
+/** Below this fraction of the strongest mover's swing, a parameter is treated as not affecting
+ *  the metric and hidden. The OAT sweep is deterministic, so a truly non-contributing parameter
+ *  (e.g. Rw for PHIE) has a swing of ~0 and is dropped — killing the finite-N noise the user saw. */
+const GATE_REL = 0.005;
+
+function renderSensitivity(host: HTMLElement, res: McResult, iterations: number, tornOpts: TornOptions): void {
+  host.innerHTML = "";
+  const zones = (res.sensitivity ?? []).filter((z) => z.params.length > 0);
+  if (zones.length === 0) return;
+
+  const title = document.createElement("div");
+  title.className = "mc-sens-title";
+  title.textContent = "Parameter sensitivity";
+
+  const controls = document.createElement("div");
+  controls.className = "mc-sens-controls";
+  const zoneSel = document.createElement("select");
+  zones.forEach((z, i) => {
+    const o = document.createElement("option");
+    o.value = String(i);
+    o.textContent = `${z.well_name} · ${z.zone}`;
+    zoneSel.appendChild(o);
+  });
+  const metricSel = document.createElement("select");
+  for (const m of METRICS) {
+    const o = document.createElement("option");
+    o.value = m.key;
+    o.textContent = m.label;
+    metricSel.appendChild(o);
+  }
+  const gear = gearButton();
+  controls.append(wrap("Zone", zoneSel), wrap("Metric", metricSel), gear);
+
+  const caption = document.createElement("div");
+  caption.className = "mc-sens-caption";
+  const canvas = document.createElement("canvas");
+  canvas.className = "mc-tornado";
+  // Height tracks the parameter count so bars are neither squished nor sparse (unless the user
+  // pins an explicit height in the ⚙ panel).
+  const maxParams = Math.max(...zones.map((z) => z.params.length));
+  const autoH = Math.min(360, Math.max(150, 34 + maxParams * 30));
+  const applyH = () => {
+    canvas.style.height = `${tornOpts.height > 0 ? tornOpts.height : autoH}px`;
   };
-  const marks: [number, string][] = [
-    [z.hpv.p10, "P10"],
-    [z.hpv.p50, "P50"],
-    [z.hpv.p90, "P90"],
-  ];
-  ctx.textBaseline = "top";
-  for (const [v, lbl] of marks) {
-    if (!Number.isFinite(v)) continue;
-    const x = Math.max(pad.l, Math.min(pad.l + plotW, xFor(v)));
-    ctx.strokeStyle = accent2;
-    ctx.setLineDash([3, 3]);
+
+  const props = buildTornProps(tornOpts, () => redraw());
+  gear.addEventListener("click", () => (props.hidden = !props.hidden));
+
+  host.append(title, controls, props, caption, canvas);
+
+  const currentZone = (): McSensZone => zones[parseInt(zoneSel.value, 10)] ?? zones[0];
+  const redraw = (): void => {
+    applyH();
+    drawTornado(canvas, caption, currentZone(), metricSel.value as MetricKey, iterations, tornOpts);
+  };
+  zoneSel.addEventListener("change", redraw);
+  metricSel.addEventListener("change", redraw);
+  applyH();
+  redraw();
+  observeCanvas(canvas, redraw);
+}
+
+/** Rounded horizontal bar (falls back to a plain rect on older webviews). */
+function bar(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void {
+  const r = Math.min(3, Math.abs(w) / 2, h / 2);
+  if (typeof ctx.roundRect === "function") {
     ctx.beginPath();
-    ctx.moveTo(x, pad.t);
-    ctx.lineTo(x, pad.t + plotH);
+    ctx.roundRect(x, y, w, h, r);
+    ctx.fill();
+  } else {
+    ctx.fillRect(x, y, w, h);
+  }
+}
+
+/** Horizontal tornado: OAT range bars around a common base when a sweep ran, otherwise signed
+ *  Spearman bars. Parameters that don't move the selected metric are hidden (causal gating on
+ *  the deterministic OAT swing); ρ annotations show only when statistically significant. */
+function drawTornado(
+  canvas: HTMLCanvasElement,
+  caption: HTMLElement,
+  z: McSensZone,
+  metric: MetricKey,
+  n: number,
+  opts: TornOptions,
+): void {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.clientWidth || 600;
+  const H = canvas.clientHeight || 220;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+
+  const loCol = opts.loColor || cssVar("--accent");
+  const hiCol = opts.hiColor || cssVar("--accent2");
+  const text = cssVar("--text-dim");
+  const border = cssVar("--border");
+  const rowBg = cssVar("--bg-panel-alt");
+  ctx.font = "500 11px system-ui, sans-serif";
+
+  const meta = METRICS.find((m) => m.key === metric);
+  const label = meta?.label ?? metric;
+  const dp = meta?.dp ?? 2;
+  const pad = { l: 98, r: 60, t: 12, b: 24 };
+  const plotW = W - pad.l - pad.r;
+  const plotH = H - pad.t - pad.b;
+  // 95% two-sided significance floor for a rank correlation at this sample size.
+  const sig = 1.96 / Math.sqrt(Math.max(1, n));
+  const hasOat = z.params.some((p: McSensParam) => p.oat_base !== null);
+
+  const noneNote = (msg: string): void => {
+    caption.textContent = msg;
+    ctx.fillStyle = text;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("— no parameter affects this metric —", pad.l + plotW / 2, pad.t + plotH / 2);
+  };
+
+  const rowStripe = (i: number, y: number, rowH: number): void => {
+    if (opts.showStripes && i % 2 === 1) {
+      ctx.fillStyle = rowBg;
+      ctx.globalAlpha = 0.5;
+      ctx.fillRect(pad.l - 4, y - rowH / 2, plotW + 8, rowH);
+      ctx.globalAlpha = 1;
+    }
+  };
+
+  if (hasOat) {
+    const base = mval(z.params[0].oat_base, metric);
+    let bars = z.params
+      .map((p) => {
+        const a = mval(p.oat_low, metric);
+        const b = mval(p.oat_high, metric);
+        return { name: p.param, lo: Math.min(a, b), hi: Math.max(a, b), corr: p.spearman ? p.spearman[metric] : NaN };
+      })
+      .filter((b) => Number.isFinite(b.lo) && Number.isFinite(b.hi));
+    const maxSwing = bars.reduce((m, b) => Math.max(m, b.hi - b.lo), 0);
+    // Causal gate: drop parameters whose one-at-a-time sweep barely moves this metric.
+    const gate = Math.max(1e-9, GATE_REL * maxSwing);
+    bars = bars.filter((b) => b.hi - b.lo > gate).sort((a, b) => b.hi - b.lo - (a.hi - a.lo));
+    if (bars.length === 0) {
+      noneNote(`Tornado — no parameter moves ${label} (every held-out sweep leaves it unchanged).`);
+      return;
+    }
+    const rowH = Math.min(30, plotH / bars.length);
+
+    let mn = base;
+    let mx = base;
+    for (const b of bars) {
+      mn = Math.min(mn, b.lo);
+      mx = Math.max(mx, b.hi);
+    }
+    if (mx <= mn) mx = mn + 1;
+    const m = 0.06 * (mx - mn);
+    mn -= m;
+    mx += m;
+    const xFor = (v: number): number => pad.l + ((v - mn) / (mx - mn)) * plotW;
+    const bx = xFor(base);
+
+    bars.forEach((_, i) => rowStripe(i, pad.t + i * rowH + rowH / 2, rowH));
+
+    ctx.strokeStyle = border;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath();
+    ctx.moveTo(bx, pad.t);
+    ctx.lineTo(bx, pad.t + plotH);
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle = accent2;
+
+    ctx.textBaseline = "middle";
+    bars.forEach((b, i) => {
+      const y = pad.t + i * rowH + rowH / 2;
+      const x0 = xFor(b.lo);
+      const x1 = xFor(b.hi);
+      const bh = rowH * 0.6;
+      // Split the bar at the base: [lo, base] one colour, [base, hi] the other. Robust when the
+      // metric is non-monotonic (both endpoints on the same side of base → one segment is empty).
+      const lStart = Math.min(x0, bx);
+      const lW = bx - lStart;
+      const rW = Math.max(x1, bx) - bx;
+      ctx.fillStyle = loCol;
+      if (lW > 0.5) bar(ctx, lStart, y - bh / 2, lW, bh);
+      ctx.fillStyle = hiCol;
+      if (rW > 0.5) bar(ctx, bx, y - bh / 2, rW, bh);
+      ctx.fillStyle = text;
+      ctx.textAlign = "right";
+      ctx.fillText(b.name, pad.l - 8, y);
+      if (opts.showRho && Number.isFinite(b.corr) && Math.abs(b.corr) >= sig) {
+        ctx.textAlign = "left";
+        ctx.fillText(`ρ ${b.corr >= 0 ? "+" : ""}${b.corr.toFixed(2)}`, pad.l + plotW + 6, y);
+      }
+    });
+
+    ctx.fillStyle = text;
+    ctx.textBaseline = "top";
     ctx.textAlign = "center";
-    ctx.fillText(lbl, x, pad.t - 1);
+    ctx.fillText(`base ${base.toFixed(dp)}`, bx, pad.t + plotH + 4);
+    ctx.textAlign = "left";
+    ctx.fillText(mn.toFixed(dp), pad.l, pad.t + plotH + 4);
+    ctx.textAlign = "right";
+    ctx.fillText(mx.toFixed(dp), pad.l + plotW, pad.t + plotH + 4);
+    caption.textContent = `Tornado — ${label} swing as each parameter moves across its uncertainty range (others held at median). Parameters with no effect are hidden; ρ shown where significant.`;
+  } else {
+    let bars = z.params
+      .map((p) => ({ name: p.param, corr: p.spearman ? p.spearman[metric] : NaN }))
+      // Significance gate: hide correlations indistinguishable from noise at this sample size.
+      .filter((b) => Number.isFinite(b.corr) && Math.abs(b.corr) >= sig);
+    bars = bars.sort((a, b) => Math.abs(b.corr) - Math.abs(a.corr));
+    if (bars.length === 0) {
+      noneNote(`Rank sensitivity — no parameter correlates with ${label} above the noise floor (|ρ| ≥ ${sig.toFixed(2)}).`);
+      return;
+    }
+    const rowH = Math.min(30, plotH / bars.length);
+    const xFor = (v: number): number => pad.l + ((v + 1) / 2) * plotW;
+    const zx = xFor(0);
+
+    bars.forEach((_, i) => rowStripe(i, pad.t + i * rowH + rowH / 2, rowH));
+
+    ctx.strokeStyle = border;
+    ctx.beginPath();
+    ctx.moveTo(zx, pad.t);
+    ctx.lineTo(zx, pad.t + plotH);
+    ctx.stroke();
+
+    ctx.textBaseline = "middle";
+    bars.forEach((b, i) => {
+      const y = pad.t + i * rowH + rowH / 2;
+      const x = xFor(b.corr);
+      const bh = rowH * 0.6;
+      ctx.fillStyle = b.corr >= 0 ? hiCol : loCol;
+      bar(ctx, Math.min(zx, x), y - bh / 2, Math.max(1, Math.abs(x - zx)), bh);
+      ctx.fillStyle = text;
+      ctx.textAlign = "right";
+      ctx.fillText(b.name, pad.l - 8, y);
+      if (opts.showRho) {
+        ctx.textAlign = b.corr >= 0 ? "left" : "right";
+        ctx.fillText(`${b.corr >= 0 ? "+" : ""}${b.corr.toFixed(2)}`, x + (b.corr >= 0 ? 4 : -4), y);
+      }
+    });
+
+    ctx.fillStyle = text;
+    ctx.textBaseline = "top";
+    ctx.textAlign = "left";
+    ctx.fillText("−1", pad.l, pad.t + plotH + 4);
+    ctx.textAlign = "center";
+    ctx.fillText("0", zx, pad.t + plotH + 4);
+    ctx.textAlign = "right";
+    ctx.fillText("+1", pad.l + plotW, pad.t + plotH + 4);
+    caption.textContent = `Rank sensitivity — Spearman correlation of each parameter with ${label}. Correlations below the noise floor (|ρ| < ${sig.toFixed(2)}) are hidden.`;
   }
 }
 
 // --- small DOM helpers ------------------------------------------------------
+
+function checkbox(label: string, def: boolean): { el: HTMLElement; checked: () => boolean } {
+  const inp = document.createElement("input");
+  inp.type = "checkbox";
+  inp.checked = def;
+  const l = document.createElement("label");
+  l.className = "mc-check";
+  l.append(inp, document.createTextNode(` ${label}`));
+  return { el: l, checked: () => inp.checked };
+}
 
 function button(text: string): HTMLButtonElement {
   const b = document.createElement("button");
@@ -485,6 +996,13 @@ function mini(text: string, onClick: () => void): HTMLButtonElement {
   const b = button(text);
   b.className = "mc-mini";
   b.addEventListener("click", onClick);
+  return b;
+}
+/** The ⚙ toggle that shows/hides a plot's properties panel. */
+function gearButton(): HTMLButtonElement {
+  const b = button("⚙");
+  b.className = "mc-gear";
+  b.title = "Plot properties (size, colour, axes)";
   return b;
 }
 function wrap(label: string, input: HTMLElement): HTMLElement {
@@ -516,4 +1034,113 @@ function numField(label: string, def: number, min: number, max: number): { el: H
   inp.value = Number.isFinite(def) ? String(def) : "";
   const el = wrap(label, inp);
   return { el, value: () => parseFloat(inp.value) };
+}
+
+// --- plot properties (⚙ panels) --------------------------------------------
+
+/** A labelled height/number control inside a ⚙ properties panel. */
+function propNum(label: string, value: number, min: number, max: number, onChange: (v: number) => void): HTMLElement {
+  const inp = document.createElement("input");
+  inp.type = "number";
+  inp.className = "mc-prop-num";
+  inp.min = String(min);
+  inp.max = String(max);
+  inp.step = "10";
+  inp.value = String(value);
+  inp.addEventListener("change", () => {
+    const v = Math.round(parseFloat(inp.value));
+    if (Number.isFinite(v)) onChange(Math.min(max, Math.max(min, v)));
+  });
+  const l = document.createElement("label");
+  l.className = "mc-prop";
+  const t = document.createElement("span");
+  t.textContent = label;
+  l.append(t, inp);
+  return l;
+}
+
+/** A labelled colour swatch inside a ⚙ properties panel. `seedVar` is the theme var used as the
+ *  swatch's initial value when the option is still blank (= "follow theme"). */
+function propColor(label: string, current: string, seedVar: string, fallback: string, onChange: (hex: string) => void): HTMLElement {
+  const inp = document.createElement("input");
+  inp.type = "color";
+  inp.className = "mc-prop-color";
+  inp.value = current ? toHexColor(current, fallback) : toHexColor(cssVar(seedVar), fallback);
+  inp.addEventListener("input", () => onChange(inp.value));
+  const l = document.createElement("label");
+  l.className = "mc-prop";
+  const t = document.createElement("span");
+  t.textContent = label;
+  l.append(t, inp);
+  return l;
+}
+
+/** A labelled checkbox inside a ⚙ properties panel. */
+function propCheck(label: string, checked: boolean, onChange: (v: boolean) => void): HTMLElement {
+  const inp = document.createElement("input");
+  inp.type = "checkbox";
+  inp.checked = checked;
+  inp.addEventListener("change", () => onChange(inp.checked));
+  const l = document.createElement("label");
+  l.className = "mc-prop mc-prop-check";
+  l.append(inp, document.createTextNode(` ${label}`));
+  return l;
+}
+
+function buildHistProps(opts: HistOptions, onChange: () => void): HTMLElement {
+  const panel = document.createElement("div");
+  panel.className = "mc-props";
+  panel.hidden = true;
+  panel.append(
+    propNum("Height", opts.height, 120, 600, (v) => {
+      opts.height = v;
+      onChange();
+    }),
+    propColor("Bars", opts.barColor, "--accent", "#b5651d", (hex) => {
+      opts.barColor = hex;
+      onChange();
+    }),
+    propCheck("P10/50/90 markers", opts.showMarkers, (v) => {
+      opts.showMarkers = v;
+      onChange();
+    }),
+    propCheck("Gridlines", opts.showGrid, (v) => {
+      opts.showGrid = v;
+      onChange();
+    }),
+    propCheck("Y-axis (count)", opts.showYAxis, (v) => {
+      opts.showYAxis = v;
+      onChange();
+    }),
+  );
+  return panel;
+}
+
+function buildTornProps(opts: TornOptions, onChange: () => void): HTMLElement {
+  const panel = document.createElement("div");
+  panel.className = "mc-props";
+  panel.hidden = true;
+  panel.append(
+    propNum("Height", opts.height || 0, 0, 700, (v) => {
+      opts.height = v; // 0 = auto
+      onChange();
+    }),
+    propColor("Low side", opts.loColor, "--accent", "#b5651d", (hex) => {
+      opts.loColor = hex;
+      onChange();
+    }),
+    propColor("High side", opts.hiColor, "--accent2", "#5a7d4f", (hex) => {
+      opts.hiColor = hex;
+      onChange();
+    }),
+    propCheck("Row stripes", opts.showStripes, (v) => {
+      opts.showStripes = v;
+      onChange();
+    }),
+    propCheck("ρ labels", opts.showRho, (v) => {
+      opts.showRho = v;
+      onChange();
+    }),
+  );
+  return panel;
 }

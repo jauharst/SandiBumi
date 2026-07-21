@@ -82,6 +82,9 @@ export class Workspace {
    *  programmatic rebuilds (applySession/reset) and named saves, whose tab-title updates
    *  also fire onDidLayoutChange and would otherwise re-dirty a just-saved workspace. */
   private dirtyMuteUntil = 0;
+  /** True only while the user is mid-drag on a splitter: the anchor panes are momentarily released
+   *  from their fixed (min == max) width so they can be resized, then re-pinned on release. */
+  private anchorsUnlocked = false;
 
   constructor(container: HTMLElement) {
     this.rootContainer = container;
@@ -111,7 +114,35 @@ export class Workspace {
     resizeObserver.observe(container);
     window.addEventListener("resize", relayout);
 
+    // The anchors are pinned to a fixed width so dockview never reflows them. To still allow the
+    // user to resize them, release the pin the instant a splitter (`.dv-sash`) is grabbed — CAPTURE
+    // phase, so it runs before dockview's own drag handler and the drag goes live — then re-pin them
+    // at their new width on release. (Grabbing a content-content sash is harmless: the sidebar isn't
+    // adjacent to it, so it doesn't move, and it's re-pinned at the same width.)
+    container.addEventListener(
+      "pointerdown",
+      (e) => {
+        const t = e.target as HTMLElement | null;
+        if (t?.closest?.(".dv-sash") && !this.anchorsUnlocked) {
+          this.anchorsUnlocked = true;
+          this.setAnchorsFixed(false);
+        }
+      },
+      true,
+    );
+    const endSashDrag = () => {
+      if (!this.anchorsUnlocked) return;
+      this.anchorsUnlocked = false;
+      // Re-pin fixed at whatever width the anchors now have (deferred a frame so the drag's final
+      // geometry has landed before we read it).
+      requestAnimationFrame(() => this.setAnchorsFixed(true));
+    };
+    window.addEventListener("pointerup", endSashDrag, true);
+    window.addEventListener("pointercancel", endSashDrag, true);
+
     if (!this.restore()) this.defaultWorkspace();
+    this.ensureWellsPane();
+    this.ensureTopsPane();
     this.ensureMonitorsBelowWells();
     this.ensureContentPlaceholder();
     this.lockAnchorGroups();
@@ -139,30 +170,48 @@ export class Workspace {
     });
   }
 
-  /** The panels that anchor the workspace — Wells & Tops, Processing, Performance — are
-   *  Jauhar's "main manoeuvre": a fixed-width sidebar that must NOT auto-resize, neither when
-   *  the whole application window is resized nor when a neighbouring content panel is closed.
-   *  We enforce this with dockview group constraints (minimumWidth == maximumWidth): on any
-   *  relayout dockview flexes only the UNCONSTRAINED content panes (log views, plots, inspector)
-   *  and leaves the sidebar exactly its size. So the window resize fills through the content, and
-   *  closing a content pane hands its room to the other content — never to the sidebar (which
-   *  would "accidentally resize" it). Locked once per group instance (WeakSet) so a reopened or
-   *  moved anchor gets re-locked, and we never re-issue an identical constraint in a loop. */
-  private static readonly ANCHOR_PANEL_IDS = ["wellsTops", "processing", "health"];
+  /** The panels that anchor the workspace — Wells, Tops, Processing, Performance. Each anchor group
+   *  is pinned to a FIXED width (min == max), which dockview excludes from its proportional
+   *  redistribution — so opening/closing panes and windows (and resizing the app window) can never
+   *  reflow the sidebar (Jauhar 2026-07-21: "when i add new panes or windows, it still change size").
+   *  The user can still resize them: grabbing a splitter unlocks the anchors for the drag, and they
+   *  are re-pinned at the new width on release (see the pointerdown/up handlers in the constructor).
+   *  The initial pin is applied once per group instance (WeakSet) so a reopened/moved anchor is
+   *  re-seeded, and a user's manual resize is never stomped on a refocus. */
+  private static readonly ANCHOR_PANEL_IDS = ["wellsTops", "tops", "processing", "health"];
   private readonly lockedGroups = new WeakSet<DockviewGroupPanel>();
 
   private lockAnchorGroups(): void {
     for (const id of Workspace.ANCHOR_PANEL_IDS) {
       const group = this.dock.panels.find((p) => p.id === id)?.api.group;
       if (!group || group.api.location.type !== "grid" || this.lockedGroups.has(group)) continue;
-      // Pick a sane sidebar width. A width over ~450 means the layout was restored in a stretched
-      // state (e.g. saved while the sidebar was the only pane) — reset to the default rather than
-      // lock the sidebar at full width. Otherwise respect the user's width within reason.
+      // Seed a sane sidebar width. A width over ~450 means the layout was restored in a stretched
+      // state (e.g. saved while the sidebar was the only pane) — reset to the default. Otherwise
+      // respect the user's width within reason.
       const raw = group.width || 260;
       const width = raw > 450 ? 260 : Math.max(raw, 180);
-      group.api.setConstraints({ minimumWidth: width, maximumWidth: width });
       group.api.setSize({ width });
+      // Fixed width (min == max) → dockview keeps it out of proportional redistribution, so it STAYS
+      // put when other panes/windows open or close. A splitter drag unlocks it briefly (constructor
+      // handlers) and re-pins it at the new width on release.
+      group.api.setConstraints({ minimumWidth: width, maximumWidth: width });
       this.lockedGroups.add(group);
+    }
+  }
+
+  /** Pin every anchor group to a fixed width (min == max at its current width) so dockview won't
+   *  reflow it, or — while the user is dragging a splitter — release it to a floor-only constraint
+   *  so it can be resized. `fixed=true` reads each group's current width and pins there. */
+  private setAnchorsFixed(fixed: boolean): void {
+    for (const id of Workspace.ANCHOR_PANEL_IDS) {
+      const group = this.dock.panels.find((p) => p.id === id)?.api.group;
+      if (!group || group.api.location.type !== "grid") continue;
+      if (fixed) {
+        const w = Math.min(700, Math.max(150, Math.round(group.width)));
+        group.api.setConstraints({ minimumWidth: w, maximumWidth: w });
+      } else {
+        group.api.setConstraints({ minimumWidth: 150, maximumWidth: Number.MAX_SAFE_INTEGER });
+      }
     }
   }
 
@@ -229,7 +278,12 @@ export class Workspace {
     const dockBtn = btn("⇱", "Dock this window back into the workspace", () => {
       if (group.api.location.type !== "grid") group.api.moveTo({ position: "right" });
     });
-    btn("✕", "Close this window and every panel in it", () => group.api.close());
+    const closeBtn = btn("✕", "Close this window and every panel in it", () => group.api.close());
+
+    // An anchor group holds only sidebar anchor panes (Wells/Tops/Processing/Performance).
+    const isAnchorGroup = () =>
+      this.dock.panels.some((p) => p.api.group === group) &&
+      this.dock.panels.filter((p) => p.api.group === group).every((p) => Workspace.ANCHOR_PANEL_IDS.includes(p.id));
 
     // Grid windows can split/float/maximize; floating windows dock back instead.
     const sync = () => {
@@ -239,11 +293,21 @@ export class Workspace {
       splitVBtn.style.display = floating ? "none" : "";
       splitHBtn.style.display = floating ? "none" : "";
       dockBtn.style.display = floating ? "" : "none";
+      // The 4 anchor sidebar panes must always STAY (Jauhar 2026-07-21): no close and no float,
+      // so opening/closing other windows can never make them vanish. They remain freely
+      // resizable via the splitter (the min-width floor set in lockAnchorGroups).
+      if (isAnchorGroup()) {
+        closeBtn.style.display = "none";
+        floatBtn.style.display = "none";
+      }
     };
     sync();
-    const sub = group.api.onDidLocationChange(() => sync());
+    // A newly created anchor group may not have its panel attached at the first sync; re-run it on
+    // the next microtask, and whenever the group's location or panel membership changes.
+    queueMicrotask(sync);
+    const subs = [group.api.onDidLocationChange(() => sync()), group.api.onDidActivePanelChange(() => sync())];
 
-    return { element, init: () => {}, dispose: () => sub.dispose() };
+    return { element, init: () => {}, dispose: () => subs.forEach((s) => s.dispose()) };
   }
 
   /** The ＋ menu on a window's tab bar: opens any panel type as a new tab inside
@@ -274,7 +338,8 @@ export class Workspace {
       ["Composite Log", () => this.openComposite(group)],
       ["Report", () => this.openReport(group)],
       "sep",
-      ["Wells & Tops", () => this.openWellsTops(group)],
+      ["Wells", () => this.openWellsTops(group)],
+      ["Tops", () => this.openTops(group)],
       ["Inspector", () => this.openInspector(group)],
       ["Database Inspector", () => this.openDbInspector(group)],
       ["SQL Query", () => this.openSqlQuery(group)],
@@ -335,6 +400,8 @@ export class Workspace {
         });
       case "wellsTops":
         return this.createWellsTops();
+      case "tops":
+        return this.createTops();
       case "inspector":
         return this.createInspector();
       case "dbInspector":
@@ -733,11 +800,15 @@ export class Workspace {
     } else if (group) {
       items.push({ label: "Dock into workspace", onClick: () => group.api.moveTo({ position: "right" }) });
     }
-    items.push(
-      "sep",
-      { label: "Close panel", danger: true, onClick: () => this.dock.panels.find((p) => p.id === panelId)?.api.close() },
-      { label: "Close window", danger: true, onClick: () => group?.api.close() },
-    );
+    // Anchor sidebar panes can't be closed (they must always stay), so their menu omits the
+    // Close entries — matching the hidden ✕ on their window header.
+    if (!Workspace.ANCHOR_PANEL_IDS.includes(panelId)) {
+      items.push(
+        "sep",
+        { label: "Close panel", danger: true, onClick: () => this.dock.panels.find((p) => p.id === panelId)?.api.close() },
+        { label: "Close window", danger: true, onClick: () => group?.api.close() },
+      );
+    }
     return items;
   }
 
@@ -771,19 +842,15 @@ export class Workspace {
     });
   }
 
+  /** The Wells pane (component id "wellsTops", kept for layout-restore compatibility). Tops now
+   *  live in their OWN pane (see createTops) — Jauhar asked for them separated. The ObjectTree
+   *  renders its own "Wells (N)" group header, so there is no static section title here (that was
+   *  the duplicate "Wells" label). Tops follow the selection through appState, not a shared
+   *  closure, so the two panes are fully independent. */
   private createWellsTops(): IContentRenderer {
     return new DomPanel("dock-wells", (host) => {
-      host.innerHTML = `
-        <div class="sidebar-section">
-          <div class="sidebar-title">Wells</div>
-          <div class="sidebar-body dock-object-tree"></div>
-        </div>
-        <div class="sidebar-section">
-          <div class="sidebar-title">Tops</div>
-          <div class="sidebar-body dock-tops-panel"></div>
-        </div>`;
+      host.innerHTML = `<div class="sidebar-section"><div class="sidebar-body dock-object-tree"></div></div>`;
       const tree = new ObjectTree(host.querySelector<HTMLElement>(".dock-object-tree")!);
-      const tops = new TopsPanel(host.querySelector<HTMLElement>(".dock-tops-panel")!);
       tree.onSelectWell = (well) => {
         // A different well invalidates the old well's top interval BEFORE the well
         // broadcast, so followers never see a foreign interval.
@@ -792,22 +859,12 @@ export class Workspace {
         }
         appState.selectedWell.set(well);
         setStatus(`Selected well ${well.well_name}`);
-        void tops.refresh(well.well_id);
-      };
-      tops.onSelectInterval = (interval) => {
-        appState.selectedInterval.set(interval);
-        setStatus(
-          interval
-            ? `Windowed to top ${interval.topName} (${interval.depthMin.toFixed(1)}–${interval.depthMax?.toFixed(1) ?? "TD"}) — plots and log views follow`
-            : "Top interval cleared — plots back to full depth",
-        );
       };
       tree.selectedWellId = appState.selectedWell.get()?.well_id ?? null;
       void tree.refresh();
       const unsub = appState.dataVersion.subscribe(() => {
         tree.selectedWellId = appState.selectedWell.get()?.well_id ?? null;
         void tree.refresh();
-        void tops.refresh(appState.selectedWell.get()?.well_id ?? null);
       });
       // Group changes from the manager (create/rename/delete/membership/active) refresh
       // the list independently of data changes. subscribe() fires once immediately; the
@@ -824,6 +881,32 @@ export class Workspace {
       return () => {
         unsub();
         unsubGroups();
+      };
+    });
+  }
+
+  /** The Tops pane — its own dock panel now (split out of Wells at Jauhar's request). It follows
+   *  the globally selected well via appState and windows the plots/log views by publishing the
+   *  clicked top interval to appState.selectedInterval. */
+  private createTops(): IContentRenderer {
+    return new DomPanel("dock-tops", (host) => {
+      host.innerHTML = `<div class="sidebar-section"><div class="sidebar-body dock-tops-panel"></div></div>`;
+      const tops = new TopsPanel(host.querySelector<HTMLElement>(".dock-tops-panel")!);
+      tops.onSelectInterval = (interval) => {
+        appState.selectedInterval.set(interval);
+        setStatus(
+          interval
+            ? `Windowed to top ${interval.topName} (${interval.depthMin.toFixed(1)}–${interval.depthMax?.toFixed(1) ?? "TD"}) — plots and log views follow`
+            : "Top interval cleared — plots back to full depth",
+        );
+      };
+      // Follow the selected well; refresh on data changes. subscribe() fires immediately, so the
+      // pane populates for the current well without a separate initial call.
+      const unsubWell = appState.selectedWell.subscribe((well) => void tops.refresh(well?.well_id ?? null));
+      const unsubData = appState.dataVersion.subscribe(() => void tops.refresh(appState.selectedWell.get()?.well_id ?? null));
+      return () => {
+        unsubWell();
+        unsubData();
       };
     });
   }
@@ -923,7 +1006,7 @@ export class Workspace {
   }
 
   private defaultWorkspace(): void {
-    const wells = this.dock.addPanel({ id: "wellsTops", component: "wellsTops", title: "Wells & Tops" });
+    const wells = this.dock.addPanel({ id: "wellsTops", component: "wellsTops", title: "Wells" });
     const log = this.dock.addPanel({
       id: this.freshId("logview"),
       component: "logview",
@@ -943,20 +1026,47 @@ export class Workspace {
     log.api.setActive();
   }
 
-  /** Processing + Performance monitors dock below the Wells & Tops pane and default to visible
-   *  (the user asked for them always showing). Adds whichever is missing — tabbed together in a
-   *  group directly below the wells pane; an instance the user already moved elsewhere is left in
-   *  place. Runs after both the default build AND a layout restore, so older saved layouts (which
-   *  predate these panels) pick them up too. */
-  private ensureMonitorsBelowWells(): void {
+  /** The Tops pane docks directly below the Wells pane (its own resizable panel, split out of the
+   *  old combined Wells & Tops). Added when absent — after both the default build and a layout
+   *  restore, so older saved layouts (which had Tops embedded in the wells pane) pick up the
+   *  standalone pane too. An instance the user already moved elsewhere is left in place. */
+  /** The Wells pane anchors the sidebar and can no longer be closed — but an OLD saved layout may
+   *  predate that (the user closed it back when close was still allowed). Re-add it on restore so
+   *  the sidebar always has its Wells pane; ensureTopsPane/monitors then dock beneath it. */
+  private ensureWellsPane(): void {
+    if (this.dock.panels.some((p) => p.id === "wellsTops")) return;
+    this.dock.addPanel({ id: "wellsTops", component: "wellsTops", title: "Wells", position: { direction: "left" } });
+  }
+
+  private ensureTopsPane(): void {
+    if (this.dock.panels.some((p) => p.id === "tops")) return;
     const wellsGroup = this.dock.panels.find((p) => p.id === "wellsTops")?.api.group;
+    const panel = this.dock.addPanel({
+      id: "tops",
+      component: "tops",
+      title: "Tops",
+      position: wellsGroup ? { referenceGroup: wellsGroup, direction: "below" as const } : undefined,
+    });
+    // Tops are usually short — give the wells list the bulk of the sidebar height.
+    panel.api.setSize({ height: 220 });
+  }
+
+  /** Processing + Performance monitors dock below the sidebar column (under Tops when it exists,
+   *  else Wells) and default to visible (the user asked for them always showing). Adds whichever
+   *  is missing — tabbed together in one group; an instance the user already moved elsewhere is
+   *  left in place. Runs after both the default build AND a layout restore, so older saved layouts
+   *  (which predate these panels) pick them up too. */
+  private ensureMonitorsBelowWells(): void {
+    const anchorGroup =
+      this.dock.panels.find((p) => p.id === "tops")?.api.group ??
+      this.dock.panels.find((p) => p.id === "wellsTops")?.api.group;
     let monitorGroup = this.dock.panels.find((p) => p.id === "processing")?.api.group;
     const add = (id: string, component: string, title: string): void => {
       if (this.dock.panels.some((p) => p.id === id)) return;
       const position = monitorGroup
         ? { referenceGroup: monitorGroup }
-        : wellsGroup
-          ? { referenceGroup: wellsGroup, direction: "below" as const }
+        : anchorGroup
+          ? { referenceGroup: anchorGroup, direction: "below" as const }
           : undefined;
       const panel = this.dock.addPanel({ id, component, title, position });
       monitorGroup = panel.api.group; // the second monitor tabs into the first's group
@@ -986,6 +1096,8 @@ export class Workspace {
     this.dock.clear();
     this.logViews.clear();
     this.defaultWorkspace();
+    this.ensureWellsPane();
+    this.ensureTopsPane();
     this.ensureMonitorsBelowWells();
     this.ensureContentPlaceholder();
     this.lockAnchorGroups();
@@ -1024,7 +1136,11 @@ export class Workspace {
   }
 
   openWellsTops(group?: DockviewGroupPanel): void {
-    this.openSingleton("wellsTops", "wellsTops", "Wells & Tops", group);
+    this.openSingleton("wellsTops", "wellsTops", "Wells", group);
+  }
+
+  openTops(group?: DockviewGroupPanel): void {
+    this.openSingleton("tops", "tops", "Tops", group);
   }
 
   openInspector(group?: DockviewGroupPanel): void {
@@ -1270,6 +1386,7 @@ export class Workspace {
         this.logViews.get(panelId)?.setLayout(layout);
       }
     }
+    this.ensureTopsPane(); // pre-split snapshots had Tops embedded in the wells pane
     this.ensureContentPlaceholder();
     this.lockAnchorGroups();
     // Everything now matches the applied session — nothing is "unsaved".

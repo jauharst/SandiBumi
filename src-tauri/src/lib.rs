@@ -619,6 +619,27 @@ fn set_active_well_group(db: tauri::State<DbState>, group_id: Option<String>) ->
     db::set_active_well_group(&conn, group_id.as_deref()).map_err(|e| e.to_string())
 }
 
+// --- Pinned wells: a persisted favourites subset, reused as a run-scope shortcut -------
+
+#[tauri::command]
+fn list_pinned_wells(db: tauri::State<DbState>) -> Result<Vec<String>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_pinned_wells(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_well_pin(db: tauri::State<DbState>, well_id: String, pinned: bool) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    db::set_well_pin(&conn, &well_id, pinned).map_err(|e| e.to_string())
+}
+
+/// Replaces the whole pinned set at once ("pin selection" / "clear pins").
+#[tauri::command]
+fn set_pinned_wells(db: tauri::State<DbState>, well_ids: Vec<String>) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    db::set_pinned_wells(&conn, &well_ids).map_err(|e| e.to_string())
+}
+
 /// Fetches every curve referenced by a layout's tracks for one well, decimated to
 /// `target_pixel_height` per curve — the data source for the multi-track viewer.
 #[tauri::command]
@@ -1278,6 +1299,9 @@ pub fn run() {
             delete_well_group,
             set_well_group_members,
             set_active_well_group,
+            list_pinned_wells,
+            set_well_pin,
+            set_pinned_wells,
             get_track_data,
             get_curve_data,
             list_modules,

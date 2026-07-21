@@ -313,6 +313,23 @@ export function setActiveWellGroup(groupId: string | null): Promise<void> {
   return invoke<void>("set_active_well_group", { groupId });
 }
 
+// --- Pinned wells: a persisted favourites subset, reused as a run-scope shortcut ---------
+
+/** The pinned well ids (persisted, independent of groups). */
+export function listPinnedWells(): Promise<string[]> {
+  return invoke<string[]>("list_pinned_wells");
+}
+
+/** Pins or unpins a single well. */
+export function setWellPin(wellId: string, pinned: boolean): Promise<void> {
+  return invoke<void>("set_well_pin", { wellId, pinned });
+}
+
+/** Replaces the whole pinned set ("pin selection" / "clear pins"). */
+export function setPinnedWells(wellIds: string[]): Promise<void> {
+  return invoke<void>("set_pinned_wells", { wellIds });
+}
+
 export interface TrackCurveSeries {
   curve_name: string;
   depth: Float32Array;
@@ -582,13 +599,22 @@ export interface McRequest {
   swe_max: number;
   perm_min: number | null;
   bins: number;
+  /** Low / high output percentiles (fractions in (0,1); default 0.10 / 0.90). One control drives
+   *  both the reported spread and the tornado's input sweep. The median is always reported. */
+  low_pctl?: number;
+  high_pctl?: number;
+  /** Retain draws and report Spearman rank correlation of each param vs each output metric. */
+  sensitivity?: boolean;
+  /** Run a one-at-a-time low/median/high sweep per parameter (the classic tornado range). */
+  tornado?: boolean;
 }
 
-/** P10/P50/P90 + mean/sd of one metric across realizations. */
+/** Low / median / high percentile + mean/sd of one metric across realizations. The lo/hi
+ *  percentiles are the request's `low_pctl` / `high_pctl` (echoed on `McResult`). */
 export interface Pctl {
-  p10: number;
-  p50: number;
-  p90: number;
+  lo: number;
+  mid: number;
+  hi: number;
   mean: number;
   sd: number;
 }
@@ -611,8 +637,41 @@ export interface McZoneResult {
   hist_w: number;
 }
 
+/** One output-metric bundle (net / NTG / avg PHIE / avg SWE / HPV) for a sweep point or a
+ *  Spearman row. */
+export interface McMetricSet {
+  net: number;
+  ntg: number;
+  avg_phie: number;
+  avg_swe: number;
+  hpv: number;
+}
+
+/** Sensitivity of one Monte Carlo parameter within one zone. */
+export interface McSensParam {
+  param: string;
+  /** Spearman rank correlation (−1..+1) of the param vs each metric; null unless requested. */
+  spearman: McMetricSet | null;
+  /** Output metrics at the param's P10 / median / P90 (others held at base); null unless tornado. */
+  oat_low: McMetricSet | null;
+  oat_base: McMetricSet | null;
+  oat_high: McMetricSet | null;
+}
+
+export interface McSensZone {
+  well_id: string;
+  well_name: string;
+  zone: string;
+  params: McSensParam[];
+}
+
 export interface McResult {
   zones: McZoneResult[];
+  /** Per-zone parameter sensitivity (empty unless sensitivity/tornado was requested). */
+  sensitivity: McSensZone[];
+  /** Output percentiles actually used (echoed + clamped) so the UI can label the lo/hi columns. */
+  low_pctl: number;
+  high_pctl: number;
   errors: string[];
 }
 

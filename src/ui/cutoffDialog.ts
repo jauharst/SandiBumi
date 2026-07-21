@@ -7,13 +7,13 @@ import {
   runCutoffSweep,
   saveDocument,
   type CutoffSweepResult,
-  type WellSummary,
 } from "../ipc";
 import { recordProcess } from "../processLog";
-import { appState, bumpDataVersion, defaultRunWellIds, filterByActiveGroup } from "../state";
+import { appState, bumpDataVersion } from "../state";
 import { formRow } from "./modal";
 import { PlotCanvas, attachResizeRedraw, faciesColor, fitCanvasBackingStore, readTheme, type AxisSpec } from "./plotCanvas";
 import { nearestDepthIndex } from "./plotCommon";
+import { buildWellScope } from "./wellScope";
 
 /** Cutoff sensitivity (ROADMAP Wave E item 21 — KKT ONWJ deck slides 84–87).
  *  Two ways to pick VSH/PHIE/SWE pay cutoffs against DST-tested rock:
@@ -26,31 +26,17 @@ import { nearestDepthIndex } from "./plotCommon";
 export async function buildCutoffContent(
   setStatus: (text: string) => void,
 ): Promise<{ el: HTMLElement; dispose: () => void }> {
-  const selectedWell = appState.selectedWell.get();
-  const wells = filterByActiveGroup(await listWells());
+  const wells = await listWells();
 
   const root = document.createElement("div");
   root.className = "cutoff-pane";
 
-  // --- Well checklist -------------------------------------------------------
-  const wellBox = document.createElement("div");
-  wellBox.className = "well-checklist";
-  const wellChecks: { well: WellSummary; input: HTMLInputElement }[] = [];
-  const runDefaults = defaultRunWellIds(wells);
-  if (runDefaults.size === 0 && selectedWell) runDefaults.add(selectedWell.well_id);
-  for (const well of wells) {
-    const label = document.createElement("label");
-    label.className = "well-check";
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.checked = runDefaults.has(well.well_id);
-    label.appendChild(input);
-    label.appendChild(document.createTextNode(well.well_name));
-    wellBox.appendChild(label);
-    wellChecks.push({ well, input });
-  }
-  root.appendChild(formRow("Wells", wellBox));
-  const checkedWellIds = (): string[] => wellChecks.filter((w) => w.input.checked).map((w) => w.well.well_id);
+  // --- Well scope (group / ★ pinned / selection / all) instead of a per-well checklist.
+  // The zone/DST pickers rebuild whenever the scope changes; `wells` is kept (unfiltered) for
+  // the crossplot's per-well name lookup.
+  const scope = await buildWellScope({ onChange: () => void refreshZoneDst() });
+  root.appendChild(scope.el);
+  const checkedWellIds = (): string[] => scope.getWellIds();
 
   // --- Zone + DST dataset pickers (union over the currently-checked wells) ---
   const zoneSelect = document.createElement("select");
@@ -107,7 +93,7 @@ export async function buildCutoffContent(
   await refreshZoneDst();
   root.appendChild(formRow("Zone", zoneSelect, "Restrict the analysis to one zone"));
   root.appendChild(formRow("DST / perf set", dstSelect, "Only samples inside these test intervals count"));
-  for (const { input } of wellChecks) input.addEventListener("change", () => void refreshZoneDst());
+  // The scope selector's onChange (wired at construction) re-runs refreshZoneDst on any change.
   dstSelect.addEventListener("change", () => {
     dstUserTouched = true;
   });
@@ -516,7 +502,7 @@ export async function buildCutoffContent(
   async function computeSweep(): Promise<void> {
     const wellIds = checkedWellIds();
     if (wellIds.length === 0) {
-      setStatus("Cutoff sweep: select at least one well.");
+      setStatus("No wells in scope — pick a group, pin/select wells, or choose All.");
       return;
     }
     const sweepMin = numOf(sweepMinIn, 0);
@@ -566,9 +552,10 @@ export async function buildCutoffContent(
   }
 
   async function computeCrossplot(): Promise<void> {
-    const checked = wellChecks.filter((w) => w.input.checked);
+    const ids = new Set(scope.getWellIds());
+    const checked = wells.filter((w) => ids.has(w.well_id));
     if (checked.length === 0) {
-      setStatus("DST crossplot: select at least one well.");
+      setStatus("No wells in scope — pick a group, pin/select wells, or choose All.");
       return;
     }
     const xCurve = xCurveIn.value.trim() || "VOL_WETCLAY";
@@ -581,7 +568,7 @@ export async function buildCutoffContent(
     readout.textContent = "Loading crossplot data…";
     try {
       const built: XSet[] = [];
-      for (const { well } of checked) {
+      for (const well of checked) {
         const series = await getCurveData(well.well_id, [xCurve, yCurve], null, null);
         const xs = series.find((s) => s.curve_name === xCurve);
         const ys = series.find((s) => s.curve_name === yCurve);
@@ -833,6 +820,7 @@ export async function buildCutoffContent(
     dispose: () => {
       disposeResize();
       unsubTheme();
+      scope.dispose();
       canvas.removeEventListener("pointerdown", onDown);
       canvas.removeEventListener("pointermove", onMove);
       canvas.removeEventListener("pointerup", onUp);

@@ -9,6 +9,7 @@ import {
 import { appState, defaultRunWellIds, filterByActiveGroup } from "../state";
 import { formRow } from "./modal";
 import { recordProcess } from "../processLog";
+import { buildWellScope } from "./wellScope";
 
 /** Machine-learning dialog (Phase 10-4): one entry point for the whole catalog —
  *  supervised regression/classification (fit on labelled train wells, predict on apply
@@ -144,6 +145,9 @@ export async function buildMlContent(
   ]);
   const curveNames = catalog.map((c) => c.name);
   const selected = appState.selectedWell.get();
+  // Apply wells (the run scope) come from the shared scope selector; Train wells stay a
+  // checklist below — a distinct labelled-data pick, not the run coverage.
+  const scope = await buildWellScope();
 
   let task = TASKS[0];
   let algo = task.algos[0];
@@ -221,10 +225,8 @@ export async function buildMlContent(
   const train = wellBox(false);
   const trainRow = formRow("Train wells", train.el, "Wells whose labelled samples fit the model.");
   content.appendChild(trainRow);
-  const apply = wellBox(false);
-  content.appendChild(
-    formRow("Apply wells", apply.el, "Wells that get the output curves. Unsupervised models also FIT on these (pooled — field-wide)."),
-  );
+  // Apply wells = the run scope. Unsupervised models also FIT on these (pooled — field-wide).
+  content.appendChild(scope.el);
 
   // --- Hyperparameters + output -------------------------------------------
   const paramsGrid = document.createElement("div");
@@ -353,14 +355,14 @@ export async function buildMlContent(
 
   runBtn.addEventListener("click", async () => {
     const features = [...featChecks.entries()].filter(([, cb]) => cb.checked).map(([n]) => n);
-    const applyIds = [...apply.checks.entries()].filter(([, cb]) => cb.checked).map(([id]) => id);
+    const applyIds = scope.getWellIds();
     const trainIds = [...train.checks.entries()].filter(([, cb]) => cb.checked).map(([id]) => id);
     if (features.length === 0) {
       setStatus("Check at least one input curve");
       return;
     }
     if (applyIds.length === 0) {
-      setStatus("Check at least one apply well");
+      setStatus("No wells in scope — pick a group, pin/select wells, or choose All");
       return;
     }
     const params: Record<string, number | string | boolean> = {
@@ -400,7 +402,7 @@ export async function buildMlContent(
   });
 
   refreshAlgos();
-  return { el: content, dispose: () => {} };
+  return { el: content, dispose: () => scope.dispose() };
 }
 
 function fmtMetric(v: unknown): string {

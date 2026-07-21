@@ -1,6 +1,7 @@
-import { listDocuments, listWells, runPaySummary, type PaySummaryRow, type WellSummary } from "../ipc";
-import { appState, bumpDataVersion, defaultRunWellIds, filterByActiveGroup } from "../state";
+import { listDocuments, runPaySummary, type PaySummaryRow } from "../ipc";
+import { bumpDataVersion } from "../state";
 import { formRow } from "./modal";
+import { buildWellScope } from "./wellScope";
 
 /** Cutoffs picked in the Cutoff Sensitivity pane are saved as documents "cutoffs"/"__default__";
  *  the pay summary preloads them so a picked set flows straight into the report defaults. */
@@ -21,28 +22,12 @@ async function loadDefaultCutoffs(): Promise<{ vsh_max?: number; phie_min?: numb
 export async function buildSummaryContent(
   setStatus: (text: string) => void,
 ): Promise<{ el: HTMLElement; dispose: () => void }> {
-  const selectedWell = appState.selectedWell.get();
-  const wells = filterByActiveGroup(await listWells());
+  const scope = await buildWellScope();
   const content = document.createElement("div");
   content.className = "summary-pane";
 
-  const wellBox = document.createElement("div");
-  wellBox.className = "well-checklist";
-  const wellChecks: { well: WellSummary; input: HTMLInputElement }[] = [];
-  const runDefaults = defaultRunWellIds(wells);
-  if (runDefaults.size === 0 && selectedWell) runDefaults.add(selectedWell.well_id);
-  for (const well of wells) {
-    const label = document.createElement("label");
-    label.className = "well-check";
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.checked = runDefaults.has(well.well_id);
-    label.appendChild(input);
-    label.appendChild(document.createTextNode(well.well_name));
-    wellBox.appendChild(label);
-    wellChecks.push({ well, input });
-  }
-  content.appendChild(formRow("Wells", wellBox));
+  // Scope selector (group / ★ pinned / selection / all) instead of a per-well checklist.
+  content.appendChild(scope.el);
 
   const numInput = (value: string): HTMLInputElement => {
     const input = document.createElement("input");
@@ -73,9 +58,9 @@ export async function buildSummaryContent(
   content.appendChild(resultBox);
 
   runBtn.addEventListener("click", async () => {
-    const wellIds = wellChecks.filter((w) => w.input.checked).map((w) => w.well.well_id);
+    const wellIds = scope.getWellIds();
     if (wellIds.length === 0) {
-      resultBox.textContent = "Select at least one well.";
+      resultBox.textContent = "No wells in scope — pick a group, pin/select wells, or choose All.";
       return;
     }
     const permRaw = parseFloat(permIn.value);
@@ -99,7 +84,7 @@ export async function buildSummaryContent(
     }
   });
 
-  return { el: content, dispose: () => {} };
+  return { el: content, dispose: () => scope.dispose() };
 }
 
 function fmt(v: number | null | undefined, digits = 2): string {

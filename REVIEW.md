@@ -7,6 +7,134 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 2 — panes, shift-select, MC plot props + table + polish (2026-07-21, Jauhar feedback batch #2)
+
+Follow-up batch after the first round: (1) Shift-select was painting a native blue text
+highlight; (2) the "4 main panes" clarification — they should always **STAY** (never vanish when
+other panes pop/close) but stay manually resizable; (3) MC + other UI polish toward the **Cutoff
+Sensitivity** panel look (image 3); (4) MC — add **plot property panels** (resize, colour, axes)
+for the histogram + tornado, and make the histogram look like a **real histogram**; (5) MC — move
+the **results table to the very bottom**. **tsc EXIT 0; browser-verified on an isolated vite (port
+1428, never touched your 1420). Nothing committed.**
+
+- [ ] **Shift-select no longer turns blue.** Range-select (Shift-click) was triggering the browser's
+      native text selection across the well labels. Added `user-select: none` to the tree nodes and
+      both tree bodies (Wells + Tops). *(Verified: `.tree-node` computes `user-select: none`.)*
+- [ ] **The 4 anchor panes now STAY.** Wells / Tops / Processing / Performance can no longer be closed
+      — the ✕ is hidden on their window header, Close panel/Close window are dropped from their
+      right-click menu, and they can't be floated out of the sidebar. So opening/closing other windows
+      can never make them disappear. They remain **freely resizable** (drag the splitter; the
+      minimum-width floor only stops full collapse). A restored old layout that had lost the Wells pane
+      re-adds it. *(If you'd rather they could still be closed, say so.)*
+- [ ] **The anchor panes keep their WIDTH when other panes/windows pop up or close.** dockview lays out
+      proportionally (that option is hardcoded on and not exposed), so opening/closing a pane was
+      reflowing the sidebar. The fix pins each anchor group to a **fixed width (min == max)**, which
+      dockview excludes from redistribution entirely — so no add, close, or window resize can move it.
+      You can still resize it: grabbing the splitter (`.dv-sash`, caught in the capture phase so the
+      drag goes live) unlocks the anchors for the drag, and they're re-pinned at the new width on
+      release. *(Two earlier heuristic attempts — restore-on-layout-change — held on close but not on
+      add, because an add fires extra reflow passes. This fixed-width approach needs no heuristic.
+      Verified end-to-end against the real dockview build in isolation: add 4 panes → held 260; close 2
+      → held 260; real DOM sash-drag → 340; add 3 more → held 340.)*
+- [ ] **MC results table is at the very bottom.** Order is now **histogram → tornado → table**.
+      Click a table row to plot that well-zone's HPV distribution in the histogram above.
+      *(Browser-verified: the three result blocks render in that DOM order, table last.)*
+- [ ] **Histogram is a real histogram now.** Added a frequency **y-axis** (nice-stepped count ticks
+      0/20/40/… with a "count" title), horizontal **gridlines**, x-axis HPV min/mid/max labels, and the
+      P10/P50/P90 markers. *(Browser-verified by capturing the canvas draw calls: count ticks + "count"
+      + "HPV" + P10/P50/P90 all drawn; canvas re-rasterises crisply on resize.)*
+- [ ] **⚙ Plot properties on both plots.** A gear on the histogram and the tornado opens an inline
+      panel: **Height (resize)**, **colour** (bar colour / low-side + high-side bar colours), and
+      toggles — histogram: P-markers, gridlines, y-axis; tornado: row stripes, ρ labels. Height 0 on the
+      tornado = auto-size to the parameter count. *(Browser-verified: height 220→320 px live; bar colour
+      set to #1f77d0 and the sampled bar pixel read back rgb(31,119,208).)*
+- [ ] **MC UI polished toward the Cutoff panel.** Full-width brown **Run** button (matches Compute),
+      `form-control`-styled selects/inputs, and tidier uncertainty-parameter rows (flexible param name,
+      compact distribution pill). *(Browser-verified: Run button is full-width with the accent
+      background.)*
+- [ ] **Rw-for-PHIE gating still holds** after the tornado rewrite. *(Re-verified by capturing drawn
+      labels: RW is drawn for HPV — it drives HPV via Sw — and dropped for Avg PHIE.)*
+
+## Pane layout + MC/workflow polish + well-scope selector (2026-07-21, Jauhar feedback batch)
+
+Jauhar's batch: (1) panes — two "Wells", tops-in-wells, non-resizable anchors; (2) MC — polish,
+percentiles, table, ugly/stretching plots, and Rw showing sensitivity for PHIE it doesn't affect;
+(3) workflow polish; (4) cross-cutting: stop checklisting wells one-by-one — use groups + pins.
+**tsc EXIT 0; Rust montecarlo suite 7/7 (1 new: configurable percentiles); cargo check EXIT 0;
+browser-verified on an isolated vite (port 1428, never touched your 1420) — see the proofs noted
+per item. Nothing committed.**
+
+### Panes
+- [ ] **No more "two Wells".** The wells pane had a static "WELLS" title *and* the ObjectTree's own
+      "Wells (N)" header — plus a **concurrent-refresh race** that appended the header (and every well)
+      **twice**. Fixed both: dropped the static title; added a generation guard to `ObjectTree.refresh`.
+      *(Browser-verified: 1 header, 9 well nodes — not 18 — for a 9-well group.)*
+- [ ] **Tops is its own pane now.** Split out of the combined "Wells & Tops": a standalone **Tops** dock
+      panel that follows the selected well through app state, docked directly below the **Wells** pane.
+      It's a real dockview panel — drag it anywhere, tab it, resize it. *(Verified: panel list shows
+      separate "Wells" and "Tops".)* Old saved layouts get the Tops pane auto-added on open.
+- [ ] **Sidebar panes are resizable.** The Wells / Tops / Processing / Performance anchors were locked
+      at a fixed width (min == max). Now they have a **minimum-width floor only** — drag the splitter to
+      any width; they still won't collapse or auto-stretch when a neighbour closes. *(This reverses the
+      earlier fixed-width lock, per your request — tell me if you preferred fixed.)*
+- [ ] **★ pin a well** in the Wells pane (the star to the left of each name; persisted per project).
+
+### Well scope — no more well-by-well checklists (imagine 2000 wells)
+- [ ] Every run dialog (**Monte Carlo, Workflow, every module pane, Multimin, ML-apply, Cutoff,
+      Summary, Report-batch**) now shows one compact **scope selector** instead of a checkbox per well:
+      **Group** (defaults to the active group) · **★ Pinned** · **Selection** (your Ctrl-click set) ·
+      **All** · **Custom…** (a searchable checklist for the rare precise pick), with a live "N wells"
+      count. *(Verified: defaults to the active group and resolves 9 wells.)*
+- [ ] Groups already existed and already scoped dialogs — the gap was purely the UI. **Pinned wells are
+      new** (a `well_pins` table + ★ toggle) since a reusable pin-subset didn't exist before (the old 📌
+      is only the workspace-follow toggle, unchanged). ML's *Train wells* and Auto-correlation's *targets*
+      are deliberately **not** scope-swapped (they're a different concept, not "run on N wells").
+
+### Monte Carlo
+- [ ] **Rw no longer shows sensitivity for PHIE.** This was **not** a calculation bug — Rw is correctly
+      routed only to the saturation step, so the PHIE *curve* is independent of it. The tornado was
+      rendering statistically-insignificant **noise** (finite-N Spearman ≈0.05) and zero-width OAT rows.
+      Fixed at the display layer, principled: a parameter appears for a metric **only if its one-at-a-time
+      sweep actually moves that metric** (the sweep is deterministic → a non-contributor moves it by
+      exactly 0), and ρ labels show **only above the significance floor** (1.96/√N). *(Browser-verified by
+      capturing the canvas text: the tornado draws Rw for **HPV** — it does drive HPV via Sw — but **drops
+      Rw for Avg PHIE**, while GR_SH/RHO_MA/NPHI_SH/GR_MA remain.)*
+- [ ] **Percentile option.** A **Percentiles** dropdown in Settings (P10/P90 default, P25/P75, P5/P95,
+      P1/P99) drives both the reported spread **and** the tornado's input sweep. *(Verified: switching to
+      P5/P95 re-labels the table columns and the histogram markers.)*
+- [ ] **Tidier table.** P50 as the headline number with the (P10–P90) band on a quiet sub-line, a new
+      **Gross** column, tabular figures, zebra rows, and dynamic Pxx headers.
+- [ ] **Plots don't stretch on pane resize any more.** Both the histogram and tornado canvases now
+      re-rasterize to the pane's width via a ResizeObserver (before, the browser scaled a stale bitmap →
+      the blur/stretch you saw). *(Verified: shrinking the pane redrew the bitmaps 618→484 px.)* Tornado
+      also got rounded bars, alternating row shading, and a height that tracks the parameter count.
+
+### Workflow
+- [ ] Same scope selector replaces the well checklist; the rest of the builder (steps, grid, cons in/out)
+      is unchanged.
+
+## Monte Carlo parameter sensitivity + tornado (Wave B #13, 2026-07-21)
+
+The uncertainty engine already ran N realizations but **threw away the parameter draws** — it only
+kept the resulting P10/P50/P90. It now retains them and reports **which parameters actually drive
+the result**. **tsc EXIT 0; Rust montecarlo suite 6/6 pass (3 new); off-by-default so existing runs
+are byte-identical.** Nothing committed yet.
+
+- [ ] **Open Monte Carlo** (Advance ribbon → Monte Carlo). There are two new checkboxes under a
+      **Sensitivity** row — *Rank sensitivity (Spearman)* and *Tornado sweep (P10 / P90)*, both on by
+      default. Add one or two uncertain parameters (e.g. GR_MA, GR_SH, RW), pick a well, **Run**.
+- [ ] **Tornado chart** appears below the HPV histogram with a **Zone** and **Metric** selector
+      (HPV / Net pay / NTG / Avg PHIE / Avg SWE). With the tornado box ticked it shows **range bars**:
+      each parameter swept to its P10↔P90 with the others held at their medians, sorted most-influential
+      on top, around a common **base** line, annotated with the Spearman ρ. Untick *Tornado* (leave
+      *Rank sensitivity* on) → it falls back to **signed correlation bars** on a −1…+1 axis.
+- [ ] **Sanity checks**: (a) the parameter you'd expect to matter most (usually GR_SH or Rw) sits at
+      the top; (b) switching **Metric** re-sorts and re-scales; (c) switching **Zone** redraws for that
+      well-zone; (d) a parameter you give **zero spread** (sd = 0) shows ρ = NaN / no bar (it can't be
+      ranked); (e) unticking **both** boxes → no tornado section, and the headline P10/P50/P90 table is
+      unchanged. Verified: Spearman sign+magnitude, tornado low≤base≤high ordering, and opt-out
+      reproducibility are covered by unit tests; the live chart render awaits your click-through.
+
 ## Highlight tool + ribbon overflow + trademark scrub + typography (2026-07-21)
 
 B2 UI/workflow polish + two follow-ups. **tsc EXIT 0; `cargo check --tests` EXIT 0; Rust 177 pass / 0 fail.** Nothing committed yet.

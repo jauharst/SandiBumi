@@ -6,7 +6,6 @@ import {
   listDocuments,
   listLogSetNames,
   listModules,
-  listWells,
   runWorkflowChain,
   saveDocument,
   type ArgSpec,
@@ -14,12 +13,12 @@ import {
   type ChainStep,
   type CurveCatalogEntry,
   type ModuleSpec,
-  type WellSummary,
 } from "../ipc";
-import { bumpDataVersion, defaultRunWellIds, filterByActiveGroup } from "../state";
+import { bumpDataVersion } from "../state";
 import { formRow } from "./modal";
 import { maskCurveNames } from "./moduleDialog";
 import { recordProcess } from "../processLog";
+import { buildWellScope } from "./wellScope";
 
 const WORKFLOW_DOC_TYPE = "workflow";
 const VIEW_KEY = "sandibumi.workflowView";
@@ -49,7 +48,7 @@ export async function buildWorkflowContent(
   setStatus: (text: string) => void,
 ): Promise<{ el: HTMLElement; dispose: () => void }> {
   const modules = await listModules().catch(() => [] as ModuleSpec[]);
-  const wells = filterByActiveGroup(await listWells().catch(() => [] as WellSummary[]));
+  const scope = await buildWellScope();
   const catalog = await listCurveCatalog().catch(() => [] as CurveCatalogEntry[]);
   const curveNames = catalog.map((c) => c.name);
   const moduleByName = new Map(modules.map((m) => [m.name, m]));
@@ -691,29 +690,8 @@ export async function buildWorkflowContent(
     gridWrap.scrollTop = scrollY;
   }
 
-  // --- Wells ---------------------------------------------------------------
-  const wellsBox = document.createElement("div");
-  wellsBox.className = "workflow-wells";
-  const wellChecks = new Map<string, HTMLInputElement>();
-  // Multi-selection from Wells & Tops wins; else the active well; else all.
-  const runDefaults = defaultRunWellIds(wells);
-  for (const w of wells) {
-    const label = document.createElement("label");
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.value = w.well_id;
-    cb.checked = runDefaults.size > 0 ? runDefaults.has(w.well_id) : true;
-    wellChecks.set(w.well_id, cb);
-    label.append(cb, document.createTextNode(` ${w.well_name}`));
-    wellsBox.appendChild(label);
-  }
-  const allBtn = miniButton("All", () => wellChecks.forEach((cb) => (cb.checked = true)));
-  const noneBtn = miniButton("None", () => wellChecks.forEach((cb) => (cb.checked = false)));
-  const wellsHead = document.createElement("div");
-  wellsHead.className = "workflow-wells-head";
-  wellsHead.append(allBtn, noneBtn);
-  content.appendChild(formRow("Wells", wellsHead));
-  content.appendChild(wellsBox);
+  // --- Wells (scope, not a checklist) --------------------------------------
+  content.appendChild(scope.el);
 
   // --- Input cons: strict dropdown of existing constellations (you can only read from
   // one that exists); blank = current values (chained outputs always resolve) ----------
@@ -829,9 +807,9 @@ export async function buildWorkflowContent(
       setStatus("Add at least one step");
       return;
     }
-    const wellIds = [...wellChecks.entries()].filter(([, cb]) => cb.checked).map(([id]) => id);
+    const wellIds = scope.getWellIds();
     if (wellIds.length === 0) {
-      setStatus("Select at least one well");
+      setStatus("No wells in scope — pick a group, pin/select wells, or choose All");
       return;
     }
     const jobId = crypto.randomUUID();
@@ -894,6 +872,7 @@ export async function buildWorkflowContent(
       // Pane closed mid-run: cancel the chain and stop polling.
       if (currentJob) void cancelWorkflowChain(currentJob).catch(() => {});
       finishRun();
+      scope.dispose();
     },
   };
 }

@@ -323,6 +323,13 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             well_id     UUID NOT NULL,
             PRIMARY KEY (group_id, well_id)
         );
+        -- Pinned wells: a lightweight, persisted "favourites" subset, independent of groups, so
+        -- a handful of wells of interest stay one click away in every run dialog (the ★ toggle in
+        -- the Wells pane). There is only ever one pinned set per project and, unlike an active
+        -- group, it never filters the workspace on its own — it is purely a selection shortcut.
+        CREATE TABLE IF NOT EXISTS well_pins (
+            well_id     UUID PRIMARY KEY
+        );
         -- Marks that the one-time standard_curves -> generic-store backfill has completed for a
         -- well (ALL six columns processed, whether they had data or not). Without this the
         -- migration re-scanned standard_curves for absent columns (DT/SP) on EVERY launch —
@@ -941,6 +948,38 @@ pub fn set_active_well_group(conn: &Connection, group_id: Option<&str>) -> DbRes
         conn.execute("UPDATE well_groups SET active = 1 WHERE group_id = ?1", params![id])?;
     }
     Ok(())
+}
+
+/// The pinned well ids — a persisted favourites subset, independent of groups (see `well_pins`).
+pub fn list_pinned_wells(conn: &Connection) -> DbResult<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT well_id FROM well_pins")?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
+/// Pins or unpins a single well (idempotent).
+pub fn set_well_pin(conn: &Connection, well_id: &str, pinned: bool) -> DbResult<()> {
+    if pinned {
+        conn.execute("INSERT INTO well_pins (well_id) VALUES (?1) ON CONFLICT (well_id) DO NOTHING", params![well_id])?;
+    } else {
+        conn.execute("DELETE FROM well_pins WHERE well_id = ?1", params![well_id])?;
+    }
+    Ok(())
+}
+
+/// Replaces the whole pinned set (used by "pin selection" and "clear pins").
+pub fn set_pinned_wells(conn: &Connection, well_ids: &[String]) -> DbResult<()> {
+    with_txn(conn, |conn| {
+        conn.execute("DELETE FROM well_pins", [])?;
+        for w in well_ids {
+            conn.execute("INSERT INTO well_pins (well_id) VALUES (?1) ON CONFLICT (well_id) DO NOTHING", params![w])?;
+        }
+        Ok(())
+    })
 }
 
 pub fn list_documents(conn: &Connection, doc_type: &str) -> DbResult<Vec<DocumentEntry>> {

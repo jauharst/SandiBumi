@@ -41,19 +41,77 @@ impl Distribution {
         match *self {
             Distribution::Normal { mean, sd } => mean + sd * rng.normal(),
             Distribution::Uniform { lo, hi } => lo + (hi - lo) * rng.unit(),
-            Distribution::Triangular { lo, mode, hi } => {
-                if hi <= lo {
-                    return lo;
-                }
-                let u = rng.unit();
-                let c = ((mode - lo) / (hi - lo)).clamp(0.0, 1.0);
-                if u < c {
-                    lo + (u * (hi - lo) * (mode - lo)).sqrt()
-                } else {
-                    hi - ((1.0 - u) * (hi - lo) * (hi - mode)).sqrt()
-                }
-            }
+            Distribution::Triangular { lo, mode, hi } => triangular_quantile(lo, mode, hi, rng.unit()),
         }
+    }
+
+    /// Central value (median) — the tornado base case.
+    fn central(&self) -> f64 {
+        match *self {
+            Distribution::Normal { mean, .. } => mean,
+            Distribution::Uniform { lo, hi } => 0.5 * (lo + hi),
+            Distribution::Triangular { lo, mode, hi } => triangular_quantile(lo, mode, hi, 0.5),
+        }
+    }
+
+    /// Inverse CDF at probability `q` ∈ (0, 1) — the tornado low/high endpoints.
+    fn quantile(&self, q: f64) -> f64 {
+        let q = q.clamp(1e-6, 1.0 - 1e-6);
+        match *self {
+            Distribution::Normal { mean, sd } => mean + sd * probit(q),
+            Distribution::Uniform { lo, hi } => lo + (hi - lo) * q,
+            Distribution::Triangular { lo, mode, hi } => triangular_quantile(lo, mode, hi, q),
+        }
+    }
+}
+
+/// Inverse CDF of a triangular(lo, mode, hi) distribution at `q` ∈ [0, 1]. Also the
+/// sampling transform (feed it a U(0,1) draw), so sampling and quantiles stay consistent.
+fn triangular_quantile(lo: f64, mode: f64, hi: f64, q: f64) -> f64 {
+    if hi <= lo {
+        return lo;
+    }
+    let fc = ((mode - lo) / (hi - lo)).clamp(0.0, 1.0);
+    if q < fc {
+        lo + (q * (hi - lo) * (mode - lo)).sqrt()
+    } else {
+        hi - ((1.0 - q) * (hi - lo) * (hi - mode)).sqrt()
+    }
+}
+
+/// Inverse standard-normal CDF (Acklam's rational approximation; |abs err| < 1.2e-9 over the
+/// central region, refined nowhere-critical for our P10/P90 tornado endpoints).
+fn probit(p: f64) -> f64 {
+    const A: [f64; 6] = [
+        -3.969683028665376e+01, 2.209460984245205e+02, -2.759285104469687e+02,
+        1.383577518672690e+02, -3.066479806614716e+01, 2.506628277459239e+00,
+    ];
+    const B: [f64; 5] = [
+        -5.447609879822406e+01, 1.615858368580409e+02, -1.556989798598866e+02,
+        6.680131188771972e+01, -1.328068155288572e+01,
+    ];
+    const C: [f64; 6] = [
+        -7.784894002430293e-03, -3.223964580411365e-01, -2.400758277161838e+00,
+        -2.549732539343734e+00, 4.374664141464968e+00, 2.938163982698783e+00,
+    ];
+    const D: [f64; 4] = [
+        7.784695709041462e-03, 3.224671290700398e-01, 2.445134137142996e+00, 3.754408661907416e+00,
+    ];
+    let plow = 0.02425;
+    let phigh = 1.0 - plow;
+    if p < plow {
+        let q = (-2.0 * p.ln()).sqrt();
+        (((((C[0] * q + C[1]) * q + C[2]) * q + C[3]) * q + C[4]) * q + C[5])
+            / ((((D[0] * q + D[1]) * q + D[2]) * q + D[3]) * q + 1.0)
+    } else if p <= phigh {
+        let q = p - 0.5;
+        let r = q * q;
+        (((((A[0] * r + A[1]) * r + A[2]) * r + A[3]) * r + A[4]) * r + A[5]) * q
+            / (((((B[0] * r + B[1]) * r + B[2]) * r + B[3]) * r + B[4]) * r + 1.0)
+    } else {
+        let q = (-2.0 * (1.0 - p).ln()).sqrt();
+        -(((((C[0] * q + C[1]) * q + C[2]) * q + C[3]) * q + C[4]) * q + C[5])
+            / ((((D[0] * q + D[1]) * q + D[2]) * q + D[3]) * q + 1.0)
     }
 }
 
@@ -62,6 +120,13 @@ pub struct McParam {
     /// Module parameter name to vary (e.g. "GR_MA"); applies to every step that has it.
     pub param: String,
     pub dist: Distribution,
+}
+
+fn default_low_pctl() -> f64 {
+    0.10
+}
+fn default_high_pctl() -> f64 {
+    0.90
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -80,14 +145,32 @@ pub struct McRequest {
     pub perm_min: Option<f64>,
     /// HPV histogram bin count.
     pub bins: usize,
+    /// Low / high output percentiles as fractions in (0, 1) — default 0.10 / 0.90. One control
+    /// drives both the reported spread (`Pctl.lo` / `Pctl.hi`) and the tornado's one-at-a-time
+    /// input sweep, so P10/P90, P5/P95, P1/P99 … all stay consistent. The median (`Pctl.mid`) is
+    /// always reported.
+    #[serde(default = "default_low_pctl")]
+    pub low_pctl: f64,
+    #[serde(default = "default_high_pctl")]
+    pub high_pctl: f64,
+    /// Retain the per-realization draws and report Spearman rank correlation of each MC
+    /// parameter against each output metric (global sensitivity). Off by default → the run is
+    /// byte-for-byte identical to before.
+    #[serde(default)]
+    pub sensitivity: bool,
+    /// Also run a one-at-a-time low/base/high sweep per parameter (base = each distribution's
+    /// median, low/high = its P10/P90) with the others held at base — the classic tornado range.
+    #[serde(default)]
+    pub tornado: bool,
 }
 
-/// P10/P50/P90 + mean/sd for one metric across realizations.
+/// Low / median / high percentile (at the request's `low_pctl` / 0.50 / `high_pctl`) plus mean/sd
+/// for one metric across realizations.
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct Pctl {
-    pub p10: f32,
-    pub p50: f32,
-    pub p90: f32,
+    pub lo: f32,
+    pub mid: f32,
+    pub hi: f32,
     pub mean: f32,
     pub sd: f32,
 }
@@ -112,9 +195,50 @@ pub struct McZoneResult {
     pub hist_w: f32,
 }
 
+/// One output-metric bundle (net pay / NTG / avg PHIE / avg SWE / HPV) for a single realization
+/// or sweep point — the unit the tornado and Spearman results are expressed in.
+#[derive(Debug, Clone, Copy, Serialize, Default)]
+pub struct MetricSet {
+    pub net: f32,
+    pub ntg: f32,
+    pub avg_phie: f32,
+    pub avg_swe: f32,
+    pub hpv: f32,
+}
+
+/// Sensitivity of one Monte Carlo parameter, within one zone.
+#[derive(Debug, Clone, Serialize)]
+pub struct SensParam {
+    pub param: String,
+    /// Spearman rank correlation of the sampled parameter vs each output metric across all
+    /// realizations (−1..+1; NaN when the parameter or the metric has no spread). `None` unless
+    /// `sensitivity` was requested.
+    pub spearman: Option<MetricSet>,
+    /// One-at-a-time sweep: output metrics with this parameter at its P10 / median / P90, all
+    /// other MC parameters held at their medians. `None` unless `tornado` was requested.
+    pub oat_low: Option<MetricSet>,
+    pub oat_base: Option<MetricSet>,
+    pub oat_high: Option<MetricSet>,
+}
+
+/// Per-zone parameter-sensitivity block, parallel to [`McZoneResult`].
+#[derive(Debug, Clone, Serialize)]
+pub struct McSensZone {
+    pub well_id: String,
+    pub well_name: String,
+    pub zone: String,
+    pub params: Vec<SensParam>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct McResult {
     pub zones: Vec<McZoneResult>,
+    /// Per-zone parameter sensitivity (empty unless `sensitivity` or `tornado` was requested).
+    pub sensitivity: Vec<McSensZone>,
+    /// The output percentiles actually used (echoed from the request, clamped) so the UI can label
+    /// the lo/hi columns — e.g. 0.10 / 0.90.
+    pub low_pctl: f64,
+    pub high_pctl: f64,
     pub errors: Vec<String>,
 }
 
@@ -283,7 +407,7 @@ fn percentile(sorted: &[f32], p: f64) -> f32 {
     sorted[lo] + (sorted[hi] - sorted[lo]) * frac
 }
 
-fn summarize(values: &[f32]) -> Pctl {
+fn summarize(values: &[f32], lo_p: f64, hi_p: f64) -> Pctl {
     let mut finite: Vec<f32> = values.iter().copied().filter(|v| v.is_finite()).collect();
     if finite.is_empty() {
         return Pctl::default();
@@ -293,9 +417,9 @@ fn summarize(values: &[f32]) -> Pctl {
     let mean = finite.iter().map(|v| *v as f64).sum::<f64>() / n;
     let var = finite.iter().map(|v| (*v as f64 - mean).powi(2)).sum::<f64>() / n;
     Pctl {
-        p10: percentile(&finite, 0.10),
-        p50: percentile(&finite, 0.50),
-        p90: percentile(&finite, 0.90),
+        lo: percentile(&finite, lo_p),
+        mid: percentile(&finite, 0.50),
+        hi: percentile(&finite, hi_p),
         mean: mean as f32,
         sd: var.sqrt() as f32,
     }
@@ -323,6 +447,103 @@ fn histogram(values: &[f32], bins: usize) -> (Vec<u32>, f32, f32) {
         counts[b] += 1;
     }
     (counts, lo, w)
+}
+
+// ---------------------------------------------------------------------------
+// Sensitivity: Spearman rank correlation (dependency-free, average-rank ties).
+// ---------------------------------------------------------------------------
+
+/// Average (fractional) ranks of `v`, 1-based, ties sharing the mean of their positions.
+fn average_ranks(v: &[f64]) -> Vec<f64> {
+    let n = v.len();
+    let mut idx: Vec<usize> = (0..n).collect();
+    idx.sort_by(|&a, &b| v[a].partial_cmp(&v[b]).unwrap_or(std::cmp::Ordering::Equal));
+    let mut ranks = vec![0.0f64; n];
+    let mut i = 0;
+    while i < n {
+        let mut j = i + 1;
+        while j < n && v[idx[j]] == v[idx[i]] {
+            j += 1;
+        }
+        // Positions i..j (0-based) → 1-based ranks (i+1)..=j; their mean is ((i+1)+j)/2.
+        let avg = ((i + 1 + j) as f64) / 2.0;
+        for &k in &idx[i..j] {
+            ranks[k] = avg;
+        }
+        i = j;
+    }
+    ranks
+}
+
+fn pearson(a: &[f64], b: &[f64]) -> f64 {
+    let n = a.len();
+    if n < 2 {
+        return f64::NAN;
+    }
+    let inv = 1.0 / n as f64;
+    let ma = a.iter().sum::<f64>() * inv;
+    let mb = b.iter().sum::<f64>() * inv;
+    let (mut sab, mut saa, mut sbb) = (0.0, 0.0, 0.0);
+    for i in 0..n {
+        let da = a[i] - ma;
+        let db = b[i] - mb;
+        sab += da * db;
+        saa += da * da;
+        sbb += db * db;
+    }
+    let den = (saa * sbb).sqrt();
+    if den <= 0.0 {
+        f64::NAN
+    } else {
+        sab / den
+    }
+}
+
+/// Spearman rank correlation of parameter draws `x` against metric values `y`, over the
+/// realizations where the metric is finite (draws are always finite). NaN if < 3 valid pairs
+/// or either side has no spread.
+fn spearman(x: &[f64], y: &[f32]) -> f32 {
+    let mut xs = Vec::with_capacity(x.len());
+    let mut ys = Vec::with_capacity(x.len());
+    for (&a, &b) in x.iter().zip(y) {
+        if a.is_finite() && b.is_finite() {
+            xs.push(a);
+            ys.push(b as f64);
+        }
+    }
+    if xs.len() < 3 {
+        return f32::NAN;
+    }
+    pearson(&average_ranks(&xs), &average_ranks(&ys)) as f32
+}
+
+/// Runs one in-memory realization at a fixed set of parameter values and returns the per-zone
+/// output metrics — the workhorse for the one-at-a-time tornado sweep.
+#[allow(clippy::too_many_arguments)]
+fn metrics_for_values(
+    plans: &[StepPlan],
+    raw_pool: &HashMap<String, Vec<f32>>,
+    depth: &[f32],
+    step_thick: &[f32],
+    zones: &[ZoneEntry],
+    cut: &Cutoffs,
+    has_perm_cut: bool,
+    values: &HashMap<String, f64>,
+    n: usize,
+) -> Vec<MetricSet> {
+    let pool = run_realization(plans, raw_pool, depth, values, n);
+    let nanv = vec![f32::NAN; n];
+    let vsh = pool.get("VSH").unwrap_or(&nanv);
+    let phie = pool.get("PHIE").unwrap_or(&nanv);
+    let swe = pool.get("SWE").unwrap_or(&nanv);
+    let perm = pool.get("PERM").unwrap_or(&nanv);
+    zones
+        .iter()
+        .map(|z| {
+            let m = zone_metrics(vsh, phie, swe, perm, depth, step_thick, z, cut, has_perm_cut);
+            MetricSet { net: m.net, ntg: m.ntg, avg_phie: m.avg_phie, avg_swe: m.avg_swe, hpv: m.hpv }
+        })
+        .collect()
 }
 
 /// Builds the per-step plan for one well: resolves inputs, options, and zone-resolved base
@@ -464,6 +685,10 @@ pub fn run_monte_carlo(
     progress: Option<&crate::jobs::JobHandle>,
 ) -> McResult {
     let iterations = req.iterations.clamp(1, 100_000);
+    // One percentile pair drives the reported output spread AND the tornado's input sweep, so
+    // the whole study stays consistent. Clamp to a sane open interval and keep lo < hi.
+    let lo_p = req.low_pctl.clamp(0.001, 0.499);
+    let hi_p = req.high_pctl.clamp(0.501, 0.999);
     let specs: HashMap<String, modules::ModuleSpec> =
         modules::list_modules().into_iter().map(|s| (s.name.clone(), s)).collect();
     let cut = Cutoffs {
@@ -474,7 +699,9 @@ pub fn run_monte_carlo(
     };
 
     let mut zones_out: Vec<McZoneResult> = Vec::new();
+    let mut sens_out: Vec<McSensZone> = Vec::new();
     let mut errors: Vec<String> = Vec::new();
+    let want_sens = req.sensitivity || req.tornado;
 
     for (wi, well_id) in req.well_ids.iter().enumerate() {
         if let Some(p) = progress {
@@ -508,33 +735,99 @@ pub fn run_monte_carlo(
         let has_perm_cut =
             req.perm_min.is_some() && raw_pool.get("PERM").map(|c| c.iter().any(|v| !v.is_nan())).unwrap_or(false);
 
-        // Parallel realizations, each seeded from (seed, index) for reproducibility.
-        let per_real: Vec<Vec<ZoneMetrics>> = (0..iterations)
+        // Parallel realizations, each seeded from (seed, index) for reproducibility. Each keeps
+        // its parameter draws (ordered like `req.mc_params`) so sensitivity can correlate them
+        // against the outputs; the draw vector is empty when no parameters vary.
+        let per_real: Vec<(Vec<f64>, Vec<ZoneMetrics>)> = (0..iterations)
             .into_par_iter()
             .map(|r| {
                 let mut rng = Rng::new(req.seed ^ (r as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15));
+                // Sample in `mc_params` order (unchanged rng sequence → identical to before).
+                let draws: Vec<f64> = req.mc_params.iter().map(|p| p.dist.sample(&mut rng)).collect();
                 let mc_values: HashMap<String, f64> =
-                    req.mc_params.iter().map(|p| (p.param.clone(), p.dist.sample(&mut rng))).collect();
+                    req.mc_params.iter().zip(&draws).map(|(p, &v)| (p.param.clone(), v)).collect();
                 let pool = run_realization(&plans, &raw_pool, &depth, &mc_values, n);
                 let nanv = vec![f32::NAN; n];
                 let vsh = pool.get("VSH").unwrap_or(&nanv);
                 let phie = pool.get("PHIE").unwrap_or(&nanv);
                 let swe = pool.get("SWE").unwrap_or(&nanv);
                 let perm = pool.get("PERM").unwrap_or(&nanv);
-                zones
+                let zm = zones
                     .iter()
                     .map(|z| zone_metrics(vsh, phie, swe, perm, &depth, &step_thick, z, &cut, has_perm_cut))
-                    .collect()
+                    .collect();
+                (draws, zm)
             })
             .collect();
 
+        // One-at-a-time tornado sweep (once per well): base = medians of every MC parameter,
+        // then each parameter swept to its P10/P90 with the rest held at base. Cheap — one chain
+        // run per endpoint. `oat[param][zone]` for low/base/high.
+        let (oat_base, oat_low, oat_high): (Vec<MetricSet>, Vec<Vec<MetricSet>>, Vec<Vec<MetricSet>>) =
+            if req.tornado && !req.mc_params.is_empty() {
+                let base_vals: HashMap<String, f64> =
+                    req.mc_params.iter().map(|p| (p.param.clone(), p.dist.central())).collect();
+                let base = metrics_for_values(&plans, &raw_pool, &depth, &step_thick, &zones, &cut, has_perm_cut, &base_vals, n);
+                let mut low = Vec::with_capacity(req.mc_params.len());
+                let mut high = Vec::with_capacity(req.mc_params.len());
+                for p in &req.mc_params {
+                    let mut lv = base_vals.clone();
+                    lv.insert(p.param.clone(), p.dist.quantile(lo_p));
+                    let mut hv = base_vals.clone();
+                    hv.insert(p.param.clone(), p.dist.quantile(hi_p));
+                    low.push(metrics_for_values(&plans, &raw_pool, &depth, &step_thick, &zones, &cut, has_perm_cut, &lv, n));
+                    high.push(metrics_for_values(&plans, &raw_pool, &depth, &step_thick, &zones, &cut, has_perm_cut, &hv, n));
+                }
+                (base, low, high)
+            } else {
+                (Vec::new(), Vec::new(), Vec::new())
+            };
+
         // Transpose (realization × zone) → per-zone metric vectors, then summarize.
         for (zi, zone) in zones.iter().enumerate() {
-            let net: Vec<f32> = per_real.iter().map(|m| m[zi].net).collect();
-            let ntg: Vec<f32> = per_real.iter().map(|m| m[zi].ntg).collect();
-            let avg_phie: Vec<f32> = per_real.iter().map(|m| m[zi].avg_phie).collect();
-            let avg_swe: Vec<f32> = per_real.iter().map(|m| m[zi].avg_swe).collect();
-            let hpv: Vec<f32> = per_real.iter().map(|m| m[zi].hpv).collect();
+            let net: Vec<f32> = per_real.iter().map(|m| m.1[zi].net).collect();
+            let ntg: Vec<f32> = per_real.iter().map(|m| m.1[zi].ntg).collect();
+            let avg_phie: Vec<f32> = per_real.iter().map(|m| m.1[zi].avg_phie).collect();
+            let avg_swe: Vec<f32> = per_real.iter().map(|m| m.1[zi].avg_swe).collect();
+            let hpv: Vec<f32> = per_real.iter().map(|m| m.1[zi].hpv).collect();
+
+            // Per-zone parameter sensitivity: Spearman of each param's draws vs each metric, and
+            // the one-at-a-time low/base/high tornado points captured above.
+            if want_sens && !req.mc_params.is_empty() {
+                let params = req
+                    .mc_params
+                    .iter()
+                    .enumerate()
+                    .map(|(pj, p)| {
+                        let spearman = if req.sensitivity {
+                            let draws: Vec<f64> = per_real.iter().map(|m| m.0[pj]).collect();
+                            Some(MetricSet {
+                                net: spearman(&draws, &net),
+                                ntg: spearman(&draws, &ntg),
+                                avg_phie: spearman(&draws, &avg_phie),
+                                avg_swe: spearman(&draws, &avg_swe),
+                                hpv: spearman(&draws, &hpv),
+                            })
+                        } else {
+                            None
+                        };
+                        SensParam {
+                            param: p.param.clone(),
+                            spearman,
+                            oat_low: oat_low.get(pj).map(|z| z[zi]),
+                            oat_base: oat_base.get(zi).copied(),
+                            oat_high: oat_high.get(pj).map(|z| z[zi]),
+                        }
+                    })
+                    .collect();
+                sens_out.push(McSensZone {
+                    well_id: well_id.clone(),
+                    well_name: well_name.clone(),
+                    zone: zone.zone_name.clone(),
+                    params,
+                });
+            }
+
             let (hpv_hist, hist_lo, hist_w) = histogram(&hpv, req.bins);
             zones_out.push(McZoneResult {
                 well_id: well_id.clone(),
@@ -544,11 +837,11 @@ pub fn run_monte_carlo(
                 bottom: zone.bottom_depth,
                 gross: zone.bottom_depth - zone.top_depth,
                 iterations,
-                net: summarize(&net),
-                ntg: summarize(&ntg),
-                avg_phie: summarize(&avg_phie),
-                avg_swe: summarize(&avg_swe),
-                hpv: summarize(&hpv),
+                net: summarize(&net, lo_p, hi_p),
+                ntg: summarize(&ntg, lo_p, hi_p),
+                avg_phie: summarize(&avg_phie, lo_p, hi_p),
+                avg_swe: summarize(&avg_swe, lo_p, hi_p),
+                hpv: summarize(&hpv, lo_p, hi_p),
                 hpv_hist,
                 hist_lo,
                 hist_w,
@@ -559,7 +852,7 @@ pub fn run_monte_carlo(
         }
     }
 
-    McResult { zones: zones_out, errors }
+    McResult { zones: zones_out, sensitivity: sens_out, low_pctl: lo_p, high_pctl: hi_p, errors }
 }
 
 #[cfg(test)]
@@ -601,6 +894,10 @@ mod tests {
             swe_max: 0.6,
             perm_min: None,
             bins: 10,
+            low_pctl: 0.10,
+            high_pctl: 0.90,
+            sensitivity: false,
+            tornado: false,
         }
     }
 
@@ -617,15 +914,15 @@ mod tests {
         assert_eq!(res.zones.len(), 1);
         let z = &res.zones[0];
         // Percentiles ordered, spread present, HPV positive, histogram counts all iterations.
-        assert!(z.hpv.p10 <= z.hpv.p50 && z.hpv.p50 <= z.hpv.p90, "HPV percentiles unordered: {:?}", z.hpv);
-        assert!(z.hpv.p90 > z.hpv.p10, "expected spread from GR_MA uncertainty");
-        assert!(z.hpv.p50 > 0.0, "expected positive HPV in a clean sand");
-        assert!(z.net.p50 > 0.0 && z.avg_phie.p50 > 0.0 && z.avg_swe.p50 > 0.0);
+        assert!(z.hpv.lo <= z.hpv.mid && z.hpv.mid <= z.hpv.hi, "HPV percentiles unordered: {:?}", z.hpv);
+        assert!(z.hpv.hi > z.hpv.lo, "expected spread from GR_MA uncertainty");
+        assert!(z.hpv.mid > 0.0, "expected positive HPV in a clean sand");
+        assert!(z.net.mid > 0.0 && z.avg_phie.mid > 0.0 && z.avg_swe.mid > 0.0);
         assert_eq!(z.hpv_hist.iter().sum::<u32>(), 500);
 
         // Same seed → identical result (reproducible).
         let res2 = run_monte_carlo(&dbm, &base_request(&well, mc, 500, 42), None);
-        assert_eq!(res.zones[0].hpv.p50, res2.zones[0].hpv.p50);
+        assert_eq!(res.zones[0].hpv.mid, res2.zones[0].hpv.mid);
         assert_eq!(res.zones[0].hpv.mean, res2.zones[0].hpv.mean);
     }
 
@@ -640,7 +937,7 @@ mod tests {
         let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 0.0 } }];
         let res = run_monte_carlo(&dbm, &base_request(&well, mc, 200, 7), None);
         let z = &res.zones[0];
-        assert_eq!(z.hpv.p10, z.hpv.p90, "no variance should collapse the spread");
+        assert_eq!(z.hpv.lo, z.hpv.hi, "no variance should collapse the spread");
         assert!(z.hpv.sd.abs() < 1e-6, "sd should be ~0, got {}", z.hpv.sd);
     }
 
@@ -653,5 +950,101 @@ mod tests {
             let t = Distribution::Triangular { lo: 0.0, mode: 3.0, hi: 4.0 }.sample(&mut rng);
             assert!((0.0..=4.0).contains(&t), "triangular out of range: {t}");
         }
+    }
+
+    #[test]
+    fn sensitivity_off_by_default_and_reproducible() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_well(&conn);
+        let dbm = Mutex::new(conn);
+        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 8.0 } }];
+        // Default request has sensitivity=false → no sensitivity block, and the headline zones
+        // are byte-identical to a run that DID ask for sensitivity (draws don't perturb the rng).
+        let plain = run_monte_carlo(&dbm, &base_request(&well, mc.clone(), 400, 42), None);
+        assert!(plain.sensitivity.is_empty(), "sensitivity should be empty when not requested");
+        let mut with = base_request(&well, mc, 400, 42);
+        with.sensitivity = true;
+        let sens = run_monte_carlo(&dbm, &with, None);
+        assert_eq!(plain.zones[0].hpv.mid, sens.zones[0].hpv.mid, "asking for sensitivity must not change the MC result");
+    }
+
+    #[test]
+    fn spearman_ranks_a_monotone_parameter() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_well(&conn);
+        let dbm = Mutex::new(conn);
+        // GR_MA ↑ → VSH ↓ → PHIE ↑ → HPV ↑ : a strong positive, monotone influence.
+        let mut req = base_request(
+            &well,
+            vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 6.0 } }],
+            1000,
+            11,
+        );
+        req.sensitivity = true;
+        let res = run_monte_carlo(&dbm, &req, None);
+        assert_eq!(res.sensitivity.len(), 1);
+        let sp = res.sensitivity[0].params[0].spearman.expect("spearman requested");
+        assert!(sp.hpv.is_finite() && sp.hpv > 0.5, "expected strong positive HPV sensitivity, got {}", sp.hpv);
+
+        // Zero-variance parameter → no rank spread → NaN Spearman.
+        let mut req0 = base_request(
+            &well,
+            vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 0.0 } }],
+            300,
+            11,
+        );
+        req0.sensitivity = true;
+        let res0 = run_monte_carlo(&dbm, &req0, None);
+        assert!(res0.sensitivity[0].params[0].spearman.unwrap().hpv.is_nan(), "no spread → NaN Spearman");
+    }
+
+    #[test]
+    fn tornado_low_base_high_are_ordered() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_well(&conn);
+        let dbm = Mutex::new(conn);
+        let mut req = base_request(
+            &well,
+            vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 6.0 } }],
+            50,
+            5,
+        );
+        req.tornado = true;
+        let res = run_monte_carlo(&dbm, &req, None);
+        let p = &res.sensitivity[0].params[0];
+        let (lo, base, hi) = (p.oat_low.unwrap(), p.oat_base.unwrap(), p.oat_high.unwrap());
+        // GR_MA at P10 (lower) → lower HPV; P90 → higher HPV; base in between.
+        assert!(lo.hpv <= base.hpv + 1e-4 && base.hpv <= hi.hpv + 1e-4, "tornado HPV not ordered: {} {} {}", lo.hpv, base.hpv, hi.hpv);
+        assert!(hi.hpv > lo.hpv, "expected a tornado spread, got low {} high {}", lo.hpv, hi.hpv);
+        assert!(p.spearman.is_none(), "spearman should be absent when only tornado was requested");
+    }
+
+    #[test]
+    fn configurable_percentiles_widen_the_spread() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_well(&conn);
+        let dbm = Mutex::new(conn);
+        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 8.0 } }];
+
+        // Default P10/P90.
+        let base = run_monte_carlo(&dbm, &base_request(&well, mc.clone(), 1000, 42), None);
+        assert_eq!(base.low_pctl, 0.10);
+        assert_eq!(base.high_pctl, 0.90);
+        let d80 = base.zones[0].hpv.hi - base.zones[0].hpv.lo;
+
+        // P1/P99 — same draws (same seed), but a wider low↔high band and an unchanged median.
+        let mut wide = base_request(&well, mc, 1000, 42);
+        wide.low_pctl = 0.01;
+        wide.high_pctl = 0.99;
+        let res = run_monte_carlo(&dbm, &wide, None);
+        assert_eq!(res.low_pctl, 0.01);
+        assert_eq!(res.high_pctl, 0.99);
+        let d98 = res.zones[0].hpv.hi - res.zones[0].hpv.lo;
+        assert!(d98 > d80, "P1/P99 band ({d98}) should exceed P10/P90 band ({d80})");
+        assert_eq!(base.zones[0].hpv.mid, res.zones[0].hpv.mid, "median must not depend on the chosen percentiles");
     }
 }

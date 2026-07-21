@@ -13,8 +13,9 @@ import {
   type WellSummary,
   type ZoneEntry,
 } from "../ipc";
-import { appState, bumpDataVersion, defaultRunWellIds, filterByActiveGroup } from "../state";
+import { appState, bumpDataVersion } from "../state";
 import { recordProcess } from "../processLog";
+import { buildWellScope } from "./wellScope";
 
 /** Generalized Multimin dialog — commercial mineral-solver style.
  *
@@ -81,7 +82,7 @@ export async function buildMultiminContent(
   setStatus: (text: string) => void,
 ): Promise<{ el: HTMLElement; dispose: () => void }> {
   const [wells, library] = await Promise.all([
-    listWells().then(filterByActiveGroup).catch(() => [] as WellSummary[]),
+    listWells().catch(() => [] as WellSummary[]),
     multiminLibrary().catch(() => [] as MmComponent[]),
   ]);
   if (library.length === 0) {
@@ -91,6 +92,9 @@ export async function buildMultiminContent(
     msg.textContent = "SandiMin library unavailable — backend not reachable.";
     return { el: msg, dispose: () => {} };
   }
+  // Scope selector resolves the run's wells live (group / ★ pinned / selection / all); `wells`
+  // is still fetched (unfiltered) for the result-table name lookup and the autofill fallback.
+  const scope = await buildWellScope();
   let selectedWell = appState.selectedWell.get();
 
   // --- Working state --------------------------------------------------------
@@ -302,7 +306,8 @@ export async function buildMultiminContent(
   autofillBtn.type = "button";
   autofillBtn.textContent = "Read";
   autofillBtn.addEventListener("click", async () => {
-    const well = selectedWell ?? wells.find((w) => wellChecks.get(w.well_id)?.checked);
+    const scopeIds = new Set(scope.getWellIds());
+    const well = selectedWell ?? wells.find((w) => scopeIds.has(w.well_id));
     if (!well) {
       setStatus("SandiMin autofill: select a well first");
       return;
@@ -585,29 +590,13 @@ export async function buildMultiminContent(
   renderTable();
 
   // --- Wells + options ------------------------------------------------------
-  const wellBox = document.createElement("div");
-  wellBox.className = "mm-tools";
-  const wellChecks = new Map<string, HTMLInputElement>();
-  const runDefaults = defaultRunWellIds(wells);
-  if (runDefaults.size === 0 && selectedWell) runDefaults.add(selectedWell.well_id);
-  for (const w of wells) {
-    const row = document.createElement("label");
-    row.className = "mm-tool-row";
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.checked = runDefaults.has(w.well_id);
-    wellChecks.set(w.well_id, cb);
-    row.appendChild(cb);
-    const sp = document.createElement("span");
-    sp.textContent = w.well_name || w.well_id;
-    row.appendChild(sp);
-    wellBox.appendChild(row);
-  }
+  // Scope selector (group / ★ pinned / selection / all) instead of a per-well checklist —
+  // a 2000-well field can't be ticked one at a time.
   const wellsHead = document.createElement("div");
   wellsHead.className = "mm-group-head";
   wellsHead.textContent = "Apply to wells";
   content.appendChild(wellsHead);
-  content.appendChild(wellBox);
+  content.appendChild(scope.el);
 
   const optsRow = document.createElement("div");
   optsRow.className = "mm-tool-row";
@@ -654,13 +643,13 @@ export async function buildMultiminContent(
     const activeTools = tools
       .filter((t) => t.on && t.curve.trim() !== "")
       .map((t) => ({ key: t.key, curve: t.curve, sigma: t.sigma }));
-    const applyWells = wells.filter((w) => wellChecks.get(w.well_id)?.checked).map((w) => w.well_id);
+    const applyWells = scope.getWellIds();
     if (comps.length < 2) {
       setStatus("SandiMin: select at least two components");
       return;
     }
     if (applyWells.length === 0) {
-      setStatus("SandiMin: select at least one well");
+      setStatus("No wells in scope — pick a group, pin/select wells, or choose All");
       return;
     }
     const req: MultiminRequest = {
@@ -730,6 +719,7 @@ export async function buildMultiminContent(
       window.clearTimeout(previewTimer);
       window.clearTimeout(dryTimer);
       unsubWell();
+      scope.dispose();
     },
   };
 }

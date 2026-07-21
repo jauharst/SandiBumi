@@ -1,4 +1,4 @@
-import { listWells, type WellSummary } from "../ipc";
+import { listPinnedWells, listWells, setWellPin, type WellSummary } from "../ipc";
 import { appState, filterByActiveGroup, setStatus } from "../state";
 import { activateWellGroup, openWellGroupManager, syncWellGroups } from "./wellGroups";
 
@@ -21,22 +21,32 @@ export class ObjectTree {
   /** Anchor for Shift-click range selection (index into the visible well list). */
   private anchorIndex = 0;
   private visibleWells: WellSummary[] = [];
+  /** Bumped on every refresh; a stale in-flight refresh bails instead of double-rendering. */
+  private refreshGen = 0;
 
   constructor(container: HTMLElement) {
     this.container = container;
   }
 
   async refresh(): Promise<void> {
-    this.container.innerHTML = "";
+    const gen = ++this.refreshGen;
 
-    // Groups + wells in parallel; syncWellGroups also publishes the active group to state.
-    const [groups, allWells] = await Promise.all([
+    // Groups + wells + pins in parallel; syncWellGroups also publishes the active group to state.
+    const [groups, allWells, pinnedIds] = await Promise.all([
       syncWellGroups(),
       listWells().catch((err) => {
         console.error("Failed to load wells:", err);
         return null;
       }),
+      listPinnedWells().catch(() => [] as string[]),
     ]);
+    // A newer refresh started while we awaited — let it own the render. Without this, two
+    // concurrent refreshes (init + the dataVersion subscription that fires immediately) both
+    // clear-then-append and the pane shows the "Wells (N)" header — and every well — twice.
+    if (gen !== this.refreshGen) return;
+    this.container.innerHTML = "";
+    appState.pinnedWellIds.set(pinnedIds);
+    const pinned = new Set(pinnedIds);
 
     this.buildGroupBar(groups);
 
@@ -67,12 +77,36 @@ export class ObjectTree {
         "tree-node tree-well" +
         (well.well_id === this.selectedWellId ? " tree-selected" : "") +
         (multi.has(well.well_id) ? " tree-multi" : "");
-      const label = well.field_name ? `${well.well_name} (${well.field_name})` : well.well_name;
-      node.textContent = label;
+      const isPinned = pinned.has(well.well_id);
+      const star = document.createElement("span");
+      star.className = "tree-pin" + (isPinned ? " tree-pinned" : "");
+      star.textContent = isPinned ? "★" : "☆";
+      star.title = isPinned
+        ? "Pinned — click to unpin. Pinned wells are reusable as a one-click run scope."
+        : "Pin this well (favourites) — reusable as a one-click run scope in every tool.";
+      star.addEventListener("click", (e) => {
+        e.stopPropagation();
+        void this.togglePin(well.well_id, !isPinned);
+      });
+      const labelSpan = document.createElement("span");
+      labelSpan.className = "tree-well-label";
+      labelSpan.textContent = well.field_name ? `${well.well_name} (${well.field_name})` : well.well_name;
+      node.append(star, labelSpan);
       node.title = `${well.well_id}\nClick: activate • Ctrl-click: multi-select • Shift-click: range`;
       node.addEventListener("click", (e) => this.handleWellClick(e, well, index, node));
       this.container.appendChild(node);
     });
+  }
+
+  /** Pin / unpin a well (persisted) — updates state optimistically then refreshes the ★. */
+  private async togglePin(wellId: string, pinned: boolean): Promise<void> {
+    const next = new Set(appState.pinnedWellIds.get());
+    if (pinned) next.add(wellId);
+    else next.delete(wellId);
+    appState.pinnedWellIds.set([...next]);
+    await setWellPin(wellId, pinned).catch((e) => console.error("pin failed:", e));
+    setStatus(pinned ? "Well pinned — available as a run scope" : "Well unpinned");
+    void this.refresh();
   }
 
   private handleWellClick(e: MouseEvent, well: WellSummary, index: number, node: HTMLElement): void {
