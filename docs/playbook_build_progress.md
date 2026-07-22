@@ -55,7 +55,7 @@ Target `multimin2.rs` + `multiminDialog.ts`. Consult `docs/multimin_ref_spec.md`
 | 2a | Per-sample reconstruction curves (measured vs reconstructed + residual per active tool) + combined INCOHERENCE (weighted RMS; cite Quanti.Elan Eq 79) as computed_curves; `cargo test` (3-mineral round-trip; incoherence ~0 perfect, rises with injected endpoint error) | ✅ `recon_qc` flag → `<prefix>_<KEY>_REC`/`_DIF` per tool; RECON documented as Eq-79 incoherence; 2 tests; cargo 269/0, tsc 0 (backend; view = 2d) |
 | 2b | Degrees-of-freedom guard (warn #unknowns > #tool-equations; show DOF) | ✅ `MultiminResult.dof` + `dof_note` when exactly determined; test; surfaced in ipc.ts (dialog badge = 2d) |
 | 2c | Model presets: quartz-clay-water, SSC (tie ssc.rs), carbonate, **ORGANIC/coal** (feeds #7); seed endpoints from the three-way table (Tier A) | ▫ |
-| 2d | Reconstruction-QC view UI (measured-vs-reconstructed overlay + color-filled incoherence track) | ▫ |
+| 2d | Reconstruction-QC view UI (measured-vs-reconstructed overlay + color-filled incoherence track) | ✅ `multiminDialog.ts` "Reconstruction QC" checkbox → DOF line + measured-vs-reconstructed crossplot (per tool, 1:1 line); browser-smoke-tested (checkbox→run→DOF+canvas); tsc 0 |
 
 ## Phase 4 — Playbook #1 · Monte Carlo (close the gap to a commercial engine)
 

@@ -1,4 +1,5 @@
 import {
+  getCurveData,
   listWells,
   listZones,
   multiminDryClay,
@@ -16,6 +17,7 @@ import {
 import { appState, bumpDataVersion } from "../state";
 import { recordProcess } from "../processLog";
 import { buildWellScope } from "./wellScope";
+import { attachResizeRedraw, faciesColor, readTheme } from "./plotCanvas";
 
 /** Generalized Multimin dialog — commercial mineral-solver style.
  *
@@ -614,9 +616,17 @@ export async function buildMultiminContent(
   unityCb.checked = true;
   unityLab.appendChild(unityCb);
   unityLab.appendChild(document.createTextNode(" Hard unity (Σ minerals + unflushed fluids = 1)"));
+  const reconLab = document.createElement("label");
+  const reconCb = document.createElement("input");
+  reconCb.type = "checkbox";
+  reconLab.title =
+    "Emit per-tool reconstruction curves (<prefix>_<KEY>_REC / _DIF) and show the measured-vs-reconstructed QC after the run";
+  reconLab.appendChild(reconCb);
+  reconLab.appendChild(document.createTextNode(" Reconstruction QC"));
   optsRow.appendChild(prefixLab);
   optsRow.appendChild(prefixInp);
   optsRow.appendChild(unityLab);
+  optsRow.appendChild(reconLab);
   content.appendChild(optsRow);
 
   // --- Run ------------------------------------------------------------------
@@ -630,6 +640,8 @@ export async function buildMultiminContent(
   const resultBox = document.createElement("div");
   content.appendChild(runRow);
   content.appendChild(resultBox);
+  // Cleanup for the reconstruction-QC canvas's resize observer (replaced each run).
+  let detachRecon: (() => void) | null = null;
 
   runBtn.addEventListener("click", async () => {
     const comps: MmComponent[] = library
@@ -662,6 +674,7 @@ export async function buildMultiminContent(
       output_prefix: prefixInp.value.trim() || "MM",
       unity: unityCb.checked,
       fluid: readFluid(),
+      recon_qc: reconCb.checked,
     };
     runBtn.disabled = true;
     setStatus("SandiMin: running…");
@@ -678,11 +691,25 @@ export async function buildMultiminContent(
       setStatus(`SandiMin: ${res.error}`);
       return;
     }
+    detachRecon?.();
+    detachRecon = null;
     resultBox.innerHTML = "";
+
+    // Degrees-of-freedom badge: dof 0 means the reconstruction can't validate the model.
+    const dofLine = document.createElement("div");
+    dofLine.className = "mc-chain-note";
+    if (res.dof <= 0 && res.dof_note) {
+      dofLine.style.color = "var(--warn)";
+      dofLine.textContent = `DOF ${res.dof} — ${res.dof_note}`;
+    } else {
+      dofLine.textContent = `Model DOF ${res.dof} (over-determined — RECON/incoherence is a real fit-quality signal).`;
+    }
+    resultBox.appendChild(dofLine);
+
     const table = document.createElement("table");
     table.className = "mm-endpoints";
     table.innerHTML =
-      "<thead><tr><th>Well</th><th>Samples solved</th><th>Mean recon (σ)</th><th>Note</th></tr></thead>";
+      "<thead><tr><th>Well</th><th>Samples solved</th><th>Incoherence (σ)</th><th>Note</th></tr></thead>";
     const tb = document.createElement("tbody");
     for (const w of res.wells) {
       const tr = document.createElement("tr");
@@ -711,6 +738,14 @@ export async function buildMultiminContent(
       );
       bumpDataVersion();
       setStatus(`SandiMin: wrote ${res.outputs.length} curves to ${okWells} well(s)`);
+      // Reconstruction QC: for the first solved well, plot measured vs reconstructed per tool.
+      if (reconCb.checked) {
+        const firstOk = res.wells.find((w) => !w.error && w.rows_solved > 0);
+        if (firstOk) {
+          const prefix = (prefixInp.value.trim() || "MM").toUpperCase();
+          detachRecon = await renderReconQc(resultBox, firstOk.well_id, prefix, activeTools);
+        }
+      }
     } else {
       setStatus("SandiMin: no well solved — check curves and endpoints");
     }
@@ -721,8 +756,136 @@ export async function buildMultiminContent(
     dispose: () => {
       window.clearTimeout(previewTimer);
       window.clearTimeout(dryTimer);
+      detachRecon?.();
       unsubWell();
       scope.dispose();
     },
   };
+}
+
+/** Measured-vs-reconstructed QC for one well: for each active tool with a `<prefix>_<KEY>_REC`
+ *  curve, plot (measured, reconstructed) points coloured by tool against the 1:1 line — points on
+ *  the diagonal are a perfect reconstruction, scatter off it is the tool's incoherence. Returns a
+ *  cleanup that detaches the canvas resize observer (null if nothing could be drawn). */
+async function renderReconQc(
+  host: HTMLElement,
+  wellId: string,
+  prefix: string,
+  tools: { key: string; curve: string }[],
+): Promise<(() => void) | null> {
+  // Curve-safe token matching the backend curve_token() (uppercase, non-alphanumeric → '_').
+  const token = (s: string) =>
+    s.trim().toUpperCase().replace(/[^A-Z0-9]/g, "_").replace(/^_+|_+$/g, "");
+  const series: { label: string; meas: number[]; rec: number[] }[] = [];
+  for (const t of tools) {
+    const recName = `${prefix}_${token(t.key)}_REC`;
+    try {
+      const got = await getCurveData(wellId, [t.curve.trim().toUpperCase(), recName], null, null);
+      const measC = got.find((g) => g.curve_name.toUpperCase() === t.curve.trim().toUpperCase());
+      const recC = got.find((g) => g.curve_name.toUpperCase() === recName);
+      if (!measC || !recC) continue;
+      const meas: number[] = [];
+      const rec: number[] = [];
+      const n = Math.min(measC.value.length, recC.value.length);
+      for (let i = 0; i < n; i++) {
+        const m = measC.value[i];
+        const r = recC.value[i];
+        if (Number.isFinite(m) && Number.isFinite(r)) {
+          meas.push(m);
+          rec.push(r);
+        }
+      }
+      if (meas.length > 0) series.push({ label: t.key, meas, rec });
+    } catch {
+      // A missing/unreadable curve just drops that tool from the QC plot.
+    }
+  }
+  if (series.length === 0) return null;
+
+  const cap = document.createElement("div");
+  cap.className = "mc-hist-caption";
+  cap.textContent =
+    "Reconstruction QC — measured (x) vs reconstructed (y) per tool, normalized to each tool's range; " +
+    "the dashed 1:1 line is a perfect fit. Off-diagonal scatter is that tool's incoherence.";
+  host.appendChild(cap);
+  const canvas = document.createElement("canvas");
+  canvas.className = "mc-hist";
+  host.appendChild(canvas);
+
+  const draw = () => drawReconScatter(canvas, series);
+  draw();
+  return attachResizeRedraw(canvas, draw);
+}
+
+/** Per-tool measured-vs-reconstructed scatter, each tool min-max normalized to [0,1] so tools with
+ *  very different units (RHOB ~2.5 vs DT ~90) share one square with a single 1:1 reference line. */
+function drawReconScatter(canvas: HTMLCanvasElement, series: { label: string; meas: number[]; rec: number[] }[]): void {
+  const theme = readTheme(canvas);
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth || 360;
+  const h = canvas.clientHeight || 240;
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = theme.bg;
+  ctx.fillRect(0, 0, w, h);
+
+  const padL = 34;
+  const padB = 24;
+  const padT = 8;
+  const padR = 10;
+  const X = (x: number) => padL + x * (w - padL - padR);
+  const Y = (y: number) => padT + (1 - y) * (h - padT - padB);
+
+  ctx.strokeStyle = theme.axis;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(X(0), Y(1), w - padL - padR, h - padT - padB);
+  // 1:1 line.
+  ctx.strokeStyle = theme.warn;
+  ctx.setLineDash([5, 4]);
+  ctx.beginPath();
+  ctx.moveTo(X(0), Y(0));
+  ctx.lineTo(X(1), Y(1));
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  series.forEach((s, si) => {
+    // Shared min/max over measured AND reconstructed so a perfect fit lands on the diagonal.
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const v of s.meas) {
+      lo = Math.min(lo, v);
+      hi = Math.max(hi, v);
+    }
+    for (const v of s.rec) {
+      lo = Math.min(lo, v);
+      hi = Math.max(hi, v);
+    }
+    const span = hi - lo || 1;
+    ctx.fillStyle = faciesColor(si);
+    for (let i = 0; i < s.meas.length; i++) {
+      const nx = (s.meas[i] - lo) / span;
+      const ny = (s.rec[i] - lo) / span;
+      ctx.beginPath();
+      ctx.arc(X(nx), Y(ny), 1.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+
+  // Legend + axis labels.
+  ctx.font = "10px system-ui";
+  ctx.textAlign = "left";
+  let lx = padL + 4;
+  for (let si = 0; si < series.length; si++) {
+    ctx.fillStyle = faciesColor(si);
+    ctx.fillRect(lx, padT + 2, 8, 8);
+    ctx.fillStyle = theme.text;
+    ctx.fillText(series[si].label, lx + 11, padT + 10);
+    lx += 11 + ctx.measureText(series[si].label).width + 12;
+  }
+  ctx.fillStyle = theme.text;
+  ctx.textAlign = "center";
+  ctx.fillText("measured (normalized)", (padL + w - padR) / 2, h - 4);
 }
