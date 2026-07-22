@@ -204,6 +204,19 @@ pub fn import_dlis_file(conn: &Connection, well_id: &str, path: &str) -> DlisImp
             replaced += 1;
         }
 
+        // Sanitize the frame's depth column (drop non-finite + first-occurrence-wins dedup) the
+        // same way the LAS paths do, so one bad/duplicate depth sample can't abort the whole DLIS
+        // file on the (curve_id, depth) PK. Values follow the kept depth indices.
+        let (keep, dreport) = crate::parsers::depth_keep_indices(&depth);
+        let (depth, values) = if dreport.is_clean() {
+            (depth, values)
+        } else {
+            (
+                keep.iter().map(|&i| depth[i]).collect::<Vec<f32>>(),
+                keep.iter().map(|&i| values[i]).collect::<Vec<f32>>(),
+            )
+        };
+
         let res: db::DbResult<()> = (|| {
             let curve_id = db::upsert_curve_meta(conn, well_id, "RAW", &meta.mnemonic, unit.as_deref(), family, Some("DLIS import"), run_no)?;
             db::insert_curve_samples(conn, &curve_id, &depth, &values)?;
@@ -212,7 +225,7 @@ pub fn import_dlis_file(conn: &Connection, well_id: &str, path: &str) -> DlisImp
         match res {
             Ok(()) => {
                 curves_imported += 1;
-                total_rows += meta.n;
+                total_rows += depth.len();
             }
             Err(e) => return fail(format!("storing curve '{}': {e}", meta.mnemonic)),
         }

@@ -286,7 +286,7 @@ impl DepthSanitizeReport {
 /// non-finite depths and depths duplicating an earlier kept row (first occurrence wins, file
 /// order preserved). Shared by [`sanitize_curve_columns`] and [`sanitize_las_frame`] so the
 /// standard-curves and generic-store import paths drop identical rows for the same file.
-fn depth_keep_indices(depth: &[f32]) -> (Vec<usize>, DepthSanitizeReport) {
+pub(crate) fn depth_keep_indices(depth: &[f32]) -> (Vec<usize>, DepthSanitizeReport) {
     let n = depth.len();
     let mut keep: Vec<usize> = Vec::with_capacity(n);
     let mut seen: std::collections::HashSet<u32> = std::collections::HashSet::with_capacity(n);
@@ -638,6 +638,18 @@ pub fn parse_core_csv<P: AsRef<Path>>(path: P) -> ParseResult<CoreColumns> {
     }
     percent_to_fraction(&mut cols.cpor);
     percent_to_fraction(&mut cols.csw);
+    // Dedup duplicate depths (first occurrence wins, file order kept) so a repeated plug depth
+    // can't abort the whole well's core import on the core_data (well_id, depth) PK — mirrors the
+    // LAS sanitize path. (NaN depths were already skipped above.)
+    let (keep, report) = depth_keep_indices(&cols.depth);
+    if !report.is_clean() {
+        let take = |src: &[f32]| -> Vec<f32> { keep.iter().map(|&i| src[i]).collect() };
+        cols.depth = take(&cols.depth);
+        cols.cpor = take(&cols.cpor);
+        cols.cperm = take(&cols.cperm);
+        cols.cgd = take(&cols.cgd);
+        cols.csw = take(&cols.csw);
+    }
     Ok(cols)
 }
 
@@ -1439,6 +1451,15 @@ pub fn parse_deviation_csv<P: AsRef<Path>>(path: P) -> ParseResult<DeviationSurv
         survey.inc.push(inc);
         survey.azi.push(azi);
     }
+    // Dedup duplicate station MDs (first kept) so a repeated MD can't abort the whole survey on
+    // the well_path (well_id, md) PK. MD is already sorted; a duplicated MD carries no new geometry.
+    let (keep, report) = depth_keep_indices(&survey.md);
+    if !report.is_clean() {
+        let take = |src: &[f32]| -> Vec<f32> { keep.iter().map(|&i| src[i]).collect() };
+        survey.md = take(&survey.md);
+        survey.inc = take(&survey.inc);
+        survey.azi = take(&survey.azi);
+    }
     Ok(survey)
 }
 
@@ -1540,7 +1561,11 @@ fn read_delimited<P: AsRef<Path>>(path: P) -> ParseResult<(Vec<String>, Vec<Vec<
 /// two-column "NAME DEPTH" (or three-column "WELL NAME DEPTH") files are also accepted:
 /// if no known headers are found and the last column of the first line parses as a
 /// number, the first line is treated as data.
-pub fn parse_tops_file<P: AsRef<Path>>(path: P) -> ParseResult<Vec<TopsRecord>> {
+/// Returns `(has_well_column, records)` — the flag lets the importer tell a genuinely
+/// column-less single-well file (fall back to the selected well) from a multi-well file with a
+/// blank WELL cell (skip the row instead of misrouting it), both of which yield `record.well ==
+/// None`. Mirrors `parse_locations_file`.
+pub fn parse_tops_file<P: AsRef<Path>>(path: P) -> ParseResult<(bool, Vec<TopsRecord>)> {
     let (headers, mut rows) = read_delimited(path)?;
     if headers.is_empty() {
         return Err(ParseError::Las("tops file is empty".into()));
@@ -1593,7 +1618,7 @@ pub fn parse_tops_file<P: AsRef<Path>>(path: P) -> ParseResult<Vec<TopsRecord>> 
     if out.is_empty() {
         return Err(ParseError::Las("tops file has no parsable rows".into()));
     }
-    Ok(out)
+    Ok((idx_well.is_some(), out))
 }
 
 /// One well-surface-location row. `well` is None when this row carries no well name —
@@ -1736,8 +1761,9 @@ mod tops_aux_tests {
             "arshilla_tops_test.csv",
             "# exported tops\nWell Name,Surface,MD\nBALAM-1,TOP_A,1000.5\nBALAM-1,TOP_B,1100.0\nBALAM-2,TOP_A,1010.0\n,BAD_ROW,\n",
         );
-        let recs = parse_tops_file(&p).unwrap();
+        let (has_well, recs) = parse_tops_file(&p).unwrap();
         std::fs::remove_file(&p).ok();
+        assert!(has_well, "multi-well file has a WELL column");
         assert_eq!(recs.len(), 3, "row without depth skipped");
         assert_eq!(recs[0].well.as_deref(), Some("BALAM-1"));
         assert_eq!(recs[2].well.as_deref(), Some("BALAM-2"));
@@ -1748,8 +1774,9 @@ mod tops_aux_tests {
     #[test]
     fn tops_txt_headerless_whitespace() {
         let p = temp("arshilla_tops_test.txt", "TOP_A  1000.5\nTOP_B\t1100\n");
-        let recs = parse_tops_file(&p).unwrap();
+        let (has_well, recs) = parse_tops_file(&p).unwrap();
         std::fs::remove_file(&p).ok();
+        assert!(!has_well, "headerless 2-column file has no WELL column");
         assert_eq!(recs.len(), 2);
         assert!(recs[0].well.is_none());
         assert_eq!(recs[0].top_name, "TOP_A");

@@ -370,7 +370,7 @@ pub fn import_tops_file(conn: &Connection, default_well_id: Option<&str>, path: 
         unmatched_wells: vec![],
         error: Some(e),
     };
-    let records = match parsers::parse_tops_file(path) {
+    let (has_well_column, records) = match parsers::parse_tops_file(path) {
         Ok(r) => r,
         Err(e) => return fail(e.to_string()),
     };
@@ -395,9 +395,16 @@ pub fn import_tops_file(conn: &Connection, default_well_id: Option<&str>, path: 
         }
     }
 
+    // All-or-nothing: a mid-file DB error must not leave some tops written and others not
+    // (which would otherwise report tops_written=0 while rows are already persisted). Mirrors
+    // import_locations_file below.
+    if let Err(e) = conn.execute_batch("BEGIN") {
+        return fail(e.to_string());
+    }
     let mut written = 0usize;
     let mut wells_hit: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut unmatched: Vec<String> = Vec::new();
+    let mut blank_rows = 0usize;
     for rec in &records {
         let well_id = match &rec.well {
             Some(name) => match name_to_id.get(&name.trim().to_uppercase()) {
@@ -410,9 +417,17 @@ pub fn import_tops_file(conn: &Connection, default_well_id: Option<&str>, path: 
                     continue;
                 }
             },
+            // File HAS a WELL column but this row's cell is blank/ragged — skip it; misrouting a
+            // blank-cell top to the selected well would silently attach it to an unrelated well.
+            None if has_well_column => {
+                blank_rows += 1;
+                continue;
+            }
+            // Genuinely column-less (single-well) file → the dialog's selected well.
             None => match default_well_id {
                 Some(id) => id.to_string(),
                 None => {
+                    let _ = conn.execute_batch("ROLLBACK");
                     return fail("file has no WELL column — select a well first".into());
                 }
             },
@@ -422,8 +437,19 @@ pub fn import_tops_file(conn: &Connection, default_well_id: Option<&str>, path: 
                 written += 1;
                 wells_hit.insert(well_id);
             }
-            Err(e) => return fail(e.to_string()),
+            Err(e) => {
+                let _ = conn.execute_batch("ROLLBACK");
+                return fail(e.to_string());
+            }
         }
+    }
+    if let Err(e) = conn.execute_batch("COMMIT") {
+        let _ = conn.execute_batch("ROLLBACK");
+        return fail(e.to_string());
+    }
+    // Surface dropped blank-WELL rows so the skip is never silent.
+    if blank_rows > 0 {
+        unmatched.push(format!("{blank_rows} blank-WELL row(s)"));
     }
     TopsImportResult {
         path: path.to_string(),

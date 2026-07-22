@@ -207,6 +207,16 @@ through in the real app with field data. Nothing committed.**
       column. **(10)** Monte Carlo `summarize()` returns **NaN (→ "—")** for a dry/no-data metric instead
       of a fabricated 0.00. **(11)** the IMTS method doc's clay-term formula fixed to divide by Sw (matches
       code). *(+6 new tests locking the guards. No TS changed, so tsc unaffected.)*
+- [ ] **AUDIT-2026-07-21 — import-robustness batch 2 (2026-07-22):** five importer fixes so one bad row no
+      longer aborts a whole import, all mirroring existing verified patterns (LAS `depth_keep_indices`
+      sanitize + the locations importer). **(1)** Core-CSV import **dedups duplicate plug depths** (first
+      kept) instead of aborting the well's core import on the `core_data (well_id, depth)` PK. **(2)**
+      Deviation-survey import **dedups duplicate station MDs**. **(3)** DLIS import **sanitizes each frame's
+      depth** (drops non-finite + dedups) so one bad sample can't abort the file. **(4)** Tops import is now
+      **transaction-wrapped** like the sibling Locations importer — a mid-file error no longer strands half
+      the tops. **(5)** Tops import now **skips a blank WELL cell in a multi-well file** (was misrouting it
+      to the selected well, silently attaching a top to an unrelated well) and reports the dropped count.
+      *(+2 tests updated for the new `has_well_column` flag; suite 236/0.)*
 
 ## Round 2 — panes, shift-select, MC plot props + table + polish (2026-07-21, Jauhar feedback batch #2)
 
