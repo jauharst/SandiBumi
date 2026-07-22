@@ -4155,6 +4155,43 @@ input[type="number"].num-editing:focus {
   color: var(--warn);
 }
 
+/* Curve Catalog: per-row action buttons + mnemonic-collision badges (DLIS/LAS shadow). */
+.catalog-actions {
+  white-space: nowrap;
+}
+.catalog-actions .catalog-set-btn {
+  margin-left: 4px;
+}
+.catalog-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 8px;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  vertical-align: middle;
+}
+.catalog-badge.win {
+  color: #3c9a5f;
+  border: 1px solid #3c9a5f;
+}
+.catalog-badge.shadow {
+  color: var(--warn);
+  border: 1px solid var(--warn);
+}
+.catalog-badge.pin {
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+/* Resolution is served by a higher-priority store (standard log column / computed curve), so
+   the generic RAW row does not resolve — a neutral note, not a resolves/shadowed claim. */
+.catalog-badge.muted {
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+
 /* --- Universal Processing panel (Phase 11) --------------------------------- */
 .proc-panel {
   /* Status colors: ok=green, warned=amber, failed=app red, running=accent.

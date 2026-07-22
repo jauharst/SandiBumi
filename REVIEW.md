@@ -7,6 +7,35 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 8 — DLIS/LAS mnemonic-shadow resolution in the Curve Catalog (2026-07-22)
+
+When a DLIS and an LAS (or two DLIS runs) carry the **same mnemonic**, the Curve Catalog now
+detects the collision, badges the resolver's current winner, and lets you **Promote** the one you
+want or **Delete** a duplicate — without editing files. Backend `db.rs` (new `pinned` column +
+promote/delete), resolver tiebreak in `equations.rs` + `curve_edit.rs`, frontend
+`inspectorPanel.ts`/`ipc.ts`/`styles.css`. cargo 255/0, tsc 0. Adversarially reviewed (4 lenses →
+**5 confirmed findings, all fixed**): the resolver no longer lets a pin leak across a family, and the
+Catalog no longer claims a Promote "wins" when a higher-priority store actually resolves the curve.
+
+- [ ] **Promote resolves a real same-mnemonic shadow.** On a well where a DLIS and an LAS both carry a
+      **non-standard** mnemonic (e.g. `PEF`, `CALI`, `DTS`, or a core `PERM` with no computed PERM),
+      open the **inspector ▸ Curve Catalog**: the two rows show **`resolves`** / **`shadowed`** badges.
+      Click **Promote** on the shadowed one → it flips to `resolves` + `pinned`, and any plot/module
+      reading that curve now picks up the promoted values. **Delete** the loser → the sibling resolves.
+- [ ] **No false "it now wins" for standard logs.** For `GR / RES_DEEP / NPHI / RHOB / DT / SP`, the
+      real curve is served from the standard log column, not the RAW catalog copy. Those rows now show a
+      neutral **`served by log`** badge and **Promote is disabled** (tooltip: "resolution comes from the
+      standard log column — promoting has no effect"). Previously Promote here claimed victory but changed
+      nothing on any plot — that lie is gone.
+- [ ] **No false win when a computed curve owns the name.** If you've computed a curve (say `PERM` from
+      Coates) and also imported a raw `PERM`, the raw row shows **`served by computed`** and Promote is
+      disabled — the computed curve resolves first, so promoting the raw one would have been a silent
+      no-op.
+- [ ] **A pin doesn't hijack the family (deep-R sanity).** Promoting one same-mnemonic shadow must NOT
+      change which curve a **family** request resolves. On a well whose deep-resistivity feeds Sw, promote
+      an unrelated same-mnemonic shadow and confirm Sw is unchanged (the pin now applies only to its own
+      mnemonic, and family requests rank by base run — deterministic across re-import/reopen).
+
 ## Round 7 — MASK support in the ML pipeline (2026-07-22)
 
 Optional flag curve in the ML dialog: samples where the mask = 1 are excluded from training AND left

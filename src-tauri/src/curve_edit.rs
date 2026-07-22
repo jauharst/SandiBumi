@@ -142,10 +142,17 @@ fn locate_curve(conn: &Connection, well_id: &str, curve: &str) -> Result<CurveSt
 
     let generic: Option<String> = conn
         .query_row(
+            // pinned is scoped per mnemonic (db::promote_generic_curve), so gate it behind an
+            // exact-mnemonic match — a family-name request must rank by run_no, not by a pin on a
+            // different member mnemonic. curve_id is the final deterministic tiebreak. Mirrors
+            // equations::fetch_generic_curve_aligned.
             "SELECT curve_id FROM curve_meta
              WHERE well_id = ?1 AND set_name = 'RAW'
                AND (upper(mnemonic) = ?2 OR upper(family) = ?2)
-             ORDER BY (upper(mnemonic) = ?2) DESC, run_no NULLS FIRST
+             ORDER BY (upper(mnemonic) = ?2) DESC,
+                      (CASE WHEN upper(mnemonic) = ?2 THEN COALESCE(pinned, 0) ELSE 0 END) DESC,
+                      run_no NULLS FIRST,
+                      curve_id
              LIMIT 1",
             params![well_id, upper],
             |r| r.get(0),

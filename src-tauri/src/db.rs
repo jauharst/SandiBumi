@@ -307,8 +307,11 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             family      VARCHAR,          -- e.g. GR, RES, NPHI, RHOB, DT, SP, PEF, CALI
             source      VARCHAR,          -- e.g. 'LAS import', 'DLIS import', 'computed'
             run_no      INTEGER,
+            pinned      INTEGER DEFAULT 0,  -- 1 = user-promoted winner for its (well,set,mnemonic)
             UNIQUE (well_id, set_name, mnemonic, run_no)
         );
+        -- `pinned` added via ALTER so existing project databases converge on the same shape.
+        ALTER TABLE curve_meta ADD COLUMN IF NOT EXISTS pinned INTEGER DEFAULT 0;
 
         CREATE TABLE IF NOT EXISTS curve_samples (
             curve_id    UUID NOT NULL,
@@ -1935,6 +1938,9 @@ pub struct GenericCurveCatalogEntry {
     pub source: Option<String>,
     pub run_no: Option<i32>,
     pub n_samples: i64,
+    /// True when the user has promoted this curve to win its (well, set, mnemonic) group in
+    /// curve resolution (the DLIS/LAS same-mnemonic shadow tiebreak).
+    pub pinned: bool,
 }
 
 /// Lists every curve in the generic store for one well, across all sets — the data
@@ -1945,11 +1951,11 @@ pub struct GenericCurveCatalogEntry {
 pub fn list_generic_curve_catalog(conn: &Connection, well_id: &str) -> DbResult<Vec<GenericCurveCatalogEntry>> {
     let mut stmt = conn.prepare(
         "SELECT m.curve_id, m.mnemonic, m.unit, m.family, m.set_name, m.source, m.run_no,
-                COUNT(s.depth)
+                COUNT(s.depth), COALESCE(m.pinned, 0)
          FROM curve_meta m
          LEFT JOIN curve_samples s ON s.curve_id = m.curve_id
          WHERE m.well_id = ?1
-         GROUP BY m.curve_id, m.mnemonic, m.unit, m.family, m.set_name, m.source, m.run_no
+         GROUP BY m.curve_id, m.mnemonic, m.unit, m.family, m.set_name, m.source, m.run_no, m.pinned
          ORDER BY m.set_name, m.family, m.mnemonic",
     )?;
     let rows = stmt.query_map(params![well_id], |row| {
@@ -1962,6 +1968,7 @@ pub fn list_generic_curve_catalog(conn: &Connection, well_id: &str) -> DbResult<
             source: row.get(5)?,
             run_no: row.get(6)?,
             n_samples: row.get(7)?,
+            pinned: row.get::<_, i32>(8)? != 0,
         })
     })?;
     let mut out = Vec::new();
@@ -1969,6 +1976,39 @@ pub fn list_generic_curve_catalog(conn: &Connection, well_id: &str) -> DbResult<
         out.push(r?);
     }
     Ok(out)
+}
+
+/// Deletes one generic-store curve — its `curve_meta` row and all its `curve_samples` — by id.
+/// Irreversible; used by the Curve Catalog to remove a shadowing/duplicate imported curve.
+pub fn delete_generic_curve(conn: &Connection, curve_id: &str) -> DbResult<()> {
+    with_txn(conn, |conn| {
+        conn.execute("DELETE FROM curve_samples WHERE curve_id = ?1", params![curve_id])?;
+        conn.execute("DELETE FROM curve_meta WHERE curve_id = ?1", params![curve_id])?;
+        Ok(())
+    })
+}
+
+/// Promotes one generic curve to WIN its (well, set, mnemonic) group in curve resolution:
+/// clears `pinned` on every sibling sharing that key, then sets `pinned = 1` on this curve.
+/// At most one curve per (well, set, mnemonic) group is ever pinned. The resolvers apply that
+/// pin only when the REQUEST is that exact mnemonic (see `fetch_generic_curve_aligned`), so it
+/// resolves DLIS/LAS same-mnemonic shadowing without hijacking a family-name request that
+/// happens to match a different mnemonic in the same family — and without deleting the loser.
+pub fn promote_generic_curve(conn: &Connection, curve_id: &str) -> DbResult<()> {
+    with_txn(conn, |conn| {
+        let (well, set, mnem): (String, String, String) = conn.query_row(
+            "SELECT well_id, set_name, mnemonic FROM curve_meta WHERE curve_id = ?1",
+            params![curve_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )?;
+        conn.execute(
+            "UPDATE curve_meta SET pinned = 0
+             WHERE well_id = ?1 AND set_name = ?2 AND upper(mnemonic) = upper(?3)",
+            params![well, set, mnem],
+        )?;
+        conn.execute("UPDATE curve_meta SET pinned = 1 WHERE curve_id = ?1", params![curve_id])?;
+        Ok(())
+    })
 }
 
 /// Registers (or reuses, if the (well, set, mnemonic, run_no) already exists) one curve

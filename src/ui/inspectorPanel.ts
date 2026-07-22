@@ -9,6 +9,8 @@ import {
   listCurveCatalog,
   listComputedCatalog,
   listGenericCurveCatalog,
+  deleteGenericCurve,
+  promoteGenericCurve,
   listLogSets,
   listWells,
   deleteLogSet,
@@ -363,22 +365,84 @@ export class InspectorPanel {
       min: number | null;
       max: number | null;
       mean: number | null;
+      curveId: string | null; // generic-store rows only (for promote/delete)
+      pinned: boolean;
+      collision: boolean; // >1 generic curve shares this (set, mnemonic)
+      winner: boolean; // this row is the current resolver winner in its collision group
+      // Resolution actually comes from a HIGHER-priority store than the generic RAW one, so
+      // promote/pin has no effect on what modules/plots read (fetch_curve_frame resolves
+      // standard column → computed → generic). Neutralises the promote lie for those cases.
+      overriddenBy: "log" | "computed" | null;
     };
+
+    // Detect same-mnemonic shadowing within the generic store (a DLIS import can collide with a
+    // LAS curve of the same mnemonic) and mark the resolver's current winner (pinned, else the
+    // NULL/lowest run_no — mirroring the backend `pinned DESC, run_no NULLS FIRST`).
+    const groups = new Map<string, GenericCurveCatalogEntry[]>();
+    for (const e of this.genericEntries) {
+      const k = `${e.set_name} ${e.mnemonic.toUpperCase()}`;
+      const arr = groups.get(k);
+      if (arr) arr.push(e);
+      else groups.set(k, [e]);
+    }
+    const winnerId = new Map<string, string>();
+    for (const [k, es] of groups) {
+      if (es.length < 2) continue;
+      const win =
+        es.find((e) => e.pinned) ??
+        [...es].sort((a, b) => {
+          if (a.run_no == null && b.run_no != null) return -1;
+          if (a.run_no != null && b.run_no == null) return 1;
+          if (a.run_no !== b.run_no) return (a.run_no ?? 0) - (b.run_no ?? 0);
+          return a.curve_id.localeCompare(b.curve_id); // final key mirrors the resolver's curve_id tiebreak
+        })[0];
+      winnerId.set(k, win.curve_id);
+    }
+
+    // A generic RAW curve only governs resolution when NO higher-priority store holds its
+    // mnemonic: fetch_curve_frame resolves standard column → computed → generic. When a standard
+    // column is populated (its migration mirror row is present) or a computed curve of the same
+    // name exists, promote/pin on the RAW row is inert — so the badge must not claim it "resolves"
+    // and Promote must be disabled, or the UI would assert a win the resolver never honours.
+    const STANDARD_MNEMONICS = new Set(["GR", "RES_DEEP", "NPHI", "RHOB", "DT", "SP"]);
+    const computedNames = new Set(this.computedEntries.map((e) => e.curve_name.toUpperCase()));
+    const overrideFor = (setName: string, mnemUpper: string): "log" | "computed" | null => {
+      if (setName !== "RAW") return null; // the generic resolver only reads the RAW set
+      const es = groups.get(`${setName} ${mnemUpper}`) ?? [];
+      // The boot migration inserts a 'standard_curves migration' RAW row iff the standard column
+      // has data — a precise per-well signal that the standard column governs this mnemonic.
+      if (STANDARD_MNEMONICS.has(mnemUpper) && es.some((e) => (e.source ?? "").includes("standard_curves migration"))) {
+        return "log";
+      }
+      if (computedNames.has(mnemUpper)) return "computed";
+      return null;
+    };
+
     const rows: Row[] = [
-      ...this.genericEntries.map((e) => ({
-        name: e.mnemonic,
-        runNo: e.run_no,
-        unit: e.unit ?? "",
-        family: e.family ?? "",
-        set: e.set_name,
-        ver: null,
-        source: e.source ?? "",
-        when: "",
-        samples: e.n_samples,
-        min: null,
-        max: null,
-        mean: null,
-      })),
+      ...this.genericEntries.map((e) => {
+        const mnemUpper = e.mnemonic.toUpperCase();
+        const gk = `${e.set_name} ${mnemUpper}`;
+        const collision = (groups.get(gk)?.length ?? 0) > 1;
+        return {
+          name: e.mnemonic,
+          runNo: e.run_no,
+          unit: e.unit ?? "",
+          family: e.family ?? "",
+          set: e.set_name,
+          ver: null,
+          source: e.source ?? "",
+          when: "",
+          samples: e.n_samples,
+          min: null,
+          max: null,
+          mean: null,
+          curveId: e.curve_id,
+          pinned: e.pinned,
+          collision,
+          winner: collision && winnerId.get(gk) === e.curve_id,
+          overriddenBy: overrideFor(e.set_name, mnemUpper),
+        };
+      }),
       ...this.computedEntries.map((e) => ({
         name: e.curve_name,
         runNo: null,
@@ -392,6 +456,11 @@ export class InspectorPanel {
         min: e.min,
         max: e.max,
         mean: e.mean,
+        curveId: null,
+        pinned: false,
+        collision: false,
+        winner: false,
+        overriddenBy: null,
       })),
     ];
 
@@ -416,17 +485,49 @@ export class InspectorPanel {
     });
 
     const fmt = (v: number | null) => (v == null ? "—" : Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(3));
+    // When resolution is served by a higher-priority store, the generic-store "resolves/shadowed"
+    // badges would lie — show a neutral "served by …" note instead, and suppress pinned (inert here).
+    const overrideNote = (r: Row) =>
+      r.overriddenBy === "log"
+        ? ` <span class="catalog-badge muted" title="fetch_curve_frame reads the standard log column for this mnemonic; the RAW copy does not resolve">served by log</span>`
+        : r.overriddenBy === "computed"
+          ? ` <span class="catalog-badge muted" title="a computed curve of this name resolves before the RAW store">served by computed</span>`
+          : "";
+    const badges = (r: Row) =>
+      r.overriddenBy != null
+        ? overrideNote(r)
+        : (r.collision
+            ? r.winner
+              ? ` <span class="catalog-badge win">resolves</span>`
+              : ` <span class="catalog-badge shadow">shadowed</span>`
+            : "") + (r.pinned ? ` <span class="catalog-badge pin">pinned</span>` : "");
+    // Promote is inert (and would falsely claim victory) when a higher-priority store already
+    // resolves the mnemonic, or when this row is already the generic-store winner.
+    const promoteBlock = (r: Row): string =>
+      r.overriddenBy === "log"
+        ? " disabled title=\"resolution comes from the standard log column — promoting has no effect\""
+        : r.overriddenBy === "computed"
+          ? " disabled title=\"a computed curve of this name resolves first — promoting has no effect\""
+          : r.winner
+            ? " disabled title=\"already the resolved curve\""
+            : "";
+    const actions = (r: Row) =>
+      r.curveId == null
+        ? ""
+        : `<button class="catalog-set-btn" data-promote="${escapeAttr(r.curveId)}"${promoteBlock(r)}>Promote</button>` +
+          `<button class="catalog-set-btn danger" data-del-curve="${escapeAttr(r.curveId)}">Delete</button>`;
     const bodyRows = shown
       .map(
         (r) =>
-          `<tr><td>${escapeHtml(r.name)}${r.runNo != null ? `<span class="catalog-run"> · run ${r.runNo}</span>` : ""}</td>` +
+          `<tr><td>${escapeHtml(r.name)}${r.runNo != null ? `<span class="catalog-run"> · run ${r.runNo}</span>` : ""}${badges(r)}</td>` +
           `<td>${escapeHtml(r.unit)}</td>` +
           `<td>${escapeHtml(r.family || "—")}</td>` +
           `<td>${escapeHtml(r.set)}${r.ver != null ? `<span class="catalog-run"> v${r.ver}</span>` : ""}</td>` +
           `<td>${escapeHtml(r.source)}</td>` +
           `<td>${escapeHtml(r.when || "—")}</td>` +
           `<td>${r.samples}</td>` +
-          `<td>${fmt(r.min)}</td><td>${fmt(r.max)}</td><td>${fmt(r.mean)}</td></tr>`,
+          `<td>${fmt(r.min)}</td><td>${fmt(r.max)}</td><td>${fmt(r.mean)}</td>` +
+          `<td class="catalog-actions">${actions(r)}</td></tr>`,
       )
       .join("");
 
@@ -442,14 +543,15 @@ export class InspectorPanel {
       ["max", "Max"],
       ["mean", "Mean"],
     ];
-    const header = cols
-      .map(
-        ([k, label]) =>
-          `<th class="catalog-sortable" data-sort="${k}">${label}${
-            this.catalogSortKey === k ? (this.catalogSortAsc ? " ▲" : " ▼") : ""
-          }</th>`,
-      )
-      .join("");
+    const header =
+      cols
+        .map(
+          ([k, label]) =>
+            `<th class="catalog-sortable" data-sort="${k}">${label}${
+              this.catalogSortKey === k ? (this.catalogSortAsc ? " ▲" : " ▼") : ""
+            }</th>`,
+        )
+        .join("") + `<th>Actions</th>`;
 
     // Log-set version history (newest first per set); restore any version, prune old ones.
     const setRows = this.logSets
@@ -474,7 +576,7 @@ export class InspectorPanel {
       <input id="catalog-filter" class="catalog-filter" type="search" placeholder="Search mnemonic, cons, module, unit, date…" value="${escapeAttr(this.catalogFilter)}" />
       <table class="catalog-table">
         <thead><tr>${header}</tr></thead>
-        <tbody>${bodyRows || `<tr><td colspan="10" class="placeholder-note">No curves match "${escapeHtml(this.catalogFilter)}"</td></tr>`}</tbody>
+        <tbody>${bodyRows || `<tr><td colspan="11" class="placeholder-note">No curves match "${escapeHtml(this.catalogFilter)}"</td></tr>`}</tbody>
       </table>
       <div class="catalog-sets">
         <div class="catalog-sets-title">Constellations — every run is kept as a version (nothing is overwritten)</div>
@@ -535,6 +637,47 @@ export class InspectorPanel {
           await deleteLogSet(btn.dataset.del!);
           globalStatus("Constellation version deleted (current curve values kept)");
           recordProcess("Constellation", "Deleted a constellation version");
+          void this.refreshCatalog();
+        } catch (err) {
+          globalStatus(`Delete failed: ${err}`);
+          btn.disabled = false;
+        }
+      });
+    }
+    // Promote a generic curve so it wins its mnemonic (resolve DLIS/LAS shadowing).
+    for (const btn of this.catalogTab.querySelectorAll<HTMLButtonElement>("[data-promote]")) {
+      btn.addEventListener("click", async () => {
+        btn.disabled = true;
+        try {
+          await promoteGenericCurve(btn.dataset.promote!);
+          globalStatus("Curve promoted — it now wins its mnemonic");
+          recordProcess("Curve", "Promoted a generic curve (resolved a mnemonic shadow)");
+          bumpDataVersion(); // log views / plots / modules re-resolve immediately
+          void this.refreshCatalog();
+        } catch (err) {
+          globalStatus(`Promote failed: ${err}`);
+          btn.disabled = false;
+        }
+      });
+    }
+    // Delete an imported (generic-store) curve outright — two-click confirm, irreversible.
+    for (const btn of this.catalogTab.querySelectorAll<HTMLButtonElement>("[data-del-curve]")) {
+      btn.addEventListener("click", async () => {
+        if (!btn.dataset.armed) {
+          btn.dataset.armed = "1";
+          btn.textContent = "Confirm delete";
+          window.setTimeout(() => {
+            btn.textContent = "Delete";
+            delete btn.dataset.armed;
+          }, 2500);
+          return;
+        }
+        btn.disabled = true;
+        try {
+          await deleteGenericCurve(btn.dataset.delCurve!);
+          globalStatus("Imported curve deleted");
+          recordProcess("Curve", "Deleted a generic curve");
+          bumpDataVersion();
           void this.refreshCatalog();
         } catch (err) {
           globalStatus(`Delete failed: ${err}`);

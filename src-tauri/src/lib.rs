@@ -531,6 +531,22 @@ fn get_generic_curve_samples(db: tauri::State<DbState>, curve_id: String) -> Res
     db::get_curve_samples(&conn, &curve_id).map_err(|e| e.to_string())
 }
 
+/// Curve Catalog: deletes one generic-store curve (meta + samples) by id — removes a
+/// shadowing/duplicate imported curve. Irreversible.
+#[tauri::command]
+fn delete_generic_curve(db: tauri::State<DbState>, curve_id: String) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    db::delete_generic_curve(&conn, &curve_id).map_err(|e| e.to_string())
+}
+
+/// Curve Catalog: promotes one generic curve so it wins its (well, set, mnemonic) group in
+/// curve resolution — the fix for DLIS/LAS same-mnemonic shadowing.
+#[tauri::command]
+fn promote_generic_curve(db: tauri::State<DbState>, curve_id: String) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    db::promote_generic_curve(&conn, &curve_id).map_err(|e| e.to_string())
+}
+
 /// Phase 6: imports a deviation-survey CSV for one well, computing minimum-curvature
 /// TVD/TVDSS and storing it in `well_path`.
 #[tauri::command]
@@ -1453,6 +1469,8 @@ pub fn run() {
             list_computed_catalog,
             list_generic_curve_catalog,
             get_generic_curve_samples,
+            delete_generic_curve,
+            promote_generic_curve,
             import_deviation_csv,
             get_well_path,
             materialize_tvd,

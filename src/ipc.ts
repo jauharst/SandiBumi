@@ -1546,11 +1546,24 @@ export interface GenericCurveCatalogEntry {
   source: string | null;
   run_no: number | null;
   n_samples: number;
+  /** True when the user promoted this curve to win its (well, set, mnemonic) group. */
+  pinned: boolean;
 }
 
 /** Every curve in the generic store for one well, across RAW/EDIT/FINAL sets. */
 export function listGenericCurveCatalog(wellId: string): Promise<GenericCurveCatalogEntry[]> {
   return invoke<GenericCurveCatalogEntry[]>("list_generic_curve_catalog", { wellId });
+}
+
+/** Deletes one generic-store curve (meta + samples) — removes a shadowing/duplicate import. */
+export function deleteGenericCurve(curveId: string): Promise<void> {
+  return invoke<void>("delete_generic_curve", { curveId });
+}
+
+/** Promotes one generic curve so it wins its (well, set, mnemonic) group in curve resolution
+ *  (the DLIS/LAS same-mnemonic shadow tiebreak). */
+export function promoteGenericCurve(curveId: string): Promise<void> {
+  return invoke<void>("promote_generic_curve", { curveId });
 }
 
 export interface CurveSamplePoint {

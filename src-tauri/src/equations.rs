@@ -423,8 +423,15 @@ fn fetch_computed_curve_aligned(
 }
 
 /// Looks up a curve in the generic store (`curve_meta`/`curve_samples`, set RAW) by
-/// mnemonic-or-family and aligns its samples onto the depth grid. Exact mnemonic matches
-/// win over family matches; among equals the base run (lowest `run_no`, NULL first) wins.
+/// mnemonic-or-family and aligns its samples onto the depth grid. Exact mnemonic matches win
+/// over family matches. Among exact-mnemonic matches a user-PINNED curve wins, else the base
+/// run (lowest `run_no`, NULL first). `pinned` is scoped per (well, set, mnemonic) by
+/// `db::promote_generic_curve`, so the tiebreak applies it ONLY when the request is that exact
+/// mnemonic (the `CASE WHEN upper(mnemonic)=?2` guard) — a family-name request must rank purely
+/// by run_no, or a pin placed on one member mnemonic would hijack a different member of the same
+/// family. A final `curve_id` key keeps the pick deterministic when every other key ties (e.g.
+/// two same-family base-run curves). Promote a curve in the Curve Catalog to resolve DLIS/LAS
+/// shadowing.
 fn fetch_generic_curve_aligned(
     conn: &Connection,
     well_id: &str,
@@ -437,7 +444,10 @@ fn fetch_generic_curve_aligned(
             "SELECT curve_id FROM curve_meta
              WHERE well_id = ?1 AND set_name = 'RAW'
                AND (upper(mnemonic) = ?2 OR upper(family) = ?2)
-             ORDER BY (upper(mnemonic) = ?2) DESC, run_no NULLS FIRST
+             ORDER BY (upper(mnemonic) = ?2) DESC,
+                      (CASE WHEN upper(mnemonic) = ?2 THEN COALESCE(pinned, 0) ELSE 0 END) DESC,
+                      run_no NULLS FIRST,
+                      curve_id
              LIMIT 1",
             params![well_id, upper],
             |row| row.get(0),
@@ -1182,6 +1192,87 @@ mod tests {
         .unwrap();
         let (_d, cols) = fetch_curve_frame(&conn, well, &["PERM".to_string()]).unwrap();
         assert!((cols["PERM"][0] - 12.5).abs() < 1e-4);
+    }
+
+    /// DLIS/LAS same-mnemonic shadow resolution: the LAS curve (run NULL) wins by DEFAULT
+    /// (backward-compatible — nothing pinned); a user PROMOTE flips the winner to the DLIS
+    /// curve and is at-most-one-pinned; DELETE of the winner falls back to the surviving
+    /// sibling. Exercises the equations resolver + db::promote/delete_generic_curve together.
+    #[test]
+    fn generic_curve_promote_and_delete_resolve_shadowing() {
+        use crate::db;
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = uuid::Uuid::new_v4();
+        db::insert_well(&conn, well, "SHADOW-1", None, None, None).unwrap();
+        let wid = well.to_string();
+        let depths = vec![100.0f32, 101.0, 102.0];
+        db::insert_standard_curves(
+            &conn, well, depths.clone(), vec![10.0f32; 3],
+            vec![f32::NAN; 3], vec![f32::NAN; 3], vec![f32::NAN; 3], vec![f32::NAN; 3], vec![f32::NAN; 3],
+        )
+        .unwrap();
+
+        // Two RAW 'PEF' curves colliding on the mnemonic: LAS (run NULL, value 1.0) and
+        // DLIS (run 0, value 2.0).
+        let las = db::upsert_curve_meta(&conn, &wid, "RAW", "PEF", Some("B/E"), Some("PEF"), Some("LAS import"), None).unwrap();
+        db::insert_curve_samples(&conn, &las, &depths, &[1.0, 1.0, 1.0]).unwrap();
+        let dlis = db::upsert_curve_meta(&conn, &wid, "RAW", "PEF", Some("B/E"), Some("PEF"), Some("DLIS import"), Some(0)).unwrap();
+        db::insert_curve_samples(&conn, &dlis, &depths, &[2.0, 2.0, 2.0]).unwrap();
+
+        let pef = |c: &Connection| fetch_curve_frame(c, &wid, &["PEF".to_string()]).unwrap().1["PEF"][0];
+
+        assert_eq!(pef(&conn), 1.0, "LAS (NULL run) wins by default");
+        db::promote_generic_curve(&conn, &dlis).unwrap();
+        assert_eq!(pef(&conn), 2.0, "promoted DLIS wins");
+        db::promote_generic_curve(&conn, &las).unwrap();
+        assert_eq!(pef(&conn), 1.0, "re-promoted LAS wins again (at-most-one-pinned)");
+        db::delete_generic_curve(&conn, &las).unwrap();
+        assert_eq!(pef(&conn), 2.0, "after deleting the winner, the sibling resolves");
+
+        let cat = db::list_generic_curve_catalog(&conn, &wid).unwrap();
+        assert!(cat.iter().all(|c| c.curve_id != las), "deleted curve gone from catalog");
+        assert!(cat.iter().any(|c| c.curve_id == dlis && !c.pinned), "DLIS present and unpinned");
+    }
+
+    /// A user PIN on one family member must not hijack a FAMILY-name request that resolves a
+    /// DIFFERENT member of the same family. `pinned` is scoped per (well, set, mnemonic) by
+    /// `db::promote_generic_curve`; the resolver applies it only to exact-mnemonic matches, so a
+    /// family request still ranks by run_no and the base run (NULL) keeps winning after a sibling
+    /// mnemonic is promoted. Guards the `CASE WHEN upper(mnemonic)=?2 ...` pin gate shared by
+    /// `fetch_generic_curve_aligned` and `curve_edit::locate_curve`.
+    #[test]
+    fn generic_pin_does_not_hijack_family_request() {
+        use crate::db;
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = uuid::Uuid::new_v4();
+        db::insert_well(&conn, well, "FAMILY-1", None, None, None).unwrap();
+        let wid = well.to_string();
+        let depths = vec![100.0f32, 101.0, 102.0];
+        // res_deep all-NaN; CALI is non-standard, so "CALI" always resolves via the generic store.
+        db::insert_standard_curves(
+            &conn, well, depths.clone(), vec![10.0f32; 3],
+            vec![f32::NAN; 3], vec![f32::NAN; 3], vec![f32::NAN; 3], vec![f32::NAN; 3], vec![f32::NAN; 3],
+        )
+        .unwrap();
+
+        // Two RAW caliper curves in family CALI with DIFFERENT mnemonics — neither equals the
+        // family string "CALI": HCAL (base run, NULL) and DCAL (run 0).
+        let hcal = db::upsert_curve_meta(&conn, &wid, "RAW", "HCAL", Some("in"), Some("CALI"), Some("LAS import"), None).unwrap();
+        db::insert_curve_samples(&conn, &hcal, &depths, &[8.0, 8.0, 8.0]).unwrap();
+        let dcal = db::upsert_curve_meta(&conn, &wid, "RAW", "DCAL", Some("in"), Some("CALI"), Some("DLIS import"), Some(0)).unwrap();
+        db::insert_curve_samples(&conn, &dcal, &depths, &[9.0, 9.0, 9.0]).unwrap();
+
+        let cali = |c: &Connection| fetch_curve_frame(c, &wid, &["CALI".to_string()]).unwrap().1["CALI"][0];
+
+        // Base run (HCAL, NULL) wins the family bucket by default.
+        assert_eq!(cali(&conn), 8.0, "base-run family member wins the family request by default");
+        // Promoting DCAL resolves a DCAL-vs-DCAL mnemonic shadow — it must NOT hijack the CALI
+        // family request, because DCAL's mnemonic != the requested family name. (Pre-fix this
+        // returned 9.0: pinned sorted ahead of run_no even for the family path.)
+        db::promote_generic_curve(&conn, &dcal).unwrap();
+        assert_eq!(cali(&conn), 8.0, "a pin on a sibling mnemonic must not hijack the family bucket");
     }
 
     /// The raw-IPC buffer must round-trip: pack two series, decode by hand exactly the way
