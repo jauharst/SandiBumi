@@ -645,8 +645,11 @@ pub fn run_multimin(
 
     let comp_tokens: Vec<String> = req.components.iter().map(|c| curve_token(&c.name)).collect();
     let vol_names: Vec<String> = comp_tokens.iter().map(|t| format!("VOL_{t}")).collect();
-    let prefix = req.output_prefix.trim();
-    let prefix = if prefix.is_empty() { "MM" } else { prefix };
+    // Uppercase the output prefix so a re-cased prefix (e.g. "mm" after "MM") can't leave a stale
+    // case-shadow row: every computed-curve reader resolves case-insensitively but the delete-then-
+    // append writer deletes by exact curve_name. Matches curve_token()'s uppercasing of components.
+    let prefix_upper = req.output_prefix.trim().to_uppercase();
+    let prefix = if prefix_upper.is_empty() { "MM" } else { prefix_upper.as_str() };
 
     let fetch_names: Vec<String> = tools.iter().map(|t| t.curve.trim().to_uppercase()).collect();
     // PEF→U conversion needs the density curve even when RHOB is not itself a tool.

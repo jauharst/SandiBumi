@@ -127,7 +127,11 @@ fn locate_curve(conn: &Connection, well_id: &str, curve: &str) -> Result<CurveSt
 
     let computed: Option<String> = conn
         .query_row(
-            "SELECT curve_name FROM computed_curves WHERE well_id = ?1 AND upper(curve_name) = ?2 LIMIT 1",
+            // ORDER BY makes the pick deterministic if a case-duplicate shadow row still exists
+            // (the write-side case-normalization prevents new ones); no effect in the normal
+            // one-row-per-upper(name) case.
+            "SELECT curve_name FROM computed_curves WHERE well_id = ?1 AND upper(curve_name) = ?2 \
+             ORDER BY curve_name LIMIT 1",
             params![well_id, upper],
             |r| r.get(0),
         )

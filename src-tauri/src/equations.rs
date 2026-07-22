@@ -585,11 +585,14 @@ pub(crate) fn write_computed_curves_versioned(
     // crash can't strand the DELETE with the current-store append lost.
     crate::db::with_txn(conn, |conn| {
         let placeholders = std::iter::repeat("?").take(curves.len()).collect::<Vec<_>>().join(", ");
-        let sql = format!("DELETE FROM computed_curves WHERE well_id = ? AND curve_name IN ({placeholders})");
-        let mut del_params: Vec<&str> = Vec::with_capacity(curves.len() + 1);
-        del_params.push(well_id);
+        let sql = format!("DELETE FROM computed_curves WHERE well_id = ? AND upper(curve_name) IN ({placeholders})");
+        // Bind UPPERCASED names so a re-cased write reclaims any prior-casing rows: every reader
+        // resolves curve_name case-insensitively via upper(), but an exact-case DELETE would leave
+        // a stale shadow row (e.g. old 'phie' after a rewrite to 'PHIE') that can silently win.
+        let mut del_params: Vec<String> = Vec::with_capacity(curves.len() + 1);
+        del_params.push(well_id.to_string());
         for (name, _) in curves {
-            del_params.push(name);
+            del_params.push(name.to_uppercase());
         }
         conn.execute(&sql, params_from_iter(del_params))?;
 
@@ -693,10 +696,11 @@ pub(crate) fn write_computed_curves_versioned_batch(conn: &Connection, wells: &[
             let wph = std::iter::repeat("?").take(well_ids.len()).collect::<Vec<_>>().join(", ");
             let cph = std::iter::repeat("?").take(curves.len()).collect::<Vec<_>>().join(", ");
             let sql =
-                format!("DELETE FROM computed_curves WHERE well_id IN ({wph}) AND curve_name IN ({cph})");
-            let mut p: Vec<&str> = Vec::with_capacity(well_ids.len() + curves.len());
-            p.extend(well_ids.iter().copied());
-            p.extend(curves.iter().copied());
+                format!("DELETE FROM computed_curves WHERE well_id IN ({wph}) AND upper(curve_name) IN ({cph})");
+            // Uppercase curve names (not well_ids) so a re-cased write reclaims prior-casing rows.
+            let mut p: Vec<String> = Vec::with_capacity(well_ids.len() + curves.len());
+            p.extend(well_ids.iter().map(|w| w.to_string()));
+            p.extend(curves.iter().map(|c| c.to_uppercase()));
             conn.execute(&sql, params_from_iter(p))?;
         }
 
@@ -868,7 +872,7 @@ pub(crate) fn restore_log_set(conn: &Connection, set_id: &str) -> duckdb::Result
         conn.execute(
             "DELETE FROM computed_curves
              WHERE well_id = (SELECT well_id FROM log_sets WHERE set_id = ?1)
-               AND curve_name IN (SELECT DISTINCT curve_name FROM computed_curves_archive WHERE set_id = ?1)",
+               AND upper(curve_name) IN (SELECT DISTINCT upper(curve_name) FROM computed_curves_archive WHERE set_id = ?1)",
             params![set_id],
         )?;
         let restored = conn.execute(
@@ -964,11 +968,14 @@ pub(crate) fn write_computed_curves_batch(
     crate::db::with_txn(conn, |conn| {
         // One DELETE covering exactly the curve names about to be rewritten.
         let placeholders = std::iter::repeat("?").take(curves.len()).collect::<Vec<_>>().join(", ");
-        let sql = format!("DELETE FROM computed_curves WHERE well_id = ? AND curve_name IN ({placeholders})");
-        let mut del_params: Vec<&str> = Vec::with_capacity(curves.len() + 1);
-        del_params.push(well_id);
+        let sql = format!("DELETE FROM computed_curves WHERE well_id = ? AND upper(curve_name) IN ({placeholders})");
+        // Bind UPPERCASED names so a re-cased write reclaims any prior-casing rows: every reader
+        // resolves curve_name case-insensitively via upper(), but an exact-case DELETE would leave
+        // a stale shadow row (e.g. old 'phie' after a rewrite to 'PHIE') that can silently win.
+        let mut del_params: Vec<String> = Vec::with_capacity(curves.len() + 1);
+        del_params.push(well_id.to_string());
         for (name, _) in curves {
-            del_params.push(name);
+            del_params.push(name.to_uppercase());
         }
         conn.execute(&sql, params_from_iter(del_params))?;
 

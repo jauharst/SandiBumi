@@ -90,7 +90,10 @@ pub fn export_las(conn: &Connection, well_id: &str, dest_path: &str) -> Result<u
         for i in 0..depth.len() {
             let mut line = format!("{:>12.4}", depth[i]);
             for name in &curve_names {
-                let v = columns.get(name).map(|c| *c.get(i).unwrap_or(&f32::NAN)).unwrap_or(f32::NAN);
+                // fetch_curve_frame keys the column map by name.trim().to_uppercase(); a mixed-case
+                // computed curve (e.g. "Vsh_final") missed here and exported an all-NULL column.
+                let key = name.trim().to_uppercase();
+                let v = columns.get(&key).map(|c| *c.get(i).unwrap_or(&f32::NAN)).unwrap_or(f32::NAN);
                 line.push_str(&format!(" {:>12}", fmt(v)));
             }
             writeln!(w, "{line}")?;

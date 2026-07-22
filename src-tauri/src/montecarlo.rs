@@ -410,7 +410,15 @@ fn percentile(sorted: &[f32], p: f64) -> f32 {
 fn summarize(values: &[f32], lo_p: f64, hi_p: f64) -> Pctl {
     let mut finite: Vec<f32> = values.iter().copied().filter(|v| v.is_finite()).collect();
     if finite.is_empty() {
-        return Pctl::default();
+        // No-data metric (e.g. avg_phie/avg_swe in a dry zone) → NaN, matching percentile()'s
+        // empty convention, so the UI renders "—" rather than a fabricated "0.00".
+        return Pctl {
+            lo: f32::NAN,
+            mid: f32::NAN,
+            hi: f32::NAN,
+            mean: f32::NAN,
+            sd: f32::NAN,
+        };
     }
     finite.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let n = finite.len() as f64;

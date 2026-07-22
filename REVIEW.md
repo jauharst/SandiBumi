@@ -186,6 +186,27 @@ through in the real app with field data. Nothing committed.**
       (physically impossible, pre-existing, orthogonal to this fix). **Try:** load a well whose deep
       resistivity has a zero/null streak and run `sw_arch` — the streak now reads as a gap in `SWT_ARCH`
       instead of pinning the curve autoscale to a huge number.
+- [ ] **AUDIT-2026-07-21 full-QC triage — backend robustness batch 1 (2026-07-22):** a 65-finding
+      parallel QC audit was triaged against current code (3 already fixed incl. the RT≤0 one above; 51
+      safe-to-fix; 6 need your sign-off; 1 needs a live 100-well run; 4 feature-work). **This batch = 12
+      safe backend fixes, none of which change any valid interpretation value** (suite 236/0/7):
+      **(1)** `vsh_dn` now skips a **degenerate matrix/shale/fluid triangle** (`|c−d|<1e-6`) instead of
+      writing ±Infinity into the unlimited VSH_DN (was poisoning catalog min/max + autoscale, same class
+      as the RT≤0 bug). **(2)** `ftemp_grad` BHT mode skips a **TD_BHT ≤ 0** zone override (was a
+      finite-looking ±Inf FTEMP). **(3)** `perm_wyllie_rose` now skips **negative PHIE** uniformly — the
+      integer MORRIS_BIGGS/TIXIER exponent used to fabricate a plausible PERM from it while TIMUR NaN'd it.
+      **(4)** `perm_transform` emits **MISSING instead of +Infinity** when `10^(PT_A·φ+PT_B)` overflows the
+      f32 cast (reachable at in-range PT_A=100/PT_B=5). **(5)** `nphi_env_corr`'s FTEMP is now a
+      **computed-only** input (a raw degF FTEMP can no longer be silently applied as degC), matching
+      gascorr. **(6)** SandiMin **output prefix is upper-cased** so a re-cased prefix can't leave a stale
+      curve. **(7)** the four computed-curve **delete-then-append writers now DELETE case-insensitively**
+      (`upper(curve_name)`), closing the root-cause shadow-row bug where a re-cased equation output left a
+      duplicate row that could silently win; the log-set restore subquery too. **(8)** curve-edit
+      `locate_curve` got a deterministic `ORDER BY`. **(9)** **LAS export** looks up columns by upper-cased
+      name, so a mixed-case computed curve ("Vsh_final") exports its real values instead of an all-NULL
+      column. **(10)** Monte Carlo `summarize()` returns **NaN (→ "—")** for a dry/no-data metric instead
+      of a fabricated 0.00. **(11)** the IMTS method doc's clay-term formula fixed to divide by Sw (matches
+      code). *(+6 new tests locking the guards. No TS changed, so tsc unaffected.)*
 
 ## Round 2 — panes, shift-select, MC plot props + table + polish (2026-07-21, Jauhar feedback batch #2)
 

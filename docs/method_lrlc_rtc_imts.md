@@ -36,7 +36,7 @@ Calibrates XRD mineralogy to lab CEC and focuses charge on the ACTIVE pore water
 - Corrected resistivities for exponent fitting: Rt_corr = Rt·(1+Rw·B·Qv_eff),
   Ro_corr = Ro·(1+Rw·B·Qv_eff); m* from slope of log(Ro_corr) vs log(φt).
 - Full saturation equation (iterative in Sw, Waxman-Smits family with F*=a/φt^m*):
-  **Ct = Sw^n*/F* · [Cw + B·S·(ΣVmin_i·CEC_lit_i)·ρg·(1−φt)/(100·φt·(1−Swirr))·Sw]**
+  **Ct = Sw^n*/F* · [Cw + B·S·(ΣVmin_i·CEC_lit_i)·ρg·(1−φt)/(100·φt·(1−Swirr))/Sw]**
   where B = counterion mobility (Waxman-Smits/Juhasz temperature form). Iterate SwT to
   stability; SwE from the CBW split. m*, n* trend high when dispersed kaolinite present.
 - Result on their LRLC samples: SwE lower than Archie everywhere; slightly lower than

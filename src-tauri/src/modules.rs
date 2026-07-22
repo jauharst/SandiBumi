@@ -379,6 +379,14 @@ fn vsh_dn(ctx: &ModuleContext) -> ModuleOutputs {
         let b = (r - rho_fl) * (nphi_fl - nphi_ma);
         let c = (rho_ma - rho_fl) * (nphi_fl - nphi_sh);
         let d = (rho_sh - rho_fl) * (nphi_fl - nphi_ma);
+        // A degenerate matrix/shale/fluid triangle (near-collinear endpoints — an in-range but
+        // physically bad parameter choice) drives (c - d) to ~0, sending the UNLIMITED VSH_DN to
+        // +/-Infinity on every sample (is_missing screens only NaN), which poisons catalog min/max
+        // and plot autoscale. Skip such samples, mirroring the GR-branch (gr_sh-gr_ma) guard below
+        // and vsh_gr's gr_ma>=gr_sh guard.
+        if (c - d).abs() < 1e-6 {
+            continue;
+        }
         let v = (a - b) / (c - d);
         vsh_dn_out[i] = v as f32;
         let v_lim = limit(v, 0.0, 1.0);
@@ -784,6 +792,12 @@ fn ftemp_grad(ctx: &ModuleContext) -> ModuleOutputs {
         let t = if bht_mode {
             let bht = ctx.p("BHT", i);
             let td = ctx.p("TD_BHT", i);
+            // A zone override can push TD_BHT <= 0 past the dialog's 100..10000 range; the
+            // division would then yield a finite-looking +/-Infinity FTEMP that is_missing()
+            // (NaN-only) never catches. Skip such samples (mirrors condflag/gascorr guards).
+            if td <= 0.0 {
+                continue;
+            }
             tsurf + (bht - tsurf) * d / td
         } else {
             tsurf + ctx.p("TGRAD", i) * d
@@ -1599,7 +1613,9 @@ fn nphi_env_corr_spec() -> ModuleSpec {
             param("K_SAL", "Salinity coefficient per 100 kppm", "v/v", -0.002, -0.05, 0.05),
             param("SALW", "Formation water salinity", "ppm", 20000.0, 0.0, 300000.0),
             log_in("NPHI", "Neutron porosity log", "v/v", "NPHI", true),
-            log_in("FTEMP", "Formation temperature", "degC", "FTEMP", false),
+            // FTEMP must come from precalc/ftemp_grad COMPUTED output, not a raw LAS curve — a raw
+            // degF FTEMP would otherwise be silently applied as degC. Mirrors gascorr's contract.
+            log_in_computed("FTEMP", "Formation temperature (precalc)", "degC", "FTEMP", false),
             log_out("NPHI_EC", "Environmentally corrected neutron porosity", "v/v"),
         ],
     }
@@ -2067,7 +2083,11 @@ fn perm_wyllie_rose(ctx: &ModuleContext) -> ModuleOutputs {
     for i in 0..ctx.n {
         let pe = phie[i] as f64;
         let swirr = ctx.p("SWE_IRR", i);
-        if is_missing(pe) || is_missing(swirr) || swirr <= 0.0 {
+        // Guard negative PHIE explicitly: pe.powf(d) is NaN for the fractional TIMUR exponent
+        // (d=2.25) but a finite, plausible-looking value for the integer MORRIS_BIGGS/TIXIER
+        // exponent (d=3.0), so without this the four OPT_WR variants disagree on the same
+        // non-physical input. Skip it uniformly.
+        if is_missing(pe) || pe < 0.0 || is_missing(swirr) || swirr <= 0.0 {
             continue;
         }
         let k = (c * pe.powf(d) / swirr.powf(e)).powi(2);
@@ -2144,7 +2164,11 @@ fn perm_transform(ctx: &ModuleContext) -> ModuleOutputs {
         if is_missing(pe) {
             continue;
         }
-        perm[i] = 10.0_f64.powf(a * pe + b) as f32;
+        // PT_A up to 100 and PT_B up to 5 are inside the dialog-validated ranges, so a*pe+b can
+        // exceed ~38.5 and 10^x overflows the f32 cast to +Infinity (which is_missing, NaN-only,
+        // treats as a real value that then flows into pay-flag cutoffs). Emit MISSING instead.
+        let k = 10.0_f64.powf(a * pe + b) as f32;
+        perm[i] = if k.is_finite() { k } else { f32::NAN };
     }
     HashMap::from([("PERM_XFM".to_string(), perm.clone()), ("PERM".to_string(), perm)])
 }
@@ -2677,6 +2701,100 @@ mod tests {
         let out2 = vsh_dn(&ctx_no_gr);
         assert_eq!(out2["VSH_DN_FLAG"][0], 0.0, "no GR → shaly point not divergence-flagged");
         assert_eq!(out2["VSH_DN_FLAG"][1], 1.0, "off-model still flagged without GR");
+    }
+
+    #[test]
+    fn vsh_dn_degenerate_triangle_is_missing_not_inf() {
+        // Matrix point == shale point (rho AND nphi coincide) collapses the (c - d) denominator
+        // to 0, which without the guard sends the UNLIMITED VSH_DN to +/-Infinity on every sample.
+        let ctx = ctx_with(
+            1,
+            &[("RHOB", vec![2.40]), ("NPHI", vec![0.15])],
+            &[
+                ("RHO_MA", 2.65), ("RHO_SH", 2.65), ("RHO_FL", 1.00),
+                ("NPHI_MA", 0.30), ("NPHI_SH", 0.30), ("NPHI_FL", 1.00),
+                ("GR_MA", 15.0), ("GR_SH", 120.0), ("FLAG_TOL", 0.25),
+            ],
+            &[],
+        );
+        let out = vsh_dn(&ctx);
+        assert!(!out["VSH_DN"][0].is_infinite(), "VSH_DN must never be +/-Infinity, was {}", out["VSH_DN"][0]);
+        assert!(out["VSH_DN"][0].is_nan(), "degenerate triangle → missing, was {}", out["VSH_DN"][0]);
+        assert!(out["VSH"][0].is_nan());
+    }
+
+    #[test]
+    fn ftemp_grad_bht_nonpositive_td_is_missing() {
+        // A zone override can force TD_BHT <= 0 past the dialog range; the BHT interpolation would
+        // then divide by <= 0 and yield a finite-looking +/-Infinity FTEMP.
+        let bad = ftemp_grad(&ctx_with(
+            1,
+            &[("DEPTH", vec![1500.0])],
+            &[("TSURF", 26.7), ("BHT", 100.0), ("TD_BHT", 0.0), ("TGRAD", 0.03)],
+            &[("OPT_FT", "BHT")],
+        ));
+        assert!(bad["FTEMP"][0].is_nan(), "TD_BHT=0 → missing, was {}", bad["FTEMP"][0]);
+        // A valid TD_BHT still interpolates linearly.
+        let good = ftemp_grad(&ctx_with(
+            1,
+            &[("DEPTH", vec![1000.0])],
+            &[("TSURF", 26.7), ("BHT", 100.0), ("TD_BHT", 2000.0), ("TGRAD", 0.03)],
+            &[("OPT_FT", "BHT")],
+        ));
+        let expect = 26.7 + (100.0 - 26.7) * 1000.0 / 2000.0;
+        assert!((good["FTEMP"][0] as f64 - expect).abs() < 1e-3, "FTEMP {}", good["FTEMP"][0]);
+    }
+
+    #[test]
+    fn perm_wyllie_rose_negative_phie_missing_across_all_variants() {
+        // Negative PHIE is non-physical. TIMUR's fractional exponent already NaN'd it, but the
+        // integer MORRIS_BIGGS/TIXIER exponent produced a finite, plausible PERM — all four skip.
+        for variant in ["TIMUR", "MORRIS_BIGGS_OIL", "MORRIS_BIGGS_GAS", "TIXIER"] {
+            let out = perm_wyllie_rose(&ctx_with(
+                1,
+                &[("PHIE", vec![-0.1])],
+                &[("SWE_IRR", 0.2)],
+                &[("OPT_WR", variant)],
+            ));
+            assert!(out["PERM"][0].is_nan(), "{variant}: negative PHIE must be missing, was {}", out["PERM"][0]);
+        }
+    }
+
+    #[test]
+    fn perm_wyllie_rose_edges() {
+        // phi=0 → PERM 0 (not NaN/panic); missing PHIE → NaN; swirr<=0 → NaN; valid → finite +ve.
+        let z = perm_wyllie_rose(&ctx_with(1, &[("PHIE", vec![0.0])], &[("SWE_IRR", 0.2)], &[]));
+        assert_eq!(z["PERM"][0], 0.0);
+        let m = perm_wyllie_rose(&ctx_with(1, &[("PHIE", vec![f32::NAN])], &[("SWE_IRR", 0.2)], &[]));
+        assert!(m["PERM"][0].is_nan());
+        let s = perm_wyllie_rose(&ctx_with(1, &[("PHIE", vec![0.2])], &[("SWE_IRR", 0.0)], &[]));
+        assert!(s["PERM"][0].is_nan());
+        let ok = perm_wyllie_rose(&ctx_with(1, &[("PHIE", vec![0.2])], &[("SWE_IRR", 0.2)], &[]));
+        assert!(ok["PERM"][0].is_finite() && ok["PERM"][0] > 0.0);
+    }
+
+    #[test]
+    fn perm_coates_computes_and_handles_edges() {
+        // PERM = (C*phi^2*(1-swirr)/swirr)^2. C=100, phi=0.2, swirr=0.2 →
+        // inner = 100*0.04*0.8/0.2 = 16 → PERM = 256.
+        let out = perm_coates(&ctx_with(1, &[("PHIE", vec![0.2])], &[("CONST_COATES", 100.0), ("SWE_IRR", 0.2)], &[]));
+        assert!((out["PERM"][0] as f64 - 256.0).abs() < 1e-2, "PERM {}", out["PERM"][0]);
+        let z = perm_coates(&ctx_with(1, &[("PHIE", vec![0.0])], &[("CONST_COATES", 100.0), ("SWE_IRR", 0.2)], &[]));
+        assert_eq!(z["PERM"][0], 0.0);
+        let s = perm_coates(&ctx_with(1, &[("PHIE", vec![0.2])], &[("CONST_COATES", 100.0), ("SWE_IRR", 0.0)], &[]));
+        assert!(s["PERM"][0].is_nan());
+    }
+
+    #[test]
+    fn perm_transform_overflow_is_missing() {
+        // PT_A=100, PT_B=5 are inside the dialog ranges; at PHIE=0.5 the exponent is 55 and 10^55
+        // overflows the f32 cast to +Infinity — must be emitted as MISSING, not +inf.
+        let big = perm_transform(&ctx_with(1, &[("PHIE", vec![0.5])], &[("PT_A", 100.0), ("PT_B", 5.0)], &[]));
+        assert!(!big["PERM"][0].is_infinite(), "must not be +inf, was {}", big["PERM"][0]);
+        assert!(big["PERM"][0].is_nan());
+        // Normal calibration stays finite: 10^(20*0.2 - 3) = 10^1 = 10.
+        let ok = perm_transform(&ctx_with(1, &[("PHIE", vec![0.2])], &[("PT_A", 20.0), ("PT_B", -3.0)], &[]));
+        assert!((ok["PERM"][0] as f64 - 10.0).abs() < 1e-2, "PERM {}", ok["PERM"][0]);
     }
 
     #[test]
