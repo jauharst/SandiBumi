@@ -23,7 +23,20 @@ round (increment 2d):** a **Reconstruction QC** checkbox in the SandiMin dialog 
 curves on; after the run the result shows the **model DOF** (with the exactly-determined warning) and a
 **measured-vs-reconstructed crossplot** (each tool min-max normalized, points on the dashed 1:1 line =
 a perfect fit, scatter off it = that tool's incoherence). Browser-smoke-tested: checkbox → run → DOF
-line + crossplot render. (2c presets are held for Jauhar's smectite-density sign-off.)
+line + crossplot render.
+
+**Increment 2c** completed **#2** per your call to keep smectite as-is: a **Preset** selector atop the
+component picker with four named GROUPINGS of existing library components — **Clastic**
+(quartz–illite/kaolinite–water+bound), **SSC-style** (quartz–feldspar–clay, to compare VOL_* against
+the SSC module's VSAND/VSILT/VCLAY), **Carbonate** (calcite–dolomite–anhydrite), **Organic/coal**
+(quartz–illite–coal–kerogen, whose VOL_KEROGEN feeds the upcoming unconventional workflow). Presets
+carry **no endpoint values** — Montmorillonite keeps RHOB 2.63 etc., so no reviewed number changed;
+manually ticking a component drops back to "— custom —". Browser-smoke-tested all four.
+
+- [ ] **Presets assemble the right model.** SandiMin ▸ Preset ▸ each of the four: the component
+      checklist follows the grouping (note under the selector explains each), endpoints stay exactly
+      what the library/your edits hold, and a manual tick resets the selector to custom. Run the
+      Clastic preset on a Mahakam well and sanity-check VOL_QUARTZ/VOL_ILLITE against your SSC results.
 
 - [ ] **Reconstruction flags a bad model.** In **SandiMin ▸ tick "Reconstruction QC" ▸ Run**. On a
       good model the crossplot points hug the 1:1 line and the incoherence stays low; force a wrong

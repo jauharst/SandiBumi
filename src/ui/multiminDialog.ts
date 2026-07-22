@@ -68,6 +68,36 @@ const BASE_TOOLS: ToolRow[] = [
 
 const DEFAULT_COMPONENTS = ["Quartz", "Illite", "Water Sxo", "Water Sw"];
 
+/** Model presets (playbook #2c): named GROUPINGS of existing library components — no endpoint
+ *  values of their own, so picking one never changes reviewed numbers. Each lists the components
+ *  to include; endpoints stay whatever the library/overrides hold. */
+const MODEL_PRESETS: { id: string; label: string; components: string[]; note: string }[] = [
+  {
+    id: "clastic",
+    label: "Clastic (quartz–clay–water)",
+    components: ["Quartz", "Illite", "Kaolinite", "Water Sxo", "Water Sw", "BoundWater"],
+    note: "The delta bread-and-butter: quartz + illite/kaolinite with bound water. Tools: RHOB + NPHI + GR (add DT/CT as available).",
+  },
+  {
+    id: "ssc",
+    label: "SSC-style (sand–silt–clay)",
+    components: ["Quartz", "Orthoclase", "Clay", "Water Sxo", "Water Sw", "BoundWater"],
+    note: "Mirrors the SSC sand/silt/clay split: quartz (sand), feldspar (the silt-fraction marker), generic clay. Compare VOL_* against the SSC module's VSAND/VSILT/VCLAY.",
+  },
+  {
+    id: "carbonate",
+    label: "Carbonate (calcite–dolomite–anhydrite)",
+    components: ["Calcite", "Dolomite", "Anhydrite", "Water Sxo", "Water Sw"],
+    note: "Carbonate stringers: calcite + dolomite with anhydrite as the evaporite end. PEF/U strongly recommended among the tools.",
+  },
+  {
+    id: "organic",
+    label: "Organic / coal (feeds unconventional)",
+    components: ["Quartz", "Illite", "Coal", "Kerogen", "Water Sxo", "Water Sw", "BoundWater"],
+    note: "Organic-rich intervals: coal + kerogen against a quartz-illite background. VOL_KEROGEN feeds the unconventional TOC workflow.",
+  },
+];
+
 const KIND_LABEL: Record<string, string> = { mineral: "Minerals", clay: "Clays", fluid: "Fluids" };
 
 function numInput(value: number, width = 64, step = "any"): HTMLInputElement {
@@ -122,6 +152,47 @@ export async function buildMultiminContent(
   const compBox = document.createElement("div");
   compBox.className = "mm-comp-box";
   const compChecks = new Map<string, HTMLInputElement>();
+
+  // Model presets: replace the included set with a named grouping (existing components only —
+  // endpoints/overrides are untouched, so a preset never changes reviewed numbers).
+  const presetRow = document.createElement("div");
+  presetRow.className = "mm-tool-row";
+  const presetLab = document.createElement("span");
+  presetLab.textContent = "Preset";
+  const presetSel = document.createElement("select");
+  const presetNone = document.createElement("option");
+  presetNone.value = "";
+  presetNone.textContent = "— custom —";
+  presetSel.appendChild(presetNone);
+  for (const p of MODEL_PRESETS) {
+    const o = document.createElement("option");
+    o.value = p.id;
+    o.textContent = p.label;
+    o.title = p.note;
+    presetSel.appendChild(o);
+  }
+  const presetNote = document.createElement("div");
+  presetNote.className = "mc-chain-note";
+  presetNote.style.display = "none";
+  presetSel.addEventListener("change", () => {
+    const p = MODEL_PRESETS.find((x) => x.id === presetSel.value);
+    if (!p) {
+      presetNote.style.display = "none";
+      return;
+    }
+    included.clear();
+    for (const name of p.components) {
+      if (overrides.has(name)) included.add(name);
+    }
+    for (const [name, cb] of compChecks) cb.checked = included.has(name);
+    presetNote.textContent = p.note;
+    presetNote.style.display = "";
+    renderTable();
+  });
+  presetRow.appendChild(presetLab);
+  presetRow.appendChild(presetSel);
+  compBox.appendChild(presetRow);
+  compBox.appendChild(presetNote);
   for (const kind of ["mineral", "clay", "fluid"]) {
     const head = document.createElement("div");
     head.className = "mm-group-head";
@@ -136,6 +207,9 @@ export async function buildMultiminContent(
       cb.addEventListener("change", () => {
         if (cb.checked) included.add(c.name);
         else included.delete(c.name);
+        // A manual tweak leaves preset territory — reflect that in the selector.
+        presetSel.value = "";
+        presetNote.style.display = "none";
         renderTable();
       });
       compChecks.set(c.name, cb);
