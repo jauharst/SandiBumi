@@ -9,7 +9,7 @@
  *   - Draw mode ("Draw polygon"): click to drop vertices, click the first vertex again (or
  *     double-click / Enter) to close; Esc cancels. Closing returns to pan/edit mode. */
 
-import { fitCanvasBackingStore, readTheme } from "./plotCanvas";
+import { canvasFont, fitCanvasBackingStore, readTheme } from "./plotCanvas";
 import { createWellGroup, listWellGroups, listWells, setWellGroupMembers, wellsInPolygon } from "../ipc";
 import { recordProcess } from "../processLog";
 import { appState, bumpWellGroupsVersion } from "../state";
@@ -162,7 +162,7 @@ export async function buildMapContent(
     c.strokeStyle = theme.grid;
     c.fillStyle = theme.text;
     c.lineWidth = 1;
-    c.font = "10px system-ui, sans-serif";
+    c.font = canvasFont(theme, 10, 400);
     c.globalAlpha = 0.5;
     for (let gx = Math.ceil(wx0 / step) * step; gx <= wx1; gx += step) {
       const [sx] = toScreen(gx, 0);
@@ -210,7 +210,7 @@ export async function buildMapContent(
 
     // Wells.
     const showLabels = wells.length <= 80 || view.scale > 0.02;
-    c.font = "11px system-ui, sans-serif";
+    c.font = canvasFont(theme, 11, 400);
     for (const wl of wells) {
       const [sx, sy] = toScreen(wl.x, wl.y);
       if (sx < -20 || sx > w + 20 || sy < -20 || sy > h + 20) continue;
@@ -245,7 +245,7 @@ export async function buildMapContent(
     c.moveTo(bx, by - 4); c.lineTo(bx, by + 4);
     c.moveTo(bx + barPx, by - 4); c.lineTo(bx + barPx, by + 4);
     c.stroke();
-    c.font = "10px system-ui, sans-serif";
+    c.font = canvasFont(theme, 10, 400);
     c.fillText(fmtDistance(barM), bx, by - 6);
   };
 

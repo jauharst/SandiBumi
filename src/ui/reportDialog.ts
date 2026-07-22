@@ -137,8 +137,7 @@ export async function buildReportContent(
   methodTa.className = "form-control";
   methodTa.rows = 6;
   methodTa.placeholder = "One row per line: Parameter | Method | Remarks\n(blank = built-in default template)";
-  methodTa.style.fontFamily = "monospace";
-  methodTa.style.fontSize = "11px";
+  methodTa.classList.add("mono-input");
   try {
     const docs = await listDocuments(TEMPLATE_DOC_TYPE);
     const tpl = docs.find((d) => d.name === TEMPLATE_NAME);

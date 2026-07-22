@@ -8,6 +8,7 @@ import {
   fitCanvasBackingStore,
   percentile,
   PlotCanvas,
+  canvasFont,
   readTheme,
   type BasicStats,
   type Viewport,
@@ -222,7 +223,7 @@ export function drawHistogram(
     ctx.save();
     ctx.fillStyle = plot.theme.accent2;
     ctx.strokeStyle = plot.theme.accent2;
-    ctx.font = "500 9px system-ui, sans-serif";
+    ctx.font = canvasFont(plot.theme, 9);
     ctx.textAlign = "right";
     for (const c of [25, 50, 75, 100]) {
       const [, py] = plot.toPx(plot.x.min, (c / 100) * yMax);
@@ -313,7 +314,7 @@ export function drawHistogram(
       const { ctx } = plot;
       const r = plot.plotRect;
       ctx.save();
-      ctx.font = "500 10px system-ui, sans-serif";
+      ctx.font = canvasFont(plot.theme, 10);
       const boxW = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 16;
       const boxH = lines.length * 13 + 10;
       const bx = r.x0 + r.w - boxW - 8;
@@ -493,8 +494,9 @@ export async function buildHistogramContent(
     if (!plot) {
       const ctx = canvas.getContext("2d")!;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.font = "500 12px system-ui, sans-serif";
-      ctx.fillStyle = readTheme(canvas).text;
+      const th = readTheme(canvas);
+      ctx.font = canvasFont(th, 12);
+      ctx.fillStyle = th.text;
       ctx.textAlign = "center";
       ctx.fillText("No valid data for this curve/zone.", canvas.width / 2, canvas.height / 2);
     }

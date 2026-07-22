@@ -1,7 +1,7 @@
 import { listCurveCatalog, listWells, runLorenz, type LorenzResult } from "../ipc";
 import { appState, filterByActiveGroup } from "../state";
 import { formRow } from "./modal";
-import { attachResizeRedraw, faciesColor, readTheme } from "./plotCanvas";
+import { attachResizeRedraw, canvasFont, faciesColor, readTheme } from "./plotCanvas";
 import { recordProcess } from "../processLog";
 
 /** Stratigraphic Modified Lorenz Plot (playbook #3, increment 3c — the visual for the 3a solver).
@@ -340,7 +340,7 @@ function drawSmlp(canvas: HTMLCanvasElement, res: LorenzResult, selected: number
   }
 
   ctx.fillStyle = theme.text;
-  ctx.font = "10px system-ui";
+  ctx.font = canvasFont(theme, 10, 400);
   ctx.textAlign = "center";
   ctx.fillText("cumulative storage capacity Σ(φ·h)", (padL + w - padR) / 2, h - 6);
   ctx.save();

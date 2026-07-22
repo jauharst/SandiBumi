@@ -304,9 +304,13 @@ export function openLayoutPropsDialog(
     addBtn.className = "lp-btn";
     addBtn.textContent = "＋ Add curve";
     addBtn.addEventListener("click", () => {
+      // Seed the persisted default from the LIVE theme accent (hex-validated — this value
+      // feeds <input type=color> and is stored), so new curves match the active palette
+      // instead of always coming out light-theme terracotta.
+      const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
       const style: CurveStyle = {
         curve_name: availableCurves.find((n) => !track.curves.some((c) => c.curve_name === n)) ?? "GR",
-        color: "#b5651d",
+        color: /^#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?$/.test(accent) ? accent : "#b5651d",
         min: 0,
         max: 100,
       };

@@ -13,6 +13,7 @@ import {
   looksDiscrete,
   percentile,
   PlotCanvas,
+  canvasFont,
   readTheme,
   type ColormapName,
   type Viewport,
@@ -285,7 +286,7 @@ export function drawTsOverlay(plot: PlotCanvas, phiSd: number, phiSh: number): v
     ctx.arc(px, py, 5, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
-    ctx.font = "500 10px system-ui, sans-serif";
+    ctx.font = canvasFont(plot.theme, 10);
     ctx.fillStyle = plot.theme.text;
     ctx.textAlign = vx === 0 ? "left" : "right";
     ctx.fillText(label, px + (vx === 0 ? 8 : -8), py - 8);
@@ -345,7 +346,7 @@ export function drawRockOverlay(plot: PlotCanvas, kind: string, flipped: boolean
     const [lx, ly] = pts[pts.length - 1];
     const [px, py] = plot.toPx(lx, ly);
     ctx.save();
-    ctx.font = "500 10px system-ui, sans-serif";
+    ctx.font = canvasFont(plot.theme, 10);
     ctx.fillStyle = color;
     ctx.textAlign = "left";
     ctx.fillText(`${r} µm`, px + 4, py - 3);
@@ -353,7 +354,7 @@ export function drawRockOverlay(plot: PlotCanvas, kind: string, flipped: boolean
   }
   // Caption with the grid's identity, top-left of the data region.
   ctx.save();
-  ctx.font = "600 10px system-ui, sans-serif";
+  ctx.font = canvasFont(plot.theme, 10, 600);
   ctx.fillStyle = color;
   ctx.textAlign = "left";
   ctx.fillText(`${coef.label} port classes (nano < 0.1 < micro < 0.5 < meso < 2.5 < macro < 10 < mega µm)`, plot.margin.left + 6, plot.margin.top + 12);
@@ -437,7 +438,7 @@ function drawChartOverlay(plot: PlotCanvas, def: ChartOverlayDef, flipped: boole
   ctx.rect(r.x0, r.y0, r.w, r.h);
   ctx.clip();
   for (const c of def.curves ?? []) {
-    ctx.font = "500 8px system-ui, sans-serif";
+    ctx.font = canvasFont(plot.theme, 8);
     for (const [t, gx, gy] of c.grads) {
       if (t % 5 !== 0) continue;
       const [px, py] = plot.toPx(...XY(gx, gy));
@@ -462,11 +463,11 @@ function drawChartOverlay(plot: PlotCanvas, def: ChartOverlayDef, flipped: boole
     ctx.rotate(angle);
     ctx.fillStyle = plot.theme.text;
     ctx.textAlign = "center";
-    ctx.font = "600 9px system-ui, sans-serif";
+    ctx.font = canvasFont(plot.theme, 9, 600);
     ctx.fillText(c.name, 0, -7);
     ctx.restore();
   }
-  ctx.font = "500 8px system-ui, sans-serif";
+  ctx.font = canvasFont(plot.theme, 8);
   for (const l of def.lines ?? []) {
     if (!l.label) continue;
     const end = l.pts[l.pts.length - 1];
@@ -481,7 +482,7 @@ function drawChartOverlay(plot: PlotCanvas, def: ChartOverlayDef, flipped: boole
     const [px, py] = plot.toPx(...XY(cx, cy));
     ctx.fillStyle = plot.theme.text;
     ctx.textAlign = "center";
-    ctx.font = "500 9px system-ui, sans-serif";
+    ctx.font = canvasFont(plot.theme, 9);
     ctx.fillText(g.label, px, py - 8);
   }
   ctx.restore();
@@ -704,7 +705,7 @@ export function drawCrossplot(
     const r = plot.plotRect;
     const classes = distinctValues(zs);
     ctx.save();
-    ctx.font = "500 10px system-ui, sans-serif";
+    ctx.font = canvasFont(plot.theme, 10);
     const rowH = 15;
     const boxW = 78;
     const boxX = r.x0 + r.w - boxW - 8;
@@ -736,7 +737,7 @@ export function drawCrossplot(
       ctx.fillRect(barX + i, barY, 1, 8);
     }
     ctx.fillStyle = plot.theme.text;
-    ctx.font = "500 9px system-ui, sans-serif";
+    ctx.font = canvasFont(plot.theme, 9);
     ctx.textAlign = "center";
     ctx.fillText(zLo.toPrecision(3), barX, barY + 18);
     ctx.fillText(opts.zLog ? `${zName} (log)` : zName, barX + barW / 2, barY + 18);
@@ -752,7 +753,7 @@ export function drawCrossplot(
     ctx.fillStyle = plot.theme.text;
     ctx.lineWidth = 1;
     ctx.setLineDash([3, 4]);
-    ctx.font = "500 9px system-ui, sans-serif";
+    ctx.font = canvasFont(plot.theme, 9);
     for (const p of opts.percentiles) {
       const vx = percentile(xs, p);
       if (!Number.isNaN(vx) && (!opts.xLog || vx > 0)) {
@@ -806,7 +807,7 @@ export function drawCrossplot(
       const { ctx } = plot;
       const r = plot.plotRect;
       ctx.save();
-      ctx.font = "500 10px system-ui, sans-serif";
+      ctx.font = canvasFont(plot.theme, 10);
       ctx.fillStyle = plot.theme.text;
       ctx.textAlign = "left";
       ctx.fillText(
@@ -1015,8 +1016,9 @@ export async function buildCrossplotContent(
     if (!plot) {
       const ctx = canvas.getContext("2d")!;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.font = "500 12px system-ui, sans-serif";
-      ctx.fillStyle = readTheme(canvas).text;
+      const th = readTheme(canvas);
+      ctx.font = canvasFont(th, 12);
+      ctx.fillStyle = th.text;
       ctx.textAlign = "center";
       ctx.fillText("No valid data for these curves/zone.", canvas.width / 2, canvas.height / 2);
       return;

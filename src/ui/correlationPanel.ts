@@ -12,7 +12,7 @@ import {
 } from "../ipc";
 import { appState, filterByActiveGroup } from "../state";
 import { openModal } from "./modal";
-import { percentile, readTheme } from "./plotCanvas";
+import { canvasFont, percentile, readTheme } from "./plotCanvas";
 import { curveSelect, loadCurveNames, loadPlotProps, savePlotProps, type PlotContent } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
 
@@ -236,7 +236,7 @@ export async function buildCorrelationContent(
     const active = strips.filter((s) => included.has(s.well.well_id));
     if (active.length === 0) {
       ctx.fillStyle = theme.text;
-      ctx.font = "500 13px system-ui";
+      ctx.font = canvasFont(theme, 13);
       ctx.fillText("No wells included — pick some under Wells…", AXIS_W + 10, 40);
       return;
     }
@@ -252,7 +252,7 @@ export async function buildCorrelationContent(
     // Depth axis (display depth: MD, or relative to the datum when flattened).
     ctx.strokeStyle = theme.grid;
     ctx.fillStyle = theme.text;
-    ctx.font = "500 10px system-ui";
+    ctx.font = canvasFont(theme, 10);
     ctx.textAlign = "right";
     ctx.textBaseline = "middle";
     const step = tickStep();
@@ -290,13 +290,13 @@ export async function buildCorrelationContent(
       ctx.strokeRect(left, HEADER_H, stripW, plotH);
 
       ctx.fillStyle = theme.text;
-      ctx.font = "600 11px system-ui";
+      ctx.font = canvasFont(theme, 11, 600);
       ctx.textAlign = "center";
       ctx.textBaseline = "alphabetic";
       const label = opts.datum && !s.hasDatum ? `${s.well.well_name} (no datum)` : s.well.well_name;
       ctx.fillText(label, left + stripW / 2, 12, stripW + gap - 6);
       ctx.fillStyle = theme.text;
-      ctx.font = "500 10px system-ui";
+      ctx.font = canvasFont(theme, 10);
       ctx.fillText(opts.curve, left + stripW / 2, 24, stripW - 4);
 
       if (!s.series || s.series.depth.length === 0) return;
@@ -334,7 +334,7 @@ export async function buildCorrelationContent(
     };
     const allTopNames = Array.from(new Set(active.flatMap((s) => s.tops.map((t) => t.top_name))));
     ctx.lineWidth = 1.5;
-    ctx.font = "500 10px system-ui";
+    ctx.font = canvasFont(theme, 10);
     ctx.textBaseline = "bottom";
     for (const name of allTopNames) {
       const color = active.flatMap((s) => s.tops).find((t) => t.top_name === name)?.color || theme.warn;
@@ -373,7 +373,7 @@ export async function buildCorrelationContent(
     // triangle at the left edge and dashed cross-well connectors. A TVDSS contact drawn in
     // TVDSS mode round-trips to its own depth in every well, so its line is perfectly flat.
     if (opts.showContacts && contacts.length) {
-      ctx.font = "600 10px system-ui";
+      ctx.font = canvasFont(theme, 10, 600);
       ctx.textBaseline = "bottom";
       for (const c of contacts) {
         if (!active.some((s) => contactApplies(c, s.well))) continue;

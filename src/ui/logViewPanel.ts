@@ -15,6 +15,7 @@ import type { ContextMenuEntry } from "./contextMenu";
 import { openCurveEditDialog } from "./curveEditDialog";
 import { openLayoutPropsDialog } from "./layoutPropsDialog";
 import { formRow, openModal } from "./modal";
+import { canvasFont, readTheme } from "./plotCanvas";
 import { CORE_OVERLAY_MAP, loadCurveUnits } from "./plotCommon";
 import { HighlightsOverlay } from "./highlightsOverlay";
 import { TopsEditor } from "./topsEditor";
@@ -660,6 +661,10 @@ export class LogViewPanel {
     const yOf = (d: number) => ((d - top) / (bottom - top)) * h;
     const clampY = (y: number) => Math.max(0, Math.min(h, y));
     const text = getComputedStyle(this.root).getPropertyValue("--text").trim() || "#332a1f";
+    // Theme bundle for the diagram's structural colors: casing strings in the dim text
+    // color, perforations in the theme's warn red — mid-gray/fixed-red literals vanish on
+    // dark and client-branded palettes.
+    const th = readTheme(this.root);
     const maxOd = Math.max(1, ...casing.map((c) => c.value_num ?? 0));
 
     for (const range of this.renderer.getTrackRanges()) {
@@ -676,7 +681,7 @@ export class LogViewPanel {
         const yTop = clampY(yOf(c.depth_top));
         const yBot = clampY(yOf(c.depth_base ?? bottom));
         if (yBot <= 0 || yTop >= h) continue;
-        ctx.strokeStyle = "#5a5a5a";
+        ctx.strokeStyle = th.text;
         ctx.lineWidth = 1.5;
         for (const sx of [cx - half, cx + half]) {
           ctx.beginPath();
@@ -686,7 +691,7 @@ export class LogViewPanel {
         }
         // Shoe: small filled triangles at the casing base, pointing inward.
         if (c.depth_base != null && yBot > 0 && yBot < h) {
-          ctx.fillStyle = "#333333";
+          ctx.fillStyle = text;
           for (const dir of [-1, 1]) {
             const sx = cx + dir * half;
             ctx.beginPath();
@@ -701,15 +706,15 @@ export class LogViewPanel {
         const label = c.value_text || (c.value_num != null ? `${c.value_num}"` : c.item);
         if (label && yTop > 8 && yTop < h) {
           ctx.fillStyle = text;
-          ctx.font = "9px system-ui";
+          ctx.font = canvasFont(th, 9, 400);
           ctx.textAlign = "center";
           ctx.textBaseline = "bottom";
           ctx.fillText(label, cx, yTop - 1, Math.max(20, span - 4));
         }
       }
 
-      // Perforations: red ticks radiating from the well centre over the perf interval.
-      ctx.strokeStyle = "#c0392b";
+      // Perforations: theme-warn ticks radiating from the well centre over the perf interval.
+      ctx.strokeStyle = th.warn;
       ctx.lineWidth = 1.5;
       const tickHalf = Math.min(maxHalf, span * 0.28);
       for (const p of perfs) {

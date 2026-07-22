@@ -1,5 +1,5 @@
 import { runHfuCluster, type HfuMethod, type HfuResult } from "../ipc";
-import { readTheme, faciesColor, attachResizeRedraw } from "./plotCanvas";
+import { attachResizeRedraw, canvasFont, faciesColor, readTheme } from "./plotCanvas";
 import { recordProcess } from "../processLog";
 import { buildWellScope } from "./wellScope";
 import { formRow } from "./modal";
@@ -269,7 +269,7 @@ function drawRqiPhiz(canvas: HTMLCanvasElement, res: HfuResult, selected: number
   ctx.lineTo(w - 10, h - padB);
   ctx.stroke();
   ctx.fillStyle = theme.text;
-  ctx.font = "10px system-ui";
+  ctx.font = canvasFont(theme, 10, 400);
   ctx.textAlign = "center";
   ctx.fillText("log10 φz", (padL + w) / 2, h - 4);
   ctx.save();
@@ -379,7 +379,7 @@ function drawFziHist(canvas: HTMLCanvasElement, res: HfuResult, selected: number
   ctx.setLineDash([]);
 
   ctx.fillStyle = theme.text;
-  ctx.font = "10px system-ui";
+  ctx.font = canvasFont(theme, 10, 400);
   ctx.textAlign = "center";
   ctx.fillText("log10 FZI (µm)", (padL + w) / 2, h - 4);
 }

@@ -11,14 +11,33 @@ import { recordProcess } from "../processLog";
 import { bumpDataVersion, setStatus } from "../state";
 import { pushUndo } from "../undo";
 import { formRow, openModal } from "./modal";
+import { canvasFont, readTheme } from "./plotCanvas";
 
 /** Minimum drag span (in device-independent px) below which a pointerup is treated as a
  *  click, not a band creation — keeps double-clicks and stray taps from making zero-height
  *  highlights. */
 const MIN_DRAG_PX = 4;
 const DEFAULT_ALPHA = 0.16;
-/** Rotating default palette for freshly created highlights (all editable afterwards). */
-const PALETTE = ["#e0b64a", "#4a90d9", "#5fae5f", "#d9694a", "#9b6fd0", "#3fb0b0"];
+
+/** Rotating default palette for freshly created highlights (all editable afterwards) —
+ *  derived from the ACTIVE theme's vars at call time, so new bands land in the current
+ *  palette (light/dark/client-branded) instead of a fixed light-theme set. Values are
+ *  hex-validated because they seed <input type=color> and are persisted per highlight. */
+function palette(): string[] {
+  const s = getComputedStyle(document.documentElement);
+  const v = (name: string, fallback: string) => {
+    const raw = s.getPropertyValue(name).trim();
+    return /^#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?$/.test(raw) ? raw : fallback;
+  };
+  return [
+    v("--accent", "#e0b64a"),
+    v("--accent2", "#5fae5f"),
+    v("--warn", "#d9694a"),
+    v("--accent-dim", "#4a90d9"),
+    v("--border-strong", "#9b6fd0"),
+    v("--text-dim", "#3fb0b0"),
+  ];
+}
 
 /** Colored highlight overlay for one log view: draws the well's informal colored
  *  depth bands across every track (mark pay, bad hole, intervals of interest), independent
@@ -98,11 +117,12 @@ export class HighlightsOverlay {
     const [top, bottom] = this.getRange();
     if (bottom <= top) return;
     const span = bottom - top;
-    ctx.font = "10.5px sans-serif";
+    ctx.font = canvasFont(readTheme(this.overlay), 10.5, 400);
     ctx.textBaseline = "top";
 
+    const pal = palette();
     this.highlights.forEach((hl, i) => {
-      const color = hl.color ?? PALETTE[i % PALETTE.length];
+      const color = hl.color ?? pal[i % pal.length];
       this.paintBand(ctx, w, h, top, span, hl.top_depth, hl.bottom_depth, color, hl.label, false);
     });
 
@@ -110,7 +130,7 @@ export class HighlightsOverlay {
     if (this.dragFrom !== null) {
       const a = Math.min(this.dragFrom, this.dragTo);
       const b = Math.max(this.dragFrom, this.dragTo);
-      this.paintBand(ctx, w, h, top, span, a, b, PALETTE[this.highlights.length % PALETTE.length], null, true);
+      this.paintBand(ctx, w, h, top, span, a, b, pal[this.highlights.length % pal.length], null, true);
     }
   }
 
@@ -246,7 +266,8 @@ export class HighlightsOverlay {
     const wellId = this.wellId;
     if (!wellId) return;
     const id = newId();
-    const color = PALETTE[this.highlights.length % PALETTE.length];
+    const pal = palette();
+    const color = pal[this.highlights.length % pal.length];
     const apply = async () => {
       await upsertHighlight(wellId, id, topDepth, bottomDepth, color, null);
       bumpDataVersion();
@@ -288,7 +309,7 @@ export class HighlightsOverlay {
     const botInput = numberInput(hl.bottom_depth);
     const colorInput = document.createElement("input");
     colorInput.type = "color";
-    colorInput.value = hl.color ?? PALETTE[0];
+    colorInput.value = hl.color ?? palette()[0];
 
     content.appendChild(formRow("Label", labelInput));
     content.appendChild(formRow("Top", topInput));

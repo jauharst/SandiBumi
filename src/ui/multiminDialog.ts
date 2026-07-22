@@ -17,7 +17,7 @@ import {
 import { appState, bumpDataVersion } from "../state";
 import { recordProcess } from "../processLog";
 import { buildWellScope } from "./wellScope";
-import { attachResizeRedraw, faciesColor, readTheme } from "./plotCanvas";
+import { attachResizeRedraw, canvasFont, faciesColor, readTheme } from "./plotCanvas";
 
 /** Generalized Multimin dialog — commercial mineral-solver style.
  *
@@ -949,7 +949,7 @@ function drawReconScatter(canvas: HTMLCanvasElement, series: { label: string; me
   });
 
   // Legend + axis labels.
-  ctx.font = "10px system-ui";
+  ctx.font = canvasFont(theme, 10, 400);
   ctx.textAlign = "left";
   let lx = padL + 4;
   for (let si = 0; si < series.length; si++) {

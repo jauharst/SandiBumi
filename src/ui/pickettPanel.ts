@@ -7,6 +7,7 @@ import {
   colorRampEx,
   fitCanvasBackingStore,
   PlotCanvas,
+  canvasFont,
   readTheme,
   type ColormapName,
   type Viewport,
@@ -103,7 +104,7 @@ export function drawPickett(
     const { ctx } = plot;
     const r = plot.plotRect;
     ctx.save();
-    ctx.font = "500 10px system-ui, sans-serif";
+    ctx.font = canvasFont(plot.theme, 10);
     ctx.fillStyle = plot.theme.text;
     ctx.textAlign = "left";
     ctx.fillText(`Sw=1 line:  M = ${line.m.toFixed(2)},  Rw = ${line.rw.toPrecision(3)} ohmm  (N = ${n})`, r.x0 + 8, r.y0 + 14);

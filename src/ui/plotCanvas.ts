@@ -19,6 +19,15 @@ export interface PlotTheme {
   accent: string;
   accent2: string;
   warn: string;
+  /** Canvas font family from --font-canvas — use via [`canvasFont`], never a literal. */
+  fontFamily: string;
+}
+
+/** The one canvas typography token: weight/size steps over the theme's --font-canvas
+ *  family. Every ctx.font in the app goes through this so plots, dialogs, and overlays
+ *  share a face (and a branded skin can restyle text by overriding one variable). */
+export function canvasFont(theme: PlotTheme, sizePx: number, weight = 500): string {
+  return `${weight} ${sizePx}px ${theme.fontFamily}`;
 }
 
 export function readTheme(el: HTMLElement): PlotTheme {
@@ -36,7 +45,24 @@ export function readTheme(el: HTMLElement): PlotTheme {
     accent: v("--accent", "#b5651d"),
     accent2: v("--accent2", "#5f7350"),
     warn: v("--warn", "#a83e2c"),
+    fontFamily: v("--font-canvas", "system-ui, sans-serif"),
   };
+}
+
+/** The theme's "no data" marker: --text-dim at the given alpha, so NaN points dim into the
+ *  palette instead of a fixed mid-gray that vanishes on dark/brand themes. Read ONCE per
+ *  ramp call (not per point) — pass the returned string into the loop. */
+function dimRgba(alpha: number): string {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue("--text-dim").trim() || "#7c6b52";
+  const hex = /^#([0-9a-fA-F]{6})$/.exec(raw)?.[1] ?? (/^#([0-9a-fA-F]{3})$/.exec(raw)?.[1] ?? "")
+    .split("")
+    .map((c) => c + c)
+    .join("");
+  if (hex.length !== 6) return `rgba(128,128,128,${alpha})`;
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
 }
 
 const MARGIN = { left: 52, right: 14, top: 10, bottom: 34 };
@@ -177,7 +203,7 @@ export class PlotCanvas {
     ctx.fillStyle = this.theme.bg;
     ctx.fillRect(r.x0, r.y0, r.w, r.h);
 
-    ctx.font = "500 10px system-ui, sans-serif";
+    ctx.font = canvasFont(this.theme, 10);
     ctx.strokeStyle = this.theme.grid;
     ctx.fillStyle = this.theme.text;
     ctx.lineWidth = 1;
@@ -304,7 +330,7 @@ export class PlotCanvas {
     if (label) {
       ctx.setLineDash([]);
       ctx.fillStyle = color;
-      ctx.font = "500 10px system-ui, sans-serif";
+      ctx.font = canvasFont(this.theme, 10);
       ctx.textAlign = "left";
       ctx.fillText(label, px + 4, r.y0 + 12);
     }
@@ -355,7 +381,7 @@ export class PlotCanvas {
     ctx.arc(px, py, 4, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
-    ctx.font = "bold 10px system-ui, sans-serif";
+    ctx.font = canvasFont(this.theme, 10, 700);
     ctx.textAlign = "left";
     ctx.fillText(label, px + 6, py - 5);
     ctx.restore();
@@ -514,10 +540,11 @@ export function attachResizeRedraw(canvas: HTMLCanvasElement, redraw: () => void
 /** Blue→green→yellow→red color ramp for Z-colored crossplots; NaN → dim gray. */
 export function colorRamp(values: ArrayLike<number>, min: number, max: number): string[] {
   const out: string[] = new Array(values.length);
+  const nan = dimRgba(0.35);
   for (let i = 0; i < values.length; i++) {
     const v = values[i];
     if (Number.isNaN(v)) {
-      out[i] = "rgba(128,128,128,0.35)";
+      out[i] = nan;
       continue;
     }
     const t = Math.max(0, Math.min(1, (v - min) / (max - min)));
@@ -563,10 +590,11 @@ export function colorRampEx(
   const lo = log ? Math.log10(min) : min;
   const hi = log ? Math.log10(max) : max;
   const out: string[] = new Array(values.length);
+  const nan = dimRgba(0.35);
   for (let i = 0; i < values.length; i++) {
     const v = values[i];
     if (Number.isNaN(v) || (log && v <= 0)) {
-      out[i] = "rgba(128,128,128,0.35)";
+      out[i] = nan;
       continue;
     }
     const tv = log ? Math.log10(v) : v;
@@ -592,9 +620,10 @@ export function faciesColor(index: number): string {
 /** Per-point categorical colors for a discrete curve (NaN → faint gray). */
 export function categoricalColors(values: ArrayLike<number>): string[] {
   const out: string[] = new Array(values.length);
+  const nan = dimRgba(0.35);
   for (let i = 0; i < values.length; i++) {
     const v = values[i];
-    out[i] = Number.isNaN(v) ? "rgba(128,128,128,0.30)" : faciesColor(v);
+    out[i] = Number.isNaN(v) ? nan : faciesColor(v);
   }
   return out;
 }

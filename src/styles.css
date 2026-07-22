@@ -29,6 +29,10 @@
   --accent2-soft: #e2e8d5;
   --warn: #a83e2c;
   --track-hd: #ece1c8;
+  /* Typography tokens (theme-independent unless a branded skin overrides them): every
+     canvas ctx.font and mono field derives from these, never from per-file literals. */
+  --font-canvas: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Code", Consolas, monospace;
 }
 
 :root[data-theme="dark"] {
@@ -1298,9 +1302,15 @@ textarea {
 }
 
 .field-row textarea {
-  font-family: "Cascadia Code", Consolas, monospace;
+  font-family: var(--font-mono);
   min-height: 110px;
   resize: vertical;
+}
+
+/* Monospace input fields built in TS (report methodology, script editors). */
+.mono-input {
+  font-family: var(--font-mono);
+  font-size: 11px;
 }
 
 .field-row input:focus,

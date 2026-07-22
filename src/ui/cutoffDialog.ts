@@ -11,7 +11,7 @@ import {
 import { recordProcess } from "../processLog";
 import { appState, bumpDataVersion } from "../state";
 import { formRow } from "./modal";
-import { PlotCanvas, attachResizeRedraw, faciesColor, fitCanvasBackingStore, readTheme, type AxisSpec } from "./plotCanvas";
+import { PlotCanvas, attachResizeRedraw, canvasFont, faciesColor, fitCanvasBackingStore, readTheme, type AxisSpec } from "./plotCanvas";
 import { nearestDepthIndex } from "./plotCommon";
 import { buildWellScope } from "./wellScope";
 
@@ -422,7 +422,7 @@ export async function buildCutoffContent(
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     ctx.fillStyle = theme.text;
-    ctx.font = "13px system-ui, sans-serif";
+    ctx.font = canvasFont(theme, 13, 400);
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(msg, w / 2, h / 2);

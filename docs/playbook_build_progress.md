@@ -79,7 +79,7 @@ new petrophysics.
 
 | Step | Playbook basis | Status |
 |---|---|---|
-| 9A | Hunt & remove hard-coded hex bypassing the theme (highlightsOverlay.PALETTE, well-diagram casing, perf colors, canvas fonts) → readTheme / the 15 vars; tokenize typography; QA light+dark incl. branded palettes (screenshot before/after); adopt IP 96-pattern lithology names as clean-redrawn SVG hatch | ▫ |
+| 9A | Hunt & remove hard-coded hex bypassing the theme (highlightsOverlay.PALETTE, well-diagram casing, perf colors, canvas fonts) → readTheme / the 15 vars; tokenize typography; QA light+dark incl. branded palettes (screenshot before/after); adopt IP 96-pattern lithology names as clean-redrawn SVG hatch | ✅ inventory workflow (4 sweeps, 111 bypasses/20 files) → all fixed: `--font-canvas`/`--font-mono` tokens + `canvasFont()` helper (PlotTheme.fontFamily) replace ~55 ctx.font literals; well-diagram casing/shoe → --text, perf → --warn, crossplot no-data gray → --text-dim, highlights palette + Add-curve default from live accents; browser-QA'd all 6 branded palettes (6 distinct accents/markers, all valid hex); tsc 0, prod build clean. **Deferred to 9A-follow: IP 96-pattern lithology SVG hatches** (bigger asset task, not a theming bypass) |
 | 9B–D | colorbar/tooltips/brush/lasso/accessibility | ⏸ second half |
 
 ---

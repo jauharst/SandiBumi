@@ -1,5 +1,5 @@
 import { runThomeerFit, type ThomeerResult, type ThomeerSampleFit } from "../ipc";
-import { readTheme } from "./plotCanvas";
+import { canvasFont, readTheme } from "./plotCanvas";
 import { recordProcess } from "../processLog";
 import { buildWellScope } from "./wellScope";
 
@@ -182,7 +182,7 @@ function drawPcCurve(canvas: HTMLCanvasElement, fit: ThomeerSampleFit | undefine
   ctx.lineTo(w - 8, h - padB);
   ctx.stroke();
   ctx.fillStyle = theme.text;
-  ctx.font = "10px system-ui";
+  ctx.font = canvasFont(theme, 10, 400);
   ctx.textAlign = "center";
   ctx.fillText("log10 Pc (psi)", (padL + w) / 2, h - 4);
   ctx.save();
@@ -259,7 +259,7 @@ function drawPdG(canvas: HTMLCanvasElement, fits: ThomeerSampleFit[], selected: 
   ctx.lineTo(w - 8, h - padB);
   ctx.stroke();
   ctx.fillStyle = theme.text;
-  ctx.font = "10px system-ui";
+  ctx.font = canvasFont(theme, 10, 400);
   ctx.textAlign = "center";
   ctx.fillText("log10 Pd (psi)", (padL + w) / 2, h - 4);
   ctx.save();

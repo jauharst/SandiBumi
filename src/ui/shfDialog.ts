@@ -6,7 +6,7 @@ import {
   type ShfFitResult,
 } from "../ipc";
 import { formRow } from "./modal";
-import { readTheme } from "./plotCanvas";
+import { canvasFont, readTheme } from "./plotCanvas";
 import { recordProcess } from "../processLog";
 import { buildWellScope } from "./wellScope";
 
@@ -261,7 +261,7 @@ function drawFoil(canvas: HTMLCanvasElement, res: CuddyFoilResult): void {
   ctx.lineTo(w - 8, h - padB);
   ctx.stroke();
   ctx.fillStyle = theme.text;
-  ctx.font = "10px system-ui";
+  ctx.font = canvasFont(theme, 10, 400);
   ctx.textAlign = "center";
   ctx.fillText("log10 H (height above FWL)", (padL + w) / 2, h - 4);
   ctx.save();
@@ -322,7 +322,7 @@ function drawScan(canvas: HTMLCanvasElement, res: CuddyFoilResult): void {
   ctx.lineTo(w - 8, h - padB);
   ctx.stroke();
   ctx.fillStyle = theme.text;
-  ctx.font = "10px system-ui";
+  ctx.font = canvasFont(theme, 10, 400);
   ctx.textAlign = "center";
   ctx.fillText("candidate FWL (TVDSS)", (padL + w) / 2, h - 4);
 
@@ -411,7 +411,7 @@ function drawShfFit(canvas: HTMLCanvasElement, res: ShfFitResult): void {
   ctx.lineTo(w - 8, h - padB);
   ctx.stroke();
   ctx.fillStyle = theme.text;
-  ctx.font = "10px system-ui";
+  ctx.font = canvasFont(theme, 10, 400);
   ctx.textAlign = "center";
   ctx.fillText("log10 H (height above FWL)", (padL + w) / 2, h - 4);
   ctx.save();

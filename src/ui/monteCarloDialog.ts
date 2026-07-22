@@ -18,6 +18,7 @@ import {
   type Pctl,
 } from "../ipc";
 import { formRow } from "./modal";
+import { canvasFont, readTheme } from "./plotCanvas";
 import { recordProcess } from "../processLog";
 import { buildWellScope } from "./wellScope";
 
@@ -786,7 +787,7 @@ function drawHistogram(canvas: HTMLCanvasElement, z: McZoneResult, labels: PctLa
   const pad = { l: opts.showYAxis ? 40 : 10, r: 12, t: 12, b: 30 };
   const plotW = W - pad.l - pad.r;
   const plotH = H - pad.t - pad.b;
-  ctx.font = "500 10px system-ui, sans-serif";
+  ctx.font = canvasFont(readTheme(canvas), 10);
 
   // Frequency gridlines + y-axis tick labels (what makes it read as a real histogram).
   if (opts.showGrid || opts.showYAxis) {
@@ -997,7 +998,7 @@ function drawTornado(
   const text = cssVar("--text-dim");
   const border = cssVar("--border");
   const rowBg = cssVar("--bg-panel-alt");
-  ctx.font = "500 11px system-ui, sans-serif";
+  ctx.font = canvasFont(readTheme(canvas), 11);
 
   const meta = METRICS.find((m) => m.key === metric);
   const label = meta?.label ?? metric;
@@ -1211,7 +1212,7 @@ function drawConvSpark(canvas: HTMLCanvasElement, c: McConvergence): void {
     ctx.fillStyle = text;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.font = "500 10px system-ui, sans-serif";
+    ctx.font = canvasFont(readTheme(canvas), 10);
     ctx.fillText("— not enough checkpoints to plot —", W / 2, H / 2);
     return;
   }
@@ -1250,7 +1251,7 @@ function drawConvSpark(canvas: HTMLCanvasElement, c: McConvergence): void {
   line((k) => k.mid, accent, 1.5);
   const last = pts[pts.length - 1];
   ctx.fillStyle = text;
-  ctx.font = "500 9px system-ui, sans-serif";
+  ctx.font = canvasFont(readTheme(canvas), 9);
   ctx.textBaseline = "middle";
   ctx.textAlign = "left";
   ctx.fillText(last.mid.toFixed(2), W - pad.r + 4, yFor(last.mid));

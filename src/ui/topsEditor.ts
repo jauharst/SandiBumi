@@ -3,6 +3,7 @@ import { recordProcess } from "../processLog";
 import { bumpDataVersion, setStatus } from "../state";
 import { pushUndo } from "../undo";
 import { formRow, openModal } from "./modal";
+import { canvasFont, readTheme } from "./plotCanvas";
 
 const GRAB_PX = 6; // vertical pick tolerance around a top line
 const DEFAULT_COLOR = "#e2b93d";
@@ -85,7 +86,7 @@ export class TopsEditor {
     const [top, bottom] = this.getRange();
     if (bottom <= top) return;
     const textColor = getComputedStyle(document.documentElement).getPropertyValue("--text").trim() || "#ddd";
-    ctx.font = "10.5px sans-serif";
+    ctx.font = canvasFont(readTheme(this.overlay), 10.5, 400);
     ctx.textBaseline = "bottom";
 
     this.tops.forEach((t, i) => {

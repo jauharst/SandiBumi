@@ -7,6 +7,30 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 13 — Theme sweep: canvas typography + color tokens (playbook #9A, increment A) (2026-07-22)
+
+Every canvas font and the last hard-coded colors that bypassed the theme are now driven by the
+theme system, so plots, dialogs, and overlays stay legible and on-brand across all eight skins
+(light / dark / Pertamina / Halliburton / Schlumberger / LAPI-ITB / white / system). An inventory
+workflow (4 parallel sweeps) found **111 bypasses across 20 files**; all fixed. New tokens:
+`--font-canvas` (the Segoe-variable stack) and `--font-mono` in styles.css, a `canvasFont(theme,
+size, weight)` helper on the shared plot scaffolding (`PlotTheme` gained `fontFamily`), so all
+~55 `ctx.font` literals now resolve through one token. Color fixes: the well-diagram casing
+strings/shoes (was mid-gray `#5a5a5a`/`#333` — invisible on dark) now use `--text`; perforation
+ticks use `--warn`; the crossplot/Pickett "no-data" gray marker now derives from `--text-dim`;
+the highlights default palette and the "Add curve" default color are built from the live theme
+accents instead of fixed light-theme values. Browser-verified across all six branded palettes:
+6 distinct accents, 6 distinct no-data markers, the font token resolves and stays stable, and the
+derived palettes are all valid hex (safe for the color pickers). tsc 0, production build clean.
+
+- [ ] **Themes stay legible everywhere.** Cycle the theme (ribbon ▸ theme) through dark and a
+      client brand (Pertamina/SLB) with a log view, a crossplot, and the well-diagram track open:
+      axis/label text, casing strings + perforations, and crossplot no-data points should all
+      stay readable — nothing washes out or disappears the way the old mid-gray casing did on dark.
+- [ ] **New curves + highlights adopt the brand.** On a branded theme, add a curve in Layout
+      Properties and drag a highlight band: both should come up in the theme's accent, not the
+      light-theme terracotta.
+
 ## Round 12 — Monte Carlo sampling engine: LHS, rank correlation, convergence (playbook #1, increment 1.1) (2026-07-22)
 
 The Monte Carlo engine's draw generation is rebuilt to commercial grade. **Latin Hypercube
