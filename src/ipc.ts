@@ -860,6 +860,12 @@ export interface FaciesConfusionResult {
   per_ref: RefClassRow[];
   overall_purity: number;
   n: number;
+  /** ANOVA variance reduction of log10(core k) grouped by the predicted class (1 − SS_within/
+   *  SS_total): 1 = the typing explains all core-perm variance, 0 = none. `null` when no core
+   *  plugs match or fewer than 2 classes carry plugs (Rust f64::NAN → JSON null). */
+  k_var_reduction: number | null;
+  /** Core plugs that contributed to `k_var_reduction`. */
+  n_core_plugs: number;
   error: string | null;
 }
 

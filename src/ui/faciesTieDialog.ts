@@ -92,6 +92,17 @@ export async function buildFaciesTieContent(
 function renderConfusion(host: HTMLElement, res: FaciesConfusionResult): void {
   host.innerHTML = "";
 
+  // Does the predicted typing explain core permeability? (variance reduction of log10 k by class).
+  if (res.n_core_plugs > 0 && res.k_var_reduction != null && Number.isFinite(res.k_var_reduction)) {
+    const kvr = document.createElement("div");
+    kvr.className = "mc-hist-caption";
+    kvr.textContent =
+      `k variance reduction ${(res.k_var_reduction * 100).toFixed(1)}% — how much of the core log10(k) ` +
+      `spread the predicted class explains, over ${res.n_core_plugs} plug(s). Higher = the rock types ` +
+      `separate permeability better.`;
+    host.appendChild(kvr);
+  }
+
   // Per-reference-class dominant mapping + purity.
   const perTable = document.createElement("table");
   perTable.className = "mc-table";

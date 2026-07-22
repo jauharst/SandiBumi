@@ -39,7 +39,9 @@ coeffs from IP perm-r35 charts (Tier A) per the Cross-Map — not hand-derived.
 | 3a | Stratigraphic Modified Lorenz Plot (Σkh vs Σφh, slope-segment flow units) + `cargo test` (segment count on synthetic 3-unit column) | ✅ `lorenz.rs` + `run_lorenz`/`runLorenz`; 9 tests (incl. 3-unit column); cargo 265/0, tsc 0; adversarially reviewed (1 IPC-nullability fix); method banked in `docs/ref_rock_typing.md` (REVIEW Round 10) |
 | 3b | Pittman full-apex table (r25/r35/r50) alongside Winland R35; bank math in `docs/ref_rock_typing.md` | ✅ already built — `rocktyping.rs::pittman_rx` (full r10–r75 + APEX selector, port class); ref doc now banked |
 | 3c-1 | Lorenz dialog — SMLP curve + flow-unit table + Lc headline (＋ add-panel ▸ Lorenz Plot) | ✅ `lorenzDialog.ts` + workspace wiring; browser-smoke-tested (3-regime stub → 3 units, speed/baffle, row-click highlight); tsc 0 |
-| 3c-2 | Winland/Pittman crossplots, RT class as FACIES block track, faciesTieDialog k-variance-reduction | 🔨 next |
+| 3c-2 | Winland/Pittman crossplot grid + faciesTie k-variance-reduction; RT FACIES track = existing `fill:"blocks"` | ✅ `crossplotPanel.ts` rock-type iso-radius grid (Winland R35 / Pittman r25/r35/r50, both axis orientations) + `facies_tie.rs` ANOVA k-var-reduction on core plugs (2 tests) + `faciesTieDialog.ts` readout; cargo 267/0, tsc 0; browser-smoke-tested |
+
+**Playbook #3 Rock typing — COMPLETE** (3a solver, 3b pre-existing, 3c-1 Lorenz UI, 3c-2 crossplot grid + tie-in). 3-stretch SOM/MRGC electrofacies deferred (⏸).
 | 3-stretch | SOM/MRGC electrofacies engine | ⏸ |
 
 ## Phase 3 — Playbook #2 · SandiMin (reconstruction QC + presets)

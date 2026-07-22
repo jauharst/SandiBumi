@@ -24,9 +24,17 @@ PERM list prefers PERM/KLOGH/PERM_RT), auto or forced K, optional MD window, the
 coloured by flow unit against the dashed 45° homogeneous diagonal, the per-unit table (top/base,
 storage %, flow %, slope, **speed/baffle** character), and the Lorenz-coefficient headline.
 Browser-smoke-tested on a stubbed 3-regime column: 3 units recovered, unit 1 = speed with 90 % of
-flow from 33 % of storage, row-click highlight dims the other units. (3b, the Pittman full-apex
-r10–r75 table, was already built as the `pittman_rx` module. Winland/Pittman crossplots + the RT
-FACIES track are the remaining 3c pieces.)
+flow from 33 % of storage, row-click highlight dims the other units.
+
+**Increment 3c-2** completed **#3**: (a) a **Winland/Pittman pore-throat grid** on the crossplot —
+Crossplot Properties ▸ *Rock-type grid* draws iso-radius lines at the port-class bounds
+(0.1/0.5/2.5/10 µm) when one axis is porosity and the other permeability (Kolodzie 1980 R35 or
+Pittman 1992 r25/r35/r50); (b) the **facies tie-in now also reports k-variance-reduction** — how
+much of the core log10(k) spread the predicted rock-type class explains (ANOVA 1 − SSw/SSt), so the
+tie-in is validated against permeability, not just class purity; (c) **RT as a FACIES block track**
+needs no new code — set any integer RT curve's fill to **Facies blocks** in the log-view layout
+props. cargo 267/0, tsc 0. (3b, the Pittman full-apex r10–r75 table, was already the `pittman_rx`
+module.)
 
 - [ ] **SMLP + flow units on a real well.** On a well with PHIE + a permeability curve (imported
       KLOGH, computed PERM, or the rock-typing PERM_RT), open **＋ add-panel ▸ Lorenz Plot (flow
@@ -36,6 +44,14 @@ FACIES track are the remaining 3c pieces.)
 - [ ] **Lorenz coefficient sanity.** A clean, well-sorted sand gives a **low** coefficient (near 0);
       a layered sand-shale interval a **high** one (→1). Use the MD window (a zone's top/base) to
       Lorenz two zones you know differ in heterogeneity and confirm the number moves the right way.
+- [ ] **Winland/Pittman grid on a φ-k crossplot.** New Crossplot ▸ X = PHIE, Y = a permeability
+      curve (log Y on) ▸ Properties ▸ **Rock-type grid = Winland R35** (or a Pittman rX). Confirm the
+      dashed iso-radius lines (0.1/0.5/2.5/10 µm) fan across the cloud and your best plugs sit in the
+      macro/mega band. Flip the axes — the grid should still draw (orientation auto-detected).
+- [ ] **Facies tie-in explains permeability.** On a well with a core-derived RT + a log RT and core
+      k, run **Facies Tie-in**. Besides purity, confirm the **k variance reduction %** appears and is
+      high when the classes separate core k, low when they don't (needs core plugs within 1 m of the
+      log samples).
 
 ## Round 9 — Cross-feature fix: survey TVD/TVDSS must not shadow an imported one (2026-07-22)
 

@@ -39,6 +39,12 @@ pub struct FaciesConfusionResult {
     /// Σ over reference classes of the dominant-cell count / total pairs.
     pub overall_purity: f64,
     pub n: usize,
+    /// ANOVA-style variance reduction of log10(core k) when grouped by the PREDICTED class:
+    /// 1 − SS_within/SS_total. 1 = the typing explains all core-perm variance, 0 = none.
+    /// NaN (→ JSON null) when no core plugs match or fewer than 2 classes carry plugs.
+    pub k_var_reduction: f64,
+    /// Core plugs that contributed to `k_var_reduction` (valid k, matched to a predicted class).
+    pub n_core_plugs: usize,
     pub error: Option<String>,
 }
 
@@ -50,8 +56,39 @@ fn confusion_err(msg: &str) -> FaciesConfusionResult {
         per_ref: vec![],
         overall_purity: f64::NAN,
         n: 0,
+        k_var_reduction: f64::NAN,
+        n_core_plugs: 0,
         error: Some(msg.to_string()),
     }
+}
+
+/// ANOVA variance reduction of y grouped by class: 1 − SS_within/SS_total. NaN when fewer than
+/// 2 populated classes or SS_total ~ 0 (no variance to explain).
+pub fn variance_reduction(groups: &[(i64, f64)]) -> f64 {
+    if groups.len() < 2 {
+        return f64::NAN;
+    }
+    let n = groups.len() as f64;
+    let mean = groups.iter().map(|&(_, y)| y).sum::<f64>() / n;
+    let ss_total: f64 = groups.iter().map(|&(_, y)| (y - mean).powi(2)).sum();
+    if ss_total < 1e-12 {
+        return f64::NAN;
+    }
+    let mut by_class: std::collections::HashMap<i64, Vec<f64>> = std::collections::HashMap::new();
+    for &(c, y) in groups {
+        by_class.entry(c).or_default().push(y);
+    }
+    if by_class.len() < 2 {
+        return f64::NAN;
+    }
+    let ss_within: f64 = by_class
+        .values()
+        .map(|ys| {
+            let m = ys.iter().sum::<f64>() / ys.len() as f64;
+            ys.iter().map(|y| (y - m).powi(2)).sum::<f64>()
+        })
+        .sum();
+    (1.0 - ss_within / ss_total).clamp(0.0, 1.0)
 }
 
 /// Builds the confusion matrix + purity from (reference_class, predicted_class) integer pairs.
@@ -92,8 +129,31 @@ pub fn build_confusion(pairs: &[(i64, i64)]) -> FaciesConfusionResult {
         per_ref,
         overall_purity,
         n: pairs.len(),
+        k_var_reduction: f64::NAN,
+        n_core_plugs: 0,
         error: None,
     }
+}
+
+/// Max |depth difference| (m) for matching a core plug to the nearest log sample.
+const CORE_MATCH_TOL_M: f32 = 1.0;
+
+/// Index of the sample in ascending `depth` nearest to `target`, if within tolerance.
+fn nearest_within(depth: &[f32], target: f32) -> Option<usize> {
+    if depth.is_empty() || !target.is_finite() {
+        return None;
+    }
+    let pos = depth.partition_point(|&d| d < target);
+    let mut best: Option<usize> = None;
+    for cand in [pos.wrapping_sub(1), pos] {
+        if cand < depth.len() {
+            let dd = (depth[cand] - target).abs();
+            if dd <= CORE_MATCH_TOL_M && best.map_or(true, |b| dd < (depth[b] - target).abs()) {
+                best = Some(cand);
+            }
+        }
+    }
+    best
 }
 
 pub fn run_facies_confusion(db: &Mutex<Connection>, req: &FaciesConfusionRequest) -> FaciesConfusionResult {
@@ -110,11 +170,13 @@ pub fn run_facies_confusion(db: &Mutex<Connection>, req: &FaciesConfusionRequest
     }
 
     let mut pairs: Vec<(i64, i64)> = Vec::new();
+    // (predicted class, log10 core k) at core-plug depths — for the k-variance-reduction QC.
+    let mut core_groups: Vec<(i64, f64)> = Vec::new();
     {
         let conn = db.lock().unwrap();
         let names = vec![pred.clone(), refc.clone()];
         for well_id in &req.well_ids {
-            let Ok((_d, cols)) = fetch_curve_frame(&conn, well_id, &names) else { continue };
+            let Ok((d, cols)) = fetch_curve_frame(&conn, well_id, &names) else { continue };
             let (Some(pv), Some(rv)) = (cols.get(&pred), cols.get(&refc)) else { continue };
             let n = pv.len().min(rv.len());
             for i in 0..n {
@@ -123,9 +185,26 @@ pub fn run_facies_confusion(db: &Mutex<Connection>, req: &FaciesConfusionRequest
                     pairs.push((r.round() as i64, p.round() as i64));
                 }
             }
+            // Does the predicted typing explain core permeability? Sample the PREDICTED class at
+            // each plug depth (nearest log sample within tolerance) and pool (class, log10 k).
+            if let Ok(plugs) = crate::db::get_core_plugs(&conn, well_id) {
+                for plug in plugs {
+                    let k = plug.cperm as f64;
+                    if !(k.is_finite() && k > 0.0) {
+                        continue;
+                    }
+                    let Some(idx) = nearest_within(&d, plug.depth) else { continue };
+                    if idx < pv.len() && (pv[idx] as f64).is_finite() {
+                        core_groups.push(((pv[idx] as f64).round() as i64, k.log10()));
+                    }
+                }
+            }
         }
     }
-    build_confusion(&pairs)
+    let mut res = build_confusion(&pairs);
+    res.k_var_reduction = variance_reduction(&core_groups);
+    res.n_core_plugs = core_groups.len();
+    res
 }
 
 #[cfg(test)]
@@ -155,5 +234,68 @@ mod tests {
     #[test]
     fn confusion_rejects_empty() {
         assert!(build_confusion(&[]).error.is_some());
+    }
+
+    #[test]
+    fn variance_reduction_scores_separation() {
+        // Two classes with distinct means and zero within-class spread → full reduction (1.0).
+        let perfect: Vec<(i64, f64)> = vec![(1, 0.0), (1, 0.0), (2, 3.0), (2, 3.0)];
+        assert!((variance_reduction(&perfect) - 1.0).abs() < 1e-9);
+        // One class → NaN (nothing to compare).
+        assert!(variance_reduction(&[(1, 0.0), (1, 1.0)]).is_nan());
+        // Classes with identical distributions → ~0 reduction.
+        let none: Vec<(i64, f64)> = vec![(1, 0.0), (1, 2.0), (2, 0.0), (2, 2.0)];
+        assert!(variance_reduction(&none) < 1e-9);
+        // No variance at all → NaN, not a fake 1.0.
+        assert!(variance_reduction(&[(1, 5.0), (2, 5.0), (2, 5.0)]).is_nan());
+    }
+
+    #[test]
+    fn run_confusion_reports_core_k_variance_reduction() {
+        use duckdb::Connection;
+        use uuid::Uuid;
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let id = Uuid::new_v4();
+        crate::db::insert_well(&conn, id, "FT-1", None, None, None).unwrap();
+        let n = 20usize;
+        let depth: Vec<f32> = (0..n).map(|i| 2000.0 + i as f32 * 0.5).collect();
+        crate::db::insert_standard_curves(
+            &conn,
+            id,
+            depth.clone(),
+            vec![40.0; n],
+            vec![10.0; n],
+            vec![0.2; n],
+            vec![2.4; n],
+            vec![80.0; n],
+            vec![f32::NAN; n],
+        )
+        .unwrap();
+        let ids = id.to_string();
+        // Predicted RT: class 1 over the top half, class 2 over the bottom; reference identical.
+        let rt: Vec<f32> = (0..n).map(|i| if i < 10 { 1.0 } else { 2.0 }).collect();
+        crate::equations::write_computed_curve(&conn, &ids, &depth, "RT_LOG", &rt).unwrap();
+        crate::equations::write_computed_curve(&conn, &ids, &depth, "RT_REF", &rt).unwrap();
+        // Core plugs: class-1 depths carry k≈100 mD, class-2 depths k≈1 mD (well separated),
+        // plus one invalid-k plug that must be skipped.
+        let cd: Vec<f32> = vec![2000.2, 2001.2, 2002.2, 2005.7, 2006.2, 2007.7, 2050.0];
+        let ck: Vec<f32> = vec![100.0, 110.0, 90.0, 1.0, 1.1, 0.9, -5.0];
+        let cp = vec![0.2f32; cd.len()];
+        let nanv = vec![f32::NAN; cd.len()];
+        crate::db::insert_core_data(&conn, &ids, &cd, &cp, &ck, &nanv, &nanv).unwrap();
+
+        let db = Mutex::new(conn);
+        let res = run_facies_confusion(
+            &db,
+            &FaciesConfusionRequest { well_ids: vec![ids], pred_curve: "RT_LOG".into(), ref_curve: "RT_REF".into() },
+        );
+        assert!(res.error.is_none(), "err={:?}", res.error);
+        // 6 valid plugs matched (the 2050 m plug has k<0 AND is out of range anyway).
+        assert_eq!(res.n_core_plugs, 6);
+        // Tight within-class k, far-apart class means → strong variance reduction.
+        assert!(res.k_var_reduction > 0.95, "R²k={}", res.k_var_reduction);
+        // Identical curves → perfect purity, untouched by the core extension.
+        assert!((res.overall_purity - 1.0).abs() < 1e-9);
     }
 }

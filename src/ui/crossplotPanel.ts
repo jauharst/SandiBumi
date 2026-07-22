@@ -66,6 +66,10 @@ export interface CrossplotOptions {
   /** Qtz/Cal/Dol matrix reference points on an NPHI-RHOB plot — opt-in (universal:
    *  overlays only when requested). */
   matrixPoints: boolean;
+  /** Rock-typing pore-throat iso-radius grid on a φ-k crossplot: "" (none), "winland"
+   *  (Kolodzie 1980 R35) or "pittman_r25"/"pittman_r35"/"pittman_r50" (Pittman 1992).
+   *  Drawn when one axis is a porosity curve and the other a permeability curve. */
+  rockOverlay: string;
   /** Chartbook overlay by id from CHART_OVERLAYS ("" = none): digitized matrix
    *  curves / mineral regions / reference lines, drawn when the plot axes match
    *  the chart's axes (either orientation). */
@@ -106,6 +110,7 @@ export const DEFAULT_CROSSPLOT_OPTIONS: CrossplotOptions = {
   tsPhiSd: 0.3,
   tsPhiSh: 0.15,
   matrixPoints: false,
+  rockOverlay: "",
   chartOverlay: "",
   sizeMode: "fill",
   plotW: 640,
@@ -137,6 +142,9 @@ export function normalizeCrossplotOptions(raw: Partial<CrossplotOptions>): Cross
   }
   if (typeof opts.chartOverlay !== "string" || (opts.chartOverlay !== "" && !findChartOverlay(opts.chartOverlay))) {
     opts.chartOverlay = "";
+  }
+  if (!["", "winland", "pittman_r25", "pittman_r35", "pittman_r50"].includes(opts.rockOverlay)) {
+    opts.rockOverlay = "";
   }
   opts.plotW = Math.max(200, Math.min(2000, Math.round(opts.plotW) || DEFAULT_CROSSPLOT_OPTIONS.plotW));
   opts.plotH = Math.max(200, Math.min(2000, Math.round(opts.plotH) || DEFAULT_CROSSPLOT_OPTIONS.plotH));
@@ -282,6 +290,73 @@ export function drawTsOverlay(plot: PlotCanvas, phiSd: number, phiSh: number): v
     ctx.textAlign = vx === 0 ? "left" : "right";
     ctx.fillText(label, px + (vx === 0 ? 8 : -8), py - 8);
   }
+  ctx.restore();
+}
+
+/** Curve mnemonics recognized as porosity / permeability axes for the rock-typing grid. */
+const PORO_AXIS = ["PHIE", "PHIT", "PHI", "POR", "CPOR", "MM_PHIE", "MM_PHIT", "PHIX", "PHIE_ND", "PHIT_ND"];
+const PERM_AXIS = ["PERM", "KLOGH", "CPERM", "KH", "K", "PERM_RT", "KINT", "KAIR", "KTIM", "PERM_COATES"];
+
+/** Pittman (1992) log10 rX = C0 + C1·log10 k + C2·log10 φ% coefficient rows offered as grids
+ *  (mirrors PITTMAN_RX in rocktyping.rs; r35 anchors the transcription). */
+const ROCK_OVERLAY_COEF: Record<string, { label: string; c0: number; c1: number; c2: number }> = {
+  // Winland written in the same form: log10 R35 = 0.732 + 0.588·log10 k − 0.864·log10 φ%.
+  winland: { label: "Winland R35", c0: 0.732, c1: 0.588, c2: -0.864 },
+  pittman_r25: { label: "Pittman r25", c0: 0.204, c1: 0.531, c2: -0.35 },
+  pittman_r35: { label: "Pittman r35", c0: 0.255, c1: 0.565, c2: -0.523 },
+  pittman_r50: { label: "Pittman r50", c0: 0.609, c1: 0.608, c2: -0.974 },
+};
+
+/** Hartmann-Beaumont port-class boundaries (µm) drawn as iso-radius lines, port names between. */
+const PORT_ISO_R = [0.1, 0.5, 2.5, 10];
+
+/** Which orientation (if any) makes (xName, yName) a φ-k crossplot for the rock-typing grid. */
+export function matchRockOverlayAxes(xName: string, yName: string): "normal" | "flipped" | null {
+  const X = xName.toUpperCase();
+  const Y = yName.toUpperCase();
+  if (PORO_AXIS.includes(X) && PERM_AXIS.includes(Y)) return "normal";
+  if (PORO_AXIS.includes(Y) && PERM_AXIS.includes(X)) return "flipped";
+  return null;
+}
+
+/** Draws pore-throat iso-radius lines (Winland R35 or a Pittman rX) on a φ-k crossplot: for each
+ *  port-class boundary radius, k(φ) from log10 k = (log10 r − C0 − C2·log10 φ%)/C1 (φ v/v on the
+ *  porosity axis, k mD on the permeability axis; "flipped" = φ on Y). Drawn in data space so the
+ *  grid stays registered under zoom/pan and honors log axes. */
+export function drawRockOverlay(plot: PlotCanvas, kind: string, flipped: boolean): void {
+  const coef = ROCK_OVERLAY_COEF[kind];
+  if (!coef) return;
+  const color = plot.theme.accent2;
+  const { ctx } = plot;
+  // Sample φ across the practical band, log-spaced so log-φ axes stay smooth.
+  const PHI_LO = 0.01;
+  const PHI_HI = 0.47;
+  const N = 40;
+  for (const r of PORT_ISO_R) {
+    const pts: [number, number][] = [];
+    for (let i = 0; i <= N; i++) {
+      const phi = PHI_LO * Math.pow(PHI_HI / PHI_LO, i / N);
+      const logk = (Math.log10(r) - coef.c0 - coef.c2 * Math.log10(phi * 100)) / coef.c1;
+      const k = Math.pow(10, logk);
+      pts.push(flipped ? [k, phi] : [phi, k]);
+    }
+    plot.drawLine(pts, color, 1.2, [6, 4]);
+    // Label at the line's high-φ end.
+    const [lx, ly] = pts[pts.length - 1];
+    const [px, py] = plot.toPx(lx, ly);
+    ctx.save();
+    ctx.font = "500 10px system-ui, sans-serif";
+    ctx.fillStyle = color;
+    ctx.textAlign = "left";
+    ctx.fillText(`${r} µm`, px + 4, py - 3);
+    ctx.restore();
+  }
+  // Caption with the grid's identity, top-left of the data region.
+  ctx.save();
+  ctx.font = "600 10px system-ui, sans-serif";
+  ctx.fillStyle = color;
+  ctx.textAlign = "left";
+  ctx.fillText(`${coef.label} port classes (nano < 0.1 < micro < 0.5 < meso < 2.5 < macro < 10 < mega µm)`, plot.margin.left + 6, plot.margin.top + 12);
   ctx.restore();
 }
 
@@ -957,6 +1032,10 @@ export async function buildCrossplotContent(
     if (opts.tsOverlay) {
       drawTsOverlay(plot, opts.tsPhiSd, opts.tsPhiSh);
     }
+    if (opts.rockOverlay) {
+      const orient = matchRockOverlayAxes(xSel.value, ySel.value);
+      if (orient) drawRockOverlay(plot, opts.rockOverlay, orient === "flipped");
+    }
     if (marker && opts.showPicks) {
       const [px, py] = plot.toPx(marker[0], marker[1]);
       const ctx = plot.ctx;
@@ -1254,6 +1333,22 @@ export async function buildCrossplotContent(
       chartSel.appendChild(group);
     }
     chartSel.value = opts.chartOverlay && findChartOverlay(opts.chartOverlay) ? opts.chartOverlay : "";
+    // Rock-typing pore-throat grid (Winland/Pittman) — drawn when the axes are a φ-k pair.
+    const rockSel = document.createElement("select");
+    rockSel.className = "form-control";
+    for (const [val, lbl] of [
+      ["", "— None —"],
+      ["winland", "Winland R35 (Kolodzie 1980)"],
+      ["pittman_r25", "Pittman r25 (1992)"],
+      ["pittman_r35", "Pittman r35 (1992)"],
+      ["pittman_r50", "Pittman r50 (1992)"],
+    ] as const) {
+      const option = document.createElement("option");
+      option.value = val;
+      option.textContent = lbl;
+      rockSel.appendChild(option);
+    }
+    rockSel.value = opts.rockOverlay;
     const picksChk = chk("Show parameter pickers (drag handle → zone parameters)", opts.showPicks);
 
     body.appendChild(section("Plot"));
@@ -1274,6 +1369,7 @@ export async function buildCrossplotContent(
     body.appendChild(inline(coreChk.el, tsChk.el));
     body.appendChild(matrixChk.el);
     body.appendChild(formRow("Chart overlay", chartSel, "Chartbook curves/regions digitized at vector precision — drawn when the plot axes match the chart"));
+    body.appendChild(formRow("Rock-type grid", rockSel, "Pore-throat iso-radius lines at the port-class bounds (0.1/0.5/2.5/10 µm) — drawn when one axis is porosity and the other permeability (use log k)"));
     body.appendChild(picksChk.el);
 
     const applyBtn = document.createElement("button");
@@ -1313,6 +1409,7 @@ export async function buildCrossplotContent(
       opts.tsOverlay = tsChk.input.checked;
       opts.matrixPoints = matrixChk.input.checked;
       opts.chartOverlay = chartSel.value;
+      opts.rockOverlay = rockSel.value;
       opts.showPicks = picksChk.input.checked;
       Object.assign(opts, normalizeCrossplotOptions({ ...opts }));
       persist();
