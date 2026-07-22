@@ -57,9 +57,9 @@ through in the real app with field data. Nothing committed.**
       linear fit) and **Skelt-Harrison** (Sw = 1 − A·exp(−(B/(H+D))^C), via a compact Nelder-Mead) to the
       log-derived Sw-vs-height cloud, with a Sw-vs-H scatter + fitted-curve overlay and a params/R² table.
       *(3 new tests: Brooks-Corey recovers a synthetic curve, Skelt reaches R²>0.98 + monotone Sw, both
-      reject too-few points.)* **Try:** SHF Fit ▸ pick Brooks-Corey / Skelt-Harrison. **Still open
-      (increment 2 remainder, task #158):** Thomeer Pc fit (MICP), Pittman full rX table, Ward HFU
-      option *(SCAL porous-plate + centrifuge importers: done, see below)*.
+      reject too-few points.)* **Try:** SHF Fit ▸ pick Brooks-Corey / Skelt-Harrison. *(Increment 2
+      remainder — Thomeer Pc fit, SCAL importers, Pittman full rX table, and Ward/histogram HFU
+      clustering — is now all shipped; see the entries below. Task #158 is complete.)*
 - [ ] **(8) increment 2 — electrofacies tie-in (2026-07-22):** two parts. **Rock Type from Cutoffs**
       module (Petrophysics ▸ Rock Typing) — a Vsh + PHIE cutoff ladder → **RT_LOG** (1 best / 2 moderate
       / 3 non-net), to propagate rock types to uncored intervals. **Facies Tie-in** pane (workspace ▸
@@ -131,6 +131,35 @@ through in the real app with field data. Nothing committed.**
       typed `number | null` (NaN→null over IPC). *(+2 tests: air-brine plug recovers the same
       Hg-equivalent Pd as its mercury twin & legacy no-ift rows suppress Swanson; merged-cell
       forward-fill. Suite 216 passed / 0 failed; tsc EXIT 0.)*
+- [ ] **(8) increment 2 — Pittman rX + HFU clustering (2026-07-22, closes task #158):** two pieces.
+      **Pittman pore-throat radii** — new `pittman_rx` module (Petrophysics ▸ Rock Typing) writes the
+      full **Pittman (1992) r10…r75** family (PR10…PR75 µm, each log₁₀ rX = C0 + C1·log₁₀ k + C2·log₁₀ φ%),
+      an **APEX** selector (r10…r75, default r35) → **RAPEX** + its Hartmann-Beaumont **RT_PITT** port
+      class. The r35 row (0.255/0.565/−0.523) matches the reference doc; the full table is transcribed
+      from Pittman 1992 and flagged verify-before-release. **HFU Clustering** — new **HFU Clustering
+      (FZI)** pane (workspace ▸ add pane). Reads the scoped wells' **core φ-k** (routine core analysis,
+      not log curves), computes FZI, and partitions log₁₀(FZI) into K units by **Ward** (exact
+      minimum-variance K-partition via DP — the global optimum, no greedy drift) or **histogram**
+      (boundaries at the log-FZI histogram antimodes). Per-HFU table (FZI min/max, geometric-mean FZI,
+      φ mean, and the Amaefule perm-transform R²) + the **RQI–φz** unit-slope crossplot coloured by HFU
+      + the **log₁₀ FZI histogram** with the cut lines; row click highlights a unit. Read-only (writes
+      no curves). *(10 new tests: Pittman r35 vs the published regression, apex-selector switching, Ward
+      DP splits two separated bands + recovers each k, histogram finds the bimodal valley, invalid-plug
+      skip + distinct-level cap note, empty-input error.)* **Try:** run `pittman_rx` (pick APEX) for the
+      radius family; then HFU Clustering (FZI) ▸ pick Ward or Histogram + K ▸ Cluster — check the RQI–φz
+      unit-slope lines and the FZI histogram breaks against your rock types.
+      **Post-review hardening (same day, ultracode 4-lens adversarial review — 6 confirmed findings, all
+      fixed; 2 refuted correctly):** (1) the **histogram path could emit an empty interior HFU**
+      (two valleys flanking an empty bin gap) → non-contiguous ids like {1,3} and a boundaries/clusters
+      count mismatch; ids are now remapped to contiguous 1..K and boundaries are recomputed from the
+      final assignment (one cut per populated pair) for BOTH methods. (2) the selected-row highlight
+      (`ml-diag`) was a no-op outside `.ml-confusion` tables → CSS broadened to cover plain mc-table
+      selection rows (also repairs the Thomeer pane's identical latent no-op). (3) FZI_gm unit-slope
+      lines now **clip to the plot rectangle** (a line whose slope-1 extension overshot could paint over
+      the axis label/frame). (4) the pane now **redraws its canvases on resize** (was stale/blurry until
+      a row click). (5) frontend histogram bins aligned to the backend clamp (8–40) so bars and cut
+      lines share resolution. *(+1 regression test locking HFU-id contiguity across an empty gap. Suite
+      227 passed / 0 failed; tsc EXIT 0.)*
 
 ## Round 2 — panes, shift-select, MC plot props + table + polish (2026-07-21, Jauhar feedback batch #2)
 

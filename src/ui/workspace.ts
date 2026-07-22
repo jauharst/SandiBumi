@@ -333,6 +333,7 @@ export class Workspace {
       ["Monte Carlo", () => this.openMonteCarlo(group)],
       ["SHF Fit (Cuddy FOIL)", () => this.openShf(group)],
       ["Pc Fit (Thomeer)", () => this.openThomeer(group)],
+      ["HFU Clustering (FZI)", () => this.openHfu(group)],
       ["Facies Tie-in (RT confusion)", () => this.openFaciesTie(group)],
       ["SandiMin Solver", () => this.openMultimin(group)],
       "sep",
@@ -484,6 +485,12 @@ export class Workspace {
           "dock-thomeer",
           () => import("./thomeerDialog").then((m) => m.buildThomeerContent(setStatus)),
           "Thomeer Pc fit",
+        );
+      case "hfu":
+        return this.asyncPane(
+          "dock-hfu",
+          () => import("./hfuDialog").then((m) => m.buildHfuContent(setStatus)),
+          "HFU clustering",
         );
       case "faciesTie":
         return this.asyncPane(
@@ -1301,6 +1308,10 @@ export class Workspace {
 
   openThomeer(group?: DockviewGroupPanel): void {
     this.openSingleton("thomeer", "thomeer", "Pc Fit (Thomeer)", group);
+  }
+
+  openHfu(group?: DockviewGroupPanel): void {
+    this.openSingleton("hfu", "hfu", "HFU Clustering (FZI)", group);
   }
 
   openFaciesTie(group?: DockviewGroupPanel): void {

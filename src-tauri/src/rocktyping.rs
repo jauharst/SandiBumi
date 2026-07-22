@@ -8,9 +8,10 @@
 //!   - Kolodzie 1980 Winland R35 (+ port classes mega/macro/meso/micro/nano).
 //!   - Permadi-Susilo PGS pore geometry (k/φ) and pore structure (k/φ^PS_EXP), PS_EXP default 3.5.
 //!
-//! Deferred to later increments (see the reference doc): interactive Ward/histogram HFU clustering,
-//! Lucia RFN, Pittman full rX table, MICP-fitted local Winland coefficients, and the SHF-fitting
-//! side (Cuddy FOIL/FWL scan, Brooks-Corey, Thomeer, Skelt-Harrison) + SCAL importers.
+//! Also here (increment 2): Lucia RFN (carbonate), cutoff-based electrofacies RT, and the Pittman
+//! (1992) full r10–r75 pore-throat table with a selectable apex → port class. Interactive
+//! Ward/histogram HFU clustering lives in `hfu.rs` (cross-well pane, reads core φ-k).
+//! Still deferred (see the reference doc): MICP-fitted LOCAL Winland/Pittman coefficients.
 //!
 //! NOTE (flagged in the reference doc): the PS exponent (3.5) and GHE bin list are specced from
 //! literature/recall with no local paper copy — they are exposed as a param / documented so they
@@ -275,6 +276,119 @@ pub fn rt_cutoff(ctx: &ModuleContext) -> ModuleOutputs {
     HashMap::from([("RT_LOG".into(), rt)])
 }
 
+// --------------------------------------------------------------------------------------------
+// Pittman full pore-throat aperture table (Wave B item 8, increment 2) — Pittman (1992, AAPG
+// Bulletin v76) regressed the pore-throat radius at mercury saturations 10..75 % against φ and k
+// for a sandstone set. Each rX is log10 rX = C0 + C1·log10 k + C2·log10 φ, k in mD, φ in PERCENT,
+// rX in µm. The r35 row (0.255, 0.565, −0.523) matches ref_rocktyping_shf.md, which anchors the
+// transcription; the FULL nine-row set is from the paper's table and is flagged verify-before-
+// release (same policy as PGS 3.5 / Swanson / Lucia). Pittman's "apex" — the rX that best predicts
+// k for a given rock family (coarse rocks apex near r25–r35, finer near r50–r75) — is selectable.
+// --------------------------------------------------------------------------------------------
+
+/// (mnemonic, C0, C1, C2) for each mercury-saturation radius; ordered by saturation 10..75 %.
+const PITTMAN_RX: [(&str, f64, f64, f64); 9] = [
+    ("PR10", 0.459, 0.500, -0.385),
+    ("PR15", 0.333, 0.509, -0.344),
+    ("PR20", 0.218, 0.519, -0.303),
+    ("PR25", 0.204, 0.531, -0.350),
+    ("PR30", 0.215, 0.547, -0.420),
+    ("PR35", 0.255, 0.565, -0.523),
+    ("PR40", 0.360, 0.582, -0.680),
+    ("PR50", 0.609, 0.608, -0.974),
+    ("PR75", 1.243, 0.674, -1.517),
+];
+
+/// Mercury saturation (%) of each PITTMAN_RX row, for the APEX selector ("r35" → 35).
+const PITTMAN_PCT: [u32; 9] = [10, 15, 20, 25, 30, 35, 40, 50, 75];
+
+/// Pore-throat radius (µm) for one Pittman row from k (mD) and φ (PERCENT).
+fn pittman_radius(coef: (f64, f64, f64), k: f64, phi_pct: f64) -> f64 {
+    let (c0, c1, c2) = coef;
+    10f64.powf(c0 + c1 * k.log10() + c2 * phi_pct.log10())
+}
+
+/// Index into PITTMAN_RX for an APEX option like "r35" (default r35); parses the trailing digits.
+fn pittman_apex_idx(apex: &str) -> usize {
+    let pct: u32 = apex.trim_start_matches(['r', 'R']).parse().unwrap_or(35);
+    PITTMAN_PCT.iter().position(|&p| p == pct).unwrap_or(5)
+}
+
+pub fn pittman_rx_spec() -> ModuleSpec {
+    ModuleSpec {
+        name: "pittman_rx".into(),
+        title: "Pittman Pore-Throat Radii (r10–r75)".into(),
+        category: "Rock Typing".into(),
+        doc: "Pittman (1992) pore-throat aperture family: writes PR10..PR75 = pore-throat radius \
+              (µm) at mercury saturation 10..75 %, each log10 rX = C0 + C1·log10 k + C2·log10 φ% \
+              (k mD, φ in PERCENT). RAPEX is the radius at the chosen APEX saturation and RT_PITT \
+              its Hartmann-Beaumont port class (nano<0.1, micro 0.1–0.5, meso 0.5–2.5, macro \
+              2.5–10, mega ≥10 µm → 1..5). Pick APEX = the rX that best correlates with k for your \
+              rock family (coarse rocks apex near r25–r35, finer near r50–r75); r35 is the common \
+              default and matches the Winland concept. Samples with φ∉(0,1) or k≤0 stay MISSING. \
+              NOTE: the coefficient table is transcribed from Pittman 1992 (r35 cross-checks the \
+              reference doc) — verify the full set against the paper before field release."
+            .into(),
+        args: vec![
+            opt(
+                "APEX",
+                "Controlling mercury-saturation radius for RT (port class)",
+                "r35",
+                &["r10", "r15", "r20", "r25", "r30", "r35", "r40", "r50", "r75"],
+            ),
+            log_in("PHI", "Effective porosity", "v/v", "PHIE", true),
+            log_in("PERM", "Permeability", "mD", "PERM", true),
+            log_out("PR10", "Pittman pore-throat radius at 10 % Hg", "um"),
+            log_out("PR15", "Pittman pore-throat radius at 15 % Hg", "um"),
+            log_out("PR20", "Pittman pore-throat radius at 20 % Hg", "um"),
+            log_out("PR25", "Pittman pore-throat radius at 25 % Hg", "um"),
+            log_out("PR30", "Pittman pore-throat radius at 30 % Hg", "um"),
+            log_out("PR35", "Pittman pore-throat radius at 35 % Hg", "um"),
+            log_out("PR40", "Pittman pore-throat radius at 40 % Hg", "um"),
+            log_out("PR50", "Pittman pore-throat radius at 50 % Hg", "um"),
+            log_out("PR75", "Pittman pore-throat radius at 75 % Hg", "um"),
+            log_out("RAPEX", "Radius at the chosen APEX saturation", "um"),
+            log_out("RT_PITT", "Port class of RAPEX (1..5)", "-"),
+        ],
+    }
+}
+
+pub fn pittman_rx(ctx: &ModuleContext) -> ModuleOutputs {
+    let phi_log = ctx.log("PHI");
+    let perm_log = ctx.log("PERM");
+    let apex_idx = pittman_apex_idx(ctx.o("APEX"));
+
+    let n = ctx.n;
+    let mut radii: Vec<Vec<f32>> = (0..9).map(|_| vec![f32::NAN; n]).collect();
+    let mut rapex = vec![f32::NAN; n];
+    let mut rt = vec![f32::NAN; n];
+
+    for i in 0..n {
+        let phi = phi_log[i] as f64;
+        let k = perm_log[i] as f64;
+        if !(phi.is_finite() && k.is_finite()) || phi <= 0.0 || phi >= 1.0 || k <= 0.0 {
+            continue; // leave MISSING
+        }
+        let phi_pct = phi * 100.0;
+        for (j, &(_, c0, c1, c2)) in PITTMAN_RX.iter().enumerate() {
+            radii[j][i] = pittman_radius((c0, c1, c2), k, phi_pct) as f32;
+        }
+        let ap = radii[apex_idx][i] as f64;
+        rapex[i] = ap as f32;
+        if ap.is_finite() && ap > 0.0 {
+            rt[i] = port_class(ap) as f32;
+        }
+    }
+
+    let mut out: ModuleOutputs = HashMap::new();
+    for (j, &(name, ..)) in PITTMAN_RX.iter().enumerate() {
+        out.insert(name.into(), std::mem::take(&mut radii[j]));
+    }
+    out.insert("RAPEX".into(), rapex);
+    out.insert("RT_PITT".into(), rt);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -360,6 +474,58 @@ mod tests {
         // Out-of-range inputs → MISSING.
         assert!(!lucia_rfn(0.0, 10.0).is_finite());
         assert!(!lucia_rfn(0.2, -1.0).is_finite());
+    }
+
+    /// Minimal ModuleContext with PHI + PERM and an APEX option, for the Pittman module.
+    fn pitt_ctx(phi: Vec<f32>, perm: Vec<f32>, apex: &str) -> ModuleContext {
+        let n = phi.len();
+        let mut logs = HashMap::new();
+        logs.insert("PHI".to_string(), phi);
+        logs.insert("PERM".to_string(), perm);
+        let mut opts = HashMap::new();
+        opts.insert("APEX".to_string(), apex.to_string());
+        ModuleContext { n, logs, params: HashMap::new(), opts }
+    }
+
+    #[test]
+    fn pittman_r35_matches_published_regression() {
+        // log10 r35 = 0.255 + 0.565·log10 k − 0.523·log10 φ%  (Pittman 1992; anchors the table).
+        let (phi, k) = (0.20f64, 100.0f64);
+        let out = pittman_rx(&pitt_ctx(vec![phi as f32], vec![k as f32], "r35"));
+        let expect = 10f64.powf(0.255 + 0.565 * k.log10() - 0.523 * (phi * 100.0).log10());
+        assert!((out["PR35"][0] as f64 - expect).abs() < 1e-3, "pr35={}", out["PR35"][0]);
+        // RAPEX at r35 must equal PR35, and RT_PITT is its port class.
+        assert!((out["RAPEX"][0] - out["PR35"][0]).abs() < 1e-4);
+        assert_eq!(out["RT_PITT"][0], port_class(expect) as f32);
+    }
+
+    #[test]
+    fn pittman_apex_selector_switches_controlling_radius() {
+        // Same rock, different APEX → RAPEX tracks the chosen row (r25 vs r50 differ here).
+        let (phi, k) = (vec![0.18f32], vec![50.0f32]);
+        let r25 = pittman_rx(&pitt_ctx(phi.clone(), k.clone(), "r25"));
+        let r50 = pittman_rx(&pitt_ctx(phi.clone(), k.clone(), "r50"));
+        assert!((r25["RAPEX"][0] - r25["PR25"][0]).abs() < 1e-4);
+        assert!((r50["RAPEX"][0] - r50["PR50"][0]).abs() < 1e-4);
+        assert_ne!(r25["RAPEX"][0], r50["RAPEX"][0], "r25 and r50 should differ");
+        // All nine radii are emitted and finite for a valid plug.
+        for (name, ..) in PITTMAN_RX {
+            assert!(r25[name][0].is_finite(), "{name} missing");
+        }
+    }
+
+    #[test]
+    fn pittman_missing_inputs_stay_missing() {
+        let out = pittman_rx(&pitt_ctx(
+            vec![f32::NAN, 0.0, 1.0, 0.2],
+            vec![10.0, 10.0, 10.0, -5.0],
+            "r35",
+        ));
+        for i in 0..4 {
+            assert!(!out["PR35"][i].is_finite(), "sample {i} should be MISSING");
+            assert!(!out["RAPEX"][i].is_finite());
+            assert!(!out["RT_PITT"][i].is_finite());
+        }
     }
 
     #[test]

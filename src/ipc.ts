@@ -1341,6 +1341,52 @@ export function runThomeerFit(wellIds: string[]): Promise<ThomeerResult> {
   return invoke<ThomeerResult>("run_thomeer_fit", { req: { well_ids: wellIds } });
 }
 
+export interface HfuCluster {
+  /** 1..K, ascending FZI (HFU 1 = lowest FZI = poorest quality). */
+  hfu: number;
+  n: number;
+  fzi_min: number;
+  fzi_max: number;
+  /** Geometric-mean FZI = the unit-slope RQI–φz line intercept at φz = 1. */
+  fzi_gm: number;
+  poro_mean: number;
+  /** R² (log-k) of the per-HFU Amaefule perm transform vs measured k (1.0 for a single plug). */
+  perm_r2: number;
+}
+
+export interface HfuPoint {
+  well_name: string;
+  depth: number | null;
+  poro: number;
+  perm: number;
+  rqi: number;
+  phiz: number;
+  fzi: number;
+  hfu: number;
+}
+
+export interface HfuResult {
+  clusters: HfuCluster[];
+  points: HfuPoint[];
+  /** K−1 FZI cut values (ascending) separating the HFUs. */
+  boundaries: number[];
+  method: string;
+  n_plugs: number;
+  skipped: number;
+  /** Set when the result deviated from the request (fewer clusters than asked, etc.). */
+  note: string | null;
+  error: string | null;
+}
+
+export type HfuMethod = "ward" | "histogram";
+
+/** Cluster the scoped wells' core φ-k cloud into hydraulic flow units on log10(FZI). */
+export function runHfuCluster(wellIds: string[], nClusters: number, method: HfuMethod): Promise<HfuResult> {
+  return invoke<HfuResult>("run_hfu_cluster", {
+    req: { well_ids: wellIds, n_clusters: nClusters, method },
+  });
+}
+
 export function getScalPc(wellId: string): Promise<ScalPcRow[]> {
   return invoke<ScalPcRow[]>("get_scal_pc", { wellId });
 }

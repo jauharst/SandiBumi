@@ -3233,7 +3233,10 @@ textarea {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
-.ml-confusion .ml-diag {
+/* Selected/diagonal row emphasis: confusion-matrix diagonal cells AND selected rows in any
+ * plain mc-table result grid (HFU clustering, Thomeer Pc fit) that toggle `ml-diag` on click. */
+.ml-confusion .ml-diag,
+.mc-table .ml-diag {
   font-weight: 700;
   background: var(--accent-soft, #f1ddc4);
 }

@@ -12,6 +12,7 @@ mod facies;
 mod facies_tie;
 mod geo;
 mod health;
+mod hfu;
 mod ingest;
 mod inversion;
 mod jobs;
@@ -887,6 +888,20 @@ async fn run_thomeer_fit(
         .map_err(|e| e.to_string())
 }
 
+/// Hydraulic-flow-unit clustering (Wave B item 8, increment 2): partitions the scoped wells' core
+/// φ-k cloud into HFUs on log10(FZI) — Ward (exact min-variance) or histogram antimodes — with the
+/// per-HFU Amaefule perm transform. Off-thread; writes no curves.
+#[tauri::command]
+async fn run_hfu_cluster(
+    db: tauri::State<'_, DbState>,
+    req: hfu::HfuRequest,
+) -> Result<hfu::HfuResult, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || hfu::run_hfu_cluster(&conn, &req))
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Electrofacies tie-in QC (Wave B item 8, increment 2): confusion matrix + dominant-class purity
 /// of a predicted log rock-type curve against a reference/core rock-type curve. Off-thread.
 #[tauri::command]
@@ -1483,6 +1498,7 @@ pub fn run() {
             run_cuddy_foil,
             run_shf_fit,
             run_thomeer_fit,
+            run_hfu_cluster,
             run_facies_confusion,
             run_multimin,
             multimin_library,

@@ -699,6 +699,31 @@ pub fn get_scal_pc(conn: &Connection, well_id: &str) -> DbResult<Vec<ScalPcRow>>
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
+/// One routine-core-analysis plug: depth + porosity/permeability (NaN when the column was
+/// blank). Used by the HFU clustering pane; core φ-k is the classic FZI clustering input.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CorePlugRow {
+    pub depth: f32,
+    pub cpor: f32,
+    pub cperm: f32,
+}
+
+/// One well's core plugs (depth ascending) with porosity/permeability only. NULL φ or k
+/// become NaN so the caller can skip them.
+pub fn get_core_plugs(conn: &Connection, well_id: &str) -> DbResult<Vec<CorePlugRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT depth, cpor, cperm FROM core_data WHERE well_id = ?1 ORDER BY depth",
+    )?;
+    let rows = stmt.query_map(params![well_id], |row| {
+        Ok(CorePlugRow {
+            depth: row.get(0)?,
+            cpor: row.get::<_, Option<f32>>(1)?.unwrap_or(f32::NAN),
+            cperm: row.get::<_, Option<f32>>(2)?.unwrap_or(f32::NAN),
+        })
+    })?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
 pub fn insert_well(
     conn: &Connection,
     well_id: Uuid,
