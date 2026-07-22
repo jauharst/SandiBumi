@@ -925,7 +925,7 @@ export async function buildCrossplotContent(
   let dataGen = 0;
   let colorMemo: { key: string; value: CrossplotColors } | null = null;
   const zColors = (): CrossplotColors => {
-    const key = `${zSel.value} ${opts.colormap} ${opts.zLog} ${opts.color} ${dataGen}`;
+    const key = `${zSel.value}\0${opts.colormap}\0${opts.zLog}\0${opts.color}\0${dataGen}`;
     if (!colorMemo || colorMemo.key !== key) {
       colorMemo = {
         key,
