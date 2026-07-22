@@ -906,6 +906,27 @@ fn fit_height_method(
         other => return Err(format!("unknown SHF method '{other}'")),
     };
 
+    // RMS of the Sw residual over the fitted samples — a readout the dialog shows next to R².
+    // For Leverett-J this uses each sample's own J (the real model), not the median-√(k/φ)
+    // display curve.
+    let rms = if method == "leverett_j" {
+        let a = params[0].1;
+        let b = params[1].1;
+        let (ss, cnt) = samples
+            .iter()
+            .filter_map(|s| s.j.map(|j| (s.sw - (a * j.powf(b)).clamp(0.0, 1.0)).powi(2)))
+            .fold((0.0, 0usize), |(ss, c), e| (ss + e, c + 1));
+        if cnt > 0 { (ss / cnt as f64).sqrt() } else { f64::NAN }
+    } else {
+        let (ss, cnt) = pts
+            .iter()
+            .map(|&(h, sw)| (sw - model(h).clamp(0.0, 1.0)).powi(2))
+            .fold((0.0, 0usize), |(ss, c), e| (ss + e, c + 1));
+        if cnt > 0 { (ss / cnt as f64).sqrt() } else { f64::NAN }
+    };
+    let mut params = params;
+    params.push(("rms".into(), rms));
+
     // Sampled fit curve across the observed H range.
     let steps = 60usize;
     let curve: Vec<(f64, f64)> = (0..=steps)

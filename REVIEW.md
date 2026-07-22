@@ -31,14 +31,35 @@ distinct defects, all fixed pre-commit — a Thomeer bounds panic on sub-millime
 (HIGH), silent zero-contribution wells, discarded exclusion counters on two FOIL error paths, and
 the failed-group NaN→null IPC contract. cargo 283/0, tsc 0. (Dialog UI for all of this = 4b, next.)
 
-- [ ] *(UI lands in 4b — backend-only round; the Try lines below use the existing dialog.)*
-- [ ] **Existing SHF forms still work.** Analysis ▸ Saturation-Height: fit Cuddy FOIL on your
-      BLSO wells with the usual FWL — same a/b/R² as before this round (the FOIL math is untouched;
-      only the bookkeeping around it changed).
-- [ ] **Exclusions are now visible on failure.** Set the FWL to a value clearly *above* the whole
-      cloud's TVDSS (so everything sits below the contact) and fit: the failure message should come
-      with an "at/below the FWL: N" style breakdown once the 4b UI renders it (the backend already
-      returns it — visible now in the dev console response).
+## Round 15 — Saturation-height dialog: 5 families, per-rock-type tabs, draggable FWL (playbook #4, increment 4b) (2026-07-23)
+
+The Saturation-Height dialog now drives everything the 4a solvers added. The **SHF-form dropdown
+has five entries** (FOIL / Brooks-Corey / Skelt / Thomeer / Leverett-J); picking **Leverett-J**
+reveals a permeability-curve picker and a fluid-property block (system dropdown that flips σ·cosθ
+between the Water-Oil 26 and Water-Gas 50 dyn/cm Tier-A seeds, plus ρw/ρhc — all editable). A
+**"Fit per rock type" checkbox + RT-curve picker** turns any family into per-class fits: the
+results panel grows a **tab strip** (All / RT 1 / RT 2 …), each tab showing that class's
+parameters, R², and its own Sw-vs-height curve; classes that couldn't fit show a ⚠ tab with the
+reason instead of vanishing. Every result now carries a **diagnostics line** — the excluded-sample
+breakdown (Sw > 1, at/below the FWL, φ-cutoff, no-perm counts) and the honesty notes (zero-
+contribution wells, the Buckles warning) — shown on both success and failure. The **FWL is
+draggable**: drag horizontally on any result plot to nudge it (0.2 m/px) and it re-fits on release,
+or click straight on the FWL-scan curve to pick a candidate. An **RMS** row joins R² in every
+parameter table. tsc 0.
+
+- [ ] **All five families fit.** Analysis ▸ Saturation-Height on BLSO: run each of FOIL,
+      Brooks-Corey, Skelt, Thomeer, Leverett-J. Thomeer and Leverett-J should return sensible
+      params (Thomeer G ~0.1–2, Leverett B negative) with a curve through the Sw-vs-H cloud.
+- [ ] **Leverett-J uses PERM.** Pick Leverett-J → the PERM picker + fluid block appear; switch
+      the system Water-Oil↔Water-Gas and watch σ·cosθ flip 26↔50. Fit with your PERM curve.
+- [ ] **Per-rock-type split.** Tick "Fit per rock type", pick your RT curve, fit: a tab per RT
+      class appears, each with its own law + curve; a thin class shows a ⚠ tab with the reason.
+- [ ] **FWL by drag / click.** Drag left-right on the crossplot — the status shows the trial FWL
+      and it re-fits on release; on FOIL with the scan on, click the scan curve to jump the FWL.
+- [ ] **Nothing hides.** Set the FWL above the whole cloud and fit: the failure now shows an
+      "Excluded: at/below the FWL: N" breakdown instead of a bare error.
+
+## Round 14 — Saturation-height solvers: Thomeer, log-driven Leverett-J, per-rock-type laws (playbook #4, increment 4a) (2026-07-23)
 
 ## Round 13 — Theme sweep: canvas typography + color tokens (playbook #9A, increment A) (2026-07-22)
 

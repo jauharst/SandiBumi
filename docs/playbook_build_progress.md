@@ -101,7 +101,7 @@ Order per playbook §Build order — every dependency is now met (#3→#4 ✅; #
 
 | # | Feature | Target | Status |
 |---|---|---|---|
-| #4 | SHF — Leverett-J in dialog, Thomeer, per-rock-type fits | `shf_fit.rs` + `satheight.rs` + `shfDialog.ts` | 🔨 4a ✅ solvers (Thomeer cited 1960, log-Leverett-J with Tier-A fluid seeds, per-RT grouped fits, exclusion/empty-well honesty, Buckles note; 4 tests; adversarially reviewed — 37 agents, 4 distinct defects fixed incl. a Thomeer bounds panic; math banked in `docs/ref_shf.md`; cargo 283/0, tsc 0) · 4b dialog UI next |
+| #4 | SHF — Leverett-J in dialog, Thomeer, per-rock-type fits | `shf_fit.rs` + `satheight.rs` + `shfDialog.ts` | ✅ 4a solvers (Thomeer cited 1960, log-Leverett-J with Tier-A fluid seeds, per-RT grouped fits, exclusion/empty-well honesty, Buckles note; 4 tests; adversarially reviewed — 37 agents, 4 distinct defects fixed incl. a Thomeer bounds panic; math banked in `docs/ref_shf.md`) · 4b dialog (5-family select, Leverett-J PERM/fluid-prop seeds, per-RT tabs, RMS readout, exclusion/notes panel, draggable + click-to-pick FWL); cargo 283/0, tsc 0 |
 | #7 | Unconventional/shale suite (TOC Passey/Schmoker, kerogen, GIP/Langmuir, brittleness) | NEW `unconventional.rs` | ▫ |
 | #8 | Results-QC / Sw-comparison dashboard | NEW `resultsQcPanel.ts` | ▫ |
 | #5 | Autocorrelate — elastic warp (DTW) + multi-marker | `tops.rs` + `autoCorrDialog.ts` | ▫ |

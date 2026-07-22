@@ -3210,6 +3210,39 @@ textarea {
   font-size: 12px;
   padding: 2px 8px;
 }
+
+/* SHF dialog — per-rock-type tabs + exclusion/notes diagnostics */
+.shf-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 8px 0 4px;
+  flex-wrap: wrap;
+}
+.shf-tab {
+  padding: 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-panel-alt);
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 12px;
+}
+.shf-tab:hover {
+  background: var(--bg-hover);
+}
+.shf-tab.active {
+  background: var(--accent-soft);
+  color: var(--text);
+  border-color: var(--accent);
+}
+.shf-diag {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.shf-diag .warn {
+  color: var(--warn);
+}
 .mc-wells {
   display: grid;
   grid-template-columns: 1fr 1fr;
