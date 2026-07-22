@@ -13,8 +13,12 @@ First-half selection: **#6.1, #3, #2, #1, #9A**. Second half: #4, #7, #8, #5, #9
 **✅ FIRST HALF COMPLETE (2026-07-23)** — all five shipped: #6.1 (prior), #3 Rock typing,
 #2 SandiMin, #1 Monte Carlo, #9A theming. Both math-heavy features (#3, #1, #2) adversarially
 reviewed via Workflow with all confirmed findings fixed pre-commit. Final verification: cargo
-279/0/7, tsc 0, zero warnings, production build clean. Awaiting Jauhar's manual click-through
-(REVIEW.md Rounds 9–13) before starting the second half.
+279/0/7, tsc 0, zero warnings, production build clean.
+
+**🔨 SECOND HALF UNDERWAY (2026-07-23)** — per Jauhar's go-ahead after the playbook/maturation
+audit (see the audit section below). Build order: #4 SHF → #7 Unconventional → #8 Results-QC →
+#5 Autocorrelate → #9B–D → #6.2. Jauhar's manual click-through (REVIEW.md Rounds 9–13) runs in
+parallel — it gates release, not the build.
 
 ---
 
@@ -90,12 +94,54 @@ new petrophysics.
 
 ---
 
-## Second half (later — after your review of the first half)
+## Second half (underway 2026-07-23)
 
-#4 SHF (Leverett-J in dialog + per-rock-type fits; depends on #3) · #7 Unconventional
-(TOC/kerogen/GIP/brittleness; depends on #2 organic) · #8 Results-QC dashboard (depends
-on #1 + #2) · #5 Autocorrelate (elastic warp + multi-marker) · #9 Increments B–D · #6.2
-assisted contact picking.
+Order per playbook §Build order — every dependency is now met (#3→#4 ✅; #2 organic→#7 ✅;
+#1+#2→#8 ✅).
+
+| # | Feature | Target | Status |
+|---|---|---|---|
+| #4 | SHF — Leverett-J in dialog, Thomeer, per-rock-type fits | `shf_fit.rs` + `satheight.rs` + `shfDialog.ts` | 🔨 |
+| #7 | Unconventional/shale suite (TOC Passey/Schmoker, kerogen, GIP/Langmuir, brittleness) | NEW `unconventional.rs` | ▫ |
+| #8 | Results-QC / Sw-comparison dashboard | NEW `resultsQcPanel.ts` | ▫ |
+| #5 | Autocorrelate — elastic warp (DTW) + multi-marker | `tops.rs` + `autoCorrDialog.ts` | ▫ |
+| #9B–D | Colorbar/tooltips · brush/lasso linking · accessibility | `plotCanvas.ts` + panels | ▫ |
+| #6.2 | Assisted contact picking + cross-well plane | `correlationPanel.ts` + Rust detector | ▫ |
+
+## Audit vs the source docs (2026-07-23) — what ELSE is left
+
+Checked `docs/sandibumi_dev_playbook.md` (Parts I + II) and `docs/sandibumi_maturation_prompt.md`
+against the repo. Two buckets beyond the second-half table above.
+
+### First-half residuals (sub-items in the shipped prompts that did not ship)
+
+| From | Residual | Lands in |
+|---|---|---|
+| #1 MC | Per-row live distribution (PDF) preview sparkline (convergence sparkline shipped; per-row preview did not) | `monteCarloDialog.ts` |
+| #1 MC | Reject/flag impossible combos (Sw>1, PHIE<0) + report the rejected fraction | `montecarlo.rs` |
+| #1 MC | Seed per-parameter defaults from IP `MonteCarloDefaults.par` (Tier A) — today a generic ±20% width heuristic | `monteCarloDialog.ts` |
+| #2 SandiMin | Report RMS vs core when core mineral volumes/porosity exist | `multimin2.rs` |
+| #3 Rock typing | MICP-calibrated LOCAL Winland/Pittman coeffs (deferred in `docs/ref_rock_typing.md` header) | `rocktyping.rs` |
+| #3 Rock typing | Stretch: SOM/MRGC electrofacies engine | `facies.rs` |
+| #9A | IP 96-pattern lithology names → clean-redrawn SVG hatches ("9A-follow"; Tier-A names, Tier-D assets — redraw) | composite / log view |
+
+Slotting: the #1/#2 residuals sit in #8 Results-QC's neighborhood — fold them in when #8 starts.
+MICP, SOM/MRGC and the hatches stay opt-in extras; none block the second half.
+
+### Maturation (DECIDE) track — never run; queued as separate design sessions
+
+None of the DECIDE output artifacts exist (`docs/competitive/`, `docs/design/`, `docs/roadmap/`
+are absent). Per playbook Part 0.1 master sequence:
+
+| Stage | Output | Status |
+|---|---|---|
+| Stage 0+1 — grounding + capability triage (cheap, scopes everything) | `docs/competitive/maturation-triage.md` | ▫ queued |
+| Stage A — direct-adoption register + the Tier-A imports themselves (alias catalogs → importer, naming bridges, vendor chart tables, endpoint library, `.plt` conventions, provenance columns, fixture EULA check) | `docs/competitive/direct-adoption-register.md` + code | ▫ queued — partial credit: per-feature seeds already pulled ad hoc (IP perm-r35 charts → #3; three-way endpoint table → #2 presets) |
+| Stage 2 — leapfrog/parity design briefs (per domain) | `docs/design/leapfrog-briefs/*.md` | ▫ after triage |
+| Stage 3 — roadmap merge + consolidated Tier-C register | `docs/roadmap/ingest-informed-additions.md` | ▫ last |
+
+These are DECIDE-layer sessions (documents, not code) — runnable any time on request; Stage A's
+import rows are the "fast wins" backlog and can interleave with the build.
 
 ## Per-increment discipline (playbook acceptance bar)
 
