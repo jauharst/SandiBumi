@@ -10,6 +10,12 @@ Build-order dependencies (playbook §Build order): **#3 → #4**; **#2 organic �
 **#1 + #2 → #8**; **#6.1 before rest of #6**; **#5 & #9 independent (9A cheapest)**.
 First-half selection: **#6.1, #3, #2, #1, #9A**. Second half: #4, #7, #8, #5, #9B–D, #6.2.
 
+**✅ FIRST HALF COMPLETE (2026-07-23)** — all five shipped: #6.1 (prior), #3 Rock typing,
+#2 SandiMin, #1 Monte Carlo, #9A theming. Both math-heavy features (#3, #1, #2) adversarially
+reviewed via Workflow with all confirmed findings fixed pre-commit. Final verification: cargo
+279/0/7, tsc 0, zero warnings, production build clean. Awaiting Jauhar's manual click-through
+(REVIEW.md Rounds 9–13) before starting the second half.
+
 ---
 
 ## Phase 0 — Pre-flight (serves "pre-release ready to compile")
