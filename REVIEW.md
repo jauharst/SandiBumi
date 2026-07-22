@@ -45,6 +45,46 @@ anchor and drops non-finite endpoints.
       Avg PHIE: you should get the "base case yields no Avg PHIE" message (previously this threw
       `TypeError … toFixed` and left a half-drawn panel).
 
+**Increments 1.2 + 1.3 (same round):** distributions can now be **zone-scoped** — each uncertainty
+row has a zone box (suggestions from the scoped well's zonation); a scoped draw applies only inside
+that zone, everything outside follows the deterministic zone parameters, and the tornado/Spearman
+rows are labeled `PARAM @ ZONE`. **Save LOW/BASE/HIGH curves** writes per-sample uncertainty curves
+to a fresh **version** of the MONTECARLO log set per well (never overwrites — the Sets manager can
+restore any run): `MC_<KEY>_LOW/_P50/_HIGH` are per-sample percentiles across realizations and
+`MC_<KEY>_BASE` is one deterministic run at every parameter's median, for each of VSH/PHIE/SWE/PERM
+the chain produces. The dialog grew the **Sampling** select (Latin Hypercube default / Random
+legacy), the **Correlations** mini-editor (param ↔ param, ρ), **Convergence check** and **Save
+curves** checkboxes, a per-well **convergence sparkline** (running P-low/P50/P-high with a
+converged/not-converged badge), and a notes panel that surfaces backend advisories (skipped
+correlation pairs, persist confirmations). Status line reports sampling, early-stop count, and
+saved-curve count. 5 more cargo tests (zone-scoped spread stays in its zone + unknown-zone note;
+persisted curves ordered LOW ≤ P50 ≤ HIGH and versioned v1→v2; inverted zone; input-skip;
+stale-family reclaim + degenerate base). Browser-smoke-tested end-to-end.
+
+The 1.2 backend was adversarially reviewed too (27-agent workflow); all 7 distinct confirmed
+findings fixed before commit: an inverted zone (top ≥ bottom, storable via the DB inspector) now
+yields a note instead of **panicking the whole run**; correlations naming a parameter that appears
+in several zone-scoped entries note that ρ binds only the first; persisted curves are gated on
+what the chain **produces** (inputs it merely consumes no longer come back as zero-width fake
+uncertainty bands); the kept-snapshot pool survives convergence early stops (first-N prefix
+instead of a precomputed stride); a re-run that writes fewer curve families reclaims the previous
+version's stale MC_* rows from the current store (archive keeps every version restorable); a
+degenerate all-median base run skips only MC_*_BASE with a note instead of discarding the valid
+percentile curves; and a well whose persist write fails now finishes its job item **Warned**, not
+Ok.
+
+- [ ] **Zone-scoped uncertainty stays in its zone.** Monte Carlo ▸ add GR_MA, type a real zone name
+      in its zone box (the box suggests your zones) ▸ Run: the named zone's P10–P90 band spreads,
+      every other zone's collapses to a single value, and the tornado row reads "GR_MA @ <zone>".
+- [ ] **Saved uncertainty curves land as a versioned set.** Tick "Save LOW/BASE/HIGH curves" ▸ Run
+      ▸ open a layout and add MC_PHIE_LOW/P50/HIGH on a track: a proper uncertainty envelope
+      around the P50, with MC_PHIE_BASE hugging your deterministic PHIE. Re-run — the Sets manager
+      shows MONTECARLO v2 alongside v1.
+- [ ] **Correlated draws + convergence read sensibly.** Add GR_MA and RHO_MA, correlate them at
+      ρ 0.7, tick Convergence check, sampling Random, 5 000 iterations ▸ Run: the sparkline
+      flattens and the run stops early with "stationary after N" (with LHS it always runs full
+      size and says so).
+
 
 
 Backend for the SandiMin reconstruction check. The existing **RECON** curve is now documented as the

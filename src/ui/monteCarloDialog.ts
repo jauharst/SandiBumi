@@ -1,8 +1,11 @@
 import {
   listDocuments,
   listModules,
+  listZones,
   runMonteCarlo,
   type ChainStep,
+  type McConvergence,
+  type McCorrelation,
   type McDistribution,
   type McMetricSet,
   type McParam,
@@ -29,7 +32,17 @@ interface McRow {
   a: number; // normal.mean / uniform.lo / triangular.lo
   b: number; // normal.sd   / uniform.hi / triangular.mode
   c: number; // (triangular.hi)
+  zone: string; // "" = well-wide; a zone name restricts the draw to that zone
 }
+
+/** One rank-correlation pair in the mini-editor (Iman–Conover on the backend). */
+interface CorrRow {
+  a: string;
+  b: string;
+  rho: number;
+}
+
+let zoneListSeq = 0;
 
 interface ParamCandidate {
   name: string;
@@ -175,7 +188,27 @@ export async function buildMonteCarloContent(
 
   function defaultRow(c: ParamCandidate): McRow {
     const [a, b, cc] = distDefaults(c.default, "normal");
-    return { param: c.name, kind: "normal", a, b, c: cc };
+    return { param: c.name, kind: "normal", a, b, c: cc, zone: "" };
+  }
+
+  // Zone-name suggestions for the per-row zone scope, fetched lazily from the first well in
+  // scope (zones are matched per well by NAME on the backend, so one list is a fair guide).
+  const zoneListId = `mc-zones-${++zoneListSeq}`;
+  const zoneList = document.createElement("datalist");
+  zoneList.id = zoneListId;
+  content.appendChild(zoneList);
+  let zoneFetchWell = "";
+  async function refreshZoneOptions(): Promise<void> {
+    const ids = scope.getWellIds();
+    if (ids.length === 0 || ids[0] === zoneFetchWell) return;
+    zoneFetchWell = ids[0];
+    const zones = await listZones(ids[0]).catch(() => []);
+    zoneList.innerHTML = "";
+    for (const z of zones) {
+      const o = document.createElement("option");
+      o.value = z.zone_name;
+      zoneList.appendChild(o);
+    }
   }
 
   function candidateFor(name: string): ParamCandidate | undefined {
@@ -244,22 +277,117 @@ export async function buildMonteCarloContent(
         fields.append(wrap(lc, inC));
       }
 
+      const zoneInp = document.createElement("input");
+      zoneInp.className = "mc-zone-inp";
+      zoneInp.placeholder = "zone (all)";
+      zoneInp.title = "Restrict this uncertainty to one named zone — blank applies well-wide";
+      zoneInp.setAttribute("list", zoneListId);
+      zoneInp.value = row.zone;
+      zoneInp.addEventListener("focus", () => void refreshZoneOptions());
+      zoneInp.addEventListener("change", () => (row.zone = zoneInp.value.trim()));
+
       const rm = mini("✕", () => {
         mcRows.splice(i, 1);
         renderMcRows();
       });
       rm.classList.add("mc-rm");
 
-      el.append(paramSel, kindSel, fields, rm);
+      el.append(paramSel, kindSel, fields, zoneInp, rm);
       mcList.appendChild(el);
     });
+    renderCorrRows(); // param renames/removals must reflect in the correlation editor
   }
 
   const mcHead = document.createElement("div");
   mcHead.className = "mc-params-head";
   mcHead.append(addParamBtn);
-  content.appendChild(formRow("Uncertainty", mcHead, "Distributions are sampled well-wide; parameters you don't vary follow their zone values."));
+  content.appendChild(
+    formRow(
+      "Uncertainty",
+      mcHead,
+      "Each row is one distribution — well-wide, or scoped to a named zone via the zone box. Parameters you don't vary follow their zone values.",
+    ),
+  );
   content.appendChild(mcList);
+
+  // --- Parameter correlations (Iman–Conover rank induction) ------------------
+  let corrRows: CorrRow[] = [];
+  const corrList = document.createElement("div");
+  corrList.className = "mc-corr-list";
+
+  function uniqueParamNames(): string[] {
+    return [...new Set(mcRows.map((r) => r.param))];
+  }
+
+  const addCorrBtn = mini("+ Add correlation", () => {
+    const names = uniqueParamNames();
+    if (names.length < 2) {
+      setStatus("Add at least two uncertain parameters before correlating them");
+      return;
+    }
+    corrRows.push({ a: names[0], b: names[1], rho: 0.7 });
+    renderCorrRows();
+  });
+
+  function renderCorrRows(): void {
+    corrList.innerHTML = "";
+    if (corrRows.length === 0) return;
+    const names = uniqueParamNames();
+    corrRows.forEach((row, i) => {
+      // Drop rows whose parameters vanished from the study.
+      if (!names.includes(row.a) || !names.includes(row.b)) {
+        corrRows.splice(i, 1);
+        renderCorrRows();
+        return;
+      }
+      const el = document.createElement("div");
+      el.className = "mc-corr-row";
+      const mkSel = (value: string, onChange: (v: string) => void): HTMLSelectElement => {
+        const sel = document.createElement("select");
+        for (const nm of names) {
+          const o = document.createElement("option");
+          o.value = nm;
+          o.textContent = nm;
+          if (nm === value) o.selected = true;
+          sel.appendChild(o);
+        }
+        sel.addEventListener("change", () => onChange(sel.value));
+        return sel;
+      };
+      const selA = mkSel(row.a, (v) => (row.a = v));
+      const selB = mkSel(row.b, (v) => (row.b = v));
+      const link = document.createElement("span");
+      link.className = "mc-corr-link";
+      link.textContent = "↔";
+      const rhoInp = numInput(row.rho, (v) => (row.rho = Math.max(-0.99, Math.min(0.99, v))), "target Spearman rank correlation (−0.99…0.99)");
+      rhoInp.classList.add("mc-corr-rho");
+      rhoInp.step = "0.05";
+      rhoInp.min = "-0.99";
+      rhoInp.max = "0.99";
+      const rhoLbl = document.createElement("span");
+      rhoLbl.className = "mc-corr-rho-lbl";
+      rhoLbl.textContent = "ρ";
+      const rm = mini("✕", () => {
+        corrRows.splice(i, 1);
+        renderCorrRows();
+      });
+      rm.classList.add("mc-rm");
+      el.append(selA, link, selB, rhoLbl, rhoInp, rm);
+      corrList.appendChild(el);
+    });
+  }
+
+  const corrHead = document.createElement("div");
+  corrHead.className = "mc-params-head";
+  corrHead.append(addCorrBtn);
+  content.appendChild(
+    formRow(
+      "Correlations",
+      corrHead,
+      "Optional rank correlations between uncertain parameters (e.g. RHO_MA with GR_MA). Draws are reordered to hit the target ρ — the distributions themselves never change.",
+    ),
+  );
+  content.appendChild(corrList);
 
   // --- Wells (scope, not a checklist) --------------------------------------
   content.appendChild(scope.el);
@@ -273,22 +401,42 @@ export async function buildMonteCarloContent(
   const phieMin = numField("PHIE ≥", 0.08, 0, 1);
   const sweMax = numField("SWE ≤", 0.5, 0, 1);
   const permMin = numField("PERM ≥ (blank=off)", NaN, 0, 1e6);
+  const sampSel = document.createElement("select");
+  for (const [v, label] of [
+    ["lhs", "Latin Hypercube"],
+    ["random", "Random (legacy)"],
+  ] as const) {
+    const o = document.createElement("option");
+    o.value = v;
+    o.textContent = label;
+    sampSel.appendChild(o);
+  }
+  const sampField = wrap("Sampling", sampSel);
   const grid = document.createElement("div");
   grid.className = "mc-settings";
   for (const f of [iters, seed, bins, pctlSel, vshMax, phieMin, sweMax, permMin]) grid.appendChild(f.el);
-  content.appendChild(formRow("Settings", grid, "Cutoffs match the pay summary; PERM cutoff applies only where a PERM curve exists. The percentile pair drives both the reported spread and the tornado sweep."));
-
-  // --- Sensitivity options -------------------------------------------------
-  const sensChk = checkbox("Rank sensitivity (Spearman)", true);
-  const tornChk = checkbox("Tornado sweep (P10 / P90)", true);
-  const sensBox = document.createElement("div");
-  sensBox.className = "mc-sens-opts";
-  sensBox.append(sensChk.el, tornChk.el);
+  grid.appendChild(sampField);
   content.appendChild(
     formRow(
-      "Sensitivity",
+      "Settings",
+      grid,
+      "Cutoffs match the pay summary; PERM cutoff applies only where a PERM curve exists. The percentile pair drives both the reported spread and the tornado sweep. Latin Hypercube reaches stable percentiles with fewer iterations; Random reproduces pre-upgrade results at the same seed.",
+    ),
+  );
+
+  // --- Sensitivity + run options -------------------------------------------
+  const sensChk = checkbox("Rank sensitivity (Spearman)", true);
+  const tornChk = checkbox("Tornado sweep (P10 / P90)", true);
+  const convChk = checkbox("Convergence check", false);
+  const persistChk = checkbox("Save LOW/BASE/HIGH curves", false);
+  const sensBox = document.createElement("div");
+  sensBox.className = "mc-sens-opts";
+  sensBox.append(sensChk.el, tornChk.el, convChk.el, persistChk.el);
+  content.appendChild(
+    formRow(
+      "Options",
       sensBox,
-      "Rank correlation ranks each parameter's pull on the outputs across all realizations; the tornado sweeps each one to its P10/P90 with the rest held at their medians.",
+      "Spearman ranks each parameter's pull; the tornado sweeps each to its P10/P90 with the rest at medians. Convergence tracks the running percentiles per batch (Random sampling stops early once stationary). Saving curves writes MC_*_LOW/_P50/_HIGH/_BASE to a fresh version of the MONTECARLO log set.",
     ),
   );
 
@@ -311,6 +459,14 @@ export async function buildMonteCarloContent(
   sensHost.className = "mc-sens";
   content.appendChild(sensHost);
 
+  const convHost = document.createElement("div");
+  convHost.className = "mc-conv";
+  content.appendChild(convHost);
+
+  const notesHost = document.createElement("div");
+  notesHost.className = "mc-notes";
+  content.appendChild(notesHost);
+
   const tableHost = document.createElement("div");
   tableHost.className = "mc-table-host";
   content.appendChild(tableHost);
@@ -321,7 +477,10 @@ export async function buildMonteCarloContent(
       setStatus("No wells in scope — pick a group, pin/select wells, or choose All");
       return;
     }
-    const mcParams: McParam[] = mcRows.map((r) => ({ param: r.param, dist: toDist(r) }));
+    const mcParams: McParam[] = mcRows.map((r) => ({ param: r.param, dist: toDist(r), zone: r.zone ? r.zone : null }));
+    const correlations: McCorrelation[] = corrRows
+      .filter((r) => r.a && r.b && r.a !== r.b && Number.isFinite(r.rho) && r.rho !== 0)
+      .map((r) => ({ param_a: r.a, param_b: r.b, rho: r.rho }));
     const pm = permMin.value();
     const [loP, hiP] = pctlSel.value();
     const req: McRequest = {
@@ -339,6 +498,10 @@ export async function buildMonteCarloContent(
       high_pctl: hiP,
       sensitivity: sensChk.checked(),
       tornado: tornChk.checked(),
+      sampling: sampSel.value as "lhs" | "random",
+      correlations,
+      converge: convChk.checked(),
+      persist: persistChk.checked(),
     };
     runBtn.disabled = true;
     statusLine.textContent = `Running ${req.iterations.toLocaleString()} realizations × ${wellIds.length} well(s)…`;
@@ -346,11 +509,21 @@ export async function buildMonteCarloContent(
     try {
       const res = await runMonteCarlo(req);
       const ms = Math.round(performance.now() - t0);
-      statusLine.textContent = `Done in ${ms} ms · ${res.zones.length} well-zone results`;
+      const used = res.zones[0]?.iterations ?? req.iterations;
+      const extras = [
+        res.sampling === "lhs" ? "LHS" : "random",
+        used !== req.iterations ? `stopped at ${used.toLocaleString()}` : "",
+        res.persisted.length ? `${res.persisted.length} curves saved` : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      statusLine.textContent = `Done in ${ms} ms · ${res.zones.length} well-zone results · ${extras}`;
       renderResults(histHost, tableHost, res, histOpts);
-      renderSensitivity(sensHost, res, req.iterations, tornOpts);
-      setStatus(`Monte Carlo: ${req.iterations} realizations across ${wellIds.length} well(s) in ${ms} ms`);
-      recordProcess("Monte Carlo", `${req.iterations} realizations across ${wellIds.length} well(s) → ${res.zones.length} zone results`);
+      renderSensitivity(sensHost, res, used, tornOpts);
+      renderConvergence(convHost, res);
+      renderNotes(notesHost, res);
+      setStatus(`Monte Carlo: ${used} realizations across ${wellIds.length} well(s) in ${ms} ms`);
+      recordProcess("Monte Carlo", `${used} realizations across ${wellIds.length} well(s) → ${res.zones.length} zone results`);
       if (res.errors.length) console.warn("Monte Carlo warnings:", res.errors);
     } catch (e) {
       statusLine.textContent = `Failed: ${e}`;
@@ -981,6 +1154,125 @@ function drawTornado(
     ctx.textAlign = "right";
     ctx.fillText("+1", pad.l + plotW, pad.t + plotH + 4);
     caption.textContent = `Rank sensitivity — Spearman correlation of each parameter with ${label}. Correlations below the noise floor (|ρ| < ${sig.toFixed(2)}) are hidden.`;
+  }
+}
+
+// --- Convergence + notes rendering -----------------------------------------
+
+/** Per-well convergence traces: a caption (converged / stopped early / advisory) plus a
+ *  sparkline of the running P-low / P50 / P-high of total HPV per checkpoint. */
+function renderConvergence(host: HTMLElement, res: McResult): void {
+  host.innerHTML = "";
+  const traces = res.convergence ?? [];
+  if (traces.length === 0) return;
+  const title = document.createElement("div");
+  title.className = "mc-sens-title";
+  title.textContent = "Convergence — running percentiles of total HPV";
+  host.appendChild(title);
+  for (const c of traces) {
+    const box = document.createElement("div");
+    box.className = "mc-conv-well";
+    const cap = document.createElement("div");
+    cap.className = c.converged ? "mc-conv-caption" : "mc-conv-caption mc-conv-warn";
+    const state = c.converged ? "converged" : "NOT converged";
+    cap.textContent =
+      `${c.well_name}: ${state} — ${c.used_iterations.toLocaleString()} of ` +
+      `${c.requested_iterations.toLocaleString()} realizations` +
+      (c.note ? ` · ${c.note}` : "");
+    const canvas = document.createElement("canvas");
+    canvas.className = "mc-conv-spark";
+    box.append(cap, canvas);
+    host.appendChild(box);
+    const draw = () => drawConvSpark(canvas, c);
+    draw();
+    observeCanvas(canvas, draw);
+  }
+}
+
+/** Three thin polylines (lo/mid/hi) over the checkpoint series; flat lines = stationary. */
+function drawConvSpark(canvas: HTMLCanvasElement, c: McConvergence): void {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.clientWidth || 600;
+  const H = canvas.clientHeight || 56;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+
+  const accent = cssVar("--accent");
+  const accent2 = cssVar("--accent2");
+  const text = cssVar("--text-dim");
+  // Checkpoints can be null-valued for a dry well (NaN → JSON null) — keep only fully
+  // finite ones rather than coercing.
+  const pts = c.checks.filter((k) => Number.isFinite(k.lo) && Number.isFinite(k.mid) && Number.isFinite(k.hi));
+  if (pts.length < 2) {
+    ctx.fillStyle = text;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = "500 10px system-ui, sans-serif";
+    ctx.fillText("— not enough checkpoints to plot —", W / 2, H / 2);
+    return;
+  }
+  let mn = Infinity;
+  let mx = -Infinity;
+  for (const k of pts) {
+    mn = Math.min(mn, k.lo);
+    mx = Math.max(mx, k.hi);
+  }
+  if (mx <= mn) {
+    mx = mn + 1;
+  }
+  const m = 0.08 * (mx - mn);
+  mn -= m;
+  mx += m;
+  const pad = { l: 4, r: 44, t: 4, b: 4 };
+  const lastAt = pts[pts.length - 1].at;
+  const xFor = (at: number): number => pad.l + (at / lastAt) * (W - pad.l - pad.r);
+  const yFor = (v: number): number => pad.t + (1 - (v - mn) / (mx - mn)) * (H - pad.t - pad.b);
+  const line = (get: (k: (typeof pts)[number]) => number, color: string, width: number): void => {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    pts.forEach((k, i) => {
+      const x = xFor(k.at);
+      const y = yFor(get(k));
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  };
+  ctx.globalAlpha = 0.7;
+  line((k) => k.lo, accent2, 1);
+  line((k) => k.hi, accent2, 1);
+  ctx.globalAlpha = 1;
+  line((k) => k.mid, accent, 1.5);
+  const last = pts[pts.length - 1];
+  ctx.fillStyle = text;
+  ctx.font = "500 9px system-ui, sans-serif";
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "left";
+  ctx.fillText(last.mid.toFixed(2), W - pad.r + 4, yFor(last.mid));
+}
+
+/** Backend advisories (skipped correlation pairs, persist confirmations) + errors. */
+function renderNotes(host: HTMLElement, res: McResult): void {
+  host.innerHTML = "";
+  const errs = res.errors ?? [];
+  const notes = res.notes ?? [];
+  if (errs.length === 0 && notes.length === 0) return;
+  for (const e of errs) {
+    const d = document.createElement("div");
+    d.className = "mc-note mc-note-err";
+    d.textContent = `⚠ ${e}`;
+    host.appendChild(d);
+  }
+  for (const nt of notes) {
+    const d = document.createElement("div");
+    d.className = "mc-note";
+    d.textContent = `ℹ ${nt}`;
+    host.appendChild(d);
   }
 }
 
