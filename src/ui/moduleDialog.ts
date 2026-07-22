@@ -10,8 +10,9 @@ import { formRow } from "./modal";
 import { buildWellScope } from "./wellScope";
 
 export interface ModulePaneCallbacks {
-  /** Called after a successful run so the host can refresh the catalog/layout. */
-  onRunComplete: (outputCurves: string[]) => void;
+  /** Called after a successful run so the host can refresh the catalog/layout and record which
+   *  wells were actually run (for the History panel) rather than the globally-selected well. */
+  onRunComplete: (outputCurves: string[], wellNames: string[]) => void;
   setStatus: (text: string) => void;
 }
 
@@ -69,15 +70,34 @@ export async function buildModuleContent(
       select.appendChild(option);
     }
   };
-  /** Catalog names with `keep` (the current/default choice) prepended when absent, so a
-   *  selection never disappears from its own dropdown. */
-  const logChoiceNames = (keep: string) => (curveNames.includes(keep) ? curveNames : [keep, ...curveNames]);
+  /** Fills a log-input <select>: catalog names, plus the current/default choice prepended when
+   *  absent (so a selection never disappears from its own dropdown), plus a leading "(none)"
+   *  for OPTIONAL inputs so the user can deliberately drop a slot even when a curve of that
+   *  name exists — the module doc's advertised "any unwanted curve slot is dropped" behaviour.
+   *  An empty value ("") is sent to the backend, which resolves it as an absent (all-NaN) input. */
+  const fillLogSelect = (select: HTMLSelectElement, arg: (typeof spec.args)[number], current: string) => {
+    select.innerHTML = "";
+    if (!arg.required) {
+      const none = document.createElement("option");
+      none.value = "";
+      none.textContent = "(none)";
+      select.appendChild(none);
+    }
+    const names = current === "" || curveNames.includes(current) ? curveNames : [current, ...curveNames];
+    for (const name of names) {
+      const o = document.createElement("option");
+      o.value = name;
+      o.textContent = name;
+      select.appendChild(o);
+    }
+    select.value = current; // "" → (none) for optional; else the chosen/default mnemonic
+  };
 
   for (const arg of spec.args) {
     if (arg.kind === "log_in") {
       const select = document.createElement("select");
       select.className = "form-control";
-      fillSelect(select, logChoiceNames(arg.default), arg.default);
+      fillLogSelect(select, arg, arg.default);
       logSelects.set(arg.name, select);
       content.appendChild(formRow(`${arg.name} ${arg.required ? "" : "(optional)"}`, select, arg.desc));
     } else if (arg.kind === "option") {
@@ -210,16 +230,20 @@ export async function buildModuleContent(
   // Data changes (imports, module runs — including this pane's own) refresh the well list
   // and curve dropdowns in place; selecting another well only updates the pre-tick when
   // the checklist is empty and the set-name suggestions.
+  let refreshGen = 0;
   const refreshData = async () => {
+    // Race guard: a slower refresh resolving after a fresher one must not overwrite it with a
+    // stale catalog (dataVersion can bump several times in quick succession).
+    const gen = ++refreshGen;
     try {
       const freshCatalog = await listCurveCatalog();
-      if (disposed) return;
+      if (disposed || gen !== refreshGen) return;
       catalog = freshCatalog;
       curveNames = catalog.map((c) => c.name);
       for (const [name, select] of logSelects) {
         const arg = spec.args.find((a) => a.name === name)!;
-        const current = select.value || arg.default;
-        fillSelect(select, logChoiceNames(current), current);
+        // Preserve the current selection, including a deliberate "(none)" ("") on an optional arg.
+        fillLogSelect(select, arg, select.value);
       }
       rebuildMaskOptions(maskSelect.value);
     } catch {
@@ -287,7 +311,7 @@ export async function buildModuleContent(
         ? `${ok}/${results.length} well(s) computed — ${failed} need attention. Open Processing → details for the report.`
         : `All ${ok} well(s) computed. Per-well details are in the Processing panel.`;
       callbacks.setStatus(`${spec.name}: ${ok}/${results.length} well(s) computed`);
-      if (ok > 0) callbacks.onRunComplete(outputs);
+      if (ok > 0) callbacks.onRunComplete(outputs, scope.namesFor(wellIds));
     } catch (err) {
       resultBox.textContent = `Run failed: ${err}`;
     } finally {

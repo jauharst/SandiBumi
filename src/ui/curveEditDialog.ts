@@ -83,18 +83,23 @@ export function openCurveEditDialog(wellId: string, wellName: string, curveName:
   applyBtn.addEventListener("click", () => {
     void (async () => {
       const op = opSel.value as CurveEditRequest["op"];
+      // `x || 0` lets a non-finite through (Infinity is truthy — "1e999" or "Infinity" would set
+      // the constant to +Inf and poison catalog min/max + plot autoscale). Require finite.
+      const num = (s: string, dflt = 0): number => {
+        const v = parseFloat(s);
+        return Number.isFinite(v) ? v : dflt;
+      };
       const req: CurveEditRequest = {
         well_id: wellId,
         curve: curveName,
         op,
-        delta: parseFloat(deltaInput.value) || 0,
-        top: parseFloat(topInput.value) || 0,
-        bottom: parseFloat(bottomInput.value) || 0,
-        value: parseFloat(valueInput.value) || 0,
-        mul: parseFloat(mulInput.value),
-        add: parseFloat(addInput.value) || 0,
+        delta: num(deltaInput.value),
+        top: num(topInput.value),
+        bottom: num(bottomInput.value),
+        value: num(valueInput.value),
+        mul: num(mulInput.value, 1),
+        add: num(addInput.value),
       };
-      if (!Number.isFinite(req.mul!)) req.mul = 1;
       applyBtn.disabled = true;
       try {
         const res = await editCurve(req);

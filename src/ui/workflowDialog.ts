@@ -152,8 +152,13 @@ export async function buildWorkflowContent(
 
   // --- Step builder --------------------------------------------------------
   const moduleSelect = document.createElement("select");
+  // The legacy 4-component `multimin` module is superseded by SandiMin (its own Advance-tab
+  // pane) — keep it out of the chain step picker so new chains don't wire up the deprecated
+  // solver. Saved chains that already reference it still resolve via moduleByName.
+  const DEPRECATED_STEP_MODULES = new Set(["multimin"]);
   const byCategory = new Map<string, ModuleSpec[]>();
   for (const m of modules) {
+    if (DEPRECATED_STEP_MODULES.has(m.name)) continue;
     if (!byCategory.has(m.category)) byCategory.set(m.category, []);
     byCategory.get(m.category)!.push(m);
   }
@@ -785,10 +790,15 @@ export async function buildWorkflowContent(
     } else if (s.state === "cancelled") {
       statusLine.textContent = `Cancelled at step ${s.at_step + 1}`;
       finishRun();
+      // A cancelled chain routinely committed the earlier wells/steps before draining, so
+      // refresh open plots/log views rather than leaving them on pre-run curves.
+      bumpDataVersion();
       setStatus("Workflow cancelled");
     } else if (s.state === "failed") {
       statusLine.textContent = `Failed: ${s.error}`;
       finishRun();
+      // A mid-chain failure can leave earlier steps/wells committed — refresh open views.
+      bumpDataVersion();
       setStatus(`Workflow failed: ${s.error}`);
     }
   }

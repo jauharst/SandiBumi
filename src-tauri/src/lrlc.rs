@@ -19,6 +19,18 @@ fn limit(v: f64, lo: f64, hi: f64) -> f64 {
     if v.is_nan() { v } else { v.clamp(lo, hi) }
 }
 
+/// Per-sample preference: use `primary`, else the `alt` curve where `primary` is missing.
+/// Lets a module declared against SSC output names (PHIT_SSC/CWSH/CBW) also run on a well
+/// processed through the SSPW workflow (PHIT_SSPW/CAPBW_SSPW/CBW_SSPW) without a silent
+/// all-NaN run — a missing `alt` stays NaN, so an SSC-only well is byte-for-byte unchanged.
+fn prefer(primary: &[f32], alt: &[f32]) -> Vec<f32> {
+    primary
+        .iter()
+        .zip(alt.iter())
+        .map(|(&p, &a)| if p.is_nan() { a } else { p })
+        .collect()
+}
+
 /// Juhasz (1981) counterion mobility B as a function of temperature (degC) and Rw.
 /// Standard Waxman-Smits-family temperature form.
 fn juhasz_b(temp_c: f64, rw: f64) -> f64 {
@@ -60,6 +72,9 @@ pub fn sw_rtc_spec() -> ModuleSpec {
             log_in("CAPBW", "Capillary-bound water volume", "v/v", "CWSH", false),
             log_in("QV", "Qv log (meq/cm3), optional", "meq/cm3", "QV", false),
             log_in("CBW", "Clay-bound water (for SWE), optional", "v/v", "CBW", false),
+            log_in("PHIT_SSPW", "Total porosity — SSPW fallback (used where PHIT is absent)", "v/v", "PHIT_SSPW", false),
+            log_in("CAPBW_SSPW", "Capillary water — SSPW fallback", "v/v", "CAPBW_SSPW", false),
+            log_in("CBW_SSPW", "Clay-bound water — SSPW fallback", "v/v", "CBW_SSPW", false),
             log_out("SWT_RTC", "Total water saturation, RtC", "v/v"),
             log_out("SWE_RTC", "Effective water saturation, RtC", "v/v"),
             log_out("RT_CORR", "Clay/capillary-corrected resistivity", "ohm.m"),
@@ -70,10 +85,13 @@ pub fn sw_rtc_spec() -> ModuleSpec {
 
 pub fn sw_rtc(ctx: &ModuleContext) -> ModuleOutputs {
     let rt = ctx.log("RT");
-    let phit = ctx.log("PHIT");
-    let capbw = ctx.log("CAPBW");
+    // Prefer the SSC-named curve; fall back per-sample to the SSPW equivalent so the module
+    // also runs on a well processed through the SSPW porosity workflow (its outputs carry the
+    // _SSPW suffix). A missing fallback stays all-NaN, so an SSC-only well is unchanged.
+    let phit = prefer(&ctx.log("PHIT"), &ctx.log("PHIT_SSPW"));
+    let capbw = prefer(&ctx.log("CAPBW"), &ctx.log("CAPBW_SSPW"));
     let qv_log = ctx.log("QV");
-    let cbw = ctx.log("CBW");
+    let cbw = prefer(&ctx.log("CBW"), &ctx.log("CBW_SSPW"));
 
     let mut swt_o = vec![f32::NAN; ctx.n];
     let mut swe_o = vec![f32::NAN; ctx.n];
@@ -162,6 +180,8 @@ pub fn sw_imts_spec() -> ModuleSpec {
             log_in("VILL", "Illite volume fraction", "v/v", "VILL", false),
             log_in("SWIRR", "Irreducible Sw (for Qv_eff)", "v/v", "SWIRR_T", false),
             log_in("CBW", "Clay-bound water (for SWE), optional", "v/v", "CBW", false),
+            log_in("PHIT_SSPW", "Total porosity — SSPW fallback (used where PHIT is absent)", "v/v", "PHIT_SSPW", false),
+            log_in("CBW_SSPW", "Clay-bound water — SSPW fallback", "v/v", "CBW_SSPW", false),
             log_out("SWT_IMTS", "Total water saturation, IMTS", "v/v"),
             log_out("SWE_IMTS", "Effective water saturation, IMTS", "v/v"),
             log_out("QVEFF", "Effective Qv (meq/cm3)", "meq/cm3"),
@@ -171,11 +191,12 @@ pub fn sw_imts_spec() -> ModuleSpec {
 
 pub fn sw_imts(ctx: &ModuleContext) -> ModuleOutputs {
     let rt = ctx.log("RT");
-    let phit = ctx.log("PHIT");
+    // SSPW fallback (see sw_rtc): PHIT/CBW fall back to their _SSPW equivalents when absent.
+    let phit = prefer(&ctx.log("PHIT"), &ctx.log("PHIT_SSPW"));
     let vkaol = ctx.log("VKAOL");
     let vill = ctx.log("VILL");
     let swirr_log = ctx.log("SWIRR");
-    let cbw = ctx.log("CBW");
+    let cbw = prefer(&ctx.log("CBW"), &ctx.log("CBW_SSPW"));
 
     let mut swt_o = vec![f32::NAN; ctx.n];
     let mut swe_o = vec![f32::NAN; ctx.n];
@@ -301,6 +322,32 @@ mod tests {
         assert!(out["RT_CORR"][0] > 4.0, "corrected Rt must rise");
         assert!(out["SWE_RTC"][0] <= out["SWT_RTC"][0], "SWE <= SWT");
         assert!(out["CEX_RTC"][0] > 0.0);
+    }
+
+    /// SSPW fallback: sw_rtc must run on a well whose porosity came from the SSPW workflow
+    /// (PHIT_SSPW / CAPBW_SSPW / CBW_SSPW) even though the input defaults name the SSC curves —
+    /// otherwise it silently produced an all-NaN 'success' on SSPW-only wells.
+    #[test]
+    fn rtc_falls_back_to_sspw_curve_names() {
+        let spec = sw_rtc_spec();
+        // Only the SSPW-named curves are present (PHIT/CAPBW/CBW absent → all-NaN).
+        let ctx = ctx_with(
+            vec![
+                ("RT", vec![4.0]),
+                ("PHIT_SSPW", vec![0.25]),
+                ("CAPBW_SSPW", vec![0.08]),
+                ("CBW_SSPW", vec![0.03]),
+            ],
+            &spec,
+            1,
+        );
+        let out = sw_rtc(&ctx);
+        assert!(
+            out["SWT_RTC"][0].is_finite(),
+            "SWT_RTC must be computed from the SSPW fallback curves, got NaN"
+        );
+        assert!(out["RT_CORR"][0] > 4.0, "capillary correction (via CAPBW_SSPW) must raise Rt");
+        assert!(out["SWE_RTC"][0] <= out["SWT_RTC"][0], "SWE <= SWT");
     }
 
     #[test]

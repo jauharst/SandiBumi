@@ -291,11 +291,16 @@ pub fn run_workflow_module_into(
             };
             if let Some(p) = progress {
                 match &outcome {
-                    Outcome::Computed { outputs, .. } if !outputs.is_empty() => {
+                    // A run whose outputs are all MISSING (e.g. gascorr with no precalc, or a
+                    // module fed an all-NaN input) did no real work — flag it Warned, not a green
+                    // Ok, so the panel doesn't read as a successful correction.
+                    Outcome::Computed { outputs, .. }
+                        if outputs.values().any(|v| v.iter().any(|x| x.is_finite())) =>
+                    {
                         p.finish_item(well_id, crate::jobs::ItemState::Ok, None)
                     }
                     Outcome::Computed { .. } => {
-                        p.finish_item(well_id, crate::jobs::ItemState::Warned, Some("no output".into()))
+                        p.finish_item(well_id, crate::jobs::ItemState::Warned, Some("no finite output".into()))
                     }
                     Outcome::Failed(e) => {
                         p.finish_item(well_id, crate::jobs::ItemState::Failed, Some(e.clone()))
@@ -416,7 +421,17 @@ pub fn run_workflow_module_into(
                 } else {
                     let mut names: Vec<String> = outputs.keys().cloned().collect();
                     names.sort();
-                    ModuleRunResult { well_id: well_id.clone(), rows_written: depth.len(), output_curves: names, error: None }
+                    // Every output sample MISSING (e.g. gascorr with no precalc): a green
+                    // "N samples → …" line is indistinguishable from a real result and would be
+                    // totalled into History as success, so surface it distinctly instead of a
+                    // bare success with the full depth count. Mirrors SandiMin's "no solvable
+                    // samples" error for a zero-useful run.
+                    let any_finite = outputs.values().any(|v| v.iter().any(|x| x.is_finite()));
+                    if any_finite {
+                        ModuleRunResult { well_id: well_id.clone(), rows_written: depth.len(), output_curves: names, error: None }
+                    } else {
+                        ModuleRunResult { well_id: well_id.clone(), rows_written: 0, output_curves: names, error: Some("no finite output — every sample is missing (check inputs, e.g. precalc not run)".into()) }
+                    }
                 }
             }
         })
@@ -489,12 +504,17 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
             )
             .unwrap_or_else(|_| well_id.clone());
 
-        let (depth, columns) =
-            equations::fetch_curve_frame(&conn, well_id, &curve_names).map_err(|e| e.to_string())?;
-        if depth.is_empty() {
-            continue;
-        }
-        let mut zones = db::list_zones(&conn, well_id).map_err(|e| e.to_string())?;
+        // Per-well isolation: a well with no curves — or a transient fetch/zone read error — is
+        // skipped, keeping every other well's rows, rather than `?`-aborting the whole batch (a
+        // single bad well would otherwise zero the entire Field Dashboard / summary response).
+        let (depth, columns) = match equations::fetch_curve_frame(&conn, well_id, &curve_names) {
+            Ok((d, c)) if !d.is_empty() => (d, c),
+            _ => continue,
+        };
+        let mut zones = match db::list_zones(&conn, well_id) {
+            Ok(z) => z,
+            Err(_) => continue,
+        };
         drop(conn);
 
         if zones.is_empty() {
@@ -714,8 +734,10 @@ enum Metric {
 }
 
 /// Evaluates the pay metric at every candidate cutoff. Pure over pre-assembled arrays so it
-/// is unit-testable without a database; `included[i]` gates a sample into the analysis
-/// (zone ∩ DST membership), `gross` is the geometric denominator for NTG. Returns
+/// is unit-testable without a database; `incl_h[i]` is the sample's clamped geometric
+/// thickness within the analysed interval (zone ∩ DST) — 0 excludes it, and net accumulates
+/// this clamped overlap (NOT the raw sample step) so net can never exceed gross, matching
+/// run_pay_summary. `gross` is the geometric denominator for NTG. Returns
 /// (cutoffs, values, peak) where `peak` is the maximum value over the sweep.
 #[allow(clippy::too_many_arguments)]
 fn compute_sweep(
@@ -723,8 +745,7 @@ fn compute_sweep(
     phie: &[f32],
     swe: &[f32],
     perm: &[f32],
-    step: &[f32],
-    included: &[bool],
+    incl_h: &[f64],
     prop: SweepProp,
     fixed_vsh: f64,
     fixed_phie: f64,
@@ -762,14 +783,14 @@ fn compute_sweep(
         let mut net = 0.0f64;
         let mut hpv = 0.0f64;
         for i in 0..n {
-            if !included[i] {
+            let h = incl_h[i];
+            if h <= 0.0 {
                 continue;
             }
             let (_s, _r, pay) = classify_sample(
                 vsh[i], phie[i], swe[i], perm[i], vsh_max, phie_min, swe_max, perm_min, has_perm_cut,
             );
             if pay == 1.0 {
-                let h = step[i] as f64;
                 net += h;
                 if !phie[i].is_nan() && !swe[i].is_nan() {
                     hpv += phie[i] as f64 * (1.0 - swe[i] as f64) * h;
@@ -871,6 +892,53 @@ fn aux_intervals(rows: &[db::AuxRow]) -> Vec<(f32, f32)> {
     merged
 }
 
+/// Geometric overlap thickness of a sample's forward interval `[s_top, s_bot]` with the
+/// zone `[ztop, zbot)`, further intersected with the (merged, non-overlapping) DST intervals
+/// when present. Mirrors run_pay_summary's zone clamp so a sample straddling the zone/DST
+/// boundary contributes only its in-interval part and net can never exceed gross.
+fn sample_incl_thickness(
+    s_top: f64,
+    s_bot: f64,
+    ztop: f64,
+    zbot: f64,
+    dst: Option<&[(f32, f32)]>,
+) -> f64 {
+    let lo = s_top.max(ztop);
+    let hi = s_bot.min(zbot);
+    let base = hi - lo;
+    if base <= 0.0 {
+        return 0.0;
+    }
+    match dst {
+        None => base,
+        // DST intervals are pre-merged (non-overlapping) by aux_intervals, so summing the
+        // per-interval overlaps counts each unit of thickness at most once.
+        Some(iv) => iv
+            .iter()
+            .map(|(t, b)| {
+                let l2 = lo.max(*t as f64);
+                let h2 = hi.min(*b as f64);
+                (h2 - l2).max(0.0)
+            })
+            .sum(),
+    }
+}
+
+/// A 0-sample sweep row so a well that can't be analysed (no curves, missing zone, or a
+/// transient DB read error) still shows in the legend as "(0 samples)" instead of vanishing
+/// and making the well count undercount.
+fn empty_sweep_series(well_id: &str, well_name: String) -> CutoffSweepSeries {
+    CutoffSweepSeries {
+        well_id: well_id.to_string(),
+        well_name,
+        cutoffs: Vec::new(),
+        values: Vec::new(),
+        peak: 0.0,
+        gross: 0.0,
+        n_samples: 0,
+    }
+}
+
 /// Method 1 of the cutoff study: for each well, sweep one cutoff across `[sweep_min,
 /// sweep_max]` (holding the other two fixed) and report the pay metric at each step, so the
 /// user can pick the cutoff at the response elbow. Reads VSH/PHIE/SWE/PERM, filters to an
@@ -909,29 +977,34 @@ pub fn run_cutoff_sweep(
                 |row| row.get(0),
             )
             .unwrap_or_else(|_| well_id.clone());
-        let (depth, columns) =
-            equations::fetch_curve_frame(&conn, well_id, &curve_names).map_err(|e| e.to_string())?;
-        if depth.is_empty() {
-            drop(conn);
-            // A well with no curves still gets a 0-sample row so it shows in the legend as
-            // "(0 samples)" rather than vanishing and making the well count undercount.
-            series.push(CutoffSweepSeries {
-                well_id: well_id.clone(),
-                well_name,
-                cutoffs: Vec::new(),
-                values: Vec::new(),
-                peak: 0.0,
-                gross: 0.0,
-                n_samples: 0,
-            });
-            continue;
-        }
-        let zones = db::list_zones(&conn, well_id).map_err(|e| e.to_string())?;
-        let dst = match dst_name {
-            Some(ds) => {
-                let rows = db::list_aux_data(&conn, well_id, Some(ds)).map_err(|e| e.to_string())?;
-                Some(aux_intervals(&rows))
+        // Per-well isolation: a transient fetch/zone/aux read error skips just this well (a
+        // 0-sample legend row) instead of `?`-aborting the whole batch and discarding every
+        // well already accumulated — same graceful degradation as run_workflow_module.
+        let (depth, columns) = match equations::fetch_curve_frame(&conn, well_id, &curve_names) {
+            Ok((d, c)) if !d.is_empty() => (d, c),
+            _ => {
+                drop(conn);
+                series.push(empty_sweep_series(well_id, well_name));
+                continue;
             }
+        };
+        let zones = match db::list_zones(&conn, well_id) {
+            Ok(z) => z,
+            Err(_) => {
+                drop(conn);
+                series.push(empty_sweep_series(well_id, well_name));
+                continue;
+            }
+        };
+        let dst = match dst_name {
+            Some(ds) => match db::list_aux_data(&conn, well_id, Some(ds)) {
+                Ok(rows) => Some(aux_intervals(&rows)),
+                Err(_) => {
+                    drop(conn);
+                    series.push(empty_sweep_series(well_id, well_name));
+                    continue;
+                }
+            },
             None => None,
         };
         drop(conn);
@@ -961,33 +1034,25 @@ pub fn run_cutoff_sweep(
             Some(z) => match zones.iter().find(|zz| zz.zone_name == z) {
                 Some(zz) => (zz.top_depth, zz.bottom_depth),
                 None => {
-                    series.push(CutoffSweepSeries {
-                        well_id: well_id.clone(),
-                        well_name,
-                        cutoffs: Vec::new(),
-                        values: Vec::new(),
-                        peak: 0.0,
-                        gross: 0.0,
-                        n_samples: 0,
-                    });
+                    series.push(empty_sweep_series(well_id, well_name));
                     continue;
                 }
             },
             None => (depth[0], *depth.last().unwrap()),
         };
 
-        let in_dst = |d: f32| -> bool {
-            match &dst {
-                None => true,
-                Some(iv) => iv.iter().any(|(t, b)| d >= *t && d < *b),
-            }
-        };
-        let mut included = vec![false; n];
+        // Per-sample clamped geometric thickness within [ztop, zbot) ∩ DST — mirrors
+        // run_pay_summary's zone clamp so net can never exceed gross. A sample straddling the
+        // zone/DST boundary contributes only its in-interval part, not its whole step; a DST
+        // boundary landing mid-sample counts that sample's actual overlap fraction.
+        let mut incl_h = vec![0.0f64; n];
         let mut n_incl = 0usize;
         for i in 0..n {
-            let d = depth[i];
-            if d >= ztop && d < zbot && in_dst(d) {
-                included[i] = true;
+            let s_top = depth[i] as f64;
+            let s_bot = (depth[i] + step[i]) as f64;
+            let h = sample_incl_thickness(s_top, s_bot, ztop as f64, zbot as f64, dst.as_deref());
+            incl_h[i] = h;
+            if h > 0.0 {
                 n_incl += 1;
             }
         }
@@ -1007,7 +1072,7 @@ pub fn run_cutoff_sweep(
         };
 
         let (cutoffs, values, peak) = compute_sweep(
-            vsh, phie, swe, perm, &step, &included, prop, req.vsh_max, req.phie_min, req.swe_max,
+            vsh, phie, swe, perm, &incl_h, prop, req.vsh_max, req.phie_min, req.swe_max,
             req.perm_min, req.sweep_min, req.sweep_max, steps, metric, gross,
         );
         series.push(CutoffSweepSeries {
@@ -1075,10 +1140,10 @@ mod tests {
         let phie = [0.2f32; 5];
         let swe = [0.3f32; 5];
         let perm = [f32::NAN; 5];
-        let step = [1.0f32; 5];
-        let incl = [true; 5];
+        // Each sample contributes a full 1 m of clamped thickness.
+        let incl_h = [1.0f64; 5];
         let (cuts, vals, peak) = compute_sweep(
-            &vsh, &phie, &swe, &perm, &step, &incl, SweepProp::Vsh, 0.5, 0.1, 0.6, None, 0.0, 1.0,
+            &vsh, &phie, &swe, &perm, &incl_h, SweepProp::Vsh, 0.5, 0.1, 0.6, None, 0.0, 1.0,
             11, Metric::Net, 5.0,
         );
         assert_eq!(cuts.len(), 11);
@@ -1097,18 +1162,18 @@ mod tests {
         let phie = [0.2f32; 4];
         let swe = [0.3f32; 4];
         let perm = [f32::NAN; 4];
-        let step = [1.0f32; 4];
-        // All four samples, gross 4 → every sample pays at a generous SWE cutoff → NTG 1.0.
-        let all = [true; 4];
+        // All four samples at full 1 m thickness, gross 4 → every sample pays at a generous
+        // SWE cutoff → NTG 1.0.
+        let all = [1.0f64; 4];
         let (_, vals, _) = compute_sweep(
-            &vsh, &phie, &swe, &perm, &step, &all, SweepProp::Swe, 0.5, 0.1, 0.6, None, 0.0, 1.0, 3,
+            &vsh, &phie, &swe, &perm, &all, SweepProp::Swe, 0.5, 0.1, 0.6, None, 0.0, 1.0, 3,
             Metric::Ntg, 4.0,
         );
         assert!((vals[2] - 1.0).abs() < 1e-9);
-        // DST mask keeps only two samples → NET tops out at 2 m.
-        let half = [true, true, false, false];
+        // DST clips two samples to zero thickness → NET tops out at 2 m.
+        let half = [1.0f64, 1.0, 0.0, 0.0];
         let (_, vals2, _) = compute_sweep(
-            &vsh, &phie, &swe, &perm, &step, &half, SweepProp::Swe, 0.5, 0.1, 0.6, None, 0.0, 1.0,
+            &vsh, &phie, &swe, &perm, &half, SweepProp::Swe, 0.5, 0.1, 0.6, None, 0.0, 1.0,
             3, Metric::Net, 2.0,
         );
         assert!((vals2[2] - 2.0).abs() < 1e-9);
@@ -1140,6 +1205,46 @@ mod tests {
         assert_eq!(iv, vec![(2000.0, 2015.0), (2030.0, 2040.0)]);
         let gross: f32 = iv.iter().map(|(t, b)| b - t).sum();
         assert!((gross - 25.0).abs() < 1e-4, "gross should be 15+10, got {gross}");
+    }
+
+    /// Regression for the "step bleed past boundary" bug in the sweep engine: when a zone base
+    /// falls mid-sample, the sweep must count only each sample's in-zone overlap (fed via
+    /// incl_h), so net ≤ gross and NTG ≤ 1 — matching run_pay_summary on the identical fixture.
+    /// Previously compute_sweep summed each included sample's full step and reported NTG ≈ 1.33.
+    #[test]
+    fn compute_sweep_clamps_thickness_via_incl_h() {
+        // depths 1000..1003 (step 1.0), zone [1000, 1001.5): overlaps 1.0, 0.5, 0, 0 → gross 1.5.
+        let vsh = [0.1f32; 4];
+        let phie = [0.2f32; 4];
+        let swe = [0.3f32; 4];
+        let perm = [f32::NAN; 4];
+        let incl_h = [1.0f64, 0.5, 0.0, 0.0];
+        // Permissive cutoffs: every in-zone sample pays → net = 1.5 (the clamped overlap), NOT
+        // 2.0 (two full steps), so peak net is 1.5 and NTG never exceeds 1.
+        let (_, _, peak) = compute_sweep(
+            &vsh, &phie, &swe, &perm, &incl_h, SweepProp::Swe, 0.9, 0.0, 1.0, None, 0.0, 1.0, 2,
+            Metric::Net, 1.5,
+        );
+        assert!((peak - 1.5).abs() < 1e-9, "net must be the clamped 1.5 m, not 2.0; got {peak}");
+        let (_, ntg, _) = compute_sweep(
+            &vsh, &phie, &swe, &perm, &incl_h, SweepProp::Swe, 0.9, 0.0, 1.0, None, 0.0, 1.0, 2,
+            Metric::Ntg, 1.5,
+        );
+        assert!(ntg[1] <= 1.0 + 1e-9, "NTG must not exceed 1; got {}", ntg[1]);
+    }
+
+    /// The per-sample geometric clamp: a sample's overlap with the zone, then intersected with
+    /// the DST intervals when present.
+    #[test]
+    fn sample_incl_thickness_clamps_zone_and_dst() {
+        // Sample [1001,1002] vs zone [1000,1001.5): 0.5 m in zone.
+        assert!((sample_incl_thickness(1001.0, 1002.0, 1000.0, 1001.5, None) - 0.5).abs() < 1e-9);
+        // Fully outside the zone → 0.
+        assert_eq!(sample_incl_thickness(1002.0, 1003.0, 1000.0, 1001.5, None), 0.0);
+        // Zone overlap [1000,1002]; DST intervals (1000.5,1001)+(1001.5,1002) → 0.5+0.5 = 1.0.
+        let dst = [(1000.5f32, 1001.0f32), (1001.5, 1002.0)];
+        let h = sample_incl_thickness(1000.0, 1002.0, 999.0, 1003.0, Some(&dst));
+        assert!((h - 1.0).abs() < 1e-9, "DST-clipped overlap should be 1.0, got {h}");
     }
 
     /// Phase 7 wiring test — no field files, no vcvars: a well whose PEF, DRHO and CALI
@@ -1241,6 +1346,70 @@ mod tests {
             assert!(!vsh[0].is_nan(), "good-hole sample kept");
             assert!(vsh[2].is_nan(), "bad-hole sample must be masked to NaN");
         }
+    }
+
+    /// A module run whose every output sample is MISSING — all-NaN inputs, so vsh_gr yields
+    /// all-NaN VSH and electrofacies can't cluster (no usable curve) — must report distinctly,
+    /// NOT a green "N samples → …" success that totals into History. Positive control: the same
+    /// modules on a live well still succeed with the full sample count.
+    #[test]
+    fn all_nan_module_output_reports_error_not_success() {
+        use crate::db;
+        use duckdb::Connection;
+        use uuid::Uuid;
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let depths = vec![1000.0f32, 1000.5, 1001.0, 1001.5];
+        let n = depths.len();
+
+        // Dead well: every standard curve is all-NaN.
+        let dead = Uuid::new_v4();
+        db::insert_well(&conn, dead, "DEAD-1", None, None, Some(0.0)).unwrap();
+        db::insert_standard_curves(
+            &conn, dead, depths.clone(),
+            vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
+            vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
+        ).unwrap();
+
+        // Live well: a real GR that clusters and computes a real VSH.
+        let live = Uuid::new_v4();
+        db::insert_well(&conn, live, "LIVE-1", None, None, Some(0.0)).unwrap();
+        db::insert_standard_curves(
+            &conn, live, depths.clone(),
+            vec![20.0, 55.0, 90.0, 120.0], vec![f32::NAN; n], vec![f32::NAN; n],
+            vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
+        ).unwrap();
+
+        let dbm = Mutex::new(conn);
+        let run = |module: &str, well: &Uuid, params: &[(&str, f64)]| -> Vec<ModuleRunResult> {
+            let req = RunModuleRequest {
+                module: module.into(),
+                well_ids: vec![well.to_string()],
+                log_inputs: HashMap::new(),
+                params: params.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
+                opts: HashMap::new(),
+                output_set: None,
+                input_set: None,
+            };
+            run_workflow_module(&dbm, &req)
+        };
+
+        // vsh_gr on all-NaN GR → all-NaN VSH → error, not a green success with a full count.
+        let r = run("vsh_gr", &dead, &[("GR_MA", 20.0), ("GR_SH", 120.0)]);
+        assert!(r[0].error.is_some(), "all-NaN vsh_gr must report an error");
+        assert_eq!(r[0].rows_written, 0, "dead run must not report a full sample count");
+
+        // electrofacies with no usable input curve → all-NaN FACIES → error.
+        let r = run("electrofacies", &dead, &[("K", 2.0)]);
+        assert!(r[0].error.is_some(), "electrofacies with no input curves must report an error");
+
+        // Positive controls: the same modules on the live well succeed with the full count.
+        let r = run("vsh_gr", &live, &[("GR_MA", 20.0), ("GR_SH", 120.0)]);
+        assert!(r[0].error.is_none(), "live vsh_gr: {:?}", r[0].error);
+        assert_eq!(r[0].rows_written, n);
+        let r = run("electrofacies", &live, &[("K", 2.0)]);
+        assert!(r[0].error.is_none(), "live electrofacies: {:?}", r[0].error);
     }
 
     #[test]

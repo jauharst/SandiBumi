@@ -21,6 +21,8 @@ export interface WellScope {
   el: HTMLElement;
   /** The wells the run should cover right now, resolved from live state. */
   getWellIds(): string[];
+  /** Resolve well ids (e.g. the exact set a run used) to their display names. */
+  namesFor(ids: string[]): string[];
   /** How many wells are currently in scope. */
   count(): number;
   /** Detach live-state subscriptions. Call from the dialog's dispose(). */
@@ -254,6 +256,7 @@ export async function buildWellScope(opts: WellScopeOptions = {}): Promise<WellS
   return {
     el,
     getWellIds: resolveIds,
+    namesFor: (ids) => ids.map((id) => wellById.get(id)?.well_name ?? id),
     count: () => resolveIds().length,
     dispose: () => unsub.forEach((u) => u()),
   };

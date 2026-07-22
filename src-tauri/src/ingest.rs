@@ -101,6 +101,23 @@ fn insert_parsed_well(conn: &Connection, path: String, well_name: String, mut co
     if non_monotonic {
         notes.push("depth index is non-monotonic — column 0 may not be the true depth curve".to_string());
     }
+    // A well of the same (normalized) name already exists. LAS import still creates a SEPARATE
+    // record here — reuse/merge is a deliberate action that needs a user confirmation flow, not
+    // an automatic side effect — but warn so a corrected re-delivery (or the same file picked
+    // twice) doesn't silently fragment a well's curves across two disconnected records.
+    let name_norm = well_name.trim().to_uppercase();
+    let dup_exists = conn
+        .query_row(
+            "SELECT 1 FROM wells WHERE upper(trim(well_name)) = ?1 LIMIT 1",
+            params![name_norm],
+            |_| Ok(()),
+        )
+        .is_ok();
+    if dup_exists {
+        notes.push(format!(
+            "a well named '{well_name}' already exists — imported as a separate record"
+        ));
+    }
     let warning = (!notes.is_empty()).then(|| notes.join("; "));
 
     // Well row + standard curves as one transaction: a failure rolls the well row back
@@ -690,6 +707,44 @@ mod tests {
             .unwrap();
         assert!((min_depth - 2001.0).abs() < 1e-4);
         std::fs::remove_file(&path).ok();
+    }
+
+    /// A second LAS import of a well whose name already exists still creates a separate record
+    /// (auto-merge needs a confirmation flow) but must surface a warning, not silently fragment.
+    #[test]
+    fn las_import_warns_on_duplicate_well_name() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+
+        let cols = || CurveColumns {
+            depth: vec![1000.0, 1000.5, 1001.0],
+            gr: vec![40.0, 45.0, 50.0],
+            res: vec![f32::NAN; 3],
+            nphi: vec![f32::NAN; 3],
+            rhob: vec![f32::NAN; 3],
+            dt: vec![f32::NAN; 3],
+            sp: vec![f32::NAN; 3],
+        };
+
+        // First import: a fresh well, no duplicate warning.
+        let r1 = insert_parsed_well(&conn, "a.las".into(), "DUP-1".into(), cols());
+        assert!(r1.error.is_none(), "{:?}", r1.error);
+        assert!(
+            r1.warning.as_deref().map_or(true, |w| !w.contains("already exists")),
+            "first import must not warn about a duplicate, got {:?}",
+            r1.warning
+        );
+
+        // Second import of the SAME well name (normalized: lower-case + trailing space): a
+        // separate record, but a duplicate warning.
+        let r2 = insert_parsed_well(&conn, "b.las".into(), "dup-1  ".into(), cols());
+        assert!(r2.error.is_none(), "{:?}", r2.error);
+        assert!(
+            r2.warning.as_deref().unwrap_or("").contains("already exists"),
+            "re-import of a same-named (normalized) well must warn, got {:?}",
+            r2.warning
+        );
+        assert_ne!(r1.well_id, r2.well_id, "still two distinct records (no auto-merge)");
     }
 
     /// Phase 6b: a full LAS with curves beyond the fixed 6 (PEF, CALI, a metric-unit

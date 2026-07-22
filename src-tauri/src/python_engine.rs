@@ -76,10 +76,24 @@ while True:
     ns = {"np": np, "numpy": np}
     for i, name in enumerate(names):
         ns[name] = np.frombuffer(payload, dtype=np.float32, count=n, offset=4 * n * i).copy()
+    # When the output name collides with an input (or "depth") it is ALREADY bound here, so a
+    # bare "out_name in ns" presence check can't tell a real in-place result from a no-op script
+    # that never touched it. Snapshot the pre-exec values so a script must actually change them
+    # (reassignment OR in-place mutation both count) — otherwise the untouched input would be
+    # written back as though it were the computed result.
+    had_out_input = out_name in names
+    prev_out = ns[out_name].copy() if had_out_input else None
     try:
         exec(compile(script, "<equation>", "exec"), ns)
         if out_name not in ns:
             send({"ok": False, "error": f"script never assigned the output curve '{out_name}'"}); continue
+        if had_out_input:
+            try:
+                unchanged = np.array_equal(np.asarray(ns[out_name], dtype=np.float32), prev_out, equal_nan=True)
+            except Exception:
+                unchanged = False
+            if unchanged:
+                send({"ok": False, "error": f"script never assigned the output curve '{out_name}' (it still equals the input '{out_name}')"}); continue
         out = np.asarray(ns[out_name], dtype=np.float32)
         if out.ndim == 0:
             out = np.full(n, float(out), dtype=np.float32)
@@ -307,6 +321,15 @@ pub fn run_python_equation(
                             *v = f32::NAN;
                         }
                     }
+                    // Same honesty guard as the Rhai path: an all-MISSING output (unresolvable
+                    // input/output curve name) must not read as a clean success.
+                    if !result.iter().any(|v| v.is_finite()) {
+                        let msg = "equation produced no finite output — check the input/output curve name(s) resolve to data".to_string();
+                        if let Some(p) = progress {
+                            p.finish_item(well_id, crate::jobs::ItemState::Warned, Some(msg.clone()));
+                        }
+                        return EquationRunResult { well_id: well_id.clone(), rows_written: 0, error: Some(msg) };
+                    }
                     let conn = db.lock().unwrap();
                     match write_equation_output(&conn, well_id, &depth, equation, &result) {
                         Ok(()) => EquationRunResult { well_id: well_id.clone(), rows_written: depth.len(), error: None },
@@ -343,6 +366,36 @@ mod tests {
         // gr[30] = 20 + 30·2 = 80 → vsh = (80 − 20) / 120 = 0.5
         assert!((result[30] - 0.5).abs() < 1e-6);
         assert!(result[7].is_nan(), "NaN input must yield NaN output");
+    }
+
+    /// An output curve that collides with an input name must not silently succeed as a no-op —
+    /// a script that never (re)assigns it is caught, while a real in-place edit passes.
+    #[test]
+    fn python_output_input_name_collision_guard() {
+        if find_python().is_none() {
+            eprintln!("skipping: no python+numpy on this machine");
+            return;
+        }
+        let depth: Vec<f32> = (0..10).map(|i| 1000.0 + i as f32).collect();
+        let gr: Vec<f32> = (0..10).map(|i| 50.0 + i as f32).collect();
+        let names = vec!["depth".to_string(), "gr".to_string()];
+        let arrays: Vec<&[f32]> = vec![&depth, &gr];
+
+        // No-op: the script never touches gr (its own output name) → must error, not echo input.
+        let noop = exec_script("x = gr * 2.0", &names, &arrays, 10, "gr");
+        assert!(noop.is_err(), "no-op in-place output must be rejected, got {:?}", noop);
+
+        // Real reassignment of the colliding name → succeeds with the changed values.
+        let ok = exec_script("gr = gr + 100.0", &names, &arrays, 10, "gr")
+            .expect("in-place reassign should succeed");
+        assert!((ok[0] - 150.0).abs() < 1e-4, "gr should be input+100, got {}", ok[0]);
+
+        // Regression: an output name that collides with a PRE-SEEDED namespace entry ("np"/
+        // "numpy" = the numpy module, not an input curve) must NOT crash the worker — the guard
+        // keys on the input-curve names, so a script that assigns it computes normally.
+        let np_out = exec_script("np = gr + 1.0", &names, &arrays, 10, "np")
+            .expect("output named 'np' must not crash the worker");
+        assert!((np_out[0] - 51.0).abs() < 1e-4, "np output should be gr+1, got {}", np_out[0]);
     }
 
     #[test]

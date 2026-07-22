@@ -14,7 +14,7 @@ import {
   type ReportSpec,
   type WellSummary,
 } from "../ipc";
-import { appState } from "../state";
+import { appState, bumpDataVersion } from "../state";
 import { formRow } from "./modal";
 import { buildWellScope } from "./wellScope";
 
@@ -293,6 +293,9 @@ export async function buildReportContent(
       pngBtn.disabled = false;
       status.textContent = `${result.well_name}: ${result.pages.length} report page(s).`;
       showPage();
+      // Rendering a report writes FLAG_SAND/RESERVOIR/PAY in place (its pay-summary pass), so
+      // refresh any open plots/log views showing those flag curves.
+      bumpDataVersion();
     } catch (err) {
       status.textContent = `Render failed: ${err}`;
       result = null;
@@ -326,6 +329,8 @@ export async function buildReportContent(
       const path = await exportReportPdf(spec, dest);
       status.textContent = `Wrote ${path.split(/[\\/]/).pop()}`;
       setStatus(`Report PDF exported for ${well.well_name}.`);
+      bumpDataVersion(); // the export's pay-summary pass writes FLAG curves in place
+
     } catch (err) {
       status.textContent = `Report export failed: ${err}`;
     } finally {
@@ -407,6 +412,7 @@ export async function buildReportContent(
       const paths = await exportReportBatch(spec, wellIds, dir);
       status.textContent = `Wrote ${paths.length} report PDF(s) to ${dir}`;
       setStatus(`Batch report export: ${paths.length} well(s).`);
+      bumpDataVersion(); // batch reports write FLAG curves per well — refresh open views
     } catch (err) {
       status.textContent = `Batch export: ${err}`;
     } finally {

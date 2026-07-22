@@ -319,6 +319,7 @@ export class InspectorPanel {
       this.setStatus(summarizeRun(results));
       recordProcess("Equation", `Ran "${this.current.name}" on ${wellIds.length} well(s)`);
       await this.refreshCatalog();
+      bumpDataVersion(); // refresh other open panels (log views, plots) — not just this catalog
     } catch (err) {
       console.error("Equation run failed:", err);
       this.setStatus(`Run failed: ${err}`);

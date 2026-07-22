@@ -517,8 +517,15 @@ export class Workspace {
             const m = await import("./moduleDialog");
             return m.buildModuleContent(spec, {
               setStatus,
-              onRunComplete: () => {
-                recordProcess("Module", `Ran ${spec.title}`, appState.selectedWell.get()?.well_name ?? null);
+              onRunComplete: (_outputs, wellNames) => {
+                // Attribute History to the wells actually run — a single well by name, a genuine
+                // multi-well batch as null (the processLog contract) — never the globally
+                // "selected" well, which a scoped run may not have touched at all.
+                recordProcess(
+                  "Module",
+                  `Ran ${spec.title}${wellNames.length > 1 ? ` on ${wellNames.length} wells` : ""}`,
+                  wellNames.length === 1 ? wellNames[0] : null,
+                );
                 this.notifyDataChanged();
               },
             });

@@ -1,5 +1,6 @@
 import { listDocuments, runPaySummary, type PaySummaryRow } from "../ipc";
 import { bumpDataVersion } from "../state";
+import { recordProcess } from "../processLog";
 import { formRow } from "./modal";
 import { buildWellScope } from "./wellScope";
 
@@ -76,6 +77,12 @@ export async function buildSummaryContent(
       });
       renderTable(resultBox, rows);
       setStatus(`Pay summary: ${rows.length} rows; FLAG curves written`);
+      // The explicit Compute Summary versions FLAG_SAND/RESERVOIR/PAY into a PAYFLAG log set —
+      // a persisting write, so it earns a History entry like every other module output.
+      recordProcess(
+        "Pay Summary",
+        `VSH≤${vshIn.value} PHIE≥${phieIn.value} SWE≤${sweIn.value}: ${rows.length} row(s) across ${wellIds.length} well(s)`,
+      );
       bumpDataVersion();
     } catch (err) {
       resultBox.textContent = `Summary failed: ${err}`;

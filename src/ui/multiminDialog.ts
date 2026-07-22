@@ -315,6 +315,9 @@ export async function buildMultiminContent(
     const zone = zoneList.find((z) => z.zone_name === zoneSel.value);
     try {
       const pf = await multiminFluidFromPrecalc(well.well_id, zone?.top_depth ?? null, zone?.bottom_depth ?? null);
+      // Race guard (mirrors refreshZones): if the active well changed during the await, the form
+      // now belongs to a different well — don't stamp this stale well's FTEMP/RMF onto it.
+      if (selectedWell && selectedWell.well_id !== well.well_id) return;
       if (pf.ftemp_f === null && pf.rmf === null) {
         setStatus(`SandiMin autofill: no FTEMP_F/RMF samples on ${well.well_name} — run the precalc module first`);
         return;

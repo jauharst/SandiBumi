@@ -489,6 +489,40 @@ mod tests {
         assert!(out["SWIRR_T"][0] > 0.5, "shale is bound-water dominated");
     }
 
+    /// The 8-curve GR-equivalent (*_GR) family: with a finite VSHGR and 0 < VWSH < 1, the
+    /// GR-rescaled volumes + porosity close to unity (VSAND_GR+VSILT_GR+VDCL_GR+PHIT_GR ≈ 1)
+    /// and honour their definitions; at a degenerate VWSH (pure clay point → VWSH ≈ 1) the whole
+    /// block is skipped, leaving all eight NaN.
+    #[test]
+    fn ssc_gr_equivalent_family_closes_and_guards_degenerate_vwsh() {
+        let spec = ssc_spec();
+
+        // Silty sand: a genuine sand/silt/clay mix so VWSH is strictly interior.
+        let out = ssc(&ctx_with(
+            vec![("GR", vec![70.0]), ("RHOB", vec![2.38]), ("NPHI", vec![0.25])],
+            &spec,
+            1,
+        ));
+        let g = |k: &str| out[k][0] as f64;
+        for k in ["VSAND_GR", "VSILT_GR", "VDCL_GR", "CBW_GR", "CWSH_GR", "PHIFF_GR", "PHIE_GR", "PHIT_GR"] {
+            assert!(out[k][0].is_finite(), "{k} should be finite for a mixed sample, got {}", out[k][0]);
+        }
+        let closure = g("VSAND_GR") + g("VSILT_GR") + g("VDCL_GR") + g("PHIT_GR");
+        assert!((closure - 1.0).abs() < 0.02, "GR-track closure violated: {closure}");
+        // Definitional: PHIT_GR = PHIE_GR + CBW_GR, PHIE_GR = PHIFF_GR + CWSH_GR.
+        assert!((g("PHIT_GR") - (g("PHIE_GR") + g("CBW_GR"))).abs() < 1e-4);
+        assert!((g("PHIE_GR") - (g("PHIFF_GR") + g("CWSH_GR"))).abs() < 1e-4);
+
+        // Pure wet-clay point → VWSH ≈ 1 → the block's `vwsh < 1-1e-9` guard skips it.
+        let sh = ssc(&ctx_with(
+            vec![("GR", vec![150.0]), ("RHOB", vec![2.30]), ("NPHI", vec![0.60])],
+            &spec,
+            1,
+        ));
+        assert!(sh["VSAND_GR"][0].is_nan(), "degenerate VWSH must leave *_GR NaN, got {}", sh["VSAND_GR"][0]);
+        assert!(sh["PHIT_GR"][0].is_nan());
+    }
+
     #[test]
     fn ssc_swirr_floor_pads_capillary_water() {
         let spec = ssc_spec();

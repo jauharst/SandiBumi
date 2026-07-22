@@ -947,6 +947,92 @@ mod tests {
         assert!(r2 > 0.999, "r2_train = {r2}");
     }
 
+    fn mk_req(task: &str, features: &[&str], target: Option<&str>, train: &[String], apply: &[String]) -> MlRequest {
+        MlRequest {
+            task: task.into(),
+            algorithm: if task == "clustering" { "kmeans".into() } else { "linear".into() },
+            params: serde_json::Map::new(),
+            feature_curves: features.iter().map(|s| s.to_string()).collect(),
+            target_curve: target.map(|s| s.to_string()),
+            train_well_ids: train.to_vec(),
+            apply_well_ids: apply.to_vec(),
+            output_curve: "PRED".into(),
+        }
+    }
+
+    /// run_ml's own DB-integration guards (the pure exec_ml tests never reach them): the early
+    /// request-shape refusals need no python; the <10-training-samples and n_apply==0 refusals
+    /// fire after find_python but BEFORE sklearn, so they need only numpy.
+    #[test]
+    fn run_ml_guards_reject_bad_requests() {
+        use crate::db;
+        use duckdb::Connection;
+        use std::sync::Mutex;
+        use uuid::Uuid;
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let n = 5usize;
+        let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+
+        // Train well: only 5 complete GR + RHOB(target) samples.
+        let train = Uuid::new_v4();
+        db::insert_well(&conn, train, "TR-1", None, None, Some(0.0)).unwrap();
+        db::insert_standard_curves(
+            &conn, train, depths.clone(),
+            (0..n).map(|i| 20.0 + i as f32 * 5.0).collect(), // GR
+            vec![f32::NAN; n], vec![f32::NAN; n],
+            (0..n).map(|i| 2.2 + i as f32 * 0.05).collect(), // RHOB (target)
+            vec![f32::NAN; n], vec![f32::NAN; n],
+        )
+        .unwrap();
+        // Apply well with a real GR.
+        let apply = Uuid::new_v4();
+        db::insert_well(&conn, apply, "AP-1", None, None, Some(0.0)).unwrap();
+        db::insert_standard_curves(
+            &conn, apply, depths.clone(),
+            (0..n).map(|i| 30.0 + i as f32).collect(),
+            vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
+        )
+        .unwrap();
+        // Apply well whose GR is entirely missing → no complete apply samples.
+        let empty = Uuid::new_v4();
+        db::insert_well(&conn, empty, "AP-EMPTY", None, None, Some(0.0)).unwrap();
+        db::insert_standard_curves(
+            &conn, empty, depths.clone(),
+            vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
+        )
+        .unwrap();
+
+        let db = Mutex::new(conn);
+        let (tr, ap, em) = (train.to_string(), apply.to_string(), empty.to_string());
+
+        // Early request-shape guards (no python needed).
+        assert!(run_ml(&db, &mk_req("regression", &[], Some("RHOB"), &[tr.clone()], &[ap.clone()]), None).error.is_some(), "empty features");
+        assert!(run_ml(&db, &mk_req("regression", &["GR"], Some("RHOB"), &[tr.clone()], &[]), None).error.is_some(), "empty apply");
+        assert!(run_ml(&db, &mk_req("regression", &["GR"], None, &[tr.clone()], &[ap.clone()]), None).error.is_some(), "supervised without target");
+        assert!(run_ml(&db, &mk_req("regression", &["GR"], Some("RHOB"), &[], &[ap.clone()]), None).error.is_some(), "supervised without train wells");
+
+        if find_python().is_none() {
+            eprintln!("skipping python-dependent run_ml guards: no python+numpy");
+            return;
+        }
+        // Only 5 labelled samples → the <10 refusal (fires before sklearn).
+        let r = run_ml(&db, &mk_req("regression", &["GR"], Some("RHOB"), &[tr.clone()], &[ap.clone()]), None);
+        assert!(
+            r.error.as_deref().unwrap_or("").contains("labelled training samples"),
+            "expected <10-samples refusal, got {:?}",
+            r.error,
+        );
+        // Unsupervised clustering on a well with no complete samples → n_apply==0 refusal.
+        let r = run_ml(&db, &mk_req("clustering", &["GR"], None, &[], &[em.clone()]), None);
+        assert!(
+            r.error.as_deref().unwrap_or("").contains("no complete samples"),
+            "expected n_apply==0 refusal, got {:?}",
+            r.error,
+        );
+    }
+
     #[test]
     fn classification_knn_labels_blobs_confidently() {
         let Some(py) = python_with_sklearn() else {

@@ -2972,6 +2972,98 @@ mod tests {
     }
 
     #[test]
+    fn phi_den_shale_branch_limits_and_missing() {
+        let params = [
+            ("RHO_MA", 2.645), ("RHO_SH", 2.5), ("RHO_FL", 1.0),
+            ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3),
+        ];
+        let phit_sh = 0.15 / 1.65; // (RHO_DSH-RHO_SH)/(RHO_DSH-RHO_W) = (2.65-2.5)/(2.65-1.0)
+
+        // Happy path: RHOB 2.3, VSH 0.2 (unlimited PHIE below both caps → limited == unlimited).
+        let out = phi_den(&ctx_with(1, &[("RHOB", vec![2.3]), ("VSH", vec![0.2])], &params, &[]));
+        let pe = 0.345 / 1.645 - 0.2 * 0.145 / 1.645;
+        assert!((out["PHIE_DEN"][0] as f64 - pe).abs() < 1e-5, "PHIE_DEN {}", out["PHIE_DEN"][0]);
+        assert!((out["PHIT_DEN"][0] as f64 - (pe + 0.2 * phit_sh)).abs() < 1e-5, "PHIT_DEN");
+        assert!((out["PHIE"][0] as f64 - pe).abs() < 1e-5, "unclamped below cap");
+
+        // VSH ≥ 0.95 → shale: PHIE 0, PHIT = PHIT_SH, on both limited and unlimited curves.
+        // (0.95_f32 rounds to 0.9499999_f64 which is just under the threshold, so use 0.96.)
+        for v in [0.96f32, 1.0] {
+            let out = phi_den(&ctx_with(1, &[("RHOB", vec![2.4]), ("VSH", vec![v])], &params, &[]));
+            assert_eq!(out["PHIE"][0], 0.0, "shale PHIE=0 at VSH={v}");
+            assert_eq!(out["PHIE_DEN"][0], 0.0);
+            assert!((out["PHIT"][0] as f64 - phit_sh).abs() < 1e-6, "shale PHIT=PHIT_SH at VSH={v}");
+            assert!((out["PHIT_DEN"][0] as f64 - phit_sh).abs() < 1e-6);
+        }
+
+        // OPT_PHIEMAX: a high-porosity sand (unlimited PHIE ≈ 0.435) clamps to phie_max·(1−VSH)=0.24
+        // under SHALE_REDUCED (default) vs a flat phie_max=0.30 under MAXIMUM.
+        let logs = [("RHOB", vec![1.9f32]), ("VSH", vec![0.2f32])];
+        let red = phi_den(&ctx_with(1, &logs, &params, &[("OPT_PHIEMAX", "SHALE_REDUCED")]));
+        let max = phi_den(&ctx_with(1, &logs, &params, &[("OPT_PHIEMAX", "MAXIMUM")]));
+        assert!((red["PHIE"][0] - 0.24).abs() < 1e-5, "SHALE_REDUCED cap 0.24, got {}", red["PHIE"][0]);
+        assert!((max["PHIE"][0] - 0.30).abs() < 1e-5, "MAXIMUM cap 0.30, got {}", max["PHIE"][0]);
+
+        // Missing input propagates to all outputs.
+        let out = phi_den(&ctx_with(1, &[("RHOB", vec![f32::NAN]), ("VSH", vec![0.2])], &params, &[]));
+        assert!(out["PHIE"][0].is_nan() && out["PHIT_DEN"][0].is_nan());
+    }
+
+    #[test]
+    fn phi_dn_crossplot_shale_reduction_and_branches() {
+        let params = [
+            ("RHO_MA", 2.645), ("RHO_SH", 2.5), ("RHO_FL", 1.0), ("NPHI_SH", 0.35),
+            ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3),
+        ];
+        let phit_sh = 0.15 / 1.65;
+
+        // Happy path AVERAGE, shale-corrected: RHOB 2.3, NPHI 0.25, VSH 0.2.
+        // rhosr=(2.3−0.5)/0.8=2.25, nphisr=(0.25−0.07)/0.8=0.225 (both in range).
+        let out = phi_dn(
+            &ctx_with(1, &[("RHOB", vec![2.3]), ("NPHI", vec![0.25]), ("VSH", vec![0.2])], &params, &[]),
+        );
+        let phid = (2.645 - 2.25) / 1.645;
+        let pe = ((phid + 0.225) / 2.0) * 0.8;
+        assert!((out["PHIE_DN"][0] as f64 - pe).abs() < 1e-5, "PHIE_DN {}", out["PHIE_DN"][0]);
+        assert!((out["PHIT_DN"][0] as f64 - (pe + 0.2 * phit_sh)).abs() < 1e-5, "PHIT_DN");
+
+        // VSH ≥ 0.95 → shale branch.
+        let sh = phi_dn(
+            &ctx_with(1, &[("RHOB", vec![2.4]), ("NPHI", vec![0.4]), ("VSH", vec![0.97])], &params, &[]),
+        );
+        assert_eq!(sh["PHIE"][0], 0.0);
+        assert!((sh["PHIT"][0] as f64 - phit_sh).abs() < 1e-6);
+
+        // AVERAGE vs GAS_RMS diverge when PHID and NPHI differ (VSH 0 to isolate the combination).
+        // RHOB 2.0, NPHI 0.10: phid=(2.645−2.0)/1.645, nphisr=0.10.
+        let logs = [("RHOB", vec![2.0f32]), ("NPHI", vec![0.10f32]), ("VSH", vec![0.0f32])];
+        let avg = phi_dn(&ctx_with(1, &logs, &params, &[("OPT_XPLOT", "AVERAGE")]));
+        let rms = phi_dn(&ctx_with(1, &logs, &params, &[("OPT_XPLOT", "GAS_RMS")]));
+        let phid = (2.645 - 2.0) / 1.645;
+        let pe_avg = (phid + 0.10) / 2.0;
+        let pe_rms = ((phid * phid + 0.10 * 0.10) / 2.0_f64).sqrt();
+        assert!((avg["PHIE_DN"][0] as f64 - pe_avg).abs() < 1e-5, "AVERAGE {}", avg["PHIE_DN"][0]);
+        assert!((rms["PHIE_DN"][0] as f64 - pe_rms).abs() < 1e-5, "GAS_RMS {}", rms["PHIE_DN"][0]);
+        assert!(pe_rms > pe_avg + 0.02, "RMS must exceed AVERAGE when phid≠nphi");
+
+        // Density shale-reduction LOWER clamp bites: RHOB 1.5, VSH 0.2 → (1.5−0.5)/0.8=1.25 clamps
+        // up to 1.95, so PHIE_DN uses rhosr=1.95 (unclamped 1.25 would give a much larger value).
+        let cl = phi_dn(
+            &ctx_with(1, &[("RHOB", vec![1.5]), ("NPHI", vec![0.20]), ("VSH", vec![0.2])], &params, &[]),
+        );
+        let phid_c = (2.645 - 1.95) / 1.645;
+        let nphisr_c = (0.20 - 0.2 * 0.35) / 0.8;
+        let pe_c = ((phid_c + nphisr_c) / 2.0) * 0.8;
+        assert!((cl["PHIE_DN"][0] as f64 - pe_c).abs() < 1e-5, "clamped rhosr=1.95: {}", cl["PHIE_DN"][0]);
+
+        // Missing input propagates.
+        let mn = phi_dn(
+            &ctx_with(1, &[("RHOB", vec![2.3]), ("NPHI", vec![f32::NAN]), ("VSH", vec![0.2])], &params, &[]),
+        );
+        assert!(mn["PHIE"][0].is_nan() && mn["PHIT_DN"][0].is_nan());
+    }
+
+    #[test]
     fn vsh_gr_linear_and_limits() {
         let ctx = ctx_with(
             3,

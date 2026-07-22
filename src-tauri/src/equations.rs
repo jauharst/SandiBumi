@@ -1068,6 +1068,18 @@ pub fn run_equation(
                 }
             }
 
+            // A run whose output is entirely MISSING — a typo'd/unresolvable input NaN-poisons
+            // every sample via the has_nan short-circuit, or an output name that resolved to
+            // nothing — reads as a clean "n rows written" success in the run summary, so surface
+            // it as a loud per-well error instead and don't write a useless all-NaN curve.
+            if !output.iter().any(|v| v.is_finite()) {
+                let msg = "equation produced no finite output — check the input/output curve name(s) resolve to data".to_string();
+                if let Some(p) = progress {
+                    p.finish_item(well_id, crate::jobs::ItemState::Warned, Some(msg.clone()));
+                }
+                return EquationRunResult::failed(well_id.clone(), msg);
+            }
+
             let conn = db.lock().unwrap();
             if let Err(e) = write_equation_output(&conn, well_id, &depth, equation, &output) {
                 if let Some(p) = progress {
@@ -1219,5 +1231,49 @@ mod tests {
         assert_eq!(got[1].1, vec![200.0, 201.0, 202.0]);
         assert!((got[1].2[1] - 0.2).abs() < 1e-6);
         assert!(got[1].2[2].is_nan(), "NaN value survives the pack");
+    }
+
+    /// An equation whose input curve resolves to nothing (typo / absent) yields an all-NaN
+    /// output — that must surface as a per-well error, not a clean "n rows written" success.
+    #[test]
+    fn equation_all_nan_output_reports_error() {
+        use crate::db;
+        use uuid::Uuid;
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        db::insert_well(&conn, wid, "EQ-1", None, None, Some(0.0)).unwrap();
+        let depths = vec![1000.0f32, 1000.5, 1001.0];
+        let n = depths.len();
+        db::insert_standard_curves(
+            &conn, wid, depths.clone(),
+            vec![40.0; n], vec![f32::NAN; n], vec![f32::NAN; n],
+            vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
+        )
+        .unwrap();
+        let w = wid.to_string();
+        let dbm = Mutex::new(conn);
+
+        let eq = |name: &str, input: &str, output: &str, script: &str| EquationDef {
+            equation_id: Uuid::new_v4().to_string(),
+            name: name.into(),
+            description: None,
+            script: script.into(),
+            input_curves: vec![input.into()],
+            output_curve: output.into(),
+            output_units: None,
+            language: "rhai".into(),
+        };
+
+        // Typo'd input "GRX" resolves to an all-NaN column → output all-NaN → error.
+        let bad = eq("bad", "GRX", "VSHX", "grx / 100.0");
+        let r = run_equation(&dbm, &bad, &[w.clone()], None);
+        assert!(r[0].error.is_some(), "all-NaN equation must report an error");
+
+        // A resolvable input computes a real value → success with the full sample count.
+        let good = eq("good", "GR", "GRSCALE", "gr / 100.0");
+        let r = run_equation(&dbm, &good, &[w], None);
+        assert!(r[0].error.is_none(), "good equation: {:?}", r[0].error);
+        assert_eq!(r[0].rows_written, n);
     }
 }

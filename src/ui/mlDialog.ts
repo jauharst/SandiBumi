@@ -9,7 +9,7 @@ import {
   type MlResult,
   type WellSummary,
 } from "../ipc";
-import { appState, defaultRunWellIds, filterByActiveGroup } from "../state";
+import { appState, bumpDataVersion, defaultRunWellIds, filterByActiveGroup } from "../state";
 import { formRow } from "./modal";
 import { recordProcess } from "../processLog";
 import { buildWellScope } from "./wellScope";
@@ -479,6 +479,7 @@ export async function buildMlContent(
         statusLine.textContent = `Done in ${ms} ms → ${res.outputs.join(", ")}`;
         setStatus(`${algo.label}: wrote ${res.outputs.join(", ")} to ${applyIds.length} well(s)`);
         recordProcess("ML", `${algo.label}: wrote ${res.outputs.join(", ")} to ${applyIds.length} well(s)`);
+        bumpDataVersion(); // ML wrote curves — refresh open plots/log views/catalog
       }
       renderResults(results, res);
     } catch (e) {
