@@ -589,6 +589,10 @@ export type McDistribution =
 export interface McParam {
   param: string;
   dist: McDistribution;
+  /** Restrict this entry's draw to one named zone (omit/null = well-wide). The same parameter
+   *  may appear in several entries with different zones; a later entry wins where zones
+   *  overlap. Unknown zone names come back as a note and leave the parameter at base values. */
+  zone?: string | null;
 }
 
 export interface McRequest {
@@ -621,6 +625,9 @@ export interface McRequest {
   converge?: boolean;
   /** Relative stationarity tolerance for the convergence check (default 0.005 = 0.5%). */
   converge_tol?: number;
+  /** Persist per-sample uncertainty curves (MC_<KEY>_LOW/_P50/_HIGH/_BASE for each tracked
+   *  output the chain produces) to a fresh version of the MONTECARLO log set per well. */
+  persist?: boolean;
 }
 
 /** Target rank correlation between two MC parameters (rho clamped to ±0.995 backend-side). */
@@ -718,6 +725,8 @@ export interface McResult {
   sampling: string;
   /** Per-well convergence traces (empty unless `converge` was requested). */
   convergence: McConvergence[];
+  /** Curve names written to the versioned MONTECARLO log set (empty unless `persist`). */
+  persisted: string[];
   /** Non-fatal advisories (skipped correlation pairs, degenerate targets, …). */
   notes: string[];
   errors: string[];

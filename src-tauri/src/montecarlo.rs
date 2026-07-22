@@ -133,6 +133,13 @@ pub struct McParam {
     /// Module parameter name to vary (e.g. "GR_MA"); applies to every step that has it.
     pub param: String,
     pub dist: Distribution,
+    /// Restrict this entry's draw to one named zone (None = well-wide, the default). The same
+    /// parameter may appear in several entries with different zones; outside every scoped zone
+    /// it follows its deterministic zone-resolved base values. Entries apply in list order, so
+    /// a later entry wins where zones overlap. An unknown zone name leaves the parameter at
+    /// base values and adds a note.
+    #[serde(default)]
+    pub zone: Option<String>,
 }
 
 /// How the N×P draw matrix is generated.
@@ -215,6 +222,13 @@ pub struct McRequest {
     /// Relative stationarity tolerance for the convergence check (default 0.005 = 0.5%).
     #[serde(default = "default_converge_tol")]
     pub converge_tol: f64,
+    /// Persist per-sample uncertainty curves to a versioned "MONTECARLO" log set: for each
+    /// tracked output the chain produces (VSH/PHIE/SWE/PERM), `MC_<KEY>_LOW` / `_P50` /
+    /// `_HIGH` (per-sample percentiles at the request's low/0.50/high fractions across
+    /// realizations) and `MC_<KEY>_BASE` (one deterministic run at every parameter's median).
+    /// Samples with too few finite realizations stay NaN. Off by default.
+    #[serde(default)]
+    pub persist: bool,
 }
 
 /// Low / median / high percentile (at the request's `low_pctl` / 0.50 / `high_pctl`) plus mean/sd
@@ -321,6 +335,8 @@ pub struct McResult {
     pub sampling: String,
     /// Per-well convergence traces (empty unless `converge` was requested).
     pub convergence: Vec<McConvergence>,
+    /// Curve names written to the versioned MONTECARLO log set (empty unless `persist`).
+    pub persisted: Vec<String>,
     /// Non-fatal advisories (skipped correlation pairs, degenerate targets, …).
     pub notes: Vec<String>,
     pub errors: Vec<String>,
@@ -442,6 +458,18 @@ fn iman_conover(
                         cr.param_a, cr.param_b, cr.rho
                     ));
                 }
+                // Zone-scoped duplicates share a name but draw independently; a name-keyed
+                // target can only bind ONE of them, so say which.
+                for nm in [&cr.param_a, &cr.param_b] {
+                    if params.iter().filter(|q| &q.param == nm).count() > 1 {
+                        let msg = format!(
+                            "parameter '{nm}' appears in several zone-scoped entries — the ρ target binds only the first entry"
+                        );
+                        if !notes.contains(&msg) {
+                            notes.push(msg);
+                        }
+                    }
+                }
                 let rho_s = cr.rho.clamp(-0.995, 0.995);
                 // Rank-matching to normal scores attenuates a Pearson target ρ to (6/π)·asin(ρ/2)
                 // in rank space; pre-adjust with the inverse map so the ACHIEVED Spearman centers
@@ -452,8 +480,12 @@ fn iman_conover(
                 c[b][a] = rho;
                 any = true;
             }
+            (Some(_), Some(_)) => notes.push(format!(
+                "correlation pair '{}' / '{}' ignored — both names resolve to the same entry (zone-scoped entries of one parameter cannot yet be correlated with each other)",
+                cr.param_a, cr.param_b
+            )),
             _ => notes.push(format!(
-                "correlation pair '{}' / '{}' ignored (parameter not in the study, or a self-pair)",
+                "correlation pair '{}' / '{}' ignored (parameter not in the study)",
                 cr.param_a, cr.param_b
             )),
         }
@@ -863,7 +895,8 @@ fn spearman(x: &[f64], y: &[f32]) -> f32 {
 }
 
 /// Runs one in-memory realization at a fixed set of parameter values and returns the per-zone
-/// output metrics — the workhorse for the one-at-a-time tornado sweep.
+/// output metrics — the workhorse for the one-at-a-time tornado sweep. `values` is indexed
+/// like `mc_params` (zone scopes respected via `spans`).
 #[allow(clippy::too_many_arguments)]
 fn metrics_for_values(
     plans: &[StepPlan],
@@ -873,10 +906,12 @@ fn metrics_for_values(
     zones: &[ZoneEntry],
     cut: &Cutoffs,
     has_perm_cut: bool,
-    values: &HashMap<String, f64>,
+    mc_params: &[McParam],
+    spans: &[ParamSpan],
+    values: &[f64],
     n: usize,
 ) -> Vec<MetricSet> {
-    let pool = run_realization(plans, raw_pool, depth, values, n);
+    let pool = run_realization(plans, raw_pool, depth, mc_params, spans, values, n);
     let nanv = vec![f32::NAN; n];
     let vsh = pool.get("VSH").unwrap_or(&nanv);
     let phie = pool.get("PHIE").unwrap_or(&nanv);
@@ -891,6 +926,19 @@ fn metrics_for_values(
         .collect()
 }
 
+/// One well's precomputed execution state: step plans, the raw input-curve pool, the depth /
+/// sample-thickness grids, zonation, and the UPPERCASE set of LogOut mnemonics some step
+/// PRODUCES (the persist gate — inputs the chain merely consumes must never be written back
+/// as MC uncertainty products).
+struct WellPlan {
+    plans: Vec<StepPlan>,
+    raw_pool: HashMap<String, Vec<f32>>,
+    depth: Vec<f32>,
+    step_thick: Vec<f32>,
+    zones: Vec<ZoneEntry>,
+    produced: HashSet<String>,
+}
+
 /// Builds the per-step plan for one well: resolves inputs, options, and zone-resolved base
 /// parameter arrays. Returns the plans plus the raw input-curve pool and depth/step arrays.
 fn build_plans(
@@ -898,7 +946,7 @@ fn build_plans(
     well_id: &str,
     steps: &[ChainStep],
     specs: &HashMap<String, modules::ModuleSpec>,
-) -> Result<(Vec<StepPlan>, HashMap<String, Vec<f32>>, Vec<f32>, Vec<f32>, Vec<ZoneEntry>), String> {
+) -> Result<WellPlan, String> {
     // Curves produced somewhere in the chain don't need a DB read — they come from the pool.
     let mut produced: HashSet<String> = HashSet::new();
     for step in steps {
@@ -984,15 +1032,30 @@ fn build_plans(
         plans.push(StepPlan { module: step.module.clone(), opts, log_args, param_args, base_params });
     }
 
-    Ok((plans, raw_pool, depth, step_thick, zones_raw))
+    Ok(WellPlan { plans, raw_pool, depth, step_thick, zones: zones_raw, produced })
 }
 
+/// Contiguous index span of a zone-scoped MC parameter on the well's depth grid; None = the
+/// whole well.
+type ParamSpan = Option<(usize, usize)>;
+
+/// One realization's output: (draws, per-zone metrics, optional tracked-curve snapshot for
+/// the persist path — curves in [`TRACKED`] order).
+type RealOut = (Vec<f64>, Vec<ZoneMetrics>, Option<Vec<Vec<f32>>>);
+
+/// Output curves eligible for MC_*_LOW/P50/HIGH/BASE persistence, in snapshot order.
+const TRACKED: [&str; 4] = ["VSH", "PHIE", "SWE", "PERM"];
+
 /// Runs the chain in memory for one realization and returns the resulting curve pool.
+/// `values[j]` is the draw for `mc_params[j]`, applied over `spans[j]` on top of that
+/// parameter's zone-resolved base array (list order — a later entry wins where spans overlap).
 fn run_realization(
     plans: &[StepPlan],
     raw_pool: &HashMap<String, Vec<f32>>,
     depth: &[f32],
-    mc_values: &HashMap<String, f64>,
+    mc_params: &[McParam],
+    spans: &[ParamSpan],
+    values: &[f64],
     n: usize,
 ) -> HashMap<String, Vec<f32>> {
     let mut pool = raw_pool.clone();
@@ -1005,11 +1068,19 @@ fn run_realization(
         }
         let mut params: HashMap<String, Vec<f64>> = HashMap::with_capacity(plan.param_args.len());
         for pname in &plan.param_args {
-            if let Some(v) = mc_values.get(pname) {
-                params.insert(pname.clone(), vec![*v; n]);
-            } else if let Some(base) = plan.base_params.get(pname) {
-                params.insert(pname.clone(), base.clone());
+            let mut arr = match plan.base_params.get(pname) {
+                Some(base) => base.clone(),
+                None => vec![f64::NAN; n],
+            };
+            for (j, mp) in mc_params.iter().enumerate() {
+                if &mp.param == pname {
+                    match spans[j] {
+                        None => arr.fill(values[j]),
+                        Some((s, e)) => arr[s..e].fill(values[j]),
+                    }
+                }
             }
+            params.insert(pname.clone(), arr);
         }
         let ctx = ModuleContext { n, logs, params, opts: plan.opts.clone() };
         if let Ok(outputs) = modules::run_module(&plan.module, &ctx) {
@@ -1046,8 +1117,14 @@ pub fn run_monte_carlo(
     let mut zones_out: Vec<McZoneResult> = Vec::new();
     let mut sens_out: Vec<McSensZone> = Vec::new();
     let mut conv_out: Vec<McConvergence> = Vec::new();
+    let mut persisted: Vec<String> = Vec::new();
     let mut errors: Vec<String> = Vec::new();
     let mut notes: Vec<String> = Vec::new();
+    // Persist path: keep the FIRST `keep_cap` realizations' tracked curves. Draws are iid
+    // (random) or a random permutation of strata (LHS), so a prefix is an unbiased subsample —
+    // and unlike a stride precomputed from the REQUESTED count, it cannot collapse to a few
+    // dozen snapshots when a convergence early stop truncates the run.
+    let keep_cap = if req.persist { req.iterations.clamp(1, 100_000).min(1024) } else { 0 };
     let want_sens = req.sensitivity || req.tornado;
     let conv_tol = req.converge_tol.clamp(1e-5, 0.2);
 
@@ -1065,13 +1142,13 @@ pub fn run_monte_carlo(
             p.start_item(well_id);
         }
         // One-time DB phase: build plans + read inputs + zonation.
-        let (plans, raw_pool, depth, step_thick, mut zones, well_name) = {
+        let (wp, well_name) = {
             let conn = db.lock().unwrap();
             let well_name: String = conn
                 .query_row("SELECT well_name FROM wells WHERE well_id = ?1", duckdb::params![well_id], |r| r.get(0))
                 .unwrap_or_else(|_| well_id.clone());
             match build_plans(&conn, well_id, &req.steps, &specs) {
-                Ok((p, rp, d, st, z)) => (p, rp, d, st, z, well_name),
+                Ok(wp) => (wp, well_name),
                 Err(e) => {
                     if let Some(p) = progress {
                         p.finish_item(well_id, crate::jobs::ItemState::Failed, Some(e.to_string()));
@@ -1081,6 +1158,7 @@ pub fn run_monte_carlo(
                 }
             }
         };
+        let WellPlan { plans, raw_pool, depth, step_thick, mut zones, produced } = wp;
         let n = depth.len();
         if zones.is_empty() {
             zones.push(ZoneEntry { zone_name: "ALL".into(), top_depth: depth[0], bottom_depth: *depth.last().unwrap() });
@@ -1088,14 +1166,46 @@ pub fn run_monte_carlo(
         let has_perm_cut =
             req.perm_min.is_some() && raw_pool.get("PERM").map(|c| c.iter().any(|v| !v.is_nan())).unwrap_or(false);
 
+        // Zone-scoped MC parameters: resolve each entry to a contiguous index span on this
+        // well's (sorted) depth grid, matching the `d >= top && d < bottom` zone convention.
+        // An unknown zone name leaves the parameter at base values (empty span) with a note.
+        let spans: Vec<ParamSpan> = req
+            .mc_params
+            .iter()
+            .map(|p| match &p.zone {
+                None => None,
+                Some(zname) => match zones.iter().find(|z| &z.zone_name == zname) {
+                    // Inverted zones (top ≥ bottom) must yield an EMPTY span, matching how every
+                    // deterministic consumer treats them (resolve_zone_param matches no samples,
+                    // zone_metrics skips h ≤ 0) — an unguarded s > e would panic the slice fill.
+                    Some(z) if z.top_depth < z.bottom_depth => Some((
+                        depth.partition_point(|d| *d < z.top_depth),
+                        depth.partition_point(|d| *d < z.bottom_depth),
+                    )),
+                    Some(_) => {
+                        notes.push(format!(
+                            "{well_name}: zone '{zname}' has top ≥ bottom — parameter '{}' left at base values",
+                            p.param
+                        ));
+                        Some((0, 0))
+                    }
+                    None => {
+                        notes.push(format!(
+                            "{well_name}: zone '{zname}' not found for parameter '{}' — left at base values",
+                            p.param
+                        ));
+                        Some((0, 0))
+                    }
+                },
+            })
+            .collect();
+
         // Parallel realizations over the precomputed draw matrix (ordered like `req.mc_params`,
         // so sensitivity can correlate draws against outputs; rows are empty when no parameters
         // vary). Random mode replays the legacy per-index sequence, so results are unchanged.
-        let eval = |r: usize| -> (Vec<f64>, Vec<ZoneMetrics>) {
+        let eval = |r: usize| -> RealOut {
             let draws = &draws_all[r];
-            let mc_values: HashMap<String, f64> =
-                req.mc_params.iter().zip(draws).map(|(p, &v)| (p.param.clone(), v)).collect();
-            let pool = run_realization(&plans, &raw_pool, &depth, &mc_values, n);
+            let pool = run_realization(&plans, &raw_pool, &depth, &req.mc_params, &spans, draws, n);
             let nanv = vec![f32::NAN; n];
             let vsh = pool.get("VSH").unwrap_or(&nanv);
             let phie = pool.get("PHIE").unwrap_or(&nanv);
@@ -1105,9 +1215,27 @@ pub fn run_monte_carlo(
                 .iter()
                 .map(|z| zone_metrics(vsh, phie, swe, perm, &depth, &step_thick, z, &cut, has_perm_cut))
                 .collect();
-            (draws.clone(), zm)
+            let snap = if r < keep_cap {
+                // Snapshot only curves the chain PRODUCES — inputs it merely consumes are not
+                // Monte Carlo products (empty slots keep TRACKED indexing intact).
+                Some(
+                    TRACKED
+                        .iter()
+                        .map(|k| {
+                            if produced.contains(*k) {
+                                pool.get(*k).cloned().unwrap_or_else(|| vec![f32::NAN; n])
+                            } else {
+                                Vec::new()
+                            }
+                        })
+                        .collect(),
+                )
+            } else {
+                None
+            };
+            (draws.clone(), zm, snap)
         };
-        let per_real: Vec<(Vec<f64>, Vec<ZoneMetrics>)> = if req.converge {
+        let per_real: Vec<RealOut> = if req.converge {
             // Batched evaluation with running low/mid/high checkpoints of per-well total HPV.
             // Early stop is legal only in random mode — truncating an LHS design would leave
             // some strata unsampled and break the stratification guarantee.
@@ -1119,7 +1247,7 @@ pub fn run_monte_carlo(
             let n_batches = (iterations / batch).max(1);
             let mut bounds: Vec<usize> = (1..=n_batches).map(|k| k * batch).collect();
             *bounds.last_mut().unwrap() = iterations;
-            let mut acc: Vec<(Vec<f64>, Vec<ZoneMetrics>)> = Vec::with_capacity(iterations);
+            let mut acc: Vec<RealOut> = Vec::with_capacity(iterations);
             let mut checks: Vec<ConvCheck> = Vec::new();
             let mut stopped_early = false;
             let mut done = 0usize;
@@ -1174,22 +1302,31 @@ pub fn run_monte_carlo(
         let used_iterations = per_real.len();
 
         // One-at-a-time tornado sweep (once per well): base = medians of every MC parameter,
-        // then each parameter swept to its P10/P90 with the rest held at base. Cheap — one chain
-        // run per endpoint. `oat[param][zone]` for low/base/high.
+        // then each ENTRY swept to its P10/P90 with the rest held at base (values indexed like
+        // `mc_params`, so two zone-scoped entries of the same parameter sweep independently).
+        // Cheap — one chain run per endpoint. `oat[param][zone]` for low/base/high.
         let (oat_base, oat_low, oat_high): (Vec<MetricSet>, Vec<Vec<MetricSet>>, Vec<Vec<MetricSet>>) =
             if req.tornado && !req.mc_params.is_empty() {
-                let base_vals: HashMap<String, f64> =
-                    req.mc_params.iter().map(|p| (p.param.clone(), p.dist.central())).collect();
-                let base = metrics_for_values(&plans, &raw_pool, &depth, &step_thick, &zones, &cut, has_perm_cut, &base_vals, n);
+                let base_vals: Vec<f64> = req.mc_params.iter().map(|p| p.dist.central()).collect();
+                let base = metrics_for_values(
+                    &plans, &raw_pool, &depth, &step_thick, &zones, &cut, has_perm_cut,
+                    &req.mc_params, &spans, &base_vals, n,
+                );
                 let mut low = Vec::with_capacity(req.mc_params.len());
                 let mut high = Vec::with_capacity(req.mc_params.len());
-                for p in &req.mc_params {
+                for (pj, p) in req.mc_params.iter().enumerate() {
                     let mut lv = base_vals.clone();
-                    lv.insert(p.param.clone(), p.dist.quantile(lo_p));
+                    lv[pj] = p.dist.quantile(lo_p);
                     let mut hv = base_vals.clone();
-                    hv.insert(p.param.clone(), p.dist.quantile(hi_p));
-                    low.push(metrics_for_values(&plans, &raw_pool, &depth, &step_thick, &zones, &cut, has_perm_cut, &lv, n));
-                    high.push(metrics_for_values(&plans, &raw_pool, &depth, &step_thick, &zones, &cut, has_perm_cut, &hv, n));
+                    hv[pj] = p.dist.quantile(hi_p);
+                    low.push(metrics_for_values(
+                        &plans, &raw_pool, &depth, &step_thick, &zones, &cut, has_perm_cut,
+                        &req.mc_params, &spans, &lv, n,
+                    ));
+                    high.push(metrics_for_values(
+                        &plans, &raw_pool, &depth, &step_thick, &zones, &cut, has_perm_cut,
+                        &req.mc_params, &spans, &hv, n,
+                    ));
                 }
                 (base, low, high)
             } else {
@@ -1225,7 +1362,12 @@ pub fn run_monte_carlo(
                             None
                         };
                         SensParam {
-                            param: p.param.clone(),
+                            // Zone-scoped entries are labeled "PARAM @ ZONE" so two rows for
+                            // the same parameter stay distinguishable in the tornado.
+                            param: match &p.zone {
+                                Some(z) => format!("{} @ {}", p.param, z),
+                                None => p.param.clone(),
+                            },
                             spearman,
                             oat_low: oat_low.get(pj).map(|z| z[zi]),
                             oat_base: oat_base.get(zi).copied(),
@@ -1260,8 +1402,133 @@ pub fn run_monte_carlo(
                 hist_w,
             });
         }
+        // Persist per-sample uncertainty curves to a fresh version of the MONTECARLO log set:
+        // MC_<KEY>_LOW/_P50/_HIGH from the kept realizations' per-sample spread, MC_<KEY>_BASE
+        // from one deterministic run at every entry's median. Only curves the chain PRODUCES
+        // (LogOut of some step) are eligible — inputs it merely consumes would come back as
+        // zero-width fake uncertainty bands. Samples with < 8 finite realizations stay NaN. A
+        // degenerate base run skips only BASE (with a note), never the percentile curves.
+        let mut persist_warn: Option<String> = None;
+        if req.persist {
+            let centrals: Vec<f64> = req.mc_params.iter().map(|p| p.dist.central()).collect();
+            let base_pool = run_realization(&plans, &raw_pool, &depth, &req.mc_params, &spans, &centrals, n);
+            let kept = per_real.iter().filter(|m| m.2.is_some()).count();
+            let mut out: Vec<(String, Vec<f32>)> = Vec::new();
+            for (t, key) in TRACKED.iter().enumerate() {
+                if !produced.contains(*key) {
+                    continue;
+                }
+                let snaps: Vec<&Vec<f32>> = per_real.iter().filter_map(|m| m.2.as_ref().map(|s| &s[t])).collect();
+                let mut lo_c = vec![f32::NAN; n];
+                let mut mid_c = vec![f32::NAN; n];
+                let mut hi_c = vec![f32::NAN; n];
+                let mut buf: Vec<f32> = Vec::with_capacity(snaps.len());
+                for i in 0..n {
+                    buf.clear();
+                    buf.extend(snaps.iter().map(|s| s[i]).filter(|v| v.is_finite()));
+                    if buf.len() < 8 {
+                        continue;
+                    }
+                    buf.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                    lo_c[i] = percentile(&buf, lo_p);
+                    mid_c[i] = percentile(&buf, 0.50);
+                    hi_c[i] = percentile(&buf, hi_p);
+                }
+                let have_pct = mid_c.iter().any(|v| v.is_finite());
+                let base = base_pool.get(*key).filter(|c| c.iter().any(|v| v.is_finite())).cloned();
+                if !have_pct && base.is_none() {
+                    continue;
+                }
+                if have_pct {
+                    out.push((format!("MC_{key}_LOW"), lo_c));
+                    out.push((format!("MC_{key}_P50"), mid_c));
+                    out.push((format!("MC_{key}_HIGH"), hi_c));
+                }
+                match base {
+                    Some(b) => out.push((format!("MC_{key}_BASE"), b)),
+                    None => notes.push(format!(
+                        "{well_name}: MC_{key}_BASE skipped — the all-median base run produced no finite {key}"
+                    )),
+                }
+            }
+            if out.is_empty() {
+                notes.push(format!("{well_name}: nothing to persist — no tracked output curve had finite values"));
+            } else {
+                let spec = equations::LogSetSpec {
+                    set_name: "MONTECARLO".into(),
+                    module: "montecarlo".into(),
+                    params_json: serde_json::json!({
+                        "iterations": used_iterations,
+                        "seed": req.seed,
+                        "sampling": match req.sampling { Sampling::Lhs => "lhs", Sampling::Random => "random" },
+                        "low_pctl": lo_p,
+                        "high_pctl": hi_p,
+                        "kept_realizations": kept,
+                        "params": req.mc_params.iter().map(|p| match &p.zone {
+                            Some(z) => format!("{} @ {}", p.param, z),
+                            None => p.param.clone(),
+                        }).collect::<Vec<_>>(),
+                    })
+                    .to_string(),
+                    inputs_json: serde_json::json!(req.steps.iter().map(|s| s.module.clone()).collect::<Vec<_>>())
+                        .to_string(),
+                };
+                let conn = db.lock().unwrap();
+                // Reclaim the ENTIRE MC_* family in the current store first: a previous
+                // MONTECARLO version may have written keys this run doesn't (e.g. PERM dropped
+                // from the chain), and the versioned writer deletes only the names it writes —
+                // stale cross-version rows would otherwise keep serving next to this run's
+                // curves and keep the old version flagged current. The archive keeps every
+                // version restorable.
+                let family: Vec<String> = TRACKED
+                    .iter()
+                    .flat_map(|k| ["LOW", "P50", "HIGH", "BASE"].into_iter().map(move |s| format!("MC_{k}_{s}")))
+                    .collect();
+                let ph = std::iter::repeat("?").take(family.len()).collect::<Vec<_>>().join(", ");
+                let mut del_params: Vec<String> = Vec::with_capacity(family.len() + 1);
+                del_params.push(well_id.clone());
+                del_params.extend(family);
+                let write = conn
+                    .execute(
+                        &format!("DELETE FROM computed_curves WHERE well_id = ? AND upper(curve_name) IN ({ph})"),
+                        duckdb::params_from_iter(del_params),
+                    )
+                    .and_then(|_| equations::create_log_set(&conn, well_id, &spec))
+                    .and_then(|(set_id, version)| {
+                        let refs: Vec<(&str, &[f32])> = out.iter().map(|(k, v)| (k.as_str(), v.as_slice())).collect();
+                        equations::write_computed_curves_versioned(&conn, well_id, &depth, &refs, &set_id)
+                            .map(|()| version)
+                    });
+                match write {
+                    Ok(version) => {
+                        if used_iterations > kept {
+                            notes.push(format!(
+                                "{well_name}: percentile curves estimated from the first {kept} realizations"
+                            ));
+                        }
+                        notes.push(format!("{well_name}: persisted {} curves to log set MONTECARLO v{version}", out.len()));
+                        for (k, _) in &out {
+                            if !persisted.contains(k) {
+                                persisted.push(k.clone());
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let msg = format!("persist failed: {e}");
+                        errors.push(format!("{well_id}: {msg}"));
+                        persist_warn = Some(msg);
+                    }
+                }
+            }
+        }
+
         if let Some(p) = progress {
-            p.finish_item(well_id, crate::jobs::ItemState::Ok, None);
+            // A well whose study succeeded but whose persist write failed finishes WARNED, not
+            // Ok — the same convention every other curve writer follows.
+            match &persist_warn {
+                Some(m) => p.finish_item(well_id, crate::jobs::ItemState::Warned, Some(m.clone())),
+                None => p.finish_item(well_id, crate::jobs::ItemState::Ok, None),
+            }
         }
     }
 
@@ -1275,6 +1542,7 @@ pub fn run_monte_carlo(
             Sampling::Random => "random".into(),
         },
         convergence: conv_out,
+        persisted,
         notes,
         errors,
     }
@@ -1329,6 +1597,7 @@ mod tests {
             correlations: Vec::new(),
             converge: false,
             converge_tol: 0.005,
+            persist: false,
         }
     }
 
@@ -1339,7 +1608,7 @@ mod tests {
         let well = seed_well(&conn);
         let dbm = Mutex::new(conn);
 
-        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 8.0 } }];
+        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 8.0 }, zone: None }];
         let res = run_monte_carlo(&dbm, &base_request(&well, mc.clone(), 500, 42), None);
         assert!(res.errors.is_empty(), "unexpected errors: {:?}", res.errors);
         assert_eq!(res.zones.len(), 1);
@@ -1365,7 +1634,7 @@ mod tests {
         let dbm = Mutex::new(conn);
 
         // sd = 0 → every realization identical → P10 == P50 == P90, sd ≈ 0.
-        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 0.0 } }];
+        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 0.0 }, zone: None }];
         let res = run_monte_carlo(&dbm, &base_request(&well, mc, 200, 7), None);
         let z = &res.zones[0];
         assert_eq!(z.hpv.lo, z.hpv.hi, "no variance should collapse the spread");
@@ -1389,7 +1658,7 @@ mod tests {
         db::create_schema(&conn).unwrap();
         let well = seed_well(&conn);
         let dbm = Mutex::new(conn);
-        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 8.0 } }];
+        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 8.0 }, zone: None }];
         // Default request has sensitivity=false → no sensitivity block, and the headline zones
         // are byte-identical to a run that DID ask for sensitivity (draws don't perturb the rng).
         let plain = run_monte_carlo(&dbm, &base_request(&well, mc.clone(), 400, 42), None);
@@ -1409,7 +1678,7 @@ mod tests {
         // GR_MA ↑ → VSH ↓ → PHIE ↑ → HPV ↑ : a strong positive, monotone influence.
         let mut req = base_request(
             &well,
-            vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 6.0 } }],
+            vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 6.0 }, zone: None }],
             1000,
             11,
         );
@@ -1422,7 +1691,7 @@ mod tests {
         // Zero-variance parameter → no rank spread → NaN Spearman.
         let mut req0 = base_request(
             &well,
-            vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 0.0 } }],
+            vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 0.0 }, zone: None }],
             300,
             11,
         );
@@ -1439,7 +1708,7 @@ mod tests {
         let dbm = Mutex::new(conn);
         let mut req = base_request(
             &well,
-            vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 6.0 } }],
+            vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 6.0 }, zone: None }],
             50,
             5,
         );
@@ -1479,7 +1748,7 @@ mod tests {
         // One Uniform(2,5) parameter, 200 LHS realizations: exactly one draw must land in each
         // of the 200 equal-probability strata, and the sample mean must sit on the analytic
         // mean far tighter than independent draws could at the same N.
-        let params = vec![McParam { param: "X".into(), dist: Distribution::Uniform { lo: 2.0, hi: 5.0 } }];
+        let params = vec![McParam { param: "X".into(), dist: Distribution::Uniform { lo: 2.0, hi: 5.0 }, zone: None }];
         let mut notes = Vec::new();
         let draws = build_draws(&params, 200, 42, Sampling::Lhs, &[], &mut notes);
         assert!(notes.is_empty(), "unexpected notes: {notes:?}");
@@ -1504,8 +1773,8 @@ mod tests {
         // achieved Spearman must land on the target for both signs, and the marginals must be
         // pure reorderings of the uncorrelated draws.
         let params = vec![
-            McParam { param: "A".into(), dist: Distribution::Normal { mean: 0.0, sd: 1.0 } },
-            McParam { param: "B".into(), dist: Distribution::Uniform { lo: 10.0, hi: 20.0 } },
+            McParam { param: "A".into(), dist: Distribution::Normal { mean: 0.0, sd: 1.0 }, zone: None },
+            McParam { param: "B".into(), dist: Distribution::Uniform { lo: 10.0, hi: 20.0 }, zone: None },
         ];
         let mut notes = Vec::new();
         let target = vec![McCorrelation { param_a: "A".into(), param_b: "B".into(), rho: 0.8 }];
@@ -1564,7 +1833,7 @@ mod tests {
         let dbm = Mutex::new(conn);
         // sd = 0 → every realization identical → the running percentiles are flat from the very
         // first batch → random-mode early stop long before the requested 5000.
-        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 0.0 } }];
+        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 0.0 }, zone: None }];
         let mut req = base_request(&well, mc, 5000, 42);
         req.converge = true;
         let res = run_monte_carlo(&dbm, &req, None);
@@ -1588,7 +1857,7 @@ mod tests {
         let dbm = Mutex::new(conn);
         // Even a perfectly flat series must not shorten an LHS design — truncation would leave
         // strata unsampled. The trace is still reported for the sparkline.
-        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 0.0 } }];
+        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 0.0 }, zone: None }];
         let mut req = base_request(&well, mc, 1000, 42);
         req.sampling = Sampling::Lhs;
         req.converge = true;
@@ -1610,12 +1879,237 @@ mod tests {
     }
 
     #[test]
+    fn zone_scoped_param_only_moves_its_zone() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_well(&conn);
+        // Two zones over the 1000–1150 m column; the MC entry is scoped to UPPER only.
+        db::upsert_zone(&conn, &well, "UPPER", 1000.0, 1075.0).unwrap();
+        db::upsert_zone(&conn, &well, "LOWER", 1075.0, 1150.0).unwrap();
+        let dbm = Mutex::new(conn);
+
+        let mc = vec![McParam {
+            param: "GR_MA".into(),
+            dist: Distribution::Normal { mean: 25.0, sd: 15.0 },
+            zone: Some("UPPER".into()),
+        }];
+        let mut req = base_request(&well, mc, 400, 42);
+        req.sensitivity = true;
+        let res = run_monte_carlo(&dbm, &req, None);
+        assert!(res.errors.is_empty(), "unexpected errors: {:?}", res.errors);
+        let upper = res.zones.iter().find(|z| z.zone == "UPPER").expect("UPPER zone");
+        let lower = res.zones.iter().find(|z| z.zone == "LOWER").expect("LOWER zone");
+        assert!(upper.hpv.hi > upper.hpv.lo, "scoped uncertainty must spread its own zone");
+        assert_eq!(lower.hpv.lo, lower.hpv.hi, "the unscoped zone must stay deterministic");
+        assert!(lower.hpv.sd.abs() < 1e-6, "no variance may leak outside the scoped zone");
+        // The sensitivity row carries the zone-qualified label.
+        assert_eq!(res.sensitivity[0].params[0].param, "GR_MA @ UPPER");
+
+        // An unknown zone name leaves the parameter at base values, with a note.
+        let mc2 = vec![McParam {
+            param: "GR_MA".into(),
+            dist: Distribution::Normal { mean: 25.0, sd: 15.0 },
+            zone: Some("NOPE".into()),
+        }];
+        let res2 = run_monte_carlo(&dbm, &base_request(&well, mc2, 100, 42), None);
+        assert!(res2.notes.iter().any(|n| n.contains("NOPE")), "unknown zone should note: {:?}", res2.notes);
+        for z in &res2.zones {
+            assert_eq!(z.hpv.lo, z.hpv.hi, "unknown zone scope must not vary anything");
+        }
+    }
+
+    fn seed_computed(conn: &Connection, well: &str, name: &str, value: f32) {
+        for i in 0..300 {
+            let d = 1000.0 + i as f32 * 0.5;
+            conn.execute(
+                "INSERT INTO computed_curves (well_id, depth, curve_name, value) VALUES (?1, ?2, ?3, ?4)",
+                duckdb::params![well, d, name, value],
+            )
+            .unwrap();
+        }
+    }
+
+    #[test]
+    fn inverted_zone_notes_instead_of_panicking() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_well(&conn);
+        // Storable through the DB inspector (no validation on that path): top ≥ bottom.
+        db::upsert_zone(&conn, &well, "BAD", 1100.0, 1050.0).unwrap();
+        let dbm = Mutex::new(conn);
+        let mc = vec![McParam {
+            param: "GR_MA".into(),
+            dist: Distribution::Normal { mean: 25.0, sd: 15.0 },
+            zone: Some("BAD".into()),
+        }];
+        // Must complete (pre-fix: arr[s..e] with s > e panicked the rayon loop) and behave like
+        // every deterministic consumer: the inverted zone contributes nothing.
+        let res = run_monte_carlo(&dbm, &base_request(&well, mc, 100, 42), None);
+        assert!(res.errors.is_empty(), "unexpected errors: {:?}", res.errors);
+        assert!(res.notes.iter().any(|n| n.contains("top ≥ bottom")), "expected inverted-zone note: {:?}", res.notes);
+        for z in &res.zones {
+            assert_eq!(z.hpv.lo, z.hpv.hi, "inverted-zone scope must not vary anything");
+        }
+    }
+
+    #[test]
+    fn persist_skips_chain_inputs() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_well(&conn);
+        // PHIE/VSH exist as previously computed curves — sw_indo CONSUMES them.
+        seed_computed(&conn, &well, "PHIE", 0.2);
+        seed_computed(&conn, &well, "VSH", 0.1);
+        let dbm = Mutex::new(conn);
+        let mc = vec![McParam { param: "A".into(), dist: Distribution::Normal { mean: 1.0, sd: 0.15 }, zone: None }];
+        let mut req = base_request(&well, mc, 200, 42);
+        req.steps = vec![step("sw_indo")];
+        req.persist = true;
+        let res = run_monte_carlo(&dbm, &req, None);
+        assert!(res.errors.is_empty(), "unexpected errors: {:?}", res.errors);
+        // Only curves the chain PRODUCES may be persisted — inputs it merely reads must not
+        // come back as zero-width fake uncertainty bands.
+        assert!(res.persisted.iter().any(|c| c.starts_with("MC_SWE_")), "persisted: {:?}", res.persisted);
+        assert!(
+            !res.persisted.iter().any(|c| c.starts_with("MC_PHIE_") || c.starts_with("MC_VSH_")),
+            "chain inputs must not be persisted: {:?}",
+            res.persisted
+        );
+    }
+
+    #[test]
+    fn persist_reclaims_stale_family_and_degenerate_base_drops_only_base() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_well(&conn);
+        let dbm = Mutex::new(conn);
+
+        // Run 1: full chain → MC_VSH/PHIE/SWE families all written (v1).
+        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 8.0 }, zone: None }];
+        let mut req1 = base_request(&well, mc, 200, 42);
+        req1.persist = true;
+        let res1 = run_monte_carlo(&dbm, &req1, None);
+        assert!(res1.persisted.iter().any(|c| c.starts_with("MC_PHIE_")));
+
+        // Run 2: vsh_gr only, with GR_SH pinned to the distribution's central value — the
+        // all-median base run degenerates (GR_MA == GR_SH), but half the draws stay finite.
+        let mut s = step("vsh_gr");
+        s.params.insert("GR_SH".into(), 100.0);
+        let mc2 = vec![McParam { param: "GR_MA".into(), dist: Distribution::Uniform { lo: 99.0, hi: 101.0 }, zone: None }];
+        let mut req2 = base_request(&well, mc2, 300, 7);
+        req2.steps = vec![s];
+        req2.persist = true;
+        let res2 = run_monte_carlo(&dbm, &req2, None);
+        assert!(res2.errors.is_empty(), "unexpected errors: {:?}", res2.errors);
+        // Percentile curves survive a degenerate base; only BASE is skipped, with a note.
+        assert!(res2.persisted.contains(&"MC_VSH_LOW".to_string()), "persisted: {:?}", res2.persisted);
+        assert!(
+            !res2.persisted.contains(&"MC_VSH_BASE".to_string()),
+            "degenerate base must skip only BASE: {:?}",
+            res2.persisted
+        );
+        assert!(res2.notes.iter().any(|n| n.contains("MC_VSH_BASE skipped")), "notes: {:?}", res2.notes);
+
+        let conn = dbm.lock().unwrap();
+        // Stale family reclaim: run 2 wrote no PHIE curves, so v1's MC_PHIE_* rows must be gone
+        // from the CURRENT store (the archive keeps v1 restorable).
+        let current_phie: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM computed_curves WHERE well_id = ?1 AND curve_name LIKE 'MC_PHIE%'",
+                duckdb::params![well],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(current_phie, 0, "stale MC_PHIE_* rows must be reclaimed from the current store");
+        let archive_phie: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM computed_curves_archive WHERE well_id = ?1 AND curve_name LIKE 'MC_PHIE%'",
+                duckdb::params![well],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(archive_phie > 0, "the archive must keep v1's curves restorable");
+        let versions: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM log_sets WHERE well_id = ?1 AND set_name = 'MONTECARLO'",
+                duckdb::params![well],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(versions, 2);
+    }
+
+    #[test]
+    fn persist_writes_versioned_low_base_high_curves() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_well(&conn);
+        let dbm = Mutex::new(conn);
+
+        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 8.0 }, zone: None }];
+        let mut req = base_request(&well, mc, 300, 42);
+        req.persist = true;
+        let res = run_monte_carlo(&dbm, &req, None);
+        assert!(res.errors.is_empty(), "unexpected errors: {:?}", res.errors);
+        // The chain (vsh_gr → phi_dn → sw_indo) produces VSH/PHIE/SWE but no PERM.
+        assert!(res.persisted.contains(&"MC_PHIE_LOW".to_string()), "persisted: {:?}", res.persisted);
+        assert!(res.persisted.contains(&"MC_PHIE_BASE".to_string()));
+        assert!(!res.persisted.iter().any(|c| c.contains("PERM")), "no PERM in this chain");
+
+        {
+            let conn = dbm.lock().unwrap();
+            // Versioned log set registered.
+            let (set_name, version): (String, i64) = conn
+                .query_row(
+                    "SELECT set_name, version FROM log_sets WHERE well_id = ?1",
+                    duckdb::params![well],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!(set_name, "MONTECARLO");
+            assert_eq!(version, 1);
+            // Per-sample ordering LOW ≤ P50 ≤ HIGH wherever finite, and the band is real.
+            let (_, cols) = equations::fetch_curve_frame(
+                &conn,
+                &well,
+                &["MC_PHIE_LOW".into(), "MC_PHIE_P50".into(), "MC_PHIE_HIGH".into(), "MC_PHIE_BASE".into()],
+            )
+            .unwrap();
+            let lo = &cols["MC_PHIE_LOW"];
+            let mid = &cols["MC_PHIE_P50"];
+            let hi = &cols["MC_PHIE_HIGH"];
+            let mut checked = 0;
+            for i in 0..lo.len() {
+                if lo[i].is_finite() && mid[i].is_finite() && hi[i].is_finite() {
+                    assert!(lo[i] <= mid[i] && mid[i] <= hi[i], "percentile order broken at {i}");
+                    checked += 1;
+                }
+            }
+            assert!(checked > 100, "expected finite percentile curves, got {checked} samples");
+            assert!(cols["MC_PHIE_BASE"].iter().any(|v| v.is_finite()), "BASE curve must exist");
+        }
+
+        // A second persist run never overwrites — it lands as version 2.
+        let res2 = run_monte_carlo(&dbm, &req, None);
+        assert!(res2.errors.is_empty());
+        let conn = dbm.lock().unwrap();
+        let versions: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM log_sets WHERE well_id = ?1 AND set_name = 'MONTECARLO'",
+                duckdb::params![well],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(versions, 2, "persist must version, not overwrite");
+    }
+
+    #[test]
     fn configurable_percentiles_widen_the_spread() {
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
         let well = seed_well(&conn);
         let dbm = Mutex::new(conn);
-        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 8.0 } }];
+        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 8.0 }, zone: None }];
 
         // Default P10/P90.
         let base = run_monte_carlo(&dbm, &base_request(&well, mc.clone(), 1000, 42), None);
