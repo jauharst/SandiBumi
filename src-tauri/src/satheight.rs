@@ -11,9 +11,9 @@ use crate::modules::{log_in, log_out, opt, param, ModuleContext, ModuleOutputs, 
 use serde::Serialize;
 use std::collections::HashMap;
 
-const J_CONST: f64 = 0.21645;
-const PSI_PER_FT_PER_SG: f64 = 0.433;
-const FT_PER_M: f64 = 3.28084;
+pub(crate) const J_CONST: f64 = 0.21645;
+pub(crate) const PSI_PER_FT_PER_SG: f64 = 0.433;
+pub(crate) const FT_PER_M: f64 = 3.28084;
 
 // ---------------------------------------------------------------------------
 // Leverett-J fit: Sw = A * J^B by least squares in log-log space

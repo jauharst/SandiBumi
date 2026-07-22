@@ -827,6 +827,8 @@ export interface CuddyFoilRequest {
   phie_curve: string;
   sw_curve: string;
   tvdss_curve: string;
+  /** Optional rock-type curve — when set, also fits one FOIL law per rounded RT class. */
+  rt_curve?: string;
   fwl: number;
   min_phi: number;
   scan: boolean;
@@ -839,6 +841,19 @@ export interface FoilPoint {
   h: number;
   bvw: number;
   well_id: string;
+  /** Rounded rock-type class of the sample (null when no RT curve / RT is NaN). */
+  rt: number | null;
+}
+
+/** One per-rock-type FOIL law (BVW = a·H^b over that RT class only). When the group's fit
+ *  failed (`error` set), the numerics are Rust NaN → JSON null — guard before formatting. */
+export interface FoilGroupFit {
+  rt: number;
+  a: number | null;
+  b: number | null;
+  r2: number | null;
+  n_points: number;
+  error: string | null;
 }
 
 export interface CuddyFoilResult {
@@ -850,6 +865,11 @@ export interface CuddyFoilResult {
   fwl_best: number | null;
   points: FoilPoint[];
   scan: { fwl: number; residual: number }[];
+  /** Per-rock-type fits when an RT curve was supplied (ascending RT class). */
+  groups: FoilGroupFit[];
+  /** [reason, count] of candidate samples excluded from the fit. */
+  excluded: [string, number][];
+  notes: string[];
   error: string | null;
 }
 
@@ -865,15 +885,37 @@ export interface ShfFitRequest {
   phie_curve: string;
   sw_curve: string;
   tvdss_curve: string;
+  /** Working permeability curve — required by leverett_j only. */
+  perm_curve?: string;
+  /** Fluid props for height→Pc→J (leverett_j). Defaults: 1.0 / 0.7 g/cc, σ·cosθ 26 dyn/cm. */
+  rho_w?: number;
+  rho_hc?: number;
+  ift_res?: number;
+  /** Optional rock-type curve — when set, also fits one law per rounded RT class. */
+  rt_curve?: string;
   fwl: number;
   min_phi: number;
-  method: "brooks_corey" | "skelt";
+  method: "brooks_corey" | "skelt" | "thomeer" | "leverett_j";
 }
 
 export interface ShfPoint {
   h: number;
   sw: number;
   well_id: string;
+  /** Rounded rock-type class of the sample (null when no RT curve / RT is NaN). */
+  rt: number | null;
+}
+
+/** One per-rock-type SHF law of the requested family. When the group's fit failed (`error`
+ *  set), `params`/`curve` are empty and `r2` is Rust NaN → JSON null — guard before formatting. */
+export interface ShfGroupFit {
+  rt: number;
+  params: [string, number][];
+  r2: number | null;
+  n_points: number;
+  /** Sampled fitted Sw(H) curve over this group's height range. */
+  curve: [number, number][];
+  error: string | null;
 }
 
 export interface ShfFitResult {
@@ -885,6 +927,11 @@ export interface ShfFitResult {
   points: ShfPoint[];
   /** Sampled fitted Sw(H) curve as [H, Sw] pairs. */
   curve: [number, number][];
+  /** Per-rock-type fits when an RT curve was supplied (ascending RT class). */
+  groups: ShfGroupFit[];
+  /** [reason, count] of candidate samples excluded from the fit. */
+  excluded: [string, number][];
+  notes: string[];
   error: string | null;
 }
 

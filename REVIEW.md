@@ -7,6 +7,39 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 14 — Saturation-height solvers: Thomeer, log-driven Leverett-J, per-rock-type laws (playbook #4, increment 4a) (2026-07-23)
+
+The SHF fitting engine now covers all five families and can split by rock type. **Thomeer** joins
+the height-domain forms: the carbonate-standard hyperbola `Sw(H) = 1 − (1−Swirr)·exp(−G/log10(H/Hd))`
+(Thomeer 1960), fitted with the same bounded simplex as Skelt — Hd is the entry height (the
+displacement pressure expressed in metres above the FWL) and G the pore-geometrical factor
+(≈0.1 well-sorted → >2 poorly sorted). **Leverett-J now fits from logs**, not only at SCAL
+import: each sample's height becomes reservoir Pc (0.433·Δρ·h_ft), J = 0.21645·Pc/σcosθ·√(k/φ)
+from the PERM/PHIE curves, and Sw = A·J^B is regressed in ln-ln space (Leverett 1941). Fluid
+defaults are Tier-A seeds — σ·cosθ 26 dyn/cm (IP cap-pressure table, Water-Oil 30 dyn/cm·cos 30°),
+HC density 0.7 g/cc (Techlog) — all per-run overridable. **Per-rock-type fits**: hand any family
+an RT/facies curve and it fits one law per rock-type class alongside the pooled law (the single
+biggest SHF accuracy win on stacked Mahakam sands); classes that can't fit are reported with the
+reason, never dropped. **Nothing is dropped silently anymore**: every excluded sample is counted
+by reason (Sw > 1, at/below the FWL, below the φ cutoff, no permeability), scoped wells that
+contributed zero samples are named in a note, and a Buckles check (Buckles 1965) flags when the
+above-transition BVW isn't one constant — the classic sign you need per-rock-type laws. The
+breakdown survives even when the fit itself fails — that's when you need it most.
+
+Adversarially reviewed (37 agents, 4 lenses → 3-skeptic verification): 8 confirmed findings → 4
+distinct defects, all fixed pre-commit — a Thomeer bounds panic on sub-millimetre height ranges
+(HIGH), silent zero-contribution wells, discarded exclusion counters on two FOIL error paths, and
+the failed-group NaN→null IPC contract. cargo 283/0, tsc 0. (Dialog UI for all of this = 4b, next.)
+
+- [ ] *(UI lands in 4b — backend-only round; the Try lines below use the existing dialog.)*
+- [ ] **Existing SHF forms still work.** Analysis ▸ Saturation-Height: fit Cuddy FOIL on your
+      BLSO wells with the usual FWL — same a/b/R² as before this round (the FOIL math is untouched;
+      only the bookkeeping around it changed).
+- [ ] **Exclusions are now visible on failure.** Set the FWL to a value clearly *above* the whole
+      cloud's TVDSS (so everything sits below the contact) and fit: the failure message should come
+      with an "at/below the FWL: N" style breakdown once the 4b UI renders it (the backend already
+      returns it — visible now in the dev console response).
+
 ## Round 13 — Theme sweep: canvas typography + color tokens (playbook #9A, increment A) (2026-07-22)
 
 Every canvas font and the last hard-coded colors that bypassed the theme are now driven by the
