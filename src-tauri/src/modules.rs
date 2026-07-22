@@ -1774,7 +1774,13 @@ fn sw_arch(ctx: &ModuleContext) -> ModuleOutputs {
             continue;
         }
         let rw = resolve_rw(ctx, &ftemp, i);
-        if is_missing(r) || is_missing(rw) {
+        // RT <= 0 is non-physical (typically a null coded as 0): the Archie ratio
+        // a*Rw/(phi^m * RT) diverges to +Infinity, and is_missing() screens only NaN,
+        // so +inf would flow into SWT_ARCH and poison catalog min/max + plot autoscale.
+        // Drop the sample to missing, matching sw_rtc / sw_imts (lrlc.rs) which already
+        // guard rt <= 0. (A negative RT would instead give a NaN via powf of a negative
+        // base — also caught here so both invalid cases behave identically.)
+        if is_missing(r) || r <= 0.0 || is_missing(rw) {
             continue;
         }
         let a = ctx.p("A", i);
@@ -1871,7 +1877,10 @@ fn sw_indo(ctx: &ModuleContext) -> ModuleOutputs {
             continue;
         }
         let rw = resolve_rw(ctx, &ftemp, i);
-        if is_missing(r) || is_missing(vs) || is_missing(rw) {
+        // RT <= 0 is non-physical: 1/(RT*(...)) diverges to +Infinity and is_missing()
+        // screens only NaN, so +inf would poison SWE_INDO stats/autoscale. Drop to missing,
+        // matching sw_rtc / sw_imts (lrlc.rs) and sw_arch above.
+        if is_missing(r) || r <= 0.0 || is_missing(vs) || is_missing(rw) {
             continue;
         }
         let a = ctx.p("A", i);
@@ -1975,7 +1984,11 @@ fn sw_sim(ctx: &ModuleContext) -> ModuleOutputs {
             continue;
         }
         let rw = resolve_rw(ctx, &ftemp, i);
-        if is_missing(r) || is_missing(vs) || is_missing(rw) {
+        // RT <= 0 is non-physical: g3 = -1/RT becomes -Infinity and the Newton-Raphson
+        // solve diverges to a garbage/MISSING value, silently dropping the sample. Screen it
+        // explicitly (matching sw_arch / sw_indo / sw_rtc / sw_imts) instead of relying on
+        // the solver to diverge.
+        if is_missing(r) || r <= 0.0 || is_missing(vs) || is_missing(rw) {
             continue;
         }
         // SCHLUMBERGER g1 carries a 1/(1-VSH) term that is singular at VSH=1; treat pure
@@ -2886,6 +2899,62 @@ mod tests {
         assert!(out["SWT_ARCH"][0].is_finite(), "SWT_ARCH must be finite, was {}", out["SWT_ARCH"][0]);
         assert_eq!(out["SWT_ARCH"][0], 1.0);
         assert_eq!(out["SWT"][0], 1.0);
+    }
+
+    #[test]
+    fn sw_arch_nonpositive_rt_is_missing_not_inf() {
+        // RT = 0 (a null coded as zero) makes the Archie ratio diverge to +Infinity; RT < 0
+        // (bad processing) makes it NaN. Neither may leak into SWT_ARCH — a +inf there poisons
+        // catalog min/max and plot autoscale. Both drop to missing, per the sw_rtc/sw_imts rule.
+        let ctx = ctx_with(
+            2,
+            &[("RT", vec![0.0, -5.0]), ("PHIT", vec![0.25, 0.25]), ("PHIE", vec![0.25, 0.25])],
+            &[("A", 1.0), ("M", 2.0), ("N", 2.0), ("RW", 0.1), ("SWT_IRR", 0.0)],
+            &[("OPT_RW", "CONSTANT")],
+        );
+        let out = sw_arch(&ctx);
+        for k in ["SWT_ARCH", "SWT", "SWE", "VOL_UWAT"] {
+            for i in 0..2 {
+                assert!(!out[k][i].is_infinite(), "{k}[{i}] must never be +/-Infinity, was {}", out[k][i]);
+                assert!(out[k][i].is_nan(), "{k}[{i}] must be missing (NaN), was {}", out[k][i]);
+            }
+        }
+    }
+
+    #[test]
+    fn sw_indo_nonpositive_rt_is_missing_not_inf() {
+        // 1/(RT*(...)) diverges to +Infinity at RT=0 — must not reach SWE_INDO.
+        let ctx = ctx_with(
+            1,
+            &[("RT", vec![0.0]), ("PHIE", vec![0.2]), ("VSH", vec![0.3])],
+            &[("A", 1.0), ("M", 2.0), ("N", 2.0), ("RW", 0.1), ("RT_SH", 5.0), ("SWE_IRR", 0.0)],
+            &[("OPT_RW", "CONSTANT"), ("OPT_INDO", "FULL")],
+        );
+        let out = sw_indo(&ctx);
+        for k in ["SWE_INDO", "SWE", "VOL_UWAT"] {
+            assert!(!out[k][0].is_infinite(), "{k} must never be +/-Infinity, was {}", out[k][0]);
+            assert!(out[k][0].is_nan(), "{k} must be missing (NaN), was {}", out[k][0]);
+        }
+    }
+
+    #[test]
+    fn sw_sim_nonpositive_rt_is_missing_not_inf() {
+        // g3 = -1/RT becomes -Infinity at RT=0 and the Newton-Raphson solve diverges; the
+        // explicit guard drops the sample to missing instead of relying on that divergence.
+        let ctx = ctx_with(
+            1,
+            &[("RT", vec![0.0]), ("PHIE", vec![0.22]), ("VSH", vec![0.25])],
+            &[
+                ("A", 1.0), ("M", 2.0), ("N", 2.0), ("C", 1.0),
+                ("RW", 0.05), ("RT_SH", 4.0), ("SWE_IRR", 0.0),
+            ],
+            &[("OPT_RW", "CONSTANT"), ("OPT_SIM", "MODIFIED")],
+        );
+        let out = sw_sim(&ctx);
+        for k in ["SWE_SIM", "SWE", "VOL_UWAT"] {
+            assert!(!out[k][0].is_infinite(), "{k} must never be +/-Infinity, was {}", out[k][0]);
+            assert!(out[k][0].is_nan(), "{k} must be missing (NaN), was {}", out[k][0]);
+        }
     }
 
     #[test]

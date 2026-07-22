@@ -160,6 +160,32 @@ through in the real app with field data. Nothing committed.**
       a row click). (5) frontend histogram bins aligned to the backend clamp (8–40) so bars and cut
       lines share resolution. *(+1 regression test locking HFU-id contiguity across an empty gap. Suite
       227 passed / 0 failed; tsc EXIT 0.)*
+- [ ] **Correctness — RT ≤ 0 → +Infinity in the Sw modules (2026-07-22, closes AUDIT-2026-07-21):**
+      the three deterministic saturation modules (`sw_arch`, `sw_indo`, `sw_sim`) only screened
+      **missing** RT (NaN). A genuine RT value **≤ 0** — almost always a null coded as `0`, or a bad
+      processing artifact — flowed through: `sw_arch`'s `(a·Rw/(φ^m·RT))^(1/n)` and `sw_indo`'s
+      `1/(RT·…)` both **diverged to +Infinity**, and since the "missing" test is NaN-only, +Inf leaked
+      into the *unlimited* raw curves (`SWT_ARCH` / `SWE_INDO`) and **poisoned catalog min/max and plot
+      autoscale** (the *limited* SWT/SWE looked fine because `limit()` clamps +Inf → 1.0, which masked
+      it). `sw_sim` instead let the Newton-Raphson solver diverge and silently drop the sample. **Fix:**
+      added `r <= 0.0` to each module's input guard, so an RT ≤ 0 sample is dropped to **missing (NaN)** —
+      exactly matching the existing convention already used by `sw_rtc` / `sw_imts` (LRLC modules) which
+      guard `rt_i <= 0.0`. *(Proven complete: an f32-sourced RT can't overflow f64 even at the smallest
+      positive value, so no tiny-positive-RT can sneak a +Inf through; the LAS null −999.25 is negative
+      → caught. Downstream contract verified safe — `classify_sample` already treats a missing SWE as
+      "exclude from PAY", so a garbage RT that used to read as a fabricated `Sw=1.0` water sample now
+      simply drops out; net pay is unchanged and average-SWE-over-reservoir is if anything cleaner.)*
+      **Verification:** +3 regression tests (RT = 0 *and* −5 → NaN, never ±Inf, in all three modules);
+      **suite 230 passed / 0 failed / 7 ignored**. Ran a 3-lens adversarial review (physics / downstream
+      contract / edge-cases, 2 skeptics per finding, static-read only) → **0 confirmed, 7 refuted**.
+      Two accurate-but-inconsequential observations were recorded, not fixed: *(i)* for the
+      doubly-degenerate `(PHIE<0.005 AND RT≤0)` sample the porosity-state branch order makes `sw_arch`→NaN
+      but `sw_indo`/`sw_sim`→SWE=1.0 (a non-reservoir sample excluded from pay either way; unifying it
+      would mean restructuring `sw_arch`'s tested branch for zero benefit); *(ii)* `resolve_rw` could
+      emit +Inf only at FTEMP = *exactly* −21.5 °C in the non-default MEASURED/SALINITY mode
+      (physically impossible, pre-existing, orthogonal to this fix). **Try:** load a well whose deep
+      resistivity has a zero/null streak and run `sw_arch` — the streak now reads as a gap in `SWT_ARCH`
+      instead of pinning the curve autoscale to a huge number.
 
 ## Round 2 — panes, shift-select, MC plot props + table + polish (2026-07-21, Jauhar feedback batch #2)
 
