@@ -142,11 +142,42 @@ export async function buildMultiminContent(
   const tools: ToolRow[] = BASE_TOOLS.map((t) => ({ ...t }));
 
   const content = document.createElement("div");
-  content.className = "mc-dialog";
+  content.className = "mc-dialog mm-dialog";
 
-  const columns = document.createElement("div");
-  columns.className = "mm-columns";
-  content.appendChild(columns);
+  // Tabbed setup so the pane isn't one long scroll: Minerals (selection + endpoint matrix),
+  // Log inputs, Fluid, Clay. The run controls + results sit in a persistent footer BELOW the
+  // tabs, so you configure across tabs and run from anywhere without losing your place.
+  const tabBar = document.createElement("div");
+  tabBar.className = "mm-tabs";
+  const tabBody = document.createElement("div");
+  tabBody.className = "mm-tab-body";
+  content.appendChild(tabBar);
+  content.appendChild(tabBody);
+
+  const panels = new Map<string, HTMLElement>();
+  const tabBtns = new Map<string, HTMLButtonElement>();
+  function addTab(id: string, label: string): HTMLElement {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "mm-tab";
+    btn.textContent = label;
+    btn.addEventListener("click", () => showTab(id));
+    tabBar.appendChild(btn);
+    tabBtns.set(id, btn);
+    const panel = document.createElement("div");
+    panel.className = "mm-tab-panel";
+    tabBody.appendChild(panel);
+    panels.set(id, panel);
+    return panel;
+  }
+  function showTab(id: string): void {
+    for (const [k, p] of panels) p.style.display = k === id ? "" : "none";
+    for (const [k, b] of tabBtns) b.classList.toggle("active", k === id);
+  }
+  const mineralsPanel = addTab("minerals", "Minerals");
+  const logsPanel = addTab("logs", "Log inputs");
+  const fluidPanel = addTab("fluid", "Fluid");
+  const clayPanel = addTab("clay", "Clay");
 
   // --- Components box (grouped) --------------------------------------------
   const compBox = document.createElement("div");
@@ -226,7 +257,7 @@ export async function buildMultiminContent(
       compBox.appendChild(row);
     }
   }
-  columns.appendChild(compBox);
+  mineralsPanel.appendChild(compBox);
 
   // --- Tools box ------------------------------------------------------------
   const toolsCol = document.createElement("div");
@@ -288,7 +319,7 @@ export async function buildMultiminContent(
     renderTable();
   });
   toolsCol.appendChild(addCustom);
-  columns.appendChild(toolsCol);
+  logsPanel.appendChild(toolsCol);
 
   // --- Fluid properties (needed for CT/CXO) ---------------------------------
   const fluidBox = document.createElement("div");
@@ -427,7 +458,13 @@ export async function buildMultiminContent(
   });
   autofillRow.appendChild(autofillBtn);
   fluidBox.appendChild(autofillRow);
-  content.appendChild(fluidBox);
+  // A hint keeps the Fluid tab from looking empty when no conductivity tool needs it.
+  const fluidHint = document.createElement("div");
+  fluidHint.className = "mc-chain-note";
+  fluidHint.textContent =
+    "Fluid properties feed the CT/CXO conductivity rows. No conductivity tool (CT or CXO) is active right now, so these values won't affect the solve — turn one on in Log inputs to use them.";
+  fluidPanel.appendChild(fluidHint);
+  fluidPanel.appendChild(fluidBox);
 
   // --- Wet clay → dry clay converter (KKT ONWJ xlsx workflow) ---------------
   // Pick wet-clay readings in a shale interval, assume a dry-clay density, and
@@ -487,7 +524,7 @@ export async function buildMultiminContent(
   dryApplyBtn.textContent = "Apply to clay + include BoundWater";
   dryApplyRow.appendChild(dryApplyBtn);
   dryBox.appendChild(dryApplyRow);
-  content.appendChild(dryBox);
+  clayPanel.appendChild(dryBox);
 
   function readWetClay() {
     return {
@@ -589,14 +626,20 @@ export async function buildMultiminContent(
   refreshFluidPreview();
 
   function updateFluidVisibility(): void {
-    fluidBox.style.display = tools.some((t) => t.cond && t.on) ? "" : "none";
+    const need = tools.some((t) => t.cond && t.on);
+    fluidBox.style.display = need ? "" : "none";
+    fluidHint.style.display = need ? "none" : "";
   }
   updateFluidVisibility();
 
-  // --- Endpoints table ------------------------------------------------------
+  // --- Endpoints table (lives under the Minerals tab, below the selection list) -----------
   const tableWrap = document.createElement("div");
   tableWrap.className = "mm-table-wrap";
-  content.appendChild(tableWrap);
+  const tableHead = document.createElement("div");
+  tableHead.className = "mm-group-head";
+  tableHead.textContent = "Endpoints (selected components × active logs)";
+  mineralsPanel.appendChild(tableHead);
+  mineralsPanel.appendChild(tableWrap);
 
   function renderTable(): void {
     tableWrap.innerHTML = "";
@@ -668,9 +711,15 @@ export async function buildMultiminContent(
   }
   renderTable();
 
-  // --- Wells + options ------------------------------------------------------
+  // Start on the Minerals tab now that every panel is populated.
+  showTab("minerals");
+
+  // --- Wells + options (persistent footer, below the tabs) ------------------
   // Scope selector (group / ★ pinned / selection / all) instead of a per-well checklist —
   // a 2000-well field can't be ticked one at a time.
+  const footHr = document.createElement("div");
+  footHr.className = "mm-foot-sep";
+  content.appendChild(footHr);
   const wellsHead = document.createElement("div");
   wellsHead.className = "mm-group-head";
   wellsHead.textContent = "Apply to wells";

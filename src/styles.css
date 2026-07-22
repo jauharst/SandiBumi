@@ -3243,6 +3243,47 @@ textarea {
 .shf-diag .warn {
   color: var(--warn);
 }
+
+/* SandiMin dialog — tabbed setup sections (Minerals / Log inputs / Fluid / Clay) */
+.mm-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.mm-tab {
+  padding: 5px 16px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 13px;
+}
+.mm-tab:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.mm-tab.active {
+  background: var(--bg-panel-alt);
+  color: var(--text);
+  border-color: var(--border);
+  border-bottom: 1px solid var(--bg-panel-alt);
+  margin-bottom: -1px;
+  font-weight: 600;
+}
+.mm-tab-body {
+  margin-bottom: 8px;
+}
+.mm-tab-panel {
+  padding: 2px 0;
+}
+.mm-foot-sep {
+  border-top: 1px solid var(--border);
+  margin: 6px 0 8px;
+}
 .mc-wells {
   display: grid;
   grid-template-columns: 1fr 1fr;

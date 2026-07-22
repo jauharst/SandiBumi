@@ -7,6 +7,26 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 15 — SandiMin dialog: tabbed setup (your request) (2026-07-23)
+
+The Mineral Solver pane was one long scroll — minerals, log inputs, fluid properties, and the
+clay converter all stacked. It's now **tabbed**: **Minerals** (component selection + presets +
+the endpoint matrix), **Log inputs** (the tool list + user-defined inputs), **Fluid** (Rw/temps/
+m/n/mud + precalc autofill), and **Clay** (the wet→dry converter). The run controls — well scope,
+output prefix, unity/reconstruction toggles, the Run button and the results/QC — stay in a
+**persistent footer below the tabs**, so you set things up across tabs and run from anywhere
+without losing your place. The Fluid tab shows a short hint (instead of going blank) when no
+conductivity tool is active, since the fluid numbers only matter to CT/CXO. Nothing about the
+solve, endpoints, or wiring changed — this is purely how the pane is organized. Browser-verified:
+tab switch shows exactly one panel, the CT toggle flips the fluid hint/grid, the footer stays put.
+
+- [ ] **The pane is easier to navigate.** Open SandiMin (Modules ▸ SandiMin): confirm the four
+      tabs across the top, that clicking each shows only that section, and that the Apply-to-wells
+      scope + Run button + results stay visible no matter which tab you're on.
+- [ ] **Nothing regressed.** Set up a clastic run as before — pick minerals on **Minerals**,
+      confirm your tools on **Log inputs**, set Rw/temp on **Fluid**, Run from the footer — and
+      check you get the same curves and DOF/incoherence readout as before the reorganization.
+
 ## Round 14 — Saturation-height solvers: Thomeer, log-driven Leverett-J, per-rock-type laws (playbook #4, increment 4a) (2026-07-23)
 
 The SHF fitting engine now covers all five families and can split by rock type. **Thomeer** joins
