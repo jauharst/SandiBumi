@@ -70,6 +70,8 @@ not rebuild. Seed distribution defaults from IP `MonteCarloDefaults.par` (Tier A
 | 1.2 | INCREMENT 2 — per-ZONE parameter distributions + persist P10/BASE/P50/P90 as LOW/BASE/HIGH curves (NAN + versioned log-set) | ✅ `McParam.zone` (span-resolved per well, "PARAM @ ZONE" sensitivity labels, unknown/inverted-zone notes) + `persist` → `MC_<KEY>_LOW/_P50/_HIGH/_BASE` per PRODUCED output via `create_log_set`("MONTECARLO") + versioned write (stale-family reclaim, archive keeps history); 5 tests; adversarially reviewed — 7 confirmed findings fixed (incl. inverted-zone panic, fake input bands, Warned job state); cargo 279/0, tsc 0 |
 | 1.3 | UI — LHS/MC toggle, correlation-pair mini-editor, convergence + output histograms, P10/P50/P90 card | ✅ Sampling select (LHS default/Random legacy), per-row zone box (datalist from scoped well), Correlations mini-editor (A↔B, ρ), Convergence + Save-curves checkboxes, per-well convergence sparkline + badge, notes panel, status shows sampling/early-stop/saved-count; browser-smoke-tested (stubbed run → request carries all new fields; sparkline + Avg-PHIE tornado with null endpoint paint clean); tsc 0 |
 
+**Playbook #1 Monte Carlo — COMPLETE** (1.1 LHS/Iman–Conover/convergence, 1.2 zone-scoped + persisted curves, 1.3 UI). Both math increments adversarially reviewed (18 + 27 agents; 4 + 7 confirmed findings all fixed pre-commit).
+
 ## Phase 5 — Playbook #9 · UI polish — Increment A only (theming, "cheapest high-value")
 
 Target the visual kit (plotCanvas.ts / LogCanvasRenderer / charts). Scope = theming, not
