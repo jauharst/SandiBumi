@@ -244,8 +244,9 @@ pub fn import_deviation_csv(
 /// `sw_height`'s TVD input, the SHF-fitting modules' TVDSS input, and the correlation TVDSS
 /// depth-mode consume the survey. Returns the number of samples written (per curve); 0 when
 /// the well has no survey (vertical — TVD == MD, and callers already fall back to MD) or no
-/// logs yet (no depth grid to hang the curves on). Overwrites any prior TVD/TVDSS in the
-/// computed store, so a re-import or a KB edit + recompute refreshes them in place.
+/// logs yet (no depth grid to hang the curves on). Refreshes its OWN prior computed TVD/TVDSS
+/// in place, but NEVER overwrites a TVD/TVDSS the user imported from a vendor LAS/DLIS (see the
+/// import guard below), so a re-import or a KB edit + recompute is safe.
 pub fn materialize_tvd_curves(conn: &Connection, well_id: &str) -> db::DbResult<usize> {
     let stations = db::get_well_path(conn, well_id)?;
     if stations.is_empty() {
@@ -267,9 +268,31 @@ pub fn materialize_tvd_curves(conn: &Connection, well_id: &str) -> db::DbResult<
         tvd.push(t);
         tvdss.push(ss);
     }
-    crate::equations::write_computed_curve(conn, well_id, &depth, "TVD", &tvd)?;
-    crate::equations::write_computed_curve(conn, well_id, &depth, "TVDSS", &tvdss)?;
-    Ok(depth.len())
+    // A survey-derived COMPUTED curve outranks the generic RAW store in fetch_curve_frame, so
+    // writing TVD/TVDSS unconditionally would SILENTLY shadow an authoritative curve the user
+    // imported from a vendor LAS/DLIS — with a possibly wrong datum (a well with no KB falls
+    // back to a sea-level datum → TVDSS = −TVD) or NaN outside the survey's MD range, and no
+    // recourse via the Curve Catalog's Promote (it is disabled on a "served by computed" row).
+    // So: only materialize a name the well does NOT already resolve from an import, and clear
+    // any prior survey-derived computed curve when an import IS present, so the import wins.
+    let mut written = 0usize;
+    for (name, values) in [("TVD", &tvd), ("TVDSS", &tvdss)] {
+        let imported: bool = conn
+            .query_row(
+                "SELECT 1 FROM curve_meta WHERE well_id = ?1 AND set_name = 'RAW'
+                   AND (upper(mnemonic) = upper(?2) OR upper(family) = upper(?2)) LIMIT 1",
+                params![well_id, name],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        if imported {
+            crate::equations::delete_computed_curve(conn, well_id, name)?;
+        } else {
+            crate::equations::write_computed_curve(conn, well_id, &depth, name, values)?;
+            written = depth.len();
+        }
+    }
+    Ok(written)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -908,6 +931,66 @@ mod tests {
         assert_eq!(materialize_tvd_curves(&conn, &ids).unwrap(), 0);
         let (_d, cols) = crate::equations::fetch_curve_frame(&conn, &ids, &["TVD".to_string()]).unwrap();
         assert!(cols["TVD"].iter().all(|v| v.is_nan()), "no survey → no TVD curve");
+    }
+
+    /// A vendor TVDSS imported into the generic RAW store must stay authoritative after a
+    /// deviation survey is imported — the survey-derived COMPUTED TVDSS (which outranks the
+    /// generic store in fetch_curve_frame) must not silently shadow it. TVD, with no import,
+    /// is still materialized. Guards the cross-feature seam between TVD materialization and the
+    /// standard→computed→generic resolution precedence.
+    #[test]
+    fn materialize_tvd_keeps_imported_tvdss_authoritative() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, "DEV-MAT-3", None, None, None).unwrap();
+        let ids = wid.to_string();
+        let depth = vec![0.0f32, 1000.0, 2000.0, 3000.0];
+        let f = vec![1.0f32; depth.len()];
+        crate::db::insert_standard_curves(
+            &conn, wid, depth.clone(), vec![50.0f32; depth.len()],
+            f.clone(), f.clone(), f.clone(), f.clone(), f,
+        )
+        .unwrap();
+
+        // A vendor TVDSS in the generic RAW store: a constant sentinel no survey-derived TVDSS
+        // could produce, so we can tell which one resolves.
+        let cid = crate::db::upsert_curve_meta(
+            &conn, &ids, "RAW", "TVDSS", Some("m"), Some("TVDSS"), Some("LAS import"), None,
+        )
+        .unwrap();
+        crate::db::insert_curve_samples(&conn, &cid, &depth, &vec![-777.0f32; depth.len()]).unwrap();
+
+        // Import a deviated survey (would compute a very DIFFERENT TVDSS = 25 − TVD).
+        let dev = std::env::temp_dir().join(format!("arshilla_devmat3_{ids}.csv"));
+        std::fs::write(&dev, "MD,INC,AZI\n0,0,0\n1000,0,0\n2000,60,45\n3000,60,45\n").unwrap();
+        let res = import_deviation_csv(&conn, &ids, dev.to_str().unwrap(), Some(25.0));
+        std::fs::remove_file(&dev).ok();
+        assert!(res.error.is_none(), "{:?}", res.error);
+
+        let (_g, cols) = crate::equations::fetch_curve_frame(
+            &conn, &ids, &["TVDSS".to_string(), "TVD".to_string()],
+        )
+        .unwrap();
+        // Imported TVDSS still wins — NOT overwritten by the survey-derived computed curve.
+        assert!(
+            cols["TVDSS"].iter().all(|&v| (v - (-777.0)).abs() < 1e-3),
+            "imported TVDSS must remain authoritative, got {:?}",
+            cols["TVDSS"]
+        );
+        // TVD had no import → it IS materialized from the survey (shallower than MD when deviated).
+        assert!(cols["TVD"].iter().any(|v| !v.is_nan()), "TVD still materialized from the survey");
+
+        // And the stale-cleanup path: even if a computed TVDSS already existed (a survey was
+        // materialized BEFORE the vendor curve arrived), a recompute clears it so the import wins.
+        crate::equations::write_computed_curve(&conn, &ids, &depth, "TVDSS", &vec![9.9f32; depth.len()]).unwrap();
+        materialize_tvd_curves(&conn, &ids).unwrap();
+        let (_g2, cols2) = crate::equations::fetch_curve_frame(&conn, &ids, &["TVDSS".to_string()]).unwrap();
+        assert!(
+            cols2["TVDSS"].iter().all(|&v| (v - (-777.0)).abs() < 1e-3),
+            "recompute must clear a stale survey TVDSS so the import wins, got {:?}",
+            cols2["TVDSS"]
+        );
     }
 
     /// #118 follow-up: a spliced LAS with a duplicate depth must import cleanly on BOTH the

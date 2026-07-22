@@ -533,6 +533,18 @@ pub(crate) fn write_computed_curve(conn: &Connection, well_id: &str, depth: &[f3
     write_computed_curves_batch(conn, well_id, depth, &[(curve_name, values)])
 }
 
+/// Removes a well's computed curve of `name` (case-insensitive). Used so a survey-derived
+/// TVD/TVDSS yields to an imported (generic RAW) curve of the same name: `fetch_curve_frame`
+/// ranks computed ABOVE generic, so a leftover computed curve would otherwise keep shadowing
+/// the authoritative import.
+pub(crate) fn delete_computed_curve(conn: &Connection, well_id: &str, name: &str) -> duckdb::Result<()> {
+    conn.execute(
+        "DELETE FROM computed_curves WHERE well_id = ?1 AND upper(curve_name) = upper(?2)",
+        params![well_id, name],
+    )?;
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // P1-c log-set versioning: run events + append-only history (never overwrite)
 // ---------------------------------------------------------------------------

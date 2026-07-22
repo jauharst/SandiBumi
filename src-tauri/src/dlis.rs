@@ -243,6 +243,7 @@ fn read_f32(bytes: &[u8]) -> Vec<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write; // for Vec::write_all in the byte-roundtrip tests
     use uuid::Uuid;
 
     #[test]

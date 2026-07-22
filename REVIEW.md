@@ -7,6 +7,24 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 9 — Cross-feature fix: survey TVD/TVDSS must not shadow an imported one (2026-07-22)
+
+A cross-feature adversarial review of the four shipped feature_work commits (constants/TVD/ML-MASK/
+DLIS) found one real HIGH seam bug between TVD materialization (Round 6) and the standard→computed→
+generic resolution order (Round 8): importing a deviation survey wrote a **computed** TVD/TVDSS, which
+outranks the generic store, so it silently shadowed an authoritative TVDSS a user had imported from a
+vendor LAS/DLIS — with a possibly wrong datum (no-KB wells fall back to a sea-level datum) or NaN
+outside the survey's MD range, and no recourse via Promote (disabled on a "served by computed" row).
+Fixed in `materialize_tvd_curves` (ingest.rs): it now only materializes a name the well does not
+already resolve from an import, and clears any stale survey-derived computed curve so the import keeps
+winning. cargo 256/0, tsc unchanged. Test `materialize_tvd_keeps_imported_tvdss_authoritative`.
+
+- [ ] **Vendor TVDSS survives a survey import.** On a well that has a TVDSS curve from its LAS, import
+      a deviation survey. Confirm the plots/modules still read the **imported** TVDSS (unchanged values,
+      full depth coverage) — not a survey-derived one. TVD (if not imported) still appears from the survey.
+- [ ] **Recompute is still safe.** Edit KB and run Data ▸ Recompute TVD/TVDSS. A well WITHOUT an imported
+      TVDSS refreshes its survey-derived TVDSS; a well WITH an imported TVDSS keeps the imported one.
+
 ## Round 8 — DLIS/LAS mnemonic-shadow resolution in the Curve Catalog (2026-07-22)
 
 When a DLIS and an LAS (or two DLIS runs) carry the **same mnemonic**, the Curve Catalog now
