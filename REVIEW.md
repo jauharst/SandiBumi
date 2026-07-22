@@ -7,6 +7,27 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 6 — TVD/TVDSS as fetchable curves (2026-07-22)
+
+Materialize the deviation survey onto the log depth grid as `TVD` and `TVDSS` computed curves,
+so height-based tools can consume them by name. Backend `deviation.rs`/`ingest.rs`/`lib.rs` +
+frontend `ipc.ts`/`ribbon.ts`. cargo 250/0, tsc 0.
+
+- [ ] **Deviation import now writes TVD/TVDSS curves.** On a **deviated** well with logs loaded,
+      Data ▸ Import Deviation… a survey → confirm `TVD` and `TVDSS` appear as computed curves
+      (Curve Catalog / any module's log-input dropdown). TVD should be shallower than MD in the
+      built section; TVDSS = KB − TVD.
+- [ ] **`sw_height` TVD input now works.** Run the Saturation-Height module selecting the new `TVD`
+      curve for the TVD input — on a deviated well the height (HAFWL) and SWH now use true vertical
+      depth instead of MD (previously the TVD input was a silent no-op → MD fallback → optimistic pay).
+- [ ] **SHF fits can use the materialized TVDSS.** In the Cuddy FOIL / Brooks-Corey / Skelt / Thomeer
+      panes, pick the new `TVDSS` curve as the vertical-depth input and confirm the fit runs.
+- [ ] **Correlation TVDSS depth-mode** now works from the survey (not only from an imported TVDSS log).
+- [ ] **Data ▸ Recompute TVD/TVDSS Curves** — run after importing logs *after* the survey, or after a
+      KB edit. Status reports "computed for X of Y surveyed well(s), N samples"; surveyed wells with no
+      logs yet are counted as pending. *(Note: the survey-derived TVDSS is written to the computed store,
+      which takes precedence over an imported TVDSS log of the same name when fetched.)*
+
 ## Round 5 — Rock-typing constants verification vs papers (2026-07-22)
 
 Read-only cross-check of every hardcoded literature constant in `rocktyping.rs` / `shf_fit.rs` /

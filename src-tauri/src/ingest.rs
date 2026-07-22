@@ -227,9 +227,49 @@ pub fn import_deviation_csv(
     let stations = crate::deviation::minimum_curvature(&survey.md, &survey.inc, &survey.azi, datum);
     let rows = stations.len();
     match db::insert_well_path(conn, well_id, &stations) {
-        Ok(()) => CoreImportResult { path: path.to_string(), rows, error: None },
+        Ok(()) => {
+            // Materialize TVD/TVDSS onto the log grid so height modules (sw_height, the SHF
+            // fits, the TVDSS correlation view) can fetch them by name. Best-effort: the
+            // survey itself is already saved; a well with no logs yet is a no-op (0 samples)
+            // and the user can recompute via `materialize_tvd` after importing logs.
+            let _ = materialize_tvd_curves(conn, well_id);
+            CoreImportResult { path: path.to_string(), rows, error: None }
+        }
         Err(e) => CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()) },
     }
+}
+
+/// Resamples a well's deviation survey (`well_path`) onto its standard-curve depth grid and
+/// writes the result as fetchable `TVD` and `TVDSS` computed curves — the bridge that lets
+/// `sw_height`'s TVD input, the SHF-fitting modules' TVDSS input, and the correlation TVDSS
+/// depth-mode consume the survey. Returns the number of samples written (per curve); 0 when
+/// the well has no survey (vertical — TVD == MD, and callers already fall back to MD) or no
+/// logs yet (no depth grid to hang the curves on). Overwrites any prior TVD/TVDSS in the
+/// computed store, so a re-import or a KB edit + recompute refreshes them in place.
+pub fn materialize_tvd_curves(conn: &Connection, well_id: &str) -> db::DbResult<usize> {
+    let stations = db::get_well_path(conn, well_id)?;
+    if stations.is_empty() {
+        return Ok(0);
+    }
+    let path: Vec<crate::deviation::Station> = stations
+        .iter()
+        .map(|s| crate::deviation::Station { md: s.md, inc: s.inc, azi: s.azi, tvd: s.tvd, tvdss: s.tvdss })
+        .collect();
+    // Empty name list → just the standard depth grid for this well.
+    let (depth, _cols) = crate::equations::fetch_curve_frame(conn, well_id, &[])?;
+    if depth.is_empty() {
+        return Ok(0);
+    }
+    let mut tvd = Vec::with_capacity(depth.len());
+    let mut tvdss = Vec::with_capacity(depth.len());
+    for &d in &depth {
+        let (t, ss) = crate::deviation::sample_at(&path, d);
+        tvd.push(t);
+        tvdss.push(ss);
+    }
+    crate::equations::write_computed_curve(conn, well_id, &depth, "TVD", &tvd)?;
+    crate::equations::write_computed_curve(conn, well_id, &depth, "TVDSS", &tvdss)?;
+    Ok(depth.len())
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -809,6 +849,65 @@ mod tests {
         assert!((path[1].tvd - 1000.0).abs() < 1e-2, "vertical section TVD == MD");
         assert!(path[2].tvd < path[2].md, "deviated station TVD shallower than MD");
         assert!((path[1].tvdss - (25.0 - 1000.0)).abs() < 1e-2, "TVDSS = datum - TVD");
+    }
+
+    #[test]
+    fn deviation_import_materializes_tvd_tvdss_curves() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, "DEV-MAT-1", None, None, None).unwrap();
+        let ids = wid.to_string();
+
+        // A log depth (MD) grid spanning the whole survey, incl. a deviated section.
+        let depth = vec![0.0f32, 1000.0, 1500.0, 2000.0, 3000.0];
+        let f = vec![1.0f32; depth.len()];
+        crate::db::insert_standard_curves(
+            &conn, wid, depth.clone(), vec![50.0f32; depth.len()],
+            f.clone(), f.clone(), f.clone(), f.clone(), f.clone(),
+        )
+        .unwrap();
+
+        // Vertical to 1000, build to 60° by 2000, hold to 3000.
+        let dev = std::env::temp_dir().join(format!("arshilla_devmat_{ids}.csv"));
+        std::fs::write(&dev, "MD,INC,AZI\n0,0,0\n1000,0,0\n2000,60,45\n3000,60,45\n").unwrap();
+        let res = import_deviation_csv(&conn, &ids, dev.to_str().unwrap(), Some(25.0));
+        std::fs::remove_file(&dev).ok();
+        assert!(res.error.is_none(), "{:?}", res.error);
+
+        // Import auto-materialized TVD + TVDSS onto the log grid, fetchable by name.
+        let (grid, cols) =
+            crate::equations::fetch_curve_frame(&conn, &ids, &["TVD".to_string(), "TVDSS".to_string()]).unwrap();
+        assert_eq!(grid, depth, "curves land on the standard depth grid");
+        let (tvd, tvdss) = (&cols["TVD"], &cols["TVDSS"]);
+        let i1000 = grid.iter().position(|&d| d == 1000.0).unwrap();
+        assert!((tvd[i1000] - 1000.0).abs() < 1e-1, "vertical section TVD == MD: {}", tvd[i1000]);
+        let i3000 = grid.iter().position(|&d| d == 3000.0).unwrap();
+        assert!(tvd[i3000] < 2900.0, "deviated section TVD shallower than MD: {}", tvd[i3000]);
+        // TVDSS = datum(25) − TVD everywhere (the interpolation preserves the affine relation).
+        for (t, ss) in tvd.iter().zip(tvdss.iter()) {
+            assert!((ss - (25.0 - t)).abs() < 1e-1, "TVDSS = 25 - TVD: {ss} vs {}", 25.0 - t);
+        }
+    }
+
+    #[test]
+    fn materialize_tvd_no_survey_writes_nothing() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, "DEV-MAT-2", None, None, None).unwrap();
+        let ids = wid.to_string();
+        let depth = vec![0.0f32, 100.0, 200.0];
+        let f = vec![1.0f32; depth.len()];
+        crate::db::insert_standard_curves(
+            &conn, wid, depth.clone(), vec![50.0f32; depth.len()],
+            f.clone(), f.clone(), f.clone(), f.clone(), f,
+        )
+        .unwrap();
+        // No survey → 0 samples written, and TVD stays absent (all-NaN via generic fallback).
+        assert_eq!(materialize_tvd_curves(&conn, &ids).unwrap(), 0);
+        let (_d, cols) = crate::equations::fetch_curve_frame(&conn, &ids, &["TVD".to_string()]).unwrap();
+        assert!(cols["TVD"].iter().all(|v| v.is_nan()), "no survey → no TVD curve");
     }
 
     /// #118 follow-up: a spliced LAS with a duplicate depth must import cleanly on BOTH the

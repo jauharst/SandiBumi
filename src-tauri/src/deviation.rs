@@ -72,31 +72,36 @@ pub fn minimum_curvature(md: &[f32], inc_deg: &[f32], azi_deg: &[f32], datum_ele
     out
 }
 
-/// Linearly interpolates TVD at an arbitrary MD from a computed survey (for putting any
-/// curve sample onto a TVD scale). Returns MD itself if the survey is empty (vertical-well
-/// fallback), and clamps to the end stations outside the surveyed range.
-// Consumed by the Phase 6c TVD-depth-scale option in the log/correlation views; kept and
-// tested now so the resampling math lands with the rest of the deviation work.
-#[allow(dead_code)]
-pub fn tvd_at(stations: &[Station], md: f32) -> f32 {
+/// Linearly interpolates `(TVD, TVDSS)` at an arbitrary MD from a computed survey — for
+/// resampling the survey onto a curve's depth grid. Returns `(md, NaN)` when the survey is
+/// empty (vertical-well fallback: TVD == MD, TVDSS undefined), and clamps to the end
+/// stations outside the surveyed range. Surveys are short (dozens of stations), so a linear
+/// scan is fine.
+pub fn sample_at(stations: &[Station], md: f32) -> (f32, f32) {
     if stations.is_empty() {
-        return md;
+        return (md, f32::NAN);
     }
     if md <= stations[0].md {
-        return stations[0].tvd;
+        return (stations[0].tvd, stations[0].tvdss);
     }
-    if md >= stations[stations.len() - 1].md {
-        return stations[stations.len() - 1].tvd;
+    let last = stations[stations.len() - 1];
+    if md >= last.md {
+        return (last.tvd, last.tvdss);
     }
-    // Binary-ish linear scan (surveys are short — dozens of stations).
     for w in stations.windows(2) {
         let (a, b) = (w[0], w[1]);
         if md >= a.md && md <= b.md {
             let t = if (b.md - a.md).abs() < 1e-9 { 0.0 } else { (md - a.md) / (b.md - a.md) };
-            return a.tvd + t * (b.tvd - a.tvd);
+            return (a.tvd + t * (b.tvd - a.tvd), a.tvdss + t * (b.tvdss - a.tvdss));
         }
     }
-    stations[stations.len() - 1].tvd
+    (last.tvd, last.tvdss)
+}
+
+/// TVD only at an MD (see [`sample_at`]). Kept for the log/correlation TVD-depth-scale views.
+#[allow(dead_code)]
+pub fn tvd_at(stations: &[Station], md: f32) -> f32 {
+    sample_at(stations, md).0
 }
 
 #[cfg(test)]
@@ -142,5 +147,23 @@ mod tests {
         assert!((tvd_at(&s, -50.0) - 0.0).abs() < 1e-2, "clamp below first station");
         assert!((tvd_at(&s, 9999.0) - 2000.0).abs() < 1e-2, "clamp above last station");
         assert!((tvd_at(&[], 1234.0) - 1234.0).abs() < 1e-6, "empty survey → MD passthrough");
+    }
+
+    #[test]
+    fn sample_at_interpolates_both_tvd_and_tvdss() {
+        // Datum 30 m KB: TVDSS = 30 − TVD. Vertical well, so TVD == MD.
+        let md = [0.0, 1000.0, 2000.0];
+        let inc = [0.0, 0.0, 0.0];
+        let azi = [0.0, 0.0, 0.0];
+        let s = minimum_curvature(&md, &inc, &azi, 30.0);
+        let (tvd, tvdss) = sample_at(&s, 1500.0);
+        assert!((tvd - 1500.0).abs() < 1e-2, "tvd={tvd}");
+        assert!((tvdss - (30.0 - 1500.0)).abs() < 1e-2, "tvdss={tvdss}");
+        // Clamps below/above carry the end stations' TVDSS.
+        assert!((sample_at(&s, -50.0).1 - (30.0 - 0.0)).abs() < 1e-2);
+        assert!((sample_at(&s, 9999.0).1 - (30.0 - 2000.0)).abs() < 1e-2);
+        // Empty survey → (MD, NaN).
+        let (t0, ss0) = sample_at(&[], 1234.0);
+        assert!((t0 - 1234.0).abs() < 1e-6 && ss0.is_nan());
     }
 }

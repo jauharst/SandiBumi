@@ -1574,6 +1574,23 @@ export function getWellPath(wellId: string): Promise<WellPathStation[]> {
   return invoke<WellPathStation[]>("get_well_path", { wellId });
 }
 
+/** Per-well outcome of `materializeTvd`. `samples` = points written for each of TVD/TVDSS
+ *  (0 = no survey or no logs yet); `has_survey` distinguishes "no survey" from "survey, no logs". */
+export interface TvdMaterializeResult {
+  well_id: string;
+  well_name: string;
+  samples: number;
+  has_survey: boolean;
+}
+
+/** Rebuilds TVD/TVDSS computed curves from each well's deviation survey onto its log depth
+ *  grid, so sw_height's TVD input, the SHF fits, and the TVDSS correlation view can fetch them.
+ *  Deviation import already does this automatically; use this after importing logs later or
+ *  editing the KB datum. Wells with no survey or no logs report samples = 0. */
+export function materializeTvd(wellIds: string[]): Promise<TvdMaterializeResult[]> {
+  return invoke<TvdMaterializeResult[]>("materialize_tvd", { wellIds });
+}
+
 export interface DlisImportResult {
   path: string;
   curves_imported: number;

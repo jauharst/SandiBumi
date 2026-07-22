@@ -557,6 +557,36 @@ fn get_well_path(db: tauri::State<DbState>, well_id: String) -> Result<Vec<db::W
     db::get_well_path(&conn, &well_id).map_err(|e| e.to_string())
 }
 
+/// Per-well outcome of `materialize_tvd`.
+#[derive(serde::Serialize)]
+struct TvdMaterialize {
+    well_id: String,
+    well_name: String,
+    /// Samples written for each of TVD and TVDSS; 0 = no survey or no logs yet.
+    samples: usize,
+    has_survey: bool,
+}
+
+/// Materializes TVD/TVDSS computed curves from each well's deviation survey onto its log
+/// depth grid, so `sw_height`'s TVD input, the SHF-fitting panes, and the TVDSS correlation
+/// depth-mode can consume them by name. Deviation import already does this automatically;
+/// this command re-runs it (e.g. after importing logs later or editing the KB datum). Wells
+/// with no survey or no logs report `samples = 0`.
+#[tauri::command]
+fn materialize_tvd(db: tauri::State<DbState>, well_ids: Vec<String>) -> Result<Vec<TvdMaterialize>, String> {
+    let conn = db.0.lock().unwrap();
+    let mut out = Vec::with_capacity(well_ids.len());
+    for wid in &well_ids {
+        let well_name: String = conn
+            .query_row("SELECT well_name FROM wells WHERE well_id = ?1", [wid], |r| r.get(0))
+            .unwrap_or_else(|_| wid.clone());
+        let has_survey = !db::get_well_path(&conn, wid).map_err(|e| e.to_string())?.is_empty();
+        let samples = ingest::materialize_tvd_curves(&conn, wid).map_err(|e| e.to_string())?;
+        out.push(TvdMaterialize { well_id: wid.clone(), well_name, samples, has_survey });
+    }
+    Ok(out)
+}
+
 /// Phase 6: imports every scalar channel of a DLIS file into one existing well's generic
 /// curve store (via `dlisio` through the Python subprocess).
 #[tauri::command]
@@ -1425,6 +1455,7 @@ pub fn run() {
             get_generic_curve_samples,
             import_deviation_csv,
             get_well_path,
+            materialize_tvd,
             import_dlis_file,
             list_tops,
             list_layouts,

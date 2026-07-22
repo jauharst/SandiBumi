@@ -4,6 +4,7 @@ import {
   importAuxData,
   importCoreCsv,
   importDeviationCsv,
+  materializeTvd,
   importScalFiles,
   importTopsCsv,
   importWellLocations,
@@ -321,6 +322,11 @@ export class Ribbon {
           label: "Import Deviation…",
           doc: "Import a deviation survey (MD/INC/AZI CSV) and compute TVD/TVDSS for the selected well",
           onPick: () => void this.handleImportDeviation(),
+        },
+        {
+          label: "Recompute TVD/TVDSS Curves",
+          doc: "Rebuild TVD/TVDSS curves from every well's deviation survey onto its log grid — run after importing logs later or editing a well's KB (deviation import does this automatically)",
+          onPick: () => void this.handleMaterializeTvd(),
         },
         {
           label: "Import Well Locations…",
@@ -1479,6 +1485,35 @@ export class Ribbon {
         .catch((err) => setStatus(`Deviation import failed: ${err}`));
     });
     datumInput.focus();
+  }
+
+  /** "Recompute TVD/TVDSS Curves" — rebuilds the TVD/TVDSS curves from every well's deviation
+   *  survey onto its current log grid. Deviation import already does this; this covers logs
+   *  imported after the survey, or a KB edit. A no-op (0 samples) for wells without a survey. */
+  private async handleMaterializeTvd(): Promise<void> {
+    setStatus("Computing TVD/TVDSS curves…");
+    try {
+      const wells = await listWells();
+      if (wells.length === 0) {
+        setStatus("No wells in the project");
+        return;
+      }
+      const results = await materializeTvd(wells.map((w) => w.well_id));
+      const surveyed = results.filter((r) => r.has_survey);
+      if (surveyed.length === 0) {
+        setStatus("No deviation surveys found — import one first (Import Deviation…)");
+        return;
+      }
+      const written = surveyed.filter((r) => r.samples > 0);
+      const total = written.reduce((sum, r) => sum + r.samples, 0);
+      const pending = surveyed.length - written.length;
+      const note = pending > 0 ? ` (${pending} surveyed well(s) have no logs yet)` : "";
+      setStatus(`TVD/TVDSS computed for ${written.length} of ${surveyed.length} surveyed well(s), ${total} samples${note}.`);
+      recordProcess("Edit", `Recomputed TVD/TVDSS curves for ${written.length} well(s)`);
+      this.workspace.notifyDataChanged();
+    } catch (err) {
+      setStatus(`TVD/TVDSS compute failed: ${err}`);
+    }
   }
 
   /** "Import Well Locations…" — surface easting/northing (+optional per-row zone) from a
