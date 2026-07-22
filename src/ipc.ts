@@ -1269,6 +1269,10 @@ export interface ScalPcRow {
   poro: number;
   pc: number;
   sw: number;
+  /** Lab fluid system ('air_brine', 'hg_air', 'oil_brine', ...); null = legacy import. */
+  system: string | null;
+  /** sigma·cosθ of that system (dyn/cm) as entered at import. */
+  ift: number | null;
 }
 
 /** Imports a SCAL Pc/Sw CSV for the well and returns the Leverett-J fit (Sw = A·J^B)
@@ -1284,14 +1288,57 @@ export type ScalFormat = "auto" | "long" | "porous_plate" | "centrifuge";
 
 /** Multi-file SCAL Pc import (e.g. a set of single-plug centrifuge exports): all files
  *  land in ONE combined replace-write of the well's scal_pc rows, with the Leverett-J
- *  fit over the pooled points. */
+ *  fit over the pooled points. `system` labels every stored point with the lab fluid
+ *  system ('air_brine', 'hg_air', 'oil_brine', ...) alongside the entered sigma·cosθ. */
 export function importScalFiles(
   wellId: string,
   paths: string[],
   format: ScalFormat,
+  system: string,
   iftLab: number,
 ): Promise<ScalImportResult> {
-  return invoke<ScalImportResult>("import_scal_files", { wellId, paths, format, iftLab });
+  return invoke<ScalImportResult>("import_scal_files", { wellId, paths, format, system, iftLab });
+}
+
+export interface ThomeerSampleFit {
+  well_name: string;
+  sample_no: number | null;
+  /** null when the plug has no depth (serde encodes NaN floats as null too). */
+  depth: number | null;
+  /** null when the plug has no permeability (Rust NaN → JSON null). */
+  perm: number | null;
+  poro: number;
+  /** Displacement pressure, psi — Hg-air EQUIVALENT when `standardized`. */
+  pd: number;
+  g: number;
+  bv_inf: number;
+  r2: number;
+  n: number;
+  /** Pd pinned at a search bound (entry-truncated curve) — an artifact, not a real Pd. */
+  pd_at_bound: boolean;
+  /** Lab fluid system of this plug's points (from import). */
+  system: string | null;
+  /** Every point carried a σcosθ and Pc was converted to Hg-air equivalent. */
+  standardized: boolean;
+  apex_bv_pc: number;
+  /** Swanson k (mD); null when unstandardized or no apex (Rust NaN → JSON null). */
+  swanson_k: number | null;
+  /** (Pc, Bv) data points, Pc ascending (Hg-air equivalent when standardized). */
+  scatter: [number, number][];
+  /** Fitted (Pc, Bv) curve, log-spaced from just above Pd. */
+  curve: [number, number][];
+}
+
+export interface ThomeerResult {
+  fits: ThomeerSampleFit[];
+  skipped: number;
+  error: string | null;
+}
+
+/** Thomeer Pc hyperbola fit per plug over the selected wells' scal_pc points:
+ *  Bv = Bv∞·exp(−G/log10(Pc/Pd)) — the (Pd, G) plane for Thomeer-class rock typing. */
+export function runThomeerFit(wellIds: string[]): Promise<ThomeerResult> {
+  return invoke<ThomeerResult>("run_thomeer_fit", { req: { well_ids: wellIds } });
 }
 
 export function getScalPc(wellId: string): Promise<ScalPcRow[]> {

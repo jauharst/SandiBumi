@@ -31,6 +31,7 @@ mod report;
 mod rocktyping;
 mod satheight;
 mod shf_fit;
+mod thomeer;
 mod ssc;
 mod python_engine;
 mod tops;
@@ -389,6 +390,7 @@ async fn import_scal_files(
     well_id: String,
     paths: Vec<String>,
     format: String,
+    system: String,
     ift_lab: f64,
 ) -> Result<ingest::ScalImportResult, String> {
     let conn = db.0.clone();
@@ -399,7 +401,7 @@ async fn import_scal_files(
     };
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import SCAL", detail, move || {
         let c = conn.lock().unwrap();
-        Ok(ingest::import_scal_files(&c, &well_id, &paths, &format, ift_lab))
+        Ok(ingest::import_scal_files(&c, &well_id, &paths, &format, &system, ift_lab))
     })
     .await
 }
@@ -867,6 +869,20 @@ async fn run_shf_fit(
 ) -> Result<shf_fit::ShfFitResult, String> {
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || shf_fit::run_shf_fit(&conn, &req))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Thomeer Pc hyperbola fit (Wave B item 8, increment 2): per-plug (Pd, G, Bv∞) over the
+/// selected wells' scal_pc points, for the Pd-G rock-typing plane + Swanson apex.
+/// Off-thread; writes no curves.
+#[tauri::command]
+async fn run_thomeer_fit(
+    db: tauri::State<'_, DbState>,
+    req: thomeer::ThomeerRequest,
+) -> Result<thomeer::ThomeerResult, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || thomeer::run_thomeer_fit(&conn, &req))
         .await
         .map_err(|e| e.to_string())
 }
@@ -1466,6 +1482,7 @@ pub fn run() {
             run_ml_eval,
             run_cuddy_foil,
             run_shf_fit,
+            run_thomeer_fit,
             run_facies_confusion,
             run_multimin,
             multimin_library,

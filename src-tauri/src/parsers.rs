@@ -677,6 +677,11 @@ pub fn parse_scal_csv<P: AsRef<Path>>(path: P) -> ParseResult<Vec<ScalPcRecord>>
     let idx_poro = resolve_header_index(&headers, &CORE_CPOR_ALIASES);
 
     let mut out = Vec::new();
+    // Merged-cell lab exports write the plug context (sample/depth/perm/poro) only on
+    // each plug's FIRST row; forward-fill blanks from the previous row when the file has
+    // a SAMPLE column at all. A row naming a DIFFERENT sample starts a new plug and
+    // inherits nothing.
+    let mut last: Option<(Option<i32>, Option<f32>, f32, f32)> = None;
     for result in rdr.records() {
         let record = result?;
         let get = |idx: Option<usize>| -> f32 {
@@ -687,17 +692,33 @@ pub fn parse_scal_csv<P: AsRef<Path>>(path: P) -> ParseResult<Vec<ScalPcRecord>>
         if pc.is_nan() || sw.is_nan() {
             continue;
         }
-        out.push(ScalPcRecord {
-            sample_no: idx_sample.and_then(|i| record.get(i)).and_then(parse_sample_no),
-            depth: {
-                let d = get(idx_depth);
-                if d.is_nan() { None } else { Some(d) }
-            },
-            perm: get(idx_perm),
-            poro: get(idx_poro),
-            pc,
-            sw,
-        });
+        let mut sample_no = idx_sample.and_then(|i| record.get(i)).and_then(parse_sample_no);
+        let mut depth = {
+            let d = get(idx_depth);
+            if d.is_nan() { None } else { Some(d) }
+        };
+        let mut perm = get(idx_perm);
+        let mut poro = get(idx_poro);
+        if idx_sample.is_some() {
+            if let Some((ls, ld, lk, lp)) = last {
+                if sample_no.is_none() || sample_no == ls {
+                    if sample_no.is_none() {
+                        sample_no = ls;
+                    }
+                    if depth.is_none() {
+                        depth = ld;
+                    }
+                    if perm.is_nan() {
+                        perm = lk;
+                    }
+                    if poro.is_nan() {
+                        poro = lp;
+                    }
+                }
+            }
+            last = Some((sample_no, depth, perm, poro));
+        }
+        out.push(ScalPcRecord { sample_no, depth, perm, poro, pc, sw });
     }
 
     // Percent detection over the whole file (same heuristic as core CSVs).
@@ -1345,6 +1366,27 @@ Speed (RPM);Pc (psi);Sw (%PV)\n500;2,1;95,0\n1000;8,4;78,2\n2000;33,6;55,4\n";
         std::fs::remove_file(&path).ok();
         assert_eq!(recs.len(), 2);
         assert_eq!(recs[0].sample_no, Some(12), "'12A' keeps its numeric part in the long parser too");
+    }
+
+    /// Merged-cell long exports (plug context only on each plug's first row) forward-fill,
+    /// so continuation rows stay with their plug and keep its perm/poro.
+    #[test]
+    fn scal_long_forward_fills_merged_cells() {
+        let body = "\
+SAMPLE,DEPTH,PERM,PORO,PC,SW\n\
+1,2000.5,150,0.22,1,0.95\n\
+,,,,5,0.70\n\
+,,,,20,0.45\n\
+2,2010.0,12,0.18,1,0.98\n\
+,,,,20,0.60\n";
+        let path = write_temp_csv("sandibumi_scal_long_ffill_test.csv", body);
+        let recs = parse_scal_csv(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+        assert_eq!(recs.len(), 5);
+        assert!(recs[..3].iter().all(|r| r.sample_no == Some(1) && (r.poro - 0.22).abs() < 1e-5));
+        assert_eq!(recs[1].depth, Some(2000.5), "continuation rows inherit the plug depth");
+        assert!(recs[3..].iter().all(|r| r.sample_no == Some(2) && (r.perm - 12.0).abs() < 1e-3));
+        assert!((recs[4].poro - 0.18).abs() < 1e-5, "plug 2 keeps its own context, no bleed from plug 1");
     }
 }
 

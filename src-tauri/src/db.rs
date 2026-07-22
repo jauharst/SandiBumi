@@ -274,6 +274,13 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             pc          FLOAT NOT NULL, -- capillary pressure, psi (lab system)
             sw          FLOAT NOT NULL  -- water saturation, v/v
         );
+        -- Lab fluid system per point (increment 2 hardening): which system the Pc was
+        -- measured in ('air_brine', 'hg_air', 'oil_brine', ...) and its sigma·cosθ
+        -- (dyn/cm) as entered at import. Lets mixed deliveries be told apart and
+        -- standardized to one system later (Thomeer / J-from-SCAL). Added via ALTER so
+        -- existing databases converge on the same shape; NULL = imported before this.
+        ALTER TABLE scal_pc ADD COLUMN IF NOT EXISTS system VARCHAR;
+        ALTER TABLE scal_pc ADD COLUMN IF NOT EXISTS ift FLOAT;
 
         -- Named user documents (saved layouts, plot property sets, ...), stored as JSON.
         CREATE TABLE IF NOT EXISTS documents (
@@ -651,6 +658,10 @@ pub struct ScalPcRow {
     pub poro: f32,
     pub pc: f32,
     pub sw: f32,
+    /// Lab fluid system ('air_brine', 'hg_air', 'oil_brine', ...); None = legacy import.
+    pub system: Option<String>,
+    /// sigma·cosθ of that system (dyn/cm) as entered at import.
+    pub ift: Option<f32>,
 }
 
 /// Bulk-inserts SCAL capillary-pressure rows for one well, replacing any prior rows
@@ -660,7 +671,8 @@ pub fn insert_scal_pc(conn: &Connection, well_id: &str, rows: &[ScalPcRow]) -> D
         conn.execute("DELETE FROM scal_pc WHERE well_id = ?1", params![well_id])?;
         let mut appender: Appender = conn.appender("scal_pc")?;
         for r in rows {
-            appender.append_row(params![well_id, r.sample_no, r.depth, r.perm, r.poro, r.pc, r.sw])?;
+            appender
+                .append_row(params![well_id, r.sample_no, r.depth, r.perm, r.poro, r.pc, r.sw, r.system, r.ift])?;
         }
         appender.flush()?;
         Ok(())
@@ -669,7 +681,7 @@ pub fn insert_scal_pc(conn: &Connection, well_id: &str, rows: &[ScalPcRow]) -> D
 
 pub fn get_scal_pc(conn: &Connection, well_id: &str) -> DbResult<Vec<ScalPcRow>> {
     let mut stmt = conn.prepare(
-        "SELECT sample_no, depth, perm, poro, pc, sw FROM scal_pc
+        "SELECT sample_no, depth, perm, poro, pc, sw, system, ift FROM scal_pc
          WHERE well_id = ?1 ORDER BY sample_no NULLS FIRST, pc",
     )?;
     let rows = stmt.query_map(params![well_id], |row| {
@@ -680,6 +692,8 @@ pub fn get_scal_pc(conn: &Connection, well_id: &str) -> DbResult<Vec<ScalPcRow>>
             poro: row.get::<_, Option<f32>>(3)?.unwrap_or(f32::NAN),
             pc: row.get(4)?,
             sw: row.get(5)?,
+            system: row.get(6)?,
+            ift: row.get(7)?,
         })
     })?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)

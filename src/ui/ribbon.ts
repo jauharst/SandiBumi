@@ -1225,11 +1225,33 @@ export class Ribbon {
       fmtSel.appendChild(o);
     }
     content.appendChild(formRow("File format", fmtSel, "How each file's Pc/Sw points are laid out"));
+    const sysSel = document.createElement("select");
+    sysSel.className = "form-control";
+    for (const [value, label] of [
+      ["air_brine", "Air-brine (72)"],
+      ["hg_air", "Air-mercury (367)"],
+      ["oil_brine", "Oil-brine (26)"],
+      ["other", "Other / custom"],
+    ] as const) {
+      const o = document.createElement("option");
+      o.value = value;
+      o.textContent = label;
+      sysSel.appendChild(o);
+    }
+    content.appendChild(formRow("Fluid system", sysSel, "Stored on every imported point; ONE system per import"));
     const iftInput = document.createElement("input");
     iftInput.type = "number";
     iftInput.step = "0.1";
     iftInput.className = "form-control";
     iftInput.value = "72";
+    sysSel.addEventListener("change", () => {
+      const preset: Record<string, string> = { air_brine: "72", hg_air: "367", oil_brine: "26" };
+      const v = preset[sysSel.value];
+      // "Other" clears the field: a stale preset σcosθ silently stored on every point
+      // would bias the J-fit — force an explicit entry instead.
+      iftInput.value = v ?? "";
+      if (!v) iftInput.focus();
+    });
     content.appendChild(formRow("Lab sigma·cosθ (dyn/cm)", iftInput, "Fluid system of the lab measurement"));
     const apply = document.createElement("button");
     apply.className = "form-run-btn";
@@ -1249,7 +1271,7 @@ export class Ribbon {
       apply.disabled = true;
       resultBox.textContent = `Importing SCAL data for ${well.well_name}…`;
       const fmt = fmtSel.value as "auto" | "long" | "porous_plate" | "centrifuge";
-      void importScalFiles(well.well_id, paths, fmt, ift)
+      void importScalFiles(well.well_id, paths, fmt, sysSel.value, ift)
         .then((result) => {
           if (result.error) {
             resultBox.textContent = `SCAL import failed: ${result.error}`;

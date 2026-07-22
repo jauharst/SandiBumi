@@ -218,8 +218,15 @@ fn skelt_sw(a: f64, b: f64, c: f64, d: f64, h: f64) -> f64 {
 }
 
 /// Compact bounded Nelder-Mead simplex minimizer (fixed iteration budget). `f` returns the loss;
-/// `lo`/`hi` clamp each dimension. Derivative-free — fine for the small 4-parameter Skelt fit.
-fn nelder_mead<F: Fn(&[f64; 4]) -> f64>(f: F, x0: [f64; 4], lo: [f64; 4], hi: [f64; 4], iters: usize) -> [f64; 4] {
+/// `lo`/`hi` clamp each dimension. Derivative-free — fine for the small 4-parameter Skelt fit
+/// (and reused by the 3-parameter Thomeer fit with the spare dimension pinned lo == hi).
+pub(crate) fn nelder_mead<F: Fn(&[f64; 4]) -> f64>(
+    f: F,
+    x0: [f64; 4],
+    lo: [f64; 4],
+    hi: [f64; 4],
+    iters: usize,
+) -> [f64; 4] {
     let clamp = |x: [f64; 4]| -> [f64; 4] {
         let mut o = x;
         for i in 0..4 {

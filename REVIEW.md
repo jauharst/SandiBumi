@@ -100,7 +100,37 @@ through in the real app with field data. Nothing committed.**
       J-fit). *(+7 tests, suite 211 passed / 0 failed, tsc EXIT 0.)* **Deferred to the Thomeer /
       J-from-SCAL chunk:** a per-row fluid-system/IFT column in `scal_pc` (schema migration) so
       mixed-system imports can be stored and standardized properly, per the reference doc's long-
-      table spec.
+      table spec. *(→ delivered same day, see the Thomeer entry below.)*
+- [ ] **(8) increment 2 — Thomeer Pc fit (2026-07-22):** new **Pc Fit (Thomeer)** pane (workspace ▸
+      add pane). Fits the Thomeer (1960) hyperbola **Bv = Bv∞·exp(−G/log₁₀(Pc/Pd))** per plug over
+      the scoped wells' imported SCAL Pc points (Bv = φ·(1−Sw); poro-less plugs are skipped and
+      counted, not silently dropped). Per-plug table (row click selects) + the **Bv-vs-Pc QC plot**
+      with the fitted hyperbola and Pd marker + the **Pd–G plane** — the Thomeer-class rock-typing
+      crossplot. Also reports the Swanson apex (Bv/Pc)max and **Swanson k = 399·(Bv%/Pc)^1.691**
+      (constants flagged: verify vs Swanson 1981 before field release, same policy as PGS). ONE
+      pore system per plug this increment; multi-modal stacking (2–3 systems, dBv/dlogPc detection)
+      is a later increment. **Schema:** `scal_pc` gained per-row **`system` + `ift`** columns
+      (ALTER-migrated on old projects; the deferred review item) — the Import SCAL dialog now has a
+      **Fluid system** select (air-brine 72 / air-mercury 367 / oil-brine 26 / custom) that
+      auto-fills the sigma·cosθ and stamps every stored point. *(3 new tests: synthetic-hyperbola
+      recovery pd/G/Bv∞ + R²>0.98, too-few/uninvaded rejection, DB-level grouping + poro-less skip
+      + system/ift round-trip.)* **Try:** import MICP as
+      Air-mercury ▸ Pc Fit (Thomeer) ▸ Fit — check the Pd–G clusters against your rock types.
+      **Post-review hardening (same day, ultracode 2-lens review — 7 confirmed findings, all
+      fixed):** (1) **Pc now standardizes to Hg-air equivalent (×367/σcosθ) BEFORE fitting** — the
+      review caught Swanson k being applied to raw air-brine/oil-brine Pc (16–88× inflation) and
+      the Pd–G plane mixing lab systems; G is scale-invariant so only Pd/apex move, and plugs from
+      any system now share one comparable plane. Rows without a recorded σcosθ fit raw, show
+      "(raw)" in the new System column, and get NO Swanson k. (2) Plugs group per **well_id** (two
+      same-named wells no longer pool) and numbered plugs key on the sample number alone (blank
+      depth cells no longer split a plug). (3) The long parser **forward-fills merged-cell plug
+      context** (sample/depth/perm/poro on first row only — the common Excel export shape). (4)
+      Entry-truncated curves flag **Pd ⚠ (pinned at a search bound)** instead of posing as resolved
+      entries; plateau-only data no longer reports R²=0 for a perfect constant fit. (5) "Other"
+      fluid system clears the σcosθ field (no stale preset silently stored). (6) perm/swanson_k
+      typed `number | null` (NaN→null over IPC). *(+2 tests: air-brine plug recovers the same
+      Hg-equivalent Pd as its mercury twin & legacy no-ift rows suppress Swanson; merged-cell
+      forward-fill. Suite 216 passed / 0 failed; tsc EXIT 0.)*
 
 ## Round 2 — panes, shift-select, MC plot props + table + polish (2026-07-21, Jauhar feedback batch #2)
 

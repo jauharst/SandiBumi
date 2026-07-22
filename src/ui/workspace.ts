@@ -332,6 +332,7 @@ export class Workspace {
       ["Machine Learning", () => this.openMl(group)],
       ["Monte Carlo", () => this.openMonteCarlo(group)],
       ["SHF Fit (Cuddy FOIL)", () => this.openShf(group)],
+      ["Pc Fit (Thomeer)", () => this.openThomeer(group)],
       ["Facies Tie-in (RT confusion)", () => this.openFaciesTie(group)],
       ["SandiMin Solver", () => this.openMultimin(group)],
       "sep",
@@ -477,6 +478,12 @@ export class Workspace {
           "dock-shf",
           () => import("./shfDialog").then((m) => m.buildShfContent(setStatus)),
           "SHF fit",
+        );
+      case "thomeer":
+        return this.asyncPane(
+          "dock-thomeer",
+          () => import("./thomeerDialog").then((m) => m.buildThomeerContent(setStatus)),
+          "Thomeer Pc fit",
         );
       case "faciesTie":
         return this.asyncPane(
@@ -1290,6 +1297,10 @@ export class Workspace {
 
   openShf(group?: DockviewGroupPanel): void {
     this.openSingleton("shf", "shf", "SHF Fit (Cuddy FOIL)", group);
+  }
+
+  openThomeer(group?: DockviewGroupPanel): void {
+    this.openSingleton("thomeer", "thomeer", "Pc Fit (Thomeer)", group);
   }
 
   openFaciesTie(group?: DockviewGroupPanel): void {

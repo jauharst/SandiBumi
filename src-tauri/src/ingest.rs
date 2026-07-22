@@ -258,7 +258,7 @@ pub struct ScalImportResult {
 /// rows, and fits the Leverett-J function (Sw = A·J^B) over the points at `ift_lab`
 /// (sigma·cosθ of the lab fluid system, dyn/cm — e.g. 72 air-brine, 367 air-mercury).
 pub fn import_scal_csv(conn: &Connection, well_id: &str, path: &str, ift_lab: f64) -> ScalImportResult {
-    import_scal_files(conn, well_id, &[path.to_string()], "long", ift_lab)
+    import_scal_files(conn, well_id, &[path.to_string()], "long", "", ift_lab)
 }
 
 /// Multi-file, multi-format SCAL Pc import. Each file is parsed with `format` — "long"
@@ -266,12 +266,16 @@ pub fn import_scal_csv(conn: &Connection, well_id: &str, path: &str, ift_lab: f6
 /// rows), "centrifuge" (per-plug key-value blocks + Pc/Sw tables), or "auto" to sniff
 /// each file — so a set of single-plug centrifuge exports imports in one shot. The
 /// combined records REPLACE the well's `scal_pc` rows (same discipline as re-import),
-/// then the Leverett-J function is fitted over all points at `ift_lab`.
+/// then the Leverett-J function is fitted over all points at `ift_lab`. `system` labels
+/// every stored point with the lab fluid system ('air_brine', 'hg_air', ...; "" = not
+/// recorded) alongside `ift_lab`, so later standardization (Thomeer, J-from-SCAL) knows
+/// which system each point was measured in.
 pub fn import_scal_files(
     conn: &Connection,
     well_id: &str,
     paths: &[String],
     format: &str,
+    system: &str,
     ift_lab: f64,
 ) -> ScalImportResult {
     let joined = paths.join("; ");
@@ -318,6 +322,7 @@ pub fn import_scal_files(
         );
     }
 
+    let sys: Option<String> = if system.trim().is_empty() { None } else { Some(system.trim().to_string()) };
     let rows: Vec<db::ScalPcRow> = records
         .iter()
         .map(|r| db::ScalPcRow {
@@ -327,6 +332,8 @@ pub fn import_scal_files(
             poro: r.poro,
             pc: r.pc,
             sw: r.sw,
+            system: sys.clone(),
+            ift: Some(ift_lab as f32),
         })
         .collect();
     if let Err(e) = db::insert_scal_pc(conn, well_id, &rows) {
@@ -961,19 +968,24 @@ mod tests {
         std::fs::write(&p2, cf("S-16A", 2701.8)).unwrap();
         let paths = vec![p1.to_str().unwrap().to_string(), p2.to_str().unwrap().to_string()];
 
-        let res = import_scal_files(&conn, &ids, &paths, "auto", 72.0);
+        let res = import_scal_files(&conn, &ids, &paths, "auto", "air_brine", 72.0);
         assert!(res.error.is_none(), "{:?}", res.error);
         assert_eq!(res.rows, 8, "both plugs land in one combined import");
         assert!(res.fit.is_some(), "J-fit solves over the pooled points");
         let rows = db::get_scal_pc(&conn, &ids).unwrap();
         assert_eq!(rows.len(), 8);
         assert!(rows.iter().any(|r| r.sample_no == Some(12)) && rows.iter().any(|r| r.sample_no == Some(16)));
+        assert!(
+            rows.iter().all(|r| r.system.as_deref() == Some("air_brine") && r.ift == Some(72.0)),
+            "fluid system + IFT stored on every point"
+        );
 
         // A porous-plate re-import replaces the centrifuge set (write discipline).
         let wide = "Sample,Depth (m),Perm (mD),Poro (%),1,2,4,8\n4,2001.5,150.0,22.5,98.5,95.2,88.1,79.4\n";
         let p3 = std::env::temp_dir().join(format!("sandibumi_scal_pp_{ids}.csv"));
         std::fs::write(&p3, wide).unwrap();
-        let res2 = import_scal_files(&conn, &ids, &[p3.to_str().unwrap().to_string()], "porous_plate", 72.0);
+        let res2 =
+            import_scal_files(&conn, &ids, &[p3.to_str().unwrap().to_string()], "porous_plate", "air_brine", 72.0);
         assert!(res2.error.is_none(), "{:?}", res2.error);
         assert_eq!(res2.rows, 4);
         assert_eq!(db::get_scal_pc(&conn, &ids).unwrap().len(), 4, "replace, not append");
@@ -984,6 +996,7 @@ mod tests {
             &ids,
             &[p1.to_str().unwrap().to_string(), "missing_dir/nope.csv".to_string()],
             "auto",
+            "air_brine",
             72.0,
         );
         assert!(res3.error.as_deref().is_some_and(|e| e.contains("nope.csv")));
@@ -1006,14 +1019,14 @@ mod tests {
 
         let good = std::env::temp_dir().join(format!("sandibumi_scal_good_{ids}.csv"));
         std::fs::write(&good, "PC,SW\n5,0.55\n10,0.45\n20,0.35\n").unwrap();
-        let res = import_scal_files(&conn, &ids, &[good.to_str().unwrap().to_string()], "long", 72.0);
+        let res = import_scal_files(&conn, &ids, &[good.to_str().unwrap().to_string()], "long", "hg_air", 367.0);
         assert!(res.error.is_none(), "{:?}", res.error);
         assert_eq!(db::get_scal_pc(&conn, &ids).unwrap().len(), 3);
 
         // Header-only export (e.g. a filtered/template sheet) → error, data intact.
         let empty = std::env::temp_dir().join(format!("sandibumi_scal_empty_{ids}.csv"));
         std::fs::write(&empty, "PC,SW\n").unwrap();
-        let res2 = import_scal_files(&conn, &ids, &[empty.to_str().unwrap().to_string()], "auto", 72.0);
+        let res2 = import_scal_files(&conn, &ids, &[empty.to_str().unwrap().to_string()], "auto", "hg_air", 367.0);
         assert!(res2.error.as_deref().is_some_and(|e| e.contains("untouched")), "{:?}", res2.error);
         assert_eq!(db::get_scal_pc(&conn, &ids).unwrap().len(), 3, "existing points survive");
 
