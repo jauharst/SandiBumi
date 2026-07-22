@@ -934,6 +934,9 @@ export interface MultiminRequest {
   output_prefix: string;
   unity: boolean;
   fluid: MmFluidProps | null;
+  /** Emit per-tool reconstruction QC curves: `<prefix>_<KEY>_REC` (measurement rebuilt from the
+   *  solved volumes, display units) + `<prefix>_<KEY>_DIF` (σ-unit residual, that tool's RECON term). */
+  recon_qc?: boolean;
 }
 
 export interface MultiminWellResult {
@@ -946,6 +949,11 @@ export interface MultiminWellResult {
 export interface MultiminResult {
   outputs: string[];
   wells: MultiminWellResult[];
+  /** Model degrees of freedom = (tools + soft constraints + unity) − components. 0 = exactly
+   *  determined (RECON forced to ~0, can't validate the model); >0 = a real fit-quality signal. */
+  dof: number;
+  /** Set when dof == 0 — a heads-up that the reconstruction can't discriminate the model. */
+  dof_note: string | null;
   error: string | null;
 }
 

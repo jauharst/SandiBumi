@@ -21,7 +21,13 @@
 //!
 //! The solver is a bounded, equality-constrained active-set least squares (KKT system with
 //! a unity Lagrange multiplier; components can be fixed at 0 or at their upper bound).
-//! RECON (RMS weighted residual over the live tool rows, σ units) flags model failure.
+//! RECON is the INCOHERENCE — the σ-weighted RMS of (reconstructed − measured) over the live tool
+//! rows (Quanti.Elan "incoherence" function, Eq 79; see docs/multimin_geolog_spec.md) — so a high
+//! value flags a model that cannot reproduce the logs. With `recon_qc` the reconstruction is
+//! decomposed per tool: `<prefix>_<KEY>_REC` (measurement rebuilt from the volumes, display units)
+//! and `<prefix>_<KEY>_DIF` (that tool's σ-unit residual, whose RMS over tools is RECON), so the
+//! user can see WHICH log the model fails to honour. The reconstruction only discriminates when the
+//! system is over-determined — the reported `dof` says whether that holds.
 
 use crate::equations::{fetch_curve_frame, write_computed_curves_versioned};
 use duckdb::Connection;
@@ -126,6 +132,12 @@ pub struct MultiminRequest {
     /// Required when CT or CXO is among the tools.
     #[serde(default)]
     pub fluid: Option<FluidProps>,
+    /// Emit per-tool reconstruction-QC curves: for each active tool a `<prefix>_<KEY>_REC`
+    /// (measurement rebuilt from the solved volumes, in the tool's display units) and
+    /// `<prefix>_<KEY>_DIF` (the σ-unit residual = that tool's term of RECON). Off by default
+    /// to keep the curve set lean.
+    #[serde(default)]
+    pub recon_qc: bool,
 }
 
 fn default_prefix() -> String {
@@ -147,11 +159,17 @@ pub struct MultiminWellResult {
 pub struct MultiminResult {
     pub outputs: Vec<String>,
     pub wells: Vec<MultiminWellResult>,
+    /// Model degrees of freedom = (tools + soft constraints + unity) − components. 0 = exactly
+    /// determined (residuals are forced to ~0 and can't validate the model); >0 = over-determined,
+    /// so RECON/incoherence is a real fit-quality signal.
+    pub dof: i64,
+    /// Set when `dof == 0` — a heads-up that the reconstruction can't discriminate the model.
+    pub dof_note: Option<String>,
     pub error: Option<String>,
 }
 
 fn fail(msg: &str) -> MultiminResult {
-    MultiminResult { outputs: vec![], wells: vec![], error: Some(msg.to_string()) }
+    MultiminResult { outputs: vec![], wells: vec![], dof: 0, dof_note: None, error: Some(msg.to_string()) }
 }
 
 /// Curve-safe token for a component name: uppercase, non-alphanumeric → '_'.
@@ -642,6 +660,16 @@ pub fn run_multimin(
             tools.len()
         ));
     }
+    // Model degrees of freedom with every tool live: equations (tools + soft + unity) − unknowns.
+    let dof = tools.len() as i64 + n_extra as i64 - n as i64;
+    let dof_note = (dof == 0).then(|| {
+        format!(
+            "exactly determined: {} equation(s) for {n} component(s), so RECON is forced to ~0 and \
+             cannot validate the model — add an input log for a real reconstruction check",
+            tools.len() + n_extra
+        )
+    });
+    let recon_qc = req.recon_qc;
 
     let comp_tokens: Vec<String> = req.components.iter().map(|c| curve_token(&c.name)).collect();
     let vol_names: Vec<String> = comp_tokens.iter().map(|t| format!("VOL_{t}")).collect();
@@ -710,11 +738,16 @@ pub fn run_multimin(
         let mut recon = vec![f32::NAN; ns];
         let mut solved = 0usize;
         let mut recon_sum = 0.0f64;
+        // Per-tool reconstruction QC (recon_qc): reconstructed measurement + σ-unit residual.
+        let mut tool_rec: Vec<Vec<f32>> = if recon_qc { vec![vec![f32::NAN; ns]; tools.len()] } else { Vec::new() };
+        let mut tool_dif: Vec<Vec<f32>> = if recon_qc { vec![vec![f32::NAN; ns]; tools.len()] } else { Vec::new() };
 
         for i in 0..ns {
             let mut a: Vec<Vec<f64>> = Vec::with_capacity(tools.len() + soft.len());
             let mut b: Vec<f64> = Vec::with_capacity(tools.len() + soft.len());
             let mut live_tools = 0usize;
+            // (tool index, measured value in solve domain, weight) for the reconstruction QC.
+            let mut live: Vec<(usize, f64, f64)> = Vec::new();
             for (t, tcol) in tool_cols.iter().enumerate() {
                 let raw = tcol[i] as f64;
                 if !raw.is_finite() {
@@ -741,6 +774,9 @@ pub fn run_multimin(
                 };
                 a.push(rows[t].iter().map(|e| e * w).collect());
                 b.push(v * w);
+                if recon_qc {
+                    live.push((t, v, w));
+                }
                 live_tools += 1;
             }
             if live_tools < min_tools {
@@ -785,6 +821,18 @@ pub fn run_multimin(
             recon[i] = rerr as f32;
             recon_sum += rerr;
             solved += 1;
+
+            // Per-tool reconstruction: rebuild each live tool's reading from the solved volumes.
+            // rec_native = rows[t]·x is in the tool's SOLVE domain; the σ-unit residual
+            // (rec_native − v)·w is exactly that tool's term of RECON (Σ term² / n_tool_rows = rerr²).
+            if recon_qc {
+                let rhob_i = rhob_col.map(|c| c[i] as f64);
+                for &(t, v, w) in &live {
+                    let rec_native: f64 = rows[t].iter().zip(&x).map(|(e, xi)| e * xi).sum();
+                    tool_dif[t][i] = ((rec_native - v) * w) as f32;
+                    tool_rec[t][i] = recon_display(&tkind[t], rec_native, rhob_i) as f32;
+                }
+            }
         }
 
         // Derived output curves from the solved volumes.
@@ -829,7 +877,16 @@ pub fn run_multimin(
             let vsh = make(&|i| sum_over(&zs.clays, i) + sum_over(&zs.u_bw, i));
             curves.push((format!("{prefix}_VSH"), vsh));
         }
+        // RECON = the incoherence (σ-weighted RMS residual over live tool rows; Quanti.Elan Eq 79).
         curves.push((format!("{prefix}_RECON"), recon));
+        // Per-tool reconstruction QC decomposition (opt-in): rebuilt reading + σ-unit residual.
+        if recon_qc {
+            for (t, tool) in tools.iter().enumerate() {
+                let tag = curve_token(&tool.key);
+                curves.push((format!("{prefix}_{tag}_REC"), std::mem::take(&mut tool_rec[t])));
+                curves.push((format!("{prefix}_{tag}_DIF"), std::mem::take(&mut tool_dif[t])));
+            }
+        }
 
         if out_names.is_empty() {
             out_names = curves.iter().map(|(n, _)| n.clone()).collect();
@@ -869,7 +926,27 @@ pub fn run_multimin(
         });
     }
 
-    MultiminResult { outputs: out_names, wells, error: None }
+    MultiminResult { outputs: out_names, wells, dof, dof_note, error: None }
+}
+
+/// Rebuilds a tool's measurement in its DISPLAY domain from the solved native prediction:
+/// Plain tools are already physical; a conductivity row predicts C^(1/w) → resistivity = pred^−w;
+/// a PEF row predicts U = Pe·ρe → PEF = U/ρe.
+fn recon_display(kind: &TKind, native: f64, rhob: Option<f64>) -> f64 {
+    match *kind {
+        TKind::Plain => native,
+        TKind::Cond(w) => {
+            if native > 1e-12 {
+                native.powf(-w)
+            } else {
+                f64::NAN
+            }
+        }
+        TKind::Pef(_) => match rhob {
+            Some(rb) if rb.is_finite() && rb > 0.0 => native / rho_e(rb),
+            _ => f64::NAN,
+        },
+    }
 }
 
 fn is_cond_key(key: &str) -> bool {
@@ -1278,6 +1355,146 @@ mod tests {
     }
 
     #[test]
+    fn recon_qc_emits_per_tool_curves_and_flags_endpoint_error() {
+        // Forward-model a 24-sample quartz/illite/water well from the library's own endpoints, so a
+        // clean solve reconstructs the logs exactly (incoherence ~0) and a wrong endpoint inflates it.
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, "MM-RECON", None, None, None).unwrap();
+        let ids = wid.to_string();
+        let q = lib_get("Quartz");
+        let ill = lib_get("Illite");
+        let mut wat = lib_get("Water Sxo");
+        wat.zone = String::new(); // shared water: in unity + seen by every tool
+        let ep = |c: &Component, k: &str| c.endpoints[k];
+        let n = 24usize;
+        let depth: Vec<f32> = (0..n).map(|i| 2000.0 + i as f32 * 0.5).collect();
+        let (mut gr, mut nphi, mut rhob, mut dt) = (vec![], vec![], vec![], vec![]);
+        for i in 0..n {
+            let t = i as f64 / (n - 1) as f64;
+            let vi = 0.05 + 0.35 * (t * 3.14).sin().powi(2);
+            let vw = 0.05 + 0.20 * t;
+            let vq = (1.0 - vi - vw).max(0.0);
+            let s = vq + vi + vw;
+            let (vq, vi, vw) = (vq / s, vi / s, vw / s);
+            let mix = |k: &str| vq * ep(&q, k) + vi * ep(&ill, k) + vw * ep(&wat, k);
+            gr.push(mix("GR") as f32);
+            nphi.push(mix("NPHI") as f32);
+            rhob.push(mix("RHOB") as f32);
+            dt.push(mix("DT") as f32);
+        }
+        crate::db::insert_standard_curves(
+            &conn, wid, depth.clone(), gr, vec![2.0f32; n], nphi, rhob.clone(), dt, vec![f32::NAN; n],
+        )
+        .unwrap();
+        let db = Mutex::new(conn);
+
+        let tools = || {
+            vec![
+                ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.03 },
+                ToolSpec { key: "NPHI".into(), curve: "NPHI".into(), sigma: 0.03 },
+                ToolSpec { key: "DT".into(), curve: "DT".into(), sigma: 2.0 },
+                ToolSpec { key: "GR".into(), curve: "GR".into(), sigma: 6.0 },
+            ]
+        };
+        let run = |comps: Vec<Component>, prefix: &str| -> MultiminResult {
+            run_multimin(
+                &db,
+                &MultiminRequest {
+                    components: comps,
+                    tools: tools(),
+                    apply_well_ids: vec![ids.clone()],
+                    output_prefix: prefix.into(),
+                    unity: true,
+                    fluid: None,
+                    recon_qc: true,
+                },
+                None,
+            )
+        };
+        let read = |names: &[&str]| -> HashMap<String, Vec<f32>> {
+            let c = db.lock().unwrap();
+            fetch_curve_frame(&c, &ids, &names.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap().1
+        };
+        let rms = |v: &[f32]| {
+            let fin: Vec<f32> = v.iter().copied().filter(|x| x.is_finite()).collect();
+            (fin.iter().map(|x| x * x).sum::<f32>() / fin.len().max(1) as f32).sqrt()
+        };
+
+        // Clean model: 4 tools + unity − 3 components = 2 DOF, so RECON is a real signal.
+        let clean = run(vec![q.clone(), ill.clone(), wat.clone()], "MM");
+        assert!(clean.error.is_none(), "err={:?}", clean.error);
+        assert_eq!(clean.dof, 2, "dof = 4 tools + unity − 3 comps");
+        assert!(clean.dof_note.is_none());
+        let mean_clean = clean.wells[0].mean_recon;
+        assert!(mean_clean < 0.1, "a perfect forward model should reconstruct exactly, incoherence={mean_clean}");
+        for name in ["MM_RHOB_REC", "MM_RHOB_DIF", "MM_NPHI_REC", "MM_DT_REC", "MM_GR_REC"] {
+            assert!(clean.outputs.iter().any(|o| o == name), "missing output {name}; got {:?}", clean.outputs);
+        }
+        // Reconstructed RHOB recovers the measured RHOB.
+        let cols = read(&["MM_RHOB_REC"]);
+        let maxdiff = cols["MM_RHOB_REC"]
+            .iter()
+            .zip(&rhob)
+            .filter(|(r, _)| r.is_finite())
+            .map(|(r, m)| (r - m).abs())
+            .fold(0.0f32, f32::max);
+        assert!(maxdiff < 0.02, "reconstructed RHOB should match measured, max diff {maxdiff}");
+
+        // Inject a wrong illite density (+0.4 g/cc) → incoherence rises and the density residual is real.
+        let mut ill_bad = ill.clone();
+        *ill_bad.endpoints.get_mut("RHOB").unwrap() += 0.4;
+        let bad = run(vec![q.clone(), ill_bad, wat.clone()], "MB");
+        assert!(bad.error.is_none(), "err={:?}", bad.error);
+        let mean_bad = bad.wells[0].mean_recon;
+        assert!(
+            mean_bad > mean_clean * 3.0 + 0.1,
+            "an endpoint error should inflate incoherence: clean {mean_clean}, bad {mean_bad}"
+        );
+        assert!(rms(&read(&["MB_RHOB_DIF"])["MB_RHOB_DIF"]) > 0.1, "the density misfit should show in MB_RHOB_DIF");
+    }
+
+    #[test]
+    fn dof_note_set_when_exactly_determined() {
+        // 3 components, 2 tools + unity = 3 equations → dof 0 → a note, and RECON ~0 regardless.
+        let q = lib_get("Quartz");
+        let ill = lib_get("Illite");
+        let mut wat = lib_get("Water Sxo");
+        wat.zone = String::new();
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, "MM-DOF", None, None, None).unwrap();
+        let n = 6usize;
+        let depth: Vec<f32> = (0..n).map(|i| 2000.0 + i as f32 * 0.5).collect();
+        crate::db::insert_standard_curves(
+            &conn, wid, depth, vec![40.0; n], vec![2.0; n], vec![0.2; n], vec![2.45; n], vec![80.0; n], vec![f32::NAN; n],
+        )
+        .unwrap();
+        let db = Mutex::new(conn);
+        let res = run_multimin(
+            &db,
+            &MultiminRequest {
+                components: vec![q, ill, wat],
+                tools: vec![
+                    ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.03 },
+                    ToolSpec { key: "NPHI".into(), curve: "NPHI".into(), sigma: 0.03 },
+                ],
+                apply_well_ids: vec![wid.to_string()],
+                output_prefix: "MM".into(),
+                unity: true,
+                fluid: None,
+                recon_qc: false,
+            },
+            None,
+        );
+        assert!(res.error.is_none(), "err={:?}", res.error);
+        assert_eq!(res.dof, 0);
+        assert!(res.dof_note.is_some(), "exactly-determined model should carry a dof note");
+    }
+
+    #[test]
     fn recovers_known_three_mineral_mix() {
         let (q, ill) = (lib_get("Quartz"), lib_get("Illite"));
         // Zone-less variant of water so it appears in unity and all tools.
@@ -1530,6 +1747,7 @@ mod tests {
             output_prefix: "MM".into(),
             unity: true,
             fluid: None,
+            recon_qc: false,
         };
         let conn = Mutex::new(Connection::open_in_memory().unwrap());
         let res = run_multimin(&conn, &req, None);
@@ -1571,6 +1789,7 @@ mod tests {
             output_prefix: "MM".into(),
             unity: true,
             fluid: Some(props),
+            recon_qc: false,
         };
         let conn = Mutex::new(Connection::open_in_memory().unwrap());
         let res = run_multimin(&conn, &req, None);
@@ -1735,6 +1954,7 @@ mod tests {
                 output_prefix: prefix.into(),
                 unity: true,
                 fluid: None,
+                recon_qc: false,
             };
             let res = run_multimin(&db, &req, None);
             assert!(res.error.is_none(), "run_multimin error: {:?}", res.error);

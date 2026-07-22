@@ -7,6 +7,29 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 11 — SandiMin reconstruction QC + degrees-of-freedom (playbook #2, increments 2a/2b) (2026-07-22)
+
+Backend for the SandiMin reconstruction check. The existing **RECON** curve is now documented as the
+**incoherence** — the σ-weighted RMS of (reconstructed − measured) over the live tool rows (Quanti.Elan
+Eq 79). With the new **`recon_qc`** request flag the reconstruction is **decomposed per tool**:
+`<prefix>_<KEY>_REC` = the log rebuilt from the solved volumes (in the tool's display units, so it
+overlays the measured curve) and `<prefix>_<KEY>_DIF` = that tool's σ-unit residual (whose RMS over
+tools is RECON). The result also reports model **degrees of freedom** `dof = (tools + soft + unity) −
+components`, with a note when `dof == 0` (exactly determined → RECON is forced to ~0 and can't validate
+the model). `multimin2.rs` + `ipc.ts`; 2 new tests (a forward-modeled 3-mineral well reconstructs to
+incoherence ~0 and a wrong illite density inflates it + localizes to the density residual; the
+exactly-determined case flags its note). cargo 269/0, tsc 0. **The recon-QC view (toggle +
+measured-vs-reconstructed overlay + incoherence track) lands in increment 2d**; there is no dialog
+control yet, so the checks below are staged. (2c presets are held for Jauhar's smectite-density sign-off.)
+
+- [ ] **Reconstruction flags a bad model.** *(after 2d)* Run SandiMin with the recon-QC view on. On a
+      good model the reconstructed logs overlay the measured ones and RECON/incoherence stays low; force
+      a wrong endpoint (or drop a needed mineral) and confirm the reconstructed curve pulls away from the
+      measured one and the incoherence track lights up — on the tool whose physics you broke.
+- [ ] **DOF honesty.** *(after 2d)* Build a model with exactly as many inputs as components (e.g. 3
+      minerals, 2 logs + unity). Confirm the dialog shows **DOF 0** and warns that RECON can't validate
+      the model; add one more input log and DOF rises to 1 (RECON becomes meaningful).
+
 ## Round 10 — Stratigraphic Modified Lorenz Plot: flow-unit solver (playbook #3, increment 3a) (2026-07-22)
 
 New backend `lorenz.rs` — the **Stratigraphic Modified Lorenz Plot** (Gunter et al. 1997, SPE 38679).
