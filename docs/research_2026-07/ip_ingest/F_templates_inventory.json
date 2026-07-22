@@ -1,0 +1,1181 @@
+{
+ "source": "C:\\Program Files\\IP2025",
+ "extracted": "2026-07-22",
+ "plt_format": {
+  "type": "plain-text ASCII, whitespace-delimited keyword records (NOT XML, NOT binary)",
+  "line_terminator": "CRLF",
+  "comment_prefix": "$",
+  "record_keywords": [
+   "TRACK",
+   "CURVE",
+   "SHADE",
+   "GRID",
+   "ZONES",
+   "TOPS",
+   "ORDER",
+   "PARAS",
+   "FUNCS",
+   "PRINTOUT"
+  ],
+  "TRACK_fields_simple": "Width(in) Grid LogGrid Decades MinorGridStep MinorGrid ? GridLines [Overview] [Name]",
+  "CURVE_fields": "*Type|Name LeftScale RightScale Backup(RBU/LBU/WRAP/NONE) Thickness Color Log/Lin PointPlot [Visible]",
+  "curve_type_prefix": "* denotes a curve TYPE/family (e.g. *GammaRay,*Density,*Neutron,*DeepRes,*Sw,*Vcl,*Phi) resolved via alias; * scale = tool default",
+  "SHADE_fields": "*curveA ref *curveB ref FillFlag Color|Variable[pal] :>:Label  (solid named-color, lithology-named fill (Clay/Silt/Sandstone/Blank), or gradient via .pal palette)",
+  "ORDER_render_stack": "GridLines Pictures Images VDL VertLines Waveform Shading Curves PointPip Tadpoles Zones Numerics DIPImage",
+  "named_colors_17": [
+   "Aqua",
+   "Black",
+   "Blue",
+   "DkGray",
+   "Fuchsia",
+   "Gray",
+   "Green",
+   "Lime",
+   "LtGray",
+   "Maroon",
+   "Navy",
+   "Olive",
+   "Purple",
+   "Red",
+   "Teal",
+   "White",
+   "Yellow"
+  ],
+  "portability_to_sandibumi": "HIGH - simple deterministic text schema, trivially parseable; each TRACK->column, CURVE->trace, SHADE->fill rule maps directly to composite.rs track/scale/fill model. .trk single-track files are drop-in reusable building blocks.",
+  "geomech_variant_note": "Geomechanics/newer .plt add a Lin/Log token + trailing track Name + module-coupled curve refs (e.g. 'PP1InputCurves:GeoInCurve_*') and PARAS/FUNCS records tying the track to a module param set - less portable, module-specific."
+ },
+ "DefaultPlots": {
+  "count": 117,
+  "exts": {
+   ".xpt": 26,
+   ".trk": 16,
+   ".dsp": 14,
+   ".svg": 11,
+   ".plt": 10,
+   ".vwp": 8,
+   ".snp": 8,
+   ".dpp": 6,
+   ".rpc": 6,
+   ".cdp": 4,
+   ".dhp": 2,
+   ".pcf": 2,
+   ".wdcs": 2,
+   ".wcs": 2
+  },
+  "entries": [
+   {
+    "file": "3 Tracks Blank.plt",
+    "ext": ".plt",
+    "purpose": "composite log plot (multi-track)",
+    "scope": "v1-core",
+    "bytes": 1550
+   },
+   {
+    "file": "4 Tracks Blank.plt",
+    "ext": ".plt",
+    "purpose": "composite log plot (multi-track)",
+    "scope": "v1-core",
+    "bytes": 1626
+   },
+   {
+    "file": "Blank-lin.trk",
+    "ext": ".trk",
+    "purpose": "single track template (reusable building block)",
+    "scope": "v1-core",
+    "bytes": 448
+   },
+   {
+    "file": "Blank-log.trk",
+    "ext": ".trk",
+    "purpose": "single track template (reusable building block)",
+    "scope": "v1-core",
+    "bytes": 451
+   },
+   {
+    "file": "CPI Gr.trk",
+    "ext": ".trk",
+    "purpose": "single track template (reusable building block)",
+    "scope": "v1-core",
+    "bytes": 683
+   },
+   {
+    "file": "CPI Ntg.trk",
+    "ext": ".trk",
+    "purpose": "single track template (reusable building block)",
+    "scope": "v1-core",
+    "bytes": 692
+   },
+   {
+    "file": "CPI Perm.trk",
+    "ext": ".trk",
+    "purpose": "single track template (reusable building block)",
+    "scope": "v1-core",
+    "bytes": 589
+   },
+   {
+    "file": "CPI Phi.trk",
+    "ext": ".trk",
+    "purpose": "single track template (reusable building block)",
+    "scope": "v1-core",
+    "bytes": 790
+   },
+   {
+    "file": "CPI Rhoma.trk",
+    "ext": ".trk",
+    "purpose": "single track template (reusable building block)",
+    "scope": "v1-core",
+    "bytes": 668
+   },
+   {
+    "file": "CPI Sw.trk",
+    "ext": ".trk",
+    "purpose": "single track template (reusable building block)",
+    "scope": "v1-core",
+    "bytes": 555
+   },
+   {
+    "file": "CPI Vol.trk",
+    "ext": ".trk",
+    "purpose": "single track template (reusable building block)",
+    "scope": "v1-core",
+    "bytes": 875
+   },
+   {
+    "file": "Caliper.trk",
+    "ext": ".trk",
+    "purpose": "single track template (reusable building block)",
+    "scope": "v1-core",
+    "bytes": 510
+   },
+   {
+    "file": "Composite CPI.plt",
+    "ext": ".plt",
+    "purpose": "composite log plot (multi-track)",
+    "scope": "v1-core",
+    "bytes": 5183
+   },
+   {
+    "file": "Core.xpt\\CorePorPerm.xpt",
+    "ext": ".xpt",
+    "purpose": "cross-plot template (XML, urn:PGL/IntPetro/Xplot)",
+    "scope": "v1-core",
+    "bytes": 836
+   },
+   {
+    "file": "Core.xpt\\Density_CorePor.xpt",
+    "ext": ".xpt",
+    "purpose": "cross-plot template (XML, urn:PGL/IntPetro/Xplot)",
+    "scope": "v1-core",
+    "bytes": 817
+   },
+   {
+    "file": "Default 3D Dip-Angle, Dip-Azimuth Plot, Mini.vwp",
+    "ext": ".vwp",
+    "purpose": "dip vector / dip-angle azimuth plot (image-log)",
+    "scope": "later",
+    "bytes": 1258
+   },
+   {
+    "file": "Default 3D Dip-Angle, Dip-Azimuth Plot.vwp",
+    "ext": ".vwp",
+    "purpose": "dip vector / dip-angle azimuth plot (image-log)",
+    "scope": "later",
+    "bytes": 1454
+   },
+   {
+    "file": "Default Cumulative Dip-Angle Plot, Mini.cdp",
+    "ext": ".cdp",
+    "purpose": "cumulative dip-angle plot (image-log)",
+    "scope": "later",
+    "bytes": 1215
+   },
+   {
+    "file": "Default Cumulative Dip-Angle Plot.cdp",
+    "ext": ".cdp",
+    "purpose": "cumulative dip-angle plot (image-log)",
+    "scope": "later",
+    "bytes": 1409
+   },
+   {
+    "file": "Default Dip-Angle Difference Plot, Mini.cdp",
+    "ext": ".cdp",
+    "purpose": "cumulative dip-angle plot (image-log)",
+    "scope": "later",
+    "bytes": 1215
+   },
+   {
+    "file": "Default Dip-Angle Difference Plot.cdp",
+    "ext": ".cdp",
+    "purpose": "cumulative dip-angle plot (image-log)",
+    "scope": "later",
+    "bytes": 1409
+   },
+   {
+    "file": "Default Dip-Angle Plot, Mini.vwp",
+    "ext": ".vwp",
+    "purpose": "dip vector / dip-angle azimuth plot (image-log)",
+    "scope": "later",
+    "bytes": 1250
+   },
+   {
+    "file": "Default Dip-Angle Plot.vwp",
+    "ext": ".vwp",
+    "purpose": "dip vector / dip-angle azimuth plot (image-log)",
+    "scope": "later",
+    "bytes": 1446
+   },
+   {
+    "file": "Default Dip-Azimuth Plot, Mini.dpp",
+    "ext": ".dpp",
+    "purpose": "dip-azimuth / rose / modified-azimuth plot (image-log)",
+    "scope": "later",
+    "bytes": 2505
+   },
+   {
+    "file": "Default Dip-Azimuth Plot, Mini.vwp",
+    "ext": ".vwp",
+    "purpose": "dip vector / dip-angle azimuth plot (image-log)",
+    "scope": "later",
+    "bytes": 1252
+   },
+   {
+    "file": "Default Dip-Azimuth Plot.dpp",
+    "ext": ".dpp",
+    "purpose": "dip-azimuth / rose / modified-azimuth plot (image-log)",
+    "scope": "later",
+    "bytes": 1959
+   },
+   {
+    "file": "Default Dip-Azimuth Plot.vwp",
+    "ext": ".vwp",
+    "purpose": "dip vector / dip-angle azimuth plot (image-log)",
+    "scope": "later",
+    "bytes": 1448
+   },
+   {
+    "file": "Default Directional Dip-Angle Plot, Mini.vwp",
+    "ext": ".vwp",
+    "purpose": "dip vector / dip-angle azimuth plot (image-log)",
+    "scope": "later",
+    "bytes": 1261
+   },
+   {
+    "file": "Default Directional Dip-Angle Plot.vwp",
+    "ext": ".vwp",
+    "purpose": "dip vector / dip-angle azimuth plot (image-log)",
+    "scope": "later",
+    "bytes": 1457
+   },
+   {
+    "file": "Default Histogram Cross Section Plot, Mini.rpc",
+    "ext": ".rpc",
+    "purpose": "rose plot curve / cross-section plot",
+    "scope": "later",
+    "bytes": 1529
+   },
+   {
+    "file": "Default Histogram Cross Section Plot.rpc",
+    "ext": ".rpc",
+    "purpose": "rose plot curve / cross-section plot",
+    "scope": "later",
+    "bytes": 1529
+   },
+   {
+    "file": "Default Histogram DipAngle-DipAzimuth Plot, Mini.dsp",
+    "ext": ".dsp",
+    "purpose": "histogram / scatter distribution plot",
+    "scope": "later",
+    "bytes": 1205
+   },
+   {
+    "file": "Default Histogram DipAngle-DipAzimuth Plot.dsp",
+    "ext": ".dsp",
+    "purpose": "histogram / scatter distribution plot",
+    "scope": "later",
+    "bytes": 1202
+   },
+   {
+    "file": "Default Histogram DipAzimuth-DipAngle Plot, Mini.dsp",
+    "ext": ".dsp",
+    "purpose": "histogram / scatter distribution plot",
+    "scope": "later",
+    "bytes": 1205
+   },
+   {
+    "file": "Default Histogram DipAzimuth-DipAngle Plot.dsp",
+    "ext": ".dsp",
+    "purpose": "histogram / scatter distribution plot",
+    "scope": "later",
+    "bytes": 1202
+   },
+   {
+    "file": "Default Histogram FeatureWidth-Depth Plot, Mini.dsp",
+    "ext": ".dsp",
+    "purpose": "histogram / scatter distribution plot",
+    "scope": "later",
+    "bytes": 1205
+   },
+   {
+    "file": "Default Histogram FeatureWidth-Depth Plot.dsp",
+    "ext": ".dsp",
+    "purpose": "histogram / scatter distribution plot",
+    "scope": "later",
+    "bytes": 1202
+   },
+   {
+    "file": "Default Histogram Plot, Mini.dsp",
+    "ext": ".dsp",
+    "purpose": "histogram / scatter distribution plot",
+    "scope": "later",
+    "bytes": 1205
+   },
+   {
+    "file": "Default Histogram Plot.dsp",
+    "ext": ".dsp",
+    "purpose": "histogram / scatter distribution plot",
+    "scope": "later",
+    "bytes": 1507
+   },
+   {
+    "file": "Default Image Histogram Plot, Mini.dhp",
+    "ext": ".dhp",
+    "purpose": "image histogram plot (image-log)",
+    "scope": "later",
+    "bytes": 1037
+   },
+   {
+    "file": "Default Image Histogram Plot, Mini.dsp",
+    "ext": ".dsp",
+    "purpose": "histogram / scatter distribution plot",
+    "scope": "later",
+    "bytes": 1037
+   },
+   {
+    "file": "Default Image Histogram Plot.dhp",
+    "ext": ".dhp",
+    "purpose": "image histogram plot (image-log)",
+    "scope": "later",
+    "bytes": 1335
+   },
+   {
+    "file": "Default Image Histogram Plot.dsp",
+    "ext": ".dsp",
+    "purpose": "histogram / scatter distribution plot",
+    "scope": "later",
+    "bytes": 1335
+   },
+   {
+    "file": "Default Modified Dip-Azimuth Plot, Mini.dpp",
+    "ext": ".dpp",
+    "purpose": "dip-azimuth / rose / modified-azimuth plot (image-log)",
+    "scope": "later",
+    "bytes": 2505
+   },
+   {
+    "file": "Default Modified Dip-Azimuth Plot.dpp",
+    "ext": ".dpp",
+    "purpose": "dip-azimuth / rose / modified-azimuth plot (image-log)",
+    "scope": "later",
+    "bytes": 1957
+   },
+   {
+    "file": "Default Pie Chart Plot, Mini.pcf",
+    "ext": ".pcf",
+    "purpose": "pie chart plot",
+    "scope": "later",
+    "bytes": 4439
+   },
+   {
+    "file": "Default Pie Chart Plot.pcf",
+    "ext": ".pcf",
+    "purpose": "pie chart plot",
+    "scope": "later",
+    "bytes": 4503
+   },
+   {
+    "file": "Default Rose Plot Curve Plot, Mini.rpc",
+    "ext": ".rpc",
+    "purpose": "rose plot curve / cross-section plot",
+    "scope": "later",
+    "bytes": 2992
+   },
+   {
+    "file": "Default Rose Plot Curve Plot.rpc",
+    "ext": ".rpc",
+    "purpose": "rose plot curve / cross-section plot",
+    "scope": "later",
+    "bytes": 3005
+   },
+   {
+    "file": "Default Rose Plot, Mini.dpp",
+    "ext": ".dpp",
+    "purpose": "dip-azimuth / rose / modified-azimuth plot (image-log)",
+    "scope": "later",
+    "bytes": 2507
+   },
+   {
+    "file": "Default Rose Plot.dpp",
+    "ext": ".dpp",
+    "purpose": "dip-azimuth / rose / modified-azimuth plot (image-log)",
+    "scope": "later",
+    "bytes": 1958
+   },
+   {
+    "file": "Default Scatter Plot with Histogram, Mini.dsp",
+    "ext": ".dsp",
+    "purpose": "histogram / scatter distribution plot",
+    "scope": "later",
+    "bytes": 1204
+   },
+   {
+    "file": "Default Scatter Plot with Histogram.dsp",
+    "ext": ".dsp",
+    "purpose": "histogram / scatter distribution plot",
+    "scope": "later",
+    "bytes": 1506
+   },
+   {
+    "file": "Default Scatter Plot, Mini.dsp",
+    "ext": ".dsp",
+    "purpose": "histogram / scatter distribution plot",
+    "scope": "later",
+    "bytes": 1205
+   },
+   {
+    "file": "Default Scatter Plot.dsp",
+    "ext": ".dsp",
+    "purpose": "histogram / scatter distribution plot",
+    "scope": "later",
+    "bytes": 1507
+   },
+   {
+    "file": "Default Segmented Cross Section Plot, Mini.rpc",
+    "ext": ".rpc",
+    "purpose": "rose plot curve / cross-section plot",
+    "scope": "later",
+    "bytes": 1820
+   },
+   {
+    "file": "Default Segmented Cross Section Plot.rpc",
+    "ext": ".rpc",
+    "purpose": "rose plot curve / cross-section plot",
+    "scope": "later",
+    "bytes": 1820
+   },
+   {
+    "file": "Default Stereonet Plot, Points as Great Circles, No Rose, Mini.snp",
+    "ext": ".snp",
+    "purpose": "stereonet plot (image-log/structural)",
+    "scope": "later",
+    "bytes": 4058
+   },
+   {
+    "file": "Default Stereonet Plot, Points as Great Circles, No Rose.snp",
+    "ext": ".snp",
+    "purpose": "stereonet plot (image-log/structural)",
+    "scope": "later",
+    "bytes": 3548
+   },
+   {
+    "file": "Default Stereonet Plot, Points as Poles, Azimuth Rose, Mini.snp",
+    "ext": ".snp",
+    "purpose": "stereonet plot (image-log/structural)",
+    "scope": "later",
+    "bytes": 4058
+   },
+   {
+    "file": "Default Stereonet Plot, Points as Poles, Azimuth Rose.snp",
+    "ext": ".snp",
+    "purpose": "stereonet plot (image-log/structural)",
+    "scope": "later",
+    "bytes": 3547
+   },
+   {
+    "file": "Default Stereonet Plot, Points as Poles, No Rose, Mini.snp",
+    "ext": ".snp",
+    "purpose": "stereonet plot (image-log/structural)",
+    "scope": "later",
+    "bytes": 4059
+   },
+   {
+    "file": "Default Stereonet Plot, Points as Poles, No Rose.snp",
+    "ext": ".snp",
+    "purpose": "stereonet plot (image-log/structural)",
+    "scope": "later",
+    "bytes": 3548
+   },
+   {
+    "file": "Default Stereonet Plot, Points as Poles, Strike Rose, Mini.snp",
+    "ext": ".snp",
+    "purpose": "stereonet plot (image-log/structural)",
+    "scope": "later",
+    "bytes": 4057
+   },
+   {
+    "file": "Default Stereonet Plot, Points as Poles, Strike Rose.snp",
+    "ext": ".snp",
+    "purpose": "stereonet plot (image-log/structural)",
+    "scope": "later",
+    "bytes": 3546
+   },
+   {
+    "file": "Default Well Diagram Cross Section Plot, Mini.wdcs",
+    "ext": ".wdcs",
+    "purpose": "well diagram cross section",
+    "scope": "later",
+    "bytes": 2706
+   },
+   {
+    "file": "Default Well Diagram Cross Section Plot.wdcs",
+    "ext": ".wdcs",
+    "purpose": "well diagram cross section",
+    "scope": "later",
+    "bytes": 2702
+   },
+   {
+    "file": "Default, Mini.wcs",
+    "ext": ".wcs",
+    "purpose": "well cross section",
+    "scope": "later",
+    "bytes": 4609
+   },
+   {
+    "file": "Default.wcs",
+    "ext": ".wcs",
+    "purpose": "well cross section",
+    "scope": "later",
+    "bytes": 4552
+   },
+   {
+    "file": "Density Neutron - Shading.plt",
+    "ext": ".plt",
+    "purpose": "composite log plot (multi-track)",
+    "scope": "v1-core",
+    "bytes": 2241
+   },
+   {
+    "file": "Density Neutron.PLT",
+    "ext": ".plt",
+    "purpose": "composite log plot (multi-track)",
+    "scope": "v1-core",
+    "bytes": 2000
+   },
+   {
+    "file": "Depth.trk",
+    "ext": ".trk",
+    "purpose": "single track template (reusable building block)",
+    "scope": "v1-core",
+    "bytes": 476
+   },
+   {
+    "file": "Detailed Log Header.svg",
+    "ext": ".svg",
+    "purpose": "plot header / footer / title / logo template",
+    "scope": "v1-core",
+    "bytes": 84664
+   },
+   {
+    "file": "Fluid.xpt\\Gamma_RwApp.xpt",
+    "ext": ".xpt",
+    "purpose": "cross-plot template (XML, urn:PGL/IntPetro/Xplot)",
+    "scope": "v1-core",
+    "bytes": 909
+   },
+   {
+    "file": "Fluid.xpt\\Neutron_Density.xpt",
+    "ext": ".xpt",
+    "purpose": "cross-plot template (XML, urn:PGL/IntPetro/Xplot)",
+    "scope": "v1-core",
+    "bytes": 898
+   },
+   {
+    "file": "Fluid.xpt\\Sp_RwApp.xpt",
+    "ext": ".xpt",
+    "purpose": "cross-plot template (XML, urn:PGL/IntPetro/Xplot)",
+    "scope": "v1-core",
+    "bytes": 827
+   },
+   {
+    "file": "Full Two Logos.svg",
+    "ext": ".svg",
+    "purpose": "plot header / footer / title / logo template",
+    "scope": "v1-core",
+    "bytes": 45744
+   },
+   {
+    "file": "Full.svg",
+    "ext": ".svg",
+    "purpose": "plot header / footer / title / logo template",
+    "scope": "v1-core",
+    "bytes": 45283
+   },
+   {
+    "file": "Gr-Cali-SP.trk",
+    "ext": ".trk",
+    "purpose": "single track template (reusable building block)",
+    "scope": "v1-core",
+    "bytes": 694
+   },
+   {
+    "file": "Image Analysis DT.plt",
+    "ext": ".plt",
+    "purpose": "composite log plot (multi-track)",
+    "scope": "v1-core",
+    "bytes": 541
+   },
+   {
+    "file": "Image Analysis.plt",
+    "ext": ".plt",
+    "purpose": "composite log plot (multi-track)",
+    "scope": "v1-core",
+    "bytes": 521
+   },
+   {
+    "file": "Lin Log Lin Blank Tracks.PLT",
+    "ext": ".plt",
+    "purpose": "composite log plot (multi-track)",
+    "scope": "v1-core",
+    "bytes": 1588
+   },
+   {
+    "file": "Lithology.xpt\\Compress_Shear.xpt",
+    "ext": ".xpt",
+    "purpose": "cross-plot template (XML, urn:PGL/IntPetro/Xplot)",
+    "scope": "v1-core",
+    "bytes": 906
+   },
+   {
+    "file": "Lithology.xpt\\Neutron_Density.xpt",
+    "ext": ".xpt",
+    "purpose": "cross-plot template (XML, urn:PGL/IntPetro/Xplot)",
+    "scope": "v1-core",
+    "bytes": 901
+   },
+   {
+    "file": "Lithology.xpt\\Sonic_Density Matrix.xpt",
+    "ext": ".xpt",
+    "purpose": "cross-plot template (XML, urn:PGL/IntPetro/Xplot)",
+    "scope": "v1-core",
+    "bytes": 897
+   },
+   {
+    "file": "Lithology.xpt\\Sonic_Density.xpt",
+    "ext": ".xpt",
+    "purpose": "cross-plot template (XML, urn:PGL/IntPetro/Xplot)",
+    "scope": "v1-core",
+    "bytes": 927
+   },
+   {
+    "file": "Lithology.xpt\\Sonic_Neutron.xpt",
+    "ext": ".xpt",
+    "purpose": "cross-plot template (XML, urn:PGL/IntPetro/Xplot)",
+    "scope": "v1-core",
+    "bytes": 1108
+   },
+   {
+    "file": "Lithology.xpt\\U_Density Matrix.xpt",
+    "ext": ".xpt",
+    "purpose": "cross-plot template (XML, urn:PGL/IntPetro/Xplot)",
+    "scope": "v1-core",
+    "bytes": 970
+   },
+   {
+    "file": "Lithology.xpt\\Vshale_Phit.xpt",
+    "ext": ".xpt",
+    "purpose": "cross-plot template (XML, urn:PGL/IntPetro/Xplot)",
+    "scope": "v1-core",
+    "bytes": 957
+   },
+   {
+    "file": "Minimum.svg",
+    "ext": ".svg",
+    "purpose": "plot header / footer / title / logo template",
+    "scope": "v1-core",
+    "bytes": 7487
+   },
+   {
+    "file": "Neu-Den Shaded.trk",
+    "ext": ".trk",
+    "purpose": "single track template (reusable building block)",
+    "scope": "v1-core",
+    "bytes": 929
+   },
+   {
+    "file": "Neu-Den.trk",
+    "ext": ".trk",
+    "purpose": "single track template (reusable building block)",
+    "scope": "v1-core",
+    "bytes": 697
+   },
+   {
+    "file": "Parameter.xpt\\Density_Gamma.xpt",
+    "ext": ".xpt",
+    "purpose": "cross-plot template (XML, urn:PGL/IntPetro/Xplot)",
+    "scope": "v1-core",
+    "bytes": 820
+   },
+   {
+    "file": "Parameter.xpt\\Neutron_Gamma.xpt",
+    "ext": ".xpt",
+    "purpose": "cross-plot template (XML, urn:PGL/IntPetro/Xplot)",
+    "scope": "v1-core",
+    "bytes": 820
+   },
+   {
+    "file": "Parameter.xpt\\Sonic_Gamma.xpt",
+    "ext": ".xpt",
+    "purpose": "cross-plot template (XML, urn:PGL/IntPetro/Xplot)",
+    "scope": "v1-core",
+    "bytes": 821
+   },
+   {
+    "file": "Parameter.xpt\\Sp_Gamma.xpt",
+    "ext": ".xpt",
+    "purpose": "cross-plot template (XML, urn:PGL/IntPetro/Xplot)",
+    "scope": "v1-core",
+    "bytes": 817
+   },
+   {
+    "file": "Porosity.xpt\\AI_Phi.xpt",
+    "ext": ".xpt",
+    "purpose": "cross-plot template (XML, urn:PGL/IntPetro/Xplot)",
+    "scope": "v1-core",
+    "bytes": 804
+   },
+   {
+    "file": "Porosity.xpt\\Neutron_Density.xpt",
+    "ext": ".xpt",
+    "purpose": "cross-plot template (XML, urn:PGL/IntPetro/Xplot)",
+    "scope": "v1-core",
+    "bytes": 899
+   },
+   {
+    "file": "Porosity.xpt\\Pe_Density.xpt",
+    "ext": ".xpt",
+    "purpose": "cross-plot template (XML, urn:PGL/IntPetro/Xplot)",
+    "scope": "v1-core",
+    "bytes": 2365
+   },
+   {
+    "file": "Porosity.xpt\\Sonic_Neutron.xpt",
+    "ext": ".xpt",
+    "purpose": "cross-plot template (XML, urn:PGL/IntPetro/Xplot)",
+    "scope": "v1-core",
+    "bytes": 905
+   },
+   {
+    "file": "Resistivity Sonic.PLT",
+    "ext": ".plt",
+    "purpose": "composite log plot (multi-track)",
+    "scope": "v1-core",
+    "bytes": 2155
+   },
+   {
+    "file": "Resistivity.trk",
+    "ext": ".trk",
+    "purpose": "single track template (reusable building block)",
+    "scope": "v1-core",
+    "bytes": 694
+   },
+   {
+    "file": "Saturation.xpt\\Buckle.xpt",
+    "ext": ".xpt",
+    "purpose": "cross-plot template (XML, urn:PGL/IntPetro/Xplot)",
+    "scope": "v1-core",
+    "bytes": 873
+   },
+   {
+    "file": "Saturation.xpt\\Density_Rt.xpt",
+    "ext": ".xpt",
+    "purpose": "cross-plot template (XML, urn:PGL/IntPetro/Xplot)",
+    "scope": "v1-core",
+    "bytes": 836
+   },
+   {
+    "file": "Saturation.xpt\\Neutron_Rt.xpt",
+    "ext": ".xpt",
+    "purpose": "cross-plot template (XML, urn:PGL/IntPetro/Xplot)",
+    "scope": "v1-core",
+    "bytes": 838
+   },
+   {
+    "file": "Saturation.xpt\\Pickett.xpt",
+    "ext": ".xpt",
+    "purpose": "cross-plot template (XML, urn:PGL/IntPetro/Xplot)",
+    "scope": "v1-core",
+    "bytes": 1666
+   },
+   {
+    "file": "Saturation.xpt\\Rt_Rxo.xpt",
+    "ext": ".xpt",
+    "purpose": "cross-plot template (XML, urn:PGL/IntPetro/Xplot)",
+    "scope": "v1-core",
+    "bytes": 958
+   },
+   {
+    "file": "Saturation.xpt\\Sonic_Rt.xpt",
+    "ext": ".xpt",
+    "purpose": "cross-plot template (XML, urn:PGL/IntPetro/Xplot)",
+    "scope": "v1-core",
+    "bytes": 837
+   },
+   {
+    "file": "Sonic.trk",
+    "ext": ".trk",
+    "purpose": "single track template (reusable building block)",
+    "scope": "v1-core",
+    "bytes": 528
+   },
+   {
+    "file": "Standard Footer.svg",
+    "ext": ".svg",
+    "purpose": "plot header / footer / title / logo template",
+    "scope": "v1-core",
+    "bytes": 7881
+   },
+   {
+    "file": "Standard Multiwell no Logo.svg",
+    "ext": ".svg",
+    "purpose": "plot header / footer / title / logo template",
+    "scope": "v1-core",
+    "bytes": 745
+   },
+   {
+    "file": "Standard Multiwell.svg",
+    "ext": ".svg",
+    "purpose": "plot header / footer / title / logo template",
+    "scope": "v1-core",
+    "bytes": 1016
+   },
+   {
+    "file": "Standard Two Logos.svg",
+    "ext": ".svg",
+    "purpose": "plot header / footer / title / logo template",
+    "scope": "v1-core",
+    "bytes": 25748
+   },
+   {
+    "file": "Standard.svg",
+    "ext": ".svg",
+    "purpose": "plot header / footer / title / logo template",
+    "scope": "v1-core",
+    "bytes": 25476
+   },
+   {
+    "file": "Title only no logo.svg",
+    "ext": ".svg",
+    "purpose": "plot header / footer / title / logo template",
+    "scope": "v1-core",
+    "bytes": 709
+   },
+   {
+    "file": "Title only.svg",
+    "ext": ".svg",
+    "purpose": "plot header / footer / title / logo template",
+    "scope": "v1-core",
+    "bytes": 982
+   },
+   {
+    "file": "Triple Combo.PLT",
+    "ext": ".plt",
+    "purpose": "composite log plot (multi-track)",
+    "scope": "v1-core",
+    "bytes": 2316
+   }
+  ]
+ },
+ "FieldPlotTemplates": {
+  "count": 2,
+  "cplt_format": ".cplt is a .NET DataContract XML wrapper (SSL.Common.LogPlotComposer) referencing child .plt files; composite-of-composites",
+  "entries": [
+   {
+    "file": "Field Plot.cplt",
+    "ext": ".cplt",
+    "bytes": 665
+   },
+   {
+    "file": "Field Plot\\LogPlot.plt",
+    "ext": ".plt",
+    "bytes": 3253
+   }
+  ]
+ },
+ "GeomechanicsPlotFormats": {
+  "count": 38,
+  "scope": "later",
+  "exts": {
+   ".plt": 32,
+   ".xpt": 5,
+   ".hst": 1
+  },
+  "entries": [
+   {
+    "file": "Multi Well QC Input Plot (Density).xpt",
+    "ext": ".xpt",
+    "bytes": 2822
+   },
+   {
+    "file": "Multi Well RHOB-TVD Crossplot.xpt",
+    "ext": ".xpt",
+    "bytes": 3734
+   },
+   {
+    "file": "Multi Well Results Histogram.hst",
+    "ext": ".hst",
+    "bytes": 11025
+   },
+   {
+    "file": "Multi Well Slowness-TTI Angle Crossplot.xpt",
+    "ext": ".xpt",
+    "bytes": 3637
+   },
+   {
+    "file": "PP Multi Well Result Crossplot.xpt",
+    "ext": ".xpt",
+    "bytes": 3650
+   },
+   {
+    "file": "PP Multi Well Sonic-TVD Crossplot.xpt",
+    "ext": ".xpt",
+    "bytes": 3650
+   },
+   {
+    "file": "Sanding Multi Well DPDT Stress Result Plot - 1 well format.plt",
+    "ext": ".plt",
+    "bytes": 7299
+   },
+   {
+    "file": "Sanding Multi Well HStress Result Plot - 1 well format.plt",
+    "ext": ".plt",
+    "bytes": 9289
+   },
+   {
+    "file": "Sanding Multi Well Moduli Result Plot - 1 well format.plt",
+    "ext": ".plt",
+    "bytes": 6781
+   },
+   {
+    "file": "Sanding Multi Well TWC Result Plot - 1 well format.plt",
+    "ext": ".plt",
+    "bytes": 4582
+   },
+   {
+    "file": "Sanding Multi Well UCS Result Plot - 1 well format.plt",
+    "ext": ".plt",
+    "bytes": 6482
+   },
+   {
+    "file": "Sanding Single Well DPDT Stress Result Plot.plt",
+    "ext": ".plt",
+    "bytes": 7557
+   },
+   {
+    "file": "Sanding Single Well Elastic Moduli Result Plot.plt",
+    "ext": ".plt",
+    "bytes": 9597
+   },
+   {
+    "file": "Sanding Single Well HStress Result Plot.plt",
+    "ext": ".plt",
+    "bytes": 9999
+   },
+   {
+    "file": "Sanding Single Well RockProps Input QC Plot.plt",
+    "ext": ".plt",
+    "bytes": 6931
+   },
+   {
+    "file": "Sanding Single Well Sand Result Plot.plt",
+    "ext": ".plt",
+    "bytes": 8021
+   },
+   {
+    "file": "Wellbore Multi Well DPDT Stress Result Plot - 1 well format.plt",
+    "ext": ".plt",
+    "bytes": 7309
+   },
+   {
+    "file": "Wellbore Multi Well Elastic Anisotropy Result Plot - 1 well format.plt",
+    "ext": ".plt",
+    "bytes": 9117
+   },
+   {
+    "file": "Wellbore Multi Well HStress Result Plot - 1 well format.plt",
+    "ext": ".plt",
+    "bytes": 9144
+   },
+   {
+    "file": "Wellbore Multi Well Moduli Result Plot - 1 well format.plt",
+    "ext": ".plt",
+    "bytes": 6191
+   },
+   {
+    "file": "Wellbore Multi Well PP Result Plot - 1 well format.plt",
+    "ext": ".plt",
+    "bytes": 5888
+   },
+   {
+    "file": "Wellbore Multi Well Result Plot - 1 well format.plt",
+    "ext": ".plt",
+    "bytes": 5532
+   },
+   {
+    "file": "Wellbore Multi Well ShearFailure InputQC Plot - 1 well format.plt",
+    "ext": ".plt",
+    "bytes": 4679
+   },
+   {
+    "file": "Wellbore Multi Well UCS Result Plot - 1 well format.plt",
+    "ext": ".plt",
+    "bytes": 8174
+   },
+   {
+    "file": "Wellbore Single Well Carbonate Result Plot.plt",
+    "ext": ".plt",
+    "bytes": 8394
+   },
+   {
+    "file": "Wellbore Single Well DPDT Stress Result Plot.plt",
+    "ext": ".plt",
+    "bytes": 9011
+   },
+   {
+    "file": "Wellbore Single Well Density Estimation Result Plot.plt",
+    "ext": ".plt",
+    "bytes": 3044
+   },
+   {
+    "file": "Wellbore Single Well Elastic Anisotropy Result Plot.plt",
+    "ext": ".plt",
+    "bytes": 9117
+   },
+   {
+    "file": "Wellbore Single Well Elastic Moduli Result Plot.plt",
+    "ext": ".plt",
+    "bytes": 7439
+   },
+   {
+    "file": "Wellbore Single Well Fracture Fault Stress Result Plot.plt",
+    "ext": ".plt",
+    "bytes": 6756
+   },
+   {
+    "file": "Wellbore Single Well HStress Result Plot.plt",
+    "ext": ".plt",
+    "bytes": 11371
+   },
+   {
+    "file": "Wellbore Single Well PP Result Plot.plt",
+    "ext": ".plt",
+    "bytes": 11378
+   },
+   {
+    "file": "Wellbore Single Well RockProps Input QC Plot.plt",
+    "ext": ".plt",
+    "bytes": 7501
+   },
+   {
+    "file": "Wellbore Single Well Sand Result Plot.plt",
+    "ext": ".plt",
+    "bytes": 7546
+   },
+   {
+    "file": "Wellbore Single Well Shale Result Plot.plt",
+    "ext": ".plt",
+    "bytes": 8564
+   },
+   {
+    "file": "Wellbore Single Well Shear Failure Result Plot.plt",
+    "ext": ".plt",
+    "bytes": 8589
+   },
+   {
+    "file": "Wellbore Single Well UCS Result Plot.plt",
+    "ext": ".plt",
+    "bytes": 7864
+   },
+   {
+    "file": "Wellbore Single Well Vertical Stress Result Plot.plt",
+    "ext": ".plt",
+    "bytes": 3577
+   }
+  ]
+ },
+ "Reports": {
+  "count": 2,
+  "rdlc_format": "Microsoft RDLC report-definition XML (SQL Server Reporting Services client report); Casing Inspection + Cement Evaluation -> cased-hole, scope OUT",
+  "scope": "out",
+  "entries": [
+   {
+    "file": "SSL.IP.Modules.CasingInspection.Reports.CasingInspectionReport.rdlc",
+    "ext": ".rdlc",
+    "bytes": 436658
+   },
+   {
+    "file": "SSL.IP.Modules.CementEvaluation.Reports.CementReport.rdlc",
+    "ext": ".rdlc",
+    "bytes": 770628
+   }
+  ]
+ },
+ "PlotSymbols": {
+  "count": 12,
+  "note": "small .bmp glyphs for well-schematic / completion / show annotations (casing shoe, liner hanger, perfs, bridge plug, DST, core, gas show, gains/losses)",
+  "entries": [
+   {
+    "file": "BdgPlug.bmp",
+    "bytes": 8982
+   },
+   {
+    "file": "CsgShoe.bmp",
+    "bytes": 2230
+   },
+   {
+    "file": "LinHang.bmp",
+    "bytes": 7830
+   },
+   {
+    "file": "Perfs.bmp",
+    "bytes": 9666
+   },
+   {
+    "file": "blank.bmp",
+    "bytes": 8982
+   },
+   {
+    "file": "core.bmp",
+    "bytes": 4690
+   },
+   {
+    "file": "core_norec.bmp",
+    "bytes": 4690
+   },
+   {
+    "file": "dst.bmp",
+    "bytes": 8982
+   },
+   {
+    "file": "gains.bmp",
+    "bytes": 2550
+   },
+   {
+    "file": "gas_show.bmp",
+    "bytes": 4462
+   },
+   {
+    "file": "goodshow.bmp",
+    "bytes": 2286
+   },
+   {
+    "file": "losses.bmp",
+    "bytes": 3094
+   }
+  ]
+ },
+ "root_level_context_not_extracted": {
+  "tool_QC_plt": 15,
+  "note_QC": "cased-hole/cement/casing tool QC plots (CBL,SBT,USI,CAST,integrity) - scope OUT",
+  "chartbook_cht": 17,
+  "note_cht": "vendor chartbook overlay files (see Target B/chart domain)"
+ }
+}

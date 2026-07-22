@@ -1,0 +1,38 @@
+<MnemonicChartAutoSelect>
+   <Family>
+      <name>Bulk_Density</name>
+      <list>CP-1a;Bulk Density vs. Compressional Slowness;Neutron Porosity vs. Bulk Density;CP-1b;CP-1e;CP-1f;CP-1g;CP-1h;CP-1c;CP-1d;CP-7;CP-7;CP-16;CP-17;CP-22;CP-23;CP-23</list>
+   </Family>
+   <Family>
+      <name>Photoelectric_Factor</name>
+      <list>CP-16;CP-17</list>
+   </Family>
+   <Family>
+      <name>Neutron_Porosity</name>
+      <list>Neutron Porosity vs. Bulk Density;CP-1c;CP-1e;CP-1f;CP-2c;CP-2cm;CP-22;CP-23;CP-24</list>
+   </Family>
+   <Family>
+      <name>Compressional_Slowness</name>
+      <list>Bulk Density vs. Compressional Slowness;CP-2a;CP-2am;CP-2c;CP-2cm;CP-7;CP-7m;CP-2b;CP-2bm</list>
+   </Family>
+   <Family>
+      <name>Thorium</name>
+      <list>CP-19</list>
+   </Family>
+   <Family>
+      <name>Potassium</name>
+      <list>CP-18a;CP-19</list>
+   </Family>
+   <Family>
+      <name>Thorium_Potassium_Ratio</name>
+      <list>CP-18</list>
+   </Family>
+   <Family>
+      <name>Apparent_Matrix_Volumetric_Photoelectric_Factor</name>
+      <list>Lithology</list>
+   </Family>
+   <Family>
+      <name>Apparent_Matrix_Grain_Density</name>
+      <list>Lithology</list>
+   </Family>
+</MnemonicChartAutoSelect>

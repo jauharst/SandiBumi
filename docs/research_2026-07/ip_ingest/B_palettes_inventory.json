@@ -1,0 +1,1727 @@
+{
+ "count": 82,
+ "palettes": [
+  {
+   "file": "BGR.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16711680,
+     "hex": "#0000FF"
+    },
+    {
+     "i": 128,
+     "bgr": 65280,
+     "hex": "#00FF00"
+    },
+    {
+     "i": 255,
+     "bgr": 1023,
+     "hex": "#FF0300"
+    }
+   ]
+  },
+  {
+   "file": "Baker_Acoustic_Anisotropy.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 6423577,
+     "hex": "#190462"
+    },
+    {
+     "i": 128,
+     "bgr": 4653230,
+     "hex": "#AE0047"
+    },
+    {
+     "i": 255,
+     "bgr": 61439,
+     "hex": "#FFEF00"
+    }
+   ]
+  },
+  {
+   "file": "Baker_Acoustic_Correlation.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16714250,
+     "hex": "#0A0AFF"
+    },
+    {
+     "i": 128,
+     "bgr": 16747146,
+     "hex": "#8A8AFF"
+    },
+    {
+     "i": 255,
+     "bgr": 16777215,
+     "hex": "#FFFFFF"
+    }
+   ]
+  },
+  {
+   "file": "Baker_Acoustic_Correlation_12.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16714250,
+     "hex": "#0A0AFF"
+    },
+    {
+     "i": 128,
+     "bgr": 16747146,
+     "hex": "#8A8AFF"
+    },
+    {
+     "i": 255,
+     "bgr": 16777215,
+     "hex": "#FFFFFF"
+    }
+   ]
+  },
+  {
+   "file": "Baker_Acoustic_Correlation_24.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16715278,
+     "hex": "#0E0EFF"
+    },
+    {
+     "i": 128,
+     "bgr": 16745861,
+     "hex": "#8585FF"
+    },
+    {
+     "i": 255,
+     "bgr": 16777215,
+     "hex": "#FFFFFF"
+    }
+   ]
+  },
+  {
+   "file": "Baker_Acoustic_DSWI.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16711680,
+     "hex": "#0000FF"
+    },
+    {
+     "i": 128,
+     "bgr": 16777215,
+     "hex": "#FFFFFF"
+    },
+    {
+     "i": 255,
+     "bgr": 255,
+     "hex": "#FF0000"
+    }
+   ]
+  },
+  {
+   "file": "Baker_Acoustic_Wavetrace.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16642963,
+     "hex": "#93F3FD"
+    },
+    {
+     "i": 128,
+     "bgr": 14493489,
+     "hex": "#3127DD"
+    },
+    {
+     "i": 255,
+     "bgr": 6691174,
+     "hex": "#661966"
+    }
+   ]
+  },
+  {
+   "file": "Baker_Attenuation.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16776960,
+     "hex": "#00FFFF"
+    },
+    {
+     "i": 128,
+     "bgr": 16512,
+     "hex": "#804000"
+    },
+    {
+     "i": 255,
+     "bgr": 0,
+     "hex": "#000000"
+    }
+   ]
+  },
+  {
+   "file": "Baker_CBL_VDL.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16777113,
+     "hex": "#99FFFF"
+    },
+    {
+     "i": 128,
+     "bgr": 13769793,
+     "hex": "#411CD2"
+    },
+    {
+     "i": 255,
+     "bgr": 6691174,
+     "hex": "#661966"
+    }
+   ]
+  },
+  {
+   "file": "Baker_Cement_Map.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 1,
+     "bgr": 255,
+     "hex": "#FF0000"
+    },
+    {
+     "i": 129,
+     "bgr": 8362291,
+     "hex": "#33997F"
+    },
+    {
+     "i": 256,
+     "bgr": 0,
+     "hex": "#000000"
+    }
+   ]
+  },
+  {
+   "file": "Baker_EarthRed_Reversed.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 1889,
+     "hex": "#610700"
+    },
+    {
+     "i": 128,
+     "bgr": 555775,
+     "hex": "#FF7A08"
+    },
+    {
+     "i": 255,
+     "bgr": 10680063,
+     "hex": "#FFF6A2"
+    }
+   ]
+  },
+  {
+   "file": "Baker_Earth_Blocky.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 8383743,
+     "hex": "#FFEC7F"
+    },
+    {
+     "i": 128,
+     "bgr": 20172,
+     "hex": "#CC4E00"
+    },
+    {
+     "i": 255,
+     "bgr": 0,
+     "hex": "#000000"
+    }
+   ]
+  },
+  {
+   "file": "Baker_Earth_Smooth.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 8383743,
+     "hex": "#FFEC7F"
+    },
+    {
+     "i": 128,
+     "bgr": 20172,
+     "hex": "#CC4E00"
+    },
+    {
+     "i": 255,
+     "bgr": 0,
+     "hex": "#000000"
+    }
+   ]
+  },
+  {
+   "file": "Baker_GXPL_Pale.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 1189281,
+     "hex": "#A12512"
+    },
+    {
+     "i": 128,
+     "bgr": 13230316,
+     "hex": "#ECE0C9"
+    },
+    {
+     "i": 255,
+     "bgr": 14678010,
+     "hex": "#FAF7DF"
+    }
+   ]
+  },
+  {
+   "file": "Baker_Geochemical_Analysis.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 0,
+     "hex": "#000000"
+    },
+    {
+     "i": 128,
+     "bgr": 8421504,
+     "hex": "#808080"
+    },
+    {
+     "i": 255,
+     "bgr": 16777215,
+     "hex": "#FFFFFF"
+    }
+   ]
+  },
+  {
+   "file": "Baker_Greyscale_Blocky.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16777215,
+     "hex": "#FFFFFF"
+    },
+    {
+     "i": 128,
+     "bgr": 8158332,
+     "hex": "#7C7C7C"
+    },
+    {
+     "i": 255,
+     "bgr": 263172,
+     "hex": "#040404"
+    }
+   ]
+  },
+  {
+   "file": "Baker_Greyscale_Smooth.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16777215,
+     "hex": "#FFFFFF"
+    },
+    {
+     "i": 128,
+     "bgr": 8421504,
+     "hex": "#808080"
+    },
+    {
+     "i": 255,
+     "bgr": 263172,
+     "hex": "#040404"
+    }
+   ]
+  },
+  {
+   "file": "Baker_MRAYL_APPLIED.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 254,
+     "hex": "#FE0000"
+    },
+    {
+     "i": 128,
+     "bgr": 119249,
+     "hex": "#D1D101"
+    },
+    {
+     "i": 255,
+     "bgr": 0,
+     "hex": "#000000"
+    }
+   ]
+  },
+  {
+   "file": "Baker_MRAYL_RAW.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16777215,
+     "hex": "#FFFFFF"
+    },
+    {
+     "i": 128,
+     "bgr": 119249,
+     "hex": "#D1D101"
+    },
+    {
+     "i": 255,
+     "bgr": 0,
+     "hex": "#000000"
+    }
+   ]
+  },
+  {
+   "file": "Baker_NMR_2D_Map.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 8388608,
+     "hex": "#000080"
+    },
+    {
+     "i": 128,
+     "bgr": 976284,
+     "hex": "#9CE50E"
+    },
+    {
+     "i": 255,
+     "bgr": 2757280,
+     "hex": "#A0122A"
+    }
+   ]
+  },
+  {
+   "file": "Baker_NMR_T2Cutoff.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16761344,
+     "hex": "#00C2FF"
+    },
+    {
+     "i": 128,
+     "bgr": 786276,
+     "hex": "#64FF0B"
+    },
+    {
+     "i": 255,
+     "bgr": 16383,
+     "hex": "#FF3F00"
+    }
+   ]
+  },
+  {
+   "file": "Baker_NMR_T2_Porosity_Distribution.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16777215,
+     "hex": "#FFFFFF"
+    },
+    {
+     "i": 128,
+     "bgr": 65474,
+     "hex": "#C2FF00"
+    },
+    {
+     "i": 255,
+     "bgr": 255,
+     "hex": "#FF0000"
+    }
+   ]
+  },
+  {
+   "file": "Baker_Normalised_FEA.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 0,
+     "hex": "#000000"
+    },
+    {
+     "i": 128,
+     "bgr": 36607,
+     "hex": "#FF8E00"
+    },
+    {
+     "i": 255,
+     "bgr": 16777215,
+     "hex": "#FFFFFF"
+    }
+   ]
+  },
+  {
+   "file": "Baker_Processing_Flags.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 0,
+     "hex": "#000000"
+    },
+    {
+     "i": 128,
+     "bgr": 12451935,
+     "hex": "#5F00BE"
+    },
+    {
+     "i": 255,
+     "bgr": 11710976,
+     "hex": "#00B2B2"
+    }
+   ]
+  },
+  {
+   "file": "Baker_Radius.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 15377687,
+     "hex": "#17A5EA"
+    },
+    {
+     "i": 128,
+     "bgr": 16579325,
+     "hex": "#FDFAFC"
+    },
+    {
+     "i": 255,
+     "bgr": 4852870,
+     "hex": "#860C4A"
+    }
+   ]
+  },
+  {
+   "file": "Baker_Thickness.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 4852870,
+     "hex": "#860C4A"
+    },
+    {
+     "i": 128,
+     "bgr": 16776181,
+     "hex": "#F5FBFF"
+    },
+    {
+     "i": 255,
+     "bgr": 15377687,
+     "hex": "#17A5EA"
+    }
+   ]
+  },
+  {
+   "file": "Baker_Triaxial_Dip_Confidence.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 65535,
+     "hex": "#FFFF00"
+    },
+    {
+     "i": 128,
+     "bgr": 33404,
+     "hex": "#7C8200"
+    },
+    {
+     "i": 255,
+     "bgr": 16711680,
+     "hex": "#0000FF"
+    }
+   ]
+  },
+  {
+   "file": "Baker_Triaxial_Dip_Confidence2.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 13408512,
+     "hex": "#0099CC"
+    },
+    {
+     "i": 128,
+     "bgr": 5635961,
+     "hex": "#79FF55"
+    },
+    {
+     "i": 255,
+     "bgr": 13428223,
+     "hex": "#FFE5CC"
+    }
+   ]
+  },
+  {
+   "file": "BarsMap.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16777211,
+     "hex": "#FBFFFF"
+    },
+    {
+     "i": 128,
+     "bgr": 8612995,
+     "hex": "#836C83"
+    },
+    {
+     "i": 255,
+     "bgr": 0,
+     "hex": "#000000"
+    }
+   ]
+  },
+  {
+   "file": "Blue.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16763339,
+     "hex": "#CBC9FF"
+    },
+    {
+     "i": 128,
+     "bgr": 16739441,
+     "hex": "#716CFF"
+    },
+    {
+     "i": 255,
+     "bgr": 16716056,
+     "hex": "#1811FF"
+    }
+   ]
+  },
+  {
+   "file": "BlueRed.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16770651,
+     "hex": "#5BE6FF"
+    },
+    {
+     "i": 128,
+     "bgr": 16652460,
+     "hex": "#AC18FE"
+    },
+    {
+     "i": 255,
+     "bgr": 1388031,
+     "hex": "#FF2D15"
+    }
+   ]
+  },
+  {
+   "file": "Brown.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16777215,
+     "hex": "#FFFFFF"
+    },
+    {
+     "i": 128,
+     "bgr": 32765,
+     "hex": "#FD7F00"
+    },
+    {
+     "i": 255,
+     "bgr": 12110,
+     "hex": "#4E2F00"
+    }
+   ]
+  },
+  {
+   "file": "BrownDark.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16777215,
+     "hex": "#FFFFFF"
+    },
+    {
+     "i": 128,
+     "bgr": 34793,
+     "hex": "#E98700"
+    },
+    {
+     "i": 255,
+     "bgr": 304,
+     "hex": "#300100"
+    }
+   ]
+  },
+  {
+   "file": "CementBond.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 255,
+     "hex": "#FF0000"
+    },
+    {
+     "i": 128,
+     "bgr": 33023,
+     "hex": "#FF8000"
+    },
+    {
+     "i": 255,
+     "bgr": 32768,
+     "hex": "#008000"
+    }
+   ]
+  },
+  {
+   "file": "CementDerivative.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16711680,
+     "hex": "#0000FF"
+    },
+    {
+     "i": 128,
+     "bgr": 32768,
+     "hex": "#008000"
+    },
+    {
+     "i": 255,
+     "bgr": 32768,
+     "hex": "#008000"
+    }
+   ]
+  },
+  {
+   "file": "Contour#1.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 9043712,
+     "hex": "#00FF89"
+    },
+    {
+     "i": 128,
+     "bgr": 16741120,
+     "hex": "#0073FF"
+    },
+    {
+     "i": 255,
+     "bgr": 16711808,
+     "hex": "#8000FF"
+    }
+   ]
+  },
+  {
+   "file": "Contour#2.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16732415,
+     "hex": "#FF50FF"
+    },
+    {
+     "i": 128,
+     "bgr": 65487,
+     "hex": "#CFFF00"
+    },
+    {
+     "i": 255,
+     "bgr": 16748431,
+     "hex": "#8F8FFF"
+    }
+   ]
+  },
+  {
+   "file": "Contrast.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 9175000,
+     "hex": "#D8FF8B"
+    },
+    {
+     "i": 128,
+     "bgr": 11836,
+     "hex": "#3C2E00"
+    },
+    {
+     "i": 255,
+     "bgr": 16730675,
+     "hex": "#334AFF"
+    }
+   ]
+  },
+  {
+   "file": "Earth.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 13762555,
+     "hex": "#FBFFD1"
+    },
+    {
+     "i": 128,
+     "bgr": 4173819,
+     "hex": "#FBAF3F"
+    },
+    {
+     "i": 255,
+     "bgr": 466089,
+     "hex": "#A91C07"
+    }
+   ]
+  },
+  {
+   "file": "EarthDark.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16646143,
+     "hex": "#FFFFFD"
+    },
+    {
+     "i": 128,
+     "bgr": 4173819,
+     "hex": "#FBAF3F"
+    },
+    {
+     "i": 255,
+     "bgr": 3142,
+     "hex": "#460C00"
+    }
+   ]
+  },
+  {
+   "file": "EarthDarkRed.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 11468543,
+     "hex": "#FFFEAE"
+    },
+    {
+     "i": 128,
+     "bgr": 29183,
+     "hex": "#FF7100"
+    },
+    {
+     "i": 255,
+     "bgr": 334,
+     "hex": "#4E0100"
+    }
+   ]
+  },
+  {
+   "file": "Gamma_Facies.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16711680,
+     "hex": "#0000FF"
+    },
+    {
+     "i": 128,
+     "bgr": 40639,
+     "hex": "#BF9E00"
+    },
+    {
+     "i": 255,
+     "bgr": 0,
+     "hex": "#000000"
+    }
+   ]
+  },
+  {
+   "file": "Geoactive.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 4047509,
+     "hex": "#95C23D"
+    },
+    {
+     "i": 128,
+     "bgr": 12367665,
+     "hex": "#31B7BC"
+    },
+    {
+     "i": 255,
+     "bgr": 8745731,
+     "hex": "#037385"
+    }
+   ]
+  },
+  {
+   "file": "GrayBlue.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 15724525,
+     "hex": "#EDEFEF"
+    },
+    {
+     "i": 128,
+     "bgr": 14001268,
+     "hex": "#74A4D5"
+    },
+    {
+     "i": 255,
+     "bgr": 12058624,
+     "hex": "#0000B8"
+    }
+   ]
+  },
+  {
+   "file": "Grayscale.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16777215,
+     "hex": "#FFFFFF"
+    },
+    {
+     "i": 128,
+     "bgr": 8289918,
+     "hex": "#7E7E7E"
+    },
+    {
+     "i": 255,
+     "bgr": 0,
+     "hex": "#000000"
+    }
+   ]
+  },
+  {
+   "file": "Grayscale_Reversed.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 0,
+     "hex": "#000000"
+    },
+    {
+     "i": 128,
+     "bgr": 8421504,
+     "hex": "#808080"
+    },
+    {
+     "i": 255,
+     "bgr": 16777215,
+     "hex": "#FFFFFF"
+    }
+   ]
+  },
+  {
+   "file": "GreenBlue.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 43776,
+     "hex": "#00AB00"
+    },
+    {
+     "i": 128,
+     "bgr": 13881600,
+     "hex": "#00D1D3"
+    },
+    {
+     "i": 255,
+     "bgr": 16384000,
+     "hex": "#0000FA"
+    }
+   ]
+  },
+  {
+   "file": "Halliburton-Classic.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16777215,
+     "hex": "#FFFFFF"
+    },
+    {
+     "i": 128,
+     "bgr": 35071,
+     "hex": "#FF8800"
+    },
+    {
+     "i": 255,
+     "bgr": 65539,
+     "hex": "#030001"
+    }
+   ]
+  },
+  {
+   "file": "Halliburton-Impedence.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 255,
+     "hex": "#FF0000"
+    },
+    {
+     "i": 128,
+     "bgr": 36082,
+     "hex": "#F28C00"
+    },
+    {
+     "i": 255,
+     "bgr": 0,
+     "hex": "#000000"
+    }
+   ]
+  },
+  {
+   "file": "Halliburton.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 11599358,
+     "hex": "#FEFDB0"
+    },
+    {
+     "i": 128,
+     "bgr": 24063,
+     "hex": "#FF5D00"
+    },
+    {
+     "i": 255,
+     "bgr": 60,
+     "hex": "#3C0000"
+    }
+   ]
+  },
+  {
+   "file": "Halliburton_Brown.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16580093,
+     "hex": "#FDFDFC"
+    },
+    {
+     "i": 128,
+     "bgr": 2569982,
+     "hex": "#FE3627"
+    },
+    {
+     "i": 255,
+     "bgr": 1842203,
+     "hex": "#1B1C1C"
+    }
+   ]
+  },
+  {
+   "file": "Halliburton_Green.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16777215,
+     "hex": "#FFFFFF"
+    },
+    {
+     "i": 128,
+     "bgr": 230,
+     "hex": "#E60000"
+    },
+    {
+     "i": 255,
+     "bgr": 38038,
+     "hex": "#969400"
+    }
+   ]
+  },
+  {
+   "file": "Halliburton_Purple.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 10551295,
+     "hex": "#FFFFA0"
+    },
+    {
+     "i": 128,
+     "bgr": 2815,
+     "hex": "#FF0A00"
+    },
+    {
+     "i": 255,
+     "bgr": 789516,
+     "hex": "#0C0C0C"
+    }
+   ]
+  },
+  {
+   "file": "HeatMap.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16711679,
+     "hex": "#FFFFFE"
+    },
+    {
+     "i": 128,
+     "bgr": 16596547,
+     "hex": "#433EFD"
+    },
+    {
+     "i": 255,
+     "bgr": 0,
+     "hex": "#000000"
+    }
+   ]
+  },
+  {
+   "file": "IntEx.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 255,
+     "hex": "#FF0000"
+    },
+    {
+     "i": 128,
+     "bgr": 11119017,
+     "hex": "#A9A9A9"
+    },
+    {
+     "i": 255,
+     "bgr": 65535,
+     "hex": "#FFFF00"
+    }
+   ]
+  },
+  {
+   "file": "IsoScan.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 255,
+     "hex": "#FF0000"
+    },
+    {
+     "i": 128,
+     "bgr": 16711680,
+     "hex": "#0000FF"
+    },
+    {
+     "i": 255,
+     "bgr": 11119017,
+     "hex": "#A9A9A9"
+    }
+   ]
+  },
+  {
+   "file": "Pastel.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 6938621,
+     "hex": "#FDDF69"
+    },
+    {
+     "i": 128,
+     "bgr": 4125005,
+     "hex": "#4DF13E"
+    },
+    {
+     "i": 255,
+     "bgr": 14275871,
+     "hex": "#1FD5D9"
+    }
+   ]
+  },
+  {
+   "file": "PastelRedGreen.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 5490675,
+     "hex": "#F3C753"
+    },
+    {
+     "i": 128,
+     "bgr": 7010016,
+     "hex": "#E0F66A"
+    },
+    {
+     "i": 255,
+     "bgr": 8518067,
+     "hex": "#B3F981"
+    }
+   ]
+  },
+  {
+   "file": "RGB.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 255,
+     "hex": "#FF0000"
+    },
+    {
+     "i": 128,
+     "bgr": 65280,
+     "hex": "#00FF00"
+    },
+    {
+     "i": 255,
+     "bgr": 16712448,
+     "hex": "#0003FF"
+    }
+   ]
+  },
+  {
+   "file": "Radius.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16711680,
+     "hex": "#0000FF"
+    },
+    {
+     "i": 128,
+     "bgr": 16777215,
+     "hex": "#FFFFFF"
+    },
+    {
+     "i": 255,
+     "bgr": 2100990,
+     "hex": "#FE0E20"
+    }
+   ]
+  },
+  {
+   "file": "Rainbow_Bright.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 8388608,
+     "hex": "#000080"
+    },
+    {
+     "i": 128,
+     "bgr": 49919,
+     "hex": "#FFC200"
+    },
+    {
+     "i": 255,
+     "bgr": 15798668,
+     "hex": "#8C11F1"
+    }
+   ]
+  },
+  {
+   "file": "Rainbow_Soft.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 8388608,
+     "hex": "#000080"
+    },
+    {
+     "i": 128,
+     "bgr": 318171,
+     "hex": "#DBDA04"
+    },
+    {
+     "i": 255,
+     "bgr": 16711935,
+     "hex": "#FF00FF"
+    }
+   ]
+  },
+  {
+   "file": "RedBlue.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 219,
+     "hex": "#DB0000"
+    },
+    {
+     "i": 128,
+     "bgr": 16775380,
+     "hex": "#D4F8FF"
+    },
+    {
+     "i": 255,
+     "bgr": 16711680,
+     "hex": "#0000FF"
+    }
+   ]
+  },
+  {
+   "file": "RedGreen.pal",
+   "n_entries": 257,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 255,
+     "hex": "#FF0000"
+    },
+    {
+     "i": 128,
+     "bgr": 65535,
+     "hex": "#FFFF00"
+    },
+    {
+     "i": 256,
+     "bgr": 65280,
+     "hex": "#00FF00"
+    }
+   ]
+  },
+  {
+   "file": "SandCount6.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 65535,
+     "hex": "#FFFF00"
+    },
+    {
+     "i": 128,
+     "bgr": 42495,
+     "hex": "#FFA500"
+    },
+    {
+     "i": 255,
+     "bgr": 11119017,
+     "hex": "#A9A9A9"
+    }
+   ]
+  },
+  {
+   "file": "SandCount7.pal",
+   "n_entries": 255,
+   "sample_hex": [
+    {
+     "i": 1,
+     "bgr": 16777215,
+     "hex": "#FFFFFF"
+    },
+    {
+     "i": 128,
+     "bgr": 42495,
+     "hex": "#FFA500"
+    },
+    {
+     "i": 255,
+     "bgr": 11119017,
+     "hex": "#A9A9A9"
+    }
+   ]
+  },
+  {
+   "file": "SandCounting.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16777215,
+     "hex": "#FFFFFF"
+    },
+    {
+     "i": 128,
+     "bgr": 65535,
+     "hex": "#FFFF00"
+    },
+    {
+     "i": 255,
+     "bgr": 32770,
+     "hex": "#028000"
+    }
+   ]
+  },
+  {
+   "file": "Schlumberger.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16777215,
+     "hex": "#FFFFFF"
+    },
+    {
+     "i": 128,
+     "bgr": 34815,
+     "hex": "#FF8700"
+    },
+    {
+     "i": 255,
+     "bgr": 296,
+     "hex": "#280100"
+    }
+   ]
+  },
+  {
+   "file": "Schlumberger_OBMI-LGC.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16777215,
+     "hex": "#FFFFFF"
+    },
+    {
+     "i": 128,
+     "bgr": 65535,
+     "hex": "#FFFF00"
+    },
+    {
+     "i": 255,
+     "bgr": 255,
+     "hex": "#FF0000"
+    }
+   ]
+  },
+  {
+   "file": "Schlumberger_Reversed.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 296,
+     "hex": "#280100"
+    },
+    {
+     "i": 128,
+     "bgr": 100607,
+     "hex": "#FF8801"
+    },
+    {
+     "i": 255,
+     "bgr": 16777215,
+     "hex": "#FFFFFF"
+    }
+   ]
+  },
+  {
+   "file": "Semblance_CyanRed.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16777176,
+     "hex": "#D8FFFF"
+    },
+    {
+     "i": 128,
+     "bgr": 65410,
+     "hex": "#82FF00"
+    },
+    {
+     "i": 255,
+     "bgr": 255,
+     "hex": "#FF0000"
+    }
+   ]
+  },
+  {
+   "file": "Spectrum.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 255,
+     "hex": "#FF0000"
+    },
+    {
+     "i": 128,
+     "bgr": 16776960,
+     "hex": "#00FFFF"
+    },
+    {
+     "i": 255,
+     "bgr": 393471,
+     "hex": "#FF0006"
+    }
+   ]
+  },
+  {
+   "file": "Thickness.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 255,
+     "hex": "#FF0000"
+    },
+    {
+     "i": 128,
+     "bgr": 16777215,
+     "hex": "#FFFFFF"
+    },
+    {
+     "i": 255,
+     "bgr": 16721685,
+     "hex": "#1527FF"
+    }
+   ]
+  },
+  {
+   "file": "Tristate_Reversed.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 32768,
+     "hex": "#008000"
+    },
+    {
+     "i": 128,
+     "bgr": 33023,
+     "hex": "#FF8000"
+    },
+    {
+     "i": 255,
+     "bgr": 16711680,
+     "hex": "#0000FF"
+    }
+   ]
+  },
+  {
+   "file": "Weatherford.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 15398911,
+     "hex": "#FFF7EA"
+    },
+    {
+     "i": 128,
+     "bgr": 34789,
+     "hex": "#E58700"
+    },
+    {
+     "i": 255,
+     "bgr": 257,
+     "hex": "#010100"
+    }
+   ]
+  },
+  {
+   "file": "WellID.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 3530222,
+     "hex": "#EEDD35"
+    },
+    {
+     "i": 128,
+     "bgr": 9603601,
+     "hex": "#118A92"
+    },
+    {
+     "i": 255,
+     "bgr": 2895637,
+     "hex": "#152F2C"
+    }
+   ]
+  },
+  {
+   "file": "WhiteBlue.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16777214,
+     "hex": "#FEFFFF"
+    },
+    {
+     "i": 128,
+     "bgr": 16760446,
+     "hex": "#7EBEFF"
+    },
+    {
+     "i": 255,
+     "bgr": 16711680,
+     "hex": "#0000FF"
+    }
+   ]
+  },
+  {
+   "file": "WhiteGreen.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16777214,
+     "hex": "#FEFFFF"
+    },
+    {
+     "i": 128,
+     "bgr": 10420030,
+     "hex": "#3EFF9E"
+    },
+    {
+     "i": 255,
+     "bgr": 32768,
+     "hex": "#008000"
+    }
+   ]
+  },
+  {
+   "file": "WhiteRed.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16711679,
+     "hex": "#FFFFFE"
+    },
+    {
+     "i": 128,
+     "bgr": 7124479,
+     "hex": "#FFB56C"
+    },
+    {
+     "i": 255,
+     "bgr": 219,
+     "hex": "#DB0000"
+    }
+   ]
+  },
+  {
+   "file": "YGB.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 3529727,
+     "hex": "#FFDB35"
+    },
+    {
+     "i": 128,
+     "bgr": 7534593,
+     "hex": "#01F872"
+    },
+    {
+     "i": 255,
+     "bgr": 12386574,
+     "hex": "#0E01BD"
+    }
+   ]
+  },
+  {
+   "file": "tristate.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16711680,
+     "hex": "#0000FF"
+    },
+    {
+     "i": 128,
+     "bgr": 33023,
+     "hex": "#FF8000"
+    },
+    {
+     "i": 255,
+     "bgr": 32768,
+     "hex": "#008000"
+    }
+   ]
+  },
+  {
+   "file": "wBGR.pal",
+   "n_entries": 256,
+   "sample_hex": [
+    {
+     "i": 0,
+     "bgr": 16645629,
+     "hex": "#FDFDFD"
+    },
+    {
+     "i": 128,
+     "bgr": 65280,
+     "hex": "#00FF00"
+    },
+    {
+     "i": 255,
+     "bgr": 1023,
+     "hex": "#FF0300"
+    }
+   ]
+  }
+ ]
+}

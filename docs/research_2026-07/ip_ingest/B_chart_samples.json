@@ -1,0 +1,3307 @@
+{
+ "BA_2490_DEN_fresh.ovl": {
+  "file_type": "ovl",
+  "title": "Nautilus 2490 Density Neutron Overlay Rhofluid = 1.0 ( Rev 04-04-2007)",
+  "x_tool": "Neutron",
+  "y_tool": "Density",
+  "chart_type": "density-neutron",
+  "polylines": [
+   {
+    "name": "SS",
+    "color": "DkGray",
+    "points": [
+     {
+      "x": -0.019,
+      "y": 2.65,
+      "label": "0"
+     },
+     {
+      "x": 0.017,
+      "y": 2.568,
+      "label": "tick"
+     },
+     {
+      "x": 0.055,
+      "y": 2.485,
+      "label": "10"
+     },
+     {
+      "x": 0.099,
+      "y": 2.403,
+      "label": "tick"
+     },
+     {
+      "x": 0.146,
+      "y": 2.32,
+      "label": "20"
+     },
+     {
+      "x": 0.194,
+      "y": 2.238,
+      "label": "tick"
+     },
+     {
+      "x": 0.244,
+      "y": 2.155,
+      "label": "30"
+     },
+     {
+      "x": 0.294,
+      "y": 2.073,
+      "label": "tick"
+     },
+     {
+      "x": 0.345,
+      "y": 1.99,
+      "label": "40"
+     }
+    ]
+   },
+   {
+    "name": "LS",
+    "color": "DkGray",
+    "points": [
+     {
+      "x": 0.0,
+      "y": 2.71,
+      "label": "0"
+     },
+     {
+      "x": 0.05,
+      "y": 2.625,
+      "label": "tick"
+     },
+     {
+      "x": 0.1,
+      "y": 2.539,
+      "label": "10"
+     },
+     {
+      "x": 0.15,
+      "y": 2.454,
+      "label": "tick"
+     },
+     {
+      "x": 0.2,
+      "y": 2.368,
+      "label": "20"
+     },
+     {
+      "x": 0.25,
+      "y": 2.283,
+      "label": "tick"
+     },
+     {
+      "x": 0.3,
+      "y": 2.197,
+      "label": "30"
+     },
+     {
+      "x": 0.35,
+      "y": 2.112,
+      "label": "tick"
+     },
+     {
+      "x": 0.4,
+      "y": 2.026,
+      "label": "40"
+     }
+    ]
+   },
+   {
+    "name": "DOL",
+    "color": "DkGray",
+    "points": [
+     {
+      "x": 0.038,
+      "y": 2.87,
+      "label": "0"
+     },
+     {
+      "x": 0.096,
+      "y": 2.777,
+      "label": "tick"
+     },
+     {
+      "x": 0.155,
+      "y": 2.683,
+      "label": "10"
+     },
+     {
+      "x": 0.212,
+      "y": 2.59,
+      "label": "tick"
+     },
+     {
+      "x": 0.267,
+      "y": 2.496,
+      "label": "20"
+     },
+     {
+      "x": 0.321,
+      "y": 2.403,
+      "label": "tick"
+     },
+     {
+      "x": 0.374,
+      "y": 2.309,
+      "label": "30"
+     },
+     {
+      "x": 0.426,
+      "y": 2.216,
+      "label": "tick"
+     },
+     {
+      "x": 0.476,
+      "y": 2.122,
+      "label": "40"
+     }
+    ]
+   }
+  ],
+  "labels": [
+   {
+    "x": "0",
+    "y": "0",
+    "rot": "0",
+    "color": "Teal",
+    "text": "(Baker Atlas) Nautilus 2490 Density Neutron Overlay Rhofluid = 1.0 ( Rev 04-04-2007)"
+   }
+  ]
+ },
+ "Sch_TNPH_RHOB_fresh.ovl": {
+  "file_type": "ovl",
+  "title": "Schlumberger TNPH RHOB overlay Rhofluid = 1.0  (CP-1e 1989)",
+  "x_tool": "Neutron",
+  "y_tool": "Density",
+  "chart_type": "density-neutron",
+  "polylines": [
+   {
+    "name": "SS",
+    "color": "DkGray",
+    "points": [
+     {
+      "x": -0.02,
+      "y": 2.65,
+      "label": "0"
+     },
+     {
+      "x": 0.004,
+      "y": 2.6,
+      "label": null
+     },
+     {
+      "x": 0.02,
+      "y": 2.568,
+      "label": "tick"
+     },
+     {
+      "x": 0.062,
+      "y": 2.485,
+      "label": "10"
+     },
+     {
+      "x": 0.102,
+      "y": 2.403,
+      "label": "tick"
+     },
+     {
+      "x": 0.149,
+      "y": 2.32,
+      "label": "20"
+     },
+     {
+      "x": 0.197,
+      "y": 2.238,
+      "label": "tick"
+     },
+     {
+      "x": 0.25,
+      "y": 2.155,
+      "label": "30"
+     },
+     {
+      "x": 0.302,
+      "y": 2.073,
+      "label": "tick"
+     },
+     {
+      "x": 0.355,
+      "y": 1.99,
+      "label": "40"
+     },
+     {
+      "x": 0.412,
+      "y": 1.908,
+      "label": "tick"
+     }
+    ]
+   },
+   {
+    "name": "LS",
+    "color": "DkGray",
+    "points": [
+     {
+      "x": 0.0,
+      "y": 2.71,
+      "label": "0"
+     },
+     {
+      "x": 0.05,
+      "y": 2.625,
+      "label": "tick"
+     },
+     {
+      "x": 0.1,
+      "y": 2.539,
+      "label": "10"
+     },
+     {
+      "x": 0.15,
+      "y": 2.454,
+      "label": "tick"
+     },
+     {
+      "x": 0.2,
+      "y": 2.368,
+      "label": "20"
+     },
+     {
+      "x": 0.25,
+      "y": 2.283,
+      "label": "tick"
+     },
+     {
+      "x": 0.3,
+      "y": 2.197,
+      "label": "30"
+     },
+     {
+      "x": 0.35,
+      "y": 2.112,
+      "label": "tick"
+     },
+     {
+      "x": 0.4,
+      "y": 2.026,
+      "label": "40"
+     },
+     {
+      "x": 0.45,
+      "y": 1.941,
+      "label": "tick"
+     }
+    ]
+   },
+   {
+    "name": "DOL",
+    "color": "DkGray",
+    "points": [
+     {
+      "x": 0.005,
+      "y": 2.87,
+      "label": "0"
+     },
+     {
+      "x": 0.057,
+      "y": 2.777,
+      "label": "tick"
+     },
+     {
+      "x": 0.112,
+      "y": 2.683,
+      "label": "10"
+     },
+     {
+      "x": 0.167,
+      "y": 2.59,
+      "label": "tick"
+     },
+     {
+      "x": 0.224,
+      "y": 2.496,
+      "label": "20"
+     },
+     {
+      "x": 0.283,
+      "y": 2.403,
+      "label": "tick"
+     },
+     {
+      "x": 0.342,
+      "y": 2.309,
+      "label": "30"
+     },
+     {
+      "x": 0.402,
+      "y": 2.216,
+      "label": "tick"
+     },
+     {
+      "x": 0.463,
+      "y": 2.122,
+      "label": "40"
+     }
+    ]
+   }
+  ],
+  "labels": [
+   {
+    "x": "0",
+    "y": "0",
+    "rot": "0",
+    "color": "Green",
+    "text": "(SWS) Density Neutron(TNPH) overlay, Rhofluid = 1.0 (CP-1e 1989)"
+   }
+  ]
+ },
+ "Sch_Por_Lithology_fresh.ovl": {
+  "file_type": "ovl",
+  "title": "SWS Por & Lithology Overlay Rhofluid = 1.0 (CP-16)",
+  "x_tool": "PEF",
+  "y_tool": "DENSITY",
+  "chart_type": "Pe-density (litho-density)",
+  "polylines": [
+   {
+    "name": "SST",
+    "color": "RED",
+    "points": [
+     {
+      "x": 1.8,
+      "y": 2.65,
+      "label": "0"
+     },
+     {
+      "x": 1.76,
+      "y": 2.57,
+      "label": "tick"
+     },
+     {
+      "x": 1.72,
+      "y": 2.488,
+      "label": "10"
+     },
+     {
+      "x": 1.69,
+      "y": 2.407,
+      "label": "tick"
+     },
+     {
+      "x": 1.66,
+      "y": 2.321,
+      "label": "20"
+     },
+     {
+      "x": 1.62,
+      "y": 2.241,
+      "label": "tick"
+     },
+     {
+      "x": 1.58,
+      "y": 2.159,
+      "label": "30"
+     },
+     {
+      "x": 1.53,
+      "y": 2.078,
+      "label": "tick"
+     },
+     {
+      "x": 1.47,
+      "y": 1.99,
+      "label": "40"
+     },
+     {
+      "x": 1.4,
+      "y": 1.908,
+      "label": "tick"
+     }
+    ]
+   },
+   {
+    "name": "DOL",
+    "color": "GREEN",
+    "points": [
+     {
+      "x": 3.1,
+      "y": 2.87,
+      "label": "0"
+     },
+     {
+      "x": 3.06,
+      "y": 2.777,
+      "label": "tick"
+     },
+     {
+      "x": 3.0,
+      "y": 2.682,
+      "label": "10"
+     },
+     {
+      "x": 2.91,
+      "y": 2.59,
+      "label": "tick"
+     },
+     {
+      "x": 2.86,
+      "y": 2.497,
+      "label": "20"
+     },
+     {
+      "x": 2.8,
+      "y": 2.4,
+      "label": "tick"
+     },
+     {
+      "x": 2.73,
+      "y": 2.31,
+      "label": "30"
+     },
+     {
+      "x": 2.63,
+      "y": 2.218,
+      "label": "tick"
+     },
+     {
+      "x": 2.55,
+      "y": 2.121,
+      "label": "40"
+     },
+     {
+      "x": 2.47,
+      "y": 2.03,
+      "label": "tick"
+     }
+    ]
+   },
+   {
+    "name": "LST",
+    "color": "BLUE",
+    "points": [
+     {
+      "x": 5.1,
+      "y": 2.71,
+      "label": "0"
+     },
+     {
+      "x": 4.96,
+      "y": 2.626,
+      "label": "tick"
+     },
+     {
+      "x": 4.85,
+      "y": 2.54,
+      "label": "10"
+     },
+     {
+      "x": 4.75,
+      "y": 2.453,
+      "label": "tick"
+     },
+     {
+      "x": 4.62,
+      "y": 2.369,
+      "label": "20"
+     },
+     {
+      "x": 4.5,
+      "y": 2.285,
+      "label": "tick"
+     },
+     {
+      "x": 4.36,
+      "y": 2.2,
+      "label": "30"
+     },
+     {
+      "x": 4.2,
+      "y": 2.118,
+      "label": "tick"
+     },
+     {
+      "x": 4.06,
+      "y": 2.03,
+      "label": "40"
+     },
+     {
+      "x": 3.88,
+      "y": 1.946,
+      "label": "tick"
+     }
+    ]
+   },
+   {
+    "name": "ANHY",
+    "color": "FUSCHIA",
+    "points": [
+     {
+      "x": 5.1,
+      "y": 2.98,
+      "label": "0"
+     },
+     {
+      "x": 4.9,
+      "y": 2.881,
+      "label": "tick"
+     }
+    ]
+   },
+   {
+    "name": "SALT",
+    "color": "BLACK",
+    "points": [
+     {
+      "x": 4.7,
+      "y": 2.04,
+      "label": "0"
+     },
+     {
+      "x": 4.5,
+      "y": 1.97,
+      "label": "tick"
+     }
+    ]
+   }
+  ],
+  "labels": [
+   {
+    "x": "0",
+    "y": "0",
+    "rot": "0",
+    "color": "Green",
+    "text": "(SWS) Por & Lithology Overlay Rhofluid = 1.0 (CP-16)"
+   }
+  ]
+ },
+ "Baker_M_N_Mineral_Ident.ovl": {
+  "file_type": "ovl",
+  "title": "Mineral Identification by M-N crossplot (using Series 2420 CN Log)",
+  "x_tool": "M",
+  "y_tool": "N",
+  "chart_type": "M-N mineral identification",
+  "polylines": [
+   {
+    "name": ".",
+    "color": "Black",
+    "points": [
+     {
+      "x": 0.38,
+      "y": 1.01,
+      "label": null
+     },
+     {
+      "x": 0.41,
+      "y": 1.06,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": ".",
+    "color": "Black",
+    "points": [
+     {
+      "x": 0.96,
+      "y": 1.18,
+      "label": null
+     },
+     {
+      "x": 1.07,
+      "y": 1.26,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": ".",
+    "color": "Black",
+    "points": [
+     {
+      "x": 0.58,
+      "y": 0.83,
+      "label": null
+     },
+     {
+      "x": 0.62,
+      "y": 0.86,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": ".",
+    "color": "Black",
+    "points": [
+     {
+      "x": 0.64,
+      "y": 0.84,
+      "label": null
+     },
+     {
+      "x": 0.67,
+      "y": 0.86,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": ".",
+    "color": "Black",
+    "points": [
+     {
+      "x": 0.64,
+      "y": 0.81,
+      "label": null
+     },
+     {
+      "x": 0.67,
+      "y": 0.83,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": ".",
+    "color": "Black",
+    "points": [
+     {
+      "x": 0.49,
+      "y": 0.78,
+      "label": null
+     },
+     {
+      "x": 0.52,
+      "y": 0.8,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": ".",
+    "color": "Black",
+    "points": [
+     {
+      "x": 0.5,
+      "y": 0.78,
+      "label": null
+     },
+     {
+      "x": 0.53,
+      "y": 0.8,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": ".",
+    "color": "Black",
+    "points": [
+     {
+      "x": 0.51,
+      "y": 0.78,
+      "label": null
+     },
+     {
+      "x": 0.54,
+      "y": 0.8,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": ".",
+    "color": "Black",
+    "points": [
+     {
+      "x": 0.5,
+      "y": 0.71,
+      "label": null
+     },
+     {
+      "x": 0.53,
+      "y": 0.72,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": ".",
+    "color": "LightSkyBlue",
+    "points": [
+     {
+      "x": 0.38,
+      "y": 1.03,
+      "label": null
+     },
+     {
+      "x": 0.38,
+      "y": 0.99,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": ".",
+    "color": "LightSkyBlue",
+    "points": [
+     {
+      "x": 0.96,
+      "y": 1.2,
+      "label": null
+     },
+     {
+      "x": 0.96,
+      "y": 1.16,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": ".",
+    "color": "LightSkyBlue",
+    "points": [
+     {
+      "x": 0.58,
+      "y": 0.85,
+      "label": null
+     },
+     {
+      "x": 0.58,
+      "y": 0.81,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": ".",
+    "color": "LightSkyBlue",
+    "points": [
+     {
+      "x": 0.64,
+      "y": 0.86,
+      "label": null
+     },
+     {
+      "x": 0.64,
+      "y": 0.82,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": ".",
+    "color": "LightSkyBlue",
+    "points": [
+     {
+      "x": 0.64,
+      "y": 0.83,
+      "label": null
+     },
+     {
+      "x": 0.64,
+      "y": 0.79,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": ".",
+    "color": "LightSkyBlue",
+    "points": [
+     {
+      "x": 0.49,
+      "y": 0.8,
+      "label": null
+     },
+     {
+      "x": 0.49,
+      "y": 0.76,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": ".",
+    "color": "LightSkyBlue",
+    "points": [
+     {
+      "x": 0.5,
+      "y": 0.8,
+      "label": null
+     },
+     {
+      "x": 0.5,
+      "y": 0.76,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": ".",
+    "color": "LightSkyBlue",
+    "points": [
+     {
+      "x": 0.51,
+      "y": 0.8,
+      "label": null
+     },
+     {
+      "x": 0.51,
+      "y": 0.76,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": ".",
+    "color": "LightSkyBlue",
+    "points": [
+     {
+      "x": 0.5,
+      "y": 0.73,
+      "label": null
+     },
+     {
+      "x": 0.5,
+      "y": 0.69,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": ".",
+    "color": "Fuchsia",
+    "points": [
+     {
+      "x": 0.41,
+      "y": 1.08,
+      "label": null
+     },
+     {
+      "x": 0.41,
+      "y": 1.04,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": ".",
+    "color": "Fuchsia",
+    "points": [
+     {
+      "x": 1.07,
+      "y": 1.28,
+      "label": null
+     },
+     {
+      "x": 1.07,
+      "y": 1.24,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": ".",
+    "color": "Fuchsia",
+    "points": [
+     {
+      "x": 0.62,
+      "y": 0.88,
+      "label": null
+     },
+     {
+      "x": 0.62,
+      "y": 0.84,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": ".",
+    "color": "Fuchsia",
+    "points": [
+     {
+      "x": 0.67,
+      "y": 0.88,
+      "label": null
+     },
+     {
+      "x": 0.67,
+      "y": 0.84,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": ".",
+    "color": "Fuchsia",
+    "points": [
+     {
+      "x": 0.67,
+      "y": 0.85,
+      "label": null
+     },
+     {
+      "x": 0.67,
+      "y": 0.81,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": ".",
+    "color": "Fuchsia",
+    "points": [
+     {
+      "x": 0.52,
+      "y": 0.81,
+      "label": null
+     },
+     {
+      "x": 0.52,
+      "y": 0.8,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": ".",
+    "color": "Fuchsia",
+    "points": [
+     {
+      "x": 0.53,
+      "y": 0.82,
+      "label": null
+     },
+     {
+      "x": 0.53,
+      "y": 0.78,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": ".",
+    "color": "Fuchsia",
+    "points": [
+     {
+      "x": 0.54,
+      "y": 0.82,
+      "label": null
+     },
+     {
+      "x": 0.54,
+      "y": 0.78,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": ".",
+    "color": "Fuchsia",
+    "points": [
+     {
+      "x": 0.53,
+      "y": 0.74,
+      "label": null
+     },
+     {
+      "x": 0.53,
+      "y": 0.7,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": ".",
+    "color": "LightSkyBlue",
+    "points": [
+     {
+      "x": 0.75,
+      "y": 0.78,
+      "label": null
+     },
+     {
+      "x": 0.75,
+      "y": 0.75,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": ".",
+    "color": "Fuchsia",
+    "points": [
+     {
+      "x": 0.75,
+      "y": 0.72,
+      "label": null
+     },
+     {
+      "x": 0.75,
+      "y": 0.69,
+      "label": null
+     }
+    ]
+   }
+  ],
+  "labels": [
+   {
+    "x": "0.4",
+    "y": "1.03",
+    "rot": "0",
+    "color": "Black",
+    "text": "Gypsum"
+   },
+   {
+    "x": "1.03",
+    "y": "1.21",
+    "rot": "0",
+    "color": "Black",
+    "text": "Salt"
+   },
+   {
+    "x": "0.53",
+    "y": "0.85",
+    "rot": "0",
+    "color": "Black",
+    "text": "Limestone"
+   },
+   {
+    "x": "0.67",
+    "y": "0.85",
+    "rot": "0",
+    "color": "Black",
+    "text": "Sandstone"
+   },
+   {
+    "x": "0.53",
+    "y": "0.78",
+    "rot": "0",
+    "color": "Black",
+    "text": "Dolomite"
+   },
+   {
+    "x": "0.53",
+    "y": "0.7",
+    "rot": "0",
+    "color": "Black",
+    "text": "Anhydrite"
+   },
+   {
+    "x": "0.69",
+    "y": "0.87",
+    "rot": "0",
+    "color": "Black",
+    "text": "(Vma = 19,500 ft/s or 5945 m/s)"
+   },
+   {
+    "x": "0.69",
+    "y": "0.83",
+    "rot": "0",
+    "color": "Black",
+    "text": "(Vma = 18,000 ft/s or 5488 m/s)"
+   },
+   {
+    "x": "0.44",
+    "y": "0.78",
+    "rot": "0",
+    "color": "Black",
+    "text": "5.0-30%"
+   },
+   {
+    "x": "0.48",
+    "y": "0.75",
+    "rot": "0",
+    "color": "Black",
+    "text": "1.5-5.0%"
+   },
+   {
+    "x": "0.52",
+    "y": "0.75",
+    "rot": "0",
+    "color": "Black",
+    "text": "0-1.5%"
+   },
+   {
+    "x": "0.76",
+    "y": "0.76",
+    "rot": "0",
+    "color": "Black",
+    "text": "= Fresh Mud, Density f = 1.0 g/cm3, Delta Tf = 189 us/ft"
+   },
+   {
+    "x": "0.84",
+    "y": "0.73",
+    "rot": "0",
+    "color": "Black",
+    "text": "Density f = 1.0 Mg/m3, Delta Tf = 620 us/m"
+   },
+   {
+    "x": "0.76",
+    "y": "0.7",
+    "rot": "0",
+    "color": "Black",
+    "text": "= Salt Mud, Density f = 1.1 g/cm3, Delta Tf = 185 us/ft"
+   },
+   {
+    "x": "0.83",
+    "y": "0.68",
+    "rot": "0",
+    "color": "Black",
+    "text": "Density f = 1.1 Mg/m3, Delta Tf = 607 us/m"
+   }
+  ]
+ },
+ "Umatrix_RhoMatrix.ovl": {
+  "file_type": "ovl",
+  "title": "MID Plot Umatrix Rhomatrix",
+  "x_tool": "Umatrix",
+  "y_tool": "RhoMatrix",
+  "chart_type": "MID matrix identification",
+  "polylines": [
+   {
+    "name": "Quartz",
+    "color": "DkGray",
+    "points": [
+     {
+      "x": 4.8,
+      "y": 2.65,
+      "label": null
+     },
+     {
+      "x": 13.8,
+      "y": 2.71,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": "Calcite",
+    "color": "DkGray",
+    "points": [
+     {
+      "x": 13.8,
+      "y": 2.71,
+      "label": null
+     },
+     {
+      "x": 9.0,
+      "y": 2.85,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": "Dolomite",
+    "color": "DkGray",
+    "points": [
+     {
+      "x": 9.0,
+      "y": 2.85,
+      "label": null
+     },
+     {
+      "x": 4.8,
+      "y": 2.65,
+      "label": null
+     }
+    ]
+   }
+  ],
+  "labels": []
+ },
+ "buckles.ovl": {
+  "file_type": "ovl",
+  "title": "BUCKLES PLOT",
+  "x_tool": "Phi",
+  "y_tool": "Sw",
+  "chart_type": "Buckles (Sw-Phi)",
+  "polylines": [
+   {
+    "name": "0.01",
+    "color": "DkGray",
+    "points": [
+     {
+      "x": 0.4,
+      "y": 0.025,
+      "label": null
+     },
+     {
+      "x": 0.35,
+      "y": 0.0286,
+      "label": null
+     },
+     {
+      "x": 0.3,
+      "y": 0.0333,
+      "label": null
+     },
+     {
+      "x": 0.25,
+      "y": 0.04,
+      "label": null
+     },
+     {
+      "x": 0.2,
+      "y": 0.05,
+      "label": null
+     },
+     {
+      "x": 0.19,
+      "y": 0.0526,
+      "label": null
+     },
+     {
+      "x": 0.18,
+      "y": 0.0556,
+      "label": null
+     },
+     {
+      "x": 0.17,
+      "y": 0.0588,
+      "label": null
+     },
+     {
+      "x": 0.16,
+      "y": 0.0625,
+      "label": null
+     },
+     {
+      "x": 0.15,
+      "y": 0.0667,
+      "label": null
+     },
+     {
+      "x": 0.14,
+      "y": 0.0714,
+      "label": null
+     },
+     {
+      "x": 0.13,
+      "y": 0.0769,
+      "label": null
+     },
+     {
+      "x": 0.12,
+      "y": 0.0833,
+      "label": null
+     },
+     {
+      "x": 0.11,
+      "y": 0.0909,
+      "label": null
+     },
+     {
+      "x": 0.1,
+      "y": 0.1,
+      "label": null
+     },
+     {
+      "x": 0.09,
+      "y": 0.1111,
+      "label": null
+     },
+     {
+      "x": 0.08,
+      "y": 0.125,
+      "label": null
+     },
+     {
+      "x": 0.07,
+      "y": 0.1429,
+      "label": null
+     },
+     {
+      "x": 0.06,
+      "y": 0.1667,
+      "label": null
+     },
+     {
+      "x": 0.05,
+      "y": 0.2,
+      "label": null
+     },
+     {
+      "x": 0.04,
+      "y": 0.25,
+      "label": null
+     },
+     {
+      "x": 0.03,
+      "y": 0.3333,
+      "label": null
+     },
+     {
+      "x": 0.02,
+      "y": 0.5,
+      "label": null
+     },
+     {
+      "x": 0.01,
+      "y": 1.0,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": "0.02",
+    "color": "DkGray",
+    "points": [
+     {
+      "x": 0.4,
+      "y": 0.05,
+      "label": null
+     },
+     {
+      "x": 0.35,
+      "y": 0.0571,
+      "label": null
+     },
+     {
+      "x": 0.3,
+      "y": 0.0667,
+      "label": null
+     },
+     {
+      "x": 0.25,
+      "y": 0.08,
+      "label": null
+     },
+     {
+      "x": 0.2,
+      "y": 0.1,
+      "label": null
+     },
+     {
+      "x": 0.19,
+      "y": 0.1053,
+      "label": null
+     },
+     {
+      "x": 0.18,
+      "y": 0.1111,
+      "label": null
+     },
+     {
+      "x": 0.17,
+      "y": 0.1176,
+      "label": null
+     },
+     {
+      "x": 0.16,
+      "y": 0.125,
+      "label": null
+     },
+     {
+      "x": 0.15,
+      "y": 0.1333,
+      "label": null
+     },
+     {
+      "x": 0.14,
+      "y": 0.1429,
+      "label": null
+     },
+     {
+      "x": 0.13,
+      "y": 0.1538,
+      "label": null
+     },
+     {
+      "x": 0.12,
+      "y": 0.1667,
+      "label": null
+     },
+     {
+      "x": 0.11,
+      "y": 0.1818,
+      "label": null
+     },
+     {
+      "x": 0.1,
+      "y": 0.2,
+      "label": null
+     },
+     {
+      "x": 0.09,
+      "y": 0.2222,
+      "label": null
+     },
+     {
+      "x": 0.08,
+      "y": 0.25,
+      "label": null
+     },
+     {
+      "x": 0.07,
+      "y": 0.2857,
+      "label": null
+     },
+     {
+      "x": 0.06,
+      "y": 0.3333,
+      "label": null
+     },
+     {
+      "x": 0.05,
+      "y": 0.4,
+      "label": null
+     },
+     {
+      "x": 0.04,
+      "y": 0.5,
+      "label": null
+     },
+     {
+      "x": 0.03,
+      "y": 0.6667,
+      "label": null
+     },
+     {
+      "x": 0.02,
+      "y": 1.0,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": "0.04",
+    "color": "DkGray",
+    "points": [
+     {
+      "x": 0.4,
+      "y": 0.1,
+      "label": null
+     },
+     {
+      "x": 0.37,
+      "y": 0.1081,
+      "label": null
+     },
+     {
+      "x": 0.35,
+      "y": 0.1143,
+      "label": null
+     },
+     {
+      "x": 0.32,
+      "y": 0.125,
+      "label": null
+     },
+     {
+      "x": 0.3,
+      "y": 0.1333,
+      "label": null
+     },
+     {
+      "x": 0.25,
+      "y": 0.16,
+      "label": null
+     },
+     {
+      "x": 0.2,
+      "y": 0.2,
+      "label": null
+     },
+     {
+      "x": 0.19,
+      "y": 0.2105,
+      "label": null
+     },
+     {
+      "x": 0.18,
+      "y": 0.2222,
+      "label": null
+     },
+     {
+      "x": 0.17,
+      "y": 0.2353,
+      "label": null
+     },
+     {
+      "x": 0.16,
+      "y": 0.25,
+      "label": null
+     },
+     {
+      "x": 0.15,
+      "y": 0.2667,
+      "label": null
+     },
+     {
+      "x": 0.14,
+      "y": 0.2857,
+      "label": null
+     },
+     {
+      "x": 0.13,
+      "y": 0.3077,
+      "label": null
+     },
+     {
+      "x": 0.12,
+      "y": 0.3333,
+      "label": null
+     },
+     {
+      "x": 0.11,
+      "y": 0.3636,
+      "label": null
+     },
+     {
+      "x": 0.1,
+      "y": 0.4,
+      "label": null
+     },
+     {
+      "x": 0.09,
+      "y": 0.4444,
+      "label": null
+     },
+     {
+      "x": 0.08,
+      "y": 0.5,
+      "label": null
+     },
+     {
+      "x": 0.07,
+      "y": 0.5714,
+      "label": null
+     },
+     {
+      "x": 0.06,
+      "y": 0.6667,
+      "label": null
+     },
+     {
+      "x": 0.05,
+      "y": 0.8,
+      "label": null
+     },
+     {
+      "x": 0.04,
+      "y": 1.0,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": "0.06",
+    "color": "DkGray",
+    "points": [
+     {
+      "x": 0.4,
+      "y": 0.15,
+      "label": null
+     },
+     {
+      "x": 0.38,
+      "y": 0.1579,
+      "label": null
+     },
+     {
+      "x": 0.36,
+      "y": 0.1667,
+      "label": null
+     },
+     {
+      "x": 0.34,
+      "y": 0.1765,
+      "label": null
+     },
+     {
+      "x": 0.32,
+      "y": 0.1875,
+      "label": null
+     },
+     {
+      "x": 0.3,
+      "y": 0.2,
+      "label": null
+     },
+     {
+      "x": 0.27,
+      "y": 0.2222,
+      "label": null
+     },
+     {
+      "x": 0.25,
+      "y": 0.24,
+      "label": null
+     },
+     {
+      "x": 0.2,
+      "y": 0.3,
+      "label": null
+     },
+     {
+      "x": 0.19,
+      "y": 0.3158,
+      "label": null
+     },
+     {
+      "x": 0.18,
+      "y": 0.3333,
+      "label": null
+     },
+     {
+      "x": 0.17,
+      "y": 0.3529,
+      "label": null
+     },
+     {
+      "x": 0.16,
+      "y": 0.375,
+      "label": null
+     },
+     {
+      "x": 0.15,
+      "y": 0.4,
+      "label": null
+     },
+     {
+      "x": 0.14,
+      "y": 0.4286,
+      "label": null
+     },
+     {
+      "x": 0.13,
+      "y": 0.4615,
+      "label": null
+     },
+     {
+      "x": 0.12,
+      "y": 0.5,
+      "label": null
+     },
+     {
+      "x": 0.11,
+      "y": 0.5455,
+      "label": null
+     },
+     {
+      "x": 0.1,
+      "y": 0.6,
+      "label": null
+     },
+     {
+      "x": 0.09,
+      "y": 0.6667,
+      "label": null
+     },
+     {
+      "x": 0.08,
+      "y": 0.75,
+      "label": null
+     },
+     {
+      "x": 0.07,
+      "y": 0.8571,
+      "label": null
+     },
+     {
+      "x": 0.06,
+      "y": 1.0,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": "0.08",
+    "color": "DkGray",
+    "points": [
+     {
+      "x": 0.4,
+      "y": 0.2,
+      "label": null
+     },
+     {
+      "x": 0.38,
+      "y": 0.2105,
+      "label": null
+     },
+     {
+      "x": 0.36,
+      "y": 0.2222,
+      "label": null
+     },
+     {
+      "x": 0.34,
+      "y": 0.2353,
+      "label": null
+     },
+     {
+      "x": 0.32,
+      "y": 0.25,
+      "label": null
+     },
+     {
+      "x": 0.3,
+      "y": 0.2667,
+      "label": null
+     },
+     {
+      "x": 0.28,
+      "y": 0.2857,
+      "label": null
+     },
+     {
+      "x": 0.26,
+      "y": 0.3077,
+      "label": null
+     },
+     {
+      "x": 0.24,
+      "y": 0.3333,
+      "label": null
+     },
+     {
+      "x": 0.22,
+      "y": 0.3636,
+      "label": null
+     },
+     {
+      "x": 0.2,
+      "y": 0.4,
+      "label": null
+     },
+     {
+      "x": 0.19,
+      "y": 0.4211,
+      "label": null
+     },
+     {
+      "x": 0.18,
+      "y": 0.4444,
+      "label": null
+     },
+     {
+      "x": 0.17,
+      "y": 0.4706,
+      "label": null
+     },
+     {
+      "x": 0.16,
+      "y": 0.5,
+      "label": null
+     },
+     {
+      "x": 0.15,
+      "y": 0.5333,
+      "label": null
+     },
+     {
+      "x": 0.14,
+      "y": 0.5714,
+      "label": null
+     },
+     {
+      "x": 0.13,
+      "y": 0.6154,
+      "label": null
+     },
+     {
+      "x": 0.12,
+      "y": 0.6667,
+      "label": null
+     },
+     {
+      "x": 0.11,
+      "y": 0.7273,
+      "label": null
+     },
+     {
+      "x": 0.1,
+      "y": 0.8,
+      "label": null
+     },
+     {
+      "x": 0.09,
+      "y": 0.8889,
+      "label": null
+     },
+     {
+      "x": 0.08,
+      "y": 1.0,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": "0.1",
+    "color": "DkGray",
+    "points": [
+     {
+      "x": 0.4,
+      "y": 0.25,
+      "label": null
+     },
+     {
+      "x": 0.38,
+      "y": 0.2632,
+      "label": null
+     },
+     {
+      "x": 0.36,
+      "y": 0.2778,
+      "label": null
+     },
+     {
+      "x": 0.34,
+      "y": 0.2941,
+      "label": null
+     },
+     {
+      "x": 0.32,
+      "y": 0.3125,
+      "label": null
+     },
+     {
+      "x": 0.3,
+      "y": 0.3333,
+      "label": null
+     },
+     {
+      "x": 0.28,
+      "y": 0.3571,
+      "label": null
+     },
+     {
+      "x": 0.26,
+      "y": 0.3846,
+      "label": null
+     },
+     {
+      "x": 0.24,
+      "y": 0.4167,
+      "label": null
+     },
+     {
+      "x": 0.22,
+      "y": 0.4545,
+      "label": null
+     },
+     {
+      "x": 0.2,
+      "y": 0.5,
+      "label": null
+     },
+     {
+      "x": 0.19,
+      "y": 0.5263,
+      "label": null
+     },
+     {
+      "x": 0.18,
+      "y": 0.5556,
+      "label": null
+     },
+     {
+      "x": 0.17,
+      "y": 0.5882,
+      "label": null
+     },
+     {
+      "x": 0.16,
+      "y": 0.625,
+      "label": null
+     },
+     {
+      "x": 0.15,
+      "y": 0.6667,
+      "label": null
+     },
+     {
+      "x": 0.14,
+      "y": 0.7143,
+      "label": null
+     },
+     {
+      "x": 0.13,
+      "y": 0.7692,
+      "label": null
+     },
+     {
+      "x": 0.12,
+      "y": 0.8333,
+      "label": null
+     },
+     {
+      "x": 0.11,
+      "y": 0.9091,
+      "label": null
+     },
+     {
+      "x": 0.1,
+      "y": 1.0,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": "0.14",
+    "color": "DkGray",
+    "points": [
+     {
+      "x": 0.4,
+      "y": 0.35,
+      "label": null
+     },
+     {
+      "x": 0.38,
+      "y": 0.3684,
+      "label": null
+     },
+     {
+      "x": 0.36,
+      "y": 0.3889,
+      "label": null
+     },
+     {
+      "x": 0.34,
+      "y": 0.4118,
+      "label": null
+     },
+     {
+      "x": 0.32,
+      "y": 0.4375,
+      "label": null
+     },
+     {
+      "x": 0.3,
+      "y": 0.4667,
+      "label": null
+     },
+     {
+      "x": 0.28,
+      "y": 0.5,
+      "label": null
+     },
+     {
+      "x": 0.26,
+      "y": 0.5385,
+      "label": null
+     },
+     {
+      "x": 0.24,
+      "y": 0.5833,
+      "label": null
+     },
+     {
+      "x": 0.22,
+      "y": 0.6364,
+      "label": null
+     },
+     {
+      "x": 0.2,
+      "y": 0.7,
+      "label": null
+     },
+     {
+      "x": 0.19,
+      "y": 0.7368,
+      "label": null
+     },
+     {
+      "x": 0.18,
+      "y": 0.7778,
+      "label": null
+     },
+     {
+      "x": 0.17,
+      "y": 0.8235,
+      "label": null
+     },
+     {
+      "x": 0.16,
+      "y": 0.875,
+      "label": null
+     },
+     {
+      "x": 0.15,
+      "y": 0.9333,
+      "label": null
+     },
+     {
+      "x": 0.14,
+      "y": 1.0,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": "0.18",
+    "color": "DkGray",
+    "points": [
+     {
+      "x": 0.4,
+      "y": 0.45,
+      "label": null
+     },
+     {
+      "x": 0.38,
+      "y": 0.4737,
+      "label": null
+     },
+     {
+      "x": 0.36,
+      "y": 0.5,
+      "label": null
+     },
+     {
+      "x": 0.34,
+      "y": 0.5294,
+      "label": null
+     },
+     {
+      "x": 0.32,
+      "y": 0.5625,
+      "label": null
+     },
+     {
+      "x": 0.3,
+      "y": 0.6,
+      "label": null
+     },
+     {
+      "x": 0.28,
+      "y": 0.6429,
+      "label": null
+     },
+     {
+      "x": 0.26,
+      "y": 0.6923,
+      "label": null
+     },
+     {
+      "x": 0.24,
+      "y": 0.75,
+      "label": null
+     },
+     {
+      "x": 0.22,
+      "y": 0.8182,
+      "label": null
+     },
+     {
+      "x": 0.2,
+      "y": 0.9,
+      "label": null
+     },
+     {
+      "x": 0.19,
+      "y": 0.9474,
+      "label": null
+     },
+     {
+      "x": 0.18,
+      "y": 1.0,
+      "label": null
+     }
+    ]
+   }
+  ],
+  "labels": []
+ },
+ "R35_Winland_(Decimal_Phi).ovl": {
+  "file_type": "ovl",
+  "title": "R35 Winland",
+  "x_tool": "Perm",
+  "y_tool": "Phi",
+  "chart_type": "perm-porosity r35 (Winland)",
+  "polylines": [
+   {
+    "name": ".2",
+    "color": "Red",
+    "points": [
+     {
+      "x": 0.02,
+      "y": 0.0102,
+      "label": null
+     },
+     {
+      "x": 0.03,
+      "y": 0.0185,
+      "label": null
+     },
+     {
+      "x": 0.04,
+      "y": 0.0282,
+      "label": null
+     },
+     {
+      "x": 0.05,
+      "y": 0.0393,
+      "label": null
+     },
+     {
+      "x": 0.07,
+      "y": 0.0644,
+      "label": null
+     },
+     {
+      "x": 0.1,
+      "y": 0.1086,
+      "label": null
+     },
+     {
+      "x": 0.15,
+      "y": 0.1972,
+      "label": null
+     },
+     {
+      "x": 0.2,
+      "y": 0.3013,
+      "label": null
+     },
+     {
+      "x": 0.25,
+      "y": 0.4178,
+      "label": null
+     },
+     {
+      "x": 0.3,
+      "y": 0.5458,
+      "label": null
+     },
+     {
+      "x": 0.5,
+      "y": 1.1556,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": ".5",
+    "color": "Red",
+    "points": [
+     {
+      "x": 0.02,
+      "y": 0.0485,
+      "label": null
+     },
+     {
+      "x": 0.03,
+      "y": 0.0881,
+      "label": null
+     },
+     {
+      "x": 0.04,
+      "y": 0.1343,
+      "label": null
+     },
+     {
+      "x": 0.05,
+      "y": 0.1866,
+      "label": null
+     },
+     {
+      "x": 0.07,
+      "y": 0.3055,
+      "label": null
+     },
+     {
+      "x": 0.1,
+      "y": 0.5164,
+      "label": null
+     },
+     {
+      "x": 0.15,
+      "y": 0.9376,
+      "label": null
+     },
+     {
+      "x": 0.2,
+      "y": 1.4286,
+      "label": null
+     },
+     {
+      "x": 0.25,
+      "y": 1.9829,
+      "label": null
+     },
+     {
+      "x": 0.3,
+      "y": 2.5918,
+      "label": null
+     },
+     {
+      "x": 0.5,
+      "y": 5.4903,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": "1",
+    "color": "Red",
+    "points": [
+     {
+      "x": 0.02,
+      "y": 0.1578,
+      "label": null
+     },
+     {
+      "x": 0.03,
+      "y": 0.2864,
+      "label": null
+     },
+     {
+      "x": 0.04,
+      "y": 0.4365,
+      "label": null
+     },
+     {
+      "x": 0.05,
+      "y": 0.6067,
+      "label": null
+     },
+     {
+      "x": 0.07,
+      "y": 0.9931,
+      "label": null
+     },
+     {
+      "x": 0.1,
+      "y": 1.6769,
+      "label": null
+     },
+     {
+      "x": 0.15,
+      "y": 3.0423,
+      "label": null
+     },
+     {
+      "x": 0.2,
+      "y": 4.643,
+      "label": null
+     },
+     {
+      "x": 0.25,
+      "y": 6.4447,
+      "label": null
+     },
+     {
+      "x": 0.3,
+      "y": 8.4256,
+      "label": null
+     },
+     {
+      "x": 0.5,
+      "y": 17.844,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": "2",
+    "color": "Red",
+    "points": [
+     {
+      "x": 0.02,
+      "y": 0.5129,
+      "label": null
+     },
+     {
+      "x": 0.03,
+      "y": 0.9311,
+      "label": null
+     },
+     {
+      "x": 0.04,
+      "y": 1.4181,
+      "label": null
+     },
+     {
+      "x": 0.05,
+      "y": 1.9683,
+      "label": null
+     },
+     {
+      "x": 0.07,
+      "y": 3.227,
+      "label": null
+     },
+     {
+      "x": 0.1,
+      "y": 5.45,
+      "label": null
+     },
+     {
+      "x": 0.15,
+      "y": 9.8901,
+      "label": null
+     },
+     {
+      "x": 0.2,
+      "y": 15.094,
+      "label": null
+     },
+     {
+      "x": 0.25,
+      "y": 20.951,
+      "label": null
+     },
+     {
+      "x": 0.3,
+      "y": 27.384,
+      "label": null
+     },
+     {
+      "x": 0.5,
+      "y": 58.01,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": "4",
+    "color": "Red",
+    "points": [
+     {
+      "x": 0.02,
+      "y": 1.6646,
+      "label": null
+     },
+     {
+      "x": 0.03,
+      "y": 3.0206,
+      "label": null
+     },
+     {
+      "x": 0.04,
+      "y": 4.61,
+      "label": null
+     },
+     {
+      "x": 0.05,
+      "y": 6.3988,
+      "label": null
+     },
+     {
+      "x": 0.07,
+      "y": 10.491,
+      "label": null
+     },
+     {
+      "x": 0.1,
+      "y": 17.717,
+      "label": null
+     },
+     {
+      "x": 0.15,
+      "y": 32.144,
+      "label": null
+     },
+     {
+      "x": 0.2,
+      "y": 49.057,
+      "label": null
+     },
+     {
+      "x": 0.25,
+      "y": 68.093,
+      "label": null
+     },
+     {
+      "x": 0.3,
+      "y": 89.023,
+      "label": null
+     },
+     {
+      "x": 0.5,
+      "y": 188.58,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": "10",
+    "color": "Red",
+    "points": [
+     {
+      "x": 0.02,
+      "y": 7.9086,
+      "label": null
+     },
+     {
+      "x": 0.03,
+      "y": 14.352,
+      "label": null
+     },
+     {
+      "x": 0.04,
+      "y": 21.898,
+      "label": null
+     },
+     {
+      "x": 0.05,
+      "y": 30.395,
+      "label": null
+     },
+     {
+      "x": 0.07,
+      "y": 49.843,
+      "label": null
+     },
+     {
+      "x": 0.1,
+      "y": 84.178,
+      "label": null
+     },
+     {
+      "x": 0.15,
+      "y": 152.72,
+      "label": null
+     },
+     {
+      "x": 0.2,
+      "y": 233.08,
+      "label": null
+     },
+     {
+      "x": 0.25,
+      "y": 323.52,
+      "label": null
+     },
+     {
+      "x": 0.3,
+      "y": 422.86,
+      "label": null
+     },
+     {
+      "x": 0.5,
+      "y": 895.78,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": "20",
+    "color": "Red",
+    "points": [
+     {
+      "x": 0.02,
+      "y": 25.709,
+      "label": null
+     },
+     {
+      "x": 0.03,
+      "y": 46.645,
+      "label": null
+     },
+     {
+      "x": 0.04,
+      "y": 71.187,
+      "label": null
+     },
+     {
+      "x": 0.05,
+      "y": 98.81,
+      "label": null
+     },
+     {
+      "x": 0.07,
+      "y": 161.99,
+      "label": null
+     },
+     {
+      "x": 0.1,
+      "y": 273.59,
+      "label": null
+     },
+     {
+      "x": 0.15,
+      "y": 496.48,
+      "label": null
+     },
+     {
+      "x": 0.2,
+      "y": 757.71,
+      "label": null
+     },
+     {
+      "x": 0.25,
+      "y": 1051.7,
+      "label": null
+     },
+     {
+      "x": 0.3,
+      "y": 1374.7,
+      "label": null
+     },
+     {
+      "x": 0.5,
+      "y": 2912.1,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": "30",
+    "color": "Red",
+    "points": [
+     {
+      "x": 0.02,
+      "y": 51.227,
+      "label": null
+     },
+     {
+      "x": 0.03,
+      "y": 92.961,
+      "label": null
+     },
+     {
+      "x": 0.04,
+      "y": 141.87,
+      "label": null
+     },
+     {
+      "x": 0.05,
+      "y": 196.93,
+      "label": null
+     },
+     {
+      "x": 0.07,
+      "y": 322.85,
+      "label": null
+     },
+     {
+      "x": 0.1,
+      "y": 545.26,
+      "label": null
+     },
+     {
+      "x": 0.15,
+      "y": 989.24,
+      "label": null
+     },
+     {
+      "x": 0.2,
+      "y": 1509.7,
+      "label": null
+     },
+     {
+      "x": 0.25,
+      "y": 2095.6,
+      "label": null
+     },
+     {
+      "x": 0.3,
+      "y": 2739.7,
+      "label": null
+     },
+     {
+      "x": 0.5,
+      "y": 5803.6,
+      "label": null
+     }
+    ]
+   },
+   {
+    "name": "50",
+    "color": "Red",
+    "points": [
+     {
+      "x": 0.02,
+      "y": 122.12,
+      "label": null
+     },
+     {
+      "x": 0.03,
+      "y": 221.62,
+      "label": null
+     },
+     {
+      "x": 0.04,
+      "y": 338.22,
+      "label": null
+     },
+     {
+      "x": 0.05,
+      "y": 469.46,
+      "label": null
+     },
+     {
+      "x": 0.07,
+      "y": 769.66,
+      "label": null
+     },
+     {
+      "x": 0.1,
+      "y": 1299.8,
+      "label": null
+     },
+     {
+      "x": 0.15,
+      "y": 2358.3,
+      "label": null
+     },
+     {
+      "x": 0.2,
+      "y": 3599.2,
+      "label": null
+     },
+     {
+      "x": 0.25,
+      "y": 4995.7,
+      "label": null
+     },
+     {
+      "x": 0.3,
+      "y": 6531.3,
+      "label": null
+     },
+     {
+      "x": 0.5,
+      "y": 13835.0,
+      "label": null
+     }
+    ]
+   }
+  ],
+  "labels": [
+   {
+    "x": "0.01",
+    "y": "3.9",
+    "rot": "0",
+    "color": "Green",
+    "text": "R35(Winland)"
+   }
+  ]
+ },
+ "Sch_CNL.neu": {
+  "file_type": "neu",
+  "description": "Interactive Petrophysics Sch_CNL.neu file Contains lookup table for Schlumberger CNL TNPH Data is arranged in columns as follows : True Phi (Limestone Matrix), Sandstone Matrix, Dolomite Matrix, Salinity corr Sand, Salinity corr Lime, Salinity corr Dol Formation Salinity corrections are for following values 50, 100, 150, 200, 250 Kppm and in this order",
+  "chart_type": "neutron-porosity lookup",
+  "salinity_kppm": [
+   50,
+   100,
+   150,
+   200,
+   250
+  ],
+  "columns": [
+   "phi",
+   "ss",
+   "dol",
+   "50_SS",
+   "100_SS",
+   "150_SS",
+   "200_SS",
+   "250_SS",
+   "50_LS",
+   "100_LS",
+   "150_LS",
+   "200_LS",
+   "250_LS",
+   "50_Dol",
+   "100_Dol",
+   "150_Dol",
+   "200_Dol",
+   "250_Dol"
+  ],
+  "n_rows": 14,
+  "note": "phi=True Porosity(LS matrix ref); ss/dol=matrix-shifted apparent phi; remaining 15 = salinity corrections (SS/LS/Dol x 50/100/150/200/250 kppm)",
+  "table": [
+   {
+    "phi": 0.0,
+    "ss": 0.023,
+    "dol": -0.0075,
+    "50_SS": 0.0,
+    "100_SS": 0.0,
+    "150_SS": 0.0,
+    "200_SS": 0.0,
+    "250_SS": 0.0,
+    "50_LS": 0.0,
+    "100_LS": 0.0,
+    "150_LS": 0.0,
+    "200_LS": 0.0,
+    "250_LS": 0.0,
+    "50_Dol": 0.0,
+    "100_Dol": 0.0,
+    "150_Dol": 0.0,
+    "200_Dol": 0.0,
+    "250_Dol": 0.0
+   },
+   {
+    "phi": 0.02,
+    "ss": 0.0277,
+    "dol": -0.0088,
+    "50_SS": -0.001,
+    "100_SS": -0.003,
+    "150_SS": -0.004,
+    "200_SS": -0.006,
+    "250_SS": -0.006,
+    "50_LS": -0.001,
+    "100_LS": -0.002,
+    "150_LS": -0.003,
+    "200_LS": -0.004,
+    "250_LS": -0.004,
+    "50_Dol": -0.002,
+    "100_Dol": -0.004,
+    "150_Dol": -0.006,
+    "200_Dol": -0.008,
+    "250_Dol": -0.009
+   },
+   {
+    "phi": 0.05,
+    "ss": 0.0339,
+    "dol": -0.0111,
+    "50_SS": -0.003,
+    "100_SS": -0.008,
+    "150_SS": -0.01,
+    "200_SS": -0.014,
+    "250_SS": -0.016,
+    "50_LS": -0.003,
+    "100_LS": -0.006,
+    "150_LS": -0.008,
+    "200_LS": -0.009,
+    "250_LS": -0.01,
+    "50_Dol": -0.005,
+    "100_Dol": -0.011,
+    "150_Dol": -0.016,
+    "200_Dol": -0.019,
+    "250_Dol": -0.023
+   },
+   {
+    "phi": 0.1,
+    "ss": 0.0422,
+    "dol": -0.0153,
+    "50_SS": -0.007,
+    "100_SS": -0.014,
+    "150_SS": -0.019,
+    "200_SS": -0.023,
+    "250_SS": -0.028,
+    "50_LS": -0.006,
+    "100_LS": -0.012,
+    "150_LS": -0.016,
+    "200_LS": -0.02,
+    "250_LS": -0.021,
+    "50_Dol": -0.01,
+    "100_Dol": -0.019,
+    "150_Dol": -0.027,
+    "200_Dol": -0.033,
+    "250_Dol": -0.038
+   },
+   {
+    "phi": 0.15,
+    "ss": 0.0478,
+    "dol": -0.0202,
+    "50_SS": -0.012,
+    "100_SS": -0.022,
+    "150_SS": -0.029,
+    "200_SS": -0.034,
+    "250_SS": -0.035,
+    "50_LS": -0.01,
+    "100_LS": -0.019,
+    "150_LS": -0.026,
+    "200_LS": -0.03,
+    "250_LS": -0.034,
+    "50_Dol": -0.012,
+    "100_Dol": -0.024,
+    "150_Dol": -0.033,
+    "200_Dol": -0.04,
+    "250_Dol": -0.045
+   },
+   {
+    "phi": 0.2,
+    "ss": 0.0509,
+    "dol": -0.0257,
+    "50_SS": -0.016,
+    "100_SS": -0.027,
+    "150_SS": -0.034,
+    "200_SS": -0.037,
+    "250_SS": -0.038,
+    "50_LS": -0.014,
+    "100_LS": -0.026,
+    "150_LS": -0.032,
+    "200_LS": -0.035,
+    "250_LS": -0.039,
+    "50_Dol": -0.016,
+    "100_Dol": -0.029,
+    "150_Dol": -0.037,
+    "200_Dol": -0.042,
+    "250_Dol": -0.044
+   },
+   {
+    "phi": 0.25,
+    "ss": 0.0514,
+    "dol": -0.0319,
+    "50_SS": -0.016,
+    "100_SS": -0.037,
+    "150_SS": -0.033,
+    "200_SS": -0.034,
+    "250_SS": -0.033,
+    "50_LS": -0.016,
+    "100_LS": -0.029,
+    "150_LS": -0.035,
+    "200_LS": -0.039,
+    "250_LS": -0.039,
+    "50_Dol": -0.018,
+    "100_Dol": -0.03,
+    "150_Dol": -0.037,
+    "200_Dol": -0.04,
+    "250_Dol": -0.041
+   },
+   {
+    "phi": 0.3,
+    "ss": 0.0492,
+    "dol": -0.0386,
+    "50_SS": -0.015,
+    "100_SS": -0.035,
+    "150_SS": -0.029,
+    "200_SS": -0.029,
+    "250_SS": -0.027,
+    "50_LS": -0.02,
+    "100_LS": -0.031,
+    "150_LS": -0.038,
+    "200_LS": -0.038,
+    "250_LS": -0.038,
+    "50_Dol": -0.018,
+    "100_Dol": -0.03,
+    "150_Dol": -0.034,
+    "200_Dol": -0.036,
+    "250_Dol": -0.033
+   },
+   {
+    "phi": 0.35,
+    "ss": 0.0445,
+    "dol": -0.046,
+    "50_SS": -0.013,
+    "100_SS": -0.018,
+    "150_SS": -0.019,
+    "200_SS": -0.019,
+    "250_SS": -0.015,
+    "50_LS": -0.02,
+    "100_LS": -0.031,
+    "150_LS": -0.035,
+    "200_LS": -0.035,
+    "250_LS": -0.033,
+    "50_Dol": -0.016,
+    "100_Dol": -0.026,
+    "150_Dol": -0.029,
+    "200_Dol": -0.028,
+    "250_Dol": -0.026
+   },
+   {
+    "phi": 0.4,
+    "ss": 0.0372,
+    "dol": -0.0541,
+    "50_SS": -0.01,
+    "100_SS": -0.014,
+    "150_SS": -0.014,
+    "200_SS": -0.012,
+    "250_SS": -0.007,
+    "50_LS": -0.018,
+    "100_LS": -0.028,
+    "150_LS": -0.031,
+    "200_LS": -0.03,
+    "250_LS": -0.027,
+    "50_Dol": -0.015,
+    "100_Dol": -0.023,
+    "150_Dol": -0.024,
+    "200_Dol": -0.021,
+    "250_Dol": -0.018
+   },
+   {
+    "phi": 0.45,
+    "ss": 0.036,
+    "dol": -0.0627,
+    "50_SS": -0.012,
+    "100_SS": -0.014,
+    "150_SS": -0.014,
+    "200_SS": -0.01,
+    "250_SS": -0.003,
+    "50_LS": -0.017,
+    "100_LS": -0.024,
+    "150_LS": -0.028,
+    "200_LS": -0.026,
+    "250_LS": -0.022,
+    "50_Dol": -0.015,
+    "100_Dol": -0.022,
+    "150_Dol": -0.021,
+    "200_Dol": -0.017,
+    "250_Dol": -0.013
+   },
+   {
+    "phi": 0.5,
+    "ss": 0.035,
+    "dol": -0.072,
+    "50_SS": -0.011,
+    "100_SS": -0.012,
+    "150_SS": -0.011,
+    "200_SS": -0.006,
+    "250_SS": 0.002,
+    "50_LS": -0.016,
+    "100_LS": -0.022,
+    "150_LS": -0.025,
+    "200_LS": -0.022,
+    "250_LS": -0.017,
+    "50_Dol": -0.014,
+    "100_Dol": -0.02,
+    "150_Dol": -0.018,
+    "200_Dol": -0.013,
+    "250_Dol": -0.008
+   },
+   {
+    "phi": 0.55,
+    "ss": 0.034,
+    "dol": -0.0819,
+    "50_SS": -0.01,
+    "100_SS": -0.01,
+    "150_SS": -0.008,
+    "200_SS": -0.002,
+    "250_SS": 0.007,
+    "50_LS": -0.015,
+    "100_LS": -0.02,
+    "150_LS": -0.022,
+    "200_LS": -0.018,
+    "250_LS": -0.012,
+    "50_Dol": -0.013,
+    "100_Dol": -0.018,
+    "150_Dol": -0.015,
+    "200_Dol": -0.009,
+    "250_Dol": -0.003
+   },
+   {
+    "phi": 0.6,
+    "ss": 0.033,
+    "dol": -0.0924,
+    "50_SS": -0.009,
+    "100_SS": -0.008,
+    "150_SS": -0.005,
+    "200_SS": 0.002,
+    "250_SS": 0.012,
+    "50_LS": -0.014,
+    "100_LS": -0.018,
+    "150_LS": -0.019,
+    "200_LS": -0.014,
+    "250_LS": -0.007,
+    "50_Dol": -0.012,
+    "100_Dol": -0.016,
+    "150_Dol": -0.012,
+    "200_Dol": -0.005,
+    "250_Dol": 0.002
+   }
+  ]
+ },
+ "BA_2490.neu": {
+  "file_type": "neu",
+  "description": "Interactive Petrophysics BA_2490.neu file Contains lookup table for Baker Atlas Nautilus 2490 neutron tool Rlowe 28-03-16 Data is arranged in columns as follows : True Phi (Limestone Matrix), Sandstone Matrix, Dolomite Matrix, Salinity corr Sand, Salinity corr Lime, Salinity corr Dol",
+  "chart_type": "neutron-porosity lookup",
+  "salinity_kppm": [
+   50,
+   100,
+   150,
+   200,
+   250
+  ],
+  "columns": [
+   "phi",
+   "ss",
+   "dol",
+   "50_SS",
+   "100_SS",
+   "150_SS",
+   "200_SS",
+   "250_SS",
+   "50_LS",
+   "100_LS",
+   "150_LS",
+   "200_LS",
+   "250_LS",
+   "50_Dol",
+   "100_Dol",
+   "150_Dol",
+   "200_Dol",
+   "250_Dol"
+  ],
+  "n_rows": 14,
+  "note": "phi=True Porosity(LS matrix ref); ss/dol=matrix-shifted apparent phi; remaining 15 = salinity corrections (SS/LS/Dol x 50/100/150/200/250 kppm)",
+  "table": [
+   {
+    "phi": 0.0,
+    "ss": 0.0256,
+    "dol": -0.0296,
+    "50_SS": -0.0006,
+    "100_SS": -0.0015,
+    "150_SS": -0.0008,
+    "200_SS": -0.0014,
+    "250_SS": -0.0014,
+    "50_LS": 0.0015,
+    "100_LS": 0.0021,
+    "150_LS": 0.0013,
+    "200_LS": 0.0009,
+    "250_LS": 0.0017,
+    "50_Dol": -0.0037,
+    "100_Dol": -0.0075,
+    "150_Dol": -0.0093,
+    "200_Dol": -0.0081,
+    "250_Dol": -0.0084
+   },
+   {
+    "phi": 0.02,
+    "ss": 0.0333,
+    "dol": -0.0337,
+    "50_SS": -0.0027,
+    "100_SS": -0.0048,
+    "150_SS": -0.0062,
+    "200_SS": -0.0069,
+    "250_SS": -0.0077,
+    "50_LS": -0.0011,
+    "100_LS": -0.0023,
+    "150_LS": -0.004,
+    "200_LS": -0.0057,
+    "250_LS": -0.0055,
+    "50_Dol": -0.0082,
+    "100_Dol": -0.0137,
+    "150_Dol": -0.0178,
+    "200_Dol": -0.0191,
+    "250_Dol": -0.0209
+   },
+   {
+    "phi": 0.05,
+    "ss": 0.0419,
+    "dol": -0.0394,
+    "50_SS": -0.0063,
+    "100_SS": -0.0104,
+    "150_SS": -0.0142,
+    "200_SS": -0.0156,
+    "250_SS": -0.0172,
+    "50_LS": -0.0047,
+    "100_LS": -0.0083,
+    "150_LS": -0.0109,
+    "200_LS": -0.0139,
+    "250_LS": -0.0146,
+    "50_Dol": -0.0144,
+    "100_Dol": -0.0223,
+    "150_Dol": -0.0287,
+    "200_Dol": -0.0324,
+    "250_Dol": -0.0355
+   },
+   {
+    "phi": 0.1,
+    "ss": 0.0504,
+    "dol": -0.0477,
+    "50_SS": -0.0133,
+    "100_SS": -0.0204,
+    "150_SS": -0.0267,
+    "200_SS": -0.0292,
+    "250_SS": -0.0314,
+    "50_LS": -0.0105,
+    "100_LS": -0.0167,
+    "150_LS": -0.0202,
+    "200_LS": -0.0236,
+    "250_LS": -0.0256,
+    "50_Dol": -0.0227,
+    "100_Dol": -0.0343,
+    "150_Dol": -0.0421,
+    "200_Dol": -0.047,
+    "250_Dol": -0.0507
+   },
+   {
+    "phi": 0.15,
+    "ss": 0.054,
+    "dol": -0.0548,
+    "50_SS": -0.0201,
+    "100_SS": -0.0298,
+    "150_SS": -0.0368,
+    "200_SS": -0.04,
+    "250_SS": -0.042,
+    "50_LS": -0.0154,
+    "100_LS": -0.0231,
+    "150_LS": -0.0266,
+    "200_LS": -0.029,
+    "250_LS": -0.0316,
+    "50_Dol": -0.0288,
+    "100_Dol": -0.043,
+    "150_Dol": -0.05,
+    "200_Dol": -0.0538,
+    "250_Dol": -0.0565
+   },
+   {
+    "phi": 0.2,
+    "ss": 0.055,
+    "dol": -0.061,
+    "50_SS": -0.026,
+    "100_SS": -0.0372,
+    "150_SS": -0.0434,
+    "200_SS": -0.0464,
+    "250_SS": -0.0475,
+    "50_LS": -0.0194,
+    "100_LS": -0.0275,
+    "150_LS": -0.03,
+    "200_LS": -0.0306,
+    "250_LS": -0.0328,
+    "50_Dol": -0.0327,
+    "100_Dol": -0.0478,
+    "150_Dol": -0.0526,
+    "200_Dol": -0.0541,
+    "250_Dol": -0.0546
+   },
+   {
+    "phi": 0.25,
+    "ss": 0.0548,
+    "dol": -0.0665,
+    "50_SS": -0.0301,
+    "100_SS": -0.0418,
+    "150_SS": -0.0457,
+    "200_SS": -0.0474,
+    "250_SS": -0.047,
+    "50_LS": -0.0221,
+    "100_LS": -0.0297,
+    "150_LS": -0.0302,
+    "200_LS": -0.0284,
+    "250_LS": -0.0293,
+    "50_Dol": -0.0348,
+    "100_Dol": -0.0484,
+    "150_Dol": -0.0499,
+    "200_Dol": -0.0486,
+    "250_Dol": -0.0464
+   },
+   {
+    "phi": 0.3,
+    "ss": 0.0543,
+    "dol": -0.0711,
+    "50_SS": -0.0322,
+    "100_SS": -0.0429,
+    "150_SS": -0.0436,
+    "200_SS": -0.0427,
+    "250_SS": -0.0405,
+    "50_LS": -0.0235,
+    "100_LS": -0.0293,
+    "150_LS": -0.0268,
+    "200_LS": -0.0223,
+    "250_LS": -0.0211,
+    "50_Dol": -0.0349,
+    "100_Dol": -0.0447,
+    "150_Dol": -0.042,
+    "200_Dol": -0.0374,
+    "250_Dol": -0.0327
+   },
+   {
+    "phi": 0.35,
+    "ss": 0.0539,
+    "dol": -0.0748,
+    "50_SS": -0.0323,
+    "100_SS": -0.0403,
+    "150_SS": -0.0371,
+    "200_SS": -0.0326,
+    "250_SS": -0.0284,
+    "50_LS": -0.0231,
+    "100_LS": -0.0258,
+    "150_LS": -0.0191,
+    "200_LS": -0.0115,
+    "250_LS": -0.0079,
+    "50_Dol": -0.0332,
+    "100_Dol": -0.0368,
+    "150_Dol": -0.0286,
+    "200_Dol": -0.02,
+    "250_Dol": -0.0135
+   },
+   {
+    "phi": 0.4,
+    "ss": 0.0529,
+    "dol": -0.0771,
+    "50_SS": -0.0307,
+    "100_SS": -0.0342,
+    "150_SS": -0.0268,
+    "200_SS": -0.0182,
+    "250_SS": -0.0118,
+    "50_LS": -0.0209,
+    "100_LS": -0.0186,
+    "150_LS": -0.0065,
+    "200_LS": 0.0048,
+    "250_LS": 0.0107,
+    "50_Dol": -0.0296,
+    "100_Dol": -0.025,
+    "150_Dol": -0.0096,
+    "200_Dol": 0.0048,
+    "250_Dol": 0.0115
+   },
+   {
+    "phi": 0.45,
+    "ss": 0.0502,
+    "dol": -0.0777,
+    "50_SS": -0.0281,
+    "100_SS": -0.0252,
+    "150_SS": -0.0136,
+    "200_SS": -0.001,
+    "250_SS": 0.0075,
+    "50_LS": -0.0167,
+    "100_LS": -0.0068,
+    "150_LS": 0.012,
+    "200_LS": 0.0281,
+    "250_LS": 0.0353,
+    "50_Dol": -0.0242,
+    "100_Dol": -0.0098,
+    "150_Dol": 0.0157,
+    "200_Dol": 0.0386,
+    "250_Dol": 0.0432
+   },
+   {
+    "phi": 0.5,
+    "ss": 0.0441,
+    "dol": -0.0759,
+    "50_SS": -0.0255,
+    "100_SS": -0.0141,
+    "150_SS": 0.0011,
+    "200_SS": 0.0167,
+    "250_SS": 0.0271,
+    "50_LS": -0.0101,
+    "100_LS": 0.0104,
+    "150_LS": 0.0375,
+    "200_LS": 0.06,
+    "250_LS": 0.0666,
+    "50_Dol": -0.017,
+    "100_Dol": 0.0081,
+    "150_Dol": 0.0476,
+    "200_Dol": 0.0837,
+    "250_Dol": 0.0832
+   },
+   {
+    "phi": 0.55,
+    "ss": 0.0319,
+    "dol": -0.071,
+    "50_SS": -0.0243,
+    "100_SS": -0.0024,
+    "150_SS": 0.0156,
+    "200_SS": 0.032,
+    "250_SS": 0.044,
+    "50_LS": -0.0011,
+    "100_LS": 0.0341,
+    "150_LS": 0.0714,
+    "200_LS": 0.1026,
+    "250_LS": 0.1056,
+    "50_Dol": -0.0078,
+    "100_Dol": 0.0279,
+    "150_Dol": 0.087,
+    "200_Dol": 0.1431,
+    "250_Dol": 0.1336
+   },
+   {
+    "phi": 0.6,
+    "ss": 0.0104,
+    "dol": -0.062,
+    "50_SS": -0.026,
+    "100_SS": 0.0083,
+    "150_SS": 0.0277,
+    "200_SS": 0.0413,
+    "250_SS": 0.0545,
+    "50_LS": 0.0106,
+    "100_LS": 0.0657,
+    "150_LS": 0.115,
+    "200_LS": 0.1582,
+    "250_LS": 0.1531,
+    "50_Dol": 0.0035,
+    "100_Dol": 0.0485,
+    "150_Dol": 0.1347,
+    "200_Dol": 0.2202,
+    "250_Dol": 0.197
+   }
+  ]
+ }
+}

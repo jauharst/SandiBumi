@@ -1,30 +1,9 @@
-Well
-- we should have interface of las loading (percentage of input processed), it shows not responding instead
-- give option to define "set" for imported data
-- still 2 panes of wells instead of 1?
-- loading 500 wells is painful, more than 20 minutes, it takes up to 60% of my CPU (30% in average), (AMD Ryzen 9HX), imagine low specs comp, it should be below 5 minutes
-- we need option to rename, edit well header, add, delete, or duplicate wells?
+lanjutin dlu sampe beres baru maturation
 
-Tops
-- Tops input tools should be inside import/export 
+help ip geolog techlog
 
-Ribbon and Tools
-- For tools that have dropdown menu, better we have additional mini arrow so user know that he have option there
+Grountruth plagiarism and patent
 
-Whole
-- it takes up to 5 minutes to deploy my software, it should be less than 30 seconds
+Documentation of full development stage
 
-Clean narration >> click for help
-resize app behaviour to panes window ribbon
-look at the bottom, it should be on details in processing, not here
-for details, it should give report what wells failed and why, what should user do, if it same dont repeat by well but as 1 bulk error report
-
-monte carlo
-sandimin
-rock typing
-shf
-autocorrelate
-correlation window + fluid contact
-unconventional / shale suite
-
-
+tambahin help & references

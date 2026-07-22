@@ -1,0 +1,3008 @@
+[
+ {
+  "workflow": "Angle swapping.xml",
+  "root_tag": "workflow",
+  "n_elements": 376,
+  "leaf_sample": [
+   {
+    "tag": "cascadeMode",
+    "value": "0"
+   },
+   {
+    "tag": "realTimeUpdate",
+    "value": "1"
+   },
+   {
+    "tag": "typeApply",
+    "value": "0"
+   },
+   {
+    "tag": "isAutoApply",
+    "value": "0"
+   },
+   {
+    "tag": "isValidatorActivated",
+    "value": "1"
+   },
+   {
+    "tag": "containerMultiLayout",
+    "value": "1"
+   },
+   {
+    "tag": "templateMode",
+    "value": "1"
+   },
+   {
+    "tag": "inputTemplate",
+    "value": "1"
+   },
+   {
+    "tag": "autoPropagationOfParameter",
+    "value": "1"
+   },
+   {
+    "tag": "hideUnitColumn",
+    "value": "0"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "parameterWorkflowFile",
+    "value": "Angle swapping_WO"
+   },
+   {
+    "tag": "parameterWorkflowFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterProjectFile",
+    "value": "Angle swapping_PR"
+   },
+   {
+    "tag": "parameterProjectFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterWellFile",
+    "value": "Angle swapping_WE"
+   },
+   {
+    "tag": "parameterWellFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterZoneFile",
+    "value": "Angle swapping_ZO"
+   },
+   {
+    "tag": "parameterZoneFolder",
+    "value": "0"
+   },
+   {
+    "tag": "scriptName",
+    "value": "Techlog\\PythonScripts\\Acoustics\\AnisotropyDirectionSwapping.py"
+   },
+   {
+    "tag": "includeNoValues",
+    "value": "1"
+   },
+   {
+    "tag": "pixmap",
+    "value": "python"
+   },
+   {
+    "tag": "useOutputValIfExist",
+    "value": "0"
+   },
+   {
+    "tag": "sxoMode",
+    "value": "0"
+   },
+   {
+    "tag": "autoRefreshParam",
+    "value": "1"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Techlog\\Anisotropy_FSA_swapping"
+   },
+   {
+    "tag": "logViewMode",
+    "value": "1"
+   },
+   {
+    "tag": "displayInput",
+    "value": "0"
+   },
+   {
+    "tag": "displayAdvanceInput",
+    "value": "0"
+   },
+   {
+    "tag": "displayOutput",
+    "value": "1"
+   },
+   {
+    "tag": "isMultiWellLogView",
+    "value": "0"
+   },
+   {
+    "tag": "forceTemplate",
+    "value": "1"
+   },
+   {
+    "tag": "mcParamName",
+    "value": "Y Location"
+   },
+   {
+    "tag": "mcParamUnit",
+    "value": "dega"
+   },
+   {
+    "tag": "mcStatSuffix",
+    "value": "_MC_MEAN%_MC_MEDIAN%_MC_MAX%_MC_MIN%_MC_STDDEV%_MC_P15%_MC_P85"
+   },
+   {
+    "tag": "mcStatNames",
+    "value": "Mean%Median%Maximum%Minimum%Standard deviation%Quantile minimum%Quantile maximum"
+   },
+   {
+    "tag": "mcParamDebIndex",
+    "value": "1"
+   },
+   {
+    "tag": "mcNbiter",
+    "value": "100"
+   },
+   {
+    "tag": "mcQuantilMin",
+    "value": "15"
+   },
+   {
+    "tag": "mcQuantilMax",
+    "value": "85"
+   }
+  ]
+ },
+ {
+  "workflow": "CMR_CapPressure.xml",
+  "root_tag": "workflow",
+  "n_elements": 358,
+  "leaf_sample": [
+   {
+    "tag": "cascadeMode",
+    "value": "0"
+   },
+   {
+    "tag": "realTimeUpdate",
+    "value": "1"
+   },
+   {
+    "tag": "typeApply",
+    "value": "1"
+   },
+   {
+    "tag": "isAutoApply",
+    "value": "0"
+   },
+   {
+    "tag": "isValidatorActivated",
+    "value": "1"
+   },
+   {
+    "tag": "containerMultiLayout",
+    "value": "1"
+   },
+   {
+    "tag": "templateMode",
+    "value": "1"
+   },
+   {
+    "tag": "inputTemplate",
+    "value": "0"
+   },
+   {
+    "tag": "autoPropagationOfParameter",
+    "value": "1"
+   },
+   {
+    "tag": "hideUnitColumn",
+    "value": "0"
+   },
+   {
+    "tag": "suffixName",
+    "value": "_CMR"
+   },
+   {
+    "tag": "groupName",
+    "value": "NMR"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "parameterWorkflowFile",
+    "value": "CMR_CapPressure_WO"
+   },
+   {
+    "tag": "parameterWorkflowFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterProjectFile",
+    "value": "CMR_CapPressure_PR"
+   },
+   {
+    "tag": "parameterProjectFolder",
+    "value": "2"
+   },
+   {
+    "tag": "parameterWellFile",
+    "value": "CMR_CapPressure_WE"
+   },
+   {
+    "tag": "parameterWellFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterZoneFile",
+    "value": "CMR_CapPressure_ZO"
+   },
+   {
+    "tag": "parameterZoneFolder",
+    "value": "0"
+   },
+   {
+    "tag": "useOutputValIfExist",
+    "value": "0"
+   },
+   {
+    "tag": "sxoMode",
+    "value": "0"
+   },
+   {
+    "tag": "autoRefreshParam",
+    "value": "1"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "logViewMode",
+    "value": "1"
+   },
+   {
+    "tag": "displayInput",
+    "value": "0"
+   },
+   {
+    "tag": "displayAdvanceInput",
+    "value": "0"
+   },
+   {
+    "tag": "displayOutput",
+    "value": "0"
+   },
+   {
+    "tag": "isMultiWellLogView",
+    "value": "0"
+   },
+   {
+    "tag": "forceTemplate",
+    "value": "0"
+   },
+   {
+    "tag": "suffix",
+    "value": "_CMR"
+   },
+   {
+    "tag": "groupName",
+    "value": "NMR"
+   },
+   {
+    "tag": "outputLogNames",
+    "value": "PC_DIST%PENT%CSW_NMR"
+   },
+   {
+    "tag": "outputLogNamesToUse",
+    "value": "1%1%1"
+   },
+   {
+    "tag": "outputLogFamily",
+    "value": "Capillary Pressure%Entry Pressure%Core Water Saturation (Array)"
+   },
+   {
+    "tag": "outputLogUnit",
+    "value": "psi%psi%v/v"
+   },
+   {
+    "tag": "outputLogBaseUnit",
+    "value": "psi%psi%v/v"
+   },
+   {
+    "tag": "outputStorageFmt",
+    "value": "auto%auto%auto"
+   },
+   {
+    "tag": "outputLogPalette",
+    "value": "%%"
+   }
+  ]
+ },
+ {
+  "workflow": "CMR_Dmrp.xml",
+  "root_tag": "workflow",
+  "n_elements": 215,
+  "leaf_sample": [
+   {
+    "tag": "cascadeMode",
+    "value": "0"
+   },
+   {
+    "tag": "realTimeUpdate",
+    "value": "1"
+   },
+   {
+    "tag": "typeApply",
+    "value": "0"
+   },
+   {
+    "tag": "isAutoApply",
+    "value": "0"
+   },
+   {
+    "tag": "isValidatorActivated",
+    "value": "1"
+   },
+   {
+    "tag": "containerMultiLayout",
+    "value": "1"
+   },
+   {
+    "tag": "templateMode",
+    "value": "1"
+   },
+   {
+    "tag": "inputTemplate",
+    "value": "0"
+   },
+   {
+    "tag": "autoPropagationOfParameter",
+    "value": "1"
+   },
+   {
+    "tag": "hideUnitColumn",
+    "value": "0"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "parameterWorkflowFile",
+    "value": "CMR_Dmrp_WO"
+   },
+   {
+    "tag": "parameterWorkflowFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterProjectFile",
+    "value": "CMR_Dmrp_PR"
+   },
+   {
+    "tag": "parameterProjectFolder",
+    "value": "2"
+   },
+   {
+    "tag": "parameterWellFile",
+    "value": "CMR_Dmrp_WE"
+   },
+   {
+    "tag": "parameterWellFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterZoneFile",
+    "value": "CMR_Dmrp_ZO"
+   },
+   {
+    "tag": "parameterZoneFolder",
+    "value": "0"
+   },
+   {
+    "tag": "useOutputValIfExist",
+    "value": "0"
+   },
+   {
+    "tag": "sxoMode",
+    "value": "0"
+   },
+   {
+    "tag": "autoRefreshParam",
+    "value": "1"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Techlog\\cmr_dmrp"
+   },
+   {
+    "tag": "logViewMode",
+    "value": "0"
+   },
+   {
+    "tag": "displayInput",
+    "value": "0"
+   },
+   {
+    "tag": "displayAdvanceInput",
+    "value": "0"
+   },
+   {
+    "tag": "displayOutput",
+    "value": "0"
+   },
+   {
+    "tag": "isMultiWellLogView",
+    "value": "1"
+   },
+   {
+    "tag": "forceTemplate",
+    "value": "1"
+   },
+   {
+    "tag": "suffix",
+    "value": "_CMR"
+   },
+   {
+    "tag": "groupName",
+    "value": "NMR"
+   },
+   {
+    "tag": "outputLogNames",
+    "value": "DMRP%KDMR%VXWA%VXGA%SXO%SXGAS"
+   },
+   {
+    "tag": "outputLogNamesToUse",
+    "value": "1%1%1%1%1%1"
+   },
+   {
+    "tag": "outputLogFamily",
+    "value": "%%%%%"
+   },
+   {
+    "tag": "outputLogUnit",
+    "value": "ft3/ft3%mD%ft3%ft3%ft3/ft3%ft3/ft3"
+   },
+   {
+    "tag": "outputLogBaseUnit",
+    "value": "ft3/ft3%mD%ft3%ft3%ft3/ft3%ft3/ft3"
+   },
+   {
+    "tag": "outputStorageFmt",
+    "value": "auto%auto%auto%auto%auto%auto"
+   },
+   {
+    "tag": "outputLogPalette",
+    "value": "%%%%%"
+   },
+   {
+    "tag": "outputLogDesc",
+    "value": "%%%%%"
+   },
+   {
+    "tag": "outputLogId",
+    "value": "¤0¤DMRP%¤0¤KDMR%¤0¤VXWA%¤0¤VXGA%¤0¤SXO%¤0¤SXGAS"
+   }
+  ]
+ },
+ {
+  "workflow": "CMR_High_Resolution.xml",
+  "root_tag": "workflow",
+  "n_elements": 373,
+  "leaf_sample": [
+   {
+    "tag": "cascadeMode",
+    "value": "0"
+   },
+   {
+    "tag": "realTimeUpdate",
+    "value": "1"
+   },
+   {
+    "tag": "typeApply",
+    "value": "0"
+   },
+   {
+    "tag": "isAutoApply",
+    "value": "0"
+   },
+   {
+    "tag": "isValidatorActivated",
+    "value": "1"
+   },
+   {
+    "tag": "containerMultiLayout",
+    "value": "1"
+   },
+   {
+    "tag": "templateMode",
+    "value": "1"
+   },
+   {
+    "tag": "inputTemplate",
+    "value": "0"
+   },
+   {
+    "tag": "autoPropagationOfParameter",
+    "value": "1"
+   },
+   {
+    "tag": "hideUnitColumn",
+    "value": "0"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "parameterWorkflowFile",
+    "value": "CMR_High_Resolution_WO"
+   },
+   {
+    "tag": "parameterWorkflowFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterProjectFile",
+    "value": "CMR_High_Resolution_PR"
+   },
+   {
+    "tag": "parameterProjectFolder",
+    "value": "2"
+   },
+   {
+    "tag": "parameterWellFile",
+    "value": "CMR_High_Resolution_WE"
+   },
+   {
+    "tag": "parameterWellFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterZoneFile",
+    "value": "CMR_High_Resolution_ZO"
+   },
+   {
+    "tag": "parameterZoneFolder",
+    "value": "0"
+   },
+   {
+    "tag": "useOutputValIfExist",
+    "value": "0"
+   },
+   {
+    "tag": "sxoMode",
+    "value": "0"
+   },
+   {
+    "tag": "autoRefreshParam",
+    "value": "1"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Techlog\\cmr_high_resolution"
+   },
+   {
+    "tag": "logViewMode",
+    "value": "0"
+   },
+   {
+    "tag": "displayInput",
+    "value": "0"
+   },
+   {
+    "tag": "displayAdvanceInput",
+    "value": "0"
+   },
+   {
+    "tag": "displayOutput",
+    "value": "0"
+   },
+   {
+    "tag": "isMultiWellLogView",
+    "value": "1"
+   },
+   {
+    "tag": "forceTemplate",
+    "value": "1"
+   },
+   {
+    "tag": "suffix",
+    "value": "_CMR"
+   },
+   {
+    "tag": "groupName",
+    "value": "NMR"
+   },
+   {
+    "tag": "outputLogNames",
+    "value": "KECHO_HR%T2LM_HR%MRP_HR%MRP_HR_SIG%BFV_HR%FFV_HR%BFV_TAPER_HR%FFV_TAPER_HR%KTIM_"
+   },
+   {
+    "tag": "outputLogNamesToUse",
+    "value": "1%1%1%1%1%1%1%1%1%1%1%0%0%0"
+   },
+   {
+    "tag": "outputLogFamily",
+    "value": "NMR Permeability%NMR T2 Logarithmic Mean%NMR Porosity%Standard Deviation%Bound W"
+   },
+   {
+    "tag": "outputLogUnit",
+    "value": "mD%ms%ft3/ft3%ft3/ft3%ft3/ft3%ft3/ft3%ft3/ft3%ft3/ft3%mD%mD%mD%ft3/ft3%ft3/ft3%f"
+   },
+   {
+    "tag": "outputLogBaseUnit",
+    "value": "mD%ms%ft3/ft3%ft3/ft3%ft3/ft3%ft3/ft3%ft3/ft3%ft3/ft3%mD%mD%mD%ft3/ft3%ft3/ft3%f"
+   },
+   {
+    "tag": "outputStorageFmt",
+    "value": "auto%auto%auto%auto%auto%auto%auto%auto%auto%auto%auto%auto%auto%auto"
+   },
+   {
+    "tag": "outputLogPalette",
+    "value": "%%%%%%%%%%%%%"
+   },
+   {
+    "tag": "outputLogDesc",
+    "value": "%Logarithmic Mean of T2 Distribution (Diffusion Included)%Magnetic Resonance Por"
+   },
+   {
+    "tag": "outputLogId",
+    "value": "CMR Hi Res Processing¤3575120133973.77¤KECHO_HR%CMR Hi Res Processing¤3575120133"
+   }
+  ]
+ },
+ {
+  "workflow": "CMR_Inversion.xml",
+  "root_tag": "workflow",
+  "n_elements": 453,
+  "leaf_sample": [
+   {
+    "tag": "cascadeMode",
+    "value": "0"
+   },
+   {
+    "tag": "realTimeUpdate",
+    "value": "1"
+   },
+   {
+    "tag": "typeApply",
+    "value": "1"
+   },
+   {
+    "tag": "isAutoApply",
+    "value": "0"
+   },
+   {
+    "tag": "isValidatorActivated",
+    "value": "1"
+   },
+   {
+    "tag": "containerMultiLayout",
+    "value": "1"
+   },
+   {
+    "tag": "templateMode",
+    "value": "1"
+   },
+   {
+    "tag": "inputTemplate",
+    "value": "0"
+   },
+   {
+    "tag": "autoPropagationOfParameter",
+    "value": "1"
+   },
+   {
+    "tag": "hideUnitColumn",
+    "value": "0"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "parameterWorkflowFile",
+    "value": "CMR_Inversion_WO"
+   },
+   {
+    "tag": "parameterWorkflowFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterProjectFile",
+    "value": "CMR_Inversion_PR"
+   },
+   {
+    "tag": "parameterProjectFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterWellFile",
+    "value": "CMR_Inversion_WE"
+   },
+   {
+    "tag": "parameterWellFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterZoneFile",
+    "value": "CMR_Inversion_ZO"
+   },
+   {
+    "tag": "parameterZoneFolder",
+    "value": "0"
+   },
+   {
+    "tag": "useOutputValIfExist",
+    "value": "0"
+   },
+   {
+    "tag": "sxoMode",
+    "value": "0"
+   },
+   {
+    "tag": "autoRefreshParam",
+    "value": "1"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Techlog\\cmr_lqc_WS"
+   },
+   {
+    "tag": "logViewMode",
+    "value": "1"
+   },
+   {
+    "tag": "displayInput",
+    "value": "0"
+   },
+   {
+    "tag": "displayAdvanceInput",
+    "value": "0"
+   },
+   {
+    "tag": "displayOutput",
+    "value": "0"
+   },
+   {
+    "tag": "isMultiWellLogView",
+    "value": "1"
+   },
+   {
+    "tag": "forceTemplate",
+    "value": "1"
+   },
+   {
+    "tag": "suffix",
+    "value": "_CMR"
+   },
+   {
+    "tag": "groupName",
+    "value": "NMR"
+   },
+   {
+    "tag": "outputLogNames",
+    "value": "ECHO_DESPIKE_X%ECHO_DESPIKE_R%NOISE_PWR%SPHASE%WSUM%ECHO_AMP%ECHO_NOISE%ENOISE_S"
+   },
+   {
+    "tag": "outputLogNamesToUse",
+    "value": "1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1"
+   },
+   {
+    "tag": "outputLogFamily",
+    "value": "NMR Echo Amplitude%NMR Echo Amplitude%Noise Amplitude%Phase Shift%NMR Window Sum"
+   },
+   {
+    "tag": "outputLogUnit",
+    "value": "unitless%unitless%unitless%deg%unitless%ft3/ft3%ft3/ft3%ft3/ft3%ft3/ft3%ft3/ft3%"
+   },
+   {
+    "tag": "outputLogBaseUnit",
+    "value": "unitless%unitless%unitless%deg%unitless%ft3/ft3%ft3/ft3%ft3/ft3%ft3/ft3%ft3/ft3%"
+   },
+   {
+    "tag": "outputStorageFmt",
+    "value": "auto%auto%auto%auto%auto%auto%auto%auto%auto%auto%auto%auto%auto%auto%auto%auto%"
+   },
+   {
+    "tag": "outputLogPalette",
+    "value": "%%%%%%%%%%%%%%%%%%%%%%%%%"
+   },
+   {
+    "tag": "outputLogDesc",
+    "value": "X Component of Despiked Spin Echoes%R Component of Despiked Spin Echoes%Noise Po"
+   },
+   {
+    "tag": "outputLogId",
+    "value": "NMR Preprocessing¤3578370591929.73¤ECHO_DESPIKE_X%NMR Preprocessing¤357837059192"
+   }
+  ]
+ },
+ {
+  "workflow": "CMR_Standard_Answers.xml",
+  "root_tag": "workflow",
+  "n_elements": 396,
+  "leaf_sample": [
+   {
+    "tag": "cascadeMode",
+    "value": "0"
+   },
+   {
+    "tag": "realTimeUpdate",
+    "value": "1"
+   },
+   {
+    "tag": "typeApply",
+    "value": "0"
+   },
+   {
+    "tag": "isAutoApply",
+    "value": "0"
+   },
+   {
+    "tag": "isValidatorActivated",
+    "value": "1"
+   },
+   {
+    "tag": "containerMultiLayout",
+    "value": "1"
+   },
+   {
+    "tag": "templateMode",
+    "value": "1"
+   },
+   {
+    "tag": "inputTemplate",
+    "value": "0"
+   },
+   {
+    "tag": "autoPropagationOfParameter",
+    "value": "1"
+   },
+   {
+    "tag": "hideUnitColumn",
+    "value": "0"
+   },
+   {
+    "tag": "suffixName",
+    "value": "_CMR"
+   },
+   {
+    "tag": "groupName",
+    "value": "NMR"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "parameterWorkflowFile",
+    "value": "CMR_Standard_Answers_WO"
+   },
+   {
+    "tag": "parameterWorkflowFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterProjectFile",
+    "value": "CMR_Standard_Answers_PR"
+   },
+   {
+    "tag": "parameterProjectFolder",
+    "value": "2"
+   },
+   {
+    "tag": "parameterWellFile",
+    "value": "CMR_Standard_Answers_WE"
+   },
+   {
+    "tag": "parameterWellFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterZoneFile",
+    "value": "CMR_Standard_Answers_ZO"
+   },
+   {
+    "tag": "parameterZoneFolder",
+    "value": "0"
+   },
+   {
+    "tag": "useOutputValIfExist",
+    "value": "0"
+   },
+   {
+    "tag": "sxoMode",
+    "value": "0"
+   },
+   {
+    "tag": "autoRefreshParam",
+    "value": "1"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "logViewMode",
+    "value": "1"
+   },
+   {
+    "tag": "displayInput",
+    "value": "1"
+   },
+   {
+    "tag": "displayAdvanceInput",
+    "value": "0"
+   },
+   {
+    "tag": "displayOutput",
+    "value": "1"
+   },
+   {
+    "tag": "isMultiWellLogView",
+    "value": "1"
+   },
+   {
+    "tag": "forceTemplate",
+    "value": "0"
+   },
+   {
+    "tag": "suffix",
+    "value": "_CMR"
+   },
+   {
+    "tag": "groupName",
+    "value": "NMR"
+   },
+   {
+    "tag": "outputLogNames",
+    "value": "BFV%BFV_SIG%FFV%FFV_SIG%BFV_3MS%FFV_3MS%BFV_TAPER%FFV_TAPER%BFV_SM%BFV_SM_SIG%FF"
+   },
+   {
+    "tag": "outputLogNamesToUse",
+    "value": "1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1"
+   },
+   {
+    "tag": "outputLogFamily",
+    "value": "Bound Water Volume Fraction%Standard Deviation%NMR Free Fluid Index%Standard Dev"
+   },
+   {
+    "tag": "outputLogUnit",
+    "value": "ft3/ft3%ft3/ft3%ft3/ft3%ft3/ft3%ft3/ft3%ft3/ft3%ft3/ft3%ft3/ft3%ft3/ft3%ft3/ft3%"
+   },
+   {
+    "tag": "outputLogBaseUnit",
+    "value": "ft3/ft3%ft3/ft3%ft3/ft3%ft3/ft3%ft3/ft3%ft3/ft3%ft3/ft3%ft3/ft3%ft3/ft3%ft3/ft3%"
+   },
+   {
+    "tag": "outputStorageFmt",
+    "value": "auto%auto%auto%auto%auto%auto%auto%auto%auto%auto%auto%auto%auto%auto%auto%auto%"
+   },
+   {
+    "tag": "outputLogPalette",
+    "value": "%%%%%%%%%%%%%%%%%"
+   }
+  ]
+ },
+ {
+  "workflow": "Density combiner workflow.xml",
+  "root_tag": "workflow",
+  "n_elements": 252,
+  "leaf_sample": [
+   {
+    "tag": "cascadeMode",
+    "value": "0"
+   },
+   {
+    "tag": "realTimeUpdate",
+    "value": "1"
+   },
+   {
+    "tag": "typeApply",
+    "value": "0"
+   },
+   {
+    "tag": "isAutoApply",
+    "value": "0"
+   },
+   {
+    "tag": "isValidatorActivated",
+    "value": "1"
+   },
+   {
+    "tag": "containerMultiLayout",
+    "value": "1"
+   },
+   {
+    "tag": "templateMode",
+    "value": "1"
+   },
+   {
+    "tag": "inputTemplate",
+    "value": "0"
+   },
+   {
+    "tag": "autoPropagationOfParameter",
+    "value": "1"
+   },
+   {
+    "tag": "hideUnitColumn",
+    "value": "0"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "parameterWorkflowFile",
+    "value": "Density combiner workflow_WO"
+   },
+   {
+    "tag": "parameterWorkflowFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterProjectFile",
+    "value": "Density combiner workflow_PR"
+   },
+   {
+    "tag": "parameterProjectFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterWellFile",
+    "value": "Density combiner workflow_WE"
+   },
+   {
+    "tag": "parameterWellFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterZoneFile",
+    "value": "Density combiner workflow_ZO"
+   },
+   {
+    "tag": "parameterZoneFolder",
+    "value": "0"
+   },
+   {
+    "tag": "useOutputValIfExist",
+    "value": "0"
+   },
+   {
+    "tag": "sxoMode",
+    "value": "0"
+   },
+   {
+    "tag": "autoRefreshParam",
+    "value": "1"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "logViewMode",
+    "value": "1"
+   },
+   {
+    "tag": "displayInput",
+    "value": "1"
+   },
+   {
+    "tag": "displayAdvanceInput",
+    "value": "0"
+   },
+   {
+    "tag": "displayOutput",
+    "value": "1"
+   },
+   {
+    "tag": "isMultiWellLogView",
+    "value": "1"
+   },
+   {
+    "tag": "forceTemplate",
+    "value": "0"
+   },
+   {
+    "tag": "outputLogNames",
+    "value": "DEN_COMP%"
+   },
+   {
+    "tag": "outputLogNamesToUse",
+    "value": "1%"
+   },
+   {
+    "tag": "outputLogFamily",
+    "value": "Bulk Density%"
+   },
+   {
+    "tag": "outputLogUnit",
+    "value": "g/cm3%"
+   },
+   {
+    "tag": "outputLogBaseUnit",
+    "value": "g/cm3%"
+   },
+   {
+    "tag": "outputLogPalette",
+    "value": "%"
+   },
+   {
+    "tag": "outputLogDesc",
+    "value": "Composite density%"
+   },
+   {
+    "tag": "outputLogId",
+    "value": "densityCombiner¤3530533765558.5¤DEN_COMP%"
+   },
+   {
+    "tag": "outputLogSensitivities",
+    "value": "0%"
+   },
+   {
+    "tag": "outputLogDistributionMc",
+    "value": "1%"
+   },
+   {
+    "tag": "outputSize",
+    "value": "1"
+   }
+  ]
+ },
+ {
+  "workflow": "Pore pressure and fracture gradient workflow.xml",
+  "root_tag": "workflow",
+  "n_elements": 263,
+  "leaf_sample": [
+   {
+    "tag": "cascadeMode",
+    "value": "0"
+   },
+   {
+    "tag": "realTimeUpdate",
+    "value": "1"
+   },
+   {
+    "tag": "typeApply",
+    "value": "0"
+   },
+   {
+    "tag": "isAutoApply",
+    "value": "0"
+   },
+   {
+    "tag": "isValidatorActivated",
+    "value": "1"
+   },
+   {
+    "tag": "containerMultiLayout",
+    "value": "1"
+   },
+   {
+    "tag": "templateMode",
+    "value": "1"
+   },
+   {
+    "tag": "inputTemplate",
+    "value": "0"
+   },
+   {
+    "tag": "autoPropagationOfParameter",
+    "value": "1"
+   },
+   {
+    "tag": "hideUnitColumn",
+    "value": "0"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "parameterWorkflowFile",
+    "value": "Workflow_1_WO"
+   },
+   {
+    "tag": "parameterWorkflowFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterProjectFile",
+    "value": "Pore pressure and fracture gradient workflow_PR"
+   },
+   {
+    "tag": "parameterProjectFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterWellFile",
+    "value": "Workflow_1_WE"
+   },
+   {
+    "tag": "parameterWellFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterZoneFile",
+    "value": "Workflow_1_ZO"
+   },
+   {
+    "tag": "parameterZoneFolder",
+    "value": "0"
+   },
+   {
+    "tag": "useOutputValIfExist",
+    "value": "0"
+   },
+   {
+    "tag": "sxoMode",
+    "value": "0"
+   },
+   {
+    "tag": "autoRefreshParam",
+    "value": "1"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "logViewMode",
+    "value": "1"
+   },
+   {
+    "tag": "displayInput",
+    "value": "1"
+   },
+   {
+    "tag": "displayAdvanceInput",
+    "value": "0"
+   },
+   {
+    "tag": "displayOutput",
+    "value": "1"
+   },
+   {
+    "tag": "isMultiWellLogView",
+    "value": "1"
+   },
+   {
+    "tag": "forceTemplate",
+    "value": "0"
+   },
+   {
+    "tag": "outputLogNames",
+    "value": "CUTOFF%FLAG_PP%PPRS_NORM%PPMW_NORM%SIGV_EFF_NORM%FILTERED_SLOWNESS%FILTERED_VELO"
+   },
+   {
+    "tag": "outputLogNamesToUse",
+    "value": "1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1"
+   },
+   {
+    "tag": "outputLogFamily",
+    "value": "%General Flag%Pore Pressure%Pore Pressure (Mud Weight Equivalent)%Effective Vert"
+   },
+   {
+    "tag": "outputLogUnit",
+    "value": "%%psi%ppg%psi%%%%%ppg%psi%%ppg%psi%ppg%psi%ppg%psi%psi%us/ft%v/v%ft/s%ohm.m%psi"
+   },
+   {
+    "tag": "outputLogBaseUnit",
+    "value": "%%psi%ppg%psi%%%%%ppg%psi%%ppg%psi%ppg%psi%ppg%psi%psi%us/ft%v/v%ft/s%ohm.m%psi"
+   },
+   {
+    "tag": "outputLogPalette",
+    "value": "%%%%%%%%%%%%%%%%%%%%%%%"
+   },
+   {
+    "tag": "outputLogDesc",
+    "value": "%%%%%%%%%%%%%%%%%%Computed Mean Effective Stress%Presgraf Trendline (slowness)%P"
+   },
+   {
+    "tag": "outputLogId",
+    "value": "¤0¤CUTOFF%¤0¤FLAG_PP%¤0¤PPRS_NORM%¤0¤PPMW_NORM%¤0¤SIGV_EFF_NORM%¤0¤FILTERED_SLOW"
+   },
+   {
+    "tag": "outputLogSensitivities",
+    "value": "0%0%0%0%0%0%0%0%0%0%0%0%0%0%0%0%0%0%0%0%0%0%0%0"
+   },
+   {
+    "tag": "outputLogDistributionMc",
+    "value": "1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1%1"
+   },
+   {
+    "tag": "outputSize",
+    "value": "24"
+   }
+  ]
+ },
+ {
+  "workflow": "QDensityEffective.xml",
+  "root_tag": "workflow",
+  "n_elements": 814,
+  "leaf_sample": [
+   {
+    "tag": "cascadeMode",
+    "value": "0"
+   },
+   {
+    "tag": "realTimeUpdate",
+    "value": "1"
+   },
+   {
+    "tag": "typeApply",
+    "value": "0"
+   },
+   {
+    "tag": "isAutoApply",
+    "value": "0"
+   },
+   {
+    "tag": "isValidatorActivated",
+    "value": "1"
+   },
+   {
+    "tag": "containerMultiLayout",
+    "value": "1"
+   },
+   {
+    "tag": "templateMode",
+    "value": "1"
+   },
+   {
+    "tag": "inputTemplate",
+    "value": "0"
+   },
+   {
+    "tag": "autoPropagationOfParameter",
+    "value": "1"
+   },
+   {
+    "tag": "hideUnitColumn",
+    "value": "0"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "parameterWorkflowFile",
+    "value": "QXXX_full_WO"
+   },
+   {
+    "tag": "parameterWorkflowFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterProjectFile",
+    "value": "QDensityEffective_PR"
+   },
+   {
+    "tag": "parameterProjectFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterWellFile",
+    "value": "QXXX_WE"
+   },
+   {
+    "tag": "parameterWellFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterZoneFile",
+    "value": "QXXX_ZO"
+   },
+   {
+    "tag": "parameterZoneFolder",
+    "value": "0"
+   },
+   {
+    "tag": "useOutputValIfExist",
+    "value": "1"
+   },
+   {
+    "tag": "sxoMode",
+    "value": "0"
+   },
+   {
+    "tag": "autoRefreshParam",
+    "value": "1"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "logViewMode",
+    "value": "1"
+   },
+   {
+    "tag": "displayInput",
+    "value": "1"
+   },
+   {
+    "tag": "displayAdvanceInput",
+    "value": "0"
+   },
+   {
+    "tag": "displayOutput",
+    "value": "1"
+   },
+   {
+    "tag": "isMultiWellLogView",
+    "value": "1"
+   },
+   {
+    "tag": "forceTemplate",
+    "value": "0"
+   },
+   {
+    "tag": "mcParamName",
+    "value": "Gamma Ray%Neutron Porosity%Bulk Density%Bad Hole Flag%GR_matrix%GR_shale%NPHI_ma"
+   },
+   {
+    "tag": "mcParamUnit",
+    "value": "gAPI%v/v%g/cm3%unitless%gAPI%gAPI%v/v%v/v%v/v%g/cm3%g/cm3%g/cm3"
+   },
+   {
+    "tag": "mcStatSuffix",
+    "value": "_MC_MEAN%_MC_MEDIAN%_MC_MAX%_MC_MIN%_MC_STDDEV%_MC_P15%_MC_P85"
+   },
+   {
+    "tag": "mcStatNames",
+    "value": "Mean%Median%Maximum%Minimum%Standard deviation%Quantile minimum%Quantile maximum"
+   },
+   {
+    "tag": "mcParamDebIndex",
+    "value": "4"
+   },
+   {
+    "tag": "mcNbiter",
+    "value": "100"
+   },
+   {
+    "tag": "mcQuantilMin",
+    "value": "15"
+   },
+   {
+    "tag": "mcQuantilMax",
+    "value": "85"
+   },
+   {
+    "tag": "mcDistribComputation",
+    "value": "0"
+   },
+   {
+    "tag": "mcDistribMin",
+    "value": "-9999"
+   },
+   {
+    "tag": "mcDistribMax",
+    "value": "-9999"
+   }
+  ]
+ },
+ {
+  "workflow": "QDensityTotal.xml",
+  "root_tag": "workflow",
+  "n_elements": 882,
+  "leaf_sample": [
+   {
+    "tag": "cascadeMode",
+    "value": "0"
+   },
+   {
+    "tag": "realTimeUpdate",
+    "value": "1"
+   },
+   {
+    "tag": "typeApply",
+    "value": "0"
+   },
+   {
+    "tag": "isAutoApply",
+    "value": "0"
+   },
+   {
+    "tag": "isValidatorActivated",
+    "value": "1"
+   },
+   {
+    "tag": "containerMultiLayout",
+    "value": "1"
+   },
+   {
+    "tag": "templateMode",
+    "value": "1"
+   },
+   {
+    "tag": "inputTemplate",
+    "value": "0"
+   },
+   {
+    "tag": "autoPropagationOfParameter",
+    "value": "1"
+   },
+   {
+    "tag": "hideUnitColumn",
+    "value": "0"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "parameterWorkflowFile",
+    "value": "QXXX_full_WO"
+   },
+   {
+    "tag": "parameterWorkflowFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterProjectFile",
+    "value": "QDensityTotal_PR"
+   },
+   {
+    "tag": "parameterProjectFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterWellFile",
+    "value": "QXXX_WE"
+   },
+   {
+    "tag": "parameterWellFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterZoneFile",
+    "value": "QXXX_ZO"
+   },
+   {
+    "tag": "parameterZoneFolder",
+    "value": "0"
+   },
+   {
+    "tag": "useOutputValIfExist",
+    "value": "1"
+   },
+   {
+    "tag": "sxoMode",
+    "value": "0"
+   },
+   {
+    "tag": "autoRefreshParam",
+    "value": "1"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "logViewMode",
+    "value": "1"
+   },
+   {
+    "tag": "displayInput",
+    "value": "1"
+   },
+   {
+    "tag": "displayAdvanceInput",
+    "value": "0"
+   },
+   {
+    "tag": "displayOutput",
+    "value": "1"
+   },
+   {
+    "tag": "isMultiWellLogView",
+    "value": "1"
+   },
+   {
+    "tag": "forceTemplate",
+    "value": "0"
+   },
+   {
+    "tag": "mcParamName",
+    "value": "Gamma Ray%Neutron Porosity%Bulk Density%Bad Hole Flag%GR_matrix%GR_shale%NPHI_ma"
+   },
+   {
+    "tag": "mcParamUnit",
+    "value": "gAPI%v/v%g/cm3%unitless%gAPI%gAPI%v/v%v/v%v/v%g/cm3%g/cm3%g/cm3"
+   },
+   {
+    "tag": "mcStatSuffix",
+    "value": "_MC_MEAN%_MC_MEDIAN%_MC_MAX%_MC_MIN%_MC_STDDEV%_MC_P15%_MC_P85"
+   },
+   {
+    "tag": "mcStatNames",
+    "value": "Mean%Median%Maximum%Minimum%Standard deviation%Quantile minimum%Quantile maximum"
+   },
+   {
+    "tag": "mcParamDebIndex",
+    "value": "4"
+   },
+   {
+    "tag": "mcNbiter",
+    "value": "100"
+   },
+   {
+    "tag": "mcQuantilMin",
+    "value": "15"
+   },
+   {
+    "tag": "mcQuantilMax",
+    "value": "85"
+   },
+   {
+    "tag": "mcDistribComputation",
+    "value": "0"
+   },
+   {
+    "tag": "mcDistribMin",
+    "value": "-9999"
+   },
+   {
+    "tag": "mcDistribMax",
+    "value": "-9999"
+   }
+  ]
+ },
+ {
+  "workflow": "QNeutronDensityEffective.xml",
+  "root_tag": "workflow",
+  "n_elements": 1167,
+  "leaf_sample": [
+   {
+    "tag": "cascadeMode",
+    "value": "0"
+   },
+   {
+    "tag": "realTimeUpdate",
+    "value": "1"
+   },
+   {
+    "tag": "typeApply",
+    "value": "0"
+   },
+   {
+    "tag": "isAutoApply",
+    "value": "0"
+   },
+   {
+    "tag": "isValidatorActivated",
+    "value": "1"
+   },
+   {
+    "tag": "containerMultiLayout",
+    "value": "1"
+   },
+   {
+    "tag": "templateMode",
+    "value": "1"
+   },
+   {
+    "tag": "inputTemplate",
+    "value": "0"
+   },
+   {
+    "tag": "autoPropagationOfParameter",
+    "value": "1"
+   },
+   {
+    "tag": "hideUnitColumn",
+    "value": "0"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "parameterWorkflowFile",
+    "value": "QXXX_full_WO"
+   },
+   {
+    "tag": "parameterWorkflowFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterProjectFile",
+    "value": "QNeutronDensityEffective_PR"
+   },
+   {
+    "tag": "parameterProjectFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterWellFile",
+    "value": "QXXX_WE"
+   },
+   {
+    "tag": "parameterWellFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterZoneFile",
+    "value": "QXXX_ZO"
+   },
+   {
+    "tag": "parameterZoneFolder",
+    "value": "0"
+   },
+   {
+    "tag": "useOutputValIfExist",
+    "value": "1"
+   },
+   {
+    "tag": "sxoMode",
+    "value": "0"
+   },
+   {
+    "tag": "autoRefreshParam",
+    "value": "1"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "logViewMode",
+    "value": "1"
+   },
+   {
+    "tag": "displayInput",
+    "value": "1"
+   },
+   {
+    "tag": "displayAdvanceInput",
+    "value": "0"
+   },
+   {
+    "tag": "displayOutput",
+    "value": "1"
+   },
+   {
+    "tag": "isMultiWellLogView",
+    "value": "1"
+   },
+   {
+    "tag": "forceTemplate",
+    "value": "0"
+   },
+   {
+    "tag": "mcParamName",
+    "value": "Gamma Ray%Neutron Porosity%Bulk Density%Bad Hole Flag%GR_matrix%GR_shale%NPHI_ma"
+   },
+   {
+    "tag": "mcParamUnit",
+    "value": "gAPI%v/v%g/cm3%unitless%gAPI%gAPI%v/v%v/v%v/v%g/cm3%g/cm3%g/cm3"
+   },
+   {
+    "tag": "mcStatSuffix",
+    "value": "_MC_MEAN%_MC_MEDIAN%_MC_MAX%_MC_MIN%_MC_STDDEV%_MC_P15%_MC_P85"
+   },
+   {
+    "tag": "mcStatNames",
+    "value": "Mean%Median%Maximum%Minimum%Standard deviation%Quantile minimum%Quantile maximum"
+   },
+   {
+    "tag": "mcParamDebIndex",
+    "value": "4"
+   },
+   {
+    "tag": "mcNbiter",
+    "value": "100"
+   },
+   {
+    "tag": "mcQuantilMin",
+    "value": "15"
+   },
+   {
+    "tag": "mcQuantilMax",
+    "value": "85"
+   },
+   {
+    "tag": "mcDistribComputation",
+    "value": "0"
+   },
+   {
+    "tag": "mcDistribMin",
+    "value": "-9999"
+   },
+   {
+    "tag": "mcDistribMax",
+    "value": "-9999"
+   }
+  ]
+ },
+ {
+  "workflow": "QNeutronDensityTotal.xml",
+  "root_tag": "workflow",
+  "n_elements": 898,
+  "leaf_sample": [
+   {
+    "tag": "cascadeMode",
+    "value": "0"
+   },
+   {
+    "tag": "realTimeUpdate",
+    "value": "1"
+   },
+   {
+    "tag": "typeApply",
+    "value": "0"
+   },
+   {
+    "tag": "isAutoApply",
+    "value": "0"
+   },
+   {
+    "tag": "isValidatorActivated",
+    "value": "1"
+   },
+   {
+    "tag": "containerMultiLayout",
+    "value": "1"
+   },
+   {
+    "tag": "templateMode",
+    "value": "1"
+   },
+   {
+    "tag": "inputTemplate",
+    "value": "0"
+   },
+   {
+    "tag": "autoPropagationOfParameter",
+    "value": "1"
+   },
+   {
+    "tag": "hideUnitColumn",
+    "value": "0"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "parameterWorkflowFile",
+    "value": "QXXX_full_WO"
+   },
+   {
+    "tag": "parameterWorkflowFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterProjectFile",
+    "value": "QNeutronDensityTotal_PR"
+   },
+   {
+    "tag": "parameterProjectFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterWellFile",
+    "value": "QXXX_WE"
+   },
+   {
+    "tag": "parameterWellFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterZoneFile",
+    "value": "QXXX_ZO"
+   },
+   {
+    "tag": "parameterZoneFolder",
+    "value": "0"
+   },
+   {
+    "tag": "useOutputValIfExist",
+    "value": "1"
+   },
+   {
+    "tag": "sxoMode",
+    "value": "0"
+   },
+   {
+    "tag": "autoRefreshParam",
+    "value": "1"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "logViewMode",
+    "value": "1"
+   },
+   {
+    "tag": "displayInput",
+    "value": "1"
+   },
+   {
+    "tag": "displayAdvanceInput",
+    "value": "0"
+   },
+   {
+    "tag": "displayOutput",
+    "value": "1"
+   },
+   {
+    "tag": "isMultiWellLogView",
+    "value": "1"
+   },
+   {
+    "tag": "forceTemplate",
+    "value": "0"
+   },
+   {
+    "tag": "mcParamName",
+    "value": "Gamma Ray%Neutron Porosity%Bulk Density%Bad Hole Flag%GR_matrix%GR_shale%NPHI_ma"
+   },
+   {
+    "tag": "mcParamUnit",
+    "value": "gAPI%v/v%g/cm3%unitless%gAPI%gAPI%v/v%v/v%v/v%g/cm3%g/cm3%g/cm3"
+   },
+   {
+    "tag": "mcStatSuffix",
+    "value": "_MC_MEAN%_MC_MEDIAN%_MC_MAX%_MC_MIN%_MC_STDDEV%_MC_P15%_MC_P85"
+   },
+   {
+    "tag": "mcStatNames",
+    "value": "Mean%Median%Maximum%Minimum%Standard deviation%Quantile minimum%Quantile maximum"
+   },
+   {
+    "tag": "mcParamDebIndex",
+    "value": "4"
+   },
+   {
+    "tag": "mcNbiter",
+    "value": "100"
+   },
+   {
+    "tag": "mcQuantilMin",
+    "value": "15"
+   },
+   {
+    "tag": "mcQuantilMax",
+    "value": "85"
+   },
+   {
+    "tag": "mcDistribComputation",
+    "value": "0"
+   },
+   {
+    "tag": "mcDistribMin",
+    "value": "-9999"
+   },
+   {
+    "tag": "mcDistribMax",
+    "value": "-9999"
+   }
+  ]
+ },
+ {
+  "workflow": "QPrecomputations.xml",
+  "root_tag": "workflow",
+  "n_elements": 479,
+  "leaf_sample": [
+   {
+    "tag": "cascadeMode",
+    "value": "0"
+   },
+   {
+    "tag": "realTimeUpdate",
+    "value": "1"
+   },
+   {
+    "tag": "typeApply",
+    "value": "0"
+   },
+   {
+    "tag": "isAutoApply",
+    "value": "0"
+   },
+   {
+    "tag": "isValidatorActivated",
+    "value": "1"
+   },
+   {
+    "tag": "containerMultiLayout",
+    "value": "1"
+   },
+   {
+    "tag": "templateMode",
+    "value": "1"
+   },
+   {
+    "tag": "inputTemplate",
+    "value": "0"
+   },
+   {
+    "tag": "autoPropagationOfParameter",
+    "value": "1"
+   },
+   {
+    "tag": "hideUnitColumn",
+    "value": "0"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "parameterWorkflowFile",
+    "value": "QPrecomputations_WO"
+   },
+   {
+    "tag": "parameterWorkflowFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterProjectFile",
+    "value": "QPrecomputations_PR"
+   },
+   {
+    "tag": "parameterProjectFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterWellFile",
+    "value": "QPrecomputations_WE"
+   },
+   {
+    "tag": "parameterWellFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterZoneFile",
+    "value": "QPrecomputations_ZO"
+   },
+   {
+    "tag": "parameterZoneFolder",
+    "value": "0"
+   },
+   {
+    "tag": "scriptName",
+    "value": "Techlog\\PythonScripts\\BoreholeComputation.py"
+   },
+   {
+    "tag": "includeNoValues",
+    "value": "0"
+   },
+   {
+    "tag": "pixmap",
+    "value": "boreholeComputation"
+   },
+   {
+    "tag": "useOutputValIfExist",
+    "value": "1"
+   },
+   {
+    "tag": "sxoMode",
+    "value": "0"
+   },
+   {
+    "tag": "autoRefreshParam",
+    "value": "1"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "logViewMode",
+    "value": "1"
+   },
+   {
+    "tag": "displayInput",
+    "value": "1"
+   },
+   {
+    "tag": "displayAdvanceInput",
+    "value": "0"
+   },
+   {
+    "tag": "displayOutput",
+    "value": "1"
+   },
+   {
+    "tag": "isMultiWellLogView",
+    "value": "1"
+   },
+   {
+    "tag": "forceTemplate",
+    "value": "0"
+   },
+   {
+    "tag": "groupName",
+    "value": "GEN"
+   },
+   {
+    "tag": "outputLogNames",
+    "value": "WTEM%WPRE%WMUD%RM%RMF%RMC%RW%BSAL%SALMF%FSAL%BFHI%FLAG_MUDTYPE"
+   },
+   {
+    "tag": "outputLogNamesToUse",
+    "value": "1%1%1%1%1%1%1%1%1%1%1%1"
+   },
+   {
+    "tag": "outputLogFamily",
+    "value": "Borehole Temperature%Borehole Pressure%Mud Density%Mud Resistivity%Mud Filtrate "
+   },
+   {
+    "tag": "outputLogUnit",
+    "value": "degC%kPa%g/cm3%ohm.m%ohm.m%ohm.m%ohm.m%ppk%ppk%ppk%m3/m3%unitless"
+   },
+   {
+    "tag": "outputLogBaseUnit",
+    "value": "degC%kPa%g/cm3%ohm.m%ohm.m%ohm.m%ohm.m%ppk%ppk%ppk%m3/m3%unitless"
+   },
+   {
+    "tag": "outputStorageFmt",
+    "value": "auto%auto%auto%auto%auto%auto%auto%auto%auto%auto%auto%auto"
+   },
+   {
+    "tag": "outputLogPalette",
+    "value": "%%%%%%%%%%%"
+   }
+  ]
+ },
+ {
+  "workflow": "Synthetic density.xml",
+  "root_tag": "workflow",
+  "n_elements": 267,
+  "leaf_sample": [
+   {
+    "tag": "cascadeMode",
+    "value": "0"
+   },
+   {
+    "tag": "realTimeUpdate",
+    "value": "1"
+   },
+   {
+    "tag": "typeApply",
+    "value": "0"
+   },
+   {
+    "tag": "isAutoApply",
+    "value": "0"
+   },
+   {
+    "tag": "isValidatorActivated",
+    "value": "1"
+   },
+   {
+    "tag": "containerMultiLayout",
+    "value": "1"
+   },
+   {
+    "tag": "templateMode",
+    "value": "1"
+   },
+   {
+    "tag": "inputTemplate",
+    "value": "0"
+   },
+   {
+    "tag": "autoPropagationOfParameter",
+    "value": "1"
+   },
+   {
+    "tag": "hideUnitColumn",
+    "value": "0"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "parameterWorkflowFile",
+    "value": "Workflow_WO"
+   },
+   {
+    "tag": "parameterWorkflowFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterProjectFile",
+    "value": "Synthetic density_PR"
+   },
+   {
+    "tag": "parameterProjectFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterWellFile",
+    "value": "Workflow_WE"
+   },
+   {
+    "tag": "parameterWellFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterZoneFile",
+    "value": "Workflow_ZO"
+   },
+   {
+    "tag": "parameterZoneFolder",
+    "value": "0"
+   },
+   {
+    "tag": "useOutputValIfExist",
+    "value": "0"
+   },
+   {
+    "tag": "sxoMode",
+    "value": "0"
+   },
+   {
+    "tag": "autoRefreshParam",
+    "value": "1"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "logViewMode",
+    "value": "1"
+   },
+   {
+    "tag": "displayInput",
+    "value": "1"
+   },
+   {
+    "tag": "displayAdvanceInput",
+    "value": "0"
+   },
+   {
+    "tag": "displayOutput",
+    "value": "1"
+   },
+   {
+    "tag": "isMultiWellLogView",
+    "value": "1"
+   },
+   {
+    "tag": "forceTemplate",
+    "value": "0"
+   },
+   {
+    "tag": "outputLogNames",
+    "value": "DEN_AMOCO%"
+   },
+   {
+    "tag": "outputLogNamesToUse",
+    "value": "1%"
+   },
+   {
+    "tag": "outputLogFamily",
+    "value": "Bulk Density%"
+   },
+   {
+    "tag": "outputLogUnit",
+    "value": "g/cm3%"
+   },
+   {
+    "tag": "outputLogBaseUnit",
+    "value": "g/cm3%"
+   },
+   {
+    "tag": "outputLogPalette",
+    "value": "%"
+   },
+   {
+    "tag": "outputLogDesc",
+    "value": "%"
+   },
+   {
+    "tag": "outputLogId",
+    "value": "¤0¤DEN_AMOCO%"
+   },
+   {
+    "tag": "outputLogSensitivities",
+    "value": "0%"
+   },
+   {
+    "tag": "outputLogDistributionMc",
+    "value": "1%"
+   },
+   {
+    "tag": "outputSize",
+    "value": "1"
+   }
+  ]
+ },
+ {
+  "workflow": "Template PPP - Combiner pore pressure workflow.xml",
+  "root_tag": "workflow",
+  "n_elements": 136,
+  "leaf_sample": [
+   {
+    "tag": "cascadeMode",
+    "value": "1"
+   },
+   {
+    "tag": "realTimeUpdate",
+    "value": "1"
+   },
+   {
+    "tag": "typeApply",
+    "value": "0"
+   },
+   {
+    "tag": "isAutoApply",
+    "value": "0"
+   },
+   {
+    "tag": "isValidatorActivated",
+    "value": "1"
+   },
+   {
+    "tag": "containerMultiLayout",
+    "value": "1"
+   },
+   {
+    "tag": "templateMode",
+    "value": "1"
+   },
+   {
+    "tag": "inputTemplate",
+    "value": "0"
+   },
+   {
+    "tag": "autoPropagationOfParameter",
+    "value": "1"
+   },
+   {
+    "tag": "hideUnitColumn",
+    "value": "0"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "parameterWorkflowFile",
+    "value": "Combiner pore pressure workflow_WO"
+   },
+   {
+    "tag": "parameterWorkflowFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterProjectFile",
+    "value": "Template PPP - Combiner pore pressure workflow_PR"
+   },
+   {
+    "tag": "parameterProjectFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterWellFile",
+    "value": "Combiner pore pressure workflow_WE"
+   },
+   {
+    "tag": "parameterWellFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterZoneFile",
+    "value": "Combiner pore pressure workflow_ZO"
+   },
+   {
+    "tag": "parameterZoneFolder",
+    "value": "0"
+   },
+   {
+    "tag": "useOutputValIfExist",
+    "value": "1"
+   },
+   {
+    "tag": "sxoMode",
+    "value": "0"
+   },
+   {
+    "tag": "autoRefreshParam",
+    "value": "1"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "logViewMode",
+    "value": "1"
+   },
+   {
+    "tag": "displayInput",
+    "value": "1"
+   },
+   {
+    "tag": "displayAdvanceInput",
+    "value": "0"
+   },
+   {
+    "tag": "displayOutput",
+    "value": "1"
+   },
+   {
+    "tag": "isMultiWellLogView",
+    "value": "1"
+   },
+   {
+    "tag": "forceTemplate",
+    "value": "0"
+   },
+   {
+    "tag": "outputLogNames",
+    "value": "RES_PPP_COMBINER%"
+   },
+   {
+    "tag": "outputLogNamesToUse",
+    "value": "1%"
+   },
+   {
+    "tag": "outputLogFamily",
+    "value": "%"
+   },
+   {
+    "tag": "outputLogUnit",
+    "value": "%"
+   },
+   {
+    "tag": "outputLogBaseUnit",
+    "value": "%"
+   },
+   {
+    "tag": "outputLogPalette",
+    "value": "%"
+   },
+   {
+    "tag": "outputLogDesc",
+    "value": "%"
+   },
+   {
+    "tag": "outputLogId",
+    "value": "RES_PPP_COMBINER%"
+   },
+   {
+    "tag": "outputLogSensitivities",
+    "value": "0%"
+   },
+   {
+    "tag": "outputLogDistributionMc",
+    "value": "1%"
+   },
+   {
+    "tag": "outputSize",
+    "value": "1"
+   }
+  ]
+ },
+ {
+  "workflow": "Template PPP - Density combiner workflow.xml",
+  "root_tag": "workflow",
+  "n_elements": 165,
+  "leaf_sample": [
+   {
+    "tag": "cascadeMode",
+    "value": "1"
+   },
+   {
+    "tag": "realTimeUpdate",
+    "value": "1"
+   },
+   {
+    "tag": "typeApply",
+    "value": "0"
+   },
+   {
+    "tag": "isAutoApply",
+    "value": "0"
+   },
+   {
+    "tag": "isValidatorActivated",
+    "value": "1"
+   },
+   {
+    "tag": "containerMultiLayout",
+    "value": "1"
+   },
+   {
+    "tag": "templateMode",
+    "value": "1"
+   },
+   {
+    "tag": "inputTemplate",
+    "value": "1"
+   },
+   {
+    "tag": "autoPropagationOfParameter",
+    "value": "1"
+   },
+   {
+    "tag": "hideUnitColumn",
+    "value": "0"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "parameterWorkflowFile",
+    "value": "Density combiner workflow_WO"
+   },
+   {
+    "tag": "parameterWorkflowFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterProjectFile",
+    "value": "Template PPP - Density combiner workflow_PR"
+   },
+   {
+    "tag": "parameterProjectFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterWellFile",
+    "value": "Density combiner workflow_WE"
+   },
+   {
+    "tag": "parameterWellFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterZoneFile",
+    "value": "Density combiner workflow_ZO"
+   },
+   {
+    "tag": "parameterZoneFolder",
+    "value": "0"
+   },
+   {
+    "tag": "useOutputValIfExist",
+    "value": "1"
+   },
+   {
+    "tag": "sxoMode",
+    "value": "0"
+   },
+   {
+    "tag": "autoRefreshParam",
+    "value": "1"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "logViewMode",
+    "value": "1"
+   },
+   {
+    "tag": "displayInput",
+    "value": "1"
+   },
+   {
+    "tag": "displayAdvanceInput",
+    "value": "0"
+   },
+   {
+    "tag": "displayOutput",
+    "value": "1"
+   },
+   {
+    "tag": "isMultiWellLogView",
+    "value": "1"
+   },
+   {
+    "tag": "forceTemplate",
+    "value": "0"
+   },
+   {
+    "tag": "outputLogNames",
+    "value": "RBCP_COMP%"
+   },
+   {
+    "tag": "outputLogNamesToUse",
+    "value": "1%"
+   },
+   {
+    "tag": "outputLogFamily",
+    "value": "Bulk Density%"
+   },
+   {
+    "tag": "outputLogUnit",
+    "value": "g/cm3%"
+   },
+   {
+    "tag": "outputLogBaseUnit",
+    "value": "g/cm3%"
+   },
+   {
+    "tag": "outputLogPalette",
+    "value": "%"
+   },
+   {
+    "tag": "outputLogDesc",
+    "value": "Composite density%"
+   },
+   {
+    "tag": "outputLogId",
+    "value": "RBCP_COMP%"
+   },
+   {
+    "tag": "outputLogSensitivities",
+    "value": "0%"
+   },
+   {
+    "tag": "outputLogDistributionMc",
+    "value": "1%"
+   },
+   {
+    "tag": "outputSize",
+    "value": "1"
+   }
+  ]
+ },
+ {
+  "workflow": "Template PPP - PPP workflow.xml",
+  "root_tag": "workflow",
+  "n_elements": 530,
+  "leaf_sample": [
+   {
+    "tag": "cascadeMode",
+    "value": "1"
+   },
+   {
+    "tag": "realTimeUpdate",
+    "value": "1"
+   },
+   {
+    "tag": "typeApply",
+    "value": "0"
+   },
+   {
+    "tag": "isAutoApply",
+    "value": "0"
+   },
+   {
+    "tag": "isValidatorActivated",
+    "value": "1"
+   },
+   {
+    "tag": "containerMultiLayout",
+    "value": "1"
+   },
+   {
+    "tag": "templateMode",
+    "value": "1"
+   },
+   {
+    "tag": "inputTemplate",
+    "value": "1"
+   },
+   {
+    "tag": "autoPropagationOfParameter",
+    "value": "1"
+   },
+   {
+    "tag": "hideUnitColumn",
+    "value": "0"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "parameterWorkflowFile",
+    "value": "PPP workflow_WO"
+   },
+   {
+    "tag": "parameterWorkflowFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterProjectFile",
+    "value": "Template PPP - PPP workflow_PR"
+   },
+   {
+    "tag": "parameterProjectFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterWellFile",
+    "value": "PPP workflow_WE"
+   },
+   {
+    "tag": "parameterWellFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterZoneFile",
+    "value": "PPP workflow_ZO"
+   },
+   {
+    "tag": "parameterZoneFolder",
+    "value": "0"
+   },
+   {
+    "tag": "useOutputValIfExist",
+    "value": "1"
+   },
+   {
+    "tag": "sxoMode",
+    "value": "0"
+   },
+   {
+    "tag": "autoRefreshParam",
+    "value": "1"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "logViewMode",
+    "value": "1"
+   },
+   {
+    "tag": "displayInput",
+    "value": "1"
+   },
+   {
+    "tag": "displayAdvanceInput",
+    "value": "0"
+   },
+   {
+    "tag": "displayOutput",
+    "value": "1"
+   },
+   {
+    "tag": "isMultiWellLogView",
+    "value": "1"
+   },
+   {
+    "tag": "forceTemplate",
+    "value": "0"
+   },
+   {
+    "tag": "outputLogNames",
+    "value": "SIGV%OBMW"
+   },
+   {
+    "tag": "outputLogNamesToUse",
+    "value": "1%1"
+   },
+   {
+    "tag": "outputLogFamily",
+    "value": "Vertical Stress%Vertical Stress Gradient (Mud Weight Equivalent)"
+   },
+   {
+    "tag": "outputLogUnit",
+    "value": "psi%ppg"
+   },
+   {
+    "tag": "outputLogBaseUnit",
+    "value": "psi%ppg"
+   },
+   {
+    "tag": "outputLogPalette",
+    "value": "%"
+   },
+   {
+    "tag": "outputLogDesc",
+    "value": "%"
+   },
+   {
+    "tag": "outputLogId",
+    "value": "SIGV%OBMW"
+   },
+   {
+    "tag": "outputLogSensitivities",
+    "value": "0%0"
+   },
+   {
+    "tag": "outputLogDistributionMc",
+    "value": "1%1"
+   },
+   {
+    "tag": "outputSize",
+    "value": "2"
+   }
+  ]
+ },
+ {
+  "workflow": "Template PPP - Synthetic density workflow.xml",
+  "root_tag": "workflow",
+  "n_elements": 231,
+  "leaf_sample": [
+   {
+    "tag": "cascadeMode",
+    "value": "1"
+   },
+   {
+    "tag": "realTimeUpdate",
+    "value": "1"
+   },
+   {
+    "tag": "typeApply",
+    "value": "0"
+   },
+   {
+    "tag": "isAutoApply",
+    "value": "0"
+   },
+   {
+    "tag": "isValidatorActivated",
+    "value": "1"
+   },
+   {
+    "tag": "containerMultiLayout",
+    "value": "1"
+   },
+   {
+    "tag": "templateMode",
+    "value": "1"
+   },
+   {
+    "tag": "inputTemplate",
+    "value": "0"
+   },
+   {
+    "tag": "autoPropagationOfParameter",
+    "value": "1"
+   },
+   {
+    "tag": "hideUnitColumn",
+    "value": "0"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "parameterWorkflowFile",
+    "value": "Synthetic density workflow_WO"
+   },
+   {
+    "tag": "parameterWorkflowFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterProjectFile",
+    "value": "Template PPP - Synthetic density workflow_PR"
+   },
+   {
+    "tag": "parameterProjectFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterWellFile",
+    "value": "Synthetic density workflow_WE"
+   },
+   {
+    "tag": "parameterWellFolder",
+    "value": "0"
+   },
+   {
+    "tag": "parameterZoneFile",
+    "value": "Synthetic density workflow_ZO"
+   },
+   {
+    "tag": "parameterZoneFolder",
+    "value": "0"
+   },
+   {
+    "tag": "useOutputValIfExist",
+    "value": "1"
+   },
+   {
+    "tag": "sxoMode",
+    "value": "0"
+   },
+   {
+    "tag": "autoRefreshParam",
+    "value": "1"
+   },
+   {
+    "tag": "logViewName",
+    "value": "Current"
+   },
+   {
+    "tag": "logViewMode",
+    "value": "1"
+   },
+   {
+    "tag": "displayInput",
+    "value": "1"
+   },
+   {
+    "tag": "displayAdvanceInput",
+    "value": "0"
+   },
+   {
+    "tag": "displayOutput",
+    "value": "1"
+   },
+   {
+    "tag": "isMultiWellLogView",
+    "value": "1"
+   },
+   {
+    "tag": "forceTemplate",
+    "value": "0"
+   },
+   {
+    "tag": "outputLogNames",
+    "value": "DEN_EXTRAPOLATE%DEN_AMOCO%DEN_GARDNER%DEN_MILLER%PHI_MILLER%DEN_GRAD"
+   },
+   {
+    "tag": "outputLogNamesToUse",
+    "value": "1%1%1%1%1%1"
+   },
+   {
+    "tag": "outputLogFamily",
+    "value": "Bulk Density%Bulk Density%Bulk Density%Bulk Density%Porosity%Bulk Density"
+   },
+   {
+    "tag": "outputLogUnit",
+    "value": "g/cm3%g/cm3%g/cm3%g/cm3%v/v%g/cm3"
+   },
+   {
+    "tag": "outputLogBaseUnit",
+    "value": "g/cm3%g/cm3%g/cm3%g/cm3%v/v%g/cm3"
+   },
+   {
+    "tag": "outputLogPalette",
+    "value": "%%%%%"
+   },
+   {
+    "tag": "outputLogDesc",
+    "value": "%%%%%"
+   },
+   {
+    "tag": "outputLogId",
+    "value": "DEN_EXTRAPOLATE%DEN_AMOCO%DEN_GARDNER%DEN_MILLER%PHI_MILLER%DEN_GRAD"
+   },
+   {
+    "tag": "outputLogSensitivities",
+    "value": "0%0%0%0%0%0"
+   },
+   {
+    "tag": "outputLogDistributionMc",
+    "value": "1%1%1%1%1%1"
+   },
+   {
+    "tag": "outputSize",
+    "value": "6"
+   }
+  ]
+ }
+]

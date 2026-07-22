@@ -1,0 +1,137 @@
+{
+  "_meta": {
+    "target": "D",
+    "source_root": "C:\\Program Files\\IP2025",
+    "date": "2026-07-22",
+    "scope": "Tier-B published methods identified from IP's OPEN-TEXT user-program / formula sources. IP's own built-in Module algorithms ship compiled (UserProgram.dll per module); those are identified by module name + manifest + published-method inference and flagged compiled_boundary=true. Nothing was decompiled. SandiBumi reimplements every method from the cited PRIMARY paper, never from IP.",
+    "calibration_note": "Mirrors Techlog D_python_algorithms.md. KEY CONTRAST: Techlog shipped its high-value kernels compiled (.pyc/.dll); IP ships the user-program SDK EXAMPLES as readable source in 7 languages (VB/C#/C/FORTRAN/MATLAB/Python x2), but IP's proprietary built-in Modules are equally compiled. So the readable-vs-compiled boundary in IP falls between 'SDK examples' (open) and 'shipped Modules' (compiled)."
+  },
+
+  "readable_tierB_methods": [
+    {
+      "id": "HFU",
+      "file": "C:\\Program Files\\IP2025\\HydraulicFlowUnits\\UserAppCode.cs",
+      "readable": true,
+      "compiled_boundary": false,
+      "capability": "Hydraulic Flow Units - permeability from porosity by rock-type/HFU cluster",
+      "published_method": "Amaefule et al. hydraulic (flow) units + RQI/FZI; plus Winland r35 and Pittman apex-radius permeability transforms",
+      "primary_citations": [
+        "Amaefule, Altunbay, Tiab, Kersey, Keelan (1993) SPE 26436 - 'Enhanced Reservoir Description: Using Core and Log Data to Identify Hydraulic Flow Units and Predict Permeability in Uncored Intervals/Wells'",
+        "Kolodzie (1980) SPE 9382 / Winland r35 (unpublished Amoco, via Kolodzie)",
+        "Pittman (1992) AAPG Bulletin 76, 'Relationship of Porosity and Permeability to Various Parameters Derived from Mercury Injection-Capillary Pressure Curves for Sandstone'"
+      ],
+      "formulas_as_read": {
+        "RQI_FZI": "perm = phi^3 * ( FZI / (0.0314 * (1 - phi)) )^2   [inverted Kozeny-Carman; 0.0314 = um unit constant; RQI=0.0314*sqrt(k/phi), phiz=phi/(1-phi), FZI=RQI/phiz]",
+        "Winland": "log10(k) = ( log10(r35) - 0.732 + 0.864*log10(phi*100) ) / 0.588   [rearranged Winland: log r35 = 0.732 + 0.588 log k - 0.864 log(phi%)]",
+        "Pittman": "log10(k) = ( log10(rXX) - C[i,0] + C[i,2]*log10(phi*100) ) / C[i,1]   [Pittman apex rXX: log rXX = a + b log k + c log(phi%); a,b,c = Pittman.Constants[i,0..2], per rXX percentile]"
+      },
+      "constants": {
+        "kozeny_um_constant": 0.0314,
+        "winland": {"a": 0.732, "b": 0.588, "c": 0.864, "radius_percentile": "r35"},
+        "pittman_constant_table": "Pittman.Constants[rXXindex,0..2] is COMPILED in the DLL (not readable). SandiBumi should take a,b,c from Pittman (1992) published Table for r10..r75.",
+        "coefficient_source": "per-HFU coefficient (mean FZI / target r35 / target rXX) supplied via data.xml, one per HFU number; can be overridden by Monte Carlo"
+      },
+      "model_switch": "Model text param in {RQI, Winland, Pittman}; PittmanIndex selects rXX percentile row",
+      "sandibumi_action": "Reimplement RQI/FZI directly from SPE 26436 (trivial algebra). Winland/Pittman from AAPG 1992 with the published coefficient tables.",
+      "scope": "v1-core (permeability + rock typing feed net-pay and SCAL integration)"
+    },
+
+    {
+      "id": "INTERP_DEMO",
+      "file": "C:\\Program Files\\IP2025\\UserPrograms\\Interp_Demo\\UsersCode.py (identical logic in .cs/.vb/.c/.f/.m; report defaults in 'Interp Demo C Report.txt')",
+      "readable": true,
+      "compiled_boundary": false,
+      "capability": "Complete deterministic quicklook openhole interpretation (Vcl -> porosity -> Sw -> BVW -> net-pay/net-res cutoffs -> zonal averages) with interactive Pickett-plot m/Rw back-solve",
+      "published_method": "Standard openhole petrophysics: linear GR-index Vcl; Wyllie sonic / density porosity with clay correction; Archie OR Indonesia (Poupon-Leveaux) Sw; optional Shell variable-m; Pickett (1973) crossplot inversion",
+      "primary_citations": [
+        "Archie (1942) - F=a/phi^m, Sw=(F*Rw/Rt)^(1/n)",
+        "Poupon & Leveaux (1971) SPWLA - 'Evaluation of Water Saturation in Shaly Formations' (Indonesia equation)",
+        "Wyllie, Gregory & Gardner (1956) - sonic time-average porosity",
+        "Pickett (1973) - resistivity-porosity crossplot for m and Rw",
+        "Shell / Nigeria variable cementation: m = 1.87 + 0.019/phi (Shell empirical, Gulf-Coast/Niger delta unconsolidated sands)"
+      ],
+      "formulas_as_read": {
+        "porosity_sonic": "phi = (DT - DTma) * Cp / (DTfl - DTma)   ; clay term PorClay = (DTclay-DTma)*Cp/(DTfl-DTma)",
+        "porosity_density": "phi = (RHOB - RHOma) / (RHOfl - RHOma) ; clay term PorClay = (RHOclay-RHOma)/(RHOfl-RHOma)",
+        "clay_correction": "phi = phi - Vcl*PorClay ; floored at 0.0001",
+        "vcl_linear": "Vcl = (GR - GRclean)/(GRclay - GRclean), clamped [0,1]",
+        "archie": "F = a / phi^m ; Sw = (F*Rw/Rt)^(1/n)",
+        "indonesia_poupon_leveaux": "Sw = [ sqrt(Rt) * ( Vcl^(1 - Vcl/2)/sqrt(Rclay) + phi^(m/2)/sqrt(a*Rw) ) ]^(-2/n)",
+        "shell_variable_m": "if Shellm flag: m = 1.87 + 0.019/phi",
+        "rwa": "Rwa = Rt * phi^m / a",
+        "bvw": "BVW = Sw*phi (Sw<1) else phi",
+        "pickett_backsolve": "m = (log10(Ro1) - log10(Ro2)) / (log10(phi2) - log10(phi1)) ; Rw = Ro1 * phi1^m / a (clamped 1e-4..100)",
+        "net_reservoir_flag": "phi >= PhiCut AND Vcl <= VclCut",
+        "net_pay_flag": "net_reservoir AND Sw <= SwCut"
+      },
+      "default_constants_from_report": {
+        "a": 1.0, "m": 2.0, "n": 2.0, "Rw_ohmm": 0.1,
+        "RHOma_sandstone": [2.645, 2.65], "RHOfl": 1.0,
+        "DTma_us_ft": [51.0, 55.7], "DTfl_us_ft": 189.0, "DT_Cp": 1.0, "DTclay_us_ft": [86.0, 96.0],
+        "RHOclay": [2.472, 2.635], "GRclean_gapi": [10, 16, 18, 22], "GRclay_gapi": [100, 140, 142]
+      },
+      "sandibumi_action": "SandiBumi already has all of these (memory: Archie/Simandoux/Indonesia switch, Vsh methods, Wyllie/density porosity). Value is confirming IP defaults match SandiBumi and the Pickett-plot->code back-solve UX pattern.",
+      "scope": "v1-core"
+    },
+
+    {
+      "id": "DIFFERENTIATE",
+      "file": "C:\\Program Files\\IP2025\\UserPrograms\\Differentiate\\ (UsersCode.py/.c/.cs/.vb/.f/.m)",
+      "readable": true,
+      "compiled_boundary": false,
+      "capability": "First derivative of one curve with respect to another",
+      "published_method": "Numerical first difference (utility, Tier A - not a protected method)",
+      "formulas_as_read": {"derivative": "diff[i] = (num[i]-num[i-1]) / (den[i]-den[i-1]); -999 (null) guard when denominator or numerator delta == 0"},
+      "purpose": "Ships as the canonical multi-language User Program teaching example (see D_formula_language.md)",
+      "scope": "v1-core (utility; e.g. dGR/dz, gradient logs)"
+    },
+
+    {
+      "id": "NORMALIZE_ARRAY",
+      "file": "C:\\Program Files\\IP2025\\UserPrograms\\Normalize_array\\ (UsersCode.py + UsersPythonCode.py)",
+      "readable": true,
+      "compiled_boundary": false,
+      "capability": "Min-max normalize a 2D array/image curve to [0,1]",
+      "published_method": "Linear min-max scaling (utility, Tier A)",
+      "formulas_as_read": {"gain": "1/(max-min)", "shift": "-gain*min", "out": "value*gain + shift ; -999 excluded from min/max scan"},
+      "purpose": "Demonstrates array-curve (image) access: Array_InCrv(index,ix,iy), Array_InCrv_MaxX/MaxY, Save_Array_OutCrv(index,ix,iy,val)",
+      "scope": "later (image-log preprocessing)"
+    }
+  ],
+
+  "compiled_module_catalog": {
+    "_note": "C:\\Program Files\\IP2025\\Modules\\ - 65 built-in modules. Each folder = UserProgram.dll (COMPILED, NOT read/decompiled) + readable 'Parameters' manifest + UserProgram.config (menu placement). Method identified from module NAME + manifest curve families only. compiled_boundary=true for all. Listed for roadmap/scope; most are 'later'/'out'.",
+    "v1_relevant": [
+      {"module": "RwFromSP", "method": "Rw from SP deflection (SSP, standard SP-Rw chart / Rmf@FT). Tier B - reimplement from Schlumberger SP charts.", "scope": "v1-core"},
+      {"module": "Sand_Silt_Malay_Model", "method": "Sand-silt-clay 3-mineral model (Malay/Mahakam laminated shaly-sand, Kyi-Bonnye / Sugiharto-Gaafar family). DIRECTLY v1-relevant to SandiBumi SSC. Tier B. Algorithm compiled - reimplement from published SSC papers (SandiBumi already has SSC method).", "scope": "v1-core"},
+      {"module": "ShaleLimits / Shale_Salinity", "method": "shale-point limits / shale salinity helpers for shaly-sand Sw. Tier B.", "scope": "v1-core"},
+      {"module": "Rt_Temperature_Corr", "method": "resistivity temperature correction (Arps). Tier B.", "scope": "v1-core"},
+      {"module": "Rt_Anisotropy_Corr", "method": "Rh/Rv anisotropy correction (thin-bed/LRLC). Tier B.", "scope": "v1-core (LRLC)"},
+      {"module": "LogQC / CurveAutoEdit / AutoTrendSquareCurve", "method": "log QC gates, spike/auto-edit, blocking. Tier A/B utility.", "scope": "v1-core"},
+      {"module": "TOC", "method": "Total Organic Carbon - Passey delta-logR + Schmoker. Tier B (Passey 1990).", "scope": "later"},
+      {"module": "FluidProps / GasAnalysis / Mud_Gas_Normalization", "method": "fluid properties & mud-gas normalization. Tier B.", "scope": "later"}
+    ],
+    "later_geomech_porepressure": [
+      {"module": "DT_NCT_Bowers", "method": "Bowers (1995) sonic pore-pressure. Tier B.", "scope": "later"},
+      {"module": "DT_NCT_EHP / Rt_Archie_NCT / Dxc_*", "method": "Eaton, Archie-resistivity & d-exponent pore-pressure NCT methods. Tier B (Eaton 1975).", "scope": "later"},
+      {"module": "DT_NCT_Miller / DT_NCT_Chapman / DT_NCT_AM_SI", "method": "Miller, Chapman, Alberty velocity-effective-stress. Tier B.", "scope": "later"},
+      {"module": "FG_Generalized / Malaysia_High_Side_PP / Pore_Pressure_Builder / PPFG_Setup", "method": "fracture gradient (Eaton/Matthews-Kelly/Daines) + PP workflow builders. Tier B.", "scope": "later"},
+      {"module": "Traugott_PL_rhob / Traugott_WO_Overburden / 2D_Overburden_Builder / Gardner_Generalized_a2d / Miller_rhob", "method": "overburden/density-velocity (Gardner 1974, Traugott 1997). Tier B.", "scope": "later"},
+      {"module": "RockMechanics / LS-AVG-HS_Calculator / ResVel_Regress", "method": "elastic rock mechanics, Vp-Vs regressions. Tier B (later rock physics).", "scope": "later"},
+      {"module": "Checkshot_Inversion / Hodrick-Prescott_Inversion / IC / Create_Temperature_Profile", "method": "velocity inversion, HP-filter trend, temperature profile. Tier B.", "scope": "later"}
+    ],
+    "out_of_scope": [
+      {"module": "CO2Storage / GasStorageCap / OilStorageCap / GeoFluids_Ko", "method": "CO2/CCS & storage capacity. Tier B.", "scope": "out (CCS/storage)"},
+      {"module": "GasPress / OilPress / Convert_Pressure_Gradient / Pyrolysis / SPT_Setup / SPT_to_Excel / Waveforms / RadialResistivityMap / RHOB_Splicer / AMGN / Alberty_*", "method": "pressure-gradient/formation-testing, pyrolysis, waveform, misc. Tier B/A.", "scope": "out or later"}
+    ]
+  },
+
+  "ml_module_disambiguation": {
+    "MLNET": {
+      "path": "C:\\Program Files\\IP2025\\Modules\\MLNET (UserProgram.dll + config; menu 'Advanced Interpretation', sibling of 'Domain Transfer Analysis')",
+      "basis": "Microsoft ML.NET (open-source, MIT). NOT patented/proprietary.",
+      "tier": "B (open framework) - INCLUDED here only to distinguish the free ML path from the proprietary DTA. SandiBumi may freely use a scikit-learn/LightGBM equivalent.",
+      "user_need": "generic ML curve prediction/classification from logs"
+    }
+  }
+}

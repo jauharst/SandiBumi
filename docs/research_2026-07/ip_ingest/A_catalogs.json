@@ -1,0 +1,6800 @@
+{
+  "curveTypeLabels": {
+    "source": "CurveType.opt (+ UserCurveType.opt user extensions)",
+    "count": 417,
+    "userCount": 0,
+    "note": "Flat display/assignment list of curve-type labels. Superset of the 52 alias-bearing CurveTypes in DefaultAlias.cax.",
+    "labels": [
+      "﻿$ Interactive Petrophysics",
+      "Acc.Amplitude",
+      "Acc.Attenuation",
+      "Acc.Impedence",
+      "AcousticStandOffImage",
+      "AcousticWaveform",
+      "Aluminium",
+      "Am_Conc",
+      "Angle_Omega",
+      "Area",
+      "AziDenPor",
+      "AziDenPorB",
+      "AziDenPorE",
+      "AziDenPorL",
+      "AziDenPorN",
+      "AziDenPorR",
+      "AziDenPorS",
+      "AziDenPorT",
+      "AziDenPorW",
+      "AziDensity",
+      "AziDensityB",
+      "AziDensityL",
+      "AziDensityN",
+      "AziDensityR",
+      "AziDensityS",
+      "AziDensityT",
+      "AziDensityU",
+      "AziDensityW",
+      "AziDrho",
+      "AziDrhoB",
+      "AziDrhoE",
+      "AziDrhoL",
+      "AziDrhoN",
+      "AziDrhoR",
+      "AziDrhoS",
+      "AziDrhoT",
+      "AziDrhoW",
+      "AziGammaRay",
+      "AziGammaRayB",
+      "AziGammaRayE",
+      "AziGammaRayL",
+      "AziGammaRayN",
+      "AziGammaRayR",
+      "AziGammaRayS",
+      "AziGammaRayT",
+      "AziGammaRayW",
+      "Azimuth",
+      "AziPEF",
+      "AziPEFB",
+      "AziPEFE",
+      "AziPEFL",
+      "AziPEFN",
+      "AziPEFR",
+      "AziPEFS",
+      "AziPEFT",
+      "AziPEFU",
+      "AziPEFW",
+      "AziResistivity",
+      "AziResistivityB",
+      "AziResistivityL",
+      "AziResistivityR",
+      "AziResistivityT",
+      "Biot_Sta",
+      "BitSize",
+      "Breakout_Height",
+      "Breakout_Lower_Left",
+      "Breakout_Upper_Left",
+      "Breakout_Width",
+      "BreakOutAngle",
+      "BreakOutAzimuth",
+      "BreakOutOmega",
+      "BulkCompress_Dyn",
+      "BulkCompress_Sta",
+      "BulkMod_Dyn",
+      "Button_Average_Raw",
+      "BVW",
+      "CableSpeed",
+      "Calcium",
+      "Caliper",
+      "CaliperArray",
+      "Capacitance",
+      "Carbon",
+      "CarbonOxygen",
+      "CBHP",
+      "CDP",
+      "Centroid_Angle",
+      "Centroid_Offset",
+      "CGammaRay",
+      "Chlorine",
+      "Co_Conc",
+      "Coh_Fracture",
+      "CollarLoc.",
+      "Colour",
+      "ColourIndex",
+      "ComprSonic",
+      "Conductivity",
+      "ConductivityButton",
+      "ConductivityImage",
+      "Coord.",
+      "CoreGD",
+      "CorePerm",
+      "CorePhi",
+      "Correlogram",
+      "Coverage",
+      "Cs_Conc",
+      "CumFrameTime",
+      "DataDensity",
+      "DeepCond",
+      "DeepRes",
+      "delta13C_(C2-C3)",
+      "delta13C_C1",
+      "delta13C_C2",
+      "delta13C_c3",
+      "DeltaT",
+      "Density",
+      "Density_Porosity",
+      "DensityImage",
+      "DensityPorImage",
+      "Depth",
+      "Depth_of_Investigation",
+      "Depth_Offset",
+      "Deviation",
+      "Dip_Azi_App",
+      "Dip_Azi_Rot",
+      "Dip_Azi_True",
+      "Dip_Height",
+      "Dip_Mag_App",
+      "Dip_Mag_Rot",
+      "Dip_Mag_True",
+      "Dip_Partial_End",
+      "Dip_Partial_Start",
+      "Dip_Quality",
+      "Dip_Symbol",
+      "Dip_Type",
+      "Dip_Type_Index",
+      "Dip_UID",
+      "DipButton",
+      "DipoleXXSonic",
+      "DipoleYYSonic",
+      "DPCP_Fracture",
+      "Drho",
+      "DrhoImage",
+      "DVcl",
+      "EC",
+      "Eccentering",
+      "ECD",
+      "ElapsedTime",
+      "Electric_Current",
+      "Electric_Potential",
+      "EPT",
+      "Excess_Iron",
+      "Expected",
+      "FA_Fracture",
+      "Flag",
+      "FlowRate",
+      "Fluid_Density",
+      "Fluid_Slowness",
+      "Fracture_Height",
+      "Fracture_Lower",
+      "Fracture_Upper",
+      "FrameTime",
+      "FrictionAngle",
+      "FT_Press",
+      "FT_QPress",
+      "FT_QTemp",
+      "FT_Rate",
+      "FT_Temp",
+      "FT_Time",
+      "FT_Volume",
+      "Gadolinium",
+      "Gain",
+      "GammaRay",
+      "GammaRayImage",
+      "GAS",
+      "gasBenzene",
+      "gasBenzene/nC6",
+      "gasC1",
+      "gasC1/(C2+C3)",
+      "gasC1/(C4+C5)",
+      "gasC1/C2",
+      "gasC1/C3",
+      "gasC1/C4",
+      "gasC1/C5",
+      "gasC1/nC4",
+      "gasC2",
+      "gasC2/(C4+C5)",
+      "gasC2/C3",
+      "gasC2/nC4",
+      "gasC2/nC5",
+      "gasC2Sum",
+      "gasC3",
+      "gasC3/(C4+C5)",
+      "gasC6P",
+      "gasC6Sum",
+      "gasCH",
+      "gasiC4",
+      "gasiC4/nC4",
+      "gasiC5",
+      "gasiC5/nC5",
+      "gasMCH",
+      "gasnC4",
+      "gasnC5",
+      "gasnC6",
+      "gasnC7",
+      "gasnC8",
+      "gasToluene",
+      "gasToluene/nC7",
+      "gasTotal",
+      "GasWetnessRatio",
+      "HFG",
+      "Hole Diameter",
+      "Hookload",
+      "HydrocarbonCharFactor",
+      "Hydrogen",
+      "Hydrogen_Index",
+      "ImagePad",
+      "ImagePadRow",
+      "Impedance_Imag_Comp",
+      "Impedance_Magnitude",
+      "Impedance_Magnitude_Raw",
+      "Impedance_Phase",
+      "Impedance_Real_Comp",
+      "InfoArray",
+      "Iron",
+      "K_Conc",
+      "Kerogen_Type",
+      "KGammaRay",
+      "Latitude",
+      "LeakyPSonic",
+      "Level",
+      "Level_of_Maturity",
+      "LightHeavyRatio",
+      "LITH",
+      "Litho_Anhydrite",
+      "Litho_Calcite",
+      "Litho_Carbon",
+      "Litho_Carbonates",
+      "Litho_Clay",
+      "Litho_Coal",
+      "Litho_Dolomite",
+      "Litho_Nahcolite",
+      "Litho_Pyrite",
+      "Litho_QFM",
+      "Litho_Quartz",
+      "Litho_Rhodochrosite",
+      "Litho_Salt",
+      "Litho_Siderite",
+      "LoadFactor",
+      "Longitude",
+      "Mag_Field_Declination",
+      "Mag_Field_Inclination",
+      "Mag_Field_Intensity",
+      "Magnesium",
+      "Manganese",
+      "Matrix",
+      "MaxHorzStress",
+      "MedCond",
+      "MedRes",
+      "MicroRes",
+      "Mineral",
+      "MinHorzStress",
+      "Mod_vanKrevelin",
+      "MudPress",
+      "MudResistivity",
+      "MudWeight",
+      "MW",
+      "NCT_Resistivity",
+      "NCT_Sonic",
+      "NCT_Velocity",
+      "Neutron",
+      "Neutron_Porosity_Dol_pu",
+      "Neutron_Porosity_Dolomite",
+      "Neutron_Porosity_Lime_pu",
+      "Neutron_Porosity_Limeston",
+      "Neutron_Porosity_Sand_pu",
+      "Neutron_Porosity_Sandston",
+      "Nitrogen",
+      "NMRbfi",
+      "NMRcbfi",
+      "NMRffi",
+      "NMRperm",
+      "NMRphi",
+      "NMRphiT",
+      "NMRswi",
+      "Norm_Oil_Content",
+      "OBGrad",
+      "OBPress",
+      "OilCharQualifier",
+      "OnBottom",
+      "OrigResPress",
+      "Ovality",
+      "Oxygen",
+      "Oxygen_Index",
+      "Pad_Pressure",
+      "PEF",
+      "PEFImage",
+      "Perforations",
+      "Perm",
+      "Petroleum_Potential",
+      "Phase",
+      "PhaseResImage",
+      "Phi",
+      "PhiT",
+      "Phosphorus",
+      "Poisson_Dyn",
+      "Poisson_Sta",
+      "PoreCompress_Iso_Dyn",
+      "PoreCompress_Iso_Sta",
+      "PoreCompress_Uniax_Dyn",
+      "PoreCompress_Uniax_Sta",
+      "Potassium",
+      "PPG",
+      "PPGrad",
+      "PPress",
+      "Pressure",
+      "Production_Index",
+      "Pump",
+      "Pyrolysis_S1",
+      "Pyrolysis_S2",
+      "Pyrolysis_S3",
+      "Pyrolyzable_Carbon",
+      "Q_Accelerometer",
+      "Q_Magnetometer",
+      "QuadrSonic",
+      "QuadrXYSonic",
+      "QuadrYXSonic",
+      "Quality",
+      "Radius",
+      "RadiusArray",
+      "RatioKU",
+      "RatioThK",
+      "RatioThU",
+      "RatioUK",
+      "RatioUTh",
+      "Raw_Average_Button",
+      "RB_Offset",
+      "Resistance",
+      "Resistivity",
+      "Resistivity_Normalized",
+      "ResistivityButton",
+      "ResistivityImage",
+      "ROP",
+      "RotarySpeed",
+      "RShearSonic",
+      "SF_EMW",
+      "ShalCond",
+      "ShalePoints_Res",
+      "ShalePoints_Son",
+      "ShalePoints_Vel",
+      "ShalRes",
+      "Shape",
+      "Shear_Dyn",
+      "ShearSonic",
+      "ShearVel",
+      "SHMAXG",
+      "SHMAXP",
+      "SHMING",
+      "SHMINP",
+      "Sigma",
+      "Silicon",
+      "Sodium",
+      "Sonic",
+      "SP",
+      "Spectrum",
+      "StickSlip",
+      "StoneleySonic",
+      "StressAzimuth",
+      "Sulphur",
+      "Sw",
+      "Temp",
+      "Temp_Grad",
+      "Tension",
+      "Th_Conc",
+      "ThGammaRay",
+      "Thickness",
+      "TIC",
+      "Time",
+      "Titanium",
+      "TOC",
+      "Tool_Azimuth",
+      "Tool_Mode",
+      "Tool_Offset",
+      "Tool_Radius",
+      "Tool_RelBearing",
+      "Toolface",
+      "Torque",
+      "Total_Carbon",
+      "TravelTime",
+      "Truncating_Downhole",
+      "Truncation_Uphole",
+      "TWC",
+      "U_Conc",
+      "UCS",
+      "UGammaRay",
+      "UNKNOWN",
+      "Vcl",
+      "Vcoal",
+      "VDL",
+      "VDLAmp.",
+      "Velocity",
+      "VertStress",
+      "Vibration",
+      "Vitrinite_Reflectance",
+      "Volume",
+      "VpVsRatio",
+      "Vsalt",
+      "Vsilt",
+      "Water_Resistivity",
+      "WeightonBit",
+      "Xaccelerometer",
+      "Xmagnetometer",
+      "Yaccelerometer",
+      "Ymagnetometer",
+      "Youngs_Dyn",
+      "Youngs_Sta",
+      "Zaccelerometer",
+      "Zmagnetometer"
+    ],
+    "userLabels": []
+  },
+  "lithology": {
+    "source": "Lithology.opt",
+    "count": 39,
+    "fields": [
+      "code",
+      "mnemonic",
+      "label",
+      "group"
+    ],
+    "groups_present": [
+      "Cement",
+      "Coal",
+      "Conglomerate",
+      "Crystalline",
+      "Dolomite",
+      "Evaporites",
+      "Limestone",
+      "Sandstone",
+      "Shale"
+    ],
+    "entries": [
+      {
+        "code": 1,
+        "mnemonic": "ANHYDRITE2",
+        "label": "Anhydrite",
+        "group": "Evaporites"
+      },
+      {
+        "code": 2,
+        "mnemonic": "BASEMENT",
+        "label": "Basement",
+        "group": "Crystalline"
+      },
+      {
+        "code": 3,
+        "mnemonic": "BENT",
+        "label": "Bentonite",
+        "group": "Shale"
+      },
+      {
+        "code": 4,
+        "mnemonic": "BREC",
+        "label": "Breccia",
+        "group": "Conglomerate"
+      },
+      {
+        "code": 5,
+        "mnemonic": "CHALK",
+        "label": "Chalk",
+        "group": "Cement"
+      },
+      {
+        "code": 6,
+        "mnemonic": "CHLKY_MARL",
+        "label": "Chalky Marl",
+        "group": "Cement"
+      },
+      {
+        "code": 7,
+        "mnemonic": "CHERT",
+        "label": "Chert",
+        "group": "Cement"
+      },
+      {
+        "code": 8,
+        "mnemonic": "CLAY",
+        "label": "Clay",
+        "group": "Shale"
+      },
+      {
+        "code": 9,
+        "mnemonic": "CLAYSTONE",
+        "label": "Claystone",
+        "group": "Shale"
+      },
+      {
+        "code": 10,
+        "mnemonic": "COAL2",
+        "label": "Coal",
+        "group": "Coal"
+      },
+      {
+        "code": 11,
+        "mnemonic": "CONGLOM",
+        "label": "Conglomerate",
+        "group": "Conglomerate"
+      },
+      {
+        "code": 12,
+        "mnemonic": "DOLOMITE",
+        "label": "Dolomite",
+        "group": "Dolomite"
+      },
+      {
+        "code": 13,
+        "mnemonic": "DOL-mdy",
+        "label": "Dolomite - muddy",
+        "group": "Dolomite"
+      },
+      {
+        "code": 14,
+        "mnemonic": "DOL-Sndy",
+        "label": "Dolomite - sandy",
+        "group": "Dolomite"
+      },
+      {
+        "code": 15,
+        "mnemonic": "GYPSUM2",
+        "label": "Gypsum",
+        "group": "Evaporites"
+      },
+      {
+        "code": 16,
+        "mnemonic": "HALITE",
+        "label": "Halite",
+        "group": "Evaporites"
+      },
+      {
+        "code": 17,
+        "mnemonic": "IGNEOUS",
+        "label": "Igneous",
+        "group": "Crystalline"
+      },
+      {
+        "code": 18,
+        "mnemonic": "LST",
+        "label": "Limestone",
+        "group": "Limestone"
+      },
+      {
+        "code": 19,
+        "mnemonic": "LST-Dol",
+        "label": "Limestone - Dolomitic",
+        "group": "Limestone"
+      },
+      {
+        "code": 20,
+        "mnemonic": "LST-Mddy",
+        "label": "Limestone - muddy",
+        "group": "Limestone"
+      },
+      {
+        "code": 21,
+        "mnemonic": "LST-Sndy",
+        "label": "Limestone - sandy",
+        "group": "Limestone"
+      },
+      {
+        "code": 22,
+        "mnemonic": "MARL",
+        "label": "Marl",
+        "group": "Shale"
+      },
+      {
+        "code": 23,
+        "mnemonic": "META",
+        "label": "Metamorphic",
+        "group": "Crystalline"
+      },
+      {
+        "code": 24,
+        "mnemonic": "MDST",
+        "label": "Mudstone",
+        "group": "Shale"
+      },
+      {
+        "code": 25,
+        "mnemonic": "MDST-Calc.",
+        "label": "Mudstone - calc.",
+        "group": "Shale"
+      },
+      {
+        "code": 26,
+        "mnemonic": "MDST-Tuff",
+        "label": "Mudstone - tuff.",
+        "group": "Shale"
+      },
+      {
+        "code": 27,
+        "mnemonic": "SANDSTONE",
+        "label": "Sandstone",
+        "group": "Sandstone"
+      },
+      {
+        "code": 28,
+        "mnemonic": "SST-Arg.",
+        "label": "Sandstone - arg.",
+        "group": "Sandstone"
+      },
+      {
+        "code": 29,
+        "mnemonic": "SST-Ark.",
+        "label": "Sandstone - ark.",
+        "group": "Sandstone"
+      },
+      {
+        "code": 30,
+        "mnemonic": "SST-Calc.",
+        "label": "Sandstone - calc.",
+        "group": "Sandstone"
+      },
+      {
+        "code": 31,
+        "mnemonic": "SST-carb.",
+        "label": "Sandstone - carb.",
+        "group": "Sandstone"
+      },
+      {
+        "code": 32,
+        "mnemonic": "SST-Fine",
+        "label": "Sandstone - fine",
+        "group": "Sandstone"
+      },
+      {
+        "code": 33,
+        "mnemonic": "SST-Tuff.",
+        "label": "Sandstone - tuff.",
+        "group": "Sandstone"
+      },
+      {
+        "code": 34,
+        "mnemonic": "SST-Slty",
+        "label": "Sandstone - silty",
+        "group": "Sandstone"
+      },
+      {
+        "code": 35,
+        "mnemonic": "SST-Volc.",
+        "label": "Sandstone - volc.",
+        "group": "Sandstone"
+      },
+      {
+        "code": 36,
+        "mnemonic": "SLTST",
+        "label": "Siltstone",
+        "group": "Shale"
+      },
+      {
+        "code": 37,
+        "mnemonic": "SHALE",
+        "label": "Shale",
+        "group": "Shale"
+      },
+      {
+        "code": 38,
+        "mnemonic": "TUFF",
+        "label": "Tuff",
+        "group": "Conglomerate"
+      },
+      {
+        "code": 39,
+        "mnemonic": "VOLCANICS",
+        "label": "Volcanics",
+        "group": "Crystalline"
+      }
+    ]
+  },
+  "lithologyImageQuality": {
+    "source": "Lithology_Image Quality.opt",
+    "entries": [
+      {
+        "code": 1,
+        "mnemonic": "IQE",
+        "label": "Excellent",
+        "group": "Image-Quality"
+      },
+      {
+        "code": 2,
+        "mnemonic": "IQG",
+        "label": "Good",
+        "group": "Image-Quality"
+      },
+      {
+        "code": 3,
+        "mnemonic": "IQM",
+        "label": "Moderate",
+        "group": "Image-Quality"
+      },
+      {
+        "code": 4,
+        "mnemonic": "IQP",
+        "label": "Poor",
+        "group": "Image-Quality"
+      }
+    ]
+  },
+  "zoneColors": {
+    "source": "ZoneColors.opt (names) + ZoneColorsModern.opt (packed int colors)",
+    "count": 25,
+    "note": "Zone/interval default color cycle. Modern packed color = BGR/ARGB 32-bit int.",
+    "entries": [
+      {
+        "index": 0,
+        "name": "Blue",
+        "modernPackedColor": 10501180
+      },
+      {
+        "index": 1,
+        "name": "Aqua",
+        "modernPackedColor": 13417801
+      },
+      {
+        "index": 2,
+        "name": "Fuchsia",
+        "modernPackedColor": 12549593
+      },
+      {
+        "index": 3,
+        "name": "Green",
+        "modernPackedColor": 3644739
+      },
+      {
+        "index": 4,
+        "name": "Maroon",
+        "modernPackedColor": 3160269
+      },
+      {
+        "index": 5,
+        "name": "Lime",
+        "modernPackedColor": 7401215
+      },
+      {
+        "index": 6,
+        "name": "Navy",
+        "modernPackedColor": 12150931
+      },
+      {
+        "index": 7,
+        "name": "Olive",
+        "modernPackedColor": 2918132
+      },
+      {
+        "index": 8,
+        "name": "Purple",
+        "modernPackedColor": 11695415
+      },
+      {
+        "index": 9,
+        "name": "Red",
+        "modernPackedColor": 3784380
+      },
+      {
+        "index": 10,
+        "name": "Teal",
+        "modernPackedColor": 9673028
+      },
+      {
+        "index": 11,
+        "name": "Yellow",
+        "modernPackedColor": 5134214
+      },
+      {
+        "index": 12,
+        "name": "DarkGray",
+        "modernPackedColor": 11184810
+      },
+      {
+        "index": 13,
+        "name": "MediumAquamarine",
+        "modernPackedColor": 14327197
+      },
+      {
+        "index": 14,
+        "name": "LightSkyBlue",
+        "modernPackedColor": 15063717
+      },
+      {
+        "index": 15,
+        "name": "Orange",
+        "modernPackedColor": 13744112
+      },
+      {
+        "index": 16,
+        "name": "DeepPink",
+        "modernPackedColor": 9493663
+      },
+      {
+        "index": 17,
+        "name": "MediumOrchid",
+        "modernPackedColor": 10066933
+      },
+      {
+        "index": 18,
+        "name": "CornflowerBlue",
+        "modernPackedColor": 13433343
+      },
+      {
+        "index": 19,
+        "name": "Chocolate",
+        "modernPackedColor": 14004931
+      },
+      {
+        "index": 20,
+        "name": "RoyalBlue",
+        "modernPackedColor": 8240375
+      },
+      {
+        "index": 21,
+        "name": "Sienna",
+        "modernPackedColor": 15058609
+      },
+      {
+        "index": 22,
+        "name": "Goldenrod",
+        "modernPackedColor": 9559259
+      },
+      {
+        "index": 23,
+        "name": "GreenYellow",
+        "modernPackedColor": 12041602
+      },
+      {
+        "index": 24,
+        "name": "MediumSeaGreen",
+        "modernPackedColor": 9870527
+      }
+    ]
+  },
+  "shadingBitmaps": {
+    "source": "ShadeType.opt",
+    "count": 195,
+    "note": "IP fill/shade palette incl. lithology bitmap fills (Coal, Gypsum, Anhydrite, ...).",
+    "entries": [
+      {
+        "name": "Blank",
+        "color": "White",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Red",
+        "color": "Red",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Green",
+        "color": "Green",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Blue",
+        "color": "Blue",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Yellow",
+        "color": "Yellow",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "LtGray",
+        "color": "LtGray",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Black",
+        "color": "Black",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Fuchsia",
+        "color": "Fuchsia",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Lime",
+        "color": "Lime",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Maroon",
+        "color": "Maroon",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Navy",
+        "color": "Navy",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Olive",
+        "color": "Olive",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Purple",
+        "color": "Purple",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Teal",
+        "color": "Teal",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Aqua",
+        "color": "Aqua",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "DrkGray",
+        "color": "DkGray",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Brown",
+        "color": "16512",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Orange",
+        "color": "33023",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Dark Khaki",
+        "color": "DarkKhaki",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Tan",
+        "color": "Tan",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Gold",
+        "color": "Gold",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Chocolate",
+        "color": "Chocolate",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Med Brown",
+        "color": "SaddleBrown",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Lt Green",
+        "color": "SpringGreen",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Med Green",
+        "color": "MediumSeaGreen",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Light Cyan",
+        "color": "LightCyan",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Light Blue",
+        "color": "LightSkyBlue",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Med Blue",
+        "color": "DodgerBlue",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Dark Blue",
+        "color": "DarkBlue",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Med Purple",
+        "color": "MediumPurple",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Violet",
+        "color": "Violet",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Med Orchid",
+        "color": "MediumOrchid",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Dk Violet",
+        "color": "DarkViolet",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "Coal",
+        "color": "Black",
+        "fill": "Solid",
+        "bitmap": "Shading Bitmaps\\CoalBMP.bmp"
+      },
+      {
+        "name": "Gypsum",
+        "color": "Black",
+        "fill": "Solid",
+        "bitmap": "Shading Bitmaps\\GypsumBMP.bmp"
+      },
+      {
+        "name": "Anhydrite",
+        "color": "Black",
+        "fill": "Solid",
+        "bitmap": "Shading Bitmaps\\AnhydriteBMP.bmp"
+      },
+      {
+        "name": "ANHYDRITE2",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Anhydrite.bmp"
+      },
+      {
+        "name": "ANHYDRITE3",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Anhydrite3.bmp"
+      },
+      {
+        "name": "BASEMENT",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Basement.bmp"
+      },
+      {
+        "name": "BENT",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\BENT.bmp"
+      },
+      {
+        "name": "BREC",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\BREC.bmp"
+      },
+      {
+        "name": "CHALK",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Chalk.bmp"
+      },
+      {
+        "name": "CHLKY_MARL",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Chalky_Marl.bmp"
+      },
+      {
+        "name": "CHERT",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\CHERT.bmp"
+      },
+      {
+        "name": "CLAY",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Clay.bmp"
+      },
+      {
+        "name": "CLAYSTONE",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Claystone.bmp"
+      },
+      {
+        "name": "COAL2",
+        "color": "Black",
+        "fill": "Solid",
+        "bitmap": "None"
+      },
+      {
+        "name": "CONGLOM",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Conglomerate.bmp"
+      },
+      {
+        "name": "CONGLOM2",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Conglomerate2.bmp"
+      },
+      {
+        "name": "DOLOMITE",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Dolomite.bmp"
+      },
+      {
+        "name": "DOLOMITE2",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Dolomite2.bmp"
+      },
+      {
+        "name": "DOL-mdy",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Dol_muddy.bmp"
+      },
+      {
+        "name": "DOL-Sndy",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Dol_sandy.bmp"
+      },
+      {
+        "name": "GYPSUM2",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Gypsum.bmp"
+      },
+      {
+        "name": "GYPSUM3",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Gypsum2.bmp"
+      },
+      {
+        "name": "HALITE",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Halite.bmp"
+      },
+      {
+        "name": "LIMESTONE",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Lst.bmp"
+      },
+      {
+        "name": "IGNEOUS",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Igneous.bmp"
+      },
+      {
+        "name": "IGNEOUS2",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Igneous2.bmp"
+      },
+      {
+        "name": "LST",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Lst.bmp"
+      },
+      {
+        "name": "LST2",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Limestone2.bmp"
+      },
+      {
+        "name": "LST-Dol",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Dolomitic-Limestone.bmp"
+      },
+      {
+        "name": "LST-Mddy",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Lst_muddy.bmp"
+      },
+      {
+        "name": "LST-Sndy",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Lst_sandy.bmp"
+      },
+      {
+        "name": "MARL",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\MARL.bmp"
+      },
+      {
+        "name": "META",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\META.bmp"
+      },
+      {
+        "name": "MDST",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Clay.bmp"
+      },
+      {
+        "name": "MDST-Calc.",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Mdst_calc.bmp"
+      },
+      {
+        "name": "MDST-Calc2",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Calc_Mdst.bmp"
+      },
+      {
+        "name": "MDST-Tuff",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Mdst_tuffaceous.bmp"
+      },
+      {
+        "name": "SALT",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Salt.bmp"
+      },
+      {
+        "name": "SALT-HAL2",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\SALT-Halite.bmp"
+      },
+      {
+        "name": "SALT-KMg",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\SALT-KMg.bmp"
+      },
+      {
+        "name": "SILT",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Silt.bmp"
+      },
+      {
+        "name": "SILTSTONE",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Siltstone.bmp"
+      },
+      {
+        "name": "SILTSTONE2",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Siltstone2.bmp"
+      },
+      {
+        "name": "SHALE",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Shale.bmp"
+      },
+      {
+        "name": "SHALE2",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Shale2.bmp"
+      },
+      {
+        "name": "SHCOL",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\SHCOL.bmp"
+      },
+      {
+        "name": "SHGY",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\SHGY.bmp"
+      },
+      {
+        "name": "SLTST",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Siltstone.bmp"
+      },
+      {
+        "name": "SNDY_SLTST",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\SDY-SLTST.bmp"
+      },
+      {
+        "name": "SANDSTONE",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Sst.bmp"
+      },
+      {
+        "name": "SANDSTONE2",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Sst2.bmp"
+      },
+      {
+        "name": "SST-Arg.",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Sst_argill.bmp"
+      },
+      {
+        "name": "SST-Ark.",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Sst_feldspathic.bmp"
+      },
+      {
+        "name": "SST-Calc.",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Sst_calc.bmp"
+      },
+      {
+        "name": "SST-Carb.",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Sst_carb.bmp"
+      },
+      {
+        "name": "SST-Fine",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Sst_fine.bmp"
+      },
+      {
+        "name": "SST-Slty",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Sst_silty.bmp"
+      },
+      {
+        "name": "SST-Tuff.",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Sst_tuffaceous.bmp"
+      },
+      {
+        "name": "SST-Volc.",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Sst_volcanic.bmp"
+      },
+      {
+        "name": "TUFF",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Tuff.bmp"
+      },
+      {
+        "name": "TUFF2",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Tuff2.bmp"
+      },
+      {
+        "name": "VOLCANICS",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Volcanics.bmp"
+      },
+      {
+        "name": "Bentonite",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\clastic_final\\Clay - Bentonite.bmp"
+      },
+      {
+        "name": "Glauconite",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\clastic_final\\Clay - Glauconite.bmp"
+      },
+      {
+        "name": "Limonite",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\clastic_final\\Clay - Limonite.bmp"
+      },
+      {
+        "name": "Siderite",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\clastic_final\\Clay - Siderite.bmp"
+      },
+      {
+        "name": "Underclay",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\clastic_final\\Clay - Underclay.bmp"
+      },
+      {
+        "name": "ClayNew1",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\clastic_final\\Clay 1.bmp"
+      },
+      {
+        "name": "ClayNew2",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\clastic_final\\Clay 2.bmp"
+      },
+      {
+        "name": "Cnglmerate",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\clastic_final\\Conglomerate.bmp"
+      },
+      {
+        "name": "Cngl-Xbed",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\clastic_final\\Conglomerate - Crossbedded.bmp"
+      },
+      {
+        "name": "SandstoneM",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\clastic_final\\Sandstone - Massive.bmp"
+      },
+      {
+        "name": "Ss-Bedded",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\clastic_final\\Sandstone - Bedded.bmp"
+      },
+      {
+        "name": "Ss-Breccia",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\clastic_final\\Breccia.bmp"
+      },
+      {
+        "name": "Ss-Calcar",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\clastic_final\\Sandstone - Calcareous.bmp"
+      },
+      {
+        "name": "Ss-Xbedded",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\clastic_final\\Sandstone - Crossbedded.bmp"
+      },
+      {
+        "name": "Ss-Dolomit",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\clastic_final\\Sandstone - Dolomitic.bmp"
+      },
+      {
+        "name": "Ss-Ripple",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\clastic_final\\Sandstone - Ripple Laminations.bmp"
+      },
+      {
+        "name": "Ss-Shaly",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\clastic_final\\Sandstone - Shaly.bmp"
+      },
+      {
+        "name": "ShaleNew",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\clastic_final\\Shale.bmp"
+      },
+      {
+        "name": "Sh-Calcar",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\clastic_final\\Shale - Calcareous.bmp"
+      },
+      {
+        "name": "Sh-Carbona",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\clastic_final\\Shale - Carbonaceous.bmp"
+      },
+      {
+        "name": "Sh-Cherty",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\clastic_final\\Shale - Cherty.bmp"
+      },
+      {
+        "name": "Sh-Dolomit",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\clastic_final\\Shale - Dolomitic.bmp"
+      },
+      {
+        "name": "Sh-Silty",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\clastic_final\\Shale - Silty.bmp"
+      },
+      {
+        "name": "Shale Oil",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\clastic_final\\Shale - Oil.bmp"
+      },
+      {
+        "name": "SiltNew",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\clastic_final\\Silt.bmp"
+      },
+      {
+        "name": "Silt-Calc",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\clastic_final\\Siltstone - Calcareous.bmp"
+      },
+      {
+        "name": "Silt-Dolom",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\clastic_final\\Siltstone - Dolomitic.bmp"
+      },
+      {
+        "name": "ChalkNew",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\carbonate_final\\Chalk.bmp"
+      },
+      {
+        "name": "Diatoms",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\carbonate_final\\Diatomaceous rock.bmp"
+      },
+      {
+        "name": "Fossils",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\carbonate_final\\Fossilliferous rock.bmp"
+      },
+      {
+        "name": "DolomiteN",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\carbonate_final\\Dolomite.bmp"
+      },
+      {
+        "name": "Dol-Argil",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\carbonate_final\\Dolomite - Argillaceous.bmp"
+      },
+      {
+        "name": "Dol-Cherty",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\carbonate_final\\Dolomite - Cherty.bmp"
+      },
+      {
+        "name": "Dol-Oolite",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\carbonate_final\\Dolomite - Oolitic.bmp"
+      },
+      {
+        "name": "Dol-Sandy",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\carbonate_final\\Dolomite - Sandy.bmp"
+      },
+      {
+        "name": "Dol-Silty",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\carbonate_final\\Dolomite - Silty.bmp"
+      },
+      {
+        "name": "LimestoneN",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\carbonate_final\\Limestone.bmp"
+      },
+      {
+        "name": "Ls-Argil",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\carbonate_final\\Limestone - Argillaceous.bmp"
+      },
+      {
+        "name": "Ls-Cherty",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\carbonate_final\\Limestone - Cherty.bmp"
+      },
+      {
+        "name": "Ls-Clastic",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\carbonate_final\\Limestone - Clastic.bmp"
+      },
+      {
+        "name": "Ls-Xbedded",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\carbonate_final\\Limestone - Crossbedded.bmp"
+      },
+      {
+        "name": "Ls-ChrtSnd",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\carbonate_final\\Limestone - Crossbedded, Cherty Sandy.bmp"
+      },
+      {
+        "name": "Ls-Dolomit",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\carbonate_final\\Limestone - Dolomitic.bmp"
+      },
+      {
+        "name": "Ls-Fossil",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\carbonate_final\\Limestone - Fossilliferous.bmp"
+      },
+      {
+        "name": "Ls-Nodular",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\carbonate_final\\Limestone - Nodular Bedded.bmp"
+      },
+      {
+        "name": "Ls-Oolitic",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\carbonate_final\\Limestone - Oolitic.bmp"
+      },
+      {
+        "name": "Ls-Sandy",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\carbonate_final\\Limestone - Sandy.bmp"
+      },
+      {
+        "name": "Ls-Silty",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\carbonate_final\\Limestone - Silty.bmp"
+      },
+      {
+        "name": "Grywk-Xbed",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\carbonate_final\\Subgreywacke - Crossbedded.bmp"
+      },
+      {
+        "name": "Grywk-Rple",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\carbonate_final\\Subgreywacke - Ripple Bedded.bmp"
+      },
+      {
+        "name": "Greywacke",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\carbonate_final\\Subgreywacke.bmp"
+      },
+      {
+        "name": "AnhydrteN1",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\others_final\\Anhydrite 1.bmp"
+      },
+      {
+        "name": "AnhydrteN2",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\others_final\\Anhydrite 2.bmp"
+      },
+      {
+        "name": "ChertNew",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\others_final\\Chert - Bedded.bmp"
+      },
+      {
+        "name": "Chert-Foss",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\others_final\\Chert - Fossiliferous.bmp"
+      },
+      {
+        "name": "Flint",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\others_final\\Flint.bmp"
+      },
+      {
+        "name": "Gypsum 1",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\others_final\\Gypsum.bmp"
+      },
+      {
+        "name": "Gypsum 2",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\others_final\\Gypsum2.bmp"
+      },
+      {
+        "name": "HaliteNew",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\others_final\\Halite.bmp"
+      },
+      {
+        "name": "Coal-Impre",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\others_final\\Impure Coal.bmp"
+      },
+      {
+        "name": "LimeShale",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\others_final\\Interbedded - Limestone, Shale.bmp"
+      },
+      {
+        "name": "SandShale",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\others_final\\Interbedded - Sand, Shale.bmp"
+      },
+      {
+        "name": "SsShRipple",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\others_final\\Interbedded - Sand, Shale Rippled.bmp"
+      },
+      {
+        "name": "SandSilt",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\others_final\\Interbedded - Sand, Silt.bmp"
+      },
+      {
+        "name": "Loess",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\others_final\\Loess.bmp"
+      },
+      {
+        "name": "Peat",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\others_final\\Peat.bmp"
+      },
+      {
+        "name": "PhspteNodu",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\others_final\\Phosphatic-Nodular rock.bmp"
+      },
+      {
+        "name": "SaltNew",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\others_final\\Salt.bmp"
+      },
+      {
+        "name": "Till",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\others_final\\Till.bmp"
+      },
+      {
+        "name": "BasaltFlow",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\igneous_final\\Basalt Flows.bmp"
+      },
+      {
+        "name": "TuffCrystl",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\igneous_final\\Crystal Tuff.bmp"
+      },
+      {
+        "name": "TuffDevtrf",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\igneous_final\\Devitrified Tuff.bmp"
+      },
+      {
+        "name": "Tuffaceous",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\igneous_final\\Tuffaceous Rock.bmp"
+      },
+      {
+        "name": "Granite",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\igneous_final\\Granite.bmp"
+      },
+      {
+        "name": "Granite-Mm",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\igneous_final\\Schistose or Gneissoid Granite.bmp"
+      },
+      {
+        "name": "Quartz",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\igneous_final\\Quartz.bmp"
+      },
+      {
+        "name": "Igenous 1",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\igneous_final\\Igneous 1.bmp"
+      },
+      {
+        "name": "Igneous 2",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\igneous_final\\Igneous 2.bmp"
+      },
+      {
+        "name": "Igneous 3",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\igneous_final\\Igneous 3.bmp"
+      },
+      {
+        "name": "Igneous 4",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\igneous_final\\Igneous 5.bmp"
+      },
+      {
+        "name": "Igneous 5",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\igneous_final\\Igneous 4.bmp"
+      },
+      {
+        "name": "IgBreccia1",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\igneous_final\\Volcanic Breccia 1.bmp"
+      },
+      {
+        "name": "IgBreccia2",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\igneous_final\\Volcanic Breccia 2.bmp"
+      },
+      {
+        "name": "Porphyry 1",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\igneous_final\\Porphyritic Rock 1.bmp"
+      },
+      {
+        "name": "Porphyry 2",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\igneous_final\\Porphyritic Rock 2.bmp"
+      },
+      {
+        "name": "Vitrophyre",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\igneous_final\\Vitrophyre.bmp"
+      },
+      {
+        "name": "Zeolitic",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\igneous_final\\Zeolitic Rock.bmp"
+      },
+      {
+        "name": "Metamorphm",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\meta_final\\Metamorphism.bmp"
+      },
+      {
+        "name": "Gneiss",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\meta_final\\Gneiss.bmp"
+      },
+      {
+        "name": "Gn-Contort",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\meta_final\\Gneiss Contorted.bmp"
+      },
+      {
+        "name": "Schist",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\meta_final\\Schist.bmp"
+      },
+      {
+        "name": "Sch-Gneiss",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\meta_final\\Schist + Gneiss.bmp"
+      },
+      {
+        "name": "Sch-Contrt",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\meta_final\\Schist Contorted.bmp"
+      },
+      {
+        "name": "Quartzite",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\meta_final\\Quartzite.bmp"
+      },
+      {
+        "name": "Slate",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\meta_final\\Slate.bmp"
+      },
+      {
+        "name": "Serpn-Talc",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\meta_final\\Serpentinite or Talc.bmp"
+      },
+      {
+        "name": "IQE",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Image_Quality_Excellent.bmp"
+      },
+      {
+        "name": "IQG",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Image_Quality_Good.bmp"
+      },
+      {
+        "name": "IQM",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Image_Quality_Moderate.bmp"
+      },
+      {
+        "name": "IQP",
+        "color": "Black",
+        "fill": "Clear",
+        "bitmap": "Shading Bitmaps\\Image_Quality_Poor.bmp"
+      }
+    ]
+  },
+  "unitsConversion": {
+    "source": "UnitsConversion.par",
+    "note": "Recognised unit abbreviations -> multiplicative factor to a canonical unit per tool category.",
+    "categories": {
+      "SONIC": {
+        "target": "uSec/ft",
+        "units": {
+          "uSec/ft": 1.0,
+          "USFT": 1.0,
+          "US/F": 1.0,
+          "US/FT": 1.0,
+          "MS/FT": 1.0,
+          "MSFT": 1.0,
+          "uSec/m": 0.3048,
+          "USM": 0.3048,
+          "US/M": 0.3048,
+          "MS/M": 0.3048,
+          "MSM": 0.3048
+        }
+      },
+      "DENSITY": {
+        "target": "gm/cc",
+        "units": {
+          "gm/cc": 1.0,
+          "gmcc": 1.0,
+          "gcc": 1.0,
+          "g/cc": 1.0,
+          "gm/c3": 1.0,
+          "g/c3": 1.0,
+          "g/cm3": 1.0,
+          "Kg/m3": 0.001,
+          "Kgm3": 0.001,
+          "K/M3": 0.001
+        }
+      },
+      "CALIPER": {
+        "target": "inches",
+        "units": {
+          "in": 1.0,
+          "inch": 1.0,
+          "mm": 0.03937008,
+          "cm": 0.3937008,
+          "m": 39.37008,
+          "ft": 12.0,
+          "feet": 12.0
+        }
+      },
+      "POROSITY": {
+        "target": "v/v (fraction)",
+        "units": {
+          "%": 0.01,
+          "pec": 0.01,
+          "perc": 0.01,
+          "percent": 0.01,
+          "pu": 0.01,
+          "v/v": 1.0,
+          "vol/vol": 1.0,
+          "vol./vol.": 1.0,
+          "m3/m3": 1.0,
+          "cm3/cm3": 1.0,
+          "dec": 1.0,
+          "decimal": 1.0
+        }
+      }
+    }
+  },
+  "unitCategoryByCurveType": {
+    "source": "UnitConfig.xml",
+    "entries": [
+      {
+        "curveType": "FT_Press",
+        "unitCategory": "Pressure"
+      },
+      {
+        "curveType": "FT_Time",
+        "unitCategory": "Time"
+      },
+      {
+        "curveType": "FT_Temp",
+        "unitCategory": "Temperature"
+      },
+      {
+        "curveType": "FT_Volume",
+        "unitCategory": "Volume"
+      },
+      {
+        "curveType": "FT_Vol",
+        "unitCategory": "Volume"
+      },
+      {
+        "curveType": "FT_Rate",
+        "unitCategory": "Flowrate"
+      },
+      {
+        "curveType": "Depth",
+        "unitCategory": "Length"
+      },
+      {
+        "curveType": "Angle",
+        "unitCategory": "Angle"
+      }
+    ]
+  },
+  "ipToPetrelUnitMap": {
+    "source": "IP Unit Mappings.xml",
+    "count": 33,
+    "entries": [
+      {
+        "ipUnit": "gm/cc",
+        "petrelUnit": "g/cm3"
+      },
+      {
+        "ipUnit": "gmcc",
+        "petrelUnit": "g/cm3"
+      },
+      {
+        "ipUnit": "g/cc",
+        "petrelUnit": "g/cm3"
+      },
+      {
+        "ipUnit": "gcc",
+        "petrelUnit": "g/cm3"
+      },
+      {
+        "ipUnit": "gm/c3",
+        "petrelUnit": "g/cm3"
+      },
+      {
+        "ipUnit": "g/c3",
+        "petrelUnit": "g/cm3"
+      },
+      {
+        "ipUnit": "kgm3",
+        "petrelUnit": "kg/m3"
+      },
+      {
+        "ipUnit": "k/m3",
+        "petrelUnit": "kg/m3"
+      },
+      {
+        "ipUnit": "usec/ft",
+        "petrelUnit": "us/ft"
+      },
+      {
+        "ipUnit": "usft",
+        "petrelUnit": "us/ft"
+      },
+      {
+        "ipUnit": "us/f",
+        "petrelUnit": "us/ft"
+      },
+      {
+        "ipUnit": "usec/m",
+        "petrelUnit": "us/m"
+      },
+      {
+        "ipUnit": "usm",
+        "petrelUnit": "us/m"
+      },
+      {
+        "ipUnit": "us/m",
+        "petrelUnit": "us/m"
+      },
+      {
+        "ipUnit": "feet",
+        "petrelUnit": "ft"
+      },
+      {
+        "ipUnit": "inch",
+        "petrelUnit": "in"
+      },
+      {
+        "ipUnit": "inches",
+        "petrelUnit": "in"
+      },
+      {
+        "ipUnit": "md",
+        "petrelUnit": "m"
+      },
+      {
+        "ipUnit": "ohmm",
+        "petrelUnit": "ohm.m"
+      },
+      {
+        "ipUnit": "f/mn",
+        "petrelUnit": "ft/min"
+      },
+      {
+        "ipUnit": "api",
+        "petrelUnit": "gAPI"
+      },
+      {
+        "ipUnit": "gapi",
+        "petrelUnit": "gAPI"
+      },
+      {
+        "ipUnit": "usec/ft",
+        "petrelUnit": "us/ft"
+      },
+      {
+        "ipUnit": "ft/sec",
+        "petrelUnit": "ft/s"
+      },
+      {
+        "ipUnit": "db/m",
+        "petrelUnit": "db/m"
+      },
+      {
+        "ipUnit": "m/sec",
+        "petrelUnit": "m/sec"
+      },
+      {
+        "ipUnit": "dec",
+        "petrelUnit": "dec"
+      },
+      {
+        "ipUnit": "deg",
+        "petrelUnit": "deg"
+      },
+      {
+        "ipUnit": "counts",
+        "petrelUnit": "counts"
+      },
+      {
+        "ipUnit": "ns/m",
+        "petrelUnit": "ns/m",
+        "nearest": "s/m"
+      },
+      {
+        "ipUnit": "b/e",
+        "petrelUnit": "b/e"
+      },
+      {
+        "ipUnit": "ppm",
+        "petrelUnit": "ppm"
+      },
+      {
+        "ipUnit": "lbf",
+        "petrelUnit": "lbf"
+      }
+    ]
+  },
+  "openSpiritUnitVocabulary": {
+    "source": "OpenSpiritUnits.opt",
+    "count": 1132,
+    "note": "Large OpenSpirit unit acronym<->long-name vocabulary used for external data exchange.",
+    "entries": [
+      {
+        "acronym": "gAPI",
+        "name": "Gamma Ray"
+      },
+      {
+        "acronym": "%",
+        "name": "percent"
+      },
+      {
+        "acronym": "(N/m)4/kg.m3",
+        "name": "newton/metre fourth/kilogram metre cubed"
+      },
+      {
+        "acronym": "(dyne/cm)4/g.cm3",
+        "name": "dynes/centimetre fourth/gram cm cubed"
+      },
+      {
+        "acronym": "1/H",
+        "name": "inverse henry"
+      },
+      {
+        "acronym": "1/K",
+        "name": "per Kelvin"
+      },
+      {
+        "acronym": "1/Pa",
+        "name": "per Pascal"
+      },
+      {
+        "acronym": "1/V",
+        "name": "per volt"
+      },
+      {
+        "acronym": "1/a",
+        "name": "per annum"
+      },
+      {
+        "acronym": "1/angstrom",
+        "name": "per Angstrom"
+      },
+      {
+        "acronym": "1/cm",
+        "name": "per centimetre"
+      },
+      {
+        "acronym": "1/d",
+        "name": "per day"
+      },
+      {
+        "acronym": "1/degC",
+        "name": "per degree Celsius"
+      },
+      {
+        "acronym": "1/degF",
+        "name": "per degree Fahrenheit"
+      },
+      {
+        "acronym": "1/degR",
+        "name": "per degree Rankine"
+      },
+      {
+        "acronym": "1/ft",
+        "name": "per foot"
+      },
+      {
+        "acronym": "1/g",
+        "name": "per gram"
+      },
+      {
+        "acronym": "1/h",
+        "name": "per hour"
+      },
+      {
+        "acronym": "1/in",
+        "name": "per inch"
+      },
+      {
+        "acronym": "1/kPa",
+        "name": "per kilopascal"
+      },
+      {
+        "acronym": "1/kg",
+        "name": "per kilogram"
+      },
+      {
+        "acronym": "1/m",
+        "name": "per metre"
+      },
+      {
+        "acronym": "1/m2",
+        "name": "per square metre"
+      },
+      {
+        "acronym": "1/mi",
+        "name": "per mile"
+      },
+      {
+        "acronym": "1/min",
+        "name": "per minute"
+      },
+      {
+        "acronym": "1/mm",
+        "name": "per millimetre"
+      },
+      {
+        "acronym": "1/nm",
+        "name": "per nanometre"
+      },
+      {
+        "acronym": "1/psi",
+        "name": "per pounds/square inch"
+      },
+      {
+        "acronym": "1/s",
+        "name": "per second"
+      },
+      {
+        "acronym": "1/uV",
+        "name": "per microvolt"
+      },
+      {
+        "acronym": "1/wk",
+        "name": "per week"
+      },
+      {
+        "acronym": "1/yd",
+        "name": "per yard"
+      },
+      {
+        "acronym": "A",
+        "name": "Ampere"
+      },
+      {
+        "acronym": "A.m2",
+        "name": "amperes metres squared"
+      },
+      {
+        "acronym": "A/m",
+        "name": "amperes/metre"
+      },
+      {
+        "acronym": "A/m2",
+        "name": "amperes/square metre"
+      },
+      {
+        "acronym": "A/mm",
+        "name": "Ampere/millimetre"
+      },
+      {
+        "acronym": "A/mm2",
+        "name": "Ampere/square millimetre"
+      },
+      {
+        "acronym": "B",
+        "name": "bels"
+      },
+      {
+        "acronym": "B/O",
+        "name": "bels/octave"
+      },
+      {
+        "acronym": "B/m",
+        "name": "bels/metre"
+      },
+      {
+        "acronym": "Bd",
+        "name": "baud"
+      },
+      {
+        "acronym": "Bq",
+        "name": "becquerel"
+      },
+      {
+        "acronym": "Btu",
+        "name": "British thermal unit"
+      },
+      {
+        "acronym": "Btu(million)",
+        "name": "million Btus"
+      },
+      {
+        "acronym": "Btu(million)/hr",
+        "name": "million Btus/hour"
+      },
+      {
+        "acronym": "Btu.in/hr.ft2.degF",
+        "name": "Btus/hour foot squared deg F per inch"
+      },
+      {
+        "acronym": "Btu/bbl",
+        "name": "British thermal units/barrel"
+      },
+      {
+        "acronym": "Btu/bhp.hr",
+        "name": "Btus/brake-horsepower hour"
+      },
+      {
+        "acronym": "Btu/ft3",
+        "name": "British thermal units/cubic foot"
+      },
+      {
+        "acronym": "Btu/galUK",
+        "name": "British thermal units/U.K. gallon"
+      },
+      {
+        "acronym": "Btu/galUS",
+        "name": "British thermal units/U.S. gallon"
+      },
+      {
+        "acronym": "Btu/hr",
+        "name": "British thermal unit/hour"
+      },
+      {
+        "acronym": "Btu/hr.ft.degF",
+        "name": "British thermal units/hour foot deg F"
+      },
+      {
+        "acronym": "Btu/hr.ft2",
+        "name": "Btus/hour per square foot"
+      },
+      {
+        "acronym": "Btu/hr.ft2.degF",
+        "name": "Btus/hour foot squared deg F"
+      },
+      {
+        "acronym": "Btu/hr.ft2.degR",
+        "name": "Btus/hour foot squared deg R"
+      },
+      {
+        "acronym": "Btu/hr.ft3",
+        "name": "British thermal units/hour cubic foot"
+      },
+      {
+        "acronym": "Btu/hr.ft3.degF",
+        "name": "Btus/hour foot cubed deg F"
+      },
+      {
+        "acronym": "Btu/hr.m2.degC",
+        "name": "Btus/hour metre squared deg C"
+      },
+      {
+        "acronym": "Btu/lbm",
+        "name": "British thermal units/pound mass"
+      },
+      {
+        "acronym": "Btu/lbm.degF",
+        "name": "British thermal units/pound mass deg F"
+      },
+      {
+        "acronym": "Btu/lbm.degR",
+        "name": "British thermal units/pound mass deg R"
+      },
+      {
+        "acronym": "Btu/min",
+        "name": "British thermal units/minute"
+      },
+      {
+        "acronym": "Btu/mol(lbm)",
+        "name": "British thermal units/pound mass mol"
+      },
+      {
+        "acronym": "Btu/mol(lbm).degF",
+        "name": "Btus/pound mass mol deg F"
+      },
+      {
+        "acronym": "Btu/s",
+        "name": "British thermal units/second"
+      },
+      {
+        "acronym": "Btu/s.ft2",
+        "name": "British thermal units/second square foot"
+      },
+      {
+        "acronym": "Btu/s.ft2.degF",
+        "name": "Btus/second per square foot deg F"
+      },
+      {
+        "acronym": "Btu/s.ft3",
+        "name": "Btus/second per cubic foot"
+      },
+      {
+        "acronym": "Btu/s.ft3.degF",
+        "name": "Btus/second per cubic foot deg F"
+      },
+      {
+        "acronym": "C",
+        "name": "coulomb"
+      },
+      {
+        "acronym": "C.m",
+        "name": "coulomb metres"
+      },
+      {
+        "acronym": "C/cm2",
+        "name": "Coulombs/square centimetre"
+      },
+      {
+        "acronym": "C/m2",
+        "name": "coulombs/square metre"
+      },
+      {
+        "acronym": "C/m3",
+        "name": "coulombs/cubic metre"
+      },
+      {
+        "acronym": "C/mm2",
+        "name": "Coulombs/square millimetre"
+      },
+      {
+        "acronym": "C/mm3",
+        "name": "Coulombs/cubic millimetre"
+      },
+      {
+        "acronym": "CV",
+        "name": "null"
+      },
+      {
+        "acronym": "Chu",
+        "name": "chus"
+      },
+      {
+        "acronym": "D",
+        "name": "darcy"
+      },
+      {
+        "acronym": "EA",
+        "name": "exaamp"
+      },
+      {
+        "acronym": "EC",
+        "name": "exacoulomb"
+      },
+      {
+        "acronym": "EEuc",
+        "name": "exaEuclid"
+      },
+      {
+        "acronym": "EF",
+        "name": "exafarad"
+      },
+      {
+        "acronym": "EGy",
+        "name": "exagray"
+      },
+      {
+        "acronym": "EH",
+        "name": "exahenry"
+      },
+      {
+        "acronym": "EHz",
+        "name": "exahertz"
+      },
+      {
+        "acronym": "EJ",
+        "name": "exajoule"
+      },
+      {
+        "acronym": "EJ/a",
+        "name": "exajoules/year"
+      },
+      {
+        "acronym": "EN",
+        "name": "exanewton"
+      },
+      {
+        "acronym": "EP",
+        "name": "exapoise"
+      },
+      {
+        "acronym": "EPa",
+        "name": "exapascal"
+      },
+      {
+        "acronym": "ES",
+        "name": "exasiemen"
+      },
+      {
+        "acronym": "ET",
+        "name": "exatesla"
+      },
+      {
+        "acronym": "EV",
+        "name": "exavolt"
+      },
+      {
+        "acronym": "EW",
+        "name": "exawatt"
+      },
+      {
+        "acronym": "EWb",
+        "name": "exaweber"
+      },
+      {
+        "acronym": "Ea",
+        "name": "exayear"
+      },
+      {
+        "acronym": "Ecal",
+        "name": "exacalorie"
+      },
+      {
+        "acronym": "EeV",
+        "name": "exaelectron-volts"
+      },
+      {
+        "acronym": "Eg",
+        "name": "exagram"
+      },
+      {
+        "acronym": "Egamma",
+        "name": "exagamma"
+      },
+      {
+        "acronym": "Egauss",
+        "name": "exagauss"
+      },
+      {
+        "acronym": "Em",
+        "name": "exametre"
+      },
+      {
+        "acronym": "Emho",
+        "name": "examho"
+      },
+      {
+        "acronym": "Eohm",
+        "name": "exaohm"
+      },
+      {
+        "acronym": "Erd",
+        "name": "exarad"
+      },
+      {
+        "acronym": "Euc",
+        "name": "Euclid"
+      },
+      {
+        "acronym": "F",
+        "name": "farad"
+      },
+      {
+        "acronym": "F/m",
+        "name": "farads/metre"
+      },
+      {
+        "acronym": "GA",
+        "name": "gigaamp"
+      },
+      {
+        "acronym": "GC",
+        "name": "gigacoulomb"
+      },
+      {
+        "acronym": "GEuc",
+        "name": "gigaEuclid"
+      },
+      {
+        "acronym": "GF",
+        "name": "gigafarad"
+      },
+      {
+        "acronym": "GGy",
+        "name": "gigagray"
+      },
+      {
+        "acronym": "GH",
+        "name": "gigahenry"
+      },
+      {
+        "acronym": "GHz",
+        "name": "gigahertz"
+      },
+      {
+        "acronym": "GJ",
+        "name": "gigajoule"
+      },
+      {
+        "acronym": "GN",
+        "name": "giganewton"
+      },
+      {
+        "acronym": "GP",
+        "name": "gigapoise"
+      },
+      {
+        "acronym": "GPa",
+        "name": "gigapascal"
+      },
+      {
+        "acronym": "GS",
+        "name": "gigasiemen"
+      },
+      {
+        "acronym": "GT",
+        "name": "gigatesla"
+      },
+      {
+        "acronym": "GV",
+        "name": "gigavolt"
+      },
+      {
+        "acronym": "GW",
+        "name": "gigawatt"
+      },
+      {
+        "acronym": "GWb",
+        "name": "gigaweber"
+      },
+      {
+        "acronym": "Ga",
+        "name": "gigayear"
+      },
+      {
+        "acronym": "Gal",
+        "name": "galileo"
+      },
+      {
+        "acronym": "Gcal",
+        "name": "gigacalorie"
+      },
+      {
+        "acronym": "GeV",
+        "name": "gigaelectron-volts"
+      },
+      {
+        "acronym": "Gg",
+        "name": "gigagram"
+      },
+      {
+        "acronym": "Ggamma",
+        "name": "gigagamma"
+      },
+      {
+        "acronym": "Ggauss",
+        "name": "gigagauss"
+      },
+      {
+        "acronym": "Gm",
+        "name": "gigametre"
+      },
+      {
+        "acronym": "Gmho",
+        "name": "gigamho"
+      },
+      {
+        "acronym": "Gohm",
+        "name": "gigaohm"
+      },
+      {
+        "acronym": "Grd",
+        "name": "gigarad"
+      },
+      {
+        "acronym": "Gy",
+        "name": "gray"
+      },
+      {
+        "acronym": "H",
+        "name": "henry"
+      },
+      {
+        "acronym": "H/m",
+        "name": "henries/metre"
+      },
+      {
+        "acronym": "Hz",
+        "name": "Hertz"
+      },
+      {
+        "acronym": "J",
+        "name": "joule"
+      },
+      {
+        "acronym": "J/cm2",
+        "name": "joules/square centimetre"
+      },
+      {
+        "acronym": "J/dm3",
+        "name": "joules/cubic decimetre"
+      },
+      {
+        "acronym": "J/g",
+        "name": "joules/gram"
+      },
+      {
+        "acronym": "J/g.K",
+        "name": "joules/gram degree Kelvin"
+      },
+      {
+        "acronym": "J/kg",
+        "name": "joules/kilogram"
+      },
+      {
+        "acronym": "J/kg.K",
+        "name": "joules/kilogram degree kelvin"
+      },
+      {
+        "acronym": "J/m",
+        "name": "joules/metre"
+      },
+      {
+        "acronym": "J/m2",
+        "name": "joules/square metre"
+      },
+      {
+        "acronym": "J/m3",
+        "name": "joules/cubic metre"
+      },
+      {
+        "acronym": "J/mol",
+        "name": "joules/mole"
+      },
+      {
+        "acronym": "J/mol.K",
+        "name": "joules/mole degree kelvin"
+      },
+      {
+        "acronym": "J/s.m2.degC",
+        "name": "joules/second square metre deg C"
+      },
+      {
+        "acronym": "K",
+        "name": "degrees Kelvin"
+      },
+      {
+        "acronym": "K.m2/W",
+        "name": "kelvin metres squared/watt"
+      },
+      {
+        "acronym": "K.m2/kW",
+        "name": "degrees Kelvin square metres/kilowatt"
+      },
+      {
+        "acronym": "K/m",
+        "name": "degrees kelvin/metre"
+      },
+      {
+        "acronym": "L",
+        "name": "litre"
+      },
+      {
+        "acronym": "L/km(100)",
+        "name": "litres/100 kilometres"
+      },
+      {
+        "acronym": "L/m",
+        "name": "litres/metre"
+      },
+      {
+        "acronym": "L/m3",
+        "name": "litres/cubic metre"
+      },
+      {
+        "acronym": "L/mol(g)",
+        "name": "litres/mole (gram)"
+      },
+      {
+        "acronym": "L/mol(kg)",
+        "name": "litres/mole (kilogram)"
+      },
+      {
+        "acronym": "L/s",
+        "name": "litres/second"
+      },
+      {
+        "acronym": "L/s2",
+        "name": "litres/second/second"
+      },
+      {
+        "acronym": "L/t",
+        "name": "litres/tonne"
+      },
+      {
+        "acronym": "MA",
+        "name": "megaamp"
+      },
+      {
+        "acronym": "MC",
+        "name": "megacoulomb"
+      },
+      {
+        "acronym": "MEuc",
+        "name": "megaEuclid"
+      },
+      {
+        "acronym": "MF",
+        "name": "megafarad"
+      },
+      {
+        "acronym": "MGy",
+        "name": "megagray"
+      },
+      {
+        "acronym": "MH",
+        "name": "megahenry"
+      },
+      {
+        "acronym": "MHz",
+        "name": "megahertz"
+      },
+      {
+        "acronym": "MJ",
+        "name": "megajoule"
+      },
+      {
+        "acronym": "MJ/a",
+        "name": "megajoules/year"
+      },
+      {
+        "acronym": "MJ/kg",
+        "name": "megajoules/kilogram"
+      },
+      {
+        "acronym": "MJ/m",
+        "name": "megajoules/metre"
+      },
+      {
+        "acronym": "MJ/m3",
+        "name": "megajoules/cubic metre"
+      },
+      {
+        "acronym": "MJ/mol(kg)",
+        "name": "megajoules/mole (kilogram)"
+      },
+      {
+        "acronym": "MMbbl",
+        "name": "million barrels"
+      },
+      {
+        "acronym": "MMbbl/acre.ft",
+        "name": "million barrels/acre foot"
+      },
+      {
+        "acronym": "MMcf",
+        "name": "million cubic feet"
+      },
+      {
+        "acronym": "MMscf(60F)",
+        "name": "million cubic feet at 60 deg F"
+      },
+      {
+        "acronym": "MMscf(60F)/d",
+        "name": "million standard cubic feet/day"
+      },
+      {
+        "acronym": "MMstb(60F)",
+        "name": "million stock tank barrels 60 deg F"
+      },
+      {
+        "acronym": "MMstb(60F)/acre",
+        "name": "million stock tank barrels 60 deg F/acre"
+      },
+      {
+        "acronym": "MMstb(60F)/acre.ft",
+        "name": "\"million stbs, 60 deg F/acre foot\""
+      },
+      {
+        "acronym": "MN",
+        "name": "meganewton"
+      },
+      {
+        "acronym": "MP",
+        "name": "megapoise"
+      },
+      {
+        "acronym": "MPa",
+        "name": "megapascal"
+      },
+      {
+        "acronym": "MS",
+        "name": "megasiemen"
+      },
+      {
+        "acronym": "MT",
+        "name": "megatesla"
+      },
+      {
+        "acronym": "MV",
+        "name": "megavolt"
+      },
+      {
+        "acronym": "MW",
+        "name": "megawatt"
+      },
+      {
+        "acronym": "MW.h/kg",
+        "name": "megawatt hours/kilogram"
+      },
+      {
+        "acronym": "MW.h/m3",
+        "name": "megawatt hours/cubic metre"
+      },
+      {
+        "acronym": "MWb",
+        "name": "megaweber"
+      },
+      {
+        "acronym": "MY",
+        "name": "megayear"
+      },
+      {
+        "acronym": "Ma",
+        "name": "megayear"
+      },
+      {
+        "acronym": "Mbbl",
+        "name": "thousand barrels"
+      },
+      {
+        "acronym": "Mbbl.ft/d",
+        "name": "thousand barrel feet/day"
+      },
+      {
+        "acronym": "Mbbl/d",
+        "name": "thousand barrels/day"
+      },
+      {
+        "acronym": "Mbyte",
+        "name": "megabyte"
+      },
+      {
+        "acronym": "Mcal",
+        "name": "megacalorie"
+      },
+      {
+        "acronym": "Mcf",
+        "name": "thousand cubic feet"
+      },
+      {
+        "acronym": "MeV",
+        "name": "megaelectron-volts"
+      },
+      {
+        "acronym": "Mflops",
+        "name": "megaflops"
+      },
+      {
+        "acronym": "Mg",
+        "name": "megagram"
+      },
+      {
+        "acronym": "Mg/a",
+        "name": "megagrams/year"
+      },
+      {
+        "acronym": "Mg/d",
+        "name": "megagrams/day"
+      },
+      {
+        "acronym": "Mg/h",
+        "name": "megagrams/hour"
+      },
+      {
+        "acronym": "Mg/m2",
+        "name": "megagrams/square metre"
+      },
+      {
+        "acronym": "Mgamma",
+        "name": "megagamma"
+      },
+      {
+        "acronym": "Mgauss",
+        "name": "megagauss"
+      },
+      {
+        "acronym": "Mm",
+        "name": "megametre"
+      },
+      {
+        "acronym": "Mmho",
+        "name": "megamho"
+      },
+      {
+        "acronym": "Mohm",
+        "name": "megaohm"
+      },
+      {
+        "acronym": "Mpsi",
+        "name": "mega pounds per square inch"
+      },
+      {
+        "acronym": "Mrd",
+        "name": "megarad"
+      },
+      {
+        "acronym": "Mscf(60F)",
+        "name": "thousand cubic feet at 60 deg F"
+      },
+      {
+        "acronym": "Mstb(60F)",
+        "name": "thousand stock tank barrels 60 F"
+      },
+      {
+        "acronym": "N",
+        "name": "newton"
+      },
+      {
+        "acronym": "N.m/m",
+        "name": "newton metres/metre"
+      },
+      {
+        "acronym": "N.m2",
+        "name": "newton square metres"
+      },
+      {
+        "acronym": "N.s/m2",
+        "name": "newton seconds/metre squared"
+      },
+      {
+        "acronym": "N/m",
+        "name": "newtons/metre"
+      },
+      {
+        "acronym": "N/m2",
+        "name": "newtons/square metre"
+      },
+      {
+        "acronym": "N/m3",
+        "name": "newtons/cubic metre"
+      },
+      {
+        "acronym": "N/mm2",
+        "name": "newtons/square millimetre"
+      },
+      {
+        "acronym": "N4/kg.m7",
+        "name": "newtons fourth metres/kilogram"
+      },
+      {
+        "acronym": "O",
+        "name": "octave"
+      },
+      {
+        "acronym": "Oe",
+        "name": "oersted"
+      },
+      {
+        "acronym": "P",
+        "name": "poise"
+      },
+      {
+        "acronym": "Pa",
+        "name": "pascal"
+      },
+      {
+        "acronym": "Pa(g)",
+        "name": "pascal gauge"
+      },
+      {
+        "acronym": "Pa.s",
+        "name": "pascal seconds"
+      },
+      {
+        "acronym": "Pa.s/m3",
+        "name": "pascal seconds/cubic metre"
+      },
+      {
+        "acronym": "Pa/m",
+        "name": "pascals/metre"
+      },
+      {
+        "acronym": "Pa/s",
+        "name": "pascal/ second"
+      },
+      {
+        "acronym": "Pa2",
+        "name": "pascal squared"
+      },
+      {
+        "acronym": "S",
+        "name": "siemen"
+      },
+      {
+        "acronym": "S/m",
+        "name": "siemens/metre"
+      },
+      {
+        "acronym": "T",
+        "name": "tesla"
+      },
+      {
+        "acronym": "TA",
+        "name": "teraamp"
+      },
+      {
+        "acronym": "TC",
+        "name": "teracoulomb"
+      },
+      {
+        "acronym": "TEuc",
+        "name": "teraEuclid"
+      },
+      {
+        "acronym": "TF",
+        "name": "terafarad"
+      },
+      {
+        "acronym": "TGy",
+        "name": "teragray"
+      },
+      {
+        "acronym": "TH",
+        "name": "terahenry"
+      },
+      {
+        "acronym": "THz",
+        "name": "terahertz"
+      },
+      {
+        "acronym": "TJ",
+        "name": "terajoule"
+      },
+      {
+        "acronym": "TJ/a",
+        "name": "terajoules/year"
+      },
+      {
+        "acronym": "TN",
+        "name": "teranewton"
+      },
+      {
+        "acronym": "TP",
+        "name": "terapoise"
+      },
+      {
+        "acronym": "TPa",
+        "name": "terapascal"
+      },
+      {
+        "acronym": "TS",
+        "name": "terasiemen"
+      },
+      {
+        "acronym": "TT",
+        "name": "teratesla"
+      },
+      {
+        "acronym": "TV",
+        "name": "teravolt"
+      },
+      {
+        "acronym": "TW",
+        "name": "terawatt"
+      },
+      {
+        "acronym": "TW.h",
+        "name": "terrawatt hour"
+      },
+      {
+        "acronym": "TWb",
+        "name": "teraweber"
+      },
+      {
+        "acronym": "Ta",
+        "name": "terayear"
+      },
+      {
+        "acronym": "Tcal",
+        "name": "teracalorie"
+      },
+      {
+        "acronym": "TeV",
+        "name": "teraelectron-volts"
+      },
+      {
+        "acronym": "Tg",
+        "name": "teragram"
+      },
+      {
+        "acronym": "Tgamma",
+        "name": "teragamma"
+      },
+      {
+        "acronym": "Tgauss",
+        "name": "teragauss"
+      },
+      {
+        "acronym": "Tm",
+        "name": "terametre"
+      },
+      {
+        "acronym": "Tmho",
+        "name": "teramho"
+      },
+      {
+        "acronym": "Tohm",
+        "name": "teraohm"
+      },
+      {
+        "acronym": "Trd",
+        "name": "terarad"
+      },
+      {
+        "acronym": "V",
+        "name": "volt"
+      },
+      {
+        "acronym": "V/B",
+        "name": "volts/Bel"
+      },
+      {
+        "acronym": "V/dB",
+        "name": "volts/decibel"
+      },
+      {
+        "acronym": "V/m",
+        "name": "volts/metre"
+      },
+      {
+        "acronym": "W",
+        "name": "watt"
+      },
+      {
+        "acronym": "W/W",
+        "name": "watt/watt"
+      },
+      {
+        "acronym": "W/cm2",
+        "name": "watts/square centimetre"
+      },
+      {
+        "acronym": "W/kW",
+        "name": "watt/kilowatt"
+      },
+      {
+        "acronym": "W/m.K",
+        "name": "watts/metre kelvin"
+      },
+      {
+        "acronym": "W/m2",
+        "name": "watts/square metre"
+      },
+      {
+        "acronym": "W/m2.K",
+        "name": "watts/square metre kelvin"
+      },
+      {
+        "acronym": "W/m2.sr",
+        "name": "watts/square metre steradian"
+      },
+      {
+        "acronym": "W/m3",
+        "name": "watts/cubic metre"
+      },
+      {
+        "acronym": "W/m3.K",
+        "name": "watts/cubic metre kelvin"
+      },
+      {
+        "acronym": "W/sr",
+        "name": "watts/steradian"
+      },
+      {
+        "acronym": "Wb",
+        "name": "weber"
+      },
+      {
+        "acronym": "Wb.m",
+        "name": "weber metres"
+      },
+      {
+        "acronym": "Wb/m",
+        "name": "webers/metre"
+      },
+      {
+        "acronym": "Wb/mm",
+        "name": "weber/millimetre"
+      },
+      {
+        "acronym": "a",
+        "name": "annum"
+      },
+      {
+        "acronym": "acre",
+        "name": "null"
+      },
+      {
+        "acronym": "acre.ft",
+        "name": "null"
+      },
+      {
+        "acronym": "acre.ft/MMstb(60F)",
+        "name": "\"acre feet/million stbs, 60 deg F\""
+      },
+      {
+        "acronym": "angstrom",
+        "name": "Angstrom"
+      },
+      {
+        "acronym": "at",
+        "name": "Technical atmosphere"
+      },
+      {
+        "acronym": "atm",
+        "name": "Atmosphere"
+      },
+      {
+        "acronym": "atm/m",
+        "name": "Atmospheres/metre"
+      },
+      {
+        "acronym": "b",
+        "name": "barn"
+      },
+      {
+        "acronym": "b/cm3",
+        "name": "barns/cubic centimetre"
+      },
+      {
+        "acronym": "b/elec",
+        "name": "barns/electron"
+      },
+      {
+        "acronym": "bar",
+        "name": "null"
+      },
+      {
+        "acronym": "bbl",
+        "name": "barrel"
+      },
+      {
+        "acronym": "bbl/Mscf(60F)",
+        "name": "\"barrels/million std cubic feet, 60 degF\""
+      },
+      {
+        "acronym": "bbl/acre",
+        "name": "barrels/acre"
+      },
+      {
+        "acronym": "bbl/acre.ft",
+        "name": "barrel/acre foot"
+      },
+      {
+        "acronym": "bbl/bbl",
+        "name": "barrel/barrel"
+      },
+      {
+        "acronym": "bbl/cP.d.psi",
+        "name": "barrels/centiPoise day psi"
+      },
+      {
+        "acronym": "bbl/d",
+        "name": "barrel/day"
+      },
+      {
+        "acronym": "bbl/d.acre.ft",
+        "name": "barrels/day acre foot"
+      },
+      {
+        "acronym": "bbl/d.ft",
+        "name": "barrels/day foot"
+      },
+      {
+        "acronym": "bbl/d.ft.psi",
+        "name": "barrels/day foot pounds/sq in"
+      },
+      {
+        "acronym": "bbl/d.psi",
+        "name": "barrel/day pounds/square inch"
+      },
+      {
+        "acronym": "bbl/d2",
+        "name": "barrels/day per day"
+      },
+      {
+        "acronym": "bbl/ft",
+        "name": "barrel/foot"
+      },
+      {
+        "acronym": "bbl/hr",
+        "name": "barrel/hour"
+      },
+      {
+        "acronym": "bbl/hr2",
+        "name": "barrels/hour/hour"
+      },
+      {
+        "acronym": "bbl/in",
+        "name": "barrel/inch"
+      },
+      {
+        "acronym": "bbl/mi",
+        "name": "barrel/mile"
+      },
+      {
+        "acronym": "bbl/stb(60F)",
+        "name": "\"barrels/stock tank barrel, 60 deg F\""
+      },
+      {
+        "acronym": "bbl/tonUK",
+        "name": "barrel per U.K. ton"
+      },
+      {
+        "acronym": "bbl/tonUS",
+        "name": "barrel per U.S. ton"
+      },
+      {
+        "acronym": "bcf",
+        "name": "billion cubic feet"
+      },
+      {
+        "acronym": "bhp",
+        "name": "brake-horsepower"
+      },
+      {
+        "acronym": "bit",
+        "name": "null"
+      },
+      {
+        "acronym": "byte",
+        "name": "null"
+      },
+      {
+        "acronym": "c",
+        "name": "cycle"
+      },
+      {
+        "acronym": "c/s",
+        "name": "cycles/second"
+      },
+      {
+        "acronym": "cA",
+        "name": "centiamp"
+      },
+      {
+        "acronym": "cC",
+        "name": "centicoulomb"
+      },
+      {
+        "acronym": "cEuc",
+        "name": "centiEuclid"
+      },
+      {
+        "acronym": "cF",
+        "name": "centifarad"
+      },
+      {
+        "acronym": "cGy",
+        "name": "centigray"
+      },
+      {
+        "acronym": "cH",
+        "name": "centihenry"
+      },
+      {
+        "acronym": "cHz",
+        "name": "centihertz"
+      },
+      {
+        "acronym": "cJ",
+        "name": "centijoule"
+      },
+      {
+        "acronym": "cN",
+        "name": "centinewton"
+      },
+      {
+        "acronym": "cP",
+        "name": "centipoise"
+      },
+      {
+        "acronym": "cPa",
+        "name": "centipascal"
+      },
+      {
+        "acronym": "cS",
+        "name": "centisiemen"
+      },
+      {
+        "acronym": "cSt",
+        "name": "centiStoke"
+      },
+      {
+        "acronym": "cT",
+        "name": "centitesla"
+      },
+      {
+        "acronym": "cV",
+        "name": "centivolt"
+      },
+      {
+        "acronym": "cW",
+        "name": "centiwatt"
+      },
+      {
+        "acronym": "cWb",
+        "name": "centiweber"
+      },
+      {
+        "acronym": "ca",
+        "name": "centiyear"
+      },
+      {
+        "acronym": "cal",
+        "name": "calorie"
+      },
+      {
+        "acronym": "cal/cm3",
+        "name": "calories/cubic centimetre"
+      },
+      {
+        "acronym": "cal/g",
+        "name": "calories/gram"
+      },
+      {
+        "acronym": "cal/g.K",
+        "name": "calories/gram degree Kelvin"
+      },
+      {
+        "acronym": "cal/h.cm.degC",
+        "name": "calories/hour centimetre degree Celsius"
+      },
+      {
+        "acronym": "cal/h.cm2",
+        "name": "calories/hour centimetre squared"
+      },
+      {
+        "acronym": "cal/h.cm2.degC",
+        "name": "calories/hour square centimetre deg C"
+      },
+      {
+        "acronym": "cal/h.cm3",
+        "name": "calories/hour cubic centimetre"
+      },
+      {
+        "acronym": "cal/kg",
+        "name": "calories/kilogram"
+      },
+      {
+        "acronym": "cal/lbm",
+        "name": "calories/pound mass"
+      },
+      {
+        "acronym": "cal/mL",
+        "name": "calories/milliliter"
+      },
+      {
+        "acronym": "cal/mm3",
+        "name": "calories/cubic millimetre"
+      },
+      {
+        "acronym": "cal/mol(g).degC",
+        "name": "calories/gram mol degree celsius"
+      },
+      {
+        "acronym": "cal/s.cm.degC",
+        "name": "calories/second centimetre deg C"
+      },
+      {
+        "acronym": "cal/s.cm2.degC",
+        "name": "calories/second square centimetre deg C"
+      },
+      {
+        "acronym": "cal/s.cm3",
+        "name": "calories/second cubic centimetre"
+      },
+      {
+        "acronym": "ccal",
+        "name": "centicalorie"
+      },
+      {
+        "acronym": "cd",
+        "name": "candelas"
+      },
+      {
+        "acronym": "cd/m2",
+        "name": "candelas/square metre"
+      },
+      {
+        "acronym": "ceV",
+        "name": "centielectron-volts"
+      },
+      {
+        "acronym": "cg",
+        "name": "centigram"
+      },
+      {
+        "acronym": "cgamma",
+        "name": "centigamma"
+      },
+      {
+        "acronym": "cgauss",
+        "name": "centigauss"
+      },
+      {
+        "acronym": "ch",
+        "name": "null"
+      },
+      {
+        "acronym": "ch.h",
+        "name": "null"
+      },
+      {
+        "acronym": "chSe",
+        "name": "chains"
+      },
+      {
+        "acronym": "cm",
+        "name": "centimetre"
+      },
+      {
+        "acronym": "cm/s",
+        "name": "centimetre/second"
+      },
+      {
+        "acronym": "cm/s2",
+        "name": "centimetre/second squared"
+      },
+      {
+        "acronym": "cm2",
+        "name": "square centimetre"
+      },
+      {
+        "acronym": "cm2/g",
+        "name": "centimetres squared/gram"
+      },
+      {
+        "acronym": "cm2/s",
+        "name": "centimetres squared/second"
+      },
+      {
+        "acronym": "cm3",
+        "name": "cubic centimetre"
+      },
+      {
+        "acronym": "cm3/g",
+        "name": "cubic centimetres/gram"
+      },
+      {
+        "acronym": "cm3/m3",
+        "name": "cubic centimetre/cubic metre"
+      },
+      {
+        "acronym": "cm4",
+        "name": "centimetres fourth"
+      },
+      {
+        "acronym": "cmH2O(4degC)",
+        "name": "cm of water at 4 degC."
+      },
+      {
+        "acronym": "cmho",
+        "name": "centimho"
+      },
+      {
+        "acronym": "cohm",
+        "name": "centiohm"
+      },
+      {
+        "acronym": "crd",
+        "name": "centirad"
+      },
+      {
+        "acronym": "cu",
+        "name": "capture unit"
+      },
+      {
+        "acronym": "cu ft",
+        "name": "cubic feet"
+      },
+      {
+        "acronym": "cu in",
+        "name": "cubic inch"
+      },
+      {
+        "acronym": "cu yd",
+        "name": "cubic yard"
+      },
+      {
+        "acronym": "cubem",
+        "name": "null"
+      },
+      {
+        "acronym": "curie",
+        "name": "null"
+      },
+      {
+        "acronym": "cwtUK",
+        "name": "UK hundredweight"
+      },
+      {
+        "acronym": "cwtUS",
+        "name": "US hundredweight"
+      },
+      {
+        "acronym": "d",
+        "name": "day"
+      },
+      {
+        "acronym": "d/ft3",
+        "name": "days/cubic foot"
+      },
+      {
+        "acronym": "d/m3",
+        "name": "days/cubic metre"
+      },
+      {
+        "acronym": "dA",
+        "name": "deciamp"
+      },
+      {
+        "acronym": "dAPI",
+        "name": "API gravity"
+      },
+      {
+        "acronym": "dB",
+        "name": "decibel"
+      },
+      {
+        "acronym": "dB/O",
+        "name": "decibels/octave"
+      },
+      {
+        "acronym": "dB/ft",
+        "name": "decibels/foot"
+      },
+      {
+        "acronym": "dB/m",
+        "name": "decibels/metre"
+      },
+      {
+        "acronym": "dC",
+        "name": "decicoulomb"
+      },
+      {
+        "acronym": "dEuc",
+        "name": "deciEuclid"
+      },
+      {
+        "acronym": "dF",
+        "name": "decifarad"
+      },
+      {
+        "acronym": "dGy",
+        "name": "decigray"
+      },
+      {
+        "acronym": "dH",
+        "name": "decihenry"
+      },
+      {
+        "acronym": "dHz",
+        "name": "decihertz"
+      },
+      {
+        "acronym": "dJ",
+        "name": "decijoule"
+      },
+      {
+        "acronym": "dN",
+        "name": "decinewton"
+      },
+      {
+        "acronym": "dP",
+        "name": "decipoise"
+      },
+      {
+        "acronym": "dPa",
+        "name": "decipascal"
+      },
+      {
+        "acronym": "dS",
+        "name": "decisiemen"
+      },
+      {
+        "acronym": "dT",
+        "name": "decitesla"
+      },
+      {
+        "acronym": "dV",
+        "name": "decivolt"
+      },
+      {
+        "acronym": "dW",
+        "name": "deciwatt"
+      },
+      {
+        "acronym": "dWb",
+        "name": "deciweber"
+      },
+      {
+        "acronym": "da",
+        "name": "deciyear"
+      },
+      {
+        "acronym": "dcal",
+        "name": "decicalorie"
+      },
+      {
+        "acronym": "ddegC",
+        "name": "change in degrees Celsius"
+      },
+      {
+        "acronym": "ddegF",
+        "name": "change in degrees Fahrenheit"
+      },
+      {
+        "acronym": "ddegK",
+        "name": "change in degrees Kelvin"
+      },
+      {
+        "acronym": "ddegR",
+        "name": "change in degrees Rankine"
+      },
+      {
+        "acronym": "deV",
+        "name": "decielectron-volts"
+      },
+      {
+        "acronym": "degC",
+        "name": "degrees Celsius"
+      },
+      {
+        "acronym": "degC.m2.h/kcal",
+        "name": "degrees C square metres hours/kilocal"
+      },
+      {
+        "acronym": "degC/km",
+        "name": "degrees Celsius/kilometre"
+      },
+      {
+        "acronym": "degC/m",
+        "name": "degrees Celsius/metre"
+      },
+      {
+        "acronym": "degF",
+        "name": "degree Fahrenheit"
+      },
+      {
+        "acronym": "degF.ft2.h/Btu",
+        "name": "degrees F square feet hours/Btu"
+      },
+      {
+        "acronym": "degF/ft",
+        "name": "degrees Fahrenheit/foot"
+      },
+      {
+        "acronym": "degF/ft(100)",
+        "name": "degrees Fahrenheit/100 feet."
+      },
+      {
+        "acronym": "degR",
+        "name": "degrees Rankine"
+      },
+      {
+        "acronym": "dega",
+        "name": "degree of an angle"
+      },
+      {
+        "acronym": "dega/ft",
+        "name": "degrees of an angle/foot"
+      },
+      {
+        "acronym": "dega/ft(100)",
+        "name": "degrees of an angle/100 feet"
+      },
+      {
+        "acronym": "dega/m",
+        "name": "degrees of an angle/metre"
+      },
+      {
+        "acronym": "dega/min",
+        "name": "degrees of an angle/minute"
+      },
+      {
+        "acronym": "dg",
+        "name": "decigram"
+      },
+      {
+        "acronym": "dgamma",
+        "name": "decigamma"
+      },
+      {
+        "acronym": "dgauss",
+        "name": "decigauss"
+      },
+      {
+        "acronym": "dm",
+        "name": "decimetre"
+      },
+      {
+        "acronym": "dm3",
+        "name": "cubic decimetre"
+      },
+      {
+        "acronym": "dm3/MJ",
+        "name": "cubic decimetres/megajoule"
+      },
+      {
+        "acronym": "dm3/kW.h",
+        "name": "cubic decimetres/kilowatt hour"
+      },
+      {
+        "acronym": "dm3/kg",
+        "name": "cubic decimetres/kilogram"
+      },
+      {
+        "acronym": "dm3/km(100)",
+        "name": "cubic decimetres/100 kilometres"
+      },
+      {
+        "acronym": "dm3/m",
+        "name": "cubic decimetres/metre"
+      },
+      {
+        "acronym": "dm3/m3",
+        "name": "cubic decimetres/cubic metre"
+      },
+      {
+        "acronym": "dm3/mol(kg)",
+        "name": "cubic decimetres/kilogram mole"
+      },
+      {
+        "acronym": "dm3/s",
+        "name": "cubic decimetres/second"
+      },
+      {
+        "acronym": "dm3/s2",
+        "name": "cubic decimetres/second/second"
+      },
+      {
+        "acronym": "dm3/t",
+        "name": "cubic decimetres/tonne"
+      },
+      {
+        "acronym": "dmho",
+        "name": "decimho"
+      },
+      {
+        "acronym": "dohm",
+        "name": "deciohm"
+      },
+      {
+        "acronym": "drd",
+        "name": "decirad"
+      },
+      {
+        "acronym": "dyne",
+        "name": "dynes"
+      },
+      {
+        "acronym": "dyne.cm2",
+        "name": "dyne centimetre squared"
+      },
+      {
+        "acronym": "dyne.s/cm2",
+        "name": "dyne seconds/square centimetre"
+      },
+      {
+        "acronym": "dyne/cm",
+        "name": "dynes/centimetre"
+      },
+      {
+        "acronym": "dyne/cm2",
+        "name": "dynes/square centimetre"
+      },
+      {
+        "acronym": "eV",
+        "name": "electron volts"
+      },
+      {
+        "acronym": "ehp",
+        "name": "electric horsepower"
+      },
+      {
+        "acronym": "elec",
+        "name": "electron"
+      },
+      {
+        "acronym": "erg",
+        "name": "ergs"
+      },
+      {
+        "acronym": "erg/a",
+        "name": "ergs/year"
+      },
+      {
+        "acronym": "erg/cm2",
+        "name": "ergs/square centimetre"
+      },
+      {
+        "acronym": "erg/cm3",
+        "name": "ergs/cubic centimetre"
+      },
+      {
+        "acronym": "erg/g",
+        "name": "ergs/gram"
+      },
+      {
+        "acronym": "erg/kg",
+        "name": "ergs/kilogram"
+      },
+      {
+        "acronym": "erg/m3",
+        "name": "ergs/cubic metre"
+      },
+      {
+        "acronym": "fA",
+        "name": "femtoamp"
+      },
+      {
+        "acronym": "fC",
+        "name": "femtocoulomb"
+      },
+      {
+        "acronym": "fEuc",
+        "name": "femtoEuclid"
+      },
+      {
+        "acronym": "fF",
+        "name": "femtofarad"
+      },
+      {
+        "acronym": "fGy",
+        "name": "femtogray"
+      },
+      {
+        "acronym": "fH",
+        "name": "femtohenry"
+      },
+      {
+        "acronym": "fHz",
+        "name": "femtohertz"
+      },
+      {
+        "acronym": "fJ",
+        "name": "femtojoule"
+      },
+      {
+        "acronym": "fN",
+        "name": "femtonewton"
+      },
+      {
+        "acronym": "fP",
+        "name": "femtopoise"
+      },
+      {
+        "acronym": "fPa",
+        "name": "femtopascal"
+      },
+      {
+        "acronym": "fS",
+        "name": "femtosiemen"
+      },
+      {
+        "acronym": "fT",
+        "name": "femtotesla"
+      },
+      {
+        "acronym": "fV",
+        "name": "femtovolt"
+      },
+      {
+        "acronym": "fW",
+        "name": "femtowatt"
+      },
+      {
+        "acronym": "fWb",
+        "name": "femtoweber"
+      },
+      {
+        "acronym": "fa",
+        "name": "femtoyear"
+      },
+      {
+        "acronym": "fathom",
+        "name": "fathoms"
+      },
+      {
+        "acronym": "fcal",
+        "name": "femtocalorie"
+      },
+      {
+        "acronym": "feV",
+        "name": "femtoelectron-volts"
+      },
+      {
+        "acronym": "fg",
+        "name": "femtogram"
+      },
+      {
+        "acronym": "fgamma",
+        "name": "femtogamma"
+      },
+      {
+        "acronym": "fgauss",
+        "name": "femtogauss"
+      },
+      {
+        "acronym": "fl ozUK",
+        "name": "UK fluid ounce"
+      },
+      {
+        "acronym": "fl ozUS",
+        "name": "US fluid ounces"
+      },
+      {
+        "acronym": "flops",
+        "name": "null"
+      },
+      {
+        "acronym": "fm",
+        "name": "femtometre"
+      },
+      {
+        "acronym": "fmho",
+        "name": "femtomho"
+      },
+      {
+        "acronym": "fohm",
+        "name": "femtoohm"
+      },
+      {
+        "acronym": "footcandle",
+        "name": "footcandles"
+      },
+      {
+        "acronym": "footcandle.s",
+        "name": "footcandle seconds"
+      },
+      {
+        "acronym": "frd",
+        "name": "femtorad"
+      },
+      {
+        "acronym": "ft",
+        "name": "foot"
+      },
+      {
+        "acronym": "ft(100)",
+        "name": "100 feet"
+      },
+      {
+        "acronym": "ft.lbf",
+        "name": "null"
+      },
+      {
+        "acronym": "ft.lbf/bbl",
+        "name": "foot pounds force/barrel"
+      },
+      {
+        "acronym": "ft.lbf/galUS",
+        "name": "foot pounds force/US gallon"
+      },
+      {
+        "acronym": "ft.lbf/lbm",
+        "name": "foot pounds force/pound mass"
+      },
+      {
+        "acronym": "ft.lbf/min",
+        "name": "foot pounds force/minute"
+      },
+      {
+        "acronym": "ft.lbf/s",
+        "name": "foot pounds force/second"
+      },
+      {
+        "acronym": "ft/bbl",
+        "name": "feet/barrel"
+      },
+      {
+        "acronym": "ft/d",
+        "name": "feet/day"
+      },
+      {
+        "acronym": "ft/degF",
+        "name": "feet/degree Fahrenheit"
+      },
+      {
+        "acronym": "ft/ft3",
+        "name": "feet/cubic foot"
+      },
+      {
+        "acronym": "ft/galUS",
+        "name": "feet/US gallon"
+      },
+      {
+        "acronym": "ft/h",
+        "name": "feet/hour"
+      },
+      {
+        "acronym": "ft/in",
+        "name": "feet/inch"
+      },
+      {
+        "acronym": "ft/m",
+        "name": "feet/metre"
+      },
+      {
+        "acronym": "ft/mi",
+        "name": "feet/mile"
+      },
+      {
+        "acronym": "ft/min",
+        "name": "feet/minute"
+      },
+      {
+        "acronym": "ft/s",
+        "name": "feet/second"
+      },
+      {
+        "acronym": "ft/s2",
+        "name": "feet/second squared"
+      },
+      {
+        "acronym": "ft2(100)",
+        "name": "100 square foot"
+      },
+      {
+        "acronym": "ft2/h",
+        "name": "square feet/hour"
+      },
+      {
+        "acronym": "ft2/in3",
+        "name": "square feet/cubic inch"
+      },
+      {
+        "acronym": "ft2/s",
+        "name": "square feet/second"
+      },
+      {
+        "acronym": "ft3",
+        "name": "cubic feet"
+      },
+      {
+        "acronym": "ft3(100)",
+        "name": "100 cubic feet"
+      },
+      {
+        "acronym": "\"ft3(std,60F)\"",
+        "name": "cubic feet at standard conditions"
+      },
+      {
+        "acronym": "ft3/bbl",
+        "name": "cubic feet/barrel"
+      },
+      {
+        "acronym": "ft3/d",
+        "name": "cubic feet/day"
+      },
+      {
+        "acronym": "ft3/d.ft.psi",
+        "name": "cubic feet/day foot psi"
+      },
+      {
+        "acronym": "ft3/d2",
+        "name": "cubic feet/day/day"
+      },
+      {
+        "acronym": "ft3/ft",
+        "name": "cubic feet/foot"
+      },
+      {
+        "acronym": "ft3/ft3",
+        "name": "cubic feet/cubic foot"
+      },
+      {
+        "acronym": "ft3/h",
+        "name": "cubic feet/hour"
+      },
+      {
+        "acronym": "ft3/h2",
+        "name": "cubic feet/hour/hour"
+      },
+      {
+        "acronym": "ft3/lbm",
+        "name": "cubic feet/pound mass"
+      },
+      {
+        "acronym": "ft3/min",
+        "name": "cubic feet/minute"
+      },
+      {
+        "acronym": "ft3/min.ft2",
+        "name": "cubic feet/min square foot"
+      },
+      {
+        "acronym": "ft3/min2",
+        "name": "cubic feet/minute/minute"
+      },
+      {
+        "acronym": "ft3/mol(lbm)",
+        "name": "cubic feet/mole (pound mass)"
+      },
+      {
+        "acronym": "ft3/s",
+        "name": "cubic feet/second"
+      },
+      {
+        "acronym": "ft3/s.ft2",
+        "name": "cubic feet/second square foot"
+      },
+      {
+        "acronym": "ft3/s2",
+        "name": "cubic feet/second/second"
+      },
+      {
+        "acronym": "ft3/scf(60F)",
+        "name": "\"cubic feet/std cubic foot, 60 deg F\""
+      },
+      {
+        "acronym": "ftCla",
+        "name": "Imperial Foot"
+      },
+      {
+        "acronym": "ftMA",
+        "name": "Modified American Foot"
+      },
+      {
+        "acronym": "ftUS",
+        "name": "US Survey Foot"
+      },
+      {
+        "acronym": "g",
+        "name": "gram"
+      },
+      {
+        "acronym": "g.ft/cm3.s",
+        "name": "gram feet/cubic centimetre second"
+      },
+      {
+        "acronym": "g/L",
+        "name": "grams/litre"
+      },
+      {
+        "acronym": "g/cm3",
+        "name": "grams/cubic centimetre"
+      },
+      {
+        "acronym": "g/cm4",
+        "name": "grams/centimetre fourth"
+      },
+      {
+        "acronym": "g/dm3",
+        "name": "grams/cubic decimetre"
+      },
+      {
+        "acronym": "g/galUK",
+        "name": "grams/UK gallon"
+      },
+      {
+        "acronym": "g/galUS",
+        "name": "grams/US gallon"
+      },
+      {
+        "acronym": "g/kg",
+        "name": "grams/kilogram"
+      },
+      {
+        "acronym": "g/m3",
+        "name": "grams/cubic metre"
+      },
+      {
+        "acronym": "g/s",
+        "name": "grams/second"
+      },
+      {
+        "acronym": "galUK",
+        "name": "UK gallon"
+      },
+      {
+        "acronym": "galUK(1000)",
+        "name": "1000 UK gallons"
+      },
+      {
+        "acronym": "galUK/Mbbl",
+        "name": "UK gallons/1000 barrels"
+      },
+      {
+        "acronym": "galUK/ft3",
+        "name": "UK gallons/cubic foot"
+      },
+      {
+        "acronym": "galUK/hr",
+        "name": "UK gallons/hour"
+      },
+      {
+        "acronym": "galUK/hr.ft",
+        "name": "UK gallons/hour foot"
+      },
+      {
+        "acronym": "galUK/hr.ft2",
+        "name": "UK gallons/hour square foot"
+      },
+      {
+        "acronym": "galUK/hr.in",
+        "name": "UK gallons/hour inch"
+      },
+      {
+        "acronym": "galUK/hr.in2",
+        "name": "UK gallons/hour square inch"
+      },
+      {
+        "acronym": "galUK/hr2",
+        "name": "UK gallons/hour/hour"
+      },
+      {
+        "acronym": "galUK/lbm",
+        "name": "UK gallons/pound mass"
+      },
+      {
+        "acronym": "galUK/mi",
+        "name": "UK gallons/mile"
+      },
+      {
+        "acronym": "galUK/min",
+        "name": "UK gallons/minute"
+      },
+      {
+        "acronym": "galUK/min.ft",
+        "name": "UK gallons/minute foot"
+      },
+      {
+        "acronym": "galUK/min.ft2",
+        "name": "UK gallons/minute square foot"
+      },
+      {
+        "acronym": "galUK/min2",
+        "name": "UK gallons/minute/minute"
+      },
+      {
+        "acronym": "galUS",
+        "name": "US gallons"
+      },
+      {
+        "acronym": "galUS(1000)",
+        "name": "1000 US gallons"
+      },
+      {
+        "acronym": "galUS/Mbbl",
+        "name": "US gallons/1000 barrels"
+      },
+      {
+        "acronym": "galUS/Mscf(60F)",
+        "name": "\"US gals/1000 std cubic feet, 60 deg F\""
+      },
+      {
+        "acronym": "galUS/ft",
+        "name": "US gallons/foot"
+      },
+      {
+        "acronym": "galUS/ft3",
+        "name": "US gallons/cubic foot"
+      },
+      {
+        "acronym": "galUS/hr",
+        "name": "US gallons/hour"
+      },
+      {
+        "acronym": "galUS/hr.ft",
+        "name": "US gallons/foot hour"
+      },
+      {
+        "acronym": "galUS/hr.ft2",
+        "name": "US gallons/hour square foot"
+      },
+      {
+        "acronym": "galUS/hr.in",
+        "name": "US gallons/hour inch"
+      },
+      {
+        "acronym": "galUS/hr.in2",
+        "name": "US gallons/hour square inch"
+      },
+      {
+        "acronym": "galUS/hr2",
+        "name": "US gallons/hour/hour"
+      },
+      {
+        "acronym": "galUS/kscf(60F)",
+        "name": "\"US gals/1000 std cubic feet, 60 deg F\""
+      },
+      {
+        "acronym": "galUS/lbm",
+        "name": "US gallons/pound mass"
+      },
+      {
+        "acronym": "galUS/mi",
+        "name": "US gallons/mile"
+      },
+      {
+        "acronym": "galUS/min",
+        "name": "US gallons/minute"
+      },
+      {
+        "acronym": "galUS/min.ft",
+        "name": "US gallons/minute foot"
+      },
+      {
+        "acronym": "galUS/min.ft2",
+        "name": "US gallons/minute square foot"
+      },
+      {
+        "acronym": "galUS/min2",
+        "name": "US gallons/minute/minute"
+      },
+      {
+        "acronym": "galUS/tonUK",
+        "name": "US gallons/UK ton"
+      },
+      {
+        "acronym": "galUS/tonUS",
+        "name": "US gallons/US ton"
+      },
+      {
+        "acronym": "gamma",
+        "name": "null"
+      },
+      {
+        "acronym": "gauss",
+        "name": "null"
+      },
+      {
+        "acronym": "gon",
+        "name": "gons"
+      },
+      {
+        "acronym": "gr",
+        "name": "grad"
+      },
+      {
+        "acronym": "grain",
+        "name": "null"
+      },
+      {
+        "acronym": "grain/ft3",
+        "name": "grains/cubic foot"
+      },
+      {
+        "acronym": "grain/ft3(100)",
+        "name": "grains/100 cubic feet"
+      },
+      {
+        "acronym": "grain/galUS",
+        "name": "grains/US gallon"
+      },
+      {
+        "acronym": "h",
+        "name": "hour"
+      },
+      {
+        "acronym": "h/ft3",
+        "name": "hours/cubic foot"
+      },
+      {
+        "acronym": "ha",
+        "name": "hectare"
+      },
+      {
+        "acronym": "ha.m",
+        "name": "hectare metres"
+      },
+      {
+        "acronym": "hhp",
+        "name": "hydraulic horsepower"
+      },
+      {
+        "acronym": "hp",
+        "name": "horsepower"
+      },
+      {
+        "acronym": "hp.hr/bbl",
+        "name": "horsepower hours/barrel"
+      },
+      {
+        "acronym": "hp.hr/lbm",
+        "name": "horsepower hours/pound mass"
+      },
+      {
+        "acronym": "hp/ft3",
+        "name": "horsepower/cubic foot"
+      },
+      {
+        "acronym": "hr",
+        "name": "hour"
+      },
+      {
+        "acronym": "in",
+        "name": "inch"
+      },
+      {
+        "acronym": "in/a",
+        "name": "inches/year"
+      },
+      {
+        "acronym": "in/in.degF",
+        "name": "inches/inch degree Fahrenheit"
+      },
+      {
+        "acronym": "in/min",
+        "name": "inches/minute"
+      },
+      {
+        "acronym": "in/s",
+        "name": "inches/second"
+      },
+      {
+        "acronym": "in2",
+        "name": "square inches"
+      },
+      {
+        "acronym": "in2/ft2",
+        "name": "square inches/square foot"
+      },
+      {
+        "acronym": "in2/in2",
+        "name": "square inches/square inch"
+      },
+      {
+        "acronym": "in2/s",
+        "name": "square inches/second"
+      },
+      {
+        "acronym": "in3",
+        "name": "cubic inches"
+      },
+      {
+        "acronym": "in4",
+        "name": "inches to the fourth"
+      },
+      {
+        "acronym": "inH2O(39.2F)",
+        "name": "inches of water at 39.2 deg F"
+      },
+      {
+        "acronym": "inH2O(60F)",
+        "name": "inches of water at 60 deg F"
+      },
+      {
+        "acronym": "inHg(32F)",
+        "name": "inches of mercury at 32 deg F"
+      },
+      {
+        "acronym": "inHg(60F)",
+        "name": "inches of mercury at 60 deg F"
+      },
+      {
+        "acronym": "kA",
+        "name": "kiloamp"
+      },
+      {
+        "acronym": "kC",
+        "name": "kilocoulomb"
+      },
+      {
+        "acronym": "kEuc",
+        "name": "kiloEuclid"
+      },
+      {
+        "acronym": "kF",
+        "name": "kilofarad"
+      },
+      {
+        "acronym": "kGy",
+        "name": "kilogray"
+      },
+      {
+        "acronym": "kH",
+        "name": "kilohenry"
+      },
+      {
+        "acronym": "kHz",
+        "name": "kilohertz"
+      },
+      {
+        "acronym": "kJ",
+        "name": "kilojoule"
+      },
+      {
+        "acronym": "kJ.m/h.m2.K",
+        "name": "kilojoule metres/hour sq metre deg K"
+      },
+      {
+        "acronym": "kJ/dm3",
+        "name": "kilojoules/cubic decimetre"
+      },
+      {
+        "acronym": "kJ/h.m2.K",
+        "name": "kilojoules/hour square metre deg K"
+      },
+      {
+        "acronym": "kJ/kg",
+        "name": "kilojoule/kilogram"
+      },
+      {
+        "acronym": "kJ/kg.K",
+        "name": "kilojoules/kilogram degree Kelvin"
+      },
+      {
+        "acronym": "kJ/m3",
+        "name": "kilojoule/cubic metre"
+      },
+      {
+        "acronym": "kJ/mol(kg)",
+        "name": "kilojoule/mole (kilogram)"
+      },
+      {
+        "acronym": "kJ/mol(kg).K",
+        "name": "kilojoules/mole (kilogram) deg K"
+      },
+      {
+        "acronym": "kN",
+        "name": "kilonewton"
+      },
+      {
+        "acronym": "kN.m",
+        "name": "kilonewton metres"
+      },
+      {
+        "acronym": "kN.m2",
+        "name": "kilonewton metres squared"
+      },
+      {
+        "acronym": "kN/m",
+        "name": "kilonewtons/metre"
+      },
+      {
+        "acronym": "kP",
+        "name": "kilopoise"
+      },
+      {
+        "acronym": "kPa",
+        "name": "kilopascal"
+      },
+      {
+        "acronym": "kPa.s/m",
+        "name": "kilopascal seconds/metre"
+      },
+      {
+        "acronym": "kPa/m",
+        "name": "kilopascals/metre"
+      },
+      {
+        "acronym": "kS",
+        "name": "kilosiemen"
+      },
+      {
+        "acronym": "kT",
+        "name": "kilotesla"
+      },
+      {
+        "acronym": "kV",
+        "name": "kilovolt"
+      },
+      {
+        "acronym": "kW",
+        "name": "kilowatt"
+      },
+      {
+        "acronym": "kW.h/dm3",
+        "name": "kilowatt hours/decimetre"
+      },
+      {
+        "acronym": "kW.h/kg",
+        "name": "kilowatt hours/kilogram"
+      },
+      {
+        "acronym": "kW.h/kg.degC",
+        "name": "kilowatt hours/kilogram degree C"
+      },
+      {
+        "acronym": "kW.h/m3",
+        "name": "kilowatt hours/cubic metres"
+      },
+      {
+        "acronym": "kW/m2",
+        "name": "kilowatts/square metre"
+      },
+      {
+        "acronym": "kW/m2.K",
+        "name": "kilowatts/square metre degree Kelvin"
+      },
+      {
+        "acronym": "kW/m3",
+        "name": "kilowatts/cubic metre"
+      },
+      {
+        "acronym": "kW/m3.K",
+        "name": "killowatts/cubic metre degree Kelvin"
+      },
+      {
+        "acronym": "kWb",
+        "name": "kiloweber"
+      },
+      {
+        "acronym": "ka",
+        "name": "kiloyear"
+      },
+      {
+        "acronym": "kbyte",
+        "name": "kilobyte"
+      },
+      {
+        "acronym": "kcal",
+        "name": "kilocalorie"
+      },
+      {
+        "acronym": "kcal.m/cm2",
+        "name": "kilocalorie metres/square centimetre"
+      },
+      {
+        "acronym": "kcal/cm3",
+        "name": "kilocalories/cubic centimetre"
+      },
+      {
+        "acronym": "kcal/g",
+        "name": "kilocalories/gram"
+      },
+      {
+        "acronym": "kcal/h",
+        "name": "kilocalories/hour"
+      },
+      {
+        "acronym": "kcal/h.m.degC",
+        "name": "kilocalories/hour metre degree Celsius"
+      },
+      {
+        "acronym": "kcal/h.m2.degC",
+        "name": "kilocalorie/hour square metre deg C"
+      },
+      {
+        "acronym": "kcal/kg",
+        "name": "kilocalories/kilogram"
+      },
+      {
+        "acronym": "kcal/kg.degC",
+        "name": "kilocalories/kilogram degree Celsius"
+      },
+      {
+        "acronym": "kcal/m3",
+        "name": "kilocalroies/cubic metre"
+      },
+      {
+        "acronym": "kcal/mol(g)",
+        "name": "kilocalories/mole (gram)"
+      },
+      {
+        "acronym": "keV",
+        "name": "kiloelectron-volts"
+      },
+      {
+        "acronym": "kg",
+        "name": "kilogram"
+      },
+      {
+        "acronym": "kg.m/cm2",
+        "name": "kilogram metres/square centimetre"
+      },
+      {
+        "acronym": "kg.m/s",
+        "name": "kilogram metres/second"
+      },
+      {
+        "acronym": "kg.m2",
+        "name": "kilogram metres squared"
+      },
+      {
+        "acronym": "kg/J",
+        "name": "kilograms/joule"
+      },
+      {
+        "acronym": "kg/MJ",
+        "name": "kilograms/megajoule"
+      },
+      {
+        "acronym": "kg/dm3",
+        "name": "kilograms/cubic decimetre"
+      },
+      {
+        "acronym": "kg/dm4",
+        "name": "kilograms/decimetre fourth"
+      },
+      {
+        "acronym": "kg/h",
+        "name": "kilograms/hour"
+      },
+      {
+        "acronym": "kg/kW.h",
+        "name": "kilograms/kilowatt hour"
+      },
+      {
+        "acronym": "kg/kg",
+        "name": "kilograms/kilogram"
+      },
+      {
+        "acronym": "kg/m",
+        "name": "kilograms/metre"
+      },
+      {
+        "acronym": "kg/m.s",
+        "name": "kilograms/metre second"
+      },
+      {
+        "acronym": "kg/m2",
+        "name": "kilograms/square metre"
+      },
+      {
+        "acronym": "kg/m2.s",
+        "name": "kilograms/square metre seconds"
+      },
+      {
+        "acronym": "kg/m3",
+        "name": "kilograms/cubic metre"
+      },
+      {
+        "acronym": "kg/m4",
+        "name": "kilogram/metre fourth"
+      },
+      {
+        "acronym": "kg/s",
+        "name": "kilograms/second"
+      },
+      {
+        "acronym": "kgamma",
+        "name": "kilogamma"
+      },
+      {
+        "acronym": "kgauss",
+        "name": "kilogauss"
+      },
+      {
+        "acronym": "kgf",
+        "name": "kilogram force"
+      },
+      {
+        "acronym": "kgf.m",
+        "name": "kilogram force metres"
+      },
+      {
+        "acronym": "kgf.m/cm2",
+        "name": "kilogram force metres/square centimetre"
+      },
+      {
+        "acronym": "kgf.m/m",
+        "name": "kilograms force metres/metre"
+      },
+      {
+        "acronym": "kgf.m2",
+        "name": "kilogram force metres squared"
+      },
+      {
+        "acronym": "kgf.s/m2",
+        "name": "kilograms force seconds/square metre"
+      },
+      {
+        "acronym": "kgf/cm",
+        "name": "kilograms force/centimetre"
+      },
+      {
+        "acronym": "kgf/mm2",
+        "name": "kilogram force/square millimetre"
+      },
+      {
+        "acronym": "km",
+        "name": "kilometre"
+      },
+      {
+        "acronym": "km(100)",
+        "name": "100 kilometres"
+      },
+      {
+        "acronym": "km/L",
+        "name": "kilometres/litre"
+      },
+      {
+        "acronym": "km/cm",
+        "name": "kilometre/ centimetre"
+      },
+      {
+        "acronym": "km/dm3",
+        "name": "kilometres/cubic decimetre"
+      },
+      {
+        "acronym": "km/h",
+        "name": "kilometres/hour"
+      },
+      {
+        "acronym": "km2",
+        "name": "square kilometres"
+      },
+      {
+        "acronym": "km3",
+        "name": "cubic kilometres"
+      },
+      {
+        "acronym": "kmho",
+        "name": "kilomho"
+      },
+      {
+        "acronym": "knot",
+        "name": "knots"
+      },
+      {
+        "acronym": "kohm",
+        "name": "kiloohm"
+      },
+      {
+        "acronym": "krd",
+        "name": "kilorad"
+      },
+      {
+        "acronym": "kscf(60F)",
+        "name": "1000 std cubic feet at 60 deg F"
+      },
+      {
+        "acronym": "lbf",
+        "name": "pounds force"
+      },
+      {
+        "acronym": "lbf.ft",
+        "name": "foot pounds force"
+      },
+      {
+        "acronym": "lbf.ft/in",
+        "name": "pounds force feet/inch"
+      },
+      {
+        "acronym": "lbf.ft/in2",
+        "name": "foot pounds force/square inch"
+      },
+      {
+        "acronym": "lbf.in",
+        "name": "inch pounds force"
+      },
+      {
+        "acronym": "lbf.in/in",
+        "name": "pounds force inches/inch"
+      },
+      {
+        "acronym": "lbf.in2",
+        "name": "pounds force inches squared"
+      },
+      {
+        "acronym": "lbf.s/ft2",
+        "name": "pounds force seconds/square foot"
+      },
+      {
+        "acronym": "lbf.s/in2",
+        "name": "pounds force seconds/square inch"
+      },
+      {
+        "acronym": "lbf/ft2",
+        "name": "pounds force/square foot"
+      },
+      {
+        "acronym": "lbf/ft2(100)",
+        "name": "pounds force/100 square foot"
+      },
+      {
+        "acronym": "lbf/ft3",
+        "name": "pounds force/cubic foot"
+      },
+      {
+        "acronym": "lbf/galUS",
+        "name": "pounds force/US gallon"
+      },
+      {
+        "acronym": "lbf/in",
+        "name": "pounds force/inch"
+      },
+      {
+        "acronym": "lbf/in2",
+        "name": "pounds force/square inch"
+      },
+      {
+        "acronym": "lbm",
+        "name": "pounds mass"
+      },
+      {
+        "acronym": "lbm(million)",
+        "name": "million pounds mass"
+      },
+      {
+        "acronym": "lbm(million)/yr",
+        "name": "million pounds mass/year"
+      },
+      {
+        "acronym": "lbm.ft/s",
+        "name": "foot pounds mass/second"
+      },
+      {
+        "acronym": "lbm.ft2",
+        "name": "pounds mass square feet"
+      },
+      {
+        "acronym": "lbm.ft2/s2",
+        "name": "pounds mass square feet/second squared"
+      },
+      {
+        "acronym": "lbm/Mbbl",
+        "name": "pounds mass/1000 barrels"
+      },
+      {
+        "acronym": "lbm/bbl",
+        "name": "pounds mass/barrel"
+      },
+      {
+        "acronym": "lbm/ft",
+        "name": "pounds mass/foot"
+      },
+      {
+        "acronym": "lbm/ft.h",
+        "name": "pounds mass/foot hour"
+      },
+      {
+        "acronym": "lbm/ft.s",
+        "name": "pounds mass/foot second"
+      },
+      {
+        "acronym": "lbm/ft2",
+        "name": "pounds mass/square foot"
+      },
+      {
+        "acronym": "lbm/ft3",
+        "name": "pounds mass/cubic foot"
+      },
+      {
+        "acronym": "lbm/ft4",
+        "name": "pounds mass/foot fourth"
+      },
+      {
+        "acronym": "lbm/galUK",
+        "name": "pounds mass/UK gallon"
+      },
+      {
+        "acronym": "lbm/galUK(1000)",
+        "name": "pounds mass/1000 UK gallons"
+      },
+      {
+        "acronym": "lbm/galUK.ft",
+        "name": "pounds mass/UK gallon foot"
+      },
+      {
+        "acronym": "lbm/galUS",
+        "name": "pounds mass/US gallon"
+      },
+      {
+        "acronym": "lbm/galUS(1000)",
+        "name": "pounds mass/1000 US gallons"
+      },
+      {
+        "acronym": "lbm/galUS.ft",
+        "name": "pounds mass/US gallon foot"
+      },
+      {
+        "acronym": "lbm/h",
+        "name": "pounds mass/hour"
+      },
+      {
+        "acronym": "lbm/h.ft",
+        "name": "pounds mass/hour foot"
+      },
+      {
+        "acronym": "lbm/h.ft2",
+        "name": "pounds mass/hour square foot"
+      },
+      {
+        "acronym": "lbm/hp.h",
+        "name": "pounds mass/horsepower hour"
+      },
+      {
+        "acronym": "lbm/min",
+        "name": "pounds mass/minute"
+      },
+      {
+        "acronym": "lbm/s",
+        "name": "pounds mass/second"
+      },
+      {
+        "acronym": "lbm/s.ft",
+        "name": "pounds mass/second foot"
+      },
+      {
+        "acronym": "lbm/s.ft2",
+        "name": "pounds mass/second square foot"
+      },
+      {
+        "acronym": "lkCla",
+        "name": "Clarke link"
+      },
+      {
+        "acronym": "lkSe",
+        "name": "Sears link"
+      },
+      {
+        "acronym": "lm",
+        "name": "lumen"
+      },
+      {
+        "acronym": "lm.s",
+        "name": "null"
+      },
+      {
+        "acronym": "lm/W",
+        "name": "lumens/watt"
+      },
+      {
+        "acronym": "lm/m2",
+        "name": "lumens/square metre"
+      },
+      {
+        "acronym": "lx",
+        "name": "lux"
+      },
+      {
+        "acronym": "lx.s",
+        "name": "lux seconds"
+      },
+      {
+        "acronym": "m",
+        "name": "metre"
+      },
+      {
+        "acronym": "m/K",
+        "name": "metres/degree kelvin"
+      },
+      {
+        "acronym": "m/cm",
+        "name": "metres/ centimetre"
+      },
+      {
+        "acronym": "m/d",
+        "name": "metres/day"
+      },
+      {
+        "acronym": "m/km",
+        "name": "metres/kilometre"
+      },
+      {
+        "acronym": "m/m",
+        "name": "metres/metre"
+      },
+      {
+        "acronym": "m/m.K",
+        "name": "metres/metre degree kelvin"
+      },
+      {
+        "acronym": "m/m3",
+        "name": "metres/cubic metre"
+      },
+      {
+        "acronym": "m/ms",
+        "name": "metres/millisecond"
+      },
+      {
+        "acronym": "m/s",
+        "name": "metres/second"
+      },
+      {
+        "acronym": "m/s2",
+        "name": "metres/second squared"
+      },
+      {
+        "acronym": "m2",
+        "name": "square metres"
+      },
+      {
+        "acronym": "m2/Pa.s",
+        "name": "square metres/second Pascal"
+      },
+      {
+        "acronym": "m2/cm3",
+        "name": "square metres/cubic centimetre"
+      },
+      {
+        "acronym": "m2/d.kPa",
+        "name": "square metres/day kiloPascal"
+      },
+      {
+        "acronym": "m2/g",
+        "name": "square metres/gram"
+      },
+      {
+        "acronym": "m2/h",
+        "name": "square metres/hour"
+      },
+      {
+        "acronym": "m2/kg",
+        "name": "square metres/kilogram"
+      },
+      {
+        "acronym": "m2/m2",
+        "name": "square metres/square metre"
+      },
+      {
+        "acronym": "m2/m3",
+        "name": "square metres/cubic metre"
+      },
+      {
+        "acronym": "m2/mol",
+        "name": "square metres/mol"
+      },
+      {
+        "acronym": "m2/s",
+        "name": "square metres/second"
+      },
+      {
+        "acronym": "m3",
+        "name": "cubic metres"
+      },
+      {
+        "acronym": "\"m3(std,0C)\"",
+        "name": "cubic metres at std condition (0 deg C)"
+      },
+      {
+        "acronym": "\"m3(std,15C)\"",
+        "name": "cubic metres at std condition (15 deg C)"
+      },
+      {
+        "acronym": "m3/J",
+        "name": "cubic metres/joule"
+      },
+      {
+        "acronym": "m3/Pa.s",
+        "name": "cubic metres/second pascal"
+      },
+      {
+        "acronym": "m3/Pa2.s2",
+        "name": "cubic metres/pascal second squared"
+      },
+      {
+        "acronym": "m3/cP.Pa.s",
+        "name": "cubic metres/centiPoise Pascal second"
+      },
+      {
+        "acronym": "m3/cP.d.kPa",
+        "name": "cubic metres/centiPoise day kiloPascal"
+      },
+      {
+        "acronym": "m3/d",
+        "name": "cubic metres/day"
+      },
+      {
+        "acronym": "m3/d.kPa",
+        "name": "cubic metres/day kilopascal"
+      },
+      {
+        "acronym": "m3/d2",
+        "name": "cubic metres/day/day"
+      },
+      {
+        "acronym": "m3/g",
+        "name": "cubic metres/gram"
+      },
+      {
+        "acronym": "m3/h",
+        "name": "cubic metres/hour"
+      },
+      {
+        "acronym": "m3/ha.m",
+        "name": "cubic metres/hectare metre"
+      },
+      {
+        "acronym": "m3/kW.h",
+        "name": "cubic metres/kilowatt hour"
+      },
+      {
+        "acronym": "m3/kg",
+        "name": "cubic metres/kilogram"
+      },
+      {
+        "acronym": "m3/km",
+        "name": "cubic metres/kilometre"
+      },
+      {
+        "acronym": "m3/m",
+        "name": "cubic metres/metre"
+      },
+      {
+        "acronym": "m3/m3",
+        "name": "cubic metres/cubic metre"
+      },
+      {
+        "acronym": "m3/mol",
+        "name": "cubic metres/mole"
+      },
+      {
+        "acronym": "m3/mol(kg)",
+        "name": "cubic metres/mole (kilogram)"
+      },
+      {
+        "acronym": "m3/s",
+        "name": "cubic metres/second"
+      },
+      {
+        "acronym": "m3/s.m",
+        "name": "cubic metres/second metre"
+      },
+      {
+        "acronym": "m3/s.m2",
+        "name": "cubic metres/second square metre"
+      },
+      {
+        "acronym": "m3/s2",
+        "name": "cubic metres/seconds squared"
+      },
+      {
+        "acronym": "m3/scm(0C)",
+        "name": "\"cubic metres/std cubic metres, 0 deg C\""
+      },
+      {
+        "acronym": "m3/scm(15C)",
+        "name": "\"cubic metres/std cubic metres, 15 deg C\""
+      },
+      {
+        "acronym": "m3/t",
+        "name": "cubic metres/tonne"
+      },
+      {
+        "acronym": "m4",
+        "name": "metres fourth"
+      },
+      {
+        "acronym": "m4/s",
+        "name": "metres fourth/second"
+      },
+      {
+        "acronym": "mA",
+        "name": "milliamp"
+      },
+      {
+        "acronym": "mC",
+        "name": "millicoulomb"
+      },
+      {
+        "acronym": "mC/m2",
+        "name": "millicoulombs/square metre"
+      },
+      {
+        "acronym": "mD",
+        "name": "millidarcies"
+      },
+      {
+        "acronym": "mD.ft",
+        "name": "millidarcy foot"
+      },
+      {
+        "acronym": "mD.ft2/lbf.s",
+        "name": "millidarcy sq feet/pound force second"
+      },
+      {
+        "acronym": "mD.in2/lbf.s",
+        "name": "millidarcy sq inches/pound force second"
+      },
+      {
+        "acronym": "mD.m",
+        "name": "millidarcy metres"
+      },
+      {
+        "acronym": "mD/Pa.s",
+        "name": "millidarcies/Pascal second"
+      },
+      {
+        "acronym": "mD/cP",
+        "name": "millidarcies/centipoise"
+      },
+      {
+        "acronym": "mEuc",
+        "name": "milliEuclid"
+      },
+      {
+        "acronym": "mF",
+        "name": "millifarad"
+      },
+      {
+        "acronym": "mGal",
+        "name": "milligal"
+      },
+      {
+        "acronym": "mGy",
+        "name": "milligray"
+      },
+      {
+        "acronym": "mH",
+        "name": "millihenry"
+      },
+      {
+        "acronym": "mHz",
+        "name": "millihertz"
+      },
+      {
+        "acronym": "mJ",
+        "name": "millijoule"
+      },
+      {
+        "acronym": "mJ/cm2",
+        "name": "millijoules/square centimetre"
+      },
+      {
+        "acronym": "mJ/m2",
+        "name": "millijoules/square metre"
+      },
+      {
+        "acronym": "mK",
+        "name": "millidegrees Kelvin"
+      },
+      {
+        "acronym": "mK/m",
+        "name": "millidegrees Kelvin/metre"
+      },
+      {
+        "acronym": "mL",
+        "name": "millilitre"
+      },
+      {
+        "acronym": "mL/galUK",
+        "name": "millilitres/UK gallon"
+      },
+      {
+        "acronym": "mL/galUS",
+        "name": "millilitres/US gallon"
+      },
+      {
+        "acronym": "mN",
+        "name": "millinewton"
+      },
+      {
+        "acronym": "mN.m2",
+        "name": "millinewton metres squared"
+      },
+      {
+        "acronym": "mN/km",
+        "name": "millinewtons/kilometre"
+      },
+      {
+        "acronym": "mN/m",
+        "name": "millinewtons/metre"
+      },
+      {
+        "acronym": "mP",
+        "name": "millipoise"
+      },
+      {
+        "acronym": "mPa",
+        "name": "millipascal"
+      },
+      {
+        "acronym": "mS",
+        "name": "millisiemen"
+      },
+      {
+        "acronym": "mS/m",
+        "name": "millisiemens/metre"
+      },
+      {
+        "acronym": "mT",
+        "name": "millitesla"
+      },
+      {
+        "acronym": "mV",
+        "name": "millivolt"
+      },
+      {
+        "acronym": "mW",
+        "name": "milliwatt"
+      },
+      {
+        "acronym": "mW/m2",
+        "name": "milliwatts/square metres"
+      },
+      {
+        "acronym": "mWb",
+        "name": "milliweber"
+      },
+      {
+        "acronym": "ma",
+        "name": "milliyear"
+      },
+      {
+        "acronym": "mcal",
+        "name": "millicalorie"
+      },
+      {
+        "acronym": "meV",
+        "name": "millielectron-volts"
+      },
+      {
+        "acronym": "mg",
+        "name": "milligram"
+      },
+      {
+        "acronym": "mg/J",
+        "name": "milligrams/joule"
+      },
+      {
+        "acronym": "mg/dm3",
+        "name": "milligrams/cubic decimetre"
+      },
+      {
+        "acronym": "mg/galUS",
+        "name": "milligrams/US gallon"
+      },
+      {
+        "acronym": "mg/kg",
+        "name": "milligrams/kilogram"
+      },
+      {
+        "acronym": "mg/m3",
+        "name": "milligrams/cubic metre"
+      },
+      {
+        "acronym": "mgamma",
+        "name": "milligamma"
+      },
+      {
+        "acronym": "mgauss",
+        "name": "milligauss"
+      },
+      {
+        "acronym": "mho",
+        "name": "null"
+      },
+      {
+        "acronym": "mho/m",
+        "name": "mhos/metre"
+      },
+      {
+        "acronym": "mi",
+        "name": "mile"
+      },
+      {
+        "acronym": "mi/galUK",
+        "name": "miles/UK gallon"
+      },
+      {
+        "acronym": "mi/galUS",
+        "name": "miles/US gallon"
+      },
+      {
+        "acronym": "mi/h",
+        "name": "miles/hour"
+      },
+      {
+        "acronym": "mi2",
+        "name": "square miles"
+      },
+      {
+        "acronym": "miUS",
+        "name": "U.S. Survey mile"
+      },
+      {
+        "acronym": "miUS2",
+        "name": "U.S. Survey square mile"
+      },
+      {
+        "acronym": "mil",
+        "name": "null"
+      },
+      {
+        "acronym": "mil/ft",
+        "name": "mils/foot"
+      },
+      {
+        "acronym": "mil/yr",
+        "name": "mils/year"
+      },
+      {
+        "acronym": "min",
+        "name": "minute"
+      },
+      {
+        "acronym": "mina",
+        "name": "minutes angular"
+      },
+      {
+        "acronym": "mm",
+        "name": "millimetre"
+      },
+      {
+        "acronym": "mm/a",
+        "name": "millimetres/year"
+      },
+      {
+        "acronym": "mm/mm.K",
+        "name": "millimetres/millimetre degree Kelvin"
+      },
+      {
+        "acronym": "mm/s",
+        "name": "millimetres/second"
+      },
+      {
+        "acronym": "mm2",
+        "name": "square millimetres"
+      },
+      {
+        "acronym": "mm2/mm2",
+        "name": "square millimetres/square millimetre"
+      },
+      {
+        "acronym": "mm2/s",
+        "name": "square millimetres/second"
+      },
+      {
+        "acronym": "mm3",
+        "name": "cubic millimetres"
+      },
+      {
+        "acronym": "mm3/J",
+        "name": "cubic millimetres/joule"
+      },
+      {
+        "acronym": "mmHg(0C)",
+        "name": "millimetres of Mercury at 0 deg C"
+      },
+      {
+        "acronym": "mmho",
+        "name": "millimho"
+      },
+      {
+        "acronym": "mmho/m",
+        "name": "millimhos/metre"
+      },
+      {
+        "acronym": "mohm",
+        "name": "milliohm"
+      },
+      {
+        "acronym": "mol",
+        "name": "mole"
+      },
+      {
+        "acronym": "mol(g)",
+        "name": "mole (gram)"
+      },
+      {
+        "acronym": "mol(kg)",
+        "name": "mole (kilogram)"
+      },
+      {
+        "acronym": "mol(kg)/h",
+        "name": "moles (kilogram)/hour"
+      },
+      {
+        "acronym": "mol(kg)/m3",
+        "name": "moles (kilogram)/cubic metre"
+      },
+      {
+        "acronym": "mol(kg)/s",
+        "name": "moles (kilogram)/second"
+      },
+      {
+        "acronym": "mol(lbm)",
+        "name": "moles (pounds mass)"
+      },
+      {
+        "acronym": "mol(lbm)/ft3",
+        "name": "moles (pounds mass)/cubic foot"
+      },
+      {
+        "acronym": "mol(lbm)/galUK",
+        "name": "moles (pounds mass)/UK gallon"
+      },
+      {
+        "acronym": "mol(lbm)/galUS",
+        "name": "moles (pounds mass)/US gallon"
+      },
+      {
+        "acronym": "mol(lbm)/h",
+        "name": "moles (pounds mass)/hour"
+      },
+      {
+        "acronym": "mol(lbm)/h.ft2",
+        "name": "moles (pounds mass)/hour square foot"
+      },
+      {
+        "acronym": "mol(lbm)/s",
+        "name": "moles (pounds mass)/second"
+      },
+      {
+        "acronym": "mol(lbm)/s.ft2",
+        "name": "moles (pounds mass)/second square foot"
+      },
+      {
+        "acronym": "mol/m2",
+        "name": "moles/square metre"
+      },
+      {
+        "acronym": "mol/m2.s",
+        "name": "moles/square metre second"
+      },
+      {
+        "acronym": "mol/m3",
+        "name": "moles/cubic metre"
+      },
+      {
+        "acronym": "mol/s",
+        "name": "moles/second"
+      },
+      {
+        "acronym": "mrd",
+        "name": "millirad"
+      },
+      {
+        "acronym": "ms",
+        "name": "millisecond"
+      },
+      {
+        "acronym": "ms/cm",
+        "name": "milliseconds/centimetre"
+      },
+      {
+        "acronym": "ms/in",
+        "name": "milliseconds/inch"
+      },
+      {
+        "acronym": "ms/s",
+        "name": "milliseconds/second"
+      },
+      {
+        "acronym": "nA",
+        "name": "nanoamp"
+      },
+      {
+        "acronym": "nC",
+        "name": "nanocoulomb"
+      },
+      {
+        "acronym": "nEuc",
+        "name": "nanoeuclid"
+      },
+      {
+        "acronym": "nF",
+        "name": "nanofarad"
+      },
+      {
+        "acronym": "nGy",
+        "name": "nanogray"
+      },
+      {
+        "acronym": "nH",
+        "name": "nanohenry"
+      },
+      {
+        "acronym": "nHz",
+        "name": "nanohertz"
+      },
+      {
+        "acronym": "nJ",
+        "name": "nanojoule"
+      },
+      {
+        "acronym": "nN",
+        "name": "nanonewton"
+      },
+      {
+        "acronym": "nP",
+        "name": "nanopoise"
+      },
+      {
+        "acronym": "nPa",
+        "name": "nanopascal"
+      },
+      {
+        "acronym": "nS",
+        "name": "nanosiemen"
+      },
+      {
+        "acronym": "nT",
+        "name": "nanotesla"
+      },
+      {
+        "acronym": "nV",
+        "name": "nanovolt"
+      },
+      {
+        "acronym": "nW",
+        "name": "nanowatt"
+      },
+      {
+        "acronym": "nWb",
+        "name": "nanoweber"
+      },
+      {
+        "acronym": "na",
+        "name": "nanoyear"
+      },
+      {
+        "acronym": "nautmi",
+        "name": "nautical mile"
+      },
+      {
+        "acronym": "ncal",
+        "name": "nanocalorie"
+      },
+      {
+        "acronym": "neV",
+        "name": "nanoelectron-volts"
+      },
+      {
+        "acronym": "ng",
+        "name": "nanogram"
+      },
+      {
+        "acronym": "ngamma",
+        "name": "nanogamma"
+      },
+      {
+        "acronym": "ngauss",
+        "name": "nanogauss"
+      },
+      {
+        "acronym": "nm",
+        "name": "nanometre"
+      },
+      {
+        "acronym": "nmho",
+        "name": "nanomho"
+      },
+      {
+        "acronym": "nohm",
+        "name": "nanoohm"
+      },
+      {
+        "acronym": "nrd",
+        "name": "nanorad"
+      },
+      {
+        "acronym": "ns",
+        "name": "nanosecond"
+      },
+      {
+        "acronym": "ns/ft",
+        "name": "nanoseconds/foot"
+      },
+      {
+        "acronym": "ns/m",
+        "name": "nanoseconds/metre"
+      },
+      {
+        "acronym": "ohm",
+        "name": "null"
+      },
+      {
+        "acronym": "ohm.cm",
+        "name": "ohm centimetres"
+      },
+      {
+        "acronym": "ohm.m",
+        "name": "null"
+      },
+      {
+        "acronym": "oz(av)",
+        "name": "avoirdupois ounces"
+      },
+      {
+        "acronym": "oz(troy)",
+        "name": "troy ounces"
+      },
+      {
+        "acronym": "pA",
+        "name": "picoamp"
+      },
+      {
+        "acronym": "pC",
+        "name": "picocoulomb"
+      },
+      {
+        "acronym": "pEuc",
+        "name": "picoEuclid"
+      },
+      {
+        "acronym": "pF",
+        "name": "picofarad"
+      },
+      {
+        "acronym": "pGy",
+        "name": "picogray"
+      },
+      {
+        "acronym": "pH",
+        "name": "picohenry"
+      },
+      {
+        "acronym": "pHz",
+        "name": "picohertz"
+      },
+      {
+        "acronym": "pJ",
+        "name": "picojoule"
+      },
+      {
+        "acronym": "pN",
+        "name": "piconewton"
+      },
+      {
+        "acronym": "pP",
+        "name": "picopoise"
+      },
+      {
+        "acronym": "pPa",
+        "name": "picopascal"
+      },
+      {
+        "acronym": "pS",
+        "name": "picosiemen"
+      },
+      {
+        "acronym": "pT",
+        "name": "picotesla"
+      },
+      {
+        "acronym": "pV",
+        "name": "picovolt"
+      },
+      {
+        "acronym": "pW",
+        "name": "picowatt"
+      },
+      {
+        "acronym": "pWb",
+        "name": "picoweber"
+      },
+      {
+        "acronym": "pa",
+        "name": "picoyear"
+      },
+      {
+        "acronym": "pcal",
+        "name": "picocalorie"
+      },
+      {
+        "acronym": "pdl",
+        "name": "poundals"
+      },
+      {
+        "acronym": "pdl.cm2",
+        "name": "poundal centimetre squared"
+      },
+      {
+        "acronym": "pdl.ft",
+        "name": "foot poundal"
+      },
+      {
+        "acronym": "pdl/cm",
+        "name": "poundals/centimetre"
+      },
+      {
+        "acronym": "peV",
+        "name": "picoelectron-volts"
+      },
+      {
+        "acronym": "permil",
+        "name": "per mille"
+      },
+      {
+        "acronym": "pg",
+        "name": "picogram"
+      },
+      {
+        "acronym": "pgamma",
+        "name": "picogamma"
+      },
+      {
+        "acronym": "pgauss",
+        "name": "picogauss"
+      },
+      {
+        "acronym": "pm",
+        "name": "picometre"
+      },
+      {
+        "acronym": "pmho",
+        "name": "picomho"
+      },
+      {
+        "acronym": "pohm",
+        "name": "picoohm"
+      },
+      {
+        "acronym": "ppk",
+        "name": "parts per thousand"
+      },
+      {
+        "acronym": "ppm",
+        "name": "parts per million"
+      },
+      {
+        "acronym": "prd",
+        "name": "picorad"
+      },
+      {
+        "acronym": "psf",
+        "name": "pounds/square foot"
+      },
+      {
+        "acronym": "psi",
+        "name": "pounds/square inch"
+      },
+      {
+        "acronym": "psi.d/bbl",
+        "name": "pounds per square inch days/barrel"
+      },
+      {
+        "acronym": "psi2/cP",
+        "name": "pounds/square inch squared/ centipoise"
+      },
+      {
+        "acronym": "psia",
+        "name": "pounds/square inch absolute"
+      },
+      {
+        "acronym": "psig",
+        "name": "pounds/square inch gauge"
+      },
+      {
+        "acronym": "ptUK",
+        "name": "UK pints"
+      },
+      {
+        "acronym": "ptUK/Mbbl",
+        "name": "UK pints/1000 barrels"
+      },
+      {
+        "acronym": "ptUK/hp.hr",
+        "name": "UK pints/horsepower hour"
+      },
+      {
+        "acronym": "ptUS",
+        "name": "US pints"
+      },
+      {
+        "acronym": "qtUK",
+        "name": "UK quarts"
+      },
+      {
+        "acronym": "qtUS",
+        "name": "US quarts"
+      },
+      {
+        "acronym": "quad",
+        "name": "quads"
+      },
+      {
+        "acronym": "quad/yr",
+        "name": "quads/year"
+      },
+      {
+        "acronym": "rad",
+        "name": "radians"
+      },
+      {
+        "acronym": "rad/m",
+        "name": "radians/metre"
+      },
+      {
+        "acronym": "rad/s",
+        "name": "radians/second"
+      },
+      {
+        "acronym": "rad/s2",
+        "name": "radians/second squared"
+      },
+      {
+        "acronym": "rd",
+        "name": "rad"
+      },
+      {
+        "acronym": "rev",
+        "name": "revolutions"
+      },
+      {
+        "acronym": "rev/min",
+        "name": "revolutions/minute"
+      },
+      {
+        "acronym": "rev/s",
+        "name": "revolutions/second"
+      },
+      {
+        "acronym": "rpm",
+        "name": "revolutions/minute"
+      },
+      {
+        "acronym": "s",
+        "name": "second"
+      },
+      {
+        "acronym": "s/cm",
+        "name": "seconds/centimetre"
+      },
+      {
+        "acronym": "s/ft",
+        "name": "seconds/foot"
+      },
+      {
+        "acronym": "s/in",
+        "name": "seconds/inch"
+      },
+      {
+        "acronym": "s/m",
+        "name": "seconds/metre"
+      },
+      {
+        "acronym": "s/m3",
+        "name": "seconds/cubic metre"
+      },
+      {
+        "acronym": "scf(60F)",
+        "name": "std cubic feet at 60 deg F"
+      },
+      {
+        "acronym": "scf(60F)/bbl",
+        "name": "std cubic feet at 60 deg F/barrel"
+      },
+      {
+        "acronym": "scf(60F)/ft2",
+        "name": "std cubic feet at 60 deg F/square foot"
+      },
+      {
+        "acronym": "scf(60F)/ft3",
+        "name": "std cubic feet at 60 deg Ft/cubic foot"
+      },
+      {
+        "acronym": "scm(0C)",
+        "name": "\"std cubic metres, 0 deg C\""
+      },
+      {
+        "acronym": "scm(0C)/m2",
+        "name": "\"std cubic metres, 0 deg C/square metre\""
+      },
+      {
+        "acronym": "scm(0C)/m3",
+        "name": "\"std cubic metres, 0 deg C/cubic metre\""
+      },
+      {
+        "acronym": "scm(15C)",
+        "name": "\"std cubic metres, 15 deg C\""
+      },
+      {
+        "acronym": "scm(15C)/m2",
+        "name": "\"std cubic metres, 15 deg C/square metre\""
+      },
+      {
+        "acronym": "scm(15C)/m3",
+        "name": "\"std cubic metres, 15 deg C/cubic metre\""
+      },
+      {
+        "acronym": "scm(15C)/s",
+        "name": "\"std cubic metres, 15 deg C/second\""
+      },
+      {
+        "acronym": "seca",
+        "name": "seconds angular"
+      },
+      {
+        "acronym": "section",
+        "name": "null"
+      },
+      {
+        "acronym": "sigma",
+        "name": "capture unit"
+      },
+      {
+        "acronym": "sq ft",
+        "name": "square feet"
+      },
+      {
+        "acronym": "sq in",
+        "name": "square inches"
+      },
+      {
+        "acronym": "sq mi",
+        "name": "square miles"
+      },
+      {
+        "acronym": "sq yd",
+        "name": "square yards"
+      },
+      {
+        "acronym": "sr",
+        "name": "steradian"
+      },
+      {
+        "acronym": "stb(60F)",
+        "name": "stock tank barrel at 60 deg F"
+      },
+      {
+        "acronym": "stb(60F)/acre",
+        "name": "\"stock tank barrels, 60 deg F/acre\""
+      },
+      {
+        "acronym": "stb(60F)/bbl",
+        "name": "\"stock tank barrels, 60 deg F/barrel\""
+      },
+      {
+        "acronym": "t",
+        "name": "tonne"
+      },
+      {
+        "acronym": "t/a",
+        "name": "tonnes/year"
+      },
+      {
+        "acronym": "t/d",
+        "name": "tonnes/day"
+      },
+      {
+        "acronym": "t/h",
+        "name": "tonnes/hour"
+      },
+      {
+        "acronym": "talbot",
+        "name": "null"
+      },
+      {
+        "acronym": "tcf",
+        "name": "trillion cubic feet"
+      },
+      {
+        "acronym": "therm",
+        "name": "therms"
+      },
+      {
+        "acronym": "therm/ft3",
+        "name": "therms/cubic foot"
+      },
+      {
+        "acronym": "therm/galUK",
+        "name": "therms/UK gallon"
+      },
+      {
+        "acronym": "therm/lbm",
+        "name": "therms/pound mass"
+      },
+      {
+        "acronym": "ton of refrig",
+        "name": "tons of refrigeration"
+      },
+      {
+        "acronym": "tonUK",
+        "name": "UK tons"
+      },
+      {
+        "acronym": "tonUK/a",
+        "name": "UK tons/year"
+      },
+      {
+        "acronym": "tonUK/d",
+        "name": "UK tons/day"
+      },
+      {
+        "acronym": "tonUK/h",
+        "name": "UK tons/hour"
+      },
+      {
+        "acronym": "tonUK/min",
+        "name": "UK tons/minute"
+      },
+      {
+        "acronym": "tonUS",
+        "name": "US tons"
+      },
+      {
+        "acronym": "tonUS/a",
+        "name": "US tons/year"
+      },
+      {
+        "acronym": "tonUS/d",
+        "name": "US tons/day"
+      },
+      {
+        "acronym": "tonUS/ft2",
+        "name": "US tons/square foot"
+      },
+      {
+        "acronym": "tonUS/h",
+        "name": "US tons/hour"
+      },
+      {
+        "acronym": "tonUS/min",
+        "name": "US tons/minute"
+      },
+      {
+        "acronym": "tonfUK",
+        "name": "UK tons force"
+      },
+      {
+        "acronym": "tonfUK.ft2",
+        "name": "UK ton feet squared"
+      },
+      {
+        "acronym": "tonfUK/ft",
+        "name": "UK tons force/foot"
+      },
+      {
+        "acronym": "tonfUS",
+        "name": "US tons force"
+      },
+      {
+        "acronym": "tonfUS.ft",
+        "name": "US tons force feet"
+      },
+      {
+        "acronym": "tonfUS.ft2",
+        "name": "US tons force feet squared"
+      },
+      {
+        "acronym": "tonfUS.mi",
+        "name": "US tons force/mile"
+      },
+      {
+        "acronym": "tonfUS.mi/bbl",
+        "name": "US ton force miles/barrel"
+      },
+      {
+        "acronym": "tonfUS.mi/ft",
+        "name": "US tons force miles/foot"
+      },
+      {
+        "acronym": "tonfUS/ft",
+        "name": "US tons force/foot"
+      },
+      {
+        "acronym": "tonfUS/ft2",
+        "name": "US tons force/square foot"
+      },
+      {
+        "acronym": "tonfUS/in2",
+        "name": "US tons force/square inch"
+      },
+      {
+        "acronym": "torr",
+        "name": "null"
+      },
+      {
+        "acronym": "uA",
+        "name": "microamp"
+      },
+      {
+        "acronym": "uC",
+        "name": "microcoulomb"
+      },
+      {
+        "acronym": "uEuc",
+        "name": "microEuclid"
+      },
+      {
+        "acronym": "uF",
+        "name": "microfarad"
+      },
+      {
+        "acronym": "uF/m",
+        "name": "microfarad/metre"
+      },
+      {
+        "acronym": "uGy",
+        "name": "microgray"
+      },
+      {
+        "acronym": "uH",
+        "name": "microhenry"
+      },
+      {
+        "acronym": "uH/m",
+        "name": "microhenry/metre"
+      },
+      {
+        "acronym": "uHz",
+        "name": "microhertz"
+      },
+      {
+        "acronym": "uJ",
+        "name": "microjoule"
+      },
+      {
+        "acronym": "uN",
+        "name": "micronewton"
+      },
+      {
+        "acronym": "uP",
+        "name": "micropoise"
+      },
+      {
+        "acronym": "uPa",
+        "name": "micropascal"
+      },
+      {
+        "acronym": "uS",
+        "name": "microsiemen"
+      },
+      {
+        "acronym": "uT",
+        "name": "microtesla"
+      },
+      {
+        "acronym": "uV",
+        "name": "microvolt"
+      },
+      {
+        "acronym": "uW",
+        "name": "microwatt"
+      },
+      {
+        "acronym": "uW/m3",
+        "name": "microwatt/cubic metre"
+      },
+      {
+        "acronym": "uWb",
+        "name": "microweber"
+      },
+      {
+        "acronym": "ua",
+        "name": "microyear"
+      },
+      {
+        "acronym": "ubar",
+        "name": "microbars"
+      },
+      {
+        "acronym": "ucal",
+        "name": "microcalorie"
+      },
+      {
+        "acronym": "ucal/s.cm2",
+        "name": "microcalorie/second square centimetre"
+      },
+      {
+        "acronym": "ueV",
+        "name": "microelectron-volts"
+      },
+      {
+        "acronym": "ug",
+        "name": "microgram"
+      },
+      {
+        "acronym": "ug/cm3",
+        "name": "microgram/cubic centimetre"
+      },
+      {
+        "acronym": "ugamma",
+        "name": "microgamma"
+      },
+      {
+        "acronym": "ugauss",
+        "name": "microgauss"
+      },
+      {
+        "acronym": "um",
+        "name": "micron"
+      },
+      {
+        "acronym": "um2",
+        "name": "square micron"
+      },
+      {
+        "acronym": "um2.m",
+        "name": "square micron metre"
+      },
+      {
+        "acronym": "umHg(0C)",
+        "name": "microns of Mercury at 0 deg C"
+      },
+      {
+        "acronym": "umho",
+        "name": "micromho"
+      },
+      {
+        "acronym": "unitless",
+        "name": "null"
+      },
+      {
+        "acronym": "uohm",
+        "name": "microohm"
+      },
+      {
+        "acronym": "urd",
+        "name": "microrad"
+      },
+      {
+        "acronym": "us",
+        "name": "microsecond"
+      },
+      {
+        "acronym": "us/ft",
+        "name": "microsecond/foot"
+      },
+      {
+        "acronym": "us/m",
+        "name": "microsecond/metre"
+      },
+      {
+        "acronym": "volpercent",
+        "name": "volume percent"
+      },
+      {
+        "acronym": "volppm",
+        "name": "volume parts per million"
+      },
+      {
+        "acronym": "wk",
+        "name": "week"
+      },
+      {
+        "acronym": "wtpercent",
+        "name": "weight percent"
+      },
+      {
+        "acronym": "wtppm",
+        "name": "weight parts per million"
+      },
+      {
+        "acronym": "yd",
+        "name": "yards"
+      },
+      {
+        "acronym": "yd2",
+        "name": "square yard"
+      },
+      {
+        "acronym": "ydIm",
+        "name": "imperial yard"
+      },
+      {
+        "acronym": "ydInd",
+        "name": "Indian yard"
+      },
+      {
+        "acronym": "ydSe",
+        "name": "Sears yard"
+      },
+      {
+        "acronym": "yr",
+        "name": "year"
+      },
+      {
+        "acronym": "yr(100k)",
+        "name": "100000 years"
+      }
+    ]
+  }
+}

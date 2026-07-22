@@ -1,0 +1,97 @@
+{
+ "_note": "IP2025 cross-tool bridges and naming/export mappings. Source read-only: C:\\Program Files\\IP2025. Tier A/D facts only (mechanism + mapping tables); no algorithm code. Compare to Techlog's G (thin property-alias XMLs).",
+
+ "geolog_link": {
+  "source_dir": "GEOLOG/",
+  "files": ["PGLWowlnk_1.0.3BETA.tar.gz (Solaris pkg: bin/ow2odm binary + owcgi.cgi)","Readme.txt","Tests.txt"],
+  "mechanism": "Server-side Unix (Sun Solaris) link. IP (Windows) talks to a Paradigm/Geolog6 database on a Unix host via a CGI program executed through an Apache HTTP server (suEXEC module, runs CGI as the requesting DB user) OR via an SSH daemon (preferred: less admin, more secure; uses bundled PuTTY plink.exe/pscp.exe on the PC side).",
+  "binary": "ow2odm (ow2odm -P lists Geolog/OpenWorks projects). Later package PGLWdblnk supersedes with owlnk/gllnk binaries.",
+  "requirements": "Geolog6+ and a Geolog6 license required for the link to work. Historic stack: R2003 Solaris, Oracle 8.1.6, Forte Developer 6. IP read/write-to-DB only from Windows 2000/NT/XP-era client.",
+  "direction": "bi-directional Read From / Write To DB (import Geolog wells/curves into IP, export IP results back).",
+  "relevance_sandibumi": "Legacy/Unix-era, heavyweight (Apache/SSH/Oracle). NOT a model for SandiBumi's Geolog interop. The USABLE Geolog interop is the file-level ASCII/shading mappings below, which are the naming Rosetta stone.",
+  "tier": "Tier D mechanism (infrastructure prose); no reusable data"
+ },
+
+ "openworks_link": {
+  "source_dir": "OpenWorks & Geolog/",
+  "files": ["PGLWdblnk_1.0.0.tar.gz (Solaris pkg)","Info.txt","Readme.txt"],
+  "mechanism": "Same PGLWdblnk Solaris package serves BOTH the Landmark OpenWorks link (owlnk binary, owenv env) and the Geolog link (gllnk binary, glenv env). Transport = Apache HTTP+CGI (owlnk_import.cgi/owlnk_export.cgi, gllnk_import.cgi/gllnk_export.cgi) or SSH. Env vars: OWHOME, ORACLE_HOME/ORACLE_SID, LM_LICENSE_FILE (OW), PRDM_GEO_LICENSE_FILE (Geolog).",
+  "targets": "Landmark OpenWorks (LGC), Paradigm Geolog6, and PGL's own IC databases. Introduced in IP v3.2.",
+  "relevance_sandibumi": "out (Landmark OpenWorks not in Mahakam/SandiBumi scope). Documented for completeness.",
+  "tier": "Tier D mechanism"
+ },
+
+ "geolog_ascii_import_options": {
+  "source_file": "GeologASCII_options.txt",
+  "purpose": "Controls how Geolog ASCII exports are ingested into IP: which Geolog sets become Tops/Picks, and Geolog->IP set-name + depth-name normalisation.",
+  "tops_set_name_prefixes": ["TOPS","TOP","SURFACE"],
+  "top_zone_name_curve_prefixes": ["TOPS","FORMATION","ZONE","SURFACE","GEOPARAMS","PARA"],
+  "set_name_mappings": [{"geolog_set":"Composite","ip_set":"Comp"}],
+  "geolog_depth_names": ["DEPTH","TDEP","DEPT","MD","INDEX","TVD"],
+  "flags": {"LoadGeologTopToPicks":true,"LoadTOPStoTops/Parameters":true,"IncludeParametersWithTOPS":true,"LoadNonTopsSetsIntoTops/Parameters":false},
+  "relevance_sandibumi": "v1-core. Directly reusable rules for a Geolog-ASCII importer: depth-mnemonic candidate list (DEPTH/TDEP/DEPT/MD/INDEX/TVD), tops-set recognition prefixes, and set-name aliasing. Small but a drop-in for import auto-detection.",
+  "tier": "Tier A"
+ },
+
+ "geolog_shading_palette_mapping": {
+  "source_file": "GeologIPShadingMapping.txt",
+  "purpose": "Translate Geolog layout-file shading (named colors, fill styles, lithology codes) and color maps to IP equivalents on layout/template import.",
+  "color_mappings_count": 60,
+  "color_mapping_samples": {"BLUE_VIOLET":"Med Purple","CHOCOLATE1":"Med Brown","DARK_OLIVE_GREEN":"Teal","DEEP_PINK":"Med Orchid","EARTH12":"Gold","EARTH15":"Yellow","WHITE":"Blank"},
+  "lithology_fill_mappings": {"CALC":"Limestone","ILL":"Med Purple","DOL":"Dolomite","Sid":"Dark Blue","PYR":"Black","CM1":"Clay"},
+  "colormap_palette_mappings": [{"geolog":"earth_color","ip":"Schlumberger.pal"},{"geolog":"fzi","ip":"BGR.pal"},{"geolog":"gray_reverse_16","ip":"Grayscale.pal"}],
+  "relevance_sandibumi": "later (presentation/template theming). Useful when porting Geolog layouts; lithology fill codes (CALC/DOL/ILL/PYR) confirm the mineral-fill vocabulary.",
+  "tier": "Tier A / Tier D-adjacent (display)"
+ },
+
+ "powerlog_bridge": {
+  "source_file": "PowerLogToVbConfig.xml (51 KB)",
+  "purpose": "Parser config translating PowerLog (CGG/Fugro-Robertson petrophysics package) script/equation syntax to IP's internal VB. A code-migration bridge, not a data bridge.",
+  "relevance_sandibumi": "out (PowerLog script migration niche). Noted for completeness.",
+  "tier": "Tier A (structure); do not port PowerLog algorithm expressions"
+ },
+
+ "loglan_to_vb_bridge": {
+  "source_file": "LlsToVbConfig.xml (34 KB)",
+  "purpose": "Parser/translation config mapping Geolog Loglan (.lls) operators & intrinsic functions to IP's VB target language: prefix/infix operators (** -> ^, |> -> Math.Max, |< -> Math.Min, / -> helperFunctions.Divide, 'to' range), used when importing/converting Geolog Loglan modules into IP user-programs.",
+  "relevance_sandibumi": "reference. Confirms the Loglan operator set (matches geolog-loglan skill). Not a data-model item; a language-migration map. SandiBumi reimplements methods from primary papers, not by transpiling Loglan.",
+  "tier": "Tier A (operator table)"
+ },
+
+ "dlis_import_mappings": {
+  "source_file": "DLISCurveAttributesMappings.configUpdate",
+  "purpose": "Vendor-specific DLIS curve/axis/channel attribute -> IP internal name mappings, primarily for array/waveform (sonic, image) tools. Rows keyed by (Vendor, Type, AxisId, Property, IPName, FrameName, AttributeName).",
+  "vendors": ["BKR (Baker)","Halliburton","SLB (Schlumberger)","IP/BKR/SLB (generic)"],
+  "mapping_types": ["Extended Data (ToolMeasurePoint from TOOL_STRING_MEASURE_POINT_OFFSET)","Channel Attribute (Dimension->wfNpts, Units->wfUnits)","Axis Attribute (SENSOR_OFFSET/SONIC_TIME/TIME spacing+coordinate -> wfSampleRate/wfStart/wfStop/wfRxRxSpacing/wfTR1Distance)"],
+  "companion_files": ["PGL.ExternalDB.DLIS.Reader.dll / .Writer.dll","DlisTemplate.htm / DlisWizardInfoTemplate.htm (import wizard report templates)","DK.Atlas.XStreamConnect.dll (Baker XStream/Atlas connect)"],
+  "relevance_sandibumi": "v1-core-adjacent. Confirms the waveform-frame attribute vocabulary (sample rate/start/stop/Rx-Rx spacing) IP maps out of vendor DLIS. If SandiBumi ingests DLIS array/sonic frames, this is the per-vendor axis-attribute map to reproduce.",
+  "tier": "Tier A"
+ },
+
+ "petrel_export_bridge": {
+  "source_file": "IP Unit Mappings.xml (see G_reference_tables.json -> IP_Petrel_Unit_Mappings)",
+  "purpose": "IP->Petrel unit-string normalisation on export/import (e.g. gm/cc -> g/cm3, usec/ft -> us/ft, ohmm -> ohm.m, api/gapi -> gAPI).",
+  "relevance_sandibumi": "v1-core. Reusable unit-alias table for Petrel interop and general unit canonicalisation.",
+  "tier": "Tier A"
+ },
+
+ "other_import_configs_noted": {
+  "PetrologSets.xml": "Maps Petrolog visual separators (*****, *EDIT_LOGS* etc) to IP set names on Petrolog import. Ships EMPTY (blank template row) in this install - concept only, no data. Tier A.",
+  "GeosteeringTypeLogSets.Xml": "Default color-spectrum/scale presets for geosteering type logs (GR 0-150, GR_Rainbow default; spectra GR_EarthColors/GR_YellowBrown/GR_LithColor/Fracc_Spectrum/Poro_Spec). 1 default row. Scope: later. Tier A.",
+  "RequestedDataDescriptionLists.xml": "WITSML/real-time streaming request lists (Explicit/Implicit; PTK Depth & PTK Time drilling-channel catalogs: HKLD/SPPA/ROP/RPM/ECD/vibration/MWD-LWD real-time codes). Scope: out (WITSML realtime). Tier A taxonomy.",
+  "SanitizingSchema.xsd": "code/unit sanitizing map schema for illegal-mnemonic normalisation on import (see G_datamodel_schemas.json). Scope: v1-core concept.",
+  "IpClassicPythonlink.py": "IP 'Classic' Python user-module bridge (IPLink class: SetupParameters/Run/UserCode, Read_Well_Attribute, per-zone input/output curve + parameter arrays). Analogue of Geolog Python-type Loglan. Scope: later (scripting)."
+ },
+
+ "naming_rosetta": {
+  "note": "Consolidated cross-tool entity naming for SandiBumi interop layer.",
+  "table": [
+   {"concept":"project/db","IP":"Database","Techlog":"project","Geolog":"project","OpenWorks":"project"},
+   {"concept":"well","IP":"Well","Techlog":"Well","Geolog":"Well","OpenWorks":"Well"},
+   {"concept":"curve group sharing depth","IP":"CurveSet (Set)","Techlog":"Dataset","Geolog":"Set","OpenWorks":"logcurve group"},
+   {"concept":"log curve","IP":"Curve","Techlog":"Variable/log","Geolog":"Log","OpenWorks":"logcurve"},
+   {"concept":"zonation","IP":"ZoneSet->Zone","Techlog":"Zoneset->Zone","Geolog":"Zoneset/Tops set","OpenWorks":"tops"},
+   {"concept":"depth mnemonics","IP":"DEPTH/DEPT/MD/TVD/INDEX/TDEP","Techlog":"same family","Geolog":"DEPTH/TDEP/DEPT/MD/INDEX/TVD","OpenWorks":"-"}
+  ]
+ }
+}

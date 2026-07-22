@@ -1,0 +1,1227 @@
+{
+  "elanToIP": {
+    "source": "ElanToIPMapping.par",
+    "purpose": "Techlog Quanti.Elan mineral & equation names <-> IP mineral (MinDef.par) & equation (MinEqDef.par) names.",
+    "minerals": [
+      {
+        "elan": "QUAR",
+        "ip": "Quartz"
+      },
+      {
+        "elan": "DOLO",
+        "ip": "Dolomite"
+      },
+      {
+        "elan": "CALC",
+        "ip": "Calcite"
+      },
+      {
+        "elan": "ILLI",
+        "ip": "Illite"
+      },
+      {
+        "elan": "KAOL",
+        "ip": "Kaolinite"
+      },
+      {
+        "elan": "CHLO",
+        "ip": "Chlorite"
+      },
+      {
+        "elan": "ALBI",
+        "ip": "Albite"
+      },
+      {
+        "elan": "MONT",
+        "ip": "Montmorill"
+      },
+      {
+        "elan": "GLAU",
+        "ip": "Glauconite"
+      },
+      {
+        "elan": "BIOT",
+        "ip": "Biotite"
+      },
+      {
+        "elan": "MUSC",
+        "ip": "Muscovite"
+      },
+      {
+        "elan": "SIDE",
+        "ip": "Siderite"
+      },
+      {
+        "elan": "ORTH",
+        "ip": "Orthoclase"
+      },
+      {
+        "elan": "PYRI",
+        "ip": "Pyrite"
+      },
+      {
+        "elan": "GYPS",
+        "ip": "Gypsum"
+      },
+      {
+        "elan": "ANHY",
+        "ip": "Anhydrite"
+      },
+      {
+        "elan": "HALI",
+        "ip": "Halite"
+      },
+      {
+        "elan": "XWAT",
+        "ip": "Water_Sxo"
+      },
+      {
+        "elan": "UWAT",
+        "ip": "Water_Sw"
+      },
+      {
+        "elan": "XOIL",
+        "ip": "Oil_Sxo"
+      },
+      {
+        "elan": "UOIL",
+        "ip": "Oil_Sw"
+      },
+      {
+        "elan": "XGAS",
+        "ip": "Gas_Sxo"
+      },
+      {
+        "elan": "UGAS",
+        "ip": "Gas_Sw"
+      }
+    ],
+    "equations": [
+      {
+        "elan": "RHOB",
+        "ip": "Density"
+      },
+      {
+        "elan": "NPHI",
+        "ip": "Neutron"
+      },
+      {
+        "elan": "DT",
+        "ip": "Sonic"
+      },
+      {
+        "elan": "CXDC_DWA",
+        "ip": "Cond._Cxo"
+      },
+      {
+        "elan": "CUDC_DWA",
+        "ip": "Cond._Ct"
+      },
+      {
+        "elan": "GR",
+        "ip": "GammaRay"
+      },
+      {
+        "elan": "U",
+        "ip": "U"
+      },
+      {
+        "elan": "SIGM",
+        "ip": "SIGMA"
+      },
+      {
+        "elan": "TPL",
+        "ip": "EPT_TPL"
+      },
+      {
+        "elan": "WWK",
+        "ip": "Pota"
+      },
+      {
+        "elan": "WWTH",
+        "ip": "Thor"
+      },
+      {
+        "elan": "WWUR",
+        "ip": "Uran"
+      }
+    ],
+    "counts": {
+      "minerals": 23,
+      "equations": 12
+    }
+  },
+  "loglanToIP": {
+    "source": "LlsToVbConfig.xml",
+    "purpose": "Geolog Loglan (.lls) -> VB.NET source transpiler config. IP ingests a Loglan module and rewrites its operators/builtins into VB.NET (compiled by IP's UserProgram engine). HIGH VALUE for SandiBumi: a ready-made Loglan-builtin -> target-language dictionary.",
+    "builtin_count": 82,
+    "builtins": [
+      "(",
+      "ABS",
+      "ACOS",
+      "AND",
+      "ASIN",
+      "ATAN",
+      "ATAN2",
+      "CONCAT",
+      "CONVERT",
+      "COS",
+      "Call",
+      "DIVIDE",
+      "DROUND",
+      "DoWhile",
+      "ELSEIF",
+      "ENCODE",
+      "EQ",
+      "EXP",
+      "FCLOSE",
+      "FILEDELETE",
+      "FILEEXISTS",
+      "FILEFIX",
+      "FILEVALID",
+      "FOPEN",
+      "FREAD",
+      "FWRITE",
+      "For",
+      "GE",
+      "GET_FRAME",
+      "GT",
+      "Goto",
+      "IF",
+      "IFC",
+      "IFCS",
+      "INDEX",
+      "INT",
+      "LDECODE",
+      "LE",
+      "LIMIT",
+      "LOCASE",
+      "LOG",
+      "LOG10",
+      "LT",
+      "MAX",
+      "MIN",
+      "MINUS",
+      "MISS",
+      "MOD",
+      "Multiply",
+      "NDECODE",
+      "NE",
+      "NINT",
+      "NONMISS",
+      "NOT",
+      "NUMSTR",
+      "OR",
+      "OUTSIDE",
+      "PLUS",
+      "POS_FRAME",
+      "POS_REFERENCE",
+      "PUT_FRAME",
+      "RAISE",
+      "RANGE",
+      "REWIND",
+      "ROUND",
+      "SCALE_APPLY",
+      "SCALE_CODE",
+      "SIGN",
+      "SIN",
+      "SKIP_FRAME",
+      "SQRT",
+      "STRNUM",
+      "SUBSTRING",
+      "TABLE",
+      "TAN",
+      "TMPFILE",
+      "TOKEN",
+      "TRIM",
+      "UMINUS",
+      "UPCASE",
+      "WILDCARD",
+      "until"
+    ],
+    "operator_and_builtin_translations": [
+      {
+        "opener": "until",
+        "params": 1,
+        "translation": "Loop Until {0}"
+      },
+      {
+        "opener": "For",
+        "params": 1,
+        "translation": "For {0}"
+      },
+      {
+        "opener": "(",
+        "params": 1,
+        "translation": "({0})"
+      },
+      {
+        "opener": "IF",
+        "params": 1,
+        "translation": "if {0} then"
+      },
+      {
+        "opener": "ELSEIF",
+        "params": 1,
+        "translation": "elseIf {0} then"
+      },
+      {
+        "opener": "Goto",
+        "params": 1,
+        "translation": "Goto {0}"
+      },
+      {
+        "opener": "Call",
+        "params": 1,
+        "translation": "Call {0}"
+      },
+      {
+        "opener": "DoWhile",
+        "params": 1,
+        "translation": "Do While {0}"
+      },
+      {
+        "opener": "FCLOSE",
+        "params": 1,
+        "translation": "helperFunctions.CloseFile({0})"
+      },
+      {
+        "opener": "FILEDELETE",
+        "params": 1,
+        "translation": "File.Delete({0})"
+      },
+      {
+        "opener": "FILEEXISTS",
+        "params": 1,
+        "translation": "File.Exists({0})"
+      },
+      {
+        "opener": "FILEVALID",
+        "params": 1,
+        "translation": "helperFunctions.IsFilenameValid({0})"
+      },
+      {
+        "opener": "FILEFIX",
+        "params": 1,
+        "translation": "helperFunctions.FixFilename({0})"
+      },
+      {
+        "opener": "FOPEN",
+        "params": 3,
+        "translation": "helperFunctions.OpenFile({0},{1},{2})"
+      },
+      {
+        "opener": "FREAD",
+        "params": 1,
+        "translation": "helperFunctions.ReadFile({0})"
+      },
+      {
+        "opener": "FWRITE",
+        "params": 2,
+        "translation": "helperFunctions.writeToFile({0},{1})"
+      },
+      {
+        "opener": "TMPFILE",
+        "params": 1,
+        "translation": "helperFunctions.TempFile({0})"
+      },
+      {
+        "opener": "GET_FRAME",
+        "params": 0,
+        "translation": "helperFunctions.Get_Frame(TopDepth, BottomDepth, index)"
+      },
+      {
+        "opener": "PUT_FRAME",
+        "params": 0,
+        "translation": "helperFunctions.Put_Frame()"
+      },
+      {
+        "opener": "POS_FRAME",
+        "params": 1,
+        "translation": "helperFunctions.Pos_Frame(TopDepth, BottomDepth, {0}, index)"
+      },
+      {
+        "opener": "POS_REFERENCE",
+        "params": 1,
+        "translation": "Pos_Reference(TopDepth, BottomDepth, {0}, index)"
+      },
+      {
+        "opener": "REWIND",
+        "params": 0,
+        "translation": "true:index = TopDepth - 1"
+      },
+      {
+        "opener": "SKIP_FRAME",
+        "params": 0,
+        "translation": "helperFunctions.Skip_Frame(TopDepth, BottomDepth, {0}, index)"
+      },
+      {
+        "opener": "AND",
+        "params": 2,
+        "translation": "({0} AND {1})"
+      },
+      {
+        "opener": "EQ",
+        "params": 2,
+        "translation": "({0} = {1})"
+      },
+      {
+        "opener": "GE",
+        "params": 2,
+        "translation": "({0} &gt;= {1})"
+      },
+      {
+        "opener": "GT",
+        "params": 2,
+        "translation": "({0} &gt; {1})"
+      },
+      {
+        "opener": "LE",
+        "params": 2,
+        "translation": "({0} &lt;= {1})"
+      },
+      {
+        "opener": "LT",
+        "params": 2,
+        "translation": "({0} &lt; {1})"
+      },
+      {
+        "opener": "MISS",
+        "params": 1,
+        "translation": "(Double.IsNan({0}))"
+      },
+      {
+        "opener": "NE",
+        "params": 2,
+        "translation": "({0} &lt;&gt;{1})"
+      },
+      {
+        "opener": "NOT",
+        "params": 1,
+        "translation": "(NOT ({0}))"
+      },
+      {
+        "opener": "OR",
+        "params": 2,
+        "translation": "({0} OR {1})"
+      },
+      {
+        "opener": "OUTSIDE",
+        "params": 3,
+        "translation": "((Double.IsNan({0}))OR(Double.IsNan({1}))OR(Double.IsNan({2}))OR({0}&gt; Math.Max({1},{2})OR({0} &lt; Math.Min({1},{2}))"
+      },
+      {
+        "opener": "RANGE",
+        "params": 3,
+        "translation": "((!Double.IsNan({1})) AND (!Double.IsNan({2})) AND (!Double.IsNan({0}) AND ({0} &lt;= Math.Max({1},{2}))AND ({0} &gt;= Math.Min({1},{2}))"
+      },
+      {
+        "opener": "TABLE",
+        "params": 2,
+        "translation": "({1}.Split(\" \").Contains({0})"
+      },
+      {
+        "opener": "ABS",
+        "params": 1,
+        "translation": "Math.Abs({0})"
+      },
+      {
+        "opener": "ACOS",
+        "params": 1,
+        "translation": "(Math.Acos({0})*180/(Math.PI))"
+      },
+      {
+        "opener": "ASIN",
+        "params": 1,
+        "translation": "(Math.Asin({0})*180/(Math.PI))"
+      },
+      {
+        "opener": "ATAN",
+        "params": 1,
+        "translation": "(Math.Atan({0})*180/(Math.PI))"
+      },
+      {
+        "opener": "ATAN2",
+        "params": 2,
+        "translation": "(Math.Atan2({0},{1})*180/(Math.PI))"
+      },
+      {
+        "opener": "COS",
+        "params": 1,
+        "translation": "Math.Cos({0}*Math.PI/180)"
+      },
+      {
+        "opener": "DIVIDE",
+        "params": 2,
+        "translation": "helperFunctions.Divide({0}/{1})"
+      },
+      {
+        "opener": "DROUND",
+        "params": 2,
+        "translation": "Math.Round({0},{1})"
+      },
+      {
+        "opener": "EXP",
+        "params": 1,
+        "translation": "Math.Exp({0})"
+      },
+      {
+        "opener": "IFC",
+        "params": 3,
+        "translation": "if({0},{1},{2})"
+      },
+      {
+        "opener": "INT",
+        "params": 1,
+        "translation": "Math.Truncate({0})"
+      },
+      {
+        "opener": "LIMIT",
+        "params": 3,
+        "translation": "helperFunctions.Limit({0},{1},{2})"
+      },
+      {
+        "opener": "LOG",
+        "params": 1,
+        "translation": "Math.Log({0})"
+      },
+      {
+        "opener": "LOG10",
+        "params": 1,
+        "translation": "Math.Log10({0})"
+      },
+      {
+        "opener": "MAX",
+        "params": 2,
+        "translation": "Math.Max({0},{1})"
+      },
+      {
+        "opener": "MAX",
+        "params": 3,
+        "translation": "Math.Max({0},Math.Max({1},{2}))"
+      },
+      {
+        "opener": "MAX",
+        "params": 4,
+        "translation": "Math.Max(Math.Max({0},{1}),Math.Max({2},{3}))"
+      },
+      {
+        "opener": "MAX",
+        "params": 5,
+        "translation": "Math.Max({0},Math.Max(Math.Max({1},{2}),Math.Max({3},{4})))"
+      },
+      {
+        "opener": "MAX",
+        "params": 6,
+        "translation": "Math.Max(Math.Max({0},{1}),Math.Max(Math.Max({2},{3}),Math.Max({3},{4})))"
+      },
+      {
+        "opener": "MAX",
+        "params": 7,
+        "translation": "Math.Max({0},Math.Max(Math.Max({1},{2}),Math.Max(Math.Max({3},{4}),Math.Max({5},{6}))))"
+      },
+      {
+        "opener": "MAX",
+        "params": 8,
+        "translation": "Math.Max(Math.Max(Math.Max({0},{1}),Math.Max({2},{3})),Math.Max(Math.Max({4},{5}),Math.Max({6},{7})))"
+      },
+      {
+        "opener": "MAX",
+        "params": 9,
+        "translation": "Math.Max(Math.Max(Math.Max(Math.Max({0},{1}),Math.Max({2},{3})),Math.Max(Math.Max({4},{5}),Math.Max({6},{7}))),{8})"
+      },
+      {
+        "opener": "MAX",
+        "params": 10,
+        "translation": "Math.Max(Math.Max({0},Math.Max(Math.Max({1},{2}),Math.Max({3},{4}))),Math.Max({5},Math.Max(Math.Max({6},{7}),Math.Max({8},{9}))))"
+      },
+      {
+        "opener": "MIN",
+        "params": 2,
+        "translation": "Math.Min({0},{1})"
+      },
+      {
+        "opener": "MIN",
+        "params": 3,
+        "translation": "Math.Min({0},Math.Min({1},{2}))"
+      },
+      {
+        "opener": "MIN",
+        "params": 4,
+        "translation": "Math.Min(Math.Min({0},{1}),Math.Min({2},{3}))"
+      },
+      {
+        "opener": "MIN",
+        "params": 5,
+        "translation": "Math.Min({0},Math.Min(Math.Min({1},{2}),Math.Min({3},{4})))"
+      },
+      {
+        "opener": "MIN",
+        "params": 6,
+        "translation": "Math.Min(Math.Min({0},{1}),Math.Min(Math.Min({2},{3}),Math.Min({3},{4})))"
+      },
+      {
+        "opener": "MIN",
+        "params": 7,
+        "translation": "Math.Min({0},Math.Min(Math.Min({1},{2}),Math.Min(Math.Min({3},{4}),Math.Min({5},{6}))))"
+      },
+      {
+        "opener": "MIN",
+        "params": 8,
+        "translation": "Math.Min(Math.Min(Math.Min({0},{1}),Math.Min({2},{3})),Math.Min(Math.Min({4},{5}),Math.Min({6},{7})))"
+      },
+      {
+        "opener": "MIN",
+        "params": 9,
+        "translation": "Math.Min(Math.Min(Math.Min(Math.Min({0},{1}),Math.Min({2},{3})),Math.Min(Math.Min({4},{5}),Math.Min({6},{7}))),{8})"
+      },
+      {
+        "opener": "MIN",
+        "params": 10,
+        "translation": "Math.Min(Math.Min({0},Math.Min(Math.Min({1},{2}),Math.Min({3},{4}))),Math.Min({5},Math.Min(Math.Min({6},{7}),Math.Min({8},{9}))))"
+      },
+      {
+        "opener": "MINUS",
+        "params": 2,
+        "translation": "({0}-{1})"
+      },
+      {
+        "opener": "MOD",
+        "params": 2,
+        "translation": "({0} Mod {1})"
+      },
+      {
+        "opener": "Multiply",
+        "params": 2,
+        "translation": "({0} * {1})"
+      },
+      {
+        "opener": "NINT",
+        "params": 1,
+        "translation": "Math.Round({0})"
+      },
+      {
+        "opener": "NONMISS",
+        "params": 2,
+        "translation": "if(Double.IsNan({0}),{1},{0})"
+      },
+      {
+        "opener": "NONMISS",
+        "params": 3,
+        "translation": "if(Double.IsNan({0}),if(Double.IsNan({1}),{2},{1}),{0})"
+      },
+      {
+        "opener": "NONMISS",
+        "params": 4,
+        "translation": "if(Double.IsNan({0}),if(Double.IsNan({1}),if(Double.IsNan({2}),{3},{2}),{1}),{0})"
+      },
+      {
+        "opener": "NONMISS",
+        "params": 5,
+        "translation": "if(Double.IsNan({0}),if(Double.IsNan({1}),if(Double.IsNan({2}),if(Double.IsNan({3}),{4},{3}),{2}),{1}),{0})"
+      },
+      {
+        "opener": "NONMISS",
+        "params": 6,
+        "translation": "if(Double.IsNan({0}),if(Double.IsNan({1}),if(Double.IsNan({2}),if(Double.IsNan({3}),if(Double.IsNan({4}),{5},{4}),{3}),{2}),{1}),{0})"
+      },
+      {
+        "opener": "NONMISS",
+        "params": 7,
+        "translation": "if(Double.IsNan({0}),if(Double.IsNan({1}),if(Double.IsNan({2})),if(Double.IsNan({3}),if(Double.IsNan({4}),if(Double.IsNan({5}),{6}, {5}),{4}),{3}),{2}),{1}),{0})"
+      },
+      {
+        "opener": "NONMISS",
+        "params": 8,
+        "translation": "if(Double.IsNan({0}),if(Double.IsNan({1}),if(Double.IsNan({2}),if(Double.IsNan({3}),if(Double.IsNan({4}),if(Double.IsNan({5}),if(Double.IsNan({6}),{7},{6}),{5}),{4}),{3}),{2}),{1}),{0})"
+      },
+      {
+        "opener": "NONMISS",
+        "params": 9,
+        "translation": "if(Double.IsNan({0}),if(Double.IsNan({1}),if(Double.IsNan({2}),if(Double.IsNan({3}),if(Double.IsNan({4}),if(Double.IsNan({5}),if(Double.IsNan({6}),if(Double.IsNan({7}),{8},{7}),{6}),{5}),{4}),{3}),{2}),{1}),{0})"
+      },
+      {
+        "opener": "NONMISS",
+        "params": 10,
+        "translation": "if(Double.IsNan({0}),if(Double.IsNan({1}),if(Double.IsNan({2}),if(Double.IsNan({3}),if(Double.IsNan({4}),if(Double.IsNan({5}),if(Double.IsNan({6}),IF(Double.IsNan({7}),if(Double.IsNan({8}),{9},{8}),{7}),{6}),{5}),{4}),{3}),{2}),{1}),{0})"
+      },
+      {
+        "opener": "PLUS",
+        "params": 2,
+        "translation": "({0}+{1})"
+      },
+      {
+        "opener": "RAISE",
+        "params": 2,
+        "translation": "({0}^{1})"
+      },
+      {
+        "opener": "ROUND",
+        "params": 2,
+        "translation": "helperFunctions.RoundToSignificantFigures({0},{1})"
+      },
+      {
+        "opener": "SIGN",
+        "params": 2,
+        "translation": "if({1}&lt;0,0-Math.Abs({0}),Math.Abs({0}))"
+      },
+      {
+        "opener": "SIN",
+        "params": 1,
+        "translation": "Math.Sin({0}*Math.PI/180)"
+      },
+      {
+        "opener": "SQRT",
+        "params": 1,
+        "translation": "IF({0} &lt; 0,Double.Nan,Math.Sqrt({0}))"
+      },
+      {
+        "opener": "TAN",
+        "params": 1,
+        "translation": "Math.Tan({0}*Math.PI/180)"
+      },
+      {
+        "opener": "UMINUS",
+        "params": 1,
+        "translation": "(0-{0})"
+      },
+      {
+        "opener": "CONCAT",
+        "params": 2,
+        "translation": "({0}+{1})"
+      },
+      {
+        "opener": "CONCAT",
+        "params": 3,
+        "translation": "({0}+{1}+{2})"
+      },
+      {
+        "opener": "CONCAT",
+        "params": 4,
+        "translation": "({0}+{1}+{2}+{3})"
+      },
+      {
+        "opener": "CONCAT",
+        "params": 5,
+        "translation": "({0}+{1}+{2}+{3}+{4})"
+      },
+      {
+        "opener": "CONCAT",
+        "params": 6,
+        "translation": "({0}+{1}+{2}+{3}+{4}+{5})"
+      },
+      {
+        "opener": "CONCAT",
+        "params": 7,
+        "translation": "({0}+{1}+{2}+{3}+{4}+{5}+{6})"
+      },
+      {
+        "opener": "CONCAT",
+        "params": 8,
+        "translation": "({0}+{1}+{2}+{3}+{4}+{5}+{6}+{7})"
+      },
+      {
+        "opener": "CONCAT",
+        "params": 9,
+        "translation": "({0}+{1}+{2}+{3}+{4}+{5}+{6}+{7}+{8})"
+      },
+      {
+        "opener": "CONCAT",
+        "params": 10,
+        "translation": "({0}+{1}+{2}+{3}+{4}+{5}+{6}+{7}+{8}+{9})"
+      },
+      {
+        "opener": "CONVERT",
+        "params": 2,
+        "translation": "helperFunctions.FormatOutput({0},{1})"
+      },
+      {
+        "opener": "ENCODE",
+        "params": 2,
+        "translation": "helperFunctions.FormatOutput({0},{1})"
+      },
+      {
+        "opener": "IFCS",
+        "params": 3,
+        "translation": "if({0},{1},{2})"
+      },
+      {
+        "opener": "INDEX",
+        "params": 2,
+        "translation": "IF({0}.Length &gt;= {1}.Length, {0}.IndexOf({1})+1,0)"
+      },
+      {
+        "opener": "LDECODE",
+        "params": 1,
+        "translation": "(({0}.ToUpper()=\"TRUE\")OR({0}.ToUpper()=\"YES\"))"
+      },
+      {
+        "opener": "LOCASE",
+        "params": 1,
+        "translation": "{0}.ToLower()"
+      },
+      {
+        "opener": "NDECODE",
+        "params": 1,
+        "translation": "helperFunctions.GetDoubleFromString({0})"
+      },
+      {
+        "opener": "NUMSTR",
+        "params": 1,
+        "translation": "{0}.ToString()"
+      },
+      {
+        "opener": "SCALE_APPLY",
+        "params": 3,
+        "translation": "helperFunctions.Apply_Scale({0},{1},{2})"
+      },
+      {
+        "opener": "SCALE_CODE",
+        "params": 1,
+        "translation": "helperFunctions.Find_Scale_Code({0})"
+      },
+      {
+        "opener": "STRNUM",
+        "params": 1,
+        "translation": "helperFunctions.GetDoubleFromString({0})"
+      },
+      {
+        "opener": "SUBSTRING",
+        "params": 3,
+        "translation": "{0}.Substring({1}-1,{2})"
+      },
+      {
+        "opener": "TOKEN",
+        "params": 2,
+        "translation": "if({0}.Split(\" \").Count&lt;{1},\"\",{0}.Split(\" \")[{1}-1])"
+      },
+      {
+        "opener": "TRIM",
+        "params": 1,
+        "translation": "{0}.TrimEnd()"
+      },
+      {
+        "opener": "UPCASE",
+        "params": 1,
+        "translation": "{0}.ToUpper()"
+      },
+      {
+        "opener": "WILDCARD",
+        "params": 2,
+        "translation": "helperFunctions.Match_Regex({0},{1})"
+      }
+    ],
+    "notes": [
+      "Divide/, uses helperFunctions.Divide (null-safe divide).",
+      "MISS -> Double.IsNaN ; NONMISS -> nested IsNaN fallbacks (2..10 arg overloads).",
+      "Frame I/O (GET_FRAME/PUT_FRAME/POS_FRAME/SKIP_FRAME/REWIND) -> helperFunctions frame calls.",
+      "Trig funcs assume DEGREES (multiply by PI/180).",
+      "SQRT of negative -> NaN ; RANNORMAL / F-distribution / UNIT_CONVERT emit warning stubs (unsupported).",
+      "Embedded C (.cc_begin/.cc_end) is NOT translated (left as comment)."
+    ]
+  },
+  "powerLogToIP": {
+    "source": "PowerLogToVbConfig.xml",
+    "purpose": "PowerLog (Landmark/Halliburton) script -> VB.NET transpiler config; PowerLog uses a VBA-like dialect.",
+    "generic_vb_builtin_count": 198,
+    "petrophysical_builtins": {
+      "note": "PowerLog exposes named petrophysical builtins that translate to compiled helperFunctions.* (algorithm NOT in file). Names + arity confirm which published methods PowerLog/IP support. Tier B: reimplement from primary papers, not from IP.",
+      "count": 22,
+      "functions": [
+        {
+          "function": "Arps",
+          "params": 3
+        },
+        {
+          "function": "BoostSw",
+          "params": 3
+        },
+        {
+          "function": "CheckLimit",
+          "params": 1
+        },
+        {
+          "function": "ClayCorrectDensity",
+          "params": 3
+        },
+        {
+          "function": "ClayCorrectNeutron",
+          "params": 3
+        },
+        {
+          "function": "ClayCorrectSonic",
+          "params": 3
+        },
+        {
+          "function": "CompF",
+          "params": 3
+        },
+        {
+          "function": "CompPNaCl",
+          "params": 2
+        },
+        {
+          "function": "CompPhiLimit",
+          "params": 3
+        },
+        {
+          "function": "CompPhiS1Eqns",
+          "params": 1
+        },
+        {
+          "function": "CompPhiSwEqns",
+          "params": 1
+        },
+        {
+          "function": "CompR0",
+          "params": 2
+        },
+        {
+          "function": "CompRhoMf",
+          "params": 2
+        },
+        {
+          "function": "CompRo",
+          "params": 2
+        },
+        {
+          "function": "CompSrhlF",
+          "params": 2
+        },
+        {
+          "function": "PhiSonicHuntRaymer",
+          "params": 4
+        },
+        {
+          "function": "PhiSonicWyllie",
+          "params": 4
+        },
+        {
+          "function": "SwArchie",
+          "params": 3
+        },
+        {
+          "function": "SwIndonesian",
+          "params": 5
+        },
+        {
+          "function": "SwModSimandoux",
+          "params": 5
+        },
+        {
+          "function": "SwSimandoux",
+          "params": 5
+        },
+        {
+          "function": "mBoostForVcl",
+          "params": 3
+        }
+      ],
+      "method_identification": {
+        "PhiSonicWyllie": "Wyllie time-average sonic porosity (Tier B)",
+        "PhiSonicHuntRaymer": "Raymer-Hunt-Gardner sonic porosity (Tier B)",
+        "SwArchie": "Archie water saturation (Tier B)",
+        "SwSimandoux": "Simandoux shaly-sand Sw (Tier B)",
+        "SwModSimandoux": "Modified/Bardon-Pied Simandoux Sw (Tier B)",
+        "SwIndonesian": "Poupon-Leveaux Indonesia Sw (Tier B)",
+        "CompF": "Formation resistivity factor F = a/phi^m (Tier B)",
+        "CompR0": "R0 wet-rock resistivity (Tier B)",
+        "CompRo": "Ro / apparent-Rw computation (Tier B)",
+        "CompPNaCl": "NaCl concentration from resistivity/salinity (Tier B)",
+        "CompRhoMf": "Mud-filtrate density from salinity/temp (Tier B)",
+        "ClayCorrectNeutron/Density/Sonic": "Shale/clay corrections to porosity logs (Tier B)",
+        "mBoostForVcl / BoostSw / CompSrhlF": "Vcl-driven m boost & Sw boosting (vendor heuristics; approach only)",
+        "Arps": "Arps decline curve (Tier B; out-of-scope for openhole v1)"
+      }
+    }
+  },
+  "geologAsciiImport": {
+    "source": "GeologASCII_options.txt",
+    "purpose": "Geolog ASCII export -> IP import options (tops/picks routing, set-name & depth-mnemonic mapping).",
+    "raw_options": "$ Load Geolog top to Picks\nYes\n$ Load Geolog TOPS to Tops/Parameters\nYes\n$ Include Parameters with TOPS\nYes\n$ Load certain non-tops sets into Tops/Parameters\nNo\n$ Geolog Tops sets name start with :\nTOPS\nTOP\nSURFACE\n$ Geolog Top/Zone name curve starts with :\nTOPS\nFORMATION\nZONE\nSURFACE\nGEOPARAMS\nPARA\n$ Geolog to Set Name Mapppings\n$ Format : 'Geolog Set Name' , 'Set Name' \nComposite  ,  Comp\n$ Geolog Depth Names\nDEPTH\nTDEP\nDEPT\nMD\nINDEX\nTVD"
+  },
+  "geologShadingMap": {
+    "source": "GeologIPShadingMapping.txt",
+    "purpose": "Geolog layout shading color/fill name -> IP shade name; plus Geolog color-map -> IP .pal palette.",
+    "colorMap": [
+      {
+        "geolog": "BEIGE",
+        "ip": "Tan"
+      },
+      {
+        "geolog": "BLACK",
+        "ip": "BLACK"
+      },
+      {
+        "geolog": "BLUE",
+        "ip": "BLUE"
+      },
+      {
+        "geolog": "BLUE_VIOLET",
+        "ip": "Med Purple"
+      },
+      {
+        "geolog": "BROWN",
+        "ip": "BROWN"
+      },
+      {
+        "geolog": "CADET_BLUE",
+        "ip": "Light Blue"
+      },
+      {
+        "geolog": "CHOCOLATE1",
+        "ip": "Med Brown"
+      },
+      {
+        "geolog": "CHOCOLATE2",
+        "ip": "Brown"
+      },
+      {
+        "geolog": "CORAL",
+        "ip": "Orange"
+      },
+      {
+        "geolog": "CYAN",
+        "ip": "Aqua"
+      },
+      {
+        "geolog": "DARK_GREEN",
+        "ip": "Med Green"
+      },
+      {
+        "geolog": "DARK_OLIVE_GREEN",
+        "ip": "Teal"
+      },
+      {
+        "geolog": "DARK_ORCHID",
+        "ip": "Dk Violet"
+      },
+      {
+        "geolog": "DARK_SLATE_BLUE",
+        "ip": "Navy"
+      },
+      {
+        "geolog": "DARK_SLATE_GRAY",
+        "ip": "DrkGray"
+      },
+      {
+        "geolog": "DARK_TURQUOISE",
+        "ip": "Teal"
+      },
+      {
+        "geolog": "DEEP_PINK",
+        "ip": "Med Orchid"
+      },
+      {
+        "geolog": "DEEP_SKY_BLUE",
+        "ip": "Navy"
+      },
+      {
+        "geolog": "DIM_GRAY",
+        "ip": "LtGray"
+      },
+      {
+        "geolog": "DODGER_BLUE",
+        "ip": "Light Blue"
+      },
+      {
+        "geolog": "EARTH12",
+        "ip": "Gold"
+      },
+      {
+        "geolog": "EARTH15",
+        "ip": "Yellow"
+      },
+      {
+        "geolog": "EARTH4",
+        "ip": "Purple"
+      },
+      {
+        "geolog": "EARTH7",
+        "ip": "Orange"
+      },
+      {
+        "geolog": "EARTH8",
+        "ip": "Orange"
+      },
+      {
+        "geolog": "EARTH9",
+        "ip": "Orange"
+      },
+      {
+        "geolog": "GRAY",
+        "ip": "LtGray"
+      },
+      {
+        "geolog": "GRAY14",
+        "ip": "LtGray"
+      },
+      {
+        "geolog": "GRAY7",
+        "ip": "DrkGray"
+      },
+      {
+        "geolog": "GRAY8",
+        "ip": "DrkGray"
+      },
+      {
+        "geolog": "GREEN",
+        "ip": "GREEN"
+      },
+      {
+        "geolog": "LIGHT_CYAN",
+        "ip": "Aqua"
+      },
+      {
+        "geolog": "LIGHT_GRAY",
+        "ip": "LtGray"
+      },
+      {
+        "geolog": "LIGHT_PINK",
+        "ip": "Fuchsia"
+      },
+      {
+        "geolog": "LIGHT_SALMON",
+        "ip": "Violet"
+      },
+      {
+        "geolog": "LIGHT_SKY_BLUE",
+        "ip": "Light Cyan"
+      },
+      {
+        "geolog": "LIGHTGOLDENROD1",
+        "ip": "Tan"
+      },
+      {
+        "geolog": "LIME_GREEN",
+        "ip": "Lime"
+      },
+      {
+        "geolog": "MAGENTA",
+        "ip": "Fuchsia"
+      },
+      {
+        "geolog": "MAROON",
+        "ip": "MAROON"
+      },
+      {
+        "geolog": "MEDIUM_TURQUOISE",
+        "ip": "Aqua"
+      },
+      {
+        "geolog": "NAVY_BLUE",
+        "ip": "Navy"
+      },
+      {
+        "geolog": "OLIVE_DRAB",
+        "ip": "Olive"
+      },
+      {
+        "geolog": "ORANGE",
+        "ip": "ORANGE"
+      },
+      {
+        "geolog": "ORANGE_RED",
+        "ip": "ORANGE"
+      },
+      {
+        "geolog": "PALE_GRAY",
+        "ip": "LtGray"
+      },
+      {
+        "geolog": "PALE_GREEN",
+        "ip": "Lt Green"
+      },
+      {
+        "geolog": "PINK",
+        "ip": "Violet"
+      },
+      {
+        "geolog": "POWDER_BLUE",
+        "ip": "Light Blue"
+      },
+      {
+        "geolog": "PURPLE",
+        "ip": "PURPLE"
+      },
+      {
+        "geolog": "RED",
+        "ip": "RED"
+      },
+      {
+        "geolog": "ROYAL_BLUE",
+        "ip": "Dark BLUE"
+      },
+      {
+        "geolog": "SANDY_BROWN",
+        "ip": "Med Brown"
+      },
+      {
+        "geolog": "SKY_BLUE",
+        "ip": "Light Blue"
+      },
+      {
+        "geolog": "SLATE_GRAY",
+        "ip": "DrkGray"
+      },
+      {
+        "geolog": "WHEAT",
+        "ip": "Tan"
+      },
+      {
+        "geolog": "WHITE",
+        "ip": "Blank"
+      },
+      {
+        "geolog": "YELLOW",
+        "ip": "YELLOW"
+      },
+      {
+        "geolog": "YELLOW_GREEN",
+        "ip": "Gold"
+      },
+      {
+        "geolog": "YELLOW2",
+        "ip": "Gold"
+      },
+      {
+        "geolog": "CALC",
+        "ip": "Limestone"
+      },
+      {
+        "geolog": "ILL",
+        "ip": "Med Purple"
+      },
+      {
+        "geolog": "DOL",
+        "ip": "Dolomite"
+      },
+      {
+        "geolog": "Sid",
+        "ip": "Dark Blue"
+      },
+      {
+        "geolog": "PYR",
+        "ip": "Black"
+      },
+      {
+        "geolog": "CM1",
+        "ip": "Clay"
+      }
+    ],
+    "paletteMap": [
+      {
+        "geologColorMap": "earth_color",
+        "ipPalette": "Schlumberger.pal"
+      },
+      {
+        "geologColorMap": "fzi",
+        "ipPalette": "BGR.pal"
+      },
+      {
+        "geologColorMap": "gray_reverse_16",
+        "ipPalette": "Grayscale.pal"
+      }
+    ]
+  }
+}

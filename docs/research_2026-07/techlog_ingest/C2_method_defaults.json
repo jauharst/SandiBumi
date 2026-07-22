@@ -1,0 +1,2622 @@
+{
+ "QDensityEffective_PR.xml": {
+  "n": 140,
+  "params": [
+   {
+    "name": "Shale Volume_Min",
+    "value": "0",
+    "unit": "v/v"
+   },
+   {
+    "name": "Shale Volume_Max",
+    "value": "0.5",
+    "unit": "v/v"
+   },
+   {
+    "name": "Shale Volume_Unit",
+    "value": "v/v",
+    "unit": ""
+   },
+   {
+    "name": "Shale Volume_bounds",
+    "value": "min <= val < max",
+    "unit": ""
+   },
+   {
+    "name": "Porosity_Min",
+    "value": "0",
+    "unit": "v/v"
+   },
+   {
+    "name": "Porosity_Max",
+    "value": "0.5",
+    "unit": "v/v"
+   },
+   {
+    "name": "Porosity_Unit",
+    "value": "v/v",
+    "unit": ""
+   },
+   {
+    "name": "Porosity_bounds",
+    "value": "min <= val < max",
+    "unit": ""
+   },
+   {
+    "name": "Water Saturation_Min",
+    "value": "0",
+    "unit": "v/v"
+   },
+   {
+    "name": "Water Saturation_Max",
+    "value": "0.85",
+    "unit": "v/v"
+   },
+   {
+    "name": "Water Saturation_Unit",
+    "value": "v/v",
+    "unit": ""
+   },
+   {
+    "name": "Water Saturation_bounds",
+    "value": "min <= val < max",
+    "unit": ""
+   },
+   {
+    "name": "GR_matrix",
+    "value": "10",
+    "unit": ""
+   },
+   {
+    "name": "GR_shale",
+    "value": "100",
+    "unit": ""
+   },
+   {
+    "name": "GR method",
+    "value": "Linear",
+    "unit": ""
+   },
+   {
+    "name": "TH_matrix",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "TH_shale",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "TH method",
+    "value": "Linear",
+    "unit": ""
+   },
+   {
+    "name": "POTA_matrix",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "POTA_shale",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "POTA method",
+    "value": "Linear",
+    "unit": ""
+   },
+   {
+    "name": "SP_matrix",
+    "value": "-140",
+    "unit": ""
+   },
+   {
+    "name": "SP_shale",
+    "value": "20",
+    "unit": ""
+   },
+   {
+    "name": "Res_limit",
+    "value": "1",
+    "unit": ""
+   },
+   {
+    "name": "Res_shale",
+    "value": "10",
+    "unit": "ohm.m"
+   },
+   {
+    "name": "Res method",
+    "value": "Gaymar",
+    "unit": ""
+   },
+   {
+    "name": "b exponent",
+    "value": "1",
+    "unit": ""
+   },
+   {
+    "name": "NPHI_matrix",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "NPHI_shale",
+    "value": "0.4",
+    "unit": "v/v"
+   },
+   {
+    "name": "NPHI_fluid",
+    "value": "1",
+    "unit": ""
+   },
+   {
+    "name": "RHOB_matrix",
+    "value": "2.65",
+    "unit": ""
+   },
+   {
+    "name": "RHOB_shale",
+    "value": "2.45",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "RHOB_fluid",
+    "value": "1",
+    "unit": ""
+   },
+   {
+    "name": "DT_matrix",
+    "value": "55.5",
+    "unit": ""
+   },
+   {
+    "name": "DT_shale",
+    "value": "100",
+    "unit": ""
+   },
+   {
+    "name": "DT_fluid",
+    "value": "189",
+    "unit": ""
+   },
+   {
+    "name": "Final VSH Method",
+    "value": "minimum",
+    "unit": ""
+   },
+   {
+    "name": "VSH selection",
+    "value": "Gamma ray (GR);Neutron Density (ND)",
+    "unit": ""
+   },
+   {
+    "name": "Use flag",
+    "value": "yes",
+    "unit": ""
+   },
+   {
+    "name": "Final VSH Method if flag = 1",
+    "value": "minimum",
+    "unit": ""
+   },
+   {
+    "name": "Water phase salinity invaded zone",
+    "value": "6.7",
+    "unit": ""
+   },
+   {
+    "name": "Hydrocarbon density",
+    "value": "0.7",
+    "unit": ""
+   },
+   {
+    "name": "Neutron tool type",
+    "value": "Schlumberger CNL-TNPH",
+    "unit": ""
+   },
+   {
+    "name": "Make hydrocarbon correction",
+    "value": "yes",
+    "unit": ""
+   },
+   {
+    "name": "Make excavation effect correction",
+    "value": "yes",
+    "unit": ""
+   },
+   {
+    "name": "Water phase salinity virgin zone",
+    "value": "33",
+    "unit": ""
+   },
+   {
+    "name": "Sxo computation",
+    "value": "Compute Sxo from Rxo",
+    "unit": ""
+   },
+   {
+    "name": "Saturation factor",
+    "value": "0.2",
+    "unit": ""
+   },
+   {
+    "name": "Invasion factor",
+    "value": "2",
+    "unit": ""
+   },
+   {
+    "name": "HC density",
+    "value": "variable",
+    "unit": ""
+   },
+   {
+    "name": "HC density min",
+    "value": "0.1",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "HC density max",
+    "value": "0.8",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "HC density unit",
+    "value": "g/cm3",
+    "unit": ""
+   },
+   {
+    "name": "Grain density min",
+    "value": "2.65",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "Grain density max",
+    "value": "3",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "Grain density unit",
+    "value": "g/cm3",
+    "unit": ""
+   },
+   {
+    "name": "VShale limit",
+    "value": "0.3",
+    "unit": "v/v"
+   },
+   {
+    "name": "VShale unit",
+    "value": "v/v",
+    "unit": ""
+   },
+   {
+    "name": "Constrain porosity",
+    "value": "no",
+    "unit": ""
+   },
+   {
+    "name": "Porosity max",
+    "value": "0.35",
+    "unit": "v/v"
+   },
+   {
+    "name": "Porosity unit",
+    "value": "v/v",
+    "unit": ""
+   },
+   {
+    "name": "Bound volume limit",
+    "value": "0.02",
+    "unit": "v/v"
+   },
+   {
+    "name": "Bound volume unit",
+    "value": "v/v",
+    "unit": ""
+   },
+   {
+    "name": "Water phase density",
+    "value": "1",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "Water phase unit",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "HI Hydrocarbon",
+    "value": "-9999",
+    "unit": ""
+   },
+   {
+    "name": "HI Water",
+    "value": "1",
+    "unit": ""
+   },
+   {
+    "name": "Total saturation equation",
+    "value": "Archie",
+    "unit": ""
+   },
+   {
+    "name": "a",
+    "value": "1",
+    "unit": ""
+   },
+   {
+    "name": "m",
+    "value": "1.8",
+    "unit": ""
+   },
+   {
+    "name": "m_star",
+    "value": "1.8",
+    "unit": ""
+   },
+   {
+    "name": "c",
+    "value": "1",
+    "unit": ""
+   },
+   {
+    "name": "n",
+    "value": "2",
+    "unit": ""
+   },
+   {
+    "name": "n_star",
+    "value": "2",
+    "unit": ""
+   },
+   {
+    "name": "QVMax",
+    "value": "2.5",
+    "unit": "eq/L"
+   },
+   {
+    "name": "QVMax unit",
+    "value": "eq/L",
+    "unit": ""
+   },
+   {
+    "name": "RHOB_shale unit",
+    "value": "g/cm3",
+    "unit": ""
+   },
+   {
+    "name": "NPHI_shale unit",
+    "value": "v/v",
+    "unit": ""
+   },
+   {
+    "name": "RHOB dry shale",
+    "value": "2.7",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "useCoalFlag",
+    "value": "no",
+    "unit": ""
+   },
+   {
+    "name": "useSaltFlag",
+    "value": "no",
+    "unit": ""
+   },
+   {
+    "name": "zeroShalePorosity",
+    "value": "yes",
+    "unit": ""
+   },
+   {
+    "name": "Crossplot",
+    "value": "Umaa-RHOmaa",
+    "unit": ""
+   },
+   {
+    "name": "MineralsChoice",
+    "value": "Mineral 1 (QUARTZ);Mineral 2 (CALCITE);Mineral 3 (DOLOMITE)",
+    "unit": ""
+   },
+   {
+    "name": "RHOBshale",
+    "value": "2.45",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "RHOBshale Unit",
+    "value": "g/cm3",
+    "unit": ""
+   },
+   {
+    "name": "DTshale",
+    "value": "100",
+    "unit": "us/ft"
+   },
+   {
+    "name": "DTshale Unit",
+    "value": "us/ft",
+    "unit": ""
+   },
+   {
+    "name": "PEFshale",
+    "value": "4",
+    "unit": "b/e"
+   },
+   {
+    "name": "PEFshale Unit",
+    "value": "b/e",
+    "unit": ""
+   },
+   {
+    "name": "Ushale",
+    "value": "9.4",
+    "unit": "b/cm3"
+   },
+   {
+    "name": "Ushale Unit",
+    "value": "b/cm3",
+    "unit": ""
+   },
+   {
+    "name": "MFsalinity",
+    "value": "30",
+    "unit": "ppk"
+   },
+   {
+    "name": "MFsalinity Unit",
+    "value": "ppk",
+    "unit": ""
+   },
+   {
+    "name": "MFdensity",
+    "value": "1",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "MFdensity Unit",
+    "value": "g/cm3",
+    "unit": ""
+   },
+   {
+    "name": "MFslowness",
+    "value": "189",
+    "unit": "us/ft"
+   },
+   {
+    "name": "MFslowness Unit",
+    "value": "us/ft",
+    "unit": ""
+   },
+   {
+    "name": "HCdensity",
+    "value": "0.7",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "HCdensity Unit",
+    "value": "g/cm3",
+    "unit": ""
+   },
+   {
+    "name": "HCslowness",
+    "value": "210",
+    "unit": "us/ft"
+   },
+   {
+    "name": "HCslowness Unit",
+    "value": "us/ft",
+    "unit": ""
+   },
+   {
+    "name": "Mineral1density",
+    "value": "2.65",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "Mineral1density Unit",
+    "value": "g/cm3",
+    "unit": ""
+   },
+   {
+    "name": "Mineral1dt",
+    "value": "56",
+    "unit": "us/ft"
+   },
+   {
+    "name": "Mineral1dt Unit",
+    "value": "us/ft",
+    "unit": ""
+   },
+   {
+    "name": "Mineral1pe",
+    "value": "1.8",
+    "unit": "B/E"
+   },
+   {
+    "name": "Mineral1pe Unit",
+    "value": "B/E",
+    "unit": ""
+   },
+   {
+    "name": "Mineral1u",
+    "value": "4.8",
+    "unit": "b/cm3"
+   },
+   {
+    "name": "Mineral1u Unit",
+    "value": "b/cm3",
+    "unit": ""
+   },
+   {
+    "name": "Mineral2density",
+    "value": "2.71",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "Mineral2density Unit",
+    "value": "g/cm3",
+    "unit": ""
+   },
+   {
+    "name": "Mineral2dt",
+    "value": "49",
+    "unit": "us/ft"
+   },
+   {
+    "name": "Mineral2dt Unit",
+    "value": "us/ft",
+    "unit": ""
+   },
+   {
+    "name": "Mineral2pe",
+    "value": "5.1",
+    "unit": "b/e"
+   },
+   {
+    "name": "Mineral2pe Unit",
+    "value": "b/e",
+    "unit": ""
+   },
+   {
+    "name": "Mineral2u",
+    "value": "13.8",
+    "unit": "b/cm3"
+   },
+   {
+    "name": "Mineral2u Unit",
+    "value": "b/cm3",
+    "unit": ""
+   },
+   {
+    "name": "Mineral3density",
+    "value": "2.85",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "Mineral3density Unit",
+    "value": "g/cm3",
+    "unit": ""
+   },
+   {
+    "name": "Mineral3dt",
+    "value": "44",
+    "unit": "us/ft"
+   },
+   {
+    "name": "Mineral3dt Unit",
+    "value": "us/ft",
+    "unit": ""
+   },
+   {
+    "name": "Mineral3pe",
+    "value": "3.1",
+    "unit": "b/e"
+   },
+   {
+    "name": "Mineral3pe Unit",
+    "value": "b/e",
+    "unit": ""
+   },
+   {
+    "name": "Mineral3u",
+    "value": "9",
+    "unit": "b/cm3"
+   },
+   {
+    "name": "Mineral3u Unit",
+    "value": "b/cm3",
+    "unit": ""
+   },
+   {
+    "name": "Mineral4density",
+    "value": "2.98",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "Mineral4density Unit",
+    "value": "g/cm3",
+    "unit": ""
+   },
+   {
+    "name": "Mineral4dt",
+    "value": "50",
+    "unit": "us/ft"
+   },
+   {
+    "name": "Mineral4dt Unit",
+    "value": "us/ft",
+    "unit": ""
+   },
+   {
+    "name": "Mineral4pe",
+    "value": "5.1",
+    "unit": "b/e"
+   },
+   {
+    "name": "Mineral4pe Unit",
+    "value": "b/e",
+    "unit": ""
+   },
+   {
+    "name": "Mineral4u",
+    "value": "15",
+    "unit": "b/cm3"
+   },
+   {
+    "name": "Mineral4u Unit",
+    "value": "b/cm3",
+    "unit": ""
+   },
+   {
+    "name": "VSH selection if flag = 1",
+    "value": "Gamma ray (GR)",
+    "unit": ""
+   },
+   {
+    "name": "RES_shale",
+    "value": "2",
+    "unit": "ohm.m"
+   },
+   {
+    "name": "RES_shale unit",
+    "value": "ohm.m",
+    "unit": ""
+   },
+   {
+    "name": "Matrix density",
+    "value": "2.65",
+    "unit": ""
+   },
+   {
+    "name": "Effective saturation equation",
+    "value": "Archie",
+    "unit": ""
+   },
+   {
+    "name": "Res_shale unit",
+    "value": "ohm.m",
+    "unit": ""
+   }
+  ]
+ },
+ "QDensityTotal_PR.xml": {
+  "n": 69,
+  "params": [
+   {
+    "name": "Shale Volume_Min",
+    "value": "0",
+    "unit": "v/v"
+   },
+   {
+    "name": "Shale Volume_Max",
+    "value": "0.5",
+    "unit": "v/v"
+   },
+   {
+    "name": "Shale Volume_Unit",
+    "value": "v/v",
+    "unit": ""
+   },
+   {
+    "name": "Shale Volume_bounds",
+    "value": "min <= val < max",
+    "unit": ""
+   },
+   {
+    "name": "Porosity_Min",
+    "value": "0",
+    "unit": "v/v"
+   },
+   {
+    "name": "Porosity_Max",
+    "value": "0.5",
+    "unit": "v/v"
+   },
+   {
+    "name": "Porosity_Unit",
+    "value": "v/v",
+    "unit": ""
+   },
+   {
+    "name": "Porosity_bounds",
+    "value": "min <= val < max",
+    "unit": ""
+   },
+   {
+    "name": "Water Saturation_Min",
+    "value": "0",
+    "unit": "v/v"
+   },
+   {
+    "name": "Water Saturation_Max",
+    "value": "0.85",
+    "unit": "v/v"
+   },
+   {
+    "name": "Water Saturation_Unit",
+    "value": "v/v",
+    "unit": ""
+   },
+   {
+    "name": "Water Saturation_bounds",
+    "value": "min <= val < max",
+    "unit": ""
+   },
+   {
+    "name": "GR_matrix",
+    "value": "10",
+    "unit": ""
+   },
+   {
+    "name": "GR_shale",
+    "value": "100",
+    "unit": ""
+   },
+   {
+    "name": "GR method",
+    "value": "Linear",
+    "unit": ""
+   },
+   {
+    "name": "TH_matrix",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "TH_shale",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "TH method",
+    "value": "Linear",
+    "unit": ""
+   },
+   {
+    "name": "POTA_matrix",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "POTA_shale",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "POTA method",
+    "value": "Linear",
+    "unit": ""
+   },
+   {
+    "name": "SP_matrix",
+    "value": "-140",
+    "unit": ""
+   },
+   {
+    "name": "SP_shale",
+    "value": "20",
+    "unit": ""
+   },
+   {
+    "name": "Res_limit",
+    "value": "1",
+    "unit": ""
+   },
+   {
+    "name": "Res_shale",
+    "value": "10",
+    "unit": "ohm.m"
+   },
+   {
+    "name": "Res method",
+    "value": "Gaymar",
+    "unit": ""
+   },
+   {
+    "name": "b exponent",
+    "value": "1",
+    "unit": ""
+   },
+   {
+    "name": "NPHI_matrix",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "NPHI_shale",
+    "value": "0.4",
+    "unit": "v/v"
+   },
+   {
+    "name": "NPHI_fluid",
+    "value": "1",
+    "unit": ""
+   },
+   {
+    "name": "RHOB_matrix",
+    "value": "2.65",
+    "unit": ""
+   },
+   {
+    "name": "RHOB_shale",
+    "value": "2.45",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "RHOB_fluid",
+    "value": "1",
+    "unit": ""
+   },
+   {
+    "name": "DT_matrix",
+    "value": "55.5",
+    "unit": ""
+   },
+   {
+    "name": "DT_shale",
+    "value": "100",
+    "unit": ""
+   },
+   {
+    "name": "DT_fluid",
+    "value": "189",
+    "unit": ""
+   },
+   {
+    "name": "Final VSH Method",
+    "value": "minimum",
+    "unit": ""
+   },
+   {
+    "name": "VSH selection",
+    "value": "Gamma ray (GR);Neutron Density (ND)",
+    "unit": ""
+   },
+   {
+    "name": "Use flag",
+    "value": "yes",
+    "unit": ""
+   },
+   {
+    "name": "Final VSH Method if flag = 1",
+    "value": "minimum",
+    "unit": ""
+   },
+   {
+    "name": "Water phase salinity invaded zone",
+    "value": "6.7",
+    "unit": ""
+   },
+   {
+    "name": "Hydrocarbon density",
+    "value": "0.7",
+    "unit": ""
+   },
+   {
+    "name": "Make hydrocarbon correction",
+    "value": "yes",
+    "unit": ""
+   },
+   {
+    "name": "Water phase salinity virgin zone",
+    "value": "33",
+    "unit": ""
+   },
+   {
+    "name": "Sxo computation",
+    "value": "Compute Sxo from Rxo",
+    "unit": ""
+   },
+   {
+    "name": "Saturation factor",
+    "value": "0.2",
+    "unit": ""
+   },
+   {
+    "name": "Invasion factor",
+    "value": "2",
+    "unit": ""
+   },
+   {
+    "name": "VShale limit",
+    "value": "0.3",
+    "unit": "v/v"
+   },
+   {
+    "name": "VShale unit",
+    "value": "v/v",
+    "unit": ""
+   },
+   {
+    "name": "Constrain porosity",
+    "value": "no",
+    "unit": ""
+   },
+   {
+    "name": "Porosity max",
+    "value": "0.35",
+    "unit": "v/v"
+   },
+   {
+    "name": "Porosity unit",
+    "value": "v/v",
+    "unit": ""
+   },
+   {
+    "name": "Bound volume limit",
+    "value": "0.02",
+    "unit": "v/v"
+   },
+   {
+    "name": "Bound volume unit",
+    "value": "v/v",
+    "unit": ""
+   },
+   {
+    "name": "Total saturation equation",
+    "value": "Archie",
+    "unit": ""
+   },
+   {
+    "name": "a",
+    "value": "1",
+    "unit": ""
+   },
+   {
+    "name": "m",
+    "value": "1.8",
+    "unit": ""
+   },
+   {
+    "name": "m_star",
+    "value": "1.8",
+    "unit": ""
+   },
+   {
+    "name": "c",
+    "value": "1",
+    "unit": ""
+   },
+   {
+    "name": "n",
+    "value": "2",
+    "unit": ""
+   },
+   {
+    "name": "n_star",
+    "value": "2",
+    "unit": ""
+   },
+   {
+    "name": "QVMax",
+    "value": "2.5",
+    "unit": "eq/L"
+   },
+   {
+    "name": "QVMax unit",
+    "value": "eq/L",
+    "unit": ""
+   },
+   {
+    "name": "RHOB_shale unit",
+    "value": "g/cm3",
+    "unit": ""
+   },
+   {
+    "name": "RHOB dry shale",
+    "value": "2.7",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "VSH selection if flag = 1",
+    "value": "Gamma ray (GR)",
+    "unit": ""
+   },
+   {
+    "name": "RES_shale",
+    "value": "2",
+    "unit": "ohm.m"
+   },
+   {
+    "name": "RES_shale unit",
+    "value": "ohm.m",
+    "unit": ""
+   },
+   {
+    "name": "Matrix density",
+    "value": "2.65",
+    "unit": ""
+   }
+  ]
+ },
+ "QNeutronDensityEffective_PR.xml": {
+  "n": 131,
+  "params": [
+   {
+    "name": "Shale Volume_Min",
+    "value": "0",
+    "unit": "v/v"
+   },
+   {
+    "name": "Shale Volume_Max",
+    "value": "0.5",
+    "unit": "v/v"
+   },
+   {
+    "name": "Shale Volume_Unit",
+    "value": "v/v",
+    "unit": ""
+   },
+   {
+    "name": "Shale Volume_bounds",
+    "value": "min <= val < max",
+    "unit": ""
+   },
+   {
+    "name": "Porosity_Min",
+    "value": "0",
+    "unit": "v/v"
+   },
+   {
+    "name": "Porosity_Max",
+    "value": "0.5",
+    "unit": "v/v"
+   },
+   {
+    "name": "Porosity_Unit",
+    "value": "v/v",
+    "unit": ""
+   },
+   {
+    "name": "Porosity_bounds",
+    "value": "min <= val < max",
+    "unit": ""
+   },
+   {
+    "name": "Water Saturation_Min",
+    "value": "0",
+    "unit": "v/v"
+   },
+   {
+    "name": "Water Saturation_Max",
+    "value": "0.85",
+    "unit": "v/v"
+   },
+   {
+    "name": "Water Saturation_Unit",
+    "value": "v/v",
+    "unit": ""
+   },
+   {
+    "name": "Water Saturation_bounds",
+    "value": "min <= val < max",
+    "unit": ""
+   },
+   {
+    "name": "GR_matrix",
+    "value": "10",
+    "unit": ""
+   },
+   {
+    "name": "GR_shale",
+    "value": "100",
+    "unit": ""
+   },
+   {
+    "name": "GR method",
+    "value": "Linear",
+    "unit": ""
+   },
+   {
+    "name": "TH_matrix",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "TH_shale",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "TH method",
+    "value": "Linear",
+    "unit": ""
+   },
+   {
+    "name": "POTA_matrix",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "POTA_shale",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "POTA method",
+    "value": "Linear",
+    "unit": ""
+   },
+   {
+    "name": "SP_matrix",
+    "value": "-140",
+    "unit": ""
+   },
+   {
+    "name": "SP_shale",
+    "value": "20",
+    "unit": ""
+   },
+   {
+    "name": "Res_limit",
+    "value": "1",
+    "unit": ""
+   },
+   {
+    "name": "Res_shale",
+    "value": "10",
+    "unit": "ohm.m"
+   },
+   {
+    "name": "Res method",
+    "value": "Gaymar",
+    "unit": ""
+   },
+   {
+    "name": "b exponent",
+    "value": "1",
+    "unit": ""
+   },
+   {
+    "name": "NPHI_matrix",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "NPHI_shale",
+    "value": "0.4",
+    "unit": "v/v"
+   },
+   {
+    "name": "NPHI_fluid",
+    "value": "1",
+    "unit": ""
+   },
+   {
+    "name": "RHOB_matrix",
+    "value": "2.65",
+    "unit": ""
+   },
+   {
+    "name": "RHOB_shale",
+    "value": "2.45",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "RHOB_fluid",
+    "value": "1",
+    "unit": ""
+   },
+   {
+    "name": "DT_matrix",
+    "value": "55.5",
+    "unit": ""
+   },
+   {
+    "name": "DT_shale",
+    "value": "100",
+    "unit": ""
+   },
+   {
+    "name": "DT_fluid",
+    "value": "189",
+    "unit": ""
+   },
+   {
+    "name": "Final VSH Method",
+    "value": "minimum",
+    "unit": ""
+   },
+   {
+    "name": "VSH selection",
+    "value": "Gamma ray (GR);Neutron Density (ND)",
+    "unit": ""
+   },
+   {
+    "name": "Use flag",
+    "value": "yes",
+    "unit": ""
+   },
+   {
+    "name": "Final VSH Method if flag = 1",
+    "value": "minimum",
+    "unit": ""
+   },
+   {
+    "name": "Water phase salinity invaded zone",
+    "value": "6.7",
+    "unit": ""
+   },
+   {
+    "name": "Hydrocarbon density",
+    "value": "0.7",
+    "unit": ""
+   },
+   {
+    "name": "Neutron tool type",
+    "value": "Schlumberger CNL-TNPH",
+    "unit": ""
+   },
+   {
+    "name": "Make hydrocarbon correction",
+    "value": "yes",
+    "unit": ""
+   },
+   {
+    "name": "Make excavation effect correction",
+    "value": "yes",
+    "unit": ""
+   },
+   {
+    "name": "Water phase salinity virgin zone",
+    "value": "33",
+    "unit": ""
+   },
+   {
+    "name": "Sxo computation",
+    "value": "Compute Sxo from Rxo",
+    "unit": ""
+   },
+   {
+    "name": "Saturation factor",
+    "value": "0.2",
+    "unit": ""
+   },
+   {
+    "name": "Invasion factor",
+    "value": "2",
+    "unit": ""
+   },
+   {
+    "name": "HC density",
+    "value": "variable",
+    "unit": ""
+   },
+   {
+    "name": "HC density min",
+    "value": "0.1",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "HC density max",
+    "value": "0.8",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "HC density unit",
+    "value": "g/cm3",
+    "unit": ""
+   },
+   {
+    "name": "Grain density min",
+    "value": "2.65",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "Grain density max",
+    "value": "3",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "Grain density unit",
+    "value": "g/cm3",
+    "unit": ""
+   },
+   {
+    "name": "VShale limit",
+    "value": "0.3",
+    "unit": "v/v"
+   },
+   {
+    "name": "VShale unit",
+    "value": "v/v",
+    "unit": ""
+   },
+   {
+    "name": "Constrain porosity",
+    "value": "no",
+    "unit": ""
+   },
+   {
+    "name": "Porosity max",
+    "value": "0.35",
+    "unit": "v/v"
+   },
+   {
+    "name": "Porosity unit",
+    "value": "v/v",
+    "unit": ""
+   },
+   {
+    "name": "Bound volume limit",
+    "value": "0.02",
+    "unit": "v/v"
+   },
+   {
+    "name": "Bound volume unit",
+    "value": "v/v",
+    "unit": ""
+   },
+   {
+    "name": "Water phase density",
+    "value": "1",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "Water phase unit",
+    "value": "g/cm3",
+    "unit": ""
+   },
+   {
+    "name": "HI Hydrocarbon",
+    "value": "-9999",
+    "unit": ""
+   },
+   {
+    "name": "HI Water",
+    "value": "1",
+    "unit": ""
+   },
+   {
+    "name": "a",
+    "value": "1",
+    "unit": ""
+   },
+   {
+    "name": "m",
+    "value": "1.8",
+    "unit": ""
+   },
+   {
+    "name": "n",
+    "value": "2",
+    "unit": ""
+   },
+   {
+    "name": "RHOB_shale unit",
+    "value": "g/cm3",
+    "unit": ""
+   },
+   {
+    "name": "NPHI_shale unit",
+    "value": "v/v",
+    "unit": ""
+   },
+   {
+    "name": "RHOB dry shale",
+    "value": "2.7",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "useCoalFlag",
+    "value": "no",
+    "unit": ""
+   },
+   {
+    "name": "useSaltFlag",
+    "value": "no",
+    "unit": ""
+   },
+   {
+    "name": "zeroShalePorosity",
+    "value": "yes",
+    "unit": ""
+   },
+   {
+    "name": "Crossplot",
+    "value": "Umaa-RHOmaa",
+    "unit": ""
+   },
+   {
+    "name": "MineralsChoice",
+    "value": "Mineral 1 (QUARTZ);Mineral 2 (CALCITE);Mineral 3 (DOLOMITE)",
+    "unit": ""
+   },
+   {
+    "name": "RHOBshale",
+    "value": "2.45",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "RHOBshale Unit",
+    "value": "g/cm3",
+    "unit": ""
+   },
+   {
+    "name": "DTshale",
+    "value": "100",
+    "unit": "us/ft"
+   },
+   {
+    "name": "DTshale Unit",
+    "value": "us/ft",
+    "unit": ""
+   },
+   {
+    "name": "PEFshale",
+    "value": "4",
+    "unit": "b/e"
+   },
+   {
+    "name": "PEFshale Unit",
+    "value": "b/e",
+    "unit": ""
+   },
+   {
+    "name": "Ushale",
+    "value": "9.4",
+    "unit": "b/cm3"
+   },
+   {
+    "name": "Ushale Unit",
+    "value": "b/cm3",
+    "unit": ""
+   },
+   {
+    "name": "MFsalinity",
+    "value": "30",
+    "unit": "ppk"
+   },
+   {
+    "name": "MFsalinity Unit",
+    "value": "ppk",
+    "unit": ""
+   },
+   {
+    "name": "MFdensity",
+    "value": "1",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "MFdensity Unit",
+    "value": "g/cm3",
+    "unit": ""
+   },
+   {
+    "name": "MFslowness",
+    "value": "189",
+    "unit": "us/ft"
+   },
+   {
+    "name": "MFslowness Unit",
+    "value": "us/ft",
+    "unit": ""
+   },
+   {
+    "name": "HCdensity",
+    "value": "0.7",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "HCdensity Unit",
+    "value": "g/cm3",
+    "unit": ""
+   },
+   {
+    "name": "HCslowness",
+    "value": "210",
+    "unit": "us/ft"
+   },
+   {
+    "name": "HCslowness Unit",
+    "value": "us/ft",
+    "unit": ""
+   },
+   {
+    "name": "Mineral1density",
+    "value": "2.65",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "Mineral1density Unit",
+    "value": "g/cm3",
+    "unit": ""
+   },
+   {
+    "name": "Mineral1dt",
+    "value": "56",
+    "unit": "us/ft"
+   },
+   {
+    "name": "Mineral1dt Unit",
+    "value": "us/ft",
+    "unit": ""
+   },
+   {
+    "name": "Mineral1pe",
+    "value": "1.8",
+    "unit": "B/E"
+   },
+   {
+    "name": "Mineral1pe Unit",
+    "value": "B/E",
+    "unit": ""
+   },
+   {
+    "name": "Mineral1u",
+    "value": "4.8",
+    "unit": "b/cm3"
+   },
+   {
+    "name": "Mineral1u Unit",
+    "value": "b/cm3",
+    "unit": ""
+   },
+   {
+    "name": "Mineral2density",
+    "value": "2.71",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "Mineral2density Unit",
+    "value": "g/cm3",
+    "unit": ""
+   },
+   {
+    "name": "Mineral2dt",
+    "value": "49",
+    "unit": "us/ft"
+   },
+   {
+    "name": "Mineral2dt Unit",
+    "value": "us/ft",
+    "unit": ""
+   },
+   {
+    "name": "Mineral2pe",
+    "value": "5.1",
+    "unit": "b/e"
+   },
+   {
+    "name": "Mineral2pe Unit",
+    "value": "b/e",
+    "unit": ""
+   },
+   {
+    "name": "Mineral2u",
+    "value": "13.8",
+    "unit": "b/cm3"
+   },
+   {
+    "name": "Mineral2u Unit",
+    "value": "b/cm3",
+    "unit": ""
+   },
+   {
+    "name": "Mineral3density",
+    "value": "2.85",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "Mineral3density Unit",
+    "value": "g/cm3",
+    "unit": ""
+   },
+   {
+    "name": "Mineral3dt",
+    "value": "44",
+    "unit": "us/ft"
+   },
+   {
+    "name": "Mineral3dt Unit",
+    "value": "us/ft",
+    "unit": ""
+   },
+   {
+    "name": "Mineral3pe",
+    "value": "3.1",
+    "unit": "b/e"
+   },
+   {
+    "name": "Mineral3pe Unit",
+    "value": "b/e",
+    "unit": ""
+   },
+   {
+    "name": "Mineral3u",
+    "value": "9",
+    "unit": "b/cm3"
+   },
+   {
+    "name": "Mineral3u Unit",
+    "value": "b/cm3",
+    "unit": ""
+   },
+   {
+    "name": "Mineral4density",
+    "value": "2.98",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "Mineral4density Unit",
+    "value": "g/cm3",
+    "unit": ""
+   },
+   {
+    "name": "Mineral4dt",
+    "value": "50",
+    "unit": "us/ft"
+   },
+   {
+    "name": "Mineral4dt Unit",
+    "value": "us/ft",
+    "unit": ""
+   },
+   {
+    "name": "Mineral4pe",
+    "value": "5.1",
+    "unit": "b/e"
+   },
+   {
+    "name": "Mineral4pe Unit",
+    "value": "b/e",
+    "unit": ""
+   },
+   {
+    "name": "Mineral4u",
+    "value": "15",
+    "unit": "b/cm3"
+   },
+   {
+    "name": "Mineral4u Unit",
+    "value": "b/cm3",
+    "unit": ""
+   },
+   {
+    "name": "VSH selection if flag = 1",
+    "value": "Gamma ray (GR)",
+    "unit": ""
+   },
+   {
+    "name": "Effective saturation equation",
+    "value": "Archie",
+    "unit": ""
+   },
+   {
+    "name": "Res_shale unit",
+    "value": "ohm.m",
+    "unit": ""
+   }
+  ]
+ },
+ "QNeutronDensityTotal_PR.xml": {
+  "n": 80,
+  "params": [
+   {
+    "name": "Shale Volume_Min",
+    "value": "0",
+    "unit": "v/v"
+   },
+   {
+    "name": "Shale Volume_Max",
+    "value": "0.5",
+    "unit": "v/v"
+   },
+   {
+    "name": "Shale Volume_Unit",
+    "value": "v/v",
+    "unit": ""
+   },
+   {
+    "name": "Shale Volume_bounds",
+    "value": "min <= val < max",
+    "unit": ""
+   },
+   {
+    "name": "Porosity_Min",
+    "value": "0",
+    "unit": "v/v"
+   },
+   {
+    "name": "Porosity_Max",
+    "value": "0.5",
+    "unit": "v/v"
+   },
+   {
+    "name": "Porosity_Unit",
+    "value": "v/v",
+    "unit": ""
+   },
+   {
+    "name": "Porosity_bounds",
+    "value": "min <= val < max",
+    "unit": ""
+   },
+   {
+    "name": "Water Saturation_Min",
+    "value": "0",
+    "unit": "v/v"
+   },
+   {
+    "name": "Water Saturation_Max",
+    "value": "0.85",
+    "unit": "v/v"
+   },
+   {
+    "name": "Water Saturation_Unit",
+    "value": "v/v",
+    "unit": ""
+   },
+   {
+    "name": "Water Saturation_bounds",
+    "value": "min <= val < max",
+    "unit": ""
+   },
+   {
+    "name": "GR_matrix",
+    "value": "10",
+    "unit": ""
+   },
+   {
+    "name": "GR_shale",
+    "value": "100",
+    "unit": ""
+   },
+   {
+    "name": "GR method",
+    "value": "Linear",
+    "unit": ""
+   },
+   {
+    "name": "TH_matrix",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "TH_shale",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "TH method",
+    "value": "Linear",
+    "unit": ""
+   },
+   {
+    "name": "POTA_matrix",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "POTA_shale",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "POTA method",
+    "value": "Linear",
+    "unit": ""
+   },
+   {
+    "name": "SP_matrix",
+    "value": "-140",
+    "unit": ""
+   },
+   {
+    "name": "SP_shale",
+    "value": "20",
+    "unit": ""
+   },
+   {
+    "name": "Res_limit",
+    "value": "1",
+    "unit": ""
+   },
+   {
+    "name": "Res_shale",
+    "value": "10",
+    "unit": "ohm.m"
+   },
+   {
+    "name": "Res method",
+    "value": "Gaymar",
+    "unit": ""
+   },
+   {
+    "name": "b exponent",
+    "value": "1",
+    "unit": ""
+   },
+   {
+    "name": "NPHI_matrix",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "NPHI_shale",
+    "value": "0.4",
+    "unit": "v/v"
+   },
+   {
+    "name": "NPHI_fluid",
+    "value": "1",
+    "unit": ""
+   },
+   {
+    "name": "RHOB_matrix",
+    "value": "2.65",
+    "unit": ""
+   },
+   {
+    "name": "RHOB_shale",
+    "value": "2.45",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "RHOB_fluid",
+    "value": "1",
+    "unit": ""
+   },
+   {
+    "name": "DT_matrix",
+    "value": "55.5",
+    "unit": ""
+   },
+   {
+    "name": "DT_shale",
+    "value": "100",
+    "unit": ""
+   },
+   {
+    "name": "DT_fluid",
+    "value": "189",
+    "unit": ""
+   },
+   {
+    "name": "Final VSH Method",
+    "value": "minimum",
+    "unit": ""
+   },
+   {
+    "name": "VSH selection",
+    "value": "Gamma ray (GR);Neutron Density (ND)",
+    "unit": ""
+   },
+   {
+    "name": "Use flag",
+    "value": "yes",
+    "unit": ""
+   },
+   {
+    "name": "Final VSH Method if flag = 1",
+    "value": "minimum",
+    "unit": ""
+   },
+   {
+    "name": "Water phase salinity invaded zone",
+    "value": "6.7",
+    "unit": ""
+   },
+   {
+    "name": "Hydrocarbon density",
+    "value": "0.7",
+    "unit": ""
+   },
+   {
+    "name": "Neutron tool type",
+    "value": "Schlumberger CNL-TNPH",
+    "unit": ""
+   },
+   {
+    "name": "Make hydrocarbon correction",
+    "value": "yes",
+    "unit": ""
+   },
+   {
+    "name": "Make excavation effect correction",
+    "value": "yes",
+    "unit": ""
+   },
+   {
+    "name": "Water phase salinity virgin zone",
+    "value": "33",
+    "unit": ""
+   },
+   {
+    "name": "Sxo computation",
+    "value": "Compute Sxo from Rxo",
+    "unit": ""
+   },
+   {
+    "name": "Saturation factor",
+    "value": "0.2",
+    "unit": ""
+   },
+   {
+    "name": "Invasion factor",
+    "value": "2",
+    "unit": ""
+   },
+   {
+    "name": "HC density",
+    "value": "variable",
+    "unit": ""
+   },
+   {
+    "name": "HC density min",
+    "value": "0.1",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "HC density max",
+    "value": "0.8",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "HC density unit",
+    "value": "g/cm3",
+    "unit": ""
+   },
+   {
+    "name": "Grain density min",
+    "value": "2.65",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "Grain density max",
+    "value": "3",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "Grain density unit",
+    "value": "g/cm3",
+    "unit": ""
+   },
+   {
+    "name": "VShale limit",
+    "value": "0.3",
+    "unit": "v/v"
+   },
+   {
+    "name": "VShale unit",
+    "value": "v/v",
+    "unit": ""
+   },
+   {
+    "name": "Constrain porosity",
+    "value": "no",
+    "unit": ""
+   },
+   {
+    "name": "Porosity max",
+    "value": "0.35",
+    "unit": "v/v"
+   },
+   {
+    "name": "Porosity unit",
+    "value": "v/v",
+    "unit": ""
+   },
+   {
+    "name": "Bound volume limit",
+    "value": "0.02",
+    "unit": "v/v"
+   },
+   {
+    "name": "Bound volume unit",
+    "value": "v/v",
+    "unit": ""
+   },
+   {
+    "name": "Water phase density",
+    "value": "1",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "Water phase unit",
+    "value": "g/cm3",
+    "unit": ""
+   },
+   {
+    "name": "HI Hydrocarbon",
+    "value": "-9999",
+    "unit": ""
+   },
+   {
+    "name": "HI Water",
+    "value": "1",
+    "unit": ""
+   },
+   {
+    "name": "Total saturation equation",
+    "value": "Archie",
+    "unit": ""
+   },
+   {
+    "name": "a",
+    "value": "1",
+    "unit": ""
+   },
+   {
+    "name": "m",
+    "value": "1.8",
+    "unit": ""
+   },
+   {
+    "name": "m_star",
+    "value": "1.8",
+    "unit": ""
+   },
+   {
+    "name": "c",
+    "value": "1",
+    "unit": ""
+   },
+   {
+    "name": "n",
+    "value": "2",
+    "unit": ""
+   },
+   {
+    "name": "n_star",
+    "value": "2",
+    "unit": ""
+   },
+   {
+    "name": "QVMax",
+    "value": "2.5",
+    "unit": "eq/L"
+   },
+   {
+    "name": "QVMax unit",
+    "value": "eq/L",
+    "unit": ""
+   },
+   {
+    "name": "RHOB_shale unit",
+    "value": "g/cm3",
+    "unit": ""
+   },
+   {
+    "name": "NPHI_shale unit",
+    "value": "v/v",
+    "unit": ""
+   },
+   {
+    "name": "RHOB dry shale",
+    "value": "2.7",
+    "unit": "g/cm3"
+   },
+   {
+    "name": "VSH selection if flag = 1",
+    "value": "Gamma ray (GR)",
+    "unit": ""
+   }
+  ]
+ },
+ "QPrecomputations_PR.xml": {
+  "n": 29,
+  "params": [
+   {
+    "name": "Bit Size",
+    "value": "8.5",
+    "unit": "in"
+   },
+   {
+    "name": "Bit Size unit",
+    "value": "in",
+    "unit": ""
+   },
+   {
+    "name": "Cutoff",
+    "value": "0.5",
+    "unit": "in"
+   },
+   {
+    "name": "Cutoff unit",
+    "value": "in",
+    "unit": ""
+   },
+   {
+    "name": "MudType",
+    "value": "Oil",
+    "unit": ""
+   },
+   {
+    "name": "BSALinput",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "BFHIinput",
+    "value": "-9999",
+    "unit": ""
+   },
+   {
+    "name": "BPressCompute",
+    "value": "Compute from mud weight and TVD",
+    "unit": ""
+   },
+   {
+    "name": "AirGap",
+    "value": "2",
+    "unit": ""
+   },
+   {
+    "name": "MudWeight",
+    "value": "1.1",
+    "unit": ""
+   },
+   {
+    "name": "BTempCompute",
+    "value": "Compute from depth tie point and gradient",
+    "unit": ""
+   },
+   {
+    "name": "BTEMPinput",
+    "value": "10",
+    "unit": ""
+   },
+   {
+    "name": "BTEMPreferenceTVD",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "BTEMPgradient",
+    "value": "3",
+    "unit": ""
+   },
+   {
+    "name": "RmCompute",
+    "value": "Compute from zoned variables",
+    "unit": ""
+   },
+   {
+    "name": "RMinput",
+    "value": "0.1",
+    "unit": ""
+   },
+   {
+    "name": "RMtemperature",
+    "value": "20",
+    "unit": ""
+   },
+   {
+    "name": "RMFinput",
+    "value": "0.08",
+    "unit": ""
+   },
+   {
+    "name": "RMFtemperature",
+    "value": "20",
+    "unit": ""
+   },
+   {
+    "name": "RMCinput",
+    "value": "0.16",
+    "unit": ""
+   },
+   {
+    "name": "RMCtemperature",
+    "value": "20",
+    "unit": ""
+   },
+   {
+    "name": "RWinput",
+    "value": "0.1",
+    "unit": ""
+   },
+   {
+    "name": "RWtemperature",
+    "value": "100",
+    "unit": ""
+   },
+   {
+    "name": "RWsalinity",
+    "value": "-9999",
+    "unit": ""
+   },
+   {
+    "name": "BTEMPZone",
+    "value": "-9999",
+    "unit": ""
+   },
+   {
+    "name": "TLI",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "BLI",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "TLT",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "BLT",
+    "value": "0",
+    "unit": ""
+   }
+  ]
+ },
+ "Template PPP - PPP workflow_PR.xml": {
+  "n": 35,
+  "params": [
+   {
+    "name": "Cutoff direction",
+    "value": "smaller",
+    "unit": ""
+   },
+   {
+    "name": "Non-shale zones",
+    "value": "linear interpolation",
+    "unit": ""
+   },
+   {
+    "name": "Gradient method",
+    "value": "From shale above",
+    "unit": ""
+   },
+   {
+    "name": "Fluid Density",
+    "value": "1",
+    "unit": ""
+   },
+   {
+    "name": "PP Norm Method",
+    "value": "linear",
+    "unit": ""
+   },
+   {
+    "name": "Normal PP offset",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "Normal PP gradient",
+    "value": "0.5",
+    "unit": ""
+   },
+   {
+    "name": "Use filter",
+    "value": "yes",
+    "unit": ""
+   },
+   {
+    "name": "Filter length",
+    "value": "3",
+    "unit": ""
+   },
+   {
+    "name": "Use Eaton Sonic",
+    "value": "yes",
+    "unit": ""
+   },
+   {
+    "name": "Eaton Sonic Trend Line Method",
+    "value": "semi-log",
+    "unit": ""
+   },
+   {
+    "name": "Eaton Sonic Trend Line A",
+    "value": "2.2",
+    "unit": ""
+   },
+   {
+    "name": "Eaton Sonic Trend Line B",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "Eaton sonic factor",
+    "value": "1",
+    "unit": ""
+   },
+   {
+    "name": "Eaton sonic exponent",
+    "value": "3",
+    "unit": ""
+   },
+   {
+    "name": "Use Eaton Resistivity",
+    "value": "no",
+    "unit": ""
+   },
+   {
+    "name": "Eaton Resistivity Trend Line Method",
+    "value": "semi-log",
+    "unit": ""
+   },
+   {
+    "name": "Eaton Resistivity Trend Line A",
+    "value": "2.2",
+    "unit": ""
+   },
+   {
+    "name": "Eaton Resistivity Trend Line B",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "Equation resistivity factor",
+    "value": "1.2",
+    "unit": ""
+   },
+   {
+    "name": "Eaton resistivity exponent",
+    "value": "1.49683",
+    "unit": ""
+   },
+   {
+    "name": "Use Bowers",
+    "value": "no",
+    "unit": ""
+   },
+   {
+    "name": "v0",
+    "value": "5000",
+    "unit": ""
+   },
+   {
+    "name": "A",
+    "value": "-7.5e-09",
+    "unit": ""
+   },
+   {
+    "name": "B",
+    "value": "8.02143e-05",
+    "unit": ""
+   },
+   {
+    "name": "Use Constant Fluid Density",
+    "value": "no",
+    "unit": ""
+   },
+   {
+    "name": "Calibration TVD",
+    "value": "1000",
+    "unit": ""
+   },
+   {
+    "name": "Calibration Pressure",
+    "value": "500",
+    "unit": ""
+   },
+   {
+    "name": "Method",
+    "value": "Eaton Gulf coast curve",
+    "unit": ""
+   },
+   {
+    "name": "Alpha",
+    "value": "1",
+    "unit": ""
+   },
+   {
+    "name": "Water depth",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "Air gap",
+    "value": "Elevation",
+    "unit": ""
+   },
+   {
+    "name": "K",
+    "value": "0.33",
+    "unit": ""
+   },
+   {
+    "name": "PR",
+    "value": "0.25",
+    "unit": ""
+   },
+   {
+    "name": "C",
+    "value": "0.200714",
+    "unit": ""
+   }
+  ]
+ },
+ "Template PPP - Synthetic density workflow_PR.xml": {
+  "n": 31,
+  "params": [
+   {
+    "name": "Auto",
+    "value": "yes",
+    "unit": ""
+   },
+   {
+    "name": "Air gap",
+    "value": "Elevation",
+    "unit": ""
+   },
+   {
+    "name": "Air density",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "Water depth",
+    "value": "0",
+    "unit": ""
+   },
+   {
+    "name": "Water density",
+    "value": "1.03",
+    "unit": ""
+   },
+   {
+    "name": "Use Extrapolation",
+    "value": "yes",
+    "unit": ""
+   },
+   {
+    "name": "Auto Extrapolation",
+    "value": "yes",
+    "unit": ""
+   },
+   {
+    "name": "Mud line density",
+    "value": "2",
+    "unit": ""
+   },
+   {
+    "name": "Shallow depth",
+    "value": "100",
+    "unit": ""
+   },
+   {
+    "name": "Shallow density",
+    "value": "2.1",
+    "unit": ""
+   },
+   {
+    "name": "Deep depth",
+    "value": "200",
+    "unit": ""
+   },
+   {
+    "name": "Deep density",
+    "value": "2.2",
+    "unit": ""
+   },
+   {
+    "name": "Use Amoco",
+    "value": "yes",
+    "unit": ""
+   },
+   {
+    "name": "Auto Amoco",
+    "value": "yes",
+    "unit": ""
+   },
+   {
+    "name": "Amoco Mud line density",
+    "value": "1.95317",
+    "unit": ""
+   },
+   {
+    "name": "Amoco Exponent",
+    "value": "0.6",
+    "unit": ""
+   },
+   {
+    "name": "Use Gardner",
+    "value": "no",
+    "unit": ""
+   },
+   {
+    "name": "Auto Gardner",
+    "value": "yes",
+    "unit": ""
+   },
+   {
+    "name": "Velocity factor",
+    "value": "0.23",
+    "unit": ""
+   },
+   {
+    "name": "Velocity Exponent",
+    "value": "0.25",
+    "unit": ""
+   },
+   {
+    "name": "Use Miller",
+    "value": "no",
+    "unit": ""
+   },
+   {
+    "name": "Auto Miller",
+    "value": "yes",
+    "unit": ""
+   },
+   {
+    "name": "Rho matrix",
+    "value": "2.65",
+    "unit": ""
+   },
+   {
+    "name": "Rho Water",
+    "value": "1.03",
+    "unit": ""
+   },
+   {
+    "name": "Phi A",
+    "value": "0.35",
+    "unit": ""
+   },
+   {
+    "name": "Phi B",
+    "value": "0.35",
+    "unit": ""
+   },
+   {
+    "name": "K",
+    "value": "0.33",
+    "unit": ""
+   },
+   {
+    "name": "N",
+    "value": "1.09",
+    "unit": ""
+   },
+   {
+    "name": "Use Constant Density",
+    "value": "no",
+    "unit": ""
+   },
+   {
+    "name": "Auto Constant Density",
+    "value": "yes",
+    "unit": ""
+   },
+   {
+    "name": "Gradient",
+    "value": "2",
+    "unit": ""
+   }
+  ]
+ },
+ "Angle swapping_WO.xml": {
+  "n": 1,
+  "params": [
+   {
+    "name": "Refresh swap edit",
+    "value": "N",
+    "unit": ""
+   }
+  ]
+ }
+}

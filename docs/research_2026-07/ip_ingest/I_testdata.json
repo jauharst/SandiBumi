@@ -1,0 +1,381 @@
+{
+ "target": "I",
+ "title": "Test / example datasets in IP 2025.3 (TestData folder)",
+ "source_tree": "C:\\Program Files\\IP2025\\TestData",
+ "read_only": true,
+ "ip_version": "2025.3",
+ "publisher": "PGL / Lloyd's Register / Geoactive (Intpetro.exe)",
+ "extracted_date": "2026-07-22",
+ "n_files": 9,
+ "files": [
+  {
+   "file": "Testdata.las",
+   "bytes": 398988,
+   "format": "LAS 2.0 (CWLS), WRAP=YES",
+   "role": "Primary synthetic openhole demo well, ASCII LAS import form",
+   "well_name": "Test Well 1",
+   "field": "Somewhere",
+   "company": "PGL",
+   "service": "SCH",
+   "log_date": "1 Jan 1999",
+   "state": "North Sea",
+   "country": "UK",
+   "data_kind": "SYNTHETIC (vendor demo; fictitious well/field, North Sea flavour)",
+   "depth": {
+    "strt_ft": 7614.0,
+    "stop_ft": 8738.0,
+    "step_ft": 0.5,
+    "null": -999.0,
+    "n_rows": 2249
+   },
+   "n_curves": 14,
+   "curves": [
+    {
+     "mnem": "DEPTH",
+     "unit": "FT",
+     "desc": "Depth",
+     "valid": "2249/2249",
+     "range": [
+      7614.0,
+      8738.0
+     ]
+    },
+    {
+     "mnem": "CALI",
+     "unit": "IN",
+     "desc": "Caliper",
+     "valid": "2247/2249",
+     "range": [
+      7.95,
+      13.48
+     ]
+    },
+    {
+     "mnem": "RHOB",
+     "unit": "G/C3",
+     "desc": "Density",
+     "valid": "2247/2249",
+     "range": [
+      1.904,
+      2.625
+     ]
+    },
+    {
+     "mnem": "TNPH",
+     "unit": "DEC",
+     "desc": "Neutron (fractional)",
+     "valid": "2247/2249",
+     "range": [
+      0.136,
+      0.598
+     ]
+    },
+    {
+     "mnem": "SP",
+     "unit": "MV",
+     "desc": "Spontaneous Potential",
+     "valid": "2247/2249",
+     "range": [
+      -33.58,
+      -4.76
+     ]
+    },
+    {
+     "mnem": "SGR",
+     "unit": "GAPI",
+     "desc": "Gamma Ray",
+     "valid": "2247/2249",
+     "range": [
+      13.88,
+      139.69
+     ]
+    },
+    {
+     "mnem": "LLD",
+     "unit": "OHMM",
+     "desc": "Deep Resistivity (laterolog)",
+     "valid": "2247/2249",
+     "range": [
+      0.47,
+      72.46
+     ]
+    },
+    {
+     "mnem": "LLS",
+     "unit": "OHMM",
+     "desc": "Medium/Shallow Resistivity",
+     "valid": "2247/2249",
+     "range": [
+      0.44,
+      29.6
+     ]
+    },
+    {
+     "mnem": "MSFLC",
+     "unit": "OHMM",
+     "desc": "Microspherically-focused Rxo",
+     "valid": "2247/2249",
+     "range": [
+      0.21,
+      20.49
+     ]
+    },
+    {
+     "mnem": "DTLN",
+     "unit": "US/F",
+     "desc": "Sonic (compressional)",
+     "valid": "2247/2249",
+     "range": [
+      76.4,
+      112.96
+     ]
+    },
+    {
+     "mnem": "DRHO",
+     "unit": "G/C3",
+     "desc": "Density correction",
+     "valid": "2247/2249",
+     "range": [
+      -0.038,
+      0.303
+     ]
+    },
+    {
+     "mnem": "PERMCORE",
+     "unit": "MD",
+     "desc": "Core permeability",
+     "valid": "409/2249",
+     "range": [
+      0.18,
+      3473.0
+     ]
+    },
+    {
+     "mnem": "PHICORE",
+     "unit": "FRAC",
+     "desc": "Core porosity",
+     "valid": "432/2249",
+     "range": [
+      0.091,
+      0.312
+     ]
+    },
+    {
+     "mnem": "GDCORE",
+     "unit": "KGDM",
+     "desc": "Core grain density",
+     "valid": "432/2249",
+     "range": [
+      2.63,
+      2.81
+     ]
+    }
+   ],
+   "special_features": [
+    "WRAP=YES (multi-line-per-depth) - exercises LAS wrap handling",
+    "Non-standard '~P Interactive Petrophysics parameters' section carrying well params",
+    "Interleaved log + discrete core (perm/phi/grain-density) points - log-core calibration ready",
+    "Grain density up to 2.81 kg/dm3 -> dolomitic/heavy-mineral streaks"
+   ],
+   "ip_P_param_block": {
+    "mnemonics": [
+     "COUNT",
+     "STATE",
+     "PDAT",
+     "EPDAT",
+     "LGMEA",
+     "DRMEA",
+     "APDAT",
+     "KB",
+     "DF",
+     "GL",
+     "TLINT",
+     "BLINT",
+     "CONT",
+     "RMS",
+     "RMFS",
+     "RMCS",
+     "RW",
+     "MST",
+     "MFST",
+     "MCST",
+     "RWT"
+    ],
+    "values": {
+     "RMS_ohmm": 0.2,
+     "RMFS_ohmm": 0.15,
+     "RMCS_ohmm": 0.3,
+     "RW_ohmm": 0.1,
+     "MST_F": 60.0,
+     "MFST_F": 60.0,
+     "MCST_F": 60.0,
+     "RWT_F": 60.0,
+     "KB_ft": 60,
+     "DF_ft": 59,
+     "GL_ft": -200,
+     "PDAT": "MSL",
+     "TLINT_ft": 7614,
+     "BLINT_ft": 8730,
+     "CONT": "SCH"
+    },
+    "tier": "A (parameter defaults / well-param block format)"
+   },
+   "tier": "A (reference data / sample)",
+   "scope": "v1-core"
+  },
+  {
+   "file": "Testdata.txt",
+   "bytes": 382692,
+   "format": "IP column/space-delimited ASCII export (Well Data ASCII)",
+   "role": "ASCII twin of Testdata.las (same 14 curves, same 2249 rows)",
+   "header_style": "$Well header line, curve-name row, unit row, then columnar data",
+   "data_kind": "SYNTHETIC (identical content to Testdata.las)",
+   "tier": "A",
+   "scope": "v1-core"
+  },
+  {
+   "file": "IPDBWell0001.dat",
+   "bytes": 3089714,
+   "format": "IP native well database (binary, obfuscated; magic 85 39 7a 12)",
+   "role": "One of 3 wells in the bundled 'Test Data' IP database",
+   "data_kind": "SYNTHETIC (IP-native, not human-readable / not portable)",
+   "tier": "A (data, but IP-proprietary opaque format)",
+   "scope": "v1-core",
+   "note": "Cannot be read outside IP; not usable directly as a SandiBumi fixture"
+  },
+  {
+   "file": "IPDBWell0002.dat",
+   "bytes": 6443653,
+   "format": "IP native well database (binary, magic 85 39 7a 12)",
+   "role": "Well 2 of the 'Test Data' IP database",
+   "data_kind": "SYNTHETIC (IP-native, opaque)",
+   "tier": "A (opaque)",
+   "scope": "v1-core"
+  },
+  {
+   "file": "IPDBWell0003.dat",
+   "bytes": 2941916,
+   "format": "IP native well database (binary, magic 85 39 7a 12)",
+   "role": "Well 3 of the 'Test Data' IP database",
+   "data_kind": "SYNTHETIC (IP-native, opaque)",
+   "tier": "A (opaque)",
+   "scope": "v1-core"
+  },
+  {
+   "file": "IpProj50.dat",
+   "bytes": 1248712,
+   "format": "IP project file (binary; magic 85 77 8e 06; '50' ~ project format version)",
+   "role": "Saved IP project/workspace for the Test Data database",
+   "contains": [
+    "Plot1..Plot5 templates",
+    "PlotWells",
+    "Fuzzy (fuzzy-logic)",
+    "CapPress (capillary pressure)",
+    "PlotDefaults",
+    "DatabaseVersion",
+    "track/curve styling (colours)"
+   ],
+   "data_kind": "project layout (binary, opaque)",
+   "tier": "D-ish (UI/layout, opaque binary)",
+   "scope": "v1-core (openhole plots)",
+   "note": "Reveals which analysis panels ship (plots, crossplots, cap-pressure, fuzzy-logic) but content is opaque; do not attempt to parse UI"
+  },
+  {
+   "file": "IntPetro.ini",
+   "bytes": 780,
+   "format": "INI (plain text)",
+   "role": "IP workspace/session state for the demo database",
+   "contents_summary": "Database 'Test Data', Wells=1, window & 5 plot geometries, 1 workarea",
+   "data_kind": "config",
+   "tier": "D (session/UI state)",
+   "scope": "v1-core"
+  },
+  {
+   "file": "XStreamConfig.dat",
+   "bytes": 16936,
+   "format": "JSON (X-Stream Connect realtime config)",
+   "role": "WITSML 1.3.1 realtime streaming source config for X-Stream Connect demo",
+   "sources": [
+    "WITSML-1.3.1-Generic x3 -> http://sitecom.intellifield.no/Store/WITSML"
+   ],
+   "wells_referenced": [
+    "16/2-12 (North Sea)",
+    "0 0 Demo Well / HRH Demo",
+    "1311 Test Well"
+   ],
+   "curve_mapping_example": "BGRC->GR, api->API, cps->CPS; sanitiser rules GEOLOAD.1->XS_DEMO",
+   "data_kind": "realtime connection config",
+   "SECURITY_FLAG": "Contains WITSML username 'tim' and DPAPI-encrypted (AQAAANCMnd8...) password blobs plus an internal server URL. Blobs are Windows-DPAPI (machine/user bound) so not usable off this machine, but MUST NOT be copied into SandiBumi fixtures or shared. Observed data only - not acted on.",
+   "tier": "C-adjacent (realtime infra, not a petrophysics algorithm)",
+   "scope": "out (WITSML realtime)"
+  },
+  {
+   "file": "XStreamDemoData.dat",
+   "bytes": 1011230,
+   "format": "ASCII columnar (X-Stream Connect Demo Mode feed)",
+   "role": "Canned realtime/geosteering curve feed replayed by X-Stream demo mode",
+   "well_name": "Geosteering - Target Well",
+   "date": "6/3/2015",
+   "curves": [
+    "DEPTH",
+    "TVD",
+    "DEPTH",
+    "BGRC (gamma)"
+   ],
+   "n_lines": 21984,
+   "data_kind": "SYNTHETIC geosteering demo (realtime replay)",
+   "tier": "A (data)",
+   "scope": "out (realtime/geosteering)"
+  }
+ ],
+ "other_example_datasets_in_install": [
+  {
+   "path": "C:\\Program Files\\IP2025\\UserPrograms\\Interp_Demo",
+   "kind": "UserProgram example (C/C#/VB/Fortran/Matlab/Python UsersCode + compiled UserProgram.dll + Parameters + sample interp Report .txt)",
+   "note": "A worked user-program interpretation example, NOT a standalone well dataset; operates on the loaded IP database"
+  },
+  {
+   "path": "C:\\Program Files\\IP2025\\Jupyter\\Examples",
+   "kind": "4 Jupyter notebooks (IP Curves / Parameter & Zone Sets / Wells / matplotlib)",
+   "note": "API usage examples that read the open IP database via the Python API; no bundled well data of their own"
+  },
+  {
+   "path": "C:\\Program Files\\IP2025\\ApiDocumentation\\Examples",
+   "kind": "IP_Examples.sln + StandaloneApps + UserApps (.NET API code samples)",
+   "note": "Code samples, not datasets"
+  }
+ ],
+ "fixture_assessment": {
+  "usable_now": [
+   "Testdata.las",
+   "Testdata.txt"
+  ],
+  "why": "Only the LAS and its ASCII twin are in portable, open formats a non-IP tool can read. The .las is a compact (2249 rows, 14 curves) quad/triple-combo openhole set (CALI, RHOB, TNPH, SP, SGR, LLD/LLS/MSFLC, DTLN, DRHO) WITH interleaved core perm/porosity/grain-density - enough to regression-test Vsh, PHIE, Archie/shaly-sand Sw, and a log-core crossplot end to end.",
+  "regression_value": [
+   "LAS-reader stress fixture: WRAP=YES multi-line records, non-standard '~P' parameter section, -999 nulls, mixed log+discrete-core sampling",
+   "ASCII-import parity fixture: Testdata.txt must decode to identical arrays as Testdata.las",
+   "Quicklook FE fixture: full openhole triple/quad combo + core calibration points",
+   "IP well-parameter block (RW/RMF/RMC + temps + KB/DF/GL/datum) as an example of IP's ~P defaults"
+  ],
+  "not_usable": {
+   "IPDBWell0001-0003.dat / IpProj50.dat": "IP-proprietary binary (obfuscated); cannot be read/round-tripped outside IP; no independent decoder",
+   "XStream*.dat": "WITSML realtime / geosteering demo -> out of SandiBumi v1 scope; config also carries credentials"
+  }
+ },
+ "license_flag": {
+  "status": "REDISTRIBUTION-RESTRICTED - do not assume permission",
+  "detail": "All TestData ships inside a licensed PGL / Lloyd's Register / Geoactive IP 2025 install and is governed by the IP EULA. Content is SYNTHETIC/fictitious (Test Well 1 / 'Somewhere' / North Sea; PGL as company) so it carries no third-party field confidentiality, but the sample files themselves may still be vendor-owned. Before bundling Testdata.las/.txt into the SandiBumi repo, confirm the IP EULA permits redistribution of sample data, OR regenerate an equivalent synthetic LAS in-house.",
+  "contrast_with_techlog": "Cleaner licensing question than Techlog's fixtures but weaker provenance: SLB Techlog shipped a REAL Indonesian field set (BLSO Balam South, LAPI 2023, 36 LAS) usable as genuine field fixtures once client-cleared; IP ships one SYNTHETIC vendor demo LAS."
+ },
+ "calibration_vs_techlog": {
+  "techlog_ingest": "38 files / 36 LAS = a real multi-well field dataset (Balam South 'BLSO', LAPI-2023 reprocessing, with TLFamily_* processed curves, TVDSS, FTEMP_BLSO). Directly usable as import + regression fixtures.",
+  "ip_ingest": "9 files but effectively ONE portable synthetic well (Testdata.las) + its .txt twin; 3 opaque IP-native DB wells; 1 binary project; 2 WITSML realtime demo files.",
+  "comparison": [
+   "Volume: Techlog >> IP (36 real LAS vs 1 synthetic LAS).",
+   "Portability: both ship LAS; IP adds an opaque native .dat DB that Techlog's sample set did not rely on.",
+   "Provenance: Techlog = real field (Indonesian, Mahakam-relevant); IP = synthetic North-Sea-flavoured demo.",
+   "IP unique extras: an IP '~P' parameter section inside LAS and a WITSML realtime config - neither present in the Techlog LAS set.",
+   "Net: for SandiBumi fixtures the Techlog BLSO set remains the stronger regression corpus; IP's Testdata.las is a good SECONDARY LAS-parser + quicklook fixture, especially for WRAP=YES and '~P' handling."
+  ]
+ }
+}

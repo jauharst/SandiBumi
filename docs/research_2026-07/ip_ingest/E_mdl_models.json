@@ -1,0 +1,211 @@
+{
+ "note": "BEST-EFFORT binary parse of IP .mdl solver models. Component names, curve names, shading, and equation (tool-response) labels are ASCII and reliable. Endpoint values are little-endian IEEE-754 doubles interspersed in each component block; the 'endpoints' list per component is the set of physically-plausible non-sentinel doubles found in that block, in file order. Sentinels seen: -999 (unset/null), -99 (flag), -2 (Auto marker), 131072 (bitfield). Cross-checked against MINDEF.PAR: leading density values (2.71/2.85/2.98/2.65) correctly identify Calcite/Dolomite/Anhydrite/Quartz. Values NOT individually label-mapped (compiled layout) - use MINDEF.PAR as authoritative source; these confirm which minerals+tools each shipped model uses.",
+ "models": [
+  {
+   "file": "Calcite Dolomite Anhy WetClay Oil - Den Neu Son U Gr.mdl",
+   "components_detected": [
+    "Calcite",
+    "Dolomite",
+    "Dolomite",
+    "Anhydrite",
+    "Anhydrite",
+    "Clay",
+    "Clay",
+    "Oil Sxo",
+    "Water Sxo"
+   ],
+   "equation_labels": [
+    "Density",
+    "GammaRay",
+    "Neutron",
+    "Sonic",
+    "Unity"
+   ],
+   "curve_names": [
+    "VLime",
+    "VDol",
+    "VAnhydrite",
+    "Vclay",
+    "Voil",
+    "Vwater"
+   ],
+   "components": [
+    {
+     "component": "Calcite",
+     "endpoint_doubles_meaningful": [
+      1.0,
+      2.71,
+      47.0,
+      13.8,
+      10.0
+     ]
+    },
+    {
+     "component": "Dolomite",
+     "endpoint_doubles_meaningful": []
+    },
+    {
+     "component": "Dolomite",
+     "endpoint_doubles_meaningful": [
+      1.0,
+      2.85,
+      42.0,
+      9.0,
+      10.0
+     ]
+    },
+    {
+     "component": "Anhydrite",
+     "endpoint_doubles_meaningful": []
+    },
+    {
+     "component": "Anhydrite",
+     "endpoint_doubles_meaningful": [
+      1.0,
+      2.0,
+      2.98,
+      2.0,
+      -0.02,
+      50.0,
+      14.95,
+      10.0
+     ]
+    },
+    {
+     "component": "Clay",
+     "endpoint_doubles_meaningful": []
+    },
+    {
+     "component": "Clay",
+     "endpoint_doubles_meaningful": [
+      1.0,
+      2.0,
+      2.65,
+      0.35,
+      100.0,
+      10.0,
+      150.0
+     ]
+    },
+    {
+     "component": "Oil Sxo",
+     "endpoint_doubles_meaningful": [
+      1.0,
+      0.8,
+      0.8,
+      200.0,
+      0.8,
+      10.0
+     ]
+    },
+    {
+     "component": "Water Sxo",
+     "endpoint_doubles_meaningful": [
+      1.0,
+      189.0,
+      10.0,
+      2.0
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Quatz Calcite DryClay Oil - Den Neu Son.mdl",
+   "components_detected": [
+    "Calcite",
+    "Quartz",
+    "Clay",
+    "Clay",
+    "Water Sxo",
+    "Oil Sxo",
+    "BoundWater",
+    "BoundWater"
+   ],
+   "equation_labels": [
+    "Density",
+    "GammaRay",
+    "Neutron",
+    "Sonic",
+    "Unity"
+   ],
+   "curve_names": [
+    "VLime",
+    "VSand",
+    "Vclay",
+    "Vwater",
+    "Voil",
+    "VBWater"
+   ],
+   "components": [
+    {
+     "component": "Calcite",
+     "endpoint_doubles_meaningful": [
+      1.0,
+      2.71,
+      47.0,
+      20.0
+     ]
+    },
+    {
+     "component": "Quartz",
+     "endpoint_doubles_meaningful": [
+      1.0,
+      2.0,
+      2.65,
+      55.0,
+      20.0
+     ]
+    },
+    {
+     "component": "Clay",
+     "endpoint_doubles_meaningful": []
+    },
+    {
+     "component": "Clay",
+     "endpoint_doubles_meaningful": [
+      1.0,
+      2.78,
+      0.25,
+      70.0,
+      150.0,
+      2.0,
+      0.15
+     ]
+    },
+    {
+     "component": "Water Sxo",
+     "endpoint_doubles_meaningful": [
+      1.0,
+      189.0,
+      20.0
+     ]
+    },
+    {
+     "component": "Oil Sxo",
+     "endpoint_doubles_meaningful": [
+      1.0,
+      0.8,
+      0.8,
+      200.0,
+      20.0
+     ]
+    },
+    {
+     "component": "BoundWater",
+     "endpoint_doubles_meaningful": []
+    },
+    {
+     "component": "BoundWater",
+     "endpoint_doubles_meaningful": [
+      1.0,
+      1.0,
+      1.0,
+      189.0,
+      20.0,
+      -1.0
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,2238 @@
+[
+ {
+  "chart": "Baker Hughes, 2420, Thermal##Epithermal Compensated Neutron vs. Bulk Density",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "rhof",
+    "value": "1",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Baker Hughes"
+ },
+ {
+  "chart": "Baker Hughes, 2435, Compensated Neutron vs BHC Acoustic",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Compressional Slowness",
+  "x_unit": "v/v",
+  "y_unit": "us/ft",
+  "params": [],
+  "n_polylines": 11,
+  "vendor": "Baker Hughes"
+ },
+ {
+  "chart": "Baker Hughes, 2435, Compensated Thermal Neutron Analog vs. Bulk Density",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "rhof",
+    "value": "1",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Baker Hughes"
+ },
+ {
+  "chart": "Baker Hughes, CNSWN, Sidewall Neutron vs. Bulk Density",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "rhof",
+    "value": "1",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Baker Hughes"
+ },
+ {
+  "chart": "Baker Hughes, Sidewall Neutron vs BHC Acoustic",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Compressional Slowness",
+  "x_unit": "v/v",
+  "y_unit": "us/ft",
+  "params": [],
+  "n_polylines": 11,
+  "vendor": "Baker Hughes"
+ },
+ {
+  "chart": "Bowers_chart",
+  "type": "CrossPlot",
+  "x_family": "Effective Stress",
+  "y_family": "Velocity",
+  "x_unit": "psi",
+  "y_unit": "ft/s",
+  "params": [
+   {
+    "var": "v0",
+    "value": "",
+    "unit": "",
+    "desc": "Mudline Velocity"
+   },
+   {
+    "var": "Bowers_A",
+    "value": "10.5",
+    "unit": "unitless",
+    "desc": "Bowers A"
+   },
+   {
+    "var": "Bowers_B",
+    "value": "0.8",
+    "unit": "unitless",
+    "desc": "Bowers B"
+   },
+   {
+    "var": "vmax",
+    "value": "",
+    "unit": "",
+    "desc": "vmax"
+   },
+   {
+    "var": "U",
+    "value": "8",
+    "unit": "unitless",
+    "desc": "Unloading"
+   }
+  ],
+  "n_polylines": 2,
+  "vendor": "Bowers_chart"
+ },
+ {
+  "chart": "Bowers_chart_DTCO",
+  "type": "CrossPlot",
+  "x_family": "Effective Stress",
+  "y_family": "Slowness",
+  "x_unit": "psi",
+  "y_unit": "us/ft",
+  "params": [
+   {
+    "var": "dt0",
+    "value": "",
+    "unit": "",
+    "desc": "Mudline_Slowness"
+   },
+   {
+    "var": "Bowers_A",
+    "value": "10.5",
+    "unit": "unitless",
+    "desc": "Bowers A"
+   },
+   {
+    "var": "Bowers_B",
+    "value": "0.8",
+    "unit": "unitless",
+    "desc": "Bowers B"
+   },
+   {
+    "var": "dtmax",
+    "value": "",
+    "unit": "",
+    "desc": "Minimum_slowness"
+   },
+   {
+    "var": "U",
+    "value": "8",
+    "unit": "unitless",
+    "desc": "Unloading"
+   }
+  ],
+  "n_polylines": 2,
+  "vendor": "Bowers_chart_DTCO"
+ },
+ {
+  "chart": "Gearhart, Neutron Porosity vs Bulk Density, Gearhart  SNP",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "rhof",
+    "value": "1",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Gearhart"
+ },
+ {
+  "chart": "Gearhart, Neutron Porosity vs Bulk Density, Gearhart CNS",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "rhof",
+    "value": "1",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Gearhart"
+ },
+ {
+  "chart": "General Electric, Compensated Neutron Log",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "RhoF",
+    "value": "1",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "General Electric"
+ },
+ {
+  "chart": "General, Bulk Density vs Compressional Slowness",
+  "type": "CrossPlot",
+  "x_family": "Compressional Slowness",
+  "y_family": "Bulk Density",
+  "x_unit": "us/ft",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "dtf",
+    "value": "189",
+    "unit": "us/ft",
+    "desc": "Fluid velocity"
+   },
+   {
+    "var": "rhof",
+    "value": "1",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 1,
+  "vendor": "General"
+ },
+ {
+  "chart": "General, FZI, Porosity vs Permeability",
+  "type": "CrossPlot",
+  "x_family": "Porosity",
+  "y_family": "Permeability",
+  "x_unit": "v/v",
+  "y_unit": "mD",
+  "params": [],
+  "n_polylines": 1,
+  "vendor": "General"
+ },
+ {
+  "chart": "General, Lucia, Porosity vs Permeability",
+  "type": "CrossPlot",
+  "x_family": "Porosity",
+  "y_family": "Permeability",
+  "x_unit": "v/v",
+  "y_unit": "mD",
+  "params": [],
+  "n_polylines": 1,
+  "vendor": "General"
+ },
+ {
+  "chart": "General, Modified Klein Plot",
+  "type": "CrossPlot",
+  "x_family": "Formation Resistivity Horizontal",
+  "y_family": "Formation Resistivity Vertical",
+  "x_unit": "ohm.m",
+  "y_unit": "ohm.m",
+  "params": [
+   {
+    "var": "Shale",
+    "value": "",
+    "unit": "",
+    "desc": ""
+   }
+  ],
+  "n_polylines": 2,
+  "vendor": "General"
+ },
+ {
+  "chart": "General, R35 Aguilera, Porosity vs Permeability",
+  "type": "CrossPlot",
+  "x_family": "Porosity",
+  "y_family": "Permeability",
+  "x_unit": "%",
+  "y_unit": "mD",
+  "params": [],
+  "n_polylines": 2,
+  "vendor": "General"
+ },
+ {
+  "chart": "General, R35 Winland, Porosity vs Permeability",
+  "type": "CrossPlot",
+  "x_family": "Porosity",
+  "y_family": "Permeability",
+  "x_unit": "%",
+  "y_unit": "mD",
+  "params": [],
+  "n_polylines": 2,
+  "vendor": "General"
+ },
+ {
+  "chart": "Halliburton, CNT-K, CP-3, Compensated Neutron vs Sonic (Empirical)",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Compressional Slowness",
+  "x_unit": "v/v",
+  "y_unit": "us/ft",
+  "params": [],
+  "n_polylines": 12,
+  "vendor": "Halliburton"
+ },
+ {
+  "chart": "Halliburton, CP-DSEN-1b, Epithermal Neutron vs Bulk Density",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "RhoF",
+    "value": "1.0",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Halliburton"
+ },
+ {
+  "chart": "Halliburton, CP-DSEN-3, Epithermal Neutron vs Sonic (Empirical)",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Compressional Slowness",
+  "x_unit": "v/v",
+  "y_unit": "us/ft",
+  "params": [],
+  "n_polylines": 12,
+  "vendor": "Halliburton"
+ },
+ {
+  "chart": "Halliburton, CP-DSEN-3, Epithermal Neutron vs Sonic (Time average)",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Compressional Slowness",
+  "x_unit": "v/v",
+  "y_unit": "us/ft",
+  "params": [],
+  "n_polylines": 13,
+  "vendor": "Halliburton"
+ },
+ {
+  "chart": "Halliburton, CP-DSN-II-3, Neutron Porosity vs Sonic (Empirical)",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Compressional Slowness",
+  "x_unit": "v/v",
+  "y_unit": "us/ft",
+  "params": [],
+  "n_polylines": 12,
+  "vendor": "Halliburton"
+ },
+ {
+  "chart": "Halliburton, CP-DSN-II-3, Neutron Porosity vs Sonic (Time average)",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Compressional Slowness",
+  "x_unit": "v/v",
+  "y_unit": "us/ft",
+  "params": [],
+  "n_polylines": 12,
+  "vendor": "Halliburton"
+ },
+ {
+  "chart": "Halliburton, CP-SNL-1b, Epithermal Neutron vs Bulk Density",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "RhoF",
+    "value": "1.0",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Halliburton"
+ },
+ {
+  "chart": "Halliburton, CP-SNL-1c, Epithermal Neutron vs Bulk Density",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "RhoF",
+    "value": "1.15",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Halliburton"
+ },
+ {
+  "chart": "Halliburton, Neutron Porosity vs Bulk Density,Halliburton DSEN-II, HDSN, CNT-K",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "rhof",
+    "value": "1",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Halliburton"
+ },
+ {
+  "chart": "IsisRockPhysics_AI-PR",
+  "type": "CrossPlot",
+  "x_family": "Poisson's ratio",
+  "y_family": "Acoustic Impedance",
+  "x_unit": "ratio",
+  "y_unit": "MPa.s/m",
+  "params": [],
+  "n_polylines": 15,
+  "vendor": "IsisRockPhysics_AI-PR"
+ },
+ {
+  "chart": "IsisRockPhysics_G-Phi",
+  "type": "CrossPlot",
+  "x_family": "Porosity",
+  "y_family": "Shear Modulus",
+  "x_unit": "%",
+  "y_unit": "GPa",
+  "params": [],
+  "n_polylines": 3,
+  "vendor": "IsisRockPhysics_G-Phi"
+ },
+ {
+  "chart": "IsisRockPhysics_K-Phi",
+  "type": "CrossPlot",
+  "x_family": "Porosity",
+  "y_family": "Bulk Modulus",
+  "x_unit": "%",
+  "y_unit": "GPa",
+  "params": [],
+  "n_polylines": 5,
+  "vendor": "IsisRockPhysics_K-Phi"
+ },
+ {
+  "chart": "IsisRockPhysics_VpVs-AI",
+  "type": "CrossPlot",
+  "x_family": "Acoustic Impedance",
+  "y_family": "VpVs (Compressional To Shear) Ratio",
+  "x_unit": "MPa.s/m",
+  "y_unit": "ratio",
+  "params": [],
+  "n_polylines": 15,
+  "vendor": "IsisRockPhysics_VpVs-AI"
+ },
+ {
+  "chart": "Rock Physics, Acoustic Impedance vs Bulk Density",
+  "type": "CrossPlot",
+  "x_family": "Acoustic Impedance",
+  "y_family": "Bulk Density",
+  "x_unit": "MPa.s/m",
+  "y_unit": "g/cm3",
+  "params": [],
+  "n_polylines": 5,
+  "vendor": "Rock Physics"
+ },
+ {
+  "chart": "Rock Physics, Acoustic Impedance vs Poisson Ratio",
+  "type": "CrossPlot",
+  "x_family": "Acoustic Impedance",
+  "y_family": "Poisson Ratio (Dynamic)",
+  "x_unit": "MPa.s/m",
+  "y_unit": "unitless",
+  "params": [],
+  "n_polylines": 5,
+  "vendor": "Rock Physics"
+ },
+ {
+  "chart": "Rock Physics, Acoustic Impedance vs Shear Impedance",
+  "type": "CrossPlot",
+  "x_family": "Acoustic Impedance",
+  "y_family": "Acoustic Impedance Shear",
+  "x_unit": "MPa.s/m",
+  "y_unit": "MPa.s/m",
+  "params": [],
+  "n_polylines": 5,
+  "vendor": "Rock Physics"
+ },
+ {
+  "chart": "Rock Physics, Gardner Compressional Velocity - Density relation",
+  "type": "CrossPlot",
+  "x_family": "Bulk Density",
+  "y_family": "Compressional Velocity",
+  "x_unit": "g/cm3",
+  "y_unit": "km/s",
+  "params": [],
+  "n_polylines": 5,
+  "vendor": "Rock Physics"
+ },
+ {
+  "chart": "Rock Physics, LambdaRho vs MuRho",
+  "type": "CrossPlot",
+  "x_family": "LambdaRho",
+  "y_family": "MuRho",
+  "x_unit": "GPa.g/cm3",
+  "y_unit": "GPa.g/cm3",
+  "params": [],
+  "n_polylines": 13,
+  "vendor": "Rock Physics"
+ },
+ {
+  "chart": "RockPhysics VPVS ratio vs Acoustic Impedance",
+  "type": "CrossPlot",
+  "x_family": "Acoustic Impedance",
+  "y_family": "VpVs (Compressional To Shear) Ratio",
+  "x_unit": "MPa.s/m",
+  "y_unit": "ratio",
+  "params": [],
+  "n_polylines": 3,
+  "vendor": "RockPhysics VPVS ratio vs Acoustic Impedance"
+ },
+ {
+  "chart": "RockPhysics, Vs vs Vp, Greenberg-Castagna Shale-Sand Model",
+  "type": "",
+  "x_family": "Shear Velocity",
+  "y_family": "Compressional Velocity",
+  "x_unit": "m/s",
+  "y_unit": "m/s",
+  "params": [],
+  "n_polylines": 1,
+  "vendor": "RockPhysics"
+ },
+ {
+  "chart": "RockPhysics, Vs vs Vp, Greenberg-Castagna, Quartz, Limestone, Dolomite, Shale",
+  "type": "",
+  "x_family": "",
+  "y_family": "",
+  "x_unit": "",
+  "y_unit": "",
+  "params": [],
+  "n_polylines": 4,
+  "vendor": "RockPhysics"
+ },
+ {
+  "chart": "RockPhysics_AcousticImpedance_vs_PoissonsRatio",
+  "type": "CrossPlot",
+  "x_family": "Poisson Ratio",
+  "y_family": "Acoustic Impedance",
+  "x_unit": "10^6kg/m2s",
+  "y_unit": "ratio",
+  "params": [],
+  "n_polylines": 3,
+  "vendor": "RockPhysics_AcousticImpedance_vs_PoissonsRatio"
+ },
+ {
+  "chart": "RockPhysics_BulkModulus_vs_PHI_Calcite-Water",
+  "type": "CrossPlot",
+  "x_family": "Porosity",
+  "y_family": "Bulk Modulus (Dynamic)",
+  "x_unit": "v/v",
+  "y_unit": "GPa",
+  "params": [
+   {
+    "var": "K_Fluid",
+    "value": "",
+    "unit": "",
+    "desc": "Bulk Modulus Fluid"
+   },
+   {
+    "var": "u_Fluid",
+    "value": "0",
+    "unit": "GPa",
+    "desc": "Shear Modulus Fluid"
+   },
+   {
+    "var": "K_Matrix",
+    "value": "",
+    "unit": "",
+    "desc": "Bulk Moduli Matrix"
+   },
+   {
+    "var": "u_Matrix",
+    "value": "32",
+    "unit": "GPa",
+    "desc": "Shear Modulus Matrix"
+   },
+   {
+    "var": "e",
+    "value": "3",
+    "unit": "",
+    "desc": "Brie Parameter"
+   }
+  ],
+  "n_polylines": 5,
+  "vendor": "RockPhysics_BulkModulus_vs_PHI_Calcite-Water"
+ },
+ {
+  "chart": "RockPhysics_BulkModulus_vs_PHI_Dolomite-Water",
+  "type": "CrossPlot",
+  "x_family": "Porosity",
+  "y_family": "Bulk Modulus (Dynamic)",
+  "x_unit": "v/v",
+  "y_unit": "GPa",
+  "params": [
+   {
+    "var": "K_Fluid",
+    "value": "",
+    "unit": "",
+    "desc": "Bulk Modulus Fluid"
+   },
+   {
+    "var": "u_Fluid",
+    "value": "0",
+    "unit": "GPa",
+    "desc": "Shear Modulus Fluid"
+   },
+   {
+    "var": "K_Matrix",
+    "value": "",
+    "unit": "",
+    "desc": "Bulk Moduli Matrix"
+   },
+   {
+    "var": "u_Matrix",
+    "value": "46",
+    "unit": "GPa",
+    "desc": "Shear Modulus Matrix"
+   },
+   {
+    "var": "e",
+    "value": "3",
+    "unit": "",
+    "desc": "Brie Parameter"
+   }
+  ],
+  "n_polylines": 5,
+  "vendor": "RockPhysics_BulkModulus_vs_PHI_Dolomite-Water"
+ },
+ {
+  "chart": "RockPhysics_BulkModulus_vs_PHI_Quartz-Water",
+  "type": "CrossPlot",
+  "x_family": "Porosity",
+  "y_family": "Bulk Modulus (Dynamic)",
+  "x_unit": "v/v",
+  "y_unit": "GPa",
+  "params": [
+   {
+    "var": "K_Fluid",
+    "value": "",
+    "unit": "",
+    "desc": "Bulk Modulus Fluid"
+   },
+   {
+    "var": "u_Fluid",
+    "value": "0",
+    "unit": "GPa",
+    "desc": "Shear Modulus Fluid"
+   },
+   {
+    "var": "K_Matrix",
+    "value": "",
+    "unit": "",
+    "desc": "Bulk Moduli Matrix"
+   },
+   {
+    "var": "u_Matrix",
+    "value": "43",
+    "unit": "GPa",
+    "desc": "Shear Modulus Matrix"
+   },
+   {
+    "var": "e",
+    "value": "3",
+    "unit": "",
+    "desc": "Brie Parameter"
+   }
+  ],
+  "n_polylines": 5,
+  "vendor": "RockPhysics_BulkModulus_vs_PHI_Quartz-Water"
+ },
+ {
+  "chart": "RockPhysics_K-Kmin_vs_Porosity",
+  "type": "CrossPlot",
+  "x_family": "Porosity",
+  "y_family": "Ratio",
+  "x_unit": "v/v",
+  "y_unit": "unitless",
+  "params": [
+   {
+    "var": "PhiC",
+    "value": "",
+    "unit": "",
+    "desc": "CriticalPorosity"
+   },
+   {
+    "var": "Normalized_K_Fluid",
+    "value": "",
+    "unit": "",
+    "desc": "Normalized_K_Fluid"
+   }
+  ],
+  "n_polylines": 9,
+  "vendor": "RockPhysics_K-Kmin_vs_Porosity"
+ },
+ {
+  "chart": "RockPhysics_PVelocity_vs_PHI_Calcite-Water",
+  "type": "CrossPlot",
+  "x_family": "Porosity",
+  "y_family": "Compressional Velocity",
+  "x_unit": "v/v",
+  "y_unit": "m/s",
+  "params": [
+   {
+    "var": "K_Fluid",
+    "value": "2.2",
+    "unit": "GPa",
+    "desc": "Bulk Modulus Fluid"
+   },
+   {
+    "var": "u_Fluid",
+    "value": "0",
+    "unit": "GPa",
+    "desc": "Shear Modulus Fluid"
+   },
+   {
+    "var": "rho_Fluid",
+    "value": "1000",
+    "unit": "kg/m3",
+    "desc": "Fluid Bulk Density"
+   },
+   {
+    "var": "K_Matrix",
+    "value": "73",
+    "unit": "GPa",
+    "desc": "Bulk Moduli Matrix"
+   },
+   {
+    "var": "u_Matrix",
+    "value": "32",
+    "unit": "GPa",
+    "desc": "Shear Modulus Matrix"
+   },
+   {
+    "var": "rho_Matrix",
+    "value": "2710",
+    "unit": "kg/m3",
+    "desc": "Matrix Density"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "RockPhysics_PVelocity_vs_PHI_Calcite-Water"
+ },
+ {
+  "chart": "RockPhysics_PVelocity_vs_PHI_Dolomite-Water",
+  "type": "CrossPlot",
+  "x_family": "Porosity",
+  "y_family": "Compressional Velocity",
+  "x_unit": "v/v",
+  "y_unit": "m/s",
+  "params": [
+   {
+    "var": "K_Fluid",
+    "value": "2.2",
+    "unit": "GPa",
+    "desc": "Bulk Modulus Fluid"
+   },
+   {
+    "var": "u_Fluid",
+    "value": "0",
+    "unit": "GPa",
+    "desc": "Shear Modulus Fluid"
+   },
+   {
+    "var": "rho_Fluid",
+    "value": "1000",
+    "unit": "kg/m3",
+    "desc": "Fluid Bulk Density"
+   },
+   {
+    "var": "K_Matrix",
+    "value": "94",
+    "unit": "GPa",
+    "desc": "Bulk Moduli Matrix"
+   },
+   {
+    "var": "u_Matrix",
+    "value": "46",
+    "unit": "GPa",
+    "desc": "Shear Modulus Matrix"
+   },
+   {
+    "var": "rho_Matrix",
+    "value": "2860",
+    "unit": "kg/m3",
+    "desc": "Matrix Density"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "RockPhysics_PVelocity_vs_PHI_Dolomite-Water"
+ },
+ {
+  "chart": "RockPhysics_PVelocity_vs_PHI_Quartz-Water",
+  "type": "CrossPlot",
+  "x_family": "Porosity",
+  "y_family": "Compressional Velocity",
+  "x_unit": "v/v",
+  "y_unit": "m/s",
+  "params": [
+   {
+    "var": "K_Fluid",
+    "value": "2.2",
+    "unit": "GPa",
+    "desc": "Bulk Modulus Fluid"
+   },
+   {
+    "var": "u_Fluid",
+    "value": "0",
+    "unit": "GPa",
+    "desc": "Shear Modulus Fluid"
+   },
+   {
+    "var": "rho_Fluid",
+    "value": "1000",
+    "unit": "kg/m3",
+    "desc": "Fluid Bulk Density"
+   },
+   {
+    "var": "K_Matrix",
+    "value": "37",
+    "unit": "GPa",
+    "desc": "Bulk Moduli Matrix"
+   },
+   {
+    "var": "u_Matrix",
+    "value": "43",
+    "unit": "GPa",
+    "desc": "Shear Modulus Matrix"
+   },
+   {
+    "var": "rho_Matrix",
+    "value": "2650",
+    "unit": "kg/m3",
+    "desc": "Matrix Density"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "RockPhysics_PVelocity_vs_PHI_Quartz-Water"
+ },
+ {
+  "chart": "RockPhysics_PVelocity_vs_RHOB_Calcite-Water",
+  "type": "CrossPlot",
+  "x_family": "Bulk Density",
+  "y_family": "Compressional Velocity",
+  "x_unit": "g/cc",
+  "y_unit": "m/s",
+  "params": [
+   {
+    "var": "K_Fluid",
+    "value": "2.2",
+    "unit": "GPa",
+    "desc": "Bulk Modulus Fluid"
+   },
+   {
+    "var": "u_Fluid",
+    "value": "0",
+    "unit": "GPa",
+    "desc": "Shear Modulus Fluid"
+   },
+   {
+    "var": "rho_Fluid",
+    "value": "1000",
+    "unit": "kg/m3",
+    "desc": "Fluid Bulk Density"
+   },
+   {
+    "var": "K_Matrix",
+    "value": "73",
+    "unit": "GPa",
+    "desc": "Bulk Moduli Matrix"
+   },
+   {
+    "var": "u_Matrix",
+    "value": "32",
+    "unit": "GPa",
+    "desc": "Shear Modulus Matrix"
+   },
+   {
+    "var": "rho_Matrix",
+    "value": "2710",
+    "unit": "kg/m3",
+    "desc": "Matrix Density"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "RockPhysics_PVelocity_vs_RHOB_Calcite-Water"
+ },
+ {
+  "chart": "RockPhysics_PVelocity_vs_RHOB_Dolomite-Water",
+  "type": "CrossPlot",
+  "x_family": "Bulk Density",
+  "y_family": "Compressional Velocity",
+  "x_unit": "g/cc",
+  "y_unit": "m/s",
+  "params": [
+   {
+    "var": "K_Fluid",
+    "value": "2.2",
+    "unit": "GPa",
+    "desc": "Bulk Modulus Fluid"
+   },
+   {
+    "var": "u_Fluid",
+    "value": "0",
+    "unit": "GPa",
+    "desc": "Shear Modulus Fluid"
+   },
+   {
+    "var": "rho_Fluid",
+    "value": "1000",
+    "unit": "kg/m3",
+    "desc": "Fluid Bulk Density"
+   },
+   {
+    "var": "K_Matrix",
+    "value": "94",
+    "unit": "GPa",
+    "desc": "Bulk Moduli Matrix"
+   },
+   {
+    "var": "u_Matrix",
+    "value": "46",
+    "unit": "GPa",
+    "desc": "Shear Modulus Matrix"
+   },
+   {
+    "var": "rho_Matrix",
+    "value": "2860",
+    "unit": "kg/m3",
+    "desc": "Matrix Density"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "RockPhysics_PVelocity_vs_RHOB_Dolomite-Water"
+ },
+ {
+  "chart": "RockPhysics_PVelocity_vs_RHOB_Quartz-Water",
+  "type": "CrossPlot",
+  "x_family": "Bulk Density",
+  "y_family": "Compressional Velocity",
+  "x_unit": "g/cc",
+  "y_unit": "m/s",
+  "params": [
+   {
+    "var": "K_Fluid",
+    "value": "2.2",
+    "unit": "GPa",
+    "desc": "Bulk Modulus Fluid"
+   },
+   {
+    "var": "u_Fluid",
+    "value": "0",
+    "unit": "GPa",
+    "desc": "Shear Modulus Fluid"
+   },
+   {
+    "var": "rho_Fluid",
+    "value": "1000",
+    "unit": "kg/m3",
+    "desc": "Fluid Bulk Density"
+   },
+   {
+    "var": "K_Matrix",
+    "value": "37",
+    "unit": "GPa",
+    "desc": "Bulk Moduli Matrix"
+   },
+   {
+    "var": "u_Matrix",
+    "value": "43",
+    "unit": "GPa",
+    "desc": "Shear Modulus Matrix"
+   },
+   {
+    "var": "rho_Matrix",
+    "value": "2650",
+    "unit": "kg/m3",
+    "desc": "Matrix Density"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "RockPhysics_PVelocity_vs_RHOB_Quartz-Water"
+ },
+ {
+  "chart": "RockPhysics_RP311_GC_calibrated_",
+  "type": "CrossPlot",
+  "x_family": "Compressional Velocity",
+  "y_family": "Shear Velocity",
+  "x_unit": "m/s",
+  "y_unit": "m/s",
+  "params": [],
+  "n_polylines": 8,
+  "vendor": "RockPhysics_RP311_GC_calibrated_"
+ },
+ {
+  "chart": "RockPhysics_SVelocity_vs_PHI_Calcite-Water",
+  "type": "CrossPlot",
+  "x_family": "Porosity",
+  "y_family": "Shear Velocity",
+  "x_unit": "v/v",
+  "y_unit": "m/s",
+  "params": [
+   {
+    "var": "K_Fluid",
+    "value": "2.2",
+    "unit": "GPa",
+    "desc": "Bulk Modulus Fluid"
+   },
+   {
+    "var": "u_Fluid",
+    "value": "0",
+    "unit": "GPa",
+    "desc": "Shear Modulus Fluid"
+   },
+   {
+    "var": "rho_Fluid",
+    "value": "1000",
+    "unit": "kg/m3",
+    "desc": "Fluid Bulk Density"
+   },
+   {
+    "var": "K_Matrix",
+    "value": "73",
+    "unit": "GPa",
+    "desc": "Bulk Moduli Matrix"
+   },
+   {
+    "var": "u_Matrix",
+    "value": "32",
+    "unit": "GPa",
+    "desc": "Shear Modulus Matrix"
+   },
+   {
+    "var": "rho_Matrix",
+    "value": "2710",
+    "unit": "kg/m3",
+    "desc": "Matrix Density"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "RockPhysics_SVelocity_vs_PHI_Calcite-Water"
+ },
+ {
+  "chart": "RockPhysics_SVelocity_vs_PHI_Dolomite-Water",
+  "type": "CrossPlot",
+  "x_family": "Porosity",
+  "y_family": "Shear Velocity",
+  "x_unit": "v/v",
+  "y_unit": "m/s",
+  "params": [
+   {
+    "var": "K_Fluid",
+    "value": "2.2",
+    "unit": "GPa",
+    "desc": "Bulk Modulus Fluid"
+   },
+   {
+    "var": "u_Fluid",
+    "value": "0",
+    "unit": "GPa",
+    "desc": "Shear Modulus Fluid"
+   },
+   {
+    "var": "rho_Fluid",
+    "value": "1000",
+    "unit": "kg/m3",
+    "desc": "Fluid Bulk Density"
+   },
+   {
+    "var": "K_Matrix",
+    "value": "94",
+    "unit": "GPa",
+    "desc": "Bulk Moduli Matrix"
+   },
+   {
+    "var": "u_Matrix",
+    "value": "46",
+    "unit": "GPa",
+    "desc": "Shear Modulus Matrix"
+   },
+   {
+    "var": "rho_Matrix",
+    "value": "2860",
+    "unit": "kg/m3",
+    "desc": "Matrix Density"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "RockPhysics_SVelocity_vs_PHI_Dolomite-Water"
+ },
+ {
+  "chart": "RockPhysics_SVelocity_vs_PHI_Quartz-Water",
+  "type": "CrossPlot",
+  "x_family": "Porosity",
+  "y_family": "Shear Velocity",
+  "x_unit": "v/v",
+  "y_unit": "m/s",
+  "params": [
+   {
+    "var": "K_Fluid",
+    "value": "2.2",
+    "unit": "GPa",
+    "desc": "Bulk Modulus Fluid"
+   },
+   {
+    "var": "u_Fluid",
+    "value": "0",
+    "unit": "GPa",
+    "desc": "Shear Modulus Fluid"
+   },
+   {
+    "var": "rho_Fluid",
+    "value": "1000",
+    "unit": "kg/m3",
+    "desc": "Fluid Bulk Density"
+   },
+   {
+    "var": "K_Matrix",
+    "value": "37",
+    "unit": "GPa",
+    "desc": "Bulk Moduli Matrix"
+   },
+   {
+    "var": "u_Matrix",
+    "value": "43",
+    "unit": "GPa",
+    "desc": "Shear Modulus Matrix"
+   },
+   {
+    "var": "rho_Matrix",
+    "value": "2650",
+    "unit": "kg/m3",
+    "desc": "Matrix Density"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "RockPhysics_SVelocity_vs_PHI_Quartz-Water"
+ },
+ {
+  "chart": "RockPhysics_SVelocity_vs_RHOB_Calcite-Water",
+  "type": "CrossPlot",
+  "x_family": "Bulk Density",
+  "y_family": "Shear Velocity",
+  "x_unit": "g/cc",
+  "y_unit": "m/s",
+  "params": [
+   {
+    "var": "K_Fluid",
+    "value": "2.2",
+    "unit": "GPa",
+    "desc": "Bulk Modulus Fluid"
+   },
+   {
+    "var": "u_Fluid",
+    "value": "0",
+    "unit": "GPa",
+    "desc": "Shear Modulus Fluid"
+   },
+   {
+    "var": "rho_Fluid",
+    "value": "1000",
+    "unit": "kg/m3",
+    "desc": "Fluid Bulk Density"
+   },
+   {
+    "var": "K_Matrix",
+    "value": "73",
+    "unit": "GPa",
+    "desc": "Bulk Moduli Matrix"
+   },
+   {
+    "var": "u_Matrix",
+    "value": "32",
+    "unit": "GPa",
+    "desc": "Shear Modulus Matrix"
+   },
+   {
+    "var": "rho_Matrix",
+    "value": "2710",
+    "unit": "kg/m3",
+    "desc": "Matrix Density"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "RockPhysics_SVelocity_vs_RHOB_Calcite-Water"
+ },
+ {
+  "chart": "RockPhysics_SVelocity_vs_RHOB_Dolomite-Water",
+  "type": "CrossPlot",
+  "x_family": "Bulk Density",
+  "y_family": "Shear Velocity",
+  "x_unit": "g/cc",
+  "y_unit": "m/s",
+  "params": [
+   {
+    "var": "K_Fluid",
+    "value": "2.2",
+    "unit": "GPa",
+    "desc": "Bulk Modulus Fluid"
+   },
+   {
+    "var": "u_Fluid",
+    "value": "0",
+    "unit": "GPa",
+    "desc": "Shear Modulus Fluid"
+   },
+   {
+    "var": "rho_Fluid",
+    "value": "1000",
+    "unit": "kg/m3",
+    "desc": "Fluid Bulk Density"
+   },
+   {
+    "var": "K_Matrix",
+    "value": "94",
+    "unit": "GPa",
+    "desc": "Bulk Moduli Matrix"
+   },
+   {
+    "var": "u_Matrix",
+    "value": "46",
+    "unit": "GPa",
+    "desc": "Shear Modulus Matrix"
+   },
+   {
+    "var": "rho_Matrix",
+    "value": "2860",
+    "unit": "kg/m3",
+    "desc": "Matrix Density"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "RockPhysics_SVelocity_vs_RHOB_Dolomite-Water"
+ },
+ {
+  "chart": "RockPhysics_SVelocity_vs_RHOB_Quartz-Water",
+  "type": "CrossPlot",
+  "x_family": "Bulk Density",
+  "y_family": "Shear Velocity",
+  "x_unit": "g/cc",
+  "y_unit": "m/s",
+  "params": [
+   {
+    "var": "K_Fluid",
+    "value": "2.2",
+    "unit": "GPa",
+    "desc": "Bulk Modulus Fluid"
+   },
+   {
+    "var": "u_Fluid",
+    "value": "0",
+    "unit": "GPa",
+    "desc": "Shear Modulus Fluid"
+   },
+   {
+    "var": "rho_Fluid",
+    "value": "1000",
+    "unit": "kg/m3",
+    "desc": "Fluid Bulk Density"
+   },
+   {
+    "var": "K_Matrix",
+    "value": "37",
+    "unit": "GPa",
+    "desc": "Bulk Moduli Matrix"
+   },
+   {
+    "var": "u_Matrix",
+    "value": "43",
+    "unit": "GPa",
+    "desc": "Shear Modulus Matrix"
+   },
+   {
+    "var": "rho_Matrix",
+    "value": "2650",
+    "unit": "kg/m3",
+    "desc": "Matrix Density"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "RockPhysics_SVelocity_vs_RHOB_Quartz-Water"
+ },
+ {
+  "chart": "RockPhysics_ShearModulus_vs_PHI_Calcite-WaterDyn",
+  "type": "CrossPlot",
+  "x_family": "Porosity",
+  "y_family": "Bulk Modulus (Dynamic)",
+  "x_unit": "v/v",
+  "y_unit": "GPa",
+  "params": [
+   {
+    "var": "K_Fluid",
+    "value": "2.2",
+    "unit": "GPa",
+    "desc": "Bulk Modulus Fluid"
+   },
+   {
+    "var": "u_Fluid",
+    "value": "",
+    "unit": "",
+    "desc": "Shear Modulus Fluid"
+   },
+   {
+    "var": "K_Matrix",
+    "value": "73",
+    "unit": "GPa",
+    "desc": "Bulk Moduli Matrix"
+   },
+   {
+    "var": "u_Matrix",
+    "value": "",
+    "unit": "",
+    "desc": "Shear Modulus Matrix"
+   },
+   {
+    "var": "e",
+    "value": "3",
+    "unit": "",
+    "desc": "Brie Parameter"
+   }
+  ],
+  "n_polylines": 5,
+  "vendor": "RockPhysics_ShearModulus_vs_PHI_Calcite-WaterDyn"
+ },
+ {
+  "chart": "RockPhysics_ShearModulus_vs_PHI_Dolomite-WaterDyn",
+  "type": "CrossPlot",
+  "x_family": "Porosity",
+  "y_family": "Bulk Modulus (Dynamic)",
+  "x_unit": "v/v",
+  "y_unit": "GPa",
+  "params": [
+   {
+    "var": "K_Fluid",
+    "value": "2.2",
+    "unit": "GPa",
+    "desc": "Bulk Modulus Fluid"
+   },
+   {
+    "var": "u_Fluid",
+    "value": "",
+    "unit": "",
+    "desc": "Shear Modulus Fluid"
+   },
+   {
+    "var": "K_Matrix",
+    "value": "94",
+    "unit": "GPa",
+    "desc": "Bulk Moduli Matrix"
+   },
+   {
+    "var": "u_Matrix",
+    "value": "",
+    "unit": "",
+    "desc": "Shear Modulus Matrix"
+   },
+   {
+    "var": "e",
+    "value": "3",
+    "unit": "",
+    "desc": "Brie Parameter"
+   }
+  ],
+  "n_polylines": 5,
+  "vendor": "RockPhysics_ShearModulus_vs_PHI_Dolomite-WaterDyn"
+ },
+ {
+  "chart": "RockPhysics_ShearModulus_vs_PHI_Quartz-WaterDyn",
+  "type": "CrossPlot",
+  "x_family": "Porosity",
+  "y_family": "Bulk Modulus (Dynamic)",
+  "x_unit": "v/v",
+  "y_unit": "GPa",
+  "params": [
+   {
+    "var": "K_Fluid",
+    "value": "2.2",
+    "unit": "GPa",
+    "desc": "Bulk Modulus Fluid"
+   },
+   {
+    "var": "u_Fluid",
+    "value": "",
+    "unit": "",
+    "desc": "Shear Modulus Fluid"
+   },
+   {
+    "var": "K_Matrix",
+    "value": "37",
+    "unit": "GPa",
+    "desc": "Bulk Moduli Matrix"
+   },
+   {
+    "var": "u_Matrix",
+    "value": "",
+    "unit": "",
+    "desc": "Shear Modulus Matrix"
+   },
+   {
+    "var": "e",
+    "value": "3",
+    "unit": "",
+    "desc": "Brie Parameter"
+   }
+  ],
+  "n_polylines": 5,
+  "vendor": "RockPhysics_ShearModulus_vs_PHI_Quartz-WaterDyn"
+ },
+ {
+  "chart": "RockPhysics_WP311_GC_calibrated_testG",
+  "type": "CrossPlot",
+  "x_family": "Compressional Velocity",
+  "y_family": "Shear Velocity",
+  "x_unit": "m/s",
+  "y_unit": "m/s",
+  "params": [],
+  "n_polylines": 8,
+  "vendor": "RockPhysics_WP311_GC_calibrated_testG"
+ },
+ {
+  "chart": "RockPhysics_WP311_GC_calibrated_testG1",
+  "type": "CrossPlot",
+  "x_family": "Compressional Velocity",
+  "y_family": "Shear Velocity",
+  "x_unit": "m/s",
+  "y_unit": "m/s",
+  "params": [],
+  "n_polylines": 8,
+  "vendor": "RockPhysics_WP311_GC_calibrated_testG1"
+ },
+ {
+  "chart": "Schlumberger, CP-1a, Neutron Porosity vs Bulk Density, SNP Sidewall",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "RhoF",
+    "value": "1.0",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, CP-1b, Neutron Porosity vs Bulk Density, SNP Sidewall",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "RhoF",
+    "value": "1.1",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, CP-1c & CP-1d, Neutron Porosity vs Bulk Density, NPHI",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "rhof",
+    "value": "1",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, CP-22, Neutron Porosity vs Bulk Density, CDN",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "RhoF",
+    "value": "1.0",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, CP-23, Neutron Porosity vs Bulk Density, CDN",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "RhoF",
+    "value": "1.0",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, CP-24, Neutron Porosity vs Bulk Density, CDN",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "RhoF",
+    "value": "1.0",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, CP-2a, SNP Sidewall Neutron vs Sonic (Field observation)",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Compressional Slowness",
+  "x_unit": "v/v",
+  "y_unit": "us/ft",
+  "params": [],
+  "n_polylines": 11,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, CP-2a, SNP Sidewall Neutron vs Sonic (Time average)",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Compressional Slowness",
+  "x_unit": "v/v",
+  "y_unit": "us/ft",
+  "params": [],
+  "n_polylines": 11,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, CP-2b, CNL Compensated Neutron vs Sonic (Field observation)",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Compressional Slowness",
+  "x_unit": "v/v",
+  "y_unit": "us/ft",
+  "params": [],
+  "n_polylines": 12,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, CP-2c, CNL Compensated Neutron vs Sonic (Field observation)",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Compressional Slowness",
+  "x_unit": "v/v",
+  "y_unit": "us/ft",
+  "params": [],
+  "n_polylines": 12,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, Compressional Slowness vs VPVS, Formation Type",
+  "type": "CrossPlot",
+  "x_family": "Compressional Slowness",
+  "y_family": "VPVS Ratio",
+  "x_unit": "us/ft",
+  "y_unit": "unitless",
+  "params": [],
+  "n_polylines": 0,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, Compressional vs VPVS",
+  "type": "CrossPlot",
+  "x_family": "Compressional Slowness",
+  "y_family": "VPVS Ratio",
+  "x_unit": "us/ft",
+  "y_unit": "unitless",
+  "params": [],
+  "n_polylines": 13,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, LITH-11,12, Matrix Identification Density tool",
+  "type": "CrossPlot",
+  "x_family": "Compressional Slowness",
+  "y_family": "Apparent Matrix Density",
+  "x_unit": "us/ft",
+  "y_unit": "g/cm3",
+  "params": [],
+  "n_polylines": 0,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, LITH-1A, Potassium Concentration vs Photoelectric factor",
+  "type": "CrossPlot",
+  "x_family": "Potassium Concentration",
+  "y_family": "Photoelectric Factor",
+  "x_unit": "%",
+  "y_unit": "",
+  "params": [],
+  "n_polylines": 0,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, LITH-1B, Photoelectric factor vs Thorium Potassium ratio",
+  "type": "CrossPlot",
+  "x_family": "Thorium/Potassium ratio",
+  "y_family": "Photoelectric Factor",
+  "x_unit": "",
+  "y_unit": "b/elec",
+  "params": [],
+  "n_polylines": 0,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, LITH-2, Thorium vs Potassium",
+  "type": "CrossPlot",
+  "x_family": "Potassium Concentration",
+  "y_family": "Thorium Concentration",
+  "x_unit": "%",
+  "y_unit": "ppm",
+  "params": [],
+  "n_polylines": 0,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, LITH-3 & LITH-4, Photoelectric factor vs Bulk Density",
+  "type": "CrossPlot",
+  "x_family": "Photoelectric Factor",
+  "y_family": "Bulk Density",
+  "x_unit": "",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "Salinity",
+    "value": "0",
+    "unit": "ppk",
+    "desc": "Salinity"
+   }
+  ],
+  "n_polylines": 5,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, LITH-6, Uma vs Rhoma",
+  "type": "CrossPlot",
+  "x_family": "Grain Volumetric Photoelectric Factor",
+  "y_family": "Grain Density",
+  "x_unit": "b/cm3",
+  "y_unit": "g/cm3",
+  "params": [],
+  "n_polylines": 3,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, LITH-7, M-N plot for corrected neutron curves",
+  "type": "CrossPlot",
+  "x_family": "N",
+  "y_family": "M",
+  "x_unit": "",
+  "y_unit": "",
+  "params": [],
+  "n_polylines": 0,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, LITH-8,  M-N plot for corrected APS curves",
+  "type": "CrossPlot",
+  "x_family": "N",
+  "y_family": "M",
+  "x_unit": "",
+  "y_unit": "",
+  "params": [],
+  "n_polylines": 0,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, Por-11 & Por-12, Neutron Porosity vs Bulk Density, TNPH",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "NaCl",
+    "value": "0",
+    "unit": "kppm",
+    "desc": "NaCl"
+   },
+   {
+    "var": "rhof",
+    "value": "1",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, Por-13, APS vs Bulk Density, FPLC",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "RhoF",
+    "value": "1.0",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, Por-13, Neutron Porosity vs Bulk Density, APLC",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "rhof",
+    "value": "1",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, Por-14, APS vs Bulk Density, APLC",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "RhoF",
+    "value": "1.19",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, Por-14, APS vs Bulk Density, FPLC",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "RhoF",
+    "value": "1.19",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, Por-15, Neutron Porosity vs Bulk Density, adnVISION475",
+  "type": "",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [],
+  "n_polylines": 12,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, Por-16, Neutron Porosity vs Bulk Density, adnVISION675",
+  "type": "",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [],
+  "n_polylines": 12,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, Por-17, Neutron Porosity vs Bulk Density, adnVISION825",
+  "type": "",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [],
+  "n_polylines": 12,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, Por-18, EcoScope, BPHI vs Bulk Density ",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "%",
+  "y_unit": "g/cm3",
+  "params": [],
+  "n_polylines": 3,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, Por-19, EcoScope, TNPH vs Bulk Density ",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "%",
+  "y_unit": "g/cm3",
+  "params": [],
+  "n_polylines": 3,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, Por-L-21, Neutron Porosity vs Bulk Density, CDN8",
+  "type": "",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [],
+  "n_polylines": 12,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Schlumberger, Por-L-21, Neutron Porosity vs Bulk Density, adnVISION825s",
+  "type": "",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [],
+  "n_polylines": 12,
+  "vendor": "Schlumberger"
+ },
+ {
+  "chart": "Sperry, Neutron Porosity vs Bulk Density, Sperry SUN CNP675",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "rhof",
+    "value": "1",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Sperry"
+ },
+ {
+  "chart": "Sperry, Neutron Porosity vs Bulk Density, Sperry SUN CNP8",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "rhof",
+    "value": "1",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Sperry"
+ },
+ {
+  "chart": "Sperry, Neutron Porosity vs Bulk Density, Sperry SUN CNT475",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "rhof",
+    "value": "1",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Sperry"
+ },
+ {
+  "chart": "Weatherford, CM 6-10 Compact, Neutron Porosity vs Bulk Density",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "rhof",
+    "value": "1.19",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 4,
+  "vendor": "Weatherford"
+ },
+ {
+  "chart": "Weatherford, CM 6-12 Compact, Neutron Porosity vs Sonic (Time average)",
+  "type": "CrossPlot",
+  "x_family": "Porosity",
+  "y_family": "Compressional Slowness",
+  "x_unit": "v/v",
+  "y_unit": "ms/ft",
+  "params": [],
+  "n_polylines": 4,
+  "vendor": "Weatherford"
+ },
+ {
+  "chart": "Weatherford, CM 6-8 Compact, Photoelectric Factor vs Bulk Density",
+  "type": "CrossPlot",
+  "x_family": "Photoelectric Factor",
+  "y_family": "Bulk Density",
+  "x_unit": "b/e",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "rhof",
+    "value": "1.19",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 4,
+  "vendor": "Weatherford"
+ },
+ {
+  "chart": "Weatherford, CM 6-9 Compact, Neutron Porosity vs Bulk Density",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "rhof",
+    "value": "1",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 4,
+  "vendor": "Weatherford"
+ },
+ {
+  "chart": "Weatherford, GN 6-42 General, Compensated Neutron vs Sonic (Metric)",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Compressional Slowness",
+  "x_unit": "v/v",
+  "y_unit": "us/m",
+  "params": [],
+  "n_polylines": 3,
+  "vendor": "Weatherford"
+ },
+ {
+  "chart": "Weatherford, Neutron Porosity vs Bulk Density,  CNT-S",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "rhof",
+    "value": "1",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Weatherford"
+ },
+ {
+  "chart": "Weatherford, Neutron Porosity vs Bulk Density,  CNT-V",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "rhof",
+    "value": "1",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Weatherford"
+ },
+ {
+  "chart": "Weatherford, Neutron Porosity vs Bulk Density,  MDN",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "rhof",
+    "value": "1",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Weatherford"
+ },
+ {
+  "chart": "Weatherford, Neutron Porosity vs Bulk Density, TNP 475",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "rhof",
+    "value": "1",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Weatherford"
+ },
+ {
+  "chart": "Weatherford, Neutron Porosity vs Bulk Density, TNP 675",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "rhof",
+    "value": "1",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Weatherford"
+ },
+ {
+  "chart": "Weatherford, Neutron Porosity vs Bulk Density, TNP 825",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "rhof",
+    "value": "1",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Weatherford"
+ },
+ {
+  "chart": "Weatherford, ST 6-37 Standard, Photoelectric Factor vs Spectral Pe Density",
+  "type": "CrossPlot",
+  "x_family": "Photoelectric Factor",
+  "y_family": "Bulk Density",
+  "x_unit": "b/e",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "rhof",
+    "value": "1",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 5,
+  "vendor": "Weatherford"
+ },
+ {
+  "chart": "Weatherford, ST 6-39 Standard, Compensated Neutron vs Spectral Pe Density",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "rhof",
+    "value": "1",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Weatherford"
+ },
+ {
+  "chart": "Weatherford, ST 6-40 Standard, Compensated Neutron vs Spectral Pe Density",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "rhof",
+    "value": "1.1",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Weatherford"
+ },
+ {
+  "chart": "Weatherford, ST 6-41 Standard, Compensated Neutron vs Sonic (English)",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Compressional Slowness",
+  "x_unit": "v/v",
+  "y_unit": "us/ft",
+  "params": [],
+  "n_polylines": 3,
+  "vendor": "Weatherford"
+ },
+ {
+  "chart": "Welex, Neutron Porosity vs Bulk Density, Welex DNS",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "rhof",
+    "value": "1",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Welex"
+ },
+ {
+  "chart": "Welex, Neutron Porosity vs Bulk Density, Welex SN",
+  "type": "CrossPlot",
+  "x_family": "Neutron Porosity",
+  "y_family": "Bulk Density",
+  "x_unit": "v/v",
+  "y_unit": "g/cm3",
+  "params": [
+   {
+    "var": "rhof",
+    "value": "1",
+    "unit": "g/cm3",
+    "desc": "Density fluid value"
+   }
+  ],
+  "n_polylines": 3,
+  "vendor": "Welex"
+ }
+]

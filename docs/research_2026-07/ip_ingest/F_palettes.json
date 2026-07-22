@@ -1,0 +1,1123 @@
+{
+ "source": "C:\\Program Files\\IP2025",
+ "count": 82,
+ "pal_format": {
+  "type": "plain-text INI, one entry per line 'index=packedColor', 256 entries (0..255)",
+  "encoding": "COLORREF_0x00BBGGRR",
+  "encoding_probe": {
+   "value": 219,
+   "as_COLORREF_0x00BBGGRR": [
+    219,
+    0,
+    0
+   ],
+   "as_RGB_0xRRGGBB": [
+    0,
+    0,
+    219
+   ],
+   "encoding_is": "COLORREF_0x00BBGGRR"
+  },
+  "note": "packedColor is a Windows COLORREF integer; decode as shown. Continuous colour ramps for image logs / Z-axis mapping. Portable: decode int -> RGB triplet."
+ },
+ "vendor_groups": {
+  "Baker Hughes": {
+   "count": 27,
+   "files": [
+    "Baker_Acoustic_Anisotropy.pal",
+    "Baker_Acoustic_Correlation.pal",
+    "Baker_Acoustic_Correlation_12.pal",
+    "Baker_Acoustic_Correlation_24.pal",
+    "Baker_Acoustic_DSWI.pal",
+    "Baker_Acoustic_Wavetrace.pal",
+    "Baker_Attenuation.pal",
+    "Baker_CBL_VDL.pal",
+    "Baker_Cement_Map.pal",
+    "Baker_EarthRed_Reversed.pal",
+    "Baker_Earth_Blocky.pal",
+    "Baker_Earth_Smooth.pal",
+    "Baker_GXPL_Pale.pal",
+    "Baker_Geochemical_Analysis.pal",
+    "Baker_Greyscale_Blocky.pal",
+    "Baker_Greyscale_Smooth.pal",
+    "Baker_MRAYL_APPLIED.pal",
+    "Baker_MRAYL_RAW.pal",
+    "Baker_NMR_2D_Map.pal",
+    "Baker_NMR_T2Cutoff.pal",
+    "Baker_NMR_T2_Porosity_Distribution.pal",
+    "Baker_Normalised_FEA.pal",
+    "Baker_Processing_Flags.pal",
+    "Baker_Radius.pal",
+    "Baker_Thickness.pal",
+    "Baker_Triaxial_Dip_Confidence.pal",
+    "Baker_Triaxial_Dip_Confidence2.pal"
+   ]
+  },
+  "Geoactive/PGL": {
+   "count": 1,
+   "files": [
+    "Geoactive.pal"
+   ]
+  },
+  "Halliburton": {
+   "count": 6,
+   "files": [
+    "Halliburton-Classic.pal",
+    "Halliburton-Impedence.pal",
+    "Halliburton.pal",
+    "Halliburton_Brown.pal",
+    "Halliburton_Green.pal",
+    "Halliburton_Purple.pal"
+   ]
+  },
+  "Schlumberger": {
+   "count": 3,
+   "files": [
+    "Schlumberger.pal",
+    "Schlumberger_OBMI-LGC.pal",
+    "Schlumberger_Reversed.pal"
+   ]
+  },
+  "Weatherford": {
+   "count": 1,
+   "files": [
+    "Weatherford.pal"
+   ]
+  },
+  "generic": {
+   "count": 44,
+   "files": [
+    "BGR.pal",
+    "BarsMap.pal",
+    "Blue.pal",
+    "BlueRed.pal",
+    "Brown.pal",
+    "BrownDark.pal",
+    "CementBond.pal",
+    "CementDerivative.pal",
+    "Contour#1.pal",
+    "Contour#2.pal",
+    "Contrast.pal",
+    "Earth.pal",
+    "EarthDark.pal",
+    "EarthDarkRed.pal",
+    "Gamma_Facies.pal",
+    "GrayBlue.pal",
+    "Grayscale.pal",
+    "Grayscale_Reversed.pal",
+    "GreenBlue.pal",
+    "HeatMap.pal",
+    "IntEx.pal",
+    "IsoScan.pal",
+    "Pastel.pal",
+    "PastelRedGreen.pal",
+    "RGB.pal",
+    "Radius.pal",
+    "Rainbow_Bright.pal",
+    "Rainbow_Soft.pal",
+    "RedBlue.pal",
+    "RedGreen.pal",
+    "SandCount6.pal",
+    "SandCount7.pal",
+    "SandCounting.pal",
+    "Semblance_CyanRed.pal",
+    "Spectrum.pal",
+    "Thickness.pal",
+    "Tristate_Reversed.pal",
+    "WellID.pal",
+    "WhiteBlue.pal",
+    "WhiteGreen.pal",
+    "WhiteRed.pal",
+    "YGB.pal",
+    "tristate.pal",
+    "wBGR.pal"
+   ]
+  }
+ },
+ "palettes": [
+  {
+   "file": "BGR.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#0000FF",
+    "q1": "#00FCFF",
+    "mid": "#00FF03",
+    "q3": "#FCFF00",
+    "end": "#FF0300"
+   }
+  },
+  {
+   "file": "Baker_Acoustic_Anisotropy.pal",
+   "entries": 256,
+   "vendor": "Baker Hughes",
+   "swatch": {
+    "start": "#190462",
+    "q1": "#6B0182",
+    "mid": "#A6005D",
+    "q3": "#D35513",
+    "end": "#FFEF00"
+   }
+  },
+  {
+   "file": "Baker_Acoustic_Correlation.pal",
+   "entries": 256,
+   "vendor": "Baker Hughes",
+   "swatch": {
+    "start": "#0A0AFF",
+    "q1": "#3535FF",
+    "mid": "#7575FF",
+    "q3": "#B5B5FF",
+    "end": "#FFFFFF"
+   }
+  },
+  {
+   "file": "Baker_Acoustic_Correlation_12.pal",
+   "entries": 256,
+   "vendor": "Baker Hughes",
+   "swatch": {
+    "start": "#0A0AFF",
+    "q1": "#3535FF",
+    "mid": "#7575FF",
+    "q3": "#B5B5FF",
+    "end": "#FFFFFF"
+   }
+  },
+  {
+   "file": "Baker_Acoustic_Correlation_24.pal",
+   "entries": 256,
+   "vendor": "Baker Hughes",
+   "swatch": {
+    "start": "#0E0EFF",
+    "q1": "#3F3FFF",
+    "mid": "#7A7AFF",
+    "q3": "#B6B6FF",
+    "end": "#FFFFFF"
+   }
+  },
+  {
+   "file": "Baker_Acoustic_DSWI.pal",
+   "entries": 256,
+   "vendor": "Baker Hughes",
+   "swatch": {
+    "start": "#0000FF",
+    "q1": "#7DAEFF",
+    "mid": "#FFFFFF",
+    "q3": "#FF8181",
+    "end": "#FF0000"
+   }
+  },
+  {
+   "file": "Baker_Acoustic_Wavetrace.pal",
+   "entries": 256,
+   "vendor": "Baker Hughes",
+   "swatch": {
+    "start": "#93F3FD",
+    "q1": "#6699F2",
+    "mid": "#3A40E8",
+    "q3": "#4A20A4",
+    "end": "#661966"
+   }
+  },
+  {
+   "file": "Baker_Attenuation.pal",
+   "entries": 256,
+   "vendor": "Baker Hughes",
+   "swatch": {
+    "start": "#00FFFF",
+    "q1": "#808080",
+    "mid": "#804000",
+    "q3": "#800000",
+    "end": "#000000"
+   }
+  },
+  {
+   "file": "Baker_CBL_VDL.pal",
+   "entries": 256,
+   "vendor": "Baker Hughes",
+   "swatch": {
+    "start": "#99FFFF",
+    "q1": "#67BEF8",
+    "mid": "#411CD2",
+    "q3": "#681D9A",
+    "end": "#661966"
+   }
+  },
+  {
+   "file": "Baker_Cement_Map.pal",
+   "entries": 256,
+   "vendor": "Baker Hughes",
+   "swatch": {
+    "start": "#FF0000",
+    "q1": "#FFCC19",
+    "mid": "#33997F",
+    "q3": "#333333",
+    "end": "#000000"
+   }
+  },
+  {
+   "file": "Baker_EarthRed_Reversed.pal",
+   "entries": 256,
+   "vendor": "Baker Hughes",
+   "swatch": {
+    "start": "#610700",
+    "q1": "#C42600",
+    "mid": "#FA6800",
+    "q3": "#FFAE35",
+    "end": "#FFF6A2"
+   }
+  },
+  {
+   "file": "Baker_Earth_Blocky.pal",
+   "entries": 256,
+   "vendor": "Baker Hughes",
+   "swatch": {
+    "start": "#FFEC7F",
+    "q1": "#FF9300",
+    "mid": "#CC4E00",
+    "q3": "#660000",
+    "end": "#000000"
+   }
+  },
+  {
+   "file": "Baker_Earth_Smooth.pal",
+   "entries": 256,
+   "vendor": "Baker Hughes",
+   "swatch": {
+    "start": "#FFEC7F",
+    "q1": "#FF9B00",
+    "mid": "#CC4E00",
+    "q3": "#620000",
+    "end": "#000000"
+   }
+  },
+  {
+   "file": "Baker_GXPL_Pale.pal",
+   "entries": 256,
+   "vendor": "Baker Hughes",
+   "swatch": {
+    "start": "#A12512",
+    "q1": "#D4B7A4",
+    "mid": "#E6D5BF",
+    "q3": "#F4EDD5",
+    "end": "#FAF7DF"
+   }
+  },
+  {
+   "file": "Baker_Geochemical_Analysis.pal",
+   "entries": 256,
+   "vendor": "Baker Hughes",
+   "swatch": {
+    "start": "#000000",
+    "q1": "#3F3F3F",
+    "mid": "#7F7F7F",
+    "q3": "#BFBFBF",
+    "end": "#FFFFFF"
+   }
+  },
+  {
+   "file": "Baker_Greyscale_Blocky.pal",
+   "entries": 256,
+   "vendor": "Baker Hughes",
+   "swatch": {
+    "start": "#FFFFFF",
+    "q1": "#C4C4C4",
+    "mid": "#848484",
+    "q3": "#444444",
+    "end": "#040404"
+   }
+  },
+  {
+   "file": "Baker_Greyscale_Smooth.pal",
+   "entries": 256,
+   "vendor": "Baker Hughes",
+   "swatch": {
+    "start": "#FFFFFF",
+    "q1": "#BFBFBF",
+    "mid": "#808080",
+    "q3": "#424242",
+    "end": "#040404"
+   }
+  },
+  {
+   "file": "Baker_MRAYL_APPLIED.pal",
+   "entries": 256,
+   "vendor": "Baker Hughes",
+   "swatch": {
+    "start": "#FE0000",
+    "q1": "#12BAEB",
+    "mid": "#EAEA00",
+    "q3": "#6C6B01",
+    "end": "#000000"
+   }
+  },
+  {
+   "file": "Baker_MRAYL_RAW.pal",
+   "entries": 256,
+   "vendor": "Baker Hughes",
+   "swatch": {
+    "start": "#FFFFFF",
+    "q1": "#FEFF50",
+    "mid": "#EAEA00",
+    "q3": "#6C6B01",
+    "end": "#000000"
+   }
+  },
+  {
+   "file": "Baker_NMR_2D_Map.pal",
+   "entries": 256,
+   "vendor": "Baker Hughes",
+   "swatch": {
+    "start": "#000080",
+    "q1": "#21D770",
+    "mid": "#96E50E",
+    "q3": "#F87900",
+    "end": "#A0122A"
+   }
+  },
+  {
+   "file": "Baker_NMR_T2Cutoff.pal",
+   "entries": 256,
+   "vendor": "Baker Hughes",
+   "swatch": {
+    "start": "#00C2FF",
+    "q1": "#00FF57",
+    "mid": "#60FF0C",
+    "q3": "#E6C600",
+    "end": "#FF3F00"
+   }
+  },
+  {
+   "file": "Baker_NMR_T2_Porosity_Distribution.pal",
+   "entries": 256,
+   "vendor": "Baker Hughes",
+   "swatch": {
+    "start": "#FFFFFF",
+    "q1": "#1EFF00",
+    "mid": "#BFFF00",
+    "q3": "#FFD500",
+    "end": "#FF0000"
+   }
+  },
+  {
+   "file": "Baker_Normalised_FEA.pal",
+   "entries": 256,
+   "vendor": "Baker Hughes",
+   "swatch": {
+    "start": "#000000",
+    "q1": "#A10069",
+    "mid": "#FF6100",
+    "q3": "#FFDC00",
+    "end": "#FFFFFF"
+   }
+  },
+  {
+   "file": "Baker_Processing_Flags.pal",
+   "entries": 256,
+   "vendor": "Baker Hughes",
+   "swatch": {
+    "start": "#000000",
+    "q1": "#FE0000",
+    "mid": "#5F00BE",
+    "q3": "#00B2B2",
+    "end": "#00B2B2"
+   }
+  },
+  {
+   "file": "Baker_Radius.pal",
+   "entries": 256,
+   "vendor": "Baker Hughes",
+   "swatch": {
+    "start": "#17A5EA",
+    "q1": "#7ACBFB",
+    "mid": "#F5FBFF",
+    "q3": "#D6A4CA",
+    "end": "#860C4A"
+   }
+  },
+  {
+   "file": "Baker_Thickness.pal",
+   "entries": 256,
+   "vendor": "Baker Hughes",
+   "swatch": {
+    "start": "#860C4A",
+    "q1": "#CF95C0",
+    "mid": "#FDFAFC",
+    "q3": "#89D0FC",
+    "end": "#17A5EA"
+   }
+  },
+  {
+   "file": "Baker_Triaxial_Dip_Confidence.pal",
+   "entries": 256,
+   "vendor": "Baker Hughes",
+   "swatch": {
+    "start": "#FFFF00",
+    "q1": "#FF3F00",
+    "mid": "#7F7F00",
+    "q3": "#00BF3F",
+    "end": "#0000FF"
+   }
+  },
+  {
+   "file": "Baker_Triaxial_Dip_Confidence2.pal",
+   "entries": 256,
+   "vendor": "Baker Hughes",
+   "swatch": {
+    "start": "#0099CC",
+    "q1": "#00FFB2",
+    "mid": "#4AFF44",
+    "q3": "#E3FF88",
+    "end": "#FFE5CC"
+   }
+  },
+  {
+   "file": "BarsMap.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#FBFFFF",
+    "q1": "#DDFF44",
+    "mid": "#7D737D",
+    "q3": "#C10005",
+    "end": "#000000"
+   }
+  },
+  {
+   "file": "Blue.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#CBC9FF",
+    "q1": "#9F9BFF",
+    "mid": "#726DFF",
+    "q3": "#453FFF",
+    "end": "#1811FF"
+   }
+  },
+  {
+   "file": "BlueRed.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#5BE6FF",
+    "q1": "#3A50FF",
+    "mid": "#AA18FE",
+    "q3": "#FF089C",
+    "end": "#FF2D15"
+   }
+  },
+  {
+   "file": "Brown.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#FFFFFF",
+    "q1": "#FFD974",
+    "mid": "#FD8002",
+    "q3": "#A45300",
+    "end": "#4E2F00"
+   }
+  },
+  {
+   "file": "BrownDark.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#FFFFFF",
+    "q1": "#FFD862",
+    "mid": "#E98801",
+    "q3": "#904000",
+    "end": "#300100"
+   }
+  },
+  {
+   "file": "CementBond.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#FF0000",
+    "q1": "#FF0000",
+    "mid": "#0000FF",
+    "q3": "#FF8000",
+    "end": "#008000"
+   }
+  },
+  {
+   "file": "CementDerivative.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#0000FF",
+    "q1": "#0000FF",
+    "mid": "#0000FF",
+    "q3": "#008000",
+    "end": "#008000"
+   }
+  },
+  {
+   "file": "Contour#1.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#00FF89",
+    "q1": "#FF00A5",
+    "mid": "#0073FF",
+    "q3": "#FFC800",
+    "end": "#8000FF"
+   }
+  },
+  {
+   "file": "Contour#2.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#FF50FF",
+    "q1": "#FF4F4F",
+    "mid": "#CFFF00",
+    "q3": "#5FFFFF",
+    "end": "#8F8FFF"
+   }
+  },
+  {
+   "file": "Contrast.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#D8FF8B",
+    "q1": "#FF7224",
+    "mid": "#3A2B00",
+    "q3": "#00B638",
+    "end": "#334AFF"
+   }
+  },
+  {
+   "file": "Earth.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#FBFFD1",
+    "q1": "#FEEA83",
+    "mid": "#FBB040",
+    "q3": "#EE5B07",
+    "end": "#A91C07"
+   }
+  },
+  {
+   "file": "EarthDark.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#FFFFFD",
+    "q1": "#FBE988",
+    "mid": "#FBB040",
+    "q3": "#EE5B07",
+    "end": "#460C00"
+   }
+  },
+  {
+   "file": "EarthDarkRed.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#FFFEAE",
+    "q1": "#FFB83F",
+    "mid": "#FF7201",
+    "q3": "#D62C00",
+    "end": "#4E0100"
+   }
+  },
+  {
+   "file": "Gamma_Facies.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#0000FF",
+    "q1": "#5FBDFF",
+    "mid": "#C0A100",
+    "q3": "#603000",
+    "end": "#000000"
+   }
+  },
+  {
+   "file": "Geoactive.pal",
+   "entries": 256,
+   "vendor": "Geoactive/PGL",
+   "swatch": {
+    "start": "#95C23D",
+    "q1": "#64BD7C",
+    "mid": "#32B7BB",
+    "q3": "#1A95A1",
+    "end": "#037385"
+   }
+  },
+  {
+   "file": "GrayBlue.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#EDEFEF",
+    "q1": "#BAD2D9",
+    "mid": "#75A5D5",
+    "q3": "#1F4FE1",
+    "end": "#0000B8"
+   }
+  },
+  {
+   "file": "Grayscale.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#FFFFFF",
+    "q1": "#C0C0C0",
+    "mid": "#808080",
+    "q3": "#3F3F3F",
+    "end": "#000000"
+   }
+  },
+  {
+   "file": "Grayscale_Reversed.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#000000",
+    "q1": "#3E3E3E",
+    "mid": "#7E7E7E",
+    "q3": "#BFBFBF",
+    "end": "#FFFFFF"
+   }
+  },
+  {
+   "file": "GreenBlue.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#00AB00",
+    "q1": "#00BF5F",
+    "mid": "#00D3D3",
+    "q3": "#0072E6",
+    "end": "#0000FA"
+   }
+  },
+  {
+   "file": "Halliburton-Classic.pal",
+   "entries": 256,
+   "vendor": "Halliburton",
+   "swatch": {
+    "start": "#FFFFFF",
+    "q1": "#FFF745",
+    "mid": "#FF8A01",
+    "q3": "#B7023B",
+    "end": "#030001"
+   }
+  },
+  {
+   "file": "Halliburton-Impedence.pal",
+   "entries": 256,
+   "vendor": "Halliburton",
+   "swatch": {
+    "start": "#FF0000",
+    "q1": "#7FFFFF",
+    "mid": "#F28C00",
+    "q3": "#CC6600",
+    "end": "#000000"
+   }
+  },
+  {
+   "file": "Halliburton.pal",
+   "entries": 256,
+   "vendor": "Halliburton",
+   "swatch": {
+    "start": "#FEFDB0",
+    "q1": "#FFB83B",
+    "mid": "#FF5E00",
+    "q3": "#BA1D00",
+    "end": "#3C0000"
+   }
+  },
+  {
+   "file": "Halliburton_Brown.pal",
+   "entries": 256,
+   "vendor": "Halliburton",
+   "swatch": {
+    "start": "#FDFDFC",
+    "q1": "#FFE566",
+    "mid": "#FF3527",
+    "q3": "#A05A31",
+    "end": "#1B1C1C"
+   }
+  },
+  {
+   "file": "Halliburton_Green.pal",
+   "entries": 256,
+   "vendor": "Halliburton",
+   "swatch": {
+    "start": "#FFFFFF",
+    "q1": "#FF8E02",
+    "mid": "#E80100",
+    "q3": "#890000",
+    "end": "#969400"
+   }
+  },
+  {
+   "file": "Halliburton_Purple.pal",
+   "entries": 256,
+   "vendor": "Halliburton",
+   "swatch": {
+    "start": "#FFFFA0",
+    "q1": "#A8A8A8",
+    "mid": "#808080",
+    "q3": "#595959",
+    "end": "#0C0C0C"
+   }
+  },
+  {
+   "file": "HeatMap.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#FFFFFE",
+    "q1": "#82FF00",
+    "mid": "#4040FF",
+    "q3": "#C00060",
+    "end": "#000000"
+   }
+  },
+  {
+   "file": "IntEx.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#FF0000",
+    "q1": "#0000FF",
+    "mid": "#A9A9A9",
+    "q3": "#A9A9A9",
+    "end": "#FFFF00"
+   }
+  },
+  {
+   "file": "IsoScan.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#FF0000",
+    "q1": "#FF0000",
+    "mid": "#0000FF",
+    "q3": "#A9A9A9",
+    "end": "#A9A9A9"
+   }
+  },
+  {
+   "file": "Pastel.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#FDDF69",
+    "q1": "#BEF853",
+    "mid": "#4EF13E",
+    "q3": "#2BE884",
+    "end": "#1FD5D9"
+   }
+  },
+  {
+   "file": "PastelRedGreen.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#F3C753",
+    "q1": "#F5EB5E",
+    "mid": "#E1F66A",
+    "q3": "#C7F875",
+    "end": "#B3F981"
+   }
+  },
+  {
+   "file": "RGB.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#FF0000",
+    "q1": "#FFFC00",
+    "mid": "#03FF00",
+    "q3": "#00FFFC",
+    "end": "#0003FF"
+   }
+  },
+  {
+   "file": "Radius.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#0000FF",
+    "q1": "#A399FE",
+    "mid": "#FFFFFF",
+    "q3": "#FFB2B4",
+    "end": "#FE0E20"
+   }
+  },
+  {
+   "file": "Rainbow_Bright.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#000080",
+    "q1": "#00BF3F",
+    "mid": "#FFC500",
+    "q3": "#FF003F",
+    "end": "#8C11F1"
+   }
+  },
+  {
+   "file": "Rainbow_Soft.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#000080",
+    "q1": "#28D455",
+    "mid": "#DADE04",
+    "q3": "#ED352F",
+    "end": "#FF00FF"
+   }
+  },
+  {
+   "file": "RedBlue.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#DB0000",
+    "q1": "#FF803E",
+    "mid": "#FFE4A5",
+    "q3": "#6AA8FF",
+    "end": "#0000FF"
+   }
+  },
+  {
+   "file": "RedGreen.pal",
+   "entries": 257,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#FF0000",
+    "q1": "#FFB400",
+    "mid": "#FFFF00",
+    "q3": "#BFFF00",
+    "end": "#00FF00"
+   }
+  },
+  {
+   "file": "SandCount6.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#FFFF00",
+    "q1": "#FFD700",
+    "mid": "#FFA500",
+    "q3": "#007F00",
+    "end": "#A9A9A9"
+   }
+  },
+  {
+   "file": "SandCount7.pal",
+   "entries": 255,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#FFFFFF",
+    "q1": "#FFFF00",
+    "mid": "#FFA500",
+    "q3": "#007F00",
+    "end": "#A9A9A9"
+   }
+  },
+  {
+   "file": "SandCounting.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#FFFFFF",
+    "q1": "#FFFFFF",
+    "mid": "#FFFF00",
+    "q3": "#028000",
+    "end": "#028000"
+   }
+  },
+  {
+   "file": "Schlumberger.pal",
+   "entries": 256,
+   "vendor": "Schlumberger",
+   "swatch": {
+    "start": "#FFFFFF",
+    "q1": "#FFB42C",
+    "mid": "#FF8801",
+    "q3": "#A14F00",
+    "end": "#280100"
+   }
+  },
+  {
+   "file": "Schlumberger_OBMI-LGC.pal",
+   "entries": 256,
+   "vendor": "Schlumberger",
+   "swatch": {
+    "start": "#FFFFFF",
+    "q1": "#00FF00",
+    "mid": "#FFFF00",
+    "q3": "#0000FF",
+    "end": "#FF0000"
+   }
+  },
+  {
+   "file": "Schlumberger_Reversed.pal",
+   "entries": 256,
+   "vendor": "Schlumberger",
+   "swatch": {
+    "start": "#280100",
+    "q1": "#A04E00",
+    "mid": "#FF8700",
+    "q3": "#FFB329",
+    "end": "#FFFFFF"
+   }
+  },
+  {
+   "file": "Semblance_CyanRed.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#D8FFFF",
+    "q1": "#00FFC3",
+    "mid": "#7DFF00",
+    "q3": "#FFB300",
+    "end": "#FF0000"
+   }
+  },
+  {
+   "file": "Spectrum.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#FF0000",
+    "q1": "#87FF00",
+    "mid": "#00FFF6",
+    "q3": "#7800FF",
+    "end": "#FF0006"
+   }
+  },
+  {
+   "file": "Thickness.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#FF0000",
+    "q1": "#FFA8A5",
+    "mid": "#FFFFFF",
+    "q3": "#ADAFFF",
+    "end": "#1527FF"
+   }
+  },
+  {
+   "file": "Tristate_Reversed.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#008000",
+    "q1": "#008000",
+    "mid": "#FF8000",
+    "q3": "#0000FF",
+    "end": "#0000FF"
+   }
+  },
+  {
+   "file": "Weatherford.pal",
+   "entries": 256,
+   "vendor": "Weatherford",
+   "swatch": {
+    "start": "#FFF7EA",
+    "q1": "#FFDD3E",
+    "mid": "#E78901",
+    "q3": "#893700",
+    "end": "#010100"
+   }
+  },
+  {
+   "file": "WellID.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#EEDD35",
+    "q1": "#5CBF55",
+    "mid": "#118A92",
+    "q3": "#395294",
+    "end": "#152F2C"
+   }
+  },
+  {
+   "file": "WhiteBlue.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#FEFFFF",
+    "q1": "#BFEFFF",
+    "mid": "#7FBFFF",
+    "q3": "#3F6FFF",
+    "end": "#0000FF"
+   }
+  },
+  {
+   "file": "WhiteGreen.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#FEFFFF",
+    "q1": "#9FFFE7",
+    "mid": "#40FF9F",
+    "q3": "#00DE37",
+    "end": "#008000"
+   }
+  },
+  {
+   "file": "WhiteRed.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#FFFFFE",
+    "q1": "#FFEDB6",
+    "mid": "#FFB66D",
+    "q3": "#FF5A24",
+    "end": "#DB0000"
+   }
+  },
+  {
+   "file": "YGB.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#FFDB35",
+    "q1": "#6EFF18",
+    "mid": "#01F86F",
+    "q3": "#01A1DA",
+    "end": "#0E01BD"
+   }
+  },
+  {
+   "file": "tristate.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#0000FF",
+    "q1": "#0000FF",
+    "mid": "#FF8000",
+    "q3": "#008000",
+    "end": "#008000"
+   }
+  },
+  {
+   "file": "wBGR.pal",
+   "entries": 256,
+   "vendor": "generic",
+   "swatch": {
+    "start": "#FDFDFD",
+    "q1": "#00FCFF",
+    "mid": "#00FF03",
+    "q3": "#FCFF00",
+    "end": "#FF0300"
+   }
+  }
+ ]
+}

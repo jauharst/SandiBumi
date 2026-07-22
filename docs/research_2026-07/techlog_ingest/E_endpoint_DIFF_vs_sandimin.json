@@ -1,0 +1,646 @@
+{
+ "note": "Techlog QM_MineralTable vs SandiMin sec-I (AspenTech Multimin source). Techlog DT converted us/ft->us/m (x3.2808); density g/cc->kg/m3; clays use Techlog Rhobdcl (dry). Techlog stores Pe (b/electron) separately from U (b/cc); SandiMin stores U.",
+ "shared_minerals": 14,
+ "material_diffs_gt5pct": [
+  "Quartz -> Quartz         NPHI     Techlog=-0.03 SandiMin=-0.05 (40%)",
+  "Quartz -> Quartz         GR       Techlog=5.0 SandiMin=1.0 (80%)",
+  "Quartz -> Quartz         Sigma    Techlog=4.3 SandiMin=4.71 (9%)",
+  "Calcite -> Calcite       GR       Techlog=5.0 SandiMin=11.0 (54%)",
+  "Dolomite -> Dolomite     NPHI     Techlog=0.03 SandiMin=0.025 (17%)",
+  "Dolomite -> Dolomite     U        Techlog=9.0 SandiMin=9.6 (6%)",
+  "Dolomite -> Dolomite     GR       Techlog=20.0 SandiMin=8.0 (60%)",
+  "Dolomite -> Dolomite     Sigma    Techlog=4.7 SandiMin=6.92 (32%)",
+  "Halite -> Halite         NPHI     Techlog=-0.03 SandiMin=-0.018 (40%)",
+  "Halite -> Halite         GR       Techlog=1.0 SandiMin=5.0 (80%)",
+  "Anhydrite -> Anhydrite   NPHI     Techlog=-0.03 SandiMin=-0.02 (33%)",
+  "Anhydrite -> Anhydrite   GR       Techlog=1.0 SandiMin=5.0 (80%)",
+  "Anhydrite -> Anhydrite   Sigma    Techlog=12.0 SandiMin=16.0 (25%)",
+  "Gypsum -> Gypsum         GR       Techlog=1.0 SandiMin=5.0 (80%)",
+  "Gypsum -> Gypsum         Sigma    Techlog=23.0 SandiMin=20.0 (13%)",
+  "Pyrite -> Pyrite         NPHI     Techlog=-0.03 SandiMin=-0.019 (37%)",
+  "Pyrite -> Pyrite         DT_usm   Techlog=131.232 SandiMin=123.4 (6%)",
+  "Pyrite -> Pyrite         GR       Techlog=50.0 SandiMin=5.0 (90%)",
+  "Siderite -> Siderite     RHOB_kg  Techlog=3700.0 SandiMin=3960 (7%)",
+  "Siderite -> Siderite     NPHI     Techlog=0.1 SandiMin=0.184 (46%)",
+  "Siderite -> Siderite     DT_usm   Techlog=154.198 SandiMin=143.7 (7%)",
+  "Siderite -> Siderite     U        Techlog=45.0 SandiMin=72.2 (38%)",
+  "Siderite -> Siderite     GR       Techlog=0.001 SandiMin=6.0 (100%)",
+  "Illite -> Illite         NPHI     Techlog=0.3 SandiMin=0.247 (18%)",
+  "Illite -> Illite         DT_usm   Techlog=328.08 SandiMin=280.0 (15%)",
+  "Illite -> Illite         U        Techlog=8.7 SandiMin=11.12 (22%)",
+  "Illite -> Illite         GR       Techlog=270.0 SandiMin=160.0 (41%)",
+  "Illite -> Illite         Sigma    Techlog=18.0 SandiMin=40.56 (56%)",
+  "Kaolinite -> Kaolinite   NPHI     Techlog=0.37 SandiMin=0.451 (18%)",
+  "Kaolinite -> Kaolinite   U        Techlog=4.5 SandiMin=5.38 (16%)",
+  "Kaolinite -> Kaolinite   GR       Techlog=150.0 SandiMin=104.0 (31%)",
+  "Kaolinite -> Kaolinite   Sigma    Techlog=14.0 SandiMin=20.12 (30%)",
+  "Smectite -> Smectite     RHOB_kg  Techlog=2120.0 SandiMin=2630 (19%)",
+  "Smectite -> Smectite     NPHI     Techlog=0.6 SandiMin=0.218 (64%)",
+  "Smectite -> Smectite     DT_usm   Techlog=393.696 SandiMin=280.0 (29%)",
+  "Smectite -> Smectite     U        Techlog=4.5 SandiMin=7.61 (41%)",
+  "Smectite -> Smectite     GR       Techlog=250.0 SandiMin=168.0 (33%)",
+  "Smectite -> Smectite     Sigma    Techlog=14.0 SandiMin=20.22 (31%)",
+  "Musc-Mica -> Muscovite   U        Techlog=6.75 SandiMin=11.43 (41%)",
+  "Musc-Mica -> Muscovite   GR       Techlog=270.0 SandiMin=130.0 (52%)",
+  "Musc-Mica -> Muscovite   Sigma    Techlog=17.0 SandiMin=95.27 (82%)",
+  "Biotite-Mica -> Biotite  RHOB_kg  Techlog=2990.0 SandiMin=3220 (7%)",
+  "Biotite-Mica -> Biotite  NPHI     Techlog=0.2 SandiMin=0.11 (45%)",
+  "Biotite-Mica -> Biotite  U        Techlog=18.75 SandiMin=22.42 (16%)",
+  "Biotite-Mica -> Biotite  GR       Techlog=275.0 SandiMin=127.0 (54%)",
+  "Biotite-Mica -> Biotite  Sigma    Techlog=30.0 SandiMin=54.1 (44%)",
+  "Baryte -> Baryte         NPHI     Techlog=0.01 SandiMin=-0.002 (120%)",
+  "Baryte -> Baryte         DT_usm   Techlog=0.003 SandiMin=620.1 (100%)",
+  "Baryte -> Baryte         GR       Techlog=0.001 SandiMin=0.0 (100%)",
+  "Baryte -> Baryte         Sigma    Techlog=6.8 SandiMin=19.9 (66%)"
+ ],
+ "detail": [
+  {
+   "mineral": "Quartz -> Quartz",
+   "is_clay": false,
+   "techlog_PEF_b/e": 1.8,
+   "diffs": {
+    "RHOB_kg": {
+     "techlog": 2650.0,
+     "sandimin": 2650,
+     "rel_pct": 0.0
+    },
+    "NPHI": {
+     "techlog": -0.03,
+     "sandimin": -0.05,
+     "rel_pct": 40.0
+    },
+    "DT_usm": {
+     "techlog": 173.882,
+     "sandimin": 165.35,
+     "rel_pct": 4.9
+    },
+    "U": {
+     "techlog": 4.8,
+     "sandimin": 5.04,
+     "rel_pct": 4.8
+    },
+    "GR": {
+     "techlog": 5.0,
+     "sandimin": 1.0,
+     "rel_pct": 80.0
+    },
+    "Sigma": {
+     "techlog": 4.3,
+     "sandimin": 4.71,
+     "rel_pct": 8.7
+    },
+    "CEC": {
+     "techlog": 0.0,
+     "sandimin": 0.0,
+     "rel_pct": 0.0
+    }
+   }
+  },
+  {
+   "mineral": "Calcite -> Calcite",
+   "is_clay": false,
+   "techlog_PEF_b/e": 5.1,
+   "diffs": {
+    "RHOB_kg": {
+     "techlog": 2710.0,
+     "sandimin": 2710,
+     "rel_pct": 0.0
+    },
+    "NPHI": {
+     "techlog": 0.0,
+     "sandimin": 0.0,
+     "rel_pct": 0.0
+    },
+    "DT_usm": {
+     "techlog": 157.478,
+     "sandimin": 156.8,
+     "rel_pct": 0.4
+    },
+    "U": {
+     "techlog": 13.8,
+     "sandimin": 14.13,
+     "rel_pct": 2.3
+    },
+    "GR": {
+     "techlog": 5.0,
+     "sandimin": 11.0,
+     "rel_pct": 54.5
+    },
+    "Sigma": {
+     "techlog": 7.1,
+     "sandimin": 7.44,
+     "rel_pct": 4.6
+    },
+    "CEC": {
+     "techlog": 0.0,
+     "sandimin": 0.0,
+     "rel_pct": 0.0
+    }
+   }
+  },
+  {
+   "mineral": "Dolomite -> Dolomite",
+   "is_clay": false,
+   "techlog_PEF_b/e": 3.2,
+   "diffs": {
+    "RHOB_kg": {
+     "techlog": 2870.0,
+     "sandimin": 2847,
+     "rel_pct": 0.8
+    },
+    "NPHI": {
+     "techlog": 0.03,
+     "sandimin": 0.025,
+     "rel_pct": 16.7
+    },
+    "DT_usm": {
+     "techlog": 144.355,
+     "sandimin": 142.7,
+     "rel_pct": 1.1
+    },
+    "U": {
+     "techlog": 9.0,
+     "sandimin": 9.6,
+     "rel_pct": 6.2
+    },
+    "GR": {
+     "techlog": 20.0,
+     "sandimin": 8.0,
+     "rel_pct": 60.0
+    },
+    "Sigma": {
+     "techlog": 4.7,
+     "sandimin": 6.92,
+     "rel_pct": 32.1
+    },
+    "CEC": {
+     "techlog": 0.0,
+     "sandimin": 0.0,
+     "rel_pct": 0.0
+    }
+   }
+  },
+  {
+   "mineral": "Halite -> Halite",
+   "is_clay": false,
+   "techlog_PEF_b/e": 4.65,
+   "diffs": {
+    "RHOB_kg": {
+     "techlog": 2040.0,
+     "sandimin": 2037,
+     "rel_pct": 0.1
+    },
+    "NPHI": {
+     "techlog": -0.03,
+     "sandimin": -0.018,
+     "rel_pct": 40.0
+    },
+    "DT_usm": {
+     "techlog": 219.814,
+     "sandimin": 219.8,
+     "rel_pct": 0.0
+    },
+    "U": {
+     "techlog": 9.5,
+     "sandimin": 9.63,
+     "rel_pct": 1.3
+    },
+    "GR": {
+     "techlog": 1.0,
+     "sandimin": 5.0,
+     "rel_pct": 80.0
+    },
+    "Sigma": {
+     "techlog": 754.0,
+     "sandimin": 750,
+     "rel_pct": 0.5
+    },
+    "CEC": {
+     "techlog": 0.0,
+     "sandimin": 0.0,
+     "rel_pct": 0.0
+    }
+   }
+  },
+  {
+   "mineral": "Anhydrite -> Anhydrite",
+   "is_clay": false,
+   "techlog_PEF_b/e": 5.05,
+   "diffs": {
+    "RHOB_kg": {
+     "techlog": 2980.0,
+     "sandimin": 2977,
+     "rel_pct": 0.1
+    },
+    "NPHI": {
+     "techlog": -0.03,
+     "sandimin": -0.02,
+     "rel_pct": 33.3
+    },
+    "DT_usm": {
+     "techlog": 164.04,
+     "sandimin": 164.0,
+     "rel_pct": 0.0
+    },
+    "U": {
+     "techlog": 15.0,
+     "sandimin": 14.95,
+     "rel_pct": 0.3
+    },
+    "GR": {
+     "techlog": 1.0,
+     "sandimin": 5.0,
+     "rel_pct": 80.0
+    },
+    "Sigma": {
+     "techlog": 12.0,
+     "sandimin": 16.0,
+     "rel_pct": 25.0
+    },
+    "CEC": {
+     "techlog": 0.0,
+     "sandimin": 0.0,
+     "rel_pct": 0.0
+    }
+   }
+  },
+  {
+   "mineral": "Gypsum -> Gypsum",
+   "is_clay": false,
+   "techlog_PEF_b/e": 4.0,
+   "diffs": {
+    "RHOB_kg": {
+     "techlog": 2350.0,
+     "sandimin": 2350,
+     "rel_pct": 0.0
+    },
+    "NPHI": {
+     "techlog": 0.6,
+     "sandimin": 0.576,
+     "rel_pct": 4.0
+    },
+    "DT_usm": {
+     "techlog": 170.602,
+     "sandimin": 172.3,
+     "rel_pct": 1.0
+    },
+    "U": {
+     "techlog": 9.4,
+     "sandimin": 9.46,
+     "rel_pct": 0.6
+    },
+    "GR": {
+     "techlog": 1.0,
+     "sandimin": 5.0,
+     "rel_pct": 80.0
+    },
+    "Sigma": {
+     "techlog": 23.0,
+     "sandimin": 20.0,
+     "rel_pct": 13.0
+    },
+    "CEC": {
+     "techlog": 0.0,
+     "sandimin": 0.0,
+     "rel_pct": 0.0
+    }
+   }
+  },
+  {
+   "mineral": "Pyrite -> Pyrite",
+   "is_clay": false,
+   "techlog_PEF_b/e": 17.0,
+   "diffs": {
+    "RHOB_kg": {
+     "techlog": 4990.0,
+     "sandimin": 4987,
+     "rel_pct": 0.1
+    },
+    "NPHI": {
+     "techlog": -0.03,
+     "sandimin": -0.019,
+     "rel_pct": 36.7
+    },
+    "DT_usm": {
+     "techlog": 131.232,
+     "sandimin": 123.4,
+     "rel_pct": 6.0
+    },
+    "U": {
+     "techlog": 85.0,
+     "sandimin": 82.22,
+     "rel_pct": 3.3
+    },
+    "GR": {
+     "techlog": 50.0,
+     "sandimin": 5.0,
+     "rel_pct": 90.0
+    },
+    "Sigma": {
+     "techlog": 90.0,
+     "sandimin": 90.0,
+     "rel_pct": 0.0
+    },
+    "CEC": {
+     "techlog": 0.0,
+     "sandimin": 0.0,
+     "rel_pct": 0.0
+    }
+   }
+  },
+  {
+   "mineral": "Siderite -> Siderite",
+   "is_clay": false,
+   "techlog_PEF_b/e": 0.0,
+   "diffs": {
+    "RHOB_kg": {
+     "techlog": 3700.0,
+     "sandimin": 3960,
+     "rel_pct": 6.6
+    },
+    "NPHI": {
+     "techlog": 0.1,
+     "sandimin": 0.184,
+     "rel_pct": 45.7
+    },
+    "DT_usm": {
+     "techlog": 154.198,
+     "sandimin": 143.7,
+     "rel_pct": 6.8
+    },
+    "U": {
+     "techlog": 45.0,
+     "sandimin": 72.2,
+     "rel_pct": 37.7
+    },
+    "GR": {
+     "techlog": 0.001,
+     "sandimin": 6.0,
+     "rel_pct": 100.0
+    },
+    "Sigma": {
+     "techlog": 52.0,
+     "sandimin": 54.21,
+     "rel_pct": 4.1
+    },
+    "CEC": {
+     "techlog": 0.0,
+     "sandimin": 0.0,
+     "rel_pct": 0.0
+    }
+   }
+  },
+  {
+   "mineral": "Illite -> Illite",
+   "is_clay": true,
+   "techlog_PEF_b/e": 3.5,
+   "diffs": {
+    "RHOB_kg": {
+     "techlog": 2700.0,
+     "sandimin": 2780,
+     "rel_pct": 2.9
+    },
+    "NPHI": {
+     "techlog": 0.3,
+     "sandimin": 0.247,
+     "rel_pct": 17.7
+    },
+    "DT_usm": {
+     "techlog": 328.08,
+     "sandimin": 280.0,
+     "rel_pct": 14.7
+    },
+    "U": {
+     "techlog": 8.7,
+     "sandimin": 11.12,
+     "rel_pct": 21.8
+    },
+    "GR": {
+     "techlog": 270.0,
+     "sandimin": 160.0,
+     "rel_pct": 40.7
+    },
+    "Sigma": {
+     "techlog": 18.0,
+     "sandimin": 40.56,
+     "rel_pct": 55.6
+    },
+    "CEC": {
+     "techlog": 0.25,
+     "sandimin": 0.25,
+     "rel_pct": 0.0
+    }
+   }
+  },
+  {
+   "mineral": "Kaolinite -> Kaolinite",
+   "is_clay": true,
+   "techlog_PEF_b/e": 1.8,
+   "diffs": {
+    "RHOB_kg": {
+     "techlog": 2650.0,
+     "sandimin": 2620,
+     "rel_pct": 1.1
+    },
+    "NPHI": {
+     "techlog": 0.37,
+     "sandimin": 0.451,
+     "rel_pct": 18.0
+    },
+    "DT_usm": {
+     "techlog": 278.868,
+     "sandimin": 280.0,
+     "rel_pct": 0.4
+    },
+    "U": {
+     "techlog": 4.5,
+     "sandimin": 5.38,
+     "rel_pct": 16.4
+    },
+    "GR": {
+     "techlog": 150.0,
+     "sandimin": 104.0,
+     "rel_pct": 30.7
+    },
+    "Sigma": {
+     "techlog": 14.0,
+     "sandimin": 20.12,
+     "rel_pct": 30.4
+    },
+    "CEC": {
+     "techlog": 0.1,
+     "sandimin": 0.1,
+     "rel_pct": 0.0
+    }
+   }
+  },
+  {
+   "mineral": "Smectite -> Smectite",
+   "is_clay": true,
+   "techlog_PEF_b/e": 2.0,
+   "diffs": {
+    "RHOB_kg": {
+     "techlog": 2120.0,
+     "sandimin": 2630,
+     "rel_pct": 19.4
+    },
+    "NPHI": {
+     "techlog": 0.6,
+     "sandimin": 0.218,
+     "rel_pct": 63.7
+    },
+    "DT_usm": {
+     "techlog": 393.696,
+     "sandimin": 280.0,
+     "rel_pct": 28.9
+    },
+    "U": {
+     "techlog": 4.5,
+     "sandimin": 7.61,
+     "rel_pct": 40.9
+    },
+    "GR": {
+     "techlog": 250.0,
+     "sandimin": 168.0,
+     "rel_pct": 32.8
+    },
+    "Sigma": {
+     "techlog": 14.0,
+     "sandimin": 20.22,
+     "rel_pct": 30.8
+    },
+    "CEC": {
+     "techlog": 0.0,
+     "sandimin": 1.0,
+     "rel_pct": 100.0
+    }
+   }
+  },
+  {
+   "mineral": "Musc-Mica -> Muscovite",
+   "is_clay": false,
+   "techlog_PEF_b/e": 2.4,
+   "diffs": {
+    "RHOB_kg": {
+     "techlog": 2820.0,
+     "sandimin": 2840,
+     "rel_pct": 0.7
+    },
+    "NPHI": {
+     "techlog": 0.2,
+     "sandimin": 0.21,
+     "rel_pct": 4.8
+    },
+    "DT_usm": {
+     "techlog": 160.759,
+     "sandimin": 160.76,
+     "rel_pct": 0.0
+    },
+    "U": {
+     "techlog": 6.75,
+     "sandimin": 11.43,
+     "rel_pct": 40.9
+    },
+    "GR": {
+     "techlog": 270.0,
+     "sandimin": 130.0,
+     "rel_pct": 51.9
+    },
+    "Sigma": {
+     "techlog": 17.0,
+     "sandimin": 95.27,
+     "rel_pct": 82.2
+    },
+    "CEC": {
+     "techlog": 0.0,
+     "sandimin": 0.0,
+     "rel_pct": 0.0
+    }
+   }
+  },
+  {
+   "mineral": "Biotite-Mica -> Biotite",
+   "is_clay": false,
+   "techlog_PEF_b/e": 6.3,
+   "diffs": {
+    "RHOB_kg": {
+     "techlog": 2990.0,
+     "sandimin": 3220,
+     "rel_pct": 7.1
+    },
+    "NPHI": {
+     "techlog": 0.2,
+     "sandimin": 0.11,
+     "rel_pct": 45.0
+    },
+    "DT_usm": {
+     "techlog": 167.321,
+     "sandimin": 162.1,
+     "rel_pct": 3.1
+    },
+    "U": {
+     "techlog": 18.75,
+     "sandimin": 22.42,
+     "rel_pct": 16.4
+    },
+    "GR": {
+     "techlog": 275.0,
+     "sandimin": 127.0,
+     "rel_pct": 53.8
+    },
+    "Sigma": {
+     "techlog": 30.0,
+     "sandimin": 54.1,
+     "rel_pct": 44.5
+    },
+    "CEC": {
+     "techlog": 0.0,
+     "sandimin": 0.0,
+     "rel_pct": 0.0
+    }
+   }
+  },
+  {
+   "mineral": "Baryte -> Baryte",
+   "is_clay": false,
+   "techlog_PEF_b/e": 0.0,
+   "diffs": {
+    "RHOB_kg": {
+     "techlog": 4080.0,
+     "sandimin": 4084,
+     "rel_pct": 0.1
+    },
+    "NPHI": {
+     "techlog": 0.01,
+     "sandimin": -0.002,
+     "rel_pct": 120.0
+    },
+    "DT_usm": {
+     "techlog": 0.003,
+     "sandimin": 620.1,
+     "rel_pct": 100.0
+    },
+    "U": {
+     "techlog": 1065.0,
+     "sandimin": 1065.0,
+     "rel_pct": 0.0
+    },
+    "GR": {
+     "techlog": 0.001,
+     "sandimin": 0.0,
+     "rel_pct": 100.0
+    },
+    "Sigma": {
+     "techlog": 6.8,
+     "sandimin": 19.9,
+     "rel_pct": 65.8
+    },
+    "CEC": {
+     "techlog": 0.0,
+     "sandimin": 0.0,
+     "rel_pct": 0.0
+    }
+   }
+  }
+ ]
+}

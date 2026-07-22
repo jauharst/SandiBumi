@@ -1,0 +1,17 @@
+<TechlogPropertiesAlias>
+	<Property Techlog="Country"         Alias="COUNTRY"/>
+	<Property Techlog="Company"         Alias="COMPANY"/>
+	<Property Techlog="Field"           Alias="FIELD"/>
+	<Property Techlog="State"           Alias="STATE"/>
+	<Property Techlog="Operator"        Alias="OPERATOR"/>
+	<Property Techlog="X"               Alias="X_LOCATION"/>
+	<Property Techlog="Y"               Alias="Y_LOCATION"/>
+	<Property Techlog="Latitude"        Alias="LATITUDE"/>
+	<Property Techlog="Longitude"       Alias="LONGITUDE"/>
+	<Property Techlog="Short_well_name" Alias="SHORT_WELL_NAME"/>
+    <Property Techlog="Long_well_name"  Alias="LONG_WELL_NAME"/>
+    <Property Techlog="UWI"             Alias="UNIQUE_WELL_ID"/>
+    <Property Techlog="Elevation"       Alias="ELEV_MEAS_REF"/>
+    <Property Techlog="Elevation_datum" Alias="MEASUREMENT_REF"/>
+    <Property Techlog="Total_depth"     Alias="TD"/>
+</TechlogPropertiesAlias>

@@ -1,0 +1,410 @@
+[
+ {
+  "name": "Anhydrite Weight Fraction",
+  "rhom": "2.96",
+  "min": "2.96",
+  "max": "3.00"
+ },
+ {
+  "name": "Aragonite Weight Fraction",
+  "rhom": "2.93",
+  "min": "2.93",
+  "max": "2.95"
+ },
+ {
+  "name": "Albite Weight Fraction",
+  "rhom": "2.62",
+  "min": "2.61",
+  "max": "2.76"
+ },
+ {
+  "name": "mx_ARMI",
+  "rhom": "2.0",
+  "min": "",
+  "max": ""
+ },
+ {
+  "name": "Apatite Weight Fraction",
+  "rhom": "3.15",
+  "min": "3.10",
+  "max": "3.20"
+ },
+ {
+  "name": "Barytine Weight Fraction",
+  "rhom": "4.48",
+  "min": "1.30",
+  "max": "4.60"
+ },
+ {
+  "name": "Calcite Weight Fraction",
+  "rhom": "2.71",
+  "min": "2.70",
+  "max": "2.72"
+ },
+ {
+  "name": "Celestite Weight Fraction",
+  "rhom": "3.96",
+  "min": "3.95",
+  "max": "3.97"
+ },
+ {
+  "name": "Dickite Weight Fraction",
+  "rhom": "2.6",
+  "min": "2.40",
+  "max": "2.64"
+ },
+ {
+  "name": "Dolomite Weight Fraction",
+  "rhom": "2.87",
+  "min": "2.80",
+  "max": "2.90"
+ },
+ {
+  "name": "Goetite Weight Fraction",
+  "rhom": "4.37",
+  "min": "3.30",
+  "max": "4.37"
+ },
+ {
+  "name": "Gypse Weight Fraction",
+  "rhom": "2.32",
+  "min": "2.31",
+  "max": "2.33"
+ },
+ {
+  "name": "Halite Weight Fraction",
+  "rhom": "2.16",
+  "min": "2.10",
+  "max": "2.60"
+ },
+ {
+  "name": "Hematite Weight Fraction",
+  "rhom": "5.25",
+  "min": "1.90",
+  "max": "5.30"
+ },
+ {
+  "name": "Kaolinite Weight Fraction",
+  "rhom": "2.59",
+  "min": "2.40",
+  "max": "2.64"
+ },
+ {
+  "name": "Muscovite Weight Fraction",
+  "rhom": "2.84",
+  "min": "2.80",
+  "max": "2.89"
+ },
+ {
+  "name": "Natrojarosite Weight Fraction",
+  "rhom": "2.88",
+  "min": "",
+  "max": ""
+ },
+ {
+  "name": "Orthose Weight Fraction",
+  "rhom": "2.56",
+  "min": "2.55",
+  "max": "2.60"
+ },
+ {
+  "name": "Pyrite Weight Fraction",
+  "rhom": "5.01",
+  "min": "4.95",
+  "max": "5.01"
+ },
+ {
+  "name": "Quartz Weight Fraction",
+  "rhom": "2.65",
+  "min": "2.64",
+  "max": "2.65"
+ },
+ {
+  "name": "Siderite Weight Fraction",
+  "rhom": "3.93",
+  "min": "3.83",
+  "max": "3.96"
+ },
+ {
+  "name": "mx_TI",
+  "rhom": "4.2",
+  "min": "4.00",
+  "max": "4.72"
+ },
+ {
+  "name": "Zeolithe Weight Fraction",
+  "rhom": "2.2",
+  "min": "2.18",
+  "max": "2.22"
+ },
+ {
+  "name": "Ankerite Weight Fraction",
+  "rhom": "2.9",
+  "min": "3.00",
+  "max": "3.10"
+ },
+ {
+  "name": "Magnesite Weight Fraction",
+  "rhom": "3",
+  "min": "3.00",
+  "max": "3.30"
+ },
+ {
+  "name": "Fluorapatite Weight Fraction",
+  "rhom": "3.18",
+  "min": "3.01",
+  "max": "3.25"
+ },
+ {
+  "name": "opale",
+  "rhom": "2.16",
+  "min": "1.90",
+  "max": "2.30"
+ },
+ {
+  "name": "dol_inc",
+  "rhom": "2.84",
+  "min": "",
+  "max": ""
+ },
+ {
+  "name": "anorthi",
+  "rhom": "2.75",
+  "min": "2.74",
+  "max": "2.76"
+ },
+ {
+  "name": "biotite",
+  "rhom": "3.01",
+  "min": "2.80",
+  "max": "3.40"
+ },
+ {
+  "name": "glaucon",
+  "rhom": "2.56",
+  "min": "2.40",
+  "max": "2.95"
+ },
+ {
+  "name": "lignite",
+  "rhom": "1.2",
+  "min": "1.10",
+  "max": "1.50"
+ },
+ {
+  "name": "mx_MOI",
+  "rhom": "1.1",
+  "min": "1.00",
+  "max": "1.30"
+ },
+ {
+  "name": "mx_AA",
+  "rhom": "2.5",
+  "min": "",
+  "max": ""
+ },
+ {
+  "name": "mx_ATTA",
+  "rhom": "2.4",
+  "min": "2.10",
+  "max": "2.20"
+ },
+ {
+  "name": "Chlorite Weight Fraction",
+  "rhom": "2.74",
+  "min": "2.55",
+  "max": "2.90"
+ },
+ {
+  "name": "mx_CORR",
+  "rhom": "2.8",
+  "min": "",
+  "max": ""
+ },
+ {
+  "name": "Illite Weight Fraction",
+  "rhom": "2.78",
+  "min": "2.60",
+  "max": "2.90"
+ },
+ {
+  "name": "mx_IS",
+  "rhom": "2.65",
+  "min": "2.00",
+  "max": "2.70"
+ },
+ {
+  "name": "mx_ISMC",
+  "rhom": "2.8",
+  "min": "",
+  "max": ""
+ },
+ {
+  "name": "Smectite Weight Fraction",
+  "rhom": "2.61",
+  "min": "2.00",
+  "max": "2.70"
+ },
+ {
+  "name": "mx_MONT",
+  "rhom": "2.60",
+  "min": "2.00",
+  "max": "3.00"
+ },
+ {
+  "name": "Microcline Weight Fraction",
+  "rhom": "2.57",
+  "min": "2.56",
+  "max": "2.58"
+ },
+ {
+  "name": "mx_VERM",
+  "rhom": "2.55",
+  "min": "",
+  "max": ""
+ },
+ {
+  "name": "kao_hyd",
+  "rhom": "2.1",
+  "min": "",
+  "max": ""
+ },
+ {
+  "name": "sme_hyd",
+  "rhom": "2.22",
+  "min": "",
+  "max": ""
+ },
+ {
+  "name": "ver_hyd",
+  "rhom": "2.14",
+  "min": "",
+  "max": ""
+ },
+ {
+  "name": "mx_OC",
+  "rhom": "2.5",
+  "min": "",
+  "max": ""
+ },
+ {
+  "name": "mx_NID",
+  "rhom": "2.5",
+  "min": "",
+  "max": ""
+ },
+ {
+  "name": "mxa_aa",
+  "rhom": "2.5",
+  "min": "",
+  "max": ""
+ },
+ {
+  "name": "mxa_atta",
+  "rhom": "2.5",
+  "min": "",
+  "max": ""
+ },
+ {
+  "name": "mxa_chlo",
+  "rhom": "2.5",
+  "min": "",
+  "max": ""
+ },
+ {
+  "name": "mxa_corr",
+  "rhom": "2.5",
+  "min": "",
+  "max": ""
+ },
+ {
+  "name": "mxa_illi",
+  "rhom": "2.5",
+  "min": "",
+  "max": ""
+ },
+ {
+  "name": "mxa_is",
+  "rhom": "2.5",
+  "min": "",
+  "max": ""
+ },
+ {
+  "name": "mxa_ismc",
+  "rhom": "2.5",
+  "min": "",
+  "max": ""
+ },
+ {
+  "name": "mxa_kaol",
+  "rhom": "2.5",
+  "min": "",
+  "max": ""
+ },
+ {
+  "name": "mxa_smec",
+  "rhom": "2.5",
+  "min": "",
+  "max": ""
+ },
+ {
+  "name": "mxa_verm",
+  "rhom": "2.5",
+  "min": "",
+  "max": ""
+ },
+ {
+  "name": "mxa_alle",
+  "rhom": "2.5",
+  "min": "",
+  "max": ""
+ },
+ {
+  "name": "mxa_iR1_",
+  "rhom": "2.5",
+  "min": "",
+  "max": ""
+ },
+ {
+  "name": "mxa_iR2_",
+  "rhom": "2.5",
+  "min": "",
+  "max": ""
+ },
+ {
+  "name": "mxa_para",
+  "rhom": "2.5",
+  "min": "",
+  "max": ""
+ },
+ {
+  "name": "mxa_pyro",
+  "rhom": "2.5",
+  "min": "",
+  "max": ""
+ },
+ {
+  "name": "mxa_talc",
+  "rhom": "2.5",
+  "min": "",
+  "max": ""
+ },
+ {
+  "name": "mxa_anil",
+  "rhom": "2.5",
+  "min": "",
+  "max": ""
+ },
+ {
+  "name": "mx_RI",
+  "rhom": "2.5",
+  "min": "",
+  "max": ""
+ },
+ {
+  "name": "mx_COI",
+  "rhom": "2.5",
+  "min": "",
+  "max": ""
+ }
+]

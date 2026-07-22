@@ -1,0 +1,2898 @@
+{
+ "TechlogMnemoAlias": [
+  {
+   "alias": "FACIES",
+   "canonical": "LITHO"
+  },
+  {
+   "alias": "LITH",
+   "canonical": "LITHO"
+  },
+  {
+   "alias": "LITH_S",
+   "canonical": "LITHO"
+  },
+  {
+   "alias": "GR_S",
+   "canonical": "GR"
+  },
+  {
+   "alias": "GR_SN",
+   "canonical": "GR"
+  },
+  {
+   "alias": "DT_S",
+   "canonical": "DT"
+  },
+  {
+   "alias": "DT_SEN",
+   "canonical": "DT"
+  },
+  {
+   "alias": "RHOB_S",
+   "canonical": "RHOB"
+  },
+  {
+   "alias": "RHOB_SN",
+   "canonical": "RHOB"
+  },
+  {
+   "alias": "NPHI_S",
+   "canonical": "NPHI"
+  },
+  {
+   "alias": "NPHI_SN",
+   "canonical": "NPHI"
+  },
+  {
+   "alias": "SPN",
+   "canonical": "SP"
+  },
+  {
+   "alias": "CAL_S",
+   "canonical": "CAL"
+  },
+  {
+   "alias": "DRHO_S",
+   "canonical": "DRHO"
+  },
+  {
+   "alias": "SWCORE",
+   "canonical": "SW_CORE"
+  },
+  {
+   "alias": "SWCO_S",
+   "canonical": "SW_CORE"
+  },
+  {
+   "alias": "PHICORE",
+   "canonical": "PHI_CORE"
+  },
+  {
+   "alias": "KCORE",
+   "canonical": "K_CORE"
+  },
+  {
+   "alias": "KCORE_S",
+   "canonical": "K_CORE"
+  },
+  {
+   "alias": "KFULL",
+   "canonical": "K_CORE"
+  },
+  {
+   "alias": "PHIC_FUL",
+   "canonical": "PHI_CORE"
+  },
+  {
+   "alias": "RHOBCORE",
+   "canonical": "RHOB_CORE"
+  },
+  {
+   "alias": "SOCORE",
+   "canonical": "SO_CORE"
+  },
+  {
+   "alias": "PHIC_S",
+   "canonical": "PHI_CORE"
+  },
+  {
+   "alias": "PHICF_S",
+   "canonical": "PHI_CORE"
+  },
+  {
+   "alias": "KFULL_S",
+   "canonical": "K_CORE"
+  },
+  {
+   "alias": "RHOBC_S",
+   "canonical": "RHOB_CORE"
+  },
+  {
+   "alias": "DT_SN",
+   "canonical": "DT"
+  },
+  {
+   "alias": "SOCO_S",
+   "canonical": "SO_CORE"
+  },
+  {
+   "alias": "DEPT",
+   "canonical": "DEPTH"
+  },
+  {
+   "alias": "TENS",
+   "canonical": "TEN"
+  },
+  {
+   "alias": "CAL2",
+   "canonical": "CAL"
+  },
+  {
+   "alias": "YOFFSET",
+   "canonical": "Y_OFFSET"
+  },
+  {
+   "alias": "XOFFSET",
+   "canonical": "X_OFFSET"
+  },
+  {
+   "alias": "VSH",
+   "canonical": "VCL"
+  },
+  {
+   "alias": "PRO_TOIT",
+   "canonical": "ZTOIT"
+  },
+  {
+   "alias": "ZTETE",
+   "canonical": "ZTOIT"
+  },
+  {
+   "alias": "ZPIED",
+   "canonical": "ZMUR"
+  },
+  {
+   "alias": "PRO_MUR",
+   "canonical": "ZMUR"
+  },
+  {
+   "alias": "PHIINI",
+   "canonical": "PHI"
+  },
+  {
+   "alias": "PRI",
+   "canonical": "RINF"
+  },
+  {
+   "alias": "PRS",
+   "canonical": "RSUP"
+  },
+  {
+   "alias": "KGINI",
+   "canonical": "KG"
+  },
+  {
+   "alias": "KGKLIN",
+   "canonical": "KGKL"
+  },
+  {
+   "alias": "KGKLINI",
+   "canonical": "KGKL"
+  },
+  {
+   "alias": "KWINI",
+   "canonical": "KW"
+  },
+  {
+   "alias": "KOINI",
+   "canonical": "KO"
+  },
+  {
+   "alias": "KSINI",
+   "canonical": "KS"
+  },
+  {
+   "alias": "FFINI",
+   "canonical": "FF"
+  },
+  {
+   "alias": "KGKLSIGM",
+   "canonical": "KGKLSIG"
+  },
+  {
+   "alias": "DIA",
+   "canonical": "DIAM"
+  },
+  {
+   "alias": "SORG",
+   "canonical": "SOR"
+  },
+  {
+   "alias": "SORW",
+   "canonical": "SOR"
+  },
+  {
+   "alias": "KRW_KRO",
+   "canonical": "KW_KO"
+  },
+  {
+   "alias": "KRG_KRW",
+   "canonical": "KG_KW"
+  },
+  {
+   "alias": "KRG_KRO",
+   "canonical": "KG_KO"
+  },
+  {
+   "alias": "PCDYOWI",
+   "canonical": "PCDOWI"
+  },
+  {
+   "alias": "PCDYOWD",
+   "canonical": "PCDOWD"
+  },
+  {
+   "alias": "PCDYGWI",
+   "canonical": "PCDGWI"
+  },
+  {
+   "alias": "PCDYGWD",
+   "canonical": "PCDGWD"
+  },
+  {
+   "alias": "PCDYOGI",
+   "canonical": "PCDOGI"
+  },
+  {
+   "alias": "PCDYOGD",
+   "canonical": "PCDOGD"
+  },
+  {
+   "alias": "KROEXI",
+   "canonical": "KROOGI"
+  },
+  {
+   "alias": "KRGEXI",
+   "canonical": "KRGOGI"
+  },
+  {
+   "alias": "PCDYEXI",
+   "canonical": "PCDOGI"
+  },
+  {
+   "alias": "KRG_OEXI",
+   "canonical": "KRG_OI"
+  },
+  {
+   "alias": "KROEXD",
+   "canonical": "KROOGD"
+  },
+  {
+   "alias": "KRGEXD",
+   "canonical": "KRGOGD"
+  },
+  {
+   "alias": "PCdYEXD",
+   "canonical": "PCDOGD"
+  },
+  {
+   "alias": "KRG_OEXD",
+   "canonical": "KRG_OD"
+  },
+  {
+   "alias": "KROCOI",
+   "canonical": "KROOGI"
+  },
+  {
+   "alias": "KRGCOI",
+   "canonical": "KRGOGI"
+  },
+  {
+   "alias": "PCDYCOI",
+   "canonical": "PCDOGI"
+  },
+  {
+   "alias": "KRG_OCOI",
+   "canonical": "KRG_OI"
+  },
+  {
+   "alias": "KROGCOD",
+   "canonical": "KROOGD"
+  },
+  {
+   "alias": "KRGCOD",
+   "canonical": "KRGOGD"
+  },
+  {
+   "alias": "PCDYCOD",
+   "canonical": "PCDOGD"
+  },
+  {
+   "alias": "KRG_OCOD",
+   "canonical": "KRG_OD"
+  },
+  {
+   "alias": "VPINI",
+   "canonical": "VP"
+  },
+  {
+   "alias": "VSINI",
+   "canonical": "VS"
+  },
+  {
+   "alias": "FR_P",
+   "canonical": "ORIE"
+  },
+  {
+   "alias": "PCT",
+   "canonical": "TYPE"
+  },
+  {
+   "alias": "HOMOGEPL",
+   "canonical": "MA_HOM"
+  },
+  {
+   "alias": "MA_LI1",
+   "canonical": "MA_LI1_"
+  },
+  {
+   "alias": "LITHO1PL",
+   "canonical": "MA_LI1_"
+  },
+  {
+   "alias": "MA_LI2",
+   "canonical": "MA_LI2_"
+  },
+  {
+   "alias": "LITHO2PL",
+   "canonical": "MA_LI2_"
+  },
+  {
+   "alias": "GRANPL",
+   "canonical": "MA_GRA"
+  },
+  {
+   "alias": "CLASGRPL",
+   "canonical": "MA_CLA"
+  },
+  {
+   "alias": "DUNHPL",
+   "canonical": "MA_DUN"
+  },
+  {
+   "alias": "ARGILOPL",
+   "canonical": "MA_ARG"
+  },
+  {
+   "alias": "NATDLPL",
+   "canonical": "MA_NPA"
+  },
+  {
+   "alias": "DENLEGPL",
+   "canonical": "MA_FPA"
+  },
+  {
+   "alias": "ELEMORPL",
+   "canonical": "MA_ELO"
+  },
+  {
+   "alias": "BARRPL",
+   "canonical": "MA_BAR"
+  },
+  {
+   "alias": "DRAINPL",
+   "canonical": "MA_DRA"
+  },
+  {
+   "alias": "PORMATPL",
+   "canonical": "MA_PMA"
+  },
+  {
+   "alias": "MA_VI2",
+   "canonical": "MA_VI2_"
+  },
+  {
+   "alias": "VAC2PL",
+   "canonical": "MA_VI2_"
+  },
+  {
+   "alias": "MA_V25",
+   "canonical": "MA_V25_"
+  },
+  {
+   "alias": "VAC2A5PL",
+   "canonical": "MA_V25_"
+  },
+  {
+   "alias": "MA_VS5",
+   "canonical": "MA_VS5_"
+  },
+  {
+   "alias": "VAC5PL",
+   "canonical": "MA_VS5_"
+  },
+  {
+   "alias": "CONNECPL",
+   "canonical": "MA_COX"
+  },
+  {
+   "alias": "PI",
+   "canonical": "MA_IMP"
+  },
+  {
+   "alias": "MJX_ANH",
+   "canonical": "MX_ANH"
+  },
+  {
+   "alias": "MJ_ANH",
+   "canonical": "MX_ANH"
+  },
+  {
+   "alias": "DXRT_AN",
+   "canonical": "MX_ANH"
+  },
+  {
+   "alias": "DX_L_AG",
+   "canonical": "MX_AG"
+  },
+  {
+   "alias": "DXRT_AG",
+   "canonical": "MX_AG"
+  },
+  {
+   "alias": "MJX_ALB",
+   "canonical": "MX_ALB"
+  },
+  {
+   "alias": "MJ_ALB",
+   "canonical": "MX_ALB"
+  },
+  {
+   "alias": "DXRT_AL",
+   "canonical": "MX_ALB"
+  },
+  {
+   "alias": "DX_ARMI",
+   "canonical": "MX_ARMI"
+  },
+  {
+   "alias": "DXRT_AM",
+   "canonical": "MX_ARMI"
+  },
+  {
+   "alias": "DX_L_AP",
+   "canonical": "MX_AP"
+  },
+  {
+   "alias": "DXRT_AP",
+   "canonical": "MX_AP"
+  },
+  {
+   "alias": "DX_L_BA",
+   "canonical": "MX_BA"
+  },
+  {
+   "alias": "DXRT_BA",
+   "canonical": "MX_BA"
+  },
+  {
+   "alias": "MJX_CAL",
+   "canonical": "MX_CAL"
+  },
+  {
+   "alias": "MJ_CAL",
+   "canonical": "MX_CAL"
+  },
+  {
+   "alias": "DXRT_CA",
+   "canonical": "MX_CAL"
+  },
+  {
+   "alias": "DX_L_CE",
+   "canonical": "MX_CE"
+  },
+  {
+   "alias": "DXRT_CE",
+   "canonical": "MX_CE"
+  },
+  {
+   "alias": "COI",
+   "canonical": "MX_COI"
+  },
+  {
+   "alias": "DXRT_MO",
+   "canonical": "MX_MOI"
+  },
+  {
+   "alias": "DX_L_DI",
+   "canonical": "MX_DI"
+  },
+  {
+   "alias": "DXRT_DI",
+   "canonical": "MX_DI"
+  },
+  {
+   "alias": "MJX_DOL",
+   "canonical": "MX_DOL"
+  },
+  {
+   "alias": "MJ_DOL",
+   "canonical": "MX_DOL"
+  },
+  {
+   "alias": "DXRT_DO",
+   "canonical": "MX_DOL"
+  },
+  {
+   "alias": "DX_L_GO",
+   "canonical": "MX_GO"
+  },
+  {
+   "alias": "DXRT_GO",
+   "canonical": "MX_GO"
+  },
+  {
+   "alias": "DX_L_GY",
+   "canonical": "MX_GY"
+  },
+  {
+   "alias": "DXRT_GY",
+   "canonical": "MX_GY"
+  },
+  {
+   "alias": "DX_L_HA",
+   "canonical": "MX_HA"
+  },
+  {
+   "alias": "DXRT_HA",
+   "canonical": "MX_HA"
+  },
+  {
+   "alias": "DX_L_HE",
+   "canonical": "MX_HE"
+  },
+  {
+   "alias": "DXRT_HE",
+   "canonical": "MX_HE"
+  },
+  {
+   "alias": "DX_L_KA",
+   "canonical": "MX_KAOL"
+  },
+  {
+   "alias": "DXRT_KA",
+   "canonical": "MX_KAOL"
+  },
+  {
+   "alias": "DX_L_MU",
+   "canonical": "MX_MU"
+  },
+  {
+   "alias": "DXRT_MU",
+   "canonical": "MX_MU"
+  },
+  {
+   "alias": "DX_L_NJ",
+   "canonical": "MX_NJ"
+  },
+  {
+   "alias": "DXRT_NJ",
+   "canonical": "MX_NJ"
+  },
+  {
+   "alias": "DX_NID",
+   "canonical": "MX_NID"
+  },
+  {
+   "alias": "DXRT_NI",
+   "canonical": "MX_NID"
+  },
+  {
+   "alias": "MJX_ORT",
+   "canonical": "MX_ORT"
+  },
+  {
+   "alias": "MJ_ORT",
+   "canonical": "MX_ORT"
+  },
+  {
+   "alias": "DXRT_OR",
+   "canonical": "MX_ORT"
+  },
+  {
+   "alias": "DX_L_PY",
+   "canonical": "MX_PY"
+  },
+  {
+   "alias": "DXRT_PY",
+   "canonical": "MX_PY"
+  },
+  {
+   "alias": "MJX_QRZ",
+   "canonical": "MX_QRZ"
+  },
+  {
+   "alias": "MJ_QRZ",
+   "canonical": "MX_QRZ"
+  },
+  {
+   "alias": "DXRT_QU",
+   "canonical": "MX_QRZ"
+  },
+  {
+   "alias": "RI_REDE",
+   "canonical": "MX_RI"
+  },
+  {
+   "alias": "RI_RE",
+   "canonical": "MX_RI"
+  },
+  {
+   "alias": "RI_RT",
+   "canonical": "MX_RI"
+  },
+  {
+   "alias": "DXRT_RI",
+   "canonical": "MX_RI"
+  },
+  {
+   "alias": "MJX_SID",
+   "canonical": "MX_SID"
+  },
+  {
+   "alias": "MJ_SID",
+   "canonical": "MX_SID"
+  },
+  {
+   "alias": "DXRT_SD",
+   "canonical": "MX_SID"
+  },
+  {
+   "alias": "DX_L_TI",
+   "canonical": "MX_TI"
+  },
+  {
+   "alias": "DXRT_TI",
+   "canonical": "MX_TI"
+  },
+  {
+   "alias": "DX_L_ZEO",
+   "canonical": "MX_ZEO"
+  },
+  {
+   "alias": "DXRT_ZE",
+   "canonical": "MX_ZEO"
+  },
+  {
+   "alias": "DX_L_AK",
+   "canonical": "MX_AK"
+  },
+  {
+   "alias": "DXRT_AK",
+   "canonical": "MX_AK"
+  },
+  {
+   "alias": "DX_L_MAG",
+   "canonical": "MX_MAG"
+  },
+  {
+   "alias": "DXRT_MA",
+   "canonical": "MX_MAG"
+  },
+  {
+   "alias": "DX_L_FL",
+   "canonical": "MX_FL"
+  },
+  {
+   "alias": "DXRT_FL",
+   "canonical": "MX_FL"
+  },
+  {
+   "alias": "MJ_ND",
+   "canonical": "MX_ND"
+  },
+  {
+   "alias": "DXRT_ND",
+   "canonical": "MX_ND"
+  },
+  {
+   "alias": "DX_L_ANA",
+   "canonical": "MX_ANA"
+  },
+  {
+   "alias": "DX_L_CLA",
+   "canonical": "MX_CLA"
+  },
+  {
+   "alias": "DX_L_HYA",
+   "canonical": "MX_HYA"
+  },
+  {
+   "alias": "DX_L_FLA",
+   "canonical": "MX_FLA"
+  },
+  {
+   "alias": "DX_L_AT",
+   "canonical": "MX_AT"
+  },
+  {
+   "alias": "DX_L_RU",
+   "canonical": "MX_RU"
+  },
+  {
+   "alias": "DX_L_BR",
+   "canonical": "MX_BR"
+  },
+  {
+   "alias": "DX_L_OC",
+   "canonical": "MX_OC"
+  },
+  {
+   "alias": "DXRT_AR",
+   "canonical": "MX_AA"
+  },
+  {
+   "alias": "GM_ALLE",
+   "canonical": "MXA_ALLE"
+  },
+  {
+   "alias": "GM_IS_R1",
+   "canonical": "MXA_IR1_"
+  },
+  {
+   "alias": "DXAR_IS1",
+   "canonical": "MXA_IR1_"
+  },
+  {
+   "alias": "GM_IS_R0",
+   "canonical": "MXA_IR2_"
+  },
+  {
+   "alias": "DXAR_IS0",
+   "canonical": "MXA_IR2_"
+  },
+  {
+   "alias": "GM_PARA",
+   "canonical": "MXA_PARA"
+  },
+  {
+   "alias": "GM_PYRO",
+   "canonical": "MXA_PYRO"
+  },
+  {
+   "alias": "GM_TALC",
+   "canonical": "MXA_TALC"
+  },
+  {
+   "alias": "DXAR_TA",
+   "canonical": "MXA_TALC"
+  },
+  {
+   "alias": "GM_NIL",
+   "canonical": "MXA_ANIL"
+  },
+  {
+   "alias": "GM_ATTA",
+   "canonical": "MXA_ATTA"
+  },
+  {
+   "alias": "GM_CHLO",
+   "canonical": "MXA_CHLO"
+  },
+  {
+   "alias": "DXAR_CL",
+   "canonical": "MXA_CHLO"
+  },
+  {
+   "alias": "GM_CORR",
+   "canonical": "MXA_CORR"
+  },
+  {
+   "alias": "DXAR_CO",
+   "canonical": "MXA_CORR"
+  },
+  {
+   "alias": "GM_ILLI",
+   "canonical": "MXA_ILLI"
+  },
+  {
+   "alias": "DXAR_IL",
+   "canonical": "MXA_ILLI"
+  },
+  {
+   "alias": "GM_IS",
+   "canonical": "MXA_IS"
+  },
+  {
+   "alias": "DXAR_IS",
+   "canonical": "MXA_IS"
+  },
+  {
+   "alias": "GM_IS_MC",
+   "canonical": "MXA_ISMC"
+  },
+  {
+   "alias": "DXAR_MC",
+   "canonical": "MXA_ISMC"
+  },
+  {
+   "alias": "GM_KAOL",
+   "canonical": "MXA_KAOL"
+  },
+  {
+   "alias": "DXAR_KA",
+   "canonical": "MXA_KAOL"
+  },
+  {
+   "alias": "DXAR_DI",
+   "canonical": "MXA_KAOL"
+  },
+  {
+   "alias": "GM_SMEC",
+   "canonical": "MXA_SMEC"
+  },
+  {
+   "alias": "DXAR_SM",
+   "canonical": "MXA_SMEC"
+  },
+  {
+   "alias": "GM_VER",
+   "canonical": "MXA_VERM"
+  },
+  {
+   "alias": "DXAR_VE",
+   "canonical": "MXA_VERM"
+  },
+  {
+   "alias": "LMRT_AN",
+   "canonical": "PS_ANH"
+  },
+  {
+   "alias": "LMRT_AG",
+   "canonical": "PS_AG"
+  },
+  {
+   "alias": "LMRT_AL",
+   "canonical": "PS_ALB"
+  },
+  {
+   "alias": "LMRT_AM",
+   "canonical": "PS_ARMI"
+  },
+  {
+   "alias": "LMRT_AP",
+   "canonical": "PS_AP"
+  },
+  {
+   "alias": "LMRT_BA",
+   "canonical": "PS_BA"
+  },
+  {
+   "alias": "LMRT_CA",
+   "canonical": "PS_CAL"
+  },
+  {
+   "alias": "LMRT_CE",
+   "canonical": "PS_CE"
+  },
+  {
+   "alias": "LMRT_DI",
+   "canonical": "PS_DI"
+  },
+  {
+   "alias": "LMRT_DO",
+   "canonical": "PS_DOL"
+  },
+  {
+   "alias": "LMRT_GO",
+   "canonical": "PS_GO"
+  },
+  {
+   "alias": "LMRT_GY",
+   "canonical": "PS_GY"
+  },
+  {
+   "alias": "LMRT_HA",
+   "canonical": "PS_HA"
+  },
+  {
+   "alias": "LMRT_HE",
+   "canonical": "PS_HE"
+  },
+  {
+   "alias": "LMRT_KA",
+   "canonical": "PS_KAOL"
+  },
+  {
+   "alias": "LMRT_MU",
+   "canonical": "PS_MU"
+  },
+  {
+   "alias": "LMRT_NI",
+   "canonical": "PS_NID"
+  },
+  {
+   "alias": "LMRT_OR",
+   "canonical": "PS_ORT"
+  },
+  {
+   "alias": "LMRT_PY",
+   "canonical": "PS_PY"
+  },
+  {
+   "alias": "LMRT_QU",
+   "canonical": "PS_QRZ"
+  },
+  {
+   "alias": "LMRT_RI",
+   "canonical": "PS_RI"
+  },
+  {
+   "alias": "LMRT_SD",
+   "canonical": "PS_SID"
+  },
+  {
+   "alias": "LMRT_TI",
+   "canonical": "PS_TI"
+  },
+  {
+   "alias": "LMRT_ZE",
+   "canonical": "PS_ZEO"
+  },
+  {
+   "alias": "LMRT_AK",
+   "canonical": "PS_AK"
+  },
+  {
+   "alias": "LMRT_MA",
+   "canonical": "PS_MAG"
+  },
+  {
+   "alias": "LMRT_FL",
+   "canonical": "PS_FL"
+  },
+  {
+   "alias": "LMRT_ND",
+   "canonical": "PS_ND"
+  },
+  {
+   "alias": "LMRT_MO",
+   "canonical": "PS_MOI"
+  },
+  {
+   "alias": "LMRT_CH",
+   "canonical": "PS_MOI"
+  },
+  {
+   "alias": "LMRT_AR",
+   "canonical": "PS_AR"
+  },
+  {
+   "alias": "DUNHLM",
+   "canonical": "DUNH"
+  },
+  {
+   "alias": "FABRIQLM",
+   "canonical": "FABRIQ"
+  },
+  {
+   "alias": "MATRIPLM",
+   "canonical": "MATRIP"
+  },
+  {
+   "alias": "ELFIGPLM",
+   "canonical": "ELFIGP"
+  },
+  {
+   "alias": "CIMENPLM",
+   "canonical": "CIMENP"
+  },
+  {
+   "alias": "POROSPLM",
+   "canonical": "POROSP"
+  },
+  {
+   "alias": "QUPLM",
+   "canonical": "QUP"
+  },
+  {
+   "alias": "FEPLM",
+   "canonical": "FEP"
+  },
+  {
+   "alias": "MIPLM",
+   "canonical": "MIP"
+  },
+  {
+   "alias": "LITCLPLM",
+   "canonical": "LITCLP"
+  },
+  {
+   "alias": "ARPLM",
+   "canonical": "ARP"
+  },
+  {
+   "alias": "PYPLM",
+   "canonical": "PYP"
+  },
+  {
+   "alias": "MOPLM",
+   "canonical": "MOP"
+  },
+  {
+   "alias": "AUTREPLM",
+   "canonical": "AUTREP"
+  },
+  {
+   "alias": "ONCOIPLM",
+   "canonical": "ONCOIP"
+  },
+  {
+   "alias": "OOIDEPLM",
+   "canonical": "OOIDEP"
+  },
+  {
+   "alias": "PELOIPLM",
+   "canonical": "PELOIP"
+  },
+  {
+   "alias": "BIOCLPLM",
+   "canonical": "BIOCLP"
+  },
+  {
+   "alias": "AGREGPLM",
+   "canonical": "AGREGP"
+  },
+  {
+   "alias": "MUDCLPLM",
+   "canonical": "MUDCLP"
+  },
+  {
+   "alias": "PELLEPLM",
+   "canonical": "PELLEP"
+  },
+  {
+   "alias": "MICRIPLM",
+   "canonical": "MICRIP"
+  },
+  {
+   "alias": "PYSLM",
+   "canonical": "PYS"
+  },
+  {
+   "alias": "GLSLM",
+   "canonical": "GLS"
+  },
+  {
+   "alias": "LOURDSLM",
+   "canonical": "LOURDS"
+  },
+  {
+   "alias": "CALCLSLM",
+   "canonical": "CALCLS"
+  },
+  {
+   "alias": "BIOCLSLM",
+   "canonical": "BIOCLS"
+  },
+  {
+   "alias": "PHSLM",
+   "canonical": "PHS"
+  },
+  {
+   "alias": "SULFASLM",
+   "canonical": "SULFAS"
+  },
+  {
+   "alias": "MOSLM",
+   "canonical": "MOS"
+  },
+  {
+   "alias": "BISLM",
+   "canonical": "BIS"
+  },
+  {
+   "alias": "SICRTLM",
+   "canonical": "SICRT"
+  },
+  {
+   "alias": "ISCRTLM",
+   "canonical": "ISCRT"
+  },
+  {
+   "alias": "KACRTLM",
+   "canonical": "KACRT"
+  },
+  {
+   "alias": "CACRTLM",
+   "canonical": "CACRT"
+  },
+  {
+   "alias": "DOCRTLM",
+   "canonical": "DOCRT"
+  },
+  {
+   "alias": "AKCRTLM",
+   "canonical": "AKCRT"
+  },
+  {
+   "alias": "SDCRTLM",
+   "canonical": "SDCRT"
+  },
+  {
+   "alias": "ANCRTLM",
+   "canonical": "ANCRT"
+  },
+  {
+   "alias": "HACRTLM",
+   "canonical": "HACRT"
+  },
+  {
+   "alias": "BACRTLM",
+   "canonical": "BACRT"
+  },
+  {
+   "alias": "HECRTLM",
+   "canonical": "HECRT"
+  },
+  {
+   "alias": "FRGRACLM",
+   "canonical": "FRGRAC"
+  },
+  {
+   "alias": "FRFIBCLM",
+   "canonical": "FRFIBC"
+  },
+  {
+   "alias": "FRMICCLM",
+   "canonical": "FRMICC"
+  },
+  {
+   "alias": "DENCHCLM",
+   "canonical": "DENCHC"
+  },
+  {
+   "alias": "DRUSICLM",
+   "canonical": "DRUSIC"
+  },
+  {
+   "alias": "SPARICLM",
+   "canonical": "SPARIC"
+  },
+  {
+   "alias": "MOSEQCLM",
+   "canonical": "MOSEQC"
+  },
+  {
+   "alias": "EPITACLM",
+   "canonical": "EPITAC"
+  },
+  {
+   "alias": "POECICLM",
+   "canonical": "POECIC"
+  },
+  {
+   "alias": "DOCLM",
+   "canonical": "DOC"
+  },
+  {
+   "alias": "STALACLM",
+   "canonical": "STALAC"
+  },
+  {
+   "alias": "MENISCLM",
+   "canonical": "MENISC"
+  },
+  {
+   "alias": "SEDINCLM",
+   "canonical": "SEDINC"
+  },
+  {
+   "alias": "SICLM",
+   "canonical": "SIC"
+  },
+  {
+   "alias": "ANCLM",
+   "canonical": "ANC"
+  },
+  {
+   "alias": "RHODOLM",
+   "canonical": "RHODO"
+  },
+  {
+   "alias": "RHODOFLM",
+   "canonical": "RHODOF"
+  },
+  {
+   "alias": "CIMDOLM",
+   "canonical": "CIMDO"
+  },
+  {
+   "alias": "CIMDOFLM",
+   "canonical": "CIMDOF"
+  },
+  {
+   "alias": "FISDOLM",
+   "canonical": "FISDO"
+  },
+  {
+   "alias": "FISDOFLM",
+   "canonical": "FISDOF"
+  },
+  {
+   "alias": "ELEDOLML",
+   "canonical": "ELEDO"
+  },
+  {
+   "alias": "ELEDOFLM",
+   "canonical": "ELEDOF"
+  },
+  {
+   "alias": "XCALM",
+   "canonical": "XCA"
+  },
+  {
+   "alias": "XDOLM",
+   "canonical": "XDO"
+  },
+  {
+   "alias": "XDOFLM",
+   "canonical": "XDOF"
+  },
+  {
+   "alias": "SPICULM",
+   "canonical": "SPICU"
+  },
+  {
+   "alias": "BRACHLM",
+   "canonical": "BRACH"
+  },
+  {
+   "alias": "BRYOZLM",
+   "canonical": "BRYOZ"
+  },
+  {
+   "alias": "ANNELLM",
+   "canonical": "ANNEL"
+  },
+  {
+   "alias": "HYDROLM",
+   "canonical": "HYDRO"
+  },
+  {
+   "alias": "POLYPLM",
+   "canonical": "POLYP"
+  },
+  {
+   "alias": "LAMELLM",
+   "canonical": "LAMEL"
+  },
+  {
+   "alias": "GASTELM",
+   "canonical": "GASTE"
+  },
+  {
+   "alias": "ALGUELM",
+   "canonical": "ALGUE"
+  },
+  {
+   "alias": "NUBECLM",
+   "canonical": "NUBEC"
+  },
+  {
+   "alias": "BENTHLM",
+   "canonical": "BENTH"
+  },
+  {
+   "alias": "PELAGLM",
+   "canonical": "PELAG"
+  },
+  {
+   "alias": "OSTRALM",
+   "canonical": "OSTRA"
+  },
+  {
+   "alias": "RUDISLM",
+   "canonical": "RUDIS"
+  },
+  {
+   "alias": "CRINOLM",
+   "canonical": "CRINO"
+  },
+  {
+   "alias": "ECHINLM",
+   "canonical": "ECHIN"
+  },
+  {
+   "alias": "STROMLM",
+   "canonical": "STROM"
+  },
+  {
+   "alias": "FCOMLM",
+   "canonical": "FCOM"
+  },
+  {
+   "alias": "PERFOLM",
+   "canonical": "PERFO"
+  },
+  {
+   "alias": "BIRDSLM",
+   "canonical": "BIRDS"
+  },
+  {
+   "alias": "TEPEELM",
+   "canonical": "TEPEE"
+  },
+  {
+   "alias": "BIOTULM",
+   "canonical": "BIOTU"
+  },
+  {
+   "alias": "FISCOLM",
+   "canonical": "FISCO"
+  },
+  {
+   "alias": "RHIZOLM",
+   "canonical": "RHIZO"
+  },
+  {
+   "alias": "RACINLM",
+   "canonical": "RACIN"
+  },
+  {
+   "alias": "CONCRLM",
+   "canonical": "CONCR"
+  },
+  {
+   "alias": "FDESSLM",
+   "canonical": "FDESS"
+  },
+  {
+   "alias": "BDESSLM",
+   "canonical": "BDESS"
+  },
+  {
+   "alias": "MICRKLM",
+   "canonical": "MICRK"
+  },
+  {
+   "alias": "STYLOLM",
+   "canonical": "STYLO"
+  },
+  {
+   "alias": "MICRFLM",
+   "canonical": "MICRF"
+  },
+  {
+   "alias": "VANNALM",
+   "canonical": "VANNA"
+  },
+  {
+   "alias": "MICGRLM",
+   "canonical": "MICGR"
+  },
+  {
+   "alias": "FLOTCOLM",
+   "canonical": "FLOTCO"
+  },
+  {
+   "alias": "TANGCOLM",
+   "canonical": "TANGCO"
+  },
+  {
+   "alias": "LONGCOLM",
+   "canonical": "LONGCO"
+  },
+  {
+   "alias": "STYLCOLM",
+   "canonical": "STYLCO"
+  },
+  {
+   "alias": "COMPACLM",
+   "canonical": "COMPAC"
+  },
+  {
+   "alias": "CONCOOLM",
+   "canonical": "CONCOO"
+  },
+  {
+   "alias": "FIBROOLM",
+   "canonical": "FIBROO"
+  },
+  {
+   "alias": "MICROOLM",
+   "canonical": "MICROO"
+  },
+  {
+   "alias": "MAXGRLM",
+   "canonical": "MAXGR"
+  },
+  {
+   "alias": "MOYGRLM",
+   "canonical": "MOYGR"
+  },
+  {
+   "alias": "MAXQULM",
+   "canonical": "MAXQU"
+  },
+  {
+   "alias": "MOYQULM",
+   "canonical": "MOYQU"
+  },
+  {
+   "alias": "MAXOOLM",
+   "canonical": "MAXOO"
+  },
+  {
+   "alias": "MOYOOLM",
+   "canonical": "MOYOO"
+  },
+  {
+   "alias": "CLASGRLM",
+   "canonical": "CLASGR"
+  },
+  {
+   "alias": "CLASQULM",
+   "canonical": "CLASQU"
+  },
+  {
+   "alias": "CLASOOLM",
+   "canonical": "CLASOO"
+  },
+  {
+   "alias": "SPHERILM",
+   "canonical": "SPHERI"
+  },
+  {
+   "alias": "EMOUSLM",
+   "canonical": "EMOUS"
+  },
+  {
+   "alias": "MODALILM",
+   "canonical": "MODALI"
+  },
+  {
+   "alias": "GRANOCLM",
+   "canonical": "GRANOC"
+  },
+  {
+   "alias": "LINIARLM",
+   "canonical": "LINIAR"
+  },
+  {
+   "alias": "BRIDARLM",
+   "canonical": "BRIDAR"
+  },
+  {
+   "alias": "FILLARLM",
+   "canonical": "FILLAR"
+  },
+  {
+   "alias": "PARTARLM",
+   "canonical": "PARTAR"
+  },
+  {
+   "alias": "INTERELM",
+   "canonical": "INTERE"
+  },
+  {
+   "alias": "INTRAELM",
+   "canonical": "INTRAE"
+  },
+  {
+   "alias": "INTERXLM",
+   "canonical": "INTERX"
+  },
+  {
+   "alias": "INTRAXLM",
+   "canonical": "INTRAX"
+  },
+  {
+   "alias": "MOULELM",
+   "canonical": "MOULE"
+  },
+  {
+   "alias": "FENESTLM",
+   "canonical": "FENEST"
+  },
+  {
+   "alias": "OMBRELLM",
+   "canonical": "OMBREL"
+  },
+  {
+   "alias": "FISPORLM",
+   "canonical": "FISPOR"
+  },
+  {
+   "alias": "MEGPORLM",
+   "canonical": "MEGPOR"
+  },
+  {
+   "alias": "CONNECLM",
+   "canonical": "CONNEC"
+  },
+  {
+   "alias": "DK_GRTHU",
+   "canonical": "DK_GR"
+  }
+ ],
+ "TechcoreMnemoAlias": [
+  {
+   "alias": "PRO_TOIT",
+   "canonical": "ZTOIT"
+  },
+  {
+   "alias": "ZTETE",
+   "canonical": "ZTOIT"
+  },
+  {
+   "alias": "ZPIED",
+   "canonical": "ZMUR"
+  },
+  {
+   "alias": "PRO_MUR",
+   "canonical": "ZMUR"
+  },
+  {
+   "alias": "PHIINI",
+   "canonical": "PHI"
+  },
+  {
+   "alias": "PRI",
+   "canonical": "RINF"
+  },
+  {
+   "alias": "PRS",
+   "canonical": "RSUP"
+  },
+  {
+   "alias": "KGINI",
+   "canonical": "KG"
+  },
+  {
+   "alias": "KGKLIN",
+   "canonical": "KGKL"
+  },
+  {
+   "alias": "KGKLINI",
+   "canonical": "KGKL"
+  },
+  {
+   "alias": "KWINI",
+   "canonical": "KW"
+  },
+  {
+   "alias": "KOINI",
+   "canonical": "KO"
+  },
+  {
+   "alias": "KSINI",
+   "canonical": "KS"
+  },
+  {
+   "alias": "FFINI",
+   "canonical": "FF"
+  },
+  {
+   "alias": "KGKLSIGM",
+   "canonical": "KGKLSIG"
+  },
+  {
+   "alias": "DIA",
+   "canonical": "DIAM"
+  },
+  {
+   "alias": "SORG",
+   "canonical": "SOR"
+  },
+  {
+   "alias": "SORW",
+   "canonical": "SOR"
+  },
+  {
+   "alias": "KRW_KRO",
+   "canonical": "KW_KO"
+  },
+  {
+   "alias": "KRG_KRW",
+   "canonical": "KG_KW"
+  },
+  {
+   "alias": "KRG_KRO",
+   "canonical": "KG_KO"
+  },
+  {
+   "alias": "PCDYOWI",
+   "canonical": "PCDOWI"
+  },
+  {
+   "alias": "PCDYOWD",
+   "canonical": "PCDOWD"
+  },
+  {
+   "alias": "PCDYGWI",
+   "canonical": "PCDGWI"
+  },
+  {
+   "alias": "PCDYGWD",
+   "canonical": "PCDGWD"
+  },
+  {
+   "alias": "PCDYOGI",
+   "canonical": "PCDOGI"
+  },
+  {
+   "alias": "PCDYOGD",
+   "canonical": "PCDOGD"
+  },
+  {
+   "alias": "KROEXI",
+   "canonical": "KROOGI"
+  },
+  {
+   "alias": "KRGEXI",
+   "canonical": "KRGOGI"
+  },
+  {
+   "alias": "PCDYEXI",
+   "canonical": "PCDOGI"
+  },
+  {
+   "alias": "KRG_OEXI",
+   "canonical": "KRG_OI"
+  },
+  {
+   "alias": "KROEXD",
+   "canonical": "KROOGD"
+  },
+  {
+   "alias": "KRGEXD",
+   "canonical": "KRGOGD"
+  },
+  {
+   "alias": "PCdYEXD",
+   "canonical": "PCDOGD"
+  },
+  {
+   "alias": "KRG_OEXD",
+   "canonical": "KRG_OD"
+  },
+  {
+   "alias": "KROCOI",
+   "canonical": "KROOGI"
+  },
+  {
+   "alias": "KRGCOI",
+   "canonical": "KRGOGI"
+  },
+  {
+   "alias": "PCDYCOI",
+   "canonical": "PCDOGI"
+  },
+  {
+   "alias": "KRG_OCOI",
+   "canonical": "KRG_OI"
+  },
+  {
+   "alias": "KROGCOD",
+   "canonical": "KROOGD"
+  },
+  {
+   "alias": "KRGCOD",
+   "canonical": "KRGOGD"
+  },
+  {
+   "alias": "PCDYCOD",
+   "canonical": "PCDOGD"
+  },
+  {
+   "alias": "KRG_OCOD",
+   "canonical": "KRG_OD"
+  },
+  {
+   "alias": "VPINI",
+   "canonical": "VP"
+  },
+  {
+   "alias": "VSINI",
+   "canonical": "VS"
+  },
+  {
+   "alias": "FR_P",
+   "canonical": "ORIE"
+  },
+  {
+   "alias": "PCT",
+   "canonical": "TYPE"
+  },
+  {
+   "alias": "HOMOGEPL",
+   "canonical": "MA_HOM"
+  },
+  {
+   "alias": "MA_LI1",
+   "canonical": "MA_LI1_"
+  },
+  {
+   "alias": "LITHO1PL",
+   "canonical": "MA_LI1_"
+  },
+  {
+   "alias": "MA_LI2",
+   "canonical": "MA_LI2_"
+  },
+  {
+   "alias": "LITHO2PL",
+   "canonical": "MA_LI2_"
+  },
+  {
+   "alias": "GRANPL",
+   "canonical": "MA_GRA"
+  },
+  {
+   "alias": "CLASGRPL",
+   "canonical": "MA_CLA"
+  },
+  {
+   "alias": "DUNHPL",
+   "canonical": "MA_DUN"
+  },
+  {
+   "alias": "ARGILOPL",
+   "canonical": "MA_ARG"
+  },
+  {
+   "alias": "NATDLPL",
+   "canonical": "MA_NPA"
+  },
+  {
+   "alias": "DENLEGPL",
+   "canonical": "MA_FPA"
+  },
+  {
+   "alias": "ELEMORPL",
+   "canonical": "MA_ELO"
+  },
+  {
+   "alias": "BARRPL",
+   "canonical": "MA_BAR"
+  },
+  {
+   "alias": "DRAINPL",
+   "canonical": "MA_DRA"
+  },
+  {
+   "alias": "PORMATPL",
+   "canonical": "MA_PMA"
+  },
+  {
+   "alias": "MA_VI2",
+   "canonical": "MA_VI2_"
+  },
+  {
+   "alias": "VAC2PL",
+   "canonical": "MA_VI2_"
+  },
+  {
+   "alias": "MA_V25",
+   "canonical": "MA_V25_"
+  },
+  {
+   "alias": "VAC2A5PL",
+   "canonical": "MA_V25_"
+  },
+  {
+   "alias": "MA_VS5",
+   "canonical": "MA_VS5_"
+  },
+  {
+   "alias": "VAC5PL",
+   "canonical": "MA_VS5_"
+  },
+  {
+   "alias": "CONNECPL",
+   "canonical": "MA_COX"
+  },
+  {
+   "alias": "PI",
+   "canonical": "MA_IMP"
+  },
+  {
+   "alias": "MJX_ANH",
+   "canonical": "MX_ANH"
+  },
+  {
+   "alias": "MJ_ANH",
+   "canonical": "MX_ANH"
+  },
+  {
+   "alias": "DXRT_AN",
+   "canonical": "MX_ANH"
+  },
+  {
+   "alias": "DX_L_AG",
+   "canonical": "MX_AG"
+  },
+  {
+   "alias": "DXRT_AG",
+   "canonical": "MX_AG"
+  },
+  {
+   "alias": "MJX_ALB",
+   "canonical": "MX_ALB"
+  },
+  {
+   "alias": "MJ_ALB",
+   "canonical": "MX_ALB"
+  },
+  {
+   "alias": "DXRT_AL",
+   "canonical": "MX_ALB"
+  },
+  {
+   "alias": "DX_ARMI",
+   "canonical": "MX_ARMI"
+  },
+  {
+   "alias": "DXRT_AM",
+   "canonical": "MX_ARMI"
+  },
+  {
+   "alias": "DX_L_AP",
+   "canonical": "MX_AP"
+  },
+  {
+   "alias": "DXRT_AP",
+   "canonical": "MX_AP"
+  },
+  {
+   "alias": "DX_L_BA",
+   "canonical": "MX_BA"
+  },
+  {
+   "alias": "DXRT_BA",
+   "canonical": "MX_BA"
+  },
+  {
+   "alias": "MJX_CAL",
+   "canonical": "MX_CAL"
+  },
+  {
+   "alias": "MJ_CAL",
+   "canonical": "MX_CAL"
+  },
+  {
+   "alias": "DXRT_CA",
+   "canonical": "MX_CAL"
+  },
+  {
+   "alias": "DX_L_CE",
+   "canonical": "MX_CE"
+  },
+  {
+   "alias": "DXRT_CE",
+   "canonical": "MX_CE"
+  },
+  {
+   "alias": "COI",
+   "canonical": "MX_COI"
+  },
+  {
+   "alias": "DXRT_MO",
+   "canonical": "MX_MOI"
+  },
+  {
+   "alias": "DX_L_DI",
+   "canonical": "MX_DI"
+  },
+  {
+   "alias": "DXRT_DI",
+   "canonical": "MX_DI"
+  },
+  {
+   "alias": "MJX_DOL",
+   "canonical": "MX_DOL"
+  },
+  {
+   "alias": "MJ_DOL",
+   "canonical": "MX_DOL"
+  },
+  {
+   "alias": "DXRT_DO",
+   "canonical": "MX_DOL"
+  },
+  {
+   "alias": "DX_L_GO",
+   "canonical": "MX_GO"
+  },
+  {
+   "alias": "DXRT_GO",
+   "canonical": "MX_GO"
+  },
+  {
+   "alias": "DX_L_GY",
+   "canonical": "MX_GY"
+  },
+  {
+   "alias": "DXRT_GY",
+   "canonical": "MX_GY"
+  },
+  {
+   "alias": "DX_L_HA",
+   "canonical": "MX_HA"
+  },
+  {
+   "alias": "DXRT_HA",
+   "canonical": "MX_HA"
+  },
+  {
+   "alias": "DX_L_HE",
+   "canonical": "MX_HE"
+  },
+  {
+   "alias": "DXRT_HE",
+   "canonical": "MX_HE"
+  },
+  {
+   "alias": "DX_L_KA",
+   "canonical": "MX_KAOL"
+  },
+  {
+   "alias": "DXRT_KA",
+   "canonical": "MX_KAOL"
+  },
+  {
+   "alias": "DX_L_MU",
+   "canonical": "MX_MU"
+  },
+  {
+   "alias": "DXRT_MU",
+   "canonical": "MX_MU"
+  },
+  {
+   "alias": "DX_L_NJ",
+   "canonical": "MX_NJ"
+  },
+  {
+   "alias": "DXRT_NJ",
+   "canonical": "MX_NJ"
+  },
+  {
+   "alias": "DX_NID",
+   "canonical": "MX_NID"
+  },
+  {
+   "alias": "DXRT_NI",
+   "canonical": "MX_NID"
+  },
+  {
+   "alias": "MJX_ORT",
+   "canonical": "MX_ORT"
+  },
+  {
+   "alias": "MJ_ORT",
+   "canonical": "MX_ORT"
+  },
+  {
+   "alias": "DXRT_OR",
+   "canonical": "MX_ORT"
+  },
+  {
+   "alias": "DX_L_PY",
+   "canonical": "MX_PY"
+  },
+  {
+   "alias": "DXRT_PY",
+   "canonical": "MX_PY"
+  },
+  {
+   "alias": "MJX_QRZ",
+   "canonical": "MX_QRZ"
+  },
+  {
+   "alias": "MJ_QRZ",
+   "canonical": "MX_QRZ"
+  },
+  {
+   "alias": "DXRT_QU",
+   "canonical": "MX_QRZ"
+  },
+  {
+   "alias": "RI_REDE",
+   "canonical": "MX_RI"
+  },
+  {
+   "alias": "RI_RE",
+   "canonical": "MX_RI"
+  },
+  {
+   "alias": "RI_RT",
+   "canonical": "MX_RI"
+  },
+  {
+   "alias": "DXRT_RI",
+   "canonical": "MX_RI"
+  },
+  {
+   "alias": "MJX_SID",
+   "canonical": "MX_SID"
+  },
+  {
+   "alias": "MJ_SID",
+   "canonical": "MX_SID"
+  },
+  {
+   "alias": "DXRT_SD",
+   "canonical": "MX_SID"
+  },
+  {
+   "alias": "DX_L_TI",
+   "canonical": "MX_TI"
+  },
+  {
+   "alias": "DXRT_TI",
+   "canonical": "MX_TI"
+  },
+  {
+   "alias": "DX_L_ZEO",
+   "canonical": "MX_ZEO"
+  },
+  {
+   "alias": "DXRT_ZE",
+   "canonical": "MX_ZEO"
+  },
+  {
+   "alias": "DX_L_AK",
+   "canonical": "MX_AK"
+  },
+  {
+   "alias": "DXRT_AK",
+   "canonical": "MX_AK"
+  },
+  {
+   "alias": "DX_L_MAG",
+   "canonical": "MX_MAG"
+  },
+  {
+   "alias": "DXRT_MA",
+   "canonical": "MX_MAG"
+  },
+  {
+   "alias": "DX_L_FL",
+   "canonical": "MX_FL"
+  },
+  {
+   "alias": "DXRT_FL",
+   "canonical": "MX_FL"
+  },
+  {
+   "alias": "MJ_ND",
+   "canonical": "MX_ND"
+  },
+  {
+   "alias": "DXRT_ND",
+   "canonical": "MX_ND"
+  },
+  {
+   "alias": "DX_L_ANA",
+   "canonical": "MX_ANA"
+  },
+  {
+   "alias": "DX_L_CLA",
+   "canonical": "MX_CLA"
+  },
+  {
+   "alias": "DX_L_HYA",
+   "canonical": "MX_HYA"
+  },
+  {
+   "alias": "DX_L_FLA",
+   "canonical": "MX_FLA"
+  },
+  {
+   "alias": "DX_L_AT",
+   "canonical": "MX_AT"
+  },
+  {
+   "alias": "DX_L_RU",
+   "canonical": "MX_RU"
+  },
+  {
+   "alias": "DX_L_BR",
+   "canonical": "MX_BR"
+  },
+  {
+   "alias": "DX_L_OC",
+   "canonical": "MX_OC"
+  },
+  {
+   "alias": "DXRT_AR",
+   "canonical": "MX_AA"
+  },
+  {
+   "alias": "GM_ALLE",
+   "canonical": "MXA_ALLE"
+  },
+  {
+   "alias": "GM_IS_R1",
+   "canonical": "MXA_IR1_"
+  },
+  {
+   "alias": "DXAR_IS1",
+   "canonical": "MXA_IR1_"
+  },
+  {
+   "alias": "GM_IS_R0",
+   "canonical": "MXA_IR2_"
+  },
+  {
+   "alias": "DXAR_IS0",
+   "canonical": "MXA_IR2_"
+  },
+  {
+   "alias": "GM_PARA",
+   "canonical": "MXA_PARA"
+  },
+  {
+   "alias": "GM_PYRO",
+   "canonical": "MXA_PYRO"
+  },
+  {
+   "alias": "GM_TALC",
+   "canonical": "MXA_TALC"
+  },
+  {
+   "alias": "DXAR_TA",
+   "canonical": "MXA_TALC"
+  },
+  {
+   "alias": "GM_NIL",
+   "canonical": "MXA_ANIL"
+  },
+  {
+   "alias": "GM_ATTA",
+   "canonical": "MXA_ATTA"
+  },
+  {
+   "alias": "GM_CHLO",
+   "canonical": "MXA_CHLO"
+  },
+  {
+   "alias": "DXAR_CL",
+   "canonical": "MXA_CHLO"
+  },
+  {
+   "alias": "GM_CORR",
+   "canonical": "MXA_CORR"
+  },
+  {
+   "alias": "DXAR_CO",
+   "canonical": "MXA_CORR"
+  },
+  {
+   "alias": "GM_ILLI",
+   "canonical": "MXA_ILLI"
+  },
+  {
+   "alias": "DXAR_IL",
+   "canonical": "MXA_ILLI"
+  },
+  {
+   "alias": "GM_IS",
+   "canonical": "MXA_IS"
+  },
+  {
+   "alias": "DXAR_IS",
+   "canonical": "MXA_IS"
+  },
+  {
+   "alias": "GM_IS_MC",
+   "canonical": "MXA_ISMC"
+  },
+  {
+   "alias": "DXAR_MC",
+   "canonical": "MXA_ISMC"
+  },
+  {
+   "alias": "GM_KAOL",
+   "canonical": "MXA_KAOL"
+  },
+  {
+   "alias": "DXAR_KA",
+   "canonical": "MXA_KAOL"
+  },
+  {
+   "alias": "DXAR_DI",
+   "canonical": "MXA_KAOL"
+  },
+  {
+   "alias": "GM_SMEC",
+   "canonical": "MXA_SMEC"
+  },
+  {
+   "alias": "DXAR_SM",
+   "canonical": "MXA_SMEC"
+  },
+  {
+   "alias": "GM_VER",
+   "canonical": "MXA_VERM"
+  },
+  {
+   "alias": "DXAR_VE",
+   "canonical": "MXA_VERM"
+  },
+  {
+   "alias": "LMRT_AN",
+   "canonical": "PS_ANH"
+  },
+  {
+   "alias": "LMRT_AG",
+   "canonical": "PS_AG"
+  },
+  {
+   "alias": "LMRT_AL",
+   "canonical": "PS_ALB"
+  },
+  {
+   "alias": "LMRT_AM",
+   "canonical": "PS_ARMI"
+  },
+  {
+   "alias": "LMRT_AP",
+   "canonical": "PS_AP"
+  },
+  {
+   "alias": "LMRT_BA",
+   "canonical": "PS_BA"
+  },
+  {
+   "alias": "LMRT_CA",
+   "canonical": "PS_CAL"
+  },
+  {
+   "alias": "LMRT_CE",
+   "canonical": "PS_CE"
+  },
+  {
+   "alias": "LMRT_DI",
+   "canonical": "PS_DI"
+  },
+  {
+   "alias": "LMRT_DO",
+   "canonical": "PS_DOL"
+  },
+  {
+   "alias": "LMRT_GO",
+   "canonical": "PS_GO"
+  },
+  {
+   "alias": "LMRT_GY",
+   "canonical": "PS_GY"
+  },
+  {
+   "alias": "LMRT_HA",
+   "canonical": "PS_HA"
+  },
+  {
+   "alias": "LMRT_HE",
+   "canonical": "PS_HE"
+  },
+  {
+   "alias": "LMRT_KA",
+   "canonical": "PS_KAOL"
+  },
+  {
+   "alias": "LMRT_MU",
+   "canonical": "PS_MU"
+  },
+  {
+   "alias": "LMRT_NI",
+   "canonical": "PS_NID"
+  },
+  {
+   "alias": "LMRT_OR",
+   "canonical": "PS_ORT"
+  },
+  {
+   "alias": "LMRT_PY",
+   "canonical": "PS_PY"
+  },
+  {
+   "alias": "LMRT_QU",
+   "canonical": "PS_QRZ"
+  },
+  {
+   "alias": "LMRT_RI",
+   "canonical": "PS_RI"
+  },
+  {
+   "alias": "LMRT_SD",
+   "canonical": "PS_SID"
+  },
+  {
+   "alias": "LMRT_TI",
+   "canonical": "PS_TI"
+  },
+  {
+   "alias": "LMRT_ZE",
+   "canonical": "PS_ZEO"
+  },
+  {
+   "alias": "LMRT_AK",
+   "canonical": "PS_AK"
+  },
+  {
+   "alias": "LMRT_MA",
+   "canonical": "PS_MAG"
+  },
+  {
+   "alias": "LMRT_FL",
+   "canonical": "PS_FL"
+  },
+  {
+   "alias": "LMRT_ND",
+   "canonical": "PS_ND"
+  },
+  {
+   "alias": "LMRT_MO",
+   "canonical": "PS_MOI"
+  },
+  {
+   "alias": "LMRT_CH",
+   "canonical": "PS_MOI"
+  },
+  {
+   "alias": "LMRT_AR",
+   "canonical": "PS_AR"
+  },
+  {
+   "alias": "DUNHLM",
+   "canonical": "DUNH"
+  },
+  {
+   "alias": "FABRIQLM",
+   "canonical": "FABRIQ"
+  },
+  {
+   "alias": "MATRIPLM",
+   "canonical": "MATRIP"
+  },
+  {
+   "alias": "ELFIGPLM",
+   "canonical": "ELFIGP"
+  },
+  {
+   "alias": "CIMENPLM",
+   "canonical": "CIMENP"
+  },
+  {
+   "alias": "POROSPLM",
+   "canonical": "POROSP"
+  },
+  {
+   "alias": "QUPLM",
+   "canonical": "QUP"
+  },
+  {
+   "alias": "FEPLM",
+   "canonical": "FEP"
+  },
+  {
+   "alias": "MIPLM",
+   "canonical": "MIP"
+  },
+  {
+   "alias": "LITCLPLM",
+   "canonical": "LITCLP"
+  },
+  {
+   "alias": "ARPLM",
+   "canonical": "ARP"
+  },
+  {
+   "alias": "PYPLM",
+   "canonical": "PYP"
+  },
+  {
+   "alias": "MOPLM",
+   "canonical": "MOP"
+  },
+  {
+   "alias": "AUTREPLM",
+   "canonical": "AUTREP"
+  },
+  {
+   "alias": "ONCOIPLM",
+   "canonical": "ONCOIP"
+  },
+  {
+   "alias": "OOIDEPLM",
+   "canonical": "OOIDEP"
+  },
+  {
+   "alias": "PELOIPLM",
+   "canonical": "PELOIP"
+  },
+  {
+   "alias": "BIOCLPLM",
+   "canonical": "BIOCLP"
+  },
+  {
+   "alias": "AGREGPLM",
+   "canonical": "AGREGP"
+  },
+  {
+   "alias": "MUDCLPLM",
+   "canonical": "MUDCLP"
+  },
+  {
+   "alias": "PELLEPLM",
+   "canonical": "PELLEP"
+  },
+  {
+   "alias": "MICRIPLM",
+   "canonical": "MICRIP"
+  },
+  {
+   "alias": "PYSLM",
+   "canonical": "PYS"
+  },
+  {
+   "alias": "GLSLM",
+   "canonical": "GLS"
+  },
+  {
+   "alias": "LOURDSLM",
+   "canonical": "LOURDS"
+  },
+  {
+   "alias": "CALCLSLM",
+   "canonical": "CALCLS"
+  },
+  {
+   "alias": "BIOCLSLM",
+   "canonical": "BIOCLS"
+  },
+  {
+   "alias": "PHSLM",
+   "canonical": "PHS"
+  },
+  {
+   "alias": "SULFASLM",
+   "canonical": "SULFAS"
+  },
+  {
+   "alias": "MOSLM",
+   "canonical": "MOS"
+  },
+  {
+   "alias": "BISLM",
+   "canonical": "BIS"
+  },
+  {
+   "alias": "SICRTLM",
+   "canonical": "SICRT"
+  },
+  {
+   "alias": "ISCRTLM",
+   "canonical": "ISCRT"
+  },
+  {
+   "alias": "KACRTLM",
+   "canonical": "KACRT"
+  },
+  {
+   "alias": "CACRTLM",
+   "canonical": "CACRT"
+  },
+  {
+   "alias": "DOCRTLM",
+   "canonical": "DOCRT"
+  },
+  {
+   "alias": "AKCRTLM",
+   "canonical": "AKCRT"
+  },
+  {
+   "alias": "SDCRTLM",
+   "canonical": "SDCRT"
+  },
+  {
+   "alias": "ANCRTLM",
+   "canonical": "ANCRT"
+  },
+  {
+   "alias": "HACRTLM",
+   "canonical": "HACRT"
+  },
+  {
+   "alias": "BACRTLM",
+   "canonical": "BACRT"
+  },
+  {
+   "alias": "HECRTLM",
+   "canonical": "HECRT"
+  },
+  {
+   "alias": "FRGRACLM",
+   "canonical": "FRGRAC"
+  },
+  {
+   "alias": "FRFIBCLM",
+   "canonical": "FRFIBC"
+  },
+  {
+   "alias": "FRMICCLM",
+   "canonical": "FRMICC"
+  },
+  {
+   "alias": "DENCHCLM",
+   "canonical": "DENCHC"
+  },
+  {
+   "alias": "DRUSICLM",
+   "canonical": "DRUSIC"
+  },
+  {
+   "alias": "SPARICLM",
+   "canonical": "SPARIC"
+  },
+  {
+   "alias": "MOSEQCLM",
+   "canonical": "MOSEQC"
+  },
+  {
+   "alias": "EPITACLM",
+   "canonical": "EPITAC"
+  },
+  {
+   "alias": "POECICLM",
+   "canonical": "POECIC"
+  },
+  {
+   "alias": "DOCLM",
+   "canonical": "DOC"
+  },
+  {
+   "alias": "STALACLM",
+   "canonical": "STALAC"
+  },
+  {
+   "alias": "MENISCLM",
+   "canonical": "MENISC"
+  },
+  {
+   "alias": "SEDINCLM",
+   "canonical": "SEDINC"
+  },
+  {
+   "alias": "SICLM",
+   "canonical": "SIC"
+  },
+  {
+   "alias": "ANCLM",
+   "canonical": "ANC"
+  },
+  {
+   "alias": "RHODOLM",
+   "canonical": "RHODO"
+  },
+  {
+   "alias": "RHODOFLM",
+   "canonical": "RHODOF"
+  },
+  {
+   "alias": "CIMDOLM",
+   "canonical": "CIMDO"
+  },
+  {
+   "alias": "CIMDOFLM",
+   "canonical": "CIMDOF"
+  },
+  {
+   "alias": "FISDOLM",
+   "canonical": "FISDO"
+  },
+  {
+   "alias": "FISDOFLM",
+   "canonical": "FISDOF"
+  },
+  {
+   "alias": "ELEDOLML",
+   "canonical": "ELEDO"
+  },
+  {
+   "alias": "ELEDOFLM",
+   "canonical": "ELEDOF"
+  },
+  {
+   "alias": "XCALM",
+   "canonical": "XCA"
+  },
+  {
+   "alias": "XDOLM",
+   "canonical": "XDO"
+  },
+  {
+   "alias": "XDOFLM",
+   "canonical": "XDOF"
+  },
+  {
+   "alias": "SPICULM",
+   "canonical": "SPICU"
+  },
+  {
+   "alias": "BRACHLM",
+   "canonical": "BRACH"
+  },
+  {
+   "alias": "BRYOZLM",
+   "canonical": "BRYOZ"
+  },
+  {
+   "alias": "ANNELLM",
+   "canonical": "ANNEL"
+  },
+  {
+   "alias": "HYDROLM",
+   "canonical": "HYDRO"
+  },
+  {
+   "alias": "POLYPLM",
+   "canonical": "POLYP"
+  },
+  {
+   "alias": "LAMELLM",
+   "canonical": "LAMEL"
+  },
+  {
+   "alias": "GASTELM",
+   "canonical": "GASTE"
+  },
+  {
+   "alias": "ALGUELM",
+   "canonical": "ALGUE"
+  },
+  {
+   "alias": "NUBECLM",
+   "canonical": "NUBEC"
+  },
+  {
+   "alias": "BENTHLM",
+   "canonical": "BENTH"
+  },
+  {
+   "alias": "PELAGLM",
+   "canonical": "PELAG"
+  },
+  {
+   "alias": "OSTRALM",
+   "canonical": "OSTRA"
+  },
+  {
+   "alias": "RUDISLM",
+   "canonical": "RUDIS"
+  },
+  {
+   "alias": "CRINOLM",
+   "canonical": "CRINO"
+  },
+  {
+   "alias": "ECHINLM",
+   "canonical": "ECHIN"
+  },
+  {
+   "alias": "STROMLM",
+   "canonical": "STROM"
+  },
+  {
+   "alias": "FCOMLM",
+   "canonical": "FCOM"
+  },
+  {
+   "alias": "PERFOLM",
+   "canonical": "PERFO"
+  },
+  {
+   "alias": "BIRDSLM",
+   "canonical": "BIRDS"
+  },
+  {
+   "alias": "TEPEELM",
+   "canonical": "TEPEE"
+  },
+  {
+   "alias": "BIOTULM",
+   "canonical": "BIOTU"
+  },
+  {
+   "alias": "FISCOLM",
+   "canonical": "FISCO"
+  },
+  {
+   "alias": "RHIZOLM",
+   "canonical": "RHIZO"
+  },
+  {
+   "alias": "RACINLM",
+   "canonical": "RACIN"
+  },
+  {
+   "alias": "CONCRLM",
+   "canonical": "CONCR"
+  },
+  {
+   "alias": "FDESSLM",
+   "canonical": "FDESS"
+  },
+  {
+   "alias": "BDESSLM",
+   "canonical": "BDESS"
+  },
+  {
+   "alias": "MICRKLM",
+   "canonical": "MICRK"
+  },
+  {
+   "alias": "STYLOLM",
+   "canonical": "STYLO"
+  },
+  {
+   "alias": "MICRFLM",
+   "canonical": "MICRF"
+  },
+  {
+   "alias": "VANNALM",
+   "canonical": "VANNA"
+  },
+  {
+   "alias": "MICGRLM",
+   "canonical": "MICGR"
+  },
+  {
+   "alias": "FLOTCOLM",
+   "canonical": "FLOTCO"
+  },
+  {
+   "alias": "TANGCOLM",
+   "canonical": "TANGCO"
+  },
+  {
+   "alias": "LONGCOLM",
+   "canonical": "LONGCO"
+  },
+  {
+   "alias": "STYLCOLM",
+   "canonical": "STYLCO"
+  },
+  {
+   "alias": "COMPACLM",
+   "canonical": "COMPAC"
+  },
+  {
+   "alias": "CONCOOLM",
+   "canonical": "CONCOO"
+  },
+  {
+   "alias": "FIBROOLM",
+   "canonical": "FIBROO"
+  },
+  {
+   "alias": "MICROOLM",
+   "canonical": "MICROO"
+  },
+  {
+   "alias": "MAXGRLM",
+   "canonical": "MAXGR"
+  },
+  {
+   "alias": "MOYGRLM",
+   "canonical": "MOYGR"
+  },
+  {
+   "alias": "MAXQULM",
+   "canonical": "MAXQU"
+  },
+  {
+   "alias": "MOYQULM",
+   "canonical": "MOYQU"
+  },
+  {
+   "alias": "MAXOOLM",
+   "canonical": "MAXOO"
+  },
+  {
+   "alias": "MOYOOLM",
+   "canonical": "MOYOO"
+  },
+  {
+   "alias": "CLASGRLM",
+   "canonical": "CLASGR"
+  },
+  {
+   "alias": "CLASQULM",
+   "canonical": "CLASQU"
+  },
+  {
+   "alias": "CLASOOLM",
+   "canonical": "CLASOO"
+  },
+  {
+   "alias": "SPHERILM",
+   "canonical": "SPHERI"
+  },
+  {
+   "alias": "EMOUSLM",
+   "canonical": "EMOUS"
+  },
+  {
+   "alias": "MODALILM",
+   "canonical": "MODALI"
+  },
+  {
+   "alias": "GRANOCLM",
+   "canonical": "GRANOC"
+  },
+  {
+   "alias": "LINIARLM",
+   "canonical": "LINIAR"
+  },
+  {
+   "alias": "BRIDARLM",
+   "canonical": "BRIDAR"
+  },
+  {
+   "alias": "FILLARLM",
+   "canonical": "FILLAR"
+  },
+  {
+   "alias": "PARTARLM",
+   "canonical": "PARTAR"
+  },
+  {
+   "alias": "INTERELM",
+   "canonical": "INTERE"
+  },
+  {
+   "alias": "INTRAELM",
+   "canonical": "INTRAE"
+  },
+  {
+   "alias": "INTERXLM",
+   "canonical": "INTERX"
+  },
+  {
+   "alias": "INTRAXLM",
+   "canonical": "INTRAX"
+  },
+  {
+   "alias": "MOULELM",
+   "canonical": "MOULE"
+  },
+  {
+   "alias": "FENESTLM",
+   "canonical": "FENEST"
+  },
+  {
+   "alias": "OMBRELLM",
+   "canonical": "OMBREL"
+  },
+  {
+   "alias": "FISPORLM",
+   "canonical": "FISPOR"
+  },
+  {
+   "alias": "MEGPORLM",
+   "canonical": "MEGPOR"
+  },
+  {
+   "alias": "CONNECLM",
+   "canonical": "CONNEC"
+  },
+  {
+   "alias": "DK_GRTHU",
+   "canonical": "DK_GR"
+  }
+ ]
+}

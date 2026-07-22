@@ -1,0 +1,2861 @@
+{
+ "_meta": {
+  "target": "C",
+  "source": "C:\\Program Files\\IP2025",
+  "date": "2026-07-22",
+  "description": "Top-level IP2025 .par default files (parameter defaults, lithology tables, Gassmann rock library, Monte-Carlo uncertainty defaults, fracture-gradient coefficients, formation-testing mnemonic catalog, image-convolution kernels)."
+ },
+ "Poisson_Ratio_Lithologies": {
+  "file": "Poisson_Ratio_Lithologies.par",
+  "tier": "A",
+  "scope": "later",
+  "purpose": "Default Poisson's ratio per lithology; used by Daines fracture-gradient method (PPFG).",
+  "columns": [
+   "lithology",
+   "poisson_ratio",
+   "facies_code"
+  ],
+  "rows": [
+   {
+    "lithology": "Dolomite",
+    "poisson_ratio": "0.21",
+    "facies_code": "1"
+   },
+   {
+    "lithology": "Limestone Fine micrite",
+    "poisson_ratio": "0.28",
+    "facies_code": "2.1"
+   },
+   {
+    "lithology": "Limestone Medium calcarenite",
+    "poisson_ratio": "0.31",
+    "facies_code": "2.2"
+   },
+   {
+    "lithology": "Limestone Porous",
+    "poisson_ratio": "0.2",
+    "facies_code": "2.3"
+   },
+   {
+    "lithology": "Limestone Stylolitic",
+    "poisson_ratio": "0.27",
+    "facies_code": "2.4"
+   },
+   {
+    "lithology": "Limestone Fossiliferous",
+    "poisson_ratio": "0.09",
+    "facies_code": "2.5"
+   },
+   {
+    "lithology": "Limestone Bedded fossils",
+    "poisson_ratio": "0.17",
+    "facies_code": "2.6"
+   },
+   {
+    "lithology": "Limestone Shaley",
+    "poisson_ratio": "0.17",
+    "facies_code": "2.7"
+   },
+   {
+    "lithology": "Sandstone Coarse",
+    "poisson_ratio": "0.05",
+    "facies_code": "3.1"
+   },
+   {
+    "lithology": "Sandstone Coarse cemented",
+    "poisson_ratio": "0.1",
+    "facies_code": "3.2"
+   },
+   {
+    "lithology": "Sandstone Fine",
+    "poisson_ratio": "0.03",
+    "facies_code": "3.3"
+   },
+   {
+    "lithology": "Sandstone Very fine",
+    "poisson_ratio": "0.04",
+    "facies_code": "3.4"
+   },
+   {
+    "lithology": "Sandstone Medium",
+    "poisson_ratio": "0.06",
+    "facies_code": "3.5"
+   },
+   {
+    "lithology": "Sandstone Poorly sorted clayey",
+    "poisson_ratio": "0.24",
+    "facies_code": "3.6"
+   },
+   {
+    "lithology": "Sandstone Fossiliferous",
+    "poisson_ratio": "0.01",
+    "facies_code": "3.7"
+   },
+   {
+    "lithology": "Siltstone",
+    "poisson_ratio": "0.08",
+    "facies_code": "4"
+   },
+   {
+    "lithology": "Greywacke Coarse",
+    "poisson_ratio": "0.07",
+    "facies_code": "5.1"
+   },
+   {
+    "lithology": "Greywacke Medium",
+    "poisson_ratio": "0.23",
+    "facies_code": "5.2"
+   },
+   {
+    "lithology": "Greywacke Fine",
+    "poisson_ratio": "0.24",
+    "facies_code": "5.3"
+   },
+   {
+    "lithology": "Clay very wet",
+    "poisson_ratio": "0.5",
+    "facies_code": "6"
+   },
+   {
+    "lithology": "Clay",
+    "poisson_ratio": "0.17",
+    "facies_code": "6.1"
+   },
+   {
+    "lithology": "Shale Calcareous",
+    "poisson_ratio": "0.14",
+    "facies_code": "6.2"
+   },
+   {
+    "lithology": "Shale Dolomitic",
+    "poisson_ratio": "0.28",
+    "facies_code": "6.3"
+   },
+   {
+    "lithology": "Shale Siliceous",
+    "poisson_ratio": "0.12",
+    "facies_code": "6.4"
+   },
+   {
+    "lithology": "Shale Silty",
+    "poisson_ratio": "0.17",
+    "facies_code": "6.5"
+   },
+   {
+    "lithology": "Shale Sandy",
+    "poisson_ratio": "0.12",
+    "facies_code": "6.6"
+   },
+   {
+    "lithology": "Shale Kerogen-rich",
+    "poisson_ratio": "0.25",
+    "facies_code": "6.7"
+   },
+   {
+    "lithology": "Slate",
+    "poisson_ratio": "0.13",
+    "facies_code": "7"
+   },
+   {
+    "lithology": "Tuff",
+    "poisson_ratio": "0.34",
+    "facies_code": "8"
+   },
+   {
+    "lithology": "Conglomerate",
+    "poisson_ratio": "0.2",
+    "facies_code": "9"
+   }
+  ]
+ },
+ "Cap_Pressure_Fluid_Prop_Defaults": {
+  "file": "Cap_Pressure_Fluid_Prop_Defaults.par",
+  "tier": "A",
+  "scope": "later",
+  "purpose": "Default contact-angle & interfacial-tension per lab/reservoir cap-pressure system (Mercury Injection, Centrifuge, Porous Plate, Water-Oil, Water-Gas). Used to convert lab Pc to reservoir Pc.",
+  "columns": [
+   "type",
+   "contact_angle_deg",
+   "interfacial_tension_dyne_cm",
+   "attribute_number"
+  ],
+  "rows": [
+   {
+    "type": "Lab(Mercury_Injection)",
+    "contact_angle_deg": "140",
+    "interfacial_tension_dyne_cm": "480",
+    "attribute_number": "1"
+   },
+   {
+    "type": "Lab(Centrifuge)",
+    "contact_angle_deg": "0",
+    "interfacial_tension_dyne_cm": "72",
+    "attribute_number": "2"
+   },
+   {
+    "type": "Lab(Porous_Plate)",
+    "contact_angle_deg": "0",
+    "interfacial_tension_dyne_cm": "72",
+    "attribute_number": "3"
+   },
+   {
+    "type": "Res(Water-Oil)",
+    "contact_angle_deg": "30",
+    "interfacial_tension_dyne_cm": "30",
+    "attribute_number": ""
+   },
+   {
+    "type": "Res(Water-Gas)",
+    "contact_angle_deg": "0",
+    "interfacial_tension_dyne_cm": "50",
+    "attribute_number": ""
+   }
+  ]
+ },
+ "FluidSub_Default_Rocks": {
+  "file": "FluidSub_Default_Rocks.par",
+  "tier": "B",
+  "scope": "later",
+  "purpose": "Gassmann fluid-substitution mineral/rock library: dry-frame bulk & shear moduli, matrix DTc, and Greenberg-Castagna Vs regression coefficients (a,b,c) per mineral. Reference: Rock Physics Handbook (Mavko-Mukerji-Dvorkin) 2003, CHS 2007.",
+  "columns": [
+   "mineral",
+   "vol_curve",
+   "bulk_K_GPa",
+   "shear_mod_GPa",
+   "DTc_us_ft",
+   "GC_a",
+   "GC_b",
+   "GC_c",
+   "output_curve"
+  ],
+  "rows": [
+   {
+    "mineral": "Dolomite",
+    "vol_curve": "VDol",
+    "bulk_K_GPa": "69.4",
+    "shear_mod_GPa": "51.6",
+    "DTc_us_ft": "42.0",
+    "GC_a": "0.0",
+    "GC_b": "0.58321",
+    "GC_c": "-0.07775",
+    "output_curve": "VDol_fs"
+   },
+   {
+    "mineral": "Orthoclase",
+    "vol_curve": "VOrtho",
+    "bulk_K_GPa": "37.5",
+    "shear_mod_GPa": "15.0",
+    "DTc_us_ft": "69.0",
+    "GC_a": "0.0",
+    "GC_b": "0.80416",
+    "GC_c": "-0.85588",
+    "output_curve": "VOrtho_fs"
+   },
+   {
+    "mineral": "Albite",
+    "vol_curve": "VAlbite",
+    "bulk_K_GPa": "75.6",
+    "shear_mod_GPa": "25.6",
+    "DTc_us_ft": "47.2",
+    "GC_a": "0.0",
+    "GC_b": "0.80416",
+    "GC_c": "-0.85588",
+    "output_curve": "VAlbite_fs"
+   },
+   {
+    "mineral": "Feldspar",
+    "vol_curve": "VFeld",
+    "bulk_K_GPa": "37.5",
+    "shear_mod_GPa": "15.0",
+    "DTc_us_ft": "65.1",
+    "GC_a": "0.0",
+    "GC_b": "0.80416",
+    "GC_c": "-0.85588",
+    "output_curve": "VFeld_fs"
+   },
+   {
+    "mineral": "Limestone",
+    "vol_curve": "VLime",
+    "bulk_K_GPa": "65.0",
+    "shear_mod_GPa": "32.0",
+    "DTc_us_ft": "49.0",
+    "GC_a": "-0.05508",
+    "GC_b": "1.01677",
+    "GC_c": "-1.03049",
+    "output_curve": "VLime_fs"
+   },
+   {
+    "mineral": "Mica",
+    "vol_curve": "VMica",
+    "bulk_K_GPa": "52.0",
+    "shear_mod_GPa": "30.9",
+    "DTc_us_ft": "49.0",
+    "GC_a": "0.0",
+    "GC_b": "0.80416",
+    "GC_c": "-0.85588",
+    "output_curve": "VMica_fs"
+   },
+   {
+    "mineral": "Quartz",
+    "vol_curve": "VSand",
+    "bulk_K_GPa": "37.0",
+    "shear_mod_GPa": "44.0",
+    "DTc_us_ft": "56.0",
+    "GC_a": "0.0",
+    "GC_b": "0.80416",
+    "GC_c": "-0.85588",
+    "output_curve": "VSand_fs"
+   },
+   {
+    "mineral": "Sandstone",
+    "vol_curve": "VQFM",
+    "bulk_K_GPa": "37.0",
+    "shear_mod_GPa": "44.0",
+    "DTc_us_ft": "56.0",
+    "GC_a": "0.0",
+    "GC_b": "0.80416",
+    "GC_c": "-0.85588",
+    "output_curve": "VQFM_fs"
+   },
+   {
+    "mineral": "Silt",
+    "vol_curve": "VSilt",
+    "bulk_K_GPa": "37.0",
+    "shear_mod_GPa": "44.0",
+    "DTc_us_ft": "56.0",
+    "GC_a": "0.0",
+    "GC_b": "0.80416",
+    "GC_c": "-0.85588",
+    "output_curve": "VSilt_fs"
+   },
+   {
+    "mineral": "Coal",
+    "vol_curve": "VCoal",
+    "bulk_K_GPa": "7.7",
+    "shear_mod_GPa": "7.7",
+    "DTc_us_ft": "140.0",
+    "GC_a": "0.0",
+    "GC_b": "0.76969",
+    "GC_c": "-0.86735",
+    "output_curve": "VCoal_fs"
+   },
+   {
+    "mineral": "Wet Clay",
+    "vol_curve": "VClay",
+    "bulk_K_GPa": "21.0",
+    "shear_mod_GPa": "7.0",
+    "DTc_us_ft": "100.0",
+    "GC_a": "0.0",
+    "GC_b": "0.76969",
+    "GC_c": "-0.86735",
+    "output_curve": "VClay_fs"
+   },
+   {
+    "mineral": "Wet Shale",
+    "vol_curve": "VShale",
+    "bulk_K_GPa": "15.0",
+    "shear_mod_GPa": "7.0",
+    "DTc_us_ft": "100.0",
+    "GC_a": "0.0",
+    "GC_b": "0.76969",
+    "GC_c": "-0.86735",
+    "output_curve": "VShale_fs"
+   },
+   {
+    "mineral": "Dis Shale",
+    "vol_curve": "VDisShale",
+    "bulk_K_GPa": "15.0",
+    "shear_mod_GPa": "7.0",
+    "DTc_us_ft": "100.0",
+    "GC_a": "0.0",
+    "GC_b": "0.76969",
+    "GC_c": "-0.86735",
+    "output_curve": "VDisSh_fs"
+   },
+   {
+    "mineral": "Dry Shale",
+    "vol_curve": "VDryShale",
+    "bulk_K_GPa": "30.0",
+    "shear_mod_GPa": "15.0",
+    "DTc_us_ft": "80.0",
+    "GC_a": "0.0",
+    "GC_b": "0.76969",
+    "GC_c": "-0.86735",
+    "output_curve": "VDrySh_fs"
+   }
+  ]
+ },
+ "Fract_Grad_Coeff": {
+  "file": "Fract_Grad_Coeff.par",
+  "tier": "B",
+  "scope": "later",
+  "purpose": "Depth-below-mudline polynomial coefficients (a+bD+cD^2+dD^3+eD^4). Eaton section: Poisson's ratio vs depth (Gulf Coast, Deep Water). Matthews-Kelly section: matrix-stress coefficient vs depth (S TX / LA Gulf Coast). Depth D in feet below mudline.",
+  "eaton_poisson_ratio_vs_depth": [
+   {
+    "method_name": "Gulf Coast",
+    "depth_min_ft": "0",
+    "depth_max_ft": "5000",
+    "coeffs_abcde": [
+     "0.2007142857",
+     "0.000080214286",
+     "-0.0000000075",
+     "0",
+     "0"
+    ]
+   },
+   {
+    "method_name": "Gulf Coast",
+    "depth_min_ft": "5000",
+    "depth_max_ft": "40000",
+    "coeffs_abcde": [
+     "0.3724340861",
+     "0.0000094748424",
+     "-0.000000000177258",
+     "0",
+     "0"
+    ]
+   },
+   {
+    "method_name": "Deep Water",
+    "depth_min_ft": "0",
+    "depth_max_ft": "4300",
+    "coeffs_abcde": [
+     "0.3124642857",
+     "0.00005785",
+     "-0.0000000060893",
+     "0",
+     "0"
+    ]
+   },
+   {
+    "method_name": "Deep Water",
+    "depth_min_ft": "4300",
+    "depth_max_ft": "40000",
+    "coeffs_abcde": [
+     "0.4260341387",
+     "0.0000072947129",
+     "-0.0000000001882",
+     "0",
+     "0"
+    ]
+   }
+  ],
+  "matthews_kelly_matrix_stress_vs_depth": [
+   {
+    "method_name": "S TX Coast",
+    "depth_min_ft": "0",
+    "depth_max_ft": "40000",
+    "coeffs_abcde": [
+     "3.60847E-01",
+     "7.89853E-05",
+     "-3.80696E-09",
+     "7.36422E-14",
+     "0"
+    ]
+   },
+   {
+    "method_name": "LA G Coast",
+    "depth_min_ft": "0",
+    "depth_max_ft": "40000",
+    "coeffs_abcde": [
+     "2.48881E-01",
+     "8.31042E-05",
+     "-3.95835E-09",
+     "7.18124E-14",
+     "0"
+    ]
+   }
+  ]
+ },
+ "MonteCarloDefaults": {
+  "file": "MonteCarloDefaults.par",
+  "tier": "A",
+  "scope": "v1-core (uncertainty defaults)",
+  "purpose": "Default Monte-Carlo uncertainty shifts per module parameter. Shift types: Linear / % / Rec(iprocal). Distribution: Gaussian/Triangular/Square. Low & High are +/- shift magnitudes in parameter units (or % if shift='%'). Sections map to IP modules (ClayVol, PhiSw, MinSolve=Multimin, Cutoff, etc.).",
+  "sections": {
+   "ClayVol": [
+    {
+     "param_number": "2",
+     "param_name": "Gr Clean",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "10",
+     "high_shift": "10"
+    },
+    {
+     "param_number": "3",
+     "param_name": "Gr Clay",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "10",
+     "high_shift": "10"
+    },
+    {
+     "param_number": "6",
+     "param_name": "Neu Clean",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.02",
+     "high_shift": "0.02"
+    },
+    {
+     "param_number": "7",
+     "param_name": "Neu Clay",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.05",
+     "high_shift": "0.05"
+    },
+    {
+     "param_number": "9",
+     "param_name": "SP Clean",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "10",
+     "high_shift": "10"
+    },
+    {
+     "param_number": "10",
+     "param_name": "SP Clay",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "10",
+     "high_shift": "10"
+    },
+    {
+     "param_number": "12",
+     "param_name": "Res Clean",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "13",
+     "param_name": "Res Clay",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "18",
+     "param_name": "ND Neu Clay",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.05",
+     "high_shift": "0.05"
+    },
+    {
+     "param_number": "19",
+     "param_name": "ND Den Clay",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.05",
+     "high_shift": "0.05"
+    },
+    {
+     "param_number": "20",
+     "param_name": "ND Den Clean1",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.03",
+     "high_shift": "0.03"
+    },
+    {
+     "param_number": "21",
+     "param_name": "ND Den Clean2",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.03",
+     "high_shift": "0.03"
+    },
+    {
+     "param_number": "22",
+     "param_name": "ND Neu Clean1",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.02",
+     "high_shift": "0.02"
+    },
+    {
+     "param_number": "23",
+     "param_name": "ND Neu Clean2",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.02",
+     "high_shift": "0.02"
+    },
+    {
+     "param_number": "25",
+     "param_name": "SD Son Clay",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "5",
+     "high_shift": "5"
+    },
+    {
+     "param_number": "26",
+     "param_name": "SD Den Clay",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.05",
+     "high_shift": "0.05"
+    },
+    {
+     "param_number": "27",
+     "param_name": "SD Den Clean1",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.03",
+     "high_shift": "0.03"
+    },
+    {
+     "param_number": "28",
+     "param_name": "SD Den Clean2",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.03",
+     "high_shift": "0.03"
+    },
+    {
+     "param_number": "29",
+     "param_name": "SD Son Clean1",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "3",
+     "high_shift": "3"
+    },
+    {
+     "param_number": "30",
+     "param_name": "SD Son Clean2",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "3",
+     "high_shift": "3"
+    }
+   ],
+   "PhiSw": [
+    {
+     "param_number": "1",
+     "param_name": "Rw",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "3",
+     "param_name": "Rmf",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "9",
+     "param_name": "Rho mud_filt",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.02",
+     "high_shift": "0.02"
+    },
+    {
+     "param_number": "17",
+     "param_name": "Hc Den",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.2",
+     "high_shift": "0.2"
+    },
+    {
+     "param_number": "64",
+     "param_name": "a factor",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.1",
+     "high_shift": "0.1"
+    },
+    {
+     "param_number": "65",
+     "param_name": "m exponent",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.2",
+     "high_shift": "0.2"
+    },
+    {
+     "param_number": "66",
+     "param_name": "n exponent",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.2",
+     "high_shift": "0.2"
+    },
+    {
+     "param_number": "94",
+     "param_name": "B fact Juhasz",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.1",
+     "high_shift": "0.1"
+    },
+    {
+     "param_number": "132",
+     "param_name": "B fact W&S",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.1",
+     "high_shift": "0.1"
+    },
+    {
+     "param_number": "134",
+     "param_name": "Qv 'a' Const",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "10.0",
+     "high_shift": "10.0"
+    },
+    {
+     "param_number": "135",
+     "param_name": "Qv 'b' Const",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "10.0",
+     "high_shift": "10.0"
+    },
+    {
+     "param_number": "11",
+     "param_name": "Rho Wet Clay",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.05",
+     "high_shift": "0.05"
+    },
+    {
+     "param_number": "13",
+     "param_name": "Neu Wet Clay",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.05",
+     "high_shift": "0.05"
+    },
+    {
+     "param_number": "14",
+     "param_name": "Sonic Wet Clay",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "5",
+     "high_shift": "5"
+    },
+    {
+     "param_number": "12",
+     "param_name": "Rho Dry Clay",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.1",
+     "high_shift": "0.1"
+    },
+    {
+     "param_number": "178",
+     "param_name": "Clay Shale Ratio",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "15",
+     "param_name": "Res Clay",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "16",
+     "param_name": "Rxo Clay",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "5",
+     "param_name": "Rw bound",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "30.0",
+     "high_shift": "30.0"
+    },
+    {
+     "param_number": "7",
+     "param_name": "Rmf bound",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "30.0",
+     "high_shift": "30.0"
+    },
+    {
+     "param_number": "82",
+     "param_name": "PhiT Clay",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.05",
+     "high_shift": "0.05"
+    },
+    {
+     "param_number": "21",
+     "param_name": "Sonic Hc",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "30",
+     "high_shift": "30"
+    },
+    {
+     "param_number": "24",
+     "param_name": "Rho GD",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.03",
+     "high_shift": "0.03"
+    },
+    {
+     "param_number": "28",
+     "param_name": "Sonic matrix",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "5",
+     "high_shift": "5"
+    },
+    {
+     "param_number": "40",
+     "param_name": "Sonic water",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "5",
+     "high_shift": "5"
+    }
+   ],
+   "MinSolve": [
+    {
+     "param_number": "1",
+     "param_name": "Rw",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "3",
+     "param_name": "Rmf",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "17",
+     "param_name": "a factor",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.1",
+     "high_shift": "0.1"
+    },
+    {
+     "param_number": "18",
+     "param_name": "m exponent",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.2",
+     "high_shift": "0.2"
+    },
+    {
+     "param_number": "19",
+     "param_name": "n exponent",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.2",
+     "high_shift": "0.2"
+    },
+    {
+     "param_number": "27",
+     "param_name": "B fact Juhasz",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.1",
+     "high_shift": "0.1"
+    },
+    {
+     "param_number": "28",
+     "param_name": "B fact W&S",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.1",
+     "high_shift": "0.1"
+    },
+    {
+     "param_number": "31",
+     "param_name": "Qv 'a' Const",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "10.0",
+     "high_shift": "10.0"
+    },
+    {
+     "param_number": "32",
+     "param_name": "Qv 'b' Const",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "10.0",
+     "high_shift": "10.0"
+    },
+    {
+     "param_number": "9",
+     "param_name": "Res Clay",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "10",
+     "param_name": "Rxo Clay",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "5",
+     "param_name": "Rw bound",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "30.0",
+     "high_shift": "30.0"
+    },
+    {
+     "param_number": "7",
+     "param_name": "Rmf bound",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "30.0",
+     "high_shift": "30.0"
+    },
+    {
+     "param_number": "37",
+     "param_name": "PhiT Clay",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.05",
+     "high_shift": "0.05"
+    }
+   ],
+   "Cutoff": [
+    {
+     "param_number": "3",
+     "param_name": "Phi Cut Res/Pay",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.05",
+     "high_shift": "0.05"
+    },
+    {
+     "param_number": "6",
+     "param_name": "Sw Cut Res/Pay",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.2",
+     "high_shift": "0.2"
+    },
+    {
+     "param_number": "9",
+     "param_name": "Vcl Cut Res/Pay",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.3",
+     "high_shift": "0.3"
+    },
+    {
+     "param_number": "12",
+     "param_name": "Crv4 Cut Res/Pay",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1",
+     "high_shift": "1"
+    },
+    {
+     "param_number": "15",
+     "param_name": "Crv5 Cut Res/Pay",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1",
+     "high_shift": "1"
+    },
+    {
+     "param_number": "18",
+     "param_name": "Crv6 Cut Res/Pay",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1",
+     "high_shift": "1"
+    },
+    {
+     "param_number": "47",
+     "param_name": "Crv1 Cut Rept3",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.05",
+     "high_shift": "0.05"
+    },
+    {
+     "param_number": "48",
+     "param_name": "Crv1 Cut Rept4",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.05",
+     "high_shift": "0.05"
+    },
+    {
+     "param_number": "49",
+     "param_name": "Crv1 Cut Rept5",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.05",
+     "high_shift": "0.05"
+    },
+    {
+     "param_number": "61",
+     "param_name": "Crv2 Cut Rept3",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.2",
+     "high_shift": "0.2"
+    },
+    {
+     "param_number": "62",
+     "param_name": "Crv2 Cut Rept4",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.2",
+     "high_shift": "0.2"
+    },
+    {
+     "param_number": "63",
+     "param_name": "Crv2 Cut Rept5",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.2",
+     "high_shift": "0.2"
+    },
+    {
+     "param_number": "75",
+     "param_name": "Crv3 Cut Rept3",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.3",
+     "high_shift": "0.3"
+    },
+    {
+     "param_number": "76",
+     "param_name": "Crv3 Cut Rept4",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.3",
+     "high_shift": "0.3"
+    },
+    {
+     "param_number": "77",
+     "param_name": "Crv3 Cut Rept5",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.3",
+     "high_shift": "0.3"
+    },
+    {
+     "param_number": "89",
+     "param_name": "Crv4 Cut Rept3",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1",
+     "high_shift": "1"
+    },
+    {
+     "param_number": "90",
+     "param_name": "Crv4 Cut Rept4",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1",
+     "high_shift": "1"
+    },
+    {
+     "param_number": "91",
+     "param_name": "Crv4 Cut Rept5",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1",
+     "high_shift": "1"
+    },
+    {
+     "param_number": "103",
+     "param_name": "Crv5 Cut Rept3",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1",
+     "high_shift": "1"
+    },
+    {
+     "param_number": "104",
+     "param_name": "Crv5 Cut Rept4",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1",
+     "high_shift": "1"
+    },
+    {
+     "param_number": "105",
+     "param_name": "Crv5 Cut Rept5",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1",
+     "high_shift": "1"
+    },
+    {
+     "param_number": "117",
+     "param_name": "Crv6 Cut Rept3",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1",
+     "high_shift": "1"
+    },
+    {
+     "param_number": "118",
+     "param_name": "Crv6 Cut Rept4",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1",
+     "high_shift": "1"
+    },
+    {
+     "param_number": "119",
+     "param_name": "Crv6 Cut Rept5",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1",
+     "high_shift": "1"
+    },
+    {
+     "param_number": "133",
+     "param_name": "Crv7 Cut Res/Pay",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1",
+     "high_shift": "1"
+    },
+    {
+     "param_number": "134",
+     "param_name": "Crv7 Cut Rept3",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1",
+     "high_shift": "1"
+    },
+    {
+     "param_number": "135",
+     "param_name": "Crv7 Cut Rept4",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1",
+     "high_shift": "1"
+    },
+    {
+     "param_number": "136",
+     "param_name": "Crv7 Cut Rept5",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1",
+     "high_shift": "1"
+    },
+    {
+     "param_number": "152",
+     "param_name": "Crv8 Cut Res/Pay",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1",
+     "high_shift": "1"
+    },
+    {
+     "param_number": "153",
+     "param_name": "Crv8 Cut Rept3",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1",
+     "high_shift": "1"
+    },
+    {
+     "param_number": "154",
+     "param_name": "Crv8 Cut Rept4",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1",
+     "high_shift": "1"
+    },
+    {
+     "param_number": "155",
+     "param_name": "Crv8 Cut Rept5",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1",
+     "high_shift": "1"
+    },
+    {
+     "param_number": "171",
+     "param_name": "Crv9 Cut Res/Pay",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1",
+     "high_shift": "1"
+    },
+    {
+     "param_number": "172",
+     "param_name": "Crv9 Cut Rept3",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1",
+     "high_shift": "1"
+    },
+    {
+     "param_number": "173",
+     "param_name": "Crv9 Cut Rept4",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1",
+     "high_shift": "1"
+    },
+    {
+     "param_number": "174",
+     "param_name": "Crv9 Cut Rept5",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1",
+     "high_shift": "1"
+    },
+    {
+     "param_number": "190",
+     "param_name": "Crv10 Cut Res/Pay",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1",
+     "high_shift": "1"
+    },
+    {
+     "param_number": "191",
+     "param_name": "Crv10 Cut Rept3",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1",
+     "high_shift": "1"
+    },
+    {
+     "param_number": "192",
+     "param_name": "Crv10 Cut Rept4",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1",
+     "high_shift": "1"
+    },
+    {
+     "param_number": "193",
+     "param_name": "Crv10 Cut Rept5",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1",
+     "high_shift": "1"
+    }
+   ],
+   "BLA": [
+    {
+     "param_number": "1",
+     "param_name": "Gr Clean",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "10",
+     "high_shift": "10"
+    },
+    {
+     "param_number": "2",
+     "param_name": "Gr Clay",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "10",
+     "high_shift": "10"
+    },
+    {
+     "param_number": "3",
+     "param_name": "Rw",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "4",
+     "param_name": "a factor",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.1",
+     "high_shift": "0.1"
+    },
+    {
+     "param_number": "5",
+     "param_name": "m exponent",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.2",
+     "high_shift": "0.2"
+    },
+    {
+     "param_number": "6",
+     "param_name": "n exponent",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.2",
+     "high_shift": "0.2"
+    },
+    {
+     "param_number": "8",
+     "param_name": "Rho Matrix",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.03",
+     "high_shift": "0.03"
+    },
+    {
+     "param_number": "9",
+     "param_name": "Rho Fluid",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.02",
+     "high_shift": "0.02"
+    },
+    {
+     "param_number": "12",
+     "param_name": "Sonic matrix",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "5",
+     "high_shift": "5"
+    },
+    {
+     "param_number": "13",
+     "param_name": "Sonic Fluid",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "5",
+     "high_shift": "5"
+    },
+    {
+     "param_number": "15",
+     "param_name": "Sonic Cp",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.2",
+     "high_shift": "0.2"
+    },
+    {
+     "param_number": "10",
+     "param_name": "Rho Clay",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.05",
+     "high_shift": "0.05"
+    },
+    {
+     "param_number": "18",
+     "param_name": "Neu Clay",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.05",
+     "high_shift": "0.05"
+    },
+    {
+     "param_number": "14",
+     "param_name": "Sonic Clay",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "5",
+     "high_shift": "5"
+    },
+    {
+     "param_number": "19",
+     "param_name": "Res Clay",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    }
+   ],
+   "NMR": [
+    {
+     "param_number": "1",
+     "param_name": "Free Fluid Cutoff",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "10",
+     "high_shift": "10"
+    },
+    {
+     "param_number": "2",
+     "param_name": "Bound Fluid Cutoff",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "2",
+     "high_shift": "2"
+    },
+    {
+     "param_number": "3",
+     "param_name": "Perm Constant",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "4",
+     "param_name": "Perm FF/BF Exponent",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "5",
+     "param_name": "Perm Phi Exponent",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "8",
+     "param_name": "Tapered \"m\" factor",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "9",
+     "param_name": "Tapered \"b\" factor",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "10",
+     "param_name": "a factor",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.1",
+     "high_shift": "0.1"
+    },
+    {
+     "param_number": "11",
+     "param_name": "m exponent",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.2",
+     "high_shift": "0.2"
+    },
+    {
+     "param_number": "12",
+     "param_name": "n exponent",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.2",
+     "high_shift": "0.2"
+    },
+    {
+     "param_number": "14",
+     "param_name": "Z wet",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.2",
+     "high_shift": "0.2"
+    },
+    {
+     "param_number": "15",
+     "param_name": "Z irreducible",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.2",
+     "high_shift": "0.2"
+    },
+    {
+     "param_number": "16",
+     "param_name": "Rw",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "19",
+     "param_name": "Rwb",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    }
+   ],
+   "SigmaSw": [
+    {
+     "param_number": "1",
+     "param_name": "Sigma Water",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "3.0",
+     "high_shift": "3.0"
+    },
+    {
+     "param_number": "2",
+     "param_name": "Sigma Hyd",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "3.0",
+     "high_shift": "3.0"
+    },
+    {
+     "param_number": "3",
+     "param_name": "Sigma Clay",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "2.0",
+     "high_shift": "2.0"
+    },
+    {
+     "param_number": "4",
+     "param_name": "Sigma Sand",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1.0",
+     "high_shift": "1.0"
+    },
+    {
+     "param_number": "5",
+     "param_name": "Sigma Lime",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1.0",
+     "high_shift": "1.0"
+    },
+    {
+     "param_number": "6",
+     "param_name": "Sigma Dol",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1.0",
+     "high_shift": "1.0"
+    },
+    {
+     "param_number": "7",
+     "param_name": "Matrix Den",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.03",
+     "high_shift": "0.03"
+    },
+    {
+     "param_number": "10",
+     "param_name": "Sigma Matrix",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "1.0",
+     "high_shift": "1.0"
+    }
+   ],
+   "MechanicalProperties": [
+    {
+     "param_number": "88",
+     "param_name": "T0 Coeff A",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "89",
+     "param_name": "T0 Coeff B",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "8",
+     "param_name": "TWC - UCS Coeff A",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "9",
+     "param_name": "TWC - UCS Coeff B",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "10",
+     "param_name": "Poisson Factor",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "11",
+     "param_name": "Youngs Coef A",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "12",
+     "param_name": "Youngs Coef B",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "86",
+     "param_name": "Youngs Coef C",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "13",
+     "param_name": "Grain Compres",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    }
+   ],
+   "HorizontalStress": [
+    {
+     "param_number": "14",
+     "param_name": "Biot Alpha Factor",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "17",
+     "param_name": "Poisson's Ratio",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "16",
+     "param_name": "Mat & Kelly Ki",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "18",
+     "param_name": "Breck & VE Ppn Grad",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "7",
+     "param_name": "Breck & VE Ppn Pres",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "77",
+     "param_name": "Daines Stress Grad",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "78",
+     "param_name": "Min Hori Tec Strain",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "79",
+     "param_name": "Max Hori Tec Strain",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "80",
+     "param_name": "Youngs Modulus",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "19",
+     "param_name": "Max Hori Mult Fac",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "39",
+     "param_name": "Max Hori Mult Fac Sv",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    }
+   ],
+   "WellboreStability": [
+    {
+     "param_number": "29",
+     "param_name": "Max Hori Stress Azi",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "25",
+     "param_name": "UCS",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "28",
+     "param_name": "UCS Cali Multiplier",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "90",
+     "param_name": "Tensile Strength",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "27",
+     "param_name": "Friction Angle",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "26",
+     "param_name": "Biot Alpha Factor",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "54",
+     "param_name": "Poisson's Ratio",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "32",
+     "param_name": "Hoek B Granularity",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "33",
+     "param_name": "Hoek B Exponent",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "34",
+     "param_name": "Hoek B Disturbance",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "35",
+     "param_name": "Hoek B Strength Ind",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "36",
+     "param_name": "Hoek B Dist Factor",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "37",
+     "param_name": "Hoek B Mat Const",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "106",
+     "param_name": "PoW Dip Azi",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "107",
+     "param_name": "PoW Dip Angle",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "108",
+     "param_name": "PoW Friction Angle",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "109",
+     "param_name": "PoW Cohesion",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "110",
+     "param_name": "PoW UCS Red Factor",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    }
+   ],
+   "PorePressure": [
+    {
+     "param_number": "69",
+     "param_name": "Hydrostatic Gradient",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "82",
+     "param_name": "Res Corr Ref Temp",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "84",
+     "param_name": "Res Corr Constant",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "59",
+     "param_name": "Eaton Res Exponent",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "60",
+     "param_name": "Eaton Sonic Exponent",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "71",
+     "param_name": "Eaton Vel Exponent",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "61",
+     "param_name": "Eaton DExp Exponent",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "64",
+     "param_name": "Bowers Parameter A",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "65",
+     "param_name": "Bowers Parameter B",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "66",
+     "param_name": "Bowers Parameter U",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "72",
+     "param_name": "Bowers Sonic at ML",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "73",
+     "param_name": "Bowers Vel at ML",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "74",
+     "param_name": "Bowers Min Sonic",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "76",
+     "param_name": "Bowers Min Son depth",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "62",
+     "param_name": "Bowers Max Velocity",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "63",
+     "param_name": "Bowers Max Vel depth",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    }
+   ],
+   "DensityEstimation": [
+    {
+     "param_number": "111",
+     "param_name": "Gardner a",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "112",
+     "param_name": "Gardner b",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "117",
+     "param_name": "Alberty SI T begin",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "118",
+     "param_name": "Alberty SI T end",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    }
+   ],
+   "VerticalStress": [
+    {
+     "param_number": "115",
+     "param_name": "User Defined Density",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "114",
+     "param_name": "Amoco Av Sed Density",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    }
+   ],
+   "PoroThermoElasticStress": [
+    {
+     "param_number": "14",
+     "param_name": "Biot Alpha Factor",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "100",
+     "param_name": "Initial Pressure",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "102",
+     "param_name": "Initial Temperature",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "99",
+     "param_name": "Thermal Expan Coeff",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "98",
+     "param_name": "Stress Path Factor",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "17",
+     "param_name": "Poisson�s Ratio",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "80",
+     "param_name": "Youngs Modulus",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    }
+   ],
+   "FractureFaultStress": [
+    {
+     "param_number": "29",
+     "param_name": "Max Hori Stress Azi",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "124",
+     "param_name": "Friction Angle Frac",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "125",
+     "param_name": "Cohesion Fracture",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    }
+   ],
+   "SatHeight": [
+    {
+     "param_number": "0",
+     "param_name": "Free Water level",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "5.0",
+     "high_shift": "5.0"
+    },
+    {
+     "param_number": "1",
+     "param_name": "Gas Oil contact",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "5.0",
+     "high_shift": "5.0"
+    },
+    {
+     "param_number": "2",
+     "param_name": "Hyd Density",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.1",
+     "high_shift": "0.1"
+    },
+    {
+     "param_number": "3",
+     "param_name": "Gas Density",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.1",
+     "high_shift": "0.1"
+    },
+    {
+     "param_number": "4",
+     "param_name": "Water Density",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.1",
+     "high_shift": "0.1"
+    },
+    {
+     "param_number": "5",
+     "param_name": "IFT Corr Factor",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.2",
+     "high_shift": "0.2"
+    },
+    {
+     "param_number": "6",
+     "param_name": "IFT Gas Corr Fact",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.2",
+     "high_shift": "0.2"
+    },
+    {
+     "param_number": "7",
+     "param_name": "Hyd Contact Angle",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "8",
+     "param_name": "Hydrocarbon IFT",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "5.0",
+     "high_shift": "5.0"
+    },
+    {
+     "param_number": "9",
+     "param_name": "Gas Contact Angle",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "20.0",
+     "high_shift": "20.0"
+    },
+    {
+     "param_number": "10",
+     "param_name": "Gas IFT",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "5.0",
+     "high_shift": "5.0"
+    }
+   ],
+   "InCurves": [
+    {
+     "param_name": "Density",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "0.02",
+     "high_shift": "0.02"
+    },
+    {
+     "param_name": "Sonic",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "2",
+     "high_shift": "2"
+    },
+    {
+     "param_name": "Neutron",
+     "shift_type": "%",
+     "distribution": "Gaussian",
+     "low_shift": "5",
+     "high_shift": "5"
+    },
+    {
+     "param_name": "Rt",
+     "shift_type": "Rec",
+     "distribution": "Gaussian",
+     "low_shift": "0.005",
+     "high_shift": "0.005"
+    },
+    {
+     "param_name": "Rxo",
+     "shift_type": "Rec",
+     "distribution": "Gaussian",
+     "low_shift": "0.005",
+     "high_shift": "0.005"
+    },
+    {
+     "param_name": "GammaRay",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "5",
+     "high_shift": "5"
+    },
+    {
+     "param_name": "Sigma",
+     "shift_type": "Linear",
+     "distribution": "Gaussian",
+     "low_shift": "2",
+     "high_shift": "2"
+    }
+   ],
+   "OutCurves": [
+    {
+     "raw": "PHIE PHI SW VWCL VCL"
+    }
+   ],
+   "Histo": [
+    {
+     "raw": "PhiSoH Pay          -999 -999   0"
+    },
+    {
+     "raw": "PhiSoH Res          -999 -999   0"
+    },
+    {
+     "raw": "PhiH Pay            -999 -999   0"
+    },
+    {
+     "raw": "PhiH Res            -999 -999   0"
+    },
+    {
+     "raw": "Av Phi Pay          -999 -999   0"
+    },
+    {
+     "raw": "Av Phi Res          -999 -999   0"
+    },
+    {
+     "raw": "Phi Cut Res/Pay     -999 -999   0"
+    }
+   ],
+   "Xplot": [
+    {
+     "raw": "PhiH Res            -999 -999 Density             -999  -999    0"
+    },
+    {
+     "raw": "PhiH Res            -999 -999 Phi Cut Res/Pay     -999  -999    0"
+    },
+    {
+     "raw": "Net Pay             -999 -999 Sw Cut Res/Pay      -999  -999    0"
+    },
+    {
+     "raw": "Av Phi Res          -999 -999 Vcl Cut Res/Pay     -999  -999    0"
+    }
+   ],
+   "Results": [
+    {
+     "raw": "Yes  10  50  90  -999  -999"
+    }
+   ]
+  }
+ },
+ "FT_Tools": {
+  "file": "FT_Tools.par",
+  "tier": "A",
+  "scope": "out",
+  "purpose": "Formation-testing (pressure/sampling) tool mnemonic mapping catalog: per vendor tool, maps native curve mnemonics to IP curve names/types. Reference catalog only.",
+  "tools": [
+   {
+    "tool": "Baker Atlas FMT",
+    "default_load_set": "FMT (Baker Atlas FMT)",
+    "depth_param": "depth",
+    "curve_map": [
+     {
+      "native": "SGCP",
+      "ip_name": "SGP",
+      "ip_type": "FT_Press"
+     },
+     {
+      "native": "HPCP",
+      "ip_name": "QGP",
+      "ip_type": "FT_QPress"
+     },
+     {
+      "native": "PTMP",
+      "ip_name": "QGT",
+      "ip_type": "FT_QTemp"
+     },
+     {
+      "native": "TIME",
+      "ip_name": "TIME",
+      "ip_type": "FT_Time"
+     }
+    ]
+   },
+   {
+    "tool": "Baker Atlas RCI",
+    "default_load_set": "RCI (Baker Atlas RCI)",
+    "depth_param": "DEPTH",
+    "curve_map": [
+     {
+      "native": "APQL",
+      "ip_name": "QGP",
+      "ip_type": "FT_QPress"
+     },
+     {
+      "native": "RTDQL",
+      "ip_name": "QGT",
+      "ip_type": "FT_QTemp"
+     },
+     {
+      "native": "DDV",
+      "ip_name": "VOL",
+      "ip_type": "FT_Volume"
+     },
+     {
+      "native": "TIME",
+      "ip_name": "TIME",
+      "ip_type": "FT_Time"
+     },
+     {
+      "native": "TVD",
+      "ip_name": "TVD",
+      "ip_type": "Depth"
+     }
+    ]
+   },
+   {
+    "tool": "Baker Hughes FTeX",
+    "default_load_set": "FTeX (Baker Hughes FTeX)",
+    "depth_param": "FTDEPTH",
+    "curve_map": [
+     {
+      "native": "QDPRES",
+      "ip_name": "QGP",
+      "ip_type": "FT_QPress"
+     },
+     {
+      "native": "QDTEMP",
+      "ip_name": "QGT",
+      "ip_type": "FT_QTemp"
+     },
+     {
+      "native": "SGPRES",
+      "ip_name": "SGP",
+      "ip_type": "FT_Press"
+     },
+     {
+      "native": "DDV",
+      "ip_name": "VOL",
+      "ip_type": "FT_Volume"
+     },
+     {
+      "native": "DDR",
+      "ip_name": "RATE",
+      "ip_type": "FT_Rate"
+     },
+     {
+      "native": "TIME",
+      "ip_name": "TIME",
+      "ip_type": "FT_Time"
+     },
+     {
+      "native": "TVD",
+      "ip_name": "TVD",
+      "ip_type": "Depth"
+     }
+    ]
+   },
+   {
+    "tool": "Baker Hughes INTEQ TesTrak (LAS)",
+    "default_load_set": "TesTrak (INTEQ TesTrak)",
+    "depth_param": "DEPTHMD",
+    "curve_map": [
+     {
+      "native": "TIME",
+      "ip_name": "TIME",
+      "ip_type": "FT_Time"
+     },
+     {
+      "native": "DD_PRESS",
+      "ip_name": "QGP",
+      "ip_type": "FT_QPress"
+     },
+     {
+      "native": "DD_VOLUME",
+      "ip_name": "VOL",
+      "ip_type": "FT_Volume"
+     },
+     {
+      "native": "TEMP",
+      "ip_name": "QGT",
+      "ip_type": "FT_QTemp"
+     }
+    ]
+   },
+   {
+    "tool": "Halliburton RDT",
+    "default_load_set": "RDT (Halliburton RDT)",
+    "depth_param": "DEPT",
+    "curve_map": [
+     {
+      "native": "HHPS",
+      "ip_name": "HYDP",
+      "ip_type": "FT_Press"
+     },
+     {
+      "native": "FPRE",
+      "ip_name": "QGP",
+      "ip_type": "FT_QPress"
+     },
+     {
+      "native": "QGTM",
+      "ip_name": "QGT",
+      "ip_type": "FT_QTemp"
+     },
+     {
+      "native": "PVOL",
+      "ip_name": "VOL",
+      "ip_type": "FT_Volume"
+     },
+     {
+      "native": "MRAT",
+      "ip_name": "RATE",
+      "ip_type": "FT_Rate"
+     },
+     {
+      "native": "ETIM",
+      "ip_name": "TIME",
+      "ip_type": "FT_Time"
+     }
+    ]
+   },
+   {
+    "tool": "Halliburton SFT",
+    "default_load_set": "SFT (Halliburton SFT)",
+    "depth_param": "DEPT",
+    "curve_map": [
+     {
+      "native": "PRES",
+      "ip_name": "PRES",
+      "ip_type": "FT_Press"
+     },
+     {
+      "native": "ETIM",
+      "ip_name": "TIME",
+      "ip_type": "FT_Time"
+     }
+    ]
+   },
+   {
+    "tool": "Halliburton GeoTap",
+    "default_load_set": "GEOTAP (Halliburton GeoTap)",
+    "depth_param": "GTDEPTH",
+    "curve_map": [
+     {
+      "native": "GTPQH",
+      "ip_name": "QGP",
+      "ip_type": "FT_QPress"
+     },
+     {
+      "native": "GTTQ",
+      "ip_name": "QGT",
+      "ip_type": "FT_QTemp"
+     },
+     {
+      "native": "GTET",
+      "ip_name": "TIME",
+      "ip_type": "FT_Time"
+     },
+     {
+      "native": "GTTVD",
+      "ip_name": "TVD",
+      "ip_type": "Depth"
+     }
+    ]
+   },
+   {
+    "tool": "Schlumberger RFT",
+    "default_load_set": "RFT (Schlumberger RFT)",
+    "depth_param": "FDEP",
+    "curve_map": [
+     {
+      "native": "CSGP",
+      "ip_name": "SGP",
+      "ip_type": "FT_Press"
+     },
+     {
+      "native": "HPGP",
+      "ip_name": "QGP",
+      "ip_type": "FT_QPress"
+     },
+     {
+      "native": "PTEM",
+      "ip_name": "QGT",
+      "ip_type": "FT_QTemp"
+     },
+     {
+      "native": "ETIM",
+      "ip_name": "TIME",
+      "ip_type": "FT_Time"
+     }
+    ]
+   },
+   {
+    "tool": "Schlumberger MDT",
+    "default_load_set": "MDT (Schlumberger MDT)",
+    "depth_param": "DVP1",
+    "curve_map": [
+     {
+      "native": "BSG1",
+      "ip_name": "SGP",
+      "ip_type": "FT_Press"
+     },
+     {
+      "native": "BQP1",
+      "ip_name": "QGP",
+      "ip_type": "FT_QPress"
+     },
+     {
+      "native": "B1TV",
+      "ip_name": "SGT",
+      "ip_type": "FT_Temp"
+     },
+     {
+      "native": "BQT1",
+      "ip_name": "QGT",
+      "ip_type": "FT_QTemp"
+     },
+     {
+      "native": "PTV1",
+      "ip_name": "VOL",
+      "ip_type": "FT_Volume"
+     },
+     {
+      "native": "TIME",
+      "ip_name": "TIME",
+      "ip_type": "FT_Time"
+     },
+     {
+      "native": "TVD",
+      "ip_name": "TVD",
+      "ip_type": "Depth"
+     }
+    ]
+   },
+   {
+    "tool": "Schlumberger XPT",
+    "default_load_set": "XPT (Schlumberger Express)",
+    "depth_param": "PDEP_XPT",
+    "curve_map": [
+     {
+      "native": "CP_SAP",
+      "ip_name": "SAPGP",
+      "ip_type": "FT_Press"
+     },
+     {
+      "native": "PND_SAP",
+      "ip_name": "PND_SAP",
+      "ip_type": "FT_Press"
+     },
+     {
+      "native": "MTEP_SAP",
+      "ip_name": "SAPGT",
+      "ip_type": "FT_Temp"
+     },
+     {
+      "native": "PTV_XPT",
+      "ip_name": "VOL",
+      "ip_type": "FT_Volume"
+     },
+     {
+      "native": "ETIM_XPT",
+      "ip_name": "TIME",
+      "ip_type": "FT_Time"
+     }
+    ]
+   },
+   {
+    "tool": "Weatherford FRT",
+    "default_load_set": "FRT (Weatherford FRT)",
+    "depth_param": "DEPT",
+    "curve_map": [
+     {
+      "native": "QDPF",
+      "ip_name": "QGP",
+      "ip_type": "FT_QPress"
+     },
+     {
+      "native": "QTEM",
+      "ip_name": "QGT",
+      "ip_type": "FT_QTemp"
+     },
+     {
+      "native": "PSVL",
+      "ip_name": "VOL",
+      "ip_type": "FT_Volume"
+     },
+     {
+      "native": "TPRE",
+      "ip_name": "TIME",
+      "ip_type": "FT_Time"
+     }
+    ]
+   },
+   {
+    "tool": "Weatherford MFT",
+    "default_load_set": "MFT (Weatherford MFT)",
+    "depth_param": "DEPH",
+    "curve_map": [
+     {
+      "native": "QDPF",
+      "ip_name": "QGP",
+      "ip_type": "FT_QPress"
+     },
+     {
+      "native": "PSVL",
+      "ip_name": "VOL",
+      "ip_type": "FT_Volume"
+     },
+     {
+      "native": "TIMS",
+      "ip_name": "TIME",
+      "ip_type": "FT_Time"
+     }
+    ]
+   }
+  ]
+ },
+ "Image_Analysis_Convolutions": {
+  "file": "Image Analysis Convolutions.par",
+  "tier": "A",
+  "scope": "later",
+  "purpose": "Image-processing convolution kernels for borehole-image tools (rows x cols matrix + divisor). Standard DSP kernels (Gaussian, Sobel, Prewitt, Kirsch, Laplacian-of-Gaussian).",
+  "filters": [
+   {
+    "name": "Hit-and-Miss",
+    "description": "Binary morphological operation",
+    "rows": "3",
+    "columns": "3",
+    "divisor": "1",
+    "matrix": "0 1 0 0 1 1 0 0 0"
+   },
+   {
+    "name": "Gaussian Smoothing",
+    "description": "Gaussian Smoothing (5x5)",
+    "rows": "5",
+    "columns": "5",
+    "divisor": "115",
+    "matrix": "2 4 5 4 2 4 9 12 9 4 5 12 15 12 5 4 9 12 9 4 2 4 5 4 2"
+   },
+   {
+    "name": "Embossed",
+    "description": "Embossed",
+    "rows": "3",
+    "columns": "3",
+    "matrix": "-1 0 -1 0 0.2 0 1 0 1"
+   },
+   {
+    "name": "Laplacian of Gaussian",
+    "description": "Laplacian of Gaussian",
+    "rows": "9",
+    "columns": "9",
+    "divisor": "4",
+    "matrix": "0 0 3 2 2 2 3 0 0  0 2 3 5 5 5 3 2 0  3 3 5 3 0 3 5 3 3  2 5 3 -12 -23 -12 3 5 2  2 5 0 -23 -40 -23 0 5 2  2 5 3 -12 -23 -12 3 5 2  3 3 5 3 0 3 5 3 3  0 2 3 5 5 5 3 2 0  0 0 3 2 2 2 3 0 0"
+   },
+   {
+    "name": "Embossed #2",
+    "description": "Embossed #2",
+    "rows": "3",
+    "columns": "3",
+    "matrix": "-1 0 -1 0 0.1 0 1 0 1"
+   },
+   {
+    "name": "Kirsch",
+    "description": "Kirsch",
+    "rows": "3",
+    "columns": "3",
+    "divisor": "1",
+    "matrix": "-3 -3 5 -3 0 5 -3 -3 5"
+   },
+   {
+    "name": "Horizontal 7",
+    "description": "Horizontal 7",
+    "rows": "7",
+    "columns": "1",
+    "divisor": "1",
+    "matrix": "-0.10 -0.345 -0.362 1.974 -0.362 -0.345 -0.10"
+   },
+   {
+    "name": "VH 7",
+    "description": "VH 7",
+    "rows": "7",
+    "columns": "7",
+    "divisor": "1",
+    "matrix": "0. 0. 0. -.1 0. 0. 0.  0. 0. 0. -0.345 0. 0. 0.  0. 0. 0. -0.362 0. 0. 0.  -0.10  -0.345  -0.362  3.948  -0.362  -0.345  -0.10  0. 0. 0. -0.362 0. 0. 0.  0. 0. 0. -0.345 0. 0. 0.  0. 0. 0. -.1 0. 0. 0."
+   },
+   {
+    "name": "Prewitt Vertical",
+    "description": "Prewitt Vertical",
+    "rows": "3",
+    "columns": "3",
+    "divisor": "1",
+    "matrix": "-1 0 1  -1 0 1  -1 0 1"
+   },
+   {
+    "name": "Sharpen",
+    "description": "Sharpen",
+    "rows": "3",
+    "columns": "3",
+    "divisor": "1",
+    "matrix": "-0.125 -0.125 -0.125  -0.125 2.0 -0.125  -0.125 -0.125 -0.125"
+   },
+   {
+    "name": "Edge 3Hz",
+    "description": "Edge 3Hz",
+    "rows": "3",
+    "columns": "3",
+    "divisor": "1",
+    "matrix": "-1 -1 -1 0 1 0  1 1 1"
+   },
+   {
+    "name": "Comb",
+    "description": "Comb",
+    "rows": "3",
+    "columns": "5",
+    "divisor": "1",
+    "matrix": "0.0 0.25 0.5 0.25 0.0  -0.167 0.25 0.834 0.25 -0.167  0.0 -0.25 -0.5 -0.25 0.0"
+   },
+   {
+    "name": "Vertical 3",
+    "description": "Vertical 3 Points",
+    "rows": "1",
+    "columns": "3",
+    "divisor": "1",
+    "matrix": "0.5 0.0 -0.5"
+   },
+   {
+    "name": "Sobel 3x3 V",
+    "description": "Sobel 3x3 Vertical",
+    "rows": "3",
+    "columns": "3",
+    "divisor": "1",
+    "matrix": "-1.0 0.0 1.0  -2.0 1.0 2.0  -1.0 0.0 1.0"
+   },
+   {
+    "name": "Sobel 3x3 H",
+    "description": "Sobel 3x3 Horizontal",
+    "rows": "3",
+    "columns": "3",
+    "divisor": "1",
+    "matrix": "-1.0 -2.0 -1.0  0.0 1.0 0.0  1.0 2.0 1.0"
+   },
+   {
+    "name": "60 Hz Acoustic Image 8",
+    "description": "\"60 Hz Acoustic Image 8\"",
+    "rows": "23",
+    "columns": "1",
+    "divisor": "1",
+    "matrix": "0.0 1.0 1.0 1.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 -1.0 8.0 -1.0 0.0 0.0 0.0 0.0 0.0 1.0 1.0 1.0 0.0"
+   },
+   {
+    "name": "60 Hz Acoustic Image 4",
+    "description": "\"60 Hz Acoustic Image 4\"",
+    "rows": "23",
+    "columns": "1",
+    "divisor": "1",
+    "matrix": "0.2 0.2 0.2 0.2 0.2 0.0 0.0 0.0 0.0 0.0 0.0 -1.0 4.0 -1.0 0.0 0.0 0.0 0.0 0.2 0.2 0.2 0.2 0.2"
+   },
+   {
+    "name": "60 Hz Acoustic Image 9",
+    "description": "\"60 Hz Acoustic Image 9\"",
+    "rows": "23",
+    "columns": "1",
+    "divisor": "1",
+    "matrix": "1.0 1.0 1.0 1.0 1.0 1.0 1.0 0.0 -1.0 -2.0 3.0 9.0 3.0 -2.0 -1.0 0.0 1.0 1.0 1.0 1.0 1.0 1.0 1.0"
+   }
+  ]
+ }
+}

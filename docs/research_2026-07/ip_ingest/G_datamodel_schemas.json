@@ -1,0 +1,103 @@
+{
+ "_note": "IP2025 data-model extract. Two layers: (1) the 6 top-level .xsd files, which are NOT the project data model but per-feature tool-configuration schemas (cased-hole, formation-testing, image tools, code sanitizing, user-program menu registration); (2) the ACTUAL IP project/well/curve data model, recovered from the public .NET object model documented in PGL.IP.API.xml (Tier A structural facts, no algorithm code). Source read-only: C:\\Program Files\\IP2025.",
+
+ "xsd_schemas": {
+  "_summary": "6 XSD files at install root. Only tool/feature config schemas ship as XSD; the core project data model is binary (.pgw/DLIS-like) and is described by the API object model, not by an XSD.",
+  "files": [
+   {
+    "file": "CasedHoleTool.xsd",
+    "namespace": "http://www.InteractivePetrophysics.com/CasedHoleTool",
+    "root_element": "InteractivePetrophysicsCasedHoleTool > CasedHoleTool",
+    "purpose": "Declares a cased-hole logging tool's input-curve map and cement/casing lookup parameters. Tool has ~60 optional named input-curve slots.",
+    "entities": ["ToolInputCurve (PropertyName/CurveType/CurveName/CurveTitle/Required)","ToolInputCurveRelative (+RelatesTo)","ToolInputSensorCurve (+ExpectedBins/NeedsOrientation/ShowGas)","ToolInputImageCurve (+ScaleLeft/ScaleRight/Min/Max/Palette/Dynamic/QCWidth)","ToolInputImageSensorCurve","SbtLookupParameters/CblLookupParameters (polynomial Target/Coefficients/MinRangeX/MaxRangeX/Step)"],
+    "curve_slots_examples": ["GammaRayCurve","CasingCollarLocatorCurve","BondAverage/Min/Max","TransitTime3Foot/5Foot","InternalRadius","Thickness","Attenuation/Impedance Avg/Min/Max","CementMapCurve","VdlCurve","LambA0/S0 (flexural/plate modes)","ShearLow/HighFrequency"],
+    "tool_attributes": ["CementStrength+CementUnits","CasingUnits","ID","Name","ModuleType","ToolType","Company","QCPlot","MicroAnnulusSupport"],
+    "tier": "Tier A structure; underlying CBL/SBT/impedance math is Tier B/vendor",
+    "sandibumi_scope": "out (cased-hole / cement evaluation)"
+   },
+   {
+    "file": "FormationTestingTool.xsd",
+    "namespace": "http://www.InteractivePetrophysics.com/IP",
+    "root_element": "InteractivePetrophysicsFormationTestingTool > Tool",
+    "purpose": "Wireline formation-tester (pretest / RFT / MDT) tool + probe drawdown Model definition.",
+    "entities": ["Tool (Name/DefaultLoadSet/DrawdownType={Single|Multiple|RFT}/DepthParameterName)","ToolInputCurve (CurveName/IPCurveName/IPCurveType)","Model (named parameter bundle)"],
+    "model_values": ["Volume (Litres/mL/m3/cc/Barrels/Gallons/FluidOunces)","ShapeFactor","DrawdownViscosity/RadialViscosity/SphericalViscosity (Poise/cP/Pa.s)","ProbeRadius (+ProbeRadiusMultiplier)","Compressibility","Porosity","Thickness"],
+    "tier": "Tier B (pretest permeability/mobility from drawdown is published; see FTOutputCurves)",
+    "sandibumi_scope": "later (pressure/mobility, wireline pretest)"
+   },
+   {
+    "file": "ImageTool.xsd (includes ImageToolPad.xsd)",
+    "namespace": "http://www.InteractivePetrophysics.com/ImageTool",
+    "root_element": "InteractivePetrophysicsImagingTool (choice of tool subtypes)",
+    "purpose": "Borehole-image / dipmeter / caliper tool geometry + navigation + rendering config. Abstract Tool base -> RotationalTool (Acoustic/LWD/Scan360/Image360/MIT) and StageArmPadTool (PadBased/Dipmeter/Caliper).",
+    "entities": ["Tool(abstract): ShortName/Description/DefaultPalette/HoleDeviationAngle+AzimuthCurve/Pad1Azimuth/RelativeBearing/MagneticDeclination/ToolOrientation{Azimuth|North|HighSide}/DepthOfInvestigation/RenderStyle{Normal|Interpolated|WideButton|ExtendedInterpolation|Curves}/DrawFrom{TopSide|North|Custom|Lowside}/BitSize/accelerometer+magnetometer curves/GammaRay/ImageResolution{High|Medium|Low}","RotationalTool (+SourceCurve/Caliper/Radius/HoleSizeMethod{BitSize|CaliperOrRadius|TravelTime|Standoff}/Bins/Sector alignment)","StageArmPadTool (Stages>Arms>Pads, SourceDataType{Resistivity|Conductivity}, alignment flags)","Pad/DefinedPad/ReferencedPad + ButtonRow (Count/ButtonWidth/StartIndex/Data normalisation)","Value types: Delay(us)/Angle(deg|grad|rad)/Length/Velocity/Slowness(us/ft|us/m)"],
+    "tier": "Tier A structure; DTA/Experienced-Eye/entropy speed-correction image algorithms are Tier C (do NOT extract)",
+    "sandibumi_scope": "later (image logs)"
+   },
+   {
+    "file": "ImageToolPad.xsd",
+    "namespace": "http://www.InteractivePetrophysics.com/ImageTool",
+    "purpose": "Shared value/curve/pad/button primitive types included by ImageTool.xsd (CurveDefinition, ScalarValue+Units, Delay/Angle/Length/Velocity/Slowness value types, Pad/ButtonRow/ButtonCollection).",
+    "tier": "Tier A",
+    "sandibumi_scope": "later (image logs)"
+   },
+   {
+    "file": "SanitizingSchema.xsd",
+    "namespace": "(no target namespace)",
+    "purpose": "Serialization schema for code/unit 'sanitizing' maps: attribute groups codeSanitizing(code->sanitizedCode) and unitSanitizing(unit->sanitizedUnit). Used to normalise illegal mnemonic/unit strings on import. Legacy (OmniWorks history stamp 2006).",
+    "tier": "Tier A",
+    "sandibumi_scope": "v1-core (import string normalisation concept)"
+   },
+   {
+    "file": "UserProgram.xsd",
+    "namespace": "USRModule",
+    "purpose": "Manifest schema for a user-registered module (menu integration), NOT algorithm: menupath/siblingnode/displayat/caption/tooltip/helpid/autorun/separator/requireswell. Pairs with the compiled UserProgram.dll module system.",
+    "tier": "Tier A (structure); note UserProgram.dll module algorithm code is compiled - do not decompile",
+    "sandibumi_scope": "later (plugin/module registration analogue)"
+   }
+  ]
+ },
+
+ "ip_project_object_model": {
+  "_summary": "Recovered from PGL.IP.API.xml (.NET XML-doc for the public IP API, PGL.IP.API namespace). This IS IP's project data model. Hierarchy: Database -> Well -> CurveSet -> Curve, with per-Well ZoneSets(->Zone->Parameter), Discriminators, ImagePickSets, and header/location/identity blocks. Directly comparable to SandiBumi's DuckDB well/curveset/curve tables.",
+  "hierarchy": "IDatabase (project) -> IWell[] -> ICurveSet[] -> ICurve[] -> ILogReading/IArrayLogReading (samples); IWell also -> IZoneSet[] -> IZone[] -> IParameter[]",
+  "entities": {
+   "IDatabase": {"doc":"A Database containing a collection of Wells (loaded + unloaded).","key":"top-level project container","access":"via IDatabaseConnection / IFileBasedDatabaseConnection"},
+   "IWell": {"doc":"A Well: header data + ZoneSets + Log Curves grouped in CurveSets.",
+     "header_props":["Name","DisplayName","UWI","APINumber/APInum","Identity(IWellIdentity: Pwi/ExtendedPwi/WellName/Caption)","LocationInfo(IWellLocation)","WellStatus","WellVersion","IndexUnits","IsMDCurve/IsTimeWell/IsTODWell"],
+     "datum_props":["KellyBushingElevation","DrillFloorElevation","GroundLevelElevation","PermanentDatum(+Type/Elevation)","ElevationAbovePermanentDatum","LogDepthDatum","LogElevation","DepthCurve","TVDCurve","NorthDistanceCurve","EastDistanceCurve","WellPathFormat"],
+     "collections":["CurveSets","Curves","DefaultCurveSet","CurveGroups","ZoneSets","ZoneSetManager","ImagePickSets","Attributes/WellAttribute*","LogAttributes","Security(IWellSecurity)"]},
+   "IWellIdentity": {"doc":"Identity fields of a well.","props":["WellName","Pwi","ExtendedPwi","IndexedPwi","IndexedExtendedPwi","Caption"],"note":"Pwi = Petrophysical Well Identifier; the join key."},
+   "IWellLocation": {"doc":"Well surface location.","props":["Latitude","Longitude","X","Y","GeographicDatumId/Name","GridDatumId/Name","DisplayStyle","ShowCardinalPoints"]},
+   "ICurveSet": {"doc":"A Curve Set within a Well: a collection of Curves sampled against one shared DepthCurve.",
+     "props":["ID","ShortName/LongName/DisplayName/LongDisplayName","DepthCurve/DepthCurveID","Spacing","NumberOfDepthSamples","IsIrregular","Colour/ColourName","CurveCount","Curves","Well"],
+     "note":"IP 'Set' == Techlog 'dataset' == Geolog 'set' == SandiBumi curve-set. All curves in a set share depth sampling."},
+   "ICurve": {"doc":"A Curve within a CurveSet within a Well.",
+     "identity_props":["ID","FullName","DisplayName","CurveType","CurveDataType{NumericData|TextData}","DataType{Double|Single|Short|UnsignedShort|Byte|SignedByte|Binary16|String}","Units/MeasurementUnit","Description","Comments","Grouping"],
+     "geometry_props":["TopDepth","BottomDepth","NumberOfValues","DepthCurveValueOrder{Increasing|Decreasing}","DepthShiftInSamples","IsPackedArray","XArraySize/XDimension/YDimension (array/waveform/image curves)","TvdRefCurve(+Name/Type)"],
+     "display_props":["Color","LineStyle","LineWidth","LScale/RScale","Logarithmic"],
+     "audit_props":["CreateDate/CreateUsername","UpdateDate/UpdateUsername/UpdateModule","FinalVersion","CurveStatus","Locked","IsDirty","Backup"],
+     "stats":"Statistics(ICurveStatistics)"},
+   "ICurveStatistics": {"doc":"Per-curve statistics.","props":["Minimum","Maximum","Average","Median","Mode","StandardDeviation","Percentile1/2/3","NullCount","NetInterval","DiscriminatorFailCount","Top","Bottom"],
+     "note":"Percentile1/2/3 -> supports GR P3/P97-style normalisation (Jauhar workflow)."},
+   "ILogReading / IArrayLogReading": {"doc":"Individual sample value (scalar) / array-per-depth sample (waveform/image) via enumerator."},
+   "IZoneSet": {"doc":"A named Zone Set on a well (zonation / tops / a runnable model).","props":["DisplayName","ZoneSetType","Zones/ZoneCount","IsStatic/IsRunnable/IsReadOnly/IsBackupSet","InputCurves/OutputCurves","Errors","IndexNumber"],"note":"a ZoneSet can be static tops OR a runnable interpretation model with input/output curves."},
+   "IZone": {"doc":"A Zone within a ZoneSet.","props":["ZoneName","Number/ZoneIndex","TopDepth/BottomDepth","TopDepthPickName/BottomDepthPickName","BedID","Color/ColorAuto","Parameters(IParameter[])","Locked","Units"]},
+   "IParameter": {"doc":"A per-Zone parameter.","props":["Name","DisplayName","ParameterType","NumericValue","TextValue","BoolValue","CurveNameValue","CurveNumberValue","Zone"],"note":"per-zone interpretation constants (Rw, m, n, a, cutoffs...) attach here -> maps to SandiBumi zone-parameter store."},
+   "IDiscriminator / IDiscriminatorSet": {"doc":"A single filter (min/max on a curve) / a set of them, controlling which curve values are displayed or counted (cutoff / net-pay flags).","tier":"Tier A structure"},
+   "supporting":["IUnit/IUnitCategory (unit system)","ICurveAttribute/IWellAttribute/IZoneAttribute (arbitrary key-value metadata)","IPlotAnnotation/IPlotRemark (posted remarks)","ImageAnalysis.IImagePickSet/IDipInformation (dip picks - 'later')"]
+  },
+  "enums": {
+   "CurveDataType":["NumericData","TextData"],
+   "DataType":["DoubleDataType","SingleDataType","ShortDataType","UnsignedShortDataType","ByteDataType","SignedByteDataType","Binary16DataType","StringDataType"],
+   "DepthReferenceType":["MD","TVD_KB","TVD_GL","TVD_SS","TVD_SB","Undefined"],
+   "DepthCurveValueOrder":["Increasing","Decreasing"],
+   "CurveUnits(index)":["METERS","FEET","POINT_ONE_INCH","SECONDS","MILLI_SECS","DATE_TIME","LEVEL","NONE"]
+  }
+ },
+
+ "comparison": {
+  "vs_sandibumi_duckdb": "IP hierarchy Database>Well>CurveSet>Curve maps 1:1 to SandiBumi's project>well>curveset>curve. Confirms design: (a) curves grouped into sets that share ONE depth curve + spacing (IsIrregular flag for uneven sampling); (b) per-zone parameters live on Zone objects, not global -> SandiBumi zone-parameter table is the right shape; (c) rich per-curve audit columns (create/update user+module+date, FinalVersion, Locked, CurveStatus) worth mirroring for provenance; (d) DepthReferenceType enum (MD/TVD_KB/GL/SS/SB) is the canonical datum set to store per curve; (e) ICurveStatistics ships Percentile1/2/3 -> aligns with GR P3/P97 normalisation.",
+  "vs_techlog": "IP exposes its data model as a documented .NET object model (PGL.IP.API.xml) rather than as XSD; Techlog's equivalent was thin property-alias XMLs (Dlis/Las/Geolog/propertyDict). IP naming: Well/CurveSet/Curve/ZoneSet/Zone == Techlog Well/Dataset/Variable/Zoneset/Zone == Geolog Well/Set/Log/Zoneset. IP 'CurveSet' == Techlog 'dataset' == Geolog 'set'. Both tools group curves under a shared depth reference; IP additionally carries explicit array/waveform dimensions (XArraySize/XDimension/YDimension) on the curve."
+ }
+}

@@ -1,0 +1,865 @@
+{
+ "note": "THREE-WAY endpoint reconciliation: IP2025 MINDEF.PAR vs Techlog QM_MineralTable vs SandiMin multimin_ref_spec sec-I. Common unit basis: RHOB g/cc, NPHI fraction(v/v), DT us/ft, U(=PEF*rhoe) barns/cc, SIGMA c.u., GR API, CEC meq/g. Conversions applied: SandiMin RHOB kg/m3 /1000, SandiMin DT us/m /3.2808. IP unit conventions: Density g/cc(native), Sonic us/ft(native), Neutron fraction(native), U barns/cc(native), SIGMA c.u.(native). KEY IP CONVENTION: IP MINDEF.PAR has NO direct GR endpoint column - GR is computed at runtime from K_Conc/Th_Conc/U_Conc weight-fraction columns, so GR is reported as a 2-way Techlog-vs-SandiMin check only. IP CEC: MINDEF stores Qv in meq/cm3 of WET clay; converted to meq/g via CEC=Qv/(GrainDensity_dry*(1-PhiTClay)). Clay density: IP Density col is IP's own wet-clay-model endpoint, whereas Techlog/SandiMin use dry-clay density - clay RHOB divergence is a model-convention difference, not an error. Mineral name alignment via ElanToIPMapping.par (QUAR/DOLO/CALC/ILLI/KAOL/CHLO/ALBI/MONT/etc).",
+ "agree_criterion": "relative spread <=5% across the available libraries (>=2 present); near-zero (|max|<0.05) uses absolute <0.03.",
+ "verdict_counts_by_property": {
+  "RHOB_gcc": {
+   "agree": 12,
+   "diverge": 6
+  },
+  "NPHI_frac": {
+   "agree": 5,
+   "diverge": 13
+  },
+  "DT_usft": {
+   "agree": 9,
+   "diverge": 9
+  },
+  "U_barns_cc": {
+   "agree": 6,
+   "diverge": 12
+  },
+  "SIGMA_cu": {
+   "agree": 6,
+   "diverge": 12
+  },
+  "CEC_meqg": {
+   "agree": 1,
+   "diverge": 3
+  },
+  "GR_API_2way_TL_vs_SM": {
+   "agree": 1,
+   "diverge": 17
+  }
+ },
+ "agreement_highlights": {
+  "fully_agree_all_props": [
+   "Calcite",
+   "Halite"
+  ],
+  "core_matrix_solid_agreement_RHOB_NPHI_DT_U": [
+   "Quartz(exc NPHI/SIG)",
+   "Dolomite(exc U/SIG)",
+   "Anhydrite(exc SIG)"
+  ],
+  "validated_for_sandimin": "RHOB agrees 3-way for 12/18 minerals (all clean non-clay matrix); U agrees for the diagnostic evaporite/sulphide set (Quartz,Calcite,Anhydrite,Halite,Gypsum,Pyrite). SandiMin core matrix endpoints are corroborated by a 3rd independent library.",
+  "expected_divergence": "NPHI(13/18), U(12/18), SIGMA(12/18), and all clays diverge - three independent endpoint libraries with different tool-model vintages; GR diverges 2-way everywhere because IP carries no direct GR endpoint (derived from K/Th/U). These are library-provenance differences, NOT SandiMin bugs."
+ },
+ "minerals": [
+  {
+   "mineral_ip": "Quartz",
+   "mineral_techlog": "Quartz",
+   "mineral_sandimin": "Quartz",
+   "is_clay": false,
+   "props": {
+    "RHOB_gcc": {
+     "ip": 2.65,
+     "techlog": 2.65,
+     "sandimin": 2.65,
+     "verdict": "AGREE"
+    },
+    "NPHI_frac": {
+     "ip": null,
+     "techlog": -0.03,
+     "sandimin": -0.05,
+     "verdict": "DIVERGE"
+    },
+    "DT_usft": {
+     "ip": 55.0,
+     "techlog": 53.0,
+     "sandimin": 50.3993,
+     "verdict": "DIVERGE"
+    },
+    "U_barns_cc": {
+     "ip": 4.8,
+     "techlog": 4.8,
+     "sandimin": 5.04,
+     "verdict": "AGREE"
+    },
+    "SIGMA_cu": {
+     "ip": 4.7,
+     "techlog": 4.3,
+     "sandimin": 4.71,
+     "verdict": "DIVERGE"
+    },
+    "GR_API": {
+     "ip": "derived_from_KThU(no_direct_endpoint)",
+     "techlog": 5.0,
+     "sandimin": 1.0,
+     "verdict": "DIVERGE_2way"
+    }
+   }
+  },
+  {
+   "mineral_ip": "Calcite",
+   "mineral_techlog": "Calcite",
+   "mineral_sandimin": "Calcite",
+   "is_clay": false,
+   "props": {
+    "RHOB_gcc": {
+     "ip": 2.71,
+     "techlog": 2.71,
+     "sandimin": 2.71,
+     "verdict": "AGREE"
+    },
+    "NPHI_frac": {
+     "ip": null,
+     "techlog": 0.0,
+     "sandimin": 0.0,
+     "verdict": "AGREE"
+    },
+    "DT_usft": {
+     "ip": 47.0,
+     "techlog": 48.0,
+     "sandimin": 47.7932,
+     "verdict": "AGREE"
+    },
+    "U_barns_cc": {
+     "ip": 13.8,
+     "techlog": 13.8,
+     "sandimin": 14.13,
+     "verdict": "AGREE"
+    },
+    "SIGMA_cu": {
+     "ip": 7.4,
+     "techlog": 7.1,
+     "sandimin": 7.44,
+     "verdict": "AGREE"
+    },
+    "GR_API": {
+     "ip": "derived_from_KThU(no_direct_endpoint)",
+     "techlog": 5.0,
+     "sandimin": 11.0,
+     "verdict": "DIVERGE_2way"
+    }
+   }
+  },
+  {
+   "mineral_ip": "Dolomite",
+   "mineral_techlog": "Dolomite",
+   "mineral_sandimin": "Dolomite",
+   "is_clay": false,
+   "props": {
+    "RHOB_gcc": {
+     "ip": 2.85,
+     "techlog": 2.87,
+     "sandimin": 2.847,
+     "verdict": "AGREE"
+    },
+    "NPHI_frac": {
+     "ip": null,
+     "techlog": 0.03,
+     "sandimin": 0.025,
+     "verdict": "AGREE"
+    },
+    "DT_usft": {
+     "ip": 42.0,
+     "techlog": 44.0,
+     "sandimin": 43.4955,
+     "verdict": "AGREE"
+    },
+    "U_barns_cc": {
+     "ip": 9.0,
+     "techlog": 9.0,
+     "sandimin": 9.6,
+     "verdict": "DIVERGE"
+    },
+    "SIGMA_cu": {
+     "ip": 6.92,
+     "techlog": 4.7,
+     "sandimin": 6.92,
+     "verdict": "DIVERGE"
+    },
+    "GR_API": {
+     "ip": "derived_from_KThU(no_direct_endpoint)",
+     "techlog": 20.0,
+     "sandimin": 8.0,
+     "verdict": "DIVERGE_2way"
+    }
+   }
+  },
+  {
+   "mineral_ip": "Anhydrite",
+   "mineral_techlog": "Anhydrite",
+   "mineral_sandimin": "Anhydrite",
+   "is_clay": false,
+   "props": {
+    "RHOB_gcc": {
+     "ip": 2.98,
+     "techlog": 2.98,
+     "sandimin": 2.977,
+     "verdict": "AGREE"
+    },
+    "NPHI_frac": {
+     "ip": -0.02,
+     "techlog": -0.03,
+     "sandimin": -0.02,
+     "verdict": "AGREE"
+    },
+    "DT_usft": {
+     "ip": 50.0,
+     "techlog": 50.0,
+     "sandimin": 49.9878,
+     "verdict": "AGREE"
+    },
+    "U_barns_cc": {
+     "ip": 14.95,
+     "techlog": 15.0,
+     "sandimin": 14.95,
+     "verdict": "AGREE"
+    },
+    "SIGMA_cu": {
+     "ip": 11.1,
+     "techlog": 12.0,
+     "sandimin": 16.0,
+     "verdict": "DIVERGE"
+    },
+    "GR_API": {
+     "ip": "derived_from_KThU(no_direct_endpoint)",
+     "techlog": 1.0,
+     "sandimin": 5.0,
+     "verdict": "DIVERGE_2way"
+    }
+   }
+  },
+  {
+   "mineral_ip": "Halite",
+   "mineral_techlog": "Halite",
+   "mineral_sandimin": "Halite",
+   "is_clay": false,
+   "props": {
+    "RHOB_gcc": {
+     "ip": 2.04,
+     "techlog": 2.04,
+     "sandimin": 2.037,
+     "verdict": "AGREE"
+    },
+    "NPHI_frac": {
+     "ip": -0.03,
+     "techlog": -0.03,
+     "sandimin": -0.018,
+     "verdict": "AGREE"
+    },
+    "DT_usft": {
+     "ip": 67.0,
+     "techlog": 67.0,
+     "sandimin": 66.9959,
+     "verdict": "AGREE"
+    },
+    "U_barns_cc": {
+     "ip": 9.7,
+     "techlog": 9.5,
+     "sandimin": 9.63,
+     "verdict": "AGREE"
+    },
+    "SIGMA_cu": {
+     "ip": 750.0,
+     "techlog": 754.0,
+     "sandimin": 750,
+     "verdict": "AGREE"
+    },
+    "GR_API": {
+     "ip": "derived_from_KThU(no_direct_endpoint)",
+     "techlog": 1.0,
+     "sandimin": 5.0,
+     "verdict": "DIVERGE_2way"
+    }
+   }
+  },
+  {
+   "mineral_ip": "Gypsum",
+   "mineral_techlog": "Gypsum",
+   "mineral_sandimin": "Gypsum",
+   "is_clay": false,
+   "props": {
+    "RHOB_gcc": {
+     "ip": 2.35,
+     "techlog": 2.35,
+     "sandimin": 2.35,
+     "verdict": "AGREE"
+    },
+    "NPHI_frac": {
+     "ip": 0.54,
+     "techlog": 0.6,
+     "sandimin": 0.576,
+     "verdict": "DIVERGE"
+    },
+    "DT_usft": {
+     "ip": 52.0,
+     "techlog": 52.0,
+     "sandimin": 52.5177,
+     "verdict": "AGREE"
+    },
+    "U_barns_cc": {
+     "ip": 9.46,
+     "techlog": 9.4,
+     "sandimin": 9.46,
+     "verdict": "AGREE"
+    },
+    "SIGMA_cu": {
+     "ip": 20.0,
+     "techlog": 23.0,
+     "sandimin": 20.0,
+     "verdict": "DIVERGE"
+    },
+    "GR_API": {
+     "ip": "derived_from_KThU(no_direct_endpoint)",
+     "techlog": 1.0,
+     "sandimin": 5.0,
+     "verdict": "DIVERGE_2way"
+    }
+   }
+  },
+  {
+   "mineral_ip": "Ankerite",
+   "mineral_techlog": "Ankerite",
+   "mineral_sandimin": "Ankerite",
+   "is_clay": false,
+   "props": {
+    "RHOB_gcc": {
+     "ip": 3.08,
+     "techlog": 2.96,
+     "sandimin": 3.08,
+     "verdict": "AGREE"
+    },
+    "NPHI_frac": {
+     "ip": 0.06,
+     "techlog": 0.06,
+     "sandimin": 0.05,
+     "verdict": "DIVERGE"
+    },
+    "DT_usft": {
+     "ip": 46.0,
+     "techlog": 44.0,
+     "sandimin": 45.7206,
+     "verdict": "AGREE"
+    },
+    "U_barns_cc": {
+     "ip": 25.56,
+     "techlog": 27.6,
+     "sandimin": 25.8,
+     "verdict": "DIVERGE"
+    },
+    "SIGMA_cu": {
+     "ip": null,
+     "techlog": 22.0,
+     "sandimin": 22,
+     "verdict": "AGREE"
+    },
+    "GR_API": {
+     "ip": "derived_from_KThU(no_direct_endpoint)",
+     "techlog": 15.0,
+     "sandimin": 8.0,
+     "verdict": "DIVERGE_2way"
+    }
+   }
+  },
+  {
+   "mineral_ip": "Pyrite",
+   "mineral_techlog": "Pyrite",
+   "mineral_sandimin": "Pyrite",
+   "is_clay": false,
+   "props": {
+    "RHOB_gcc": {
+     "ip": 4.99,
+     "techlog": 4.99,
+     "sandimin": 4.987,
+     "verdict": "AGREE"
+    },
+    "NPHI_frac": {
+     "ip": 0.01,
+     "techlog": -0.03,
+     "sandimin": -0.019,
+     "verdict": "DIVERGE"
+    },
+    "DT_usft": {
+     "ip": 39.2,
+     "techlog": 40.0,
+     "sandimin": 37.6128,
+     "verdict": "DIVERGE"
+    },
+    "U_barns_cc": {
+     "ip": 82.0,
+     "techlog": 85.0,
+     "sandimin": 82.22,
+     "verdict": "AGREE"
+    },
+    "SIGMA_cu": {
+     "ip": 90.0,
+     "techlog": 90.0,
+     "sandimin": 90.0,
+     "verdict": "AGREE"
+    },
+    "GR_API": {
+     "ip": "derived_from_KThU(no_direct_endpoint)",
+     "techlog": 50.0,
+     "sandimin": 5.0,
+     "verdict": "DIVERGE_2way"
+    }
+   }
+  },
+  {
+   "mineral_ip": "Siderite",
+   "mineral_techlog": "Siderite",
+   "mineral_sandimin": "Siderite",
+   "is_clay": false,
+   "props": {
+    "RHOB_gcc": {
+     "ip": 3.88,
+     "techlog": 3.7,
+     "sandimin": 3.96,
+     "verdict": "DIVERGE"
+    },
+    "NPHI_frac": {
+     "ip": 0.18,
+     "techlog": 0.1,
+     "sandimin": 0.184,
+     "verdict": "DIVERGE"
+    },
+    "DT_usft": {
+     "ip": 47.0,
+     "techlog": 47.0,
+     "sandimin": 43.8003,
+     "verdict": "DIVERGE"
+    },
+    "U_barns_cc": {
+     "ip": 72.0,
+     "techlog": 45.0,
+     "sandimin": 72.2,
+     "verdict": "DIVERGE"
+    },
+    "SIGMA_cu": {
+     "ip": 54.2,
+     "techlog": 52.0,
+     "sandimin": 54.21,
+     "verdict": "AGREE"
+    },
+    "GR_API": {
+     "ip": "derived_from_KThU(no_direct_endpoint)",
+     "techlog": 0.001,
+     "sandimin": 6.0,
+     "verdict": "DIVERGE_2way"
+    }
+   }
+  },
+  {
+   "mineral_ip": "Orthoclase",
+   "mineral_techlog": "K-Feldspar",
+   "mineral_sandimin": "Orthoclase",
+   "is_clay": false,
+   "props": {
+    "RHOB_gcc": {
+     "ip": 2.57,
+     "techlog": 2.52,
+     "sandimin": 2.57,
+     "verdict": "AGREE"
+    },
+    "NPHI_frac": {
+     "ip": -0.01,
+     "techlog": 0.02,
+     "sandimin": -0.006,
+     "verdict": "DIVERGE"
+    },
+    "DT_usft": {
+     "ip": 69.0,
+     "techlog": 69.0,
+     "sandimin": 53.4931,
+     "verdict": "DIVERGE"
+    },
+    "U_barns_cc": {
+     "ip": 8.7,
+     "techlog": 7.2,
+     "sandimin": 8.71,
+     "verdict": "DIVERGE"
+    },
+    "SIGMA_cu": {
+     "ip": 15.3,
+     "techlog": 16.0,
+     "sandimin": 15.34,
+     "verdict": "AGREE"
+    },
+    "GR_API": {
+     "ip": "derived_from_KThU(no_direct_endpoint)",
+     "techlog": 200.0,
+     "sandimin": 171,
+     "verdict": "DIVERGE_2way"
+    }
+   }
+  },
+  {
+   "mineral_ip": "Albite",
+   "mineral_techlog": "N-Feldspar",
+   "mineral_sandimin": "Albite",
+   "is_clay": false,
+   "props": {
+    "RHOB_gcc": {
+     "ip": 2.6,
+     "techlog": 2.59,
+     "sandimin": 2.61,
+     "verdict": "AGREE"
+    },
+    "NPHI_frac": {
+     "ip": -0.001,
+     "techlog": 0.01,
+     "sandimin": -0.005,
+     "verdict": "AGREE"
+    },
+    "DT_usft": {
+     "ip": 49.0,
+     "techlog": 49.0,
+     "sandimin": 55.1085,
+     "verdict": "DIVERGE"
+    },
+    "U_barns_cc": {
+     "ip": 5.6,
+     "techlog": 4.4,
+     "sandimin": 5.57,
+     "verdict": "DIVERGE"
+    },
+    "SIGMA_cu": {
+     "ip": 11.4,
+     "techlog": 7.5,
+     "sandimin": 11.4,
+     "verdict": "DIVERGE"
+    },
+    "GR_API": {
+     "ip": "derived_from_KThU(no_direct_endpoint)",
+     "techlog": 5.0,
+     "sandimin": 8.0,
+     "verdict": "DIVERGE_2way"
+    }
+   }
+  },
+  {
+   "mineral_ip": "Muscovite",
+   "mineral_techlog": "Musc-Mica",
+   "mineral_sandimin": "Muscovite",
+   "is_clay": false,
+   "props": {
+    "RHOB_gcc": {
+     "ip": 2.85,
+     "techlog": 2.82,
+     "sandimin": 2.84,
+     "verdict": "AGREE"
+    },
+    "NPHI_frac": {
+     "ip": 0.24,
+     "techlog": 0.2,
+     "sandimin": 0.21,
+     "verdict": "DIVERGE"
+    },
+    "DT_usft": {
+     "ip": 49.0,
+     "techlog": 49.0,
+     "sandimin": 49.0002,
+     "verdict": "AGREE"
+    },
+    "U_barns_cc": {
+     "ip": 11.5,
+     "techlog": 6.75,
+     "sandimin": 11.43,
+     "verdict": "DIVERGE"
+    },
+    "SIGMA_cu": {
+     "ip": 95.3,
+     "techlog": 17.0,
+     "sandimin": 95.27,
+     "verdict": "DIVERGE"
+    },
+    "GR_API": {
+     "ip": "derived_from_KThU(no_direct_endpoint)",
+     "techlog": 270.0,
+     "sandimin": 130,
+     "verdict": "DIVERGE_2way"
+    }
+   }
+  },
+  {
+   "mineral_ip": "Biotite",
+   "mineral_techlog": "Biotite-Mica",
+   "mineral_sandimin": "Biotite",
+   "is_clay": false,
+   "props": {
+    "RHOB_gcc": {
+     "ip": 3.04,
+     "techlog": 2.99,
+     "sandimin": 3.22,
+     "verdict": "DIVERGE"
+    },
+    "NPHI_frac": {
+     "ip": 0.13,
+     "techlog": 0.2,
+     "sandimin": 0.11,
+     "verdict": "DIVERGE"
+    },
+    "DT_usft": {
+     "ip": 50.8,
+     "techlog": 51.0,
+     "sandimin": 49.4087,
+     "verdict": "AGREE"
+    },
+    "U_barns_cc": {
+     "ip": 21.6,
+     "techlog": 18.75,
+     "sandimin": 22.42,
+     "verdict": "DIVERGE"
+    },
+    "SIGMA_cu": {
+     "ip": 54.1,
+     "techlog": 30.0,
+     "sandimin": 54.1,
+     "verdict": "DIVERGE"
+    },
+    "GR_API": {
+     "ip": "derived_from_KThU(no_direct_endpoint)",
+     "techlog": 275.0,
+     "sandimin": 127,
+     "verdict": "DIVERGE_2way"
+    }
+   }
+  },
+  {
+   "mineral_ip": "Illite",
+   "mineral_techlog": "Illite",
+   "mineral_sandimin": "Illite",
+   "is_clay": true,
+   "props": {
+    "RHOB_gcc": {
+     "ip": 2.61,
+     "techlog": 2.52,
+     "sandimin": 2.78,
+     "verdict": "DIVERGE"
+    },
+    "NPHI_frac": {
+     "ip": 0.35,
+     "techlog": 0.3,
+     "sandimin": 0.247,
+     "verdict": "DIVERGE"
+    },
+    "DT_usft": {
+     "ip": null,
+     "techlog": 100.0,
+     "sandimin": 85.345,
+     "verdict": "DIVERGE"
+    },
+    "U_barns_cc": {
+     "ip": 9.9,
+     "techlog": 8.7,
+     "sandimin": 11.12,
+     "verdict": "DIVERGE"
+    },
+    "SIGMA_cu": {
+     "ip": 41.0,
+     "techlog": 18.0,
+     "sandimin": 40.56,
+     "verdict": "DIVERGE"
+    },
+    "GR_API": {
+     "ip": "derived_from_KThU(no_direct_endpoint)",
+     "techlog": 270.0,
+     "sandimin": 160,
+     "verdict": "DIVERGE_2way"
+    },
+    "CEC_meqg": {
+     "ip": 0.2678,
+     "techlog": 0.25,
+     "sandimin": 0.25,
+     "verdict": "DIVERGE"
+    }
+   }
+  },
+  {
+   "mineral_ip": "Kaolinite",
+   "mineral_techlog": "Kaolinite",
+   "mineral_sandimin": "Kaolinite",
+   "is_clay": true,
+   "props": {
+    "RHOB_gcc": {
+     "ip": 2.55,
+     "techlog": 2.41,
+     "sandimin": 2.62,
+     "verdict": "DIVERGE"
+    },
+    "NPHI_frac": {
+     "ip": 0.51,
+     "techlog": 0.37,
+     "sandimin": 0.451,
+     "verdict": "DIVERGE"
+    },
+    "DT_usft": {
+     "ip": null,
+     "techlog": 85.0,
+     "sandimin": 85.345,
+     "verdict": "AGREE"
+    },
+    "U_barns_cc": {
+     "ip": 5.1,
+     "techlog": 4.5,
+     "sandimin": 5.38,
+     "verdict": "DIVERGE"
+    },
+    "SIGMA_cu": {
+     "ip": 21.9,
+     "techlog": 14.0,
+     "sandimin": 20.12,
+     "verdict": "DIVERGE"
+    },
+    "GR_API": {
+     "ip": "derived_from_KThU(no_direct_endpoint)",
+     "techlog": 150.0,
+     "sandimin": 104,
+     "verdict": "DIVERGE_2way"
+    },
+    "CEC_meqg": {
+     "ip": 0.0916,
+     "techlog": 0.1,
+     "sandimin": 0.1,
+     "verdict": "DIVERGE"
+    }
+   }
+  },
+  {
+   "mineral_ip": "Chlorite",
+   "mineral_techlog": "Chlorite",
+   "mineral_sandimin": "Chlorite",
+   "is_clay": true,
+   "props": {
+    "RHOB_gcc": {
+     "ip": 2.81,
+     "techlog": 2.76,
+     "sandimin": 2.67,
+     "verdict": "AGREE"
+    },
+    "NPHI_frac": {
+     "ip": 0.58,
+     "techlog": 0.52,
+     "sandimin": 0.44,
+     "verdict": "DIVERGE"
+    },
+    "DT_usft": {
+     "ip": null,
+     "techlog": 75.0,
+     "sandimin": 85.345,
+     "verdict": "DIVERGE"
+    },
+    "U_barns_cc": {
+     "ip": 21.7,
+     "techlog": 17.5,
+     "sandimin": 16.82,
+     "verdict": "DIVERGE"
+    },
+    "SIGMA_cu": {
+     "ip": 43.7,
+     "techlog": 25.0,
+     "sandimin": 11.42,
+     "verdict": "DIVERGE"
+    },
+    "GR_API": {
+     "ip": "derived_from_KThU(no_direct_endpoint)",
+     "techlog": 175.0,
+     "sandimin": 56,
+     "verdict": "DIVERGE_2way"
+    },
+    "CEC_meqg": {
+     "ip": 0.1504,
+     "techlog": 0.15,
+     "sandimin": 0.15,
+     "verdict": "AGREE"
+    }
+   }
+  },
+  {
+   "mineral_ip": "Montmorill",
+   "mineral_techlog": "Smectite",
+   "mineral_sandimin": "Smectite",
+   "is_clay": true,
+   "props": {
+    "RHOB_gcc": {
+     "ip": 2.02,
+     "techlog": 2.12,
+     "sandimin": 2.63,
+     "verdict": "DIVERGE"
+    },
+    "NPHI_frac": {
+     "ip": 0.65,
+     "techlog": 0.6,
+     "sandimin": 0.218,
+     "verdict": "DIVERGE"
+    },
+    "DT_usft": {
+     "ip": null,
+     "techlog": 120.0,
+     "sandimin": 85.345,
+     "verdict": "DIVERGE"
+    },
+    "U_barns_cc": {
+     "ip": 4.4,
+     "techlog": 4.5,
+     "sandimin": 7.61,
+     "verdict": "DIVERGE"
+    },
+    "SIGMA_cu": {
+     "ip": 22.0,
+     "techlog": 14.0,
+     "sandimin": 20.22,
+     "verdict": "DIVERGE"
+    },
+    "GR_API": {
+     "ip": "derived_from_KThU(no_direct_endpoint)",
+     "techlog": 250.0,
+     "sandimin": 168,
+     "verdict": "DIVERGE_2way"
+    },
+    "CEC_meqg": {
+     "ip": 1.3775,
+     "techlog": 0.0,
+     "sandimin": 1.0,
+     "verdict": "DIVERGE"
+    }
+   }
+  },
+  {
+   "mineral_ip": "Coal",
+   "mineral_techlog": "Coal",
+   "mineral_sandimin": "Coal",
+   "is_clay": false,
+   "props": {
+    "RHOB_gcc": {
+     "ip": 1.19,
+     "techlog": 1.5,
+     "sandimin": 1.52,
+     "verdict": "DIVERGE"
+    },
+    "NPHI_frac": {
+     "ip": 0.52,
+     "techlog": 0.6,
+     "sandimin": 0.38,
+     "verdict": "DIVERGE"
+    },
+    "DT_usft": {
+     "ip": 160.0,
+     "techlog": 120.0,
+     "sandimin": 105.0049,
+     "verdict": "DIVERGE"
+    },
+    "U_barns_cc": {
+     "ip": 0.24,
+     "techlog": 0.2,
+     "sandimin": 0.26,
+     "verdict": "DIVERGE"
+    },
+    "SIGMA_cu": {
+     "ip": null,
+     "techlog": 12.0,
+     "sandimin": 0,
+     "verdict": "DIVERGE"
+    },
+    "GR_API": {
+     "ip": "derived_from_KThU(no_direct_endpoint)",
+     "techlog": 10.0,
+     "sandimin": 10,
+     "verdict": "AGREE_2way"
+    }
+   }
+  }
+ ]
+}

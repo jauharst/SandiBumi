@@ -1,0 +1,2586 @@
+{
+ "_note": "Tier A reference data (verbatim catalogs/lookup tables) extracted from IP2025 top-level XML. Read-only source: C:\\Program Files\\IP2025. Dimensions in inches (imperial) and mm (metric) unless noted.",
+ "CasingSizes": {
+  "source_file": "CasingSizes.xml",
+  "row_count": 168,
+  "columns": {
+   "OD_imp": "outer diameter inch",
+   "OD_met": "outer diameter mm",
+   "Wt_imp": "weight lb/ft",
+   "Wt_met": "weight kg/m",
+   "ID_imp": "inner diameter inch",
+   "ID_met": "inner diameter mm",
+   "Thickness_imp": "wall thickness inch",
+   "Thickness_met": "wall thickness mm"
+  },
+  "distinct_OD_imp": [
+   3.5,
+   4.0,
+   4.5,
+   4.75,
+   5.0,
+   5.5,
+   6.0,
+   6.625,
+   7.0,
+   7.625,
+   7.75,
+   8.625,
+   8.75,
+   9.0,
+   9.625,
+   9.75,
+   9.875,
+   10.0,
+   10.75,
+   11.75,
+   11.875,
+   12.0,
+   13.0,
+   13.375,
+   13.5,
+   13.625,
+   14.0,
+   16.0,
+   18.625,
+   20.0,
+   21.5,
+   24.5,
+   30.0,
+   32.0
+  ],
+  "rows": [
+   {
+    "OD_imp": "3.500",
+    "OD_met": "88.90",
+    "Wt_imp": "9.2",
+    "Wt_met": "13.7",
+    "ID_imp": "2.992",
+    "ID_met": "76.0",
+    "Thickness_imp": "0.254",
+    "Thickness_met": "6.45"
+   },
+   {
+    "OD_imp": "4.000",
+    "OD_met": "101.6",
+    "Wt_imp": "11.6",
+    "Wt_met": "17.3",
+    "ID_imp": "3.428",
+    "ID_met": "87.1",
+    "Thickness_imp": "0.286",
+    "Thickness_met": "7.26"
+   },
+   {
+    "OD_imp": "4.500",
+    "OD_met": "114.3",
+    "Wt_imp": "9.5",
+    "Wt_met": "14.2",
+    "ID_imp": "4.090",
+    "ID_met": "103.9",
+    "Thickness_imp": "0.205",
+    "Thickness_met": "5.21"
+   },
+   {
+    "OD_imp": "4.500",
+    "OD_met": "114.3",
+    "Wt_imp": "10.5",
+    "Wt_met": "15.7",
+    "ID_imp": "4.052",
+    "ID_met": "102.9",
+    "Thickness_imp": "0.224",
+    "Thickness_met": "5.69"
+   },
+   {
+    "OD_imp": "4.500",
+    "OD_met": "114.3",
+    "Wt_imp": "11.6",
+    "Wt_met": "17.3",
+    "ID_imp": "4.000",
+    "ID_met": "101.6",
+    "Thickness_imp": "0.250",
+    "Thickness_met": "6.35"
+   },
+   {
+    "OD_imp": "4.500",
+    "OD_met": "114.3",
+    "Wt_imp": "12.6",
+    "Wt_met": "18.8",
+    "ID_imp": "3.958",
+    "ID_met": "100.5",
+    "Thickness_imp": "0.271",
+    "Thickness_met": "6.88"
+   },
+   {
+    "OD_imp": "4.500",
+    "OD_met": "114.3",
+    "Wt_imp": "13.5",
+    "Wt_met": "20.1",
+    "ID_imp": "3.920",
+    "ID_met": "99.6",
+    "Thickness_imp": "0.290",
+    "Thickness_met": "7.37"
+   },
+   {
+    "OD_imp": "4.500",
+    "OD_met": "114.3",
+    "Wt_imp": "15.1",
+    "Wt_met": "22.5",
+    "ID_imp": "3.826",
+    "ID_met": "97.2",
+    "Thickness_imp": "0.337",
+    "Thickness_met": "8.56"
+   },
+   {
+    "OD_imp": "4.500",
+    "OD_met": "114.3",
+    "Wt_imp": "16.8",
+    "Wt_met": "25.0",
+    "ID_imp": "3.754",
+    "ID_met": "95.4",
+    "Thickness_imp": "0.373",
+    "Thickness_met": "9.47"
+   },
+   {
+    "OD_imp": "4.500",
+    "OD_met": "114.3",
+    "Wt_imp": "17.7",
+    "Wt_met": "26.4",
+    "ID_imp": "3.696",
+    "ID_met": "93.9",
+    "Thickness_imp": "0.402",
+    "Thickness_met": "10.21"
+   },
+   {
+    "OD_imp": "4.500",
+    "OD_met": "114.3",
+    "Wt_imp": "18.8",
+    "Wt_met": "28.0",
+    "ID_imp": "3.640",
+    "ID_met": "92.5",
+    "Thickness_imp": "0.430",
+    "Thickness_met": "10.92"
+   },
+   {
+    "OD_imp": "4.500",
+    "OD_met": "114.3",
+    "Wt_imp": "21.6",
+    "Wt_met": "32.2",
+    "ID_imp": "3.500",
+    "ID_met": "88.9",
+    "Thickness_imp": "0.500",
+    "Thickness_met": "12.70"
+   },
+   {
+    "OD_imp": "4.500",
+    "OD_met": "114.3",
+    "Wt_imp": "24.6",
+    "Wt_met": "36.7",
+    "ID_imp": "3.380",
+    "ID_met": "85.9",
+    "Thickness_imp": "0.560",
+    "Thickness_met": "14.22"
+   },
+   {
+    "OD_imp": "4.500",
+    "OD_met": "114.3",
+    "Wt_imp": "26.5",
+    "Wt_met": "39.5",
+    "ID_imp": "3.240",
+    "ID_met": "82.3",
+    "Thickness_imp": "0.630",
+    "Thickness_met": "16.00"
+   },
+   {
+    "OD_imp": "4.750",
+    "OD_met": "120.7",
+    "Wt_imp": "16.0",
+    "Wt_met": "23.8",
+    "ID_imp": "4.082",
+    "ID_met": "103.7",
+    "Thickness_imp": "0.334",
+    "Thickness_met": "8.48"
+   },
+   {
+    "OD_imp": "5.000",
+    "OD_met": "127.0",
+    "Wt_imp": "11.5",
+    "Wt_met": "17.1",
+    "ID_imp": "4.560",
+    "ID_met": "115.8",
+    "Thickness_imp": "0.220",
+    "Thickness_met": "5.59"
+   },
+   {
+    "OD_imp": "5.000",
+    "OD_met": "127.0",
+    "Wt_imp": "13.0",
+    "Wt_met": "19.4",
+    "ID_imp": "4.494",
+    "ID_met": "114.1",
+    "Thickness_imp": "0.253",
+    "Thickness_met": "6.43"
+   },
+   {
+    "OD_imp": "5.000",
+    "OD_met": "127.0",
+    "Wt_imp": "15.0",
+    "Wt_met": "22.4",
+    "ID_imp": "4.408",
+    "ID_met": "112.0",
+    "Thickness_imp": "0.296",
+    "Thickness_met": "7.52"
+   },
+   {
+    "OD_imp": "5.000",
+    "OD_met": "127.0",
+    "Wt_imp": "17.7",
+    "Wt_met": "26.4",
+    "ID_imp": "4.300",
+    "ID_met": "109.2",
+    "Thickness_imp": "0.350",
+    "Thickness_met": "8.89"
+   },
+   {
+    "OD_imp": "5.000",
+    "OD_met": "127.0",
+    "Wt_imp": "18.0",
+    "Wt_met": "26.8",
+    "ID_imp": "4.276",
+    "ID_met": "108.6",
+    "Thickness_imp": "0.362",
+    "Thickness_met": "9.19"
+   },
+   {
+    "OD_imp": "5.000",
+    "OD_met": "127.0",
+    "Wt_imp": "20.3",
+    "Wt_met": "30.3",
+    "ID_imp": "4.184",
+    "ID_met": "106.3",
+    "Thickness_imp": "0.408",
+    "Thickness_met": "10.36"
+   },
+   {
+    "OD_imp": "5.000",
+    "OD_met": "127.0",
+    "Wt_imp": "20.8",
+    "Wt_met": "31.0",
+    "ID_imp": "4.156",
+    "ID_met": "105.6",
+    "Thickness_imp": "0.422",
+    "Thickness_met": "10.72"
+   },
+   {
+    "OD_imp": "5.000",
+    "OD_met": "127.0",
+    "Wt_imp": "21.0",
+    "Wt_met": "31.3",
+    "ID_imp": "4.154",
+    "ID_met": "105.5",
+    "Thickness_imp": "0.423",
+    "Thickness_met": "10.74"
+   },
+   {
+    "OD_imp": "5.000",
+    "OD_met": "127.0",
+    "Wt_imp": "23.2",
+    "Wt_met": "34.6",
+    "ID_imp": "4.044",
+    "ID_met": "102.7",
+    "Thickness_imp": "0.478",
+    "Thickness_met": "12.14"
+   },
+   {
+    "OD_imp": "5.000",
+    "OD_met": "127.0",
+    "Wt_imp": "24.2",
+    "Wt_met": "36.1",
+    "ID_imp": "4.000",
+    "ID_met": "101.6",
+    "Thickness_imp": "0.500",
+    "Thickness_met": "12.70"
+   },
+   {
+    "OD_imp": "5.500",
+    "OD_met": "139.7",
+    "Wt_imp": "13.0",
+    "Wt_met": "19.4",
+    "ID_imp": "5.044",
+    "ID_met": "128.1",
+    "Thickness_imp": "0.228",
+    "Thickness_met": "5.79"
+   },
+   {
+    "OD_imp": "5.500",
+    "OD_met": "139.7",
+    "Wt_imp": "14.0",
+    "Wt_met": "20.9",
+    "ID_imp": "5.012",
+    "ID_met": "127.3",
+    "Thickness_imp": "0.244",
+    "Thickness_met": "6.20"
+   },
+   {
+    "OD_imp": "5.500",
+    "OD_met": "139.7",
+    "Wt_imp": "15.0",
+    "Wt_met": "22.4",
+    "ID_imp": "4.974",
+    "ID_met": "126.3",
+    "Thickness_imp": "0.263",
+    "Thickness_met": "6.68"
+   },
+   {
+    "OD_imp": "5.500",
+    "OD_met": "139.7",
+    "Wt_imp": "15.5",
+    "Wt_met": "23.1",
+    "ID_imp": "4.950",
+    "ID_met": "125.7",
+    "Thickness_imp": "0.275",
+    "Thickness_met": "6.99"
+   },
+   {
+    "OD_imp": "5.500",
+    "OD_met": "139.7",
+    "Wt_imp": "17.0",
+    "Wt_met": "25.3",
+    "ID_imp": "4.892",
+    "ID_met": "124.3",
+    "Thickness_imp": "0.304",
+    "Thickness_met": "7.72"
+   },
+   {
+    "OD_imp": "5.500",
+    "OD_met": "139.7",
+    "Wt_imp": "20.0",
+    "Wt_met": "29.8",
+    "ID_imp": "4.778",
+    "ID_met": "121.4",
+    "Thickness_imp": "0.361",
+    "Thickness_met": "9.17"
+   },
+   {
+    "OD_imp": "5.500",
+    "OD_met": "139.7",
+    "Wt_imp": "23.0",
+    "Wt_met": "34.3",
+    "ID_imp": "4.670",
+    "ID_met": "118.6",
+    "Thickness_imp": "0.415",
+    "Thickness_met": "10.54"
+   },
+   {
+    "OD_imp": "5.500",
+    "OD_met": "139.7",
+    "Wt_imp": "26.0",
+    "Wt_met": "38.8",
+    "ID_imp": "4.548",
+    "ID_met": "115.5",
+    "Thickness_imp": "0.476",
+    "Thickness_met": "12.09"
+   },
+   {
+    "OD_imp": "5.500",
+    "OD_met": "139.7",
+    "Wt_imp": "28.4",
+    "Wt_met": "42.3",
+    "ID_imp": "4.440",
+    "ID_met": "112.8",
+    "Thickness_imp": "0.530",
+    "Thickness_met": "13.46"
+   },
+   {
+    "OD_imp": "5.500",
+    "OD_met": "139.7",
+    "Wt_imp": "32.3",
+    "Wt_met": "48.1",
+    "ID_imp": "4.276",
+    "ID_met": "108.6",
+    "Thickness_imp": "0.612",
+    "Thickness_met": "15.54"
+   },
+   {
+    "OD_imp": "5.500",
+    "OD_met": "139.7",
+    "Wt_imp": "36.4",
+    "Wt_met": "54.3",
+    "ID_imp": "4.090",
+    "ID_met": "103.9",
+    "Thickness_imp": "0.705",
+    "Thickness_met": "17.91"
+   },
+   {
+    "OD_imp": "6.000",
+    "OD_met": "152.4",
+    "Wt_imp": "15.0",
+    "Wt_met": "22.4",
+    "ID_imp": "5.524",
+    "ID_met": "140.3",
+    "Thickness_imp": "0.238",
+    "Thickness_met": "6.05"
+   },
+   {
+    "OD_imp": "6.000",
+    "OD_met": "152.4",
+    "Wt_imp": "16.0",
+    "Wt_met": "23.8",
+    "ID_imp": "5.500",
+    "ID_met": "139.7",
+    "Thickness_imp": "0.250",
+    "Thickness_met": "6.35"
+   },
+   {
+    "OD_imp": "6.000",
+    "OD_met": "152.4",
+    "Wt_imp": "18.0",
+    "Wt_met": "26.8",
+    "ID_imp": "5.424",
+    "ID_met": "137.8",
+    "Thickness_imp": "0.288",
+    "Thickness_met": "7.32"
+   },
+   {
+    "OD_imp": "6.000",
+    "OD_met": "152.4",
+    "Wt_imp": "20.0",
+    "Wt_met": "29.8",
+    "ID_imp": "5.352",
+    "ID_met": "135.9",
+    "Thickness_imp": "0.324",
+    "Thickness_met": "8.23"
+   },
+   {
+    "OD_imp": "6.000",
+    "OD_met": "152.4",
+    "Wt_imp": "23.0",
+    "Wt_met": "34.3",
+    "ID_imp": "5.240",
+    "ID_met": "133.1",
+    "Thickness_imp": "0.380",
+    "Thickness_met": "9.65"
+   },
+   {
+    "OD_imp": "6.000",
+    "OD_met": "152.4",
+    "Wt_imp": "26.0",
+    "Wt_met": "38.8",
+    "ID_imp": "5.132",
+    "ID_met": "130.4",
+    "Thickness_imp": "0.434",
+    "Thickness_met": "11.02"
+   },
+   {
+    "OD_imp": "6.625",
+    "OD_met": "168.3",
+    "Wt_imp": "17.0",
+    "Wt_met": "25.3",
+    "ID_imp": "6.135",
+    "ID_met": "155.8",
+    "Thickness_imp": "0.245",
+    "Thickness_met": "6.22"
+   },
+   {
+    "OD_imp": "6.625",
+    "OD_met": "168.3",
+    "Wt_imp": "20.0",
+    "Wt_met": "29.8",
+    "ID_imp": "6.049",
+    "ID_met": "153.6",
+    "Thickness_imp": "0.288",
+    "Thickness_met": "7.32"
+   },
+   {
+    "OD_imp": "6.625",
+    "OD_met": "168.3",
+    "Wt_imp": "22.0",
+    "Wt_met": "32.8",
+    "ID_imp": "5.989",
+    "ID_met": "152.1",
+    "Thickness_imp": "0.318",
+    "Thickness_met": "8.08"
+   },
+   {
+    "OD_imp": "6.625",
+    "OD_met": "168.3",
+    "Wt_imp": "24.0",
+    "Wt_met": "35.8",
+    "ID_imp": "5.921",
+    "ID_met": "150.4",
+    "Thickness_imp": "0.352",
+    "Thickness_met": "8.94"
+   },
+   {
+    "OD_imp": "6.625",
+    "OD_met": "168.3",
+    "Wt_imp": "26.0",
+    "Wt_met": "38.8",
+    "ID_imp": "5.855",
+    "ID_met": "148.7",
+    "Thickness_imp": "0.385",
+    "Thickness_met": "9.78"
+   },
+   {
+    "OD_imp": "6.625",
+    "OD_met": "168.3",
+    "Wt_imp": "28.0",
+    "Wt_met": "41.7",
+    "ID_imp": "5.791",
+    "ID_met": "147.1",
+    "Thickness_imp": "0.417",
+    "Thickness_met": "10.59"
+   },
+   {
+    "OD_imp": "6.625",
+    "OD_met": "168.3",
+    "Wt_imp": "29.0",
+    "Wt_met": "43.2",
+    "ID_imp": "5.761",
+    "ID_met": "146.3",
+    "Thickness_imp": "0.432",
+    "Thickness_met": "10.97"
+   },
+   {
+    "OD_imp": "6.625",
+    "OD_met": "168.3",
+    "Wt_imp": "32.0",
+    "Wt_met": "47.7",
+    "ID_imp": "5.675",
+    "ID_met": "144.1",
+    "Thickness_imp": "0.475",
+    "Thickness_met": "12.07"
+   },
+   {
+    "OD_imp": "7.000",
+    "OD_met": "177.8",
+    "Wt_imp": "17.0",
+    "Wt_met": "25.3",
+    "ID_imp": "6.538",
+    "ID_met": "166.1",
+    "Thickness_imp": "0.231",
+    "Thickness_met": "5.87"
+   },
+   {
+    "OD_imp": "7.000",
+    "OD_met": "177.8",
+    "Wt_imp": "20.0",
+    "Wt_met": "29.8",
+    "ID_imp": "6.456",
+    "ID_met": "164.0",
+    "Thickness_imp": "0.272",
+    "Thickness_met": "6.91"
+   },
+   {
+    "OD_imp": "7.000",
+    "OD_met": "177.8",
+    "Wt_imp": "22.0",
+    "Wt_met": "32.8",
+    "ID_imp": "6.398",
+    "ID_met": "162.5",
+    "Thickness_imp": "0.301",
+    "Thickness_met": "7.65"
+   },
+   {
+    "OD_imp": "7.000",
+    "OD_met": "177.8",
+    "Wt_imp": "23.0",
+    "Wt_met": "34.3",
+    "ID_imp": "6.366",
+    "ID_met": "161.7",
+    "Thickness_imp": "0.317",
+    "Thickness_met": "8.05"
+   },
+   {
+    "OD_imp": "7.000",
+    "OD_met": "177.8",
+    "Wt_imp": "24.0",
+    "Wt_met": "35.8",
+    "ID_imp": "6.336",
+    "ID_met": "160.9",
+    "Thickness_imp": "0.332",
+    "Thickness_met": "8.43"
+   },
+   {
+    "OD_imp": "7.000",
+    "OD_met": "177.8",
+    "Wt_imp": "26.0",
+    "Wt_met": "38.8",
+    "ID_imp": "6.276",
+    "ID_met": "159.4",
+    "Thickness_imp": "0.362",
+    "Thickness_met": "9.19"
+   },
+   {
+    "OD_imp": "7.000",
+    "OD_met": "177.8",
+    "Wt_imp": "28.0",
+    "Wt_met": "41.7",
+    "ID_imp": "6.214",
+    "ID_met": "157.8",
+    "Thickness_imp": "0.393",
+    "Thickness_met": "9.98"
+   },
+   {
+    "OD_imp": "7.000",
+    "OD_met": "177.8",
+    "Wt_imp": "29.0",
+    "Wt_met": "43.2",
+    "ID_imp": "6.184",
+    "ID_met": "157.1",
+    "Thickness_imp": "0.408",
+    "Thickness_met": "10.36"
+   },
+   {
+    "OD_imp": "7.000",
+    "OD_met": "177.8",
+    "Wt_imp": "30.0",
+    "Wt_met": "44.7",
+    "ID_imp": "6.154",
+    "ID_met": "156.3",
+    "Thickness_imp": "0.423",
+    "Thickness_met": "10.74"
+   },
+   {
+    "OD_imp": "7.000",
+    "OD_met": "177.8",
+    "Wt_imp": "32.0",
+    "Wt_met": "47.7",
+    "ID_imp": "6.094",
+    "ID_met": "154.8",
+    "Thickness_imp": "0.453",
+    "Thickness_met": "11.51"
+   },
+   {
+    "OD_imp": "7.000",
+    "OD_met": "177.8",
+    "Wt_imp": "35.0",
+    "Wt_met": "52.2",
+    "ID_imp": "6.004",
+    "ID_met": "152.5",
+    "Thickness_imp": "0.498",
+    "Thickness_met": "12.65"
+   },
+   {
+    "OD_imp": "7.000",
+    "OD_met": "177.8",
+    "Wt_imp": "38.0",
+    "Wt_met": "56.6",
+    "ID_imp": "5.920",
+    "ID_met": "150.4",
+    "Thickness_imp": "0.540",
+    "Thickness_met": "13.72"
+   },
+   {
+    "OD_imp": "7.000",
+    "OD_met": "177.8",
+    "Wt_imp": "40.0",
+    "Wt_met": "59.6",
+    "ID_imp": "5.836",
+    "ID_met": "148.2",
+    "Thickness_imp": "0.582",
+    "Thickness_met": "14.78"
+   },
+   {
+    "OD_imp": "7.000",
+    "OD_met": "177.8",
+    "Wt_imp": "41.0",
+    "Wt_met": "61.1",
+    "ID_imp": "5.820",
+    "ID_met": "147.8",
+    "Thickness_imp": "0.590",
+    "Thickness_met": "14.99"
+   },
+   {
+    "OD_imp": "7.000",
+    "OD_met": "177.8",
+    "Wt_imp": "44.0",
+    "Wt_met": "65.6",
+    "ID_imp": "5.720",
+    "ID_met": "145.3",
+    "Thickness_imp": "0.640",
+    "Thickness_met": "16.26"
+   },
+   {
+    "OD_imp": "7.000",
+    "OD_met": "177.8",
+    "Wt_imp": "49.5",
+    "Wt_met": "73.8",
+    "ID_imp": "5.540",
+    "ID_met": "140.7",
+    "Thickness_imp": "0.730",
+    "Thickness_met": "18.54"
+   },
+   {
+    "OD_imp": "7.625",
+    "OD_met": "193.7",
+    "Wt_imp": "20.0",
+    "Wt_met": "29.8",
+    "ID_imp": "7.125",
+    "ID_met": "181.0",
+    "Thickness_imp": "0.250",
+    "Thickness_met": "6.35"
+   },
+   {
+    "OD_imp": "7.625",
+    "OD_met": "193.7",
+    "Wt_imp": "24.0",
+    "Wt_met": "35.8",
+    "ID_imp": "7.025",
+    "ID_met": "178.4",
+    "Thickness_imp": "0.300",
+    "Thickness_met": "7.62"
+   },
+   {
+    "OD_imp": "7.625",
+    "OD_met": "193.7",
+    "Wt_imp": "26.4",
+    "Wt_met": "39.3",
+    "ID_imp": "6.969",
+    "ID_met": "177.0",
+    "Thickness_imp": "0.328",
+    "Thickness_met": "8.33"
+   },
+   {
+    "OD_imp": "7.625",
+    "OD_met": "193.7",
+    "Wt_imp": "29.7",
+    "Wt_met": "44.3",
+    "ID_imp": "6.875",
+    "ID_met": "174.6",
+    "Thickness_imp": "0.375",
+    "Thickness_met": "9.53"
+   },
+   {
+    "OD_imp": "7.625",
+    "OD_met": "193.7",
+    "Wt_imp": "33.7",
+    "Wt_met": "50.2",
+    "ID_imp": "6.765",
+    "ID_met": "171.8",
+    "Thickness_imp": "0.430",
+    "Thickness_met": "10.92"
+   },
+   {
+    "OD_imp": "7.625",
+    "OD_met": "193.7",
+    "Wt_imp": "39.0",
+    "Wt_met": "58.1",
+    "ID_imp": "6.625",
+    "ID_met": "168.3",
+    "Thickness_imp": "0.500",
+    "Thickness_met": "12.70"
+   },
+   {
+    "OD_imp": "7.625",
+    "OD_met": "193.7",
+    "Wt_imp": "45.3",
+    "Wt_met": "67.5",
+    "ID_imp": "6.435",
+    "ID_met": "163.4",
+    "Thickness_imp": "0.595",
+    "Thickness_met": "15.11"
+   },
+   {
+    "OD_imp": "7.625",
+    "OD_met": "193.7",
+    "Wt_imp": "55.3",
+    "Wt_met": "82.4",
+    "ID_imp": "6.125",
+    "ID_met": "155.6",
+    "Thickness_imp": "0.75",
+    "Thickness_met": "19.05"
+   },
+   {
+    "OD_imp": "7.625",
+    "OD_met": "193.7",
+    "Wt_imp": "59.2",
+    "Wt_met": "88.2",
+    "ID_imp": "6.001",
+    "ID_met": "152.4",
+    "Thickness_imp": "0.812",
+    "Thickness_met": "20.62"
+   },
+   {
+    "OD_imp": "7.750",
+    "OD_met": "196.9",
+    "Wt_imp": "46.1",
+    "Wt_met": "68.7",
+    "ID_imp": "6.560",
+    "ID_met": "166.6",
+    "Thickness_imp": "0.595",
+    "Thickness_met": "15.11"
+   },
+   {
+    "OD_imp": "8.625",
+    "OD_met": "219.1",
+    "Wt_imp": "24.0",
+    "Wt_met": "35.8",
+    "ID_imp": "8.097",
+    "ID_met": "205.7",
+    "Thickness_imp": "0.264",
+    "Thickness_met": "6.71"
+   },
+   {
+    "OD_imp": "8.625",
+    "OD_met": "219.1",
+    "Wt_imp": "28.0",
+    "Wt_met": "41.7",
+    "ID_imp": "8.017",
+    "ID_met": "203.6",
+    "Thickness_imp": "0.304",
+    "Thickness_met": "7.72"
+   },
+   {
+    "OD_imp": "8.625",
+    "OD_met": "219.1",
+    "Wt_imp": "32.0",
+    "Wt_met": "47.7",
+    "ID_imp": "7.921",
+    "ID_met": "201.2",
+    "Thickness_imp": "0.352",
+    "Thickness_met": "8.94"
+   },
+   {
+    "OD_imp": "8.625",
+    "OD_met": "219.1",
+    "Wt_imp": "36.0",
+    "Wt_met": "53.7",
+    "ID_imp": "7.825",
+    "ID_met": "198.8",
+    "Thickness_imp": "0.400",
+    "Thickness_met": "10.16"
+   },
+   {
+    "OD_imp": "8.625",
+    "OD_met": "219.1",
+    "Wt_imp": "38.0",
+    "Wt_met": "56.6",
+    "ID_imp": "7.775",
+    "ID_met": "197.5",
+    "Thickness_imp": "0.425",
+    "Thickness_met": "10.80"
+   },
+   {
+    "OD_imp": "8.625",
+    "OD_met": "219.1",
+    "Wt_imp": "40.0",
+    "Wt_met": "59.6",
+    "ID_imp": "7.725",
+    "ID_met": "196.2",
+    "Thickness_imp": "0.450",
+    "Thickness_met": "11.43"
+   },
+   {
+    "OD_imp": "8.625",
+    "OD_met": "219.1",
+    "Wt_imp": "43.0",
+    "Wt_met": "64.1",
+    "ID_imp": "7.651",
+    "ID_met": "194.3",
+    "Thickness_imp": "0.487",
+    "Thickness_met": "12.37"
+   },
+   {
+    "OD_imp": "8.625",
+    "OD_met": "219.1",
+    "Wt_imp": "44.0",
+    "Wt_met": "65.6",
+    "ID_imp": "7.625",
+    "ID_met": "193.7",
+    "Thickness_imp": "0.500",
+    "Thickness_met": "12.70"
+   },
+   {
+    "OD_imp": "8.625",
+    "OD_met": "219.1",
+    "Wt_imp": "49.0",
+    "Wt_met": "73.0",
+    "ID_imp": "7.511",
+    "ID_met": "190.8",
+    "Thickness_imp": "0.557",
+    "Thickness_met": "14.15"
+   },
+   {
+    "OD_imp": "8.625",
+    "OD_met": "219.1",
+    "Wt_imp": "52.0",
+    "Wt_met": "77.5",
+    "ID_imp": "7.435",
+    "ID_met": "188.8",
+    "Thickness_imp": "0.595",
+    "Thickness_met": "15.11"
+   },
+   {
+    "OD_imp": "8.750",
+    "OD_met": "222.3",
+    "Wt_imp": "49.7",
+    "Wt_met": "74.1",
+    "ID_imp": "7.636",
+    "ID_met": "194.0",
+    "Thickness_imp": "0.557",
+    "Thickness_met": "14.15"
+   },
+   {
+    "OD_imp": "9.000",
+    "OD_met": "228.6",
+    "Wt_imp": "34.0",
+    "Wt_met": "50.7",
+    "ID_imp": "8.290",
+    "ID_met": "210.6",
+    "Thickness_imp": "0.355",
+    "Thickness_met": "9.02"
+   },
+   {
+    "OD_imp": "9.000",
+    "OD_met": "228.6",
+    "Wt_imp": "38.0",
+    "Wt_met": "56.6",
+    "ID_imp": "8.196",
+    "ID_met": "208.2",
+    "Thickness_imp": "0.402",
+    "Thickness_met": "10.21"
+   },
+   {
+    "OD_imp": "9.000",
+    "OD_met": "228.6",
+    "Wt_imp": "40.0",
+    "Wt_met": "59.6",
+    "ID_imp": "8.150",
+    "ID_met": "207.0",
+    "Thickness_imp": "0.425",
+    "Thickness_met": "10.80"
+   },
+   {
+    "OD_imp": "9.000",
+    "OD_met": "228.6",
+    "Wt_imp": "45.0",
+    "Wt_met": "67.1",
+    "ID_imp": "8.032",
+    "ID_met": "204.0",
+    "Thickness_imp": "0.484",
+    "Thickness_met": "12.29"
+   },
+   {
+    "OD_imp": "9.000",
+    "OD_met": "228.6",
+    "Wt_imp": "55.0",
+    "Wt_met": "82.0",
+    "ID_imp": "7.812",
+    "ID_met": "198.4",
+    "Thickness_imp": "0.594",
+    "Thickness_met": "15.09"
+   },
+   {
+    "OD_imp": "9.625",
+    "OD_met": "244.5",
+    "Wt_imp": "29.3",
+    "Wt_met": "43.7",
+    "ID_imp": "9.063",
+    "ID_met": "230.2",
+    "Thickness_imp": "0.281",
+    "Thickness_met": "7.14"
+   },
+   {
+    "OD_imp": "9.625",
+    "OD_met": "244.5",
+    "Wt_imp": "32.3",
+    "Wt_met": "48.1",
+    "ID_imp": "9.001",
+    "ID_met": "228.6",
+    "Thickness_imp": "0.312",
+    "Thickness_met": "7.92"
+   },
+   {
+    "OD_imp": "9.625",
+    "OD_met": "244.5",
+    "Wt_imp": "36.0",
+    "Wt_met": "53.7",
+    "ID_imp": "8.921",
+    "ID_met": "226.6",
+    "Thickness_imp": "0.352",
+    "Thickness_met": "8.94"
+   },
+   {
+    "OD_imp": "9.625",
+    "OD_met": "244.5",
+    "Wt_imp": "40.0",
+    "Wt_met": "59.6",
+    "ID_imp": "8.835",
+    "ID_met": "224.4",
+    "Thickness_imp": "0.395",
+    "Thickness_met": "10.03"
+   },
+   {
+    "OD_imp": "9.625",
+    "OD_met": "244.5",
+    "Wt_imp": "43.5",
+    "Wt_met": "64.8",
+    "ID_imp": "8.755",
+    "ID_met": "222.4",
+    "Thickness_imp": "0.435",
+    "Thickness_met": "11.05"
+   },
+   {
+    "OD_imp": "9.625",
+    "OD_met": "244.5",
+    "Wt_imp": "47.0",
+    "Wt_met": "70.1",
+    "ID_imp": "8.681",
+    "ID_met": "220.5",
+    "Thickness_imp": "0.472",
+    "Thickness_met": "11.99"
+   },
+   {
+    "OD_imp": "9.625",
+    "OD_met": "244.5",
+    "Wt_imp": "53.5",
+    "Wt_met": "79.7",
+    "ID_imp": "8.535",
+    "ID_met": "216.8",
+    "Thickness_imp": "0.545",
+    "Thickness_met": "13.84"
+   },
+   {
+    "OD_imp": "9.625",
+    "OD_met": "244.5",
+    "Wt_imp": "58.4",
+    "Wt_met": "87.0",
+    "ID_imp": "8.435",
+    "ID_met": "214.2",
+    "Thickness_imp": "0.595",
+    "Thickness_met": "15.11"
+   },
+   {
+    "OD_imp": "9.625",
+    "OD_met": "244.5",
+    "Wt_imp": "61.1",
+    "Wt_met": "91.1",
+    "ID_imp": "8.375",
+    "ID_met": "212.7",
+    "Thickness_imp": "0.625",
+    "Thickness_met": "15.88"
+   },
+   {
+    "OD_imp": "9.625",
+    "OD_met": "244.5",
+    "Wt_imp": "71.8",
+    "Wt_met": "107.0",
+    "ID_imp": "8.125",
+    "ID_met": "206.4",
+    "Thickness_imp": "0.750",
+    "Thickness_met": "19.05"
+   },
+   {
+    "OD_imp": "9.750",
+    "OD_met": "247.7",
+    "Wt_imp": "59.2",
+    "Wt_met": "88.2",
+    "ID_imp": "8.560",
+    "ID_met": "217.4",
+    "Thickness_imp": "0.595",
+    "Thickness_met": "15.11"
+   },
+   {
+    "OD_imp": "9.875",
+    "OD_met": "250.8",
+    "Wt_imp": "62.8",
+    "Wt_met": "93.6",
+    "ID_imp": "8.625",
+    "ID_met": "219.1",
+    "Thickness_imp": "0.625",
+    "Thickness_met": "15.88"
+   },
+   {
+    "OD_imp": "10.000",
+    "OD_met": "254.0",
+    "Wt_imp": "33.0",
+    "Wt_met": "49.2",
+    "ID_imp": "9.384",
+    "ID_met": "238.4",
+    "Thickness_imp": "0.308",
+    "Thickness_met": "7.82"
+   },
+   {
+    "OD_imp": "10.750",
+    "OD_met": "273.1",
+    "Wt_imp": "32.8",
+    "Wt_met": "48.8",
+    "ID_imp": "10.192",
+    "ID_met": "258.9",
+    "Thickness_imp": "0.279",
+    "Thickness_met": "7.09"
+   },
+   {
+    "OD_imp": "10.750",
+    "OD_met": "273.1",
+    "Wt_imp": "40.0",
+    "Wt_met": "59.6",
+    "ID_imp": "10.054",
+    "ID_met": "255.4",
+    "Thickness_imp": "0.348",
+    "Thickness_met": "8.84"
+   },
+   {
+    "OD_imp": "10.750",
+    "OD_met": "273.1",
+    "Wt_imp": "40.5",
+    "Wt_met": "60.4",
+    "ID_imp": "10.050",
+    "ID_met": "255.3",
+    "Thickness_imp": "0.350",
+    "Thickness_met": "8.89"
+   },
+   {
+    "OD_imp": "10.750",
+    "OD_met": "273.1",
+    "Wt_imp": "45.0",
+    "Wt_met": "67.1",
+    "ID_imp": "9.960",
+    "ID_met": "253.0",
+    "Thickness_imp": "0.395",
+    "Thickness_met": "10.03"
+   },
+   {
+    "OD_imp": "10.750",
+    "OD_met": "273.1",
+    "Wt_imp": "45.5",
+    "Wt_met": "67.8",
+    "ID_imp": "9.950",
+    "ID_met": "252.7",
+    "Thickness_imp": "0.400",
+    "Thickness_met": "10.16"
+   },
+   {
+    "OD_imp": "10.750",
+    "OD_met": "273.1",
+    "Wt_imp": "51.0",
+    "Wt_met": "76.0",
+    "ID_imp": "9.850",
+    "ID_met": "250.2",
+    "Thickness_imp": "0.450",
+    "Thickness_met": "11.43"
+   },
+   {
+    "OD_imp": "10.750",
+    "OD_met": "273.1",
+    "Wt_imp": "54.0",
+    "Wt_met": "80.5",
+    "ID_imp": "9.784",
+    "ID_met": "248.5",
+    "Thickness_imp": "0.483",
+    "Thickness_met": "12.27"
+   },
+   {
+    "OD_imp": "10.750",
+    "OD_met": "273.1",
+    "Wt_imp": "55.5",
+    "Wt_met": "82.7",
+    "ID_imp": "9.760",
+    "ID_met": "247.9",
+    "Thickness_imp": "0.495",
+    "Thickness_met": "12.57"
+   },
+   {
+    "OD_imp": "10.750",
+    "OD_met": "273.1",
+    "Wt_imp": "60.7",
+    "Wt_met": "90.5",
+    "ID_imp": "9.660",
+    "ID_met": "245.4",
+    "Thickness_imp": "0.545",
+    "Thickness_met": "13.84"
+   },
+   {
+    "OD_imp": "10.750",
+    "OD_met": "273.1",
+    "Wt_imp": "65.7",
+    "Wt_met": "97.9",
+    "ID_imp": "9.56",
+    "ID_met": "242.8",
+    "Thickness_imp": "0.595",
+    "Thickness_met": "15.11"
+   },
+   {
+    "OD_imp": "10.750",
+    "OD_met": "273.1",
+    "Wt_imp": "71.1",
+    "Wt_met": "106.0",
+    "ID_imp": "9.450",
+    "ID_met": "240.0",
+    "Thickness_imp": "0.650",
+    "Thickness_met": "16.51"
+   },
+   {
+    "OD_imp": "10.750",
+    "OD_met": "273.1",
+    "Wt_imp": "76.0",
+    "Wt_met": "113.3",
+    "ID_imp": "9.350",
+    "ID_met": "237.5",
+    "Thickness_imp": "0.700",
+    "Thickness_met": "17.78"
+   },
+   {
+    "OD_imp": "10.750",
+    "OD_met": "273.1",
+    "Wt_imp": "81.0",
+    "Wt_met": "120.7",
+    "ID_imp": "9.250",
+    "ID_met": "235.0",
+    "Thickness_imp": "0.750",
+    "Thickness_met": "19.05"
+   },
+   {
+    "OD_imp": "10.750",
+    "OD_met": "273.1",
+    "Wt_imp": "109.0",
+    "Wt_met": "162.4",
+    "ID_imp": "8.711",
+    "ID_met": "221.3",
+    "Thickness_imp": "1.0195",
+    "Thickness_met": "25.89"
+   },
+   {
+    "OD_imp": "11.750",
+    "OD_met": "298.5",
+    "Wt_imp": "38.0",
+    "Wt_met": "56.6",
+    "ID_imp": "11.150",
+    "ID_met": "283.2",
+    "Thickness_imp": "0.300",
+    "Thickness_met": "7.62"
+   },
+   {
+    "OD_imp": "11.750",
+    "OD_met": "298.5",
+    "Wt_imp": "42.0",
+    "Wt_met": "62.6",
+    "ID_imp": "11.084",
+    "ID_met": "281.5",
+    "Thickness_imp": "0.333",
+    "Thickness_met": "8.46"
+   },
+   {
+    "OD_imp": "11.750",
+    "OD_met": "298.5",
+    "Wt_imp": "47.0",
+    "Wt_met": "70.1",
+    "ID_imp": "11.000",
+    "ID_met": "279.4",
+    "Thickness_imp": "0.375",
+    "Thickness_met": "9.53"
+   },
+   {
+    "OD_imp": "11.750",
+    "OD_met": "298.5",
+    "Wt_imp": "54.0",
+    "Wt_met": "80.5",
+    "ID_imp": "10.880",
+    "ID_met": "276.4",
+    "Thickness_imp": "0.435",
+    "Thickness_met": "11.05"
+   },
+   {
+    "OD_imp": "11.750",
+    "OD_met": "298.5",
+    "Wt_imp": "60.0",
+    "Wt_met": "89.4",
+    "ID_imp": "10.772",
+    "ID_met": "273.6",
+    "Thickness_imp": "0.489",
+    "Thickness_met": "12.42"
+   },
+   {
+    "OD_imp": "11.750",
+    "OD_met": "298.5",
+    "Wt_imp": "65.0",
+    "Wt_met": "96.9",
+    "ID_imp": "10.682",
+    "ID_met": "271.3",
+    "Thickness_imp": "0.534",
+    "Thickness_met": "13.56"
+   },
+   {
+    "OD_imp": "11.750",
+    "OD_met": "298.5",
+    "Wt_imp": "71.0",
+    "Wt_met": "105.8",
+    "ID_imp": "10.586",
+    "ID_met": "268.9",
+    "Thickness_imp": "0.582",
+    "Thickness_met": "14.78"
+   },
+   {
+    "OD_imp": "11.875",
+    "OD_met": "301.6",
+    "Wt_imp": "71.8",
+    "Wt_met": "107.0",
+    "ID_imp": "10.711",
+    "ID_met": "272.1",
+    "Thickness_imp": "0.582",
+    "Thickness_met": "14.78"
+   },
+   {
+    "OD_imp": "12.000",
+    "OD_met": "304.8",
+    "Wt_imp": "40.0",
+    "Wt_met": "59.6",
+    "ID_imp": "11.384",
+    "ID_met": "289.2",
+    "Thickness_imp": "0.308",
+    "Thickness_met": "7.82"
+   },
+   {
+    "OD_imp": "13.000",
+    "OD_met": "330.2",
+    "Wt_imp": "40.0",
+    "Wt_met": "59.6",
+    "ID_imp": "12.438",
+    "ID_met": "315.9",
+    "Thickness_imp": "0.281",
+    "Thickness_met": "7.14"
+   },
+   {
+    "OD_imp": "13.000",
+    "OD_met": "330.2",
+    "Wt_imp": "45.0",
+    "Wt_met": "67.1",
+    "ID_imp": "12.360",
+    "ID_met": "313.9",
+    "Thickness_imp": "0.320",
+    "Thickness_met": "8.13"
+   },
+   {
+    "OD_imp": "13.000",
+    "OD_met": "330.2",
+    "Wt_imp": "50.0",
+    "Wt_met": "74.5",
+    "ID_imp": "12.282",
+    "ID_met": "312.0",
+    "Thickness_imp": "0.359",
+    "Thickness_met": "9.12"
+   },
+   {
+    "OD_imp": "13.000",
+    "OD_met": "330.2",
+    "Wt_imp": "54.0",
+    "Wt_met": "80.5",
+    "ID_imp": "12.220",
+    "ID_met": "310.4",
+    "Thickness_imp": "0.390",
+    "Thickness_met": "9.91"
+   },
+   {
+    "OD_imp": "13.375",
+    "OD_met": "339.7",
+    "Wt_imp": "48.0",
+    "Wt_met": "71.5",
+    "ID_imp": "12.715",
+    "ID_met": "323.0",
+    "Thickness_imp": "0.330",
+    "Thickness_met": "8.38"
+   },
+   {
+    "OD_imp": "13.375",
+    "OD_met": "339.7",
+    "Wt_imp": "54.5",
+    "Wt_met": "81.2",
+    "ID_imp": "12.615",
+    "ID_met": "320.4",
+    "Thickness_imp": "0.380",
+    "Thickness_met": "9.65"
+   },
+   {
+    "OD_imp": "13.375",
+    "OD_met": "339.7",
+    "Wt_imp": "61.0",
+    "Wt_met": "90.9",
+    "ID_imp": "12.515",
+    "ID_met": "317.9",
+    "Thickness_imp": "0.430",
+    "Thickness_met": "10.92"
+   },
+   {
+    "OD_imp": "13.375",
+    "OD_met": "339.7",
+    "Wt_imp": "68.0",
+    "Wt_met": "101.4",
+    "ID_imp": "12.415",
+    "ID_met": "315.3",
+    "Thickness_imp": "0.480",
+    "Thickness_met": "12.19"
+   },
+   {
+    "OD_imp": "13.375",
+    "OD_met": "339.7",
+    "Wt_imp": "72.0",
+    "Wt_met": "107.3",
+    "ID_imp": "12.347",
+    "ID_met": "313.6",
+    "Thickness_imp": "0.514",
+    "Thickness_met": "13.06"
+   },
+   {
+    "OD_imp": "13.375",
+    "OD_met": "339.7",
+    "Wt_imp": "77.0",
+    "Wt_met": "114.8",
+    "ID_imp": "12.275",
+    "ID_met": "311.8",
+    "Thickness_imp": "0.550",
+    "Thickness_met": "13.97"
+   },
+   {
+    "OD_imp": "13.375",
+    "OD_met": "339.7",
+    "Wt_imp": "80.7",
+    "Wt_met": "120.3",
+    "ID_imp": "12.215",
+    "ID_met": "310.3",
+    "Thickness_imp": "0.580",
+    "Thickness_met": "14.73"
+   },
+   {
+    "OD_imp": "13.375",
+    "OD_met": "339.7",
+    "Wt_imp": "83.0",
+    "Wt_met": "123.7",
+    "ID_imp": "12.175",
+    "ID_met": "309.2",
+    "Thickness_imp": "0.600",
+    "Thickness_met": "15.242"
+   },
+   {
+    "OD_imp": "13.375",
+    "OD_met": "339.7",
+    "Wt_imp": "85.0",
+    "Wt_met": "126.7",
+    "ID_imp": "12.159",
+    "ID_met": "308.8",
+    "Thickness_imp": "0.608",
+    "Thickness_met": "15.44"
+   },
+   {
+    "OD_imp": "13.375",
+    "OD_met": "339.7",
+    "Wt_imp": "86.0",
+    "Wt_met": "128.2",
+    "ID_imp": "12.125",
+    "ID_met": "308.0",
+    "Thickness_imp": "0.625",
+    "Thickness_met": "15.88"
+   },
+   {
+    "OD_imp": "13.375",
+    "OD_met": "339.7",
+    "Wt_imp": "88.0",
+    "Wt_met": "131.2",
+    "ID_imp": "12.075",
+    "ID_met": "306.7",
+    "Thickness_imp": "0.650",
+    "Thickness_met": "16.51"
+   },
+   {
+    "OD_imp": "13.375",
+    "OD_met": "339.7",
+    "Wt_imp": "92.0",
+    "Wt_met": "137.1",
+    "ID_imp": "12.031",
+    "ID_met": "305.6",
+    "Thickness_imp": "0.672",
+    "Thickness_met": "17.07"
+   },
+   {
+    "OD_imp": "13.375",
+    "OD_met": "339.7",
+    "Wt_imp": "98.0",
+    "Wt_met": "146.1",
+    "ID_imp": "11.937",
+    "ID_met": "303.2",
+    "Thickness_imp": "0.719",
+    "Thickness_met": "18.26"
+   },
+   {
+    "OD_imp": "13.500",
+    "OD_met": "342.9",
+    "Wt_imp": "81.4",
+    "Wt_met": "121.3",
+    "ID_imp": "12.340",
+    "ID_met": "313.4",
+    "Thickness_imp": "0.580",
+    "Thickness_met": "14.73"
+   },
+   {
+    "OD_imp": "13.625",
+    "OD_met": "346.1",
+    "Wt_imp": "88.2",
+    "Wt_met": "131.5",
+    "ID_imp": "12.375",
+    "ID_met": "314.3",
+    "Thickness_imp": "0.625",
+    "Thickness_met": "15.88"
+   },
+   {
+    "OD_imp": "14.000",
+    "OD_met": "355.6",
+    "Wt_imp": "50.0",
+    "Wt_met": "74.5",
+    "ID_imp": "13.344",
+    "ID_met": "338.9",
+    "Thickness_imp": "0.328",
+    "Thickness_met": "8.33"
+   },
+   {
+    "OD_imp": "16.000",
+    "OD_met": "406.4",
+    "Wt_imp": "55.0",
+    "Wt_met": "82.0",
+    "ID_imp": "15.375",
+    "ID_met": "390.5",
+    "Thickness_imp": "0.313",
+    "Thickness_met": "7.95"
+   },
+   {
+    "OD_imp": "16.000",
+    "OD_met": "406.4",
+    "Wt_imp": "65.0",
+    "Wt_met": "96.9",
+    "ID_imp": "15.250",
+    "ID_met": "387.4",
+    "Thickness_imp": "0.375",
+    "Thickness_met": "9.53"
+   },
+   {
+    "OD_imp": "16.000",
+    "OD_met": "406.4",
+    "Wt_imp": "75.0",
+    "Wt_met": "111.8",
+    "ID_imp": "15.125",
+    "ID_met": "384.2",
+    "Thickness_imp": "0.438",
+    "Thickness_met": "11.13"
+   },
+   {
+    "OD_imp": "16.000",
+    "OD_met": "406.4",
+    "Wt_imp": "84.0",
+    "Wt_met": "125.2",
+    "ID_imp": "15.010",
+    "ID_met": "381.3",
+    "Thickness_imp": "0.495",
+    "Thickness_met": "12.57"
+   },
+   {
+    "OD_imp": "16.000",
+    "OD_met": "406.4",
+    "Wt_imp": "109.0",
+    "Wt_met": "162.5",
+    "ID_imp": "14.688",
+    "ID_met": "373.1",
+    "Thickness_imp": "0.656",
+    "Thickness_met": "16.66"
+   },
+   {
+    "OD_imp": "18.625",
+    "OD_met": "473.1",
+    "Wt_imp": "78.0",
+    "Wt_met": "116.3",
+    "ID_imp": "17.855",
+    "ID_met": "453.5",
+    "Thickness_imp": "0.385",
+    "Thickness_met": "9.78"
+   },
+   {
+    "OD_imp": "18.625",
+    "OD_met": "473.1",
+    "Wt_imp": "87.5",
+    "Wt_met": "130.4",
+    "ID_imp": "17.755",
+    "ID_met": "451.0",
+    "Thickness_imp": "0.435",
+    "Thickness_met": "11.05"
+   },
+   {
+    "OD_imp": "18.625",
+    "OD_met": "473.1",
+    "Wt_imp": "96.5",
+    "Wt_met": "143.8",
+    "ID_imp": "17.655",
+    "ID_met": "448.4",
+    "Thickness_imp": "0.485",
+    "Thickness_met": "12.32"
+   },
+   {
+    "OD_imp": "18.625",
+    "OD_met": "473.1",
+    "Wt_imp": "138.0",
+    "Wt_met": "205.3",
+    "ID_imp": "17.185",
+    "ID_met": "436.5",
+    "Thickness_imp": "0.720",
+    "Thickness_met": "18.29"
+   },
+   {
+    "OD_imp": "20.000",
+    "OD_met": "508.0",
+    "Wt_imp": "90.0",
+    "Wt_met": "134.1",
+    "ID_imp": "19.190",
+    "ID_met": "487.4",
+    "Thickness_imp": "0.405",
+    "Thickness_met": "10.29"
+   },
+   {
+    "OD_imp": "20.000",
+    "OD_met": "508.0",
+    "Wt_imp": "94.0",
+    "Wt_met": "140.1",
+    "ID_imp": "19.124",
+    "ID_met": "485.7",
+    "Thickness_imp": "0.438",
+    "Thickness_met": "11.13"
+   },
+   {
+    "OD_imp": "20.000",
+    "OD_met": "508.0",
+    "Wt_imp": "106.5",
+    "Wt_met": "158.7",
+    "ID_imp": "19.000",
+    "ID_met": "482.6",
+    "Thickness_imp": "0.500",
+    "Thickness_met": "12.70"
+   },
+   {
+    "OD_imp": "20.000",
+    "OD_met": "508.0",
+    "Wt_imp": "133.0",
+    "Wt_met": "198.2",
+    "ID_imp": "18.730",
+    "ID_met": "475.7",
+    "Thickness_imp": "0.635",
+    "Thickness_met": "16.13"
+   },
+   {
+    "OD_imp": "21.500",
+    "OD_met": "546.1",
+    "Wt_imp": "92.5",
+    "Wt_met": "137.9",
+    "ID_imp": "20.710",
+    "ID_met": "526.0",
+    "Thickness_imp": "0.395",
+    "Thickness_met": "10.03"
+   },
+   {
+    "OD_imp": "21.500",
+    "OD_met": "546.1",
+    "Wt_imp": "103.0",
+    "Wt_met": "153.5",
+    "ID_imp": "20.610",
+    "ID_met": "523.5",
+    "Thickness_imp": "0.445",
+    "Thickness_met": "11.30"
+   },
+   {
+    "OD_imp": "21.500",
+    "OD_met": "546.1",
+    "Wt_imp": "114.0",
+    "Wt_met": "169.9",
+    "ID_imp": "20.510",
+    "ID_met": "521.0",
+    "Thickness_imp": "0.495",
+    "Thickness_met": "12.57"
+   },
+   {
+    "OD_imp": "24.500",
+    "OD_met": "622.3",
+    "Wt_imp": "100.5",
+    "Wt_met": "149.8",
+    "ID_imp": "23.750",
+    "ID_met": "603.3",
+    "Thickness_imp": "0.375",
+    "Thickness_met": "9.53"
+   },
+   {
+    "OD_imp": "24.500",
+    "OD_met": "622.3",
+    "Wt_imp": "113.0",
+    "Wt_met": "168.4",
+    "ID_imp": "23.650",
+    "ID_met": "600.7",
+    "Thickness_imp": "0.425",
+    "Thickness_met": "10.80"
+   },
+   {
+    "OD_imp": "30.000",
+    "OD_met": "762.0",
+    "Wt_imp": "310.0",
+    "Wt_met": "461.3",
+    "ID_imp": "28.000",
+    "ID_met": "711.2",
+    "Thickness_imp": "1.000",
+    "Thickness_met": "25.40"
+   },
+   {
+    "OD_imp": "32.000",
+    "OD_met": "812.8",
+    "Wt_imp": "250.3",
+    "Wt_met": "372.4",
+    "ID_imp": "30.500",
+    "ID_met": "774.7",
+    "Thickness_imp": "0.750",
+    "Thickness_met": "19.05"
+   }
+  ]
+ },
+ "HoleSizes": {
+  "source_file": "HoleSizes.xml",
+  "unit": "inch",
+  "count": 22,
+  "diameters_imperial": [
+   "3.750",
+   "3.875",
+   "4.250",
+   "4.625",
+   "4.750",
+   "5.625",
+   "6.000",
+   "6.250",
+   "6.500",
+   "6.750",
+   "7.875",
+   "8.500",
+   "8.625",
+   "8.750",
+   "9.625",
+   "9.875",
+   "10.625",
+   "11.000",
+   "12.250",
+   "14.750",
+   "15.000",
+   "17.500"
+  ]
+ },
+ "CasingProgram": {
+  "source_file": "CasingProgram.xml",
+  "unit": "inch",
+  "note": "default hole-size for each casing OD (drilling program telescoping defaults)",
+  "count": 21,
+  "pairs": [
+   {
+    "CasingDiameter": "30.000",
+    "HoleDiameter": "26.000"
+   },
+   {
+    "CasingDiameter": "24.000",
+    "HoleDiameter": "20.000"
+   },
+   {
+    "CasingDiameter": "20.000",
+    "HoleDiameter": "17.500"
+   },
+   {
+    "CasingDiameter": "18.625",
+    "HoleDiameter": "16.000"
+   },
+   {
+    "CasingDiameter": "16.000",
+    "HoleDiameter": "14.750"
+   },
+   {
+    "CasingDiameter": "14.000",
+    "HoleDiameter": "12.250"
+   },
+   {
+    "CasingDiameter": "13.375",
+    "HoleDiameter": "12.250"
+   },
+   {
+    "CasingDiameter": "11.750",
+    "HoleDiameter": "10.625"
+   },
+   {
+    "CasingDiameter": "11.875",
+    "HoleDiameter": "10.625"
+   },
+   {
+    "CasingDiameter": "10.750",
+    "HoleDiameter": "9.500"
+   },
+   {
+    "CasingDiameter": "9.875",
+    "HoleDiameter": "7.875"
+   },
+   {
+    "CasingDiameter": "9.625",
+    "HoleDiameter": "7.875"
+   },
+   {
+    "CasingDiameter": "8.625",
+    "HoleDiameter": "7.375"
+   },
+   {
+    "CasingDiameter": "7.750",
+    "HoleDiameter": "6.125"
+   },
+   {
+    "CasingDiameter": "7.375",
+    "HoleDiameter": "6.125"
+   },
+   {
+    "CasingDiameter": "7.000",
+    "HoleDiameter": "6.000"
+   },
+   {
+    "CasingDiameter": "6.625",
+    "HoleDiameter": "4.750"
+   },
+   {
+    "CasingDiameter": "5.500",
+    "HoleDiameter": "4.750"
+   },
+   {
+    "CasingDiameter": "5.000",
+    "HoleDiameter": "4.000"
+   },
+   {
+    "CasingDiameter": "4.500",
+    "HoleDiameter": "3.750"
+   },
+   {
+    "CasingDiameter": "4.000",
+    "HoleDiameter": "3.750"
+   }
+  ]
+ },
+ "PaperSizes": {
+  "source_file": "PaperSizes.xml",
+  "unit": "mm",
+  "count": 68,
+  "papers": [
+   {
+    "Name": "ANSI A",
+    "Width_mm": "216",
+    "Height_mm": "279"
+   },
+   {
+    "Name": "ANSI B",
+    "Width_mm": "279",
+    "Height_mm": "432"
+   },
+   {
+    "Name": "ANSI C",
+    "Width_mm": "432",
+    "Height_mm": "559"
+   },
+   {
+    "Name": "ANSI D",
+    "Width_mm": "559",
+    "Height_mm": "864"
+   },
+   {
+    "Name": "Arch A",
+    "Width_mm": "229",
+    "Height_mm": "305"
+   },
+   {
+    "Name": "Arch B",
+    "Width_mm": "305",
+    "Height_mm": "457"
+   },
+   {
+    "Name": "Arch C",
+    "Width_mm": "457",
+    "Height_mm": "610"
+   },
+   {
+    "Name": "Arch D",
+    "Width_mm": "610",
+    "Height_mm": "914"
+   },
+   {
+    "Name": "Arch E",
+    "Width_mm": "914",
+    "Height_mm": "1219"
+   },
+   {
+    "Name": "Arch E1",
+    "Width_mm": "762",
+    "Height_mm": "1067"
+   },
+   {
+    "Name": "Arch E2",
+    "Width_mm": "660",
+    "Height_mm": "965"
+   },
+   {
+    "Name": "Arch E3",
+    "Width_mm": "686",
+    "Height_mm": "991"
+   },
+   {
+    "Name": "DIN C2",
+    "Width_mm": "458",
+    "Height_mm": "648"
+   },
+   {
+    "Name": "DIN C3",
+    "Width_mm": "324",
+    "Height_mm": "458"
+   },
+   {
+    "Name": "DIN C4",
+    "Width_mm": "229",
+    "Height_mm": "324"
+   },
+   {
+    "Name": "ISO A0",
+    "Width_mm": "841",
+    "Height_mm": "1189"
+   },
+   {
+    "Name": "ISO A1",
+    "Width_mm": "594",
+    "Height_mm": "841"
+   },
+   {
+    "Name": "ISO A2",
+    "Width_mm": "420",
+    "Height_mm": "594"
+   },
+   {
+    "Name": "ISO A3",
+    "Width_mm": "297",
+    "Height_mm": "420"
+   },
+   {
+    "Name": "ISO A4",
+    "Width_mm": "210",
+    "Height_mm": "297"
+   },
+   {
+    "Name": "ISO A5",
+    "Width_mm": "149",
+    "Height_mm": "210"
+   },
+   {
+    "Name": "ISO A6",
+    "Width_mm": "105",
+    "Height_mm": "149"
+   },
+   {
+    "Name": "ISO B1",
+    "Width_mm": "707",
+    "Height_mm": "1000"
+   },
+   {
+    "Name": "ISO B2",
+    "Width_mm": "500",
+    "Height_mm": "707"
+   },
+   {
+    "Name": "ISO B3",
+    "Width_mm": "353",
+    "Height_mm": "500"
+   },
+   {
+    "Name": "ISO B4",
+    "Width_mm": "250",
+    "Height_mm": "353"
+   },
+   {
+    "Name": "ISO Super A3",
+    "Width_mm": "330",
+    "Height_mm": "483"
+   },
+   {
+    "Name": "JIS B2",
+    "Width_mm": "515",
+    "Height_mm": "728"
+   },
+   {
+    "Name": "JIS B3",
+    "Width_mm": "364",
+    "Height_mm": "515"
+   },
+   {
+    "Name": "JIS B4",
+    "Width_mm": "257",
+    "Height_mm": "364"
+   },
+   {
+    "Name": "JIS B5",
+    "Width_mm": "182",
+    "Height_mm": "257"
+   },
+   {
+    "Name": "Oversize: ANSI A",
+    "Width_mm": "216",
+    "Height_mm": "280"
+   },
+   {
+    "Name": "Oversize: ANSI B",
+    "Width_mm": "280",
+    "Height_mm": "432"
+   },
+   {
+    "Name": "Oversize: ANSI C",
+    "Width_mm": "432",
+    "Height_mm": "559"
+   },
+   {
+    "Name": "Oversize: ANSI D",
+    "Width_mm": "559",
+    "Height_mm": "864"
+   },
+   {
+    "Name": "Oversize: Arch A",
+    "Width_mm": "229",
+    "Height_mm": "305"
+   },
+   {
+    "Name": "Oversize: Arch B",
+    "Width_mm": "305",
+    "Height_mm": "457"
+   },
+   {
+    "Name": "Oversize: Arch C",
+    "Width_mm": "457",
+    "Height_mm": "610"
+   },
+   {
+    "Name": "Oversize: Arch D",
+    "Width_mm": "610",
+    "Height_mm": "915"
+   },
+   {
+    "Name": "Oversize: Arch E1",
+    "Width_mm": "762",
+    "Height_mm": "1067"
+   },
+   {
+    "Name": "Oversize: Arch E2",
+    "Width_mm": "661",
+    "Height_mm": "965"
+   },
+   {
+    "Name": "Oversize: Arch E3",
+    "Width_mm": "686",
+    "Height_mm": "991"
+   },
+   {
+    "Name": "Oversize: DIN C2",
+    "Width_mm": "458",
+    "Height_mm": "648"
+   },
+   {
+    "Name": "Oversize: DIN C3",
+    "Width_mm": "324",
+    "Height_mm": "458"
+   },
+   {
+    "Name": "Oversize: DIN C4",
+    "Width_mm": "229",
+    "Height_mm": "324"
+   },
+   {
+    "Name": "Oversize: ISO A0",
+    "Width_mm": "841",
+    "Height_mm": "1189"
+   },
+   {
+    "Name": "Oversize: ISO A1",
+    "Width_mm": "594",
+    "Height_mm": "841"
+   },
+   {
+    "Name": "Oversize: ISO A2",
+    "Width_mm": "420",
+    "Height_mm": "594"
+   },
+   {
+    "Name": "Oversize: ISO A3",
+    "Width_mm": "297",
+    "Height_mm": "420"
+   },
+   {
+    "Name": "Oversize: ISO A4",
+    "Width_mm": "210",
+    "Height_mm": "297"
+   },
+   {
+    "Name": "Oversize: ISO A5",
+    "Width_mm": "149",
+    "Height_mm": "210"
+   },
+   {
+    "Name": "Oversize: ISO A6",
+    "Width_mm": "105",
+    "Height_mm": "149"
+   },
+   {
+    "Name": "Oversize: ISO B1",
+    "Width_mm": "707",
+    "Height_mm": "1000"
+   },
+   {
+    "Name": "Oversize: ISO B2",
+    "Width_mm": "500",
+    "Height_mm": "707"
+   },
+   {
+    "Name": "Oversize: ISO B3",
+    "Width_mm": "353",
+    "Height_mm": "500"
+   },
+   {
+    "Name": "Oversize: ISO B4",
+    "Width_mm": "250",
+    "Height_mm": "353"
+   },
+   {
+    "Name": "Oversize: ISO Super A3",
+    "Width_mm": "330",
+    "Height_mm": "483"
+   },
+   {
+    "Name": "Oversize: JIS B2",
+    "Width_mm": "515",
+    "Height_mm": "728"
+   },
+   {
+    "Name": "Oversize: JIS B3",
+    "Width_mm": "364",
+    "Height_mm": "515"
+   },
+   {
+    "Name": "Oversize: JIS B4",
+    "Width_mm": "257",
+    "Height_mm": "364"
+   },
+   {
+    "Name": "Oversize: JIS B5",
+    "Width_mm": "182",
+    "Height_mm": "257"
+   },
+   {
+    "Name": "Oversize: Super B/A3",
+    "Width_mm": "330",
+    "Height_mm": "483"
+   },
+   {
+    "Name": "Oversize: Super C/A2",
+    "Width_mm": "457",
+    "Height_mm": "610"
+   },
+   {
+    "Name": "Super A3 / B",
+    "Width_mm": "329",
+    "Height_mm": "483"
+   },
+   {
+    "Name": "Super B / A3",
+    "Width_mm": "330",
+    "Height_mm": "483"
+   },
+   {
+    "Name": "Super C / A2",
+    "Width_mm": "457",
+    "Height_mm": "610"
+   },
+   {
+    "Name": "Super D / A1",
+    "Width_mm": "610",
+    "Height_mm": "914"
+   },
+   {
+    "Name": "Tabloid",
+    "Width_mm": "279",
+    "Height_mm": "432"
+   }
+  ]
+ },
+ "FTOutputCurves": {
+  "source_file": "FTOutputCurves.xml",
+  "note": "output-curve catalog for the Formation Testing (wireline pretest / MDT-RFT) module: drawdown/spherical/radial permeability & mobility, P*, hydrostatic before/after, flowrate. Scope: 'later' (pressure/mobility).",
+  "count": 22,
+  "parameters": [
+   {
+    "Name": "HydrostaticBefore",
+    "Label": "Hydrostatic Before",
+    "CurveName": "Phyd_before",
+    "UnitCategory": "Pressure",
+    "Units": "psi",
+    "Visible": "False",
+    "IsOutput": null
+   },
+   {
+    "Name": "HydrostaticAfter",
+    "Label": "HydrostaticAfter",
+    "CurveName": "Phyd_after",
+    "UnitCategory": "Pressure",
+    "Units": "psi",
+    "Visible": "False",
+    "IsOutput": null
+   },
+   {
+    "Name": "DrawdownStart",
+    "Label": "Drawdown Start",
+    "CurveName": "Tdds",
+    "UnitCategory": "Time",
+    "Units": "sec",
+    "Visible": "False",
+    "IsOutput": null
+   },
+   {
+    "Name": "DrawdownEnd",
+    "Label": "Drawdown End",
+    "CurveName": "Tdde",
+    "UnitCategory": "Time",
+    "Units": "sec",
+    "Visible": "False",
+    "IsOutput": null
+   },
+   {
+    "Name": "FinalBuildUpPressure",
+    "Label": "Final Build Up Pressure",
+    "CurveName": "Pfbu",
+    "UnitCategory": "Pressure",
+    "Units": "psi",
+    "Visible": "True",
+    "IsOutput": null
+   },
+   {
+    "Name": "FlowingPressure",
+    "Label": "Flowing Pressure",
+    "CurveName": "Pflow",
+    "UnitCategory": "Pressure",
+    "Units": "psi",
+    "Visible": "True",
+    "IsOutput": null
+   },
+   {
+    "Name": "DeltaTime",
+    "Label": "Delta Time",
+    "CurveName": "Tdd",
+    "UnitCategory": "Time",
+    "Units": "sec",
+    "Visible": "False",
+    "IsOutput": null
+   },
+   {
+    "Name": "DrawdownPressure",
+    "Label": "Drawdown Pressure",
+    "CurveName": "Pdd",
+    "UnitCategory": "Pressure",
+    "Units": "psi",
+    "Visible": "True",
+    "IsOutput": null
+   },
+   {
+    "Name": "Volume",
+    "Label": "Volume",
+    "CurveName": "Vdd",
+    "UnitCategory": "Volume",
+    "Units": "cc",
+    "Visible": "False",
+    "IsOutput": null
+   },
+   {
+    "Name": "Flowrate",
+    "Label": "Flowrate",
+    "CurveName": "Qdd",
+    "UnitCategory": "Flowrate",
+    "Units": "cc/sec",
+    "Visible": "False",
+    "IsOutput": null
+   },
+   {
+    "Name": "DrawdownPermeability",
+    "Label": "Drawdown Permeability",
+    "CurveName": "Kdd",
+    "UnitCategory": "Permeability",
+    "Units": "mD",
+    "Visible": "True",
+    "IsOutput": null
+   },
+   {
+    "Name": "DrawdownMobility",
+    "Label": "Drawdown Mobility",
+    "CurveName": "Mdd",
+    "UnitCategory": null,
+    "Units": null,
+    "Visible": "True",
+    "IsOutput": null
+   },
+   {
+    "Name": "SphericalPressure",
+    "Label": "P* Spherical",
+    "CurveName": "Psph",
+    "UnitCategory": "Pressure",
+    "Units": "psi",
+    "Visible": "True",
+    "IsOutput": null
+   },
+   {
+    "Name": "SphericalPermeability",
+    "Label": "Spherical Permeability",
+    "CurveName": "Ksph",
+    "UnitCategory": "Permeability",
+    "Units": "mD",
+    "Visible": "True",
+    "IsOutput": null
+   },
+   {
+    "Name": "SphericalMobility",
+    "Label": "Spherical Mobility",
+    "CurveName": "Msph",
+    "UnitCategory": null,
+    "Units": null,
+    "Visible": "True",
+    "IsOutput": null
+   },
+   {
+    "Name": "RadialPressure",
+    "Label": "P* Radial",
+    "CurveName": "Prad",
+    "UnitCategory": "Pressure",
+    "Units": "psi",
+    "Visible": "True",
+    "IsOutput": null
+   },
+   {
+    "Name": "RadialPermeability",
+    "Label": "Radial Permeability",
+    "CurveName": "Krad",
+    "UnitCategory": "Permeability",
+    "Units": "mD",
+    "Visible": "True",
+    "IsOutput": null
+   },
+   {
+    "Name": "RadialMobility",
+    "Label": "Radial Mobility",
+    "CurveName": "Mrad",
+    "UnitCategory": null,
+    "Units": null,
+    "Visible": "False",
+    "IsOutput": null
+   },
+   {
+    "Name": "FinalPressure",
+    "Label": "Final Pressure",
+    "CurveName": "Pfinal",
+    "UnitCategory": "Pressure",
+    "Units": "psi",
+    "Visible": "True",
+    "IsOutput": null
+   },
+   {
+    "Name": "Comments",
+    "Label": "Comments",
+    "CurveName": "Comments",
+    "UnitCategory": null,
+    "Units": null,
+    "Visible": "False",
+    "IsOutput": "False"
+   },
+   {
+    "Name": "XplotFlag",
+    "Label": "Crossplot Visibility",
+    "CurveName": "FT_XplotFlag",
+    "UnitCategory": null,
+    "Units": null,
+    "Visible": "True",
+    "IsOutput": "False"
+   },
+   {
+    "Name": "XplotRegressionFlag",
+    "Label": "Crossplot Regression Flag",
+    "CurveName": "FT_RegFlag",
+    "UnitCategory": null,
+    "Units": null,
+    "Visible": "False",
+    "IsOutput": "False"
+   }
+  ]
+ },
+ "UnitConfig": {
+  "source_file": "UnitConfig.xml",
+  "note": "maps IP curve-type name to unit category",
+  "mappings": [
+   {
+    "CurveType": "FT_Press",
+    "UnitCategory": "Pressure"
+   },
+   {
+    "CurveType": "FT_Time",
+    "UnitCategory": "Time"
+   },
+   {
+    "CurveType": "FT_Temp",
+    "UnitCategory": "Temperature"
+   },
+   {
+    "CurveType": "FT_Volume",
+    "UnitCategory": "Volume"
+   },
+   {
+    "CurveType": "FT_Vol",
+    "UnitCategory": "Volume"
+   },
+   {
+    "CurveType": "FT_Rate",
+    "UnitCategory": "Flowrate"
+   },
+   {
+    "CurveType": "Depth",
+    "UnitCategory": "Length"
+   },
+   {
+    "CurveType": "Angle",
+    "UnitCategory": "Angle"
+   }
+  ]
+ },
+ "IP_Petrel_Unit_Mappings": {
+  "source_file": "IP Unit Mappings.xml",
+  "note": "unit-string normalisation IP->Petrel used on Petrel export/import (density, sonic, caliper, resistivity, GR, velocity).",
+  "count": 33,
+  "mappings": [
+   {
+    "IPUnit": "gm/cc",
+    "PetrelUnit": "g/cm3"
+   },
+   {
+    "IPUnit": "gmcc",
+    "PetrelUnit": "g/cm3"
+   },
+   {
+    "IPUnit": "g/cc",
+    "PetrelUnit": "g/cm3"
+   },
+   {
+    "IPUnit": "gcc",
+    "PetrelUnit": "g/cm3"
+   },
+   {
+    "IPUnit": "gm/c3",
+    "PetrelUnit": "g/cm3"
+   },
+   {
+    "IPUnit": "g/c3",
+    "PetrelUnit": "g/cm3"
+   },
+   {
+    "IPUnit": "kgm3",
+    "PetrelUnit": "kg/m3"
+   },
+   {
+    "IPUnit": "k/m3",
+    "PetrelUnit": "kg/m3"
+   },
+   {
+    "IPUnit": "usec/ft",
+    "PetrelUnit": "us/ft"
+   },
+   {
+    "IPUnit": "usft",
+    "PetrelUnit": "us/ft"
+   },
+   {
+    "IPUnit": "us/f",
+    "PetrelUnit": "us/ft"
+   },
+   {
+    "IPUnit": "usec/m",
+    "PetrelUnit": "us/m"
+   },
+   {
+    "IPUnit": "usm",
+    "PetrelUnit": "us/m"
+   },
+   {
+    "IPUnit": "us/m",
+    "PetrelUnit": "us/m"
+   },
+   {
+    "IPUnit": "feet",
+    "PetrelUnit": "ft"
+   },
+   {
+    "IPUnit": "inch",
+    "PetrelUnit": "in"
+   },
+   {
+    "IPUnit": "inches",
+    "PetrelUnit": "in"
+   },
+   {
+    "IPUnit": "md",
+    "PetrelUnit": "m"
+   },
+   {
+    "IPUnit": "ohmm",
+    "PetrelUnit": "ohm.m"
+   },
+   {
+    "IPUnit": "f/mn",
+    "PetrelUnit": "ft/min"
+   },
+   {
+    "IPUnit": "api",
+    "PetrelUnit": "gAPI"
+   },
+   {
+    "IPUnit": "gapi",
+    "PetrelUnit": "gAPI"
+   },
+   {
+    "IPUnit": "usec/ft",
+    "PetrelUnit": "us/ft"
+   },
+   {
+    "IPUnit": "ft/sec",
+    "PetrelUnit": "ft/s"
+   },
+   {
+    "IPUnit": "db/m",
+    "PetrelUnit": "db/m"
+   },
+   {
+    "IPUnit": "m/sec",
+    "PetrelUnit": "m/sec"
+   },
+   {
+    "IPUnit": "dec",
+    "PetrelUnit": "dec"
+   },
+   {
+    "IPUnit": "deg",
+    "PetrelUnit": "deg"
+   },
+   {
+    "IPUnit": "counts",
+    "PetrelUnit": "counts"
+   },
+   {
+    "IPUnit": "ns/m",
+    "PetrelUnit": "ns/m",
+    "Nearest": "s/m"
+   },
+   {
+    "IPUnit": "b/e",
+    "PetrelUnit": "b/e"
+   },
+   {
+    "IPUnit": "ppm",
+    "PetrelUnit": "ppm"
+   },
+   {
+    "IPUnit": "lbf",
+    "PetrelUnit": "lbf"
+   }
+  ]
+ }
+}

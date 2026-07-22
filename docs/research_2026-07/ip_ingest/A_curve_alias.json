@@ -1,0 +1,2629 @@
+{
+  "source_file": "DefaultAlias.cax",
+  "description": "IP's shipped default curve-alias recognition dataset. Each CurveType is a canonical curve class; each alias mnemonic (CurveList) is auto-recognised and mapped to a CurveType on import. This is IP's functional equivalent of Techlog families+aliases. NOTE: the user-editable CurveAlias.txt ships EMPTY (header only); DefaultAlias.cax is the actual built-in catalog.",
+  "counts": {
+    "curveTypes_with_aliases": 52,
+    "alias_mnemonics": 315,
+    "curveType_labels_in_CurveType_opt": 417
+  },
+  "curveTypes": [
+    {
+      "id": 53,
+      "name": "AFRImages",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 3,
+      "name": "Azimuth",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 52,
+      "name": "BitSize",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 9,
+      "name": "BVW",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 4,
+      "name": "Caliper",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 46,
+      "name": "CBHP",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 47,
+      "name": "CDP",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 10,
+      "name": "Coord",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 11,
+      "name": "CoreGD",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 12,
+      "name": "CorePerm",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 13,
+      "name": "CorePhi",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 14,
+      "name": "DeepRes",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 15,
+      "name": "Density",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 1,
+      "name": "Depth",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 2,
+      "name": "Deviation",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 6,
+      "name": "DipAngle",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 7,
+      "name": "DipAzi",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 8,
+      "name": "DipType",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 16,
+      "name": "Drho",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 5,
+      "name": "ElecImage",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 17,
+      "name": "EPT",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 18,
+      "name": "GammaRay",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 48,
+      "name": "LF",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 19,
+      "name": "Matrix",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 43,
+      "name": "MaxHorzStress",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 20,
+      "name": "MedRes",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 21,
+      "name": "MicroRes",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 22,
+      "name": "Mineral",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 42,
+      "name": "MinHorzStress",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 23,
+      "name": "Neutron",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 44,
+      "name": "OrigResPress",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 24,
+      "name": "PEF",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 51,
+      "name": "Perforations",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 25,
+      "name": "Phi",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 26,
+      "name": "PhiT",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 27,
+      "name": "ShalRes",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 28,
+      "name": "ShearSonic",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 29,
+      "name": "ShearVel",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 30,
+      "name": "Sonic",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 31,
+      "name": "SP",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 32,
+      "name": "Spectral",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 49,
+      "name": "StressAzimuth",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 33,
+      "name": "Sw",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 34,
+      "name": "Temp",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 35,
+      "name": "Tension",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 45,
+      "name": "TwcPredicted",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 36,
+      "name": "UltraDeepRes",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 37,
+      "name": "Vcl",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 38,
+      "name": "Velocity",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 41,
+      "name": "VertStress",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 39,
+      "name": "VPVSRatio",
+      "final": false,
+      "visibleInSelector": false
+    },
+    {
+      "id": 40,
+      "name": "XDeepRes",
+      "final": false,
+      "visibleInSelector": false
+    }
+  ],
+  "aliases": [
+    {
+      "mnemonic": "AFRDLSH",
+      "curveType": "AFRImages",
+      "curveTypeId": 53,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "AFRDLSM",
+      "curveType": "AFRImages",
+      "curveTypeId": 53,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "AFRDUSH",
+      "curveType": "AFRImages",
+      "curveTypeId": 53,
+      "sortId": 3
+    },
+    {
+      "mnemonic": "AFRDUSM",
+      "curveType": "AFRImages",
+      "curveTypeId": 53,
+      "sortId": 4
+    },
+    {
+      "mnemonic": "AFRMHH",
+      "curveType": "AFRImages",
+      "curveTypeId": 53,
+      "sortId": 5
+    },
+    {
+      "mnemonic": "AFRMLHH",
+      "curveType": "AFRImages",
+      "curveTypeId": 53,
+      "sortId": 6
+    },
+    {
+      "mnemonic": "AFRMLHM",
+      "curveType": "AFRImages",
+      "curveTypeId": 53,
+      "sortId": 7
+    },
+    {
+      "mnemonic": "AFRMHM",
+      "curveType": "AFRImages",
+      "curveTypeId": 53,
+      "sortId": 8
+    },
+    {
+      "mnemonic": "AFRMUHH",
+      "curveType": "AFRImages",
+      "curveTypeId": 53,
+      "sortId": 9
+    },
+    {
+      "mnemonic": "AFRMUHM",
+      "curveType": "AFRImages",
+      "curveTypeId": 53,
+      "sortId": 10
+    },
+    {
+      "mnemonic": "AFRMSH",
+      "curveType": "AFRImages",
+      "curveTypeId": 53,
+      "sortId": 11
+    },
+    {
+      "mnemonic": "AFRMLSH",
+      "curveType": "AFRImages",
+      "curveTypeId": 53,
+      "sortId": 12
+    },
+    {
+      "mnemonic": "AFRMLSM",
+      "curveType": "AFRImages",
+      "curveTypeId": 53,
+      "sortId": 13
+    },
+    {
+      "mnemonic": "AFRMSM",
+      "curveType": "AFRImages",
+      "curveTypeId": 53,
+      "sortId": 14
+    },
+    {
+      "mnemonic": "AFRMUSH",
+      "curveType": "AFRImages",
+      "curveTypeId": 53,
+      "sortId": 15
+    },
+    {
+      "mnemonic": "AFRMUSM",
+      "curveType": "AFRImages",
+      "curveTypeId": 53,
+      "sortId": 16
+    },
+    {
+      "mnemonic": "AFRSLHH",
+      "curveType": "AFRImages",
+      "curveTypeId": 53,
+      "sortId": 17
+    },
+    {
+      "mnemonic": "AFRSLHM",
+      "curveType": "AFRImages",
+      "curveTypeId": 53,
+      "sortId": 18
+    },
+    {
+      "mnemonic": "AFRSUHH",
+      "curveType": "AFRImages",
+      "curveTypeId": 53,
+      "sortId": 19
+    },
+    {
+      "mnemonic": "AFRSUHM",
+      "curveType": "AFRImages",
+      "curveTypeId": 53,
+      "sortId": 20
+    },
+    {
+      "mnemonic": "AFRSLSH",
+      "curveType": "AFRImages",
+      "curveTypeId": 53,
+      "sortId": 21
+    },
+    {
+      "mnemonic": "AFRSLSM",
+      "curveType": "AFRImages",
+      "curveTypeId": 53,
+      "sortId": 22
+    },
+    {
+      "mnemonic": "AFRSUSH",
+      "curveType": "AFRImages",
+      "curveTypeId": 53,
+      "sortId": 23
+    },
+    {
+      "mnemonic": "AFRSUSM",
+      "curveType": "AFRImages",
+      "curveTypeId": 53,
+      "sortId": 24
+    },
+    {
+      "mnemonic": "SL64HFH",
+      "curveType": "AFRImages",
+      "curveTypeId": 53,
+      "sortId": 25
+    },
+    {
+      "mnemonic": "AZI",
+      "curveType": "Azimuth",
+      "curveTypeId": 3,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "AZID",
+      "curveType": "Azimuth",
+      "curveTypeId": 3,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "HAZI",
+      "curveType": "Azimuth",
+      "curveTypeId": 3,
+      "sortId": 3
+    },
+    {
+      "mnemonic": "P1AZ",
+      "curveType": "Azimuth",
+      "curveTypeId": 3,
+      "sortId": 4
+    },
+    {
+      "mnemonic": "BIT",
+      "curveType": "BitSize",
+      "curveTypeId": 52,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "BS",
+      "curveType": "BitSize",
+      "curveTypeId": 52,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "BVW",
+      "curveType": "BVW",
+      "curveTypeId": 9,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "BVWIRR",
+      "curveType": "BVW",
+      "curveTypeId": 9,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "BVWSXO",
+      "curveType": "BVW",
+      "curveTypeId": 9,
+      "sortId": 3
+    },
+    {
+      "mnemonic": "CALI",
+      "curveType": "Caliper",
+      "curveTypeId": 4,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "CAL",
+      "curveType": "Caliper",
+      "curveTypeId": 4,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "C1",
+      "curveType": "Caliper",
+      "curveTypeId": 4,
+      "sortId": 3
+    },
+    {
+      "mnemonic": "C2",
+      "curveType": "Caliper",
+      "curveTypeId": 4,
+      "sortId": 4
+    },
+    {
+      "mnemonic": "CALM",
+      "curveType": "Caliper",
+      "curveTypeId": 4,
+      "sortId": 5
+    },
+    {
+      "mnemonic": "CALS",
+      "curveType": "Caliper",
+      "curveTypeId": 4,
+      "sortId": 6
+    },
+    {
+      "mnemonic": "CALX",
+      "curveType": "Caliper",
+      "curveTypeId": 4,
+      "sortId": 7
+    },
+    {
+      "mnemonic": "CALY",
+      "curveType": "Caliper",
+      "curveTypeId": 4,
+      "sortId": 8
+    },
+    {
+      "mnemonic": "CBHP",
+      "curveType": "CBHP",
+      "curveTypeId": 46,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "CBHFP",
+      "curveType": "CBHP",
+      "curveTypeId": 46,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "CDP",
+      "curveType": "CDP",
+      "curveTypeId": 47,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "EDIST",
+      "curveType": "Coord",
+      "curveTypeId": 10,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "NDIST",
+      "curveType": "Coord",
+      "curveTypeId": 10,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "XDIST",
+      "curveType": "Coord",
+      "curveTypeId": 10,
+      "sortId": 3
+    },
+    {
+      "mnemonic": "YDIST",
+      "curveType": "Coord",
+      "curveTypeId": 10,
+      "sortId": 4
+    },
+    {
+      "mnemonic": "GDCORE",
+      "curveType": "CoreGD",
+      "curveTypeId": 11,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "PERMCORE",
+      "curveType": "CorePerm",
+      "curveTypeId": 12,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "CPERM",
+      "curveType": "CorePerm",
+      "curveTypeId": 12,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "PHICORE",
+      "curveType": "CorePhi",
+      "curveTypeId": 13,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "ILD",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "ILDC",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "LLD",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 3
+    },
+    {
+      "mnemonic": "LLDC",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 4
+    },
+    {
+      "mnemonic": "DDLL",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 5
+    },
+    {
+      "mnemonic": "DLL",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 6
+    },
+    {
+      "mnemonic": "HDRS",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 7
+    },
+    {
+      "mnemonic": "HMRD",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 8
+    },
+    {
+      "mnemonic": "IDPH",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 9
+    },
+    {
+      "mnemonic": "IDPHC",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 10
+    },
+    {
+      "mnemonic": "RACH",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 11
+    },
+    {
+      "mnemonic": "RACHM",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 12
+    },
+    {
+      "mnemonic": "RACHX",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 13
+    },
+    {
+      "mnemonic": "RACL",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 14
+    },
+    {
+      "mnemonic": "RACLM",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 15
+    },
+    {
+      "mnemonic": "RACLX",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 16
+    },
+    {
+      "mnemonic": "RASL",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 17
+    },
+    {
+      "mnemonic": "RASLM",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 18
+    },
+    {
+      "mnemonic": "RASLX",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 19
+    },
+    {
+      "mnemonic": "RD",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 20
+    },
+    {
+      "mnemonic": "RILD",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 21
+    },
+    {
+      "mnemonic": "RLLD",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 22
+    },
+    {
+      "mnemonic": "RLLG",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 23
+    },
+    {
+      "mnemonic": "RT",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 24
+    },
+    {
+      "mnemonic": "RTC",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 25
+    },
+    {
+      "mnemonic": "SEDP",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 26
+    },
+    {
+      "mnemonic": "RLA3",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 27
+    },
+    {
+      "mnemonic": "AHT60",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 28
+    },
+    {
+      "mnemonic": "ATRT",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 29
+    },
+    {
+      "mnemonic": "BCDL",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 30
+    },
+    {
+      "mnemonic": "BCML",
+      "curveType": "DeepRes",
+      "curveTypeId": 14,
+      "sortId": 31
+    },
+    {
+      "mnemonic": "ZDEN",
+      "curveType": "Density",
+      "curveTypeId": 15,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "RHOC",
+      "curveType": "Density",
+      "curveTypeId": 15,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "RHOZ",
+      "curveType": "Density",
+      "curveTypeId": 15,
+      "sortId": 3
+    },
+    {
+      "mnemonic": "RHOB",
+      "curveType": "Density",
+      "curveTypeId": 15,
+      "sortId": 4
+    },
+    {
+      "mnemonic": "RHO",
+      "curveType": "Density",
+      "curveTypeId": 15,
+      "sortId": 5
+    },
+    {
+      "mnemonic": "ROS2",
+      "curveType": "Density",
+      "curveTypeId": 15,
+      "sortId": 6
+    },
+    {
+      "mnemonic": "SBDC",
+      "curveType": "Density",
+      "curveTypeId": 15,
+      "sortId": 7
+    },
+    {
+      "mnemonic": "SBDF",
+      "curveType": "Density",
+      "curveTypeId": 15,
+      "sortId": 8
+    },
+    {
+      "mnemonic": "ZRHO",
+      "curveType": "Density",
+      "curveTypeId": 15,
+      "sortId": 9
+    },
+    {
+      "mnemonic": "BDCM",
+      "curveType": "Density",
+      "curveTypeId": 15,
+      "sortId": 10
+    },
+    {
+      "mnemonic": "BDCX",
+      "curveType": "Density",
+      "curveTypeId": 15,
+      "sortId": 11
+    },
+    {
+      "mnemonic": "DEN",
+      "curveType": "Density",
+      "curveTypeId": 15,
+      "sortId": 12
+    },
+    {
+      "mnemonic": "GGK",
+      "curveType": "Density",
+      "curveTypeId": 15,
+      "sortId": 13
+    },
+    {
+      "mnemonic": "HDEN",
+      "curveType": "Density",
+      "curveTypeId": 15,
+      "sortId": 14
+    },
+    {
+      "mnemonic": "HRHO",
+      "curveType": "Density",
+      "curveTypeId": 15,
+      "sortId": 15
+    },
+    {
+      "mnemonic": "NRHO",
+      "curveType": "Density",
+      "curveTypeId": 15,
+      "sortId": 16
+    },
+    {
+      "mnemonic": "DEVI",
+      "curveType": "Deviation",
+      "curveTypeId": 2,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "HDEV",
+      "curveType": "Deviation",
+      "curveTypeId": 2,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "HDEVI",
+      "curveType": "Deviation",
+      "curveTypeId": 2,
+      "sortId": 3
+    },
+    {
+      "mnemonic": "INC",
+      "curveType": "Deviation",
+      "curveTypeId": 2,
+      "sortId": 4
+    },
+    {
+      "mnemonic": "INCL",
+      "curveType": "Deviation",
+      "curveTypeId": 2,
+      "sortId": 5
+    },
+    {
+      "mnemonic": "DRHO",
+      "curveType": "Drho",
+      "curveTypeId": 16,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "ZCOR",
+      "curveType": "Drho",
+      "curveTypeId": 16,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "DCOR",
+      "curveType": "Drho",
+      "curveTypeId": 16,
+      "sortId": 3
+    },
+    {
+      "mnemonic": "DRHM",
+      "curveType": "Drho",
+      "curveTypeId": 16,
+      "sortId": 4
+    },
+    {
+      "mnemonic": "CORR",
+      "curveType": "Drho",
+      "curveTypeId": 16,
+      "sortId": 5
+    },
+    {
+      "mnemonic": "DRHX",
+      "curveType": "Drho",
+      "curveTypeId": 16,
+      "sortId": 6
+    },
+    {
+      "mnemonic": "HDRA",
+      "curveType": "Drho",
+      "curveTypeId": 16,
+      "sortId": 7
+    },
+    {
+      "mnemonic": "ZDRH",
+      "curveType": "Drho",
+      "curveTypeId": 16,
+      "sortId": 8
+    },
+    {
+      "mnemonic": "EATT",
+      "curveType": "EPT",
+      "curveTypeId": 17,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "TPL",
+      "curveType": "EPT",
+      "curveTypeId": 17,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "GRC",
+      "curveType": "GammaRay",
+      "curveTypeId": 18,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "SGR",
+      "curveType": "GammaRay",
+      "curveTypeId": 18,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "GR",
+      "curveType": "GammaRay",
+      "curveTypeId": 18,
+      "sortId": 3
+    },
+    {
+      "mnemonic": "GRAM",
+      "curveType": "GammaRay",
+      "curveTypeId": 18,
+      "sortId": 4
+    },
+    {
+      "mnemonic": "GREC",
+      "curveType": "GammaRay",
+      "curveTypeId": 18,
+      "sortId": 5
+    },
+    {
+      "mnemonic": "GRBG",
+      "curveType": "GammaRay",
+      "curveTypeId": 18,
+      "sortId": 6
+    },
+    {
+      "mnemonic": "GRCO",
+      "curveType": "GammaRay",
+      "curveTypeId": 18,
+      "sortId": 7
+    },
+    {
+      "mnemonic": "GRAX",
+      "curveType": "GammaRay",
+      "curveTypeId": 18,
+      "sortId": 8
+    },
+    {
+      "mnemonic": "GRGC",
+      "curveType": "GammaRay",
+      "curveTypeId": 18,
+      "sortId": 9
+    },
+    {
+      "mnemonic": "GRLL",
+      "curveType": "GammaRay",
+      "curveTypeId": 18,
+      "sortId": 10
+    },
+    {
+      "mnemonic": "GRSG",
+      "curveType": "GammaRay",
+      "curveTypeId": 18,
+      "sortId": 11
+    },
+    {
+      "mnemonic": "CGR",
+      "curveType": "GammaRay",
+      "curveTypeId": 18,
+      "sortId": 12
+    },
+    {
+      "mnemonic": "GCGR",
+      "curveType": "GammaRay",
+      "curveTypeId": 18,
+      "sortId": 13
+    },
+    {
+      "mnemonic": "GK",
+      "curveType": "GammaRay",
+      "curveTypeId": 18,
+      "sortId": 14
+    },
+    {
+      "mnemonic": "LF",
+      "curveType": "LF",
+      "curveTypeId": 48,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "DTMA",
+      "curveType": "Matrix",
+      "curveTypeId": 19,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "RHOMA",
+      "curveType": "Matrix",
+      "curveTypeId": 19,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "SHmax",
+      "curveType": "MaxHorzStress",
+      "curveTypeId": 43,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "ILM",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "ILMC",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "LLS",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 3
+    },
+    {
+      "mnemonic": "LLSC",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 4
+    },
+    {
+      "mnemonic": "MLL",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 5
+    },
+    {
+      "mnemonic": "HRMS",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 6
+    },
+    {
+      "mnemonic": "AHT10",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 7
+    },
+    {
+      "mnemonic": "AHT20",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 8
+    },
+    {
+      "mnemonic": "AHT30",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 9
+    },
+    {
+      "mnemonic": "AO30",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 10
+    },
+    {
+      "mnemonic": "AO60",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 11
+    },
+    {
+      "mnemonic": "AT30",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 12
+    },
+    {
+      "mnemonic": "AT60",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 13
+    },
+    {
+      "mnemonic": "RASH",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 14
+    },
+    {
+      "mnemonic": "RASHM",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 15
+    },
+    {
+      "mnemonic": "RASHX",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 16
+    },
+    {
+      "mnemonic": "RILM",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 17
+    },
+    {
+      "mnemonic": "RLLS",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 18
+    },
+    {
+      "mnemonic": "RPCL",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 19
+    },
+    {
+      "mnemonic": "RPCLM",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 20
+    },
+    {
+      "mnemonic": "RPCLX",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 21
+    },
+    {
+      "mnemonic": "SEMP",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 22
+    },
+    {
+      "mnemonic": "RLA2",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 23
+    },
+    {
+      "mnemonic": "M1R3",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 24
+    },
+    {
+      "mnemonic": "M1R6",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 25
+    },
+    {
+      "mnemonic": "M2R1",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 26
+    },
+    {
+      "mnemonic": "M2R2",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 27
+    },
+    {
+      "mnemonic": "M2R3",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 28
+    },
+    {
+      "mnemonic": "M2R6",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 29
+    },
+    {
+      "mnemonic": "M2R9",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 30
+    },
+    {
+      "mnemonic": "IMPH",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 31
+    },
+    {
+      "mnemonic": "IMPHC",
+      "curveType": "MedRes",
+      "curveTypeId": 20,
+      "sortId": 32
+    },
+    {
+      "mnemonic": "MSFL",
+      "curveType": "MicroRes",
+      "curveTypeId": 21,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "MSFLC",
+      "curveType": "MicroRes",
+      "curveTypeId": 21,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "RXO",
+      "curveType": "MicroRes",
+      "curveTypeId": 21,
+      "sortId": 3
+    },
+    {
+      "mnemonic": "RXOZ",
+      "curveType": "MicroRes",
+      "curveTypeId": 21,
+      "sortId": 4
+    },
+    {
+      "mnemonic": "MLLC",
+      "curveType": "MicroRes",
+      "curveTypeId": 21,
+      "sortId": 5
+    },
+    {
+      "mnemonic": "VSHALE",
+      "curveType": "Mineral",
+      "curveTypeId": 22,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "VSILT",
+      "curveType": "Mineral",
+      "curveTypeId": 22,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "VCOAL",
+      "curveType": "Mineral",
+      "curveTypeId": 22,
+      "sortId": 3
+    },
+    {
+      "mnemonic": "VSALT",
+      "curveType": "Mineral",
+      "curveTypeId": 22,
+      "sortId": 4
+    },
+    {
+      "mnemonic": "Shmin",
+      "curveType": "MinHorzStress",
+      "curveTypeId": 42,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "TNPH",
+      "curveType": "Neutron",
+      "curveTypeId": 23,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "TNPHC",
+      "curveType": "Neutron",
+      "curveTypeId": 23,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "NPHC",
+      "curveType": "Neutron",
+      "curveTypeId": 23,
+      "sortId": 3
+    },
+    {
+      "mnemonic": "NPHI",
+      "curveType": "Neutron",
+      "curveTypeId": 23,
+      "sortId": 4
+    },
+    {
+      "mnemonic": "CNC",
+      "curveType": "Neutron",
+      "curveTypeId": 23,
+      "sortId": 5
+    },
+    {
+      "mnemonic": "CN",
+      "curveType": "Neutron",
+      "curveTypeId": 23,
+      "sortId": 6
+    },
+    {
+      "mnemonic": "CNCF",
+      "curveType": "Neutron",
+      "curveTypeId": 23,
+      "sortId": 7
+    },
+    {
+      "mnemonic": "NPLC",
+      "curveType": "Neutron",
+      "curveTypeId": 23,
+      "sortId": 8
+    },
+    {
+      "mnemonic": "NPLM",
+      "curveType": "Neutron",
+      "curveTypeId": 23,
+      "sortId": 9
+    },
+    {
+      "mnemonic": "NPLX",
+      "curveType": "Neutron",
+      "curveTypeId": 23,
+      "sortId": 10
+    },
+    {
+      "mnemonic": "NPOR",
+      "curveType": "Neutron",
+      "curveTypeId": 23,
+      "sortId": 11
+    },
+    {
+      "mnemonic": "NPRL",
+      "curveType": "Neutron",
+      "curveTypeId": 23,
+      "sortId": 12
+    },
+    {
+      "mnemonic": "SPLC",
+      "curveType": "Neutron",
+      "curveTypeId": 23,
+      "sortId": 13
+    },
+    {
+      "mnemonic": "SPLF",
+      "curveType": "Neutron",
+      "curveTypeId": 23,
+      "sortId": 14
+    },
+    {
+      "mnemonic": "CNLLC",
+      "curveType": "Neutron",
+      "curveTypeId": 23,
+      "sortId": 15
+    },
+    {
+      "mnemonic": "HNPO",
+      "curveType": "Neutron",
+      "curveTypeId": 23,
+      "sortId": 16
+    },
+    {
+      "mnemonic": "HNTP",
+      "curveType": "Neutron",
+      "curveTypeId": 23,
+      "sortId": 17
+    },
+    {
+      "mnemonic": "NEU",
+      "curveType": "Neutron",
+      "curveTypeId": 23,
+      "sortId": 18
+    },
+    {
+      "mnemonic": "NGK",
+      "curveType": "Neutron",
+      "curveTypeId": 23,
+      "sortId": 19
+    },
+    {
+      "mnemonic": "APLC",
+      "curveType": "Neutron",
+      "curveTypeId": 23,
+      "sortId": 20
+    },
+    {
+      "mnemonic": "APSC",
+      "curveType": "Neutron",
+      "curveTypeId": 23,
+      "sortId": 21
+    },
+    {
+      "mnemonic": "PInit",
+      "curveType": "OrigResPress",
+      "curveTypeId": 44,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "PEF",
+      "curveType": "PEF",
+      "curveTypeId": 24,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "PE",
+      "curveType": "PEF",
+      "curveTypeId": 24,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "PEFZ",
+      "curveType": "PEF",
+      "curveTypeId": 24,
+      "sortId": 3
+    },
+    {
+      "mnemonic": "UZ",
+      "curveType": "PEF",
+      "curveTypeId": 24,
+      "sortId": 4
+    },
+    {
+      "mnemonic": "ZPE",
+      "curveType": "PEF",
+      "curveTypeId": 24,
+      "sortId": 5
+    },
+    {
+      "mnemonic": "EPE",
+      "curveType": "PEF",
+      "curveTypeId": 24,
+      "sortId": 6
+    },
+    {
+      "mnemonic": "PDPE",
+      "curveType": "PEF",
+      "curveTypeId": 24,
+      "sortId": 7
+    },
+    {
+      "mnemonic": "Perfs",
+      "curveType": "Perforations",
+      "curveTypeId": 51,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "Perf",
+      "curveType": "Perforations",
+      "curveTypeId": 51,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "PHIE",
+      "curveType": "Phi",
+      "curveTypeId": 25,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "PHI",
+      "curveType": "Phi",
+      "curveTypeId": 25,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "DPHI",
+      "curveType": "Phi",
+      "curveTypeId": 25,
+      "sortId": 3
+    },
+    {
+      "mnemonic": "PHIT",
+      "curveType": "PhiT",
+      "curveTypeId": 26,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "SFL",
+      "curveType": "ShalRes",
+      "curveTypeId": 27,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "SFLU",
+      "curveType": "ShalRes",
+      "curveTypeId": 27,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "SLL",
+      "curveType": "ShalRes",
+      "curveTypeId": 27,
+      "sortId": 3
+    },
+    {
+      "mnemonic": "AO10",
+      "curveType": "ShalRes",
+      "curveTypeId": 27,
+      "sortId": 4
+    },
+    {
+      "mnemonic": "AO20",
+      "curveType": "ShalRes",
+      "curveTypeId": 27,
+      "sortId": 5
+    },
+    {
+      "mnemonic": "AORX",
+      "curveType": "ShalRes",
+      "curveTypeId": 27,
+      "sortId": 6
+    },
+    {
+      "mnemonic": "AT10",
+      "curveType": "ShalRes",
+      "curveTypeId": 27,
+      "sortId": 7
+    },
+    {
+      "mnemonic": "AT20",
+      "curveType": "ShalRes",
+      "curveTypeId": 27,
+      "sortId": 8
+    },
+    {
+      "mnemonic": "ATRX",
+      "curveType": "ShalRes",
+      "curveTypeId": 27,
+      "sortId": 9
+    },
+    {
+      "mnemonic": "M1R1",
+      "curveType": "ShalRes",
+      "curveTypeId": 27,
+      "sortId": 10
+    },
+    {
+      "mnemonic": "M1R2",
+      "curveType": "ShalRes",
+      "curveTypeId": 27,
+      "sortId": 11
+    },
+    {
+      "mnemonic": "RFOC",
+      "curveType": "ShalRes",
+      "curveTypeId": 27,
+      "sortId": 12
+    },
+    {
+      "mnemonic": "RMSL",
+      "curveType": "ShalRes",
+      "curveTypeId": 27,
+      "sortId": 13
+    },
+    {
+      "mnemonic": "RPCH",
+      "curveType": "ShalRes",
+      "curveTypeId": 27,
+      "sortId": 14
+    },
+    {
+      "mnemonic": "RPCHM",
+      "curveType": "ShalRes",
+      "curveTypeId": 27,
+      "sortId": 15
+    },
+    {
+      "mnemonic": "RPCHX",
+      "curveType": "ShalRes",
+      "curveTypeId": 27,
+      "sortId": 16
+    },
+    {
+      "mnemonic": "RPSH",
+      "curveType": "ShalRes",
+      "curveTypeId": 27,
+      "sortId": 17
+    },
+    {
+      "mnemonic": "RPSHX",
+      "curveType": "ShalRes",
+      "curveTypeId": 27,
+      "sortId": 18
+    },
+    {
+      "mnemonic": "RPSL",
+      "curveType": "ShalRes",
+      "curveTypeId": 27,
+      "sortId": 19
+    },
+    {
+      "mnemonic": "RPSLM",
+      "curveType": "ShalRes",
+      "curveTypeId": 27,
+      "sortId": 20
+    },
+    {
+      "mnemonic": "RPSLX",
+      "curveType": "ShalRes",
+      "curveTypeId": 27,
+      "sortId": 21
+    },
+    {
+      "mnemonic": "RS",
+      "curveType": "ShalRes",
+      "curveTypeId": 27,
+      "sortId": 22
+    },
+    {
+      "mnemonic": "RSFL",
+      "curveType": "ShalRes",
+      "curveTypeId": 27,
+      "sortId": 23
+    },
+    {
+      "mnemonic": "RSN",
+      "curveType": "ShalRes",
+      "curveTypeId": 27,
+      "sortId": 24
+    },
+    {
+      "mnemonic": "SESP",
+      "curveType": "ShalRes",
+      "curveTypeId": 27,
+      "sortId": 25
+    },
+    {
+      "mnemonic": "RLA1",
+      "curveType": "ShalRes",
+      "curveTypeId": 27,
+      "sortId": 26
+    },
+    {
+      "mnemonic": "RLA0",
+      "curveType": "ShalRes",
+      "curveTypeId": 27,
+      "sortId": 27
+    },
+    {
+      "mnemonic": "SN",
+      "curveType": "ShalRes",
+      "curveTypeId": 27,
+      "sortId": 28
+    },
+    {
+      "mnemonic": "DSLL",
+      "curveType": "ShalRes",
+      "curveTypeId": 27,
+      "sortId": 29
+    },
+    {
+      "mnemonic": "FOC",
+      "curveType": "ShalRes",
+      "curveTypeId": 27,
+      "sortId": 30
+    },
+    {
+      "mnemonic": "DTS",
+      "curveType": "ShearSonic",
+      "curveTypeId": 28,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "DTSM",
+      "curveType": "ShearSonic",
+      "curveTypeId": 28,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "DT1",
+      "curveType": "ShearSonic",
+      "curveTypeId": 28,
+      "sortId": 3
+    },
+    {
+      "mnemonic": "DT2",
+      "curveType": "ShearSonic",
+      "curveTypeId": 28,
+      "sortId": 4
+    },
+    {
+      "mnemonic": "DT4S",
+      "curveType": "ShearSonic",
+      "curveTypeId": 28,
+      "sortId": 5
+    },
+    {
+      "mnemonic": "ISVF",
+      "curveType": "ShearSonic",
+      "curveTypeId": 28,
+      "sortId": 6
+    },
+    {
+      "mnemonic": "SDT2",
+      "curveType": "ShearSonic",
+      "curveTypeId": 28,
+      "sortId": 7
+    },
+    {
+      "mnemonic": "VS",
+      "curveType": "ShearVel",
+      "curveTypeId": 29,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "DT",
+      "curveType": "Sonic",
+      "curveTypeId": 30,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "DTCM",
+      "curveType": "Sonic",
+      "curveTypeId": 30,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "DTCO",
+      "curveType": "Sonic",
+      "curveTypeId": 30,
+      "sortId": 3
+    },
+    {
+      "mnemonic": "DTF",
+      "curveType": "Sonic",
+      "curveTypeId": 30,
+      "sortId": 4
+    },
+    {
+      "mnemonic": "DTLN",
+      "curveType": "Sonic",
+      "curveTypeId": 30,
+      "sortId": 5
+    },
+    {
+      "mnemonic": "DTN",
+      "curveType": "Sonic",
+      "curveTypeId": 30,
+      "sortId": 6
+    },
+    {
+      "mnemonic": "DTP",
+      "curveType": "Sonic",
+      "curveTypeId": 30,
+      "sortId": 7
+    },
+    {
+      "mnemonic": "DTRP",
+      "curveType": "Sonic",
+      "curveTypeId": 30,
+      "sortId": 8
+    },
+    {
+      "mnemonic": "IPVF",
+      "curveType": "Sonic",
+      "curveTypeId": 30,
+      "sortId": 9
+    },
+    {
+      "mnemonic": "AC",
+      "curveType": "Sonic",
+      "curveTypeId": 30,
+      "sortId": 10
+    },
+    {
+      "mnemonic": "DT4P",
+      "curveType": "Sonic",
+      "curveTypeId": 30,
+      "sortId": 11
+    },
+    {
+      "mnemonic": "SP",
+      "curveType": "SP",
+      "curveTypeId": 31,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "SPDH",
+      "curveType": "SP",
+      "curveTypeId": 31,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "POTA",
+      "curveType": "Spectral",
+      "curveTypeId": 32,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "THOR",
+      "curveType": "Spectral",
+      "curveTypeId": 32,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "URAN",
+      "curveType": "Spectral",
+      "curveTypeId": 32,
+      "sortId": 3
+    },
+    {
+      "mnemonic": "TH",
+      "curveType": "Spectral",
+      "curveTypeId": 32,
+      "sortId": 4
+    },
+    {
+      "mnemonic": "K",
+      "curveType": "Spectral",
+      "curveTypeId": 32,
+      "sortId": 5
+    },
+    {
+      "mnemonic": "U",
+      "curveType": "Spectral",
+      "curveTypeId": 32,
+      "sortId": 6
+    },
+    {
+      "mnemonic": "GRK",
+      "curveType": "Spectral",
+      "curveTypeId": 32,
+      "sortId": 7
+    },
+    {
+      "mnemonic": "GRPO",
+      "curveType": "Spectral",
+      "curveTypeId": 32,
+      "sortId": 8
+    },
+    {
+      "mnemonic": "GRTH",
+      "curveType": "Spectral",
+      "curveTypeId": 32,
+      "sortId": 9
+    },
+    {
+      "mnemonic": "GRUR",
+      "curveType": "Spectral",
+      "curveTypeId": 32,
+      "sortId": 10
+    },
+    {
+      "mnemonic": "RAKT",
+      "curveType": "Spectral",
+      "curveTypeId": 32,
+      "sortId": 11
+    },
+    {
+      "mnemonic": "RAKU",
+      "curveType": "Spectral",
+      "curveTypeId": 32,
+      "sortId": 12
+    },
+    {
+      "mnemonic": "RAUT",
+      "curveType": "Spectral",
+      "curveTypeId": 32,
+      "sortId": 13
+    },
+    {
+      "mnemonic": "SGK",
+      "curveType": "Spectral",
+      "curveTypeId": 32,
+      "sortId": 14
+    },
+    {
+      "mnemonic": "Sazi",
+      "curveType": "StressAzimuth",
+      "curveTypeId": 49,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "Sw",
+      "curveType": "Sw",
+      "curveTypeId": 33,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "SwT",
+      "curveType": "Sw",
+      "curveTypeId": 33,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "SwTu",
+      "curveType": "Sw",
+      "curveTypeId": 33,
+      "sortId": 3
+    },
+    {
+      "mnemonic": "Swu",
+      "curveType": "Sw",
+      "curveTypeId": 33,
+      "sortId": 4
+    },
+    {
+      "mnemonic": "Swb",
+      "curveType": "Sw",
+      "curveTypeId": 33,
+      "sortId": 5
+    },
+    {
+      "mnemonic": "Sxo",
+      "curveType": "Sw",
+      "curveTypeId": 33,
+      "sortId": 6
+    },
+    {
+      "mnemonic": "SxoT",
+      "curveType": "Sw",
+      "curveTypeId": 33,
+      "sortId": 7
+    },
+    {
+      "mnemonic": "SxoTu",
+      "curveType": "Sw",
+      "curveTypeId": 33,
+      "sortId": 8
+    },
+    {
+      "mnemonic": "Sxou",
+      "curveType": "Sw",
+      "curveTypeId": 33,
+      "sortId": 9
+    },
+    {
+      "mnemonic": "TEMP",
+      "curveType": "Temp",
+      "curveTypeId": 34,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "BHTF",
+      "curveType": "Temp",
+      "curveTypeId": 34,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "T",
+      "curveType": "Temp",
+      "curveTypeId": 34,
+      "sortId": 3
+    },
+    {
+      "mnemonic": "WTBH",
+      "curveType": "Temp",
+      "curveTypeId": 34,
+      "sortId": 4
+    },
+    {
+      "mnemonic": "TENS",
+      "curveType": "Tension",
+      "curveTypeId": 35,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "TTEN",
+      "curveType": "Tension",
+      "curveTypeId": 35,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "TWC",
+      "curveType": "TwcPredicted",
+      "curveTypeId": 45,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "M1RX",
+      "curveType": "UltraDeepRes",
+      "curveTypeId": 36,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "M2RX",
+      "curveType": "UltraDeepRes",
+      "curveTypeId": 36,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "RLA5",
+      "curveType": "UltraDeepRes",
+      "curveTypeId": 36,
+      "sortId": 3
+    },
+    {
+      "mnemonic": "VCL",
+      "curveType": "Vcl",
+      "curveTypeId": 37,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "VCLAV",
+      "curveType": "Vcl",
+      "curveTypeId": 37,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "VCLGR",
+      "curveType": "Vcl",
+      "curveTypeId": 37,
+      "sortId": 3
+    },
+    {
+      "mnemonic": "VWCL",
+      "curveType": "Vcl",
+      "curveTypeId": 37,
+      "sortId": 4
+    },
+    {
+      "mnemonic": "VCLN",
+      "curveType": "Vcl",
+      "curveTypeId": 37,
+      "sortId": 5
+    },
+    {
+      "mnemonic": "VCLND",
+      "curveType": "Vcl",
+      "curveTypeId": 37,
+      "sortId": 6
+    },
+    {
+      "mnemonic": "VCLNS",
+      "curveType": "Vcl",
+      "curveTypeId": 37,
+      "sortId": 7
+    },
+    {
+      "mnemonic": "VCLR",
+      "curveType": "Vcl",
+      "curveTypeId": 37,
+      "sortId": 8
+    },
+    {
+      "mnemonic": "VCLSD",
+      "curveType": "Vcl",
+      "curveTypeId": 37,
+      "sortId": 9
+    },
+    {
+      "mnemonic": "VCLSP",
+      "curveType": "Vcl",
+      "curveTypeId": 37,
+      "sortId": 10
+    },
+    {
+      "mnemonic": "VP",
+      "curveType": "Velocity",
+      "curveTypeId": 38,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "VLCM",
+      "curveType": "Velocity",
+      "curveTypeId": 38,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "SV",
+      "curveType": "VertStress",
+      "curveTypeId": 41,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "VPVS",
+      "curveType": "VPVSRatio",
+      "curveTypeId": 39,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "AHT90",
+      "curveType": "XDeepRes",
+      "curveTypeId": 40,
+      "sortId": 1
+    },
+    {
+      "mnemonic": "AO90",
+      "curveType": "XDeepRes",
+      "curveTypeId": 40,
+      "sortId": 2
+    },
+    {
+      "mnemonic": "AORT",
+      "curveType": "XDeepRes",
+      "curveTypeId": 40,
+      "sortId": 3
+    },
+    {
+      "mnemonic": "AT90",
+      "curveType": "XDeepRes",
+      "curveTypeId": 40,
+      "sortId": 4
+    },
+    {
+      "mnemonic": "M1R9",
+      "curveType": "XDeepRes",
+      "curveTypeId": 40,
+      "sortId": 5
+    },
+    {
+      "mnemonic": "RLA4",
+      "curveType": "XDeepRes",
+      "curveTypeId": 40,
+      "sortId": 6
+    }
+  ],
+  "aliases_grouped_by_curveType": {
+    "AFRImages": [
+      "AFRDLSH",
+      "AFRDLSM",
+      "AFRDUSH",
+      "AFRDUSM",
+      "AFRMHH",
+      "AFRMHM",
+      "AFRMLHH",
+      "AFRMLHM",
+      "AFRMLSH",
+      "AFRMLSM",
+      "AFRMSH",
+      "AFRMSM",
+      "AFRMUHH",
+      "AFRMUHM",
+      "AFRMUSH",
+      "AFRMUSM",
+      "AFRSLHH",
+      "AFRSLHM",
+      "AFRSLSH",
+      "AFRSLSM",
+      "AFRSUHH",
+      "AFRSUHM",
+      "AFRSUSH",
+      "AFRSUSM",
+      "SL64HFH"
+    ],
+    "Azimuth": [
+      "AZI",
+      "AZID",
+      "HAZI",
+      "P1AZ"
+    ],
+    "BVW": [
+      "BVW",
+      "BVWIRR",
+      "BVWSXO"
+    ],
+    "BitSize": [
+      "BIT",
+      "BS"
+    ],
+    "CBHP": [
+      "CBHFP",
+      "CBHP"
+    ],
+    "CDP": [
+      "CDP"
+    ],
+    "Caliper": [
+      "C1",
+      "C2",
+      "CAL",
+      "CALI",
+      "CALM",
+      "CALS",
+      "CALX",
+      "CALY"
+    ],
+    "Coord": [
+      "EDIST",
+      "NDIST",
+      "XDIST",
+      "YDIST"
+    ],
+    "CoreGD": [
+      "GDCORE"
+    ],
+    "CorePerm": [
+      "CPERM",
+      "PERMCORE"
+    ],
+    "CorePhi": [
+      "PHICORE"
+    ],
+    "DeepRes": [
+      "AHT60",
+      "ATRT",
+      "BCDL",
+      "BCML",
+      "DDLL",
+      "DLL",
+      "HDRS",
+      "HMRD",
+      "IDPH",
+      "IDPHC",
+      "ILD",
+      "ILDC",
+      "LLD",
+      "LLDC",
+      "RACH",
+      "RACHM",
+      "RACHX",
+      "RACL",
+      "RACLM",
+      "RACLX",
+      "RASL",
+      "RASLM",
+      "RASLX",
+      "RD",
+      "RILD",
+      "RLA3",
+      "RLLD",
+      "RLLG",
+      "RT",
+      "RTC",
+      "SEDP"
+    ],
+    "Density": [
+      "BDCM",
+      "BDCX",
+      "DEN",
+      "GGK",
+      "HDEN",
+      "HRHO",
+      "NRHO",
+      "RHO",
+      "RHOB",
+      "RHOC",
+      "RHOZ",
+      "ROS2",
+      "SBDC",
+      "SBDF",
+      "ZDEN",
+      "ZRHO"
+    ],
+    "Deviation": [
+      "DEVI",
+      "HDEV",
+      "HDEVI",
+      "INC",
+      "INCL"
+    ],
+    "Drho": [
+      "CORR",
+      "DCOR",
+      "DRHM",
+      "DRHO",
+      "DRHX",
+      "HDRA",
+      "ZCOR",
+      "ZDRH"
+    ],
+    "EPT": [
+      "EATT",
+      "TPL"
+    ],
+    "GammaRay": [
+      "CGR",
+      "GCGR",
+      "GK",
+      "GR",
+      "GRAM",
+      "GRAX",
+      "GRBG",
+      "GRC",
+      "GRCO",
+      "GREC",
+      "GRGC",
+      "GRLL",
+      "GRSG",
+      "SGR"
+    ],
+    "LF": [
+      "LF"
+    ],
+    "Matrix": [
+      "DTMA",
+      "RHOMA"
+    ],
+    "MaxHorzStress": [
+      "SHmax"
+    ],
+    "MedRes": [
+      "AHT10",
+      "AHT20",
+      "AHT30",
+      "AO30",
+      "AO60",
+      "AT30",
+      "AT60",
+      "HRMS",
+      "ILM",
+      "ILMC",
+      "IMPH",
+      "IMPHC",
+      "LLS",
+      "LLSC",
+      "M1R3",
+      "M1R6",
+      "M2R1",
+      "M2R2",
+      "M2R3",
+      "M2R6",
+      "M2R9",
+      "MLL",
+      "RASH",
+      "RASHM",
+      "RASHX",
+      "RILM",
+      "RLA2",
+      "RLLS",
+      "RPCL",
+      "RPCLM",
+      "RPCLX",
+      "SEMP"
+    ],
+    "MicroRes": [
+      "MLLC",
+      "MSFL",
+      "MSFLC",
+      "RXO",
+      "RXOZ"
+    ],
+    "MinHorzStress": [
+      "Shmin"
+    ],
+    "Mineral": [
+      "VCOAL",
+      "VSALT",
+      "VSHALE",
+      "VSILT"
+    ],
+    "Neutron": [
+      "APLC",
+      "APSC",
+      "CN",
+      "CNC",
+      "CNCF",
+      "CNLLC",
+      "HNPO",
+      "HNTP",
+      "NEU",
+      "NGK",
+      "NPHC",
+      "NPHI",
+      "NPLC",
+      "NPLM",
+      "NPLX",
+      "NPOR",
+      "NPRL",
+      "SPLC",
+      "SPLF",
+      "TNPH",
+      "TNPHC"
+    ],
+    "OrigResPress": [
+      "PInit"
+    ],
+    "PEF": [
+      "EPE",
+      "PDPE",
+      "PE",
+      "PEF",
+      "PEFZ",
+      "UZ",
+      "ZPE"
+    ],
+    "Perforations": [
+      "Perf",
+      "Perfs"
+    ],
+    "Phi": [
+      "DPHI",
+      "PHI",
+      "PHIE"
+    ],
+    "PhiT": [
+      "PHIT"
+    ],
+    "SP": [
+      "SP",
+      "SPDH"
+    ],
+    "ShalRes": [
+      "AO10",
+      "AO20",
+      "AORX",
+      "AT10",
+      "AT20",
+      "ATRX",
+      "DSLL",
+      "FOC",
+      "M1R1",
+      "M1R2",
+      "RFOC",
+      "RLA0",
+      "RLA1",
+      "RMSL",
+      "RPCH",
+      "RPCHM",
+      "RPCHX",
+      "RPSH",
+      "RPSHX",
+      "RPSL",
+      "RPSLM",
+      "RPSLX",
+      "RS",
+      "RSFL",
+      "RSN",
+      "SESP",
+      "SFL",
+      "SFLU",
+      "SLL",
+      "SN"
+    ],
+    "ShearSonic": [
+      "DT1",
+      "DT2",
+      "DT4S",
+      "DTS",
+      "DTSM",
+      "ISVF",
+      "SDT2"
+    ],
+    "ShearVel": [
+      "VS"
+    ],
+    "Sonic": [
+      "AC",
+      "DT",
+      "DT4P",
+      "DTCM",
+      "DTCO",
+      "DTF",
+      "DTLN",
+      "DTN",
+      "DTP",
+      "DTRP",
+      "IPVF"
+    ],
+    "Spectral": [
+      "GRK",
+      "GRPO",
+      "GRTH",
+      "GRUR",
+      "K",
+      "POTA",
+      "RAKT",
+      "RAKU",
+      "RAUT",
+      "SGK",
+      "TH",
+      "THOR",
+      "U",
+      "URAN"
+    ],
+    "StressAzimuth": [
+      "Sazi"
+    ],
+    "Sw": [
+      "Sw",
+      "SwT",
+      "SwTu",
+      "Swb",
+      "Swu",
+      "Sxo",
+      "SxoT",
+      "SxoTu",
+      "Sxou"
+    ],
+    "Temp": [
+      "BHTF",
+      "T",
+      "TEMP",
+      "WTBH"
+    ],
+    "Tension": [
+      "TENS",
+      "TTEN"
+    ],
+    "TwcPredicted": [
+      "TWC"
+    ],
+    "UltraDeepRes": [
+      "M1RX",
+      "M2RX",
+      "RLA5"
+    ],
+    "VPVSRatio": [
+      "VPVS"
+    ],
+    "Vcl": [
+      "VCL",
+      "VCLAV",
+      "VCLGR",
+      "VCLN",
+      "VCLND",
+      "VCLNS",
+      "VCLR",
+      "VCLSD",
+      "VCLSP",
+      "VWCL"
+    ],
+    "Velocity": [
+      "VLCM",
+      "VP"
+    ],
+    "VertStress": [
+      "SV"
+    ],
+    "XDeepRes": [
+      "AHT90",
+      "AO90",
+      "AORT",
+      "AT90",
+      "M1R9",
+      "RLA4"
+    ]
+  },
+  "empty_stub_note": {
+    "CurveAlias.txt": "Ships empty (comment header only). User adds 'externalName, IPAlias' rows."
+  }
+}
