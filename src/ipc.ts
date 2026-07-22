@@ -692,6 +692,9 @@ export interface MlRequest {
   params: Record<string, number | string | boolean>;
   feature_curves: string[];
   target_curve: string | null;
+  /** Optional flag curve: samples where the mask = 1 are excluded from training and left blank
+   *  (NaN) in the prediction. Null = no masking. */
+  mask_curve: string | null;
   train_well_ids: string[];
   apply_well_ids: string[];
   output_curve: string;
@@ -730,6 +733,9 @@ export interface MlEvalRequest {
   standardize: boolean;
   seed: number;
   folds: number;
+  /** Optional flag curve: masked (= 1) samples are excluded from the CV pool so the leaderboard
+   *  scores the same population the real run trains on. Omit / null for no masking. */
+  mask_curve?: string | null;
 }
 
 export interface MlEvalRow {

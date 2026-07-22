@@ -7,6 +7,23 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 7 — MASK support in the ML pipeline (2026-07-22)
+
+Optional flag curve in the ML dialog: samples where the mask = 1 are excluded from training AND left
+blank (NaN) in the prediction — the same 0/1 convention as the module MASK. Backend `ml.rs` + frontend
+`mlDialog.ts`/`ipc.ts`. cargo 253/0, tsc 0. Adversarially reviewed (3 lenses → 2 confirmed honesty
+fixes applied).
+
+- [ ] **Masked training + apply.** On a well carrying a BADHOLE / FLAG_PAY / COAL 0-1 flag curve, open
+      ML Models, pick a **Mask (exclude)** curve, run a regression/classification → confirm the output
+      curve is BLANK (NaN) at flagged depths and the per-well "Predicted samples" count drops.
+- [ ] **Mask governs clustering/PCA too.** For an unsupervised task the mask keeps flagged samples out
+      of the fit AND leaves them blank — facies with vs without a mask differ (bad-hole shouldn't shape
+      facies).
+- [ ] **Leaderboard honesty.** In **Compare algorithms** with a mask that empties a whole training
+      well, the header shows the TRUE contributing-well count and a note that blind-well CV fell back
+      to random KFold (previously it hid the collapse behind the requested well count).
+
 ## Round 6 — TVD/TVDSS as fetchable curves (2026-07-22)
 
 Materialize the deviation survey onto the log depth grid as `TVD` and `TVDSS` computed curves,

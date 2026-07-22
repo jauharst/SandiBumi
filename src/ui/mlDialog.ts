@@ -206,6 +206,26 @@ export async function buildMlContent(
   );
   content.appendChild(targetRow);
 
+  // Optional MASK curve — kept visible for ALL tasks (it also governs the unsupervised fit pool),
+  // default "(none)" so data is never silently dropped.
+  const maskSel = document.createElement("select");
+  const maskNone = document.createElement("option");
+  maskNone.value = "";
+  maskNone.textContent = "(none)";
+  maskSel.appendChild(maskNone);
+  for (const name of curveNames) {
+    const o = document.createElement("option");
+    o.value = name;
+    o.textContent = name;
+    maskSel.appendChild(o);
+  }
+  content.appendChild(
+    formRow(
+      "Mask (exclude)", maskSel,
+      "Optional 0/1 flag curve: samples where the mask = 1 are excluded from training and left blank (NaN) in the output — bad-hole, coal, casing.",
+    ),
+  );
+
   // --- Wells ---------------------------------------------------------------
   function wellBox(defaultAll: boolean): { el: HTMLElement; checks: Map<string, HTMLInputElement> } {
     const box = document.createElement("div");
@@ -410,6 +430,7 @@ export async function buildMlContent(
         task: task.id as "regression" | "classification",
         feature_curves: features,
         target_curve: targetSel.value,
+        mask_curve: maskSel.value || null,
         train_well_ids: trainIds,
         algorithms: task.algos.map((a) => a.id),
         subsets: buildSubsets(features, subsetSel.value),
@@ -463,6 +484,7 @@ export async function buildMlContent(
       params,
       feature_curves: features,
       target_curve: task.supervised ? targetSel.value : null,
+      mask_curve: maskSel.value || null,
       train_well_ids: task.supervised ? trainIds : [],
       apply_well_ids: applyIds,
       output_curve: outInput.value,

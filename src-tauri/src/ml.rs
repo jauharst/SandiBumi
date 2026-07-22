@@ -233,6 +233,10 @@ pub struct MlRequest {
     pub feature_curves: Vec<String>,
     #[serde(default)]
     pub target_curve: Option<String>,
+    /// Optional flag curve: samples where the mask == 1.0 are excluded from training AND left
+    /// MISSING (NaN) in the prediction — the same 0/1 convention as the module MASK (workflow.rs).
+    #[serde(default)]
+    pub mask_curve: Option<String>,
     #[serde(default)]
     pub train_well_ids: Vec<String>,
     pub apply_well_ids: Vec<String>,
@@ -283,6 +287,8 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
         return fail("output curve name is empty");
     }
     let target = req.target_curve.as_deref().map(|t| t.trim().to_uppercase());
+    let mask_curve =
+        req.mask_curve.as_deref().map(|m| m.trim().to_uppercase()).filter(|m| !m.is_empty());
     if supervised {
         if target.as_deref().map_or(true, str::is_empty) {
             return fail("supervised learning needs a target curve");
@@ -306,11 +312,20 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
             let tgt = target.clone().unwrap();
             let mut fetch_names = features.clone();
             fetch_names.push(tgt.clone());
+            if let Some(mk) = &mask_curve {
+                fetch_names.push(mk.clone());
+            }
             for well_id in &req.train_well_ids {
                 let Ok((depth, cols)) = fetch_curve_frame(&conn, well_id, &fetch_names) else { continue };
                 let Some(tv) = cols.get(&tgt) else { continue };
                 let Some(fcols) = features.iter().map(|f| cols.get(f)).collect::<Option<Vec<_>>>() else { continue };
+                let mcol = mask_curve.as_ref().and_then(|mk| cols.get(mk));
                 for i in 0..depth.len() {
+                    // MASK convention (workflow.rs): a mask value of exactly 1.0 excludes the
+                    // sample from X/y; 0.0 / NaN / absent keeps it.
+                    if mcol.map_or(false, |m| m[i] == 1.0) {
+                        continue;
+                    }
                     if tv[i].is_finite() && fcols.iter().all(|c| c[i].is_finite()) {
                         for c in &fcols {
                             x_train.push(c[i]);
@@ -320,8 +335,12 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                 }
             }
         }
+        let mut apply_fetch = features.clone();
+        if let Some(mk) = &mask_curve {
+            apply_fetch.push(mk.clone());
+        }
         for well_id in &req.apply_well_ids {
-            match fetch_curve_frame(&conn, well_id, &features) {
+            match fetch_curve_frame(&conn, well_id, &apply_fetch) {
                 Ok((depth, cols)) => {
                     let fcols: Vec<&Vec<f32>> = features.iter().filter_map(|f| cols.get(f)).collect();
                     if fcols.len() != d || depth.is_empty() {
@@ -333,8 +352,14 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                         });
                         continue;
                     }
+                    let mcol = mask_curve.as_ref().and_then(|mk| cols.get(mk));
                     let mut idx = Vec::new();
                     for i in 0..depth.len() {
+                        // Masked apply rows (mask == 1.0) are never sent to python, so scatter-back
+                        // leaves them NaN — the OUTPUT-blanking half of the module MASK convention.
+                        if mcol.map_or(false, |m| m[i] == 1.0) {
+                            continue;
+                        }
                         if fcols.iter().all(|c| c[i].is_finite()) {
                             for c in &fcols {
                                 x_apply.push(c[i]);
@@ -362,7 +387,13 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
     }
     let n_apply = x_apply.len() / d;
     if n_apply == 0 {
-        return fail("no complete samples in the apply wells (every row has at least one missing input)");
+        // Masking is a second, independent way to empty the pool — don't blame missing inputs.
+        let cause = if mask_curve.is_some() {
+            "every row is missing an input or excluded by the mask"
+        } else {
+            "every row has at least one missing input"
+        };
+        return fail(&format!("no complete samples in the apply wells ({cause})"));
     }
 
     // The fit + predict is one opaque subprocess; show it as an indeterminate phase, then report
@@ -664,6 +695,10 @@ pub struct MlEvalRequest {
     pub seed: Option<i64>,
     #[serde(default)]
     pub folds: Option<usize>,
+    /// Optional flag curve: samples where the mask == 1.0 are excluded from the pooled CV set, so
+    /// the leaderboard scores the same (unmasked) population the real ML run trains on.
+    #[serde(default)]
+    pub mask_curve: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -719,6 +754,8 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
     if target.is_empty() {
         return eval_fail("choose a target curve to compare against");
     }
+    let mask_curve =
+        req.mask_curve.as_deref().map(|m| m.trim().to_uppercase()).filter(|m| !m.is_empty());
     let algos: Vec<String> =
         req.algorithms.iter().map(|a| a.trim().to_string()).filter(|a| !a.is_empty()).collect();
     if algos.is_empty() {
@@ -741,11 +778,19 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
         let conn = db.lock().unwrap();
         let mut fetch_names = features.clone();
         fetch_names.push(target.clone());
+        if let Some(mk) = &mask_curve {
+            fetch_names.push(mk.clone());
+        }
         for (g, well_id) in req.train_well_ids.iter().enumerate() {
             let Ok((depth, cols)) = fetch_curve_frame(&conn, well_id, &fetch_names) else { continue };
             let Some(tv) = cols.get(&target) else { continue };
             let Some(fcols) = features.iter().map(|f| cols.get(f)).collect::<Option<Vec<_>>>() else { continue };
+            let mcol = mask_curve.as_ref().and_then(|mk| cols.get(mk));
             for i in 0..depth.len() {
+                // Exclude masked (== 1.0) samples from the CV pool, matching run_ml.
+                if mcol.map_or(false, |m| m[i] == 1.0) {
+                    continue;
+                }
                 if tv[i].is_finite() && fcols.iter().all(|c| c[i].is_finite()) {
                     for c in &fcols {
                         x_train.push(c[i]);
@@ -762,8 +807,6 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
             "only {n_train} labelled samples across the training wells - need at least 20 for cross-validation"
         ));
     }
-    let n_groups = req.train_well_ids.len();
-
     // Build the (algorithm x subset) combos as feature-index lists into `features`.
     let idx_of = |name: &str| features.iter().position(|f| f == name);
     let mut subset_idx: Vec<Vec<usize>> = Vec::new();
@@ -804,6 +847,29 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
     match exec_ml_eval(&python, &req.task, d, n_train, &x_train, &y_train, &groups, &combos, req.standardize, seed, folds) {
         Err(e) => eval_fail(&e),
         Ok(py) => {
+            // `py.n_groups` is the number of wells that ACTUALLY contributed samples (masking can
+            // empty a whole well), i.e. what Python used for GroupKFold — report THAT, not the
+            // requested count. Warn when masking collapses it below 2, since Python then silently
+            // falls back to a leaky (depth-adjacent) random KFold.
+            let requested = req.train_well_ids.len();
+            if py.n_groups < requested {
+                let deg = if py.n_groups < 2 {
+                    format!(
+                        "only {} training well contributed samples after masking (of {requested}) — blind-well CV needs \u{2265}2 wells, so scores fell back to random KFold and may be optimistic",
+                        py.n_groups
+                    )
+                } else {
+                    format!(
+                        "{} of {requested} training well(s) contributed no samples after masking; blind-well CV ran over the remaining {}",
+                        requested - py.n_groups,
+                        py.n_groups
+                    )
+                };
+                note = Some(match note {
+                    Some(existing) => format!("{existing}. {deg}"),
+                    None => deg,
+                });
+            }
             let mut rows: Vec<MlEvalRow> = py
                 .rows
                 .into_iter()
@@ -826,7 +892,7 @@ pub fn run_ml_eval(db: &Mutex<Connection>, req: &MlEvalRequest) -> MlEvalResult 
                 (None, Some(_)) => std::cmp::Ordering::Greater,
                 (None, None) => std::cmp::Ordering::Equal,
             });
-            MlEvalResult { rows, n_train, n_groups: py.n_groups.max(n_groups), cv: py.cv, n_splits: py.n_splits, note, error: None }
+            MlEvalResult { rows, n_train, n_groups: py.n_groups, cv: py.cv, n_splits: py.n_splits, note, error: None }
         }
     }
 }
@@ -954,6 +1020,7 @@ mod tests {
             params: serde_json::Map::new(),
             feature_curves: features.iter().map(|s| s.to_string()).collect(),
             target_curve: target.map(|s| s.to_string()),
+            mask_curve: None,
             train_well_ids: train.to_vec(),
             apply_well_ids: apply.to_vec(),
             output_curve: "PRED".into(),
@@ -1030,6 +1097,159 @@ mod tests {
             r.error.as_deref().unwrap_or("").contains("no complete samples"),
             "expected n_apply==0 refusal, got {:?}",
             r.error,
+        );
+    }
+
+    /// A MASK curve (== 1.0 excludes) reaches the APPLY pool before python: an all-1.0 mask starves
+    /// the pool → the n_apply==0 refusal, while the same data with no mask does not. Needs numpy.
+    #[test]
+    fn run_ml_mask_excludes_apply_samples() {
+        use crate::db;
+        use duckdb::Connection;
+        use std::sync::Mutex;
+        use uuid::Uuid;
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let n = 6usize;
+        let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let well = Uuid::new_v4();
+        db::insert_well(&conn, well, "MASK-AP", None, None, Some(0.0)).unwrap();
+        db::insert_standard_curves(
+            &conn, well, depths.clone(),
+            (0..n).map(|i| 30.0 + i as f32).collect(), // GR present on every row
+            vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
+        )
+        .unwrap();
+        crate::equations::write_computed_curve(&conn, &well.to_string(), &depths, "MASK", &vec![1.0f32; n]).unwrap();
+
+        let ids = well.to_string();
+        let db = Mutex::new(conn);
+        if find_python().is_none() {
+            eprintln!("skipping: no python+numpy");
+            return;
+        }
+        let mut masked = mk_req("clustering", &["GR"], None, &[], &[ids.clone()]);
+        masked.mask_curve = Some("MASK".into());
+        let r = run_ml(&db, &masked, None);
+        let msg = r.error.as_deref().unwrap_or("").to_string();
+        assert!(
+            msg.contains("no complete samples") && msg.contains("mask"),
+            "all-1.0 mask must starve the apply pool AND name the mask as the cause, got {:?}",
+            r.error,
+        );
+        // Control: identical data, no mask → the pool is NOT empty (never hits that refusal).
+        let ctrl = run_ml(&db, &mk_req("clustering", &["GR"], None, &[], &[ids]), None);
+        assert!(
+            !ctrl.error.as_deref().unwrap_or("").contains("no complete samples"),
+            "without a mask the well has complete samples, got {:?}",
+            ctrl.error,
+        );
+    }
+
+    /// MASK excludes flagged rows from the FIT: a training well whose one flagged row carries a wild
+    /// outlier target must not bend the regression — the masked fit recovers the clean line.
+    #[test]
+    fn run_ml_mask_excludes_training_outlier() {
+        let Some(_py) = python_with_sklearn() else {
+            eprintln!("skipping: no python+sklearn on this machine");
+            return;
+        };
+        use crate::db;
+        use duckdb::Connection;
+        use std::sync::Mutex;
+        use uuid::Uuid;
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let n = 13usize;
+        let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let gr: Vec<f32> = (0..n).map(|i| 10.0 + i as f32).collect();
+        let mut rhob: Vec<f32> = gr.iter().map(|g| 2.0 * g + 1.0).collect();
+        rhob[n - 1] = 9999.0; // wild outlier target on the last row
+        let mut mask = vec![0.0f32; n];
+        mask[n - 1] = 1.0; // flag exactly that row
+
+        let train = Uuid::new_v4();
+        db::insert_well(&conn, train, "TR-M", None, None, Some(0.0)).unwrap();
+        db::insert_standard_curves(
+            &conn, train, depths.clone(), gr.clone(),
+            vec![f32::NAN; n], vec![f32::NAN; n], rhob, vec![f32::NAN; n], vec![f32::NAN; n],
+        )
+        .unwrap();
+        crate::equations::write_computed_curve(&conn, &train.to_string(), &depths, "MASK", &mask).unwrap();
+        let apply = Uuid::new_v4();
+        db::insert_well(&conn, apply, "AP-M", None, None, Some(0.0)).unwrap();
+        db::insert_standard_curves(
+            &conn, apply, depths.clone(), gr,
+            vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
+        )
+        .unwrap();
+
+        let (tr, ap) = (train.to_string(), apply.to_string());
+        let db = Mutex::new(conn);
+        let mut req = mk_req("regression", &["GR"], Some("RHOB"), &[tr], &[ap]);
+        req.mask_curve = Some("MASK".into());
+        let r = run_ml(&db, &req, None);
+        assert!(r.error.is_none(), "masked regression should run: {:?}", r.error);
+        let r2 = r.metrics.get("r2_train").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        assert!(r2 > 0.999, "outlier masked out of the fit → clean line; r2_train = {r2}");
+    }
+
+    /// Masking that empties a whole training well must be reported truthfully: the leaderboard
+    /// shows the POST-mask contributing-well count and warns that blind-well CV fell back to
+    /// random KFold — not the pre-mask request count, which hid the collapse.
+    #[test]
+    fn run_ml_eval_mask_collapse_is_reported() {
+        let Some(_py) = python_with_sklearn() else {
+            eprintln!("skipping: no python+sklearn on this machine");
+            return;
+        };
+        use crate::db;
+        use duckdb::Connection;
+        use std::sync::Mutex;
+        use uuid::Uuid;
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let n = 40usize;
+        let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let gr: Vec<f32> = (0..n).map(|i| 10.0 + (i % 20) as f32).collect();
+        let rhob: Vec<f32> = gr.iter().map(|g| 2.0 * g + 1.0).collect();
+
+        // Well A: 40 good rows, mask all 0. Well B: 40 rows, mask ALL 1 (fully excluded).
+        let a = Uuid::new_v4();
+        db::insert_well(&conn, a, "EV-A", None, None, Some(0.0)).unwrap();
+        db::insert_standard_curves(&conn, a, depths.clone(), gr.clone(), vec![f32::NAN; n], vec![f32::NAN; n], rhob.clone(), vec![f32::NAN; n], vec![f32::NAN; n]).unwrap();
+        crate::equations::write_computed_curve(&conn, &a.to_string(), &depths, "MASK", &vec![0.0f32; n]).unwrap();
+        let b = Uuid::new_v4();
+        db::insert_well(&conn, b, "EV-B", None, None, Some(0.0)).unwrap();
+        db::insert_standard_curves(&conn, b, depths.clone(), gr.clone(), vec![f32::NAN; n], vec![f32::NAN; n], rhob, vec![f32::NAN; n], vec![f32::NAN; n]).unwrap();
+        crate::equations::write_computed_curve(&conn, &b.to_string(), &depths, "MASK", &vec![1.0f32; n]).unwrap();
+
+        let (ida, idb) = (a.to_string(), b.to_string());
+        let db = Mutex::new(conn);
+        let req = MlEvalRequest {
+            task: "regression".into(),
+            feature_curves: vec!["GR".into()],
+            target_curve: "RHOB".into(),
+            train_well_ids: vec![ida, idb],
+            algorithms: vec!["linear".into()],
+            subsets: vec![],
+            standardize: false,
+            seed: Some(42),
+            folds: Some(5),
+            mask_curve: Some("MASK".into()),
+        };
+        let r = run_ml_eval(&db, &req);
+        assert!(r.error.is_none(), "eval should run: {:?}", r.error);
+        // Only well A contributed after masking → the truthful count is 1, not the requested 2.
+        assert_eq!(r.n_groups, 1, "post-mask contributing wells (was reporting the pre-mask 2)");
+        assert!(r.cv.to_lowercase().contains("random"), "cv should reflect the KFold fallback: {}", r.cv);
+        assert!(
+            r.note.as_deref().unwrap_or("").contains("masking"),
+            "a masking-collapse note is expected, got {:?}",
+            r.note,
         );
     }
 
