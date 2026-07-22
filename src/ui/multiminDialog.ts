@@ -109,6 +109,38 @@ function numInput(value: number, width = 64, step = "any"): HTMLInputElement {
   return inp;
 }
 
+/** A shrinkable + scrollable setup group: a clickable head (with a live count badge) toggles
+ *  the body open/closed; long lists cap their height and scroll. Used for the mineral kind
+ *  groups and the log-input list so the setup tabs never grow into one endless column. */
+function collapsibleGroup(
+  title: string,
+  opts: { open?: boolean; scroll?: boolean } = {},
+): { root: HTMLElement; body: HTMLElement; count: HTMLElement } {
+  const root = document.createElement("div");
+  root.className = "mm-collapse";
+  const head = document.createElement("button");
+  head.type = "button";
+  head.className = "mm-collapse-head";
+  const chevron = document.createElement("span");
+  chevron.className = "mm-collapse-chevron";
+  chevron.textContent = "▾";
+  const label = document.createElement("span");
+  label.textContent = title;
+  const count = document.createElement("span");
+  count.className = "mm-collapse-count";
+  head.append(chevron, label, count);
+  const body = document.createElement("div");
+  body.className = opts.scroll ? "mm-collapse-body mm-collapse-scroll" : "mm-collapse-body";
+  const setOpen = (o: boolean): void => {
+    body.style.display = o ? "" : "none";
+    root.classList.toggle("collapsed", !o);
+  };
+  setOpen(opts.open ?? true);
+  head.addEventListener("click", () => setOpen(body.style.display === "none"));
+  root.append(head, body);
+  return { root, body, count };
+}
+
 /** Hosted as a dock pane (workspace component "multimin"), not a popup. */
 export async function buildMultiminContent(
   setStatus: (text: string) => void,
@@ -181,8 +213,10 @@ export async function buildMultiminContent(
 
   // --- Components box (grouped) --------------------------------------------
   const compBox = document.createElement("div");
-  compBox.className = "mm-comp-box";
+  // Plain container: the preset row sits at the top, then each mineral KIND becomes its own
+  // shrinkable + scrollable group (mm-collapse) so the tab opens compact instead of one long list.
   const compChecks = new Map<string, HTMLInputElement>();
+  const groupCounts: { kind: string; el: HTMLElement }[] = [];
 
   // Model presets: replace the included set with a named grouping (existing components only —
   // endpoints/overrides are untouched, so a preset never changes reviewed numbers).
@@ -225,11 +259,11 @@ export async function buildMultiminContent(
   compBox.appendChild(presetRow);
   compBox.appendChild(presetNote);
   for (const kind of ["mineral", "clay", "fluid"]) {
-    const head = document.createElement("div");
-    head.className = "mm-group-head";
-    head.textContent = KIND_LABEL[kind];
-    compBox.appendChild(head);
-    for (const c of library.filter((c) => c.kind === kind)) {
+    const members = library.filter((c) => c.kind === kind);
+    if (members.length === 0) continue;
+    // Minerals open by default; clays/fluids start collapsed so the tab opens compact.
+    const grp = collapsibleGroup(KIND_LABEL[kind], { open: kind === "mineral", scroll: true });
+    for (const c of members) {
       const row = document.createElement("label");
       row.className = "mm-comp-row";
       const cb = document.createElement("input");
@@ -254,16 +288,35 @@ export async function buildMultiminContent(
         badge.textContent = c.zone === "X" ? "flushed" : "unflushed";
         row.appendChild(badge);
       }
-      compBox.appendChild(row);
+      grp.body.appendChild(row);
     }
+    groupCounts.push({ kind, el: grp.count });
+    compBox.appendChild(grp.root);
   }
   mineralsPanel.appendChild(compBox);
 
-  // --- Tools box ------------------------------------------------------------
+  // Live "selected/total" badge on each group head, refreshed whenever the selection changes
+  // (checkbox toggle, preset, dry-clay apply — all route through renderTable).
+  function updateGroupCounts(): void {
+    for (const g of groupCounts) {
+      const total = library.filter((c) => c.kind === g.kind).length;
+      const sel = library.filter((c) => c.kind === g.kind && included.has(c.name)).length;
+      g.el.textContent = `${sel}/${total}`;
+    }
+  }
+
+  // --- Tools box (shrinkable + scrollable) ----------------------------------
   const toolsCol = document.createElement("div");
+  const toolsGroup = collapsibleGroup("Log inputs", { open: true, scroll: true });
   const toolsBox = document.createElement("div");
   toolsBox.className = "mm-tools";
-  toolsCol.appendChild(toolsBox);
+  toolsGroup.body.appendChild(toolsBox);
+  toolsCol.appendChild(toolsGroup.root);
+
+  function updateToolsCount(): void {
+    const active = tools.filter((t) => t.on).length;
+    toolsGroup.count.textContent = `${active}/${tools.length} on`;
+  }
 
   function renderToolRow(t: ToolRow): void {
     const row = document.createElement("div");
@@ -274,6 +327,7 @@ export async function buildMultiminContent(
     cb.addEventListener("change", () => {
       t.on = cb.checked;
       updateFluidVisibility();
+      updateToolsCount();
       renderTable();
     });
     row.appendChild(cb);
@@ -302,6 +356,7 @@ export async function buildMultiminContent(
     toolsBox.appendChild(row);
   }
   for (const t of tools) renderToolRow(t);
+  updateToolsCount();
 
   const addCustom = document.createElement("button");
   addCustom.type = "button";
@@ -316,6 +371,7 @@ export async function buildMultiminContent(
     tools.push(t);
     for (const m of overrides.values()) m.set(key, 0);
     renderToolRow(t);
+    updateToolsCount();
     renderTable();
   });
   toolsCol.appendChild(addCustom);
@@ -708,6 +764,7 @@ export async function buildMultiminContent(
     }
     table.appendChild(tbody);
     tableWrap.appendChild(table);
+    updateGroupCounts();
   }
   renderTable();
 

@@ -7,6 +7,34 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 16 — SandiMin dialog polish: theme parity + shrinkable/scrollable lists (your review) (2026-07-23)
+
+Two of the three things you flagged on the tabbed SandiMin pane (the third — the conductivity/Sw
+equation selector — is a separate, larger change I'm holding for your model choice):
+
+- **Theme parity.** The pane's inputs, selects, and checkboxes were rendering as raw browser
+  controls (white box, OS-blue tick) instead of the themed look every module pane uses (your
+  image 2, the Porosity Ceiling pane). They now use the brand surface — `--bg-app` fields with
+  `--border`, and checkboxes/radios take the theme accent instead of OS blue — so the whole pane
+  reads one theme. Scoped to SandiMin for now; a one-line global rule would fix every other pane's
+  checkboxes the same way if you want that (say the word).
+- **Shrinkable + scrollable lists.** The mineral list is now three collapsible groups —
+  **Minerals** (open), **Clays** and **Fluids** (collapsed by default) — each capped-height and
+  scrollable, with a live `selected/total` badge on the head. The **Log inputs** list is likewise
+  one collapsible, scrollable group with a `on/total` badge. Click any head to shrink/expand.
+
+Browser-verified: the four groups render with correct open/collapsed defaults and counts
+(Minerals 1/4 open, Clays 1/2 collapsed, Fluids 2/3 collapsed, Log inputs 5/16-on open), clicking
+a head toggles both the collapsed state and the body, and the themed fields/accent resolve to the
+active theme's variables. tsc 0.
+
+- [ ] **The pane matches the app theme.** Open SandiMin: the mineral checkboxes, the endpoint
+      inputs, and the fluid/clay fields should look like the Porosity Ceiling pane — brand accent
+      ticks, themed field backgrounds — not white boxes with blue ticks.
+- [ ] **The lists shrink and scroll.** On **Minerals**, confirm Clays/Fluids start collapsed and
+      click their heads to expand; on **Log inputs**, confirm the 16-row list scrolls within its
+      box. The head badges should track what you've selected/turned on.
+
 ## Round 15 — SandiMin dialog: tabbed setup (your request) (2026-07-23)
 
 The Mineral Solver pane was one long scroll — minerals, log inputs, fluid properties, and the
