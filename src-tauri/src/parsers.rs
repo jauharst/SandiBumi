@@ -19,6 +19,7 @@ pub type ParseResult<T> = Result<T, ParseError>;
 
 /// A single deserialized row from a generic curve CSV export.
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)] // CSV-export row DTO; paired with parse_csv_export below
 pub struct LogDataRow {
     pub depth: f32,
     pub gr: Option<f32>,
@@ -42,6 +43,7 @@ pub struct CurveColumns {
 }
 
 /// Parses a generic curve CSV export into columnar arrays, mapping missing values to `f32::NAN`.
+#[allow(dead_code)] // generic-CSV importer, wired into the ribbon in a later increment
 pub fn parse_csv_export<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
     let file = File::open(path)?;
     let mut rdr = csv::ReaderBuilder::new()
@@ -1465,6 +1467,7 @@ pub fn parse_deviation_csv<P: AsRef<Path>>(path: P) -> ParseResult<DeviationSurv
 
 /// Parses every LAS file in `dir` concurrently across all CPU threads via `rayon`.
 /// Returns a `(path, result)` pair per file so individual parse failures don't abort the batch.
+#[allow(dead_code)] // batch/folder LAS import, wired into the ribbon in a later increment
 pub fn parse_las_directory<P: AsRef<Path>>(dir: P) -> ParseResult<Vec<(String, ParseResult<CurveColumns>)>> {
     let paths: Vec<_> = std::fs::read_dir(dir)?
         .filter_map(|entry| entry.ok())

@@ -739,7 +739,7 @@ fn draw_class_blocks(
     y_of: &dyn Fn(f32) -> f64,
 ) {
     let opacity = cs.fill_opacity.unwrap_or(0.85) as f64;
-    let mut push_rect = |ops: &mut Vec<DrawOp>, class: i64, top: f32, bot: f32| {
+    let push_rect = |ops: &mut Vec<DrawOp>, class: i64, top: f32, bot: f32| {
         let (y0, y1) = (y_of(top.max(page_top)), y_of(bot.min(page_bot)));
         if y1 <= y0 {
             return;

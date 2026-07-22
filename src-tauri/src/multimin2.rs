@@ -889,6 +889,7 @@ fn rho_e(rhob: f64) -> f64 {
 /// Volumetric photoelectric factor U = Pe·ρₑ — the quantity that mixes linearly by
 /// volume. Per-electron PEF does NOT, so a measured PEF reading is converted to U here
 /// before it enters the linear system. `None` for a non-physical RHOB.
+#[allow(dead_code)] // exercised by the pef_converts_to_u_before_mixing test; inline in the hot path
 fn pef_to_u(pef: f64, rhob: f64) -> Option<f64> {
     (pef.is_finite() && rhob.is_finite() && rhob > 0.0).then(|| pef * rho_e(rhob))
 }
@@ -1142,6 +1143,7 @@ fn solve_linear_opt(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
 // CT/CXO endpoints are computed from the fluid properties at run time.
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)] // canonical tool-key ordering, referenced by docs/spec + future validation
 pub const TOOL_KEYS: [&str; 14] =
     ["RHOB", "NPHI", "DT", "GR", "PEF", "U", "THOR", "POTA", "URAN", "VP", "VS", "EPT", "EATT", "SIGMA"];
 

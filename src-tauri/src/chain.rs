@@ -55,6 +55,7 @@ pub enum ChainStatus {
     Cancelled {
         at_step: usize,
     },
+    #[allow(dead_code)] // reserved chain-status variant, not yet emitted by the runner
     Failed {
         error: String,
     },

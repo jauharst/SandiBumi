@@ -484,6 +484,7 @@ pub fn migrate_drop_computed_curves_pk(conn: &Connection) -> DbResult<()> {
 /// A single standard LAS curve row, used for deserializing incoming parsed data
 /// (LAS 2.0 / generic curve CSV) before batch insertion.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)] // deserialization DTO kept for the standard-curve CSV path
 pub struct StandardCurveRow {
     pub depth: f32,
     pub gr: f32,

@@ -918,7 +918,7 @@ struct PyEvalRow {
 }
 
 #[derive(Deserialize)]
-struct PyEvalOut {
+pub(crate) struct PyEvalOut {
     rows: Vec<PyEvalRow>,
     n_groups: usize,
     n_splits: usize,

@@ -13,7 +13,6 @@ use crate::db;
 use crate::python_engine::{find_python, hide_console};
 use duckdb::{params, Connection};
 use serde::{Deserialize, Serialize};
-use std::io::Write;
 use std::process::{Command, Stdio};
 
 /// Streams every 1-D scalar channel of every frame. Multi-dimensional channels (image/array
