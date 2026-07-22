@@ -14,7 +14,6 @@ mod geo;
 mod health;
 mod hfu;
 mod ingest;
-mod inversion;
 mod jobs;
 mod layout;
 mod lrlc;
@@ -1255,23 +1254,6 @@ async fn export_las(
     .await
 }
 
-/// Kicks off a long-running stochastic multi-mineral inversion on a background thread and
-/// returns immediately with a job id; the Tauri UI thread is never blocked.
-#[tauri::command]
-fn start_inversion(registry: tauri::State<inversion::JobRegistry>, iterations: u32) -> String {
-    inversion::dispatch_inversion(registry.inner().clone(), iterations).to_string()
-}
-
-/// Polls the status/result of a previously dispatched inversion job.
-#[tauri::command]
-fn get_inversion_status(
-    registry: tauri::State<inversion::JobRegistry>,
-    job_id: String,
-) -> Option<inversion::InversionStatus> {
-    let uuid = Uuid::parse_str(&job_id).ok()?;
-    registry.lock().unwrap().get(&uuid).cloned()
-}
-
 /// Runs a saved workflow chain (ordered modules) across the given wells. The frontend
 /// supplies the `job_id` up front so it can poll `get_chain_status` for live progress while
 /// this command runs on its own worker thread. Returns when the chain finishes; progress and
@@ -1420,7 +1402,6 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(DbState(Arc::new(Mutex::new(conn))))
         .manage(project::ProjectState(Mutex::new(project::absolute(&startup))))
-        .manage(inversion::new_registry())
         .manage(chain::new_registry())
         .manage(jobs::new_registry())
         .invoke_handler(tauri::generate_handler![
@@ -1505,8 +1486,6 @@ pub fn run() {
             multimin_fluid_calc,
             multimin_dry_clay,
             multimin_fluid_from_precalc,
-            start_inversion,
-            get_inversion_status,
             run_workflow_chain,
             get_chain_status,
             cancel_workflow_chain,

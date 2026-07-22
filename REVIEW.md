@@ -217,6 +217,15 @@ through in the real app with field data. Nothing committed.**
       the tops. **(5)** Tops import now **skips a blank WELL cell in a multi-well file** (was misrouting it
       to the selected well, silently attaching a top to an unrelated well) and reports the dropped count.
       *(+2 tests updated for the new `has_well_column` flag; suite 236/0.)*
+- [ ] **AUDIT-2026-07-21 — dead-code removal batch 3 (2026-07-22):** deleted two dead source files and
+      their IPC surface. **(1)** `petrophysics.rs` was fully dead (never declared as a `mod`, zero
+      references; its math — linear Vsh, density porosity, plain Archie — is long since live in
+      `modules.rs`). **(2)** `inversion.rs` was a hardcoded-stub solver (`run_stochastic_inversion`
+      returned a fixed `[0.25,0.15,0.20,0.40]` regardless of input) still exposed over IPC as
+      `start_inversion`/`get_inversion_status` with **zero frontend callers** and a latent
+      `tokio::spawn`-from-sync-command panic; removed both commands from the handler, the
+      `.manage(inversion::new_registry())`, the `mod`, and the file. *(No behavior change — nothing
+      called either. Suite 236/0.)*
 
 ## Round 2 — panes, shift-select, MC plot props + table + polish (2026-07-21, Jauhar feedback batch #2)
 
