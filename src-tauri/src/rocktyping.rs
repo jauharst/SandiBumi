@@ -6,23 +6,26 @@
 //!   - Amaefule 1993 RQI / φz / FZI + Corbett-Potter 2004 GHE bins, with the per-HFU
 //!     geometric-mean-FZI permeability predictor k = 1014.24·FZI²·φ³/(1−φ)².
 //!   - Kolodzie 1980 Winland R35 (+ port classes mega/macro/meso/micro/nano).
-//!   - Permadi-Susilo PGS pore geometry (k/φ) and pore structure (k/φ^PS_EXP), PS_EXP default 3.5.
+//!   - Permadi-Susilo PGS pore geometry √(k/φ) and pore structure k/φ^PS_EXP, PS_EXP default 3.0.
 //!
 //! Also here (increment 2): Lucia RFN (carbonate), cutoff-based electrofacies RT, and the Pittman
 //! (1992) full r10–r75 pore-throat table with a selectable apex → port class. Interactive
 //! Ward/histogram HFU clustering lives in `hfu.rs` (cross-well pane, reads core φ-k).
 //! Still deferred (see the reference doc): MICP-fitted LOCAL Winland/Pittman coefficients.
 //!
-//! NOTE (flagged in the reference doc): the PS exponent (3.5) and GHE bin list are specced from
-//! literature/recall with no local paper copy — they are exposed as a param / documented so they
-//! can be corrected against Permadi-Susilo 2009 and Corbett-Potter 2004 before field release.
+//! NOTE: VERIFIED 2026-07-22 (see docs/constants_verification_2026-07-22.md). GHE bins were
+//! corrected to the Corbett-Potter 2004 ×2 series (…1.5, 3, 6, 12, 24), and PGS to √(k/φ) / k/φ³
+//! (exponent 3, per the Kozeny-Carman derivation and the ACS Omega 2024 Permadi-Susilo review;
+//! the old k/φ + 3.5 were unverified reference-doc recall). PS_EXP stays a param for override;
+//! confirm PGS against the primary SPE 125350 if a copy becomes available.
 
 use crate::modules::{log_in, log_out, opt, param, ModuleContext, ModuleOutputs, ModuleSpec};
 use std::collections::HashMap;
 
 /// Corbett & Potter (2004) global hydraulic element FZI boundaries (µm). A sample's GHE class is
-/// 1 + (number of boundaries its FZI exceeds), so FZI < 0.0938 → GHE1 … FZI ≥ 8 → GHE10.
-const GHE_BOUNDS: [f64; 9] = [0.0938, 0.1875, 0.375, 0.75, 1.5, 2.5, 4.0, 6.0, 8.0];
+/// 1 + (number of boundaries its FZI exceeds), so FZI < 0.0938 → GHE1 … FZI ≥ 24 → GHE10.
+/// Corbett-Potter 2004 ×2 geometric series (corrected 2026-07-22; was …1.5, 2.5, 4, 6, 8).
+const GHE_BOUNDS: [f64; 9] = [0.0938, 0.1875, 0.375, 0.75, 1.5, 3.0, 6.0, 12.0, 24.0];
 
 /// Winland-R35 port-class pore-throat cutoffs (µm): nano <0.1, micro 0.1–0.5, meso 0.5–2.5,
 /// macro 2.5–10, mega ≥10 → classes 1..5.
@@ -44,24 +47,23 @@ pub fn rocktyping_spec() -> ModuleSpec {
         doc: "Per-sample rock-typing indicators from porosity and permeability. Writes \
               RQI = 0.0314·√(k/φ), PHIZ = φ/(1−φ), FZI = RQI/PHIZ (Amaefule 1993); Winland \
               R35 = 10^(0.732 + 0.588·log10 k − 0.864·log10 φ%) (Kolodzie 1980); and the \
-              Permadi-Susilo PGS pair PGEOM = k/φ, PSTRUC = k/φ^PS_EXP. RT is the rock-type \
+              Permadi-Susilo PGS pair PGEOM = √(k/φ), PSTRUC = k/φ^PS_EXP. RT is the rock-type \
               class from the chosen METHOD — GHE fixed FZI bins (Corbett-Potter 2004) or Winland \
               port classes (nano..mega). PERM_RT is the class-grouped permeability estimate \
               k = 1014.24·FZI_mean(RT)²·φ³/(1−φ)² using each class's GEOMETRIC-MEAN FZI over this \
-              well. k in mD, φ in v/v; samples with φ∉(0,1) or k≤0 stay MISSING. NOTE: the PS \
-              exponent and GHE bins are literature/recall values (see the rock-typing reference) \
-              — verify against the papers before release."
+              well. k in mD, φ in v/v; samples with φ∉(0,1) or k≤0 stay MISSING. GHE bins follow \
+              the Corbett-Potter 2004 ×2 series and PGS uses √(k/φ) / k/φ³ (verified 2026-07-22)."
             .into(),
         args: vec![
             opt("METHOD", "Rock-type class basis", "ghe", &["ghe", "winland_port"]),
-            param("PS_EXP", "PGS pore-structure exponent (k/φ^PS_EXP)", "-", 3.5, 1.0, 6.0),
+            param("PS_EXP", "PGS pore-structure exponent (k/φ^PS_EXP)", "-", 3.0, 1.0, 6.0),
             log_in("PHI", "Effective porosity", "v/v", "PHIE", true),
             log_in("PERM", "Permeability", "mD", "PERM", true),
             log_out("RQI", "Reservoir quality index 0.0314·√(k/φ)", "um"),
             log_out("PHIZ", "Normalized porosity φ/(1−φ)", "-"),
             log_out("FZI", "Flow zone indicator RQI/PHIZ", "um"),
             log_out("R35", "Winland R35 pore-throat radius", "um"),
-            log_out("PGEOM", "PGS pore geometry k/φ", "-"),
+            log_out("PGEOM", "PGS pore geometry √(k/φ)", "-"),
             log_out("PSTRUC", "PGS pore structure k/φ^PS_EXP", "-"),
             log_out("RT", "Rock-type class (GHE 1..10 or port 1..5)", "-"),
             log_out("PERM_RT", "Class-grouped permeability estimate", "mD"),
@@ -74,7 +76,7 @@ pub fn rocktyping(ctx: &ModuleContext) -> ModuleOutputs {
     let perm_log = ctx.log("PERM");
     let method = ctx.o("METHOD").to_string();
     let ps_exp_raw = ctx.p("PS_EXP", 0);
-    let ps_exp = if ps_exp_raw.is_finite() { ps_exp_raw.clamp(1.0, 6.0) } else { 3.5 };
+    let ps_exp = if ps_exp_raw.is_finite() { ps_exp_raw.clamp(1.0, 6.0) } else { 3.0 };
 
     let n = ctx.n;
     let mut rqi = vec![f32::NAN; n];
@@ -101,7 +103,7 @@ pub fn rocktyping(ctx: &ModuleContext) -> ModuleOutputs {
         phiz[i] = phiz_i as f32;
         fzi[i] = fzi_i as f32;
         r35[i] = r35_i as f32;
-        pgeom[i] = (k / phi) as f32;
+        pgeom[i] = (k / phi).sqrt() as f32;
         pstruc[i] = (k / phi.powf(ps_exp)) as f32;
         if fzi_i.is_finite() && fzi_i > 0.0 {
             rt[i] = if method == "winland_port" { port_class(r35_i) } else { ghe_class(fzi_i) } as f32;
@@ -415,8 +417,8 @@ mod tests {
         let fzi = out["FZI"][0] as f64;
         assert!((rqi - 0.0314 * 500f64.sqrt()).abs() < 1e-4, "rqi={rqi}");
         assert!((fzi - rqi / 0.25).abs() < 1e-4, "fzi={fzi}");
-        // FZI ≈ 2.808 → between GHE bounds 2.5 and 4 → GHE class 7.
-        assert_eq!(out["RT"][0], 7.0, "fzi={fzi}");
+        // FZI ≈ 2.808 → between GHE bounds 1.5 and 3 (Corbett-Potter ×2 series) → GHE class 6.
+        assert_eq!(out["RT"][0], 6.0, "fzi={fzi}");
     }
 
     #[test]

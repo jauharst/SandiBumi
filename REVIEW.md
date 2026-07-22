@@ -7,6 +7,86 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 5 — Rock-typing constants verification vs papers (2026-07-22)
+
+Read-only cross-check of every hardcoded literature constant in `rocktyping.rs` / `shf_fit.rs` /
+`thomeer.rs` / `hfu.rs` (+ `satheight.rs`) against `docs/research_2026-07/ref_rocktyping_shf.md` and
+the published sources. Full write-up: `docs/constants_verification_2026-07-22.md`. **2 corrections
+applied (both number-changing, Jauhar approved); 1 held pending a primary-source glance.** cargo
+247/0, tsc N/A (no TS).
+
+- [ ] **GHE FZI bins corrected** (`rocktyping.rs`). Was `…1.5, 2.5, 4, 6, 8`; now the Corbett-Potter
+      2004 ×2 series `…1.5, 3, 6, 12, 24`. Run the **Rock Typing (FZI/R35/PGS)** module with
+      `METHOD=ghe` on a cored well and confirm the `RT` (GHE class) curve looks right for the
+      best-quality rock — high-FZI samples now land in the correct GHE6–GHE10 bands (previously
+      compressed). `PERM_RT` follows the class, so it shifts too.
+- [ ] **PGS definitions corrected** (`rocktyping.rs`). `PGEOM` is now `√(k/φ)` (was `k/φ`) and the
+      `PS_EXP` default is `3.0` (was `3.5`) — the ACS Omega 2024 / Kozeny-Carman form. Diagnostic
+      curves only (RT class is unaffected). Confirm `PGEOM`/`PSTRUC` plot sensibly; `PS_EXP` is still
+      an editable param if you want a different exponent.
+- [ ] **Pittman r75 — HELD (not changed).** The code's r75 row `(1.243, 0.674, −1.517)` diverges from
+      the widely-cited `≈(0.778, 0.626, −1.205)` while r10–r50 all match. Couldn't confirm online
+      (Pittman's Table 1 is an image; primary is paywalled). If you can check **AAPG Bull. v76 (1992)
+      p191-198, Table 1**, tell me the r75 coefficients and I'll fix the one row. Only affects `PR75`
+      and `RT_PITT` when APEX=r75 (default r35 is fine).
+
+## Round 4 — AUDIT-2026-07-21 safe-bucket follow-through (2026-07-22): correctness / honesty / robustness
+
+Continuation of task #159 (the 65-finding full-QC audit). After batches 1–3 (`1d6b521`/`5e44620`/`1dcfeba`)
+and the RT≤0 fix (`f33e126`), this round works the remaining **safe** bucket — fixes that harden behaviour
+or improve reporting honesty WITHOUT changing interpretation numbers for valid data. Audit references were
+re-verified against CURRENT code first (several were already fixed by the round-2/3 refactors — e.g.
+correlation already subscribes to dataVersion; recordProcess already wired in ML/multimin/inspector).
+**cargo 247 pass / 0 fail / 7 ignored; tsc EXIT 0. Nothing committed.**
+
+Backend (Rust, unit-tested):
+- [ ] **Cutoff-sweep geometric clamp.** `run_cutoff_sweep` now integrates each sample's clamped overlap
+      with the zone ∩ DST interval (mirrors `run_pay_summary`), so NTG can no longer exceed 1 when a
+      zone/DST boundary lands mid-sample. Sample-aligned results are byte-identical. **Try:** run Cutoff
+      Sensitivity with a DST interval whose edges don't fall on log samples — NTG should stay ≤ 1 and agree
+      with the Pay Summary for the same well/zone/cutoff.
+- [ ] **Per-well isolation** in `run_pay_summary` + `run_cutoff_sweep`: one well's fetch/zone read error
+      now skips just that well instead of zeroing the whole Field Dashboard / sweep response.
+- [ ] **All-NaN module runs report honestly.** A module run whose every output sample is MISSING (e.g.
+      gascorr with no precalc, or a module fed an all-NaN input, or SW-RtC on a well with no PHIT) is now
+      reported as an error / Warned in the Processing panel — not a green "N samples → …" success. Same
+      guard on Rhai + Python equations (an unresolvable input/output curve → error, not a clean success).
+- [ ] **Python in-place equation guard.** An equation whose output curve name collides with an input
+      (a "clean this curve in place" script) no longer silently writes the untouched input back when the
+      script forgot to (re)assign it. (Also fixed a worker crash when the output was named `np`/`numpy`.)
+- [ ] **LRLC SSPW fallback.** SW-RtC / SW-IMTS now fall back to the SSPW-named curves (PHIT_SSPW /
+      CAPBW_SSPW / CBW_SSPW) when the SSC ones are absent — so they run on an SSPW-processed well instead
+      of silently producing all-NaN. SSC-only wells are unchanged. **Try:** run SW-RtC on a well processed
+      through SSPW porosity (no SSC curves).
+- [ ] **LAS duplicate-name warning.** Importing a LAS whose (normalized) well name already exists now
+      warns (still creates a separate record — merge is a deliberate action, not automatic). **Try:**
+      import the same LAS twice; the second shows a "already exists" warning.
+- [ ] **New test coverage** (no behaviour change): phi_den / phi_dn edge cases (VSH≥0.95 shale branch,
+      SHALE_REDUCED-vs-MAXIMUM cap, density shale-reduction clamp, AVERAGE-vs-GAS_RMS), SSC `*_GR` family
+      closure + degenerate-VWSH guard, and `run_ml`'s DB-integration guards.
+
+Frontend (TS, tsc-clean):
+- [ ] **History attribution.** A scoped module run records the wells actually run (single by name, batch
+      as null) instead of the globally-selected well (which a scoped run may not have touched).
+- [ ] **Blank "(none)" for optional inputs.** Optional log-input dropdowns now offer "(none)" so you can
+      deliberately drop a curve slot even when a curve of that name exists in the project.
+- [ ] **dataVersion refresh** after equation / ML / report runs and on workflow-chain **cancel/fail**
+      (a cancelled chain routinely committed the earlier wells) — open plots/log views no longer show stale
+      curves.
+- [ ] **Race guards** on the module pane's data refresh (a slow refresh can't overwrite a fresher one) and
+      SandiMin's **Autofill-from-precalc** (a well switch mid-fetch no longer stamps stale FTEMP/RMF).
+- [ ] **Pay Summary → Processing History** (the FLAG-writing Compute now leaves a trace); **curve-edit
+      Set-constant** rejects non-finite (Infinity) input; the deprecated legacy **`multimin`** module is
+      filtered out of the Workflow step picker (use SandiMin).
+
+Deferred / needs your call (see the summary I sent):
+- Report "Tables only" still computes the composite geometry (efficiency, not correctness) — a truly safe
+  fix must reproduce the cover interval exactly, which needs the same expensive fetch. Held.
+- Low-value polish left: MC histogram theme-repaint; ml/wellScope dataVersion subscribe.
+- **6 findings that WOULD change interpretation numbers** await your sign-off (perm_coates default 100→70;
+  phi_son OPT_CP DT_SH>100 gate; log_predict masked-fill survival; legacy-multimin RECON_ERR at 3 tools;
+  MC PERM cutoff when chain-produced; MC MASK/computed_only parity).
+
 ## Round 3 — Feature Wave B chain (2026-07-22): fluid contacts, ML leaderboard, well-diagram, rock typing + SHF
 
 Four Wave B features built back-to-back after the round-2 commit (`d64bdc7`). Each is tsc-clean and
