@@ -18,19 +18,24 @@ reports the **Lorenz heterogeneity coefficient** (Schmalz & Rahme 1950). Command
 3 units), tsc **0**. Adversarially reviewed (4 lenses → **1 confirmed** IPC-nullability fix applied;
 math + segmentation lenses clean). Method banked in `docs/ref_rock_typing.md`.
 
-> **NOTE:** this is the **solver** increment. The visual — SMLP curve + flow-unit table + Winland/
-> Pittman crossplots — lands in increment **3c**. There is no click-through yet; the two checks below
-> are staged for when 3c ships. (3b, the Pittman full-apex r10–r75 table, was already built as the
-> `pittman_rx` module.)
+The **visual** (increment 3c-1) shipped in the same round: new pane **Lorenz Plot (flow units)** in
+the ＋ add-panel menu — well + φ/k curve pickers (group-filtered, defaults to the selected well;
+PERM list prefers PERM/KLOGH/PERM_RT), auto or forced K, optional MD window, then the SMLP curve
+coloured by flow unit against the dashed 45° homogeneous diagonal, the per-unit table (top/base,
+storage %, flow %, slope, **speed/baffle** character), and the Lorenz-coefficient headline.
+Browser-smoke-tested on a stubbed 3-regime column: 3 units recovered, unit 1 = speed with 90 % of
+flow from 33 % of storage, row-click highlight dims the other units. (3b, the Pittman full-apex
+r10–r75 table, was already built as the `pittman_rx` module. Winland/Pittman crossplots + the RT
+FACIES track are the remaining 3c pieces.)
 
-- [ ] **SMLP + flow units on a real well.** *(after 3c)* On a well with PHIE + a permeability curve
-      (imported KLOGH, computed PERM, or the rock-typing PERM_RT), run Rock Typing ▸ Lorenz. Confirm the
-      curve ends at (1,1), and steep **speed** segments coincide with your best reservoir sands (high
-      k/φ) while flat **baffle** segments fall on shale / tight streaks — the flow-unit boundaries should
-      track your net-sand tops.
-- [ ] **Lorenz coefficient sanity.** *(after 3c)* A clean, well-sorted sand gives a **low** coefficient
-      (near 0); a layered sand-shale interval a **high** one (→1). Compare two zones you know differ in
-      heterogeneity and confirm the number moves the right way.
+- [ ] **SMLP + flow units on a real well.** On a well with PHIE + a permeability curve (imported
+      KLOGH, computed PERM, or the rock-typing PERM_RT), open **＋ add-panel ▸ Lorenz Plot (flow
+      units)** ▸ Build Lorenz Plot. Confirm the curve ends at (1,1), and steep **speed** segments
+      coincide with your best reservoir sands (high k/φ) while flat **baffle** segments fall on
+      shale / tight streaks — the flow-unit boundaries should track your net-sand tops.
+- [ ] **Lorenz coefficient sanity.** A clean, well-sorted sand gives a **low** coefficient (near 0);
+      a layered sand-shale interval a **high** one (→1). Use the MD window (a zone's top/base) to
+      Lorenz two zones you know differ in heterogeneity and confirm the number moves the right way.
 
 ## Round 9 — Cross-feature fix: survey TVD/TVDSS must not shadow an imported one (2026-07-22)
 

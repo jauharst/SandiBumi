@@ -334,6 +334,7 @@ export class Workspace {
       ["SHF Fit (Cuddy FOIL)", () => this.openShf(group)],
       ["Pc Fit (Thomeer)", () => this.openThomeer(group)],
       ["HFU Clustering (FZI)", () => this.openHfu(group)],
+      ["Lorenz Plot (flow units)", () => this.openLorenz(group)],
       ["Facies Tie-in (RT confusion)", () => this.openFaciesTie(group)],
       ["SandiMin Solver", () => this.openMultimin(group)],
       "sep",
@@ -491,6 +492,12 @@ export class Workspace {
           "dock-hfu",
           () => import("./hfuDialog").then((m) => m.buildHfuContent(setStatus)),
           "HFU clustering",
+        );
+      case "lorenz":
+        return this.asyncPane(
+          "dock-lorenz",
+          () => import("./lorenzDialog").then((m) => m.buildLorenzContent(setStatus)),
+          "Lorenz plot",
         );
       case "faciesTie":
         return this.asyncPane(
@@ -1319,6 +1326,10 @@ export class Workspace {
 
   openHfu(group?: DockviewGroupPanel): void {
     this.openSingleton("hfu", "hfu", "HFU Clustering (FZI)", group);
+  }
+
+  openLorenz(group?: DockviewGroupPanel): void {
+    this.openSingleton("lorenz", "lorenz", "Lorenz Plot (flow units)", group);
   }
 
   openFaciesTie(group?: DockviewGroupPanel): void {
