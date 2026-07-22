@@ -16,6 +16,7 @@ mod hfu;
 mod ingest;
 mod jobs;
 mod layout;
+mod lorenz;
 mod lrlc;
 mod ml;
 mod modules;
@@ -947,6 +948,20 @@ async fn run_hfu_cluster(
         .map_err(|e| e.to_string())
 }
 
+/// Stratigraphic Modified Lorenz Plot (playbook #3, increment 3a): builds the depth-ordered
+/// flow/storage-capacity curve for one well from its φ + k logs, segments it into flow units, and
+/// returns the Lorenz heterogeneity coefficient. Off-thread; writes no curves.
+#[tauri::command]
+async fn run_lorenz(
+    db: tauri::State<'_, DbState>,
+    req: lorenz::LorenzRequest,
+) -> Result<lorenz::LorenzResult, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || lorenz::run_lorenz(&conn, &req))
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Electrofacies tie-in QC (Wave B item 8, increment 2): confusion matrix + dominant-class purity
 /// of a predicted log rock-type curve against a reference/core rock-type curve. Off-thread.
 #[tauri::command]
@@ -1529,6 +1544,7 @@ pub fn run() {
             run_shf_fit,
             run_thomeer_fit,
             run_hfu_cluster,
+            run_lorenz,
             run_facies_confusion,
             run_multimin,
             multimin_library,

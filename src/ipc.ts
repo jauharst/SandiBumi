@@ -1393,6 +1393,73 @@ export function runHfuCluster(wellIds: string[], nClusters: number, method: HfuM
   });
 }
 
+export interface LorenzPoint {
+  depth: number;
+  phi: number;
+  perm: number;
+  /** Cumulative storage fraction Σ(φh)/Σφh at this sample, 0..1 (depth order). */
+  cum_storage: number;
+  /** Cumulative flow fraction Σ(kh)/Σkh at this sample, 0..1 (depth order). */
+  cum_flow: number;
+  /** Local SMLP slope (k/φ normalized); 1 = the well-average k/φ (the 45° line). */
+  slope: number;
+  /** Flow-unit id, 1..K in depth order (unit 1 = shallowest). */
+  unit: number;
+}
+
+export interface LorenzUnit {
+  unit: number;
+  depth_top: number;
+  depth_base: number;
+  n: number;
+  /** Share of the well's total storage capacity (Σφh) in this unit. */
+  storage_frac: number;
+  /** Share of the well's total flow capacity (Σkh) in this unit. */
+  flow_frac: number;
+  /** Unit SMLP slope = flow_frac / storage_frac; >1 speed zone, <1 baffle. */
+  slope: number;
+  phi_mean: number;
+  perm_mean: number;
+  /** Advisory character: "speed" (slope>1), "baffle" (<1), "balanced", or "n/a". */
+  character: string;
+}
+
+export interface LorenzResult {
+  points: LorenzPoint[];
+  units: LorenzUnit[];
+  /** Lorenz heterogeneity coefficient (0 homogeneous … 1 heterogeneous). `null` on the error
+   *  path (Rust emits f64::NAN → JSON null), same NaN→null convention as PaySummaryRow.avg_*. */
+  lorenz_coefficient: number | null;
+  total_kh: number;
+  total_phih: number;
+  n_samples: number;
+  skipped: number;
+  note: string | null;
+  error: string | null;
+}
+
+/** Stratigraphic Modified Lorenz Plot: depth-ordered flow/storage-capacity curve for one well,
+ *  segmented into flow units, with the Lorenz heterogeneity coefficient. `nUnits` 0 = auto. */
+export function runLorenz(
+  wellId: string,
+  phiCurve: string,
+  permCurve: string,
+  nUnits: number,
+  depthFrom?: number,
+  depthTo?: number,
+): Promise<LorenzResult> {
+  return invoke<LorenzResult>("run_lorenz", {
+    req: {
+      well_id: wellId,
+      phi_curve: phiCurve,
+      perm_curve: permCurve,
+      n_units: nUnits,
+      depth_from: depthFrom ?? null,
+      depth_to: depthTo ?? null,
+    },
+  });
+}
+
 export function getScalPc(wellId: string): Promise<ScalPcRow[]> {
   return invoke<ScalPcRow[]>("get_scal_pc", { wellId });
 }

@@ -7,6 +7,31 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 10 — Stratigraphic Modified Lorenz Plot: flow-unit solver (playbook #3, increment 3a) (2026-07-22)
+
+New backend `lorenz.rs` — the **Stratigraphic Modified Lorenz Plot** (Gunter et al. 1997, SPE 38679).
+It walks a well's φ + k logs in **depth order**, accumulates flow capacity Σ(k·h) against storage
+capacity Σ(φ·h) (each normalized 0..1), segments the depth-ordered log10(k/φ) profile into **flow
+units** with an exact contiguous dynamic program (auto-K by marginal gain, or a caller-set K), and
+reports the **Lorenz heterogeneity coefficient** (Schmalz & Rahme 1950). Command `run_lorenz` +
+`runLorenz` in `ipc.ts`. cargo **265/0** (9 new `lorenz` tests, incl. a synthetic 3-flow-unit column →
+3 units), tsc **0**. Adversarially reviewed (4 lenses → **1 confirmed** IPC-nullability fix applied;
+math + segmentation lenses clean). Method banked in `docs/ref_rock_typing.md`.
+
+> **NOTE:** this is the **solver** increment. The visual — SMLP curve + flow-unit table + Winland/
+> Pittman crossplots — lands in increment **3c**. There is no click-through yet; the two checks below
+> are staged for when 3c ships. (3b, the Pittman full-apex r10–r75 table, was already built as the
+> `pittman_rx` module.)
+
+- [ ] **SMLP + flow units on a real well.** *(after 3c)* On a well with PHIE + a permeability curve
+      (imported KLOGH, computed PERM, or the rock-typing PERM_RT), run Rock Typing ▸ Lorenz. Confirm the
+      curve ends at (1,1), and steep **speed** segments coincide with your best reservoir sands (high
+      k/φ) while flat **baffle** segments fall on shale / tight streaks — the flow-unit boundaries should
+      track your net-sand tops.
+- [ ] **Lorenz coefficient sanity.** *(after 3c)* A clean, well-sorted sand gives a **low** coefficient
+      (near 0); a layered sand-shale interval a **high** one (→1). Compare two zones you know differ in
+      heterogeneity and confirm the number moves the right way.
+
 ## Round 9 — Cross-feature fix: survey TVD/TVDSS must not shadow an imported one (2026-07-22)
 
 A cross-feature adversarial review of the four shipped feature_work commits (constants/TVD/ML-MASK/
