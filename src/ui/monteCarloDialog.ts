@@ -716,8 +716,12 @@ const METRICS: { key: MetricKey; label: string; dp: number }[] = [
   { key: "avg_swe", label: "Avg SWE", dp: 3 },
 ];
 
+/** Null-safe metric accessor: the backend serializes NaN as JSON null (no-pay sweep points,
+ *  no-spread Spearman), so normalize null → NaN here — downstream `Math.min/max` on a null
+ *  would coerce it to 0 and fabricate a bar endpoint. */
 function mval(m: McMetricSet | null, k: MetricKey): number {
-  return m ? m[k] : NaN;
+  const v = m ? m[k] : null;
+  return v === null ? NaN : v;
 }
 
 /** Below this fraction of the strongest mover's swing, a parameter is treated as not affecting
@@ -851,11 +855,17 @@ function drawTornado(
 
   if (hasOat) {
     const base = mval(z.params[0].oat_base, metric);
+    if (!Number.isFinite(base)) {
+      // Dry base case (e.g. no pay at the parameter medians → avg PHIE/SWE is null): there is
+      // no median-case anchor to split the bars around, so say that instead of crashing on it.
+      noneNote(`Tornado — the base case yields no ${label} (no pay at the parameter medians), so there is no anchor for the bars.`);
+      return;
+    }
     let bars = z.params
       .map((p) => {
         const a = mval(p.oat_low, metric);
         const b = mval(p.oat_high, metric);
-        return { name: p.param, lo: Math.min(a, b), hi: Math.max(a, b), corr: p.spearman ? p.spearman[metric] : NaN };
+        return { name: p.param, lo: Math.min(a, b), hi: Math.max(a, b), corr: mval(p.spearman, metric) };
       })
       .filter((b) => Number.isFinite(b.lo) && Number.isFinite(b.hi));
     const maxSwing = bars.reduce((m, b) => Math.max(m, b.hi - b.lo), 0);
@@ -926,7 +936,7 @@ function drawTornado(
     caption.textContent = `Tornado — ${label} swing as each parameter moves across its uncertainty range (others held at median). Parameters with no effect are hidden; ρ shown where significant.`;
   } else {
     let bars = z.params
-      .map((p) => ({ name: p.param, corr: p.spearman ? p.spearman[metric] : NaN }))
+      .map((p) => ({ name: p.param, corr: mval(p.spearman, metric) }))
       // Significance gate: hide correlations indistinguishable from noise at this sample size.
       .filter((b) => Number.isFinite(b.corr) && Math.abs(b.corr) >= sig);
     bars = bars.sort((a, b) => Math.abs(b.corr) - Math.abs(a.corr));

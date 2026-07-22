@@ -16,6 +16,19 @@
 //! parameters exactly like a deterministic run. Per-zone parameter distributions and
 //! persisted P10/P50/P90 *curves* are deliberate follow-ups — the headline deliverable here is
 //! the zonal HPV/pay distribution a client wants.
+//!
+//! **Sampling (playbook #1.1):** draws are precomputed as an N×P matrix before the realization
+//! loop. `sampling: "lhs"` (the default) uses Latin Hypercube Sampling — each parameter's unit
+//! interval is split into N equal-probability strata, one jittered draw per stratum, stratum
+//! order permuted (McKay, Beckman & Conover 1979, Technometrics 21(2)). `"random"` reproduces
+//! the legacy independent-draw sequence byte-for-byte. Optional rank correlations between
+//! parameters are induced distribution-free with the Iman–Conover method (Iman & Conover 1982,
+//! Commun. Stat. B11(3)): van der Waerden scores are re-colored to the target correlation via
+//! Cholesky, then each parameter's draws are rank-matched to its score column — marginals are
+//! only reordered, never altered. `converge: true` evaluates realizations in batches and tracks
+//! running low/mid/high percentiles of per-well total HPV; in random mode the run stops early
+//! once the last checks are stationary (LHS never truncates — the stratified design is only
+//! valid at its full size).
 
 use crate::chain::ChainStep;
 use crate::db::{self, ZoneEntry, ZoneParamEntry};
@@ -122,11 +135,37 @@ pub struct McParam {
     pub dist: Distribution,
 }
 
+/// How the N×P draw matrix is generated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Sampling {
+    /// Latin Hypercube (default): N equal-probability strata per parameter, one jittered draw
+    /// per stratum, stratum order permuted — the sample CDF matches the target far tighter
+    /// than independent draws at the same N (McKay, Beckman & Conover 1979).
+    #[default]
+    Lhs,
+    /// Legacy independent draws, byte-identical to the pre-LHS sequence for a given seed.
+    Random,
+}
+
+/// Target Spearman rank correlation between two Monte Carlo parameters, induced with the
+/// Iman–Conover method. `rho` is clamped to ±0.995; pairs naming unknown parameters are
+/// reported in `McResult.notes` and skipped.
+#[derive(Debug, Clone, Deserialize)]
+pub struct McCorrelation {
+    pub param_a: String,
+    pub param_b: String,
+    pub rho: f64,
+}
+
 fn default_low_pctl() -> f64 {
     0.10
 }
 fn default_high_pctl() -> f64 {
     0.90
+}
+fn default_converge_tol() -> f64 {
+    0.005
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -162,6 +201,20 @@ pub struct McRequest {
     /// median, low/high = its P10/P90) with the others held at base — the classic tornado range.
     #[serde(default)]
     pub tornado: bool,
+    /// Draw-matrix scheme; defaults to Latin Hypercube. `"random"` reproduces the legacy
+    /// independent-draw results exactly.
+    #[serde(default)]
+    pub sampling: Sampling,
+    /// Target rank correlations between parameter pairs (Iman–Conover; empty = independent).
+    #[serde(default)]
+    pub correlations: Vec<McCorrelation>,
+    /// Track running low/mid/high convergence of per-well total HPV in batches; in `random`
+    /// mode, stop early once the series is stationary. Off by default.
+    #[serde(default)]
+    pub converge: bool,
+    /// Relative stationarity tolerance for the convergence check (default 0.005 = 0.5%).
+    #[serde(default = "default_converge_tol")]
+    pub converge_tol: f64,
 }
 
 /// Low / median / high percentile (at the request's `low_pctl` / 0.50 / `high_pctl`) plus mean/sd
@@ -230,6 +283,31 @@ pub struct McSensZone {
     pub params: Vec<SensParam>,
 }
 
+/// One convergence checkpoint: running low/mid/high percentiles of per-well total HPV after
+/// `at` realizations.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct ConvCheck {
+    pub at: u32,
+    pub lo: f32,
+    pub mid: f32,
+    pub hi: f32,
+}
+
+/// Per-well convergence trace (present only when `converge` was requested).
+#[derive(Debug, Clone, Serialize)]
+pub struct McConvergence {
+    pub well_id: String,
+    pub well_name: String,
+    /// Running-percentile checkpoints — the UI sparkline.
+    pub checks: Vec<ConvCheck>,
+    /// True when the trailing checkpoints were stationary within `converge_tol`.
+    pub converged: bool,
+    pub used_iterations: usize,
+    pub requested_iterations: usize,
+    /// Explains an early stop, or why one was not allowed (LHS designs never truncate).
+    pub note: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct McResult {
     pub zones: Vec<McZoneResult>,
@@ -239,6 +317,12 @@ pub struct McResult {
     /// the lo/hi columns — e.g. 0.10 / 0.90.
     pub low_pctl: f64,
     pub high_pctl: f64,
+    /// Sampling scheme actually used ("lhs" / "random"), echoed for the UI badge.
+    pub sampling: String,
+    /// Per-well convergence traces (empty unless `converge` was requested).
+    pub convergence: Vec<McConvergence>,
+    /// Non-fatal advisories (skipped correlation pairs, degenerate targets, …).
+    pub notes: Vec<String>,
     pub errors: Vec<String>,
 }
 
@@ -269,6 +353,259 @@ impl Rng {
         let u2 = self.unit();
         (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
     }
+}
+
+// ---------------------------------------------------------------------------
+// Draw matrix: LHS / random sampling + Iman–Conover rank-correlation induction.
+// ---------------------------------------------------------------------------
+
+/// Precomputes the full N×P draw matrix (`draws[realization][param]`). Random mode replays the
+/// legacy per-index RNG sequence exactly, so an uncorrelated `"random"` run is byte-identical
+/// to the pre-LHS implementation. LHS draws one jittered sample per equal-probability stratum
+/// and permutes the stratum order per parameter (independent RNG stream per column).
+fn build_draws(
+    params: &[McParam],
+    n: usize,
+    seed: u64,
+    sampling: Sampling,
+    correlations: &[McCorrelation],
+    notes: &mut Vec<String>,
+) -> Vec<Vec<f64>> {
+    let p = params.len();
+    let mut draws = vec![vec![0.0f64; p]; n];
+    match sampling {
+        Sampling::Random => {
+            for (r, row) in draws.iter_mut().enumerate() {
+                let mut rng = Rng::new(seed ^ (r as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15));
+                for (j, prm) in params.iter().enumerate() {
+                    row[j] = prm.dist.sample(&mut rng);
+                }
+            }
+        }
+        Sampling::Lhs => {
+            let nn = n as f64;
+            for (j, prm) in params.iter().enumerate() {
+                let mut rng = Rng::new(seed ^ (j as u64 + 1).wrapping_mul(0xA24B_AED4_963E_E407));
+                // One jittered quantile per stratum i: u ∈ [i/n, (i+1)/n).
+                let mut u: Vec<f64> = (0..n).map(|i| (i as f64 + rng.unit()) / nn).collect();
+                // Fisher–Yates permutation so strata pair randomly across parameters.
+                for i in (1..n).rev() {
+                    let k = (rng.next_u64() % (i as u64 + 1)) as usize;
+                    u.swap(i, k);
+                }
+                for (r, ur) in u.iter().enumerate() {
+                    draws[r][j] = prm.dist.quantile(*ur);
+                }
+            }
+        }
+    }
+    if !correlations.is_empty() {
+        if p >= 2 && n >= 10 {
+            iman_conover(&mut draws, params, correlations, seed, notes);
+        } else {
+            notes.push("correlation targets ignored: need at least 2 MC parameters and 10 iterations".into());
+        }
+    }
+    draws
+}
+
+/// Iman–Conover (1982) distribution-free rank-correlation induction. Builds a van der Waerden
+/// score matrix with the target correlation (Cholesky re-coloring, targets pre-adjusted by the
+/// Spearman→Pearson map 2·sin(πρ/6) so the achieved rank correlation centers on the request),
+/// then reorders each parameter's draws so their ranks match the score column's ranks. Values
+/// are permuted within a column, never altered — every marginal distribution survives exactly.
+fn iman_conover(
+    draws: &mut [Vec<f64>],
+    params: &[McParam],
+    corrs: &[McCorrelation],
+    seed: u64,
+    notes: &mut Vec<String>,
+) {
+    let n = draws.len();
+    let p = params.len();
+
+    // Target correlation matrix: identity plus the requested pairs.
+    let mut c = vec![vec![0.0f64; p]; p];
+    for (i, row) in c.iter_mut().enumerate() {
+        row[i] = 1.0;
+    }
+    let mut any = false;
+    let mut seen_pairs: HashSet<(usize, usize)> = HashSet::new();
+    for cr in corrs {
+        let ia = params.iter().position(|q| q.param == cr.param_a);
+        let ib = params.iter().position(|q| q.param == cr.param_b);
+        match (ia, ib) {
+            (Some(a), Some(b)) if a != b => {
+                if !seen_pairs.insert((a.min(b), a.max(b))) {
+                    notes.push(format!(
+                        "correlation pair '{}' / '{}' specified more than once — the last entry (ρ = {:.3}) wins",
+                        cr.param_a, cr.param_b, cr.rho
+                    ));
+                }
+                let rho_s = cr.rho.clamp(-0.995, 0.995);
+                // Rank-matching to normal scores attenuates a Pearson target ρ to (6/π)·asin(ρ/2)
+                // in rank space; pre-adjust with the inverse map so the ACHIEVED Spearman centers
+                // on the requested value instead of landing systematically low (Iman & Conover
+                // 1982, the Spearman↔Pearson conversion for normal scores).
+                let rho = 2.0 * (std::f64::consts::PI * rho_s / 6.0).sin();
+                c[a][b] = rho;
+                c[b][a] = rho;
+                any = true;
+            }
+            _ => notes.push(format!(
+                "correlation pair '{}' / '{}' ignored (parameter not in the study, or a self-pair)",
+                cr.param_a, cr.param_b
+            )),
+        }
+    }
+    if !any {
+        return;
+    }
+    let Some(l) = cholesky(&c) else {
+        notes.push("correlation targets are jointly inconsistent (matrix not positive-definite); correlations skipped".into());
+        return;
+    };
+
+    // Score matrix M: van der Waerden scores Φ⁻¹(i/(n+1)), independently shuffled per column.
+    let mut m = vec![vec![0.0f64; p]; n];
+    for j in 0..p {
+        let mut scores: Vec<f64> = (0..n).map(|i| probit((i as f64 + 1.0) / (n as f64 + 1.0))).collect();
+        let mut rng = Rng::new(seed ^ (j as u64 + 101).wrapping_mul(0xD6E8_FEB8_6659_FD93));
+        for i in (1..n).rev() {
+            let k = (rng.next_u64() % (i as u64 + 1)) as usize;
+            scores.swap(i, k);
+        }
+        for (i, s) in scores.into_iter().enumerate() {
+            m[i][j] = s;
+        }
+    }
+
+    // Re-color: T = M·Q⁻ᵀ·Lᵀ where E = corr(M) = QQᵀ removes the shuffle's incidental
+    // correlation, then L imprints the target: corr(T) = L·Q⁻¹·E·Q⁻ᵀ·Lᵀ = L·Lᵀ = C.
+    let e = corr_matrix(&m);
+    let Some(q) = cholesky(&e) else {
+        notes.push("Iman–Conover score matrix degenerate; correlations skipped".into());
+        return;
+    };
+    let mut t = vec![vec![0.0f64; p]; n];
+    for i in 0..n {
+        let z = forward_solve(&q, &m[i]);
+        for a in 0..p {
+            let mut s = 0.0;
+            for (b, zb) in z.iter().enumerate().take(a + 1) {
+                s += l[a][b] * zb;
+            }
+            t[i][a] = s;
+        }
+    }
+
+    // Rank-match: the row holding the k-th smallest score gets the k-th smallest draw.
+    for j in 0..p {
+        let mut vals: Vec<f64> = draws.iter().map(|r| r[j]).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let mut idx: Vec<usize> = (0..n).collect();
+        idx.sort_by(|&a, &b| t[a][j].partial_cmp(&t[b][j]).unwrap_or(std::cmp::Ordering::Equal));
+        for (k, &row) in idx.iter().enumerate() {
+            draws[row][j] = vals[k];
+        }
+    }
+}
+
+/// Cholesky factor L (lower-triangular, A = L·Lᵀ) of a small symmetric matrix; None when the
+/// matrix is not positive-definite.
+fn cholesky(a: &[Vec<f64>]) -> Option<Vec<Vec<f64>>> {
+    let p = a.len();
+    let mut l = vec![vec![0.0f64; p]; p];
+    for i in 0..p {
+        for j in 0..=i {
+            let mut s = a[i][j];
+            for k in 0..j {
+                s -= l[i][k] * l[j][k];
+            }
+            if i == j {
+                if s <= 1e-12 {
+                    return None;
+                }
+                l[i][j] = s.sqrt();
+            } else {
+                l[i][j] = s / l[j][j];
+            }
+        }
+    }
+    Some(l)
+}
+
+/// Solves L·x = b for lower-triangular L by forward substitution.
+fn forward_solve(l: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
+    let p = b.len();
+    let mut x = vec![0.0f64; p];
+    for i in 0..p {
+        let mut s = b[i];
+        for k in 0..i {
+            s -= l[i][k] * x[k];
+        }
+        x[i] = s / l[i][i];
+    }
+    x
+}
+
+/// Pearson correlation matrix of the columns of a row-major N×P matrix.
+fn corr_matrix(m: &[Vec<f64>]) -> Vec<Vec<f64>> {
+    let n = m.len();
+    let p = m[0].len();
+    let mut mean = vec![0.0f64; p];
+    for row in m {
+        for (j, v) in row.iter().enumerate() {
+            mean[j] += v;
+        }
+    }
+    for v in mean.iter_mut() {
+        *v /= n as f64;
+    }
+    let mut cov = vec![vec![0.0f64; p]; p];
+    for row in m {
+        for a in 0..p {
+            let da = row[a] - mean[a];
+            for b in 0..=a {
+                cov[a][b] += da * (row[b] - mean[b]);
+            }
+        }
+    }
+    let mut c = vec![vec![0.0f64; p]; p];
+    for a in 0..p {
+        for b in 0..=a {
+            let den = (cov[a][a] * cov[b][b]).sqrt();
+            let v = if den > 0.0 {
+                cov[a][b] / den
+            } else if a == b {
+                1.0
+            } else {
+                0.0
+            };
+            c[a][b] = v;
+            c[b][a] = v;
+        }
+    }
+    c
+}
+
+/// Minimum realizations before an early stop may trigger.
+const CONV_MIN_ITER: usize = 200;
+
+/// True when the trailing three checkpoints agree within `tol` relative to the running median
+/// (or the band width, whichever is larger) — the "stationary series" criterion.
+fn conv_stable(checks: &[ConvCheck], tol: f64) -> bool {
+    let k = checks.len();
+    if k < 4 {
+        return false;
+    }
+    (k - 2..k).all(|i| {
+        let a = checks[i - 1];
+        let b = checks[i];
+        let scale = (b.mid.abs() as f64).max((b.hi - b.lo).abs() as f64).max(1e-9);
+        let d = (b.lo - a.lo).abs().max((b.mid - a.mid).abs()).max((b.hi - a.hi).abs()) as f64;
+        d.is_finite() && d <= tol * scale
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -708,8 +1045,16 @@ pub fn run_monte_carlo(
 
     let mut zones_out: Vec<McZoneResult> = Vec::new();
     let mut sens_out: Vec<McSensZone> = Vec::new();
+    let mut conv_out: Vec<McConvergence> = Vec::new();
     let mut errors: Vec<String> = Vec::new();
+    let mut notes: Vec<String> = Vec::new();
     let want_sens = req.sensitivity || req.tornado;
+    let conv_tol = req.converge_tol.clamp(1e-5, 0.2);
+
+    // The draw matrix depends only on (params, iterations, seed, sampling, correlations) — build
+    // it once and share across wells. LHS stratification and Iman–Conover both need every
+    // realization's draw jointly, which is why sampling is hoisted out of the rayon loop.
+    let draws_all = build_draws(&req.mc_params, iterations, req.seed, req.sampling, &req.correlations, &mut notes);
 
     for (wi, well_id) in req.well_ids.iter().enumerate() {
         if let Some(p) = progress {
@@ -743,30 +1088,90 @@ pub fn run_monte_carlo(
         let has_perm_cut =
             req.perm_min.is_some() && raw_pool.get("PERM").map(|c| c.iter().any(|v| !v.is_nan())).unwrap_or(false);
 
-        // Parallel realizations, each seeded from (seed, index) for reproducibility. Each keeps
-        // its parameter draws (ordered like `req.mc_params`) so sensitivity can correlate them
-        // against the outputs; the draw vector is empty when no parameters vary.
-        let per_real: Vec<(Vec<f64>, Vec<ZoneMetrics>)> = (0..iterations)
-            .into_par_iter()
-            .map(|r| {
-                let mut rng = Rng::new(req.seed ^ (r as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15));
-                // Sample in `mc_params` order (unchanged rng sequence → identical to before).
-                let draws: Vec<f64> = req.mc_params.iter().map(|p| p.dist.sample(&mut rng)).collect();
-                let mc_values: HashMap<String, f64> =
-                    req.mc_params.iter().zip(&draws).map(|(p, &v)| (p.param.clone(), v)).collect();
-                let pool = run_realization(&plans, &raw_pool, &depth, &mc_values, n);
-                let nanv = vec![f32::NAN; n];
-                let vsh = pool.get("VSH").unwrap_or(&nanv);
-                let phie = pool.get("PHIE").unwrap_or(&nanv);
-                let swe = pool.get("SWE").unwrap_or(&nanv);
-                let perm = pool.get("PERM").unwrap_or(&nanv);
-                let zm = zones
+        // Parallel realizations over the precomputed draw matrix (ordered like `req.mc_params`,
+        // so sensitivity can correlate draws against outputs; rows are empty when no parameters
+        // vary). Random mode replays the legacy per-index sequence, so results are unchanged.
+        let eval = |r: usize| -> (Vec<f64>, Vec<ZoneMetrics>) {
+            let draws = &draws_all[r];
+            let mc_values: HashMap<String, f64> =
+                req.mc_params.iter().zip(draws).map(|(p, &v)| (p.param.clone(), v)).collect();
+            let pool = run_realization(&plans, &raw_pool, &depth, &mc_values, n);
+            let nanv = vec![f32::NAN; n];
+            let vsh = pool.get("VSH").unwrap_or(&nanv);
+            let phie = pool.get("PHIE").unwrap_or(&nanv);
+            let swe = pool.get("SWE").unwrap_or(&nanv);
+            let perm = pool.get("PERM").unwrap_or(&nanv);
+            let zm = zones
+                .iter()
+                .map(|z| zone_metrics(vsh, phie, swe, perm, &depth, &step_thick, z, &cut, has_perm_cut))
+                .collect();
+            (draws.clone(), zm)
+        };
+        let per_real: Vec<(Vec<f64>, Vec<ZoneMetrics>)> = if req.converge {
+            // Batched evaluation with running low/mid/high checkpoints of per-well total HPV.
+            // Early stop is legal only in random mode — truncating an LHS design would leave
+            // some strata unsampled and break the stratification guarantee.
+            let batch = (iterations / 12).clamp(64, 512).min(iterations);
+            // Checkpoint boundaries: even batches with the remainder folded into the FINAL one,
+            // so every delta the stationarity verdict sees spans at least a full batch. A runt
+            // tail of a few realizations would shift the running percentiles vacuously little
+            // and inflate `converged` regardless of actual stationarity.
+            let n_batches = (iterations / batch).max(1);
+            let mut bounds: Vec<usize> = (1..=n_batches).map(|k| k * batch).collect();
+            *bounds.last_mut().unwrap() = iterations;
+            let mut acc: Vec<(Vec<f64>, Vec<ZoneMetrics>)> = Vec::with_capacity(iterations);
+            let mut checks: Vec<ConvCheck> = Vec::new();
+            let mut stopped_early = false;
+            let mut done = 0usize;
+            for &end in &bounds {
+                let mut chunk: Vec<_> = (done..end).into_par_iter().map(eval).collect();
+                acc.append(&mut chunk);
+                done = end;
+                let mut scal: Vec<f32> = acc
                     .iter()
-                    .map(|z| zone_metrics(vsh, phie, swe, perm, &depth, &step_thick, z, &cut, has_perm_cut))
+                    .map(|m| m.1.iter().map(|z| z.hpv).sum::<f32>())
+                    .filter(|v| v.is_finite())
                     .collect();
-                (draws, zm)
-            })
-            .collect();
+                scal.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                checks.push(ConvCheck {
+                    at: done as u32,
+                    lo: percentile(&scal, lo_p),
+                    mid: percentile(&scal, 0.50),
+                    hi: percentile(&scal, hi_p),
+                });
+                if req.sampling == Sampling::Random
+                    && done >= CONV_MIN_ITER
+                    && done < iterations
+                    && conv_stable(&checks, conv_tol)
+                {
+                    stopped_early = true;
+                    break;
+                }
+            }
+            let converged = stopped_early || conv_stable(&checks, conv_tol);
+            let note = if stopped_early {
+                Some(format!("stationary after {done} of {iterations} realizations — stopped early"))
+            } else if req.sampling == Sampling::Lhs {
+                Some("LHS design size is fixed — early stop disabled; the trace is informational".into())
+            } else if !converged {
+                Some("not stationary at the final check — consider more iterations".into())
+            } else {
+                None
+            };
+            conv_out.push(McConvergence {
+                well_id: well_id.clone(),
+                well_name: well_name.clone(),
+                checks,
+                converged,
+                used_iterations: acc.len(),
+                requested_iterations: iterations,
+                note,
+            });
+            acc
+        } else {
+            (0..iterations).into_par_iter().map(eval).collect()
+        };
+        let used_iterations = per_real.len();
 
         // One-at-a-time tornado sweep (once per well): base = medians of every MC parameter,
         // then each parameter swept to its P10/P90 with the rest held at base. Cheap — one chain
@@ -844,7 +1249,7 @@ pub fn run_monte_carlo(
                 top: zone.top_depth,
                 bottom: zone.bottom_depth,
                 gross: zone.bottom_depth - zone.top_depth,
-                iterations,
+                iterations: used_iterations,
                 net: summarize(&net, lo_p, hi_p),
                 ntg: summarize(&ntg, lo_p, hi_p),
                 avg_phie: summarize(&avg_phie, lo_p, hi_p),
@@ -860,7 +1265,19 @@ pub fn run_monte_carlo(
         }
     }
 
-    McResult { zones: zones_out, sensitivity: sens_out, low_pctl: lo_p, high_pctl: hi_p, errors }
+    McResult {
+        zones: zones_out,
+        sensitivity: sens_out,
+        low_pctl: lo_p,
+        high_pctl: hi_p,
+        sampling: match req.sampling {
+            Sampling::Lhs => "lhs".into(),
+            Sampling::Random => "random".into(),
+        },
+        convergence: conv_out,
+        notes,
+        errors,
+    }
 }
 
 #[cfg(test)]
@@ -906,6 +1323,12 @@ mod tests {
             high_pctl: 0.90,
             sensitivity: false,
             tornado: false,
+            // Legacy sampling path by default so the pre-LHS assertions keep their meaning;
+            // the LHS/correlation/convergence tests below opt in explicitly.
+            sampling: Sampling::Random,
+            correlations: Vec::new(),
+            converge: false,
+            converge_tol: 0.005,
         }
     }
 
@@ -1028,6 +1451,162 @@ mod tests {
         assert!(lo.hpv <= base.hpv + 1e-4 && base.hpv <= hi.hpv + 1e-4, "tornado HPV not ordered: {} {} {}", lo.hpv, base.hpv, hi.hpv);
         assert!(hi.hpv > lo.hpv, "expected a tornado spread, got low {} high {}", lo.hpv, hi.hpv);
         assert!(p.spearman.is_none(), "spearman should be absent when only tornado was requested");
+    }
+
+    #[test]
+    fn request_without_new_fields_deserializes_with_lhs_defaults() {
+        // The current dialog sends no sampling/correlations/converge fields — serde must fill
+        // LHS + empty + off + 0.005 so pre-1.1 request shapes keep working over IPC.
+        let json = r#"{
+            "well_ids": ["w1"], "steps": [], "mc_params": [],
+            "iterations": 100, "seed": 1,
+            "vsh_max": 0.5, "phie_min": 0.08, "swe_max": 0.6, "perm_min": null, "bins": 10
+        }"#;
+        let req: McRequest = serde_json::from_str(json).expect("legacy request shape must parse");
+        assert_eq!(req.sampling, Sampling::Lhs, "LHS is the documented default");
+        assert!(req.correlations.is_empty());
+        assert!(!req.converge);
+        assert!((req.converge_tol - 0.005).abs() < 1e-12);
+        // And the explicit strings round-trip the enum tags.
+        let j2 = r#"{"well_ids":[],"steps":[],"mc_params":[],"iterations":1,"seed":1,
+            "vsh_max":1,"phie_min":0,"swe_max":1,"perm_min":null,"bins":1,"sampling":"random"}"#;
+        let r2: McRequest = serde_json::from_str(j2).unwrap();
+        assert_eq!(r2.sampling, Sampling::Random);
+    }
+
+    #[test]
+    fn lhs_stratifies_and_hits_the_analytic_mean() {
+        // One Uniform(2,5) parameter, 200 LHS realizations: exactly one draw must land in each
+        // of the 200 equal-probability strata, and the sample mean must sit on the analytic
+        // mean far tighter than independent draws could at the same N.
+        let params = vec![McParam { param: "X".into(), dist: Distribution::Uniform { lo: 2.0, hi: 5.0 } }];
+        let mut notes = Vec::new();
+        let draws = build_draws(&params, 200, 42, Sampling::Lhs, &[], &mut notes);
+        assert!(notes.is_empty(), "unexpected notes: {notes:?}");
+        let vals: Vec<f64> = draws.iter().map(|r| r[0]).collect();
+        let mut counts = vec![0usize; 200];
+        for v in &vals {
+            assert!((2.0..=5.0).contains(v), "LHS uniform draw out of range: {v}");
+            let cell = (((v - 2.0) / 3.0) * 200.0).floor() as usize;
+            counts[cell.min(199)] += 1;
+        }
+        assert!(counts.iter().all(|&c| c == 1), "LHS must place exactly one draw per stratum");
+        let mean = vals.iter().sum::<f64>() / 200.0;
+        assert!((mean - 3.5).abs() < 0.01, "LHS mean {mean} should be ~3.5 (analytic)");
+        // Same seed → identical matrix (reproducible).
+        let again = build_draws(&params, 200, 42, Sampling::Lhs, &[], &mut notes);
+        assert_eq!(draws, again, "LHS draws must be deterministic for a given seed");
+    }
+
+    #[test]
+    fn iman_conover_induces_target_rank_correlation() {
+        // Mixed marginals (normal + uniform) — rank correlation is distribution-free, so the
+        // achieved Spearman must land on the target for both signs, and the marginals must be
+        // pure reorderings of the uncorrelated draws.
+        let params = vec![
+            McParam { param: "A".into(), dist: Distribution::Normal { mean: 0.0, sd: 1.0 } },
+            McParam { param: "B".into(), dist: Distribution::Uniform { lo: 10.0, hi: 20.0 } },
+        ];
+        let mut notes = Vec::new();
+        let target = vec![McCorrelation { param_a: "A".into(), param_b: "B".into(), rho: 0.8 }];
+        let draws = build_draws(&params, 500, 7, Sampling::Lhs, &target, &mut notes);
+        assert!(notes.is_empty(), "unexpected notes: {notes:?}");
+        let a: Vec<f64> = draws.iter().map(|r| r[0]).collect();
+        let b: Vec<f32> = draws.iter().map(|r| r[1] as f32).collect();
+        let rho = spearman(&a, &b);
+        // The Spearman→Pearson pre-adjustment centers the achieved value on the target (without
+        // it, 0.8 lands systematically near 0.786 — the (6/π)·asin(ρ/2) attenuation).
+        assert!((rho - 0.8).abs() < 0.05, "achieved rank correlation {rho}, target 0.8");
+
+        let neg = vec![McCorrelation { param_a: "A".into(), param_b: "B".into(), rho: -0.6 }];
+        let d2 = build_draws(&params, 500, 7, Sampling::Lhs, &neg, &mut notes);
+        let a2: Vec<f64> = d2.iter().map(|r| r[0]).collect();
+        let b2: Vec<f32> = d2.iter().map(|r| r[1] as f32).collect();
+        let rho2 = spearman(&a2, &b2);
+        assert!((rho2 + 0.6).abs() < 0.05, "achieved rank correlation {rho2}, target -0.6");
+
+        // Marginal preservation: sorting each column must reproduce the uncorrelated draws.
+        let plain = build_draws(&params, 500, 7, Sampling::Lhs, &[], &mut notes);
+        for j in 0..2 {
+            let mut got: Vec<f64> = draws.iter().map(|r| r[j]).collect();
+            let mut want: Vec<f64> = plain.iter().map(|r| r[j]).collect();
+            got.sort_by(|x, y| x.partial_cmp(y).unwrap());
+            want.sort_by(|x, y| x.partial_cmp(y).unwrap());
+            assert_eq!(got, want, "Iman–Conover must only reorder draws, never change values");
+        }
+
+        // A pair naming an unknown parameter is skipped with a note, not an error.
+        let bad = vec![McCorrelation { param_a: "A".into(), param_b: "NOPE".into(), rho: 0.5 }];
+        let mut notes2 = Vec::new();
+        build_draws(&params, 100, 7, Sampling::Lhs, &bad, &mut notes2);
+        assert_eq!(notes2.len(), 1, "unknown-parameter pair should produce one note");
+
+        // A conflicting duplicate (same unordered pair, reversed names) must NOT resolve
+        // silently: the last entry wins AND a note says so.
+        let dup = vec![
+            McCorrelation { param_a: "A".into(), param_b: "B".into(), rho: 0.9 },
+            McCorrelation { param_a: "B".into(), param_b: "A".into(), rho: -0.9 },
+        ];
+        let mut notes3 = Vec::new();
+        let d3 = build_draws(&params, 400, 7, Sampling::Lhs, &dup, &mut notes3);
+        assert_eq!(notes3.len(), 1, "duplicate pair should produce a note, got {notes3:?}");
+        assert!(notes3[0].contains("more than once"), "note should name the conflict: {}", notes3[0]);
+        let a3: Vec<f64> = d3.iter().map(|r| r[0]).collect();
+        let b3: Vec<f32> = d3.iter().map(|r| r[1] as f32).collect();
+        assert!(spearman(&a3, &b3) < -0.8, "the LAST entry (−0.9) must win");
+    }
+
+    #[test]
+    fn convergence_early_stops_on_a_stationary_series() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_well(&conn);
+        let dbm = Mutex::new(conn);
+        // sd = 0 → every realization identical → the running percentiles are flat from the very
+        // first batch → random-mode early stop long before the requested 5000.
+        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 0.0 } }];
+        let mut req = base_request(&well, mc, 5000, 42);
+        req.converge = true;
+        let res = run_monte_carlo(&dbm, &req, None);
+        assert!(res.errors.is_empty(), "unexpected errors: {:?}", res.errors);
+        assert_eq!(res.convergence.len(), 1);
+        let c = &res.convergence[0];
+        assert!(c.converged, "a flat series must be reported as converged");
+        assert!(c.used_iterations < 5000, "expected an early stop, used {}", c.used_iterations);
+        assert!(c.used_iterations >= CONV_MIN_ITER);
+        assert!(c.checks.len() >= 4, "need enough checkpoints to judge stationarity");
+        // The rest of the result reflects the truncated run consistently.
+        assert_eq!(res.zones[0].iterations, c.used_iterations);
+        assert_eq!(res.zones[0].hpv_hist.iter().sum::<u32>() as usize, c.used_iterations);
+    }
+
+    #[test]
+    fn lhs_design_never_truncates() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_well(&conn);
+        let dbm = Mutex::new(conn);
+        // Even a perfectly flat series must not shorten an LHS design — truncation would leave
+        // strata unsampled. The trace is still reported for the sparkline.
+        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 0.0 } }];
+        let mut req = base_request(&well, mc, 1000, 42);
+        req.sampling = Sampling::Lhs;
+        req.converge = true;
+        let res = run_monte_carlo(&dbm, &req, None);
+        assert_eq!(res.sampling, "lhs");
+        let c = &res.convergence[0];
+        assert_eq!(c.used_iterations, 1000, "LHS must always run the full design");
+        assert!(c.converged, "the flat series should still be reported as stationary");
+        assert!(c.note.as_deref().unwrap_or("").contains("LHS"), "note should explain why no early stop");
+        assert_eq!(res.zones[0].iterations, 1000);
+        // No runt checkpoint: the remainder folds into the final batch, so every delta the
+        // stationarity verdict judges spans at least one full batch (83 for 1000 iterations).
+        assert_eq!(c.checks.last().unwrap().at, 1000);
+        let mut prev = 0u32;
+        for chk in &c.checks {
+            assert!(chk.at - prev >= 64, "checkpoint span {} too small (runt batch)", chk.at - prev);
+            prev = chk.at;
+        }
     }
 
     #[test]

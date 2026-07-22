@@ -7,7 +7,45 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
-## Round 11 — SandiMin reconstruction QC + degrees-of-freedom (playbook #2, increments 2a/2b/2d) (2026-07-22)
+## Round 12 — Monte Carlo sampling engine: LHS, rank correlation, convergence (playbook #1, increment 1.1) (2026-07-22)
+
+The Monte Carlo engine's draw generation is rebuilt to commercial grade. **Latin Hypercube
+Sampling is now the default**: each parameter's probability range is split into N equal strata
+with one jittered draw per stratum (order shuffled per parameter), so the sampled CDF matches the
+distribution far tighter than independent draws at the same N — P10/P90 bands stabilize with
+fewer iterations (McKay–Beckman–Conover 1979). The old scheme survives as `sampling: "random"`
+and reproduces pre-upgrade results byte-for-byte at the same seed. Two new opt-ins: **parameter
+rank correlations** (Iman–Conover 1982 — e.g. tie RHO_MA to GR_MA at ρ 0.7; marginals are only
+reordered, never altered, and inconsistent/unknown pairs come back as notes, not errors) and a
+**convergence check** (running P10/P50/P90 of total HPV per batch; in random mode the run stops
+early once the trace goes stationary — LHS always runs its full design, since truncating one
+would leave strata unsampled). `montecarlo.rs` + `ipc.ts`; 5 new tests (legacy request shapes parse with LHS defaults;
+exactly-one-draw-per-stratum + analytic mean; achieved Spearman hits ±targets and marginals are
+pure reorderings; flat series early-stops with a consistent truncated result; LHS never
+truncates). cargo 274/0, tsc 0. The LHS/random toggle, correlation editor, and convergence
+sparkline arrive in the dialog with increment 1.3 — until then the pane simply runs LHS.
+
+Adversarially reviewed (18-agent workflow, 4 lenses × 2 skeptics); all 4 confirmed findings fixed
+in the same round: (1) correlation targets are now pre-adjusted by the Spearman→Pearson map
+2·sin(πρ/6), so the achieved rank correlation centers on your ρ instead of landing ~0.014 low;
+(2) a duplicated/conflicting correlation pair now reports "last entry wins" in `notes` instead of
+resolving silently; (3) the convergence trace folds the remainder into its final batch, so the
+end-of-run "converged" verdict can't be inflated by a runt 4-realization checkpoint; (4) a
+**pre-existing tornado bug**: with a zone that has no pay at the parameter medians, switching the
+sensitivity metric to Avg PHIE/Avg SWE crashed the pane (`null.toFixed`), and a single dry sweep
+endpoint drew a bar anchored at a fabricated 0 — the renderer now says the base case has no
+anchor and drops non-finite endpoints.
+
+- [ ] **LHS is quietly better, not different.** Monte Carlo pane ▸ your usual GR_MA/RHO_MA setup on
+      a real well, 1 000 iterations, seed 42 ▸ Run twice — identical results (reproducibility
+      holds). Then drop to 300 iterations and re-run a few seeds: the P10/P90 HPV band should sit
+      noticeably steadier across seeds than you remember from the old sampler at 300.
+- [ ] **Dry-zone tornado no longer crashes.** Monte Carlo ▸ tornado on ▸ pick a marginal zone that
+      has no pay at your median cutoffs ▸ after the run, switch the sensitivity Metric to
+      Avg PHIE: you should get the "base case yields no Avg PHIE" message (previously this threw
+      `TypeError … toFixed` and left a half-drawn panel).
+
+
 
 Backend for the SandiMin reconstruction check. The existing **RECON** curve is now documented as the
 **incoherence** — the σ-weighted RMS of (reconstructed − measured) over the live tool rows (Quanti.Elan

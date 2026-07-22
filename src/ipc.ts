@@ -610,6 +610,24 @@ export interface McRequest {
   sensitivity?: boolean;
   /** Run a one-at-a-time low/median/high sweep per parameter (the classic tornado range). */
   tornado?: boolean;
+  /** Draw-matrix scheme: "lhs" (default — stratified Latin Hypercube, tighter CDF coverage at
+   *  the same N) or "random" (legacy independent draws, byte-identical to pre-LHS results). */
+  sampling?: "lhs" | "random";
+  /** Target Spearman rank correlations between parameter pairs (Iman–Conover induction;
+   *  marginals are only reordered, never altered). */
+  correlations?: McCorrelation[];
+  /** Track running lo/mid/hi convergence of per-well total HPV; in "random" mode the run stops
+   *  early once the series is stationary (LHS designs always run to their full size). */
+  converge?: boolean;
+  /** Relative stationarity tolerance for the convergence check (default 0.005 = 0.5%). */
+  converge_tol?: number;
+}
+
+/** Target rank correlation between two MC parameters (rho clamped to ±0.995 backend-side). */
+export interface McCorrelation {
+  param_a: string;
+  param_b: string;
+  rho: number;
 }
 
 /** Low / median / high percentile + mean/sd of one metric across realizations. The lo/hi
@@ -641,13 +659,15 @@ export interface McZoneResult {
 }
 
 /** One output-metric bundle (net / NTG / avg PHIE / avg SWE / HPV) for a sweep point or a
- *  Spearman row. */
+ *  Spearman row. Fields are null when the backend value is NaN (Rust f32::NAN → JSON null):
+ *  avg_phie/avg_swe of a no-pay sweep point, or a no-spread Spearman. Guard before math —
+ *  `Math.min(null, x)` silently coerces null to 0. */
 export interface McMetricSet {
-  net: number;
-  ntg: number;
-  avg_phie: number;
-  avg_swe: number;
-  hpv: number;
+  net: number | null;
+  ntg: number | null;
+  avg_phie: number | null;
+  avg_swe: number | null;
+  hpv: number | null;
 }
 
 /** Sensitivity of one Monte Carlo parameter within one zone. */
@@ -668,6 +688,25 @@ export interface McSensZone {
   params: McSensParam[];
 }
 
+/** One convergence checkpoint: running lo/mid/hi of per-well total HPV after `at` realizations. */
+export interface McConvCheck {
+  at: number;
+  lo: number;
+  mid: number;
+  hi: number;
+}
+
+/** Per-well convergence trace (present only when `converge` was requested). */
+export interface McConvergence {
+  well_id: string;
+  well_name: string;
+  checks: McConvCheck[];
+  converged: boolean;
+  used_iterations: number;
+  requested_iterations: number;
+  note: string | null;
+}
+
 export interface McResult {
   zones: McZoneResult[];
   /** Per-zone parameter sensitivity (empty unless sensitivity/tornado was requested). */
@@ -675,6 +714,12 @@ export interface McResult {
   /** Output percentiles actually used (echoed + clamped) so the UI can label the lo/hi columns. */
   low_pctl: number;
   high_pctl: number;
+  /** Sampling scheme actually used ("lhs" / "random") — the UI badge. */
+  sampling: string;
+  /** Per-well convergence traces (empty unless `converge` was requested). */
+  convergence: McConvergence[];
+  /** Non-fatal advisories (skipped correlation pairs, degenerate targets, …). */
+  notes: string[];
   errors: string[];
 }
 

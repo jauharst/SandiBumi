@@ -66,7 +66,7 @@ not rebuild. Seed distribution defaults from IP `MonteCarloDefaults.par` (Tier A
 
 | Step | Playbook basis | Status |
 |---|---|---|
-| 1.1 | INCREMENT 1 — Latin Hypercube Sampling default (stratify CDF + permute) + optional Iman-Conover rank correlation + convergence check (running P10/P50/P90, early stop + sparkline); `cargo test` (LHS analytic mean; Iman-Conover target rank corr; convergence stops on stationary series) | ▫ |
+| 1.1 | INCREMENT 1 — Latin Hypercube Sampling default (stratify CDF + permute) + optional Iman-Conover rank correlation + convergence check (running P10/P50/P90, early stop + sparkline); `cargo test` (LHS analytic mean; Iman-Conover target rank corr; convergence stops on stationary series) | ✅ `build_draws` N×P matrix (LHS default, `random` = legacy byte-identical), Iman–Conover via Cholesky re-coloring + rank-match (Spearman→Pearson 2·sin(πρ/6) pre-adjust), batched convergence trace with random-mode-only early stop (LHS never truncates, no runt checkpoints); 5 tests; adversarially reviewed — 4 confirmed findings fixed incl. pre-existing dry-zone tornado null-crash; cargo 274/0, tsc 0 (sparkline UI = 1.3) |
 | 1.2 | INCREMENT 2 — per-ZONE parameter distributions + persist P10/BASE/P50/P90 as LOW/BASE/HIGH curves (NAN + versioned log-set) | ▫ |
 | 1.3 | UI — LHS/MC toggle, correlation-pair mini-editor, convergence + output histograms, P10/P50/P90 card | ▫ |
 
