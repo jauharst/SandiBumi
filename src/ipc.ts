@@ -120,6 +120,10 @@ export interface AutoCorrRequest {
   half_window: number;
   search_range: number;
   target_well_ids: string[];
+  /** "shift" (rigid best-lag, default) or "warp" (elastic depth-warp refinement). */
+  method?: "shift" | "warp";
+  /** Warp only: max local stretch/compression factor (≥1). Default 1.5. */
+  max_stretch?: number;
 }
 
 export interface AutoCorrProposal {

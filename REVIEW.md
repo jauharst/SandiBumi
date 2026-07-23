@@ -7,6 +7,38 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 33 — Autocorrelate #5 inc 1: elastic depth warp (subsequence DTW) — backend (2026-07-23)
+
+First increment of the marker-autocorrelation enrichment. `tops.rs` today propagates a top from the
+source well to others by a **rigid best-lag** GR match (slide the pick window, keep the max-Pearson
+depth). That is unchanged and stays the fast default. This increment adds an **elastic depth-warp**
+mode alongside it:
+
+- **`subseq_dtw`** — open-begin/open-end subsequence dynamic-time-warping. The `(1,1)/(1,0)/(0,1)` step
+  set makes the alignment **monotone and non-inverting by construction** (no depth crossovers), and a
+  per-step stretch penalty keeps it near slope 1 unless the log clearly warps.
+- **`warp_refine`** — refines the rigid pick: builds a target window sized for the requested stretch,
+  **P3/P97-normalizes** both logs (the `gr_normalize` two-point idea, applied window-locally) so the warp
+  compares *shape*, not tool calibration/datum, then reads off the depth the marker (window centre) warps
+  to. Reported r is the template-vs-warped-target Pearson — the **same metric as the rigid r**.
+- Request gains `method` (`shift`|`warp`) and `max_stretch`, both serde-defaulted, so the existing
+  dialog call is byte-identical (`shift`). **No UI yet** — the warp/shift toggle, max-stretch control and
+  per-interval tie-lines come in inc 2/3.
+
+**Adversarial review** (math-heavy) confirmed the DTW recurrence, back-pointers, monotonicity, and
+marker mapping correct with no OOB/underflow/panic paths, and surfaced three behavioral gaps I then
+fixed: (1) warp could **silently regress** a better rigid pick → added a better-of guard (keep warp only
+if its r ≥ rigid r − ε); (2) a marker could be placed **in a data gap** with a plausible r → reject a
+warp whose marker lands on a NaN sample (fall back to rigid) and raised the NaN step-cost so DTW avoids
+nulls; (3) the `max_stretch` doc **overstated** a hard local cap → reworded to the honest soft/window
+control it is. cargo: **333 passed / 0 failed** (rigid recovers a known 7.5 m lag; warp recovers a known
+×1.5 piecewise-stretched section to ~1 m where rigid is ~10 m biased; warp does not regress a pure shift;
+DTW path proven monotone/complete on noisy input). tsc green.
+
+> **Try:** backend-only this round — open the **Autocorrelate** pane and correlate a top as before; it
+> should behave **exactly** as it did (rigid shift, unchanged). The warp mode has no button yet; it lands
+> in the next increment where you'll get a **Rigid / Elastic-warp** toggle and a max-stretch control.
+
 ## Round 32 — Unconventional #7 inc 5: ΔlogR overlay + Langmuir isotherm panel (2026-07-23)
 
 Fifth and final increment — the visual companion to the four compute modules. A new workspace pane,
