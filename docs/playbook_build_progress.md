@@ -165,6 +165,33 @@ are absent). Per playbook Part 0.1 master sequence:
 These are DECIDE-layer sessions (documents, not code) — runnable any time on request; Stage A's
 import rows are the "fast wins" backlog and can interleave with the build.
 
+### Review-sweep (VERIFY) track — queued 2026-07-24
+
+Prompt: `docs/skill_review_prompt.md`. Reviews the whole app against the **45 installed skills**
+as external domain authorities, sharded one pass per session (A-to-Z in one context is not
+achievable and would produce generic findings). Complements — does not replace —
+`docs/qc_audit_prompt_template.md`: that one audits engineering dimensions with `docs/` as the
+authority, so a **wrong spec doc is unfalsifiable under it**, and a module with no doc is out of
+its scope entirely. Adds the finding classes `DOC-BUG`, `UNSOURCED`, `WORKFLOW-GAP`,
+`NO-AUTHORITY`. Output lands in `docs/review_sweep/`; findings become normal serial increments
+afterward, never fixes inside the report.
+
+| Track | Passes | Lens / authority | Status |
+|---|---|---|---|
+| A — Practice fit | A1 workhorse chain · A2 thin-bed+LRLC · A3 LQR cutoffs · A4 carbonate · A5 regional · A6 specialized | the 8 `proj-*` skills (~43 delivered studies). **Highest authority and runs first** — the only instrument that asks "could this study have been delivered *in the app*", not "is the formula right". Outranks the textbook skills on conflict | ▫ queued |
+| B — Domain physics | B1 log physics+conditioning · B2 porosity/lithology · B3 shaly-sand Sw · B4 multimineral · B5 core/SCAL/SwH · B6 facies/zonation/FE | the 11 `petro-*` skills | ▫ queued |
+| C — Vendor parity | C1 Geolog · C2 Techlog/IP · C3 lithology+mudlog | 5 `sw-geolog-*` + `sw-techlog` + `geolog-loglan`(+workspace) + `mudlog-litho-to-las` | ▫ queued |
+| D — Downstream handoff | D1 volumetrics/reserves · D2 export/model handoff | 4 `pe-*` used + 4 `sw-petrel-*` as consumers only (what exports must carry) | ▫ queued |
+| F — Engineering craft | F1 frontend arch · F2 Rust idiom/hot paths · F3 UX+theming sweep · F4 build/bundle health · F5 lifecycle/leaks | **no skill authority exists** — verified 2026-07-24: all 48 skills on this machine are geoscience; no Anthropic frontend/UX/optimization skill is installed. F1/F2 → run `/code-review ultra` first (Jauhar-triggered, diff-scoped) then `code-simplifier` per file; **F3/F4/F5 are app-wide invariants ultra structurally cannot see** and belong to this prompt | ▫ queued |
+| Z — Synthesis | Z1 consolidate | dedupe + rank across all passes → fix-now increments / ROADMAP additions / doc corrections / questions | ▫ after passes |
+
+9 of the 45 skills are **deliberately excluded** as authorities (Petrel structural/prestack/QI/
+simulation, well test, production, reservoir performance) — out of v1 scope; opened only if a
+specific finding needs one. **Minimum viable sweep** if 22 passes is too much: A1, A2, B3, B4,
+F3, F5 → Z1.
+
+Not started; no `docs/review_sweep/` artifacts exist yet.
+
 ## Per-increment discipline (playbook acceptance bar)
 
 Every increment: explore-and-restate → implement in small steps → `tsc --noEmit` + `cargo
