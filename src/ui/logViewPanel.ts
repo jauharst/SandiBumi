@@ -341,6 +341,11 @@ export class LogViewPanel {
         if (!interval || !this.renderer || this.well?.well_id !== interval.wellId) return;
         this.renderer.scrollToDepth(interval.depthMin);
       }),
+      // Linked brushing: paint the crossplot-brushed sample depths as ticks across this well's tracks.
+      appState.brushedDepths.subscribe((sel) => {
+        const depths = sel && this.well && sel.wellId === this.well.well_id ? [...sel.depths] : [];
+        this.highlightsOverlay.setBrush(depths);
+      }),
     );
   }
 
@@ -569,6 +574,10 @@ export class LogViewPanel {
     if (gen !== this.loadGen || !this.renderer) return;
     await this.topsEditor.setWell(well.well_id);
     await this.highlightsOverlay.setWell(well.well_id);
+    // Re-apply the shared brush for the newly loaded well (the subscription only fires on brush
+    // changes, so a well switch would otherwise leave the previous well's ticks painted).
+    const brush = appState.brushedDepths.get();
+    this.highlightsOverlay.setBrush(brush && brush.wellId === well.well_id ? [...brush.depths] : []);
   }
 
   /** Draws core plug points over any track showing a curve with a core counterpart

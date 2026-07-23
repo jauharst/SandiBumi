@@ -41,6 +41,14 @@ export interface TopInterval {
   depthMax: number | null;
 }
 
+/** A set of sample depths brushed on one crossplot (rectangular select), broadcast so the log
+ *  view, histogram and other plots of the SAME well highlight the same samples. Depths are exact
+ *  values off the shared well grid, so membership is a plain `Set.has` lookup across panels. */
+export interface BrushSelection {
+  wellId: string;
+  depths: Set<number>;
+}
+
 export const appState = {
   /** The globally selected well (object tree click). */
   selectedWell: new Observable<WellSummary | null>(null),
@@ -55,6 +63,9 @@ export const appState = {
   /** The depth under the cursor in whichever log view the mouse is over (null = none).
    *  Every open log view draws a synchronized crosshair at this depth. */
   hoverDepth: new Observable<number | null>(null),
+  /** Samples brushed on a crossplot, broadcast to every plot/log view of the same well for a
+   *  linked highlight (null = nothing brushed). See {@link BrushSelection}. */
+  brushedDepths: new Observable<BrushSelection | null>(null),
   /** Monotonic counter bumped when the colour theme changes. Canvas-based panels (log
    *  views, correlation) read their colours from CSS variables at draw time, so they
    *  subscribe to this to repaint immediately on a theme switch instead of on next
@@ -119,6 +130,16 @@ export function activeGroupWellIds(): Set<string> | null {
 
 export function bumpThemeVersion(): void {
   appState.themeVersion.set(appState.themeVersion.get() + 1);
+}
+
+/** Publishes a brushed sample set for `wellId`; an empty set clears the selection. */
+export function setBrushedDepths(wellId: string, depths: Set<number>): void {
+  appState.brushedDepths.set(depths.size ? { wellId, depths } : null);
+}
+
+/** Clears any brushed selection (no-op if already clear, so it doesn't wake subscribers). */
+export function clearBrush(): void {
+  if (appState.brushedDepths.get() !== null) appState.brushedDepths.set(null);
 }
 
 export function setStatus(text: string): void {

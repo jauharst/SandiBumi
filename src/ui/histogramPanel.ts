@@ -1,5 +1,5 @@
 import { getCurveData, type WellSummary } from "../ipc";
-import { appState } from "../state";
+import { appState, type BrushSelection } from "../state";
 import { formRow, openModal } from "./modal";
 import {
   attachResizeRedraw,
@@ -154,6 +154,7 @@ export function drawHistogram(
   opts: HistogramOptions = DEFAULT_HISTOGRAM_OPTIONS,
   hoverValue: number | null = null,
   view: Viewport | null = null,
+  brushValues: ArrayLike<number> | null = null,
 ): PlotCanvas | null {
   fitCanvasBackingStore(canvas);
   const p2 = percentile(values, 2);
@@ -207,6 +208,23 @@ export function drawHistogram(
   } else {
     const points: [number, number][] = counts.map((c, i) => [(edges[i] + edges[i + 1]) / 2, c * yScale]);
     plot.drawLine(points, barColor, 1.8);
+  }
+
+  // Brushed sub-distribution (linked selection): the selected samples' counts in the SAME bins,
+  // over-painted in accent2 so you see where a brushed crossplot cloud falls in this property.
+  if (brushValues && brushValues.length) {
+    const bc = computeHistogram(brushValues, min, max, bins).counts;
+    const { ctx } = plot;
+    ctx.save();
+    ctx.fillStyle = plot.theme.accent2;
+    ctx.globalAlpha = 0.85;
+    for (let i = 0; i < bc.length; i++) {
+      if (bc[i] === 0) continue;
+      const [x0, yTop] = plot.toPx(edges[i], bc[i] * yScale);
+      const [x1, yBase] = plot.toPx(edges[i + 1], 0);
+      ctx.fillRect(x0 + 0.5, yTop, Math.max(1, x1 - x0 - 1), yBase - yTop);
+    }
+    ctx.restore();
   }
 
   // Cumulative % overlay: 0–100% mapped to the full plot height, labeled on the right.
@@ -472,9 +490,22 @@ export async function buildHistogramContent(
   let depths: Float32Array = new Float32Array(0);
   let plot: PlotCanvas | null = null;
   let hoverValue: number | null = null;
+  let brushValues: number[] = []; // this curve's values at the shared-brush depths (this well)
   const viewRef: ViewportRef = { current: null };
 
   const persist = () => savePlotProps("histogram", opts);
+
+  /** Recomputes the brushed subset's values for this curve (only when the brush targets THIS well). */
+  const recomputeBrushValues = (sel: BrushSelection | null): void => {
+    brushValues = [];
+    if (!sel || sel.wellId !== well.well_id) return;
+    for (let i = 0; i < depths.length; i++) {
+      if (sel.depths.has(depths[i])) {
+        const v = values[i];
+        if (Number.isFinite(v)) brushValues.push(v);
+      }
+    }
+  };
 
   const redraw = () => {
     plot = drawHistogram(
@@ -490,6 +521,7 @@ export async function buildHistogramContent(
       opts,
       hoverValue,
       viewRef.current,
+      brushValues,
     );
     if (!plot) {
       const ctx = canvas.getContext("2d")!;
@@ -527,6 +559,7 @@ export async function buildHistogramContent(
     }
     stats = basicStats(values);
     hoverValue = null; // the old hover marker points at a stale value after new data
+    recomputeBrushValues(appState.brushedDepths.get()); // depths grid changed — re-map the brush
     if (resetPending) {
       viewRef.current = null; // new data → reset any zoom/pan
       resetPending = false;
@@ -728,6 +761,17 @@ export async function buildHistogramContent(
     }
   });
 
+  // Linked brushing: highlight this curve's sub-distribution for the shared brush's samples.
+  const unsubBrush = appState.brushedDepths.subscribe((sel) => {
+    recomputeBrushValues(sel);
+    if (!rafId) {
+      rafId = requestAnimationFrame(() => {
+        rafId = 0;
+        redraw();
+      });
+    }
+  });
+
   await reload();
   return {
     el: content,
@@ -735,6 +779,7 @@ export async function buildHistogramContent(
       unsubHover();
       unsubTheme();
       unsubData();
+      unsubBrush();
       detachZoomPan();
       detachResize();
       zoneSel.dispose();

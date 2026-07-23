@@ -51,6 +51,10 @@ export class HighlightsOverlay {
   private highlights: HighlightEntry[] = [];
   private editMode = false;
 
+  /** Depths brushed on a crossplot of this well (linked selection), painted as thin accent ticks
+   *  across all tracks so the log view shows where the brushed cloud lives. */
+  private brushDepths: number[] = [];
+
   /** Live drag-create preview: anchor depth + current depth, or null when idle. */
   private dragFrom: number | null = null;
   private dragTo = 0;
@@ -79,6 +83,12 @@ export class HighlightsOverlay {
     this.editMode = on;
     this.overlay.classList.toggle("editing", on);
     if (!on) this.dragFrom = null;
+    this.draw();
+  }
+
+  /** Sets the brushed depths (from a linked crossplot select) and repaints. Pass [] to clear. */
+  setBrush(depths: number[]): void {
+    this.brushDepths = depths;
     this.draw();
   }
 
@@ -131,6 +141,19 @@ export class HighlightsOverlay {
       const a = Math.min(this.dragFrom, this.dragTo);
       const b = Math.max(this.dragFrom, this.dragTo);
       this.paintBand(ctx, w, h, top, span, a, b, pal[this.highlights.length % pal.length], null, true);
+    }
+
+    // Brushed sample depths (linked crossplot select): thin accent ticks across every track.
+    if (this.brushDepths.length) {
+      ctx.save();
+      ctx.fillStyle = readTheme(this.overlay).accent;
+      ctx.globalAlpha = 0.45;
+      for (const d of this.brushDepths) {
+        if (d < top || d > bottom) continue;
+        const y = ((d - top) / span) * h;
+        ctx.fillRect(0, y - 0.75, w, 1.5);
+      }
+      ctx.restore();
     }
   }
 

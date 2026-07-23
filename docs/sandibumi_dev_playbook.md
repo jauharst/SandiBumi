@@ -633,3 +633,116 @@ seeds all of the above use — do them at the start of master-sequence step 2.
   tier system + staged format + architecture contract; a runbook owns the per-domain/per-increment
   loop. Any future vendor ingest reuses it unchanged.
 ```
+
+---
+
+## SandiMin field-review overhaul (Jauhar, 2026-07-23) — LIVE TRACKER
+
+From Jauhar's dialog markups + notes during the 2026-07-23 field review. Second-half playbook work
+stays on **HOLD**; this is the active track. Each item ships as its own verified increment
+(tsc / cargo / browser-smoke), **adversarially reviewed whenever it touches solver math**; the
+**linear dual-water stays the default** so every reviewed number is unchanged; commits are local for
+Jauhar to push. Commit base: `36680d7` (on top of his `9a8c8b4 enrichment`).
+
+**Status:** ✅ done+committed · 🔶 in progress · ⬜ not started
+
+| # | Item | Image | Status | Commit |
+|---|------|-------|--------|--------|
+| C | Multi-column Minerals/Clays/Fluids lists (wrap to pane width, scroll both ways) | 3 | ✅ | `2eb434c` |
+| D | Run/apply-to-wells section on TOP + distinct green Run button | 4 | ✅ | `2eb434c` |
+| E | Log inputs tab first (before Minerals), opens on Log inputs | 5 | ✅ | `2eb434c` |
+| C2/D2 | 2nd-pass (2026-07-23): log inputs → multi-column grid (image 3 style); Run button → tidy left-aligned, not full-width slab (image 1 style), green kept | 1,3 | ✅ | `fbffe32` |
+| A | Sw-equation menu expansion + wet/dry-clay framework | 1 | ✅ | linear DW + Indonesia + Simandoux + **dual-water non-linear** (`857581f`) + **Archie** (`039d77a`) + **Juhász/normalized-Qv** (shared root solver `sw_cond_root`, new φ_sh input) + **Waxman-Smits** (`b0a1bb8`: `sw_waxman_smits` reuses `sw_cond_root` with `lin=B·Qv`, Qv=Σv_clay·CEC·ρ/φt from solved clays, B from `waxman_b` = Juhász 1981 B(T,Rw) fit verified vs Techlog/IP install docs — T °C, Rw ohm·m, B mho·mL/(m·meq); `FluidProps.ws_b` override; UI dropdown + B-override field). All 7 Sw models done. B(T) unit trap resolved: Qv in **meq/mL** pairs with B(Juhász)≈4 and Cw in mho/m to give B·Qv in mho/m (the doc "1/L" label is a normalization relabel; meq/L would be 1000× off). adversarial review = SHIP; 299 cargo + tsc + browser smoke green |
+| B | Constraints editor (brand-styled) + CEC vs Wet-Clay-Porosity source | 2 | ✅ | **backend** (`627e859`: PorositySource enum, per-clay WCLP defaults, BNDWAT `k=φ/(1−φ)` + smectite CEC-fallback, default CEC) **+ UI** (Round 25: Constraints tab — Porosity source radio, per-clay φ editor on Clay tab, UNITY/POROSITY/X&U BNDWAT/WATER MUD enable toggles + σ, UNITY relocated from run footer). tsc + 33 cargo tests + browser smoke all green. WATER MUD confirmed already a solver constraint (defaults on for WBM) |
+| F | FTEMP available from a log curve (per-sample formation temperature) | — | ✅ | Round 27: `MultiminRequest.ftemp_curve: Option<String>` (°F curve name). `fluid_calc`→`fluid_calc_at(p, ftemp_f)`; per sample the finite curve value (guarded `> 32°F` so −999.25 nulls fall back) rebuilds cw/cmf/cbw, auto CT/CXO σ, BNDWAT k and Waxman-Smits B. Extracted `cond_tool_row`/`bndwat_soft_rows`/`scaled` so static + per-sample share code; BNDWAT split out of `soft` (T-dependent) but same row order/count ⇒ constant-T path **byte-identical** (test: constant curve == fixed T exactly). UI: "FTEMP curve (opt)" box on Fluids tab. 302 cargo (+3) + tsc + browser smoke green |
+
+**2nd-pass note (Jauhar screenshots, 2026-07-23, `fbffe32`):** after seeing C/D/E live he asked for
+(1) log-input rows in a multi-column grid with clean aligned checkboxes like the mineral list (was a
+cramped single column with wrapping labels), and (2) the Run button styled like a standard module button
+(image 1) rather than the full-width slab. Both done; Run **kept green** (his earlier item-D ask) with an
+open offer to switch to orange if he prefers full image-1 parity.
+
+### A — Sw-equation menu (image 1) + wet/dry rule
+Target menu (Jauhar's mockup): Dual-Water **Linear** / Dual-Water **Nonlinear** / Archie **Linear** /
+Archie **Nonlinear** / **Waxman-Smits Nonlinear** / **Normalized Dual-Water** / **Juhasz Nonlinear** /
+**Indonesia Nonlinear** / **Simandoux Nonlinear**.
+
+- **Wet/dry rule (Jauhar):** *"juhasz, simandoux, and indonesia can use wet parameter obtained straight
+  forward; the others convert to dry parameter first (each log corrected by phit_clay)."*
+  - **Wet-param, use directly:** Indonesia, Simandoux, Juhasz (read wet-shale Rsh / Vsh + PHIE).
+  - **Dry-param, convert first:** Dual-Water (lin+nonlin), Waxman-Smits, Archie, Normalized-DW — clay
+    endpoints to dry-clay basis via the existing wet→dry converter (each log corrected by φ_clay),
+    bound water explicit, total-porosity basis.
+- Shipped so far: **Linear dual-water** (default), **Indonesia**, **Simandoux** (Rounds 17–18),
+  **Dual-water non-linear** (Round 20, `857581f`) — exact Clavier form, post-solve, m & n separate,
+  Swb from the solved v_bw, adversarially reviewed — and **Archie** (Round 21, `039d77a`) — clean-sand
+  closed form `(a·Rw/(φt^m·Rt))^(1/n)`, post-solve, ≡ Indonesia at Vsh=0. The existing
+  Indonesia/Simandoux ARE the "nonlinear" ones — relabel in the menu.
+- Shipped (Round 23): **Juhász / normalized-Qv** — wet-shale form; QVN = Vsh·φ_sh/φt, Cwsh = 1/(Rsh·φ_sh^m),
+  lin = QVN·(Cwsh−Cw) through a NEW shared root solver `sw_cond_root` (dual-water refactored onto it, its
+  numbers unchanged). New φ_sh (wet-clay-porosity) input on the Fluid tab, shown only for Juhász alongside
+  Rsh. Post-solve, PHIE preserved, Vsh=0→Archie. Normalized-DW is the same QVN equation → ONE menu entry.
+  DESIGN NOTE: Juhász uses φ_sh only INSIDE the conductivity equation; the water/HC split still uses the
+  CEC-solved v_bw (PHIE unchanged). The FULL wet-clay-porosity porosity-SOURCE (redefines
+  v_bw = φ_sh/(1−φ_sh)·v_dryclay, moves PHIE) is item B's CEC-vs-WCP toggle — same mechanism, to be wired
+  there. Techlog exposes both per-clay CEC (meq/g) and WCLP (m³/m³): see
+  QElan_PostProcess_Using_Conductivities.py for the default endpoint values (CEC_Illite 0.16, WCLP_Illite
+  0.104, etc.).
+- ✅ **DONE** (`b0a1bb8`): **Waxman-Smits** = `sw_cond_root` with lin = B·Qv, Qv = Σ(v_clay·CEC·ρ)/φt in
+  meq/mL. The B(T) UNITS trap is resolved. B is **not** the Bmax quartic (which went negative on trial)
+  and not the QElan m*-excess geochemical form (`QElan_PostProcess.py:2879` uses `Mexp = M_DWA + C_DWA·(…)`,
+  no explicit B·Qv). It IS the **Juhász 1981 closed-form fit** of the Waxman-Thomas chart, read verbatim from
+  the Techlog install (`Doc/concept/petrophysics-waxman-b.html` → `b-juhasz.png`) and matching IP2025
+  `PhiSw.hlp`: `B = (−1.28 + 0.225·T − 0.0004059·T²)/(1 + (0.045·T − 0.27)·Rw^1.23)`, **T °C, Rw ohm·m**,
+  result **mho·mL/(m·meq)** so B·Qv (Qv meq/mL, Cw mho/m) comes out in mho/m. `waxman_b(t_c, rw)` +
+  `FluidProps.ws_b` calibration override (0 = auto). Hand-anchored tests (B(25,0.1)=3.895, B(100,0.05)=15.51)
+  + clean & shaly end-to-end round-trips. Adversarial review = SHIP. **NOT** the "Geolog Waxman-Thomas default"
+  chart lookup — that's a raw isotherm table; the Juhász fit is the closed form both commercial tools ship.
+- **Menu-taxonomy DECIDED (Jauhar, 2026-07-23): DEDUPLICATED menu** — one entry per physically-distinct
+  model. So the final dropdown is: Linear dual-water (default) · Dual-water non-linear · Archie (clean
+  sand) · Waxman-Smits · Indonesia (Poupon-Leveaux) · Simandoux · Juhasz / Normalized-Qv. No separate
+  "Archie linear/nonlinear" (Archie is exactly invertible) and no separate "Normalized Dual-Water"
+  (same QVN equation as Juhasz). WS defaults to the Waxman-Thomas B-coefficient (Geolog default).
+
+### B — Constraints editor + porosity source (image 2)
+Brand-styled (NOT the Techlog look): expose UNITY / POROSITY / X&U BNDWAT / WATER MUD with editable
+enable + target, and a **Porosity Source** radio (**Cation Exchange Capacity** vs **Wet Clay Porosity**).
+- **Backend WCP route — DONE (Round 24).** `PorositySource {Cec (default), WetClayPorosity}` on the
+  request; the BNDWAT soft-constraint builder branches: CEC → `bndwat_multiplier` (unchanged);
+  WCP → `k = φ_clay/(1−φ_clay)` (φ from the new per-clay `wet_clay_porosity`, Techlog WCLP defaults on
+  the library clays). Default CEC = byte-identical to before. Equivalence to `cec_equiv` tested. Note: WCP
+  **moves PHIE** (bound water becomes geometric) — Jauhar approved.
+  - **Smectite fix (adversarial review, Round 24).** Techlog's `WCLP_Smectite=1.0` is a post-solve
+    reporting placeholder, not an inversion constraint; feeding it as `φ/(1−φ)` (0.95-clamped) gave a
+    solve-swamping `k≈19`. Now a degenerate `φ≥0.5` (isolates the 1.0 placeholder; real clays ≤0.156)
+    falls back to the CEC-calibrated multiplier so both sources agree for smectite (`k≈0.6`). k-selection
+    extracted to `bound_water_multiplier()`; pinned by `wcp_degenerate_smectite_falls_back_to_cec`.
+- **UI slice — DONE (Round 25).** Backend gained enable flags (`enforce_porosity/_bndwat/_water_mud`,
+  serde default true) + `sigma_constraint` (default 0.01, ≤0 falls back) so the panel can gate/tune the
+  constraints that already ran; `request_defaults_keep_every_constraint_on` pins "absent = on". Frontend:
+  ipc types (`wet_clay_porosity`, `porosity_source`, the four request fields); round-trip through the run
+  request; a **Constraints tab** with the **Porosity Source radio** + the four enable toggles + σ; a
+  **per-clay φ editor** on the Clay tab (Techlog WCLP defaults, also filled by the dry-clay converter);
+  UNITY relocated here from the run footer. All four constraints EXPOSE existing solver physics:
+  - **UNITY** — hard `Σv=1` (was the run-footer "Hard unity" checkbox, now a Constraints-tab toggle).
+  - **POROSITY** — soft, `Σ X-fluids = Σ U-fluids` (gated by `enforce_porosity`).
+  - **X&U BNDWAT** — soft, the clay bound-water tie with the CEC/WCP porosity source (`enforce_bndwat`).
+  - **WATER MUD** — `water_mud_row`, `Σ(X waters) ≥ Σ(U waters)` for WBM (invasion ⇒ Sxo ≥ Sw), conditional
+    re-solve, auto-active for non-OIL mud + X/U split (`enforce_water_mud`). Defaults ON; **asked Jauhar**
+    whether he'd prefer it default-off.
+
+### F — FTEMP from a log  ✅ DONE (Round 27)
+Formation temperature can come from a curve mnemonic (per-depth), not just one manual °F. Backend
+recomputes the T-dependent fluid quantities (cw, cmf, cbw, auto CT/CXO σ, BNDWAT k, Waxman-Smits B) per
+sample when the curve is supplied. NOTE (correctness): α expansion + salinities come from the Rw/Rmf
+*sample* temps, so they are T-INDEPENDENT — only the conductivities move with formation T. Guard: a
+per-sample FTEMP must be finite and in `32..600°F` (FTEMP_MIN_F..FTEMP_MAX_F) or it falls back to the
+fixed °F — the floor rejects −999.25/0 and the ceiling rejects +999.25/9999, and both keep
+`t_c+8.5`/`t_c+298`/arps denominators safe. The BNDWAT row COUNT is T-independent (which clays contribute
+never changes with T), so DOF/min-tools stay valid per sample.
+Adversarial review (FIX-FIRST, both fixed pre-commit): (1) the recon_qc per-tool DIF/REC must reconstruct
+from the per-sample A-row (`a[k]`), not the static `rows[t]` — else Σ DIF²/n ≠ RECON² under a curve
+(regression test `ftemp_curve_recon_qc_decomposition_holds`, dof=2 so residuals are real); (2) the guard
+needed the ceiling above to reject positive null sentinels (test `ftemp_curve_out_of_range_falls_back`).
+
+_Local trackers only — this file is never committed (Jauhar's)._

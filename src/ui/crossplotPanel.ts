@@ -1,5 +1,5 @@
 import { getCoreData, getCurveData, setZoneParam, type TrackCurveSeries, type WellSummary } from "../ipc";
-import { appState } from "../state";
+import { appState, clearBrush, setBrushedDepths, type BrushSelection } from "../state";
 import { formRow, openModal } from "./modal";
 import {
   attachResizeRedraw,
@@ -979,7 +979,22 @@ export async function buildCrossplotContent(
   let plot: PlotCanvas | null = null;
   let marker: [number, number] | null = null;
   let hoverIdx = -1;
+  // Shared-brush state: indices of the samples in the current brush (this well), plus the live
+  // drag rectangle (CSS px) while a Shift+drag is in progress.
+  let brushIdx: number[] = [];
+  let brushRect: { x0: number; y0: number; x1: number; y1: number } | null = null;
+  let brushing = false;
   const viewRef: ViewportRef = { current: null };
+
+  /** Recomputes which sample indices the shared brush covers (only when it targets THIS well;
+   *  membership is exact on the shared depth grid). */
+  const recomputeBrush = (sel: BrushSelection | null): void => {
+    brushIdx = [];
+    if (!sel || sel.wellId !== well.well_id) return;
+    for (let i = 0; i < depths.length; i++) {
+      if (sel.depths.has(depths[i])) brushIdx.push(i);
+    }
+  };
 
   // Memoized Z coloring — the redraw's heaviest step (two percentile sorts + an N-length
   // color array). It's viewport-independent, so recompute it only when the Z data or the
@@ -1038,6 +1053,46 @@ export async function buildCrossplotContent(
       ctx.moveTo(px, py - 7);
       ctx.lineTo(px, py + 7);
       ctx.stroke();
+      ctx.restore();
+    }
+    // Shared-brush highlight: emphasise the brushed samples; draw the live drag rectangle on top.
+    if (plot && brushIdx.length) {
+      const ctx = plot.ctx;
+      const rp = plot.plotRect;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(rp.x0, rp.y0, rp.w, rp.h);
+      ctx.clip();
+      ctx.fillStyle = plot.theme.accent2;
+      const rad = Math.max(1.8, opts.pointSize + 0.8);
+      for (const i of brushIdx) {
+        const vx = xs[i];
+        const vy = ys[i];
+        if (!Number.isFinite(vx) || !Number.isFinite(vy)) continue;
+        if (opts.xLog && vx <= 0) continue;
+        if (opts.yLog && vy <= 0) continue;
+        const [px, py] = plot.toPx(vx, vy);
+        ctx.beginPath();
+        ctx.arc(px, py, rad, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+    if (plot && brushRect) {
+      const ctx = plot.ctx;
+      const x = Math.min(brushRect.x0, brushRect.x1);
+      const y = Math.min(brushRect.y0, brushRect.y1);
+      const w = Math.abs(brushRect.x1 - brushRect.x0);
+      const h = Math.abs(brushRect.y1 - brushRect.y0);
+      ctx.save();
+      ctx.fillStyle = plot.theme.accent2;
+      ctx.globalAlpha = 0.12;
+      ctx.fillRect(x, y, w, h);
+      ctx.globalAlpha = 0.9;
+      ctx.strokeStyle = plot.theme.accent2;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 3]);
+      ctx.strokeRect(x, y, w, h);
       ctx.restore();
     }
     drawParamHandle();
@@ -1114,6 +1169,7 @@ export async function buildCrossplotContent(
         }
       }
     }
+    recomputeBrush(appState.brushedDepths.get()); // depths grid changed — re-map the brush
     dataGen++; // new arrays are in place — invalidate the memoized Z coloring
     redraw();
   };
@@ -1462,6 +1518,17 @@ export async function buildCrossplotContent(
   canvas.addEventListener("mousedown", (e) => {
     if (e.button !== 0 || !plot) return;
     const [px, py] = canvasPx(e);
+    // Shift+drag inside the plot = brush-select. Takes precedence over pan/handle: stop the event
+    // reaching attachZoomPan's mousedown (registered later on this canvas), and mark movedSinceDown
+    // so the trailing click doesn't drop a parameter pick.
+    if (e.shiftKey && plot.inPlot(px, py)) {
+      brushing = true;
+      brushRect = { x0: px, y0: py, x1: px, y1: py };
+      movedSinceDown = true;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      return;
+    }
     downXY = [px, py];
     movedSinceDown = false;
     drag = handleAt(px, py);
@@ -1471,6 +1538,12 @@ export async function buildCrossplotContent(
   canvas.addEventListener("mousemove", (e) => {
     if (!plot) return;
     const [px, py] = canvasPx(e);
+    if (brushing && brushRect) {
+      brushRect.x1 = px;
+      brushRect.y1 = py;
+      redraw();
+      return;
+    }
     if (downXY && Math.hypot(px - downXY[0], py - downXY[1]) > 4) movedSinceDown = true;
     if (drag) {
       const [vx, vy] = plot.toData(px, py);
@@ -1569,6 +1642,54 @@ export async function buildCrossplotContent(
     }
   });
 
+  // Finish a brush on mouseup anywhere (the release may land outside the canvas): collect the
+  // samples inside the rectangle and publish their depths; a tiny rectangle clears the selection.
+  const onBrushEnd = () => {
+    if (!brushing) return;
+    brushing = false;
+    const rect = brushRect;
+    brushRect = null;
+    if (!rect || !plot) {
+      redraw();
+      return;
+    }
+    const x = Math.min(rect.x0, rect.x1);
+    const y = Math.min(rect.y0, rect.y1);
+    const w = Math.abs(rect.x1 - rect.x0);
+    const h = Math.abs(rect.y1 - rect.y0);
+    if (w < 3 || h < 3) {
+      clearBrush();
+      redraw();
+      return;
+    }
+    const sel = new Set<number>();
+    for (let i = 0; i < xs.length; i++) {
+      const vx = xs[i];
+      const vy = ys[i];
+      if (!Number.isFinite(vx) || !Number.isFinite(vy)) continue;
+      if (opts.xLog && vx <= 0) continue;
+      if (opts.yLog && vy <= 0) continue;
+      const [px, py] = plot.toPx(vx, vy);
+      if (px >= x && px <= x + w && py >= y && py <= y + h) {
+        const d = depths[i];
+        if (Number.isFinite(d)) sel.add(d);
+      }
+    }
+    setBrushedDepths(well.well_id, sel); // fires our own subscribe → recompute + redraw
+  };
+  window.addEventListener("mouseup", onBrushEnd);
+
+  // Consume the shared brush (incl. our own publishes) → highlight the covered samples.
+  const unsubBrush = appState.brushedDepths.subscribe((sel) => {
+    recomputeBrush(sel);
+    if (!rafId) {
+      rafId = requestAnimationFrame(() => {
+        rafId = 0;
+        redraw();
+      });
+    }
+  });
+
   // Local hover tooltip: the sample values under the cursor (X/Y/Z + depth), independent of the
   // depth-synced ring. Suppressed while dragging a handle so it doesn't fight the pick gesture.
   const detachTip = attachScatterTooltip(canvas, (px, py) => {
@@ -1605,9 +1726,11 @@ export async function buildCrossplotContent(
       unsubHover();
       unsubTheme();
       unsubData();
+      unsubBrush();
       detachZoomPan();
       detachResize();
       detachTip();
+      window.removeEventListener("mouseup", onBrushEnd);
       zoneSel.dispose();
     },
     getState: () => ({ x: xSel.value, y: ySel.value, z: zSel.value, zone: zoneSel.select.value }),
