@@ -2654,6 +2654,69 @@ textarea {
 .rqc-check-detail {
   color: var(--text-dim);
 }
+.rqc-card {
+  cursor: pointer;
+}
+.rqc-csv {
+  align-self: flex-end;
+}
+.rqc-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.rqc-detail-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+.rqc-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 11px;
+  color: var(--text-dim);
+  align-items: center;
+}
+.rqc-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text);
+}
+.rqc-swatch {
+  width: 11px;
+  height: 3px;
+  border-radius: 1px;
+  display: inline-block;
+}
+.rqc-legend-note {
+  font-style: italic;
+}
+.rqc-plots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.rqc-plot {
+  flex: 1 1 300px;
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.rqc-plot-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.rqc-canvas {
+  width: 100%;
+  height: 320px;
+}
 
 .plot-canvas {
   display: block;

@@ -7,6 +7,39 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 40 — Results-QC #8 inc 3: Sw-envelope track + Buckles crossplot + CSV (2026-07-23)
+
+The visual payoff for the scorecard — a **detail view** under the cards, plus CSV export. All frontend,
+reusing the per-zone data the scorecard already computed (cached, no refetch).
+
+- **Sw-method envelope track** (`PlotCanvas`) — depth (Y, inverted) vs Sw (X): a shaded min/max **band**
+  with one line per model (stable colour per model, Archie first), and a dashed **depth marker** that
+  tracks `appState.hoverDepth`. This is where a wide fresh-water-sand spread is read at a glance.
+- **Buckles crossplot** (`PlotCanvas`) — Sw (X) vs PHIE (Y): the zone's SWE·PHIE samples over dashed
+  **constant-BVW hyperbolae** (0.02–0.10), so an irreducible leg lines up on one hyperbola and a
+  transition/inconsistency fans across them.
+- A **Detail zone** dropdown (and **clicking any scorecard card**) focuses both plots on that zone; a
+  legend names the model colours and the band/hyperbola conventions.
+- **⭳ CSV** exports the whole per-zone scorecard (zone, top/base, models, mean/max spread, worst-spread
+  depth, fraction divergent, BVW mean/CV/n).
+
+Canvas colours all come from `readTheme` (`--accent` band, per-model `faciesColor`, `--warn` marker,
+`--grid` hyperbolae); the plots redraw on theme change and resize.
+
+**Verification (in-browser, mocked IPC):** mounted against canned `list_zones` / `sw_method_spread` /
+byte-packed `get_curve_data`. Both canvases rendered real content (non-uniform pixel counts ~738/737, not
+blank frames); the legend listed Archie/Simandoux/Indonesia/Juhász; the Detail-zone dropdown held both
+zones and switching to SAND-B redrew the Buckles plot; setting hoverDepth redrew the envelope's depth
+marker; and **⭳ CSV produced the correct header + one row per zone** (mean_spread 0.17/0.01,
+frac_divergent 0.7/0, bvw_n 25). tsc exit 0; cargo unchanged at 348. (Screenshot skipped — the preview
+pane wasn't compositing; verified via pixel-content + DOM + captured CSV text instead. Console clean of
+panel-origin errors.)
+
+> **Try:** open **Results QC**, pick a zone in **Detail zone** (or click its card). The **Sw-method
+> envelope** shows the model band — watch Archie ride above the shaly-sand lines in fresh-water sand;
+> drag the log crosshair and the dashed depth marker follows. The **Buckles** plot shows your SWE·PHIE
+> against constant-BVW curves — a clean pay leg hugs one curve. Hit **⭳ CSV** for the scorecard table.
+
 ## Round 39 — Results-QC #8 inc 2: panel + per-zone QC scorecard (2026-07-23)
 
 New well-bound panel `src/ui/resultsQcPanel.ts` (`buildResultsQcContent`), registered like the other
