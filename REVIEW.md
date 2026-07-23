@@ -7,6 +7,26 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 18 — SandiMin Sw-equation selector on the Fluid tab (your request, increment 3b) (2026-07-23)
+
+The backend from Round 17 is now selectable. The **Fluid tab** has a new **"Sw equation"** dropdown —
+**Linear dual-water (default)** / **Indonesia (Poupon-Leveaux)** / **Simandoux (modified)**. Pick a
+shaly-sand form and two extra fields appear (**Rsh** shale resistivity, default 4.0 ohmm; **Archie a**,
+default 1.0) plus a one-line note explaining it runs post-solve and needs a CT tool + a U-zone HC
+component. Leave it on Linear and everything behaves exactly as before. Browser-verified: the three
+options render, the Rsh/a fields + note show only for Indonesia/Simandoux and hide again on switch back,
+and the selector lives inside the conductivity-gated fluid box (so it's present exactly when Rt is). tsc 0.
+
+Still to come (the 4th option you picked — "all of them"): the **in-inversion non-linear dual-water**
+(Gauss-Newton, honours m and n separately). It'll drop into this same dropdown when it's ready.
+
+- [ ] **Pick your Sw equation.** Open SandiMin ▸ Fluid: confirm the "Sw equation" dropdown, that
+      choosing Indonesia/Simandoux reveals Rsh + Archie a, and that Rsh prefills 4.0 (**set it from a
+      shale pick — a too-high Rsh inflates Sw**, wrong-way for fresh-water LRLC pay).
+- [ ] **It changes Sw, not porosity.** On a well with CT + an HC component, run once on Linear, then
+      again on Indonesia (or Simandoux) with your Rw/Rsh — confirm SWE/SWT move to the shaly-sand answer
+      while PHIE/PHIT come out identical to the Linear run.
+
 ## Round 17 — SandiMin saturation models: linear dual-water + Indonesia + Simandoux (your request, increment 3a) (2026-07-23)
 
 You asked for a selectable conductivity/Sw equation, "linear and non linear," because it's significant

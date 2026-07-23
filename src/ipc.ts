@@ -1010,7 +1010,16 @@ export interface MmFluidProps {
   m: number;
   n: number;
   mud_type: string;
+  /** Shale resistivity (ohmm) at formation temperature — the 100%-shale Rt for the shaly-sand Sw
+   *  models (Indonesia/Simandoux). Ignored by the dual-water model. Backend default 4.0. */
+  rsh?: number;
+  /** Archie tortuosity factor a (Indonesia/Simandoux). Dual-water uses a=1. Backend default 1.0. */
+  archie_a?: number;
 }
+
+/** Saturation model for the conductivity tools. `linear_dw` (default) is the in-inversion linearised
+ *  dual-water; `indonesia`/`simandoux` are post-solve shaly-sand forms (Sw from Rt + solved φe/Vsh). */
+export type SwModel = "linear_dw" | "indonesia" | "simandoux";
 
 /** Derived fluid quantities (w, conductivities, α, auto CT/CXO uncertainties). */
 export interface MmFluidCalc {
@@ -1038,6 +1047,8 @@ export interface MultiminRequest {
   /** Emit per-tool reconstruction QC curves: `<prefix>_<KEY>_REC` (measurement rebuilt from the
    *  solved volumes, display units) + `<prefix>_<KEY>_DIF` (σ-unit residual, that tool's RECON term). */
   recon_qc?: boolean;
+  /** Saturation model for the conductivity tools (default `linear_dw` — nothing moves). */
+  sw_model?: SwModel;
 }
 
 export interface MultiminWellResult {

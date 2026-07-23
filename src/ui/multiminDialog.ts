@@ -11,6 +11,7 @@ import {
   type MmFluidProps,
   type MultiminRequest,
   type MultiminResult,
+  type SwModel,
   type WellSummary,
   type ZoneEntry,
 } from "../ipc";
@@ -384,6 +385,62 @@ export async function buildMultiminContent(
   fluidHead.className = "mm-group-head";
   fluidHead.textContent = "Fluid properties (CT/CXO — resistivity → conductivity)";
   fluidBox.appendChild(fluidHead);
+
+  // Sw equation: how the deep resistivity becomes water saturation. Linear dual-water (default) is
+  // the in-inversion mixing law; Indonesia/Simandoux are post-solve shaly-sand forms.
+  const swRow = document.createElement("div");
+  swRow.className = "mm-tool-row";
+  const swLab = document.createElement("span");
+  swLab.textContent = "Sw equation";
+  swLab.title = "How the deep resistivity (CT) is turned into water saturation";
+  const swModelSel = document.createElement("select");
+  const SW_OPTIONS: [SwModel, string][] = [
+    ["linear_dw", "Linear dual-water (default)"],
+    ["indonesia", "Indonesia (Poupon-Leveaux)"],
+    ["simandoux", "Simandoux (modified)"],
+  ];
+  for (const [val, label] of SW_OPTIONS) {
+    const o = document.createElement("option");
+    o.value = val;
+    o.textContent = label;
+    swModelSel.appendChild(o);
+  }
+  swRow.appendChild(swLab);
+  swRow.appendChild(swModelSel);
+  fluidBox.appendChild(swRow);
+  // Rsh + Archie a — only used by the shaly-sand (Indonesia/Simandoux) forms.
+  const swExtra = document.createElement("div");
+  swExtra.className = "mm-fluid-grid";
+  const rshInp = numInput(4.0);
+  const archieAInp = numInput(1.0);
+  for (const [lab, inp] of [["Rsh (ohmm)", rshInp], ["Archie a", archieAInp]] as [string, HTMLInputElement][]) {
+    const cell = document.createElement("label");
+    cell.className = "mm-fluid-cell";
+    const sp = document.createElement("span");
+    sp.textContent = lab;
+    cell.appendChild(sp);
+    cell.appendChild(inp);
+    swExtra.appendChild(cell);
+  }
+  fluidBox.appendChild(swExtra);
+  const swNote = document.createElement("div");
+  swNote.className = "mc-chain-note";
+  fluidBox.appendChild(swNote);
+  function syncSwModel(): void {
+    const post = swModelSel.value === "indonesia" || swModelSel.value === "simandoux";
+    swExtra.style.display = post ? "" : "none";
+    swNote.style.display = post ? "" : "none";
+    if (post) {
+      const name = swModelSel.value === "indonesia" ? "Indonesia (Poupon-Leveaux)" : "modified Simandoux";
+      swNote.textContent =
+        `Post-solve: the mineral solve runs as usual, then Sw is replaced by the ${name} equation from ` +
+        `the solved effective porosity and shale volume. Needs a CT (deep-resistivity) tool and a U-zone ` +
+        `hydrocarbon component; set Rsh from a shale pick. PHIE/PHIT stay exactly as the mineral solve made them.`;
+    }
+  }
+  swModelSel.addEventListener("change", syncSwModel);
+  syncSwModel();
+
   const fluidGrid = document.createElement("div");
   fluidGrid.className = "mm-fluid-grid";
   fluidBox.appendChild(fluidGrid);
@@ -653,6 +710,8 @@ export async function buildMultiminContent(
       m: Number(mInp.value) || 2,
       n: Number(nInp.value) || 2,
       mud_type: mudSel.value,
+      rsh: Number(rshInp.value) || 4,
+      archie_a: Number(archieAInp.value) || 1,
     };
   }
 
@@ -855,6 +914,7 @@ export async function buildMultiminContent(
       unity: unityCb.checked,
       fluid: readFluid(),
       recon_qc: reconCb.checked,
+      sw_model: swModelSel.value as SwModel,
     };
     runBtn.disabled = true;
     setStatus("SandiMin: running…");
