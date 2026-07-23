@@ -7,6 +7,34 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 45 — UI polish #9C follow-ons: Pickett brush-rings + crossplot cutoff region (2026-07-23)
+
+Two interaction upgrades that build on Round 43's linked brushing and the crossplot's draggable
+parameter handle.
+
+- **Pickett brush-rings** — the **Pickett** plot is now a brushing *consumer*: samples you Shift+drag on
+  a **crossplot** of the same well are ringed (accent-2) on the Pickett log-log, so a selection made in
+  one plot is visible in the other. Depths match bit-exactly off the shared backend grid; rings are
+  clipped to the plot and skip log-invalid points.
+- **Crossplot cutoff region** — a new **"Net cutoff"** dropdown next to the pick rows turns the draggable
+  parameter handle into a pair of cutoffs. Pick a *net side* (X ≥/≤ pick, Y ≥/≤ pick) and the crossplot
+  draws the two cutoff threshold lines through the handle, **shades the net quadrant**, and reads out how
+  many plotted points fall inside it (`net cutoff: N / tot pts (P%)`). The sense is chosen explicitly —
+  no cutoff direction is inferred from the axes — and the quadrant maps data→pixels through the axis
+  extents, so it stays correct under log / inverted axes. Default **off** (unchanged appearance).
+  Dragging the handle still writes the two zone parameters as before; the net side persists in plotprops.
+
+**Verification:** the cutoff quadrant→pixel mapping and the 4-sense point-count were unit-tested against
+the real `PlotCanvas.toPx` (counts + NaN exclusion exact for all four senses; correct side under linear
+and inverted-Y axes). Adversarial review caught and fixed two bugs: a template-apply path that left the
+Net-cutoff dropdown out of sync with `opts.netSense`, and an uncancelled hover `requestAnimationFrame` on
+Pickett dispose. `tsc` clean.
+
+**Try:** open a **Crossplot** and a **Pickett** of the same well side by side; **Shift+drag** a box on the
+crossplot — the same samples ring on the Pickett. Then on the crossplot pick a **Net cutoff** side from the
+new dropdown, drag the ringed handle around the cloud, and watch the shaded net box + the live
+`net cutoff: N / tot pts (P%)` readout follow.
+
 ## Round 44 — UI polish #9D: accessibility & motion (2026-07-23)
 
 The plot canvases were unlabelled and unfocusable, and transitions ignored the OS "reduce motion"

@@ -227,6 +227,9 @@ export async function buildPickettContent(
   let colors: string[] | undefined;
   let plot: PlotCanvas | null = null;
   let hoverIdx = -1;
+  // Linked-brush consumer: samples brushed in the crossplot (same well, same backend depth
+  // grid) are ringed here so a selection made in one plot is visible in the other.
+  let brushSet: Set<number> | null = null;
   const viewRef: ViewportRef = { current: null };
 
   /** The effective water line: typed M+Rw win; otherwise none until two points are picked
@@ -262,6 +265,30 @@ export async function buildPickettContent(
       pointSize: props.pointSize,
       colors,
     });
+    // Ring the samples brushed in the crossplot. Depths come off the same backend grid, so an
+    // exact Set membership test aligns them; clipped to the plot and skipping log-invalid points.
+    if (plot && brushSet && brushSet.size && depths.length === rt.length) {
+      const { ctx } = plot;
+      const rp = plot.plotRect;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(rp.x0, rp.y0, rp.w, rp.h);
+      ctx.clip();
+      ctx.strokeStyle = plot.theme.accent2;
+      ctx.lineWidth = 1.5;
+      const rad = Math.max(3, props.pointSize + 1.6);
+      for (let i = 0; i < depths.length; i++) {
+        if (!brushSet.has(depths[i])) continue;
+        const rv = rt[i];
+        const pv = phi[i];
+        if (!(rv > 0) || !(pv > 0)) continue; // both axes are log
+        const [px, py] = plot.toPx(rv, pv);
+        ctx.beginPath();
+        ctx.arc(px, py, rad, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
   };
 
   // Monotonic token so a slow curve/zone load that resolves after a newer one (fast
@@ -363,6 +390,14 @@ export async function buildPickettContent(
   const detachKeys = attachKeyboardPanZoom({ canvas, getPlot: () => plot, view: viewRef, redraw });
   const detachResize = attachResizeRedraw(canvas, redraw);
   const unsubTheme = appState.themeVersion.subscribe(() => redraw());
+
+  // Linked brushing: mirror the crossplot's selection (this well only) as rings.
+  const unsubBrush = appState.brushedDepths.subscribe((b) => {
+    const next = b && b.wellId === well.well_id ? b.depths : null;
+    if (next === brushSet) return;
+    brushSet = next;
+    redraw();
+  });
 
   // Re-fetch when computed curves change (module/equation run, import, undo) so the
   // Pickett plot never shows stale data; keep the zoom/pan and the M/Rw line.
@@ -514,10 +549,12 @@ export async function buildPickettContent(
       unsubHover();
       unsubTheme();
       unsubData();
+      unsubBrush();
       detachZoomPan();
       detachKeys();
       detachResize();
       detachTip();
+      if (rafId) cancelAnimationFrame(rafId); // drop any queued hover redraw so it can't fire post-dispose
       zoneSel.dispose();
     },
     getState: () => ({

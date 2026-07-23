@@ -97,7 +97,14 @@ export interface CrossplotOptions {
   colormap: ColormapName;
   /** Show the pick rows + draggable parameter handle. */
   showPicks: boolean;
+  /** Cutoff-region overlay anchored at the parameter handle: which quadrant is "net"
+   *  (X≥/≤ pick, Y≥/≤ pick), or "off" for just the point handle (default). */
+  netSense: NetSense;
 }
+
+/** Which quadrant relative to the parameter handle counts as net reservoir. The user picks
+ *  the sense explicitly (no cutoff direction is assumed from the axes). */
+export type NetSense = "off" | "xge_yle" | "xle_yge" | "xge_yge" | "xle_yle";
 
 export const DEFAULT_CROSSPLOT_OPTIONS: CrossplotOptions = {
   pointSize: 1.6,
@@ -127,6 +134,7 @@ export const DEFAULT_CROSSPLOT_OPTIONS: CrossplotOptions = {
   zLog: false,
   colormap: "rainbow",
   showPicks: true,
+  netSense: "off",
 };
 
 /** Fills defaults and sanitizes saved/template options. v1 props carried no regModel —
@@ -158,6 +166,7 @@ export function normalizeCrossplotOptions(raw: Partial<CrossplotOptions>): Cross
   opts.percentiles = Array.isArray(opts.percentiles) ? parsePercentiles(opts.percentiles.join(",")) : [];
   if (opts.colormap !== "viridis") opts.colormap = "rainbow";
   opts.pointSize = Math.max(0.5, Math.min(8, opts.pointSize || DEFAULT_CROSSPLOT_OPTIONS.pointSize));
+  if (!["off", "xge_yle", "xle_yge", "xge_yge", "xle_yle"].includes(opts.netSense)) opts.netSense = "off";
   return opts;
 }
 
@@ -916,6 +925,7 @@ export async function buildCrossplotContent(
         persist();
         applySize();
         applyPicksVisibility();
+        senseSel.value = opts.netSense; // a template can carry netSense — keep the dropdown in sync
         void reloadCore();
         redraw();
       },
@@ -947,7 +957,34 @@ export async function buildCrossplotContent(
   const pickX = pickRow("X pick", tc.accent, "NPHI_SH", well, zoneSel.current, setStatus);
   const pickY = pickRow("Y pick", tc.accent2, "RHO_SH", well, zoneSel.current, setStatus);
   const picksWrap = document.createElement("div");
-  picksWrap.append(pickX.row, pickY.row);
+  // Cutoff-region selector: shade a net quadrant anchored at the handle. The sense is chosen
+  // explicitly here (no cutoff direction is inferred from the axes).
+  const senseSel = document.createElement("select");
+  senseSel.className = "form-control";
+  for (const [val, label] of [
+    ["off", "Net cutoff: off"],
+    ["xge_yle", "Net: X ≥ pick, Y ≤ pick"],
+    ["xle_yge", "Net: X ≤ pick, Y ≥ pick"],
+    ["xge_yge", "Net: X ≥ pick, Y ≥ pick"],
+    ["xle_yle", "Net: X ≤ pick, Y ≤ pick"],
+  ] as const) {
+    const o = document.createElement("option");
+    o.value = val;
+    o.textContent = label;
+    senseSel.appendChild(o);
+  }
+  senseSel.value = opts.netSense;
+  senseSel.title =
+    "Shade the net-reservoir quadrant relative to the parameter handle and count the points inside it";
+  senseSel.addEventListener("change", () => {
+    opts.netSense = senseSel.value as NetSense;
+    persist();
+    redraw();
+  });
+  const senseWrap = document.createElement("div");
+  senseWrap.style.margin = "2px 0 6px";
+  senseWrap.appendChild(senseSel);
+  picksWrap.append(senseWrap, pickX.row, pickY.row);
   content.appendChild(picksWrap);
   const applyPicksVisibility = () => {
     picksWrap.style.display = opts.showPicks ? "" : "none";
@@ -1103,7 +1140,73 @@ export async function buildCrossplotContent(
       ctx.strokeRect(x, y, w, h);
       ctx.restore();
     }
+    drawCutoffRegion();
     drawParamHandle();
+  };
+
+  /** Cutoff-region overlay: turns the parameter handle into a pair of cutoff thresholds.
+   *  Draws the vertical/horizontal cutoff lines through the handle, shades the user-chosen
+   *  "net" quadrant, and reads out how many plotted points fall inside it. The quadrant is
+   *  mapped from data to pixels via the axis extents, so it is correct under log / inverted
+   *  axes. Off by default (opts.netSense === "off"). */
+  const drawCutoffRegion = () => {
+    if (!plot || !opts.showPicks || opts.netSense === "off") return;
+    const cx = pickX.getValue();
+    const cy = pickY.getValue();
+    if (Number.isNaN(cx) || Number.isNaN(cy)) return;
+    if ((opts.xLog && cx <= 0) || (opts.yLog && cy <= 0)) return;
+    const xge = opts.netSense === "xge_yle" || opts.netSense === "xge_yge";
+    const yge = opts.netSense === "xle_yge" || opts.netSense === "xge_yge";
+    const ctx = plot.ctx;
+    const rp = plot.plotRect;
+    const [hx, hy] = plot.toPx(cx, cy);
+    // The net side runs from the cutoff to whichever axis extent that sense points at; letting
+    // toPx place both ends keeps the shaded box correct for inverted / log axes.
+    const [ex, ey] = plot.toPx(xge ? plot.x.max : plot.x.min, yge ? plot.y.max : plot.y.min);
+    const rx0 = Math.max(rp.x0, Math.min(hx, ex));
+    const rx1 = Math.min(rp.x0 + rp.w, Math.max(hx, ex));
+    const ry0 = Math.max(rp.y0, Math.min(hy, ey));
+    const ry1 = Math.min(rp.y0 + rp.h, Math.max(hy, ey));
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(rp.x0, rp.y0, rp.w, rp.h);
+    ctx.clip();
+    if (rx1 > rx0 && ry1 > ry0) {
+      ctx.fillStyle = plot.theme.accent;
+      ctx.globalAlpha = 0.1;
+      ctx.fillRect(rx0, ry0, rx1 - rx0, ry1 - ry0);
+      ctx.globalAlpha = 1;
+    }
+    ctx.strokeStyle = plot.theme.accent;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    ctx.moveTo(hx, rp.y0);
+    ctx.lineTo(hx, rp.y0 + rp.h);
+    ctx.moveTo(rp.x0, hy);
+    ctx.lineTo(rp.x0 + rp.w, hy);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+    // Count plotted (finite, log-valid) points inside the net quadrant.
+    let inN = 0;
+    let tot = 0;
+    for (let i = 0; i < xs.length; i++) {
+      const vx = xs[i];
+      const vy = ys[i];
+      if (!Number.isFinite(vx) || !Number.isFinite(vy)) continue;
+      if (opts.xLog && vx <= 0) continue;
+      if (opts.yLog && vy <= 0) continue;
+      tot++;
+      if ((xge ? vx >= cx : vx <= cx) && (yge ? vy >= cy : vy <= cy)) inN++;
+    }
+    const pct = tot ? (100 * inN) / tot : 0;
+    ctx.save();
+    ctx.font = canvasFont(plot.theme, 10);
+    ctx.fillStyle = plot.theme.text;
+    ctx.textAlign = "left";
+    ctx.fillText(`net cutoff: ${inN} / ${tot} pts (${pct.toFixed(1)}%)`, rp.x0 + 6, rp.y0 + rp.h - 6);
+    ctx.restore();
   };
 
   /** Draws the draggable parameter point at (X pick, Y pick) as a grabbable ring, so the
