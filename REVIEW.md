@@ -7,6 +7,39 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 41 — Results-QC #8 inc 4: recon / MC / cutoff rollup rows (2026-07-23)
+
+The scorecard now reads as **one verdict per zone** — the two on-open checks (Sw-method spread, Buckles)
+plus three rollup rows that **aggregate the sibling analyses** so you don't have to open three panels:
+
+- **Recon incoherence** — mean/max of the SandiMin `*_RECON` curve (Quanti.Elan incoherence, σ units)
+  over the zone, with the fraction of samples >2σ. Green ≤1σ, amber ≤2σ, red beyond — *do the solved
+  volumes rebuild the logs?* Picks the most-recently-written `*_RECON` on the well; read-only.
+- **MC uncertainty** — mean P50 and the mean **LOW–HIGH band** of the persisted `MC_<curve>_LOW/_P50/_HIGH`
+  curves (PHIE, else SWE/VSH), as a fraction of |P50|. Green ≤15 %, amber ≤35 %, red beyond — *how wide
+  is the input-uncertainty envelope?* Read-only.
+- **Cutoff sensitivity** — a **live** `run_cutoff_sweep` nudging the PHIE≥ cutoff ±0.02 v/v around its
+  operating value (VSH≤ / SWE≤ held), reporting the fractional net-pay move. Green ≤15 %, amber ≤40 %,
+  red beyond — *is net pay robust to the cutoff, or does a small change move the number?*
+
+Each row degrades to a **grey "na — run X first"** when its source curves are absent (SandiMin recon-QC
+or Monte-Carlo persist not yet run) — never a silent pass. New operating-cutoff inputs (**VSH≤ / PHIE≥ /
+SWE≤**, defaults 0.50 / 0.08 / 0.50) sit beside the Sw params; the user confirms them, nothing is
+fabricated. CSV gains 12 columns (recon mean/max σ, %>2σ; MC P50/band/rel; cutoff net/sens/peak).
+
+**Verification (in-browser, mocked IPC):** two zones — a shaly SAND-A and a clean SAND-B. Full scenario:
+SAND-A flags Recon (2.20σ, 73 % >2σ), MC (band 56 %), Cutoff (±87 % net) all red; SAND-B all green
+(0.50σ, 13 %, ±2 %); status line counts 5 flags. Bare scenario (no recon/MC curves): both rows show
+"run … first" (na) while the live cutoff row still fires. CSV header + rows confirmed with the new
+columns. Guard added: net pay ≤0 at the operating cutoff → na (no "±Infinity %"). `tsc` clean.
+
+**Try:** open **Results QC** on a well where you've run **SandiMin (Reconstruction QC on)** and **Monte
+Carlo (Persist curves on)**. Each zone card now shows five rows — the new **Recon incoherence**, **MC
+uncertainty**, and **Cutoff sensitivity** lights. Hover any row for the full explanation. On a well where
+you *haven't* run those, the recon/MC rows read "run … first" — run them, hit **Recompute**, and watch
+the lights populate. Tweak **PHIE≥** and Recompute to see the cutoff-sensitivity light move. **⭳ CSV**
+now carries the recon/MC/cutoff columns.
+
 ## Round 40 — Results-QC #8 inc 3: Sw-envelope track + Buckles crossplot + CSV (2026-07-23)
 
 The visual payoff for the scorecard — a **detail view** under the cards, plus CSV export. All frontend,
