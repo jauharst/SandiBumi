@@ -30,6 +30,7 @@ mod parsers;
 mod pipeline_blso_test;
 mod project;
 mod report;
+mod resultsqc;
 mod rocktyping;
 mod satheight;
 mod shf_fit;
@@ -1333,6 +1334,18 @@ fn check_contact_consistency(
     Ok(contacts::check_contact_consistency(&conn, &contact_type, flag_abs.unwrap_or(3.0)))
 }
 
+/// Per-depth water-saturation envelope across the app's Sw models (Archie/Simandoux/Indonesia/
+/// Juhász, plus Waxman-Smits/Dual-Water when a Qv/Swb curve is present) — the Results-QC "does the
+/// model choice change the answer?" metric. Read-only.
+#[tauri::command]
+fn sw_method_spread(
+    db: tauri::State<DbState>,
+    req: resultsqc::SwSpreadRequest,
+) -> Result<resultsqc::SwSpreadResult, String> {
+    let conn = db.0.lock().unwrap();
+    resultsqc::sw_method_spread(&conn, &req)
+}
+
 /// Read-only SQL over the project database (full DuckDB SQL, SELECT-only).
 #[tauri::command]
 fn run_query(db: tauri::State<DbState>, sql: String, limit: usize) -> Result<db::TablePage, String> {
@@ -1579,6 +1592,7 @@ pub fn run() {
             autocorrelate_multi,
             suggest_contacts,
             check_contact_consistency,
+            sw_method_spread,
             run_query,
             export_las,
             python_status,

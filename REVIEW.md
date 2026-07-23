@@ -7,6 +7,37 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 38 — Results-QC #8 inc 1: Sw-method spread backend (2026-07-23)
+
+First increment of the Results-QC / Sw-comparison dashboard. New Rust module `src-tauri/src/resultsqc.rs`
++ command `sw_method_spread` (ipc `swMethodSpread`) — the one metric the dashboard genuinely needs from
+the backend, because the five Sw models are pure `fn`s in `multimin2` that the frontend can't call.
+
+Per depth it evaluates every Sw model whose input curves are present and returns the **envelope**
+(sw_min / sw_max / spread), a per-series value set, and a **divergence summary** (mean/max spread, the
+depth of worst disagreement, the fraction of comparable depths above a 0.10-Sw threshold, and a notes
+trail). **Archie / Simandoux / Indonesia / Juhász** run from the always-available logs; **Waxman-Smits**
+joins only with a Qv curve and **Dual-Water** only with a bound-water-saturation curve — no CEC/Qv/Swb is
+ever fabricated to force a model in. Fluid conductivities reuse the app's own `fluid_calc`/`waxman_b`
+path (no divergence, no invented constants); the classic fresh-water-sand story falls straight out —
+Archie over-reads Sw while the clay-aware models cluster below it.
+
+**Adversarial review (1 skeptic, math-heavy) — 3 medium + 3 low, all fixed:** (M) a null Qv silently
+collapsed Waxman-Smits to Archie via `(B·Qv).max(0)` → now returns NaN at any non-finite/negative Qv;
+(M) `BQV` (= B·Qv) was auto-aliased into the Qv slot and re-multiplied B → dropped from auto-candidates,
+needs an explicit override; (M) model activation counted *columns* not *finite data*, so an all-null
+column inflated the "active" count and muted the warning → a model is kept only with ≥1 finite Sw, the
+insufficient-data note keys on comparable-depth count, dropped columns are reported by name; (L) a note
+now fires when PHIE is absent; (L) ambiguous `PHI` moved off the PHIE candidate list onto PHIT; (L)
+added numeric Juhász, WS/DW-reduce-to-Archie-at-zero, null-Qv→NaN, and all-null-column tests. The review
+also cleared the units (Rw=1/Cw at formation T, Cwb=virgin, B(T,Rw)), envelope, and index-alignment.
+
+**Verification:** cargo 348 passed / 0 failed / 7 ignored (+8 new resultsqc tests); tsc exit 0. Read-only
+— computes nothing to disk.
+
+> **Try:** no UI yet — the per-zone scorecard + Sw-envelope track that consume this land in the next
+> increment (#8 inc 2/3). The command itself is exercised by those; nothing to click through here.
+
 ## Round 37 — Contacts #6.2 inc B: assisted contact picking — the panel UI (2026-07-23)
 
 Second increment — wires inc A into the correlation panel's **Contacts…** editor with two new sections:

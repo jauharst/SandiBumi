@@ -1340,6 +1340,53 @@ export function checkContactConsistency(contactType: string, flagAbs?: number): 
   return invoke<ContactConsistency>("check_contact_consistency", { contactType, flagAbs });
 }
 
+// --- Results-QC: Sw-method spread ---------------------------------------------------------------
+
+/** Request for the per-depth Sw-method envelope. Curve names are optional — the backend tries a
+ *  candidate list (first present wins) when a field is left blank. Qv/Swb curves are what pull the
+ *  Waxman-Smits / Dual-Water models into the envelope; without them those two are skipped, never faked. */
+export interface SwSpreadRequest {
+  well_id: string;
+  depth_min?: number | null;
+  depth_max?: number | null;
+  rt_curve?: string | null;
+  phie_curve?: string | null;
+  phit_curve?: string | null;
+  vsh_curve?: string | null;
+  qv_curve?: string | null;
+  swb_curve?: string | null;
+  fluid: MmFluidProps;
+  /** Sw-unit gap above which a depth is flagged divergent. Backend default 0.10. */
+  divergence_threshold?: number | null;
+}
+
+export interface SwMethodSeries {
+  name: string;
+  /** Sw per depth for this model; NaN → null where a sample was non-physical. */
+  values: (number | null)[];
+}
+
+export interface SwSpreadResult {
+  depth: number[];
+  methods: SwMethodSeries[];
+  sw_min: (number | null)[];
+  sw_max: (number | null)[];
+  spread: (number | null)[];
+  mean_spread: number | null;
+  max_spread: number | null;
+  max_spread_depth: number | null;
+  /** Fraction of comparable depths (≥2 models) whose spread exceeds the threshold. */
+  frac_divergent: number | null;
+  /** Comparable depths used in the summary stats. */
+  n_samples: number;
+  notes: string[];
+}
+
+/** Per-depth water-saturation envelope across the app's Sw models. Read-only — computes nothing to disk. */
+export function swMethodSpread(req: SwSpreadRequest): Promise<SwSpreadResult> {
+  return invoke<SwSpreadResult>("sw_method_spread", { req });
+}
+
 export interface ZoneParamEntry {
   zone_name: string;
   param_name: string;
