@@ -406,6 +406,7 @@ export async function buildMultiminContent(
     ["archie", "Archie (clean sand)"],
     ["indonesia", "Indonesia (Poupon-Leveaux)"],
     ["simandoux", "Simandoux (modified)"],
+    ["juhasz", "Juhász / normalized Qv"],
   ];
   for (const [val, label] of SW_OPTIONS) {
     const o = document.createElement("option");
@@ -416,12 +417,14 @@ export async function buildMultiminContent(
   swRow.appendChild(swLab);
   swRow.appendChild(swModelSel);
   fluidBox.appendChild(swRow);
-  // Rsh + Archie a — only used by the shaly-sand (Indonesia/Simandoux) forms.
+  // Wet-shale extras. Rsh: Indonesia/Simandoux/Juhász. Archie a: Indonesia/Simandoux. φ_sh (wet-clay
+  // porosity): Juhász only. Each cell is shown/hidden per model in syncSwModel.
   const swExtra = document.createElement("div");
   swExtra.className = "mm-fluid-grid";
   const rshInp = numInput(4.0);
   const archieAInp = numInput(1.0);
-  for (const [lab, inp] of [["Rsh (ohmm)", rshInp], ["Archie a", archieAInp]] as [string, HTMLInputElement][]) {
+  const phitShInp = numInput(0.1);
+  const mkExtraCell = (lab: string, inp: HTMLInputElement): HTMLLabelElement => {
     const cell = document.createElement("label");
     cell.className = "mm-fluid-cell";
     const sp = document.createElement("span");
@@ -429,21 +432,34 @@ export async function buildMultiminContent(
     cell.appendChild(sp);
     cell.appendChild(inp);
     swExtra.appendChild(cell);
-  }
+    return cell;
+  };
+  const rshCell = mkExtraCell("Rsh (ohmm)", rshInp);
+  const archieACell = mkExtraCell("Archie a", archieAInp);
+  const phitShCell = mkExtraCell("Wet-clay φ (φ_sh)", phitShInp);
   fluidBox.appendChild(swExtra);
   const swNote = document.createElement("div");
   swNote.className = "mc-chain-note";
   fluidBox.appendChild(swNote);
   function syncSwModel(): void {
     const val = swModelSel.value;
-    // Rsh + Archie a are the shaly-sand (wet-shale) inputs — only Indonesia/Simandoux use them.
+    // Wet-shale inputs by model. Indonesia/Simandoux read Rsh + Archie a; Juhász reads Rsh + φ_sh.
     const shalySand = val === "indonesia" || val === "simandoux";
-    // Every model except linear dual-water runs post-solve and shares the note; only the shaly-sand
-    // (wet-shale) ones show the Rsh/Archie-a extras.
+    const juhasz = val === "juhasz";
+    // Every model except linear dual-water runs post-solve and shares the note.
     const post = val !== "linear_dw";
-    swExtra.style.display = shalySand ? "" : "none";
+    rshCell.style.display = shalySand || juhasz ? "" : "none";
+    archieACell.style.display = shalySand ? "" : "none";
+    phitShCell.style.display = juhasz ? "" : "none";
+    swExtra.style.display = shalySand || juhasz ? "" : "none";
     swNote.style.display = post ? "" : "none";
-    if (val === "dual_water_nonlinear") {
+    if (val === "juhasz") {
+      swNote.textContent =
+        "Post-solve, normalized Waxman-Smits (Juhász): the excess clay conductivity is read from the shale " +
+        "point — Cwsh = 1/(Rsh·φ_sh^m) weighted by the normalized Qv (Vsh·φ_sh/φt) — instead of a " +
+        "temperature-form Cwb, so it uses your wet-shale parameters directly. Needs a CT tool + a U-zone " +
+        "hydrocarbon component; set Rsh from a shale pick and φ_sh (wet-clay porosity). PHIE/PHIT stay as solved.";
+    } else if (val === "dual_water_nonlinear") {
       swNote.textContent =
         "Post-solve: the mineral solve runs as usual, then the exact Clavier dual-water equation is solved " +
         "for Sw honouring m and n separately (not folded into w). The bound-water saturation comes from the " +
@@ -736,6 +752,7 @@ export async function buildMultiminContent(
       mud_type: mudSel.value,
       rsh: Number(rshInp.value) || 4,
       archie_a: Number(archieAInp.value) || 1,
+      phit_sh: Number(phitShInp.value) || 0.1,
     };
   }
 

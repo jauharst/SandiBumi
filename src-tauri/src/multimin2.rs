@@ -100,6 +100,9 @@ pub enum SwModel {
     Indonesia,
     /// Modified Simandoux (Bardon-Pied), effective-porosity form. Non-linear in Sw, post-solve.
     Simandoux,
+    /// Juhász (1981) normalized Waxman-Smits, wet-shale excess-conductivity form. Post-solve; the excess
+    /// conductivity comes from the shale point (Rsh, φ_sh) rather than a temperature-form Cwb.
+    Juhasz,
 }
 
 impl SwModel {
@@ -179,18 +182,28 @@ pub fn sw_simandoux(rt: f64, phie: f64, vsh: f64, rw: f64, rsh: f64, m: f64, n: 
 /// is needed. Conductivities are mho/m at formation temperature. Returns SWT∈[0,1] (bisection; the
 /// n==2 case closes to a quadratic). NaN on non-physical inputs.
 pub fn sw_dual_nonlinear(rt: f64, phit: f64, swb: f64, cw: f64, cwb: f64, m: f64, n: f64, a: f64) -> f64 {
-    // n < 1 is non-physical (saturation exponents are ≥ 1) AND breaks this solver: the Swt^(n−1) term
-    // diverges at Swt→0, so g(0) blows up and the bisection/short-circuit logic (which assumes g rises
-    // from g(0)=−rhs<0) collapses SWT to 0 regardless of Rt. Reject it — the post-solve caller's
-    // is_finite() check then leaves the linear inversion's split untouched rather than silently zeroing.
-    if !(rt > 0.0) || !(phit > 0.0) || !(cw > 0.0) || !(n >= 1.0) {
+    if !(rt > 0.0) {
         return f64::NAN;
     }
+    // Dual water's excess-conductivity coefficient is Swb·(Cwb−Cw); the rest of the algebra is shared
+    // with Juhász (differing only in that coefficient), so both route through sw_cond_root.
     let swb = swb.clamp(0.0, 1.0);
+    sw_cond_root(phit, 1.0 / rt, cw, swb * (cwb - cw), m, n, a)
+}
+
+/// Core conductivity-root solver shared by the excess-conductivity Sw models (dual-water non-linear and
+/// Juhász). Solves  `cw·Swt^n + lin·Swt^(n−1) − a·Ct/φt^m = 0`  for the physical SWT∈[0,1], where `lin`
+/// is the model's excess-conductivity coefficient — dual water: `Swb·(Cwb−Cw)`; Juhász: `QVN·(Cwsh−Cw)`.
+/// Conductivities are mho/m. `n ≥ 1` is required: a sub-linear exponent makes the `Swt^(n−1)` term
+/// diverge at Swt→0, blowing up g(0) and collapsing the bisection/short-circuit logic (which assumes g
+/// rises from g(0)=−rhs<0) to SWT=0 regardless of Rt — so it's rejected as NaN, and the post-solve
+/// caller's is_finite() check then leaves the linear inversion's split untouched rather than zeroing it.
+fn sw_cond_root(phit: f64, ct: f64, cw: f64, lin: f64, m: f64, n: f64, a: f64) -> f64 {
+    if !(ct > 0.0) || !(phit > 0.0) || !(cw > 0.0) || !(n >= 1.0) {
+        return f64::NAN;
+    }
     let a = a.max(1e-9);
-    let ct = 1.0 / rt;
     let rhs = a * ct / phit.powf(m); // the constant term a·Ct/φt^m (> 0)
-    let lin = swb * (cwb - cw); // coefficient of Swt^(n−1)
     if (n - 2.0).abs() < 1e-9 {
         // cw·Swt² + lin·Swt − rhs = 0. disc = lin² + 4·cw·rhs is always ≥ 0 (cw>0, rhs>0), so the
         // positive root exists; cw>0 makes it the physical branch.
@@ -230,6 +243,31 @@ pub fn sw_archie(rt: f64, phit: f64, rw: f64, m: f64, n: f64, a: f64) -> f64 {
     ((a * rw) / (phit.powf(m) * rt)).powf(1.0 / n).clamp(0.0, 1.0)
 }
 
+/// Juhász (1981) "normalized Waxman-Smits" TOTAL water saturation — the wet-shale excess-conductivity
+/// form Jauhar groups with the "use wet parameters straight away" methods. Instead of dual water's
+/// temperature-form Cwb, the clay excess conductivity is read straight from the SHALE point:
+///   Cwsh = 1/(Rsh·φ_sh^m),  QVN = Vsh·φ_sh/φt  (normalized Qv),
+/// and SWT solves  Cw·Swt^n + QVN·(Cwsh−Cw)·Swt^(n−1) = Ct/φt^m  (a = 1). `Rsh` is the shale
+/// resistivity at formation temperature and `phit_sh` the wet-clay (shale) total porosity. With Vsh=0
+/// (QVN=0) it collapses to clean-sand Archie. Returns SWT∈[0,1]; NaN on non-physical inputs.
+pub fn sw_juhasz(
+    rt: f64,
+    phit: f64,
+    vsh: f64,
+    cw: f64,
+    rsh: f64,
+    phit_sh: f64,
+    m: f64,
+    n: f64,
+) -> f64 {
+    if !(rt > 0.0) || !(rsh > 0.0) || !(phit_sh > 0.0) || !(phit > 0.0) {
+        return f64::NAN;
+    }
+    let qvn = (vsh * phit_sh / phit).clamp(0.0, 1.0);
+    let cwsh = 1.0 / (rsh * phit_sh.powf(m)); // 100%-shale water conductivity from the shale point
+    sw_cond_root(phit, 1.0 / rt, cw, qvn * (cwsh - cw), m, n, 1.0)
+}
+
 /// Fluid / saturation parameters (needed when CT or CXO participates).
 #[derive(Debug, Clone, Deserialize)]
 pub struct FluidProps {
@@ -254,6 +292,11 @@ pub struct FluidProps {
     /// Archie tortuosity factor a (Indonesia/Simandoux). The dual-water models use a = 1. Default 1.0.
     #[serde(default = "default_archie_a")]
     pub archie_a: f64,
+    /// Wet-clay (shale) total porosity φ_sh — the "wet clay porosity" used by Juhász's normalized Qv
+    /// (QVN = Vsh·φ_sh/φt) and shale-point conductivity (Cwsh = 1/(Rsh·φ_sh^m)). Only Juhász reads it.
+    /// Default 0.10.
+    #[serde(default = "default_phit_sh")]
+    pub phit_sh: f64,
 }
 
 fn default_mud() -> String {
@@ -264,6 +307,9 @@ fn default_rsh() -> f64 {
 }
 fn default_archie_a() -> f64 {
     1.0
+}
+fn default_phit_sh() -> f64 {
+    0.10
 }
 
 /// Derived fluid quantities (also exposed to the dialog via `multimin_fluid_calc`).
@@ -1029,7 +1075,8 @@ pub fn run_multimin(
             if post_solve {
                 let fc = fluid.as_ref().unwrap();
                 let fp = req.fluid.as_ref().unwrap();
-                let (m_exp, n_exp, a_arch, rsh) = (fp.m, fp.n, fp.archie_a, fp.rsh);
+                let (m_exp, n_exp, a_arch, rsh, phit_sh) =
+                    (fp.m, fp.n, fp.archie_a, fp.rsh, fp.phit_sh);
                 let vsh = zs.clays.iter().chain(&zs.u_bw).map(|&c| x[c]).sum::<f64>();
                 let read_res = |idx: Option<usize>| -> Option<f64> {
                     idx.map(|t| tool_cols[t][i] as f64).filter(|v| v.is_finite() && *v > 0.0)
@@ -1068,6 +1115,20 @@ pub fn run_multimin(
                                 return f64::NAN;
                             }
                             let swt = sw_archie(rt, phit, 1.0 / cw.max(1e-9), m_exp, n_exp, a_arch);
+                            if !swt.is_finite() {
+                                return f64::NAN;
+                            }
+                            ((swt * phit - v_bw) / phie).clamp(0.0, 1.0)
+                        }
+                        SwModel::Juhasz => {
+                            // Normalized Waxman-Smits on total porosity: excess conductivity from the
+                            // shale point (Cwsh, QVN=Vsh·φ_sh/φt), then free-water/φe (same split as dual
+                            // water — the mineral model owns φe/v_bw; this only remaps conductivity→Swt).
+                            let phit = phie + v_bw;
+                            if !(phit > 1e-9) || !(phie > 1e-9) {
+                                return f64::NAN;
+                            }
+                            let swt = sw_juhasz(rt, phit, vsh, cw, rsh, phit_sh, m_exp, n_exp);
                             if !swt.is_finite() {
                                 return f64::NAN;
                             }
@@ -1203,6 +1264,7 @@ pub fn run_multimin(
                     SwModel::Archie => "archie",
                     SwModel::Indonesia => "indonesia",
                     SwModel::Simandoux => "simandoux",
+                    SwModel::Juhasz => "juhasz",
                 },
             }))
             .unwrap_or_default(),
@@ -1887,6 +1949,7 @@ mod tests {
             mud_type: "WATER".into(),
             rsh: 4.0,
             archie_a: 1.0,
+            phit_sh: 0.1,
         };
         let fc = fluid_calc(&props);
         let inv_w = 1.0 / fc.w;
@@ -1985,6 +2048,7 @@ mod tests {
             mud_type: "WATER".into(),
             rsh: 4.0,
             archie_a: 1.0,
+            phit_sh: 0.1,
         };
         let fc = fluid_calc(&props);
         assert!((fc.w - 2.0).abs() < 1e-9);
@@ -2092,6 +2156,7 @@ mod tests {
             mud_type: "WATER".into(),
             rsh: 4.0,
             archie_a: 1.0,
+            phit_sh: 0.1,
         };
         let req = MultiminRequest {
             components: vec![q, ill, wx],
@@ -2410,6 +2475,7 @@ mod tests {
             mud_type: "WATER".into(),
             rsh: 4.0,
             archie_a: 1.0,
+            phit_sh: 0.1,
         };
         let dc = dry_clay_calc(&WetClayInput {
             rhob_wet: 2.18333,
@@ -2587,6 +2653,7 @@ mod tests {
             mud_type: "WATER".into(),
             rsh: 4.0,
             archie_a: 1.0,
+            phit_sh: 0.1,
         };
         let req = MultiminRequest {
             components: vec![q, wsxo, osxo, wsw, osw],
@@ -2671,6 +2738,31 @@ mod tests {
     }
 
     #[test]
+    fn sw_juhasz_hand_computed() {
+        // Normalized-Qv wet-shale form. φt=0.3, Vsh=0.2, φ_sh=0.1, Cw=10 (Rw=0.1), Rsh=4, m=n=2:
+        //   QVN = 0.2·0.1/0.3 = 1/15;  Cwsh = 1/(4·0.1²) = 25;  lin = QVN·(25−10) = 1.0.
+        // Forward at SWT=0.5: Ct/φt^m = 10·0.25 + 1.0·0.5 = 3.0 ⇒ Ct = 0.27 ⇒ Rt = 3.703703703703…
+        assert!(
+            (sw_juhasz(1.0 / 0.27, 0.3, 0.2, 10.0, 4.0, 0.1, 2.0, 2.0) - 0.5).abs() < 1e-9,
+            "Juhász n=2 closed form"
+        );
+        // General n=3 via bisection: Ct/φt^m = 10·0.125 + 1.0·0.25 = 1.5 ⇒ Ct = 0.135 ⇒ Rt = 7.407…
+        assert!(
+            (sw_juhasz(1.0 / 0.135, 0.3, 0.2, 10.0, 4.0, 0.1, 2.0, 3.0) - 0.5).abs() < 1e-6,
+            "Juhász n=3 bisection"
+        );
+        // Vsh=0 ⇒ QVN=0 ⇒ clean-sand Archie (Rw = 1/Cw, a = 1).
+        let juh0 = sw_juhasz(12.0, 0.28, 0.0, 10.0, 4.0, 0.1, 2.0, 2.0);
+        let arch = sw_archie(12.0, 0.28, 0.1, 2.0, 2.0, 1.0);
+        assert!((juh0 - arch).abs() < 1e-9, "Juhász(Vsh=0) vs Archie: {juh0} vs {arch}");
+        // Non-physical inputs → NaN (rsh, φ_sh, rt, and the sub-linear-n guard inherited from the core).
+        assert!(sw_juhasz(3.7, 0.3, 0.2, 10.0, 0.0, 0.1, 2.0, 2.0).is_nan());
+        assert!(sw_juhasz(3.7, 0.3, 0.2, 10.0, 4.0, 0.0, 2.0, 2.0).is_nan());
+        assert!(sw_juhasz(-1.0, 0.3, 0.2, 10.0, 4.0, 0.1, 2.0, 2.0).is_nan());
+        assert!(sw_juhasz(3.7, 0.3, 0.2, 10.0, 4.0, 0.1, 2.0, 0.5).is_nan());
+    }
+
+    #[test]
     fn dual_water_nonlinear_post_solve_recovers_known_sw() {
         // Same forward model as indonesia_post_solve_recovers_known_sw but sw_model = DualWaterNonlinear.
         // With no clay/bound-water component Swb=0, so the dual-water form reduces to Archie; a deep Sw
@@ -2718,6 +2810,7 @@ mod tests {
             mud_type: "WATER".into(),
             rsh: 4.0,
             archie_a: 1.0,
+            phit_sh: 0.1,
         };
         let req = MultiminRequest {
             components: vec![q, wsxo, osxo, wsw, osw],

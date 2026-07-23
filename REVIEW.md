@@ -7,6 +7,33 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 23 — SandiMin Juhász / normalized-Qv Sw (the wet-shale model) (2026-07-23)
+
+The **Juhász (normalized Waxman-Smits)** model — the wet-parameter one you grouped with Indonesia/
+Simandoux — is now in the Sw dropdown as **"Juhász / normalized Qv."** Instead of dual water's
+temperature-form clay conductivity, it reads the excess conductivity straight from the **shale point**:
+
+    Cwsh = 1/(Rsh·φ_sh^m),   QVN = Vsh·φ_sh/φt,   Cw·Swt^n + QVN·(Cwsh−Cw)·Swt^(n−1) = Ct/φt^m   (a=1)
+
+so it uses your wet-shale parameters directly (Rsh from a shale pick + **φ_sh = wet-clay porosity**, a new
+input that appears only for this model). Runs **post-solve** like the others — the mineral solve is
+untouched, **PHIE/PHIT/unity preserved**, only SWE/SWT/SXOT move. With Vsh=0 it collapses to clean-sand
+Archie (tested). Equation matches the Geolog `sw_juha` / cookbook normalized-Qv form.
+
+Internally, dual-water and Juhász now share one root solver (`sw_cond_root`) — the only difference is the
+excess-conductivity coefficient (dual water `Swb·(Cwb−Cw)`; Juhász `QVN·(Cwsh−Cw)`). The dual-water
+numbers are unchanged (same 30 tests green). Hand-computed literals at n=2 (closed form) and n=3
+(bisection), Vsh=0→Archie, and NaN guards all pass; adversarially reviewed.
+
+**Note on the porosity source:** Juhász here uses φ_sh only *inside the conductivity equation* — the
+water/HC split still uses the CEC-solved bound water (so PHIE stays put). The *full* "Wet Clay Porosity"
+porosity-source that redefines bound water (image-2 constraints panel) arrives with that editor; the two
+are the same underlying mechanism and I'll wire them together there.
+
+- [ ] **Juhász vs Simandoux/Indonesia.** On a shaly interval with a good shale pick (Rsh, φ_sh), confirm
+      Juhász SWE sits in a sensible band with the other shaly-sand models; on a clean sand it should track
+      Archie. Try: Fluid tab → Sw equation → *Juhász / normalized Qv*, set Rsh + φ_sh, Run.
+
 ## Round 22 — SandiMin log-input grid + tidy Run button (2026-07-23 field review)
 
 Two visual fixes from your screenshots:

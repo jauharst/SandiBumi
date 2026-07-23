@@ -1015,11 +1015,21 @@ export interface MmFluidProps {
   rsh?: number;
   /** Archie tortuosity factor a (Indonesia/Simandoux). Dual-water uses a=1. Backend default 1.0. */
   archie_a?: number;
+  /** Wet-clay (shale) total porosity φ_sh for Juhász's normalized Qv (Vsh·φ_sh/φt) and shale-point
+   *  conductivity (1/(Rsh·φ_sh^m)). Only Juhász reads it. Backend default 0.10. */
+  phit_sh?: number;
 }
 
 /** Saturation model for the conductivity tools. `linear_dw` (default) is the in-inversion linearised
- *  dual-water; `indonesia`/`simandoux` are post-solve shaly-sand forms (Sw from Rt + solved φe/Vsh). */
-export type SwModel = "linear_dw" | "dual_water_nonlinear" | "archie" | "indonesia" | "simandoux";
+ *  dual-water; the rest are post-solve forms (Sw from Rt + the solved volumes): `dual_water_nonlinear`
+ *  and `archie` (total-porosity), `indonesia`/`simandoux`/`juhasz` (shaly-sand). */
+export type SwModel =
+  | "linear_dw"
+  | "dual_water_nonlinear"
+  | "archie"
+  | "indonesia"
+  | "simandoux"
+  | "juhasz";
 
 /** Derived fluid quantities (w, conductivities, α, auto CT/CXO uncertainties). */
 export interface MmFluidCalc {
