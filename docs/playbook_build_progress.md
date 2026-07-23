@@ -165,32 +165,36 @@ are absent). Per playbook Part 0.1 master sequence:
 These are DECIDE-layer sessions (documents, not code) — runnable any time on request; Stage A's
 import rows are the "fast wins" backlog and can interleave with the build.
 
-### Review-sweep (VERIFY) track — queued 2026-07-24
+### Engineering-craft review (Track F) — running 2026-07-24
 
-Prompt: `docs/skill_review_prompt.md`. Reviews the whole app against the **45 installed skills**
-as external domain authorities, sharded one pass per session (A-to-Z in one context is not
-achievable and would produce generic findings). Complements — does not replace —
-`docs/qc_audit_prompt_template.md`: that one audits engineering dimensions with `docs/` as the
-authority, so a **wrong spec doc is unfalsifiable under it**, and a module with no doc is out of
-its scope entirely. Adds the finding classes `DOC-BUG`, `UNSOURCED`, `WORKFLOW-GAP`,
-`NO-AUTHORITY`. Output lands in `docs/review_sweep/`; findings become normal serial increments
-afterward, never fixes inside the report.
+Prompt: `docs/engineering_review_prompt.md`. Sweeps ONE code-quality property across the WHOLE
+app per pass — a different axis from `docs/qc_audit_prompt_template.md`, which audits one TOOL
+end to end. Findings become normal serial increments afterward; fixes never land inside a report.
 
-| Track | Passes | Lens / authority | Status |
-|---|---|---|---|
-| A — Practice fit | A1 workhorse chain · A2 thin-bed+LRLC · A3 LQR cutoffs · A4 carbonate · A5 regional · A6 specialized | the 8 `proj-*` skills (~43 delivered studies). **Highest authority and runs first** — the only instrument that asks "could this study have been delivered *in the app*", not "is the formula right". Outranks the textbook skills on conflict | ▫ queued |
-| B — Domain physics | B1 log physics+conditioning · B2 porosity/lithology · B3 shaly-sand Sw · B4 multimineral · B5 core/SCAL/SwH · B6 facies/zonation/FE | the 11 `petro-*` skills | ▫ queued |
-| C — Vendor parity | C1 Geolog · C2 Techlog/IP · C3 lithology+mudlog | 5 `sw-geolog-*` + `sw-techlog` + `geolog-loglan`(+workspace) + `mudlog-litho-to-las` | ▫ queued |
-| D — Downstream handoff | D1 volumetrics/reserves · D2 export/model handoff | 4 `pe-*` used + 4 `sw-petrel-*` as consumers only (what exports must carry) | ▫ queued |
-| F — Engineering craft | F1 frontend arch · F2 Rust idiom/hot paths · F3 UX+theming sweep · F4 build/bundle health · F5 lifecycle/leaks | **no skill authority exists** — verified 2026-07-24: all 48 skills on this machine are geoscience; no Anthropic frontend/UX/optimization skill is installed. F1/F2 → run `/code-review ultra` first (Jauhar-triggered, diff-scoped) then `code-simplifier` per file; **F3/F4/F5 are app-wide invariants ultra structurally cannot see** and belong to this prompt | ▫ queued |
-| Z — Synthesis | Z1 consolidate | dedupe + rank across all passes → fix-now increments / ROADMAP additions / doc corrections / questions | ▫ after passes |
+**A skill-driven domain sweep (Tracks A–D, 17 passes against the 45 petrophysics skills) was
+drafted and dropped** — Jauhar's call, not planned work. Recoverable from `85e7d69` if wanted.
 
-9 of the 45 skills are **deliberately excluded** as authorities (Petrel structural/prestack/QI/
-simulation, well test, production, reservoir performance) — out of v1 scope; opened only if a
-specific finding needs one. **Minimum viable sweep** if 22 passes is too much: A1, A2, B3, B4,
-F3, F5 → Z1.
+**No skill authority exists for engineering craft** (verified 2026-07-24: all 48 skills on this
+machine are geoscience; no Anthropic frontend/UX/optimization skill is installed). Authoring
+house engineering skills was **declined** — the petro-skill pipeline needs source material to
+distil and there is none on disk, so it would be a sourcing project. Substitute authorities:
+`/code-review ultra` (Jauhar-triggered, diff-scoped) for F1/F2; the inline checklists for the
+rest. **F3/F4/F5 are app-wide invariants ultra structurally cannot see** — that is why they stay.
 
-Not started; no `docs/review_sweep/` artifacts exist yet.
+| Pass | Scope | Status |
+|---|---|---|
+| F1 | Frontend architecture — module seams, cross-dialog duplication + drift, `ipc.ts`↔Rust type fidelity, dead exports, async/error shape | ◐ running |
+| F2 | Rust idiom & hot paths — panics on user data, per-sample allocation, error shape + batch isolation, rayon/DB-lock discipline, dead IPC surface | ◐ running |
+| F3 | UX & theming — 6-palette contract, `themeVersion`/`dataVersion` coverage, dialog outliers, empty/failed states, a11y beyond 9D | ◐ running |
+| F4 | Build & bundle — main-bundle composition vs the 1,125.01 kB baseline, dead deps/config/assets, vega advisories as a real threat model, strictness flags | ◐ running |
+| F5 | Lifecycle & leaks — dispose symmetry, subscription pairs, listener accumulation, `filterByActiveGroup` coverage | ▫ not requested this round |
+
+Measured up front (2026-07-24, evidence for F4): main `index` **1,125.01 kB** — unchanged from
+baseline, lazy-chunk discipline holding; `vegaPanel` 864.37 kB + 22 dialog chunks all lazy;
+`npm audit` **7 high, all vega**, every fix semver-major (vega 5→6.3.1, vega-lite 5→6.4.3,
+vega-embed 6→7.1.0). Frontend type hygiene is strong: **3** `any` and **12** non-null assertions
+in ~30k lines. 969 `unwrap`/`expect` in Rust, but most are in `#[cfg(test)]` — separating those
+is F2's job. 53 raw hex literals remain in TS after the #9A sweep — F3 classifies each.
 
 ## Per-increment discipline (playbook acceptance bar)
 
