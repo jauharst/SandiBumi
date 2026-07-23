@@ -7,6 +7,30 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 50 — Monte Carlo: per-row PDF preview sparkline (2026-07-24)
+
+Playbook **#1 (Monte Carlo)** residual: *"per-row live distribution (PDF) preview."* Each uncertain-
+parameter row in the Monte Carlo dialog now carries a small inline **sparkline of the distribution
+shape** you configured — a bell for Normal (mean/sd), a flat-topped box for Uniform (min/max), a
+triangle for Triangular (min/mode/max). It redraws **live as you type**, so you can see the shape
+before running anything.
+
+- Purely a preview — it reads the row's own `(kind, a, b, c)` and **never feeds the sampler**, so the
+  P10/P50/P90 are untouched. Colours come from the theme (`--accent`/`--border`), so it repaints with
+  the brand themes like the rest of the UI.
+- Collapsed spreads don't go blank: `sd≤0`, `min==max`, or a NaN field renders a narrow **point-mass
+  spike** (a delta). Swapped bounds (min>max) auto-normalize; a Triangular mode outside [min,max]
+  clamps to the nearest edge — the preview always shows a sensible shape.
+- Verified: `tsc` clean + **15/15 geometry assertions** on the exact path function (bell apex centred
+  at the peak, box edges at the right fractions, triangle apex at the right x, every degenerate case →
+  spike). The in-app pixel look is what this Try line is for.
+
+**Try:** open **Monte Carlo**, add an uncertain parameter, and watch the little chart beside the
+number fields. Switch the kind (normal → uniform → triangular) and edit mean/sd (or min/mode/max): the
+sparkline should update as you type — a bell that narrows as you shrink sd, a box that widens with the
+range, a triangle whose peak slides with the mode. Set sd to 0 (or min=max) and it should collapse to a
+thin spike.
+
 ## Round 49 — Monte Carlo: physical-plausibility guard (impossible Sw>1 / PHIE<0 fraction) (2026-07-24)
 
 Playbook **#1 (Monte Carlo)** residual: *"reject/flag impossible combos (Sw>1, PHIE<0) and report the

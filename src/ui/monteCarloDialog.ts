@@ -268,15 +268,18 @@ export async function buildMonteCarloContent(
       });
 
       const [la, lb, lc] = labelsFor(row.kind);
-      const inA = numInput(row.a, (v) => (row.a = v), la);
-      const inB = numInput(row.b, (v) => (row.b = v), lb);
+      const spark = distSparkline();
+      const refreshSpark = (): void => spark.redraw(row.kind, row.a, row.b, row.c);
+      const inA = numInput(row.a, (v) => ((row.a = v), refreshSpark()), la);
+      const inB = numInput(row.b, (v) => ((row.b = v), refreshSpark()), lb);
       const fields = document.createElement("span");
       fields.className = "mc-dist-fields";
       fields.append(wrap(la, inA), wrap(lb, inB));
       if (lc) {
-        const inC = numInput(row.c, (v) => (row.c = v), lc);
+        const inC = numInput(row.c, (v) => ((row.c = v), refreshSpark()), lc);
         fields.append(wrap(lc, inC));
       }
+      refreshSpark();
 
       const zoneInp = document.createElement("input");
       zoneInp.className = "mc-zone-inp";
@@ -293,7 +296,7 @@ export async function buildMonteCarloContent(
       });
       rm.classList.add("mc-rm");
 
-      el.append(paramSel, kindSel, fields, zoneInp, rm);
+      el.append(paramSel, kindSel, fields, spark.el, zoneInp, rm);
       mcList.appendChild(el);
     });
     renderCorrRows(); // param renames/removals must reflect in the correlation editor
@@ -1346,6 +1349,106 @@ function numInput(value: number, onChange: (v: number) => void, title: string): 
   });
   return inp;
 }
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+const sparkClamp01 = (t: number): number => (t < 0 ? 0 : t > 1 ? 1 : t);
+const sparkRound = (v: number): number => Math.round(v * 100) / 100;
+
+/** A small inline SVG that previews one uncertain parameter's distribution shape.
+ *  Purely informational (never feeds the sampler) — `redraw` reads (kind, a, b, c) with the
+ *  same field semantics as the row editor: normal → mean/sd, uniform → lo/hi, triangular →
+ *  lo/mode/hi. Theme colours come from the `.mc-dist-spark` CSS class, not from JS. */
+function distSparkline(): { el: SVGSVGElement; redraw: (kind: DistKind, a: number, b: number, c: number) => void } {
+  const W = 60;
+  const H = 22;
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.setAttribute("class", "mc-dist-spark");
+  const path = document.createElementNS(SVG_NS, "path");
+  path.setAttribute("class", "mc-spark-fill");
+  const title = document.createElementNS(SVG_NS, "title");
+  svg.append(title, path);
+  const redraw = (kind: DistKind, a: number, b: number, c: number): void => {
+    const { d, label } = distSparkPath(kind, a, b, c, W, H);
+    path.setAttribute("d", d);
+    title.textContent = label;
+  };
+  return { el: svg, redraw };
+}
+
+/** The `<path d>` (a closed PDF area over a fixed W×H box) plus a `<title>` label for one
+ *  distribution. A collapsed spread (sd≤0, lo==hi) renders as a narrow point-mass spike so the
+ *  preview never goes blank. */
+function distSparkPath(
+  kind: DistKind,
+  a: number,
+  b: number,
+  c: number,
+  W: number,
+  H: number,
+): { d: string; label: string } {
+  const pad = 2;
+  const baseY = H - pad;
+  const topY = pad;
+  const x = (t: number): number => sparkRound(pad + sparkClamp01(t) * (W - 2 * pad));
+  const y = (yn: number): number => sparkRound(baseY - sparkClamp01(yn) * (baseY - topY));
+  const num = (v: number): string => (Number.isFinite(v) ? String(sparkRound(v)) : "?");
+  const cx = W / 2;
+  const spike = `M${cx - 1.4},${baseY} L${cx},${topY} L${cx + 1.4},${baseY} Z`;
+
+  if (kind === "normal") {
+    const m = a;
+    const s = b;
+    if (!Number.isFinite(m) || !Number.isFinite(s) || s <= 0) {
+      return { d: spike, label: `normal(mean=${num(m)}, sd=${num(s)}) — no spread` };
+    }
+    const x0 = m - 3.2 * s;
+    const x1 = m + 3.2 * s;
+    const K = 48;
+    let d = `M${x(0)},${baseY}`;
+    for (let i = 0; i <= K; i++) {
+      const t = i / K;
+      const z = (x0 + t * (x1 - x0) - m) / s;
+      d += ` L${x(t)},${y(Math.exp(-0.5 * z * z))}`;
+    }
+    d += ` L${x(1)},${baseY} Z`;
+    return { d, label: `normal(mean=${num(m)}, sd=${num(s)})` };
+  }
+
+  if (kind === "uniform") {
+    let lo = a;
+    let hi = b;
+    if (Number.isFinite(lo) && Number.isFinite(hi) && lo > hi) [lo, hi] = [hi, lo];
+    if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi <= lo) {
+      return { d: spike, label: `uniform(min=${num(a)}, max=${num(b)}) — no spread` };
+    }
+    const w = hi - lo;
+    const x0 = lo - 0.18 * w;
+    const x1 = hi + 0.18 * w;
+    const tLo = (lo - x0) / (x1 - x0);
+    const tHi = (hi - x0) / (x1 - x0);
+    const d =
+      `M${x(0)},${baseY} L${x(tLo)},${baseY} L${x(tLo)},${topY} ` +
+      `L${x(tHi)},${topY} L${x(tHi)},${baseY} L${x(1)},${baseY} Z`;
+    return { d, label: `uniform(min=${num(lo)}, max=${num(hi)})` };
+  }
+
+  // triangular: lo=a, mode=b, hi=c
+  let lo = a;
+  let hi = c;
+  if (Number.isFinite(lo) && Number.isFinite(hi) && lo > hi) [lo, hi] = [hi, lo];
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi <= lo) {
+    return { d: spike, label: `triangular(min=${num(a)}, mode=${num(b)}, max=${num(c)}) — no spread` };
+  }
+  let mode = b;
+  if (!Number.isFinite(mode)) mode = 0.5 * (lo + hi);
+  mode = Math.min(hi, Math.max(lo, mode));
+  const tMode = (mode - lo) / (hi - lo);
+  const d = `M${x(0)},${baseY} L${x(tMode)},${topY} L${x(1)},${baseY} Z`;
+  return { d, label: `triangular(min=${num(lo)}, mode=${num(mode)}, max=${num(hi)})` };
+}
+
 function numField(label: string, def: number, min: number, max: number): { el: HTMLElement; value: () => number } {
   const inp = document.createElement("input");
   inp.type = "number";

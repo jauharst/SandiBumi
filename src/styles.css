@@ -3320,6 +3320,24 @@ textarea {
   gap: 6px;
   flex: 1;
 }
+/* Inline PDF preview of a row's distribution shape — theme-aware, purely informational.
+   preserveAspectRatio=none stretches the unit box to fill; non-scaling-stroke keeps the 1px
+   outline crisp under that stretch. */
+.mc-dist-spark {
+  flex: 0 0 60px;
+  width: 60px;
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-app);
+}
+.mc-spark-fill {
+  fill: color-mix(in srgb, var(--accent) 20%, transparent);
+  stroke: var(--accent);
+  stroke-width: 1;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
 .mc-field {
   display: flex;
   flex-direction: column;
