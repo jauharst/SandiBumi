@@ -139,7 +139,7 @@ against the repo. Two buckets beyond the second-half table above.
 
 | From | Residual | Lands in |
 |---|---|---|
-| #1 MC | Per-row live distribution (PDF) preview sparkline (convergence sparkline shipped; per-row preview did not) | `monteCarloDialog.ts` |
+| #1 MC | ✅ `d13df84` Per-row live distribution (PDF) preview sparkline — inline theme-aware SVG per row (Normal bell / Uniform box / Triangular triangle), redraws live as the numbers are typed; purely informational (reads the row's own kind/a/b/c, never feeds the sampler); collapsed spreads → point-mass spike; REVIEW Round 50 | `monteCarloDialog.ts` |
 | #1 MC | ✅ `55ef847` Reject/flag impossible combos (Sw>1, PHIE<0) + report the rejected fraction — physical-plausibility guard scanning the unlimited `PHIE_DN`/`SWT_ARCH`/`SWE_INDO` companions; reported per well (⚠/✓/• not-checked), **not** excluded (the module limits already clamp to correct volumetrics); REVIEW Round 49 | `montecarlo.rs` |
 | #1 MC | Seed per-parameter defaults from IP `MonteCarloDefaults.par` (Tier A) — today a generic ±20% width heuristic | `monteCarloDialog.ts` |
 | #2 SandiMin | Report RMS vs core when core mineral volumes/porosity exist | `multimin2.rs` |
