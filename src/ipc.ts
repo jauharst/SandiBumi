@@ -1177,10 +1177,27 @@ export interface MultiminRequest {
   sigma_constraint?: number;
 }
 
+/** Agreement between a solved output and a routine-core-analysis measurement, over the plugs that
+ *  tied to a solved sample. `bias` is the mean signed (model − core), so its sign says which way
+ *  the model reads. Absent (null) when no plug matched — never a zero standing in for "no data". */
+export interface MmCoreFit {
+  n: number;
+  rms: number;
+  bias: number;
+}
+
 export interface MultiminWellResult {
   well_id: string;
   rows_solved: number;
   mean_recon: number;
+  /** Core calibration. RECON says the model reproduces its own input LOGS; these say whether it
+   *  reproduces an INDEPENDENT measurement. Core φ comes against both PHIE and PHIT because which
+   *  one a plug should match depends on the drying protocol (oven-dried → PHIT; humidity-dried →
+   *  nearer PHIE), so the analyst reads the bracket rather than being handed one interpretation. */
+  core_phie: MmCoreFit | null;
+  core_phit: MmCoreFit | null;
+  /** Solved grain density vs core ρg — a check on the MINERAL model specifically. */
+  core_gd: MmCoreFit | null;
   error: string | null;
 }
 

@@ -7,6 +7,42 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 57 — SandiMin: RMS vs core (2026-07-24)
+
+Closes the second first-half residual (playbook #2). RECON/incoherence only says the model
+reproduces **its own input logs** — it cannot catch endpoints that are wrong in a way those logs
+can't see. Core plugs are an *independent* measurement, so a run on a cored well now also reports
+how far the solution sits from them.
+
+Three numbers per cored well, each an **RMS of (model − core)** with a signed **bias** (so the sign
+says which way the model reads) and the plug count:
+
+- **Core φ vs PHIE** *and* **vs PHIT** — both, because which one a plug should match depends on the
+  drying protocol (oven-dried drives off clay-bound water → PHIT; humidity-dried retains some →
+  nearer PHIE). Showing the bracket is more honest than picking one for you.
+- **Core ρg** — the grain density implied by the solved **solid** volumes (Σv·ρ / Σv over the
+  non-fluid components). This is the one that tests the **mineral model** specifically: bound water
+  is a fluid here, so it correctly sits outside the sum, matching a cleaned-and-dried plug. Where
+  RHOB was not itself an input tool this is a fully independent check.
+
+Plugs tie to the nearest **solved** sample within 1 m (the same tie-in tolerance already used for
+core elsewhere); an unsolved sample is skipped rather than matched. A well with no core — or an
+all-null column — shows nothing at all, never a 0.000 that would read as a perfect match. Plugs
+outside a physically valid range are dropped rather than fitted, so a φ column imported in **percent**
+reports "no fit" instead of a confident-looking RMS of ~14.85.
+
+**Try:** open **SandiMin** on a well that has **core** loaded, set up your usual mineral model, and
+**Run**. A new **Core calibration** block appears under the results table. (1) Check the **plug
+count** is roughly what you'd expect over the solved interval. (2) Look at **Core ρg** — on a sound
+quartz/clay model it should sit within a few hundredths of a g/cc; a large bias here points at a
+matrix-density endpoint rather than at the logs. (3) Compare **vs PHIE** against **vs PHIT** — your
+plugs should sit nearer whichever matches how they were dried; a big gap on *both* is worth a look
+at the clay-bound-water setup. (4) Run a well with **no core** and confirm the block is absent
+entirely. (Verified: cargo **359/0/7** including two new tests — hand-computed RMS/bias literals
+covering the depth tolerance and the NaN-skip, and a full run asserting the fits appear only for the
+cored well, with a percent-φ and a 999.25-ρg plug planted *inside* depth tolerance to prove the value
+gate rejects them rather than the depth gate; tsc + production build clean.)
+
 ## Round 56 — Monte Carlo: per-parameter uncertainty widths seeded from IP (2026-07-24)
 
 Closes a first-half residual (playbook #1). Until now, adding an uncertain parameter gave it a

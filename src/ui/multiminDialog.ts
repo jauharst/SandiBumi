@@ -8,6 +8,7 @@ import {
   multiminLibrary,
   runMultimin,
   type MmComponent,
+  type MmCoreFit,
   type MmFluidProps,
   type MultiminRequest,
   type MultiminResult,
@@ -1164,6 +1165,42 @@ export async function buildMultiminContent(
     }
     table.appendChild(tb);
     resultBox.appendChild(table);
+
+    // --- Core calibration ---------------------------------------------------
+    // Only rendered when some well actually has plugs. RECON above measures the fit to the model's
+    // OWN input logs; this measures it against an INDEPENDENT measurement, which is the one that
+    // can tell you the endpoints are wrong.
+    if (res.wells.some((w) => w.core_phie || w.core_phit || w.core_gd)) {
+      const coreCap = document.createElement("div");
+      coreCap.className = "mc-chain-note";
+      coreCap.textContent =
+        "Core calibration — RMS of (model − core) over plugs tied to a solved sample within 1 m; " +
+        "bias is the mean signed error, so its sign says which way the model reads. Core φ is shown " +
+        "against both porosities because the drying protocol decides which one a plug should match " +
+        "(oven-dried drives off clay-bound water → PHIT; humidity-dried retains some → nearer PHIE).";
+      const coreTable = document.createElement("table");
+      coreTable.className = "mm-endpoints";
+      coreTable.innerHTML =
+        "<thead><tr><th>Well</th><th>Core φ vs PHIE</th><th>Core φ vs PHIT</th><th>Core ρg (g/cc)</th></tr></thead>";
+      const coreBody = document.createElement("tbody");
+      const fitCell = (f: MmCoreFit | null): string =>
+        f ? `${f.rms.toFixed(3)}  (bias ${f.bias >= 0 ? "+" : ""}${f.bias.toFixed(3)}, n=${f.n})` : "—";
+      for (const w of res.wells) {
+        if (!w.core_phie && !w.core_phit && !w.core_gd) continue;
+        const tr = document.createElement("tr");
+        const name = wells.find((x) => x.well_id === w.well_id)?.well_name || w.well_id;
+        for (const cell of [name, fitCell(w.core_phie), fitCell(w.core_phit), fitCell(w.core_gd)]) {
+          const td = document.createElement("td");
+          td.className = "mm-cell";
+          td.textContent = cell;
+          tr.appendChild(td);
+        }
+        coreBody.appendChild(tr);
+      }
+      coreTable.appendChild(coreBody);
+      resultBox.append(coreCap, coreTable);
+    }
+
     const okWells = res.wells.filter((w) => !w.error).length;
     if (okWells > 0) {
       recordProcess(

@@ -456,11 +456,32 @@ fn default_true() -> bool {
     true
 }
 
+/// Agreement between a solved SandiMin output and a routine-core-analysis measurement, over the
+/// plugs that tied to a solved sample. `bias` is the mean signed (model − core), so its sign says
+/// which way the model reads. Only ever present when at least one plug matched — an absent fit is
+/// reported as such rather than as a zero, which would read as a perfect match.
+#[derive(Debug, Clone, Serialize)]
+pub struct CoreFit {
+    pub n: usize,
+    pub rms: f32,
+    pub bias: f32,
+}
+
 #[derive(Debug, Serialize)]
 pub struct MultiminWellResult {
     pub well_id: String,
     pub rows_solved: usize,
     pub mean_recon: f32,
+    /// Core calibration — RECON says the model reproduces its own input LOGS; these say whether it
+    /// reproduces an INDEPENDENT measurement. Core φ is reported against both PHIE and PHIT because
+    /// which one a plug should match depends on the drying protocol (oven-dried drives off clay-bound
+    /// water → PHIT; humidity-dried retains some → nearer PHIE), so the analyst reads the bracket
+    /// rather than being handed one interpretation.
+    pub core_phie: Option<CoreFit>,
+    pub core_phit: Option<CoreFit>,
+    /// Solved grain density vs core ρg — a check on the MINERAL model specifically, and independent
+    /// of RHOB when RHOB was not itself an input tool.
+    pub core_gd: Option<CoreFit>,
     pub error: Option<String>,
 }
 
@@ -918,6 +939,54 @@ fn bndwat_soft_rows(
     out
 }
 
+// ---------------------------------------------------------------------------
+// Core calibration — does the solved model reproduce an independent measurement?
+// ---------------------------------------------------------------------------
+
+/// Max |depth difference| for tying a core plug to a log sample. Matches the 1.0 m convention
+/// already used for core-plug tie-in in `facies_tie.rs`.
+const CORE_MATCH_TOL_M: f32 = 1.0;
+
+/// Index of the SOLVED log sample closest to `target` within `CORE_MATCH_TOL_M`, or None.
+/// Unsolved samples (NaN) are skipped rather than matched, so a plug either lands on a real
+/// solved value or is dropped from the statistic. Linear scan: plug counts are in the tens, and
+/// this assumes nothing about the depth grid being ascending.
+fn nearest_solved(depth: &[f32], model: &[f32], target: f32) -> Option<usize> {
+    let mut best: Option<usize> = None;
+    for i in 0..depth.len().min(model.len()) {
+        if !model[i].is_finite() {
+            continue;
+        }
+        let dd = (depth[i] - target).abs();
+        if dd > CORE_MATCH_TOL_M {
+            continue;
+        }
+        if best.map_or(true, |b| dd < (depth[b] - target).abs()) {
+            best = Some(i);
+        }
+    }
+    best
+}
+
+/// RMS and mean signed error of `model` against core plugs `(depth, value)`, over the plugs that
+/// tie to a solved sample. None when nothing matched.
+fn core_fit(depth: &[f32], model: &[f32], plugs: &[(f32, f32)]) -> Option<CoreFit> {
+    let mut n = 0usize;
+    let mut sse = 0.0f64;
+    let mut sum = 0.0f64;
+    for &(d, cv) in plugs {
+        let Some(i) = nearest_solved(depth, model, d) else { continue };
+        let e = model[i] as f64 - cv as f64;
+        sse += e * e;
+        sum += e;
+        n += 1;
+    }
+    if n == 0 {
+        return None;
+    }
+    Some(CoreFit { n, rms: (sse / n as f64).sqrt() as f32, bias: (sum / n as f64) as f32 })
+}
+
 pub fn run_multimin(
     db: &Mutex<Connection>,
     req: &MultiminRequest,
@@ -1185,6 +1254,9 @@ pub fn run_multimin(
                     well_id: well_id.clone(),
                     rows_solved: 0,
                     mean_recon: f32::NAN,
+                    core_phie: None,
+                    core_phit: None,
+                    core_gd: None,
                     error: Some(e.to_string()),
                 });
                 continue;
@@ -1489,6 +1561,61 @@ pub fn run_multimin(
             (0..ns).map(|i| if vol[0][i].is_finite() { f(i) } else { f32::NAN }).collect()
         };
 
+        // --- Core calibration -------------------------------------------------
+        // RECON only says the model reproduces the logs it was fitted to; core plugs are an
+        // INDEPENDENT measurement. Plugs sit on their own sparse depths, so each ties to the
+        // nearest solved sample within CORE_MATCH_TOL_M. A well with no core (or an all-NULL
+        // column) simply leaves these None — nothing is reported as a zero.
+        let core_plugs = crate::db::get_core_por_gd(&conn, well_id).unwrap_or_default();
+        // Validity gates, not just non-null: core φ must be a v/v FRACTION and ρg a rock density.
+        // A φ column imported in percent (15.0, not 0.15) or a 999.25-style sentinel would otherwise
+        // produce a confidently wrong RMS; dropping it reports "no fit" instead, which is honest.
+        let por_plugs: Vec<(f32, f32)> = core_plugs
+            .iter()
+            .filter(|p| p.depth.is_finite() && p.cpor > 0.0 && p.cpor <= 1.0)
+            .map(|p| (p.depth, p.cpor))
+            .collect();
+        let gd_plugs: Vec<(f32, f32)> = core_plugs
+            .iter()
+            .filter(|p| p.depth.is_finite() && p.cgd > 1.0 && p.cgd < 6.0)
+            .map(|p| (p.depth, p.cgd))
+            .collect();
+        let mut core_phie = None;
+        let mut core_phit = None;
+        let mut core_gd = None;
+
+        // Grain density implied by the solved SOLID volumes: ρg = Σ v·ρ / Σ v over the non-fluid
+        // components (the same "fluid" test `zone_sets` uses). Routine core analysis measures ρg on
+        // a cleaned, DRIED plug, so clay-bound water — a fluid component here — is correctly outside
+        // the sum and the clay term is the dry-clay endpoint SandiMin already carries.
+        if !gd_plugs.is_empty() {
+            let solids: Vec<(usize, f64)> = req
+                .components
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| !c.kind.eq_ignore_ascii_case("fluid"))
+                .map(|(i, c)| (i, c.endpoints.get("RHOB").copied().unwrap_or(f64::NAN)))
+                .collect();
+            // Every solid needs a usable density endpoint, else the mixture density is undefined
+            // and a partial sum would quietly bias ρg toward whichever minerals happened to have one.
+            if !solids.is_empty() && solids.iter().all(|(_, r)| r.is_finite() && *r > 0.0) {
+                let gd = make(&|i| {
+                    let (mut num, mut den) = (0.0f64, 0.0f64);
+                    for &(c, r) in &solids {
+                        let v = (vol[c][i] as f64).max(0.0);
+                        num += v * r;
+                        den += v;
+                    }
+                    if den > 1e-6 {
+                        (num / den) as f32
+                    } else {
+                        f32::NAN
+                    }
+                });
+                core_gd = core_fit(&depth, &gd, &gd_plugs);
+            }
+        }
+
         let mut curves: Vec<(String, Vec<f32>)> = Vec::with_capacity(n + 10);
         for (name, values) in vol_names.iter().zip(&vol) {
             curves.push((name.clone(), values.clone()));
@@ -1505,6 +1632,12 @@ pub fn run_multimin(
                 let p = sum_over(&zs.u_water, i) + sum_over(&zs.u_hc, i) + sum_over(&zs.u_bw, i);
                 if p > 1e-6 { (sum_over(&zs.u_water, i) + sum_over(&zs.u_bw, i)) / p } else { f32::NAN }
             });
+            // Core φ against BOTH porosities — the drying protocol decides which one a plug should
+            // match, so report the bracket instead of picking one for the analyst.
+            if !por_plugs.is_empty() {
+                core_phie = core_fit(&depth, &phie, &por_plugs);
+                core_phit = core_fit(&depth, &phit, &por_plugs);
+            }
             curves.push((format!("{prefix}_PHIE"), phie));
             curves.push((format!("{prefix}_PHIT"), phit));
             curves.push((format!("{prefix}_SWE"), swe));
@@ -1579,6 +1712,9 @@ pub fn run_multimin(
             well_id: well_id.clone(),
             rows_solved: solved,
             mean_recon: if solved > 0 { (recon_sum / solved as f64) as f32 } else { f32::NAN },
+            core_phie,
+            core_phit,
+            core_gd,
             error: write_err.or_else(|| (solved == 0).then(|| "no solvable samples (too few live input logs)".to_string())),
         });
     }
@@ -3122,6 +3258,132 @@ mod tests {
         let phie_out = mean(&cols["MM_PHIE"]);
         assert!((swe - sw_true as f32).abs() < 0.02, "post-solve SWE {swe}, want {sw_true}");
         assert!((phie_out - phie as f32).abs() < 0.02, "PHIE {phie_out}, want {phie}");
+    }
+
+    #[test]
+    fn core_fit_rms_bias_tolerance_and_nan_skip() {
+        // Hand-computed NUMERIC LITERALS so a slip in the RMS/bias expression fails here rather
+        // than being confirmed against itself.
+        let depth = [2000.0f32, 2000.5, 2001.0, 2001.5];
+        let model = [0.20f32, 0.25, f32::NAN, 0.30];
+        let plugs = [
+            (2000.05f32, 0.22f32), // → sample 0 (dd 0.05):            e = 0.20 − 0.22 = −0.02
+            (2001.02, 0.26),       // sample 2 is NaN → next nearest is sample 3 (dd 0.48 < 0.52):
+            //                        e = 0.30 − 0.26 = +0.04
+            (2500.0, 0.50), // nothing within 1.0 m → dropped entirely
+        ];
+        let f = core_fit(&depth, &model, &plugs).expect("two plugs should match");
+        assert_eq!(f.n, 2, "the out-of-tolerance plug must be dropped, not matched");
+        // sse = 0.0004 + 0.0016 = 0.002 → rms = sqrt(0.001)
+        assert!((f.rms - 0.031_622_78).abs() < 1e-5, "rms {}", f.rms);
+        // bias = (−0.02 + 0.04)/2 = +0.01 — signed, so it says the model reads HIGH on balance.
+        assert!((f.bias - 0.01).abs() < 1e-6, "bias {}", f.bias);
+
+        // The NaN sample is skipped, never matched: a plug essentially on top of it ties to the
+        // nearest SOLVED neighbour (2001.5 at 0.48 beats 2000.5 at 0.52) instead of being lost.
+        assert_eq!(nearest_solved(&depth, &model, 2001.02), Some(3));
+        // Exactly equidistant between two solved samples, the first wins — deterministic, so the
+        // statistic never depends on iteration order.
+        assert_eq!(nearest_solved(&depth, &model, 2001.0), Some(1));
+
+        // No plugs, and plugs that all miss, report absence — not a zero that would read as a
+        // perfect fit.
+        assert!(core_fit(&depth, &model, &[]).is_none());
+        assert!(core_fit(&depth, &model, &[(3000.0, 0.2)]).is_none());
+        // An all-NaN model can never match.
+        assert!(core_fit(&depth, &[f32::NAN; 4], &[(2000.0, 0.2)]).is_none());
+    }
+
+    #[test]
+    fn multimin_reports_core_fits_only_for_wells_with_core() {
+        // Quartz + water, forward-modelled at vq = 0.70 / vw = 0.30 so the solver recovers them.
+        // With a single SOLID component the predicted grain density is the quartz endpoint exactly,
+        // whatever the volumes — so core ρg planted AT that endpoint must give ~0 RMS, and a plug
+        // offset by +0.10 must give rms ≈ 0.10 with a NEGATIVE bias (model reads low vs core).
+        let q = lib_get("Quartz");
+        // Zone-less water so the nuclear tools see it: a zone-"U" fluid is invisible to RHOB/NPHI/GR
+        // (those read the FLUSHED zone, i.e. the X fluids), which would leave only unity to place the
+        // water. Same trick the mineral-recovery solver tests use.
+        let mut w = lib_get("Water Sw");
+        w.zone = "".into();
+        let ep = |c: &Component, k: &str| c.endpoints[&k.to_string()];
+        let (vq, vw) = (0.70f64, 0.30f64);
+        let rho_q = ep(&q, "RHOB");
+        let n = 6usize;
+        let depth: Vec<f32> = (0..n).map(|i| 2000.0 + i as f32 * 0.5).collect();
+        let mix = |k: &str| (vq * ep(&q, k) + vw * ep(&w, k)) as f32;
+
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let cored = uuid::Uuid::new_v4();
+        let dry = uuid::Uuid::new_v4();
+        for (id, name) in [(cored, "MM-CORE"), (dry, "MM-NOCORE")] {
+            crate::db::insert_well(&conn, id, name, None, None, None).unwrap();
+            crate::db::insert_standard_curves(
+                &conn,
+                id,
+                depth.clone(),
+                vec![mix("GR"); n],
+                vec![f32::NAN; n],
+                vec![mix("NPHI"); n],
+                vec![mix("RHOB"); n],
+                vec![f32::NAN; n],
+                vec![f32::NAN; n],
+            )
+            .unwrap();
+        }
+        // Three good plugs on the cored well: two ρg exactly on the quartz endpoint, one +0.10 high.
+        // A FOURTH carries unit garbage — φ in percent and a 999.25 sentinel ρg — and sits within
+        // depth tolerance of a real sample, so only the VALUE gate can reject it.
+        let cd = vec![2000.1f32, 2001.05, 2002.4, 2002.45];
+        let cpor = vec![0.30f32, 0.30, 0.30, 30.0];
+        let cgd = vec![rho_q as f32, rho_q as f32, rho_q as f32 + 0.10, 999.25];
+        let nanv = vec![f32::NAN; 4];
+        crate::db::insert_core_data(&conn, &cored.to_string(), &cd, &cpor, &nanv, &cgd, &nanv).unwrap();
+        let db = Mutex::new(conn);
+
+        let req = MultiminRequest {
+            components: vec![q.clone(), w.clone()],
+            tools: vec![
+                ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.0264 },
+                ToolSpec { key: "NPHI".into(), curve: "NPHI".into(), sigma: 0.014 },
+                ToolSpec { key: "GR".into(), curve: "GR".into(), sigma: 6.0 },
+            ],
+            apply_well_ids: vec![cored.to_string(), dry.to_string()],
+            output_prefix: "MM".into(),
+            unity: true,
+            fluid: None,
+            ftemp_curve: None,
+            recon_qc: false,
+            sw_model: SwModel::LinearDw,
+            porosity_source: PorositySource::Cec,
+            enforce_porosity: true,
+            enforce_bndwat: true,
+            enforce_water_mud: true,
+            sigma_constraint: 0.01,
+        };
+        let res = run_multimin(&db, &req, None);
+        assert!(res.error.is_none(), "err={:?}", res.error);
+        let cw = res.wells.iter().find(|w| w.well_id == cored.to_string()).expect("cored well result");
+        let dw = res.wells.iter().find(|w| w.well_id == dry.to_string()).expect("dry well result");
+        assert!(cw.rows_solved > 0, "no samples solved");
+
+        let gd = cw.core_gd.as_ref().expect("grain-density fit on the cored well");
+        assert_eq!(gd.n, 3, "the three valid plugs tie in; the 999.25 sentinel must be gated out");
+        // Two exact + one 0.10 off → rms = sqrt(0.01/3) ≈ 0.0577, bias = −0.10/3 ≈ −0.0333.
+        assert!((gd.rms - 0.057_735).abs() < 2e-3, "grain-density rms {}", gd.rms);
+        assert!(gd.bias < 0.0, "model reads LOW vs core here, so bias must be negative: {}", gd.bias);
+        assert!((gd.bias + 0.033_33).abs() < 2e-3, "grain-density bias {}", gd.bias);
+
+        let phit = cw.core_phit.as_ref().expect("PHIT fit on the cored well");
+        let phie = cw.core_phie.as_ref().expect("PHIE fit on the cored well");
+        assert_eq!(phit.n, 3, "the percent-unit φ plug must be gated out, not fitted");
+        assert_eq!(phie.n, 3);
+        assert!(phit.rms < 0.02, "solved PHIT should sit on the planted 0.30 core φ: {}", phit.rms);
+        assert!(phie.rms < 0.02, "solved PHIE should sit on the planted 0.30 core φ: {}", phie.rms);
+
+        // The well without core rows reports absence on every channel.
+        assert!(dw.core_gd.is_none() && dw.core_phit.is_none() && dw.core_phie.is_none());
     }
 
     #[test]
