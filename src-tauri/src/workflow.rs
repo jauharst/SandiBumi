@@ -529,6 +529,11 @@ pub struct PaySummaryRow {
     /// PHIE-weighted average SWE (pay-summary convention).
     pub avg_swe: f32,
     pub hpv: f32, // sum of PHIE*(1-SWE)*thickness over net
+    /// In-zone samples the classifier could actually judge. **0 means the well was never
+    /// interpreted** — VSH/PHIE/SWE resolved to all-NaN — as opposed to a genuine zero-net
+    /// result, which the identical `net`/`ntg`/`hpv` zeros cannot distinguish on their own.
+    /// Consumers must render "—" rather than 0.00 when this is 0.
+    pub n_classified: usize,
 }
 
 const SUMMARY_FLAGS: [&str; 3] = ["SAND", "RESERVOIR", "PAY"];
@@ -658,6 +663,12 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                 let mut sum_phie_swe = 0.0f64;
                 let mut sum_phie_w = 0.0f64;
                 let mut hpv = 0.0f64;
+                // Samples in this zone that the classifier could actually judge. A well whose
+                // VSH/PHIE/SWE were never computed classifies to NaN everywhere, which leaves
+                // net/ntg/hpv at 0.0 — byte-identical to a genuine wet or shaly zone. Carrying
+                // the count lets the UI and the client PDF say "not interpreted" instead of
+                // printing a hard zero that reads as a real answer.
+                let mut n_classified = 0usize;
 
                 for i in 0..n {
                     // Each sample represents the forward interval [depth[i], depth[i]+step].
@@ -672,6 +683,9 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                     let h = hi - lo;
                     if h <= 0.0 {
                         continue;
+                    }
+                    if !flags[i].is_nan() {
+                        n_classified += 1;
                     }
                     if flags[i] != 1.0 {
                         continue;
@@ -710,6 +724,7 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                     avg_phie: if net_phie > 0.0 { (sum_phie / net_phie) as f32 } else { f32::NAN },
                     avg_swe: if sum_phie_w > 0.0 { (sum_phie_swe / sum_phie_w) as f32 } else { f32::NAN },
                     hpv: hpv as f32,
+                    n_classified,
                 });
             }
         }
@@ -1175,6 +1190,55 @@ mod tests {
         assert_eq!(p, 0.0);
         let (_, _, p) = classify_sample(0.2, 0.2, 0.3, 5.0, 0.5, 0.1, 0.6, Some(1.0), true);
         assert_eq!(p, 1.0);
+    }
+
+    /// A well whose VSH/PHIE/SWE were never computed classifies to NaN at every sample, which
+    /// leaves net/ntg/hpv at exactly 0.0 — byte-identical to a genuine wet or shaly zone. The
+    /// dialog, the Field Dashboard and the client PDF all printed that zero as if it were an
+    /// answer. `n_classified` is the discriminator, so it must be 0 there and non-zero for a real
+    /// interpretation; the zeros themselves stay unchanged.
+    #[test]
+    fn pay_summary_marks_an_uninterpreted_well_as_classifying_nothing() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, id, "PAY-1", Some("Synthetic"), None, None).unwrap();
+        let well = id.to_string();
+
+        // Only raw logs — exactly the state after importing a LAS and running nothing.
+        let n = 20usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            &conn, id, depth.clone(), vec![50.0; n], nan.clone(), vec![0.2; n], vec![2.4; n],
+            nan.clone(), nan,
+        )
+        .unwrap();
+
+        let dbm = Mutex::new(conn);
+        let req = PaySummaryRequest {
+            well_ids: vec![well.clone()],
+            vsh_max: 0.5,
+            phie_min: 0.1,
+            swe_max: 0.6,
+            perm_min: None,
+            skip_version: false,
+            // Stats only: the point of the test is the returned rows, and this keeps it from
+            // writing FLAG_* curves as a side effect.
+            stats_only: true,
+        };
+        let rows = run_pay_summary(&dbm, &req).expect("summary runs on an uninterpreted well");
+        assert!(!rows.is_empty(), "rows are still emitted — the well and its zone exist");
+        for r in &rows {
+            assert_eq!(
+                r.n_classified, 0,
+                "no sample can be classified without VSH/PHIE/SWE ({} {})",
+                r.zone, r.flag
+            );
+            // The zeros are unchanged; the counter is what tells the consumer not to print them.
+            assert_eq!(r.net, 0.0);
+            assert_eq!(r.hpv, 0.0);
+        }
     }
 
     /// A zone override beats the module dialog by design, so it also skips the dialog's range

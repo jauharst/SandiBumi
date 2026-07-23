@@ -1980,6 +1980,20 @@ textarea {
   margin-top: 8px;
 }
 
+/* A pay row whose classifier judged nothing (VSH/PHIE/SWE never computed): its Net/NG/HPV read
+   "—" rather than a 0.00 that would be indistinguishable from a genuine wet zone. Dimmed, not
+   coloured, so it reads as "no answer" instead of "bad answer" under every palette. */
+.summary-table tr.row-uninterpreted td {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.summary-note {
+  margin: 8px 0 0;
+  font-size: 10.5px;
+  color: var(--text-dim);
+}
+
 .summary-table {
   border-collapse: collapse;
   font-size: 10.5px;

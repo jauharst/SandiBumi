@@ -498,9 +498,24 @@ export async function buildMlContent(
       if (res.error) {
         statusLine.textContent = `Failed: ${res.error}`;
       } else {
-        statusLine.textContent = `Done in ${ms} ms → ${res.outputs.join(", ")}`;
-        setStatus(`${algo.label}: wrote ${res.outputs.join(", ")} to ${applyIds.length} well(s)`);
-        recordProcess("ML", `${algo.label}: wrote ${res.outputs.join(", ")} to ${applyIds.length} well(s)`);
+        // Count what actually landed. `applyIds.length` is the SCOPE, not the outcome: a well
+        // with no usable feature curves comes back carrying an error and gets no curve, and one
+        // with no complete samples gets an all-NaN curve — both flagged per-well by the backend.
+        // Reporting the scope count made the status line and, worse, the permanent History entry
+        // claim every well was written. moduleDialog already reports "ok/total"; match it.
+        const total = res.wells.length || applyIds.length;
+        const ok = res.wells.filter((w) => !w.error).length;
+        const outs = res.outputs.join(", ");
+        const scope = ok === total ? `${total} well(s)` : `${ok}/${total} well(s)`;
+        const needAttention = total - ok;
+        statusLine.textContent =
+          `Done in ${ms} ms → ${outs}` +
+          (needAttention > 0 ? ` — ${needAttention} well(s) need attention` : "");
+        setStatus(`${algo.label}: wrote ${outs} to ${scope}`);
+        // A run that wrote nothing is not a process worth recording as if it had succeeded.
+        if (ok > 0) {
+          recordProcess("ML", `${algo.label}: wrote ${outs} to ${scope}`);
+        }
         bumpDataVersion(); // ML wrote curves — refresh open plots/log views/catalog
       }
       renderResults(results, res);

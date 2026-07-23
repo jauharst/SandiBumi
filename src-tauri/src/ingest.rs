@@ -136,7 +136,9 @@ fn insert_parsed_well(conn: &Connection, path: String, well_name: String, mut co
             "a well named '{well_name}' already exists — imported as a separate record"
         ));
     }
-    let warning = (!notes.is_empty()).then(|| notes.join("; "));
+    // `warning` is joined AFTER the generic-store load below, so its failure can be reported to
+    // the user as a note. It cannot be joined here and it cannot move the load earlier: the load
+    // writes curve_meta rows and must run after the well row is committed.
 
     // Well row + standard curves as one transaction: a failure rolls the well row back
     // instead of stranding a curve-less orphan (with_txn = BEGIN/COMMIT/ROLLBACK).
@@ -165,7 +167,15 @@ fn insert_parsed_well(conn: &Connection, path: String, well_name: String, mut co
             // curves are already in), so it's logged, not propagated.
             if let Err(e) = import_all_curves_into_generic_store(conn, &well_id.to_string(), &path) {
                 eprintln!("warning: generic-store import for {well_name} failed (standard curves still imported): {e}");
+                // stderr alone is invisible in a release build, so the import used to report a
+                // clean success while every curve beyond the fixed six — PEF, CALI, DTS, a second
+                // run — was silently missing. Modules that later resolve those mnemonics just get
+                // the all-NaN fallback, with no trace anywhere in the app of why.
+                notes.push(format!(
+                    "only the six standard curves were loaded — the full-curve load failed: {e}"
+                ));
             }
+            let warning = (!notes.is_empty()).then(|| notes.join("; "));
             ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), rows, warning, error: None }
         }
         Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()) },

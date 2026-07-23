@@ -1509,6 +1509,10 @@ export interface PaySummaryRow {
   avg_phie: number | null;
   avg_swe: number | null;
   hpv: number;
+  /** In-zone samples the classifier could judge. **0 means the well was never interpreted**
+   *  (VSH/PHIE/SWE resolved to all-NaN) — which produces net/ntg/hpv of exactly 0, identical to
+   *  a genuine zero-net result. Render "—" rather than 0.00 when this is 0. */
+  n_classified: number;
 }
 
 export async function runPaySummary(req: PaySummaryRequest): Promise<PaySummaryRow[]> {

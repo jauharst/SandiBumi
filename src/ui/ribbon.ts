@@ -1056,7 +1056,10 @@ export class Ribbon {
       const results = await importLasFiles(paths);
       const ok = results.filter((r) => !r.error).length;
       const warned = results.filter((r) => r.warning);
-      const warnNote = warned.length ? ` ${warned.length} well(s) had depth issues.` : "";
+      // "depth issues" was accurate when depth sanitising was the only note; it now also carries
+      // duplicate-name and failed-full-curve-load warnings, so name the count and let the
+      // per-well notes below say what actually happened.
+      const warnNote = warned.length ? ` ${warned.length} well(s) imported with warnings.` : "";
       setStatus(`Imported ${ok}/${results.length} well(s).${warnNote}`);
       recordProcess("Import", `Imported ${ok}/${results.length} LAS well(s)`);
       for (const w of warned) {

@@ -388,12 +388,17 @@ fn report_pages(
                         fmt_num(r.top, 1),
                         fmt_num(r.bottom, 1),
                         fmt_num(r.gross, 1),
-                        fmt_num(r.net, 1),
-                        fmt_num(r.ntg, 2),
+                        // A well whose VSH/PHIE/SWE were never computed classifies to NaN
+                        // everywhere, leaving net/ntg/hpv at exactly 0 — indistinguishable in
+                        // print from a genuine wet zone. This is a client deliverable, so it must
+                        // not assert a zero it cannot support: emit the same "-" the NaN averages
+                        // already use, and let the reader see the row was not interpreted.
+                        if r.n_classified == 0 { "-".to_string() } else { fmt_num(r.net, 1) },
+                        if r.n_classified == 0 { "-".to_string() } else { fmt_num(r.ntg, 2) },
                         fmt_num(r.avg_vsh, 2),
                         fmt_num(r.avg_phie, 3),
                         fmt_num(r.avg_swe, 2),
-                        fmt_num(r.hpv, 2),
+                        if r.n_classified == 0 { "-".to_string() } else { fmt_num(r.hpv, 2) },
                     ]
                 })
                 .collect();

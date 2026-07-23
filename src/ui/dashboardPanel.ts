@@ -110,18 +110,40 @@ export async function buildDashboardContent(
   let sortKey: SortKey = "hpv";
   let sortDir: 1 | -1 = -1;
 
-  const rowsForFlag = () => allRows.filter((r) => r.flag === flagSel.value);
+  // Rows whose classifier could judge nothing (VSH/PHIE/SWE never computed for that well) carry
+  // net/ntg/hpv of exactly 0 — indistinguishable from a genuine wet zone. Here that is worse
+  // than a mis-rendered cell: feeding those zeros into the medians and box plots would drag
+  // every aggregate down with data that does not exist. So they are excluded from the panel and
+  // counted, rather than blanked in place.
+  let uninterpreted = 0;
+  const rowsForFlag = () => {
+    const forFlag = allRows.filter((r) => r.flag === flagSel.value);
+    const usable = forFlag.filter((r) => r.n_classified > 0);
+    uninterpreted = forFlag.length - usable.length;
+    return usable;
+  };
 
   const render = () => {
     const rows = rowsForFlag();
     body.innerHTML = "";
     if (rows.length === 0) {
-      body.innerHTML = `<div class="dashboard-empty">No ${flagSel.value} intervals. Check cutoffs, or that VSH/PHIE/SWE are computed.</div>`;
+      const why =
+        uninterpreted > 0
+          ? `None of the ${uninterpreted} ${flagSel.value} interval(s) could be classified — run VSH/PHIE/SWE for these wells first.`
+          : `No ${flagSel.value} intervals. Check cutoffs, or that VSH/PHIE/SWE are computed.`;
+      body.innerHTML = `<div class="dashboard-empty">${why}</div>`;
       csvBtn.disabled = true;
       return;
     }
     csvBtn.disabled = false;
     const metric = METRICS.find((m) => m.key === metricSel.value)!;
+    if (uninterpreted > 0) {
+      const note = document.createElement("div");
+      note.className = "dashboard-empty";
+      note.textContent =
+        `${uninterpreted} interval(s) excluded — VSH/PHIE/SWE not computed, so no sample could be classified.`;
+      body.appendChild(note);
+    }
     body.appendChild(sectionByZone(rows, metric));
     body.appendChild(sectionBoxPlots(rows, metric));
     body.appendChild(sectionGrid(rows));

@@ -946,8 +946,9 @@ fn metrics_for_values(
     spans: &[ParamSpan],
     values: &[f64],
     n: usize,
+    step_err: &std::sync::OnceLock<String>,
 ) -> Vec<MetricSet> {
-    let pool = run_realization(plans, raw_pool, depth, mc_params, spans, values, n);
+    let pool = run_realization(plans, raw_pool, depth, mc_params, spans, values, n, step_err);
     let nanv = vec![f32::NAN; n];
     let vsh = pool.get("VSH").unwrap_or(&nanv);
     let phie = pool.get("PHIE").unwrap_or(&nanv);
@@ -1096,6 +1097,9 @@ fn run_realization(
     spans: &[ParamSpan],
     values: &[f64],
     n: usize,
+    // First module error seen anywhere in the sweep. `OnceLock` because the failure is identical
+    // on every realization and this is written from rayon threads — first writer wins.
+    step_err: &std::sync::OnceLock<String>,
 ) -> HashMap<String, Vec<f32>> {
     let mut pool = raw_pool.clone();
     for plan in plans {
@@ -1122,12 +1126,22 @@ fn run_realization(
             params.insert(pname.clone(), arr);
         }
         let ctx = ModuleContext { n, logs, params, opts: plan.opts.clone() };
-        if let Ok(outputs) = modules::run_module(&plan.module, &ctx) {
-            for (k, v) in outputs {
-                pool.insert(k.to_uppercase(), v);
+        match modules::run_module(&plan.module, &ctx) {
+            Ok(outputs) => {
+                for (k, v) in outputs {
+                    pool.insert(k.to_uppercase(), v);
+                }
+            }
+            Err(e) => {
+                // Record the first failure instead of dropping it. Swallowing it left the pool
+                // unchanged, so every downstream step read NaN and the study came back as a
+                // P10=P50=P90 table of zeros with nothing to explain it — the same
+                // silent-success failure that gascorr's own guard was written to prevent,
+                // reintroduced one call site away. Identical on every realization, so first
+                // writer wins and the rest are no-ops.
+                let _ = step_err.set(format!("{}: {e}", plan.module));
             }
         }
-        // A failed step just leaves the pool unchanged; downstream sees NaNs.
     }
     pool
 }
@@ -1237,6 +1251,12 @@ pub fn run_monte_carlo(
         if zones.is_empty() {
             zones.push(ZoneEntry { zone_name: "ALL".into(), top_depth: depth[0], bottom_depth: *depth.last().unwrap() });
         }
+        // First module failure anywhere in this well's sweep. A failed step used to be dropped,
+        // leaving the pool unchanged so every downstream step read NaN and the well came back as
+        // a P10=P50=P90 table of zeros — a confident-looking uncertainty study of a chain that
+        // never ran. Reported per well after the sweep.
+        let step_err: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
         let has_perm_cut =
             req.perm_min.is_some() && raw_pool.get("PERM").map(|c| c.iter().any(|v| !v.is_nan())).unwrap_or(false);
 
@@ -1286,7 +1306,7 @@ pub fn run_monte_carlo(
         // vary). Random mode replays the legacy per-index sequence, so results are unchanged.
         let eval = |r: usize| -> RealOut {
             let draws = &draws_all[r];
-            let pool = run_realization(&plans, &raw_pool, &depth, &req.mc_params, &spans, draws, n);
+            let pool = run_realization(&plans, &raw_pool, &depth, &req.mc_params, &spans, draws, n, &step_err);
             let nanv = vec![f32::NAN; n];
             let vsh = pool.get("VSH").unwrap_or(&nanv);
             let phie = pool.get("PHIE").unwrap_or(&nanv);
@@ -1419,7 +1439,7 @@ pub fn run_monte_carlo(
                 let base_vals: Vec<f64> = req.mc_params.iter().map(|p| p.dist.central()).collect();
                 let base = metrics_for_values(
                     &plans, &raw_pool, &depth, &step_thick, &zones, &cut, has_perm_cut,
-                    &req.mc_params, &spans, &base_vals, n,
+                    &req.mc_params, &spans, &base_vals, n, &step_err,
                 );
                 let mut low = Vec::with_capacity(req.mc_params.len());
                 let mut high = Vec::with_capacity(req.mc_params.len());
@@ -1430,11 +1450,11 @@ pub fn run_monte_carlo(
                     hv[pj] = p.dist.quantile(hi_p);
                     low.push(metrics_for_values(
                         &plans, &raw_pool, &depth, &step_thick, &zones, &cut, has_perm_cut,
-                        &req.mc_params, &spans, &lv, n,
+                        &req.mc_params, &spans, &lv, n, &step_err,
                     ));
                     high.push(metrics_for_values(
                         &plans, &raw_pool, &depth, &step_thick, &zones, &cut, has_perm_cut,
-                        &req.mc_params, &spans, &hv, n,
+                        &req.mc_params, &spans, &hv, n, &step_err,
                     ));
                 }
                 (base, low, high)
@@ -1573,7 +1593,7 @@ pub fn run_monte_carlo(
         let mut persist_warn: Option<String> = None;
         if req.persist {
             let centrals: Vec<f64> = req.mc_params.iter().map(|p| p.dist.central()).collect();
-            let base_pool = run_realization(&plans, &raw_pool, &depth, &req.mc_params, &spans, &centrals, n);
+            let base_pool = run_realization(&plans, &raw_pool, &depth, &req.mc_params, &spans, &centrals, n, &step_err);
             let kept = per_real.iter().filter(|m| m.2.is_some()).count();
             let mut out: Vec<(String, Vec<f32>)> = Vec::new();
             for (t, key) in TRACKED.iter().enumerate() {
@@ -1684,12 +1704,27 @@ pub fn run_monte_carlo(
             }
         }
 
+        // A chain step that failed on every realization means this well's whole study is built on
+        // a chain that never ran: the pool kept its NaNs and the volumetrics came out as zeros.
+        // Surface the module's own message — it is the actionable one (e.g. gascorr telling you
+        // OPT_GATE is FLAGGED but condflag was never run) — instead of letting the study read as
+        // a confident P10=P50=P90 table of zeros.
+        let chain_err = step_err.get().cloned();
+        if let Some(m) = &chain_err {
+            errors.push(format!("{well_id}: chain step failed on every realization — {m}"));
+        }
+
         if let Some(p) = progress {
             // A well whose study succeeded but whose persist write failed finishes WARNED, not
             // Ok — the same convention every other curve writer follows.
-            match &persist_warn {
-                Some(m) => p.finish_item(well_id, crate::jobs::ItemState::Warned, Some(m.clone())),
-                None => p.finish_item(well_id, crate::jobs::ItemState::Ok, None),
+            match (&chain_err, &persist_warn) {
+                (Some(m), _) => p.finish_item(
+                    well_id,
+                    crate::jobs::ItemState::Failed,
+                    Some(format!("chain step failed on every realization — {m}")),
+                ),
+                (None, Some(m)) => p.finish_item(well_id, crate::jobs::ItemState::Warned, Some(m.clone())),
+                (None, None) => p.finish_item(well_id, crate::jobs::ItemState::Ok, None),
             }
         }
     }

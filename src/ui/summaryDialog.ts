@@ -115,17 +115,37 @@ function renderTable(container: HTMLElement, rows: PaySummaryRow[]): void {
     "<thead><tr><th>Well</th><th>Zone</th><th>Flag</th><th>Top</th><th>Bottom</th><th>Gross</th>" +
     "<th>Net</th><th>N/G</th><th>Avg VSH</th><th>Avg PHIE</th><th>Avg SWE</th><th>HPV (m)</th></tr></thead>";
   const tbody = document.createElement("tbody");
+  let uninterpreted = 0;
   for (const r of rows) {
     const tr = document.createElement("tr");
     tr.className = `flag-${r.flag.toLowerCase()}`;
+    // n_classified === 0 means the classifier could not judge a single in-zone sample, i.e.
+    // VSH/PHIE/SWE were never computed for this well. That leaves net/ntg/hpv at exactly 0,
+    // which is byte-identical to a genuine wet zone — so show "—" and say why below, rather
+    // than printing a zero the run cannot actually support.
+    const none = r.n_classified === 0;
+    if (none) {
+      uninterpreted++;
+      tr.classList.add("row-uninterpreted");
+      tr.title = "VSH/PHIE/SWE not computed for this well — no sample could be classified";
+    }
+    const cell = (v: number, d: number) => (none ? "—" : fmt(v, d));
     tr.innerHTML =
       `<td>${r.well_name}</td><td>${r.zone}</td><td>${r.flag}</td>` +
       `<td>${fmt(r.top, 1)}</td><td>${fmt(r.bottom, 1)}</td><td>${fmt(r.gross, 1)}</td>` +
-      `<td>${fmt(r.net, 1)}</td><td>${fmt(r.ntg)}</td><td>${fmt(r.avg_vsh)}</td>` +
-      `<td>${fmt(r.avg_phie, 3)}</td><td>${fmt(r.avg_swe)}</td><td>${fmt(r.hpv, 2)}</td>`;
+      `<td>${cell(r.net, 1)}</td><td>${cell(r.ntg, 2)}</td><td>${fmt(r.avg_vsh)}</td>` +
+      `<td>${fmt(r.avg_phie, 3)}</td><td>${fmt(r.avg_swe)}</td><td>${cell(r.hpv, 2)}</td>`;
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
   wrap.appendChild(table);
   container.appendChild(wrap);
+  if (uninterpreted > 0) {
+    const note = document.createElement("p");
+    note.className = "summary-note";
+    note.textContent =
+      `${uninterpreted} of ${rows.length} row(s) show — because no sample could be classified: ` +
+      `run VSH/PHIE/SWE for those wells first.`;
+    container.appendChild(note);
+  }
 }

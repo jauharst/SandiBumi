@@ -7,6 +7,51 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 61 — R4: four places that reported success they hadn't earned (2026-07-24)
+
+Your cardinal rule is that a degraded or failed result must never be presented as a clean one.
+The review found four live violations; this closes all four.
+
+**1 · Monte Carlo swallowed module errors.** A failed chain step was dropped with `if let Ok`,
+leaving the pool unchanged — so every downstream step read NaN and the study came back as a
+**P10 = P50 = P90 table of zeros** with nothing to explain it. The trigger needs no unusual setup:
+`gascorr` with `OPT_GATE = FLAGGED` (the manifest **default**) on a well where `condflag` was
+never run. Its own guard exists to stop exactly this, and the message it raises is the actionable
+one — and it was being thrown away one call site from where it was written. The first failure is
+now captured and the well is reported **Failed** carrying the module's own text.
+
+**2 · A failed full-curve load reported a clean import.** When the generic-store load fails, the
+six standard curves are in but PEF, CALI, DTS and any second run are not. That went to `eprintln!`
+only — invisible in a release build — while `ImportResult` said success. Every later module that
+resolves those mnemonics silently gets all-NaN, with no trace of why. It now rides in the existing
+per-well warning. (The import status line also said "N well(s) had depth issues" for *any*
+warning; it now says "imported with warnings" and lets the per-well notes speak.)
+
+**3 · Pay summary printed a fabricated zero.** A well whose VSH/PHIE/SWE were never computed
+classifies to NaN everywhere, leaving Net 0.0 / N/G 0.00 / HPV 0.00 — **byte-identical to a
+genuine wet zone**, and `report.rs` puts it in a client PDF. Rows now carry `n_classified`; when
+it is 0 the dialog shows "—" with a note, the PDF prints "-", and the **Field Dashboard excludes
+the row entirely** — there, zeros would have dragged every median and box plot down with data
+that does not exist, which is worse than a mis-rendered cell.
+
+**4 · The ML dialog claimed wells it never wrote.** It reported the *scope* count, so a k-means
+run on a 12-well group where only 2 wells have NPHI+RHOB said "wrote FACIES_ML to 12 well(s)" —
+and wrote that into the **permanent History**. The backend was honest the whole time; only this
+dialog lied. Now `ok/total`, with "N well(s) need attention", and no History entry at all when
+nothing was written.
+
+cargo **370/0/7**, tsc + build clean.
+
+- [ ] **Try (1):** build a chain with `gascorr` (leave `OPT_GATE` at FLAGGED) on a well where you
+  have not run `condflag`, and run it through Monte Carlo. Before: a tidy table of zeros. Now:
+  the well is marked Failed with gascorr's own explanation.
+- [ ] **Try (3):** import a LAS and press **Compute Summary** without running any interpretation.
+  Before: Net 0.0 / N/G 0.00 / HPV 0.00, indistinguishable from a wet well. Now: "—" plus a note
+  telling you to run VSH/PHIE/SWE. Check the Field Dashboard too — those rows are excluded and
+  counted.
+- [ ] **Try (4):** run ML on a group where only some wells carry the feature curves, then open
+  **History**. It should record `ok/total`, not the full group.
+
 ## Round 60 — R3: Cancel stops telling you it worked (2026-07-24)
 
 Found independently by **two** review passes that weren't told about each other (F2d and F5e) —
