@@ -1731,6 +1731,7 @@ export async function buildCrossplotContent(
       detachResize();
       detachTip();
       window.removeEventListener("mouseup", onBrushEnd);
+      if (rafId) cancelAnimationFrame(rafId);
       zoneSel.dispose();
     },
     getState: () => ({ x: xSel.value, y: ySel.value, z: zSel.value, zone: zoneSel.select.value }),

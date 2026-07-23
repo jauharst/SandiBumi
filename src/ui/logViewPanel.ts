@@ -575,7 +575,9 @@ export class LogViewPanel {
     await this.topsEditor.setWell(well.well_id);
     await this.highlightsOverlay.setWell(well.well_id);
     // Re-apply the shared brush for the newly loaded well (the subscription only fires on brush
-    // changes, so a well switch would otherwise leave the previous well's ticks painted).
+    // changes, so a well switch would otherwise leave the previous well's ticks painted). Re-check
+    // the load token first: a superseded fast-switch must not wipe the winning load's brush.
+    if (gen !== this.loadGen || !this.renderer) return;
     const brush = appState.brushedDepths.get();
     this.highlightsOverlay.setBrush(brush && brush.wellId === well.well_id ? [...brush.depths] : []);
   }

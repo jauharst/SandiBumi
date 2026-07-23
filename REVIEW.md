@@ -7,6 +7,45 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 43 — UI polish #9C: linked brushing (crossplot → log view + histogram) (2026-07-23)
+
+Rectangular **Shift+drag** on a **crossplot** selects a cloud of samples; every plot and log view of
+the same well highlights those same samples. A new `appState.brushedDepths` observable
+(`{wellId, depths:Set<number>}`) carries the selection; membership is an exact `Set.has` on the shared
+well depth grid (all a well's curves come off the same backend f32 grid — verified in the adversarial
+review against the Rust `fetch_curve_data`).
+
+- **Crossplot (source + consumer):** Shift+drag draws a selection rectangle (accent2, dashed); on
+  release the samples inside are published, and the brushed points are drawn emphasised. A tiny
+  rectangle clears the selection. The gesture takes precedence over pan/param-handle/pick — it
+  `stopImmediatePropagation()`s so `attachZoomPan` never pans, and marks `movedSinceDown` so the
+  trailing click doesn't drop a parameter pick.
+- **Histogram (consumer):** the brushed samples' values are over-painted as an accent2
+  **sub-distribution** in the same bins — you see where the brushed cloud falls in any property.
+- **Log view (consumer):** `HighlightsOverlay.setBrush` paints the brushed depths as thin accent
+  **ticks** across every track, redrawn each frame; a well switch re-applies (gen-guarded) so the
+  previous well's ticks never linger.
+
+**Adversarial review (subagent):** cleared event-coexistence, the exact-float grid match (checked
+against the backend), lifecycle/teardown, published-set correctness, and NaN/null safety. Two real
+issues found and **fixed**: (1) the log-view brush re-apply in `loadWell` wasn't gen-guarded — a fast
+well-switch could wipe the winning load's ticks; (2) `rafId` wasn't cancelled on dispose in the
+crossplot/histogram. Both patched.
+
+**Verification (in-browser):** state plumbing (`setBrushedDepths` → `W1:3` → `clearBrush` → null →
+empty-set → null); `drawHistogram(brushValues)` over-painted the sub-distribution (12.1 k changed
+pixels); `HighlightsOverlay.setBrush([4 depths])` painted 1400 tick pixels, `setBrush([])` → 0. `tsc`
+clean.
+
+**Deferred (9C follow-on):** Pickett rings on brushed samples (same pattern, cheap) and the draggable
+cutoff *polygon* → zone params (the crossplot already has a draggable param **handle** that writes
+cutoffs; a full lasso/polygon is a separate feature).
+
+**Try:** open a **Crossplot** and a **Log view** of the same well side by side. **Shift+drag** a box
+around a cluster on the crossplot — the log view lights up **ticks** at those depths, and if you have a
+**Histogram** of PHIE/SWE open, the selected samples show as a highlighted **sub-distribution**. Drag a
+tiny box (or Shift-click) to clear.
+
 ## Round 42 — UI polish #9B inc 1: shared colour-bar + scatter hover tooltip (2026-07-23)
 
 Visualization richness, starting with two shared primitives in `plotCanvas.ts` so every chart gets the

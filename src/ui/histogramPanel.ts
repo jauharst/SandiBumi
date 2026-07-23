@@ -782,6 +782,7 @@ export async function buildHistogramContent(
       unsubBrush();
       detachZoomPan();
       detachResize();
+      if (rafId) cancelAnimationFrame(rafId);
       zoneSel.dispose();
     },
     getState: () => ({ curve: curveSel.value, zone: zoneSel.select.value }),
