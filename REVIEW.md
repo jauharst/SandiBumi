@@ -7,6 +7,27 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 25 — SandiMin Constraints tab: porosity source + program-constraint toggles (2026-07-23)
+
+The UI for item B (your image 2). A new **Constraints** tab (after Clay) holds two things:
+
+- **Porosity source** radio — **Cation Exchange Capacity** (default) vs **Wet Clay Porosity**. This picks
+  what drives the clay bound-water tie: CEC uses `α·96·CEC·ρ/(T+298)`; WCP uses the geometric `k = φ/(1−φ)`
+  from a **per-clay φ editor** now on the **Clay** tab (pre-filled with Techlog WCLP defaults — Illite 0.104,
+  Kaolinite 0.058, etc.). Running the dry-clay converter also fills a clay's φ, so the two stay consistent.
+- **Program constraints** — enable toggles for **UNITY**, **POROSITY**, **X&U BNDWAT**, **WATER MUD**, plus a
+  **Constraint tolerance σ** (default 0.01). All four already ran in the solver; this exposes them. UNITY moved
+  here from the run footer (there's no longer a "Hard unity" box down by Run).
+
+Defaults are unchanged behavior: CEC, all four on, σ=0.01 — so an untouched Constraints tab solves exactly as
+before (a backend test pins that "absent request fields = on"). WATER MUD defaults on for water-based mud (it
+keeps flushed-zone water ≥ virgin water; ignored for OBM) — tell me if you'd rather it default off.
+
+> **Try:** open **Petrophysics → SandiMin**, click the **Constraints** tab. Flip **Porosity source** to
+> **Wet Clay Porosity**, check the **Clay** tab's per-clay φ list, then Run and compare **PHIE/SWE** vs CEC
+> (WCP moves PHIE for clays). Toggle a constraint off (e.g. **WATER MUD**) or change **σ** and re-run to see
+> the effect. Confirm the run footer has **no** "Hard unity" box (it's now the UNITY toggle on this tab).
+
 ## Round 24 — SandiMin Wet-Clay-Porosity bound-water source (backend) (2026-07-23)
 
 Starting item B (constraints editor + porosity source). This first slice is the **backend route** for

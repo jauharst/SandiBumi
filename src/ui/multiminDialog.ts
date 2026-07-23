@@ -169,10 +169,12 @@ export async function buildMultiminContent(
   // --- Working state --------------------------------------------------------
   const overrides = new Map<string, Map<string, number>>();
   const cecMap = new Map<string, number>();
+  const wcpMap = new Map<string, number>();
   const maxMap = new Map<string, number>();
   for (const c of library) {
     overrides.set(c.name, new Map(Object.entries(c.endpoints)));
     cecMap.set(c.name, c.cec);
+    wcpMap.set(c.name, c.wet_clay_porosity);
     maxMap.set(c.name, c.max_vol);
   }
   const included = new Set<string>(DEFAULT_COMPONENTS.filter((n) => overrides.has(n)));
@@ -216,6 +218,7 @@ export async function buildMultiminContent(
   const mineralsPanel = addTab("minerals", "Minerals");
   const fluidPanel = addTab("fluid", "Fluid");
   const clayPanel = addTab("clay", "Clay");
+  const constraintsPanel = addTab("constraints", "Constraints");
 
   // --- Components box (grouped) --------------------------------------------
   const compBox = document.createElement("div");
@@ -679,6 +682,40 @@ export async function buildMultiminContent(
   dryBox.appendChild(dryApplyRow);
   clayPanel.appendChild(dryBox);
 
+  // --- Per-clay wet-clay porosity φ editor ---------------------------------
+  // Only consulted when the Porosity Source (Constraints tab) is "Wet Clay Porosity": the BNDWAT
+  // tie then solves v_bw = φ/(1−φ)·v_dryclay. Techlog WCLP defaults are pre-filled; smectite's
+  // placeholder φ=1.0 is handled by the backend (falls back to CEC), so it's shown read-only-ish.
+  const wcpBox = document.createElement("div");
+  wcpBox.className = "mm-fluid-box";
+  const wcpHead = document.createElement("div");
+  wcpHead.className = "mm-group-head";
+  wcpHead.textContent = "Wet-clay porosity φ (per clay)";
+  wcpBox.appendChild(wcpHead);
+  const wcpNote = document.createElement("div");
+  wcpNote.className = "mc-chain-note";
+  wcpNote.textContent =
+    "Used only when Porosity Source = Wet Clay Porosity (Constraints tab). k = φ/(1−φ). " +
+    "Dry-clay Apply also updates a clay's φ. Smectite's φ=1.0 is a placeholder — the solver falls back to its CEC there.";
+  wcpBox.appendChild(wcpNote);
+  const wcpGrid = document.createElement("div");
+  wcpGrid.className = "mm-fluid-grid";
+  const wcpInputs = new Map<string, HTMLInputElement>();
+  for (const c of library.filter((x) => x.kind === "clay")) {
+    const cell = document.createElement("label");
+    cell.className = "mm-fluid-cell";
+    const sp = document.createElement("span");
+    sp.textContent = c.name;
+    const inp = numInput(wcpMap.get(c.name) ?? 0, 56);
+    inp.addEventListener("input", () => wcpMap.set(c.name, Number(inp.value)));
+    wcpInputs.set(c.name, inp);
+    cell.appendChild(sp);
+    cell.appendChild(inp);
+    wcpGrid.appendChild(cell);
+  }
+  wcpBox.appendChild(wcpGrid);
+  clayPanel.appendChild(wcpBox);
+
   function readWetClay() {
     return {
       rhob_wet: Number(wetRhobInp.value) || 0,
@@ -726,6 +763,10 @@ export async function buildMultiminContent(
     m.set("GR", Number(dc.gr_dry.toFixed(1)));
     if (dc.dt_dry !== null) m.set("DT", Number(dc.dt_dry.toFixed(1)));
     cecMap.set(clay, Number(dc.cec_equiv.toFixed(4)));
+    // Keep the Wet-Clay-Porosity source consistent with the converter: it solved this same φ_clay.
+    wcpMap.set(clay, Number(dc.phi_clay.toFixed(4)));
+    const wcpInp = wcpInputs.get(clay);
+    if (wcpInp) wcpInp.value = String(Number(dc.phi_clay.toFixed(4)));
     included.add(clay);
     compChecks.get(clay)!.checked = true;
     // The dry-clay framework needs bound water solved explicitly (PHIT basis).
@@ -780,6 +821,93 @@ export async function buildMultiminContent(
   for (const [, inp] of fluidFields) inp.addEventListener("input", refreshBothPreviews);
   mudSel.addEventListener("change", refreshBothPreviews);
   refreshFluidPreview();
+
+  // --- Constraints tab: porosity source + program-constraint enables (Jauhar image 2) ----------
+  // Every constraint already runs in the solver; this panel EXPOSES them. Defaults match the reviewed
+  // behavior (all on, σ=0.01, CEC), so leaving this tab untouched changes nothing.
+  const psBox = document.createElement("div");
+  psBox.className = "mm-fluid-box";
+  const psHead = document.createElement("div");
+  psHead.className = "mm-group-head";
+  psHead.textContent = "Porosity source (clay bound water)";
+  psBox.appendChild(psHead);
+  const psNote = document.createElement("div");
+  psNote.className = "mc-chain-note";
+  psNote.textContent =
+    "What drives the BNDWAT tie v_bw = k·v_dryclay. CEC (default): k = α·96·CEC·ρ/(T+298). " +
+    "Wet Clay Porosity: k = φ/(1−φ) from the per-clay φ on the Clay tab — this moves PHIE.";
+  psBox.appendChild(psNote);
+  const psRow = document.createElement("div");
+  psRow.className = "mm-tool-row";
+  const psCecLab = document.createElement("label");
+  const psCecRadio = document.createElement("input");
+  psCecRadio.type = "radio";
+  psCecRadio.name = "mm-porosity-source";
+  psCecRadio.checked = true;
+  psCecLab.appendChild(psCecRadio);
+  psCecLab.appendChild(document.createTextNode(" Cation Exchange Capacity"));
+  const psWcpLab = document.createElement("label");
+  const psWcpRadio = document.createElement("input");
+  psWcpRadio.type = "radio";
+  psWcpRadio.name = "mm-porosity-source";
+  psWcpLab.appendChild(psWcpRadio);
+  psWcpLab.appendChild(document.createTextNode(" Wet Clay Porosity"));
+  psRow.appendChild(psCecLab);
+  psRow.appendChild(psWcpLab);
+  psBox.appendChild(psRow);
+  constraintsPanel.appendChild(psBox);
+
+  // Program constraints (enable toggles). UNITY lives here now (relocated from the run footer).
+  const conBox = document.createElement("div");
+  conBox.className = "mm-fluid-box";
+  const conHead = document.createElement("div");
+  conHead.className = "mm-group-head";
+  conHead.textContent = "Program constraints";
+  conBox.appendChild(conHead);
+  const mkConstraint = (checked: boolean, label: string, note: string): HTMLInputElement => {
+    const row = document.createElement("label");
+    row.className = "mm-tool-row";
+    row.title = note;
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = checked;
+    const txt = document.createElement("span");
+    txt.textContent = " " + label;
+    row.appendChild(cb);
+    row.appendChild(txt);
+    conBox.appendChild(row);
+    return cb;
+  };
+  const unityCb = mkConstraint(
+    true,
+    "UNITY — Σ minerals + unflushed fluids = 1 (hard)",
+    "Hard unity constraint over the solved volumes.",
+  );
+  const porosityCb = mkConstraint(
+    true,
+    "POROSITY — Σ flushed fluids = Σ unflushed fluids",
+    "Ties flushed- and virgin-zone porosity (soft).",
+  );
+  const bndwatCb = mkConstraint(
+    true,
+    "X&U BNDWAT — bound water tied to clay volume",
+    "v_bw = k·v_dryclay via the chosen porosity source (soft).",
+  );
+  const waterMudCb = mkConstraint(
+    true,
+    "WATER MUD — flushed water ≥ virgin water (WBM)",
+    "For water-based mud, invasion cannot lower water saturation (Sxo ≥ Sw). Ignored for oil-based mud.",
+  );
+  const sigmaRow = document.createElement("label");
+  sigmaRow.className = "mm-tool-row";
+  sigmaRow.title = "Soft-constraint tolerance σ; the constraint row weight is 1/σ. Default 0.01.";
+  const sigmaLab = document.createElement("span");
+  sigmaLab.textContent = "Constraint tolerance σ";
+  const sigmaInp = numInput(0.01, 56);
+  sigmaRow.appendChild(sigmaLab);
+  sigmaRow.appendChild(sigmaInp);
+  conBox.appendChild(sigmaRow);
+  constraintsPanel.appendChild(conBox);
 
   function updateFluidVisibility(): void {
     const need = tools.some((t) => t.cond && t.on);
@@ -890,12 +1018,7 @@ export async function buildMultiminContent(
   const prefixInp = document.createElement("input");
   prefixInp.className = "mm-tool-curve";
   prefixInp.value = "MM";
-  const unityLab = document.createElement("label");
-  const unityCb = document.createElement("input");
-  unityCb.type = "checkbox";
-  unityCb.checked = true;
-  unityLab.appendChild(unityCb);
-  unityLab.appendChild(document.createTextNode(" Hard unity (Σ minerals + unflushed fluids = 1)"));
+  // UNITY, POROSITY, BNDWAT, WATER MUD + the porosity source now live on the Constraints tab.
   const reconLab = document.createElement("label");
   const reconCb = document.createElement("input");
   reconCb.type = "checkbox";
@@ -905,7 +1028,6 @@ export async function buildMultiminContent(
   reconLab.appendChild(document.createTextNode(" Reconstruction QC"));
   optsRow.appendChild(prefixLab);
   optsRow.appendChild(prefixInp);
-  optsRow.appendChild(unityLab);
   optsRow.appendChild(reconLab);
   runSection.appendChild(optsRow);
 
@@ -935,6 +1057,7 @@ export async function buildMultiminContent(
         fluid_type: c.fluid_type,
         endpoints: Object.fromEntries(overrides.get(c.name)!),
         cec: cecMap.get(c.name) ?? 0,
+        wet_clay_porosity: wcpMap.get(c.name) ?? 0,
         max_vol: maxMap.get(c.name) ?? 1,
       }));
     const activeTools = tools
@@ -958,6 +1081,11 @@ export async function buildMultiminContent(
       fluid: readFluid(),
       recon_qc: reconCb.checked,
       sw_model: swModelSel.value as SwModel,
+      porosity_source: psWcpRadio.checked ? "wet_clay_porosity" : "cec",
+      enforce_porosity: porosityCb.checked,
+      enforce_bndwat: bndwatCb.checked,
+      enforce_water_mud: waterMudCb.checked,
+      sigma_constraint: Number(sigmaInp.value) || 0.01,
     };
     runBtn.disabled = true;
     setStatus("SandiMin: running…");

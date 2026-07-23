@@ -988,6 +988,9 @@ export interface MmComponent {
   endpoints: Record<string, number>;
   /** Cation exchange capacity, meq/g (clays → bound-water constraint). */
   cec: number;
+  /** Wet-clay porosity φ_clay (clays only, minerals 0). Drives the bound-water tie when the
+   *  porosity source is `wet_clay_porosity`: k = φ/(1−φ). Techlog WCLP defaults on the library. */
+  wet_clay_porosity: number;
   /** Upper volume bound (1.0 minerals, 0.5 fluids by default). */
   max_vol: number;
 }
@@ -1031,6 +1034,11 @@ export type SwModel =
   | "simandoux"
   | "juhasz";
 
+/** What drives the clay bound-water (BNDWAT) constraint. `cec` (default) uses
+ *  α·96·CEC·ρ/(T+298); `wet_clay_porosity` uses the geometric k = φ/(1−φ) from each clay's
+ *  `wet_clay_porosity`. The two agree for smectite (a degenerate WCLP falls back to CEC). */
+export type PorositySource = "cec" | "wet_clay_porosity";
+
 /** Derived fluid quantities (w, conductivities, α, auto CT/CXO uncertainties). */
 export interface MmFluidCalc {
   w: number;
@@ -1059,6 +1067,16 @@ export interface MultiminRequest {
   recon_qc?: boolean;
   /** Saturation model for the conductivity tools (default `linear_dw` — nothing moves). */
   sw_model?: SwModel;
+  /** What drives the BNDWAT constraint (default `cec` — nothing moves). */
+  porosity_source?: PorositySource;
+  /** Constraint enables (all default true / on — omit to leave the solver unchanged). POROSITY ties
+   *  flushed/virgin porosity; BNDWAT ties clay bound water; WATER MUD keeps flushed water ≥ virgin
+   *  water for water-based mud. UNITY is the `unity` flag above. */
+  enforce_porosity?: boolean;
+  enforce_bndwat?: boolean;
+  enforce_water_mud?: boolean;
+  /** Soft-constraint tolerance σ (row weight = 1/σ). Default 0.01; non-positive falls back to it. */
+  sigma_constraint?: number;
 }
 
 export interface MultiminWellResult {

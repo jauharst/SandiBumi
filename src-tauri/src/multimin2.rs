@@ -374,6 +374,25 @@ pub struct MultiminRequest {
     /// What drives the clay bound-water constraint: `cec` (default) or `wet_clay_porosity`.
     #[serde(default)]
     pub porosity_source: PorositySource,
+    /// Soft-constraint enable flags (Jauhar field review, image 2 "Constraints"). All default to on,
+    /// so an absent block leaves the solver byte-identical to before. POROSITY ties flushed/virgin
+    /// porosity (Σ X fluids = Σ U fluids); BNDWAT ties clay bound water to clay volume; WATER MUD keeps
+    /// flushed-zone water ≥ virgin water for water-based mud (invasion ⇒ Sxo ≥ Sw). UNITY has its own
+    /// `unity` flag above.
+    #[serde(default = "default_true")]
+    pub enforce_porosity: bool,
+    #[serde(default = "default_true")]
+    pub enforce_bndwat: bool,
+    #[serde(default = "default_true")]
+    pub enforce_water_mud: bool,
+    /// Soft-constraint tolerance σ (the row weight is 1/σ). Default 0.01 — the reviewed nominal.
+    /// A non-positive value falls back to the default so a stray 0 can't blow up the weight.
+    #[serde(default = "default_sigma_constraint")]
+    pub sigma_constraint: f64,
+}
+
+fn default_sigma_constraint() -> f64 {
+    SIGMA_CONSTRAINT
 }
 
 fn default_prefix() -> String {
@@ -906,7 +925,7 @@ pub fn run_multimin(
 
     // Soft constraint rows (built once; appended after the live tool rows each sample).
     let mut soft: Vec<(Vec<f64>, f64)> = Vec::new();
-    if zs.has_split {
+    if zs.has_split && req.enforce_porosity {
         let mut row = vec![0.0f64; n];
         for &i in &zs.x_fluids {
             row[i] += 1.0;
@@ -916,7 +935,7 @@ pub fn run_multimin(
         }
         soft.push((row, 0.0)); // POROSITY: Σ X fluids − Σ U fluids = 0
     }
-    if !zs.clays.is_empty() {
+    if !zs.clays.is_empty() && req.enforce_bndwat {
         let fc_alpha = |x: bool| fluid.as_ref().map(|f| if x { f.alpha_x } else { f.alpha_u }).unwrap_or(1.0);
         let mut bw_rows: Vec<(Vec<usize>, f64)> = Vec::new();
         if !zs.x_bw.is_empty() && zs.x_bw != zs.u_bw {
@@ -946,10 +965,12 @@ pub fn run_multimin(
             }
         }
     }
-    let soft_weight = 1.0 / SIGMA_CONSTRAINT;
+    let sigma = if req.sigma_constraint > 0.0 { req.sigma_constraint } else { SIGMA_CONSTRAINT };
+    let soft_weight = 1.0 / sigma;
 
     // WATER MUD row (used only on violation re-solve): Σ X waters − Σ U waters = 0.
     let water_mud_row: Option<Vec<f64>> = if zs.has_split
+        && req.enforce_water_mud
         && req.fluid.as_ref().map(|p| !p.mud_type.eq_ignore_ascii_case("OIL")).unwrap_or(true)
     {
         let mut row = vec![0.0f64; n];
@@ -1837,6 +1858,10 @@ mod tests {
                     recon_qc: true,
                     sw_model: SwModel::LinearDw,
                     porosity_source: PorositySource::Cec,
+                    enforce_porosity: true,
+                    enforce_bndwat: true,
+                    enforce_water_mud: true,
+                    sigma_constraint: 0.01,
                 },
                 None,
             )
@@ -1916,6 +1941,10 @@ mod tests {
                 recon_qc: false,
                 sw_model: SwModel::LinearDw,
                 porosity_source: PorositySource::Cec,
+                enforce_porosity: true,
+                enforce_bndwat: true,
+                enforce_water_mud: true,
+                sigma_constraint: 0.01,
             },
             None,
         );
@@ -2162,6 +2191,27 @@ mod tests {
     }
 
     #[test]
+    fn request_defaults_keep_every_constraint_on() {
+        // Backward-compat contract: a request JSON WITHOUT the new constraint block must default every
+        // constraint ON, σ to the reviewed 0.01, and the porosity source to CEC — so an older frontend
+        // (and every reviewed number) solves exactly as before. This guards the "absent = unchanged"
+        // invariant the whole increment rests on.
+        let req: MultiminRequest =
+            serde_json::from_str(r#"{"components":[],"tools":[],"apply_well_ids":[]}"#).unwrap();
+        assert!(req.unity, "UNITY defaults on");
+        assert!(req.enforce_porosity, "POROSITY defaults on");
+        assert!(req.enforce_bndwat, "BNDWAT defaults on");
+        assert!(req.enforce_water_mud, "WATER MUD defaults on");
+        assert!((req.sigma_constraint - 0.01).abs() < 1e-12, "σ defaults to 0.01: {}", req.sigma_constraint);
+        assert_eq!(req.porosity_source, PorositySource::Cec);
+        // A stray non-positive σ must not blow up the row weight; the solver falls back to the default.
+        let bad: MultiminRequest =
+            serde_json::from_str(r#"{"components":[],"tools":[],"apply_well_ids":[],"sigma_constraint":0}"#).unwrap();
+        let sigma = if bad.sigma_constraint > 0.0 { bad.sigma_constraint } else { SIGMA_CONSTRAINT };
+        assert!((sigma - SIGMA_CONSTRAINT).abs() < 1e-12, "non-positive σ falls back to default");
+    }
+
+    #[test]
     fn fluid_calc_matches_reference() {
         // reference default-model example: Rw 0.43 @ 77F, Rmf 0.10 @ 62F, FT 148F, m=n=2.
         let props = FluidProps {
@@ -2266,6 +2316,10 @@ mod tests {
             recon_qc: false,
             sw_model: SwModel::LinearDw,
             porosity_source: PorositySource::Cec,
+            enforce_porosity: true,
+            enforce_bndwat: true,
+            enforce_water_mud: true,
+            sigma_constraint: 0.01,
         };
         let conn = Mutex::new(Connection::open_in_memory().unwrap());
         let res = run_multimin(&conn, &req, None);
@@ -2313,6 +2367,10 @@ mod tests {
             recon_qc: false,
             sw_model: SwModel::LinearDw,
             porosity_source: PorositySource::Cec,
+            enforce_porosity: true,
+            enforce_bndwat: true,
+            enforce_water_mud: true,
+            sigma_constraint: 0.01,
         };
         let conn = Mutex::new(Connection::open_in_memory().unwrap());
         let res = run_multimin(&conn, &req, None);
@@ -2480,6 +2538,10 @@ mod tests {
                 recon_qc: false,
                 sw_model: SwModel::LinearDw,
                 porosity_source: PorositySource::Cec,
+                enforce_porosity: true,
+                enforce_bndwat: true,
+                enforce_water_mud: true,
+                sigma_constraint: 0.01,
             };
             let res = run_multimin(&db, &req, None);
             assert!(res.error.is_none(), "run_multimin error: {:?}", res.error);
@@ -2814,6 +2876,10 @@ mod tests {
             recon_qc: false,
             sw_model: SwModel::Indonesia,
             porosity_source: PorositySource::Cec,
+            enforce_porosity: true,
+            enforce_bndwat: true,
+            enforce_water_mud: true,
+            sigma_constraint: 0.01,
         };
         let res = run_multimin(&db, &req, None);
         assert!(res.error.is_none(), "err={:?}", res.error);
@@ -2972,6 +3038,10 @@ mod tests {
             recon_qc: false,
             sw_model: SwModel::DualWaterNonlinear,
             porosity_source: PorositySource::Cec,
+            enforce_porosity: true,
+            enforce_bndwat: true,
+            enforce_water_mud: true,
+            sigma_constraint: 0.01,
         };
         let res = run_multimin(&db, &req, None);
         assert!(res.error.is_none(), "err={:?}", res.error);
