@@ -1286,6 +1286,60 @@ export function deleteFluidContact(contactId: string): Promise<void> {
   return invoke("delete_fluid_contact", { contactId });
 }
 
+export interface ContactSuggestRequest {
+  well_id: string;
+  zone_top: number;
+  zone_base: number;
+  sw_curve?: string;
+  res_curve?: string;
+  nphi_curve?: string;
+  rhob_curve?: string;
+  sw_cutoff?: number;
+}
+
+export interface ContactCandidate {
+  contact_type: string;
+  depth: number;
+  method: string;
+  confidence: number;
+  detail: string;
+}
+
+export interface ContactSuggestResult {
+  candidates: ContactCandidate[];
+  error: string | null;
+}
+
+/** Suggest a contact depth from logs (Sw crossover, resistivity drop, density-neutron). */
+export function suggestContacts(req: ContactSuggestRequest): Promise<ContactSuggestResult> {
+  return invoke<ContactSuggestResult>("suggest_contacts", { req });
+}
+
+export interface ContactWellResidual {
+  well_id: string;
+  well_name: string;
+  tvdss: number;
+  predicted: number;
+  residual: number;
+  flagged: boolean;
+}
+
+export interface ContactConsistency {
+  contact_type: string;
+  n: number;
+  mean_tvdss: number;
+  rms: number;
+  /** [a, b, c] of z = a + b·x + c·y (dip plane), or null when the flat mean is used. */
+  plane: [number, number, number] | null;
+  wells: ContactWellResidual[];
+  error: string | null;
+}
+
+/** Check whether every well's pick of a contact type agrees on a flat TVDSS surface. */
+export function checkContactConsistency(contactType: string, flagAbs?: number): Promise<ContactConsistency> {
+  return invoke<ContactConsistency>("check_contact_consistency", { contactType, flagAbs });
+}
+
 export interface ZoneParamEntry {
   zone_name: string;
   param_name: string;

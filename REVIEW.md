@@ -7,6 +7,40 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 36 — Contacts #6.2 inc A: assisted contact picking — backend (2026-07-23)
+
+First increment of assisted fluid-contact picking (the existing contacts editor + TVDSS-flat
+rendering was already built and committed in the Wave-B chain — that is #6 inc 1). New `contacts.rs`
+with two read-only commands:
+
+- **`suggest_contacts`** — from one well's logs within a depth zone, proposes contact depths from
+  three independent indicators, each with a confidence, ranked: the **Sw = cutoff crossover** (default
+  0.5; confidence = the below-minus-above contrast), the **deep-resistivity drop** (steepest downward
+  step in log10 Rt; confidence ∝ decades fallen), and the **density-neutron gas base** (where φN−φD
+  closes back through −0.03 — gas-down-to). Uses whichever curves are present. Nothing is written — the
+  user accepts/edits (inc B).
+- **`check_contact_consistency`** — a contact is flat in TVDSS, so it fits a **least-squares dip plane**
+  (z = a + b·x + c·y, on centred UTM coords) through every well's pick of a type, converts MD picks to
+  TVDSS via each deviation survey, and **flags wells whose residual exceeds a threshold** (default 3 m).
+  Falls back to a flat mean when < 3 wells have coordinates.
+
+**Adversarial review** (math-heavy) confirmed the crossing interpolation, the resistivity-drop loop, the
+plane solve, and the MD→TVDSS interpolation correct with no panics/divide-by-zeros, and surfaced four
+issues I fixed: (1, **medium**) the consistency check was **mixing baselines** — coord wells scored vs
+the plane, coordless wells vs the flat mean → false flags and a blended RMS; now it uses **one baseline**
+(coordless wells are left *unscored* under a plane, RMS over scored points only); (2) resistivity depth
+was ~win/2 shallow → refined to the sharpest single-sample step; (3) noisy Sw flooded candidates → cluster
+dedup; (4) the neutron PU/fraction unit is now decided once per curve, not per sample.
+
+**Verification:** cargo **340 passed / 0 failed** — Sw crossover recovers a known 2050 m contact; the
+~1.4-decade resistivity drop scores high and lands on the step; the D-N gas base hits 2040 m; `fit_plane`
+recovers a known dipping plane; the consistency check flags a 12 m outlier while clearing inliers; and a
+coordless well is left unscored (not false-flagged) under a plane. tsc green. Backend-only — the panel
+wiring is inc B.
+
+> **Try:** backend-only this round — no new button yet. The **Suggest from logs** action and the
+> cross-well consistency readout land in the next increment inside the **Contacts…** editor.
+
 ## Round 35 — Autocorrelate #5 inc 3: the dialog — warp toggle, multi-select, per-marker review (2026-07-23)
 
 Third increment — the UI that makes inc 1/2 usable. The **Autocorrelate** pane is rewritten:

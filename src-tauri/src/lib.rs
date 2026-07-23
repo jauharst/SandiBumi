@@ -1,5 +1,6 @@
 mod chain;
 mod composite;
+mod contacts;
 mod curve_edit;
 mod curves;
 mod db;
@@ -1309,6 +1310,29 @@ async fn autocorrelate_multi(
     .await
 }
 
+/// Suggests a fluid-contact depth in one well from its logs (Sw=0.5 crossover, deep-
+/// resistivity drop, density-neutron gas base), each with a confidence. Read-only.
+#[tauri::command]
+fn suggest_contacts(
+    db: tauri::State<DbState>,
+    req: contacts::ContactSuggestRequest,
+) -> Result<contacts::ContactSuggestResult, String> {
+    let conn = db.0.lock().unwrap();
+    Ok(contacts::suggest_contacts(&conn, &req))
+}
+
+/// Cross-well consistency for a contact type: fits a flat-TVDSS surface through the picked
+/// contacts and flags wells that disagree. Read-only.
+#[tauri::command]
+fn check_contact_consistency(
+    db: tauri::State<DbState>,
+    contact_type: String,
+    flag_abs: Option<f32>,
+) -> Result<contacts::ContactConsistency, String> {
+    let conn = db.0.lock().unwrap();
+    Ok(contacts::check_contact_consistency(&conn, &contact_type, flag_abs.unwrap_or(3.0)))
+}
+
 /// Read-only SQL over the project database (full DuckDB SQL, SELECT-only).
 #[tauri::command]
 fn run_query(db: tauri::State<DbState>, sql: String, limit: usize) -> Result<db::TablePage, String> {
@@ -1553,6 +1577,8 @@ pub fn run() {
             check_top_order,
             autocorrelate_top,
             autocorrelate_multi,
+            suggest_contacts,
+            check_contact_consistency,
             run_query,
             export_las,
             python_status,
