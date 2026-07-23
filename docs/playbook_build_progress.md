@@ -171,3 +171,17 @@ Every increment: explore-and-restate → implement in small steps → `tsc --noE
 check` + solver `cargo test` → REVIEW.md entry with a concrete "Try:" line on real data →
 commit (plain message; you push). Tier-B math carries a primary-source citation in a code
 comment; new method math banked in `docs/ref_*.md`. Tier-C never built.
+
+## Feature: Vega-Lite interactive charts (Jauhar's "Altair on SandiBumi" ask, 2026-07-24)
+
+Not a playbook item — a requested feature. Chosen shape (via clarifying question): **interactive
+Vega-Lite in-app** (vendor the real vega engine), over the export-spec and Python-render options.
+Enabled by `tauri.conf.json` `csp: null` (no eval blocker) + npm vendoring (offline). vega is heavy
+(~850 KB), so the panel is a **lazy** chunk (`vegaPanel-*.js`), out of the main startup bundle.
+
+| Increment | Scope | Status |
+|---|---|---|
+| V1 | Vendor `vega`/`vega-lite`/`vega-embed`; lazy well-bound **Vega Chart** dock panel + Plot-tab ribbon button; one live interactive crossplot (X/Y curve pickers, tooltip, drag-pan, scroll-zoom) themed from CSS vars | ✅ (this update) — tsc + vite build (offline lazy chunk verified); render/theme screenshot-verified vs synthetic data; live pan/zoom/tooltip → REVIEW Round 51 Try line. `npm audit`: 7 high advisories in vega deps (not auto-fixed — breaking) |
+| V2 | Control bar: X/Y/color curve pickers, zone filter, chart type (scatter / line / histogram) | ▫ next |
+| V3 | Live theme repaint on `themeVersion`; vega interval-selection ⇄ `appState.brushedDepths` (linked brushing with the Canvas-2D plots) | ▫ |
+| V4 | CodeMirror JSON spec editor (already bundled) + native SVG/PNG export + session persistence of the panel/spec | ▫ |
