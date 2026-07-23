@@ -7,6 +7,41 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 39 — Results-QC #8 inc 2: panel + per-zone QC scorecard (2026-07-23)
+
+New well-bound panel `src/ui/resultsQcPanel.ts` (`buildResultsQcContent`), registered like the other
+singletons — `buildRenderer` case, `openResultsQc`, the ＋-menu entry, a **Results QC…** ribbon button
+(next to Field Dashboard), and `#results-qc-btn` wiring. Follows the selected well (`wellPane`,
+`followData`), so it rebuilds when the interpretation changes.
+
+For every zone of the well (or "All depth" when none) it shows a **per-zone card** with a traffic-light
+per check:
+
+- **Sw-method spread** — calls the inc-1 `sw_method_spread` per zone and lights **ok / caution / alert**
+  on the fraction of divergent depths (≤10 % / ≤40 % / more), with `mean · max @ depth · % divergent`
+  and the model list + notes on hover.
+- **Buckles (BVW)** — BVW = SWE·PHIE over the zone; lights on the coefficient of variation (≤15 % /
+  ≤30 % / more) with `BVW mean · CV% · n`. Framed as a prompt (transition zone vs. inconsistent Sw), not
+  a verdict — the crossplot that resolves which comes in inc 3.
+
+A compact Sw-params row (Rw, Rw °F, Form °F, m, n, Rsh, a, divergence threshold — editable defaults the
+user confirms, nothing fabricated) drives a **Recompute**. Traffic-light dots are theme-var coloured
+(`--accent` ok / `--accent2` caution / `--warn` alert — never hard-coded red/green). The card under the
+crosshair highlights via `appState.hoverDepth`.
+
+**Verification (in-browser, mocked IPC):** mounted the panel against canned `list_zones` /
+`sw_method_spread` / a byte-packed `get_curve_data`. Two zones rendered correctly — SAND-A: Sw-spread
+**alert** (mean 0.180, max 0.190 @ 2010 m, 66 % divergent) + Buckles **ok** (BVW 0.060, CV 1 %); SAND-B:
+Sw-spread **ok** (0 % divergent) + Buckles **alert** (CV 31 %); status "2 zone(s) · 2 flagged".
+hoverDepth 2020→SAND-A, 2070→SAND-B, null→neither (highlight follows the crosshair). Screenshot confirms
+the cards; console shows only the pre-existing backend-absent boot errors — none from the panel. tsc exit
+0; cargo unchanged at 348.
+
+> **Try:** ribbon **Batch → Results QC…** (or ＋ → Results QC). With a well selected, each zone gets a
+> card: the **Sw-method spread** light goes amber/red where Archie and the shaly-sand models disagree
+> (fresh-water sand), and **Buckles (BVW)** flags zones whose bulk-volume-water wanders. Tune Rw/m/n/Rsh
+> and hit **Recompute**; move the log crosshair and the matching zone card highlights.
+
 ## Round 38 — Results-QC #8 inc 1: Sw-method spread backend (2026-07-23)
 
 First increment of the Results-QC / Sw-comparison dashboard. New Rust module `src-tauri/src/resultsqc.rs`

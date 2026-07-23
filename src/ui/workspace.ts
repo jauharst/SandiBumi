@@ -337,6 +337,7 @@ export class Workspace {
       ["Lorenz Plot (flow units)", () => this.openLorenz(group)],
       ["Facies Tie-in (RT confusion)", () => this.openFaciesTie(group)],
       ["Unconventional (ΔlogR + Langmuir)", () => this.openUnconventional(group)],
+      ["Results QC (Sw spread)", () => this.openResultsQc(group)],
       ["SandiMin Solver", () => this.openMultimin(group)],
       "sep",
       ["Zones", () => this.openZones(group)],
@@ -580,6 +581,14 @@ export class Workspace {
           "Unconventional",
           "the unconventional visuals",
           () => import("./unconventionalPanel").then((m) => m.buildUnconventionalContent),
+          true,
+        );
+      case "resultsQc":
+        return this.wellPane(
+          "dock-results-qc",
+          "Results QC",
+          "the results-QC dashboard",
+          () => import("./resultsQcPanel").then((m) => m.buildResultsQcContent),
           true,
         );
       case "histogram":
@@ -1347,6 +1356,10 @@ export class Workspace {
 
   openUnconventional(group?: DockviewGroupPanel): void {
     this.openSingleton("unconventional", "unconventional", "Unconventional (ΔlogR + Langmuir)", group);
+  }
+
+  openResultsQc(group?: DockviewGroupPanel): void {
+    this.openSingleton("resultsQc", "resultsQc", "Results QC", group);
   }
 
   openMultimin(group?: DockviewGroupPanel): void {

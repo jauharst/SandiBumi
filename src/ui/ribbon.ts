@@ -226,6 +226,7 @@ export class Ribbon {
     q<HTMLButtonElement>("#ml-btn")?.addEventListener("click", () => workspace.openMl());
     q<HTMLButtonElement>("#multimin-btn")?.addEventListener("click", () => workspace.openMultimin());
     q<HTMLButtonElement>("#dashboard-btn")?.addEventListener("click", () => workspace.openDashboard());
+    q<HTMLButtonElement>("#results-qc-btn")?.addEventListener("click", () => workspace.openResultsQc());
     q<HTMLButtonElement>("#map-btn")?.addEventListener("click", () => workspace.openMap());
     void this.loadAllModules(root);
 

@@ -2576,6 +2576,85 @@ textarea {
   padding-bottom: 2px;
 }
 
+/* --- Results-QC dashboard (#8) --- */
+.results-qc {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  height: 100%;
+  overflow: auto;
+}
+.rqc-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: flex-end;
+}
+.rqc-run {
+  align-self: flex-end;
+}
+.rqc-status {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.rqc-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rqc-card {
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-panel-alt);
+  padding: 8px 10px;
+}
+.rqc-card-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-soft);
+}
+.rqc-card-head {
+  font-weight: 600;
+  font-size: 12px;
+  margin-bottom: 6px;
+  color: var(--text);
+}
+.rqc-check {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 12px;
+}
+.rqc-dot {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  align-self: center;
+  background: var(--text-dim);
+}
+.rqc-dot-ok {
+  background: var(--accent);
+}
+.rqc-dot-warn {
+  background: var(--accent2);
+}
+.rqc-dot-alert {
+  background: var(--warn);
+}
+.rqc-dot-na {
+  background: var(--text-dim);
+  opacity: 0.5;
+}
+.rqc-check-label {
+  flex: 0 0 130px;
+  color: var(--text);
+}
+.rqc-check-detail {
+  color: var(--text-dim);
+}
+
 .plot-canvas {
   display: block;
   width: 100%;
