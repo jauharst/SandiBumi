@@ -25,6 +25,11 @@
 //     CodeMirror is dynamic-imported so it stays out of the chunk until the editor is opened.
 //   - Last-used persistence: the control selections are saved via savePlotProps so a new panel opens
 //     where the previous one left off (getState still carries settings across a well switch).
+//
+// V5 scope: analytical modes.
+//   - Density: a 2D binned heatmap (chart type) for clouds too dense to read as a scatter.
+//   - Trend: a regression overlay on the scatter (fit line + R²), method linear/log/exp/pow/quad.
+//     Layered spec — the selection params sit on the points layer, the variable signals top-level.
 import vegaEmbed, { type VisualizationSpec, type Result as VegaResult } from "vega-embed";
 import type { EditorView } from "codemirror";
 import { getCurveData, type TrackCurveSeries, type WellSummary } from "../ipc";
@@ -34,7 +39,7 @@ import { buildZoneSelect, curveSelect, loadCurveNames, loadPlotProps, savePlotPr
 import { buildImageExportButtons } from "./plotExport";
 import { saveSvg } from "./svgExport";
 
-type ChartType = "scatter" | "line" | "histogram";
+type ChartType = "scatter" | "line" | "histogram" | "density";
 
 interface Row {
   x: number;
@@ -42,6 +47,10 @@ interface Row {
   z?: number;
   depth: number;
 }
+
+/** Types with per-sample point marks that take part in linked brushing (emit + consume). Histogram
+ *  and density are aggregates, so they neither publish nor reflect a shared selection. */
+const brushable = (t: ChartType): boolean => t === "scatter" || t === "line";
 
 /** One CSS custom property off :root, with a fallback so the spec never carries an empty string. */
 function cssVar(name: string, fallback: string): string {
@@ -93,7 +102,14 @@ function xValues(series: TrackCurveSeries[], xName: string): Row[] {
  *  whose extent we publish as the shared selection), and the `brushedActive`/`brushedObj` runtime
  *  signals the opacity condition reads to dim non-selected points. `width/height: container` makes
  *  vega track the panel. */
-function buildSpec(type: ChartType, rows: Row[], xName: string, yName: string, zName: string | null): VisualizationSpec {
+function buildSpec(
+  type: ChartType,
+  rows: Row[],
+  xName: string,
+  yName: string,
+  zName: string | null,
+  opts?: { trend?: boolean; method?: string },
+): VisualizationSpec {
   const text = cssVar("--text", "#333333");
   const dim = cssVar("--text-dim", "#888888");
   const border = cssVar("--border", "#cccccc");
@@ -118,6 +134,32 @@ function buildSpec(type: ChartType, rows: Row[], xName: string, yName: string, z
         y: { aggregate: "count", type: "quantitative", title: "count", axis },
         tooltip: [
           { field: "x", bin: true, type: "quantitative", title: xName },
+          { aggregate: "count", type: "quantitative", title: "count" },
+        ],
+      },
+    } as VisualizationSpec;
+  }
+
+  if (type === "density") {
+    // 2D binned heatmap — the density view for clouds too dense to read as a scatter (a Mahakam
+    // NPHI–RHOB cloud overplots into a blob; binned counts reveal where the mass actually is).
+    const bin = { maxbins: 40 };
+    return {
+      ...base,
+      mark: { type: "rect" },
+      encoding: {
+        x: { field: "x", bin, type: "quantitative", title: xName, axis },
+        y: { field: "y", bin, type: "quantitative", title: yName, axis },
+        color: {
+          aggregate: "count",
+          type: "quantitative",
+          title: "count",
+          scale: { scheme: "viridis" },
+          legend: { labelColor: dim, titleColor: text },
+        },
+        tooltip: [
+          { field: "x", bin, type: "quantitative", title: xName },
+          { field: "y", bin, type: "quantitative", title: yName },
           { aggregate: "count", type: "quantitative", title: "count" },
         ],
       },
@@ -190,6 +232,48 @@ function buildSpec(type: ChartType, rows: Row[], xName: string, yName: string, z
     { name: "brushedObj", value: {} },
   ];
 
+  if (type === "scatter" && opts?.trend) {
+    // Overlay a regression fit (+ its R²) as extra layers over the point cloud. The interactive
+    // params stay top-level so brushing / zoom still target the points; the fit line and label share
+    // the points' x/y scales. Methods map to Vega-Lite regression: log/exp/pow assume positive data.
+    const trendColor = cssVar("--warn", "#c0392b");
+    const method = opts.method ?? "linear";
+    // Split the params across the layered spec. The selection params (grid/brush) must sit on the
+    // POINTS layer so they project onto its x/y encoding — a top-level interval selection has no
+    // fields and its scale signals collide ("Duplicate signal name: grid_x"). The variable signals
+    // the opacity condition reads (brushedActive/brushedObj) must stay top-level, or that condition
+    // can't resolve them ("Unrecognized signal name: brushedActive").
+    const selParams = params.filter((p) => "select" in p);
+    const valParams = params.filter((p) => !("select" in p));
+    return {
+      ...base,
+      params: valParams,
+      layer: [
+        { params: selParams, mark, encoding },
+        {
+          transform: [{ regression: "y", on: "x", method }],
+          mark: { type: "line", color: trendColor, strokeWidth: 2 },
+          encoding: {
+            x: { field: "x", type: "quantitative" },
+            y: { field: "y", type: "quantitative" },
+          },
+        },
+        {
+          transform: [
+            { regression: "y", on: "x", method, params: true },
+            { calculate: "'R² = ' + format(datum.rSquared, '.3f')", as: "label" },
+          ],
+          mark: { type: "text", align: "left", baseline: "top", dx: 6, dy: 6, color: trendColor, fontSize: 11 },
+          encoding: {
+            x: { value: 6 },
+            y: { value: 6 },
+            text: { field: "label", type: "nominal" },
+          },
+        },
+      ],
+    } as VisualizationSpec;
+  }
+
   return { ...base, params, mark, encoding } as VisualizationSpec;
 }
 
@@ -245,36 +329,61 @@ export async function buildVegaContent(
     ["scatter", "Scatter"],
     ["line", "Line"],
     ["histogram", "Histogram"],
+    ["density", "Density"],
   ] as [ChartType, string][]) {
     const o = document.createElement("option");
     o.value = v;
     o.textContent = label;
     typeSel.appendChild(o);
   }
-  typeSel.value = ["scatter", "line", "histogram"].includes(seed.type ?? "") ? (seed.type as ChartType) : "scatter";
+  typeSel.value = ["scatter", "line", "histogram", "density"].includes(seed.type ?? "") ? (seed.type as ChartType) : "scatter";
 
   const xSel = curveSelect(curveNames, seed.x ?? "NPHI");
   const ySel = curveSelect(curveNames, seed.y ?? "RHOB");
   const zSel = colorSelect(curveNames, seed.z ?? "");
 
+  // V5: a regression trend overlay (scatter only) — a fit line + R² on top of the cloud.
+  const trendMethods = ["linear", "log", "exp", "pow", "quad"];
+  const trendChk = document.createElement("input");
+  trendChk.type = "checkbox";
+  trendChk.checked = seed.trend === "1";
+  const trendMethodSel = document.createElement("select");
+  trendMethodSel.className = "form-control";
+  for (const m of trendMethods) {
+    const o = document.createElement("option");
+    o.value = m;
+    o.textContent = m;
+    trendMethodSel.appendChild(o);
+  }
+  trendMethodSel.value = trendMethods.includes(seed.trendMethod ?? "") ? (seed.trendMethod as string) : "linear";
+  const trendField = document.createElement("label");
+  trendField.className = "vega-field";
+  const trendLabelText = document.createElement("span");
+  trendLabelText.textContent = "Trend";
+  trendField.append(trendLabelText, trendChk, trendMethodSel);
+
   const toolbar = document.createElement("div");
   toolbar.className = "vega-toolbar";
   const yField = field("Y", ySel);
   const zField = field("Color", zSel);
-  toolbar.append(field("Type", typeSel), field("X", xSel), yField, zField, field("Zone", zoneSel.select));
+  toolbar.append(field("Type", typeSel), field("X", xSel), yField, zField, trendField, field("Zone", zoneSel.select));
 
   const chartHost = document.createElement("div");
   chartHost.className = "vega-chart-host";
   container.append(toolbar, chartHost);
 
-  // Y is irrelevant to a histogram; colour is meaningful only on a scatter. Dim the controls that
-  // don't apply so the toolbar reads honestly for the active chart type.
+  // Dim the controls that don't apply to the active type so the toolbar reads honestly: Y is
+  // irrelevant to a histogram; colour and the trend overlay are meaningful only on a scatter.
   const syncControls = (): void => {
     const t = typeSel.value as ChartType;
     ySel.disabled = t === "histogram";
     zSel.disabled = t !== "scatter";
+    const trendable = t === "scatter";
+    trendChk.disabled = !trendable;
+    trendMethodSel.disabled = !trendable || !trendChk.checked;
     yField.classList.toggle("vega-field-off", ySel.disabled);
     zField.classList.toggle("vega-field-off", zSel.disabled);
+    trendField.classList.toggle("vega-field-off", !trendable);
   };
   syncControls();
 
@@ -291,13 +400,22 @@ export async function buildVegaContent(
   let lastX = "";
   let lastY = "";
   let lastZ: string | null = null;
+  let lastTrend = false;
+  let lastMethod = "linear";
   // V4: an optional hand-edited spec. When set it replaces the generated grammar (the current rows
   // are injected as its data); a chart-type change clears it since the grammar is type-specific.
   let specOverride: VisualizationSpec | null = null;
-  const specFor = (type: ChartType, rows: Row[], xName: string, yName: string, zName: string | null): VisualizationSpec =>
+  const specFor = (
+    type: ChartType,
+    rows: Row[],
+    xName: string,
+    yName: string,
+    zName: string | null,
+    opts: { trend?: boolean; method?: string },
+  ): VisualizationSpec =>
     specOverride
       ? ({ ...(specOverride as Record<string, unknown>), data: { values: rows } } as VisualizationSpec)
-      : buildSpec(type, rows, xName, yName, zName);
+      : buildSpec(type, rows, xName, yName, zName, opts);
 
   // --- Linked brushing -------------------------------------------------------
   // Emit: publish the depths inside the Vega brush rectangle. rAF-coalesced during a drag, with a
@@ -305,7 +423,7 @@ export async function buildVegaContent(
   let localDragging = false;
   let emitRaf = 0;
   const emitBrush = (): void => {
-    if (!current || lastType === "histogram" || !lastRows) return;
+    if (!current || !brushable(lastType) || !lastRows) return;
     let v: { x?: number[]; y?: number[] } | null = null;
     try {
       v = current.view.signal("brush") as { x?: number[]; y?: number[] } | null;
@@ -342,7 +460,7 @@ export async function buildVegaContent(
   let applyRaf = 0;
   let pendingSel: BrushSelection | null = null;
   const pushBrush = (sel: BrushSelection | null): void => {
-    if (!current || lastType === "histogram") return;
+    if (!current || !brushable(lastType)) return;
     const obj: Record<string, number> = {};
     let active = false;
     if (sel && sel.wellId === well.well_id && sel.depths.size) {
@@ -368,7 +486,15 @@ export async function buildVegaContent(
 
   /** Embed `rows` for `type`, wiring the brush emit listener and syncing the current shared brush.
    *  `myGen` guards against a newer render/repaint having superseded this one mid-await. */
-  async function embedRows(type: ChartType, rows: Row[], xName: string, yName: string, zName: string | null, myGen: number): Promise<void> {
+  async function embedRows(
+    type: ChartType,
+    rows: Row[],
+    xName: string,
+    yName: string,
+    zName: string | null,
+    opts: { trend?: boolean; method?: string },
+    myGen: number,
+  ): Promise<void> {
     current?.finalize();
     current = null;
     chartHost.innerHTML = "";
@@ -380,7 +506,7 @@ export async function buildVegaContent(
       return;
     }
     try {
-      const result = await vegaEmbed(chartHost, specFor(type, rows, xName, yName, zName), {
+      const result = await vegaEmbed(chartHost, specFor(type, rows, xName, yName, zName, opts), {
         actions: false,
         renderer: "canvas",
         tooltip: true,
@@ -390,7 +516,7 @@ export async function buildVegaContent(
         return;
       }
       current = result;
-      if (type !== "histogram") {
+      if (brushable(type)) {
         result.view.addSignalListener("brush", () => scheduleEmit());
         pushBrush(appState.brushedDepths.get()); // reflect any selection already active elsewhere
       }
@@ -410,6 +536,8 @@ export async function buildVegaContent(
     const xName = xSel.value;
     const yName = ySel.value;
     const useZ = type === "scatter" && zSel.value ? zSel.value : null;
+    const useTrend = type === "scatter" && trendChk.checked;
+    const method = trendMethodSel.value;
     const zc = zoneSel.current();
     const needed = type === "histogram" ? [xName] : useZ ? [xName, yName, useZ] : [xName, yName];
     setStatus(`Vega — loading ${needed.join(", ")}…`);
@@ -429,7 +557,9 @@ export async function buildVegaContent(
     lastX = xName;
     lastY = yName;
     lastZ = useZ;
-    await embedRows(type, rows, xName, yName, useZ, myGen);
+    lastTrend = useTrend;
+    lastMethod = method;
+    await embedRows(type, rows, xName, yName, useZ, { trend: useTrend, method }, myGen);
   }
 
   /** Re-embed the cached rows with the new theme's colours (a theme switch resets zoom/pan — a rare,
@@ -437,12 +567,20 @@ export async function buildVegaContent(
   async function repaint(): Promise<void> {
     if (!lastRows) return;
     const myGen = ++gen;
-    await embedRows(lastType, lastRows, lastX, lastY, lastZ, myGen);
+    await embedRows(lastType, lastRows, lastX, lastY, lastZ, { trend: lastTrend, method: lastMethod }, myGen);
   }
 
   // --- V4: last-used persistence, export, spec editor ------------------------
   const persist = (): void =>
-    savePlotProps("vega", { type: typeSel.value, x: xSel.value, y: ySel.value, z: zSel.value, zone: zoneSel.select.value });
+    savePlotProps("vega", {
+      type: typeSel.value,
+      x: xSel.value,
+      y: ySel.value,
+      z: zSel.value,
+      zone: zoneSel.select.value,
+      trend: trendChk.checked ? "1" : "",
+      trendMethod: trendMethodSel.value,
+    });
 
   // Export. Vega renders to a <canvas>, so the shared PNG copy/save/print buttons work against it;
   // SVG comes from vega's own vector renderer.
@@ -503,7 +641,10 @@ export async function buildVegaContent(
   const templateJson = (): string => {
     const type = typeSel.value as ChartType;
     const useZ = type === "scatter" && zSel.value ? zSel.value : null;
-    const spec = buildSpec(type, [], xSel.value, ySel.value, useZ) as Record<string, unknown>;
+    const spec = buildSpec(type, [], xSel.value, ySel.value, useZ, {
+      trend: type === "scatter" && trendChk.checked,
+      method: trendMethodSel.value,
+    }) as Record<string, unknown>;
     delete spec.data;
     return JSON.stringify(spec, null, 2);
   };
@@ -565,11 +706,20 @@ export async function buildVegaContent(
       void render();
     });
   }
+  // The trend toggle also re-syncs the method select's enabled state.
+  const onTrendChange = (): void => {
+    syncControls();
+    persist();
+    if (specOpen && !specOverride) refreshTemplate();
+    void render();
+  };
+  trendChk.addEventListener("change", onTrendChange);
+  trendMethodSel.addEventListener("change", onTrendChange);
 
   // A plain (non-Shift) drag on the chart is a brush; remember it so pointer-up can flush the final
   // extent. Shift-drag is a pan (grid param) and must not publish a selection.
   chartHost.addEventListener("pointerdown", (e) => {
-    if (!e.shiftKey && lastType !== "histogram") localDragging = true;
+    if (!e.shiftKey && brushable(lastType)) localDragging = true;
   });
   const onPointerUp = (): void => {
     if (!localDragging) return;
@@ -619,6 +769,8 @@ export async function buildVegaContent(
       y: ySel.value,
       z: zSel.value,
       zone: zoneSel.select.value,
+      trend: trendChk.checked ? "1" : "",
+      trendMethod: trendMethodSel.value,
     }),
   };
 }

@@ -7,6 +7,30 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 55 — Vega-Lite interactive charts, V5: density + trend overlay (2026-07-24)
+
+Builds on V4 (Round 54). The capstone adds two analytical modes:
+
+- **Density** — a new **chart type**: a 2D binned heatmap (viridis by bin count). This is the view
+  for clouds too dense to read as a scatter — a Mahakam NPHI–RHOB cloud overplots into a blob, but
+  the binned counts show where the mass actually is. Hover a cell for its bin range and count. (Like
+  the histogram it's an aggregate, so it doesn't take part in brushing.)
+- **Trend** — a regression overlay on the **Scatter**: tick **Trend** to draw a fit line plus its
+  **R²**, with a method dropdown (**linear / log / exp / pow / quad**). It layers over the point
+  cloud, so hover / brush / zoom on the points still work; log/exp/pow assume positive data. Works
+  alongside a Colour curve and a Zone.
+
+**Try:** open a **Vega Chart**. (1) Set **Type = Density** on a dense NPHI–RHOB pair → confirm a
+viridis heatmap of counts, and hover a cell for its bin + count. (2) Back on **Scatter**, tick
+**Trend** → confirm a fit line + an "R² = …" label appear; change the **method** (e.g. **log**, the
+por–perm shape) and confirm the line + R² update. (3) With Trend on, set a **Colour** curve and a
+**Zone** and confirm all three coexist. (Verified: tsc + offline build keep vega + CodeMirror lazy,
+main bundle unchanged; a headless check renders the density spec and every trend method — each shows
+an R² label, keeps the brush signals, and still dims on a shared brush through the layering. The
+headless pass caught two real layered-spec bugs — a duplicate `grid_x` signal and an unresolved
+`brushedActive` — now fixed by splitting the params across the layer. The live density hover and the
+trend line/R² on field data are what this Try line confirms.)
+
 ## Round 54 — Vega-Lite interactive charts, V4: export + spec editor (2026-07-24)
 
 Builds on V3 (Round 53). The Vega Chart panel becomes a report/export surface and gains an escape
