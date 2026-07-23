@@ -2,6 +2,7 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { savePng } from "../ipc";
 import { recordProcess } from "../processLog";
 import type { ContextMenuEntry } from "./contextMenu";
+import { saveSvg } from "./svgExport";
 
 /** Print / copy / export-image actions shared by every canvas-based visualization
  *  (histogram, crossplot, Pickett, correlation) so a chart can leave the app as a picture
@@ -104,38 +105,63 @@ export function imageAction(
   }
 }
 
-/** The three image entries for a canvas panel's right-click menu. */
+/** Saves the plot as a true-vector SVG (via the panel's `getSvg`, which re-runs the chart's
+ *  static draw through a recording context). No-ops with a status note when there's no plot. */
+export function svgAction(getSvg: () => string | null, name: string, setStatus: (text: string) => void): void {
+  const svg = getSvg();
+  if (!svg) {
+    setStatus("No plot to export yet");
+    return;
+  }
+  void saveSvg(svg, name)
+    .then((path) => {
+      if (path) {
+        setStatus(`${name} SVG saved to ${path}`);
+        recordProcess("Export", `${name} SVG (vector) → ${path}`);
+      }
+    })
+    .catch((err) => setStatus(`SVG export failed: ${err}`));
+}
+
+/** The image entries for a canvas panel's right-click menu. When `getSvg` is given, a vector
+ *  "Export SVG…" entry is included. */
 export function imageExportMenuEntries(
   getCanvas: () => HTMLCanvasElement | null,
   name: string,
   setStatus: (text: string) => void,
+  getSvg?: () => string | null,
 ): ContextMenuEntry[] {
-  return [
+  const entries: ContextMenuEntry[] = [
     { label: "Copy image", onClick: () => imageAction("copy", getCanvas(), name, setStatus) },
     { label: "Save image…", onClick: () => imageAction("save", getCanvas(), name, setStatus) },
-    { label: "Print…", onClick: () => imageAction("print", getCanvas(), name, setStatus) },
   ];
+  if (getSvg) entries.push({ label: "Export SVG (vector)…", onClick: () => svgAction(getSvg, name, setStatus) });
+  entries.push({ label: "Print…", onClick: () => imageAction("print", getCanvas(), name, setStatus) });
+  return entries;
 }
 
-/** A compact toolbar group (Copy / Save / Print) for a plot panel's toolbar. `getCanvas`
- *  is called lazily so it always targets the panel's current canvas. */
+/** A compact toolbar group (Copy / Image / [SVG] / Print) for a plot panel's toolbar.
+ *  `getCanvas` is called lazily so it always targets the panel's current canvas; when `getSvg`
+ *  is supplied a vector-SVG button is added. */
 export function buildImageExportButtons(
   getCanvas: () => HTMLCanvasElement | null,
   name: string,
   setStatus: (text: string) => void,
+  getSvg?: () => string | null,
 ): HTMLElement {
   const wrap = document.createElement("div");
   wrap.className = "plot-export-group";
-  const mk = (label: string, title: string, action: "copy" | "save" | "print") => {
+  const mk = (label: string, title: string, onClick: () => void) => {
     const b = document.createElement("button");
     b.className = "plot-export-btn";
     b.textContent = label;
     b.title = title;
-    b.addEventListener("click", () => imageAction(action, getCanvas(), name, setStatus));
+    b.addEventListener("click", onClick);
     wrap.appendChild(b);
   };
-  mk("⧉ Copy", "Copy this plot as an image to the clipboard", "copy");
-  mk("⭳ Image", "Export this plot as a PNG image", "save");
-  mk("⎙ Print", "Print this plot", "print");
+  mk("⧉ Copy", "Copy this plot as an image to the clipboard", () => imageAction("copy", getCanvas(), name, setStatus));
+  mk("⭳ Image", "Export this plot as a PNG image", () => imageAction("save", getCanvas(), name, setStatus));
+  if (getSvg) mk("⭳ SVG", "Export this plot as a true-vector SVG", () => svgAction(getSvg, name, setStatus));
+  mk("⎙ Print", "Print this plot", () => imageAction("print", getCanvas(), name, setStatus));
   return wrap;
 }

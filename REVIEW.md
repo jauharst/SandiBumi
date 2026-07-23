@@ -7,6 +7,37 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 46 — UI polish #9B: true-vector SVG export for the Canvas-2D plots (2026-07-23)
+
+The **crossplot, histogram, and Pickett** plots previously exported raster PNG only (the log
+composite already had a vector path). They now export a **true-vector SVG** — infinitely scalable,
+editable in Illustrator/Inkscape/PowerPoint — via a new **⭳ SVG** button in each plot's toolbar
+(and an "Export SVG (vector)…" right-click entry).
+
+- **`svgExport.ts` — `SvgRecorder`**: a recording 2D context that duck-types
+  `CanvasRenderingContext2D` and serialises every draw call to SVG. A detached canvas carries the
+  recorder via a private property that `PlotCanvas` reads, so the **same** `drawCrossplot` /
+  `drawHistogram` / `drawPickett` code paints into the recorder — **no chart is re-implemented**,
+  so the SVG can't drift from what's on screen. Handles the full surface the plots use: affine
+  transforms (rotated axis labels), rectangular clips (incl. nesting), circles, dashed lines,
+  alpha, text alignment + baseline, and the colorbar/marginal/regression overlays.
+- The export re-runs each panel's **static** draw only (a shared `drawStatic` in the crossplot),
+  so transient decorations — hover ring, brush highlight, cutoff shading, parameter handle — are
+  omitted: you get the clean, publishable chart. Written to disk as UTF-8 through the existing
+  save path (no backend change).
+
+**Verification (in-browser, against the real draw code):** SVGs from all three panels parse as
+valid XML (DOMParser), with the correct element counts (e.g. 249 points for a 250-pt cloud with one
+NaN, 59 bars for a histogram), balanced/nested clip groups, correct affine composition
+(translate∘rotate → exact matrix + mapped points), and no NaN/undefined/Infinity tokens — exercised
+with marginals + regression + a viridis colorbar and with log axes. Adversarial review confirmed the
+wired panels correct on all fronts and caught one forward-looking gap (a dropped `textBaseline`),
+now fixed and re-verified non-regressive. `tsc` clean; no Rust changes.
+
+**Try:** open a **Crossplot / Histogram / Pickett**, arrange it how you like (zoom, colorby, picks),
+then click **⭳ SVG** in the toolbar and save. Open the `.svg` in a browser or vector editor and zoom
+in — the text and curves stay razor-sharp (unlike the PNG). PDF-for-charts is the natural next step.
+
 ## Round 45 — UI polish #9C follow-ons: Pickett brush-rings + crossplot cutoff region (2026-07-23)
 
 Two interaction upgrades that build on Round 43's linked brushing and the crossplot's draggable

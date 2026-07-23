@@ -39,6 +39,7 @@ import {
   type PlotContent,
 } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
+import { renderPlotToSvg } from "./svgExport";
 
 export type RegModel = "linear" | "power" | "logx" | "exp";
 export type RegMethod = "yx" | "xy" | "rma";
@@ -932,7 +933,7 @@ export async function buildCrossplotContent(
       setStatus,
     ),
   );
-  selRow.appendChild(buildImageExportButtons(() => canvas, "Crossplot", setStatus));
+  selRow.appendChild(buildImageExportButtons(() => canvas, "Crossplot", setStatus, () => getSvg()));
   content.appendChild(selRow);
 
   const canvas = document.createElement("canvas");
@@ -1058,9 +1059,36 @@ export async function buildCrossplotContent(
     return colorMemo.value;
   };
 
+  // The clean, publishable chart (frame, cloud, colorbar, and the static overlays) — the part
+  // shared by the on-screen redraw and the vector-SVG export. Transient decorations (hover
+  // marker, brush highlight, cutoff shading, parameter handle) are drawn only in redraw, so the
+  // SVG export omits them. `hi` = hover index (-1 for a still export).
+  const drawStatic = (target: HTMLCanvasElement, hi: number): PlotCanvas | null => {
+    const p = drawCrossplot(target, xSel.value, ySel.value, zSel.value, xs, ys, zs, opts, hi, viewRef.current, zColors());
+    if (!p) return null;
+    if (opts.showCore) {
+      const coreX = coreByName.get(CORE_OVERLAY_MAP[xSel.value.toUpperCase()] ?? "");
+      const coreY = coreByName.get(CORE_OVERLAY_MAP[ySel.value.toUpperCase()] ?? "");
+      if (coreX && coreY) {
+        const { xs: cxs, ys: cys } = alignCoreSeriesByDepth(coreX, coreY);
+        p.drawDiamonds(cxs, cys, p.theme.accent2);
+      }
+    }
+    if (opts.tsOverlay) drawTsOverlay(p, opts.tsPhiSd, opts.tsPhiSh);
+    if (opts.rockOverlay) {
+      const orient = matchRockOverlayAxes(xSel.value, ySel.value);
+      if (orient) drawRockOverlay(p, opts.rockOverlay, orient === "flipped");
+    }
+    return p;
+  };
+
+  // Vector export: the static chart re-run into a recording context sized to the live plot.
+  const getSvg = (): string | null =>
+    plot ? renderPlotToSvg(plot.width, plot.height, (c) => drawStatic(c, -1)) : null;
+
   const redraw = () => {
     canvas.setAttribute("aria-label", ariaLabel()); // keep the a11y description in sync with the axes
-    plot = drawCrossplot(canvas, xSel.value, ySel.value, zSel.value, xs, ys, zs, opts, hoverIdx, viewRef.current, zColors());
+    plot = drawStatic(canvas, hoverIdx);
     if (!plot) {
       const ctx = canvas.getContext("2d")!;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -1070,21 +1098,6 @@ export async function buildCrossplotContent(
       ctx.textAlign = "center";
       ctx.fillText("No valid data for these curves/zone.", canvas.width / 2, canvas.height / 2);
       return;
-    }
-    if (opts.showCore) {
-      const coreX = coreByName.get(CORE_OVERLAY_MAP[xSel.value.toUpperCase()] ?? "");
-      const coreY = coreByName.get(CORE_OVERLAY_MAP[ySel.value.toUpperCase()] ?? "");
-      if (coreX && coreY) {
-        const { xs: cxs, ys: cys } = alignCoreSeriesByDepth(coreX, coreY);
-        plot.drawDiamonds(cxs, cys, plot.theme.accent2);
-      }
-    }
-    if (opts.tsOverlay) {
-      drawTsOverlay(plot, opts.tsPhiSd, opts.tsPhiSh);
-    }
-    if (opts.rockOverlay) {
-      const orient = matchRockOverlayAxes(xSel.value, ySel.value);
-      if (orient) drawRockOverlay(plot, opts.rockOverlay, orient === "flipped");
     }
     if (marker && opts.showPicks) {
       const [px, py] = plot.toPx(marker[0], marker[1]);

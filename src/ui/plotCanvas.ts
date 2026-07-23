@@ -102,7 +102,11 @@ export class PlotCanvas {
   constructor(canvas: HTMLCanvasElement, x: AxisSpec, y: AxisSpec, margin?: Partial<PlotMargin>) {
     this.canvas = canvas;
     this.margin = { ...MARGIN, ...margin };
-    const ctx = canvas.getContext("2d");
+    // Vector export binds a recording 2D context on the canvas (see svgExport.ts); when it is
+    // present the same draw code paints into the recorder instead of a raster context. Private
+    // contract — kept off the public constructor signature.
+    const override = (canvas as unknown as { __recordingCtx2d?: CanvasRenderingContext2D }).__recordingCtx2d;
+    const ctx = override ?? canvas.getContext("2d");
     if (!ctx) throw new Error("2D canvas unavailable");
     this.ctx = ctx;
     this.x = x;

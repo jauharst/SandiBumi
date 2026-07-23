@@ -29,6 +29,7 @@ import {
   type PlotContent,
 } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
+import { renderPlotToSvg } from "./svgExport";
 
 /** Persisted Pickett v2 display settings (plotprops doc "pickett"). Axis ranges replace the
  *  old hard-coded 0.1–1000 / 0.01–1 defaults; Z-color paints each sample by a chosen log. */
@@ -197,7 +198,7 @@ export async function buildPickettContent(
   selRow.appendChild(formRow("Rw", rwIn));
   selRow.appendChild(formRow("Zone", zoneSel.select));
   selRow.appendChild(propsBtn);
-  selRow.appendChild(buildImageExportButtons(() => canvas, "Pickett", setStatus));
+  selRow.appendChild(buildImageExportButtons(() => canvas, "Pickett", setStatus, () => getSvg()));
   content.appendChild(selRow);
 
   const canvas = document.createElement("canvas");
@@ -290,6 +291,22 @@ export async function buildPickettContent(
       ctx.restore();
     }
   };
+
+  // Vector export: re-run the same static draw (no hover ring, no brush) into a recording
+  // context sized to the live plot, so the SVG matches what's on screen.
+  const getSvg = (): string | null =>
+    plot
+      ? renderPlotToSvg(plot.width, plot.height, (c) =>
+          drawPickett(c, rt, phi, currentLine(), parseFloat(nIn.value) || 2, picks, -1, viewRef.current, {
+            rtMin: props.rtMin,
+            rtMax: props.rtMax,
+            phiMin: props.phiMin,
+            phiMax: props.phiMax,
+            pointSize: props.pointSize,
+            colors,
+          }),
+        )
+      : null;
 
   // Monotonic token so a slow curve/zone load that resolves after a newer one (fast
   // switching) can't overwrite the newer data. `preserveView` keeps the zoom/pan AND the
