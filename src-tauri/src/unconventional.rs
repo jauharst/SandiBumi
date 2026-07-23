@@ -110,6 +110,136 @@ pub fn toc_passey(ctx: &ModuleContext) -> ModuleOutputs {
     ])
 }
 
+// ---------------------------------------------------------------------------
+// Kerogen volume + OM-corrected porosity  (docs/ref_unconventional.md §2)
+// ---------------------------------------------------------------------------
+
+pub fn kerogen_spec() -> ModuleSpec {
+    ModuleSpec {
+        name: "kerogen".into(),
+        title: "Kerogen volume + OM-corrected porosity".into(),
+        category: "Unconventional".into(),
+        doc: "Converts TOC (weight %) to kerogen VOLUME and corrects total porosity for the organic \
+              matter that low-density kerogen inflates on the density log. TOM = k_toc2om·TOC/100 \
+              (organic-matter weight fraction; k_toc2om≈1.2 accounts for the H/O/N/S beyond carbon), \
+              then VKER = TOM·RHOB/ρ_kero (kerogen volume fraction of the BULK rock — the Passey/Vernik \
+              bulk-density conversion, directly comparable to SandiMin VOL_KEROGEN). PHIT_OMC = \
+              PHIT − VKER removes kerogen's apparent-porosity contribution (ρ_kero≈ρ_fluid, first \
+              order). ρ_kero default 1.10 g/cc matches the SandiMin Kerogen mineral (multimin2.rs), so \
+              VKER reconciles with VOL_KEROGEN (IP's RHOTOC seed is 1.25 — override if you prefer it). \
+              Cite: Passey et al. 2010 (SPE 131350); Vernik & Nur 1992. See docs/ref_unconventional.md §2."
+            .into(),
+        args: vec![
+            param("RHO_KERO", "Kerogen (organic-matter) grain density", "g/cc", 1.10, 0.9, 1.6),
+            param("K_TOC2OM", "TOC→organic-matter factor (1.2 immature .. 1.35 mature)", "-", 1.2, 1.0, 1.6),
+            log_in("TOC", "Total organic carbon", "wt%", "TOC", true),
+            log_in("RHOB", "Bulk density", "g/cc", "RHOB", true),
+            log_in("PHIT", "Total porosity to OM-correct (optional)", "v/v", "PHIT", false),
+            log_out("TOM", "Organic-matter weight fraction", "wt/wt"),
+            log_out("VKER", "Kerogen volume fraction (bulk)", "v/v"),
+            log_out("PHIT_OMC", "OM-corrected total porosity", "v/v"),
+        ],
+    }
+}
+
+pub fn kerogen(ctx: &ModuleContext) -> ModuleOutputs {
+    let toc_log = ctx.log("TOC");
+    let rhob = ctx.log("RHOB");
+    let phit = ctx.log("PHIT");
+    let n = ctx.n;
+
+    let mut tom = vec![f32::NAN; n];
+    let mut vker = vec![f32::NAN; n];
+    let mut phit_omc = vec![f32::NAN; n];
+
+    for i in 0..n {
+        let toc = toc_log[i] as f64; // wt%
+        let k = ctx.p("K_TOC2OM", i);
+        let rho_k = ctx.p("RHO_KERO", i);
+        // Organic-matter weight fraction — needs only TOC + the conversion factor.
+        if toc.is_finite() && toc >= 0.0 && k.is_finite() && k > 0.0 {
+            let tom_i = k * toc / 100.0;
+            tom[i] = tom_i as f32;
+            // Kerogen bulk volume fraction — needs bulk density + kerogen density.
+            let rb = rhob[i] as f64;
+            if rb.is_finite() && rb > 0.0 && rho_k.is_finite() && rho_k > 0.0 {
+                let vk = (tom_i * rb / rho_k).clamp(0.0, 1.0);
+                vker[i] = vk as f32;
+                // OM-corrected total porosity: strip kerogen's apparent-porosity contribution.
+                let p = phit[i] as f64;
+                if p.is_finite() {
+                    phit_omc[i] = (p - vk).max(0.0) as f32;
+                }
+            }
+        }
+    }
+
+    HashMap::from([
+        ("TOM".into(), tom),
+        ("VKER".into(), vker),
+        ("PHIT_OMC".into(), phit_omc),
+    ])
+}
+
+#[cfg(test)]
+mod kerogen_tests {
+    use super::*;
+
+    fn ctx(toc: Vec<f32>, rhob: Vec<f32>, phit: Vec<f32>, rho_kero: f64, k: f64) -> ModuleContext {
+        let n = toc.len();
+        let mut logs = HashMap::new();
+        logs.insert("TOC".to_string(), toc);
+        logs.insert("RHOB".to_string(), rhob);
+        logs.insert("PHIT".to_string(), phit);
+        let mut params = HashMap::new();
+        params.insert("RHO_KERO".to_string(), vec![rho_kero; n]);
+        params.insert("K_TOC2OM".to_string(), vec![k; n]);
+        ModuleContext { n, logs, params, opts: HashMap::new() }
+    }
+
+    #[test]
+    fn kerogen_volume_matches_bulk_massbalance() {
+        // TOC 3 wt%, RHOB 2.4, ρ_kero 1.2, k 1.2: TOM = 1.2·0.03 = 0.036; VKER = 0.036·2.4/1.2 = 0.072.
+        let out = kerogen(&ctx(vec![3.0], vec![2.4], vec![f32::NAN], 1.2, 1.2));
+        assert!((out["TOM"][0] as f64 - 0.036).abs() < 1e-5, "TOM = {}", out["TOM"][0]);
+        assert!((out["VKER"][0] as f64 - 0.072).abs() < 1e-5, "VKER = {}", out["VKER"][0]);
+    }
+
+    #[test]
+    fn om_corrected_porosity_subtracts_kerogen_and_floors() {
+        // PHIT 0.20 → 0.20 − 0.072 = 0.128.
+        let out = kerogen(&ctx(vec![3.0], vec![2.4], vec![0.20], 1.2, 1.2));
+        assert!((out["PHIT_OMC"][0] as f64 - 0.128).abs() < 1e-4, "PHIT_OMC = {}", out["PHIT_OMC"][0]);
+        // Thin porosity floors at 0 when kerogen exceeds it.
+        let out2 = kerogen(&ctx(vec![3.0], vec![2.4], vec![0.05], 1.2, 1.2));
+        assert_eq!(out2["PHIT_OMC"][0], 0.0, "PHIT_OMC floors at 0");
+    }
+
+    #[test]
+    fn zero_toc_gives_zero_kerogen_and_unchanged_porosity() {
+        let out = kerogen(&ctx(vec![0.0], vec![2.65], vec![0.15], 1.2, 1.2));
+        assert_eq!(out["TOM"][0], 0.0);
+        assert_eq!(out["VKER"][0], 0.0);
+        assert!((out["PHIT_OMC"][0] as f64 - 0.15).abs() < 1e-6, "PHIT unchanged when no kerogen");
+    }
+
+    #[test]
+    fn kerogen_volume_increases_with_toc() {
+        let lo = kerogen(&ctx(vec![2.0], vec![2.5], vec![f32::NAN], 1.2, 1.2))["VKER"][0];
+        let hi = kerogen(&ctx(vec![6.0], vec![2.5], vec![f32::NAN], 1.2, 1.2))["VKER"][0];
+        assert!(hi > lo, "VKER should rise with TOC: {lo} -> {hi}");
+    }
+
+    #[test]
+    fn missing_rhob_leaves_vker_nan_but_tom_runs() {
+        // TOM needs only TOC; VKER (and thus PHIT_OMC) need RHOB.
+        let out = kerogen(&ctx(vec![3.0], vec![f32::NAN], vec![0.20], 1.2, 1.2));
+        assert!((out["TOM"][0] as f64 - 0.036).abs() < 1e-5, "TOM runs from TOC alone");
+        assert!(out["VKER"][0].is_nan(), "no RHOB ⇒ VKER missing");
+        assert!(out["PHIT_OMC"][0].is_nan(), "no VKER ⇒ PHIT_OMC missing");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

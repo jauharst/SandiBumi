@@ -91,31 +91,35 @@ Convert TOC (weight fraction of rock) to a **kerogen volume fraction**, and corr
 for the organic-matter volume that low-density kerogen inflates on the density log.
 
 TOC is a **weight** fraction; kerogen occupies a **volume** disproportionate to its weight because it
-is light. Standard mass-balance conversion (e.g. *Passey et al. 2010, SPE 131350*; *Vernik & Nur
-1992*):
+is light. Standard bulk-density mass-balance conversion (*Passey et al. 2010, SPE 131350*; *Vernik &
+Nur 1992*):
 
 ```
-TOM  = TOC_wt% / 100 · k_toc2om          organic-matter weight fraction (k_toc2om ≈ 1.2–1.4: OM is
-                                          more than just carbon; default 1.2)
-Vker = (TOM / ρ_kero) / [ TOM/ρ_kero + (1 − TOM)/ρ_matrix ]     kerogen volume fraction (v/v)
+TOM  = k_toc2om · TOC_wt%/100            organic-matter weight fraction (k_toc2om ≈ 1.2–1.4: OM is
+                                          more than carbon; default 1.2)
+Vker = TOM · ρ_b / ρ_kero                kerogen volume fraction of the BULK rock (v/v)
 ```
 
-- **ρ_kero** kerogen density ≈ **1.1–1.25 g/cc** (Techlog Kerogen 1.1; IP RHOTOC 1.25 — default 1.20).
-- **ρ_matrix** non-organic grain density ≈ **2.65–2.71 g/cc** (default 2.68).
+- **ρ_b** bulk density (RHOB) — the standard Passey/Vernik *bulk*-volume conversion, so `VKER` is
+  directly comparable to SandiMin's bulk `VOL_KEROGEN`. (`TOM·ρ_b` = OM mass per bulk volume; ÷ρ_kero
+  = OM volume per bulk volume.)
+- **ρ_kero** kerogen density ≈ **1.1–1.25 g/cc**. Default **1.10**, matching the SandiMin `Kerogen`
+  mineral (multimin2.rs) so `VKER` reconciles with `VOL_KEROGEN` (Techlog Kerogen is also 1.10; IP
+  RHOTOC seed is 1.25 — override if preferred).
 - **k_toc2om** TOC→organic-matter conversion (Ro-dependent, ≈1.2 immature → ≈1.35 mature; default 1.2).
 
-**OM-corrected total porosity** — the density-derived φ over-reads because kerogen (ρ≈1.1) mimics
-pore fluid. Remove the kerogen volume so PHIT reflects the mineral+fluid pore system:
+Sanity: a 3 wt% TOC shale at ρ_b 2.4, ρ_kero 1.2 → TOM 0.036 → Vker 0.072 (kerogen ≈7 v/v — light
+kerogen occupies ≈2.4× its weight fraction).
+
+**OM-corrected total porosity** — density-derived φ over-reads because low-density kerogen mimics pore
+fluid. Subtract the kerogen volume (ρ_kero≈ρ_fluid first-order approximation):
 
 ```
-PHIT_c = PHIT_in − Vker            (clamp ≥ 0)      when PHIT computed on a mineral matrix that
-                                                     excluded kerogen
+PHIT_omc = PHIT_in − Vker            (clamp ≥ 0)
 ```
 
-Also emit a **kerogen-inclusive** view for GIP bookkeeping. The kerogen endpoints deliberately match
-the SandiMin organic preset (Kerogen ρ 1.10), so a SandiMin `VOL_KEROGEN` and this module agree.
-
-**Outputs** `VKER` (v/v), `PHIT_OMC` (OM-corrected total porosity), `TOM` (OM weight fraction).
+**Outputs** `TOM` (OM weight fraction), `VKER` (kerogen v/v of bulk), `PHIT_OMC` (OM-corrected total
+porosity, when a PHIT curve is supplied).
 
 ---
 

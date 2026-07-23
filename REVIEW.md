@@ -7,6 +7,35 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 29 — Unconventional #7 inc 2: kerogen volume + OM-corrected porosity (2026-07-23)
+
+Second increment. A new module, **Kerogen volume + OM-corrected porosity** (Petrophysics →
+Unconventional), turns the TOC curve into a kerogen VOLUME and corrects total porosity for the organic
+matter that low-density kerogen inflates on the density log:
+
+- **TOM** = k_toc2om · TOC/100 — organic-matter weight fraction (k_toc2om ≈ 1.2 accounts for the
+  H/O/N/S beyond carbon).
+- **VKER** = TOM · RHOB / ρ_kero — kerogen volume fraction of the *bulk* rock (Passey/Vernik
+  bulk-density conversion). ρ_kero defaults to **1.10 g/cc** to match the SandiMin **Kerogen** mineral,
+  so VKER reconciles with a SandiMin **VOL_KEROGEN**.
+- **PHIT_OMC** = PHIT − VKER — strips kerogen's apparent-porosity contribution (feed a density-derived
+  PHIT).
+
+Chains off inc 1 (reads the **TOC** curve by default) and feeds inc 3 (GIP needs kerogen volume).
+Tier-B, cited (Passey et al. 2010; Vernik & Nur 1992). Method math in `docs/ref_unconventional.md` §2.
+
+Verified: **316 cargo tests** (5 new — bulk mass balance recovers a known VKER, OM-correction subtracts
+and floors, zero-TOC is inert, VKER rises with TOC, missing RHOB falls back to TOM only) + tsc,
+adversarial review = SHIP (fixed one wrong default pre-commit: ρ_kero was 1.20 but SandiMin's Kerogen
+is 1.10 — now reconciled).
+
+> **Try:** run **TOC — Passey ΔlogR** first (Round 28) so a **TOC** curve exists, then open
+> **Unconventional → Kerogen volume + OM-corrected porosity**, set **RHOB** and (optionally) a
+> density-derived **PHIT**, and Run. Check **VKER** is a few percent where TOC is a few wt% (light
+> kerogen occupies ~2× its weight fraction), and that **PHIT_OMC** reads a touch below your input PHIT
+> in the organic-rich section. Compare **VKER** against a SandiMin **VOL_KEROGEN** run (organic preset)
+> — they should track at the default ρ_kero 1.10.
+
 ## Round 28 — Unconventional #7 inc 1: TOC from Passey ΔlogR + Schmoker (2026-07-23)
 
 First increment of the unconventional / shale suite (playbook Part II #7). A new **Unconventional**

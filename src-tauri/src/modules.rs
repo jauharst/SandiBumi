@@ -201,6 +201,7 @@ pub fn list_modules() -> Vec<ModuleSpec> {
         crate::facies::electrofacies_spec(),
         crate::facies::gmm_facies_spec(),
         crate::unconventional::toc_passey_spec(),
+        crate::unconventional::kerogen_spec(),
     ]
 }
 
@@ -246,6 +247,7 @@ pub fn run_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, Stri
         "depth_shift" => Ok(depth_shift(ctx)),
         "splice" => Ok(splice(ctx)),
         "toc_passey" => Ok(crate::unconventional::toc_passey(ctx)),
+        "kerogen" => Ok(crate::unconventional::kerogen(ctx)),
         other => Err(format!("unknown module '{other}'")),
     }
 }
