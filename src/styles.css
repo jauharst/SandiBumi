@@ -4138,9 +4138,8 @@ textarea {
   padding: 8px 10px 10px;
   margin-bottom: 12px;
 }
-/* Run follows the standard module button proportions (Jauhar field review, image 1):
-   a tidy left-aligned button, not a full-width slab. Kept SandiMin-green so it still
-   reads apart from other modules' accent-coloured runs. */
+/* Run follows the standard module button (Jauhar field review, image 1): a tidy left-aligned
+   button in the theme accent, matching every other module's Run across the client-brand skins. */
 .mm-run-section .mc-run-row {
   flex-direction: row;
   align-items: center;
@@ -4151,13 +4150,14 @@ textarea {
   padding: 6px 24px;
 }
 .mm-dialog button.mm-run-btn {
-  background: #2e7d4f;
-  border-color: #2e7d4f;
+  background: var(--accent);
+  border-color: var(--accent);
   color: #fff;
   font-weight: 600;
 }
 .mm-dialog button.mm-run-btn:hover {
-  filter: brightness(1.09);
+  background: var(--accent-dim);
+  border-color: var(--accent-dim);
   color: #fff;
 }
 .mm-dialog button.mm-run-btn:disabled {

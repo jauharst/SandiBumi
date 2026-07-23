@@ -44,17 +44,18 @@ Two visual fixes from your screenshots:
   Labels ellipsis instead of wrapping so the checkboxes stay aligned; hover shows the full
   name + mnemonic.
 - **Run button (image 1 style).** No longer a full-width slab — it's now a **tidy, left-aligned
-  button** with standard module proportions like Porosity-from-Density. I **kept it green**
-  (your earlier "run colour different from other modules" note) — say the word if you'd rather
-  it match image 1's orange exactly; it's a one-line change.
+  button** with standard module proportions like Porosity-from-Density, and (per your "then for run
+  button" go-ahead) in the **theme accent** so it matches every other module's Run across the
+  client-brand skins. This supersedes the earlier "distinct green" — say the word if you actually
+  wanted it kept a different colour and I'll bring the green back.
 
 Verified in the browser against the live CSS: log grid resolves to 2 columns at a 560 px pane
 (1 when narrower), labels truncate with ellipsis (no wrap), Run renders 76 px wide (not full
-width) and stays SandiMin-green. tsc clean.
+width) in the accent colour (rgb(217,140,63) in the dark skin). tsc clean.
 
 - [ ] **Log inputs read cleanly** at your usual pane width — columns wrap sensibly, no label
       overflow, checkboxes line up.
-- [ ] **Run button** looks right where it sits at the top of the pane (or tell me to switch it to orange).
+- [ ] **Run button** looks right in the accent colour where it sits at the top of the pane.
 
 ## Round 21 — SandiMin Archie (clean-sand) Sw + deduplicated menu decision (2026-07-23)
 
