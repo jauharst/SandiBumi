@@ -408,6 +408,13 @@ pub struct MultiminRequest {
     /// Required when CT or CXO is among the tools.
     #[serde(default)]
     pub fluid: Option<FluidProps>,
+    /// Optional per-depth formation-temperature curve name (°F). When set and in the sane range at a
+    /// depth (`FTEMP_MIN_F..FTEMP_MAX_F`), the temperature-dependent fluid quantities (Cw, Cmf, Cbw, the
+    /// auto CT/CXO σ, the BNDWAT multiplier and the Waxman-Smits B) are recomputed for that sample
+    /// instead of using `fluid.ftemp_f`. A missing curve or an out-of-range/non-finite sample (a null
+    /// sentinel like ±999.25) falls back to the fixed temperature.
+    #[serde(default)]
+    pub ftemp_curve: Option<String>,
     /// Emit per-tool reconstruction-QC curves: for each active tool a `<prefix>_<KEY>_REC`
     /// (measurement rebuilt from the solved volumes, in the tool's display units) and
     /// `<prefix>_<KEY>_DIF` (the σ-unit residual = that tool's term of RECON). Off by default
@@ -514,11 +521,20 @@ fn alpha_expansion(salinity: f64) -> f64 {
 }
 
 pub fn fluid_calc(p: &FluidProps) -> FluidCalc {
+    fluid_calc_at(p, p.ftemp_f)
+}
+
+/// Fluid quantities at an explicit formation temperature `ftemp_f` (°F). This is `fluid_calc` with the
+/// temperature supplied by the caller — when an FTEMP curve drives temperature the T-dependent parts
+/// (cw, cmf, cbw and the auto CT/CXO uncertainties) are recomputed per depth. The salinities and the α
+/// expansion come from the Rw/Rmf *sample* temperatures, so they do NOT vary with formation temperature
+/// and stay identical to `fluid_calc(p)`.
+pub fn fluid_calc_at(p: &FluidProps, ftemp_f: f64) -> FluidCalc {
     let w = 0.75 * p.m + 0.25 * p.n;
     let w = if w.is_finite() && w > 0.5 { w } else { 2.0 };
-    let cw = 1.0 / arps_f(p.rw, p.rw_temp_f, p.ftemp_f).max(1e-4);
-    let cmf = 1.0 / arps_f(p.rmf, p.rmf_temp_f, p.ftemp_f).max(1e-4);
-    let t_c = (p.ftemp_f - 32.0) * 5.0 / 9.0;
+    let cw = 1.0 / arps_f(p.rw, p.rw_temp_f, ftemp_f).max(1e-4);
+    let cmf = 1.0 / arps_f(p.rmf, p.rmf_temp_f, ftemp_f).max(1e-4);
+    let t_c = (ftemp_f - 32.0) * 5.0 / 9.0;
     let cbw = 0.0007 * (t_c + 8.5) * (t_c + 298.0);
     let sal_w = salinity_ppm(p.rw, p.rw_temp_f);
     let sal_mf = salinity_ppm(p.rmf, p.rmf_temp_f);
@@ -709,6 +725,14 @@ pub fn fluid_from_precalc(
 
 const SIGMA_CONSTRAINT: f64 = 0.01; // nominal Tool-constraint uncertainty
 
+/// Sane per-sample FTEMP window (°F). Outside it a curve value is bad data — null sentinels
+/// (−999.25, +999.25), zero fills, etc. — so a per-depth FTEMP that is not finite or falls outside this
+/// range reverts to the constant fluid temperature instead of feeding a nonsensical T into the fluid
+/// calc. The floor (below freezing) and ceiling (hotter than any real reservoir, ~315 °C) bracket every
+/// physical formation temperature while rejecting the common ±999.25 / 9999 fills.
+const FTEMP_MIN_F: f64 = 32.0;
+const FTEMP_MAX_F: f64 = 600.0;
+
 /// Wet-Clay-Porosity route: the largest φ_clay we treat as a real geometric porosity.
 /// Techlog's real clays sit at φ ≤ 0.156; only smectite carries φ = 1.0, and that value
 /// is a *post-solve* placeholder (Techlog floors 1−φ at 1e-4 for wet-clay-volume output,
@@ -821,6 +845,79 @@ fn set_group(x: &mut [f64], idx: &[usize], target: f64) {
     }
 }
 
+/// Scale a response row by an equation weight (row·w) — one equation's contribution to A.
+fn scaled(row: &[f64], w: f64) -> Vec<f64> {
+    row.iter().map(|e| e * w).collect()
+}
+
+/// A conductivity tool's response row. CT reads the U (virgin) zone against Cw/Cbw_u; CXO the X
+/// (flushed) zone against Cmf/Cbw_x. Water and bound-water components take C^(1/w); everything else is
+/// 0. The non-zero PATTERN is temperature-independent (it depends only on which components are water in
+/// the zone), so it is validated once; an FTEMP curve only moves the values via a per-sample fluid calc.
+fn cond_tool_row(is_ct: bool, fc: &FluidCalc, zs: &ZoneSets, n: usize) -> Vec<f64> {
+    let inv_w = 1.0 / fc.w;
+    let mut row = vec![0.0f64; n];
+    if is_ct {
+        for &i in &zs.u_water {
+            row[i] = fc.cw.powf(inv_w);
+        }
+        for &i in &zs.u_bw {
+            row[i] = fc.cbw_u.powf(inv_w);
+        }
+    } else {
+        for &i in &zs.x_water {
+            row[i] = fc.cmf.powf(inv_w);
+        }
+        for &i in &zs.x_bw {
+            row[i] = fc.cbw_x.powf(inv_w);
+        }
+    }
+    row
+}
+
+/// BNDWAT soft-constraint rows (Σ k·v_clay − v_bw = 0), one per bound-water set (X and/or U). The
+/// multiplier k = `bound_water_multiplier` depends on t_c (and the salinity-driven, T-independent α);
+/// the row SET — which clays contribute — is temperature-independent, so callers build it once for the
+/// count/DOF and rebuild only the k values per sample when an FTEMP curve varies t_c.
+fn bndwat_soft_rows(
+    zs: &ZoneSets,
+    comps: &[Component],
+    source: PorositySource,
+    t_c: f64,
+    alpha_x: f64,
+    alpha_u: f64,
+    n: usize,
+) -> Vec<Vec<f64>> {
+    let mut bw_sets: Vec<(&Vec<usize>, f64)> = Vec::new();
+    if !zs.x_bw.is_empty() && zs.x_bw != zs.u_bw {
+        bw_sets.push((&zs.x_bw, alpha_x));
+    }
+    if !zs.u_bw.is_empty() {
+        bw_sets.push((&zs.u_bw, alpha_u));
+    }
+    let mut out = Vec::new();
+    for (bw_idx, alpha) in bw_sets {
+        let mut row = vec![0.0f64; n];
+        let mut any = false;
+        for &ci in &zs.clays {
+            let c = &comps[ci];
+            let rho = *c.endpoints.get("RHOB").unwrap_or(&2.65);
+            let k = bound_water_multiplier(source, c.cec, c.wet_clay_porosity, rho, t_c, alpha);
+            if k > 0.0 {
+                row[ci] = k;
+                any = true;
+            }
+        }
+        if any {
+            for &bi in bw_idx {
+                row[bi] = -1.0;
+            }
+            out.push(row);
+        }
+    }
+    out
+}
+
 pub fn run_multimin(
     db: &Mutex<Connection>,
     req: &MultiminRequest,
@@ -887,38 +984,24 @@ pub fn run_multimin(
         let key = t.key.trim().to_uppercase();
         if is_cond_key(&key) {
             let fc = fluid.as_ref().unwrap();
-            let inv_w = 1.0 / fc.w;
-            let mut row = vec![0.0f64; n];
-            if key == "CT" {
-                for &i in &zs.u_water {
-                    row[i] = fc.cw.powf(inv_w);
-                }
-                for &i in &zs.u_bw {
-                    row[i] = fc.cbw_u.powf(inv_w);
-                }
-            } else {
-                for &i in &zs.x_water {
-                    row[i] = fc.cmf.powf(inv_w);
-                }
-                for &i in &zs.x_bw {
-                    row[i] = fc.cbw_x.powf(inv_w);
-                }
-            }
+            let is_ct = key == "CT";
+            let row = cond_tool_row(is_ct, fc, &zs, n);
             // An all-zero conductivity row is the bogus equation 0 = Ct^(1/w): it happens when
             // the model has no water/bound-water in this tool's zone (e.g. CT but only X-zone
             // water). The whole-model no-water case is caught earlier; this catches the
-            // per-zone case that slips past it.
+            // per-zone case that slips past it. The pattern is T-independent, so checking it once
+            // (here) also covers every per-sample FTEMP rebuild.
             if row.iter().all(|&e| e == 0.0) {
-                let need = if key == "CT" { "U-zone (deep) water or bound-water" } else { "X-zone (flushed) water or bound-water" };
+                let need = if is_ct { "U-zone (deep) water or bound-water" } else { "X-zone (flushed) water or bound-water" };
                 return fail(&format!(
                     "{key} selected but the model has no {need} component — its response row is all zero"
                 ));
             }
-            let auto_sigma = if key == "CT" { fc.u_ct } else { fc.u_cxo };
+            let auto_sigma = if is_ct { fc.u_ct } else { fc.u_cxo };
             let sigma = if t.sigma > 0.0 { t.sigma } else { auto_sigma };
             weights.push(1.0 / sigma.max(1e-9));
             rows.push(row);
-            tkind.push(TKind::Cond(fc.w));
+            tkind.push(TKind::Cond(fc.w, is_ct));
         } else if is_pef_key(&key) {
             // PEF is a PER-ELECTRON index and does NOT mix by volume; only U = Pe·ρe
             // does. Build the mixing row from the U endpoints and convert the measured
@@ -970,7 +1053,9 @@ pub fn run_multimin(
         }
     }
 
-    // Soft constraint rows (built once; appended after the live tool rows each sample).
+    // Soft constraint rows (built once; appended after the live tool rows each sample). POROSITY is
+    // temperature-independent and lives here; BNDWAT (below) depends on t_c, so it is split out so an
+    // FTEMP curve can rebuild only its k values per sample without touching this row.
     let mut soft: Vec<(Vec<f64>, f64)> = Vec::new();
     if zs.has_split && req.enforce_porosity {
         let mut row = vec![0.0f64; n];
@@ -982,36 +1067,15 @@ pub fn run_multimin(
         }
         soft.push((row, 0.0)); // POROSITY: Σ X fluids − Σ U fluids = 0
     }
-    if !zs.clays.is_empty() && req.enforce_bndwat {
-        let fc_alpha = |x: bool| fluid.as_ref().map(|f| if x { f.alpha_x } else { f.alpha_u }).unwrap_or(1.0);
-        let mut bw_rows: Vec<(Vec<usize>, f64)> = Vec::new();
-        if !zs.x_bw.is_empty() && zs.x_bw != zs.u_bw {
-            bw_rows.push((zs.x_bw.clone(), fc_alpha(true)));
-        }
-        if !zs.u_bw.is_empty() {
-            bw_rows.push((zs.u_bw.clone(), fc_alpha(false)));
-        }
-        for (bw_idx, alpha) in bw_rows {
-            let mut row = vec![0.0f64; n];
-            let mut any = false;
-            for &ci in &zs.clays {
-                let c = &req.components[ci];
-                // Bound-water multiplier k (v_bw = k·v_dryclay) from the chosen porosity source.
-                let rho = *c.endpoints.get("RHOB").unwrap_or(&2.65);
-                let k = bound_water_multiplier(req.porosity_source, c.cec, c.wet_clay_porosity, rho, t_c, alpha);
-                if k > 0.0 {
-                    row[ci] = k;
-                    any = true;
-                }
-            }
-            if any {
-                for &bi in &bw_idx {
-                    row[bi] = -1.0;
-                }
-                soft.push((row, 0.0)); // BNDWAT: Σ k·v_clay − v_bw = 0
-            }
-        }
-    }
+    // BNDWAT soft rows at the constant fluid temperature. α is salinity-driven (T-independent); only k
+    // moves with t_c. Kept separate from `soft` and appended after it each sample (identical row order
+    // to before), so the constant-T solve is byte-for-byte unchanged.
+    let (alpha_x_s, alpha_u_s) = fluid.as_ref().map(|f| (f.alpha_x, f.alpha_u)).unwrap_or((1.0, 1.0));
+    let bndwat_static: Vec<Vec<f64>> = if !zs.clays.is_empty() && req.enforce_bndwat {
+        bndwat_soft_rows(&zs, &req.components, req.porosity_source, t_c, alpha_x_s, alpha_u_s, n)
+    } else {
+        Vec::new()
+    };
     let sigma = if req.sigma_constraint > 0.0 { req.sigma_constraint } else { SIGMA_CONSTRAINT };
     let soft_weight = 1.0 / sigma;
 
@@ -1035,8 +1099,10 @@ pub fn run_multimin(
     let hi: Vec<f64> = req.components.iter().map(|c| if c.max_vol > 0.0 { c.max_vol.min(1.0) } else { 1.0 }).collect();
     let unity_c = if req.unity { Some(zs.unity.clone()) } else { None };
 
-    // Minimum live tool rows per sample: volumes minus unity/soft-constraint degrees of freedom.
-    let n_extra = soft.len() + usize::from(req.unity);
+    // Minimum live tool rows per sample: volumes minus unity/soft-constraint degrees of freedom. The
+    // BNDWAT row COUNT is temperature-independent, so `bndwat_static` gives the right count for every
+    // sample even when an FTEMP curve later rebuilds its values.
+    let n_extra = soft.len() + bndwat_static.len() + usize::from(req.unity);
     let min_tools = n.saturating_sub(n_extra).max(1);
     if tools.len() < min_tools {
         return fail(&format!(
@@ -1077,10 +1143,20 @@ pub fn run_multimin(
     } else {
         None
     };
+    // Optional per-depth formation temperature (°F). When set, the T-dependent fluid calc + t_c are
+    // recomputed per sample; a missing curve fetches as all-NaN and every sample falls back to the
+    // fixed temperature, so selecting it is harmless if the well lacks it.
+    let ftemp_name: Option<String> =
+        req.ftemp_curve.as_ref().map(|c| c.trim().to_uppercase()).filter(|c| !c.is_empty());
     let mut all_fetch = fetch_names.clone();
     if let Some(d) = &density_name {
         if !all_fetch.contains(d) {
             all_fetch.push(d.clone());
+        }
+    }
+    if let Some(f) = &ftemp_name {
+        if !all_fetch.contains(f) {
+            all_fetch.push(f.clone());
         }
     }
 
@@ -1117,6 +1193,7 @@ pub fn run_multimin(
         let ns = depth.len();
         let tool_cols: Vec<&Vec<f32>> = fetch_names.iter().map(|nm| cols.get(nm).unwrap()).collect();
         let rhob_col: Option<&Vec<f32>> = density_name.as_ref().and_then(|d| cols.get(d));
+        let ftemp_col: Option<&Vec<f32>> = ftemp_name.as_ref().and_then(|d| cols.get(d));
 
         let mut vol: Vec<Vec<f32>> = vec![vec![f32::NAN; ns]; n];
         let mut recon = vec![f32::NAN; ns];
@@ -1132,19 +1209,49 @@ pub fn run_multimin(
             let mut live_tools = 0usize;
             // (tool index, measured value in solve domain, weight) for the reconstruction QC.
             let mut live: Vec<(usize, f64, f64)> = Vec::new();
+            // Per-sample formation temperature: a finite FTEMP curve value recomputes the T-dependent
+            // fluid calc + t_c for this depth (conductivity rows, auto CT/CXO σ, BNDWAT k, Waxman-Smits
+            // B). Absent/non-finite ⇒ the constant-T static values, byte-identical to before.
+            let ftemp_i: Option<f64> = ftemp_col.and_then(|c| {
+                let tf = c[i] as f64;
+                (tf.is_finite() && tf > FTEMP_MIN_F && tf < FTEMP_MAX_F).then_some(tf)
+            });
+            let t_c_i = ftemp_i.map(|tf| (tf - 32.0) * 5.0 / 9.0).unwrap_or(t_c);
+            let sample_fc: Option<FluidCalc> = match (ftemp_i, req.fluid.as_ref()) {
+                (Some(tf), Some(p)) => Some(fluid_calc_at(p, tf)),
+                _ => None,
+            };
             for (t, tcol) in tool_cols.iter().enumerate() {
                 let raw = tcol[i] as f64;
                 if !raw.is_finite() {
                     continue;
                 }
-                let (v, w) = match tkind[t] {
-                    TKind::Plain => (raw, weights[t]),
-                    TKind::Cond(w_exp) => {
+                // Resolve this tool's (solve-domain value, weight, weighted A-row). Conductivity tools
+                // rebuild their row/weight from the per-sample fluid calc when an FTEMP curve is active.
+                let (v, w, arow): (f64, f64, Vec<f64>) = match tkind[t] {
+                    TKind::Plain => {
+                        let w = weights[t];
+                        (raw, w, scaled(&rows[t], w))
+                    }
+                    TKind::Cond(w_exp, is_ct) => {
                         // Resistivity (ohmm) → conductivity (mho/m) → ^(1/w) transform.
                         if raw <= 1e-4 {
                             continue;
                         }
-                        ((1.0 / raw).powf(1.0 / w_exp), weights[t])
+                        let v = (1.0 / raw).powf(1.0 / w_exp);
+                        match &sample_fc {
+                            Some(fc_i) => {
+                                let row = cond_tool_row(is_ct, fc_i, &zs, n);
+                                let auto = if is_ct { fc_i.u_ct } else { fc_i.u_cxo };
+                                let sig = if tools[t].sigma > 0.0 { tools[t].sigma } else { auto };
+                                let w = 1.0 / sig.max(1e-9);
+                                (v, w, scaled(&row, w))
+                            }
+                            None => {
+                                let w = weights[t];
+                                (v, w, scaled(&rows[t], w))
+                            }
+                        }
                     }
                     TKind::Pef(sig) => {
                         // U = Pe·ρe (volumetric); its uncertainty in U space is σ_PEF·ρe.
@@ -1153,10 +1260,11 @@ pub fn run_multimin(
                             _ => continue,
                         };
                         let re = rho_e(rhob);
-                        (raw * re, 1.0 / (sig * re).max(1e-9))
+                        let w = 1.0 / (sig * re).max(1e-9);
+                        (raw * re, w, scaled(&rows[t], w))
                     }
                 };
-                a.push(rows[t].iter().map(|e| e * w).collect());
+                a.push(arow);
                 b.push(v * w);
                 if recon_qc {
                     live.push((t, v, w));
@@ -1168,8 +1276,29 @@ pub fn run_multimin(
             }
             let n_tool_rows = a.len();
             for (row, rhs) in &soft {
-                a.push(row.iter().map(|e| e * soft_weight).collect());
+                a.push(scaled(row, soft_weight));
                 b.push(rhs * soft_weight);
+            }
+            // BNDWAT rows: rebuilt at the per-sample t_c when an FTEMP curve is active, else the static
+            // rows. Row COUNT is identical either way, so A/b stay dimensionally consistent (rhs = 0).
+            let bndwat_owned;
+            let bndwat: &[Vec<f64>] = if ftemp_i.is_some() && !bndwat_static.is_empty() {
+                bndwat_owned = bndwat_soft_rows(
+                    &zs,
+                    &req.components,
+                    req.porosity_source,
+                    t_c_i,
+                    alpha_x_s,
+                    alpha_u_s,
+                    n,
+                );
+                &bndwat_owned
+            } else {
+                &bndwat_static
+            };
+            for row in bndwat {
+                a.push(scaled(row, soft_weight));
+                b.push(0.0);
             }
 
             let mut x = match solve_bounded_lsq(&a, &b, unity_c.as_deref(), &hi, n) {
@@ -1195,7 +1324,9 @@ pub fn run_multimin(
             // and hard unity are untouched and SWE becomes the model Sw. RECON is computed AFTER this,
             // so for these models it also measures how well the chosen Sw coheres with every tool.
             if post_solve {
-                let fc = fluid.as_ref().unwrap();
+                // Per-sample fluid calc under an FTEMP curve, else the constant-T one; the closed-form
+                // Sw (Cw/Cbw and, for Waxman-Smits, B(t_c,Rw)) then uses this depth's temperature.
+                let fc = sample_fc.as_ref().unwrap_or_else(|| fluid.as_ref().unwrap());
                 let fp = req.fluid.as_ref().unwrap();
                 let (m_exp, n_exp, a_arch, rsh, phit_sh, ws_b) =
                     (fp.m, fp.n, fp.archie_a, fp.rsh, fp.phit_sh, fp.ws_b);
@@ -1280,7 +1411,7 @@ pub fn run_multimin(
                                 return f64::NAN;
                             }
                             let qv = qv_num / phit;
-                            let b = if ws_b > 0.0 { ws_b } else { waxman_b(t_c, 1.0 / cw.max(1e-9)) };
+                            let b = if ws_b > 0.0 { ws_b } else { waxman_b(t_c_i, 1.0 / cw.max(1e-9)) };
                             let swt = sw_waxman_smits(rt, phit, qv, cw, b, m_exp, n_exp);
                             if !swt.is_finite() {
                                 return f64::NAN;
@@ -1335,13 +1466,17 @@ pub fn run_multimin(
             recon_sum += rerr;
             solved += 1;
 
-            // Per-tool reconstruction: rebuild each live tool's reading from the solved volumes.
-            // rec_native = rows[t]·x is in the tool's SOLVE domain; the σ-unit residual
-            // (rec_native − v)·w is exactly that tool's term of RECON (Σ term² / n_tool_rows = rerr²).
+            // Per-tool reconstruction: rebuild each live tool's reading from the solved volumes. Read
+            // from the SAME per-sample A-row the solver fitted (`a[k]` = row·w, `live[k]` in step with
+            // it) — not the constant-T static `rows[t]` — so a conductivity row rebuilt at this depth's
+            // FTEMP temperature is honoured. `rec_native = (a[k]·x)/w` is the tool's SOLVE-domain value;
+            // the σ-unit residual (rec_native − v)·w is exactly that tool's term of RECON. In the
+            // constant-T path `a[k] = rows[t]·w`, so this is byte-identical to reconstructing from rows[t].
             if recon_qc {
                 let rhob_i = rhob_col.map(|c| c[i] as f64);
-                for &(t, v, w) in &live {
-                    let rec_native: f64 = rows[t].iter().zip(&x).map(|(e, xi)| e * xi).sum();
+                for (k, &(t, v, w)) in live.iter().enumerate() {
+                    let pred_scaled: f64 = a[k].iter().zip(&x).map(|(ai, xi)| ai * xi).sum();
+                    let rec_native = pred_scaled / w;
                     tool_dif[t][i] = ((rec_native - v) * w) as f32;
                     tool_rec[t][i] = recon_display(&tkind[t], rec_native, rhob_i) as f32;
                 }
@@ -1457,7 +1592,7 @@ pub fn run_multimin(
 fn recon_display(kind: &TKind, native: f64, rhob: Option<f64>) -> f64 {
     match *kind {
         TKind::Plain => native,
-        TKind::Cond(w) => {
+        TKind::Cond(w, _) => {
             if native > 1e-12 {
                 native.powf(-w)
             } else {
@@ -1498,8 +1633,10 @@ fn pef_to_u(pef: f64, rhob: f64) -> Option<f64> {
 enum TKind {
     /// Endpoint response mixes linearly (RHOB, NPHI, DT, GR, U, …).
     Plain,
-    /// Resistivity → conductivity^(1/w) transform (CT/CXO); carries w.
-    Cond(f64),
+    /// Resistivity → conductivity^(1/w) transform (CT/CXO); carries w and whether it is the deep
+    /// (CT, U-zone) tool — the latter selects the zone/water conductivity when an FTEMP curve rebuilds
+    /// the row per sample.
+    Cond(f64, bool),
     /// PEF → U = Pe·ρe conversion before mixing; carries the PEF-space σ.
     Pef(f64),
 }
@@ -1934,6 +2071,7 @@ mod tests {
                     output_prefix: prefix.into(),
                     unity: true,
                     fluid: None,
+                    ftemp_curve: None,
                     recon_qc: true,
                     sw_model: SwModel::LinearDw,
                     porosity_source: PorositySource::Cec,
@@ -2017,6 +2155,7 @@ mod tests {
                 output_prefix: "MM".into(),
                 unity: true,
                 fluid: None,
+                ftemp_curve: None,
                 recon_qc: false,
                 sw_model: SwModel::LinearDw,
                 porosity_source: PorositySource::Cec,
@@ -2394,6 +2533,7 @@ mod tests {
             output_prefix: "MM".into(),
             unity: true,
             fluid: None,
+            ftemp_curve: None,
             recon_qc: false,
             sw_model: SwModel::LinearDw,
             porosity_source: PorositySource::Cec,
@@ -2446,6 +2586,7 @@ mod tests {
             output_prefix: "MM".into(),
             unity: true,
             fluid: Some(props),
+            ftemp_curve: None,
             recon_qc: false,
             sw_model: SwModel::LinearDw,
             porosity_source: PorositySource::Cec,
@@ -2617,6 +2758,7 @@ mod tests {
                 output_prefix: prefix.into(),
                 unity: true,
                 fluid: None,
+                ftemp_curve: None,
                 recon_qc: false,
                 sw_model: SwModel::LinearDw,
                 porosity_source: PorositySource::Cec,
@@ -2957,6 +3099,7 @@ mod tests {
             output_prefix: "MM".into(),
             unity: true,
             fluid: Some(props),
+            ftemp_curve: None,
             recon_qc: false,
             sw_model: SwModel::Indonesia,
             porosity_source: PorositySource::Cec,
@@ -3175,6 +3318,7 @@ mod tests {
             output_prefix: "MM".into(),
             unity: true,
             fluid: Some(props),
+            ftemp_curve: None,
             recon_qc: false,
             sw_model: SwModel::DualWaterNonlinear,
             porosity_source: PorositySource::Cec,
@@ -3263,6 +3407,7 @@ mod tests {
             output_prefix: "MM".into(),
             unity: true,
             fluid: Some(props),
+            ftemp_curve: None,
             recon_qc: false,
             sw_model: SwModel::WaxmanSmits,
             porosity_source: PorositySource::Cec,
@@ -3362,6 +3507,7 @@ mod tests {
             output_prefix: "MM".into(),
             unity: true,
             fluid: Some(props),
+            ftemp_curve: None,
             recon_qc: false,
             sw_model: SwModel::WaxmanSmits,
             porosity_source: PorositySource::Cec,
@@ -3391,5 +3537,219 @@ mod tests {
         // ~0.44 (markedly high), so recovering 0.35 proves B·Qv propagated through qv_num end to end.
         assert!((swe - sw_true as f32).abs() < 0.02, "post-solve SWE {swe}, want {sw_true}");
         assert!((phie_out - phie as f32).abs() < 0.02, "PHIE {phie_out}, want {phie}");
+    }
+
+    #[test]
+    fn fluid_calc_at_matches_and_moves_with_temperature() {
+        let p = FluidProps {
+            rw: 0.10,
+            rw_temp_f: 77.0,
+            rmf: 0.05,
+            rmf_temp_f: 70.0,
+            ftemp_f: 150.0,
+            m: 2.0,
+            n: 2.0,
+            mud_type: "WATER".into(),
+            rsh: 4.0,
+            archie_a: 1.0,
+            phit_sh: 0.1,
+            ws_b: 0.0,
+        };
+        // fluid_calc IS fluid_calc_at at p.ftemp_f — bit-identical.
+        let base = fluid_calc(&p);
+        let same = fluid_calc_at(&p, p.ftemp_f);
+        assert_eq!(base.cw, same.cw);
+        assert_eq!(base.cmf, same.cmf);
+        assert_eq!(base.cbw, same.cbw);
+        assert_eq!(base.u_ct, same.u_ct);
+        // Hotter formation ⇒ water more conductive (cw, cmf, cbw up); the α expansion and salinities
+        // come from the Rw/Rmf sample temperatures, so they do NOT move with formation temperature.
+        let hot = fluid_calc_at(&p, 250.0);
+        assert!(hot.cw > base.cw, "cw rises with T: {} vs {}", hot.cw, base.cw);
+        assert!(hot.cmf > base.cmf, "cmf rises with T");
+        assert!(hot.cbw > base.cbw, "cbw rises with T");
+        assert_eq!(hot.alpha_u, base.alpha_u, "α is salinity-driven, T-independent");
+        assert_eq!(hot.alpha_x, base.alpha_x);
+        assert_eq!(hot.salinity_w_ppm, base.salinity_w_ppm);
+        assert_eq!(hot.w, base.w);
+    }
+
+    /// Shared clean-sand well for the FTEMP-curve integration tests: Rt is forward-modelled through
+    /// Archie at `t_forward` °F for a known Sw. Returns (db, well id, components, sw_true).
+    #[cfg(test)]
+    fn ftemp_test_well(name: &str, t_forward: f64, sw_true: f64) -> (Mutex<Connection>, uuid::Uuid, f64) {
+        let q = lib_get("Quartz");
+        let wsxo = lib_get("Water Sxo");
+        let osxo = lib_get("Oil Sxo");
+        let ep = |c: &Component, k: &str| c.endpoints[&k.to_string()];
+        let (vq, vwx, vox) = (0.70, 0.15, 0.15);
+        let phie: f64 = 0.30;
+        let rw_fwd = arps_f(0.10, 77.0, t_forward); // Rw at the forward formation temperature
+        let rt = rw_fwd / (phie.powf(2.0) * sw_true.powf(2.0)); // clean sand, a=1, m=n=2
+        let nrows = 6usize;
+        let depth: Vec<f32> = (0..nrows).map(|i| 2000.0 + i as f32 * 0.5).collect();
+        let mix = |k: &str| (vq * ep(&q, k) + vwx * ep(&wsxo, k) + vox * ep(&osxo, k)) as f32;
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, name, None, None, None).unwrap();
+        crate::db::insert_standard_curves(
+            &conn,
+            wid,
+            depth.clone(),
+            vec![mix("GR"); nrows],
+            vec![rt as f32; nrows],
+            vec![mix("NPHI"); nrows],
+            vec![mix("RHOB"); nrows],
+            vec![mix("DT"); nrows],
+            vec![f32::NAN; nrows],
+        )
+        .unwrap();
+        // A constant FTEMP_F curve at the forward temperature.
+        crate::equations::write_computed_curve(&conn, &wid.to_string(), &depth, "FTEMP_F", &vec![t_forward as f32; nrows])
+            .unwrap();
+        (Mutex::new(conn), wid, phie)
+    }
+
+    #[cfg(test)]
+    fn ftemp_req(wid: uuid::Uuid, scalar_ftemp: f64, ftemp_curve: Option<String>) -> MultiminRequest {
+        let props = FluidProps {
+            rw: 0.10,
+            rw_temp_f: 77.0,
+            rmf: 0.10,
+            rmf_temp_f: 77.0,
+            ftemp_f: scalar_ftemp,
+            m: 2.0,
+            n: 2.0,
+            mud_type: "WATER".into(),
+            rsh: 4.0,
+            archie_a: 1.0,
+            phit_sh: 0.1,
+            ws_b: 0.0,
+        };
+        MultiminRequest {
+            components: vec![
+                lib_get("Quartz"),
+                lib_get("Water Sxo"),
+                lib_get("Oil Sxo"),
+                lib_get("Water Sw"),
+                lib_get("Oil Sw"),
+            ],
+            tools: vec![
+                ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.0264 },
+                ToolSpec { key: "NPHI".into(), curve: "NPHI".into(), sigma: 0.014 },
+                ToolSpec { key: "DT".into(), curve: "DT".into(), sigma: 1.951 },
+                ToolSpec { key: "GR".into(), curve: "GR".into(), sigma: 6.0 },
+                ToolSpec { key: "CT".into(), curve: "RES_DEEP".into(), sigma: 0.0 },
+            ],
+            apply_well_ids: vec![wid.to_string()],
+            output_prefix: "MM".into(),
+            unity: true,
+            fluid: Some(props),
+            ftemp_curve,
+            recon_qc: false,
+            sw_model: SwModel::Archie,
+            porosity_source: PorositySource::Cec,
+            enforce_porosity: true,
+            enforce_bndwat: true,
+            enforce_water_mud: true,
+            sigma_constraint: 0.01,
+        }
+    }
+
+    #[cfg(test)]
+    fn ftemp_mean_swe(db: &Mutex<Connection>, wid: uuid::Uuid, req: &MultiminRequest) -> f32 {
+        let res = run_multimin(db, req, None);
+        assert!(res.error.is_none(), "err={:?}", res.error);
+        assert!(res.wells[0].rows_solved > 0, "no samples solved");
+        let c = db.lock().unwrap();
+        let cols = fetch_curve_frame(&c, &wid.to_string(), &["MM_SWE".into()]).unwrap().1;
+        let f: Vec<f32> = cols["MM_SWE"].iter().copied().filter(|x| x.is_finite()).collect();
+        assert!(!f.is_empty(), "no finite SWE");
+        f.iter().sum::<f32>() / f.len() as f32
+    }
+
+    #[test]
+    fn ftemp_curve_constant_equals_fixed_temperature() {
+        // An FTEMP curve equal to the fixed temperature at every depth must reproduce the constant-T
+        // run exactly (100 °F is exact in f32, so the per-sample fluid calc is bit-identical). Proves
+        // the per-sample path collapses to the reviewed behaviour when temperature is uniform.
+        let (db, wid, _phie) = ftemp_test_well("MM-FTEMP-EQ", 100.0, 0.40);
+        let without = ftemp_mean_swe(&db, wid, &ftemp_req(wid, 100.0, None));
+        let with = ftemp_mean_swe(&db, wid, &ftemp_req(wid, 100.0, Some("FTEMP_F".into())));
+        assert_eq!(with, without, "constant FTEMP curve must match the fixed temperature exactly");
+    }
+
+    #[test]
+    fn ftemp_curve_overrides_scalar_temperature() {
+        // Rt is forward-modelled at a HOT formation temperature (200 °F). Reading it back with the
+        // FTEMP curve (hot) recovers the true Sw; the fixed COLD scalar (100 °F) reads Sw too high —
+        // colder water is more resistive, so the same Rt looks less water-bearing than it is. Confirms
+        // the curve is applied and drives Cw the right way.
+        let sw_true = 0.40;
+        let (db, wid, _phie) = ftemp_test_well("MM-FTEMP-HOT", 200.0, sw_true);
+        let with_curve = ftemp_mean_swe(&db, wid, &ftemp_req(wid, 100.0, Some("FTEMP_F".into())));
+        let cold_scalar = ftemp_mean_swe(&db, wid, &ftemp_req(wid, 100.0, None));
+        assert!((with_curve - sw_true as f32).abs() < 0.02, "FTEMP-curve SWE {with_curve}, want {sw_true}");
+        assert!(cold_scalar > with_curve + 0.10, "cold fixed T over-reads Sw: {cold_scalar} vs {with_curve}");
+    }
+
+    #[test]
+    fn ftemp_curve_out_of_range_falls_back() {
+        // FTEMP samples outside the sane window — null sentinels below the floor (−999.25) OR above the
+        // ceiling (9999) — must be ignored so the sample reverts to the fixed temperature. Selecting the
+        // curve then can't corrupt a well whose temperature column is all bad data. Rt is forward-modelled
+        // at the scalar 100 °F, so the fallback recovers the same Sw as running with no curve at all.
+        let (db, wid, _phie) = ftemp_test_well("MM-FTEMP-NULL", 100.0, 0.40);
+        {
+            let c = db.lock().unwrap();
+            let depth: Vec<f32> = (0..6).map(|i| 2000.0 + i as f32 * 0.5).collect();
+            let vals: Vec<f32> = (0..6).map(|i| if i % 2 == 0 { 9999.0 } else { -999.25 }).collect();
+            crate::equations::write_computed_curve(&c, &wid.to_string(), &depth, "FTEMP_F", &vals).unwrap();
+        }
+        let with = ftemp_mean_swe(&db, wid, &ftemp_req(wid, 100.0, Some("FTEMP_F".into())));
+        let without = ftemp_mean_swe(&db, wid, &ftemp_req(wid, 100.0, None));
+        assert_eq!(with, without, "out-of-range FTEMP samples must fall back to the fixed temperature");
+    }
+
+    #[test]
+    fn ftemp_curve_recon_qc_decomposition_holds() {
+        // Under an FTEMP curve the per-tool RECON decomposition must still satisfy Σ DIF²/n_tools = RECON²
+        // — the conductivity tool's DIF has to be rebuilt from the per-sample (hot) row, not the static
+        // constant-T row. The model is over-determined (dof = 2), so residuals are real; a decomposition
+        // that used the wrong CT row would break the identity. Forward Rt is at 200 °F, scalar is 100 °F.
+        let (db, wid, _phie) = ftemp_test_well("MM-FTEMP-RQC", 200.0, 0.40);
+        let mut req = ftemp_req(wid, 100.0, Some("FTEMP_F".into()));
+        req.recon_qc = true;
+        let res = run_multimin(&db, &req, None);
+        assert!(res.error.is_none(), "err={:?}", res.error);
+        let c = db.lock().unwrap();
+        let dif_names = ["MM_RHOB_DIF", "MM_NPHI_DIF", "MM_DT_DIF", "MM_GR_DIF", "MM_CT_DIF"];
+        let mut names: Vec<String> = vec!["MM_RECON".into()];
+        names.extend(dif_names.iter().map(|s| s.to_string()));
+        let cols = fetch_curve_frame(&c, &wid.to_string(), &names).unwrap().1;
+        let n_tools = dif_names.len() as f64;
+        let mut checked = 0;
+        for i in 0..cols["MM_RECON"].len() {
+            let recon = cols["MM_RECON"][i] as f64;
+            if !recon.is_finite() {
+                continue;
+            }
+            let ssq: f64 = dif_names
+                .iter()
+                .map(|k| {
+                    let d = cols[*k][i] as f64;
+                    d * d
+                })
+                .sum();
+            assert!(
+                (ssq / n_tools - recon * recon).abs() < 1e-4,
+                "sample {i}: Σdif²/n = {} vs RECON² = {}",
+                ssq / n_tools,
+                recon * recon
+            );
+            checked += 1;
+        }
+        assert!(checked > 0, "no finite RECON samples checked");
     }
 }

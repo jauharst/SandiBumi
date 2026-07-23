@@ -504,6 +504,16 @@ export async function buildMultiminContent(
   const rmfInp = numInput(0.1);
   const rmfTInp = numInput(62);
   const ftInp = numInput(148);
+  // Optional per-depth formation-temperature curve. Blank = use the fixed °F above; a name (e.g.
+  // FTEMP_F from Prep) recomputes the T-dependent fluid quantities per sample.
+  const ftempCurveInp = document.createElement("input");
+  ftempCurveInp.type = "text";
+  ftempCurveInp.placeholder = "fixed";
+  ftempCurveInp.style.width = "96px";
+  ftempCurveInp.title =
+    "Per-depth formation temperature (°F) curve name — blank uses the fixed temperature. When set, " +
+    "Cw/Cmf/Cbw, the auto CT/CXO σ, the clay bound-water tie and the Waxman-Smits B are recomputed at " +
+    "each sample's temperature. A missing or below-freezing sample falls back to the fixed value.";
   const mInp = numInput(2, 52);
   const nInp = numInput(2, 52);
   const mudSel = document.createElement("select");
@@ -519,6 +529,7 @@ export async function buildMultiminContent(
     ["Rmf sample (ohmm)", rmfInp],
     ["@ temp (°F)", rmfTInp],
     ["Formation temp (°F)", ftInp],
+    ["FTEMP curve (opt)", ftempCurveInp],
     ["m", mInp],
     ["n", nInp],
     ["Mud", mudSel],
@@ -1091,6 +1102,7 @@ export async function buildMultiminContent(
       output_prefix: prefixInp.value.trim() || "MM",
       unity: unityCb.checked,
       fluid: readFluid(),
+      ftemp_curve: ftempCurveInp.value.trim() || undefined,
       recon_qc: reconCb.checked,
       sw_model: swModelSel.value as SwModel,
       porosity_source: psWcpRadio.checked ? "wet_clay_porosity" : "cec",

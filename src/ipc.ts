@@ -1066,6 +1066,11 @@ export interface MultiminRequest {
   output_prefix: string;
   unity: boolean;
   fluid: MmFluidProps | null;
+  /** Optional per-depth formation-temperature curve name (°F). When set and finite at a depth, the
+   *  temperature-dependent fluid quantities (Cw, Cmf, Cbw, auto CT/CXO σ, BNDWAT k, Waxman-Smits B)
+   *  are recomputed for that sample; a missing or out-of-range sample (a ±999.25 null) falls back to
+   *  `fluid.ftemp_f`. */
+  ftemp_curve?: string;
   /** Emit per-tool reconstruction QC curves: `<prefix>_<KEY>_REC` (measurement rebuilt from the
    *  solved volumes, display units) + `<prefix>_<KEY>_DIF` (σ-unit residual, that tool's RECON term). */
   recon_qc?: boolean;

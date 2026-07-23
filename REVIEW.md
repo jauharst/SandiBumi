@@ -7,6 +7,31 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 27 — SandiMin per-depth formation temperature (FTEMP curve) (2026-07-23)
+
+Formation temperature can now come from a **per-depth curve** instead of one fixed number. On the
+**Fluids** tab there's a new **FTEMP curve (opt)** box next to *Formation temp (°F)*. Leave it blank to
+use the fixed value (unchanged). Type a curve name (e.g. **FTEMP_F**, the curve Prep builds from a
+gradient/BHT) and, for every depth where that curve is finite, SandiMin recomputes the temperature-
+dependent quantities at that sample's temperature:
+
+- **Cw / Cmf / Cbw** (formation-water, filtrate and clay-bound-water conductivities),
+- the **auto CT/CXO uncertainties**,
+- the **clay bound-water tie** (BNDWAT multiplier k, via t_c),
+- the **Waxman-Smits B(T,Rw)**.
+
+The α (diffuse-layer) expansion and salinities come from the *Rw/Rmf* sample temperatures, so they don't
+move with formation temperature — only the conductivities do. A sample where the curve is missing or
+out of range (a null like ±999.25, or anything outside 32–600 °F) quietly falls back to the fixed °F, so
+selecting the curve is safe even on wells that lack it. With the box blank the solve is **byte-for-byte
+identical** to before (a test pins that a constant FTEMP curve equal to the fixed value reproduces the
+fixed-temperature run exactly), and the per-tool reconstruction-QC curves stay consistent under a curve.
+
+> **Try:** run **Prep** so a **FTEMP_F** curve exists (or import one), then open **SandiMin → Fluids**,
+> put **FTEMP_F** in **FTEMP curve (opt)**, and Run. Compare **SWE** with and without the curve over a
+> long interval with a real geothermal gradient — the hotter, deeper section reads a bit lower Sw (hotter
+> water is more conductive). Blank the box to confirm you get the fixed-temperature numbers back.
+
 ## Round 26 — SandiMin Waxman-Smits saturation model (2026-07-23)
 
 The last of the Sw models. **Waxman-Smits (B·Qv)** joins the **Sw model** dropdown (Fluids tab). Like the
