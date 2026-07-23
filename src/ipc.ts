@@ -309,6 +309,32 @@ export function savePlotPdf(destPath: string, content: string, widthPt: number, 
   return invoke<string>("save_plot_pdf", { destPath, content, widthPt, heightPt });
 }
 
+/** A free-form net-reservoir polygon drawn on a crossplot: vertices in DATA space (axis order),
+ *  the axes' log flags, and the output curve name. Inside → 1, outside → 0, undefined → NaN. */
+export interface NetFlagSpec {
+  wellId: string;
+  xCurve: string;
+  yCurve: string;
+  xLog: boolean;
+  yLog: boolean;
+  polygon: [number, number][];
+  outputCurve: string;
+  depthTop: number | null;
+  depthBottom: number | null;
+}
+
+export interface NetFlagResult {
+  outputCurve: string;
+  inside: number;
+  evaluated: number;
+  written: number;
+}
+
+/** Computes a net-flag curve from a crossplot polygon and writes it as a computed curve. */
+export function runNetFlag(spec: NetFlagSpec): Promise<NetFlagResult> {
+  return invoke<NetFlagResult>("run_net_flag", { spec });
+}
+
 export interface DocumentEntry {
   name: string;
   json: string;

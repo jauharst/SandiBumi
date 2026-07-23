@@ -24,6 +24,7 @@ mod modules;
 mod montecarlo;
 mod multimin;
 mod multimin2;
+mod netflag;
 mod neutron_charts;
 mod parsers;
 #[cfg(test)]
@@ -373,6 +374,23 @@ fn save_plot_pdf(dest_path: String, content: String, width_pt: f64, height_pt: f
     let bytes = composite::assemble_single_page_pdf(&content, width_pt, height_pt);
     std::fs::write(&dest_path, bytes).map_err(|e| e.to_string())?;
     Ok(dest_path)
+}
+
+/// Computes a net-reservoir flag curve from a free-form crossplot polygon (see `netflag.rs`) and
+/// writes it as a computed curve, returning the inside/evaluated/written counts for a status line.
+#[tauri::command]
+async fn run_net_flag(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    spec: netflag::NetFlagSpec,
+) -> Result<netflag::NetFlagResult, String> {
+    let conn = db.0.clone();
+    let label = spec.output_curve.clone();
+    jobs::run_simple_job(jobs_reg.inner().clone(), "Net flag", label, move || {
+        let c = conn.lock().unwrap();
+        netflag::run_net_flag(&c, &spec)
+    })
+    .await
 }
 
 /// Parses a SCAL capillary-pressure CSV, replaces the well's `scal_pc` rows, and returns
@@ -1614,6 +1632,7 @@ pub fn run() {
             run_thomeer_fit,
             run_hfu_cluster,
             run_lorenz,
+            run_net_flag,
             run_facies_confusion,
             run_multimin,
             multimin_library,

@@ -1,5 +1,5 @@
-import { getCoreData, getCurveData, setZoneParam, type TrackCurveSeries, type WellSummary } from "../ipc";
-import { appState, clearBrush, setBrushedDepths, type BrushSelection } from "../state";
+import { getCoreData, getCurveData, runNetFlag, setZoneParam, type NetFlagSpec, type TrackCurveSeries, type WellSummary } from "../ipc";
+import { appState, bumpDataVersion, clearBrush, setBrushedDepths, type BrushSelection } from "../state";
 import { formRow, openModal } from "./modal";
 import {
   attachKeyboardPanZoom,
@@ -170,6 +170,35 @@ export function normalizeCrossplotOptions(raw: Partial<CrossplotOptions>): Cross
   opts.pointSize = Math.max(0.5, Math.min(8, opts.pointSize || DEFAULT_CROSSPLOT_OPTIONS.pointSize));
   if (!["off", "xge_yle", "xle_yge", "xge_yge", "xle_yle"].includes(opts.netSense)) opts.netSense = "off";
   return opts;
+}
+
+/** Even-odd point-in-polygon in the axes' *drawing* plane (log10 on a log axis) — the frontend twin
+ *  of `netflag.rs::point_in_polygon`, so the crossplot's live net-polygon count matches the curve the
+ *  backend writes. The point and the polygon vertices are in DATA space; a value that can't be placed
+ *  (NaN, or ≤ 0 on a log axis) is treated as outside. The ring is implicitly closed. */
+export function netPolygonContains(
+  dx: number,
+  dy: number,
+  poly: [number, number][],
+  xLog: boolean,
+  yLog: boolean,
+): boolean {
+  const tf = (v: number, log: boolean): number => (log ? (v > 0 ? Math.log10(v) : NaN) : v);
+  const px = tf(dx, xLog);
+  const py = tf(dy, yLog);
+  if (Number.isNaN(px) || Number.isNaN(py) || poly.length < 3) return false;
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = tf(poly[i][0], xLog);
+    const yi = tf(poly[i][1], yLog);
+    const xj = tf(poly[j][0], xLog);
+    const yj = tf(poly[j][1], yLog);
+    if (yi > py !== yj > py) {
+      const xc = xi + ((py - yi) / (yj - yi)) * (xj - xi);
+      if (px < xc) inside = !inside;
+    }
+  }
+  return inside;
 }
 
 export interface RegFit {
@@ -1031,6 +1060,13 @@ export async function buildCrossplotContent(
   let brushRect: { x0: number; y0: number; x1: number; y1: number } | null = null;
   let brushing = false;
   const viewRef: ViewportRef = { current: null };
+  // Free-form net-flag polygon: click to drop vertices (captured in DATA space so they track
+  // zoom/pan), then write a discrete 0/1 net-reservoir flag curve from the polygon's interior.
+  const lasso: { active: boolean; pts: [number, number][]; cursor: [number, number] | null } = {
+    active: false,
+    pts: [],
+    cursor: null,
+  };
 
   /** Recomputes which sample indices the shared brush covers (only when it targets THIS well;
    *  membership is exact on the shared depth grid). */
@@ -1158,6 +1194,7 @@ export async function buildCrossplotContent(
     }
     drawCutoffRegion();
     drawParamHandle();
+    drawLasso();
   };
 
   /** Cutoff-region overlay: turns the parameter handle into a pair of cutoff thresholds.
@@ -1250,6 +1287,188 @@ export async function buildCrossplotContent(
     ctx.arc(px, py, 9, 0, Math.PI * 2);
     ctx.stroke();
     ctx.restore();
+  };
+
+  // --- Free-form net-flag polygon ------------------------------------------
+  const inLassoPoly = (dx: number, dy: number): boolean => netPolygonContains(dx, dy, lasso.pts, opts.xLog, opts.yLog);
+  /** Live inside/total counts over the plotted (finite, log-valid) samples. */
+  const lassoCount = (): { inside: number; total: number } => {
+    let inside = 0;
+    let total = 0;
+    if (lasso.pts.length < 3) return { inside, total };
+    for (let i = 0; i < xs.length; i++) {
+      const vx = xs[i];
+      const vy = ys[i];
+      if (!Number.isFinite(vx) || !Number.isFinite(vy)) continue;
+      if (opts.xLog && vx <= 0) continue;
+      if (opts.yLog && vy <= 0) continue;
+      total++;
+      if (inLassoPoly(vx, vy)) inside++;
+    }
+    return { inside, total };
+  };
+
+  const lassoBtn = document.createElement("button");
+  lassoBtn.className = "plot-export-btn";
+  lassoBtn.textContent = "⬡ Net polygon";
+  lassoBtn.title = "Draw a free-form polygon on the cloud, then write its interior as a 0/1 net-flag curve";
+  const lassoBar = document.createElement("div");
+  lassoBar.style.display = "none";
+  lassoBar.style.gap = "8px";
+  lassoBar.style.alignItems = "center";
+  lassoBar.style.margin = "2px 0 6px";
+  const lassoInfo = document.createElement("span");
+  lassoInfo.className = "modal-hint";
+  const mkBar = (label: string, title: string, onClick: () => void): HTMLButtonElement => {
+    const b = document.createElement("button");
+    b.className = "plot-export-btn";
+    b.textContent = label;
+    b.title = title;
+    b.addEventListener("click", onClick);
+    return b;
+  };
+  const undoPt = mkBar("Undo point", "Remove the last polygon vertex", () => {
+    lasso.pts.pop();
+    redraw();
+  });
+  const clearPts = mkBar("Clear", "Discard the polygon", () => {
+    lasso.pts = [];
+    redraw();
+  });
+  const writePt = mkBar("Write net flag…", "Write the polygon interior as a 0/1 net-flag curve", () => openNetFlagDialog());
+  lassoBar.append(lassoInfo, undoPt, clearPts, writePt);
+  selRow.appendChild(lassoBtn);
+  selRow.insertAdjacentElement("afterend", lassoBar);
+
+  const setLassoActive = (on: boolean): void => {
+    lasso.active = on;
+    lassoBtn.style.fontWeight = on ? "700" : "";
+    lassoBar.style.display = on ? "flex" : "none";
+    canvas.style.cursor = on ? "crosshair" : "";
+    if (!on) {
+      lasso.pts = [];
+      lasso.cursor = null;
+    }
+    redraw();
+  };
+  lassoBtn.addEventListener("click", () => setLassoActive(!lasso.active));
+
+  /** Draws the in-progress polygon: faint interior fill, solid edges, dashed closing edge +
+   *  rubber-band to the cursor, and vertex dots. Vertices are in data space, so it tracks
+   *  zoom/pan. Updates the toolbar's live inside-count. */
+  const drawLasso = (): void => {
+    if (!plot || !lasso.active) return;
+    const p = plot;
+    if (lasso.pts.length) {
+      const ctx = p.ctx;
+      const rp = p.plotRect;
+      const px = lasso.pts.map(([dx, dy]) => p.toPx(dx, dy));
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(rp.x0, rp.y0, rp.w, rp.h);
+      ctx.clip();
+      if (px.length >= 3) {
+        ctx.beginPath();
+        ctx.moveTo(px[0][0], px[0][1]);
+        for (let i = 1; i < px.length; i++) ctx.lineTo(px[i][0], px[i][1]);
+        ctx.closePath();
+        ctx.fillStyle = p.theme.accent2;
+        ctx.globalAlpha = 0.12;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+      ctx.strokeStyle = p.theme.accent2;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(px[0][0], px[0][1]);
+      for (let i = 1; i < px.length; i++) ctx.lineTo(px[i][0], px[i][1]);
+      ctx.stroke();
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      const last = px[px.length - 1];
+      if (lasso.cursor) {
+        ctx.moveTo(last[0], last[1]);
+        ctx.lineTo(lasso.cursor[0], lasso.cursor[1]);
+      }
+      if (px.length >= 2) {
+        ctx.moveTo(last[0], last[1]);
+        ctx.lineTo(px[0][0], px[0][1]);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = p.theme.accent2;
+      for (const [x, y] of px) {
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+    const { inside, total } = lassoCount();
+    lassoInfo.textContent =
+      lasso.pts.length < 3
+        ? `Click to add points (${lasso.pts.length}/3 min)`
+        : `${inside} / ${total} points inside`;
+  };
+
+  /** Names + writes the polygon interior as a 0/1 net-flag curve over the crossplot's depth window. */
+  const openNetFlagDialog = (): void => {
+    if (lasso.pts.length < 3) {
+      setStatus("Draw at least 3 polygon points first");
+      return;
+    }
+    const body = document.createElement("div");
+    const nameIn = document.createElement("input");
+    nameIn.className = "form-control";
+    nameIn.value = "NET_FLAG";
+    body.appendChild(
+      formRow("Curve name", nameIn, "Writes/overwrites a 0/1 net-reservoir flag curve (NaN where a sample can't be evaluated)"),
+    );
+    const zone = zoneSel.current();
+    const { inside, total } = lassoCount();
+    const note = document.createElement("p");
+    note.className = "modal-hint";
+    note.textContent =
+      `${inside} / ${total} plotted points inside, over ${zone.zoneName === "*" ? "the whole well" : `zone ${zone.zoneName}`}. ` +
+      `X = ${xSel.value}, Y = ${ySel.value}.`;
+    body.appendChild(note);
+    const go = document.createElement("button");
+    go.className = "lp-btn primary";
+    go.textContent = "Write net flag";
+    go.style.marginTop = "10px";
+    body.appendChild(go);
+    const close = openModal("Write Net Flag", body, 380);
+    go.addEventListener("click", () => {
+      const name = nameIn.value.trim();
+      if (!name) {
+        setStatus("Net-flag curve needs a name");
+        return;
+      }
+      const z = zoneSel.current();
+      const spec: NetFlagSpec = {
+        wellId: well.well_id,
+        xCurve: xSel.value,
+        yCurve: ySel.value,
+        xLog: opts.xLog,
+        yLog: opts.yLog,
+        polygon: lasso.pts.map(([x, y]) => [x, y] as [number, number]),
+        outputCurve: name,
+        depthTop: z.depthMin,
+        depthBottom: z.depthMax,
+      };
+      go.disabled = true;
+      void runNetFlag(spec)
+        .then((res) => {
+          setStatus(`Net flag ${res.outputCurve}: ${res.inside} / ${res.evaluated} samples net (${res.written} written)`);
+          bumpDataVersion(); // refresh selectors / log views / other plots so the new curve shows up
+          setLassoActive(false);
+          close();
+        })
+        .catch((err) => {
+          setStatus(`Net flag failed: ${err}`);
+          go.disabled = false;
+        });
+    });
   };
 
   // Monotonic token so a slow curve/zone load that resolves after a newer one (fast
@@ -1645,6 +1864,18 @@ export async function buildCrossplotContent(
   canvas.addEventListener("mousedown", (e) => {
     if (e.button !== 0 || !plot) return;
     const [px, py] = canvasPx(e);
+    // Net-polygon mode owns every left-click: drop a vertex (data space) and swallow the event so
+    // attachZoomPan can't pan and the trailing click can't drop a parameter pick.
+    if (lasso.active) {
+      if (plot.inPlot(px, py)) {
+        lasso.pts.push(plot.toData(px, py));
+        movedSinceDown = true;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        redraw();
+      }
+      return;
+    }
     // Shift+drag inside the plot = brush-select. Takes precedence over pan/handle: stop the event
     // reaching attachZoomPan's mousedown (registered later on this canvas), and mark movedSinceDown
     // so the trailing click doesn't drop a parameter pick.
@@ -1665,6 +1896,12 @@ export async function buildCrossplotContent(
   canvas.addEventListener("mousemove", (e) => {
     if (!plot) return;
     const [px, py] = canvasPx(e);
+    if (lasso.active) {
+      // Track the cursor for the rubber-band edge (only redraw once there's a segment to rubber-band).
+      lasso.cursor = plot.inPlot(px, py) ? [px, py] : null;
+      if (lasso.pts.length) redraw();
+      return;
+    }
     if (brushing && brushRect) {
       brushRect.x1 = px;
       brushRect.y1 = py;
@@ -1713,6 +1950,7 @@ export async function buildCrossplotContent(
   canvas.addEventListener("mouseup", endDrag);
 
   canvas.addEventListener("click", (e) => {
+    if (lasso.active) return; // clicks build the polygon, not parameter picks
     if (!plot || movedSinceDown || !opts.showPicks) return; // drag/pan tail, or pickers off
     const [px, py] = canvasPx(e);
     if (!plot.inPlot(px, py)) return;
@@ -1726,6 +1964,7 @@ export async function buildCrossplotContent(
   // Double-click = properties, unless a zoom is active (then attachZoomPan — registered
   // after this listener — resets it on the same event). Right-click = properties.
   canvas.addEventListener("dblclick", () => {
+    if (lasso.active) return; // a double-click while lassoing just drops two vertices, no dialog
     if (!viewRef.current) openProps();
   });
   canvas.addEventListener("contextmenu", (e) => {

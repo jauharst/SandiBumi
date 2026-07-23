@@ -7,6 +7,40 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 48 — UI polish #9C follow-on: free-form net-flag polygon on the crossplot (2026-07-23)
+
+The crossplot's scalar cutoff-box (Round 45) is now joined by a **free-form net-reservoir polygon**:
+draw an arbitrary shape around a cloud of points and write its interior straight to a **discrete 0/1
+net-flag curve** — the general case the rectangular cutoff can't express (e.g. a curved φ-k fairway, an
+L-shaped sand window).
+
+- A new **⬡ Net polygon** toolbar toggle enters draw mode: click to drop vertices, and a small bar
+  shows **Undo point / Clear / Write net flag…** with a live `N / total points inside` readout. The
+  polygon fills faintly, its edges + a dashed closing edge + a rubber-band to the cursor draw as you
+  go, and — because vertices are captured in **data space** — it stays registered under zoom/pan.
+- **Write net flag…** names the curve (default `NET_FLAG`) and calls the backend, which computes the
+  flag over the crossplot's current depth window and writes it as a computed curve like any module
+  output: **1** inside / **0** outside / **NaN** where a sample can't be evaluated (either input NaN,
+  or ≤ 0 on a log axis — the same samples the crossplot excludes). Other views refresh so the new
+  curve shows up.
+- **`netflag.rs`** does the work: even-odd point-in-polygon run in the axes' **drawing plane** (log10
+  on a log axis), so "inside the drawn polygon" is exact for log scales (straight screen edges are
+  straight edges there) and matches the on-screen count. The frontend's live count uses an **exported
+  twin** (`netPolygonContains`) of that same test, so the preview equals what gets written.
+
+**Verification:** `netflag.rs` has 5 unit tests — concave (notched-square) point-in-polygon, a written
+0/1/NaN curve over a synthetic cloud, the depth-window restriction, the ≥3-points / distinct-axes
+guards, and a **log-axis** case (a decade box on a log X axis captures exactly the right samples and
+rejects a ≤ 0 vertex). In-browser, the frontend `netPolygonContains` was checked against the *same*
+cases and agrees with the backend on every one — linear, concave, and log. Adversarial review caught
+one interaction bug (a double-click while drawing dropped two vertices **and** opened the Properties
+dialog), now guarded. `tsc` + full lib suite green.
+
+**Try:** open a **Crossplot** (e.g. a φ-k or NPHI-RHOB cloud), click **⬡ Net polygon**, and click
+around the group of points you consider net; watch the inside-count update. Click **Write net flag…**,
+name it (say `NET_POLY`), and Write — then add that curve to a **log view** track and confirm it reads
+1 exactly where your polygon was, 0 elsewhere. Re-draw a different shape to overwrite.
+
 ## Round 47 — UI polish: true-vector PDF export for the Canvas-2D plots (2026-07-23)
 
 The vector story is now complete: the **crossplot, histogram, and Pickett** plots also export a
