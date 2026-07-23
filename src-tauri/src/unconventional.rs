@@ -240,6 +240,247 @@ mod kerogen_tests {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Gas-in-place — free + Langmuir-adsorbed (+ CBM)  (docs/ref_unconventional.md §3)
+// ---------------------------------------------------------------------------
+
+pub fn gip_spec() -> ModuleSpec {
+    ModuleSpec {
+        name: "gip".into(),
+        title: "Gas-in-place (free + Langmuir adsorbed)".into(),
+        category: "Unconventional".into(),
+        doc: "Per-sample gas-in-place as gas CONTENT (scf per ton of rock), so it composites like any \
+              curve. Adsorbed via the Langmuir isotherm GIP_ADS = VL·P/(PL+P); free via \
+              GIP_FREE = 32.0368·φ·(1−Sw)/(RHOB·Bg) with Bg = 0.02827·z·T/P (T in Rankine); \
+              GIP_TOTAL = free + adsorbed. MODE=cbm applies the dry-ash-free correction \
+              GIP_ADS·(1−F_ASH−F_MOIST) and, given a measured in-situ gas content GC, emits the \
+              critical desorption pressure PCD = PL·GC/(VL−GC). Langmuir VL/PL default to shale \
+              placeholders — override with core desorption/isotherm data (IP seeds 60 cm³/g ≈ 1920 \
+              scf/ton and 7000 kPaa ≈ 1015 psia for coal). Ambrose pore-volume correction deferred. \
+              Cite: Langmuir 1918; Ambrose et al. 2010; GRI/Mavor-Nelson 1996. See \
+              docs/ref_unconventional.md §3."
+            .into(),
+        args: vec![
+            opt("MODE", "Reservoir type (cbm adds ash/moisture + critical desorption)", "shale",
+                &["shale", "cbm"]),
+            param("RES_P", "Reservoir (pore) pressure", "psia", 3000.0, 1.0, 30000.0),
+            param("TEMP_F", "Reservoir temperature", "degF", 200.0, 32.0, 600.0),
+            param("Z_FAC", "Gas deviation (compressibility) factor z", "-", 0.9, 0.2, 2.0),
+            param("VL", "Langmuir volume (max sorption)", "scf/ton", 100.0, 0.0, 5000.0),
+            param("PL", "Langmuir pressure (Gs = VL/2)", "psia", 1000.0, 1.0, 30000.0),
+            param("F_ASH", "Ash weight fraction (cbm)", "-", 0.0, 0.0, 1.0),
+            param("F_MOIST", "Moisture weight fraction (cbm)", "-", 0.0, 0.0, 1.0),
+            param("GC", "In-situ gas content for PCD (cbm; 0 = saturated)", "scf/ton", 0.0, 0.0, 5000.0),
+            log_in("PHI", "Porosity (effective, or OM-corrected total)", "v/v", "PHIE", true),
+            log_in("SW", "Water saturation", "v/v", "SWE", true),
+            log_in("RHOB", "Bulk density", "g/cc", "RHOB", true),
+            log_out("BG", "Gas formation volume factor", "rcf/scf"),
+            log_out("GIP_ADS", "Adsorbed gas content (Langmuir)", "scf/ton"),
+            log_out("GIP_FREE", "Free gas content", "scf/ton"),
+            log_out("GIP_TOTAL", "Total gas content (free + adsorbed)", "scf/ton"),
+            log_out("PCD", "Critical desorption pressure (cbm)", "psia"),
+        ],
+    }
+}
+
+pub fn gip(ctx: &ModuleContext) -> ModuleOutputs {
+    let phi_log = ctx.log("PHI");
+    let sw_log = ctx.log("SW");
+    let rhob = ctx.log("RHOB");
+    let cbm = ctx.o("MODE") == "cbm";
+    let n = ctx.n;
+
+    let mut bg = vec![f32::NAN; n];
+    let mut gip_ads = vec![f32::NAN; n];
+    let mut gip_free = vec![f32::NAN; n];
+    let mut gip_total = vec![f32::NAN; n];
+    let mut pcd = vec![f32::NAN; n];
+
+    for i in 0..n {
+        let p = ctx.p("RES_P", i);
+        let t_f = ctx.p("TEMP_F", i);
+        let z = ctx.p("Z_FAC", i);
+        let vl = ctx.p("VL", i);
+        let pl = ctx.p("PL", i);
+
+        // --- Gas FVF: Bg = 0.02827·z·T/P, T in Rankine (Bg→1 at standard conditions) ---
+        let mut bg_i = f64::NAN;
+        if p.is_finite() && p > 0.0 && z.is_finite() && z > 0.0 && t_f.is_finite() {
+            let t_r = t_f + 459.67;
+            if t_r > 0.0 {
+                bg_i = 0.02827 * z * t_r / p;
+                bg[i] = bg_i as f32;
+            }
+        }
+
+        // --- Adsorbed gas: Langmuir Gs = VL·P/(PL+P), scf/ton (+ cbm ash/moisture) ---
+        let mut gs = f64::NAN;
+        if p.is_finite() && p >= 0.0 && vl.is_finite() && vl >= 0.0 && pl.is_finite() && (pl + p) > 0.0 {
+            gs = vl * p / (pl + p);
+            if cbm {
+                let fa = ctx.p("F_ASH", i);
+                let fm = ctx.p("F_MOIST", i);
+                let fa = if fa.is_finite() { fa } else { 0.0 };
+                let fm = if fm.is_finite() { fm } else { 0.0 };
+                gs *= (1.0 - fa - fm).clamp(0.0, 1.0); // dry-ash-free → in-situ
+            }
+            gip_ads[i] = gs as f32;
+        }
+
+        // --- Free gas: 32.0368·φ·(1−Sw)/(ρb·Bg), scf/ton ---
+        let phi = phi_log[i] as f64;
+        let sw = sw_log[i] as f64;
+        let rb = rhob[i] as f64;
+        if bg_i.is_finite()
+            && bg_i > 0.0
+            && phi.is_finite()
+            && (0.0..=1.0).contains(&phi)
+            && sw.is_finite()
+            && (0.0..=1.0).contains(&sw)
+            && rb.is_finite()
+            && rb > 0.0
+        {
+            let gf = 32.0368 * phi * (1.0 - sw) / (rb * bg_i);
+            gip_free[i] = gf as f32;
+            if gs.is_finite() {
+                gip_total[i] = (gf + gs) as f32;
+            }
+        }
+
+        // --- Critical desorption pressure (cbm): PCD = PL·GC/(VL−GC), only for undersaturated GC ---
+        if cbm {
+            let gc = ctx.p("GC", i);
+            if gc.is_finite() && gc > 0.0 && vl.is_finite() && gc < vl && pl.is_finite() {
+                pcd[i] = (pl * gc / (vl - gc)) as f32;
+            }
+        }
+    }
+
+    HashMap::from([
+        ("BG".into(), bg),
+        ("GIP_ADS".into(), gip_ads),
+        ("GIP_FREE".into(), gip_free),
+        ("GIP_TOTAL".into(), gip_total),
+        ("PCD".into(), pcd),
+    ])
+}
+
+#[cfg(test)]
+mod gip_tests {
+    use super::*;
+
+    #[allow(clippy::too_many_arguments)]
+    fn ctx(
+        mode: &str,
+        phi: Vec<f32>,
+        sw: Vec<f32>,
+        rhob: Vec<f32>,
+        res_p: Vec<f64>,
+        temp_f: f64,
+        z: f64,
+        vl: f64,
+        pl: f64,
+        f_ash: f64,
+        f_moist: f64,
+        gc: f64,
+    ) -> ModuleContext {
+        let n = phi.len();
+        let mut logs = HashMap::new();
+        logs.insert("PHI".to_string(), phi);
+        logs.insert("SW".to_string(), sw);
+        logs.insert("RHOB".to_string(), rhob);
+        let mut params = HashMap::new();
+        params.insert("RES_P".to_string(), res_p);
+        params.insert("TEMP_F".to_string(), vec![temp_f; n]);
+        params.insert("Z_FAC".to_string(), vec![z; n]);
+        params.insert("VL".to_string(), vec![vl; n]);
+        params.insert("PL".to_string(), vec![pl; n]);
+        params.insert("F_ASH".to_string(), vec![f_ash; n]);
+        params.insert("F_MOIST".to_string(), vec![f_moist; n]);
+        params.insert("GC".to_string(), vec![gc; n]);
+        let mut opts = HashMap::new();
+        opts.insert("MODE".to_string(), mode.to_string());
+        ModuleContext { n, logs, params, opts }
+    }
+
+    #[test]
+    fn langmuir_isotherm_half_at_pl_and_saturates() {
+        // VL=100, PL=1000: Gs(PL)=VL/2=50; Gs(0)=0; Gs(huge)→VL.
+        let nan = f32::NAN;
+        let c = ctx("shale", vec![nan; 3], vec![nan; 3], vec![nan; 3],
+                    vec![1000.0, 0.0, 1e9], 200.0, 0.9, 100.0, 1000.0, 0.0, 0.0, 0.0);
+        let out = gip(&c);
+        assert!((out["GIP_ADS"][0] as f64 - 50.0).abs() < 1e-3, "Gs(PL)=VL/2=50, got {}", out["GIP_ADS"][0]);
+        assert!((out["GIP_ADS"][1] as f64).abs() < 1e-6, "Gs(0)=0, got {}", out["GIP_ADS"][1]);
+        assert!((out["GIP_ADS"][2] as f64 - 100.0).abs() < 1e-2, "Gs(inf)->VL=100, got {}", out["GIP_ADS"][2]);
+    }
+
+    #[test]
+    fn free_gas_matches_volumetric_and_bg() {
+        // φ=0.10, Sw=0.30, ρb=2.4, P=3000, T=200°F, z=0.9. Independent HAND literals (guard a typo in
+        // the 32.0368 / 0.02827 constants — not re-derived from them): Bg = 0.0055947 rcf/scf; Gf =
+        // 167.0 scf/ton (cross-check: 1 ton at 2.4 g/cc = 13.35 bulk-ft³ → HCPV 0.9344 → ÷Bg = 167).
+        let c = ctx("shale", vec![0.10], vec![0.30], vec![2.4],
+                    vec![3000.0], 200.0, 0.9, 100.0, 1000.0, 0.0, 0.0, 0.0);
+        let out = gip(&c);
+        assert!((out["BG"][0] as f64 - 0.0055947).abs() < 1e-5, "Bg = {}", out["BG"][0]);
+        assert!((out["GIP_FREE"][0] as f64 - 167.0).abs() < 0.15, "GIP_FREE = {}", out["GIP_FREE"][0]);
+    }
+
+    #[test]
+    fn free_gas_zero_at_full_water_and_rejects_out_of_range() {
+        // Sw=1 ⇒ no hydrocarbon pore volume ⇒ Gf=0; out-of-range φ (>1) ⇒ rejected to NaN.
+        let sat = gip(&ctx("shale", vec![0.10], vec![1.0], vec![2.4],
+                     vec![3000.0], 200.0, 0.9, 100.0, 1000.0, 0.0, 0.0, 0.0));
+        assert_eq!(sat["GIP_FREE"][0], 0.0, "Sw=1 ⇒ free gas 0");
+        let bad = gip(&ctx("shale", vec![1.5], vec![0.30], vec![2.4],
+                     vec![3000.0], 200.0, 0.9, 100.0, 1000.0, 0.0, 0.0, 0.0));
+        assert!(bad["GIP_FREE"][0].is_nan(), "φ>1 ⇒ free gas rejected to NaN");
+    }
+
+    #[test]
+    fn total_is_free_plus_adsorbed() {
+        let c = ctx("shale", vec![0.10], vec![0.30], vec![2.4],
+                    vec![3000.0], 200.0, 0.9, 100.0, 1000.0, 0.0, 0.0, 0.0);
+        let out = gip(&c);
+        let sum = out["GIP_FREE"][0] as f64 + out["GIP_ADS"][0] as f64;
+        assert!((out["GIP_TOTAL"][0] as f64 - sum).abs() < 1e-3, "total = free + adsorbed");
+    }
+
+    #[test]
+    fn cbm_ash_moisture_reduces_adsorbed() {
+        // cbm F_ASH=0.10, F_MOIST=0.05 ⇒ Gs·0.85 vs shale (no correction).
+        let shale = gip(&ctx("shale", vec![f32::NAN], vec![f32::NAN], vec![f32::NAN],
+                     vec![1000.0], 200.0, 0.9, 100.0, 1000.0, 0.0, 0.0, 0.0))["GIP_ADS"][0] as f64;
+        let cbm = gip(&ctx("cbm", vec![f32::NAN], vec![f32::NAN], vec![f32::NAN],
+                     vec![1000.0], 200.0, 0.9, 100.0, 1000.0, 0.10, 0.05, 0.0))["GIP_ADS"][0] as f64;
+        assert!((cbm - shale * 0.85).abs() < 1e-3, "cbm Gs = shale·0.85: {cbm} vs {}", shale * 0.85);
+    }
+
+    #[test]
+    fn cbm_critical_desorption_pressure() {
+        // VL=100, PL=1000, GC=50 ⇒ Pcd = 1000·50/(100−50) = 1000 psia.
+        let out = gip(&ctx("cbm", vec![f32::NAN], vec![f32::NAN], vec![f32::NAN],
+                     vec![3000.0], 200.0, 0.9, 100.0, 1000.0, 0.0, 0.0, 50.0));
+        assert!((out["PCD"][0] as f64 - 1000.0).abs() < 1e-2, "Pcd = {}", out["PCD"][0]);
+        let out2 = gip(&ctx("cbm", vec![f32::NAN], vec![f32::NAN], vec![f32::NAN],
+                     vec![3000.0], 200.0, 0.9, 100.0, 1000.0, 0.0, 0.0, 25.0));
+        assert!((out2["PCD"][0] as f64 - 1000.0 * 25.0 / 75.0).abs() < 1e-2, "Pcd = {}", out2["PCD"][0]);
+        let out3 = gip(&ctx("shale", vec![f32::NAN], vec![f32::NAN], vec![f32::NAN],
+                     vec![3000.0], 200.0, 0.9, 100.0, 1000.0, 0.0, 0.0, 50.0));
+        assert!(out3["PCD"][0].is_nan(), "shale mode emits no Pcd");
+    }
+
+    #[test]
+    fn missing_porosity_leaves_free_nan_but_adsorbed_runs() {
+        let out = gip(&ctx("shale", vec![f32::NAN], vec![0.30], vec![2.4],
+                     vec![3000.0], 200.0, 0.9, 100.0, 1000.0, 0.0, 0.0, 0.0));
+        assert!(out["GIP_FREE"][0].is_nan(), "no φ ⇒ free gas missing");
+        assert!(out["GIP_ADS"][0].is_finite(), "adsorbed runs from pressure alone");
+        assert!(out["GIP_TOTAL"][0].is_nan(), "no free ⇒ total missing");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

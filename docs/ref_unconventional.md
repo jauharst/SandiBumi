@@ -139,8 +139,8 @@ Gs(P) = V_L · P / (P_L + P)            [scf/ton]
 ```
 Gf = 32.0368 · φ · (1 − Sw) / (ρ_b · Bg)      [scf/ton]
 ```
-- **ρ_b** bulk density g/cc; **Bg** gas FVF in reservoir-ft³/scf; 32.0368 = 907185 g/ton ÷ 28316.8
-  cm³/ft³ = bulk ft³ per ton of rock.
+- **ρ_b** bulk density g/cc; **Bg** gas FVF in reservoir-ft³/scf; 32.0368 ≈ 907185 g/ton ÷ 28316.8
+  cm³/ft³ (the published short-ton/ft³ constant; = bulk ft³ per ton of rock).
 
 > **CONSTANT CAVEAT (verified in research):** the often-quoted `1359.7` is **NOT** the free-gas
 > constant — it is the **rock-mass** constant for the *adsorbed extensive* term
@@ -148,21 +148,25 @@ Gf = 32.0368 · φ · (1 − Sw) / (ρ_b · Bg)      [scf/ton]
 > acre-ft per (g/cc). Free gas is **volume**-based (÷Bg) → constant **43,560 (scf) / 43.56 (Mscf)**
 > extensive, **32.0368 (scf/ton)** intensive. Do not put 1359.7 in the free-gas term.
 
-### 3.3 Ambrose pore-volume correction — *Ambrose et al. (2010) SPE 131772.*
-The adsorbed phase physically occupies pore volume, so free gas on total φ **double-counts**. Subtract
-the adsorbed-phase volume:
+### 3.3 Ambrose pore-volume correction — *Ambrose et al. (2010) SPE 131772.*  [DEFERRED from inc 3]
+The adsorbed phase physically occupies pore volume, so free gas on total φ **double-counts**; the
+corrected free gas subtracts the adsorbed-phase bulk volume fraction:
 ```
-Gf_corr = Gf − (ρ_b / ρ_ads) · Gs · (unit factor)
+φ_ads   = Gs · ρ_b / (ρ_ads · 47324)                    adsorbed-phase bulk volume fraction
+Gf_corr = 32.0368 · (φ·(1−Sw) − φ_ads) / (ρ_b · Bg)     (floor ≥ 0)
 ```
-- **ρ_ads** adsorbed (liquid-like) CH₄ density ≈ **0.34–0.42 g/cc** (Ambrose used 0.34; default 0.34).
-  Ignoring it over-estimates GIP in high-TOC/high-P shale. Techlog carries `AmbroseGIP`/
-  `AmbroseFreeGIP` families — align naming for interoperability.
+where **47324 scf/ton** = 907185 g/ton ÷ 19.17 g/scf (mass of 1 scf of methane), and **ρ_ads** ≈
+**0.34 g/cc** (Ambrose 2010). Ignoring it over-estimates GIP in high-TOC/high-P shale. **Deferred**:
+it carries a methane-composition constant (19.17 g/scf) and a gas-density assumption — ship it as an
+opt-in toggle once validated against a Mahakam shale-gas case. Techlog carries `AmbroseGIP`/
+`AmbroseFreeGIP` families — align naming when it lands.
 
 ### 3.4 Gas FVF
 ```
 Bg = 0.02827 · z · T / P        [reservoir-ft³/scf], T °Rankine (= °F + 459.67), P psia
 ```
-- 0.02827 = 14.696 psia / 519.67 °R. Default **z ≈ 0.9** (first pass; Standing-Katz for rigor).
+- 0.02827 ≈ 14.696 psia / 519.67 °R (the published standard-condition constant). Default **z ≈ 0.9**
+  (first pass; Standing-Katz for rigor).
 
 ### 3.5 Total GIP & CBM critical desorption
 ```
@@ -175,12 +179,15 @@ P_cd   = P_L · Gc / (V_L − Gc)              critical desorption pressure (Gc 
   (`references/8-reservoir-eng-aspects.md`), Gi three-term split ≈ 90–95 % adsorbed.
 
 ### 3.6 Module `gip` design
-- **params** `RES_P` (reservoir pressure, psia, 3000), `TEMP` (°F, 200), `Z_FAC` (0.9), `VL`
-  (Langmuir volume scf/ton, 100), `PL` (Langmuir pressure psia, 1000 — matches IP 7000 kPaa), `RHO_ADS`
-  (0.34 g/cc), `F_ASH` (0.0), `F_MOIST` (0.0), `SW` param fallback.
-- **opt** `MODE` ∈ {shale, cbm} — cbm applies ash/moisture + emits P_cd.
-- **inputs** `PHIE`/`PHIT`, `SW`, `RHOB` (+ optional per-sample `PRESS`, `GC` for P_cd).
-- **outputs** `GIP_FREE`, `GIP_ADS`, `GIP_TOTAL` (scf/ton), `PCD` (psia, cbm).
+- **opt** `MODE` ∈ {shale, cbm} — cbm applies the ash/moisture correction to Gs and emits P_cd.
+- **params** `RES_P` (reservoir pressure, psia, 3000), `TEMP_F` (°F, 200), `Z_FAC` (0.9), `VL`
+  (Langmuir volume, scf/ton, 100 — shale; coal/CBM ≫), `PL` (Langmuir pressure, psia, 1000 — matches
+  IP 7000 kPaa), `F_ASH`/`F_MOIST` (cbm dry-ash-free correction, 0.0), `GC` (measured in-situ gas
+  content for P_cd, scf/ton, 0 = saturated/skip).
+- **inputs** `PHI` (PHIE — or PHIT_OMC from inc 2), `SW` (SWE), `RHOB`.
+- **outputs** `BG` (res-ft³/scf), `GIP_ADS` (scf/ton), `GIP_FREE` (scf/ton), `GIP_TOTAL` (scf/ton),
+  `PCD` (psia, cbm mode when GC set). Free gas uses 32.0368·φ·(1−Sw)/(ρ_b·Bg); Ambrose correction
+  (§3.3) deferred.
 - IP `GasStorageCap` seeds: V_L 60 cm³/g ≈ 1920 scf/ton and P_L 7000 kPaa ≈ 1015 psia are **generic
   placeholders** — flag that isotherm/desorption core data must override them.
 

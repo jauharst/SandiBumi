@@ -7,6 +7,35 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 30 — Unconventional #7 inc 3: gas-in-place (free + Langmuir adsorbed) (2026-07-23)
+
+Third increment. A new module, **Gas-in-place (free + Langmuir adsorbed)** (Petrophysics →
+Unconventional), gives per-depth gas CONTENT (scf per ton of rock) so it composites like any curve:
+
+- **GIP_ADS** = VL·P/(PL+P) — Langmuir adsorbed gas. **GIP_FREE** = 32.0368·φ·(1−Sw)/(RHOB·Bg) —
+  compressed free gas, with **BG** = 0.02827·z·T/P (T in Rankine). **GIP_TOTAL** = free + adsorbed.
+- **MODE = cbm** applies the dry-ash-free correction GIP_ADS·(1−F_ASH−F_MOIST) and, given a measured
+  in-situ gas content **GC**, emits the **critical desorption pressure PCD** = PL·GC/(VL−GC) — the
+  pressure the coal must be dewatered below before gas desorbs.
+
+The Langmuir VL/PL default to shale placeholders (100 scf/ton, 1000 psia ≈ IP's 7000 kPaa) — override
+with core desorption/isotherm data. Feed the **PHI** slot your effective porosity or the inc-2
+**PHIT_OMC**. Tier-B, cited (Langmuir 1918; GRI / Mavor-Nelson 1996). The Ambrose pore-volume
+correction (which trims free gas by the adsorbed-phase volume, ~10% in high-TOC/high-P shale) is
+deferred with its derivation banked — so **GIP_TOTAL is an upper bound** until it lands. Math in
+`docs/ref_unconventional.md` §3.
+
+Verified: **323 cargo tests** (7 new — Langmuir at P=PL/0/∞, free gas pinned to an independent hand
+literal 167 scf/ton, Bg pinned to 0.0055947, total = free+adsorbed, CBM ash/moisture, Pcd, Sw=1→0,
+out-of-range rejection) + tsc, adversarial review = SHIP (constants 32.0368 / 0.02827 recomputed by
+hand; all divisions Inf-guarded).
+
+> **Try:** open **Petrophysics → Unconventional → Gas-in-place (free + Langmuir adsorbed)**, set
+> **PHI** (PHIE or the inc-2 **PHIT_OMC**), **SW**, **RHOB**, and reservoir **RES_P / TEMP_F / Z_FAC**;
+> enter your core **VL / PL**. Run and confirm **GIP_ADS** dominates in the organic-rich (low-φ)
+> section while **GIP_FREE** dominates where porosity is higher, with **GIP_TOTAL** their sum. For coal
+> switch **MODE = cbm**, set **F_ASH / F_MOIST**, and enter a canister **GC** to see **PCD**.
+
 ## Round 29 — Unconventional #7 inc 2: kerogen volume + OM-corrected porosity (2026-07-23)
 
 Second increment. A new module, **Kerogen volume + OM-corrected porosity** (Petrophysics →
