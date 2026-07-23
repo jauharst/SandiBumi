@@ -108,6 +108,10 @@ pub enum SwModel {
     /// Juhász (1981) normalized Waxman-Smits, wet-shale excess-conductivity form. Post-solve; the excess
     /// conductivity comes from the shale point (Rsh, φ_sh) rather than a temperature-form Cwb.
     Juhasz,
+    /// Waxman-Smits (1968), total-porosity B·Qv form. Post-solve; the excess conductivity is B·Qv with
+    /// Qv from the solved clay volumes (Qv = Σ v_clay·CEC·ρ / φt) and B from the Juhász B(T,Rw) fit
+    /// (`waxman_b`) unless overridden by FluidProps.ws_b.
+    WaxmanSmits,
 }
 
 impl SwModel {
@@ -285,6 +289,44 @@ pub fn sw_juhasz(
     sw_cond_root(phit, 1.0 / rt, cw, qvn * (cwsh - cw), m, n, 1.0)
 }
 
+/// Waxman-Smits (1968) water saturation, total-porosity basis. The conductivity model is
+///   Ct = (φt^m / a) · (Cw·Swt^n + B·Qv·Swt^(n−1)),   a = 1,
+/// i.e. free-water conduction plus an excess clay-counterion term B·Qv that does NOT scale with Swt^n.
+/// Rearranged this is exactly the shared root `cw·Swt^n + (B·Qv)·Swt^(n−1) − Ct/φt^m = 0`, so it reuses
+/// `sw_cond_root` with `lin = B·Qv`. `qv` is the cation concentration in meq/mL of pore water and `b` the
+/// equivalent counterion conductance (mho·mL/(m·meq)); see `waxman_b`. A clean sand (Qv = 0) collapses to
+/// Archie. Exponents are the Waxman-Smits m*/n* (passed in as `m`,`n`).
+pub fn sw_waxman_smits(rt: f64, phit: f64, qv: f64, cw: f64, b: f64, m: f64, n: f64) -> f64 {
+    if !(rt > 0.0) || !(phit > 0.0) || !(cw > 0.0) {
+        return f64::NAN;
+    }
+    let lin = (b * qv).max(0.0); // the excess counterion conductance is non-negative
+    sw_cond_root(phit, 1.0 / rt, cw, lin, m, n, 1.0)
+}
+
+/// Waxman-Smits counterion conductance B(T, Rw) — Juhász's (1981) closed-form fit of the
+/// Waxman-Thomas B chart (Techlog "1972 Waxman B chart original fit" / IP2025 PhiSw, verified against
+/// both installs' docs):
+///   B = (−1.28 + 0.225·T − 0.0004059·T²) / (1 + (0.045·T − 0.27)·Rw^1.23),
+/// with `t_c` the formation temperature in °C and `rw` the formation-water resistivity in ohm·m at
+/// that temperature. The result is in mho·mL/(m·meq): paired with Qv in meq/mL and Cw in mho/m it
+/// makes the excess term B·Qv come out in mho/m. Clamped ≥ 0 (the numerator dips negative below ~6 °C).
+/// This is the *auto* B; a core-measured value can override it (FluidProps.ws_b) because the fit is
+/// known to overshoot above ~120 °C. A non-positive Rw (or a degenerate denominator, only reachable at
+/// near-freezing formation temperature with ultra-fresh water — outside any real reservoir) falls back
+/// to the salinity-independent numerator.
+pub fn waxman_b(t_c: f64, rw: f64) -> f64 {
+    let num = -1.28 + 0.225 * t_c - 0.0004059 * t_c * t_c;
+    if !(rw > 0.0) {
+        return num.max(0.0);
+    }
+    let den = 1.0 + (0.045 * t_c - 0.27) * rw.powf(1.23);
+    if !(den > 0.0) {
+        return num.max(0.0);
+    }
+    (num / den).max(0.0)
+}
+
 /// Fluid / saturation parameters (needed when CT or CXO participates).
 #[derive(Debug, Clone, Deserialize)]
 pub struct FluidProps {
@@ -314,6 +356,11 @@ pub struct FluidProps {
     /// Default 0.10.
     #[serde(default = "default_phit_sh")]
     pub phit_sh: f64,
+    /// Optional core-measured Waxman-Smits B override, mho·mL/(m·meq). 0 (default) ⇒ compute B(T,Rw)
+    /// from `waxman_b`. Only the Waxman-Smits model reads it — an escape hatch for when the Juhász
+    /// B(T) fit disagrees with a measured B (it overshoots above ~120 °C).
+    #[serde(default)]
+    pub ws_b: f64,
 }
 
 fn default_mud() -> String {
@@ -1150,9 +1197,23 @@ pub fn run_multimin(
             if post_solve {
                 let fc = fluid.as_ref().unwrap();
                 let fp = req.fluid.as_ref().unwrap();
-                let (m_exp, n_exp, a_arch, rsh, phit_sh) =
-                    (fp.m, fp.n, fp.archie_a, fp.rsh, fp.phit_sh);
+                let (m_exp, n_exp, a_arch, rsh, phit_sh, ws_b) =
+                    (fp.m, fp.n, fp.archie_a, fp.rsh, fp.phit_sh, fp.ws_b);
                 let vsh = zs.clays.iter().chain(&zs.u_bw).map(|&c| x[c]).sum::<f64>();
+                // Waxman-Smits cation term Σ v_clay·CEC·ρ_clay [meq per unit bulk volume]; divided by
+                // the zone's φt inside the arm to give Qv in meq/mL of pore. Zone-independent (clay
+                // volumes are shared between the flushed and virgin fluids), so it's computed once.
+                let qv_num: f64 = if matches!(model, SwModel::WaxmanSmits) {
+                    zs.clays
+                        .iter()
+                        .map(|&ci| {
+                            let c = &req.components[ci];
+                            x[ci] * c.cec * *c.endpoints.get("RHOB").unwrap_or(&2.65)
+                        })
+                        .sum()
+                } else {
+                    0.0
+                };
                 let read_res = |idx: Option<usize>| -> Option<f64> {
                     idx.map(|t| tool_cols[t][i] as f64).filter(|v| v.is_finite() && *v > 0.0)
                 };
@@ -1204,6 +1265,23 @@ pub fn run_multimin(
                                 return f64::NAN;
                             }
                             let swt = sw_juhasz(rt, phit, vsh, cw, rsh, phit_sh, m_exp, n_exp);
+                            if !swt.is_finite() {
+                                return f64::NAN;
+                            }
+                            ((swt * phit - v_bw) / phie).clamp(0.0, 1.0)
+                        }
+                        SwModel::WaxmanSmits => {
+                            // Total-porosity B·Qv form: Qv from the solved clay volumes, B from the
+                            // Juhász B(T,Rw) fit (Rw = 1/cw at formation T — the filtrate for the X
+                            // zone, formation water for the U zone) unless overridden. Same free-water/φe
+                            // remap as dual water — this only maps conductivity → Swt.
+                            let phit = phie + v_bw;
+                            if !(phit > 1e-9) || !(phie > 1e-9) {
+                                return f64::NAN;
+                            }
+                            let qv = qv_num / phit;
+                            let b = if ws_b > 0.0 { ws_b } else { waxman_b(t_c, 1.0 / cw.max(1e-9)) };
+                            let swt = sw_waxman_smits(rt, phit, qv, cw, b, m_exp, n_exp);
                             if !swt.is_finite() {
                                 return f64::NAN;
                             }
@@ -1340,6 +1418,7 @@ pub fn run_multimin(
                     SwModel::Indonesia => "indonesia",
                     SwModel::Simandoux => "simandoux",
                     SwModel::Juhasz => "juhasz",
+                    SwModel::WaxmanSmits => "waxman_smits",
                 },
             }))
             .unwrap_or_default(),
@@ -2039,6 +2118,7 @@ mod tests {
             rsh: 4.0,
             archie_a: 1.0,
             phit_sh: 0.1,
+            ws_b: 0.0,
         };
         let fc = fluid_calc(&props);
         let inv_w = 1.0 / fc.w;
@@ -2226,6 +2306,7 @@ mod tests {
             rsh: 4.0,
             archie_a: 1.0,
             phit_sh: 0.1,
+            ws_b: 0.0,
         };
         let fc = fluid_calc(&props);
         assert!((fc.w - 2.0).abs() < 1e-9);
@@ -2352,6 +2433,7 @@ mod tests {
             rsh: 4.0,
             archie_a: 1.0,
             phit_sh: 0.1,
+            ws_b: 0.0,
         };
         let req = MultiminRequest {
             components: vec![q, ill, wx],
@@ -2681,6 +2763,7 @@ mod tests {
             rsh: 4.0,
             archie_a: 1.0,
             phit_sh: 0.1,
+            ws_b: 0.0,
         };
         let dc = dry_clay_calc(&WetClayInput {
             rhob_wet: 2.18333,
@@ -2859,6 +2942,7 @@ mod tests {
             rsh: 4.0,
             archie_a: 1.0,
             phit_sh: 0.1,
+            ws_b: 0.0,
         };
         let req = MultiminRequest {
             components: vec![q, wsxo, osxo, wsw, osw],
@@ -2973,6 +3057,61 @@ mod tests {
     }
 
     #[test]
+    fn sw_waxman_smits_hand_computed() {
+        // Ct/φt^m = Cw·Swt^n + B·Qv·Swt^(n−1). φt=0.2, Cw=5, Qv=0.3, B=4, m=n=2, SWT=0.5:
+        //   Ct/φt^m = 5·0.25 + 4·0.3·0.5 = 1.85 ⇒ Ct = 1.85·0.04 = 0.074 ⇒ Rt = 13.513513…
+        assert!(
+            (sw_waxman_smits(1.0 / 0.074, 0.2, 0.3, 5.0, 4.0, 2.0, 2.0) - 0.5).abs() < 1e-9,
+            "Waxman-Smits n=2 closed form"
+        );
+        // General n=3 via bisection: Ct/φt^m = 5·0.125 + 4·0.3·0.25 = 0.925 ⇒ Ct = 0.037 ⇒ Rt = 27.027…
+        assert!(
+            (sw_waxman_smits(1.0 / 0.037, 0.2, 0.3, 5.0, 4.0, 2.0, 3.0) - 0.5).abs() < 1e-6,
+            "Waxman-Smits n=3 bisection"
+        );
+        // Qv=0 ⇒ excess term vanishes ⇒ clean-sand Archie (Rw = 1/Cw, a = 1).
+        let ws0 = sw_waxman_smits(12.0, 0.28, 0.0, 10.0, 4.0, 2.0, 2.0);
+        let arch = sw_archie(12.0, 0.28, 0.1, 2.0, 2.0, 1.0);
+        assert!((ws0 - arch).abs() < 1e-9, "Waxman-Smits(Qv=0) vs Archie: {ws0} vs {arch}");
+        // B=0 is also the clean-sand limit (no counterion conductance).
+        assert!((sw_waxman_smits(12.0, 0.28, 0.5, 10.0, 0.0, 2.0, 2.0) - arch).abs() < 1e-9, "B=0 ⇒ Archie");
+        // Adding Qv (excess conductivity) at fixed Rt LOWERS the apparent Sw vs the clean-sand read.
+        let ws_shaly = sw_waxman_smits(12.0, 0.28, 0.5, 10.0, 4.0, 2.0, 2.0);
+        assert!(ws_shaly < ws0, "excess conductivity lowers Sw: {ws_shaly} vs {ws0}");
+        // Non-physical inputs → NaN (rt, phit, cw, and the sub-linear-n guard from the core root).
+        assert!(sw_waxman_smits(-1.0, 0.2, 0.3, 5.0, 4.0, 2.0, 2.0).is_nan());
+        assert!(sw_waxman_smits(13.5, 0.0, 0.3, 5.0, 4.0, 2.0, 2.0).is_nan());
+        assert!(sw_waxman_smits(13.5, 0.2, 0.3, 0.0, 4.0, 2.0, 2.0).is_nan());
+        assert!(sw_waxman_smits(13.5, 0.2, 0.3, 5.0, 4.0, 2.0, 0.5).is_nan());
+    }
+
+    #[test]
+    fn waxman_b_matches_juhasz_fit() {
+        // Juhász B(T,Rw) = (−1.28 + 0.225T − 0.0004059T²)/(1 + (0.045T − 0.27)·Rw^1.23).
+        // Hand values (T °C, Rw ohm·m):
+        //   B(25, 0.10): num = 4.0913125, den = 1 + 0.855·0.1^1.23 = 1.0503461 ⇒ 3.89520
+        assert!((waxman_b(25.0, 0.10) - 3.89520).abs() < 2e-3, "B(25,0.1) got {}", waxman_b(25.0, 0.10));
+        //   B(100, 0.05): num = 17.161, den = 1 + 4.23·0.05^1.23 = 1.1061360 ⇒ 15.5144
+        assert!((waxman_b(100.0, 0.05) - 15.5144).abs() < 5e-3, "B(100,0.05) got {}", waxman_b(100.0, 0.05));
+        // B rises with temperature (counterion mobility) at fixed Rw…
+        assert!(waxman_b(100.0, 0.10) > waxman_b(25.0, 0.10), "B increases with T");
+        // …and falls as the water freshens (Rw up) at fixed T, since (0.045T−0.27) > 0 for T > 6 °C.
+        assert!(waxman_b(80.0, 1.0) < waxman_b(80.0, 0.05), "B decreases as Rw rises");
+        // Rw ≤ 0 (or unset) ⇒ salinity-independent numerator, the saline-limit B.
+        assert!((waxman_b(25.0, 0.0) - 4.0913125).abs() < 1e-9, "Rw=0 falls back to numerator");
+        assert!((waxman_b(25.0, -1.0) - 4.0913125).abs() < 1e-9, "Rw<0 falls back to numerator");
+        // Below ~6 °C the numerator is negative; B is clamped to 0 (never a negative conductance).
+        assert_eq!(waxman_b(0.0, 0.10), 0.0, "sub-zero-numerator B clamps to 0");
+        // Always finite and non-negative across a wide reservoir range.
+        for &t in &[10.0f64, 60.0, 120.0, 200.0] {
+            for &rw in &[0.01f64, 0.1, 1.0, 10.0] {
+                let b = waxman_b(t, rw);
+                assert!(b.is_finite() && b >= 0.0, "B({t},{rw}) = {b}");
+            }
+        }
+    }
+
+    #[test]
     fn dual_water_nonlinear_post_solve_recovers_known_sw() {
         // Same forward model as indonesia_post_solve_recovers_known_sw but sw_model = DualWaterNonlinear.
         // With no clay/bound-water component Swb=0, so the dual-water form reduces to Archie; a deep Sw
@@ -3021,6 +3160,7 @@ mod tests {
             rsh: 4.0,
             archie_a: 1.0,
             phit_sh: 0.1,
+            ws_b: 0.0,
         };
         let req = MultiminRequest {
             components: vec![q, wsxo, osxo, wsw, osw],
@@ -3055,6 +3195,200 @@ mod tests {
         };
         let swe = mean(&cols["MM_SWE"]);
         let phie_out = mean(&cols["MM_PHIE"]);
+        assert!((swe - sw_true as f32).abs() < 0.02, "post-solve SWE {swe}, want {sw_true}");
+        assert!((phie_out - phie as f32).abs() < 0.02, "PHIE {phie_out}, want {phie}");
+    }
+
+    #[test]
+    fn waxman_smits_post_solve_recovers_known_sw() {
+        // Clean-sand forward model (no clay ⇒ Qv = 0 ⇒ Waxman-Smits collapses to Archie), the same
+        // rock as dual_water_nonlinear_post_solve_recovers_known_sw. Exercises the run-path wiring for
+        // the model: post-solve gate, qv_num from (empty) clays, waxman_b(T,Rw) lookup, φe redistribution.
+        // A deep Sw forward-modelled through Archie must return as SWE with PHIE untouched.
+        let q = lib_get("Quartz");
+        let wsxo = lib_get("Water Sxo");
+        let osxo = lib_get("Oil Sxo");
+        let wsw = lib_get("Water Sw");
+        let osw = lib_get("Oil Sw");
+        let ep = |c: &Component, k: &str| c.endpoints[&k.to_string()];
+        let (vq, vwx, vox) = (0.70, 0.15, 0.15);
+        let (phie, sw_true, rw): (f64, f64, f64) = (0.30, 0.35, 0.10);
+        let d = (phie.powf(2.0) / (1.0 * rw)).sqrt();
+        let rt = 1.0 / (d * d * sw_true.powf(2.0));
+
+        let n = 6usize;
+        let depth: Vec<f32> = (0..n).map(|i| 2000.0 + i as f32 * 0.5).collect();
+        let mix = |k: &str| (vq * ep(&q, k) + vwx * ep(&wsxo, k) + vox * ep(&osxo, k)) as f32;
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, "MM-WS", None, None, None).unwrap();
+        crate::db::insert_standard_curves(
+            &conn,
+            wid,
+            depth,
+            vec![mix("GR"); n],
+            vec![rt as f32; n],
+            vec![mix("NPHI"); n],
+            vec![mix("RHOB"); n],
+            vec![mix("DT"); n],
+            vec![f32::NAN; n],
+        )
+        .unwrap();
+        let db = Mutex::new(conn);
+        let props = FluidProps {
+            rw,
+            rw_temp_f: 100.0,
+            rmf: 0.1,
+            rmf_temp_f: 100.0,
+            ftemp_f: 100.0,
+            m: 2.0,
+            n: 2.0,
+            mud_type: "WATER".into(),
+            rsh: 4.0,
+            archie_a: 1.0,
+            phit_sh: 0.1,
+            ws_b: 0.0,
+        };
+        let req = MultiminRequest {
+            components: vec![q, wsxo, osxo, wsw, osw],
+            tools: vec![
+                ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.0264 },
+                ToolSpec { key: "NPHI".into(), curve: "NPHI".into(), sigma: 0.014 },
+                ToolSpec { key: "DT".into(), curve: "DT".into(), sigma: 1.951 },
+                ToolSpec { key: "GR".into(), curve: "GR".into(), sigma: 6.0 },
+                ToolSpec { key: "CT".into(), curve: "RES_DEEP".into(), sigma: 0.0 },
+            ],
+            apply_well_ids: vec![wid.to_string()],
+            output_prefix: "MM".into(),
+            unity: true,
+            fluid: Some(props),
+            recon_qc: false,
+            sw_model: SwModel::WaxmanSmits,
+            porosity_source: PorositySource::Cec,
+            enforce_porosity: true,
+            enforce_bndwat: true,
+            enforce_water_mud: true,
+            sigma_constraint: 0.01,
+        };
+        let res = run_multimin(&db, &req, None);
+        assert!(res.error.is_none(), "err={:?}", res.error);
+        assert!(res.wells[0].rows_solved > 0, "no samples solved");
+        let c = db.lock().unwrap();
+        let cols = fetch_curve_frame(&c, &wid.to_string(), &["MM_SWE".into(), "MM_PHIE".into()]).unwrap().1;
+        let mean = |v: &[f32]| {
+            let f: Vec<f32> = v.iter().copied().filter(|x| x.is_finite()).collect();
+            assert!(!f.is_empty(), "no finite samples");
+            f.iter().sum::<f32>() / f.len() as f32
+        };
+        let swe = mean(&cols["MM_SWE"]);
+        let phie_out = mean(&cols["MM_PHIE"]);
+        assert!((swe - sw_true as f32).abs() < 0.02, "post-solve SWE {swe}, want {sw_true}");
+        assert!((phie_out - phie as f32).abs() < 0.02, "PHIE {phie_out}, want {phie}");
+    }
+
+    #[test]
+    fn waxman_smits_shaly_recovers_known_sw() {
+        // Shaly-sand round trip that EXERCISES the Qv assembly (Σ v_clay·CEC·ρ / φt), which the clean-sand
+        // test above cannot (Qv=0 there). A known clay volume + deep Sw forward-model Rt through the full
+        // Waxman-Smits conductivity; the solve must recover Vsh, PHIE and — via B·Qv — the deep Sw. Qv here
+        // is hand-assembled longhand, so a factor/φt/zone bug in the solver's qv_num breaks the round trip.
+        let q = lib_get("Quartz");
+        let clay = lib_get("Illite");
+        let wsxo = lib_get("Water Sxo");
+        let osxo = lib_get("Oil Sxo");
+        let wsw = lib_get("Water Sw");
+        let osw = lib_get("Oil Sw");
+        let ep = |c: &Component, k: &str| c.endpoints[&k.to_string()];
+        let (vq, vcl, vwx, vox) = (0.55, 0.15, 0.15, 0.15); // matrix 0.70, φe 0.30, Vsh 0.15, flushed Sxo 0.5
+        let (phie, sw_true, rw): (f64, f64, f64) = (0.30, 0.35, 0.10); // deep Sw; Rw at formation T
+        let (m, n): (f64, f64) = (2.0, 2.0);
+        // Cw at formation T: rw_temp == ftemp below, so Cw = 1/Rw exactly. t_c from the same ftemp.
+        let cw = 1.0 / rw;
+        let t_c = (100.0 - 32.0) * 5.0 / 9.0;
+        let b = waxman_b(t_c, rw);
+        // Qv = v_clay·CEC·ρ_clay / φt (meq/mL), written longhand — independent of the solver's qv_num.
+        // φt = φe here (no bound-water component in the model).
+        let qv = vcl * clay.cec * ep(&clay, "RHOB") / phie;
+        // Forward Ct = φt^m·(Cw·Swt^n + B·Qv·Swt^(n−1)); Rt = 1/Ct.
+        let ct = phie.powf(m) * (cw * sw_true.powf(n) + b * qv * sw_true.powf(n - 1.0));
+        let rt = 1.0 / ct;
+
+        let nrows = 6usize;
+        let depth: Vec<f32> = (0..nrows).map(|i| 2000.0 + i as f32 * 0.5).collect();
+        let mix =
+            |k: &str| (vq * ep(&q, k) + vcl * ep(&clay, k) + vwx * ep(&wsxo, k) + vox * ep(&osxo, k)) as f32;
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, "MM-WS-SH", None, None, None).unwrap();
+        crate::db::insert_standard_curves(
+            &conn,
+            wid,
+            depth,
+            vec![mix("GR"); nrows],
+            vec![rt as f32; nrows],
+            vec![mix("NPHI"); nrows],
+            vec![mix("RHOB"); nrows],
+            vec![mix("DT"); nrows],
+            vec![f32::NAN; nrows],
+        )
+        .unwrap();
+        let db = Mutex::new(conn);
+        let props = FluidProps {
+            rw,
+            rw_temp_f: 100.0,
+            rmf: 0.1,
+            rmf_temp_f: 100.0,
+            ftemp_f: 100.0,
+            m,
+            n,
+            mud_type: "WATER".into(),
+            rsh: 4.0,
+            archie_a: 1.0,
+            phit_sh: 0.1,
+            ws_b: 0.0,
+        };
+        let req = MultiminRequest {
+            components: vec![q, clay, wsxo, osxo, wsw, osw],
+            tools: vec![
+                ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.0264 },
+                ToolSpec { key: "NPHI".into(), curve: "NPHI".into(), sigma: 0.014 },
+                ToolSpec { key: "DT".into(), curve: "DT".into(), sigma: 1.951 },
+                ToolSpec { key: "GR".into(), curve: "GR".into(), sigma: 6.0 },
+                ToolSpec { key: "CT".into(), curve: "RES_DEEP".into(), sigma: 0.0 },
+            ],
+            apply_well_ids: vec![wid.to_string()],
+            output_prefix: "MM".into(),
+            unity: true,
+            fluid: Some(props),
+            recon_qc: false,
+            sw_model: SwModel::WaxmanSmits,
+            porosity_source: PorositySource::Cec,
+            enforce_porosity: true,
+            enforce_bndwat: true,
+            enforce_water_mud: true,
+            sigma_constraint: 0.01,
+        };
+        let res = run_multimin(&db, &req, None);
+        assert!(res.error.is_none(), "err={:?}", res.error);
+        assert!(res.wells[0].rows_solved > 0, "no samples solved");
+        let c = db.lock().unwrap();
+        let cols = fetch_curve_frame(&c, &wid.to_string(), &["MM_SWE".into(), "MM_PHIE".into(), "MM_VSH".into()])
+            .unwrap()
+            .1;
+        let mean = |v: &[f32]| {
+            let f: Vec<f32> = v.iter().copied().filter(|x| x.is_finite()).collect();
+            assert!(!f.is_empty(), "no finite samples");
+            f.iter().sum::<f32>() / f.len() as f32
+        };
+        let swe = mean(&cols["MM_SWE"]);
+        let phie_out = mean(&cols["MM_PHIE"]);
+        let vsh_out = mean(&cols["MM_VSH"]);
+        // Clay (hence Qv) is recovered, so the excess-conductivity term is real…
+        assert!((vsh_out - vcl as f32).abs() < 0.02, "VSH {vsh_out}, want {vcl}");
+        // …and Waxman-Smits inverts Rt back to the true deep Sw. An Archie read of the same Rt would be
+        // ~0.44 (markedly high), so recovering 0.35 proves B·Qv propagated through qv_num end to end.
         assert!((swe - sw_true as f32).abs() < 0.02, "post-solve SWE {swe}, want {sw_true}");
         assert!((phie_out - phie as f32).abs() < 0.02, "PHIE {phie_out}, want {phie}");
     }

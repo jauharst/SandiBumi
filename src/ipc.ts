@@ -1021,18 +1021,22 @@ export interface MmFluidProps {
   /** Wet-clay (shale) total porosity φ_sh for Juhász's normalized Qv (Vsh·φ_sh/φt) and shale-point
    *  conductivity (1/(Rsh·φ_sh^m)). Only Juhász reads it. Backend default 0.10. */
   phit_sh?: number;
+  /** Core-measured Waxman-Smits B override (mho·mL/(m·meq)). 0/blank ⇒ compute B(T,Rw) from the
+   *  Juhász fit. Only the `waxman_smits` model reads it. Backend default 0. */
+  ws_b?: number;
 }
 
 /** Saturation model for the conductivity tools. `linear_dw` (default) is the in-inversion linearised
  *  dual-water; the rest are post-solve forms (Sw from Rt + the solved volumes): `dual_water_nonlinear`
- *  and `archie` (total-porosity), `indonesia`/`simandoux`/`juhasz` (shaly-sand). */
+ *  and `archie` (total-porosity), `indonesia`/`simandoux`/`juhasz`/`waxman_smits` (shaly-sand). */
 export type SwModel =
   | "linear_dw"
   | "dual_water_nonlinear"
   | "archie"
   | "indonesia"
   | "simandoux"
-  | "juhasz";
+  | "juhasz"
+  | "waxman_smits";
 
 /** What drives the clay bound-water (BNDWAT) constraint. `cec` (default) uses
  *  α·96·CEC·ρ/(T+298); `wet_clay_porosity` uses the geometric k = φ/(1−φ) from each clay's

@@ -7,6 +7,30 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 26 — SandiMin Waxman-Smits saturation model (2026-07-23)
+
+The last of the Sw models. **Waxman-Smits (B·Qv)** joins the **Sw model** dropdown (Fluids tab). Like the
+other post-solve forms it runs the mineral inversion untouched, then replaces the water/HC split from the
+deep resistivity — here via `Ct = φt^m·(Cw·Swt^n + B·Qv·Swt^(n−1))`:
+
+- **Qv** is built from the **solved clay volumes**: `Qv = Σ v_clay·CEC·ρ_clay / φt` (meq/mL). So each clay's
+  **CEC** (Clay tab) drives the excess conductivity — a clean sand (no clay ⇒ Qv=0) collapses to Archie.
+- **B** is the counterion conductance from the **Juhász (1981) B(T,Rw) fit** — the same closed form Techlog
+  and IP use — computed from formation temperature and Rw automatically. Because that fit is known to
+  overshoot above ~120 °C, a **B override (0 = auto)** box (shown only for this model) lets you pin a
+  core-measured B.
+- Uses your **m/n as m\*/n\***. PHIE/PHIT stay exactly as the mineral solve made them; only SWE/SWT/SXOT move.
+
+Verified: the conductivity root and the B(T,Rw) fit are hand-anchored in unit tests (n=2 closed form, n=3
+bisection, Qv=0/B=0 → Archie, B(25 °C,0.1)=3.895, B(100 °C,0.05)=15.51, monotonic in T and Rw), plus a
+full-run integration test that recovers a known Sw. Nothing else moves — the default model is still linear
+dual-water.
+
+> **Try:** open **Petrophysics → SandiMin**, **Fluids** tab, set **Sw model → Waxman-Smits (B·Qv)**. Make sure
+> a **CT** (deep-resistivity) tool and a **U-zone hydrocarbon** component are set, and that your clays carry a
+> **CEC** (Clay tab). Run and compare **SWE** vs **Archie** (Waxman-Smits reads lower on shaly intervals) and
+> vs **Juhász**. Leave **B override** at 0 for the auto B(T,Rw); enter a core B to pin it and re-run.
+
 ## Round 25 — SandiMin Constraints tab: porosity source + program-constraint toggles (2026-07-23)
 
 The UI for item B (your image 2). A new **Constraints** tab (after Clay) holds two things:

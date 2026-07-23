@@ -410,6 +410,7 @@ export async function buildMultiminContent(
     ["indonesia", "Indonesia (Poupon-Leveaux)"],
     ["simandoux", "Simandoux (modified)"],
     ["juhasz", "Juhász / normalized Qv"],
+    ["waxman_smits", "Waxman-Smits (B·Qv)"],
   ];
   for (const [val, label] of SW_OPTIONS) {
     const o = document.createElement("option");
@@ -427,6 +428,7 @@ export async function buildMultiminContent(
   const rshInp = numInput(4.0);
   const archieAInp = numInput(1.0);
   const phitShInp = numInput(0.1);
+  const wsBInp = numInput(0);
   const mkExtraCell = (lab: string, inp: HTMLInputElement): HTMLLabelElement => {
     const cell = document.createElement("label");
     cell.className = "mm-fluid-cell";
@@ -440,6 +442,7 @@ export async function buildMultiminContent(
   const rshCell = mkExtraCell("Rsh (ohmm)", rshInp);
   const archieACell = mkExtraCell("Archie a", archieAInp);
   const phitShCell = mkExtraCell("Wet-clay φ (φ_sh)", phitShInp);
+  const wsBCell = mkExtraCell("B override (0=auto)", wsBInp);
   fluidBox.appendChild(swExtra);
   const swNote = document.createElement("div");
   swNote.className = "mc-chain-note";
@@ -449,14 +452,22 @@ export async function buildMultiminContent(
     // Wet-shale inputs by model. Indonesia/Simandoux read Rsh + Archie a; Juhász reads Rsh + φ_sh.
     const shalySand = val === "indonesia" || val === "simandoux";
     const juhasz = val === "juhasz";
+    const waxman = val === "waxman_smits";
     // Every model except linear dual-water runs post-solve and shares the note.
     const post = val !== "linear_dw";
     rshCell.style.display = shalySand || juhasz ? "" : "none";
     archieACell.style.display = shalySand ? "" : "none";
     phitShCell.style.display = juhasz ? "" : "none";
-    swExtra.style.display = shalySand || juhasz ? "" : "none";
+    wsBCell.style.display = waxman ? "" : "none";
+    swExtra.style.display = shalySand || juhasz || waxman ? "" : "none";
     swNote.style.display = post ? "" : "none";
-    if (val === "juhasz") {
+    if (waxman) {
+      swNote.textContent =
+        "Post-solve, Waxman-Smits (1968): Sw solves Ct = φt^m·(Cw·Swt^n + B·Qv·Swt^(n−1)). Qv comes from " +
+        "the solved clay volumes (Σ v_clay·CEC·ρ / φt, meq/mL) and B from the Juhász B(T,Rw) fit unless you " +
+        "enter a core-measured B override (the fit overshoots above ~120 °C). Uses your m/n as m*/n*. Needs a " +
+        "CT tool + a U-zone hydrocarbon component; clay CEC drives Qv. PHIE/PHIT stay exactly as solved.";
+    } else if (val === "juhasz") {
       swNote.textContent =
         "Post-solve, normalized Waxman-Smits (Juhász): the excess clay conductivity is read from the shale " +
         "point — Cwsh = 1/(Rsh·φ_sh^m) weighted by the normalized Qv (Vsh·φ_sh/φt) — instead of a " +
@@ -794,6 +805,7 @@ export async function buildMultiminContent(
       rsh: Number(rshInp.value) || 4,
       archie_a: Number(archieAInp.value) || 1,
       phit_sh: Number(phitShInp.value) || 0.1,
+      ws_b: Number(wsBInp.value) || 0,
     };
   }
 
