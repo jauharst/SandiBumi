@@ -7,6 +7,51 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 60 — R3: Cancel stops telling you it worked (2026-07-24)
+
+Found independently by **two** review passes that weren't told about each other (F2d and F5e) —
+which is why I trusted it before reproducing it.
+
+**The lie.** A Cancel button is rendered for every active job, but only about **5 of ~27 job
+kinds** ever read the flag. The rest ran to completion, **committed their writes**, and were then
+reported as **"Cancelled"** — with every item ticked green. Pick the wrong folder, start a 120-file
+LAS import, hit Cancel at file 3: all 120 wells were still created, the status bar said
+"Imported 120/120 well(s)", and the Processing card said Cancelled. Two contradictory reports of
+the same run, and 120 wells you thought you'd stopped.
+
+**The systemic fix is one idea:** *Cancelled* must mean the work actually **stopped**, not that
+you clicked. `JobHandle::is_cancelled()` now records the fact that a worker **observed** the flag,
+and `run_job` finalizes on that observation instead of on the flag. A worker that never polls
+cannot have drained early, so its honest report is **Completed** — the cancel simply arrived too
+late. This corrects every job kind at once, with no per-call-site churn.
+
+Two paths read the raw flag instead of going through `is_cancelled()` — chain steps and module
+runs. Chains already set their own terminal state so they were fine, but **module runs were not**:
+they would have started reporting a genuinely drained run as Completed. That is the same lie in
+the opposite direction, so those mark the observation explicitly. I caught this by tracing the
+raw-flag readers rather than by a test failing.
+
+**Cancel is now real in three more places**, each a per-item loop that simply never polled:
+LAS import (checks *before* each DB write, so it stops wells being created), Rhai equations
+(previously the Cancel button's behaviour depended on the equation's **language** — the Python
+branch drained, the Rhai branch didn't, same job kind, same button), and the ML write-back loop.
+
+cargo **369/0/7**, two new tests pinning the distinction the whole fix rests on: a set flag alone
+is not evidence, and observation is shared across the handle clones rayon workers hold.
+
+- [ ] **Try:** select a folder of ~20 LAS files, Import, and hit **Cancel** after a couple land.
+  Before: all 20 imported and the card said Cancelled. Now: the remaining files are skipped and
+  marked "cancelled", and the card says Cancelled *because it genuinely stopped*.
+- [ ] **Try:** run any **export or render** (composite PDF, report), hit Cancel. It cannot be
+  interrupted, so it finishes — and now correctly reports **Completed**, not a false "Cancelled".
+
+**Still open** (deliberately not in R3): the Processing panel offers a Cancel button for *every*
+job with no capability check, so on monolithic ops it is now honest but still inert — `JobView`
+needs a `cancellable` flag and the button should be hidden when false. Also unfixed: Monte Carlo
+polls only between wells (a single-well 100k-realization run is uncancellable), Report batch uses
+the single-unit helper so it has no per-well progress, and both Autocorrelate commands hold the
+DB lock across the whole sweep.
+
 ## Round 59 — R2: three panics reachable from your own data (2026-07-24)
 
 All three came out of the F2a review pass (`docs/review_sweep/F2.md`). Release builds set

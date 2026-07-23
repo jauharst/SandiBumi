@@ -39,6 +39,24 @@ pub fn import_las_files(
     parsed
         .into_iter()
         .map(|(path, result)| {
+            // Cancel before the DB write, so clicking Cancel actually stops wells being created.
+            // Without this the flag was flipped, every remaining file was still inserted, and the
+            // job was then labelled "Cancelled" — the user was told the import stopped while the
+            // project filled up with unwanted wells. The parse pass above has already run by this
+            // point (it is one up-front par_iter), so cancel stops the writes, not the parsing.
+            if progress.map_or(false, |p| p.is_cancelled()) {
+                if let Some(p) = progress {
+                    p.finish_item(&path, crate::jobs::ItemState::Warned, Some("cancelled".into()));
+                }
+                return ImportResult {
+                    path: path.clone(),
+                    well_id: None,
+                    well_name: None,
+                    rows: 0,
+                    warning: Some("cancelled before import".into()),
+                    error: None,
+                };
+            }
             if let Some(p) = progress {
                 let base = path.rsplit(['/', '\\']).next().unwrap_or(&path);
                 p.set_current(Some(format!("Importing {base}")));

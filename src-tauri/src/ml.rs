@@ -413,6 +413,20 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                 p.set_current(Some("Writing predictions…".into()));
             }
             for aw in &apply {
+                // Cancel before this well's predictions are written. The sklearn fit upstream is a
+                // blocking child process and is not interruptible, but the write-back loop is, so
+                // a late Cancel at least stops the remaining wells getting curves they should not.
+                if progress.map_or(false, |p| p.is_cancelled()) {
+                    if let Some(p) = progress {
+                        p.finish_item(&aw.well_id, crate::jobs::ItemState::Warned, Some("cancelled".into()));
+                    }
+                    wells.push(MlWellResult {
+                        well_id: aw.well_id.clone(),
+                        rows_predicted: 0,
+                        error: Some("cancelled".into()),
+                    });
+                    continue;
+                }
                 if let Some(p) = progress {
                     p.start_item(&aw.well_id);
                 }

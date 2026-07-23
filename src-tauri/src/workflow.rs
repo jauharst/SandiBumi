@@ -208,6 +208,13 @@ pub fn run_workflow_module_into(
             // par_iter drains in ~a well or two instead of grinding through every remaining
             // well. The chain re-checks the flag between steps and finalizes as Cancelled.
             if cancel.map_or(false, |c| c.load(std::sync::atomic::Ordering::SeqCst)) {
+                // This path reads the raw flag (a chain shares one flag across registries) rather
+                // than going through `JobHandle::is_cancelled`, so the observation has to be
+                // recorded explicitly — otherwise `run_job` would finalize a genuinely drained run
+                // as Completed, which is the same class of lie in the opposite direction.
+                if let Some(p) = progress {
+                    p.note_cancel_observed();
+                }
                 return Outcome::Skipped;
             }
             // Live per-well progress for the universal Processing panel. With rayon, several

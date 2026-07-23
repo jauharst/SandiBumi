@@ -122,6 +122,10 @@ pub(crate) struct JobHandle {
     reg: JobRegistry,
     id: Uuid,
     pub(crate) cancel: Arc<AtomicBool>,
+    /// Set the first time a worker actually OBSERVES the cancel flag as set. Most job kinds
+    /// never poll, so the flag alone cannot tell us whether a run really stopped — see
+    /// [`JobHandle::cancel_was_observed`] and the finalization in [`run_job`].
+    observed_cancel: Arc<AtomicBool>,
 }
 
 impl JobHandle {
@@ -133,8 +137,26 @@ impl JobHandle {
 
     /// True once this job has been cancelled. Off-thread workers wrapped by [`run_job`] poll
     /// this per item to drain fast; chains instead read the shared `cancel` flag directly.
+    ///
+    /// Observing a set flag is RECORDED, because that observation is the only evidence anyone
+    /// acted on the cancel. A worker that never calls this cannot have drained early, so its run
+    /// must not be reported as cancelled no matter what the user clicked.
     pub(crate) fn is_cancelled(&self) -> bool {
-        self.cancel.load(Ordering::SeqCst)
+        let c = self.cancel.load(Ordering::SeqCst);
+        if c {
+            self.observed_cancel.store(true, Ordering::SeqCst);
+        }
+        c
+    }
+
+    /// Did any worker actually see the cancel? Chains read the raw `cancel` flag rather than
+    /// going through [`is_cancelled`], so they mark this explicitly when they break out.
+    pub(crate) fn note_cancel_observed(&self) {
+        self.observed_cancel.store(true, Ordering::SeqCst);
+    }
+
+    fn cancel_was_observed(&self) -> bool {
+        self.observed_cancel.load(Ordering::SeqCst)
     }
 
     /// Move the job into the Running phase and set the total unit count (steps × wells for a
@@ -243,7 +265,13 @@ where
     let finalize = handle.clone();
     match tauri::async_runtime::spawn_blocking(move || work(handle)).await {
         Ok(out) => {
-            if finalize.is_cancelled() {
+            // "Cancelled" must mean the work actually STOPPED, not merely that the user clicked.
+            // Only a handful of job kinds poll the flag; the rest run to completion and commit
+            // their writes, and labelling those Cancelled told the user the opposite of what
+            // happened — an import that wrote 120 wells reported as cancelled, every item ticked
+            // green. A worker that never observed the flag cannot have drained early, so the
+            // honest report for it is Completed: the cancel simply arrived too late to matter.
+            if finalize.cancel_was_observed() {
                 finalize.cancelled();
             } else {
                 finalize.complete();
@@ -321,6 +349,7 @@ pub(crate) fn register(
         .collect();
     let item_index: HashMap<String, usize> =
         items.iter().enumerate().map(|(i, (key, _))| (key.clone(), i)).collect();
+    let observed_cancel = Arc::new(AtomicBool::new(false));
     let mut store = reg.lock().unwrap();
     let seq = store.next_seq;
     store.next_seq += 1;
@@ -341,7 +370,7 @@ pub(crate) fn register(
         },
     );
     prune(&mut store);
-    JobHandle { reg: reg.clone(), id, cancel }
+    JobHandle { reg: reg.clone(), id, cancel, observed_cancel }
 }
 
 /// Drop the oldest finished jobs when there are too many; active jobs are never pruned.
@@ -472,5 +501,64 @@ mod tests {
         let finished = views.iter().filter(|v| v.phase == JobPhase::Completed).count();
         assert!(finished <= MAX_FINISHED, "finished jobs capped at {MAX_FINISHED}");
         assert!(views.iter().any(|v| v.id == active.to_string()), "active job survives pruning");
+    }
+
+    /// The flag being set is NOT evidence the work stopped. Only ~5 of the ~27 job kinds poll it;
+    /// the rest ran to completion, committed their writes, and were then reported "Cancelled"
+    /// with every item ticked green. `run_job` now finalizes on the OBSERVATION instead, so this
+    /// is the distinction the whole fix rests on.
+    #[test]
+    fn cancel_counts_as_cancelled_only_once_a_worker_observes_it() {
+        let reg = new_registry();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let h = register(
+            &reg,
+            Uuid::new_v4(),
+            "Test",
+            "unit",
+            vec![("a".into(), "A".into())],
+            cancel.clone(),
+        );
+
+        assert!(!h.cancel_was_observed(), "nothing observed before anything happens");
+        assert!(!h.is_cancelled(), "polling an unset flag must not mark it observed");
+        assert!(!h.cancel_was_observed());
+
+        // The user clicks Cancel.
+        cancel.store(true, Ordering::SeqCst);
+        assert!(
+            !h.cancel_was_observed(),
+            "a set flag alone is not evidence: a worker that never polls cannot have stopped"
+        );
+
+        // A worker polls — now, and only now, the run really did drain.
+        assert!(h.is_cancelled());
+        assert!(h.cancel_was_observed(), "polling a set flag records the observation");
+
+        // The observation is shared across clones, because workers poll from rayon threads
+        // holding their own clone of the handle.
+        let worker = h.clone();
+        assert!(worker.cancel_was_observed(), "clones share the observation");
+    }
+
+    /// The raw-flag paths (chain steps, module runs) never call `is_cancelled`, so they mark the
+    /// observation explicitly. Without that a genuinely drained run would report Completed — the
+    /// same lie in the opposite direction.
+    #[test]
+    fn note_cancel_observed_marks_it_for_raw_flag_readers() {
+        let reg = new_registry();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let h = register(
+            &reg,
+            Uuid::new_v4(),
+            "Test",
+            "unit",
+            vec![("a".into(), "A".into())],
+            cancel.clone(),
+        );
+        cancel.store(true, Ordering::SeqCst);
+        assert!(!h.cancel_was_observed());
+        h.note_cancel_observed();
+        assert!(h.cancel_was_observed());
     }
 }

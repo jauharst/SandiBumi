@@ -1045,6 +1045,15 @@ pub fn run_equation(
     well_ids
         .par_iter()
         .map(|well_id| {
+            // The Python branch of this same command already drains on cancel
+            // (`python_engine.rs`), so without this the Cancel button's behaviour depended on
+            // the equation's LANGUAGE — same job kind, same button, different outcome.
+            if progress.map_or(false, |p| p.is_cancelled()) {
+                if let Some(p) = progress {
+                    p.finish_item(well_id, crate::jobs::ItemState::Warned, Some("cancelled".into()));
+                }
+                return EquationRunResult::failed(well_id.clone(), "cancelled".into());
+            }
             if let Some(p) = progress {
                 p.start_item(well_id);
             }
