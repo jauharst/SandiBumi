@@ -2,6 +2,7 @@ import { getCoreData, getCurveData, setZoneParam, type TrackCurveSeries, type We
 import { appState, clearBrush, setBrushedDepths, type BrushSelection } from "../state";
 import { formRow, openModal } from "./modal";
 import {
+  attachKeyboardPanZoom,
   attachResizeRedraw,
   attachScatterTooltip,
   attachZoomPan,
@@ -13,6 +14,7 @@ import {
   fitCanvasBackingStore,
   fmtValue,
   looksDiscrete,
+  makeCanvasAccessible,
   percentile,
   PlotCanvas,
   canvasFont,
@@ -971,6 +973,11 @@ export async function buildCrossplotContent(
   };
   applySize();
 
+  // Accessibility: describe the chart for screen readers and make it keyboard-focusable.
+  const ariaLabel = () =>
+    `Crossplot: ${ySel.value} versus ${xSel.value}${zSel.value ? `, coloured by ${zSel.value}` : ""}`;
+  makeCanvasAccessible(canvas, ariaLabel());
+
   let xs = new Float32Array(0);
   let ys = new Float32Array(0);
   let zs = new Float32Array(0);
@@ -1015,6 +1022,7 @@ export async function buildCrossplotContent(
   };
 
   const redraw = () => {
+    canvas.setAttribute("aria-label", ariaLabel()); // keep the a11y description in sync with the axes
     plot = drawCrossplot(canvas, xSel.value, ySel.value, zSel.value, xs, ys, zs, opts, hoverIdx, viewRef.current, zColors());
     if (!plot) {
       const ctx = canvas.getContext("2d")!;
@@ -1614,6 +1622,7 @@ export async function buildCrossplotContent(
     redraw,
     onPanStart: (px, py) => handleAt(px, py) === null, // a handle grab vetoes panning
   });
+  const detachKeys = attachKeyboardPanZoom({ canvas, getPlot: () => plot, view: viewRef, redraw });
   const detachResize = attachResizeRedraw(canvas, redraw);
   const unsubTheme = appState.themeVersion.subscribe(() => redraw());
 
@@ -1728,6 +1737,7 @@ export async function buildCrossplotContent(
       unsubData();
       unsubBrush();
       detachZoomPan();
+      detachKeys();
       detachResize();
       detachTip();
       window.removeEventListener("mouseup", onBrushEnd);

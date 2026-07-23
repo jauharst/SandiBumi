@@ -514,6 +514,98 @@ export function attachZoomPan(opts: {
   };
 }
 
+/** Marks a plot canvas up for assistive tech: `role="img"` with a text `label` describing the chart,
+ *  and `tabindex=0` so it can take keyboard focus (for {@link attachKeyboardPanZoom}). Re-set the
+ *  `aria-label` when the plotted curves change so the description stays accurate. */
+export function makeCanvasAccessible(canvas: HTMLCanvasElement, label: string): void {
+  canvas.setAttribute("role", "img");
+  canvas.setAttribute("aria-label", label);
+  if (!canvas.hasAttribute("tabindex")) canvas.tabIndex = 0;
+}
+
+/** Keyboard pan/zoom for a focused plot canvas, mirroring {@link attachZoomPan}: arrow keys pan
+ *  (Shift = larger step), +/- zoom around centre, 0 or Home resets. Drives the same
+ *  {@link ViewportRef} in each axis's transformed space (log-safe). `axes:"x"` locks Y (histograms).
+ *  Only acts on keys it handles, so Tab/Enter/etc. still work. Returns a disposer. */
+export function attachKeyboardPanZoom(opts: {
+  canvas: HTMLCanvasElement;
+  getPlot: () => PlotCanvas | null;
+  view: ViewportRef;
+  redraw: () => void;
+  axes?: "both" | "x";
+}): () => void {
+  const { canvas, getPlot, view, redraw } = opts;
+  const axes = opts.axes ?? "both";
+  const seed = (plot: PlotCanvas): Viewport => ({
+    xMin: Math.min(plot.x.min, plot.x.max),
+    xMax: Math.max(plot.x.min, plot.x.max),
+    yMin: Math.min(plot.y.min, plot.y.max),
+    yMax: Math.max(plot.y.min, plot.y.max),
+  });
+  const pan = (lo: number, hi: number, log: boolean, dir: number, step: number): [number, number] => {
+    const a = tf(log, lo);
+    const b = tf(log, hi);
+    const d = (b - a) * step * dir;
+    return [itf(log, a + d), itf(log, b + d)];
+  };
+  const zoom = (lo: number, hi: number, log: boolean, factor: number): [number, number] => {
+    const a = tf(log, lo);
+    const b = tf(log, hi);
+    const c = (a + b) / 2;
+    const half = ((b - a) / 2) * factor;
+    return [itf(log, c - half), itf(log, c + half)];
+  };
+  const onKey = (e: KeyboardEvent) => {
+    const plot = getPlot();
+    if (!plot) return;
+    if (e.key === "0" || e.key === "Home") {
+      if (view.current) {
+        view.current = null;
+        redraw();
+      }
+      e.preventDefault();
+      return;
+    }
+    const v = view.current ?? seed(plot);
+    const step = e.shiftKey ? 0.2 : 0.08;
+    let handled = true;
+    switch (e.key) {
+      case "ArrowLeft":
+        [v.xMin, v.xMax] = pan(v.xMin, v.xMax, plot.x.log, -1, step);
+        break;
+      case "ArrowRight":
+        [v.xMin, v.xMax] = pan(v.xMin, v.xMax, plot.x.log, 1, step);
+        break;
+      case "ArrowUp":
+        if (axes === "both") [v.yMin, v.yMax] = pan(v.yMin, v.yMax, plot.y.log, 1, step);
+        else handled = false;
+        break;
+      case "ArrowDown":
+        if (axes === "both") [v.yMin, v.yMax] = pan(v.yMin, v.yMax, plot.y.log, -1, step);
+        else handled = false;
+        break;
+      case "+":
+      case "=":
+        [v.xMin, v.xMax] = zoom(v.xMin, v.xMax, plot.x.log, 0.83);
+        if (axes === "both") [v.yMin, v.yMax] = zoom(v.yMin, v.yMax, plot.y.log, 0.83);
+        break;
+      case "-":
+      case "_":
+        [v.xMin, v.xMax] = zoom(v.xMin, v.xMax, plot.x.log, 1.2);
+        if (axes === "both") [v.yMin, v.yMax] = zoom(v.yMin, v.yMax, plot.y.log, 1.2);
+        break;
+      default:
+        handled = false;
+    }
+    if (!handled) return;
+    view.current = { ...v };
+    redraw();
+    e.preventDefault();
+  };
+  canvas.addEventListener("keydown", onKey);
+  return () => canvas.removeEventListener("keydown", onKey);
+}
+
 /** ResizeObserver → rAF-debounced redraw, so a plot re-renders at the panel's real size.
  *  Returns a disposer. */
 export function attachResizeRedraw(canvas: HTMLCanvasElement, redraw: () => void): () => void {

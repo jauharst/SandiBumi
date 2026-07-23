@@ -2,12 +2,14 @@ import { getCurveData, type WellSummary } from "../ipc";
 import { appState } from "../state";
 import { formRow, openModal } from "./modal";
 import {
+  attachKeyboardPanZoom,
   attachResizeRedraw,
   attachScatterTooltip,
   attachZoomPan,
   colorRampEx,
   fitCanvasBackingStore,
   fmtValue,
+  makeCanvasAccessible,
   PlotCanvas,
   canvasFont,
   readTheme,
@@ -250,6 +252,7 @@ export async function buildPickettContent(
   };
 
   const redraw = () => {
+    canvas.setAttribute("aria-label", `Pickett plot: ${rtSel.value} versus ${phiSel.value}`); // a11y label
     const n = parseFloat(nIn.value) || 2;
     plot = drawPickett(canvas, rt, phi, currentLine(), n, picks, hoverIdx, viewRef.current, {
       rtMin: props.rtMin,
@@ -355,7 +358,9 @@ export async function buildPickettContent(
     openProps();
   });
 
+  makeCanvasAccessible(canvas, `Pickett plot: ${rtSel.value} versus ${phiSel.value}`);
   const detachZoomPan = attachZoomPan({ canvas, getPlot: () => plot, view: viewRef, redraw });
+  const detachKeys = attachKeyboardPanZoom({ canvas, getPlot: () => plot, view: viewRef, redraw });
   const detachResize = attachResizeRedraw(canvas, redraw);
   const unsubTheme = appState.themeVersion.subscribe(() => redraw());
 
@@ -510,6 +515,7 @@ export async function buildPickettContent(
       unsubTheme();
       unsubData();
       detachZoomPan();
+      detachKeys();
       detachResize();
       detachTip();
       zoneSel.dispose();

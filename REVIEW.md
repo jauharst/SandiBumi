@@ -7,6 +7,33 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 44 — UI polish #9D: accessibility & motion (2026-07-23)
+
+The plot canvases were unlabelled and unfocusable, and transitions ignored the OS "reduce motion"
+setting. Both fixed, via two shared helpers plus one CSS media query.
+
+- **`makeCanvasAccessible(canvas, label)`** (plotCanvas.ts) — sets `role="img"`, an `aria-label`, and
+  `tabindex=0`. The **crossplot / histogram / Pickett** canvases now announce themselves to screen
+  readers with a live description (e.g. "Crossplot: RHOB versus NPHI, coloured by GR", "Histogram of
+  PHIE", "Pickett plot: RES_DEEP versus PHIE") that updates as the plotted curves change.
+- **`attachKeyboardPanZoom({canvas, getPlot, view, redraw, axes})`** (plotCanvas.ts) — a focused plot
+  canvas now takes **arrow keys** to pan (Shift = bigger step), **+/−** to zoom around centre, and
+  **0/Home** to reset, driving the same `ViewportRef` as the mouse (log-safe, `axes:"x"` on histograms).
+  Wired into all three panels; only handled keys are consumed so Tab/Enter still work.
+- **`.plot-canvas:focus-visible`** — an accent focus ring so keyboard focus is visible.
+- **`@media (prefers-reduced-motion: reduce)`** — neutralises every transition/animation (the 5 CSS
+  transitions the survey found: form inputs, `.btn`, mm-chevron, proc-bar, health-bar) for users who
+  opt out of motion.
+
+**Verification (in-browser):** `makeCanvasAccessible` → `role=img`, `aria-label="Test chart"`,
+`tabindex=0`; `attachKeyboardPanZoom` → ArrowRight panned the viewport (xMin 0→0.8), `+` zoomed in
+(width 10→8.3), `0` reset to auto, and the disposer stopped handling; both the reduced-motion media
+rule and the `.plot-canvas:focus-visible` rule are live in the stylesheet. `tsc` clean.
+
+**Try:** click a **Crossplot / Histogram / Pickett** plot to focus it (an accent ring appears), then
+use **arrow keys** to pan, **+/−** to zoom, **0** to reset — no mouse needed. A screen reader now reads
+the chart's axes. Turn on the OS "reduce motion" setting and UI transitions stop animating.
+
 ## Round 43 — UI polish #9C: linked brushing (crossplot → log view + histogram) (2026-07-23)
 
 Rectangular **Shift+drag** on a **crossplot** selects a cloud of samples; every plot and log view of

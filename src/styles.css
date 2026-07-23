@@ -2746,6 +2746,26 @@ textarea {
   font-variant-numeric: tabular-nums;
 }
 
+/* Keyboard focus ring for the interactive plot canvases (they are role=img, tabindex=0, and take
+   arrow-key pan / +- zoom / 0 reset via attachKeyboardPanZoom). */
+.plot-canvas:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Honour the OS "reduce motion" preference: neutralise every transition/animation so nothing slides
+   or fades for users who opt out of motion (playbook #9D). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* Histogram / crossplot / Pickett panels: a flex column so the canvas fills all remaining
    panel height (the toolbar/props/chips/hint/pick rows keep their intrinsic size). The
    canvas backing store is then sized to this real area at HiDPI (fitCanvasBackingStore),

@@ -2,10 +2,12 @@ import { getCurveData, type WellSummary } from "../ipc";
 import { appState, type BrushSelection } from "../state";
 import { formRow, openModal } from "./modal";
 import {
+  attachKeyboardPanZoom,
   attachResizeRedraw,
   attachZoomPan,
   basicStats,
   fitCanvasBackingStore,
+  makeCanvasAccessible,
   percentile,
   PlotCanvas,
   canvasFont,
@@ -508,6 +510,7 @@ export async function buildHistogramContent(
   };
 
   const redraw = () => {
+    canvas.setAttribute("aria-label", `Histogram of ${curveSel.value}`); // a11y label follows the curve
     plot = drawHistogram(
       canvas,
       values,
@@ -729,7 +732,9 @@ export async function buildHistogramContent(
   });
 
   // Wheel-zoom + drag-pan on the X axis only (Y is the count axis); double-click resets.
+  makeCanvasAccessible(canvas, `Histogram of ${curveSel.value}`);
   const detachZoomPan = attachZoomPan({ canvas, getPlot: () => plot, view: viewRef, redraw, axes: "x" });
+  const detachKeys = attachKeyboardPanZoom({ canvas, getPlot: () => plot, view: viewRef, redraw, axes: "x" });
   const detachResize = attachResizeRedraw(canvas, redraw);
   const unsubTheme = appState.themeVersion.subscribe(() => redraw());
 
@@ -781,6 +786,7 @@ export async function buildHistogramContent(
       unsubData();
       unsubBrush();
       detachZoomPan();
+      detachKeys();
       detachResize();
       if (rafId) cancelAnimationFrame(rafId);
       zoneSel.dispose();
