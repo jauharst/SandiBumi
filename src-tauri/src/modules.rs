@@ -146,8 +146,14 @@ impl ModuleContext {
 pub type ModuleOutputs = HashMap<String, Vec<f32>>;
 
 fn limit(v: f64, lo: f64, hi: f64) -> f64 {
-    if v.is_nan() {
-        v
+    // `f64::clamp` panics when `lo > hi` or either bound is NaN, and the bounds here are module
+    // PARAMETERS — a zone override or an unbounded Monte Carlo draw can push one past the other
+    // (e.g. SWT_IRR entered as 25 meaning percent gives `clamp(25.0, 1.0)`). The real enforcement
+    // is in `workflow::resolve_param_arrays`, which now rejects out-of-spec values; this is the
+    // backstop so a future module cannot reintroduce the panic. Release builds set
+    // `panic = "abort"`, so an unguarded clamp takes the whole app down rather than failing a run.
+    if v.is_nan() || !(lo <= hi) {
+        f64::NAN
     } else {
         v.clamp(lo, hi)
     }
@@ -2531,7 +2537,9 @@ fn log_predict(ctx: &ModuleContext) -> ModuleOutputs {
     }
     for s in &mut std {
         *s = (*s / train.len() as f64).sqrt();
-        if *s < 1e-9 {
+        // Negated comparison so a NaN std is caught too: `NaN < 1e-9` is false, so the old form
+        // let a NaN through and every scaled distance below became NaN.
+        if !(*s >= 1e-9) {
             *s = 1.0;
         }
     }
@@ -2554,12 +2562,15 @@ fn log_predict(ctx: &ModuleContext) -> ModuleOutputs {
                 continue; // leave-one-out
             }
             let d2: f64 = (0..dims).map(|d| (xs[d] - tx[d]).powi(2)).sum();
+            if !d2.is_finite() {
+                continue; // a non-finite distance cannot rank; skip rather than sort on it
+            }
             if best.len() < k {
                 best.push((d2, *tv));
-                best.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                best.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
             } else if d2 < best[k - 1].0 {
                 best[k - 1] = (d2, *tv);
-                best.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                best.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
             }
         }
         let mut wsum = 0.0;
@@ -2585,6 +2596,42 @@ fn log_predict(ctx: &ModuleContext) -> ModuleOutputs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `f64::clamp` panics when the bounds are inverted or non-finite, and module bounds are
+    /// themselves parameters — a zone override of SWT_IRR entered as a percentage (25 instead of
+    /// 0.25) produced `limit(swt, 25.0, 1.0)` and killed the run. Release builds set
+    /// `panic = "abort"`, so this took the whole app down rather than failing one module.
+    #[test]
+    fn limit_returns_missing_instead_of_panicking_on_bad_bounds() {
+        assert_eq!(limit(0.5, 0.0, 1.0), 0.5, "in range, untouched");
+        assert_eq!(limit(1.5, 0.0, 1.0), 1.0, "above range, clamped to hi");
+        assert_eq!(limit(-0.5, 0.0, 1.0), 0.0, "below range, clamped to lo");
+        assert!(limit(f64::NAN, 0.0, 1.0).is_nan(), "missing in, missing out");
+
+        // The three shapes that used to panic.
+        assert!(limit(0.5, 25.0, 1.0).is_nan(), "inverted bounds (the percent-entry case)");
+        assert!(limit(0.5, f64::NAN, 1.0).is_nan(), "NaN low bound");
+        assert!(limit(0.5, 0.0, f64::NAN).is_nan(), "NaN high bound");
+
+        // Equal bounds are degenerate but legal, and must still clamp rather than read missing.
+        assert_eq!(limit(0.7, 0.3, 0.3), 0.3, "lo == hi is a valid clamp");
+    }
+
+    /// The KNN z-score floor used `if *s < 1e-9`, which a NaN std slips past (`NaN < x` is false),
+    /// making every scaled distance NaN and panicking the neighbour sort on `partial_cmp`.
+    #[test]
+    fn zscore_std_floor_catches_nan_not_just_small() {
+        let floor = |mut s: f64| {
+            if !(s >= 1e-9) {
+                s = 1.0;
+            }
+            s
+        };
+        assert_eq!(floor(2.5), 2.5, "a healthy std is left alone");
+        assert_eq!(floor(0.0), 1.0, "a zero-variance predictor is floored");
+        assert_eq!(floor(1e-12), 1.0, "a tiny std is floored");
+        assert_eq!(floor(f64::NAN), 1.0, "a NaN std is floored — the case the old form missed");
+    }
 
     fn ctx_with(
         n: usize,

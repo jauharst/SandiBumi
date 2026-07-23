@@ -207,7 +207,12 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
                     let v: f32 = tok
                         .parse()
                         .map_err(|e| ParseError::Las(format!("bad numeric token '{tok}': {e}")))?;
-                    token_buffer.push(v);
+                    // `f32::from_str` accepts "inf"/"-inf" and overflows a cell like `1.0E+40` to
+                    // infinity. Everything downstream screens for missing with `is_nan()` only
+                    // (modules::is_missing), so an infinity survives into the compute cores and
+                    // poisons z-scores and comparison sorts. The DLIS path already strips exactly
+                    // this (dlis.rs); mirror it so both importers agree on what "missing" means.
+                    token_buffer.push(if v.is_finite() { v } else { f32::NAN });
                 }
 
                 while token_buffer.len() >= expected_per_row {
@@ -1609,7 +1614,11 @@ pub fn parse_tops_file<P: AsRef<Path>>(path: P) -> ParseResult<(bool, Vec<TopsRe
         let depth = row
             .get(idx_depth)
             .map(|s| s.replace(',', "."))
-            .and_then(|s| s.parse::<f32>().ok());
+            .and_then(|s| s.parse::<f32>().ok())
+            // A literal `NaN` cell is exactly what pandas (`na_rep='NaN'`) and numpy write for a
+            // missing marker, and it parses cleanly to f32::NAN. A non-finite top depth cannot be
+            // ordered, so drop the row here rather than store a top that panics a later sort.
+            .filter(|d| d.is_finite());
         let name = row.get(idx_name).map(|s| s.trim()).filter(|s| !s.is_empty());
         let (Some(depth), Some(name)) = (depth, name) else { continue };
         let well = idx_well
@@ -1774,6 +1783,35 @@ mod tops_aux_tests {
         assert!((recs[1].depth - 1100.0).abs() < 1e-3);
     }
 
+    /// `pandas.to_csv(na_rep='NaN')` and `np.savetxt` write a literal `NaN` for a missing marker,
+    /// and `f32::from_str` parses it happily. Nothing between the parser and `db::upsert_top`
+    /// tested finiteness, so the NaN reached Auto-correlate's `markers.sort_by(partial_cmp
+    /// .unwrap())` and panicked it — while the DB mutex was held, poisoning it for the rest of
+    /// the session. An unorderable depth is not a top, so the row is dropped at the door.
+    #[test]
+    fn tops_csv_drops_nonfinite_depths() {
+        let p = temp(
+            "arshilla_tops_nonfinite_test.csv",
+            "Well Name,Surface,MD\n\
+             BALAM-1,TOP_A,1000.5\n\
+             BALAM-1,TOP_MISSING,NaN\n\
+             BALAM-1,TOP_NAN_LOWER,nan\n\
+             BALAM-1,TOP_INF,inf\n\
+             BALAM-1,TOP_OVERFLOW,1.0E+40\n\
+             BALAM-1,TOP_B,1100.0\n",
+        );
+        let (_, recs) = parse_tops_file(&p).unwrap();
+        std::fs::remove_file(&p).ok();
+        assert_eq!(recs.len(), 2, "only the two real tops survive, got {recs:?}");
+        assert!(
+            recs.iter().all(|r| r.depth.is_finite()),
+            "no non-finite depth may be stored, got {:?}",
+            recs.iter().map(|r| r.depth).collect::<Vec<_>>()
+        );
+        let names: Vec<&str> = recs.iter().map(|r| r.top_name.as_str()).collect();
+        assert_eq!(names, ["TOP_A", "TOP_B"]);
+    }
+
     #[test]
     fn tops_txt_headerless_whitespace() {
         let p = temp("arshilla_tops_test.txt", "TOP_A  1000.5\nTOP_B\t1100\n");
@@ -1882,6 +1920,31 @@ mod las_depth_tests {
         );
         assert!((cols.depth[2] - 2001.0).abs() < 1e-3);
         assert!(cols.gr[2].is_nan(), "-999.25 sentinel must map to NaN");
+    }
+
+    /// `f32::from_str` returns `Ok(inf)` for an overflowing cell like `1.0E+40` and for the
+    /// literal tokens `inf`/`-inf`. Everything downstream screens for missing with `is_nan()`
+    /// only (`modules::is_missing`), so an infinity used to survive into the compute cores, where
+    /// `inf - inf` made a z-score NaN and panicked the KNN neighbour sort on `partial_cmp`. The
+    /// DLIS importer already stripped exactly this; the LAS path did not.
+    #[test]
+    fn parse_las_2_maps_nonfinite_values_to_missing() {
+        let body = "~VERSION\nVERS. 2.0 :\n~WELL\nNULL. -999.25 :\nWELL. XX : NAME\n\
+                    ~CURVE\nDEPT.M :\nGR.API :\n~ASCII\n\
+                    2000.0 55.0\n2000.5 1.0E+40\n2001.0 -inf\n2001.5 60.0\n";
+        let p = temp("arshilla_nonfinite_value_test.las", body);
+        let cols = parse_las_2(&p).unwrap();
+        std::fs::remove_file(&p).ok();
+        assert_eq!(cols.depth.len(), 4, "no ROW is dropped — only the value reads missing");
+        assert!(cols.gr[1].is_nan(), "1.0E+40 overflows to +inf and must read missing");
+        assert!(cols.gr[2].is_nan(), "the literal token -inf must read missing");
+        assert!(
+            cols.gr.iter().all(|v| v.is_nan() || v.is_finite()),
+            "no infinity may survive the importer, got {:?}",
+            cols.gr
+        );
+        assert!((cols.gr[0] - 55.0).abs() < 1e-3, "good values are untouched");
+        assert!((cols.gr[3] - 60.0).abs() < 1e-3);
     }
 
     #[test]

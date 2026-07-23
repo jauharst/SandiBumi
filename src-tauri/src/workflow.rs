@@ -57,7 +57,38 @@ fn resolve_param_arrays(
         zones.iter().map(|z| (z.zone_name.as_str(), (z.top_depth, z.bottom_depth))).collect();
 
     let mut out = HashMap::new();
+    // Out-of-spec parameter values are REJECTED here, not clamped. Silently clamping a
+    // percent-entered SWT_IRR of 25 down to 0.6 would hand back a plausible-but-wrong answer,
+    // and passing it through used to kill the run outright: `f64::clamp` asserts `lo <= hi`, so
+    // `limit(swt, 25.0, 1.0)` panicked. The zones dialog and the DB Inspector both write
+    // `zone_params` without the range check `moduleDialog.ts` applies to typed values — the zone
+    // override is designed to beat the dialog — so this is the one choke point where the
+    // already-declared ArgSpec range can actually be enforced. Spec defaults are trusted and not
+    // re-validated; only values a user or caller supplied are checked.
+    let mut bad: Vec<String> = Vec::new();
     for arg in spec.args.iter().filter(|a| a.kind == ArgKind::Param) {
+        let range = || match (arg.min, arg.max) {
+            (Some(lo), Some(hi)) => format!("valid {lo} to {hi}"),
+            (Some(lo), None) => format!("valid >= {lo}"),
+            (None, Some(hi)) => format!("valid <= {hi}"),
+            (None, None) => "no declared range".to_string(),
+        };
+        let in_range =
+            |v: f64| arg.min.map_or(true, |lo| v >= lo) && arg.max.map_or(true, |hi| v <= hi);
+
+        if let Some(&v) = req_params.get(&arg.name) {
+            if v.is_finite() && !in_range(v) {
+                bad.push(format!("{} = {v} ({})", arg.name, range()));
+            }
+        }
+        for zp in zone_params.iter().filter(|z| z.param_name == arg.name) {
+            let Some(v) = zp.value_num else { continue };
+            let v = v as f64;
+            if !v.is_finite() || !in_range(v) {
+                bad.push(format!("{} = {v} in zone '{}' ({})", arg.name, zp.zone_name, range()));
+            }
+        }
+
         let base = req_params
             .get(&arg.name)
             .copied()
@@ -83,6 +114,13 @@ fn resolve_param_arrays(
             }
         }
         out.insert(arg.name.clone(), arr);
+    }
+    if !bad.is_empty() {
+        return Err(format!(
+            "parameter value(s) outside the module's declared range: {}. A common cause is \
+             entering a v/v fraction as a percentage. Fix the value or clear the zone override.",
+            bad.join("; ")
+        ));
     }
     Ok(out)
 }
@@ -1130,6 +1168,56 @@ mod tests {
         assert_eq!(p, 0.0);
         let (_, _, p) = classify_sample(0.2, 0.2, 0.3, 5.0, 0.5, 0.1, 0.6, Some(1.0), true);
         assert_eq!(p, 1.0);
+    }
+
+    /// A zone override beats the module dialog by design, so it also skips the dialog's range
+    /// check — `moduleDialog.ts` validates against ArgSpec.min/max, `zonesDialog.ts` does not,
+    /// and the DB Inspector edits `zone_params.value_num` raw. A petrophysicist entering
+    /// irreducible water saturation in PERCENT (25 instead of 0.25) then produced
+    /// `limit(swt, 25.0, 1.0)`, and `f64::clamp` asserts `lo <= hi` — the run died with an opaque
+    /// "worker thread failed". The value is rejected rather than clamped: silently pulling 25
+    /// down to the spec maximum would answer with a plausible-but-wrong saturation.
+    #[test]
+    fn out_of_range_zone_param_is_rejected_not_clamped() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, id, "RANGE-1", Some("Synthetic"), None, None).unwrap();
+        let well = id.to_string();
+        let depth: Vec<f32> = (0..5).map(|i| 1000.0 + i as f32).collect();
+
+        let spec = modules::list_modules()
+            .into_iter()
+            .find(|s| s.name == "sw_arch")
+            .expect("sw_arch is a registered module");
+        let arg = spec
+            .args
+            .iter()
+            .find(|a| a.name == "SWT_IRR")
+            .expect("sw_arch declares SWT_IRR");
+        let hi = arg.max.expect("SWT_IRR declares an upper bound");
+
+        // Baseline: no override at all resolves cleanly.
+        let ok = resolve_param_arrays(&conn, &well, &spec, &HashMap::new(), &depth);
+        assert!(ok.is_ok(), "an unmodified run must still resolve: {ok:?}");
+
+        // The percent-entry mistake, well-wide.
+        db::set_zone_param(&conn, &well, "*", "SWT_IRR", Some(25.0), None).unwrap();
+        let err = resolve_param_arrays(&conn, &well, &spec, &HashMap::new(), &depth)
+            .expect_err("an out-of-range zone override must fail the run, not panic it");
+        assert!(err.contains("SWT_IRR"), "the message must name the parameter: {err}");
+        assert!(err.contains("25"), "and the offending value: {err}");
+        assert!(
+            err.contains(&hi.to_string()),
+            "and the valid range so the user can act on it: {err}"
+        );
+
+        // A value inside the declared range resolves again — the guard is not blanket-blocking.
+        db::set_zone_param(&conn, &well, "*", "SWT_IRR", Some(0.25), None).unwrap();
+        let good = resolve_param_arrays(&conn, &well, &spec, &HashMap::new(), &depth);
+        assert!(good.is_ok(), "an in-range override must pass: {good:?}");
+        let arr = &good.unwrap()["SWT_IRR"];
+        assert!(arr.iter().all(|v| (*v - 0.25).abs() < 1e-9), "override applied well-wide");
     }
 
     /// Sweeping the VSH (sand) cutoff upward can only admit more pay, so the metric is

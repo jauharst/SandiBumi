@@ -1085,8 +1085,13 @@ pub fn run_equation(
                     continue;
                 }
                 match engine.eval_ast_with_scope::<f64>(&mut scope, &ast) {
-                    Ok(v) => output.push(v as f32),
-                    Err(_) => output.push(f32::NAN),
+                    // Rhai evaluates `1.0/0.0` to infinity, and an in-range f64 like `exp(100)`
+                    // overflows to infinity on the `as f32` cast. Downstream only screens for NaN,
+                    // so an infinity here would be written to a computed curve and could then be
+                    // picked as a predictor — where it poisons z-scores and comparison sorts.
+                    // Missing is the honest reading of a non-finite result.
+                    Ok(v) if (v as f32).is_finite() => output.push(v as f32),
+                    Ok(_) | Err(_) => output.push(f32::NAN),
                 }
             }
 

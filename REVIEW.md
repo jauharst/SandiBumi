@@ -7,6 +7,60 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 59 — R2: three panics reachable from your own data (2026-07-24)
+
+All three came out of the F2a review pass (`docs/review_sweep/F2.md`). Release builds set
+`panic = "abort"`, so none of these was a caught error — they killed the run, and one of them
+poisoned the DB mutex for the rest of the session.
+
+**1 · A `NaN` top depth panicked Auto-correlate.** `pandas.to_csv(na_rep='NaN')` and `np.savetxt`
+write a literal `NaN` for a missing marker, and `f32::from_str` parses that happily — nothing
+between the tops importer and the database tested finiteness. The NaN then reached
+`markers.sort_by(partial_cmp().unwrap())`. Worse than a dead run: the panic unwound **while the DB
+lock was held**, poisoning the mutex, so every later query panicked too and the app was unusable
+until restart. Fixed at both ends — the importer drops a non-finite depth row, and the sort no
+longer unwraps. An unorderable depth is not a top.
+
+**2 · A percent-entered zone parameter panicked the module run.** `f64::clamp` asserts
+`lo <= hi`, and the bounds are themselves parameters: entering irreducible water saturation as
+`25` instead of `0.25` produced `limit(swt, 25.0, 1.0)`. The zone override is *designed* to beat
+the module dialog, so it also skips the dialog's range check — and the DB Inspector edits
+`zone_params.value_num` raw. Now enforced at the one choke point where every path converges
+(`workflow::resolve_param_arrays`), using the `min`/`max` the manifest **already declared**.
+**Rejected, not clamped** — silently pulling 25 down to the spec maximum would have answered with
+a plausible-but-wrong saturation. The error names the parameter, the value, the zone and the valid
+range. `modules::limit` was hardened too, as a backstop for future modules.
+
+**3 · An infinity panicked the synthetic-log KNN.** `f32::from_str` returns `inf` for a cell like
+`1.0E+40` or the literal token `inf`, and everything downstream screens for missing with
+`is_nan()` only — so it survived into the compute cores, where `inf − inf` made the z-score NaN
+and `partial_cmp` on two NaNs panicked the neighbour sort. The DLIS importer already stripped
+exactly this; the LAS path did not. Fixed at three points, because the verifier found the LAS cell
+is *not* the likeliest source: **the Rhai equation engine is** — `1.0/0.0` and `exp(100)` both
+reach `inf`, and the existing guard only rejected an *entirely* non-finite column, so a single
+infinite sample was written to a computed curve that could then be picked as a predictor. So:
+the LAS value path maps non-finite to missing, equation output does the same, and the KNN skips a
+non-finite distance instead of sorting on it. The z-score floor also changed from `if *s < 1e-9`
+to `if !(*s >= 1e-9)`, because a NaN std slipped straight past the old form.
+
+cargo **367/0/7** — five new tests, each fed the *exact* malformed input from the finding rather
+than a synthetic near-miss.
+
+- [ ] **Try (1):** make a tops CSV with a `NaN` in the depth column (or export one from pandas with
+  a missing marker), import it, then run **Auto-correlate** from that well. Before: the run died
+  with `worker thread failed` and every later action failed until restart. Now: the bad row never
+  imports, and correlation runs on the real tops.
+- [ ] **Try (2):** Zones → set `SWT_IRR` to `25` for zone `*`, then run **SW-Archie**. Before: opaque
+  `worker thread failed`. Now: a message naming `SWT_IRR = 25`, the zone, and the valid range.
+  Set it to `0.25` and the run proceeds normally.
+- [ ] **Try (3):** run an **equation** like `1/0` or `exp(1000)` into a new curve, then use that curve
+  as a predictor in **Synthetic Log (KNN)**. Before: the app aborted. Now: those samples read as
+  missing and the prediction runs.
+
+**Not fixed here** (out of R2's scope, still open in F2a): the startup `.expect()` on DB init —
+a locked or newer project file kills the process before the window exists, with no dialog, and
+`startup_path()` re-selects the same unopenable file every launch.
+
 ## Round 58 — R1: the net-flag polygon actually works now (2026-07-24)
 
 **Correction to Round 47.** The flag-polygon feature has never worked — not once, since it shipped

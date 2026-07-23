@@ -315,9 +315,13 @@ pub fn autocorrelate_multi(conn: &Connection, req: &MultiAutoCorrRequest) -> Mul
     let mut markers: Vec<(String, f32)> = source_tops
         .iter()
         .filter(|t| want.as_ref().map_or(true, |w| w.contains(&t.top_name.to_uppercase())))
+        // A non-finite depth cannot be correlated against anything, and it used to panic the sort
+        // below via `partial_cmp().unwrap()`. Tops written before the importer gained its
+        // finiteness gate can still carry one, so screen on read as well as on write.
+        .filter(|t| t.depth.is_finite())
         .map(|t| (t.top_name.clone(), t.depth))
         .collect();
-    markers.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+    markers.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
     if markers.is_empty() {
         return fail("no matching tops picked in the source well".into());
     }
