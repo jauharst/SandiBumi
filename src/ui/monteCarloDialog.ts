@@ -1262,7 +1262,8 @@ function renderNotes(host: HTMLElement, res: McResult): void {
   host.innerHTML = "";
   const errs = res.errors ?? [];
   const notes = res.notes ?? [];
-  if (errs.length === 0 && notes.length === 0) return;
+  const plaus = res.plausibility ?? [];
+  if (errs.length === 0 && notes.length === 0 && plaus.length === 0) return;
   for (const e of errs) {
     const d = document.createElement("div");
     d.className = "mc-note mc-note-err";
@@ -1273,6 +1274,23 @@ function renderNotes(host: HTMLElement, res: McResult): void {
     const d = document.createElement("div");
     d.className = "mc-note";
     d.textContent = `ℹ ${nt}`;
+    host.appendChild(d);
+  }
+  // Physical-plausibility line per well — never a silent pass: ✓ when every realization stayed in
+  // bounds, ⚠ when a sampled combo produced an impossible Sw>1 / PHIE<0. Reported only: the P10/P50/
+  // P90 above are unchanged (the module limits already clamp these draws to the correct volumetrics).
+  for (const p of plaus) {
+    const bad = p.impossible_realizations > 0;
+    const d = document.createElement("div");
+    d.className = bad ? "mc-note mc-note-err" : "mc-note";
+    const pct = (p.fraction * 100).toFixed(1);
+    if (bad) {
+      d.textContent = `⚠ ${p.well_name}: ${pct}% of realizations hit impossible petrophysics (${p.detail}) — reported, not excluded; consider narrowing the input ranges`;
+    } else if (!p.checked) {
+      d.textContent = `• ${p.well_name}: ${p.detail}`;
+    } else {
+      d.textContent = `✓ ${p.well_name}: all realizations within physical bounds`;
+    }
     host.appendChild(d);
   }
 }

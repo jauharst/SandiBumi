@@ -322,6 +322,33 @@ pub struct McConvergence {
     pub note: Option<String>,
 }
 
+/// Physical-plausibility diagnostic for one well (playbook #1 residual, "reject/flag impossible
+/// combos"). Counts how often a sampled parameter combination drove the petrophysics out of
+/// physical bounds — the raw `Sw > 1` / `PHIE < 0` seen on the chain's UNLIMITED companion curves
+/// (`PHIE_DN`, `SWT_ARCH`, `SWE_INDO`, …) before each module's limit clamps them into `[0, 1]`.
+///
+/// These realizations are REPORTED, never excluded: the clamp already gives an impossible draw the
+/// physically-correct volumetric answer (an over-dense matrix → zero effective porosity, a
+/// supersaturated combo → fully wet), so they remain valid low/high tails of the distribution —
+/// dropping them would bias P10/P90. A large `fraction` instead means the input distributions are
+/// straining physics and should be narrowed.
+#[derive(Debug, Clone, Serialize)]
+pub struct McPlausibility {
+    pub well_id: String,
+    pub well_name: String,
+    /// Realizations with at least one physically-impossible in-zone sample.
+    pub impossible_realizations: u32,
+    /// Realizations evaluated for this well.
+    pub realizations: u32,
+    /// `impossible_realizations / realizations` (0 when no realizations ran).
+    pub fraction: f32,
+    /// False when the well produced no finite porosity/saturation samples to judge (e.g. a missing
+    /// density log) — so the UI shows "not checked" instead of a fabricated clean pass.
+    pub checked: bool,
+    /// Human-readable breakdown, e.g. "Sw>1 in 41/500 (612 samples); PHIE<0 or >1 in 7/500 (9 samples)".
+    pub detail: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct McResult {
     pub zones: Vec<McZoneResult>,
@@ -337,6 +364,10 @@ pub struct McResult {
     pub convergence: Vec<McConvergence>,
     /// Curve names written to the versioned MONTECARLO log set (empty unless `persist`).
     pub persisted: Vec<String>,
+    /// Per-well physical-plausibility diagnostics: the fraction of realizations whose sampled combo
+    /// produced an impossible Sw>1 / PHIE<0 (reported, not excluded). Empty when the chain produces
+    /// no porosity/saturation (v/v) curves.
+    pub plausibility: Vec<McPlausibility>,
     /// Non-fatal advisories (skipped correlation pairs, degenerate targets, …).
     pub notes: Vec<String>,
     pub errors: Vec<String>,
@@ -623,6 +654,11 @@ fn corr_matrix(m: &[Vec<f64>]) -> Vec<Vec<f64>> {
 
 /// Minimum realizations before an early stop may trigger.
 const CONV_MIN_ITER: usize = 200;
+
+/// Tolerance for the physical-plausibility bound check: a porosity/saturation sample counts as
+/// impossible only when it leaves `[0, 1]` by more than this, so floating-point fuzz at exactly 0
+/// or 1 (a limit landing on the boundary) never trips it.
+const PHYS_TOL: f64 = 1e-3;
 
 /// True when the trailing three checkpoints agree within `tol` relative to the running median
 /// (or the band width, whichever is larger) — the "stationary series" criterion.
@@ -1039,9 +1075,12 @@ fn build_plans(
 /// whole well.
 type ParamSpan = Option<(usize, usize)>;
 
-/// One realization's output: (draws, per-zone metrics, optional tracked-curve snapshot for
-/// the persist path — curves in [`TRACKED`] order).
-type RealOut = (Vec<f64>, Vec<ZoneMetrics>, Option<Vec<Vec<f32>>>);
+/// One realization's output: (draws, per-zone metrics, optional tracked-curve snapshot for the
+/// persist path in [`TRACKED`] order, physical-plausibility tally `(poro_violations,
+/// sat_violations)` = distinct in-zone samples with PHIE / Sw outside [0,1] on the chain's
+/// unlimited curves, plus the count of in-zone samples that had any finite porosity/saturation
+/// value to judge).
+type RealOut = (Vec<f64>, Vec<ZoneMetrics>, Option<Vec<Vec<f32>>>, (u32, u32, u32));
 
 /// Output curves eligible for MC_*_LOW/P50/HIGH/BASE persistence, in snapshot order.
 const TRACKED: [&str; 4] = ["VSH", "PHIE", "SWE", "PERM"];
@@ -1093,6 +1132,35 @@ fn run_realization(
     pool
 }
 
+/// The chain's produced porosity / saturation output curves (unit `v/v`, UPPERCASE name starting
+/// `PHI` / `SW`) — the physical-plausibility check targets, returned as (porosity, saturation).
+/// Spec-driven so any conforming module is covered without hardcoded names; includes both the
+/// limited and unlimited companions (the limited ones are clamped into range and never trip, so
+/// scanning them is harmless).
+fn fraction_output_curves(
+    steps: &[ChainStep],
+    specs: &HashMap<String, modules::ModuleSpec>,
+) -> (Vec<String>, Vec<String>) {
+    let (mut poro, mut sat) = (Vec::new(), Vec::new());
+    for step in steps {
+        let Some(spec) = specs.get(&step.module) else { continue };
+        for a in spec.args.iter().filter(|a| a.kind == ArgKind::LogOut) {
+            if !a.unit.eq_ignore_ascii_case("v/v") {
+                continue;
+            }
+            let up = a.name.to_uppercase();
+            if up.starts_with("PHI") {
+                if !poro.contains(&up) {
+                    poro.push(up);
+                }
+            } else if up.starts_with("SW") && !sat.contains(&up) {
+                sat.push(up);
+            }
+        }
+    }
+    (poro, sat)
+}
+
 /// Runs the Monte Carlo study across the requested wells. All computation is in memory; the
 /// only DB access is the per-well input read in [`build_plans`].
 pub fn run_monte_carlo(
@@ -1117,6 +1185,7 @@ pub fn run_monte_carlo(
     let mut zones_out: Vec<McZoneResult> = Vec::new();
     let mut sens_out: Vec<McSensZone> = Vec::new();
     let mut conv_out: Vec<McConvergence> = Vec::new();
+    let mut plaus_out: Vec<McPlausibility> = Vec::new();
     let mut persisted: Vec<String> = Vec::new();
     let mut errors: Vec<String> = Vec::new();
     let mut notes: Vec<String> = Vec::new();
@@ -1132,6 +1201,11 @@ pub fn run_monte_carlo(
     // it once and share across wells. LHS stratification and Iman–Conover both need every
     // realization's draw jointly, which is why sampling is hoisted out of the rayon loop.
     let draws_all = build_draws(&req.mc_params, iterations, req.seed, req.sampling, &req.correlations, &mut notes);
+
+    // Physical-plausibility candidates: the chain's produced porosity/saturation outputs. The
+    // chain is identical across wells, so resolve them once. The UNLIMITED companions (PHIE_DN,
+    // SWT_ARCH, …) carry the raw Sw>1 / PHIE<0 the module limits clamp away.
+    let (poro_curves, sat_curves) = fraction_output_curves(&req.steps, &specs);
 
     for (wi, well_id) in req.well_ids.iter().enumerate() {
         if let Some(p) = progress {
@@ -1165,6 +1239,13 @@ pub fn run_monte_carlo(
         }
         let has_perm_cut =
             req.perm_min.is_some() && raw_pool.get("PERM").map(|c| c.iter().any(|v| !v.is_nan())).unwrap_or(false);
+
+        // In-zone mask (union of the reported zone windows) for the physical-plausibility scan —
+        // out-of-zone samples never enter the volumetrics, so they should not count either.
+        let in_zone: Vec<bool> = depth
+            .iter()
+            .map(|d| zones.iter().any(|z| z.top_depth < z.bottom_depth && *d >= z.top_depth && *d < z.bottom_depth))
+            .collect();
 
         // Zone-scoped MC parameters: resolve each entry to a contiguous index span on this
         // well's (sorted) depth grid, matching the `d >= top && d < bottom` zone convention.
@@ -1215,6 +1296,34 @@ pub fn run_monte_carlo(
                 .iter()
                 .map(|z| zone_metrics(vsh, phie, swe, perm, &depth, &step_thick, z, &cut, has_perm_cut))
                 .collect();
+            // Physical-plausibility tally: distinct in-zone samples whose porosity or saturation
+            // leaves [0,1] on the chain's curves. The unlimited companions (PHIE_DN, SWT_ARCH, …)
+            // carry the raw Sw>1 / PHIE<0 the module limits clamp away; the limited PHIE/SWE stay
+            // in range and never trip. Counted, never excluded (see McPlausibility).
+            let oob = |v: f32| {
+                let v = v as f64;
+                v.is_finite() && (v < -PHYS_TOL || v > 1.0 + PHYS_TOL)
+            };
+            let poro_slices: Vec<&Vec<f32>> = poro_curves.iter().filter_map(|nm| pool.get(nm)).collect();
+            let sat_slices: Vec<&Vec<f32>> = sat_curves.iter().filter_map(|nm| pool.get(nm)).collect();
+            let (mut poro_bad, mut sat_bad, mut checked) = (0u32, 0u32, 0u32);
+            for i in 0..n {
+                if !in_zone[i] {
+                    continue;
+                }
+                // "checked" = an in-zone sample that actually had a finite porosity/saturation
+                // value to judge, so a well that produced none (e.g. missing RHOB) reports "not
+                // checked" rather than a fabricated clean pass.
+                if poro_slices.iter().chain(sat_slices.iter()).any(|c| (c[i] as f64).is_finite()) {
+                    checked += 1;
+                }
+                if poro_slices.iter().any(|c| oob(c[i])) {
+                    poro_bad += 1;
+                }
+                if sat_slices.iter().any(|c| oob(c[i])) {
+                    sat_bad += 1;
+                }
+            }
             let snap = if r < keep_cap {
                 // Snapshot only curves the chain PRODUCES — inputs it merely consumes are not
                 // Monte Carlo products (empty slots keep TRACKED indexing intact).
@@ -1233,7 +1342,7 @@ pub fn run_monte_carlo(
             } else {
                 None
             };
-            (draws.clone(), zm, snap)
+            (draws.clone(), zm, snap, (poro_bad, sat_bad, checked))
         };
         let per_real: Vec<RealOut> = if req.converge {
             // Batched evaluation with running low/mid/high checkpoints of per-well total HPV.
@@ -1402,6 +1511,59 @@ pub fn run_monte_carlo(
                 hist_w,
             });
         }
+        // Physical-plausibility rollup (playbook #1 residual): fraction of realizations whose
+        // sampled combo produced an impossible Sw>1 / PHIE<0 on the unlimited curves. Reported,
+        // NOT excluded — the module limits already clamp these to the correct volumetrics, so they
+        // stay valid low/high tails (see McPlausibility). A large fraction warns that the input
+        // distributions are straining physics.
+        if !poro_curves.is_empty() || !sat_curves.is_empty() {
+            let realz = per_real.len();
+            let mut impossible = 0u32;
+            let (mut poro_realz, mut sat_realz) = (0u32, 0u32);
+            let (mut poro_tot, mut sat_tot) = (0u64, 0u64);
+            let mut checked_total = 0u64;
+            for m in &per_real {
+                let (pb, sb, ck) = m.3;
+                checked_total += ck as u64;
+                if pb + sb > 0 {
+                    impossible += 1;
+                }
+                if pb > 0 {
+                    poro_realz += 1;
+                    poro_tot += pb as u64;
+                }
+                if sb > 0 {
+                    sat_realz += 1;
+                    sat_tot += sb as u64;
+                }
+            }
+            let fraction = if realz > 0 { impossible as f32 / realz as f32 } else { 0.0 };
+            let checked = checked_total > 0;
+            let mut parts: Vec<String> = Vec::new();
+            if sat_realz > 0 {
+                parts.push(format!("Sw>1 in {sat_realz}/{realz} ({sat_tot} samples)"));
+            }
+            if poro_realz > 0 {
+                parts.push(format!("PHIE<0 or >1 in {poro_realz}/{realz} ({poro_tot} samples)"));
+            }
+            let detail = if !checked {
+                "no porosity/saturation samples to check".to_string()
+            } else if parts.is_empty() {
+                "all realizations physically in bounds".to_string()
+            } else {
+                parts.join("; ")
+            };
+            plaus_out.push(McPlausibility {
+                well_id: well_id.clone(),
+                well_name: well_name.clone(),
+                impossible_realizations: impossible,
+                realizations: realz as u32,
+                fraction,
+                checked,
+                detail,
+            });
+        }
+
         // Persist per-sample uncertainty curves to a fresh version of the MONTECARLO log set:
         // MC_<KEY>_LOW/_P50/_HIGH from the kept realizations' per-sample spread, MC_<KEY>_BASE
         // from one deterministic run at every entry's median. Only curves the chain PRODUCES
@@ -1543,6 +1705,7 @@ pub fn run_monte_carlo(
         },
         convergence: conv_out,
         persisted,
+        plausibility: plaus_out,
         notes,
         errors,
     }
@@ -2127,5 +2290,59 @@ mod tests {
         let d98 = res.zones[0].hpv.hi - res.zones[0].hpv.lo;
         assert!(d98 > d80, "P1/P99 band ({d98}) should exceed P10/P90 band ({d80})");
         assert_eq!(base.zones[0].hpv.mid, res.zones[0].hpv.mid, "median must not depend on the chosen percentiles");
+    }
+
+    #[test]
+    fn impossible_combo_guard_flags_negative_porosity() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_well(&conn);
+        let dbm = Mutex::new(conn);
+        // Matrix density fixed BELOW the measured RHOB (2.35): density porosity goes negative, so
+        // the unlimited PHIE_DN is < 0 on every sample — a physically impossible combo the limits
+        // clamp to 0 in the volumetrics but which the guard must surface.
+        let mc = vec![McParam { param: "RHO_MA".into(), dist: Distribution::Normal { mean: 2.0, sd: 0.0 }, zone: None }];
+        let res = run_monte_carlo(&dbm, &base_request(&well, mc, 100, 1), None);
+        assert!(res.errors.is_empty(), "unexpected errors: {:?}", res.errors);
+        assert_eq!(res.plausibility.len(), 1, "one well → one plausibility row");
+        let pl = &res.plausibility[0];
+        assert_eq!(pl.realizations, 100);
+        assert_eq!(pl.impossible_realizations, 100, "every fixed-below-RHOB realization is impossible");
+        assert!((pl.fraction - 1.0).abs() < 1e-6, "fraction should be 1.0, got {}", pl.fraction);
+        assert!(pl.detail.contains("PHIE"), "detail should name the porosity violation: {}", pl.detail);
+        // The headline study still runs — the guard reports, it never corrupts the result.
+        assert_eq!(res.zones.len(), 1);
+    }
+
+    #[test]
+    fn impossible_combo_guard_flags_supersaturation() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_well(&conn);
+        let dbm = Mutex::new(conn);
+        // Cementation exponent pinned at its max drives Indonesia SWE > 1 on the clean-sand samples
+        // (the unlimited SWE_INDO), while porosity stays in range — so only the Sw>1 bucket trips.
+        let mc = vec![McParam { param: "M".into(), dist: Distribution::Normal { mean: 4.0, sd: 0.0 }, zone: None }];
+        let res = run_monte_carlo(&dbm, &base_request(&well, mc, 100, 3), None);
+        assert!(res.errors.is_empty(), "unexpected errors: {:?}", res.errors);
+        let pl = &res.plausibility[0];
+        assert_eq!(pl.impossible_realizations, 100, "every high-M realization is impossible");
+        assert!(pl.detail.contains("Sw>1"), "detail should name the Sw>1 violation: {}", pl.detail);
+        assert!(!pl.detail.contains("PHIE"), "porosity should stay in bounds: {}", pl.detail);
+    }
+
+    #[test]
+    fn impossible_combo_guard_clean_run_reports_zero() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_well(&conn);
+        let dbm = Mutex::new(conn);
+        // A normal GR-endpoint study on a clean sand: no sample leaves [0,1].
+        let mc = vec![McParam { param: "GR_MA".into(), dist: Distribution::Normal { mean: 25.0, sd: 6.0 }, zone: None }];
+        let res = run_monte_carlo(&dbm, &base_request(&well, mc, 200, 5), None);
+        let pl = &res.plausibility[0];
+        assert_eq!(pl.impossible_realizations, 0, "clean sand should have no impossible realizations");
+        assert_eq!(pl.fraction, 0.0);
+        assert!(pl.detail.contains("in bounds"), "clean detail: {}", pl.detail);
     }
 }

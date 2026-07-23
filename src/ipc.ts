@@ -787,6 +787,20 @@ export interface McConvergence {
   note: string | null;
 }
 
+/** Per-well physical-plausibility diagnostic: how often a sampled combo produced an impossible
+ *  Sw>1 / PHIE<0 (on the chain's unlimited porosity/saturation curves). Reported, not excluded —
+ *  the module limits clamp these to the correct volumetrics, so they stay valid P10/P90 tails. */
+export interface McPlausibility {
+  well_id: string;
+  well_name: string;
+  impossible_realizations: number;
+  realizations: number;
+  fraction: number;
+  /** False when the well produced no finite porosity/saturation samples to judge. */
+  checked: boolean;
+  detail: string;
+}
+
 export interface McResult {
   zones: McZoneResult[];
   /** Per-zone parameter sensitivity (empty unless sensitivity/tornado was requested). */
@@ -800,6 +814,8 @@ export interface McResult {
   convergence: McConvergence[];
   /** Curve names written to the versioned MONTECARLO log set (empty unless `persist`). */
   persisted: string[];
+  /** Per-well physical-plausibility (impossible Sw>1 / PHIE<0 fraction; reported, not excluded). */
+  plausibility: McPlausibility[];
   /** Non-fatal advisories (skipped correlation pairs, degenerate targets, …). */
   notes: string[];
   errors: string[];

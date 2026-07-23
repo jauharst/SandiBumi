@@ -7,6 +7,40 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 49 — Monte Carlo: physical-plausibility guard (impossible Sw>1 / PHIE<0 fraction) (2026-07-24)
+
+Playbook **#1 (Monte Carlo)** residual: *"reject/flag impossible combos (Sw>1, PHIE<0) and report the
+rejected fraction."* The MC engine now reports, per well, **how often a sampled parameter combination
+drove the petrophysics out of physical bounds** — a QC signal that your input distributions may be too
+wide.
+
+- The trick: the chain's saturation/porosity modules **clamp** the final `PHIE`≥0 and `SWE`≤1, so the
+  impossible values never reach the limited curves. But every one of them also emits an **unlimited
+  companion** (`PHIE_DN`, `SWT_ARCH`, `SWE_INDO`, …) where the raw `Sw>1` / `PHIE<0` survives. The
+  guard scans those (spec-driven: any produced `v/v` curve named `PHI*`/`SW*`), per realization, over
+  the in-zone samples, and counts the ones outside `[0,1]`.
+- **Reported, never excluded.** The module clamp already gives an impossible draw the physically-correct
+  volumetric answer (an over-dense matrix → zero effective porosity; a supersaturated combo → fully
+  wet), so those realizations are **valid low/high tails** — dropping them would bias P10/P90. So the
+  headline percentiles are **unchanged**; you just get a new advisory line. A large fraction means
+  "narrow your inputs," not "the result is wrong."
+- The MC dialog's notes area gains one line per well: **⚠** with the fraction + a `Sw>1` / `PHIE<0`
+  breakdown when impossible draws occurred, **✓** when every realization stayed in bounds, and a neutral
+  **•** "not checked" when a well had no porosity/saturation to judge (never a fabricated clean pass).
+
+**Verification:** three new `montecarlo.rs` unit tests — matrix density pinned below RHOB → `PHIE_DN<0`
+flagged on 100% of realizations; cementation exponent pinned high → Indonesia `Sw>1` flagged (porosity
+stays clean); a normal clean-sand study → 0% impossible. The headline HPV still computes in every case,
+and the pre-existing reproducibility tests still pass **byte-identical** (the guard is purely
+observational — it never touches the RNG or the reported percentiles). Full lib suite **357/0/7**, `tsc`
+clean.
+
+**Try:** open **Monte Carlo**, set up any run (e.g. vary `RW` or `M` with a wide spread on a real well),
+and run it. Look at the notes area under the results: you should see a **✓ … within physical bounds** on
+a well-behaved study. Now widen a distribution aggressively (e.g. `RW` normal with a big σ, or `M` up to
+4) and re-run — the line should flip to **⚠ … % of realizations hit impossible petrophysics (Sw>1 …)**,
+while the P10/P50/P90 HPV stay sensible. Tell me if the fraction looks off for what you dialed in.
+
 ## Round 48 — UI polish #9C follow-on: free-form net-flag polygon on the crossplot (2026-07-23)
 
 The crossplot's scalar cutoff-box (Round 45) is now joined by a **free-form net-reservoir polygon**:
