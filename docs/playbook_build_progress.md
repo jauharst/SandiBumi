@@ -179,6 +179,12 @@ Vega-Lite in-app** (vendor the real vega engine), over the export-spec and Pytho
 Enabled by `tauri.conf.json` `csp: null` (no eval blocker) + npm vendoring (offline). vega is heavy
 (~850 KB), so the panel is a **lazy** chunk (`vegaPanel-*.js`), out of the main startup bundle.
 
+**Relationship to the Canvas-2D plots (Jauhar's call, 2026-07-24): complementary, not merged.** The
+domain crossplot / histogram / pickett (chartbook + T-S + matrix-point overlays, Pickett Rw/m line,
+cutoff regions, linked brushing) stay as the parameter-picking tools; Vega is the general-purpose
+**interactive / exploratory** surface. Its ribbon button lives in its own **Interactive** group,
+kept out of the domain "Parameter Selection" group so the two roles read clearly.
+
 | Increment | Scope | Status |
 |---|---|---|
 | V1 | Vendor `vega`/`vega-lite`/`vega-embed`; lazy well-bound **Vega Chart** dock panel + Plot-tab ribbon button; one live interactive crossplot (X/Y curve pickers, tooltip, drag-pan, scroll-zoom) themed from CSS vars | ✅ (this update) — tsc + vite build (offline lazy chunk verified); render/theme screenshot-verified vs synthetic data; live pan/zoom/tooltip → REVIEW Round 51 Try line. `npm audit`: 7 high advisories in vega deps (not auto-fixed — breaking) |
