@@ -7,6 +7,33 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 53 — Vega-Lite interactive charts, V3: theme repaint + linked brushing (2026-07-24)
+
+Builds on V2 (Round 52). The Vega Chart panel now joins the rest of the workspace — it repaints with
+the theme and takes part in the shared brush:
+
+- **Live theme repaint.** Switch the theme with a Vega chart open and it repaints in the new palette
+  immediately (it re-embeds from the cached data, so no re-fetch). One deliberate trade: a theme
+  switch resets the chart's zoom/pan back to full extent.
+- **Brush → other panels.** On a **Scatter** or **Line**, **drag a box** over the points; the samples
+  inside are published as the shared selection, so the crossplot, histogram and log view of the same
+  well highlight the *same* depths (live, as you drag). A click on empty space (or a zero-size box)
+  clears it.
+- **Other panels → Vega.** When you brush in a crossplot (or any panel that publishes a selection),
+  the Vega **scatter dims the un-selected points** so the shared samples stand out. (A line is one
+  path, so it only emits; a histogram takes part in neither — its bars are aggregates.)
+- **Gestures.** Because plain-drag now *brushes*, **pan moved to Shift-drag** and **zoom stays on the
+  wheel**. Hover tooltips are unchanged.
+
+**Try:** open a **Vega Chart** (Scatter, e.g. NPHI–RHOB). (1) Switch the theme (ribbon) and confirm
+the chart repaints in the new colours. (2) **Drag a box** over a cluster and confirm a crossplot /
+histogram / log view of the same well lights up the same samples. (3) Brush in a **crossplot** and
+confirm the Vega scatter dims everything except those samples. (4) **Shift-drag** to pan and **scroll**
+to zoom. (Verified: tsc + offline build keep vega a separate lazy chunk; a headless vega-lite→vega
+compile+render check confirms the brush/pan event selectors and the array-form opacity condition are
+valid and that driving the consume signals dims the right points — 2 bright / 238 dimmed. The live
+drag/pan gestures are what this Try line confirms — the harness can't drive vega's pointer input.)
+
 ## Round 52 — Vega-Lite interactive charts, V2: control bar (type / colour / zone) (2026-07-24)
 
 Builds on V1 (Round 51). The Vega Chart panel gains a real control bar so you can shape the plot
