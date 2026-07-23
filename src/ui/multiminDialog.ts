@@ -341,7 +341,7 @@ export async function buildMultiminContent(
     const lab = document.createElement("span");
     lab.className = "mm-tool-key";
     lab.textContent = t.label;
-    lab.title = t.key;
+    lab.title = `${t.label} — ${t.key}`;
     row.appendChild(lab);
     const curve = document.createElement("input");
     curve.className = "mm-tool-curve";

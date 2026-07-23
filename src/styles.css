@@ -3902,26 +3902,40 @@ textarea {
 /* --------------------------------------------------------------------------
    Multimin dialog — tool rows + editable endpoint matrix
    -------------------------------------------------------------------------- */
+/* Log inputs flow into as many columns as the pane allows (Jauhar field review
+   2026-07-23, cf. the mineral grid) — one column when narrow, more when wide,
+   scrolling both ways. Labels ellipsis rather than wrap so checkboxes stay aligned. */
 .mm-tools {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 3px 16px;
+  align-content: start;
 }
 .mm-tool-row {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: 12px;
+  min-width: 0;
+}
+.mm-tool-row > input[type="checkbox"] {
+  flex: 0 0 auto;
 }
 .mm-tool-key {
-  width: 44px;
+  flex: 1 1 auto;
+  min-width: 0;
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .mm-tool-curve {
-  width: 80px;
+  flex: 0 0 74px;
+  width: 74px;
 }
 .mm-tool-sigma {
-  width: 70px;
+  flex: 0 0 60px;
+  width: 60px;
 }
 .mm-table-wrap {
   max-height: 260px;
@@ -4124,7 +4138,18 @@ textarea {
   padding: 8px 10px 10px;
   margin-bottom: 12px;
 }
-/* SandiMin's Run is a distinct green so it reads apart from other modules' accent-coloured runs. */
+/* Run follows the standard module button proportions (Jauhar field review, image 1):
+   a tidy left-aligned button, not a full-width slab. Kept SandiMin-green so it still
+   reads apart from other modules' accent-coloured runs. */
+.mm-run-section .mc-run-row {
+  flex-direction: row;
+  align-items: center;
+}
+.mm-run-section .mc-run-row .mm-run-btn {
+  width: auto;
+  align-self: flex-start;
+  padding: 6px 24px;
+}
 .mm-dialog button.mm-run-btn {
   background: #2e7d4f;
   border-color: #2e7d4f;

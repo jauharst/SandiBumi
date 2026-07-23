@@ -7,6 +7,28 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 22 — SandiMin log-input grid + tidy Run button (2026-07-23 field review)
+
+Two visual fixes from your screenshots:
+
+- **Log inputs (image 3 style).** The cramped single column with wrapping labels
+  ("Formation Density" breaking across lines) is now a **multi-column grid** — one column
+  when the pane is narrow, more as it widens, scrolling both ways, matching the mineral list.
+  Labels ellipsis instead of wrapping so the checkboxes stay aligned; hover shows the full
+  name + mnemonic.
+- **Run button (image 1 style).** No longer a full-width slab — it's now a **tidy, left-aligned
+  button** with standard module proportions like Porosity-from-Density. I **kept it green**
+  (your earlier "run colour different from other modules" note) — say the word if you'd rather
+  it match image 1's orange exactly; it's a one-line change.
+
+Verified in the browser against the live CSS: log grid resolves to 2 columns at a 560 px pane
+(1 when narrower), labels truncate with ellipsis (no wrap), Run renders 76 px wide (not full
+width) and stays SandiMin-green. tsc clean.
+
+- [ ] **Log inputs read cleanly** at your usual pane width — columns wrap sensibly, no label
+      overflow, checkboxes line up.
+- [ ] **Run button** looks right where it sits at the top of the pane (or tell me to switch it to orange).
+
 ## Round 21 — SandiMin Archie (clean-sand) Sw + deduplicated menu decision (2026-07-23)
 
 You chose the **deduplicated** Sw menu (one entry per distinct model). First of the remaining ones:
