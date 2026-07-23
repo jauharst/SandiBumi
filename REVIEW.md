@@ -7,6 +7,36 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 17 — SandiMin saturation models: linear dual-water + Indonesia + Simandoux (your request, increment 3a) (2026-07-23)
+
+You asked for a selectable conductivity/Sw equation, "linear and non linear," because it's significant
+to the wet/dry clay framework. This increment lands the **backend + math**; the Fluid-tab selector that
+exposes it is the next increment (3b), so there's nothing to click yet — this entry is for the record.
+
+What's in the solver now (`src-tauri/src/multimin2.rs`), all behind a new `sw_model` request field that
+**defaults to `linear_dw`, so every run you've already reviewed is byte-for-byte unchanged**:
+
+- **Linear dual-water** (default) — the existing in-inversion `Ct^(1/w) = Σ v·C^(1/w)`, `w = 0.75m+0.25n`.
+- **Indonesia (Poupon-Leveaux 1971)** — effective-porosity form `1/√Rt = [Vsh^(1−Vsh/2)/√Rsh + √(φe^m/(a·Rw))]·Sw^(n/2)`.
+- **Modified Simandoux (Bardon-Pied)** — `1/Rt = φe^m·Sw^n/(a·Rw·(1−Vsh)) + Vsh·Sw/Rsh` (closed-form quadratic at n=2, bisection otherwise).
+
+Both shaly-sand forms are **post-solve**: the mineral inversion runs as usual (the deep-conductivity tool
+stays in, so the solve stays well-posed), then Sw is replaced by the closed form using the solved effective
+porosity and shale volume, and the U-zone water/HC split is redistributed to honour it — **φe and hard unity
+are preserved**, so only SWE/SWT/SXOT change, never PHIE. New fluid inputs `Rsh` (shale resistivity, default
+4.0 ohmm) and Archie `a` (default 1.0) feed the shaly-sand forms; the dual-water model ignores them.
+
+Adversarially reviewed (3 lenses — equation transcription, solver integration, contracts). Confirmed the
+equations against the standard references and the linear default as unchanged; fixed a real defect (a
+shared-zone fluid would be double-scaled by the U- then X-zone override → silent PHIE/unity corruption; now
+the flushed override runs only on a zone-disjoint split) and hardened the tests (added an **independent**
+hand-computed Archie/shale check so a transcription error fails rather than being self-confirmed by the
+round-trips). cargo 288/0.
+
+- [ ] *(No click-through yet — UI is 3b.)* When the selector ships, the check will be: on a fresh well pick
+      **Indonesia** or **Simandoux**, set Rw/Rsh, Run, and confirm SWE moves to the shaly-sand answer while
+      PHIE/PHIT stay exactly as the linear run produced them.
+
 ## Round 16 — SandiMin dialog polish: theme parity + shrinkable/scrollable lists (your review) (2026-07-23)
 
 Two of the three things you flagged on the tabbed SandiMin pane (the third — the conductivity/Sw
