@@ -7,6 +7,34 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 34 — Autocorrelate #5 inc 2: multi-marker simultaneous propagation — backend (2026-07-23)
+
+Second increment. Adds `autocorrelate_multi` (new `autocorrelate_multi` command): propagate **several
+markers together** into each target well as one **consistent** set, each with its **own** confidence.
+
+- **Consistency by construction** — markers are propagated top-down, each warped in its own local window
+  (the inc 1 warp), and a **hard monotone guard** forbids a later marker from crossing above an earlier
+  one. The guess for each marker is *guided* from the previous proposal (carry the source spacing
+  forward), so the search per marker is small and can't lock onto a neighbour's feature.
+- **Per-interval confidence** — each propagated marker carries its own Pearson r (the per-marker score
+  the spec asks for), not one r for the whole well.
+- Empty selection ⇒ all source tops; markers can be named explicitly. Read-only — the dialog (inc 3)
+  reviews and applies.
+
+Refactor: the single-marker `autocorrelate_top` and the new multi path now share `build_template` +
+`propagate` (rigid best-lag → optional warp-refine with the better-of guard). No behavior change to the
+single path — all its tests still pass. inc 2 adds no new math; it reuses inc 1's adversarially-reviewed
+primitives, so the review this round was a focused self-check of the guided-guess / monotone-guard
+orchestration (no k=0 index underflow; a skipped marker never corrupts the set).
+
+**Verification:** cargo **334 passed / 0 failed** — new test propagates 3 markers through a ×1.25 stretch
+(each moves a different amount), recovering all three to <3 m, in strict order, each scored. tsc green.
+Still backend-only — nothing browser-observable yet.
+
+> **Try:** backend-only again — no new button this round. The multi-marker propagation becomes usable in
+> the next increment's dialog (select several tops, one **Correlate**, review a per-marker table, apply as
+> one undoable batch).
+
 ## Round 33 — Autocorrelate #5 inc 1: elastic depth warp (subsequence DTW) — backend (2026-07-23)
 
 First increment of the marker-autocorrelation enrichment. `tops.rs` today propagates a top from the

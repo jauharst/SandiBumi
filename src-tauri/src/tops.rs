@@ -191,18 +191,12 @@ pub fn autocorrelate_top(conn: &Connection, req: &AutoCorrRequest) -> AutoCorrRe
 
     // Template: the source log sampled on a uniform offset grid across the window.
     let step = median_step(&src_depth).max(1e-3);
-    let k = ((2.0 * req.half_window / step).round() as usize).clamp(16, 512);
-    let offsets: Vec<f32> = (0..=k)
-        .map(|i| -req.half_window + (2.0 * req.half_window) * i as f32 / k as f32)
-        .collect();
-    let template: Vec<f32> = offsets.iter().map(|&o| interp(&src_depth, src_vals, source_depth + o)).collect();
-    let finite = template.iter().filter(|v| v.is_finite()).count();
-    if finite < template.len() * 2 / 3 {
-        return fail(format!(
-            "not enough '{}' data around {:.1} in the source well",
-            req.curve, source_depth
-        ));
-    }
+    let (template, offsets) = match build_template(&src_depth, src_vals, source_depth, req.half_window, step) {
+        Some(t) => t,
+        None => {
+            return fail(format!("not enough '{}' data around {:.1} in the source well", req.curve, source_depth))
+        }
+    };
 
     let warp = req.method.as_deref().map_or(false, |m| m.eq_ignore_ascii_case("warp"));
     let max_stretch = req.max_stretch.unwrap_or(1.5).clamp(1.0, 3.0);
@@ -235,26 +229,12 @@ pub fn autocorrelate_top(conn: &Connection, req: &AutoCorrRequest) -> AutoCorrRe
                     }
                 };
                 let guess = proposal.current_depth.unwrap_or(source_depth);
-                let scan_step = (step / 2.0).max(1e-3);
-                match best_shift(&template, &offsets, &tgt_depth, tgt_vals, guess, req.search_range, scan_step) {
-                    None => proposal.error = Some(format!("no overlapping '{}' data in the search range", req.curve)),
-                    Some((dc, rc)) => {
-                        // Warp refines the rigid pick with a monotone depth warp. Keep the warp
-                        // only when it fits at least as well as the rigid pick (same Pearson
-                        // metric, small epsilon for reconstruction noise); otherwise — or if the
-                        // warp degenerated / placed the marker in a data gap — fall back to the
-                        // rigid answer, so warp can never silently regress a good rigid match.
-                        let picked = if warp {
-                            match warp_refine(&template, &offsets, &tgt_depth, tgt_vals, dc, max_stretch, step) {
-                                Some((wd, wr)) if wr + 0.01 >= rc => (wd, wr),
-                                _ => (dc, rc),
-                            }
-                        } else {
-                            (dc, rc)
-                        };
-                        proposal.proposed_depth = Some(picked.0);
-                        proposal.correlation = picked.1;
+                match propagate(&template, &offsets, &tgt_depth, tgt_vals, guess, req.search_range, warp, max_stretch, step) {
+                    Some((d, r)) => {
+                        proposal.proposed_depth = Some(d);
+                        proposal.correlation = r;
                     }
+                    None => proposal.error = Some(format!("no overlapping '{}' data in the search range", req.curve)),
                 }
             }
             Err(e) => proposal.error = Some(e.to_string()),
@@ -262,6 +242,169 @@ pub fn autocorrelate_top(conn: &Connection, req: &AutoCorrRequest) -> AutoCorrRe
         proposals.push(proposal);
     }
     AutoCorrResult { proposals, error: None }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MultiAutoCorrRequest {
+    pub source_well_id: String,
+    /// Markers to propagate together, in any order. Empty ⇒ all tops picked in the source.
+    #[serde(default)]
+    pub top_names: Vec<String>,
+    /// Log whose shape is matched (GR is the field standard).
+    pub curve: String,
+    /// Coarse search: how far (depth units) to slide the whole span in each target well.
+    pub search_range: f32,
+    /// Warp elasticity (≥1). Absent ⇒ 1.5. Same soft control as the single-marker warp.
+    #[serde(default)]
+    pub max_stretch: Option<f32>,
+    pub target_well_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MultiMarkerProposal {
+    pub top_name: String,
+    pub current_depth: Option<f32>,
+    pub proposed_depth: Option<f32>,
+    /// Local shape correlation around THIS marker after warping (−1..1) — the per-interval
+    /// confidence: how well the log matches in the neighbourhood the pick controls.
+    pub correlation: f32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MultiWellProposal {
+    pub well_id: String,
+    pub markers: Vec<MultiMarkerProposal>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MultiAutoCorrResult {
+    pub proposals: Vec<MultiWellProposal>,
+    pub error: Option<String>,
+}
+
+/// Propagates SEVERAL source markers into each target well with ONE consistent depth warp:
+/// a single subsequence-DTW alignment of the source log across the whole marker span. Because
+/// the warp path is monotone, the propagated markers keep their stratigraphic order (no
+/// crossings) automatically, and each marker gets its own local confidence (Pearson over the
+/// interval it controls). Read-only — the dialog reviews and applies. This is the multi-marker
+/// counterpart to `autocorrelate_top`; it always warps (the whole point is a consistent set).
+pub fn autocorrelate_multi(conn: &Connection, req: &MultiAutoCorrRequest) -> MultiAutoCorrResult {
+    let fail = |m: String| MultiAutoCorrResult { proposals: Vec::new(), error: Some(m) };
+    if !(req.search_range > 0.0) {
+        return fail("search range must be positive".into());
+    }
+    let max_stretch = req.max_stretch.unwrap_or(1.5).clamp(1.0, 3.0);
+
+    let source_tops = match db::list_tops(conn, &req.source_well_id) {
+        Ok(t) => t,
+        Err(e) => return fail(e.to_string()),
+    };
+    // Selected markers in source-depth order; empty selection ⇒ every source top.
+    let want: Option<Vec<String>> = if req.top_names.is_empty() {
+        None
+    } else {
+        Some(req.top_names.iter().map(|s| s.to_uppercase()).collect())
+    };
+    let mut markers: Vec<(String, f32)> = source_tops
+        .iter()
+        .filter(|t| want.as_ref().map_or(true, |w| w.contains(&t.top_name.to_uppercase())))
+        .map(|t| (t.top_name.clone(), t.depth))
+        .collect();
+    markers.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+    if markers.is_empty() {
+        return fail("no matching tops picked in the source well".into());
+    }
+
+    let curve_names = vec![req.curve.to_uppercase()];
+    let (src_depth, src_curves) = match fetch_curve_frame(conn, &req.source_well_id, &curve_names) {
+        Ok(f) => f,
+        Err(e) => return fail(e.to_string()),
+    };
+    let src_vals = match src_curves.get(&curve_names[0]) {
+        Some(v) if !v.is_empty() => v,
+        _ => return fail(format!("source well has no '{}' data", req.curve)),
+    };
+    let step = median_step(&src_depth).max(1e-3);
+
+    // Per-marker local window: half the smaller neighbour spacing (clamped), so a marker's
+    // window does not bleed into a neighbour's feature. A single marker gets a default window.
+    let half_window = |k: usize| -> f32 {
+        let mut sp = f32::INFINITY;
+        if k > 0 {
+            sp = sp.min(markers[k].1 - markers[k - 1].1);
+        }
+        if k + 1 < markers.len() {
+            sp = sp.min(markers[k + 1].1 - markers[k].1);
+        }
+        if !sp.is_finite() {
+            sp = 40.0;
+        }
+        (sp / 2.0).clamp(8.0, 30.0)
+    };
+
+    let mut proposals = Vec::new();
+    for target_id in &req.target_well_ids {
+        if target_id == &req.source_well_id {
+            continue;
+        }
+        let mut wp = MultiWellProposal { well_id: target_id.clone(), markers: Vec::new(), error: None };
+        let tgt_tops = db::list_tops(conn, target_id).unwrap_or_default();
+        let current_of =
+            |name: &str| tgt_tops.iter().find(|t| t.top_name.eq_ignore_ascii_case(name)).map(|t| t.depth);
+
+        let (tgt_depth, tgt_curves) = match fetch_curve_frame(conn, target_id, &curve_names) {
+            Ok(f) => f,
+            Err(e) => {
+                wp.error = Some(e.to_string());
+                proposals.push(wp);
+                continue;
+            }
+        };
+        let tgt_vals = match tgt_curves.get(&curve_names[0]) {
+            Some(v) if !v.is_empty() => v,
+            _ => {
+                wp.error = Some(format!("no '{}' data", req.curve));
+                proposals.push(wp);
+                continue;
+            }
+        };
+
+        // Propagate each marker top-down, warping its own local window; guide the next guess
+        // from the previous proposal, and never let a later marker cross above an earlier one.
+        let mut prev: Option<f32> = None;
+        for (k, (name, sdepth)) in markers.iter().enumerate() {
+            let current = current_of(name);
+            let mut marker = MultiMarkerProposal {
+                top_name: name.clone(),
+                current_depth: current,
+                proposed_depth: None,
+                correlation: f32::NAN,
+            };
+            if let Some((template, offsets)) = build_template(&src_depth, src_vals, *sdepth, half_window(k), step) {
+                // Guess: the target's own pick if any, else carry the previous proposal forward
+                // by the source spacing, else the source depth.
+                let guess = current
+                    .or_else(|| prev.map(|pd| pd + (*sdepth - markers[k - 1].1)))
+                    .unwrap_or(*sdepth);
+                if let Some((mut d, r)) =
+                    propagate(&template, &offsets, &tgt_depth, tgt_vals, guess, req.search_range, true, max_stretch, step)
+                {
+                    if let Some(pd) = prev {
+                        if d <= pd {
+                            d = pd + step; // enforce stratigraphic order — no crossings
+                        }
+                    }
+                    prev = Some(d);
+                    marker.proposed_depth = Some(d);
+                    marker.correlation = r;
+                }
+            }
+            wp.markers.push(marker);
+        }
+        proposals.push(wp);
+    }
+    MultiAutoCorrResult { proposals, error: None }
 }
 
 fn median_step(depth: &[f32]) -> f32 {
@@ -302,6 +445,51 @@ fn best_shift(
         }
     }
     best
+}
+
+/// Builds the source template around `source_depth`: the log sampled on a uniform ±half_window
+/// offset grid. Returns (template, offsets) or None if the window is too sparse (< ⅔ finite).
+fn build_template(
+    src_depth: &[f32],
+    src_vals: &[f32],
+    source_depth: f32,
+    half_window: f32,
+    step: f32,
+) -> Option<(Vec<f32>, Vec<f32>)> {
+    let k = ((2.0 * half_window / step).round() as usize).clamp(16, 512);
+    let offsets: Vec<f32> =
+        (0..=k).map(|i| -half_window + (2.0 * half_window) * i as f32 / k as f32).collect();
+    let template: Vec<f32> = offsets.iter().map(|&o| interp(src_depth, src_vals, source_depth + o)).collect();
+    if template.iter().filter(|v| v.is_finite()).count() < template.len() * 2 / 3 {
+        return None;
+    }
+    Some((template, offsets))
+}
+
+/// Rigid best-lag, optionally warp-refined, of a prebuilt template into a target log.
+/// The warp is kept only when it fits at least as well as the rigid pick (better-of guard);
+/// otherwise the rigid answer stands. Returns (depth, r) or None if nothing overlapped.
+fn propagate(
+    template: &[f32],
+    offsets: &[f32],
+    tgt_depth: &[f32],
+    tgt_vals: &[f32],
+    guess: f32,
+    search_range: f32,
+    warp: bool,
+    max_stretch: f32,
+    step: f32,
+) -> Option<(f32, f32)> {
+    let scan_step = (step / 2.0).max(1e-3);
+    let (dc, rc) = best_shift(template, offsets, tgt_depth, tgt_vals, guess, search_range, scan_step)?;
+    if warp {
+        match warp_refine(template, offsets, tgt_depth, tgt_vals, dc, max_stretch, step) {
+            Some((wd, wr)) if wr + 0.01 >= rc => Some((wd, wr)),
+            _ => Some((dc, rc)),
+        }
+    } else {
+        Some((dc, rc))
+    }
 }
 
 /// Linear-interpolated percentile (0–100) of an ascending-sorted slice.
@@ -536,6 +724,26 @@ mod tests {
             + 55.0 * (-(((x - 1116.0) / 3.0).powi(2))).exp()
     }
 
+    /// Three sharp, well-separated spikes (one per multi-marker top) on a flat baseline —
+    /// each marker window sees exactly one distinctive feature, so a top-down guided search
+    /// locks unambiguously. `coord` warps the depth axis (identity source, inverse target).
+    fn spike_pattern(x: f32) -> f32 {
+        let g = |c: f32, w: f32, a: f32| a * (-(((x - c) / w).powi(2))).exp();
+        55.0 + g(1040.0, 3.0, 70.0) + g(1090.0, 3.0, 60.0) + g(1140.0, 3.0, 80.0)
+    }
+
+    fn seed_spikes_well(conn: &Connection, name: &str, coord: impl Fn(f32) -> f32) -> String {
+        let id = Uuid::new_v4();
+        db::insert_well(conn, id, name, Some("Synthetic"), None, None).unwrap();
+        let n = 440usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
+        let gr: Vec<f32> = depth.iter().map(|&d| spike_pattern(coord(d))).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(conn, id, depth, gr, nan.clone(), nan.clone(), nan.clone(), nan.clone(), nan)
+            .unwrap();
+        id.to_string()
+    }
+
     /// Seeds a well whose GR at well-depth d is `base_gr(coord(d))`. `coord` is identity
     /// for the source and the inverse warp for a stretched target.
     fn seed_pattern_well(conn: &Connection, name: &str, coord: impl Fn(f32) -> f32) -> String {
@@ -702,6 +910,52 @@ mod tests {
             "warp {warp_d} no better than rigid {rigid_d} vs truth {truth}"
         );
         assert!(p.correlation > 0.85, "warp r too low: {}", p.correlation);
+    }
+
+    #[test]
+    fn autocorrelate_multi_propagates_markers_consistently() {
+        let conn = open_db();
+        // Target is a ×1.25 stretch about 1000: each marker moves a DIFFERENT amount, so
+        // the propagation must handle the set consistently, not by one rigid shift.
+        let s = 1.25f32;
+        let warp = |ds: f32| 1000.0 + s * (ds - 1000.0);
+        let inv = |dt: f32| 1000.0 + (dt - 1000.0) / s;
+        let src = seed_spikes_well(&conn, "MULTI-SRC", |d| d);
+        let tgt = seed_spikes_well(&conn, "MULTI-TGT", inv);
+        db::upsert_top(&conn, &src, "A", 1040.0, None).unwrap();
+        db::upsert_top(&conn, &src, "B", 1090.0, None).unwrap();
+        db::upsert_top(&conn, &src, "C", 1140.0, None).unwrap();
+        // Warped truths: 1050, 1112.5, 1175 — spacing grows 50 → 62.5.
+        let truth = [warp(1040.0), warp(1090.0), warp(1140.0)];
+
+        let result = autocorrelate_multi(
+            &conn,
+            &MultiAutoCorrRequest {
+                source_well_id: src.clone(),
+                top_names: vec![], // all source tops
+                curve: "GR".into(),
+                search_range: 30.0,
+                max_stretch: Some(1.5),
+                target_well_ids: vec![tgt.clone()],
+            },
+        );
+        assert!(result.error.is_none(), "{:?}", result.error);
+        let p = &result.proposals[0];
+        assert!(p.error.is_none(), "{:?}", p.error);
+        assert_eq!(p.markers.len(), 3);
+        // Order is A, B, C by source depth; each present.
+        let names: Vec<&str> = p.markers.iter().map(|m| m.top_name.as_str()).collect();
+        assert_eq!(names, vec!["A", "B", "C"]);
+        let depths: Vec<f32> = p.markers.iter().map(|m| m.proposed_depth.expect("depth")).collect();
+        // Consistent (monotone) — no crossing.
+        assert!(depths[0] < depths[1] && depths[1] < depths[2], "markers crossed: {depths:?}");
+        for (d, t) in depths.iter().zip(truth) {
+            assert!((d - t).abs() <= 3.0, "marker {d} not within 3 m of warped truth {t} ({depths:?})");
+        }
+        // Each marker carries its own confidence.
+        for mk in &p.markers {
+            assert!(mk.correlation.is_finite() && mk.correlation > 0.7, "{} r={}", mk.top_name, mk.correlation);
+        }
     }
 
     #[test]

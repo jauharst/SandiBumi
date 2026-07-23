@@ -143,6 +143,41 @@ export function autocorrelateTop(req: AutoCorrRequest): Promise<AutoCorrResult> 
   return invoke<AutoCorrResult>("autocorrelate_top", { req });
 }
 
+export interface MultiAutoCorrRequest {
+  source_well_id: string;
+  /** Markers to propagate together. Empty ⇒ all tops picked in the source well. */
+  top_names: string[];
+  curve: string;
+  search_range: number;
+  /** Warp elasticity (≥1). Default 1.5. */
+  max_stretch?: number;
+  target_well_ids: string[];
+}
+
+export interface MultiMarkerProposal {
+  top_name: string;
+  current_depth: number | null;
+  proposed_depth: number | null;
+  /** Local shape correlation around this marker after warping (per-interval confidence). */
+  correlation: number;
+}
+
+export interface MultiWellProposal {
+  well_id: string;
+  markers: MultiMarkerProposal[];
+  error: string | null;
+}
+
+export interface MultiAutoCorrResult {
+  proposals: MultiWellProposal[];
+  error: string | null;
+}
+
+/** Propagate several markers together with one consistent (monotone) depth warp. */
+export function autocorrelateMulti(req: MultiAutoCorrRequest): Promise<MultiAutoCorrResult> {
+  return invoke<MultiAutoCorrResult>("autocorrelate_multi", { req });
+}
+
 export type ScaleType = "linear" | "log";
 
 export interface CurveStyle {

@@ -1293,6 +1293,22 @@ async fn autocorrelate_top(
     .await
 }
 
+/// Propagates SEVERAL markers together into target wells with one consistent depth warp
+/// (monotone — no crossings), each with its own per-interval confidence. Read-only.
+#[tauri::command]
+async fn autocorrelate_multi(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    req: tops::MultiAutoCorrRequest,
+) -> Result<tops::MultiAutoCorrResult, String> {
+    let conn = db.0.clone();
+    jobs::run_simple_job(jobs_reg.inner().clone(), "Autocorrelate", "multi-marker correlation", move || {
+        let c = conn.lock().unwrap();
+        Ok(tops::autocorrelate_multi(&c, &req))
+    })
+    .await
+}
+
 /// Read-only SQL over the project database (full DuckDB SQL, SELECT-only).
 #[tauri::command]
 fn run_query(db: tauri::State<DbState>, sql: String, limit: usize) -> Result<db::TablePage, String> {
@@ -1536,6 +1552,7 @@ pub fn run() {
             delete_top,
             check_top_order,
             autocorrelate_top,
+            autocorrelate_multi,
             run_query,
             export_las,
             python_status,
