@@ -3,9 +3,11 @@ import { appState } from "../state";
 import { formRow, openModal } from "./modal";
 import {
   attachResizeRedraw,
+  attachScatterTooltip,
   attachZoomPan,
   colorRampEx,
   fitCanvasBackingStore,
+  fmtValue,
   PlotCanvas,
   canvasFont,
   readTheme,
@@ -473,6 +475,33 @@ export async function buildPickettContent(
     });
   };
 
+  // Local hover tooltip: the Rt / porosity / depth of the sample under the cursor. Suppressed
+  // while a button is down (pan or the tail of a water-line pick).
+  const detachTip = attachScatterTooltip(canvas, (px, py) => {
+    if (downXY || !plot || !plot.inPlot(px, py)) return null;
+    let best = -1;
+    let bestD = 12 * 12; // within a 12 px radius
+    for (let i = 0; i < rt.length; i++) {
+      const vx = rt[i];
+      const vy = phi[i];
+      if (!Number.isFinite(vx) || !Number.isFinite(vy)) continue;
+      if (plot.x.log && vx <= 0) continue;
+      if (plot.y.log && vy <= 0) continue;
+      const [sx, sy] = plot.toPx(vx, vy);
+      const d = (sx - px) * (sx - px) + (sy - py) * (sy - py);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    if (best < 0) return null;
+    const lines: string[] = [];
+    if (best < depths.length && Number.isFinite(depths[best])) lines.push(`${depths[best].toFixed(1)} m`);
+    lines.push(`${rtSel.value}  ${fmtValue(rt[best])}`);
+    lines.push(`${phiSel.value}  ${fmtValue(phi[best])}`);
+    return lines;
+  });
+
   await reload();
   return {
     el: content,
@@ -482,6 +511,7 @@ export async function buildPickettContent(
       unsubData();
       detachZoomPan();
       detachResize();
+      detachTip();
       zoneSel.dispose();
     },
     getState: () => ({

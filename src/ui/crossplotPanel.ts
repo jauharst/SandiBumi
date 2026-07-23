@@ -3,13 +3,15 @@ import { appState } from "../state";
 import { formRow, openModal } from "./modal";
 import {
   attachResizeRedraw,
+  attachScatterTooltip,
   attachZoomPan,
   categoricalColors,
-  colormapColor,
   colorRampEx,
   distinctValues,
+  drawColorbar,
   faciesColor,
   fitCanvasBackingStore,
+  fmtValue,
   looksDiscrete,
   percentile,
   PlotCanvas,
@@ -727,21 +729,7 @@ export function drawCrossplot(
     ctx.restore();
   } else if (hasZ && colors && !Number.isNaN(zLo)) {
     // Z color-bar legend in the chosen colormap ("log" tag when log-scaled).
-    const { ctx } = plot;
-    const r = plot.plotRect;
-    const barW = 90;
-    const barX = r.x0 + r.w - barW - 8;
-    const barY = r.y0 + 8;
-    for (let i = 0; i < barW; i++) {
-      ctx.fillStyle = colormapColor(opts.colormap, i / (barW - 1));
-      ctx.fillRect(barX + i, barY, 1, 8);
-    }
-    ctx.fillStyle = plot.theme.text;
-    ctx.font = canvasFont(plot.theme, 9);
-    ctx.textAlign = "center";
-    ctx.fillText(zLo.toPrecision(3), barX, barY + 18);
-    ctx.fillText(opts.zLog ? `${zName} (log)` : zName, barX + barW / 2, barY + 18);
-    ctx.fillText(zHi.toPrecision(3), barX + barW, barY + 18);
+    drawColorbar(plot, { map: opts.colormap, lo: zLo, hi: zHi, label: zName, log: opts.zLog });
   }
 
   // User percentiles: dashed X (vertical) and Y (horizontal) reference lines.
@@ -1581,6 +1569,34 @@ export async function buildCrossplotContent(
     }
   });
 
+  // Local hover tooltip: the sample values under the cursor (X/Y/Z + depth), independent of the
+  // depth-synced ring. Suppressed while dragging a handle so it doesn't fight the pick gesture.
+  const detachTip = attachScatterTooltip(canvas, (px, py) => {
+    if (drag || !plot || !plot.inPlot(px, py)) return null;
+    let best = -1;
+    let bestD = 12 * 12; // within a 12 px radius
+    for (let i = 0; i < xs.length; i++) {
+      const vx = xs[i];
+      const vy = ys[i];
+      if (!Number.isFinite(vx) || !Number.isFinite(vy)) continue;
+      if (opts.xLog && vx <= 0) continue;
+      if (opts.yLog && vy <= 0) continue;
+      const [sx, sy] = plot.toPx(vx, vy);
+      const d = (sx - px) * (sx - px) + (sy - py) * (sy - py);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    if (best < 0) return null;
+    const lines: string[] = [];
+    if (best < depths.length && Number.isFinite(depths[best])) lines.push(`${depths[best].toFixed(1)} m`);
+    lines.push(`${xSel.value}  ${fmtValue(xs[best])}`);
+    lines.push(`${ySel.value}  ${fmtValue(ys[best])}`);
+    if (zSel.value && best < zs.length && Number.isFinite(zs[best])) lines.push(`${zSel.value}  ${fmtValue(zs[best])}`);
+    return lines;
+  });
+
   await reload();
   await reloadCore();
   return {
@@ -1591,6 +1607,7 @@ export async function buildCrossplotContent(
       unsubData();
       detachZoomPan();
       detachResize();
+      detachTip();
       zoneSel.dispose();
     },
     getState: () => ({ x: xSel.value, y: ySel.value, z: zSel.value, zone: zoneSel.select.value }),

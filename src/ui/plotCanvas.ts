@@ -537,6 +537,94 @@ export function attachResizeRedraw(canvas: HTMLCanvasElement, redraw: () => void
   };
 }
 
+/** Compact numeric label for tooltips/legends: 4 significant figures, trailing zeros trimmed,
+ *  non-finite → "—". Keeps "0.182", "12.4", "1.05e+4" readable without axis-tick machinery. */
+export function fmtValue(v: number): string {
+  if (!Number.isFinite(v)) return "—";
+  if (v === 0) return "0";
+  const a = Math.abs(v);
+  if (a >= 1e5 || a < 1e-3) return v.toExponential(2);
+  const s = v.toPrecision(4);
+  return s.includes(".") ? s.replace(/\.?0+$/, "") : s;
+}
+
+/** Continuous colour-bar legend for a Z-coloured scatter: a horizontal ramp in `map` from
+ *  `lo`→`hi` with min / label / max captions, drawn top-right inside the plot rect. Extracted so
+ *  every ramp chart (crossplot, Pickett, HFU, …) shows the same bar instead of a bespoke copy. */
+export function drawColorbar(
+  plot: PlotCanvas,
+  opts: { map: ColormapName; lo: number; hi: number; label: string; log?: boolean },
+): void {
+  const { ctx } = plot;
+  const r = plot.plotRect;
+  const barW = 90;
+  const barX = r.x0 + r.w - barW - 8;
+  const barY = r.y0 + 8;
+  for (let i = 0; i < barW; i++) {
+    ctx.fillStyle = colormapColor(opts.map, i / (barW - 1));
+    ctx.fillRect(barX + i, barY, 1, 8);
+  }
+  ctx.save();
+  ctx.fillStyle = plot.theme.text;
+  ctx.font = canvasFont(plot.theme, 9);
+  ctx.textAlign = "center";
+  ctx.fillText(opts.lo.toPrecision(3), barX, barY + 18);
+  ctx.fillText(opts.log ? `${opts.label} (log)` : opts.label, barX + barW / 2, barY + 18);
+  ctx.fillText(opts.hi.toPrecision(3), barX + barW, barY + 18);
+  ctx.restore();
+}
+
+/** Wires a hover tooltip bubble onto a plot canvas. On every mouse move, `hit(px, py)` (canvas
+ *  CSS-pixel coords) returns the lines to show for the sample under the cursor, or null to hide.
+ *  The bubble is a `pointer-events:none` DOM node appended to `<body>` and positioned near the
+ *  cursor (clamped to the viewport), so it never steals the canvas's own mouse events. Returns a
+ *  disposer that removes the listeners and the node. Colours come from the `.plot-tooltip` CSS. */
+export function attachScatterTooltip(
+  canvas: HTMLCanvasElement,
+  hit: (px: number, py: number) => string[] | null,
+): () => void {
+  const tip = document.createElement("div");
+  tip.className = "plot-tooltip";
+  tip.style.position = "fixed";
+  tip.style.pointerEvents = "none";
+  tip.style.zIndex = "9000";
+  tip.style.display = "none";
+  document.body.appendChild(tip);
+
+  const onMove = (e: MouseEvent) => {
+    const rect = canvas.getBoundingClientRect();
+    const lines = hit(e.clientX - rect.left, e.clientY - rect.top);
+    if (!lines || !lines.length) {
+      tip.style.display = "none";
+      return;
+    }
+    tip.textContent = "";
+    for (const ln of lines) {
+      const row = document.createElement("div");
+      row.textContent = ln;
+      tip.appendChild(row);
+    }
+    tip.style.display = "block";
+    const pad = 14;
+    let left = e.clientX + pad;
+    let top = e.clientY + pad;
+    if (left + tip.offsetWidth > window.innerWidth - 4) left = e.clientX - pad - tip.offsetWidth;
+    if (top + tip.offsetHeight > window.innerHeight - 4) top = e.clientY - pad - tip.offsetHeight;
+    tip.style.left = `${Math.max(4, left)}px`;
+    tip.style.top = `${Math.max(4, top)}px`;
+  };
+  const onLeave = () => {
+    tip.style.display = "none";
+  };
+  canvas.addEventListener("mousemove", onMove);
+  canvas.addEventListener("mouseleave", onLeave);
+  return () => {
+    canvas.removeEventListener("mousemove", onMove);
+    canvas.removeEventListener("mouseleave", onLeave);
+    tip.remove();
+  };
+}
+
 /** Blue→green→yellow→red color ramp for Z-colored crossplots; NaN → dim gray. */
 export function colorRamp(values: ArrayLike<number>, min: number, max: number): string[] {
   const out: string[] = new Array(values.length);

@@ -2726,6 +2726,26 @@ textarea {
   cursor: crosshair;
 }
 
+/* Hover tooltip bubble for scatter charts (crossplot, Pickett). Positioned in JS
+   (attachScatterTooltip); pointer-events off so it never intercepts the canvas's mouse. */
+.plot-tooltip {
+  font-family: var(--font-ui, system-ui, sans-serif);
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  padding: 4px 7px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+  white-space: nowrap;
+  max-width: 260px;
+}
+.plot-tooltip > div:first-child {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Histogram / crossplot / Pickett panels: a flex column so the canvas fills all remaining
    panel height (the toolbar/props/chips/hint/pick rows keep their intrinsic size). The
    canvas backing store is then sized to this real area at HiDPI (fitCanvasBackingStore),

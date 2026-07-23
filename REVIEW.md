@@ -7,6 +7,36 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 42 — UI polish #9B inc 1: shared colour-bar + scatter hover tooltip (2026-07-23)
+
+Visualization richness, starting with two shared primitives in `plotCanvas.ts` so every chart gets the
+same treatment instead of a bespoke copy:
+
+- **`drawColorbar(plot, {map, lo, hi, label, log})`** — the continuous Z colour-bar, extracted from
+  its one bespoke copy inside `drawCrossplot`. The crossplot now calls it; Pickett/HFU can adopt it in
+  one line. Same look, one place to theme.
+- **`attachScatterTooltip(canvas, hit)`** — a hover **tooltip bubble** showing the sample under the
+  cursor. `hit(px, py)` returns the lines to show (or null to hide); the bubble is a
+  `pointer-events:none` node positioned by the cursor and clamped to the viewport, so it never steals
+  the canvas's own mouse events. `fmtValue(v)` gives compact 4-sig-fig labels.
+- Wired into the **crossplot** (depth + X/Y/Z values, suppressed while dragging a handle) and **Pickett**
+  (depth + Rt + porosity, suppressed while panning/picking). New `.plot-tooltip` CSS, all theme vars.
+
+**Still open in 9B:** true **vector SVG/PDF export at print scale** for the Canvas-2D charts. Today only
+the log *composite* has a vector path (`export_composite_svg/pdf` via `composite.rs`); the crossplot /
+histogram / Pickett charts export raster PNG only. A real vector route needs an SVG-emitting renderer or
+a new Rust command — a sizeable increment on its own, flagged for a scoping call rather than rushed.
+
+**Verification (in-browser):** `fmtValue` → `["0.1823","2.5","1.235e+4","1.23e-4","—","0"]`; `drawCrossplot`
+with a continuous Z rendered the scatter + colour-bar (87.8 k coloured pixels, non-null plot);
+`attachScatterTooltip` showed the bubble (`display:block`, correct text, `pointer-events:none`), hid on
+`mouseleave`, and removed its node on dispose. `tsc` clean.
+
+**Try:** open a **Crossplot** (NPHI–RHOB coloured by GR) and hover the cloud — a bubble now shows that
+sample's **depth, NPHI, RHOB and GR**. The Z **colour-bar** top-right is unchanged (now shared code).
+Open a **Pickett** plot and hover — depth + Rt + porosity. Dragging the parameter handle (crossplot) or
+panning suppresses the bubble so it doesn't fight the gesture.
+
 ## Round 41 — Results-QC #8 inc 4: recon / MC / cutoff rollup rows (2026-07-23)
 
 The scorecard now reads as **one verdict per zone** — the two on-open checks (Sw-method spread, Buckles)
