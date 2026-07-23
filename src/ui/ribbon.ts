@@ -243,6 +243,7 @@ export class Ribbon {
     q<HTMLButtonElement>("#save-layout-btn")?.addEventListener("click", () => this.handleSaveLayout());
     q<HTMLButtonElement>("#histogram-btn")?.addEventListener("click", () => workspace.openPlot("histogram"));
     q<HTMLButtonElement>("#crossplot-btn")?.addEventListener("click", () => workspace.openPlot("crossplot"));
+    q<HTMLButtonElement>("#vega-btn")?.addEventListener("click", () => workspace.openPlot("vega"));
     q<HTMLButtonElement>("#pickett-btn")?.addEventListener("click", () => workspace.openPlot("pickett"));
     q<HTMLButtonElement>("#correlation-btn")?.addEventListener("click", () => workspace.openPlot("correlation"));
     q<HTMLButtonElement>("#composite-btn")?.addEventListener("click", () => workspace.openComposite());

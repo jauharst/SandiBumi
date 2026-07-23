@@ -2783,6 +2783,30 @@ textarea {
   height: auto;
 }
 
+/* Vega-Lite chart panel (interactive engine): a compact curve-picker toolbar above a chart host
+   that vega sizes to fill. The host is positioned so a `.logview-message` overlay can center. */
+.vega-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.vega-field {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.vega-chart-host {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 180px;
+  overflow: hidden;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Well groups: the group bar in the Wells pane + the manager dialog.          */
 /* -------------------------------------------------------------------------- */

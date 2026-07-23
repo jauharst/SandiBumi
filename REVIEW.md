@@ -7,6 +7,32 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 51 — Vega-Lite interactive charts, V1: engine vendored + one live chart (2026-07-24)
+
+New feature (your "Altair on SandiBumi" ask, built as *interactive Vega-Lite in-app*): a chart
+rendered by the real **vega** engine, vendored **offline** into the app. V1 lands the engine + one
+live chart; richer controls, theme-repaint, brush-linking and a spec editor are V2–V4.
+
+- **New "Vega Chart" button** on the Plot ribbon (next to Crossplot). It opens a well-bound panel:
+  pick an X and a Y curve (defaults NPHI / RHOB) and it plots the selected well, following the Wells
+  pane like the other plots. Hover for a tooltip; drag to pan; scroll to zoom — vega's built-in
+  grammar-of-graphics interactivity, the thing the Canvas-2D plots don't give for free.
+- **Offline + lazy.** `vega` / `vega-lite` / `vega-embed` are bundled into the app (no CDN, works with
+  no network). The engine is ~850 KB, so it is a **lazy** chunk — it loads only the first time you
+  open a Vega chart and stays out of the main startup bundle.
+- **Themed** from the active theme's CSS vars (axes, grid, points), so it matches the brand themes.
+  Colours are read when the chart builds; live repaint on a mid-session theme switch is V3.
+
+**Try:** Plot ribbon → **Vega Chart** (select a well first). Confirm the scatter draws in your theme's
+colours, then **hover a point** (tooltip = X / Y / Depth), **drag** to pan, and **scroll** to zoom.
+Switch the X / Y curves and confirm it redraws. (I verified the render, theming and offline bundle
+with a screenshot against synthetic data; the live pan / zoom / tooltip is what this Try line
+confirms — the automated harness couldn't drive vega's canvas input.)
+
+Note: `npm audit` flags 7 high-severity advisories in vega's dependency tree. I did **not** auto-fix
+(it wants breaking changes). For an offline desktop app rendering local numeric data the exposure is
+minimal, but say the word if you want me to look at pinning/patching them.
+
 ## Round 50 — Monte Carlo: per-row PDF preview sparkline (2026-07-24)
 
 Playbook **#1 (Monte Carlo)** residual: *"per-row live distribution (PDF) preview."* Each uncertain-

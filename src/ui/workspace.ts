@@ -34,7 +34,7 @@ const LAYOUT_STORAGE_KEY = "sandibumi.workspace";
  *  (so the fixed-width sidebar never stretches to fill the window). */
 const CANVAS_ID = "canvas";
 
-type PlotKind = "histogram" | "crossplot" | "pickett" | "correlation";
+type PlotKind = "histogram" | "crossplot" | "pickett" | "correlation" | "vega";
 
 /** A named, reopenable workspace snapshot: the dock layout (which panes/plots/log views
  *  are open and how they're arranged) plus the active well so the visualizations come
@@ -321,6 +321,7 @@ export class Workspace {
       ["New Log View", () => this.openLogView(group)],
       ["New Histogram", () => this.openPlot("histogram", group)],
       ["New Crossplot", () => this.openPlot("crossplot", group)],
+      ["New Vega Chart", () => this.openPlot("vega", group)],
       ["New Pickett", () => this.openPlot("pickett", group)],
       ["New Correlation", () => this.openPlot("correlation", group)],
       "sep",
@@ -595,6 +596,7 @@ export class Workspace {
       case "crossplot":
       case "pickett":
       case "correlation":
+      case "vega":
         return this.createPlot(options.name);
       default:
         return new DomPanel("dock-unknown", (host) => {
@@ -1000,7 +1002,9 @@ export class Workspace {
             ? buildCrossplotContent
             : kind === "pickett"
               ? buildPickettContent
-              : buildCorrelationContent;
+              : kind === "correlation"
+                ? buildCorrelationContent
+                : (w, s, initial) => import("./vegaPanel").then((m) => m.buildVegaContent(w, s, initial));
 
       // The panel follows the Wells & Tops pane: selecting a different well rebuilds
       // the plot for it, carrying the curve/zone selections over (getState → initial).
