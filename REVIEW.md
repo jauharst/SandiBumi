@@ -7,6 +7,34 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 24 — SandiMin Wet-Clay-Porosity bound-water source (backend) (2026-07-23)
+
+Starting item B (constraints editor + porosity source). This first slice is the **backend route** for
+the **Porosity Source** choice from your image 2: the clay bound-water constraint can now be driven by
+either **CEC** (default — `v_bw = α·96·CEC·ρ/(T+298)·v_dryclay`, nothing moves) or **Wet Clay Porosity**
+(`v_bw = φ_clay/(1−φ_clay)·v_dryclay`, geometric). It's the same physics the Clay-tab wet→dry converter
+already used (`dry_clay_calc`); this exposes it as a selectable source. Clays now carry Techlog's WCLP
+defaults (Illite 0.104, Kaolinite 0.058, Chlorite 0.101, Glauconite 0.156, Montmorillonite 1.0, Clay 0.12).
+
+Default stays **CEC**, so every reviewed number is untouched (verified: the CEC path is byte-identical to
+before). The **UI radio + per-clay φ editor + the constraints panel (UNITY/POROSITY/X&U BNDWAT/WATER MUD)
+land in the next slice** — nothing to click yet. Tests: the WCP multiplier equals the CEC route's
+`cec_equiv` (the dry_clay_calc bridge) and drives the same bounded solve; Techlog WCLP defaults asserted;
+adversarially reviewed. Note: the WCP source **moves PHIE** for clays (bound water is now geometric, not
+CEC-derived) — that's the design you approved.
+
+**Smectite fix (adversarial review caught this before commit).** Techlog carries `WCLP_Smectite = 1.0`,
+but it only ever consumes that value *post-solve* for wet-clay-volume reporting (flooring `1−φ` at `1e-4`),
+never as an inversion constraint. My first cut fed it straight into the BNDWAT *solver* row as `φ/(1−φ)`
+with a `0.95` cap → `k ≈ 19`, ~100× every real clay and ~30× smectite's own CEC route — it would have
+swamped the bound-water constraint and forced absurd bound water wherever montmorillonite appears. Fixed:
+a degenerate `φ ≥ 0.5` (Techlog's real clays are all ≤ 0.156, so this cleanly isolates the `1.0`
+placeholder) now **falls back to the CEC-calibrated multiplier** for that clay, so the two porosity
+sources *agree* for smectite (`k ≈ 0.6`) instead of diverging 30×. New test
+`wcp_degenerate_smectite_falls_back_to_cec` pins it; `library_has_expected_shape` asserts every
+non-smectite clay's WCLP stays a physical geometric porosity. Real clays (Illite φ=0.104, etc.) are
+unaffected — they still use the geometric `φ/(1−φ)` route.
+
 ## Round 23 — SandiMin Juhász / normalized-Qv Sw (the wet-shale model) (2026-07-23)
 
 The **Juhász (normalized Waxman-Smits)** model — the wet-parameter one you grouped with Indonesia/

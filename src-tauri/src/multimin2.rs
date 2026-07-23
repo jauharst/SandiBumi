@@ -54,9 +54,14 @@ pub struct Component {
     pub fluid_type: String,
     /// Tool-key → endpoint response, in display units (g/cc, v/v, us/ft, API, ...).
     pub endpoints: HashMap<String, f64>,
-    /// Cation exchange capacity, meq/g (clays; drives the bound-water constraint).
+    /// Cation exchange capacity, meq/g (clays; drives the bound-water constraint under the CEC
+    /// porosity source).
     #[serde(default)]
     pub cec: f64,
+    /// Wet-clay total porosity φ_clay (clays) — the alternative bound-water driver under the
+    /// Wet-Clay-Porosity source: v_bw = φ_clay/(1−φ_clay)·v_dryclay (no CEC/T/α). Default 0.
+    #[serde(default)]
+    pub wet_clay_porosity: f64,
     /// Upper volume bound (default: 1.0 minerals, 0.5 fluids).
     #[serde(default = "default_one")]
     pub max_vol: f64,
@@ -111,6 +116,18 @@ impl SwModel {
     fn is_post_solve(self) -> bool {
         !matches!(self, SwModel::LinearDw)
     }
+}
+
+/// What drives the clay bound-water (BNDWAT) constraint (Jauhar field review, image 2 "Porosity Source").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PorositySource {
+    /// Cation exchange capacity: v_bw = α·96·CEC·ρ/(T+298)·v_dryclay. Default — nothing moves.
+    #[default]
+    Cec,
+    /// Wet-clay porosity: v_bw = φ_clay/(1−φ_clay)·v_dryclay (geometric; no CEC/T/α). Moves PHIE
+    /// relative to the CEC route, so it's opt-in.
+    WetClayPorosity,
 }
 
 /// Poupon-Leveaux ("Indonesia", 1971) water saturation, effective-porosity form, solved for Sw∈[0,1]:
@@ -354,6 +371,9 @@ pub struct MultiminRequest {
     /// linearised dual-water (nothing moves). `indonesia`/`simandoux` are post-solve shaly-sand forms.
     #[serde(default)]
     pub sw_model: SwModel,
+    /// What drives the clay bound-water constraint: `cec` (default) or `wet_clay_porosity`.
+    #[serde(default)]
+    pub porosity_source: PorositySource,
 }
 
 fn default_prefix() -> String {
@@ -459,6 +479,30 @@ pub fn fluid_calc(p: &FluidProps) -> FluidCalc {
 /// k = α · 96 · CEC[meq/g] · ρ_clay[g/cc] / (T°C + 298).
 fn bndwat_multiplier(cec: f64, rho_gcc: f64, t_c: f64, alpha: f64) -> f64 {
     alpha * 96.0 * cec * rho_gcc / (t_c + 298.0)
+}
+
+/// Bound-water multiplier k (v_bw = k · v_dryclay) for one clay under the chosen porosity source.
+///   CEC → α·96·CEC·ρ/(T+298)            (salinity/temperature-dependent, reference spec 5.03)
+///   WCP → φ_clay/(1−φ_clay)             (geometric; V_wetclay = V_dryclay/(1−φ))
+/// The WCP route uses the geometric form only for a *physical* φ. A degenerate φ ≥
+/// [`WCP_PHYSICAL_CEILING`] — e.g. Techlog's smectite placeholder φ = 1.0, which Techlog itself
+/// consumes only post-solve with a 1e-4 floor, never as an inversion constraint — falls back to the
+/// CEC-calibrated multiplier so the two sources *agree* for that clay (smectite CEC=1.0 → k≈0.6)
+/// instead of a 0.95-clamped k≈19 that would swamp the BNDWAT constraint.
+fn bound_water_multiplier(source: PorositySource, cec: f64, wcp: f64, rho: f64, t_c: f64, alpha: f64) -> f64 {
+    let cec_k = if cec > 0.0 { bndwat_multiplier(cec, rho, t_c, alpha) } else { 0.0 };
+    match source {
+        PorositySource::Cec => cec_k,
+        PorositySource::WetClayPorosity => {
+            if wcp > 0.0 && wcp < WCP_PHYSICAL_CEILING {
+                wcp / (1.0 - wcp)
+            } else if wcp >= WCP_PHYSICAL_CEILING {
+                cec_k
+            } else {
+                0.0
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -598,6 +642,14 @@ pub fn fluid_from_precalc(
 // ---------------------------------------------------------------------------
 
 const SIGMA_CONSTRAINT: f64 = 0.01; // nominal Tool-constraint uncertainty
+
+/// Wet-Clay-Porosity route: the largest φ_clay we treat as a real geometric porosity.
+/// Techlog's real clays sit at φ ≤ 0.156; only smectite carries φ = 1.0, and that value
+/// is a *post-solve* placeholder (Techlog floors 1−φ at 1e-4 for wet-clay-volume output,
+/// never as an inversion constraint). φ ≥ this ceiling means "bound water ≥ dry-clay
+/// volume" — not a usable geometric porosity for a solver constraint — so we defer to the
+/// CEC-derived multiplier for that clay instead of letting k = φ/(1−φ) approach the pole.
+const WCP_PHYSICAL_CEILING: f64 = 0.5;
 
 struct ZoneSets {
     /// Unity coefficients (1 for minerals/clays/U-and-shared fluids, 0 for X fluids).
@@ -878,9 +930,11 @@ pub fn run_multimin(
             let mut any = false;
             for &ci in &zs.clays {
                 let c = &req.components[ci];
-                if c.cec > 0.0 {
-                    let rho = *c.endpoints.get("RHOB").unwrap_or(&2.65);
-                    row[ci] = bndwat_multiplier(c.cec, rho, t_c, alpha);
+                // Bound-water multiplier k (v_bw = k·v_dryclay) from the chosen porosity source.
+                let rho = *c.endpoints.get("RHOB").unwrap_or(&2.65);
+                let k = bound_water_multiplier(req.porosity_source, c.cec, c.wet_clay_porosity, rho, t_c, alpha);
+                if k > 0.0 {
+                    row[ci] = k;
                     any = true;
                 }
             }
@@ -1598,19 +1652,22 @@ struct LibRow {
     zone: &'static str,
     fluid_type: &'static str,
     cec: f64,
+    /// Wet-clay total porosity φ_clay (clays; the Wet-Clay-Porosity bound-water source). Techlog WCLP
+    /// defaults from QElan_PostProcess_Using_Conductivities.py; 0 for non-clays.
+    wcp: f64,
     max_vol: f64,
     /// [RHOB, NPHI, DT, GR, PEF, U, THOR, POTA, URAN, EPT, SIGMA]  (VP/VS derived from DT)
     v: [f64; 11],
 }
 
 const fn m(name: &'static str, v: [f64; 11]) -> LibRow {
-    LibRow { name, kind: "mineral", zone: "", fluid_type: "", cec: 0.0, max_vol: 1.0, v }
+    LibRow { name, kind: "mineral", zone: "", fluid_type: "", cec: 0.0, wcp: 0.0, max_vol: 1.0, v }
 }
-const fn clay(name: &'static str, cec: f64, v: [f64; 11]) -> LibRow {
-    LibRow { name, kind: "clay", zone: "", fluid_type: "", cec, max_vol: 1.0, v }
+const fn clay(name: &'static str, cec: f64, wcp: f64, v: [f64; 11]) -> LibRow {
+    LibRow { name, kind: "clay", zone: "", fluid_type: "", cec, wcp, max_vol: 1.0, v }
 }
 const fn fl(name: &'static str, zone: &'static str, fluid_type: &'static str, v: [f64; 11]) -> LibRow {
-    LibRow { name, kind: "fluid", zone, fluid_type, cec: 0.0, max_vol: 0.5, v }
+    LibRow { name, kind: "fluid", zone, fluid_type, cec: 0.0, wcp: 0.0, max_vol: 0.5, v }
 }
 
 /// Merged reference/IP default library, in IP's mineral-dropdown order (Jauhar's screenshot).
@@ -1629,12 +1686,12 @@ const LIB: &[LibRow] = &[
     m("Siderite",          [3.88,  0.180,  44.0,  6.0, 14.70, 72.0,  0.4,  0.00,  0.5,  8.9, 54.2]),
     m("Muscovite",         [2.85,  0.240,  49.0,130.0,  2.40, 11.5,  0.0,  7.80,  0.7,  8.9, 95.3]),
     m("Biotite",           [3.04,  0.130,  50.8,127.0,  6.27, 21.6,  1.5,  7.20,  0.7,  7.8, 54.1]),
-    clay("Glauconite", 0.20, [2.96, 0.410,  49.4,150.0,  5.32, 16.5,  2.8,  5.60,  5.1, 12.0, 89.6]),
-    clay("Kaolinite",  0.10, [2.62, 0.451,  85.3,104.0,  1.83,  5.38,18.9,  0.08,  3.1,  8.0, 20.1]),
-    clay("Chlorite",   0.15, [2.81, 0.520,  85.3, 56.0,  6.30, 21.7, 11.0,  0.67,  3.5,  8.0, 43.7]),
-    clay("Illite",     0.25, [2.78, 0.247,  85.3,160.0,  4.00, 11.12,12.3,  4.48,  4.8,  8.0, 40.6]),
-    clay("Montmorillonite",1.0,[2.63,0.218, 85.3,168.0,  2.70,  7.61,20.6,  0.58,  7.1,  8.0, 20.2]),
-    clay("Clay",       0.00, [2.65, 0.350, 100.0,152.0,  3.50, 10.0,  6.0,  2.00, 12.0,  8.0, 30.0]),
+    clay("Glauconite", 0.20, 0.156, [2.96, 0.410,  49.4,150.0,  5.32, 16.5,  2.8,  5.60,  5.1, 12.0, 89.6]),
+    clay("Kaolinite",  0.10, 0.058, [2.62, 0.451,  85.3,104.0,  1.83,  5.38,18.9,  0.08,  3.1,  8.0, 20.1]),
+    clay("Chlorite",   0.15, 0.101, [2.81, 0.520,  85.3, 56.0,  6.30, 21.7, 11.0,  0.67,  3.5,  8.0, 43.7]),
+    clay("Illite",     0.25, 0.104, [2.78, 0.247,  85.3,160.0,  4.00, 11.12,12.3,  4.48,  4.8,  8.0, 40.6]),
+    clay("Montmorillonite",1.0, 1.0,[2.63,0.218, 85.3,168.0,  2.70,  7.61,20.6,  0.58,  7.1,  8.0, 20.2]),
+    clay("Clay",       0.00, 0.120, [2.65, 0.350, 100.0,152.0,  3.50, 10.0,  6.0,  2.00, 12.0,  8.0, 30.0]),
     m("Coal",              [1.19,  0.520, 160.0, 10.0,  0.20,  0.24, 0.0,  0.00,  0.0,  0.0,  0.0]),
     m("Kerogen",           [1.10,  0.600, 150.0,100.0,  0.24,  0.26, 0.0,  0.00, 10.0,  0.0,  0.0]),
     fl("Water Sxo", "X", "water",       [1.00, 1.00, 189.0, 0.0, 0.36, 0.40, 0.0, 0.0, 0.0, 29.0, 50.0]),
@@ -1679,6 +1736,7 @@ pub fn multimin_library() -> Vec<Component> {
                 fluid_type: r.fluid_type.to_string(),
                 endpoints,
                 cec: r.cec,
+                wet_clay_porosity: r.wcp,
                 max_vol: r.max_vol,
             }
         })
@@ -1778,6 +1836,7 @@ mod tests {
                     fluid: None,
                     recon_qc: true,
                     sw_model: SwModel::LinearDw,
+                    porosity_source: PorositySource::Cec,
                 },
                 None,
             )
@@ -1856,6 +1915,7 @@ mod tests {
                 fluid: None,
                 recon_qc: false,
                 sw_model: SwModel::LinearDw,
+                porosity_source: PorositySource::Cec,
             },
             None,
         );
@@ -2035,6 +2095,73 @@ mod tests {
     }
 
     #[test]
+    fn wet_clay_porosity_bound_water_tie() {
+        // Wet-Clay-Porosity source: k = φ_clay/(1−φ_clay). (1) It equals the CEC route with the
+        // equivalent cec_equiv (same physics, different driver — matches dry_clay_calc's inversion);
+        // (2) it drives the same bounded solve so v_bw tracks the clay volume.
+        let ill = lib_get("Illite");
+        let phi = ill.wet_clay_porosity; // Techlog WCLP = 0.104
+        assert!((phi - 0.104).abs() < 1e-9, "Illite WCLP default");
+        let rho = ill.endpoints["RHOB"]; // dry illite = 2.78
+        let (t_c, alpha) = (25.0, 1.0);
+        let k = phi / (1.0 - phi);
+        assert!((k - 0.104 / 0.896).abs() < 1e-12);
+        // cec_equiv makes bndwat_multiplier reproduce k exactly (the dry_clay_calc bridge).
+        let cec_equiv = k * (t_c + 298.0) / (alpha * 96.0 * rho);
+        assert!((bndwat_multiplier(cec_equiv, rho, t_c, alpha) - k).abs() < 1e-12);
+
+        // Same bounded solve as bound_water_tracks_clay_volume, but with the WCP multiplier.
+        let q = lib_get("Quartz");
+        let bw = lib_get("BoundWater");
+        let mut wat = lib_get("Water Sxo");
+        wat.zone = "".into();
+        let comps = [&q, &ill, &bw, &wat];
+        let n = comps.len();
+        let truth = [0.60, 0.20, k * 0.20, 1.0 - 0.60 - 0.20 - k * 0.20];
+        let keys = ["RHOB", "NPHI", "DT", "GR"];
+        let sig = [0.0264, 0.014, 1.951, 6.0];
+        let meas: Vec<f64> = keys
+            .iter()
+            .map(|k2| comps.iter().zip(truth).map(|(c, v)| c.endpoints[&k2.to_string()] * v).sum::<f64>())
+            .collect();
+        let (mut a, mut b) = weighted(&comps, &keys, &sig, &meas);
+        let sw = 1.0 / SIGMA_CONSTRAINT;
+        a.push(vec![0.0, k * sw, -sw, 0.0]);
+        b.push(0.0);
+        let hi = vec![1.0, 1.0, 0.5, 0.5];
+        let v = solve_bounded_lsq(&a, &b, Some(&unity_of(&comps)), &hi, n).unwrap();
+        assert!((v[2] - k * v[1]).abs() < 0.02, "WCP bound water should track clay: {v:?}");
+    }
+
+    #[test]
+    fn wcp_degenerate_smectite_falls_back_to_cec() {
+        // Techlog carries smectite WCLP = 1.0 as a *post-solve* placeholder (it floors 1−φ at 1e-4
+        // for wet-clay-volume output, never as an inversion constraint). Fed naively into the BNDWAT
+        // *solver* row as φ/(1−φ) with a 0.95 clamp it yields k ≈ 19 — ~100× any real clay — which
+        // swamps the constraint and forces absurd bound water. The WCP route must instead defer to the
+        // CEC-calibrated multiplier for such a degenerate φ, so switching porosity source doesn't
+        // 30× the smectite bound water. Exercises the real k-selection (`bound_water_multiplier`).
+        let (t_c, alpha) = (100.0, 1.0);
+        let smec = lib_get("Montmorillonite");
+        assert!((smec.wet_clay_porosity - 1.0).abs() < 1e-9, "Techlog smectite WCLP placeholder");
+        let rho = smec.endpoints["RHOB"];
+
+        let cec_k = bound_water_multiplier(PorositySource::Cec, smec.cec, smec.wet_clay_porosity, rho, t_c, alpha);
+        let wcp_k = bound_water_multiplier(PorositySource::WetClayPorosity, smec.cec, smec.wet_clay_porosity, rho, t_c, alpha);
+        // The two sources AGREE for the degenerate clay, and the result is physical (well under 1).
+        assert!((wcp_k - cec_k).abs() < 1e-12, "degenerate WCP φ must fall back to CEC: wcp={wcp_k} cec={cec_k}");
+        assert!(wcp_k > 0.4 && wcp_k < 0.9, "smectite bound-water multiplier stays physical: {wcp_k}");
+        // Guard: the naive 0.95-clamp path this replaces really was catastrophic.
+        let naive_phi = smec.wet_clay_porosity.clamp(0.0, 0.95);
+        assert!(naive_phi / (1.0 - naive_phi) > 18.0, "sanity: old clamp gave ~19");
+
+        // A real clay (φ = 0.104 < ceiling) still uses the geometric route, unchanged.
+        let ill = lib_get("Illite");
+        let k_ill = bound_water_multiplier(PorositySource::WetClayPorosity, ill.cec, ill.wet_clay_porosity, ill.endpoints["RHOB"], t_c, alpha);
+        assert!((k_ill - 0.104 / 0.896).abs() < 1e-12, "real-clay WCP stays geometric: {k_ill}");
+    }
+
+    #[test]
     fn fluid_calc_matches_reference() {
         // reference default-model example: Rw 0.43 @ 77F, Rmf 0.10 @ 62F, FT 148F, m=n=2.
         let props = FluidProps {
@@ -2072,9 +2199,22 @@ mod tests {
         assert_eq!(lib.iter().filter(|c| c.kind == "fluid").count(), 7);
         let ill = lib.iter().find(|c| c.name == "Illite").unwrap();
         assert!((ill.cec - 0.25).abs() < 1e-9);
+        assert!((ill.wet_clay_porosity - 0.104).abs() < 1e-9, "Illite Techlog WCLP");
+        // Smectite carries Techlog's WCLP = 1.0 placeholder verbatim; the WCP-source k-selection
+        // treats φ ≥ WCP_PHYSICAL_CEILING as degenerate and falls back to CEC (see
+        // wcp_degenerate_smectite_falls_back_to_cec). Real clays stay well under the ceiling.
+        let smec = lib.iter().find(|c| c.name == "Montmorillonite").unwrap();
+        assert!((smec.wet_clay_porosity - 1.0).abs() < 1e-9, "Techlog smectite WCLP placeholder");
+        assert!(
+            lib.iter().filter(|c| c.kind == "clay" && c.name != "Montmorillonite").all(|c| c.wet_clay_porosity < WCP_PHYSICAL_CEILING),
+            "every non-smectite clay's WCLP is a physical geometric porosity"
+        );
         let wsxo = lib.iter().find(|c| c.name == "Water Sxo").unwrap();
         assert_eq!(wsxo.zone, "X");
         assert!((wsxo.max_vol - 0.5).abs() < 1e-9);
+        // Minerals carry no wet-clay porosity; every clay has one.
+        assert!(lib.iter().filter(|c| c.kind == "mineral").all(|c| c.wet_clay_porosity == 0.0));
+        assert!(lib.iter().filter(|c| c.kind == "clay").all(|c| c.wet_clay_porosity > 0.0));
     }
 
     #[test]
@@ -2125,6 +2265,7 @@ mod tests {
             fluid: None,
             recon_qc: false,
             sw_model: SwModel::LinearDw,
+            porosity_source: PorositySource::Cec,
         };
         let conn = Mutex::new(Connection::open_in_memory().unwrap());
         let res = run_multimin(&conn, &req, None);
@@ -2171,6 +2312,7 @@ mod tests {
             fluid: Some(props),
             recon_qc: false,
             sw_model: SwModel::LinearDw,
+            porosity_source: PorositySource::Cec,
         };
         let conn = Mutex::new(Connection::open_in_memory().unwrap());
         let res = run_multimin(&conn, &req, None);
@@ -2337,6 +2479,7 @@ mod tests {
                 fluid: None,
                 recon_qc: false,
                 sw_model: SwModel::LinearDw,
+                porosity_source: PorositySource::Cec,
             };
             let res = run_multimin(&db, &req, None);
             assert!(res.error.is_none(), "run_multimin error: {:?}", res.error);
@@ -2670,6 +2813,7 @@ mod tests {
             fluid: Some(props),
             recon_qc: false,
             sw_model: SwModel::Indonesia,
+            porosity_source: PorositySource::Cec,
         };
         let res = run_multimin(&db, &req, None);
         assert!(res.error.is_none(), "err={:?}", res.error);
@@ -2827,6 +2971,7 @@ mod tests {
             fluid: Some(props),
             recon_qc: false,
             sw_model: SwModel::DualWaterNonlinear,
+            porosity_source: PorositySource::Cec,
         };
         let res = run_multimin(&db, &req, None);
         assert!(res.error.is_none(), "err={:?}", res.error);
