@@ -481,6 +481,222 @@ mod gip_tests {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Brittleness — elastic (Rickman) + mineralogical (Jarvie / Wang-Gale)
+// (docs/ref_unconventional.md §4)
+// ---------------------------------------------------------------------------
+
+pub fn brittleness_spec() -> ModuleSpec {
+    ModuleSpec {
+        name: "brittleness".into(),
+        title: "Brittleness index (elastic / mineralogical)".into(),
+        category: "Unconventional".into(),
+        doc: "Brittleness index (0 ductile .. 1 brittle) two ways. METHOD=elastic: dynamic Young's \
+              modulus and Poisson's ratio from DT, DTS, RHOB (G=ρ·Vs², K=ρ·(Vp²−4/3·Vs²), \
+              ν=(3K−2G)/(2(3K+G)), E=9KG/(3K+G), with Vp,Vs in km/s = 304.8/slowness, moduli in GPa, \
+              E→Mpsi), then Rickman et al. 2008 BI=(E_norm+ν_norm)/2 with E normalized over E_LO..E_HI \
+              Mpsi and ν over NU_LO..NU_HI (Barnett defaults 1..8 and 0.4..0.15 — recalibrate per \
+              basin). METHOD=mineral_jarvie: Jarvie 2007 BI=Qz/(Qz+carbonate+clay). \
+              METHOD=mineral_wanggale: Wang & Gale 2009 BI=(Qz+Dol)/(Qz+Dol+calcite+clay+organic) — \
+              dolomite counts brittle. Mineral volumes come from a SandiMin run (VOL_*); a missing \
+              mineral is treated as absent. Elastic E,ν are DYNAMIC (apply a static correlation before \
+              geomechanics). Cite: Rickman et al. 2008 (SPE 115258); Jarvie et al. 2007; Wang & Gale \
+              2009. See docs/ref_unconventional.md §4."
+            .into(),
+        args: vec![
+            opt("METHOD", "Brittleness basis", "elastic",
+                &["elastic", "mineral_jarvie", "mineral_wanggale"]),
+            param("E_LO", "Young's modulus at BI=0 (ductile)", "Mpsi", 1.0, 0.0, 20.0),
+            param("E_HI", "Young's modulus at BI=1 (brittle)", "Mpsi", 8.0, 0.0, 20.0),
+            param("NU_LO", "Poisson's ratio at BI=0 (ductile)", "-", 0.4, 0.0, 0.5),
+            param("NU_HI", "Poisson's ratio at BI=1 (brittle)", "-", 0.15, 0.0, 0.5),
+            log_in("DT", "Compressional Δt (elastic)", "us/ft", "DT", false),
+            log_in("DTS", "Shear Δt (elastic)", "us/ft", "DTS", false),
+            log_in("RHOB", "Bulk density (elastic)", "g/cc", "RHOB", false),
+            log_in("VQTZ", "Quartz volume (mineral)", "v/v", "VOL_QUARTZ", false),
+            log_in("VCARB", "Calcite volume (mineral)", "v/v", "VOL_CALCITE", false),
+            log_in("VDOL", "Dolomite volume (mineral)", "v/v", "VOL_DOLOMITE", false),
+            log_in("VCLAY", "Clay / shale volume (mineral)", "v/v", "VSH", false),
+            log_in("VORG", "Organic / kerogen volume (Wang-Gale)", "v/v", "VKER", false),
+            log_out("BI", "Brittleness index (0 ductile .. 1 brittle)", "-"),
+            log_out("YME", "Dynamic Young's modulus (elastic)", "Mpsi"),
+            log_out("PR", "Dynamic Poisson's ratio (elastic)", "-"),
+        ],
+    }
+}
+
+pub fn brittleness(ctx: &ModuleContext) -> ModuleOutputs {
+    let dt = ctx.log("DT");
+    let dts = ctx.log("DTS");
+    let rhob = ctx.log("RHOB");
+    let vqtz = ctx.log("VQTZ");
+    let vcarb = ctx.log("VCARB");
+    let vdol = ctx.log("VDOL");
+    let vclay = ctx.log("VCLAY");
+    let vorg = ctx.log("VORG");
+    let method = ctx.o("METHOD").to_string();
+    let n = ctx.n;
+
+    let mut bi = vec![f32::NAN; n];
+    let mut yme = vec![f32::NAN; n];
+    let mut pr = vec![f32::NAN; n];
+
+    for i in 0..n {
+        if method == "elastic" {
+            // Dynamic elastic moduli from slowness (Rock Physics Handbook / Techlog RockPhyEquations).
+            let d = dt[i] as f64;
+            let ds = dts[i] as f64;
+            let rb = rhob[i] as f64;
+            let e_lo = ctx.p("E_LO", i);
+            let e_hi = ctx.p("E_HI", i);
+            let nu_lo = ctx.p("NU_LO", i);
+            let nu_hi = ctx.p("NU_HI", i);
+            if d.is_finite() && d > 0.0
+                && ds.is_finite() && ds > 0.0
+                && rb.is_finite() && rb > 0.0
+                && ds > d // shear slower than compressional ⇒ Vs < Vp
+                && (e_hi - e_lo).abs() > 1e-9
+                && (nu_hi - nu_lo).abs() > 1e-9
+            {
+                let vp = 304.8 / d; // km/s
+                let vs = 304.8 / ds; // km/s
+                let g = rb * vs * vs; // GPa  (ρ[g/cc]·V²[(km/s)²] = GPa)
+                let k = rb * (vp * vp - 4.0 / 3.0 * vs * vs); // GPa
+                if k > 0.0 && (3.0 * k + g) > 0.0 {
+                    let nu = (3.0 * k - 2.0 * g) / (2.0 * (3.0 * k + g));
+                    let e_gpa = 9.0 * k * g / (3.0 * k + g);
+                    let e_mpsi = e_gpa * 0.145038; // GPa → Mpsi
+                    // ν<0 (Vp/Vs < √2) is auxetic — nonphysical for sedimentary rock, so it flags a
+                    // bad/spiky shear log. Reject rather than emit a negative PR and a falsely
+                    // max-brittle (clamped-to-1) BI.
+                    if nu >= 0.0 && e_mpsi > 0.0 {
+                        yme[i] = e_mpsi as f32;
+                        pr[i] = nu as f32;
+                        // Rickman 2008: normalize E (brittle=high) and ν (brittle=low), average.
+                        let e_norm = (e_mpsi - e_lo) / (e_hi - e_lo);
+                        let nu_norm = (nu - nu_lo) / (nu_hi - nu_lo);
+                        bi[i] = (0.5 * (e_norm + nu_norm)).clamp(0.0, 1.0) as f32;
+                    }
+                }
+            }
+        } else {
+            // Mineralogical — a missing/NaN volume means the mineral is absent (0).
+            let f = |x: f32| {
+                let v = x as f64;
+                if v.is_finite() { v.max(0.0) } else { 0.0 }
+            };
+            let qz = f(vqtz[i]);
+            let cc = f(vcarb[i]);
+            let dol = f(vdol[i]);
+            let clay = f(vclay[i]);
+            let org = f(vorg[i]);
+            let (num, den) = if method == "mineral_wanggale" {
+                // Wang & Gale 2009: dolomite brittle; calcite + clay + organic ductile.
+                (qz + dol, qz + dol + cc + clay + org)
+            } else {
+                // Jarvie 2007: quartz brittle; all carbonate + clay ductile.
+                (qz, qz + cc + dol + clay)
+            };
+            if den > 0.0 {
+                bi[i] = (num / den).clamp(0.0, 1.0) as f32;
+            }
+        }
+    }
+
+    HashMap::from([("BI".into(), bi), ("YME".into(), yme), ("PR".into(), pr)])
+}
+
+#[cfg(test)]
+mod brittleness_tests {
+    use super::*;
+
+    fn elastic_ctx(dt: f32, dts: f32, rhob: f32) -> ModuleContext {
+        let mut logs = HashMap::new();
+        logs.insert("DT".to_string(), vec![dt]);
+        logs.insert("DTS".to_string(), vec![dts]);
+        logs.insert("RHOB".to_string(), vec![rhob]);
+        let mut params = HashMap::new();
+        params.insert("E_LO".to_string(), vec![1.0]);
+        params.insert("E_HI".to_string(), vec![8.0]);
+        params.insert("NU_LO".to_string(), vec![0.4]);
+        params.insert("NU_HI".to_string(), vec![0.15]);
+        let mut opts = HashMap::new();
+        opts.insert("METHOD".to_string(), "elastic".to_string());
+        ModuleContext { n: 1, logs, params, opts }
+    }
+
+    fn mineral_ctx(method: &str, qz: f32, cc: f32, dol: f32, clay: f32, org: f32) -> ModuleContext {
+        let mut logs = HashMap::new();
+        logs.insert("VQTZ".to_string(), vec![qz]);
+        logs.insert("VCARB".to_string(), vec![cc]);
+        logs.insert("VDOL".to_string(), vec![dol]);
+        logs.insert("VCLAY".to_string(), vec![clay]);
+        logs.insert("VORG".to_string(), vec![org]);
+        let mut opts = HashMap::new();
+        opts.insert("METHOD".to_string(), method.to_string());
+        ModuleContext { n: 1, logs, params: HashMap::new(), opts }
+    }
+
+    #[test]
+    fn elastic_bi_from_known_slowness() {
+        // DT=100, DTS=170, RHOB=2.5 → Vp=3.048, Vs=1.7929 km/s → E≈2.880 Mpsi, ν≈0.2354, BI≈0.4634.
+        let out = brittleness(&elastic_ctx(100.0, 170.0, 2.5));
+        assert!((out["YME"][0] as f64 - 2.880).abs() < 0.01, "YME = {}", out["YME"][0]);
+        assert!((out["PR"][0] as f64 - 0.2354).abs() < 0.002, "PR = {}", out["PR"][0]);
+        assert!((out["BI"][0] as f64 - 0.4634).abs() < 0.003, "BI = {}", out["BI"][0]);
+    }
+
+    #[test]
+    fn elastic_requires_valid_shear() {
+        // Missing DTS → NaN; Vs>Vp (DTS<DT, unphysical) → NaN.
+        let no_shear = brittleness(&elastic_ctx(100.0, f32::NAN, 2.5));
+        assert!(no_shear["BI"][0].is_nan() && no_shear["YME"][0].is_nan(), "no DTS ⇒ NaN");
+        let bad = brittleness(&elastic_ctx(170.0, 100.0, 2.5)); // DTS<DT ⇒ Vs>Vp
+        assert!(bad["BI"][0].is_nan(), "Vs>Vp ⇒ rejected");
+    }
+
+    #[test]
+    fn elastic_rejects_negative_poisson() {
+        // Vp/Vs ∈ (1.155, 1.414): K>0 but ν<0 (auxetic — bad shear log). DT=100, DTS=130 → Vp/Vs=1.30,
+        // ν≈−0.22. Must NaN all three, not emit a negative PR and a clamped BI=1.
+        let out = brittleness(&elastic_ctx(100.0, 130.0, 2.5));
+        assert!(out["PR"][0].is_nan() && out["BI"][0].is_nan() && out["YME"][0].is_nan(),
+                "negative-ν (bad shear) rejected, got PR={} BI={}", out["PR"][0], out["BI"][0]);
+    }
+
+    #[test]
+    fn jarvie_bi_from_mineralogy() {
+        // Qz 0.6, carbonate 0.1, clay 0.3 → 0.6/(0.6+0.1+0.3) = 0.6.
+        let out = brittleness(&mineral_ctx("mineral_jarvie", 0.6, 0.1, 0.0, 0.3, 0.0));
+        assert!((out["BI"][0] as f64 - 0.6).abs() < 1e-5, "jarvie BI = {}", out["BI"][0]);
+    }
+
+    #[test]
+    fn wanggale_moves_dolomite_to_brittle() {
+        // Qz 0.5, Dol 0.2, Cc 0.1, Clay 0.2: jarvie 0.5/1.0=0.5; wang-gale (0.5+0.2)/1.0=0.7.
+        let j = brittleness(&mineral_ctx("mineral_jarvie", 0.5, 0.1, 0.2, 0.2, 0.0))["BI"][0] as f64;
+        let w = brittleness(&mineral_ctx("mineral_wanggale", 0.5, 0.1, 0.2, 0.2, 0.0))["BI"][0] as f64;
+        assert!((j - 0.5).abs() < 1e-5, "jarvie = {j}");
+        assert!((w - 0.7).abs() < 1e-5, "wang-gale = {w}");
+        assert!(w > j, "dolomite counts brittle in Wang-Gale");
+    }
+
+    #[test]
+    fn bi_monotone_in_quartz() {
+        // Prompt-required: BI rises with quartz fraction (Jarvie, others fixed).
+        let lo = brittleness(&mineral_ctx("mineral_jarvie", 0.4, 0.1, 0.0, 0.5, 0.0))["BI"][0];
+        let hi = brittleness(&mineral_ctx("mineral_jarvie", 0.7, 0.1, 0.0, 0.5, 0.0))["BI"][0];
+        assert!(hi > lo, "BI monotone in quartz: {lo} -> {hi}");
+    }
+
+    #[test]
+    fn mineral_all_absent_is_nan() {
+        // All mineral volumes missing → denominator 0 → NaN (no spurious BI).
+        let out = brittleness(&mineral_ctx("mineral_jarvie", f32::NAN, f32::NAN, f32::NAN, f32::NAN, f32::NAN));
+        assert!(out["BI"][0].is_nan(), "no minerals ⇒ NaN");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

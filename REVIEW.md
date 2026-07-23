@@ -7,6 +7,34 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 31 — Unconventional #7 inc 4: brittleness index (elastic + mineralogical) (2026-07-23)
+
+Fourth increment. A new module, **Brittleness index (elastic / mineralogical)** (Petrophysics →
+Unconventional), scores rock brittleness (0 ductile .. 1 brittle) two ways:
+
+- **METHOD = elastic** — dynamic Young's modulus and Poisson's ratio from **DT, DTS, RHOB** (moduli in
+  GPa via ρ·V², Vp/Vs = 304.8/slowness, E→Mpsi), then Rickman et al. 2008 BI = (E_norm + ν_norm)/2. The
+  normalization endpoints (E 1..8 Mpsi, ν 0.4..0.15 — Barnett defaults) are editable **params** so you
+  can recalibrate to Mahakam. Also outputs the dynamic **YME** / **PR**.
+- **METHOD = mineral_jarvie** — Jarvie 2007 BI = Qz/(Qz+carbonate+clay). **mineral_wanggale** — Wang &
+  Gale 2009 BI = (Qz+Dol)/(Qz+Dol+calcite+clay+organic), moving dolomite to the brittle side. Feed the
+  SandiMin **VOL_*** volumes (a missing mineral counts as absent); the organic term is the inc-2 **VKER**.
+
+Tier-B, cited (Rickman et al. 2008; Jarvie et al. 2007; Wang & Gale 2009); the elastic moduli
+reimplement the Techlog RockPhyEquations forms. Math in `docs/ref_unconventional.md` §4. Elastic E,ν are
+dynamic (apply a static correlation before geomechanics, not before the Rickman index).
+
+Verified: **330 cargo tests** (7 new — elastic recovers a known E/ν/BI from slowness, Jarvie/Wang-Gale
+groupings, BI monotone in quartz, invalid-shear + negative-Poisson rejection, all-absent→NaN) + tsc,
+adversarial review = FIX-FIRST → fixed: the elastic branch now rejects ν<0 (Vp/Vs<√2, a bad shear log)
+instead of emitting a negative PR and a falsely max-brittle BI.
+
+> **Try:** for the elastic index, open **Petrophysics → Unconventional → Brittleness index**, keep
+> **METHOD = elastic**, set **DT / DTS / RHOB** (needs a shear sonic), and Run — check **BI** rises in
+> the stiff, quartz-rich (high-E, low-ν) beds. For the mineral index, run **SandiMin** first, switch
+> **METHOD = mineral_jarvie**, and map **VQTZ / VCARB / VDOL / VCLAY** to your VOL_* curves; compare
+> against the elastic BI where you have both.
+
 ## Round 30 — Unconventional #7 inc 3: gas-in-place (free + Langmuir adsorbed) (2026-07-23)
 
 Third increment. A new module, **Gas-in-place (free + Langmuir adsorbed)** (Petrophysics →

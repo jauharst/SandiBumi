@@ -203,6 +203,7 @@ pub fn list_modules() -> Vec<ModuleSpec> {
         crate::unconventional::toc_passey_spec(),
         crate::unconventional::kerogen_spec(),
         crate::unconventional::gip_spec(),
+        crate::unconventional::brittleness_spec(),
     ]
 }
 
@@ -250,6 +251,7 @@ pub fn run_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, Stri
         "toc_passey" => Ok(crate::unconventional::toc_passey(ctx)),
         "kerogen" => Ok(crate::unconventional::kerogen(ctx)),
         "gip" => Ok(crate::unconventional::gip(ctx)),
+        "brittleness" => Ok(crate::unconventional::brittleness(ctx)),
         other => Err(format!("unknown module '{other}'")),
     }
 }

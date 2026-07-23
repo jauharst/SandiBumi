@@ -205,8 +205,12 @@ K  = ρ · (Vp² − 4/3·Vs²)                 bulk modulus
 E  = 9·K·G / (3K + G)                    Young's modulus   (≡ 2G(1+ν))
 ```
 Field-unit shortcut: `G[psi] ≈ 1.34e10·RHOB/DTS²` (RHOB g/cc, DTS µs/ft), `E[Mpsi] = 2G(1+ν)/1e6`.
-**Dynamic → static caveat:** log moduli are dynamic (high-freq/low-strain) and overestimate static E;
-apply an empirical `E_static ≈ 0.4–0.8·E_dyn` factor (param `STAT_FAC`) before the brittleness index.
+**Dynamic → static caveat:** log moduli are dynamic (high-freq/low-strain) and overestimate static E.
+The Rickman Barnett endpoints (1–8 Mpsi, 0.4–0.15) were calibrated on *dynamic* log values, so the BI
+uses dynamic E,ν directly. A static conversion (`E_static ≈ 0.4–0.8·E_dyn`) is for *downstream*
+geomechanics (frac design), **not** applied before the Rickman normalization. Implementation reimplements
+the moduli in GPa (ρ[g/cc]·V[km/s]², Vp,Vs = 304.8/slowness) then E→Mpsi ×0.145038, and rejects ν<0
+(Vp/Vs<√2 — a bad shear log).
 
 ### 4.2 Elastic brittleness index — *Rickman, Mullen, Petre, Grieser & Kundert (2008), SPE 115258.*
 ```
@@ -226,10 +230,12 @@ user maps whatever their SandiMin run produced — no hard-coded token dependenc
 
 ### 4.4 Module `brittleness` design
 - **opt** `METHOD` ∈ {elastic, mineral_jarvie, mineral_wanggale}.
-- **params** `STAT_FAC` (0.8), Rickman norms `E_LO` (1), `E_HI` (8), `NU_LO` (0.4), `NU_HI` (0.15).
-- **inputs** elastic: `DT`, `DTS`, `RHOB`; mineral: `VQTZ`, `VCARB`, `VDOL`, `VCLAY`, `TOC`.
-- **outputs** `BI` (0–1), plus `YME`/`PR` (Young's Mpsi / Poisson) for the elastic method.
-- cargo test: BI monotone increasing in quartz fraction.
+- **params** Rickman norms `E_LO` (1), `E_HI` (8), `NU_LO` (0.4), `NU_HI` (0.15) — recalibrate per basin.
+- **inputs** elastic: `DT`, `DTS`, `RHOB`; mineral: `VQTZ`, `VCARB`, `VDOL`, `VCLAY`, `VORG` (organic
+  *volume*, default `VKER` from inc 2 — volume-consistent with the mineral volumes; Wang-Gale's original
+  weight-TOC term is substituted by kerogen volume). A missing mineral is treated as absent (0).
+- **outputs** `BI` (0–1), plus `YME`/`PR` (dynamic Young's Mpsi / Poisson) for the elastic method.
+- cargo test: BI monotone increasing in quartz fraction; ν<0 rejected.
 
 ---
 
