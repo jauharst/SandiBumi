@@ -15,10 +15,20 @@ First-half selection: **#6.1, #3, #2, #1, #9A**. Second half: #4, #7, #8, #5, #9
 reviewed via Workflow with all confirmed findings fixed pre-commit. Final verification: cargo
 279/0/7, tsc 0, zero warnings, production build clean.
 
-**🔨 SECOND HALF UNDERWAY (2026-07-23)** — per Jauhar's go-ahead after the playbook/maturation
-audit (see the audit section below). Build order: #4 SHF → #7 Unconventional → #8 Results-QC →
-#5 Autocorrelate → #9B–D → #6.2. Jauhar's manual click-through (REVIEW.md Rounds 9–13) runs in
-parallel — it gates release, not the build.
+**✅ SECOND HALF COMPLETE (2026-07-23)** — all shipped in build order: #4 SHF, #7 Unconventional
+(inc1–5), #8 Results-QC (inc1–4), #5 Autocorrelate (inc1–3), #9B–D UI polish, #6.2 assisted
+contacts. Every math-heavy feature was adversarially reviewed via Workflow with all confirmed
+findings fixed pre-commit. The #9 polish then ran follow-on rounds beyond the B–D base — true-vector
+**SVG** export, single-chart **PDF** export, and the free-form **net-flag polygon** — so the
+deferred-#9 list is now fully exhausted. Final verification: cargo **354/0/7**, tsc 0.
+
+**Push state:** Jauhar has pushed through `9107294` (now origin/master); the six commits after it
+(`9a6b041 → a351ba5 → db3dc61 → 3c648b9 → 201352e → a4e05e9`) are local/unpushed for him.
+
+**Remaining (needs a fresh pick):** the first-half residuals + the maturation (DECIDE) track below,
+and — outside this tracker — Feature Wave B, Performance #128–132 (need a live 100-well benchmark),
+and the §4 interpretation-workflow open items. Jauhar's manual click-through (REVIEW.md) gates
+release, not the build.
 
 ---
 
@@ -94,19 +104,31 @@ new petrophysics.
 
 ---
 
-## Second half (underway 2026-07-23)
+## Second half (complete 2026-07-23)
 
 Order per playbook §Build order — every dependency is now met (#3→#4 ✅; #2 organic→#7 ✅;
 #1+#2→#8 ✅).
 
 | # | Feature | Target | Status |
 |---|---|---|---|
-| #4 | SHF — Leverett-J in dialog, Thomeer, per-rock-type fits | `shf_fit.rs` + `satheight.rs` + `shfDialog.ts` | ✅ 4a solvers (Thomeer cited 1960, log-Leverett-J with Tier-A fluid seeds, per-RT grouped fits, exclusion/empty-well honesty, Buckles note; 4 tests; adversarially reviewed — 37 agents, 4 distinct defects fixed incl. a Thomeer bounds panic; math banked in `docs/ref_shf.md`) · 4b dialog (5-family select, Leverett-J PERM/fluid-prop seeds, per-RT tabs, RMS readout, exclusion/notes panel, draggable + click-to-pick FWL); cargo 283/0, tsc 0 |
-| #7 | Unconventional/shale suite (TOC Passey/Schmoker, kerogen, GIP/Langmuir, brittleness) | NEW `unconventional.rs` | ▫ |
-| #8 | Results-QC / Sw-comparison dashboard | NEW `resultsQcPanel.ts` | ▫ |
-| #5 | Autocorrelate — elastic warp (DTW) + multi-marker | `tops.rs` + `autoCorrDialog.ts` | ▫ |
-| #9B–D | Colorbar/tooltips · brush/lasso linking · accessibility | `plotCanvas.ts` + panels | ▫ |
-| #6.2 | Assisted contact picking + cross-well plane | `correlationPanel.ts` + Rust detector | ▫ |
+| #4 | SHF — Leverett-J in dialog, Thomeer, per-rock-type fits | `shf_fit.rs` + `satheight.rs` + `shfDialog.ts` | ✅ `abf3df4` 4a solvers (Thomeer cited 1960, log-Leverett-J with Tier-A fluid seeds, per-RT grouped fits, exclusion/empty-well honesty, Buckles note; 4 tests; adversarially reviewed — 37 agents, 4 distinct defects fixed incl. a Thomeer bounds panic; math banked in `docs/ref_shf.md`) · 4b dialog (5-family select, Leverett-J PERM/fluid-prop seeds, per-RT tabs, RMS readout, exclusion/notes panel, draggable + click-to-pick FWL) `9ffb94a`; cargo 283/0, tsc 0 |
+| #7 | Unconventional/shale suite (TOC Passey/Schmoker, kerogen, GIP/Langmuir, brittleness) | NEW `unconventional.rs` + panel | ✅ inc1 `adb4e29` toc_passey (ΔlogR resistivity-sonic/-density + Schmoker; LOM + editable baseline) · inc2 `269c9ba` kerogen vol + OM-corrected PHIT · inc3 `247a210` gip (free + Langmuir adsorbed + CBM desorption) · inc4 `a4c3c73` brittleness (elastic + mineralogical) · inc5 `1294e72` ΔlogR overlay + Langmuir isotherm panel; Tier-B primaries cited, math banked `docs/ref_unconventional.md` |
+| #8 | Results-QC / Sw-comparison dashboard | NEW `resultsQcPanel.ts` (+ `resultsqc.rs`) | ✅ inc1 `a85fa07` Sw-method spread backend (Archie/Simandoux/Indonesia/Juhász envelope; WS/DW only when a Qv/Swb curve exists — never fabricated; adversarial-reviewed, 6 fixed) · inc2 `82c8cf3` panel + per-zone scorecard (Sw-spread + Buckles/BVW traffic-lights) · inc3 `7afe750` Sw-envelope track + Buckles crossplot + CSV + hoverDepth · inc4 `d28127b` recon/MC/cutoff rollup rows (each degrades to grey na, never a silent pass) |
+| #5 | Autocorrelate — elastic warp (DTW) + multi-marker | `tops.rs` + `autoCorrDialog.ts` | ✅ inc1 `45fdc2b` elastic depth warp (subsequence DTW, monotone) · inc2 `dfe68b2` multi-marker simultaneous propagation · inc3 `882e99d` dialog warp/shift toggle + per-marker accept/reject review |
+| #9B–D | Colorbar/tooltips · brush/lasso linking · accessibility | `plotCanvas.ts` + panels | ✅ 9B `a7ed7bc` shared colorbar + scatter hover tooltip · 9C `9a6b041` linked brushing (crossplot → log view + histogram; 2 real bugs fixed) · 9D `a351ba5` a11y (aria-label/tabindex + keyboard pan/zoom) + prefers-reduced-motion. **Follow-on rounds below.** |
+| #6.2 | Assisted contact picking + cross-well plane | `correlationPanel.ts` + Rust detector | ✅ incA `8818693` assisted contact-picking backend (crossover/inflection suggest) · incB `cec3173` panel UI (accept/edit, snap-to-feature) |
+
+### #9 UI-polish — follow-on rounds (beyond the B–D base)
+
+After 9B–D landed, the deferred-#9 items were picked and shipped in turn; the deferred-#9 list is
+now fully exhausted. Each carries a REVIEW.md "Try:" line (Rounds 47–48 cover chart-PDF + flag-polygon).
+
+| Round | Item | Commit | Notes |
+|---|---|---|---|
+| 9C follow-ons | Pickett brush-rings + crossplot scalar cutoff-region (net-box on the param handle) | `db3dc61` | brushed samples ringed on the Pickett log-log; an explicit net-sense dropdown shades the cutoff quadrant + live in-region count; 2 review bugs fixed |
+| 9B vector SVG | True-vector **SVG** export for the Canvas-2D charts | `3c648b9` | `SvgRecorder` — a recording 2D context the `PlotCanvas` ctor paints into, so the SAME draw code emits SVG (zero chart re-implementation); ⭳ SVG button + right-click on all 3 panels; 1 review fix |
+| chart-PDF | Single-chart true-vector **PDF** export | `201352e` | `PdfRecorder` sibling → PDF content stream, wrapped by the reused `composite.rs::assemble_pdf` (frontend owns operators, backend owns the document); exact text-matrix; 1 review fix (round → butt cap/miter join) |
+| flag-polygon | Free-form **net-flag polygon** on the crossplot | `a4e05e9` | `netflag.rs` even-odd point-in-polygon in the axes' drawing plane (exact on log) writes a 0/1/NaN net curve; lasso UI whose live count is a verified twin of the backend; 1 review fix (dblclick during draw) |
 
 ## Audit vs the source docs (2026-07-23) — what ELSE is left
 
