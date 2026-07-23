@@ -183,18 +183,25 @@ rest. **F3/F4/F5 are app-wide invariants ultra structurally cannot see** — tha
 
 | Pass | Scope | Status |
 |---|---|---|
-| F1 | Frontend architecture — module seams, cross-dialog duplication + drift, `ipc.ts`↔Rust type fidelity, dead exports, async/error shape | ◐ running |
-| F2 | Rust idiom & hot paths — panics on user data, per-sample allocation, error shape + batch isolation, rayon/DB-lock discipline, dead IPC surface | ◐ running |
-| F3 | UX & theming — 6-palette contract, `themeVersion`/`dataVersion` coverage, dialog outliers, empty/failed states, a11y beyond 9D | ◐ running |
-| F4 | Build & bundle — main-bundle composition vs the 1,125.01 kB baseline, dead deps/config/assets, vega advisories as a real threat model, strictness flags | ◐ running |
+| F1 | Frontend architecture — module seams, cross-dialog duplication + drift, `ipc.ts`↔Rust type fidelity, dead exports, async/error shape | ✅ `docs/review_sweep/F1.md` — 25 survived / 5 refuted. **Headline: the net-flag feature (`a4e05e9`) has never worked** — `NetFlagSpec` is camelCase in TS, snake_case in Rust with no `rename_all`, so `run_net_flag` can never deserialize; `NetFlagResult.outputCurve` likewise reads `undefined`. Verified by hand. Also: a rejected undo/redo deletes the action from both stacks and reports success; `curveSel(preferred)` triplicated and drifted so SHF can fit against the wrong curve; the Workflow copy of the param form has no "(none)" so optional module inputs can't be dropped in a chain |
+| F2 | Rust idiom & hot paths — panics on user data, per-sample allocation, error shape + batch isolation, rayon/DB-lock discipline, dead IPC surface | ✅ `docs/review_sweep/F2.md` — 30 survived / 6 refuted. **Cardinal-rule violations:** Monte Carlo swallows module errors → all-NaN volumetrics reported as success; a failed generic-store curve import is `eprintln!`'d only, never in `ImportResult`. **Panics on user data:** NaN top depth from a tops CSV panics `partial_cmp().unwrap()` *while holding the DB lock*; `f64::clamp` panics on inverted zone-parameter bounds (bypasses the dialog's range check); ±inf from a LAS token panics the KNN synthetic-log sort. Plus: legacy `multimin.rs` mixes PEF linearly by volume — the exact error `multimin2.rs` documents and corrects |
+| F3 | UX & theming — 6-palette contract, `themeVersion`/`dataVersion` coverage, dialog outliers, empty/failed states, a11y beyond 9D | ✅ `docs/review_sweep/F3.md` — 36 survived / 5 refuted (largest set). **Honesty defects:** pay summary fabricates Net 0.0 / N/G 0.00 / HPV 0.00 for wells whose VSH/PHIE/SWE were never computed; the ML dialog reports green success and writes a History entry claiming every scoped well when only some were written; Field Dashboard says "FLAG curves written." on the one path that deliberately writes nothing. **Theme:** `var(--bg)` is undefined in all 7 palettes with no fallback; Results-QC "ok" renders **bright red** under Halliburton. **a11y:** `formRow()` emits a `<label>` with no `for` across 179 call sites — zero label associations app-wide |
+| F4 | Build & bundle — main-bundle composition vs the 1,125.01 kB baseline, dead deps/config/assets, vega advisories as a real threat model, strictness flags | ✅ `docs/review_sweep/F4.md` — 14 survived / 4 refuted. **The CodeMirror suspicion was right and now has a number: the whole CM6 stack is in the eager index bundle — 461.3 kB, 41.0% of it — silently defeating vegaPanel's dynamic import.** Also: **`cargo test` cannot compile from a fresh clone** (an `include_bytes!` fixture is gitignored and untracked); a LAS-controlled well name is interpolated into `innerHTML` on the Vega empty-data path; `save_png` is an unrestricted arbitrary-path write callable from page JS and absent from the capability file; the full Svelte toolchain is installed and dev-prebundled for zero components |
 | F5 | Lifecycle & leaks — dispose symmetry, listener accumulation across open/close, `dataVersion`/`themeVersion` subscription correctness, `filterByActiveGroup` coverage, backend resource lifecycle (jobs registry, Python subprocess, temp files, project-switch cache) | ✅ `docs/review_sweep/F5.md` — 5 dims, 51 agents, 23 raw → **20 survived / 3 refuted** (2 of the survivors are the same defect found independently by two dims, so **19 actionable**). Frontend discipline is good (21 of 23 dock components exactly dispose-symmetric); **the backend is where the problems are** — 4 of 7 Highs are in `jobs.rs`/`lib.rs`/`python_engine.rs`/`chain.rs` and are correctness, not hygiene. Headline: **Cancel is offered for ~27 job kinds but only 5 read the flag** — the other 22 finish, commit their writes, and are then reported "Cancelled"; a **project switch swaps the DuckDB connection under 8 in-flight commands**; a runaway **Python script orphans a CPU-pinned process** with no timeout/kill; a **chain-runner panic wedges both registries "Running" forever**. Plus one flat bug: **the Report pane never opens** (TDZ on `buildWellScope`'s synchronous first subscribe fire — same failure mode as the V3 Vega TDZ crash). Findings are static + agent-verified, **not yet reproduced at runtime** |
 
 Measured up front (2026-07-24, evidence for F4): main `index` **1,125.01 kB** — unchanged from
-baseline, lazy-chunk discipline holding; `vegaPanel` 864.37 kB + 22 dialog chunks all lazy;
-`npm audit` **7 high, all vega**, every fix semver-major (vega 5→6.3.1, vega-lite 5→6.4.3,
-vega-embed 6→7.1.0). Frontend type hygiene is strong: **3** `any` and **12** non-null assertions
-in ~30k lines. 969 `unwrap`/`expect` in Rust, but most are in `#[cfg(test)]` — separating those
-is F2's job. 53 raw hex literals remain in TS after the #9A sweep — F3 classifies each.
+baseline; `vegaPanel` 864.37 kB + 22 dialog chunks all lazy; `npm audit` **7 high, all vega**,
+every fix semver-major (vega 5→6.3.1, vega-lite 5→6.4.3, vega-embed 6→7.1.0). 969
+`unwrap`/`expect` in Rust, most in `#[cfg(test)]`. 53 raw hex literals in TS after the #9A sweep.
+
+**Two of those scouting numbers were wrong and F1d corrected them:** there are **2** `any` (both
+in `src/svelte.d.ts`, which nothing imports) and **93** non-null assertions, not 3 and 12 — the
+scouting regex `\w!\.` only matched the `x!.foo` form and missed `querySelector<T>(…)!`,
+`Map.get(k)!` and post-`.filter()` narrowing. The conclusion still holds: all 93 were read and
+fall into four load-bearing idiom families TypeScript cannot narrow, with **zero** `@ts-ignore`,
+TODO/FIXME markers or commented-out code anywhere in `src`. Separately, "lazy-chunk discipline
+holding" was too generous — the main bundle is unchanged in *size*, but F4a found **41.0% of it
+is CodeMirror**, eagerly bundled despite the dynamic import.
 
 ## Per-increment discipline (playbook acceptance bar)
 
