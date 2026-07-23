@@ -36,6 +36,7 @@ mod thomeer;
 mod ssc;
 mod python_engine;
 mod tops;
+mod unconventional;
 mod workflow;
 
 use duckdb::Connection;

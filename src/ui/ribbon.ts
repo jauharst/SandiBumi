@@ -508,6 +508,11 @@ export class Ribbon {
         "Rock Typing",
         "M4 14l3-5 3 3 3-6 3 8M3 16h14",
       ],
+      Unconventional: [
+        "Unconventional",
+        "Unconventional",
+        "M5 16a1.4 1.4 0 1 0 0-.01M9 12a1.4 1.4 0 1 0 0-.01M13 8a1.4 1.4 0 1 0 0-.01M3 18h14",
+      ],
     };
     const order = Object.keys(CATEGORIES);
 

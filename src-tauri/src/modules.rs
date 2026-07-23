@@ -200,6 +200,7 @@ pub fn list_modules() -> Vec<ModuleSpec> {
         crate::rocktyping::rt_cutoff_spec(),
         crate::facies::electrofacies_spec(),
         crate::facies::gmm_facies_spec(),
+        crate::unconventional::toc_passey_spec(),
     ]
 }
 
@@ -244,6 +245,7 @@ pub fn run_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, Stri
         "thin_bed_ts" => Ok(thin_bed_ts(ctx)),
         "depth_shift" => Ok(depth_shift(ctx)),
         "splice" => Ok(splice(ctx)),
+        "toc_passey" => Ok(crate::unconventional::toc_passey(ctx)),
         other => Err(format!("unknown module '{other}'")),
     }
 }

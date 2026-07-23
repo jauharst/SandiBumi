@@ -7,6 +7,38 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 28 — Unconventional #7 inc 1: TOC from Passey ΔlogR + Schmoker (2026-07-23)
+
+First increment of the unconventional / shale suite (playbook Part II #7). A new **Unconventional**
+group on the Petrophysics ribbon, with its first module: **TOC — Passey ΔlogR + Schmoker**. It
+estimates total organic carbon two independent ways:
+
+- **Passey (1990) ΔlogR** — the separation between deep resistivity and a *baselined* porosity curve.
+  Choose the **overlay**: *sonic* (`ΔlogR = log10(R/R_base) + 0.02·(DT−DT_base)`) or *density*
+  (`−2.5·(RHOB−RHOB_base)`). Set the baselines (`R_BASE`, `DT_BASE`/`RHOB_BASE`) on a clean, clay-rich,
+  **non-source** interval where the two curves overlie (ΔlogR≈0), then
+  `TOC = ΔlogR·10^(2.297−0.1688·LOM) + background`. LOM (maturity, 6..12) defaults to 10.6.
+- **Schmoker-Hester (1983)** density-TOC `154.497/RHOB − 57.261` as an independent cross-check
+  (writes `TOC_SCHMOKER` whenever a density curve is present, regardless of overlay).
+
+Outputs: `DLOGR` (the raw separation, for the overlay panel coming in inc 5), `TOC` (Passey, wt%),
+`TOC_SCHMOKER` (density cross-check). In non-source rock (ΔlogR<0) TOC floors to the *background*
+value, not below it. Tier-B, cited in code (Passey et al. 1990; Schmoker & Hester 1983); the LOM and
+baseline defaults are Tier-A IP seeds, per-well overridable. The **neutron** overlay is deferred — its
+sign convention is inconsistent across the literature and needs core verification. Method math banked
+in `docs/ref_unconventional.md` §1.
+
+Verified: **311 cargo tests** (7 new — sonic/density overlays recover a known TOC, TOC decreases with
+LOM, non-source floors to background, missing overlay curve falls back to Schmoker) + tsc green +
+adversarial review (found & fixed one clamp-order defect pre-commit: a nonzero background must be the
+floor, not zero). Additive — nothing existing moves.
+
+> **Try:** open **Petrophysics → Unconventional → TOC — Passey ΔlogR + Schmoker**. Set **overlay =
+> sonic**, **RES** = deep resistivity, **DT** = sonic. On a clean *non-source* bed read R and Δt and
+> enter them as **R_BASE** / **DT_BASE** (so ΔlogR≈0 there); set **LOM** from your Ro/Tmax (or leave
+> 10.6) and Run. Confirm **TOC** rises through the organic-rich section, and compare against
+> **TOC_SCHMOKER** where RHOB exists. If you have core TOC, nudge LOM until the Passey curve matches.
+
 ## Round 27 — SandiMin per-depth formation temperature (FTEMP curve) (2026-07-23)
 
 Formation temperature can now come from a **per-depth curve** instead of one fixed number. On the
