@@ -1,10 +1,15 @@
 import {
+  checkContactConsistency,
   deleteFluidContact,
   getTrackData,
   listFluidContacts,
   listTops,
   listWells,
+  suggestContacts,
   upsertFluidContact,
+  type ContactCandidate,
+  type ContactConsistency,
+  type ContactSuggestResult,
   type FluidContact,
   type TopEntry,
   type TrackCurveSeries,
@@ -792,6 +797,189 @@ export async function buildCorrelationContent(
       });
     });
     body.appendChild(addBtn);
+
+    const labeled = (text: string, el: HTMLElement): HTMLLabelElement => {
+      const l = document.createElement("label");
+      l.className = "contacts-inline";
+      l.append(document.createTextNode(`${text} `), el);
+      return l;
+    };
+    const sectionTitle = (text: string): HTMLDivElement => {
+      const d = document.createElement("div");
+      d.className = "contacts-section-title";
+      d.textContent = text;
+      return d;
+    };
+
+    // --- Suggest a contact from logs (Sw crossover / resistivity drop / density-neutron) ---
+    const sug = document.createElement("div");
+    sug.className = "contacts-suggest";
+    sug.appendChild(sectionTitle("Suggest from logs"));
+    const sugWell = document.createElement("select");
+    sugWell.className = "form-control";
+    for (const w of wells) {
+      const o = document.createElement("option");
+      o.value = w.well_id;
+      o.textContent = w.well_name;
+      sugWell.appendChild(o);
+    }
+    const plotH = Math.max(50, canvas.clientHeight - HEADER_H);
+    const zTop = document.createElement("input");
+    zTop.type = "number";
+    zTop.className = "form-control num-field";
+    zTop.value = String(Math.round(viewTop));
+    const zBase = document.createElement("input");
+    zBase.type = "number";
+    zBase.className = "form-control num-field";
+    zBase.value = String(Math.round(viewTop + plotH / pxPerUnit));
+    const sugBtn = document.createElement("button");
+    sugBtn.className = "form-control";
+    sugBtn.textContent = "Suggest";
+    const sugControls = document.createElement("div");
+    sugControls.className = "contacts-section-controls";
+    sugControls.append(sugWell, labeled("top", zTop), labeled("base", zBase), sugBtn);
+    sug.appendChild(sugControls);
+    const sugResults = document.createElement("div");
+    sugResults.className = "contacts-section-results";
+    sug.appendChild(sugResults);
+
+    const renderCandidates = (res: ContactSuggestResult): void => {
+      sugResults.innerHTML = "";
+      if (res.error) {
+        sugResults.textContent = res.error;
+        return;
+      }
+      if (!res.candidates.length) {
+        sugResults.textContent = "No Sw / resistivity / density-neutron indicators in that zone.";
+        return;
+      }
+      const wellId = sugWell.value;
+      for (const cand of res.candidates as ContactCandidate[]) {
+        const row = document.createElement("div");
+        row.className = "contacts-cand";
+        if (cand.confidence < 0.4) row.classList.add("weak-match");
+        const info = document.createElement("span");
+        info.textContent = `${cand.contact_type} @ ${cand.depth.toFixed(1)} — ${cand.method} (${Math.round(cand.confidence * 100)}%)`;
+        info.title = cand.detail;
+        const accept = document.createElement("button");
+        accept.className = "form-control";
+        accept.textContent = "Accept";
+        accept.addEventListener("click", () => {
+          const c: FluidContact = {
+            contact_id: crypto.randomUUID(),
+            field_name: null,
+            well_id: wellId,
+            contact_type: cand.contact_type,
+            depth: Number(cand.depth.toFixed(1)),
+            is_tvdss: false, // suggestions are in measured depth
+            color: null,
+            label: cand.method,
+          };
+          contacts.push(c);
+          void upsertFluidContact(c).then(() => {
+            renderRows();
+            draw();
+            setStatus(`Added ${cand.contact_type} at ${c.depth} m (${cand.method})`);
+          });
+          accept.disabled = true;
+          accept.textContent = "Added";
+        });
+        row.append(info, accept);
+        sugResults.appendChild(row);
+      }
+    };
+    sugBtn.addEventListener("click", () => {
+      void (async () => {
+        sugBtn.disabled = true;
+        sugResults.textContent = "Scanning…";
+        try {
+          const res = await suggestContacts({
+            well_id: sugWell.value,
+            zone_top: Number(zTop.value),
+            zone_base: Number(zBase.value),
+          });
+          renderCandidates(res);
+        } catch (e) {
+          sugResults.textContent = `Suggest failed: ${e}`;
+        } finally {
+          sugBtn.disabled = false;
+        }
+      })();
+    });
+    body.appendChild(sug);
+
+    // --- Cross-well consistency: a contact is flat in TVDSS ---
+    const con = document.createElement("div");
+    con.className = "contacts-consistency";
+    con.appendChild(sectionTitle("Cross-well consistency"));
+    const conType = document.createElement("select");
+    conType.className = "form-control";
+    for (const t of CONTACT_TYPES) {
+      const o = document.createElement("option");
+      o.value = t;
+      o.textContent = t;
+      conType.appendChild(o);
+    }
+    const conBtn = document.createElement("button");
+    conBtn.className = "form-control";
+    conBtn.textContent = "Check";
+    const conControls = document.createElement("div");
+    conControls.className = "contacts-section-controls";
+    conControls.append(conType, conBtn);
+    con.appendChild(conControls);
+    const conResults = document.createElement("div");
+    conResults.className = "contacts-section-results";
+    con.appendChild(conResults);
+
+    const renderConsistency = (r: ContactConsistency): void => {
+      conResults.innerHTML = "";
+      if (r.error) {
+        conResults.textContent = r.error;
+        return;
+      }
+      const summary = document.createElement("div");
+      summary.className = "contacts-consistency-summary";
+      const rms = Number.isFinite(r.rms) ? `${r.rms.toFixed(1)} m` : "—";
+      summary.textContent = `${r.n} wells · ${r.plane ? "dip plane" : "flat mean"} · mean ${r.mean_tvdss.toFixed(1)} TVDSS · rms ${rms}`;
+      conResults.appendChild(summary);
+      const table = document.createElement("table");
+      table.className = "dbgrid";
+      table.innerHTML = `<thead><tr><th>Well</th><th>TVDSS</th><th>Predicted</th><th>Resid</th><th></th></tr></thead>`;
+      const tb = document.createElement("tbody");
+      for (const w of r.wells) {
+        const tr = document.createElement("tr");
+        if (w.flagged) tr.classList.add("weak-match");
+        const cells = [
+          w.well_name,
+          w.tvdss.toFixed(1),
+          Number.isFinite(w.predicted) ? w.predicted.toFixed(1) : "—",
+          Number.isFinite(w.residual) ? w.residual.toFixed(1) : "—",
+          w.flagged ? "⚠" : "",
+        ];
+        for (const t of cells) {
+          const td = document.createElement("td");
+          td.textContent = t;
+          tr.appendChild(td);
+        }
+        tb.appendChild(tr);
+      }
+      table.appendChild(tb);
+      conResults.appendChild(table);
+    };
+    conBtn.addEventListener("click", () => {
+      void (async () => {
+        conBtn.disabled = true;
+        conResults.textContent = "Checking…";
+        try {
+          renderConsistency(await checkContactConsistency(conType.value));
+        } catch (e) {
+          conResults.textContent = `Check failed: ${e}`;
+        } finally {
+          conBtn.disabled = false;
+        }
+      })();
+    });
+    body.appendChild(con);
 
     renderRows();
     openModal("Fluid contacts", body, 640);

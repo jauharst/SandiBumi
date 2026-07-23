@@ -7,6 +7,35 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 37 — Contacts #6.2 inc B: assisted contact picking — the panel UI (2026-07-23)
+
+Second increment — wires inc A into the correlation panel's **Contacts…** editor with two new sections:
+
+- **Suggest from logs** — pick a well and a depth zone (defaults to the visible window), hit **Suggest**,
+  and get the ranked candidates (Sw crossover / resistivity drop / density-neutron gas base), each showing
+  `type @ depth — method (confidence%)`; low-confidence (<40%) rows are dimmed. **Accept** on a candidate
+  creates a well-scoped MD contact at that depth (and appears in the editor's table) — **never
+  auto-committed**, one click per pick.
+- **Cross-well consistency** — pick a contact type, hit **Check**, and get a readout: `N wells · dip
+  plane|flat mean · mean TVDSS · rms`, then a per-well table (TVDSS, predicted, residual) with **⚠-flagged
+  wells** that disagree with the flat-TVDSS surface.
+
+**Verification (in-browser, mocked IPC):** mounted the correlation panel, opened the Contacts editor, and
+drove both sections from the DOM: Suggest rendered 3 ranked candidates with the 35% one flagged weak;
+**Accept called upsert_fluid_contact with `{well W1, OWC, 2148.5, MD}`** and added the row + set the
+status (no auto-commit); Check rendered the summary ("3 wells · dip plane · mean 2076.1 · rms 1.4 m") and
+flagged the 12 m-off Well-3 while clearing the inliers. tsc green; cargo unchanged at 340. (Console shows
+only pre-existing backend-absent boot errors — none from the panel.)
+
+Deferred (noted, not silently dropped): **snap-to-log-feature while dragging a contact line** — contacts
+aren't draggable in the panel yet (drag is pan), so a hit-test + drag handler is a larger change left for
+a follow-up; the Suggest/Accept flow covers the assisted-picking need in the meantime.
+
+> **Try:** open a **Correlation** panel → **Contacts…**. Under **Suggest from logs**, choose a well with
+> Sw/resistivity/density-neutron over a hydrocarbon-water zone and hit **Suggest**; **Accept** the pick you
+> trust — it drops in as an OWC in that well. Then set contacts of that type in a few wells, and under
+> **Cross-well consistency** hit **Check** — any well off the flat-TVDSS surface shows a ⚠.
+
 ## Round 36 — Contacts #6.2 inc A: assisted contact picking — backend (2026-07-23)
 
 First increment of assisted fluid-contact picking (the existing contacts editor + TVDSS-flat

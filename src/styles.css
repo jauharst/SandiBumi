@@ -2522,6 +2522,60 @@ textarea {
   padding: 4px 0;
 }
 
+/* Assisted contact picking: suggest-from-logs + cross-well consistency sections */
+.contacts-suggest,
+.contacts-consistency {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.contacts-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.85;
+}
+.contacts-section-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.contacts-section-controls .num-field {
+  width: 78px;
+}
+.contacts-inline {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  opacity: 0.8;
+}
+.contacts-section-results {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+.contacts-cand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.contacts-cand span {
+  flex: 1;
+}
+.contacts-cand.weak-match,
+.contacts-consistency-results tr.weak-match {
+  opacity: 0.6;
+}
+.contacts-consistency-summary {
+  opacity: 0.8;
+  padding-bottom: 2px;
+}
+
 .plot-canvas {
   display: block;
   width: 100%;
