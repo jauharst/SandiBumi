@@ -182,6 +182,6 @@ Enabled by `tauri.conf.json` `csp: null` (no eval blocker) + npm vendoring (offl
 | Increment | Scope | Status |
 |---|---|---|
 | V1 | Vendor `vega`/`vega-lite`/`vega-embed`; lazy well-bound **Vega Chart** dock panel + Plot-tab ribbon button; one live interactive crossplot (X/Y curve pickers, tooltip, drag-pan, scroll-zoom) themed from CSS vars | ✅ (this update) — tsc + vite build (offline lazy chunk verified); render/theme screenshot-verified vs synthetic data; live pan/zoom/tooltip → REVIEW Round 51 Try line. `npm audit`: 7 high advisories in vega deps (not auto-fixed — breaking) |
-| V2 | Control bar: X/Y/color curve pickers, zone filter, chart type (scatter / line / histogram) | ▫ next |
+| V2 | Control bar: X/Y/color curve pickers, zone filter, chart type (scatter / line / histogram) | ✅ (this update) — chart-type switch, viridis color curve (scatter-only), zone filter via `getCurveData` depth window; inapplicable controls dim; tsc + offline build; all 3 types render-verified on dev server. REVIEW Round 52 |
 | V3 | Live theme repaint on `themeVersion`; vega interval-selection ⇄ `appState.brushedDepths` (linked brushing with the Canvas-2D plots) | ▫ |
 | V4 | CodeMirror JSON spec editor (already bundled) + native SVG/PNG export + session persistence of the panel/spec | ▫ |
