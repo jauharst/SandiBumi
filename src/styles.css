@@ -2800,6 +2800,10 @@ textarea {
   font-size: 11.5px;
   color: var(--text-dim);
 }
+/* A control that doesn't apply to the active chart type (Y on a histogram, Color off scatter). */
+.vega-field-off {
+  opacity: 0.4;
+}
 .vega-chart-host {
   position: relative;
   flex: 1 1 auto;

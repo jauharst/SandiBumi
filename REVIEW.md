@@ -7,6 +7,28 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 52 — Vega-Lite interactive charts, V2: control bar (type / colour / zone) (2026-07-24)
+
+Builds on V1 (Round 51). The Vega Chart panel gains a real control bar so you can shape the plot
+without leaving it:
+
+- **Chart type** — **Scatter / Line / Histogram**. Scatter is the X–Y cloud; Line connects the
+  samples in depth order (a trajectory through crossplot space); Histogram is the X curve's
+  distribution (binned count).
+- **Colour curve** (scatter only) — colour the points by a third curve on a **viridis** scale with a
+  legend (e.g. NPHI–RHOB coloured by GR). "— None —" falls back to the theme accent.
+- **Zone filter** — restrict the plot to a named zone's depth range (follows the top-interval like
+  the other plots); "all" plots the whole well.
+- Controls that don't apply to the active type dim out (Y on a histogram, Colour off scatter), so the
+  bar reads honestly. Selections carry across a well switch.
+
+**Try:** Plot ribbon → **Vega Chart**. Switch **Type** to Histogram (the X curve's distribution) and
+to Line; on Scatter, set **Colour** to a curve (e.g. GR) and confirm the points take a viridis ramp
+with a legend; set a **Zone** and confirm the plot restricts to it (status line shows the zone). Pan /
+zoom / hover still work on scatter and line. (Verified: tsc + offline build; all three chart types
+render non-blank canvases with a clean console on the dev server — the small-canvas note is just the
+uncomposited preview pane, not the app.)
+
 ## Round 51 — Vega-Lite interactive charts, V1: engine vendored + one live chart (2026-07-24)
 
 New feature (your "Altair on SandiBumi" ask, built as *interactive Vega-Lite in-app*): a chart
