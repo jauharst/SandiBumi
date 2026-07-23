@@ -2789,6 +2789,8 @@ textarea {
   display: flex;
   align-items: center;
   gap: 10px;
+  row-gap: 6px;
+  flex-wrap: wrap;
   padding: 5px 8px;
   border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
@@ -2809,6 +2811,38 @@ textarea {
   flex: 1 1 auto;
   min-height: 180px;
   overflow: hidden;
+}
+.vega-spec {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+  max-height: 45%;
+}
+.vega-spec-editor {
+  flex: 1 1 auto;
+  overflow: auto;
+  max-height: 220px;
+  font-size: 12px;
+}
+.vega-spec-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--border);
+}
+.vega-spec-err {
+  color: var(--danger, #d9534f);
+  font-size: 11.5px;
+  font-family: var(--mono, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plot-export-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* -------------------------------------------------------------------------- */

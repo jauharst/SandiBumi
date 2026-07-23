@@ -15,11 +15,24 @@
 //     non-selected scatter points via an opacity condition driven by two runtime signals. Depths
 //     ride the same shared grid across panels, so membership is a direct datum.depth lookup.
 //   Line charts emit but don't dim (per-vertex opacity is meaningless on a path); histograms do
-//   neither (bars are aggregates). A spec editor and export land in later increments.
+//   neither (bars are aggregates).
+//
+// V4 scope: the panel earns its keep as a report/export surface.
+//   - Export: PNG (copy / save / print) reuses the shared canvas export buttons — vega renders to a
+//     <canvas> — plus a true-vector SVG from vega's own renderer.
+//   - Spec editor: a CodeMirror JSON view of the effective Vega-Lite spec (data elided) that the
+//     user can edit and Apply as an override; the control bar still drives which curves/zone fill it.
+//     CodeMirror is dynamic-imported so it stays out of the chunk until the editor is opened.
+//   - Last-used persistence: the control selections are saved via savePlotProps so a new panel opens
+//     where the previous one left off (getState still carries settings across a well switch).
 import vegaEmbed, { type VisualizationSpec, type Result as VegaResult } from "vega-embed";
+import type { EditorView } from "codemirror";
 import { getCurveData, type TrackCurveSeries, type WellSummary } from "../ipc";
+import { recordProcess } from "../processLog";
 import { appState, clearBrush, setBrushedDepths, type BrushSelection } from "../state";
-import { buildZoneSelect, curveSelect, loadCurveNames, trySelect, type PlotContent } from "./plotCommon";
+import { buildZoneSelect, curveSelect, loadCurveNames, loadPlotProps, savePlotProps, trySelect, type PlotContent } from "./plotCommon";
+import { buildImageExportButtons } from "./plotExport";
+import { saveSvg } from "./svgExport";
 
 type ChartType = "scatter" | "line" | "histogram";
 
@@ -216,8 +229,12 @@ export async function buildVegaContent(
   initial?: Record<string, string>,
 ): Promise<PlotContent> {
   const curveNames = await loadCurveNames();
+  // Seed defaults from the last-used Vega props, overridden by an explicit `initial` (a well-switch
+  // rebuild via getState) so a re-selected well keeps its exact settings.
+  const saved = await loadPlotProps<Record<string, string>>("vega");
+  const seed = { ...saved, ...(initial ?? {}) };
   const zoneSel = await buildZoneSelect(well);
-  trySelect(zoneSel.select, initial?.zone);
+  trySelect(zoneSel.select, seed.zone);
 
   const container = document.createElement("div");
   container.className = "plot-content vega-panel";
@@ -234,11 +251,11 @@ export async function buildVegaContent(
     o.textContent = label;
     typeSel.appendChild(o);
   }
-  typeSel.value = ["scatter", "line", "histogram"].includes(initial?.type ?? "") ? (initial!.type as ChartType) : "scatter";
+  typeSel.value = ["scatter", "line", "histogram"].includes(seed.type ?? "") ? (seed.type as ChartType) : "scatter";
 
-  const xSel = curveSelect(curveNames, initial?.x ?? "NPHI");
-  const ySel = curveSelect(curveNames, initial?.y ?? "RHOB");
-  const zSel = colorSelect(curveNames, initial?.z ?? "");
+  const xSel = curveSelect(curveNames, seed.x ?? "NPHI");
+  const ySel = curveSelect(curveNames, seed.y ?? "RHOB");
+  const zSel = colorSelect(curveNames, seed.z ?? "");
 
   const toolbar = document.createElement("div");
   toolbar.className = "vega-toolbar";
@@ -274,6 +291,13 @@ export async function buildVegaContent(
   let lastX = "";
   let lastY = "";
   let lastZ: string | null = null;
+  // V4: an optional hand-edited spec. When set it replaces the generated grammar (the current rows
+  // are injected as its data); a chart-type change clears it since the grammar is type-specific.
+  let specOverride: VisualizationSpec | null = null;
+  const specFor = (type: ChartType, rows: Row[], xName: string, yName: string, zName: string | null): VisualizationSpec =>
+    specOverride
+      ? ({ ...(specOverride as Record<string, unknown>), data: { values: rows } } as VisualizationSpec)
+      : buildSpec(type, rows, xName, yName, zName);
 
   // --- Linked brushing -------------------------------------------------------
   // Emit: publish the depths inside the Vega brush rectangle. rAF-coalesced during a drag, with a
@@ -356,7 +380,7 @@ export async function buildVegaContent(
       return;
     }
     try {
-      const result = await vegaEmbed(chartHost, buildSpec(type, rows, xName, yName, zName), {
+      const result = await vegaEmbed(chartHost, specFor(type, rows, xName, yName, zName), {
         actions: false,
         renderer: "canvas",
         tooltip: true,
@@ -416,11 +440,131 @@ export async function buildVegaContent(
     await embedRows(lastType, lastRows, lastX, lastY, lastZ, myGen);
   }
 
-  typeSel.addEventListener("change", () => {
-    syncControls();
+  // --- V4: last-used persistence, export, spec editor ------------------------
+  const persist = (): void =>
+    savePlotProps("vega", { type: typeSel.value, x: xSel.value, y: ySel.value, z: zSel.value, zone: zoneSel.select.value });
+
+  // Export. Vega renders to a <canvas>, so the shared PNG copy/save/print buttons work against it;
+  // SVG comes from vega's own vector renderer.
+  const getCanvas = (): HTMLCanvasElement | null => chartHost.querySelector<HTMLCanvasElement>("canvas");
+  const exportSvg = async (): Promise<void> => {
+    if (!current) {
+      setStatus("No Vega chart to export yet");
+      return;
+    }
+    try {
+      const svg = await current.view.toSVG();
+      const path = await saveSvg(svg, "Vega chart");
+      if (path) {
+        setStatus(`Vega chart SVG saved to ${path}`);
+        recordProcess("Export", `Vega chart SVG (vector) → ${path}`);
+      }
+    } catch (err) {
+      setStatus(`SVG export failed: ${err}`);
+    }
+  };
+  const exportGroup = buildImageExportButtons(getCanvas, "Vega chart", setStatus);
+  const svgBtn = document.createElement("button");
+  svgBtn.className = "plot-export-btn";
+  svgBtn.textContent = "⭳ SVG";
+  svgBtn.title = "Export this chart as a true-vector SVG (vega renderer)";
+  svgBtn.addEventListener("click", () => void exportSvg());
+  exportGroup.appendChild(svgBtn);
+
+  // Spec editor: reveal the effective Vega-Lite spec as JSON and let the user override the grammar.
+  const specToggle = document.createElement("button");
+  specToggle.className = "plot-export-btn";
+  specToggle.textContent = "⧉ Spec";
+  specToggle.title = "View / edit the Vega-Lite spec (JSON)";
+  specToggle.style.marginLeft = "auto"; // push the action cluster to the right end of the toolbar
+  toolbar.append(specToggle, exportGroup);
+
+  const specWrap = document.createElement("div");
+  specWrap.className = "vega-spec";
+  specWrap.style.display = "none";
+  const editorHost = document.createElement("div");
+  editorHost.className = "vega-spec-editor";
+  const specBar = document.createElement("div");
+  specBar.className = "vega-spec-bar";
+  const applyBtn = document.createElement("button");
+  applyBtn.className = "lp-btn primary";
+  applyBtn.textContent = "Apply";
+  const resetBtn = document.createElement("button");
+  resetBtn.className = "lp-btn";
+  resetBtn.textContent = "Reset";
+  const specErr = document.createElement("span");
+  specErr.className = "vega-spec-err";
+  specBar.append(applyBtn, resetBtn, specErr);
+  specWrap.append(editorHost, specBar);
+  container.append(specWrap);
+
+  // The generated spec as pretty JSON with the (potentially huge) data values elided — the editor
+  // shows grammar only; the current rows are re-injected on Apply (see specFor).
+  const templateJson = (): string => {
+    const type = typeSel.value as ChartType;
+    const useZ = type === "scatter" && zSel.value ? zSel.value : null;
+    const spec = buildSpec(type, [], xSel.value, ySel.value, useZ) as Record<string, unknown>;
+    delete spec.data;
+    return JSON.stringify(spec, null, 2);
+  };
+  let editor: EditorView | null = null;
+  const refreshTemplate = (): void => {
+    if (editor) editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: templateJson() } });
+  };
+  const ensureEditor = async (): Promise<void> => {
+    if (editor || disposed) return;
+    const { EditorView: CM, basicSetup } = await import("codemirror");
+    if (disposed) return; // the panel closed while the (lazy) editor module loaded
+    editor = new CM({ parent: editorHost, doc: templateJson(), extensions: [basicSetup, CM.lineWrapping] });
+  };
+  let specOpen = false;
+  specToggle.addEventListener("click", () => {
+    specOpen = !specOpen;
+    specWrap.style.display = specOpen ? "" : "none";
+    specToggle.classList.toggle("active", specOpen);
+    if (specOpen) void ensureEditor().then(() => !specOverride && refreshTemplate());
+  });
+  applyBtn.addEventListener("click", () => {
+    if (!editor) return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(editor.state.doc.toString());
+    } catch (e) {
+      specErr.textContent = `Invalid JSON: ${e instanceof Error ? e.message : e}`;
+      return;
+    }
+    specErr.textContent = "";
+    specOverride = parsed as VisualizationSpec;
+    setStatus("Vega — applied spec override");
     void render();
   });
-  for (const sel of [xSel, ySel, zSel, zoneSel.select]) sel.addEventListener("change", () => void render());
+  resetBtn.addEventListener("click", () => {
+    specOverride = null;
+    specErr.textContent = "";
+    refreshTemplate();
+    setStatus("Vega — spec override reset");
+    void render();
+  });
+
+  // Control-bar changes. A chart-type change is structural, so it drops any spec override; the other
+  // controls only change which curves/zone fill the plot and keep an override in place.
+  typeSel.addEventListener("change", () => {
+    syncControls();
+    if (specOverride) {
+      specOverride = null;
+      setStatus("Vega — spec override reset (chart type changed)");
+    }
+    persist();
+    if (specOpen) refreshTemplate();
+    void render();
+  });
+  for (const sel of [xSel, ySel, zSel, zoneSel.select]) {
+    sel.addEventListener("change", () => {
+      persist();
+      if (specOpen && !specOverride) refreshTemplate();
+      void render();
+    });
+  }
 
   // A plain (non-Shift) drag on the chart is a brush; remember it so pointer-up can flush the final
   // extent. Shift-drag is a pan (grid param) and must not publish a selection.
@@ -465,6 +609,7 @@ export async function buildVegaContent(
       unsubTheme();
       ro.disconnect();
       zoneSel.dispose();
+      editor?.destroy();
       current?.finalize();
       current = null;
     },

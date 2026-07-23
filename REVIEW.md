@@ -7,6 +7,34 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 54 — Vega-Lite interactive charts, V4: export + spec editor (2026-07-24)
+
+Builds on V3 (Round 53). The Vega Chart panel becomes a report/export surface and gains an escape
+hatch for power users:
+
+- **Export.** New toolbar buttons: **⧉ Copy** (PNG to clipboard), **⭳ Image** (save PNG), **⭳ SVG**
+  (a true-vector SVG from vega's own renderer), **⎙ Print**. Same affordance as the crossplot /
+  histogram export.
+- **Spec editor.** **⧉ Spec** reveals a JSON editor showing the *effective* Vega-Lite spec (with the
+  data rows elided). Edit the grammar — point size, a title, an extra layer, a scale — and **Apply**;
+  the chart re-renders with your override and the current rows are re-injected, so the control bar
+  still drives which curves / zone fill it. **Reset** returns to the generated spec. Changing the
+  **chart type** clears an override (the grammar is type-specific). Invalid JSON is reported inline;
+  an invalid spec shows "render failed" rather than a broken chart. (Linked brushing keeps working
+  through an override.)
+- **Opens where you left off.** The control selections (type / curves / zone) are remembered, so a
+  new Vega chart opens with your last settings.
+
+**Try:** open a **Vega Chart**. (1) **⭳ Image** and **⭳ SVG** — save each and open the files; **⎙
+Print**. (2) Click **⧉ Spec**, change something in the JSON (e.g. `"size": 20` → `120`, or add
+`"title": "My chart"`), **Apply** → confirm the chart changes; **Reset** → confirm it reverts. Type
+some invalid JSON and confirm the inline error. (3) Set Type = Line + a Zone, close the panel, open a
+new Vega chart → confirm it opens as Line on that zone. (Verified: tsc + offline build keep vega **and
+CodeMirror** as separate lazy chunks — the editor only loads when you open Spec; a headless check
+confirms the spec round-trips through the editor, still renders, and keeps its brush signals, and that
+an invalid override throws. The live save dialogs, printing and editor typing are what this Try line
+confirms.)
+
 ## Round 53 — Vega-Lite interactive charts, V3: theme repaint + linked brushing (2026-07-24)
 
 Builds on V2 (Round 52). The Vega Chart panel now joins the rest of the workspace — it repaints with
