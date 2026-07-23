@@ -402,6 +402,7 @@ export async function buildMultiminContent(
   const swModelSel = document.createElement("select");
   const SW_OPTIONS: [SwModel, string][] = [
     ["linear_dw", "Linear dual-water (default)"],
+    ["dual_water_nonlinear", "Dual-water non-linear (m, n separate)"],
     ["indonesia", "Indonesia (Poupon-Leveaux)"],
     ["simandoux", "Simandoux (modified)"],
   ];
@@ -433,11 +434,21 @@ export async function buildMultiminContent(
   swNote.className = "mc-chain-note";
   fluidBox.appendChild(swNote);
   function syncSwModel(): void {
-    const post = swModelSel.value === "indonesia" || swModelSel.value === "simandoux";
-    swExtra.style.display = post ? "" : "none";
+    const val = swModelSel.value;
+    // Rsh + Archie a are the shaly-sand (wet-shale) inputs — only Indonesia/Simandoux use them.
+    const shalySand = val === "indonesia" || val === "simandoux";
+    // All non-linear forms run post-solve and share the note; only the shaly-sand ones show the extras.
+    const post = shalySand || val === "dual_water_nonlinear";
+    swExtra.style.display = shalySand ? "" : "none";
     swNote.style.display = post ? "" : "none";
-    if (post) {
-      const name = swModelSel.value === "indonesia" ? "Indonesia (Poupon-Leveaux)" : "modified Simandoux";
+    if (val === "dual_water_nonlinear") {
+      swNote.textContent =
+        "Post-solve: the mineral solve runs as usual, then the exact Clavier dual-water equation is solved " +
+        "for Sw honouring m and n separately (not folded into w). The bound-water saturation comes from the " +
+        "solved bound-water volume and the clay-bound-water conductivity from formation temperature, so it " +
+        "needs a CT tool + a U-zone hydrocarbon component (bound water optional). PHIE/PHIT stay exactly as solved.";
+    } else if (shalySand) {
+      const name = val === "indonesia" ? "Indonesia (Poupon-Leveaux)" : "modified Simandoux";
       swNote.textContent =
         `Post-solve: the mineral solve runs as usual, then Sw is replaced by the ${name} equation from ` +
         `the solved effective porosity and shale volume. Needs a CT (deep-resistivity) tool and a U-zone ` +

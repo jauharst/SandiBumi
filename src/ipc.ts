@@ -1019,7 +1019,7 @@ export interface MmFluidProps {
 
 /** Saturation model for the conductivity tools. `linear_dw` (default) is the in-inversion linearised
  *  dual-water; `indonesia`/`simandoux` are post-solve shaly-sand forms (Sw from Rt + solved φe/Vsh). */
-export type SwModel = "linear_dw" | "indonesia" | "simandoux";
+export type SwModel = "linear_dw" | "dual_water_nonlinear" | "indonesia" | "simandoux";
 
 /** Derived fluid quantities (w, conductivities, α, auto CT/CXO uncertainties). */
 export interface MmFluidCalc {

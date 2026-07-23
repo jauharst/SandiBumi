@@ -7,6 +7,34 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 20 — SandiMin non-linear dual-water Sw (the 4th model you picked) (2026-07-23)
+
+The **non-linear dual-water** you asked me to continue is now in the Fluid-tab "Sw equation" dropdown as
+**"Dual-water non-linear (m, n separate)."** Unlike the default *linear* dual-water — which folds the
+exponents into a single `w = 0.75m+0.25n` and solves the conductivity as a linear row inside the
+inversion — this solves the **exact** Clavier-Coates-Dumanoir form honouring **m and n separately**:
+
+    Ct = (φt^m · Swt^n / a) · [ Cw + (Cwb − Cw)·Swb/Swt ]
+
+It runs **post-solve** (same as Indonesia/Simandoux): the mineral inversion runs untouched (the CT tool
+stays in, so the split stays well-posed), then Swt is solved from that equation and the water/HC split
+redistributed — **PHIT, PHIE and hard unity are preserved**, only SWE/SWT/SXOT move. The **bound-water
+saturation comes straight from the solved bound-water volume** (Swb = v_bw/φt), so no lab Qv is needed,
+and the clay-bound-water conductivity Cwb is the temperature form already in the fluid calc. Equation
+verified against the Geolog `sw_dual` stdlib form.
+
+Tests: hand-computed numeric-literal point (φt=0.3, Swb=0.2, Cw=2, Cwb=5, m=n=2 ⇒ Rt=10.288 ⇒ SWT=0.6),
+the effective-Sw conversion (SWE=0.5), a general-n bisection round-trip, NaN guards, and an end-to-end
+run recovering a known deep Sw with PHIE untouched. `linear_dw` stays the default — reviewed numbers
+unmoved.
+
+Still to come from your image-1 menu: Archie linear/nonlinear, Waxman-Smits, Juhasz + Normalized
+Dual-Water (the wet-param normalized-Qv forms), and the wet/dry-clay-parameter wiring.
+
+- [ ] **Dual-water non-linear.** On a well with CT + an HC component (ideally with a clay + BoundWater so
+      Swb>0), run once on Linear dual-water then again on **Dual-water non-linear** with your m and n —
+      confirm SWE/SWT move to the exact-equation answer while PHIE/PHIT come out identical to Linear.
+
 ## Round 19 — SandiMin dialog layout (your field review: run-on-top, tab order, multi-column) (2026-07-23)
 
 Four layout fixes from your image markups, all in `src/ui/multiminDialog.ts` + `src/styles.css`:

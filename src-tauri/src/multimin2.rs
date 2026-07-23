@@ -91,6 +91,9 @@ pub enum SwModel {
     /// Linearised dual-water, in-inversion. Default — nothing moves.
     #[default]
     LinearDw,
+    /// Clavier-Coates-Dumanoir dual-water, exact form honouring m and n separately (Newton form
+    /// solved by bisection). Post-solve; the bound-water saturation comes from the solved v_bw.
+    DualWaterNonlinear,
     /// Poupon-Leveaux "Indonesia" (1971), effective-porosity form. Non-linear in Sw, post-solve.
     Indonesia,
     /// Modified Simandoux (Bardon-Pied), effective-porosity form. Non-linear in Sw, post-solve.
@@ -98,9 +101,9 @@ pub enum SwModel {
 }
 
 impl SwModel {
-    /// The shaly-sand forms replace the in-inversion conductivity row with a post-solve Sw.
+    /// The non-linear forms replace the in-inversion conductivity row with a post-solve Sw.
     fn is_post_solve(self) -> bool {
-        matches!(self, SwModel::Indonesia | SwModel::Simandoux)
+        matches!(self, SwModel::DualWaterNonlinear | SwModel::Indonesia | SwModel::Simandoux)
     }
 }
 
@@ -156,6 +159,54 @@ pub fn sw_simandoux(rt: f64, phie: f64, vsh: f64, rw: f64, rsh: f64, m: f64, n: 
     for _ in 0..60 {
         let mid = 0.5 * (lo + hi);
         if f(mid) > 0.0 {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+    (0.5 * (lo + hi)).clamp(0.0, 1.0)
+}
+
+/// Clavier-Coates-Dumanoir dual-water TOTAL water saturation (SPEJ 1984), exact form honouring m and
+/// n separately (unlike the linearised in-inversion row, which folds them into w = 0.75m+0.25n):
+///   Ct = (φt^m · Swt^n / a) · [ Cw + (Cwb − Cw)·Swb/Swt ]
+/// rearranged to the increasing-in-Swt root equation (Geolog sw_dual CALC_SW):
+///   Cw·Swt^n + Swb·(Cwb − Cw)·Swt^(n−1) − a·Ct/φt^m = 0,   Ct = 1/Rt.
+/// `swb` is the bound-water saturation (v_bw/φt) taken from the solved bound-water volume — so no Qv
+/// is needed. Conductivities are mho/m at formation temperature. Returns SWT∈[0,1] (bisection; the
+/// n==2 case closes to a quadratic). NaN on non-physical inputs.
+pub fn sw_dual_nonlinear(rt: f64, phit: f64, swb: f64, cw: f64, cwb: f64, m: f64, n: f64, a: f64) -> f64 {
+    // n < 1 is non-physical (saturation exponents are ≥ 1) AND breaks this solver: the Swt^(n−1) term
+    // diverges at Swt→0, so g(0) blows up and the bisection/short-circuit logic (which assumes g rises
+    // from g(0)=−rhs<0) collapses SWT to 0 regardless of Rt. Reject it — the post-solve caller's
+    // is_finite() check then leaves the linear inversion's split untouched rather than silently zeroing.
+    if !(rt > 0.0) || !(phit > 0.0) || !(cw > 0.0) || !(n >= 1.0) {
+        return f64::NAN;
+    }
+    let swb = swb.clamp(0.0, 1.0);
+    let a = a.max(1e-9);
+    let ct = 1.0 / rt;
+    let rhs = a * ct / phit.powf(m); // the constant term a·Ct/φt^m (> 0)
+    let lin = swb * (cwb - cw); // coefficient of Swt^(n−1)
+    if (n - 2.0).abs() < 1e-9 {
+        // cw·Swt² + lin·Swt − rhs = 0. disc = lin² + 4·cw·rhs is always ≥ 0 (cw>0, rhs>0), so the
+        // positive root exists; cw>0 makes it the physical branch.
+        let disc = lin * lin + 4.0 * cw * rhs;
+        return ((-lin + disc.sqrt()) / (2.0 * cw)).clamp(0.0, 1.0);
+    }
+    // General n: g(Swt) = cw·Swt^n + lin·Swt^(n−1) − rhs. g(0)=−rhs<0; if g(1)≤0 the rock is at/above
+    // Swt=1. Between, g is continuous — bisect (cw>0 keeps the high-Swt branch increasing).
+    let g = |swt: f64| cw * swt.powf(n) + lin * swt.powf(n - 1.0) - rhs;
+    if g(1.0) <= 0.0 {
+        return 1.0;
+    }
+    if g(0.0) > 0.0 {
+        return 0.0;
+    }
+    let (mut lo, mut hi) = (0.0f64, 1.0f64);
+    for _ in 0..60 {
+        let mid = 0.5 * (lo + hi);
+        if g(mid) > 0.0 {
             hi = mid;
         } else {
             lo = mid;
@@ -639,11 +690,11 @@ pub fn run_multimin(
         && zs.x_hc.iter().all(|i| !zs.u_hc.contains(i));
     if post_solve {
         if ct_tool_idx.is_none() {
-            return fail("the Indonesia/Simandoux Sw models need the deep-resistivity tool (CT) — add it");
+            return fail("the non-linear Sw models need the deep-resistivity tool (CT) — add it");
         }
         if zs.u_water.is_empty() || zs.u_hc.is_empty() {
             return fail(
-                "the Indonesia/Simandoux Sw models need both a U-zone water and a U-zone hydrocarbon component",
+                "the non-linear Sw models need both a U-zone water and a U-zone hydrocarbon component",
             );
         }
     }
@@ -968,10 +1019,32 @@ pub fn run_multimin(
                 let read_res = |idx: Option<usize>| -> Option<f64> {
                     idx.map(|t| tool_cols[t][i] as f64).filter(|v| v.is_finite() && *v > 0.0)
                 };
-                let sw_of = |rt: f64, phie: f64, rfluid: f64| -> f64 {
+                // Returns the EFFECTIVE water fraction (free water / φe) so the φe redistribution below is
+                // one code path for every model. Indonesia/Simandoux read Rw = 1/cw; the dual-water form
+                // additionally uses the zone's clay-bound-water conductivity `cwb` and solved v_bw.
+                let sw_of = |rt: f64, phie: f64, cw: f64, cwb: f64, v_bw: f64| -> f64 {
                     match model {
-                        SwModel::Indonesia => sw_indonesia(rt, phie, vsh, rfluid, rsh, m_exp, n_exp, a_arch),
-                        SwModel::Simandoux => sw_simandoux(rt, phie, vsh, rfluid, rsh, m_exp, n_exp, a_arch),
+                        SwModel::Indonesia => {
+                            sw_indonesia(rt, phie, vsh, 1.0 / cw.max(1e-9), rsh, m_exp, n_exp, a_arch)
+                        }
+                        SwModel::Simandoux => {
+                            sw_simandoux(rt, phie, vsh, 1.0 / cw.max(1e-9), rsh, m_exp, n_exp, a_arch)
+                        }
+                        SwModel::DualWaterNonlinear => {
+                            // Total-basis dual water: bound-water saturation from the solved v_bw, then
+                            // convert Swt back to a free-water/φe fraction. φe (= φt − v_bw) is preserved,
+                            // so PHIT/PHIE/unity stay as solved and only the water/HC split moves.
+                            let phit = phie + v_bw;
+                            if !(phit > 1e-9) || !(phie > 1e-9) {
+                                return f64::NAN;
+                            }
+                            let swb = (v_bw / phit).clamp(0.0, 1.0);
+                            let swt = sw_dual_nonlinear(rt, phit, swb, cw, cwb, m_exp, n_exp, a_arch);
+                            if !swt.is_finite() {
+                                return f64::NAN;
+                            }
+                            ((swt * phit - v_bw) / phie).clamp(0.0, 1.0)
+                        }
                         SwModel::LinearDw => f64::NAN,
                     }
                 };
@@ -979,7 +1052,8 @@ pub fn run_multimin(
                 let phie_u = zs.u_water.iter().chain(&zs.u_hc).map(|&c| x[c]).sum::<f64>();
                 if phie_u > 1e-6 {
                     if let Some(rt) = read_res(ct_tool_idx) {
-                        let sw = sw_of(rt, phie_u, 1.0 / fc.cw.max(1e-9));
+                        let v_bw_u = zs.u_bw.iter().map(|&c| x[c]).sum::<f64>();
+                        let sw = sw_of(rt, phie_u, fc.cw, fc.cbw_u, v_bw_u);
                         if sw.is_finite() {
                             set_group(&mut x, &zs.u_water, sw * phie_u);
                             set_group(&mut x, &zs.u_hc, (1.0 - sw) * phie_u);
@@ -992,7 +1066,8 @@ pub fn run_multimin(
                     let phie_x = zs.x_water.iter().chain(&zs.x_hc).map(|&c| x[c]).sum::<f64>();
                     if phie_x > 1e-6 {
                         if let Some(rxo) = read_res(cxo_tool_idx) {
-                            let sxo = sw_of(rxo, phie_x, 1.0 / fc.cmf.max(1e-9));
+                            let v_bw_x = zs.x_bw.iter().map(|&c| x[c]).sum::<f64>();
+                            let sxo = sw_of(rxo, phie_x, fc.cmf, fc.cbw_x, v_bw_x);
                             if sxo.is_finite() {
                                 set_group(&mut x, &zs.x_water, sxo * phie_x);
                                 set_group(&mut x, &zs.x_hc, (1.0 - sxo) * phie_x);
@@ -1096,6 +1171,7 @@ pub fn run_multimin(
                 "prefix": prefix,
                 "sw_model": match model {
                     SwModel::LinearDw => "linear_dw",
+                    SwModel::DualWaterNonlinear => "dual_water_nonlinear",
                     SwModel::Indonesia => "indonesia",
                     SwModel::Simandoux => "simandoux",
                 },
@@ -2498,6 +2574,119 @@ mod tests {
             fluid: Some(props),
             recon_qc: false,
             sw_model: SwModel::Indonesia,
+        };
+        let res = run_multimin(&db, &req, None);
+        assert!(res.error.is_none(), "err={:?}", res.error);
+        assert!(res.wells[0].rows_solved > 0, "no samples solved");
+        let c = db.lock().unwrap();
+        let cols = fetch_curve_frame(&c, &wid.to_string(), &["MM_SWE".into(), "MM_PHIE".into()]).unwrap().1;
+        let mean = |v: &[f32]| {
+            let f: Vec<f32> = v.iter().copied().filter(|x| x.is_finite()).collect();
+            assert!(!f.is_empty(), "no finite samples");
+            f.iter().sum::<f32>() / f.len() as f32
+        };
+        let swe = mean(&cols["MM_SWE"]);
+        let phie_out = mean(&cols["MM_PHIE"]);
+        assert!((swe - sw_true as f32).abs() < 0.02, "post-solve SWE {swe}, want {sw_true}");
+        assert!((phie_out - phie as f32).abs() < 0.02, "PHIE {phie_out}, want {phie}");
+    }
+
+    #[test]
+    fn sw_dual_nonlinear_hand_computed_and_conversion() {
+        // Hand-computed NUMERIC LITERAL (independent of the function's own expression) — a coefficient
+        // or exponent slip fails here rather than being confirmed self-referentially.
+        // φt=0.3, Swb=0.2, Cw=2, Cwb=5, m=n=2, a=1, SWT_true=0.6:
+        //   CT = (φt^m·SWT^n/a)·(Cw + (Cwb−Cw)·Swb/SWT) = (0.09·0.36)·(2 + 3·0.2/0.6) = 0.0324·3 = 0.0972
+        //   ⇒ Rt = 1/0.0972 = 10.2880658…
+        let swt = sw_dual_nonlinear(10.2880658436, 0.3, 0.2, 2.0, 5.0, 2.0, 2.0, 1.0);
+        assert!((swt - 0.6).abs() < 1e-4, "dual-water SWT {swt}, want 0.6");
+
+        // The effective conversion the run path applies: v_bw = Swb·φt = 0.06 ⇒ φe = 0.24;
+        // free water = (SWT−Swb)·φt = 0.4·0.3 = 0.12 ⇒ SWE = 0.12/0.24 = 0.5 (hand-computed).
+        let (phit, v_bw): (f64, f64) = (0.3, 0.06);
+        let swe = ((swt * phit - v_bw) / (phit - v_bw)).clamp(0.0, 1.0);
+        assert!((swe - 0.5).abs() < 1e-3, "dual-water SWE {swe}, want 0.5");
+
+        // General n exercises the bisection branch: forward-model CT, invert, recover SWT.
+        let (m, n, a, cw, cwb): (f64, f64, f64, f64, f64) = (1.8, 2.3, 1.0, 1.5, 4.0);
+        let (phit2, swb2, swt2): (f64, f64, f64) = (0.28, 0.15, 0.45);
+        let ct = (phit2.powf(m) * swt2.powf(n) / a) * (cw + (cwb - cw) * swb2 / swt2);
+        let back = sw_dual_nonlinear(1.0 / ct, phit2, swb2, cw, cwb, m, n, a);
+        assert!((back - swt2).abs() < 1e-3, "dual-water general-n round trip {back}, want {swt2}");
+
+        // High conductivity (very low Rt) saturates to SWT = 1; non-physical inputs → NaN.
+        assert!((sw_dual_nonlinear(0.01, 0.3, 0.2, 2.0, 5.0, 2.0, 2.0, 1.0) - 1.0).abs() < 1e-9);
+        assert!(sw_dual_nonlinear(-1.0, 0.3, 0.2, 2.0, 5.0, 2.0, 2.0, 1.0).is_nan());
+        assert!(sw_dual_nonlinear(10.0, 0.0, 0.2, 2.0, 5.0, 2.0, 2.0, 1.0).is_nan());
+        assert!(sw_dual_nonlinear(10.0, 0.3, 0.2, 0.0, 5.0, 2.0, 2.0, 1.0).is_nan());
+        // Sub-linear n<1 (non-physical; would diverge at Swt→0 and silently zero SWE) → NaN, not 0.
+        assert!(sw_dual_nonlinear(4.63, 0.3, 0.2, 2.0, 5.0, 2.0, 0.5, 1.0).is_nan(), "n<1 must be rejected");
+    }
+
+    #[test]
+    fn dual_water_nonlinear_post_solve_recovers_known_sw() {
+        // Same forward model as indonesia_post_solve_recovers_known_sw but sw_model = DualWaterNonlinear.
+        // With no clay/bound-water component Swb=0, so the dual-water form reduces to Archie; a deep Sw
+        // forward-modelled through Archie must come back as SWE, PHIE untouched. Exercises the run-path
+        // wiring (post-solve gate, CT-stays-in inversion, φe redistribution) for the new model.
+        let q = lib_get("Quartz");
+        let wsxo = lib_get("Water Sxo");
+        let osxo = lib_get("Oil Sxo");
+        let wsw = lib_get("Water Sw");
+        let osw = lib_get("Oil Sw");
+        let ep = |c: &Component, k: &str| c.endpoints[&k.to_string()];
+        let (vq, vwx, vox) = (0.70, 0.15, 0.15);
+        let (phie, sw_true, rw): (f64, f64, f64) = (0.30, 0.35, 0.10);
+        let d = (phie.powf(2.0) / (1.0 * rw)).sqrt();
+        let rt = 1.0 / (d * d * sw_true.powf(2.0));
+
+        let n = 6usize;
+        let depth: Vec<f32> = (0..n).map(|i| 2000.0 + i as f32 * 0.5).collect();
+        let mix = |k: &str| (vq * ep(&q, k) + vwx * ep(&wsxo, k) + vox * ep(&osxo, k)) as f32;
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, "MM-DWNL", None, None, None).unwrap();
+        crate::db::insert_standard_curves(
+            &conn,
+            wid,
+            depth,
+            vec![mix("GR"); n],
+            vec![rt as f32; n],
+            vec![mix("NPHI"); n],
+            vec![mix("RHOB"); n],
+            vec![mix("DT"); n],
+            vec![f32::NAN; n],
+        )
+        .unwrap();
+        let db = Mutex::new(conn);
+        let props = FluidProps {
+            rw,
+            rw_temp_f: 100.0,
+            rmf: 0.1,
+            rmf_temp_f: 100.0,
+            ftemp_f: 100.0,
+            m: 2.0,
+            n: 2.0,
+            mud_type: "WATER".into(),
+            rsh: 4.0,
+            archie_a: 1.0,
+        };
+        let req = MultiminRequest {
+            components: vec![q, wsxo, osxo, wsw, osw],
+            tools: vec![
+                ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.0264 },
+                ToolSpec { key: "NPHI".into(), curve: "NPHI".into(), sigma: 0.014 },
+                ToolSpec { key: "DT".into(), curve: "DT".into(), sigma: 1.951 },
+                ToolSpec { key: "GR".into(), curve: "GR".into(), sigma: 6.0 },
+                ToolSpec { key: "CT".into(), curve: "RES_DEEP".into(), sigma: 0.0 },
+            ],
+            apply_well_ids: vec![wid.to_string()],
+            output_prefix: "MM".into(),
+            unity: true,
+            fluid: Some(props),
+            recon_qc: false,
+            sw_model: SwModel::DualWaterNonlinear,
         };
         let res = run_multimin(&db, &req, None);
         assert!(res.error.is_none(), "err={:?}", res.error);
