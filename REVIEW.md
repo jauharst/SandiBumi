@@ -7,6 +7,25 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 19 — SandiMin dialog layout (your field review: run-on-top, tab order, multi-column) (2026-07-23)
+
+Four layout fixes from your image markups, all in `src/ui/multiminDialog.ts` + `src/styles.css`:
+
+- **Run / apply-to-wells on top.** The Apply-to-wells scope, output options, and the **Run** button now
+  sit in a boxed section **above** the parameter tabs, so you launch a run without scrolling past every tab.
+- **Run button is a distinct green** (`#2e7d4f`), set apart from other modules' accent-coloured runs.
+- **Log inputs tab is first** (Log inputs → Minerals → Fluid → Clay) and the pane **opens on Log inputs**.
+- **Minerals / Clays / Fluids lists are multi-column** — they wrap to as many columns as the pane width
+  allows and scroll both ways, instead of one endless single column.
+
+Browser-verified in the live DOM: tab order + default tab, run-section-before-tabs, the green run colour
+(rgb 46,125,79 on white), and the minerals list laying out in 3 columns at a 920-px pane. tsc 0. Nothing
+about the solve changed — this is layout only.
+
+- [ ] **Layout sanity.** Open SandiMin: confirm Run + Apply-to-wells are on top, the Run button is green,
+      Log inputs is the first/active tab, and the Minerals/Clays/Fluids lists show multiple columns
+      (narrow the pane and confirm they reflow / scroll).
+
 ## Round 18 — SandiMin Sw-equation selector on the Fluid tab (your request, increment 3b) (2026-07-23)
 
 The backend from Round 17 is now selectable. The **Fluid tab** has a new **"Sw equation"** dropdown —

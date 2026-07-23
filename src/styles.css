@@ -4106,6 +4106,39 @@ textarea {
   max-height: 220px;
   overflow-y: auto;
 }
+/* Multi-column mineral/clay/fluid selection lists (Jauhar field review 2026-07-23): wrap to as many
+   columns as the pane width allows and scroll both ways — no more one endless single column. */
+.mm-comp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 1px 16px;
+  align-content: start;
+  overflow: auto;
+}
+
+/* Run / apply-to-wells section pinned ABOVE the parameter tabs (Jauhar field review 2026-07-23). */
+.mm-run-section {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel-alt);
+  padding: 8px 10px 10px;
+  margin-bottom: 12px;
+}
+/* SandiMin's Run is a distinct green so it reads apart from other modules' accent-coloured runs. */
+.mm-dialog button.mm-run-btn {
+  background: #2e7d4f;
+  border-color: #2e7d4f;
+  color: #fff;
+  font-weight: 600;
+}
+.mm-dialog button.mm-run-btn:hover {
+  filter: brightness(1.09);
+  color: #fff;
+}
+.mm-dialog button.mm-run-btn:disabled {
+  opacity: 0.55;
+  filter: none;
+}
 
 /* --- P1 interaction safety (Jauhar field review 2026-07-19) ---------------- */
 /* Numeric field armed by a single click: focused but read-only until double-click. */

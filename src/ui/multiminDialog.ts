@@ -115,7 +115,7 @@ function numInput(value: number, width = 64, step = "any"): HTMLInputElement {
  *  groups and the log-input list so the setup tabs never grow into one endless column. */
 function collapsibleGroup(
   title: string,
-  opts: { open?: boolean; scroll?: boolean } = {},
+  opts: { open?: boolean; scroll?: boolean; grid?: boolean } = {},
 ): { root: HTMLElement; body: HTMLElement; count: HTMLElement } {
   const root = document.createElement("div");
   root.className = "mm-collapse";
@@ -131,7 +131,11 @@ function collapsibleGroup(
   count.className = "mm-collapse-count";
   head.append(chevron, label, count);
   const body = document.createElement("div");
-  body.className = opts.scroll ? "mm-collapse-body mm-collapse-scroll" : "mm-collapse-body";
+  // grid → multi-column wrap grid (mineral/clay/fluid lists); scroll → capped height with scroll.
+  const cls = ["mm-collapse-body"];
+  if (opts.scroll) cls.push("mm-collapse-scroll");
+  if (opts.grid) cls.push("mm-comp-grid");
+  body.className = cls.join(" ");
   const setOpen = (o: boolean): void => {
     body.style.display = o ? "" : "none";
     root.classList.toggle("collapsed", !o);
@@ -207,8 +211,9 @@ export async function buildMultiminContent(
     for (const [k, p] of panels) p.style.display = k === id ? "" : "none";
     for (const [k, b] of tabBtns) b.classList.toggle("active", k === id);
   }
-  const mineralsPanel = addTab("minerals", "Minerals");
+  // Log inputs first (Jauhar field review): you pick the curves before the mineral model.
   const logsPanel = addTab("logs", "Log inputs");
+  const mineralsPanel = addTab("minerals", "Minerals");
   const fluidPanel = addTab("fluid", "Fluid");
   const clayPanel = addTab("clay", "Clay");
 
@@ -262,8 +267,9 @@ export async function buildMultiminContent(
   for (const kind of ["mineral", "clay", "fluid"]) {
     const members = library.filter((c) => c.kind === kind);
     if (members.length === 0) continue;
-    // Minerals open by default; clays/fluids start collapsed so the tab opens compact.
-    const grp = collapsibleGroup(KIND_LABEL[kind], { open: kind === "mineral", scroll: true });
+    // Minerals open by default; clays/fluids start collapsed so the tab opens compact. Multi-column
+    // grid so the lists wrap to pane width (scroll both ways) instead of one endless column.
+    const grp = collapsibleGroup(KIND_LABEL[kind], { open: kind === "mineral", scroll: true, grid: true });
     for (const c of members) {
       const row = document.createElement("label");
       row.className = "mm-comp-row";
@@ -827,20 +833,20 @@ export async function buildMultiminContent(
   }
   renderTable();
 
-  // Start on the Minerals tab now that every panel is populated.
-  showTab("minerals");
+  // Start on the Log inputs tab now that every panel is populated.
+  showTab("logs");
 
-  // --- Wells + options (persistent footer, below the tabs) ------------------
-  // Scope selector (group / ★ pinned / selection / all) instead of a per-well checklist —
-  // a 2000-well field can't be ticked one at a time.
-  const footHr = document.createElement("div");
-  footHr.className = "mm-foot-sep";
-  content.appendChild(footHr);
+  // --- Wells + options + Run (persistent section, ABOVE the tabs) -----------
+  // Jauhar field review: the apply-wells + Run controls sit on TOP so a run launches without
+  // scrolling past every parameter tab. Scope selector (group / ★ pinned / selection / all)
+  // instead of a per-well checklist — a 2000-well field can't be ticked one at a time.
+  const runSection = document.createElement("div");
+  runSection.className = "mm-run-section";
   const wellsHead = document.createElement("div");
   wellsHead.className = "mm-group-head";
   wellsHead.textContent = "Apply to wells";
-  content.appendChild(wellsHead);
-  content.appendChild(scope.el);
+  runSection.appendChild(wellsHead);
+  runSection.appendChild(scope.el);
 
   const optsRow = document.createElement("div");
   optsRow.className = "mm-tool-row";
@@ -866,19 +872,21 @@ export async function buildMultiminContent(
   optsRow.appendChild(prefixInp);
   optsRow.appendChild(unityLab);
   optsRow.appendChild(reconLab);
-  content.appendChild(optsRow);
+  runSection.appendChild(optsRow);
 
-  // --- Run ------------------------------------------------------------------
+  // --- Run (distinct SandiMin-green button, set apart from other modules' accent runs) -------
   const runRow = document.createElement("div");
   runRow.className = "mc-run-row";
   const runBtn = document.createElement("button");
   runBtn.type = "button";
-  runBtn.classList.add("primary");
+  runBtn.classList.add("primary", "mm-run-btn");
   runBtn.textContent = "Run";
   runRow.appendChild(runBtn);
   const resultBox = document.createElement("div");
-  content.appendChild(runRow);
-  content.appendChild(resultBox);
+  runSection.appendChild(runRow);
+  runSection.appendChild(resultBox);
+  // Pin the whole run section above the parameter tabs.
+  content.insertBefore(runSection, tabBar);
   // Cleanup for the reconstruction-QC canvas's resize observer (replaced each run).
   let detachRecon: (() => void) | null = null;
 
