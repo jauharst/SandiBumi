@@ -94,6 +94,8 @@ pub enum SwModel {
     /// Clavier-Coates-Dumanoir dual-water, exact form honouring m and n separately (Newton form
     /// solved by bisection). Post-solve; the bound-water saturation comes from the solved v_bw.
     DualWaterNonlinear,
+    /// Archie (1942) clean-sand, total-porosity form. Post-solve; ignores the clay conductivity term.
+    Archie,
     /// Poupon-Leveaux "Indonesia" (1971), effective-porosity form. Non-linear in Sw, post-solve.
     Indonesia,
     /// Modified Simandoux (Bardon-Pied), effective-porosity form. Non-linear in Sw, post-solve.
@@ -101,9 +103,10 @@ pub enum SwModel {
 }
 
 impl SwModel {
-    /// The non-linear forms replace the in-inversion conductivity row with a post-solve Sw.
+    /// Every model except the default linearised dual-water replaces the in-inversion conductivity row
+    /// with a post-solve Sw computed from the solved volumes.
     fn is_post_solve(self) -> bool {
-        matches!(self, SwModel::DualWaterNonlinear | SwModel::Indonesia | SwModel::Simandoux)
+        !matches!(self, SwModel::LinearDw)
     }
 }
 
@@ -213,6 +216,18 @@ pub fn sw_dual_nonlinear(rt: f64, phit: f64, swb: f64, cw: f64, cwb: f64, m: f64
         }
     }
     (0.5 * (lo + hi)).clamp(0.0, 1.0)
+}
+
+/// Archie (1942) clean-sand TOTAL water saturation — no shale term:
+///   Swt = ( a·Rw / (φt^m · Rt) )^(1/n)
+/// The exactly-invertible base case (so there is no separate "linear/non-linear" Archie). Rw at
+/// formation temperature. Returns SWT∈[0,1]; NaN on non-physical inputs.
+pub fn sw_archie(rt: f64, phit: f64, rw: f64, m: f64, n: f64, a: f64) -> f64 {
+    if !(rt > 0.0) || !(phit > 0.0) || !(rw > 0.0) || !(n > 0.0) {
+        return f64::NAN;
+    }
+    let a = a.max(1e-9);
+    ((a * rw) / (phit.powf(m) * rt)).powf(1.0 / n).clamp(0.0, 1.0)
 }
 
 /// Fluid / saturation parameters (needed when CT or CXO participates).
@@ -1045,6 +1060,19 @@ pub fn run_multimin(
                             }
                             ((swt * phit - v_bw) / phie).clamp(0.0, 1.0)
                         }
+                        SwModel::Archie => {
+                            // Clean-sand Archie on total porosity, then free-water/φe (same conversion as
+                            // dual water; the total water Swt·φt includes the solved v_bw as bound water).
+                            let phit = phie + v_bw;
+                            if !(phit > 1e-9) || !(phie > 1e-9) {
+                                return f64::NAN;
+                            }
+                            let swt = sw_archie(rt, phit, 1.0 / cw.max(1e-9), m_exp, n_exp, a_arch);
+                            if !swt.is_finite() {
+                                return f64::NAN;
+                            }
+                            ((swt * phit - v_bw) / phie).clamp(0.0, 1.0)
+                        }
                         SwModel::LinearDw => f64::NAN,
                     }
                 };
@@ -1172,6 +1200,7 @@ pub fn run_multimin(
                 "sw_model": match model {
                     SwModel::LinearDw => "linear_dw",
                     SwModel::DualWaterNonlinear => "dual_water_nonlinear",
+                    SwModel::Archie => "archie",
                     SwModel::Indonesia => "indonesia",
                     SwModel::Simandoux => "simandoux",
                 },
@@ -2621,6 +2650,24 @@ mod tests {
         assert!(sw_dual_nonlinear(10.0, 0.3, 0.2, 0.0, 5.0, 2.0, 2.0, 1.0).is_nan());
         // Sub-linear n<1 (non-physical; would diverge at Swt→0 and silently zero SWE) → NaN, not 0.
         assert!(sw_dual_nonlinear(4.63, 0.3, 0.2, 2.0, 5.0, 2.0, 0.5, 1.0).is_nan(), "n<1 must be rejected");
+    }
+
+    #[test]
+    fn sw_archie_hand_computed() {
+        // Hand-computed literals: Swt = (a·Rw/(φt^m·Rt))^(1/n).
+        // φt=0.2, Rw=0.1, m=n=2, a=1 ⇒ Swt²=0.1/(0.04·Rt); Rt=10 ⇒ Swt²=0.25 ⇒ Swt=0.5.
+        assert!((sw_archie(10.0, 0.2, 0.1, 2.0, 2.0, 1.0) - 0.5).abs() < 1e-9, "Archie n=2");
+        // n=3: Swt³=0.1/(0.04·Rt); Rt=20 ⇒ Swt³=0.125 ⇒ Swt=0.5.
+        assert!((sw_archie(20.0, 0.2, 0.1, 2.0, 3.0, 1.0) - 0.5).abs() < 1e-9, "Archie n=3");
+        // Clean 100% water (very low Rt) clamps to 1; non-physical inputs → NaN.
+        assert!((sw_archie(0.01, 0.2, 0.1, 2.0, 2.0, 1.0) - 1.0).abs() < 1e-9);
+        assert!(sw_archie(-1.0, 0.2, 0.1, 2.0, 2.0, 1.0).is_nan());
+        assert!(sw_archie(10.0, 0.0, 0.1, 2.0, 2.0, 1.0).is_nan());
+        assert!(sw_archie(10.0, 0.2, 0.0, 2.0, 2.0, 1.0).is_nan());
+        // Archie ≡ Indonesia with Vsh=0 (both reduce to the clean-sand power law).
+        let arch = sw_archie(15.0, 0.22, 0.08, 2.0, 2.0, 1.0);
+        let indo0 = sw_indonesia(15.0, 0.22, 0.0, 0.08, 4.0, 2.0, 2.0, 1.0);
+        assert!((arch - indo0).abs() < 1e-9, "Archie vs Indonesia(Vsh=0): {arch} vs {indo0}");
     }
 
     #[test]

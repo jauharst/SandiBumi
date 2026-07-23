@@ -7,6 +7,22 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 21 — SandiMin Archie (clean-sand) Sw + deduplicated menu decision (2026-07-23)
+
+You chose the **deduplicated** Sw menu (one entry per distinct model). First of the remaining ones:
+**Archie (clean sand)** — `Sw = (a·Rw/(φt^m·Rt))^(1/n)`, no shale term. It's the exactly-invertible
+baseline (so there's no separate "Archie linear/nonlinear" — they'd be identical). Runs post-solve like
+the others: PHIE/PHIT/unity preserved, only the water/HC split moves; on shaly sand it reads
+optimistically high (by design — it's the baseline the shaly-sand forms correct). Tests: hand-computed
+literals at n=2 and n=3, clamp/NaN guards, and a check that Archie ≡ Indonesia with Vsh=0. cargo + tsc clean.
+
+Menu now: Linear dual-water (default) · Dual-water non-linear · **Archie** · Indonesia · Simandoux.
+Still to come: **Waxman-Smits** (dry BQv, Waxman-Thomas B default) and **Juhasz / Normalized-Qv**
+(wet-param — brings in the wet-clay-porosity input that also feeds the image-2 porosity-source toggle).
+
+- [ ] **Archie baseline.** On a clean water/HC sand, confirm Archie SWE matches your quick-look Archie;
+      on a shaly interval, confirm it reads higher than Simandoux/Indonesia (the expected over-estimate).
+
 ## Round 20 — SandiMin non-linear dual-water Sw (the 4th model you picked) (2026-07-23)
 
 The **non-linear dual-water** you asked me to continue is now in the Fluid-tab "Sw equation" dropdown as

@@ -403,6 +403,7 @@ export async function buildMultiminContent(
   const SW_OPTIONS: [SwModel, string][] = [
     ["linear_dw", "Linear dual-water (default)"],
     ["dual_water_nonlinear", "Dual-water non-linear (m, n separate)"],
+    ["archie", "Archie (clean sand)"],
     ["indonesia", "Indonesia (Poupon-Leveaux)"],
     ["simandoux", "Simandoux (modified)"],
   ];
@@ -437,8 +438,9 @@ export async function buildMultiminContent(
     const val = swModelSel.value;
     // Rsh + Archie a are the shaly-sand (wet-shale) inputs — only Indonesia/Simandoux use them.
     const shalySand = val === "indonesia" || val === "simandoux";
-    // All non-linear forms run post-solve and share the note; only the shaly-sand ones show the extras.
-    const post = shalySand || val === "dual_water_nonlinear";
+    // Every model except linear dual-water runs post-solve and shares the note; only the shaly-sand
+    // (wet-shale) ones show the Rsh/Archie-a extras.
+    const post = val !== "linear_dw";
     swExtra.style.display = shalySand ? "" : "none";
     swNote.style.display = post ? "" : "none";
     if (val === "dual_water_nonlinear") {
@@ -447,6 +449,11 @@ export async function buildMultiminContent(
         "for Sw honouring m and n separately (not folded into w). The bound-water saturation comes from the " +
         "solved bound-water volume and the clay-bound-water conductivity from formation temperature, so it " +
         "needs a CT tool + a U-zone hydrocarbon component (bound water optional). PHIE/PHIT stay exactly as solved.";
+    } else if (val === "archie") {
+      swNote.textContent =
+        "Post-solve, clean-sand Archie: Sw = (a·Rw/(φt^m·Rt))^(1/n) with NO shale term — it ignores clay " +
+        "conductivity, so on shaly sand it reads optimistically high (that's the baseline the shaly-sand " +
+        "forms correct). Needs a CT tool + a U-zone hydrocarbon component. PHIE/PHIT stay exactly as solved.";
     } else if (shalySand) {
       const name = val === "indonesia" ? "Indonesia (Poupon-Leveaux)" : "modified Simandoux";
       swNote.textContent =
