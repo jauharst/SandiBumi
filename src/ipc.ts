@@ -311,20 +311,25 @@ export function savePlotPdf(destPath: string, content: string, widthPt: number, 
 
 /** A free-form net-reservoir polygon drawn on a crossplot: vertices in DATA space (axis order),
  *  the axes' log flags, and the output curve name. Inside → 1, outside → 0, undefined → NaN. */
+/** Field names are snake_case because they cross the wire into `netflag.rs`'s serde structs,
+ *  which carry no `rename_all` — same convention as every other DTO here (see LorenzResult,
+ *  ZoneParamEntry, HighlightEntry). Tauri camel-cases only the top-level command ARGUMENT key
+ *  (`{ spec }`), never the fields inside it; `rename_all` is used only on enums, for their
+ *  string tag values. `netflag.rs` has a test that reads this interface and fails on drift. */
 export interface NetFlagSpec {
-  wellId: string;
-  xCurve: string;
-  yCurve: string;
-  xLog: boolean;
-  yLog: boolean;
+  well_id: string;
+  x_curve: string;
+  y_curve: string;
+  x_log: boolean;
+  y_log: boolean;
   polygon: [number, number][];
-  outputCurve: string;
-  depthTop: number | null;
-  depthBottom: number | null;
+  output_curve: string;
+  depth_top: number | null;
+  depth_bottom: number | null;
 }
 
 export interface NetFlagResult {
-  outputCurve: string;
+  output_curve: string;
   inside: number;
   evaluated: number;
   written: number;

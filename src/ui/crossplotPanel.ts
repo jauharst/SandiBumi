@@ -1446,20 +1446,20 @@ export async function buildCrossplotContent(
       }
       const z = zoneSel.current();
       const spec: NetFlagSpec = {
-        wellId: well.well_id,
-        xCurve: xSel.value,
-        yCurve: ySel.value,
-        xLog: opts.xLog,
-        yLog: opts.yLog,
+        well_id: well.well_id,
+        x_curve: xSel.value,
+        y_curve: ySel.value,
+        x_log: opts.xLog,
+        y_log: opts.yLog,
         polygon: lasso.pts.map(([x, y]) => [x, y] as [number, number]),
-        outputCurve: name,
-        depthTop: z.depthMin,
-        depthBottom: z.depthMax,
+        output_curve: name,
+        depth_top: z.depthMin,
+        depth_bottom: z.depthMax,
       };
       go.disabled = true;
       void runNetFlag(spec)
         .then((res) => {
-          setStatus(`Net flag ${res.outputCurve}: ${res.inside} / ${res.evaluated} samples net (${res.written} written)`);
+          setStatus(`Net flag ${res.output_curve}: ${res.inside} / ${res.evaluated} samples net (${res.written} written)`);
           bumpDataVersion(); // refresh selectors / log views / other plots so the new curve shows up
           setLassoActive(false);
           close();

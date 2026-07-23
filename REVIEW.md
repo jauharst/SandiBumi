@@ -7,6 +7,49 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 58 — R1: the net-flag polygon actually works now (2026-07-24)
+
+**Correction to Round 47.** The flag-polygon feature has never worked — not once, since it shipped
+in `a4e05e9`. `NetFlagSpec` was declared in **camelCase** in `ipc.ts` while `netflag.rs` expects
+**snake_case**, so `run_net_flag` could not deserialize a single request; `NetFlagResult` had the
+same slip in the other direction, so the status line read `undefined`. I marked Round 47 verified
+on the strength of a frontend twin-count check that never crossed the wire. That was the gap:
+the lasso's live in-polygon count is computed in the browser, so it agreed with itself perfectly
+while the backend was rejecting every call.
+
+Found by the F1c pass of the engineering review (`docs/review_sweep/F1.md`), then confirmed by
+hand against both files before touching anything.
+
+**The fix went into TypeScript, not Rust.** Struct DTOs cross this wire in snake_case — Tauri
+camel-cases only the top-level command *argument* key (`{ spec }`), never the fields inside it,
+and `rename_all` is used in this codebase only on enums for their string tag values. Every other
+DTO already follows that (LorenzResult, ZoneParamEntry, HighlightEntry). NetFlag's TS was the
+outlier, so adding `rename_all` to the Rust would have made it the one struct with a different
+wire shape.
+
+Three tests now hold the contract, because a Rust-only serde test cannot see `ipc.ts` — and the
+two sides disagreeing *while each was internally consistent* is exactly what happened:
+
+- the spec deserializes from the **literal JSON `crossplotPanel.ts` sends**, and the old camelCase
+  shape is asserted to be **rejected** rather than half-parsed into defaults;
+- the result serializes under the names the status line reads;
+- a **cross-language** test reads the real `src/ipc.ts`, extracts both interfaces, and fails on
+  drift. I proved it fires by regressing `ipc.ts` back to the shipped-broken shape and watching it
+  fail, then reverting.
+
+`NetFlagSpec` also gained `deny_unknown_fields`, so a TS field Rust doesn't know now fails loudly
+instead of being silently dropped — the silent direction of the same class.
+
+cargo **362/0/7**, tsc + build clean.
+
+- [ ] **Try:** open a Crossplot on a well with PHIE/RHOB, draw a lasso polygon around the clean-sand
+  cloud, **Write Net Flag** with a name like `NET_TEST`. Before this fix the button did nothing and
+  the status line said `Net flag failed: …`. It should now report
+  `Net flag NET_TEST: <n> / <m> samples net (<k> written)` with a real curve name, and `NET_TEST`
+  should appear in the Curve Catalog and plot as a 0/1 track in the log view. Check the count
+  against the lasso's own live in-polygon readout — those two numbers agreeing is the thing that
+  was never actually tested.
+
 ## Round 57 — SandiMin: RMS vs core (2026-07-24)
 
 Closes the second first-half residual (playbook #2). RECON/incoherence only says the model

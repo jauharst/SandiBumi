@@ -13,7 +13,12 @@ use crate::equations;
 use duckdb::Connection;
 use serde::{Deserialize, Serialize};
 
+// `deny_unknown_fields` so a TypeScript field this struct does not know fails loudly instead of
+// being silently dropped — the silent direction of the camelCase break that made this whole
+// feature a no-op. There is no `rename_all` here on purpose: struct DTOs cross the wire in
+// snake_case (Tauri camel-cases only the top-level command argument key, not nested fields).
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NetFlagSpec {
     pub well_id: String,
     pub x_curve: String,
@@ -187,6 +192,122 @@ mod tests {
         assert!(!point_in_polygon(5.0, 2.0, &notched), "right of the polygon → outside");
         // Degenerate rings are never "inside".
         assert!(!point_in_polygon(0.0, 0.0, &[(0.0, 0.0), (1.0, 1.0)]));
+    }
+
+    /// Guards the wire itself, not the maths. The flag-polygon feature shipped broken because
+    /// `ipc.ts` declared this struct in camelCase while serde expects the snake_case field names
+    /// below, and nothing ever exercised the boundary — the original increment verified a
+    /// frontend twin-count that never crossed into Rust, so `run_net_flag` could not deserialize
+    /// a single request. The JSON literal here is what `crossplotPanel.ts` actually sends; if the
+    /// two sides drift again, this fails instead of the feature silently doing nothing.
+    #[test]
+    fn spec_deserializes_from_the_exact_json_the_frontend_sends() {
+        let sent = r#"{
+            "well_id": "W-1",
+            "x_curve": "NPHI",
+            "y_curve": "RHOB",
+            "x_log": false,
+            "y_log": true,
+            "polygon": [[0.1, 2.4], [0.3, 2.4], [0.3, 2.7]],
+            "output_curve": "NET_FLAG",
+            "depth_top": 2000.0,
+            "depth_bottom": 2050.0
+        }"#;
+        let spec: NetFlagSpec = serde_json::from_str(sent).expect("frontend JSON must deserialize");
+        assert_eq!(spec.well_id, "W-1");
+        assert_eq!(spec.x_curve, "NPHI");
+        assert_eq!(spec.y_curve, "RHOB");
+        assert!(!spec.x_log && spec.y_log, "both axis flags survive the wire independently");
+        assert_eq!(spec.polygon.len(), 3);
+        assert_eq!(spec.polygon[2], (0.3, 2.7));
+        assert_eq!(spec.output_curve, "NET_FLAG");
+        assert_eq!(spec.depth_top, Some(2000.0));
+        assert_eq!(spec.depth_bottom, Some(2050.0));
+
+        // camelCase is what shipped and what must NOT be accepted: `well_id` carries no
+        // serde(default), so the whole request fails rather than silently defaulting.
+        let camel = r#"{"wellId":"W-1","xCurve":"NPHI","yCurve":"RHOB","polygon":[[0.0,0.0]],
+                        "outputCurve":"NET_FLAG"}"#;
+        assert!(
+            serde_json::from_str::<NetFlagSpec>(camel).is_err(),
+            "camelCase must be rejected, not half-parsed into defaults"
+        );
+
+        // A zone-less run omits the depth window entirely (serde(default) → None), which is the
+        // whole-well path; it must still parse.
+        let no_window = r#"{"well_id":"W-1","x_curve":"NPHI","y_curve":"RHOB",
+                            "polygon":[[0.0,0.0],[1.0,0.0],[1.0,1.0]],"output_curve":"NF"}"#;
+        let w: NetFlagSpec = serde_json::from_str(no_window).expect("whole-well request parses");
+        assert_eq!((w.depth_top, w.depth_bottom), (None, None));
+        assert!(!w.x_log && !w.y_log, "omitted axis flags default to linear");
+    }
+
+    /// The mirror of the above: the result must reach the status line under the names `ipc.ts`
+    /// reads. `res.outputCurve` rendered "undefined" for the same reason.
+    #[test]
+    fn result_serializes_under_the_names_the_frontend_reads() {
+        let json = serde_json::to_value(NetFlagResult {
+            output_curve: "NET_FLAG".into(),
+            inside: 7,
+            evaluated: 10,
+            written: 12,
+        })
+        .expect("result serializes");
+        let obj = json.as_object().expect("an object");
+        let mut keys: Vec<&str> = obj.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["evaluated", "inside", "output_curve", "written"]);
+        assert_eq!(obj["output_curve"], "NET_FLAG");
+    }
+
+    /// The canonical wire contract, stated once. Both sides are asserted against it below, so a
+    /// rename on either side fails a test instead of silently disabling the feature.
+    const SPEC_FIELDS: [&str; 9] = [
+        "depth_bottom", "depth_top", "output_curve", "polygon",
+        "well_id", "x_curve", "x_log", "y_curve", "y_log",
+    ];
+    const RESULT_FIELDS: [&str; 4] = ["evaluated", "inside", "output_curve", "written"];
+
+    /// Pull the field names out of an interface in the real `src/ipc.ts`.
+    fn ts_interface_fields(src: &str, iface: &str) -> Vec<String> {
+        let head = format!("export interface {iface} {{");
+        let at = src
+            .find(&head)
+            .unwrap_or_else(|| panic!("`{iface}` is no longer declared in ipc.ts"));
+        let body = &src[at + head.len()..];
+        let end = body.find("\n}").expect("unterminated interface in ipc.ts");
+        let mut out: Vec<String> = body[..end]
+            .lines()
+            .map(str::trim)
+            .filter(|l| !(l.is_empty() || l.starts_with("//") || l.starts_with('*') || l.starts_with("/*")))
+            .filter_map(|l| l.split(':').next().map(|n| n.trim().trim_end_matches('?').to_string()))
+            .filter(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
+            .collect();
+        out.sort_unstable();
+        out
+    }
+
+    /// Cross-LANGUAGE guard. The serde tests above pin the Rust side, but they cannot see
+    /// `ipc.ts` — and the defect was precisely that the two sides disagreed while each was
+    /// internally consistent. This reads the actual frontend source and compares the declared
+    /// field names against the same contract serde is held to.
+    #[test]
+    fn ipc_ts_declares_the_same_wire_names_as_the_rust_structs() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/ipc.ts");
+        let src = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+
+        assert_eq!(
+            ts_interface_fields(&src, "NetFlagSpec"),
+            SPEC_FIELDS,
+            "ipc.ts NetFlagSpec drifted from the Rust wire names — run_net_flag would stop \
+             deserializing and the feature would silently do nothing"
+        );
+        assert_eq!(
+            ts_interface_fields(&src, "NetFlagResult"),
+            RESULT_FIELDS,
+            "ipc.ts NetFlagResult drifted — the status line would render `undefined`"
+        );
     }
 
     fn seed(conn: &Connection) -> String {
