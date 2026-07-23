@@ -3377,6 +3377,24 @@ textarea {
 .mc-dist-sel {
   flex: 0 0 auto;
 }
+/* Provenance badge: this row's default width came from the IP MonteCarloDefaults.par seed table
+   (docs/ref_monte_carlo_seeds.md) rather than the generic magnitude heuristic. */
+.mc-seed-tag {
+  flex: 0 0 auto;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 3px;
+  opacity: 0.85;
+  cursor: help;
+}
+/* Unseeded row: hold the column so the distribution fields stay aligned down the list. */
+.mc-seed-tag-off {
+  visibility: hidden;
+}
 .mc-dist-fields {
   display: flex;
   gap: 6px;

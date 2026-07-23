@@ -52,6 +52,55 @@ interface ParamCandidate {
   desc: string;
 }
 
+/** One imported default uncertainty width. `pct` → the width is a percentage of the parameter's
+ *  own value (IP "%" shift); otherwise it is absolute, in the parameter's own unit (IP "Linear"). */
+interface McSeed {
+  w: number;
+  pct: boolean;
+}
+
+/** Per-parameter Monte Carlo widths seeded from IP's `MonteCarloDefaults.par` (Tier-A import —
+ *  provenance, mapping table and the adopted σ reading live in `docs/ref_monte_carlo_seeds.md`).
+ *  Only the VSH / porosity / saturation parameters that map 1:1 onto a SandiBumi module argument
+ *  are imported; everything else falls back to the generic width heuristic in `distDefaults`.
+ *  The point is the *units*: a matrix density deserves ±0.03 g/cc, not ±10% of 2.645. */
+const IP_MC_SEEDS: Record<string, McSeed> = {
+  A: { w: 0.1, pct: false }, // a factor
+  M: { w: 0.2, pct: false }, // m exponent
+  N: { w: 0.2, pct: false }, // n exponent
+  RW: { w: 20, pct: true }, // Rw
+  RT_SH: { w: 20, pct: true }, // Res Clay
+  GR_MA: { w: 10, pct: false }, // Gr Clean
+  GR_SH: { w: 10, pct: false }, // Gr Clay
+  RHO_MA: { w: 0.03, pct: false }, // Rho Matrix
+  RHO_FL: { w: 0.02, pct: false }, // Rho Fluid
+  RHO_SH: { w: 0.05, pct: false }, // Rho Clay
+  RHO_DSH: { w: 0.1, pct: false }, // Rho Dry Clay
+  NPHI_SH: { w: 0.05, pct: false }, // Neu Clay
+};
+
+/** The seeded width for `param` at central value `d`, or NaN when it has no seed (or a `%` seed
+ *  resolved against a zero value, which would collapse the row to a point mass). */
+function seedWidth(param: string | undefined, d: number): number {
+  const s = param ? IP_MC_SEEDS[param] : undefined;
+  if (!s) return NaN;
+  const w = s.pct ? (Math.abs(d) * s.w) / 100 : s.w;
+  return w > 0 ? w : NaN;
+}
+
+/** The muted `IP` badge marking a row whose width came from the Tier-A table. Always rendered —
+ *  an unseeded row keeps an invisible placeholder so the distribution fields stay column-aligned
+ *  with the seeded rows above and below it. */
+function seedTag(param: string): HTMLElement {
+  const s = document.createElement("span");
+  s.className = IP_MC_SEEDS[param] ? "mc-seed-tag" : "mc-seed-tag mc-seed-tag-off";
+  s.textContent = "IP";
+  if (IP_MC_SEEDS[param]) {
+    s.title = "Default width seeded from IP MonteCarloDefaults.par (Tier-A) — see docs/ref_monte_carlo_seeds.md";
+  }
+  return s;
+}
+
 /** User-tweakable look of the HPV histogram (the ⚙ properties panel). `barColor`/height blank →
  *  fall back to the theme accent / CSS default, so a fresh run tracks the active theme. */
 interface HistOptions {
@@ -177,18 +226,23 @@ export async function buildMonteCarloContent(
   });
 
   /** Sensible [a, b, c] for a parameter's central value under a given distribution:
-   *  normal → [mean, sd]; uniform → [lo, hi]; triangular → [lo, mode, hi]. */
-  function distDefaults(d0: number, kind: DistKind): [number, number, number] {
+   *  normal → [mean, sd]; uniform → [lo, hi]; triangular → [lo, mode, hi].
+   *  `param` (when it has an IP_MC_SEEDS entry) supplies the width in the parameter's own units —
+   *  σ for normal, the half-range otherwise. Unseeded parameters keep the generic width off the
+   *  value's magnitude, floored so a zero-valued default still spreads. */
+  function distDefaults(d0: number, kind: DistKind, param?: string): [number, number, number] {
     const d = Number.isFinite(d0) ? d0 : 0;
-    const spread = Math.max(Math.abs(d) * 0.1, 0.01);
-    const wide = Math.max(Math.abs(d) * 0.2, 0.02);
+    const seeded = seedWidth(param, d);
+    const has = Number.isFinite(seeded);
+    const spread = has ? seeded : Math.max(Math.abs(d) * 0.1, 0.01);
+    const wide = has ? seeded : Math.max(Math.abs(d) * 0.2, 0.02);
     if (kind === "normal") return [d, spread, d + spread];
     if (kind === "uniform") return [d - wide, d + wide, d + wide];
     return [d - wide, d, d + wide]; // triangular: lo, mode, hi
   }
 
   function defaultRow(c: ParamCandidate): McRow {
-    const [a, b, cc] = distDefaults(c.default, "normal");
+    const [a, b, cc] = distDefaults(c.default, "normal", c.name);
     return { param: c.name, kind: "normal", a, b, c: cc, zone: "" };
   }
 
@@ -247,7 +301,7 @@ export async function buildMonteCarloContent(
       paramSel.addEventListener("change", () => {
         row.param = paramSel.value;
         const c = candidateFor(row.param);
-        [row.a, row.b, row.c] = distDefaults(c?.default ?? 0, row.kind);
+        [row.a, row.b, row.c] = distDefaults(c?.default ?? 0, row.kind, row.param);
         renderMcRows();
       });
 
@@ -263,7 +317,7 @@ export async function buildMonteCarloContent(
       kindSel.addEventListener("change", () => {
         row.kind = kindSel.value as DistKind;
         const c = candidateFor(row.param);
-        [row.a, row.b, row.c] = distDefaults(c?.default ?? row.a, row.kind);
+        [row.a, row.b, row.c] = distDefaults(c?.default ?? row.a, row.kind, row.param);
         renderMcRows();
       });
 
@@ -296,7 +350,7 @@ export async function buildMonteCarloContent(
       });
       rm.classList.add("mc-rm");
 
-      el.append(paramSel, kindSel, fields, spark.el, zoneInp, rm);
+      el.append(paramSel, kindSel, seedTag(row.param), fields, spark.el, zoneInp, rm);
       mcList.appendChild(el);
     });
     renderCorrRows(); // param renames/removals must reflect in the correlation editor

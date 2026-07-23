@@ -7,6 +7,41 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 56 — Monte Carlo: per-parameter uncertainty widths seeded from IP (2026-07-24)
+
+Closes a first-half residual (playbook #1). Until now, adding an uncertain parameter gave it a
+**generic** width — 10% of its own value as the normal σ, 20% as the uniform/triangular half-range.
+That is wrong whenever the parameter isn't naturally relative: **RHO_MA = 2.645** was getting
+σ = **0.26 g/cc** (a ±10% matrix density — about **9× too wide** against the ±0.03 convention), and
+**GR_SH = 120** was getting σ = 12 API where the field convention is ±10.
+
+Defaults now come from a table imported from IP's `MonteCarloDefaults.par` (Tier-A), so each
+parameter gets a width **in its own units**: `M`/`N` ±0.2, `A` ±0.1, `GR_MA`/`GR_SH` ±10 API,
+`RHO_MA` ±0.03, `RHO_FL` ±0.02, `RHO_SH` ±0.05, `RHO_DSH` ±0.1, `NPHI_SH` ±0.05, and the two
+resistivities `RW`/`RT_SH` as **±20% of their value** (they *are* naturally relative). A muted **IP**
+badge on the row marks a seeded width — hover it for the source. Anything unseeded (`C`, `SWE_IRR`,
+`PHIE_MAX`, …) keeps the old generic width exactly as before. Widths stay fully editable — this only
+changes what a **freshly added** row starts at.
+
+Provenance, the mapping table, and the σ reading adopted (the tabulated shift is taken as **one
+standard deviation**; IP's file doesn't state its percentile convention, so this is SandiBumi's
+documented choice, not a claim of matching IP run-for-run) are banked in
+`docs/ref_monte_carlo_seeds.md`.
+
+**Try:** open **Monte Carlo** on the default chain (VSH → Porosity → SW-Indo). (1) **+ Add uncertain
+parameter** and pick **RHO_MA** → confirm the **std dev** reads **0.03** (not 0.26) and an **IP**
+badge sits on the row; hover the badge for the source. (2) Add **M** → σ **0.2**; add **GR_SH** → σ
+**10**; add **RW** → σ **0.02** (= 20% of 0.1). (3) Switch one of them to **triangular** → confirm
+min/mode/max straddle the value by that same width (M → 1.8 / 2.0 / 2.2) and the sparkline redraws.
+(4) Pick a parameter with **no** badge (e.g. **SWE_IRR**) → confirm it still gets the old generic
+width, and that its fields stay column-aligned with the badged rows. (5) Run it and confirm the
+tornado still reads sensibly — the point of the change is that the P10/P90 spread is now built on
+priors with the right units. (Verified: tsc + production build clean, MC dialog still a lazy chunk,
+main bundle unchanged; a headless check evaluates the real source's seed table and width maths — 36
+assertions, all pass — including that every unseeded parameter's fallback is byte-identical to the
+old behaviour and that a % seed on a zero value degrades to the floor instead of collapsing the row
+to a point mass. No Rust changed.)
+
 ## Round 55 — Vega-Lite interactive charts, V5: density + trend overlay (2026-07-24)
 
 Builds on V4 (Round 54). The capstone adds two analytical modes:
