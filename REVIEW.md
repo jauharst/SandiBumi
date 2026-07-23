@@ -7,6 +7,36 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 35 — Autocorrelate #5 inc 3: the dialog — warp toggle, multi-select, per-marker review (2026-07-23)
+
+Third increment — the UI that makes inc 1/2 usable. The **Autocorrelate** pane is rewritten:
+
+- **Tops are now a checkbox list** (with an **All** toggle): tick **one** top to correlate a single marker,
+  or **several** to propagate a consistent set together. The run button tracks it — "Correlate 2 wells"
+  vs "Correlate 3 tops → 2 wells".
+- **Method** dropdown — **Rigid shift (fast)** or **Elastic warp** — wired to inc 1/2's `method`. The
+  **Max stretch ×** control appears only for warp; the **Window ±** control appears only for a single top
+  (multi derives its window from marker spacing).
+- **Per-marker review** — single mode shows a well×proposal table; multi mode shows a (well, marker) table
+  grouped by well, each row with its **own r**. Strong matches (r ≥ 0.7) pre-ticked; **low-confidence rows
+  flagged** (dimmed) and left unticked; a well with no data shows an error row.
+- **Accept/reject per row**, then **Apply** writes only the ticked picks as **one undoable batch** (undo
+  restores/deletes each pick).
+
+**Verification (in-browser, mocked IPC):** the pane mounted and every interaction was driven and read back
+from the DOM — control show/hide is exactly right (max-stretch only on warp, window only single, label
+tracks selection); the multi table renders 3 markers under a well with the low-r marker flagged/unticked
+and the errored well shown; **Apply invoked upsert_top for exactly the two ticked markers** (not the weak
+one, not the errored well) and set the batch status; the single path passes `method:"shift"` and flags its
+r 0.61 row. tsc green; cargo unchanged at 334. (Console shows only the pre-existing backend-absent boot
+errors — none from the dialog.)
+
+> **Try:** open the **Autocorrelate** pane (＋ menu or the ribbon). Tick **one** top, set **Method =
+> Elastic warp**, give a **Max stretch** (say 1.5), and **Correlate** — review the r per well, untick weak
+> matches, **Apply**, then **Ctrl-Z** to confirm the batch undoes. Then tick **several** tops and
+> **Correlate** again: you get a per-marker table, and the applied set stays in stratigraphic order (no
+> crossings) in the correlation view.
+
 ## Round 34 — Autocorrelate #5 inc 2: multi-marker simultaneous propagation — backend (2026-07-23)
 
 Second increment. Adds `autocorrelate_multi` (new `autocorrelate_multi` command): propagate **several

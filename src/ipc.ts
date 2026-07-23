@@ -151,6 +151,8 @@ export interface MultiAutoCorrRequest {
   search_range: number;
   /** Warp elasticity (≥1). Default 1.5. */
   max_stretch?: number;
+  /** "shift" or "warp" (default). Either way markers stay in order. */
+  method?: "shift" | "warp";
   target_well_ids: string[];
 }
 

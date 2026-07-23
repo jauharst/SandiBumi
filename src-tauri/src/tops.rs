@@ -257,6 +257,10 @@ pub struct MultiAutoCorrRequest {
     /// Warp elasticity (≥1). Absent ⇒ 1.5. Same soft control as the single-marker warp.
     #[serde(default)]
     pub max_stretch: Option<f32>,
+    /// "shift" or "warp". Absent ⇒ "warp" (the consistent set is warped by default);
+    /// either way the monotone guard keeps the propagated markers in order.
+    #[serde(default)]
+    pub method: Option<String>,
     pub target_well_ids: Vec<String>,
 }
 
@@ -295,6 +299,8 @@ pub fn autocorrelate_multi(conn: &Connection, req: &MultiAutoCorrRequest) -> Mul
         return fail("search range must be positive".into());
     }
     let max_stretch = req.max_stretch.unwrap_or(1.5).clamp(1.0, 3.0);
+    // Default warp; rigid still propagates the set monotonically, just without local warp.
+    let warp = req.method.as_deref().map_or(true, |m| !m.eq_ignore_ascii_case("shift"));
 
     let source_tops = match db::list_tops(conn, &req.source_well_id) {
         Ok(t) => t,
@@ -388,7 +394,7 @@ pub fn autocorrelate_multi(conn: &Connection, req: &MultiAutoCorrRequest) -> Mul
                     .or_else(|| prev.map(|pd| pd + (*sdepth - markers[k - 1].1)))
                     .unwrap_or(*sdepth);
                 if let Some((mut d, r)) =
-                    propagate(&template, &offsets, &tgt_depth, tgt_vals, guess, req.search_range, true, max_stretch, step)
+                    propagate(&template, &offsets, &tgt_depth, tgt_vals, guess, req.search_range, warp, max_stretch, step)
                 {
                     if let Some(pd) = prev {
                         if d <= pd {
@@ -936,6 +942,7 @@ mod tests {
                 curve: "GR".into(),
                 search_range: 30.0,
                 max_stretch: Some(1.5),
+                method: None,
                 target_well_ids: vec![tgt.clone()],
             },
         );
