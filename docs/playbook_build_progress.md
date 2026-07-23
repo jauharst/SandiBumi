@@ -203,6 +203,25 @@ TODO/FIXME markers or commented-out code anywhere in `src`. Separately, "lazy-ch
 holding" was too generous — the main bundle is unchanged in *size*, but F4a found **41.0% of it
 is CodeMirror**, eagerly bundled despite the dynamic import.
 
+### Fix increments from the review — queued 2026-07-24
+
+Ranked by damage ÷ effort out of the 125 survivors. Each follows the per-increment discipline
+below (small steps → `tsc --noEmit` + `cargo check` + `cargo test` → REVIEW.md entry with a real
+"Try:" line → commit). **Reproduce before fixing** — every finding is static, none was observed
+at runtime.
+
+| # | Increment | Scope | Acceptance beyond the usual bar | Status |
+|---|---|---|---|---|
+| R1 | **NetFlag wire** | `#[serde(rename_all = "camelCase")]` on `NetFlagSpec` + `NetFlagResult` (`netflag.rs:16,37`). Two attribute lines that resurrect the whole flag-polygon feature from `a4e05e9`, which has never worked | A test that actually **crosses serde** — deserialize the TS-shaped JSON literal into `NetFlagSpec` — so the class cannot recur silently. The original increment's frontend-only twin-count check is exactly what missed it; a live "Try:" line must draw a polygon and confirm a curve is written | ▫ queued |
+| R2 | **Three panics on user data** | NaN top depth → `partial_cmp().unwrap()` *while the DB lock is held* (`tops`); `f64::clamp` on inverted zone-parameter bounds (bypasses the module dialog's range check); `±inf` from a LAS ASCII token → KNN synthetic-log sort | One regression test per panic, each feeding the **exact malformed input** named in F2a — not a synthetic near-miss. The tops one must also prove the lock is released | ▫ queued |
+| R3 | **Cancel honesty** | F2d + F5e are the same defect class found by two independent runs: Cancel is offered for ~27 job kinds but only 5 read the flag; the other 22 finish, **commit their writes**, and are reported "Cancelled" (LAS import, Rhai equations, ML confirmed) | A per-job-kind decision, not a blanket fix: either observe the flag, or **do not render the button**. Offering a control that does nothing is the defect — a job that legitimately cannot be interrupted should say so | ▫ queued |
+| R4 | **Four fabricated-success defects** | MC swallows module errors → all-NaN volumetrics as success; failed generic-store curve import `eprintln!`'d only, never in `ImportResult`; pay summary fabricates Net 0.0 / N/G 0.00 / HPV 0.00 for never-computed wells; ML dialog claims every scoped well when only some were written | Each must degrade **visibly** — the existing convention (⚠/✓/• not-checked, grey `na`) already exists in Results-QC and should be reused rather than a new pattern invented | ▫ queued |
+| R5 | **CodeMirror lazy** | Find the static import defeating `vegaPanel`'s dynamic one; CM6 is 461.3 kB = **41.0%** of the eager index bundle | The build output is the proof: main `index` must drop from **1,125.01 kB** and a `codemirror-*.js` chunk must appear. Record the new baseline here — the old number is quoted in three places | ▫ queued |
+
+The remaining ~120 findings stay in `docs/review_sweep/F1–F5.md`, each already carrying an
+independent fix-now / backlog / drop judgement, so the backlog is pre-triaged rather than a flat
+list. Nothing there blocks these five.
+
 ## Per-increment discipline (playbook acceptance bar)
 
 Every increment: explore-and-restate → implement in small steps → `tsc --noEmit` + `cargo
