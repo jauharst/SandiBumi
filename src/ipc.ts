@@ -303,6 +303,12 @@ export function savePng(destPath: string, dataBase64: string): Promise<string> {
   return invoke<string>("save_png", { destPath, dataBase64 });
 }
 
+/** Assembles a single-chart PDF from a frontend-built content stream (points, bottom-left origin;
+ *  see pdfExport.ts) and writes it to `destPath`. Returns the written path. */
+export function savePlotPdf(destPath: string, content: string, widthPt: number, heightPt: number): Promise<string> {
+  return invoke<string>("save_plot_pdf", { destPath, content, widthPt, heightPt });
+}
+
 export interface DocumentEntry {
   name: string;
   json: string;

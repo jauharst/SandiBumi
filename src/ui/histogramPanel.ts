@@ -31,6 +31,7 @@ import {
 } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
 import { renderPlotToSvg } from "./svgExport";
+import { renderPlotToPdf, type PlotPdf } from "./pdfExport";
 
 export type HistogramMode = "bars" | "line";
 
@@ -402,7 +403,7 @@ export async function buildHistogramContent(
       setStatus,
     ),
   );
-  selRow.appendChild(buildImageExportButtons(() => canvas, "Histogram", setStatus, () => getSvg()));
+  selRow.appendChild(buildImageExportButtons(() => canvas, "Histogram", setStatus, () => getSvg(), () => getPdf()));
   content.appendChild(selRow);
 
   // Statistics chips — click to toggle; active chips show the value and (for the
@@ -540,26 +541,25 @@ export async function buildHistogramContent(
 
   // Vector export: re-run the same static draw (no hover marker, no brush overlay) into a
   // recording context sized to the live plot.
-  const getSvg = (): string | null =>
-    plot
-      ? renderPlotToSvg(plot.width, plot.height, (c) =>
-          drawHistogram(
-            c,
-            values,
-            curveSel.value,
-            opts.showPicks
-              ? [
-                  { value: pickA.getValue(), color: theme.a, label: "A" },
-                  { value: pickB.getValue(), color: theme.b, label: "B" },
-                ]
-              : [],
-            opts,
-            null,
-            viewRef.current,
-            null,
-          ),
-        )
-      : null;
+  // The static draw shared by the two vector-export paths (no hover marker, no brush overlay).
+  const drawStatic = (c: HTMLCanvasElement) =>
+    drawHistogram(
+      c,
+      values,
+      curveSel.value,
+      opts.showPicks
+        ? [
+            { value: pickA.getValue(), color: theme.a, label: "A" },
+            { value: pickB.getValue(), color: theme.b, label: "B" },
+          ]
+        : [],
+      opts,
+      null,
+      viewRef.current,
+      null,
+    );
+  const getSvg = (): string | null => (plot ? renderPlotToSvg(plot.width, plot.height, drawStatic) : null);
+  const getPdf = (): PlotPdf | null => (plot ? renderPlotToPdf(plot.width, plot.height, drawStatic) : null);
 
   // Monotonic token so a slow curve/zone load that resolves after a newer one (fast
   // switching) can't overwrite the newer data. `preserveView` keeps the zoom/pan on a

@@ -364,6 +364,17 @@ fn save_png(dest_path: String, data_base64: String) -> Result<String, String> {
     Ok(dest_path)
 }
 
+/// Assembles a single Canvas-2D chart into a one-page PDF from a frontend-built content stream
+/// (already in PDF user space — points, bottom-left origin; see `pdfExport.ts`) and writes it to
+/// `dest_path`. Same whitelisted-write pattern as `save_png`; the PDF document scaffolding is
+/// shared with the composite-log exporter (`composite::assemble_single_page_pdf`).
+#[tauri::command]
+fn save_plot_pdf(dest_path: String, content: String, width_pt: f64, height_pt: f64) -> Result<String, String> {
+    let bytes = composite::assemble_single_page_pdf(&content, width_pt, height_pt);
+    std::fs::write(&dest_path, bytes).map_err(|e| e.to_string())?;
+    Ok(dest_path)
+}
+
 /// Parses a SCAL capillary-pressure CSV, replaces the well's `scal_pc` rows, and returns
 /// the Leverett-J fit (Sw = A·J^B) at the given lab IFT for use in the sw_height module.
 #[tauri::command]
@@ -1632,6 +1643,7 @@ pub fn run() {
             export_report_pdf,
             export_report_batch,
             save_png,
+            save_plot_pdf,
             get_core_data
         ])
         .run(tauri::generate_context!())

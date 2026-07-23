@@ -40,6 +40,7 @@ import {
 } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
 import { renderPlotToSvg } from "./svgExport";
+import { renderPlotToPdf, type PlotPdf } from "./pdfExport";
 
 export type RegModel = "linear" | "power" | "logx" | "exp";
 export type RegMethod = "yx" | "xy" | "rma";
@@ -933,7 +934,7 @@ export async function buildCrossplotContent(
       setStatus,
     ),
   );
-  selRow.appendChild(buildImageExportButtons(() => canvas, "Crossplot", setStatus, () => getSvg()));
+  selRow.appendChild(buildImageExportButtons(() => canvas, "Crossplot", setStatus, () => getSvg(), () => getPdf()));
   content.appendChild(selRow);
 
   const canvas = document.createElement("canvas");
@@ -1085,6 +1086,8 @@ export async function buildCrossplotContent(
   // Vector export: the static chart re-run into a recording context sized to the live plot.
   const getSvg = (): string | null =>
     plot ? renderPlotToSvg(plot.width, plot.height, (c) => drawStatic(c, -1)) : null;
+  const getPdf = (): PlotPdf | null =>
+    plot ? renderPlotToPdf(plot.width, plot.height, (c) => drawStatic(c, -1)) : null;
 
   const redraw = () => {
     canvas.setAttribute("aria-label", ariaLabel()); // keep the a11y description in sync with the axes

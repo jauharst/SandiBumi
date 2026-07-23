@@ -7,6 +7,42 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 47 — UI polish: true-vector PDF export for the Canvas-2D plots (2026-07-23)
+
+The vector story is now complete: the **crossplot, histogram, and Pickett** plots also export a
+**true-vector single-page PDF** — a portable, self-contained figure to drop straight into a Word/LaTeX
+report — via a new **⭳ PDF** button in each plot's toolbar (and an "Export PDF (vector)…" right-click
+entry), sitting alongside the ⭳ SVG button from Round 46.
+
+- **`pdfExport.ts` — `PdfRecorder`**: the sibling of `SvgRecorder`. It drives the **same**
+  `drawCrossplot` / `drawHistogram` / `drawPickett` code through a recording 2D context, but serialises
+  every call into a **PDF content stream** (operators in points, bottom-left origin) instead of SVG — so
+  again **no chart is re-implemented** and the PDF can't drift from the screen. Handles the full surface
+  the plots use: affine transforms (rotated axis labels via the PDF text matrix), rectangular clips
+  (`q … re W n … Q`), circles (as béziers), dashes, text alignment/baseline, and all the colour forms
+  the plots emit (`#hex`, `rgb()`, `hsl()`).
+- **Split of concerns**: the frontend owns only the *drawing operators*; the backend
+  (`save_plot_pdf` → `composite::assemble_single_page_pdf`) wraps them in the PDF *document*
+  (catalog, xref, Helvetica fonts) — reusing the exact, already-tested assembler that powers the
+  composite-log PDF, so the fiddly document scaffolding lives in one place.
+- Text renders in base-14 Helvetica (no font embedding, same as the composite PDF) and transparency is
+  flattened against the plot background — *exact* for these plots, which only use alpha for gridlines /
+  marginals drawn straight over that background. (The SVG export remains the fully device-independent
+  option; the PDF is the portable single-file one.)
+
+**Verification:** the new `assemble_single_page_pdf` has a Rust unit test (valid `%PDF`, one Page,
+MediaBox at the requested point size, stream embedded); the full lib suite stays green (356 pass).
+In-browser, against the real `PlotCanvas` draw methods (log X + inverted Y, every colour form): the
+content stream has balanced `q`/`Q` and `BT`/`ET`, béziers/clips/dashes/text present, **no
+NaN/Infinity**, and every colour operand in [0,1]; the text matrix was checked exactly for the
+identity and the rotated-y-label cases. Adversarial review caught one fidelity slip (a forced round
+cap/join where canvas/SVG use butt/miter), now fixed. `tsc` clean.
+
+**Try:** open a **Crossplot / Histogram / Pickett**, arrange it how you like, then click **⭳ PDF** and
+save. Open the `.pdf` in a viewer and zoom right in — text and curves stay razor-sharp — then drop it
+into a report to confirm it embeds cleanly. Compare against **⭳ SVG** for the same chart: same figure,
+two portable vector formats.
+
 ## Round 46 — UI polish #9B: true-vector SVG export for the Canvas-2D plots (2026-07-23)
 
 The **crossplot, histogram, and Pickett** plots previously exported raster PNG only (the log

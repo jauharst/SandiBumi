@@ -3,6 +3,7 @@ import { savePng } from "../ipc";
 import { recordProcess } from "../processLog";
 import type { ContextMenuEntry } from "./contextMenu";
 import { saveSvg } from "./svgExport";
+import { savePdf, type PlotPdf } from "./pdfExport";
 
 /** Print / copy / export-image actions shared by every canvas-based visualization
  *  (histogram, crossplot, Pickett, correlation) so a chart can leave the app as a picture
@@ -123,31 +124,53 @@ export function svgAction(getSvg: () => string | null, name: string, setStatus: 
     .catch((err) => setStatus(`SVG export failed: ${err}`));
 }
 
-/** The image entries for a canvas panel's right-click menu. When `getSvg` is given, a vector
- *  "Export SVG…" entry is included. */
+/** Saves the plot as a true-vector PDF (via the panel's `getPdf`, which re-runs the chart's static
+ *  draw through a recording context into a PDF content stream). No-ops with a status note when
+ *  there's no plot. */
+export function pdfAction(getPdf: () => PlotPdf | null, name: string, setStatus: (text: string) => void): void {
+  const pdf = getPdf();
+  if (!pdf) {
+    setStatus("No plot to export yet");
+    return;
+  }
+  void savePdf(pdf, name)
+    .then((path) => {
+      if (path) {
+        setStatus(`${name} PDF saved to ${path}`);
+        recordProcess("Export", `${name} PDF (vector) → ${path}`);
+      }
+    })
+    .catch((err) => setStatus(`PDF export failed: ${err}`));
+}
+
+/** The image entries for a canvas panel's right-click menu. When `getSvg` / `getPdf` are given,
+ *  the matching vector-export entries are included. */
 export function imageExportMenuEntries(
   getCanvas: () => HTMLCanvasElement | null,
   name: string,
   setStatus: (text: string) => void,
   getSvg?: () => string | null,
+  getPdf?: () => PlotPdf | null,
 ): ContextMenuEntry[] {
   const entries: ContextMenuEntry[] = [
     { label: "Copy image", onClick: () => imageAction("copy", getCanvas(), name, setStatus) },
     { label: "Save image…", onClick: () => imageAction("save", getCanvas(), name, setStatus) },
   ];
   if (getSvg) entries.push({ label: "Export SVG (vector)…", onClick: () => svgAction(getSvg, name, setStatus) });
+  if (getPdf) entries.push({ label: "Export PDF (vector)…", onClick: () => pdfAction(getPdf, name, setStatus) });
   entries.push({ label: "Print…", onClick: () => imageAction("print", getCanvas(), name, setStatus) });
   return entries;
 }
 
-/** A compact toolbar group (Copy / Image / [SVG] / Print) for a plot panel's toolbar.
- *  `getCanvas` is called lazily so it always targets the panel's current canvas; when `getSvg`
- *  is supplied a vector-SVG button is added. */
+/** A compact toolbar group (Copy / Image / [SVG] / [PDF] / Print) for a plot panel's toolbar.
+ *  `getCanvas` is called lazily so it always targets the panel's current canvas; when `getSvg` /
+ *  `getPdf` are supplied the matching vector-export buttons are added. */
 export function buildImageExportButtons(
   getCanvas: () => HTMLCanvasElement | null,
   name: string,
   setStatus: (text: string) => void,
   getSvg?: () => string | null,
+  getPdf?: () => PlotPdf | null,
 ): HTMLElement {
   const wrap = document.createElement("div");
   wrap.className = "plot-export-group";
@@ -162,6 +185,7 @@ export function buildImageExportButtons(
   mk("⧉ Copy", "Copy this plot as an image to the clipboard", () => imageAction("copy", getCanvas(), name, setStatus));
   mk("⭳ Image", "Export this plot as a PNG image", () => imageAction("save", getCanvas(), name, setStatus));
   if (getSvg) mk("⭳ SVG", "Export this plot as a true-vector SVG", () => svgAction(getSvg, name, setStatus));
+  if (getPdf) mk("⭳ PDF", "Export this plot as a true-vector PDF", () => pdfAction(getPdf, name, setStatus));
   mk("⎙ Print", "Print this plot", () => imageAction("print", getCanvas(), name, setStatus));
   return wrap;
 }

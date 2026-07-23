@@ -1081,6 +1081,17 @@ pub(crate) fn assemble_pdf(streams: &[String], pw: f64, ph: f64) -> Vec<u8> {
     out.into_bytes()
 }
 
+/// Wraps a single frontend-built content stream as a one-page PDF sized `w_pt`×`h_pt`.
+///
+/// The stream must already be in PDF user space — points, bottom-left origin, `/F1` (Helvetica)
+/// / `/F2` (Helvetica-Bold) for text — exactly what the browser-side `PdfRecorder` in
+/// `pdfExport.ts` emits for a single Canvas-2D chart. Reusing [`assemble_pdf`] keeps all the
+/// document scaffolding (catalog, xref offsets, font objects) in one tested place; the page
+/// size round-trips through mm because `assemble_pdf` multiplies it straight back by `PT_PER_MM`.
+pub(crate) fn assemble_single_page_pdf(content: &str, w_pt: f64, h_pt: f64) -> Vec<u8> {
+    assemble_pdf(&[content.to_string()], w_pt / PT_PER_MM, h_pt / PT_PER_MM)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1162,6 +1173,21 @@ mod tests {
         // Content streams must carry drawing operators (text-show + stroke).
         assert!(text.contains(" Tj"), "text show operator present");
         assert!(text.contains(" re "), "rectangles present");
+    }
+
+    #[test]
+    fn single_page_pdf_wraps_a_content_stream_at_point_size() {
+        // A trivial content stream (one stroked line) becomes a valid one-page PDF whose
+        // MediaBox is exactly the requested point size and whose stream is embedded verbatim.
+        let content = "0.000 0.000 0.000 RG\n1.00 w\n10.00 10.00 m\n100.00 90.00 l\nS\n";
+        let pdf = assemble_single_page_pdf(content, 300.0, 200.0);
+        assert!(pdf.starts_with(b"%PDF-1.7"), "PDF header");
+        assert!(pdf.ends_with(b"%%EOF\n"), "PDF trailer");
+        let text = String::from_utf8_lossy(&pdf);
+        assert_eq!(text.matches("/Type /Page ").count(), 1, "exactly one page");
+        assert!(text.contains("/MediaBox [0 0 300.00 200.00]"), "MediaBox at point size");
+        assert!(text.contains("10.00 10.00 m"), "content stream embedded verbatim");
+        assert!(text.contains("startxref"));
     }
 
     #[test]
