@@ -7,6 +7,40 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 62 — R5: 461 kB of CodeMirror off every launch (2026-07-24)
+
+I suspected this during scouting — CodeMirror is a dependency and the Vega spec editor is
+documented as dynamic-importing it, yet **no CodeMirror chunk appeared in the build output at
+all**. F4a found where it went: `inspectorPanel.ts` imported it **statically**, so the whole CM6
+stack sat in the eager startup bundle — **461.3 kB, 41.0% of it** — loaded on every launch for a
+panel most sessions never open. That also silently defeated `vegaPanel`'s own dynamic import:
+once a module is in the eager chunk, deferring it elsewhere buys nothing.
+
+The Inspector now dynamic-imports it the same way vegaPanel does, and fetches the Python language
+mode **only** when the equation is Python — so a Rhai-only session never pays for the lezer parser
+either.
+
+The mount became async, which needed two guards: a generation counter, so a re-render (equation
+picked, language switched) that lands while the import is in flight owns the host and the stale
+mount drops itself; and a check that the host is still connected. Saving in the window before the
+editor mounts was already safe — `readFormIntoCurrent` falls back to the stored script rather than
+reading a null editor.
+
+**Measured, not estimated:**
+
+| | before | after |
+|---|---|---|
+| eager `index` chunk | 1,125.01 kB | **664.35 kB** |
+| CodeMirror | in the eager chunk | 3 lazy chunks totalling **461,537 B** |
+
+That 461,537 B matches F4a's predicted 461.3 kB to the byte. The old baseline was quoted in three
+places across the tracker and the review prompt; all now record the new one.
+
+- [ ] **Try:** launch the app and confirm it feels no different — then open **Inspector →
+  Equation**. The editor should appear after a brief first-load (the chunk fetching), then behave
+  exactly as before: syntax highlighting on a Python equation, none on Rhai. Switch the language
+  dropdown a few times quickly — the editor must track the last selection, not a stale one.
+
 ## Round 61 — R4: four places that reported success they hadn't earned (2026-07-24)
 
 Your cardinal rule is that a degraded or failed result must never be presented as a clean one.

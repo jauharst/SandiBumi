@@ -1,4 +1,4 @@
-# SandiBumi engineering-craft review prompt (Track F)
+﻿# SandiBumi engineering-craft review prompt (Track F)
 
 A reusable prompt for reviewing SandiBumi's **code quality** — frontend architecture, Rust idiom
 and hot paths, UX/theming, build health, and panel lifecycle. Five passes, F1–F5, one per
@@ -71,7 +71,7 @@ Jauhar, not an oversight. If ultra has already run on this branch, read its outp
   delete-then-append inside db::with_txn.
 - The backend deliberately does not enforce well-group scoping; frontend dialogs must call
   filterByActiveGroup. A dialog missing it IS a bug; the backend not enforcing it is not.
-- Heavy panels are deliberately lazy chunks. Main index bundle baseline: 1,125.01 kB.
+- Heavy panels are deliberately lazy chunks. Main index bundle baseline: 664.35 kB (was 1,125.01 kB before R5).
 - The Canvas-2D domain plots and the Vega panel are deliberately complementary, not duplicates.
 - linear_dw stays the default.
 
@@ -127,7 +127,7 @@ so — do not manufacture findings.
 | **F1** Frontend architecture | file size vs responsibility (name the seam and today's pain, not just the line count); duplication across dialogs that should be a shared helper — and whether the copies have already DRIFTED; `ipc.ts` types actually matching the Rust structs they mirror (a silent mismatch is `undefined` at runtime with no compile error); `any`/non-null-assertion leakage; dead exports; consistent async/error shape; a generation counter on every async reload | `src/ui/*.ts`, `src/ipc.ts`, `src/state.ts`, `src/workspace.ts` | `/code-review ultra` first; then `code-simplifier` per named file |
 | **F2** Rust idiom & hot paths | unwrap/expect/indexing/div-by-zero reachable from user data (separate production paths from `#[cfg(test)]`); allocation and cloning inside per-sample loops at corpus scale; `Result<T,String>` at the IPC edge vs typed inside; error strings that actually tell the user what to do; batch isolation (one well's failure must not abort the run); **silently swallowed errors that yield a successful-looking empty result**; rayon compute / single batched DB-write separation; `Mutex<Connection>` hold time; mid-run cancellability; dead code and orphaned commands | `src-tauri/src/*.rs` | `/code-review ultra` first; then `code-simplifier` per named file |
 | **F3** UX & theming sweep | **app-wide**: every panel against the 15-var CSS contract across all 6 palettes (dark, light, Pertamina, Halliburton, Schlumberger, LAPI-ITB) — classify each raw hex as legitimate (colormap, domain colour, PDF/SVG export context) or violation; `themeVersion` subscription on every panel that caches colours; `dataVersion` on every panel showing well data; dialog convention outliers (Run-at-top, multi-column lists, button labels); empty / no-well / no-curve / slow / failed states; **all-NaN presented as success**; a11y beyond the 9D base — modal focus trap and restore, Escape, focus rings, icon-only buttons, colour-as-only-meaning in the QC scorecards | all `src/ui/*`, `src/styles.css` | this prompt only — ultra cannot see it |
-| **F4** Build & bundle health | main `index` bundle vs the **1,125.01 kB** baseline; every heavy panel still a lazy chunk; anything eagerly imported that defeats it; dead dependencies, config and assets; open `npm audit` advisories assessed as a real threat model for a Tauri desktop app rather than repeated from the advisory text; tsconfig/clippy strictness flags that would catch real bugs here versus create busywork | `vite.config.ts`, `package.json`, `tsconfig.json`, `src-tauri/tauri.conf.json`, build output | this prompt only — ultra cannot see it |
+| **F4** Build & bundle health | main `index` bundle vs the **664.35 kB (was 1,125.01 kB before R5)** baseline; every heavy panel still a lazy chunk; anything eagerly imported that defeats it; dead dependencies, config and assets; open `npm audit` advisories assessed as a real threat model for a Tauri desktop app rather than repeated from the advisory text; tsconfig/clippy strictness flags that would catch real bugs here versus create busywork | `vite.config.ts`, `package.json`, `tsconfig.json`, `src-tauri/tauri.conf.json`, build output | this prompt only — ultra cannot see it |
 | **F5** Lifecycle & leaks | **app-wide**: every `DomPanel` unsubscribes what it subscribed (dispose symmetry); `dataVersion`/`themeVersion` subscription pairs; listener accumulation across close→reopen; `filterByActiveGroup` present in every batch dialog (the backend enforces no group scoping at all) | all `src/ui/*`, `src/workspace.ts` | this prompt only — ultra cannot see it |
 
 **Order:** run `/code-review ultra` first, then **F3 → F5 → F4** (the three ultra cannot do), then

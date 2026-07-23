@@ -1,5 +1,8 @@
-import { basicSetup, EditorView } from "codemirror";
-import { python } from "@codemirror/lang-python";
+// Type-only: the CodeMirror runtime is dynamic-imported in `renderEquationEditor` so the whole
+// CM6 stack stays out of the eager startup bundle. A static import here pulled 461.3 kB — 41% of
+// the main chunk — into every launch, for a panel most sessions never open, and it also defeated
+// vegaPanel's own dynamic import (once CM is in the eager chunk, deferring it there buys nothing).
+import type { EditorView } from "codemirror";
 import { bumpDataVersion, filterByActiveGroup, setStatus as globalStatus } from "../state";
 import { recordProcess } from "../processLog";
 import {
@@ -54,6 +57,9 @@ export class InspectorPanel {
   private equations: EquationDef[] = [];
   private current: EquationDef = { ...BLANK_EQUATION };
   private editor: EditorView | null = null;
+  /// Bumped on every `renderEquationEditor`, so an in-flight async CodeMirror mount that is
+  /// superseded by a newer render drops itself instead of attaching to a replaced host.
+  private editorGen = 0;
   /** Path of the Python the backend found; null = none; undefined = not asked yet. */
   private pythonPath: string | null | undefined = undefined;
   /** Last-loaded generic-store catalog for the selected well, kept so the filter box can
@@ -197,13 +203,27 @@ export class InspectorPanel {
       </div>
     `;
 
-    // CodeMirror replaces the old plain textarea (python syntax highlighting when apt).
+    // CodeMirror replaces the old plain textarea (python syntax highlighting when apt). It mounts
+    // asynchronously because the module is dynamic-imported; `readFormIntoCurrent` already falls
+    // back to `this.current.script` while `this.editor` is null, so a Save in that window keeps
+    // the script rather than blanking it. The language mode is fetched only for python, so a
+    // Rhai-only session never pays for the lezer parser either.
     const scriptHost = this.equationTab.querySelector<HTMLElement>("#eq-script-host")!;
-    this.editor = new EditorView({
-      doc: eq.script,
-      parent: scriptHost,
-      extensions: [basicSetup, ...(eq.language === "python" ? [python()] : []), EditorView.lineWrapping],
-    });
+    const gen = ++this.editorGen;
+    void (async () => {
+      const [cm, lang] = await Promise.all([
+        import("codemirror"),
+        eq.language === "python" ? import("@codemirror/lang-python") : Promise.resolve(null),
+      ]);
+      // A re-render (equation picked, language switched) may have landed while we awaited — that
+      // render owns the host now, so this one must not mount into a detached or replaced node.
+      if (gen !== this.editorGen || !scriptHost.isConnected) return;
+      this.editor = new cm.EditorView({
+        doc: eq.script,
+        parent: scriptHost,
+        extensions: [cm.basicSetup, ...(lang ? [lang.python()] : []), cm.EditorView.lineWrapping],
+      });
+    })();
 
     const picker = this.equationTab.querySelector<HTMLSelectElement>("#eq-picker")!;
     picker.addEventListener("change", () => {
