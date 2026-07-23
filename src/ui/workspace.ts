@@ -336,6 +336,7 @@ export class Workspace {
       ["HFU Clustering (FZI)", () => this.openHfu(group)],
       ["Lorenz Plot (flow units)", () => this.openLorenz(group)],
       ["Facies Tie-in (RT confusion)", () => this.openFaciesTie(group)],
+      ["Unconventional (ΔlogR + Langmuir)", () => this.openUnconventional(group)],
       ["SandiMin Solver", () => this.openMultimin(group)],
       "sep",
       ["Zones", () => this.openZones(group)],
@@ -571,6 +572,14 @@ export class Workspace {
           "Report",
           "the report generator",
           () => import("./reportDialog").then((m) => m.buildReportContent),
+          true,
+        );
+      case "unconventional":
+        return this.wellPane(
+          "dock-unconventional",
+          "Unconventional",
+          "the unconventional visuals",
+          () => import("./unconventionalPanel").then((m) => m.buildUnconventionalContent),
           true,
         );
       case "histogram":
@@ -1334,6 +1343,10 @@ export class Workspace {
 
   openFaciesTie(group?: DockviewGroupPanel): void {
     this.openSingleton("faciesTie", "faciesTie", "Facies Tie-in", group);
+  }
+
+  openUnconventional(group?: DockviewGroupPanel): void {
+    this.openSingleton("unconventional", "unconventional", "Unconventional (ΔlogR + Langmuir)", group);
   }
 
   openMultimin(group?: DockviewGroupPanel): void {

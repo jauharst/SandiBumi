@@ -7,6 +7,39 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 32 — Unconventional #7 inc 5: ΔlogR overlay + Langmuir isotherm panel (2026-07-23)
+
+Fifth and final increment — the visual companion to the four compute modules. A new workspace pane,
+**Unconventional (ΔlogR + Langmuir)**, opens from **Petrophysics → Unconventional → ΔlogR + Langmuir
+Visuals…** (also in every window's ＋ menu). It follows the active well like the other tool panes and
+carries two pictures side by side:
+
+- **Passey ΔlogR overlay** (depth track) — deep resistivity on a log/decade axis and a baselined
+  porosity curve (sonic **DT** or density **RHOB**) drawn so the two **overlie in non-source rock and
+  fan the opposite way over organic-rich intervals**; the shaded lens between them **is ΔlogR**, the
+  input to `toc_passey`. Uses that module's exact scaling — resistivity at log10(R/R_base), porosity at
+  −0.02·(DT−DT_base) [sonic] / +2.5·(RHOB−RHOB_base) [density] — so the picture and the number agree.
+  R_base and the mode's baseline are editable; picks are read on a clay-rich, non-source shale.
+- **Langmuir isotherm** — Gs = VL·P/(PL+P) (scf/ton) with the **VL** ceiling, the **PL** half-saturation
+  point (Gs=VL/2 at P=PL), the **reservoir-pressure** operating point, and — given an in-situ gas
+  content **GC** < VL — the **critical desorption pressure Pcd = PL·GC/(VL−GC)** for undersaturated
+  coal/shale. This is the adsorbed term of the `gip` module, drawn.
+
+Display-only (no new physics, no backend). Verified in-browser against synthetic source-rock curves
+(a resistivity + Δt/ρb kick): the sonic and density overlays both render the correct opposing fan, and
+the isotherm's PL/Pres/Pcd markers land where the formulae put them. **Two defects were caught in that
+pass and fixed:** (1) the porosity curve was drawn at `xR − poroTerm` instead of the absolute `−poroTerm`,
+which understated ΔlogR and leaned both curves the same way; (2) the baseline field toggled both DT_base
+and RHOB_base together, hiding RHOB_base in density mode. tsc green; the four compute modules are
+unchanged (330 cargo tests still pass).
+
+> **Try:** open **Petrophysics → Unconventional → ΔlogR + Langmuir Visuals…**, select a well with a deep
+> resistivity + sonic (or density) curve. On the left, set **R_base / DT_base** on a clay-rich,
+> non-source shale and confirm the two curves overlie there and split (shaded) over your organic zones —
+> that lens should track where `toc_passey` gives high TOC. Switch **Overlay = Density** to pair RHOB
+> instead. On the right, type your **VL / PL / reservoir pressure**; for undersaturated coal add a **GC**
+> and read **Pcd** off the isotherm.
+
 ## Round 31 — Unconventional #7 inc 4: brittleness index (elastic + mineralogical) (2026-07-23)
 
 Fourth increment. A new module, **Brittleness index (elastic / mineralogical)** (Petrophysics →

@@ -527,15 +527,23 @@ export class Ribbon {
       const specs = byCategory.get(category);
       if (!specs) continue;
       const [label, caption, iconPath] = CATEGORIES[category];
+      const items = specs.map((spec) => ({
+        label: spec.title,
+        doc: spec.doc,
+        onPick: () => this.openModule(spec),
+      }));
+      // The Unconventional group also carries the visual companion to its compute methods —
+      // the ΔlogR overlay + Langmuir isotherm panel (a workspace pane, not a module form).
+      if (category === "Unconventional") {
+        items.push({
+          label: "ΔlogR + Langmuir Visuals…",
+          doc: "Passey ΔlogR resistivity/porosity overlay and the Langmuir adsorption isotherm — the pictures behind toc_passey and gip.",
+          onPick: () => this.workspace.openUnconventional(),
+        });
+      }
       const group = document.createElement("div");
       group.className = "ribbon-group";
-      group.appendChild(
-        buildRibbonDropdown(label, iconPath, specs.map((spec) => ({
-          label: spec.title,
-          doc: spec.doc,
-          onPick: () => this.openModule(spec),
-        }))),
-      );
+      group.appendChild(buildRibbonDropdown(label, iconPath, items));
       const captionEl = document.createElement("span");
       captionEl.className = "ribbon-group-caption";
       captionEl.textContent = caption;
