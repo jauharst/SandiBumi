@@ -114,11 +114,22 @@ pub(crate) fn multimin(ctx: &ModuleContext) -> ModuleOutputs {
             [ctx.p("DT_SAND", i), ctx.p("DT_CLAY", i), ctx.p("DT_WATER", i), ctx.p("DT_HC", i)],
             ctx.p("SIG_DT", i),
         );
-        push_tool(
-            pef[i],
-            [ctx.p("PEF_SAND", i), ctx.p("PEF_CLAY", i), ctx.p("PEF_WATER", i), ctx.p("PEF_HC", i)],
-            ctx.p("SIG_PEF", i),
-        );
+        // PEF mixes as the VOLUMETRIC photoelectric factor U = Pe·ρe, not as the raw per-electron
+        // Pe (multimin2 enforces the same rule). Convert every endpoint and the measured reading to
+        // U before they enter the linear system, and carry the uncertainty in U space (σ_PEF·ρe).
+        // This needs a live RHOB to get ρe; with RHOB absent the PEF row is simply dropped rather
+        // than mixed by the wrong law — the n_tools<3 gate below then handles the thin-tool case.
+        let rhob_meas = rhob[i] as f64;
+        if rhob_meas.is_finite() {
+            let re = crate::multimin2::rho_e(rhob_meas);
+            let u_ends = [
+                ctx.p("PEF_SAND", i) * crate::multimin2::rho_e(ctx.p("RHOB_SAND", i)),
+                ctx.p("PEF_CLAY", i) * crate::multimin2::rho_e(ctx.p("RHOB_CLAY", i)),
+                ctx.p("PEF_WATER", i) * crate::multimin2::rho_e(ctx.p("RHOB_WATER", i)),
+                ctx.p("PEF_HC", i) * crate::multimin2::rho_e(ctx.p("RHOB_HC", i)),
+            ];
+            push_tool((pef[i] as f64 * re) as f32, u_ends, ctx.p("SIG_PEF", i) * re);
+        }
 
         // Degrees of freedom: 4 unknowns (SAND/CLAY/WATER/HC) need at least 3 tool equations
         // so that with the unity row the system is determined. With only 2 live tools the
@@ -361,7 +372,12 @@ mod tests {
         let rhob = vs * 2.65 + vw * 1.0;
         let nphi = vs * -0.02 + vw * 1.0;
         let dt = vs * 55.5 + vw * 189.0;
-        let pef = vs * 1.81 + vw * 0.36;
+        // PEF reads as the mixture's Pe = U/ρe, where the volumetric U = Pe·ρe mixes by volume.
+        // Forward-model it with that law — NOT raw Pe mixed linearly (`vs*1.81 + vw*0.36`), which is
+        // the exact error the solver used to make and would make this test pass by construction.
+        let re = crate::multimin2::rho_e;
+        let u_mix = vs * 1.81 * re(2.65) + vw * 0.36 * re(1.0);
+        let pef = u_mix / re(rhob);
         let ctx = ctx_one(&[
             ("RHOB", rhob as f32),
             ("NPHI", nphi as f32),
@@ -376,6 +392,43 @@ mod tests {
         assert!((out["PHIT_MM"][0] - 0.30).abs() < 0.02);
         assert!((out["SWT_MM"][0] - 1.0).abs() < 0.02, "clean wet sand SWT should be ~1");
         assert!(out["RECON_ERR"][0] < 0.5, "perfect data should reconstruct well");
+    }
+
+    #[test]
+    fn multimin_pef_uses_volumetric_u_mixing() {
+        // Regression guard for the PEF mixing law (the finding's worked example). A 50/50
+        // quartz/water sample reads Pe = U/ρe with U = Pe·ρe mixed by volume; mixing raw Pe
+        // linearly (the old bug) would model PEF = 0.5·1.81 + 0.5·0.36 = 1.085 while the physical
+        // reading is ≈ 1.382 — a ~0.30 b/e gap, exactly 1σ of the default SIG_PEF, which used to
+        // bias the split and floor RECON_ERR. With the correct law the solver recovers 50/50.
+        let re = crate::multimin2::rho_e;
+        let (vs, vw) = (0.50, 0.50);
+        let rhob = vs * 2.65 + vw * 1.0;
+        let u_mix = vs * 1.81 * re(2.65) + vw * 0.36 * re(1.0);
+        let pef = u_mix / re(rhob);
+        let raw_pe_law = vs * 1.81 + vw * 0.36;
+        assert!((pef - 1.382).abs() < 0.01, "physical PEF should be ~1.382, got {pef}");
+        assert!((pef - raw_pe_law).abs() > 0.25, "the two mixing laws must differ materially");
+        let ctx = ctx_one(&[
+            ("RHOB", rhob as f32),
+            ("NPHI", (vs * -0.02 + vw * 1.0) as f32),
+            ("DT", (vs * 55.5 + vw * 189.0) as f32),
+            ("PEF", pef as f32),
+        ]);
+        let out = multimin(&ctx);
+        assert!((out["VOL_SAND"][0] - 0.50).abs() < 0.02, "sand={}", out["VOL_SAND"][0]);
+        assert!((out["VOL_WATER"][0] - 0.50).abs() < 0.02, "water={}", out["VOL_WATER"][0]);
+        assert!(out["VOL_CLAY"][0] < 0.02, "clay must not be inflated by PEF misfit: {}", out["VOL_CLAY"][0]);
+        assert!(out["RECON_ERR"][0] < 0.2, "the correct law reconstructs cleanly: {}", out["RECON_ERR"][0]);
+    }
+
+    #[test]
+    fn multimin_drops_pef_when_rhob_absent() {
+        // PEF needs a live RHOB to convert Pe→U; with RHOB absent the PEF row is dropped, leaving
+        // only NPHI+DT (2 tools) → underdetermined → skip, rather than mixing PEF by the wrong law.
+        let ctx = ctx_one(&[("NPHI", 0.25), ("DT", 90.0), ("PEF", 2.0)]);
+        let out = multimin(&ctx);
+        assert!(out["VOL_SAND"][0].is_nan(), "should skip: PEF dropped without RHOB, only 2 tools left");
     }
 
     #[test]

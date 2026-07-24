@@ -1752,7 +1752,9 @@ fn is_pef_key(key: &str) -> bool {
 }
 
 /// Litho-Density electron density from bulk density: inverse of ρₐ = 1.0704·ρₑ − 0.1883.
-fn rho_e(rhob: f64) -> f64 {
+/// Shared with the legacy `multimin` module so both solvers convert Pe↔U with one relation
+/// (divergent Pe physics between the two solvers is the hazard this centralises away).
+pub(crate) fn rho_e(rhob: f64) -> f64 {
     (rhob + 0.1883) / 1.0704
 }
 

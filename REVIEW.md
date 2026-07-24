@@ -7,6 +7,45 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 76 — R17: the legacy Multimin solver mixed PEF by the wrong physics (2026-07-24)
+
+The legacy `multimin` module (superseded by SandiMin/`multimin2`, hidden from every UI picker but
+**still registered** at `modules.rs:201`/`:240`, so `list_modules` returns it and any pre-existing
+saved chain or dockview layout holding panel id `module:multimin` still runs it) pushed the **raw
+per-electron PEF** straight into its NNLS linear system. Photoelectric factor does **not** mix
+linearly by volume — the **volumetric** photoelectric factor `U = Pe·ρe` does. `multimin2` already
+converts to U before mixing; the legacy solver never did.
+
+The consequence isn't just biased numbers — it's the QC curve lying about **who is at fault**. With
+the module's own defaults a 50/50 quartz-water sample carries a 0.30 b/e PEF residual (physical
+PEF ≈ 1.38, the linear-Pe law gives 1.085) — **exactly 1.0× the default `SIG_PEF`** — so `RECON_ERR`
+reads a full sigma of *model* error and reports it as *log* misfit, telling the user to re-condition
+perfectly good PEF data. And the bias is directional: linear mixing under-predicts Pe for a
+light-fluid mix, so NNLS over-assigns the high-Pe clay endpoint (3.10), inflating `VSH_MM` and
+deflating `PHIT_MM`/pay — the wrong direction for Mahakam-delta shaly sand.
+
+Fixed by converting every PEF endpoint **and** the measured reading to `U = Pe·ρe` before they enter
+the system, and carrying the uncertainty in U space (`σ_PEF·ρe`). The `ρe(ρb)` relation is now a
+single `pub(crate)` function in `multimin2` that **both** solvers call, so their Pe physics can't
+drift apart (the standing hazard the finding flags). A live RHOB is required to get ρe; with RHOB
+absent the PEF row is **dropped** rather than mixed wrongly, and the existing `n_tools < 3` gate then
+skips the sample honestly. The module's own recovery test was **complicit** — it forward-modelled the
+synthetic PEF with the *same* wrong law (`vs*1.81 + vw*0.36`), so it passed by construction and could
+never catch this; it now forward-models with the U law, making it a genuine regression guard.
+
+Verified: `cargo test` green (46 passed) via the pinned 14.29 toolchain. Two new tests lock the fix —
+`multimin_pef_uses_volumetric_u_mixing` (the finding's 50/50 worked example: asserts the physical
+PEF ≈ 1.382, that it differs from the raw-Pe law by > 0.25 b/e, and that the solver recovers 50/50
+with `RECON_ERR` < 0.2) and `multimin_drops_pef_when_rhob_absent`. Entirely a backend physics change,
+so it's cargo-proven and browser-independent. Backlog (unchanged, separate item): the two solvers
+still keep divergent endpoint tables (legacy's hardcoded `PEF_CLAY 3.10` / `RHOB_CLAY 2.55` vs
+`multimin2::multimin_library`); unifying or retiring the legacy module is its own decision.
+
+- [ ] **Try:** if you hold a saved workflow chain or a saved dockview layout that references the
+  hidden **Multimin — Mineral Inversion** module, re-run it on a well that has a PEF curve. `RECON_ERR`
+  should no longer sit near a flat ~1σ floor on clean intervals, and `VSH_MM` should come down
+  (PEF-misfit was inflating it). Wells without PEF are unaffected.
+
 ## Round 75 — R16: the Results-QC scorecard status was carried by brand colour alone (2026-07-24)
 
 The one panel whose entire job is to tell you a result is degraded encoded each check's verdict
