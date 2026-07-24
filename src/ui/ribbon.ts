@@ -116,10 +116,16 @@ export class Ribbon {
     const undoBtn = q<HTMLButtonElement>("#qat-undo");
     const redoBtn = q<HTMLButtonElement>("#qat-redo");
     undoBtn?.addEventListener("click", () => {
-      void undo().then((label) => setStatus(label ? `Undo: ${label}` : "Nothing to undo"));
+      void undo().then(
+        (label) => setStatus(label ? `Undo: ${label}` : "Nothing to undo"),
+        (err) => setStatus(`Undo failed — the change was not undone: ${err}`),
+      );
     });
     redoBtn?.addEventListener("click", () => {
-      void redo().then((label) => setStatus(label ? `Redo: ${label}` : "Nothing to redo"));
+      void redo().then(
+        (label) => setStatus(label ? `Redo: ${label}` : "Nothing to redo"),
+        (err) => setStatus(`Redo failed — the change was not reapplied: ${err}`),
+      );
     });
     // Enable/disable + tooltips track the stacks live.
     onUndoChange(() => {

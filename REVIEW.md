@@ -7,6 +7,47 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 68 — R10: a failed undo no longer vanishes silently while claiming success (2026-07-24)
+
+A data-integrity finding, and squarely the cardinal rule of this whole review: a failed
+operation must never look like a clean one. `undo()` did `undoStack.pop()` **before**
+`await action.undo()` — it committed the stack change before the risky effect. Most reversals are
+database writes (`upsertTop`, `updateStandardSample`, …), so when one rejects — a DB locked mid
+autocorrelate-sweep, a since-deleted well, a value the Rust side refuses — the popped action was
+**gone from both stacks**: un-undoable (popped) and un-redoable (the `redoStack.push` never ran).
+Worse, both callers used `void undo().then((label) => …)` with **no** rejection handler, so the
+`.then` fulfilment never fired — the status bar kept the *previous* success message — and the
+rejection became a console-only unhandled promise. From the user's seat: press Ctrl+Z, the DB
+reversal silently failed, the status bar still reads like it worked, and the action has disappeared
+so they can't even retry it. The edit is still in the database, contradicting what the UI implies.
+
+Fixed by only mutating durable state after the effect resolves. `undo`/`redo` now capture the
+action, run the reversal inside a `try`, and on rejection **push it back where it was** (staying
+reversible) and **re-throw** so the caller can report it. Both callers (`undo.ts` hotkeys +
+`ribbon.ts` quick-access toolbar) grew a rejection arm: *"Undo failed — the change was not undone:
+<err>"*. Both `undo`/`redo` are also now **serialized** through a small promise chain: a held Ctrl+Z
+auto-repeats keydown, and without this the unawaited calls overlapped — running two reversals
+against the single-writer DuckDB at once. The chain reverses one action at a time, in order, and
+absorbs each outcome so one failed reversal doesn't stall the queue behind it. LIFO is preserved: a
+top action whose reversal keeps failing blocks undoing *older* ones rather than silently skipping it
+and reversing out of order.
+
+Verification: `tsc && vite build` clean. Beyond that I ported the shipped `serialize`/`undo`/`redo`
+bodies **character-for-character** into a headless Node harness (`scratchpad/undo_check.mjs`, real
+promise scheduling, stub stacks) — 16 checks, all green: a rejected undo keeps its action and
+rejects the promise; nothing leaks to the redo stack; a held Ctrl+Z reverses newest-first with max
+one DB write in flight and never double-reverses the same action; a transient failure is retried by
+the next request once the cause clears; LIFO holds throughout. The harness even caught a wrong
+assumption of mine (I expected a persistently-failing top action to fall through to an older one —
+it correctly does not). This is a stronger verification than R9 got; what it does **not** cover is
+the live desktop path (a real rejected Tauri write), which is the click-through below.
+
+- [ ] **Try:** in the DB inspector, double-click a `standard_curves` cell and commit an edit, then
+  make the underlying write fail on undo — easiest repro: start a long Autocorrelate sweep (holds
+  the DB), then immediately press Ctrl+Z. The status bar must say **"Undo failed — the change was
+  not undone: …"**, the Undo button must stay **enabled** (action still on the stack), and a second
+  Ctrl+Z after the sweep finishes must then undo it cleanly. Nothing should vanish silently.
+
 ## Round 67 — R9: a hostile LAS well name can no longer run code (2026-07-24)
 
 F4c, a genuine remote-code-execution chain, verified end to end before fixing:

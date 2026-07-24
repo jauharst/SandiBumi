@@ -240,6 +240,24 @@ without either noticing the other.
 cargo **370/0/7** (no new tests — an existing guard was strengthened, not added), release build and
 `tsc && vite build` clean, eager chunk **664.53 kB** (+0.18 kB for the added logic).
 
+#### Continued fix chain R6–R10 (REVIEW Rounds 64–68)
+
+Same discipline, one finding per commit, each with a REVIEW "Try:" line. These came off the tail of
+the F-sweep + two chains the review surfaced late. Common thread: the cardinal rule — **a degraded
+or failed result must never be presented as a clean one** — applied to five different surfaces.
+
+| R | Finding | Fix | Commit |
+|---|---|---|---|
+| R6 | The app could **die before any window** on a bad project DB — `panic = "abort"` in release means a startup `open`/migrate panic aborts silently, no message | `open_and_migrate` extracted + shared with the runtime path (already graceful); `run()` treats failure as a *value* — 3-tier fallback (real → temp recovery file → in-memory), a `StartupProblem` surfaced to a guard-styled `textContent` dialog; does **not** `register_recent` on failure. 2 tests | `3d70615` |
+| R7 | Cancel was **rendered for jobs that structurally can't honour it** — R3 fixed the reporting, but `run_simple_job` has no `JobHandle` to poll, so the button was still inert on those | `cancellable: bool` threaded through `Job`/`JobView`/`run_job`/`register`; `run_simple_job` passes `false`; the panel shows "can't be interrupted" instead of a dead button. 1 test | `bf4d817` |
+| R8 | The **`src-tauri` test suite couldn't compile from a fresh clone** — `include_bytes!` fixture `corrupt_torn.duckdb` was swallowed by the repo-wide `*.duckdb` ignore | Scoped `.gitignore` exception after verifying the fixture carries **no** well data (header + schema DDL only); both fixtures now tracked | `35bd979`, `d631e44` |
+| R9 | A **hostile LAS well name → RCE** — `extract_well_name` stores `~W WELL` verbatim, `vegaPanel` wrote it into `innerHTML`, `csp:null`, sink is `save_png` | Fixed at the **vector**: 5 interpolated-`innerHTML` sites → `textContent` via new `src/ui/safeDom.ts` `messageNode`; 3 private `escapeHtml` copies consolidated. Backlog: 17-site sweep, real CSP, scope `save_png` | `871ca5c` |
+| R10 | A **failed undo vanished silently while the UI implied success** — `undoStack.pop()` ran *before* `await action.undo()`, so a rejected DB reversal left the action gone from both stacks; callers had no rejection arm | State mutated only *after* the effect resolves; on rejection the action is restored + the promise re-thrown; both callers report "Undo failed — the change was not undone"; `undo`/`redo` serialized so held Ctrl+Z can't overlap DB writes. Verified via a character-faithful headless port (16 checks) | *(this update)* |
+
+`tsc && vite build` clean throughout; R6–R8 also cargo-green. R10 has no cargo/vitest surface (pure
+TS promise logic, no frontend test harness exists) — its proof is the headless port in
+`scratchpad/undo_check.mjs`. Live desktop click-through for all five stays on REVIEW's Try lines.
+
 ## Per-increment discipline (playbook acceptance bar)
 
 Every increment: explore-and-restate → implement in small steps → `tsc --noEmit` + `cargo

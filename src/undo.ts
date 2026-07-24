@@ -43,22 +43,59 @@ export function pushUndo(action: UndoableAction): void {
   notifyChange();
 }
 
-export async function undo(): Promise<string | null> {
-  const action = undoStack.pop();
-  if (!action) return null;
-  await action.undo();
-  redoStack.push(action);
-  notifyChange();
-  return action.label;
+/** Undo and redo apply asynchronously — most reversals write to the database — so two
+ *  safeguards live here:
+ *
+ *   1. The stacks change only AFTER the reversal resolves. The action is captured up front,
+ *      but if `action.undo()` rejects (a rejected DB write, a database locked mid-sweep, a
+ *      since-deleted well) it is pushed back where it was so it stays reversible, and the
+ *      rejection propagates to the caller. Without this the popped action vanished from BOTH
+ *      stacks — un-undoable and un-redoable — while the status bar still read like the edit
+ *      had succeeded: a silent data-integrity lie.
+ *
+ *   2. Requests are serialized. A held Ctrl+Z auto-repeats keydown; without this, calls would
+ *      overlap — running two reversals against the single-writer database at once, or shuffling
+ *      the stacks concurrently. The chain reverses one action at a time, in order, and absorbs
+ *      each outcome so one failed reversal doesn't stall the queue behind it. */
+let chain: Promise<unknown> = Promise.resolve();
+function serialize<T>(task: () => Promise<T>): Promise<T> {
+  const run = chain.then(task, task); // run whether or not the previous request rejected
+  chain = run.then(() => {}, () => {}); // absorb the outcome so the chain never stays rejected
+  return run;
 }
 
-export async function redo(): Promise<string | null> {
-  const action = redoStack.pop();
-  if (!action) return null;
-  await action.redo();
-  undoStack.push(action);
-  notifyChange();
-  return action.label;
+export function undo(): Promise<string | null> {
+  return serialize(async () => {
+    const action = undoStack.pop();
+    if (!action) return null;
+    try {
+      await action.undo();
+    } catch (err) {
+      undoStack.push(action); // reversal failed — the edit is still applied, keep it undoable
+      notifyChange();
+      throw err;
+    }
+    redoStack.push(action);
+    notifyChange();
+    return action.label;
+  });
+}
+
+export function redo(): Promise<string | null> {
+  return serialize(async () => {
+    const action = redoStack.pop();
+    if (!action) return null;
+    try {
+      await action.redo();
+    } catch (err) {
+      redoStack.push(action); // re-apply failed — leave it on the redo stack to try again
+      notifyChange();
+      throw err;
+    }
+    undoStack.push(action);
+    notifyChange();
+    return action.label;
+  });
 }
 
 export function undoDepth(): number {
@@ -93,10 +130,16 @@ export function installUndoHotkeys(setStatus: (text: string) => void): void {
     const key = e.key.toLowerCase();
     if (key === "z" && !e.shiftKey) {
       e.preventDefault();
-      void undo().then((label) => setStatus(label ? `Undo: ${label}` : "Nothing to undo"));
+      void undo().then(
+        (label) => setStatus(label ? `Undo: ${label}` : "Nothing to undo"),
+        (err) => setStatus(`Undo failed — the change was not undone: ${err}`),
+      );
     } else if (key === "y" || (key === "z" && e.shiftKey)) {
       e.preventDefault();
-      void redo().then((label) => setStatus(label ? `Redo: ${label}` : "Nothing to redo"));
+      void redo().then(
+        (label) => setStatus(label ? `Redo: ${label}` : "Nothing to redo"),
+        (err) => setStatus(`Redo failed — the change was not reapplied: ${err}`),
+      );
     }
   });
 }
