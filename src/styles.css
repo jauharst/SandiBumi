@@ -3332,8 +3332,33 @@ textarea {
 .workflow-run-row {
   margin-top: 6px;
 }
+/* Module-dialog Run buttons (faciesTie / HFU / Lorenz / ML / SHF / Thomeer, and the workflow
+   runner) carry only class "primary" on a raw <button>. "primary" had no standalone rule, so those
+   buttons fell back to native grey UA buttons — the only Run buttons in the app not accent-filled.
+   Give them the app's primary look (mirrors the multimin .mm-run-btn), scoped to their rows so
+   nothing else is touched: multimin keeps its own .mm-run-btn (excluded below) and the Monte Carlo
+   run button is not a .primary. */
+.mc-run-row .primary:not(.mm-run-btn),
 .workflow-run-row .primary {
+  align-self: flex-start;
+  padding: 6px 24px;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: #fff;
   font-weight: 600;
+  cursor: pointer;
+}
+.mc-run-row .primary:not(.mm-run-btn):hover,
+.workflow-run-row .primary:hover {
+  background: var(--accent-dim);
+  border-color: var(--accent-dim);
+  color: #fff;
+}
+.mc-run-row .primary:not(.mm-run-btn):disabled,
+.workflow-run-row .primary:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 .workflow-dialog progress {
   width: 100%;

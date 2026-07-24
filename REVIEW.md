@@ -7,6 +7,41 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 72 — R13: six module-dialog Run buttons stop rendering as native grey buttons (2026-07-24)
+
+Cosmetic-consistency, but wrong on every theme. The **Facies Tie / HFU / Lorenz / ML / SHF /
+Thomeer** dialogs (and the **Workflow** runner) build their Run button as a raw `<button>` whose only
+class is `primary` — and `.primary` had **no standalone CSS rule**. It exists only in compound
+selectors (`.lp-btn.primary` accent-override, `.guard-confirm button.primary`, and
+`.workflow-run-row .primary` which set only `font-weight: 600`), and the app's base `button` rule
+sets nothing but font inheritance. So these buttons fell through to the browser's **native grey UA
+button** — the only Run buttons in the app not accent-filled. The class was added expecting a
+primary-button style that was never written as a base.
+
+Fixed with one scoped rule — `.mc-run-row .primary:not(.mm-run-btn), .workflow-run-row .primary` —
+giving the app's accent primary look (accent fill, white text, 4px radius, 6px 24px padding, bold,
+`--accent-dim` hover, dimmed `:disabled`), mirroring the multimin `.mm-run-btn`. Scoped to the two
+run-rows so nothing else moves: **multimin keeps its own treatment** (excluded via `:not(.mm-run-btn)`
+— it legitimately carries both classes and lives in `.mc-run-row`), the **Monte Carlo** run button
+isn't a `.primary`, and `.lp-btn.primary` / `.guard-confirm` / the autosave restore button sit in
+other containers. The old `.workflow-run-row .primary { font-weight: 600 }` folds into the new rule,
+so the Workflow Run button also becomes accent-filled and matches its siblings. Per the R11 lesson I
+verified `--accent` and `--accent-dim` are defined in **all 8** palettes first — no repeat of the
+undefined-variable trap.
+
+Verified: `tsc && vite build` clean (bundled CSS 182.21 kB, +0.44 kB). Deterministic: I read all
+seven call sites and confirmed each appends its `.primary` button into `.mc-run-row` (six) or
+`.workflow-run-row` (one), so the selector matches; at specificity 0,3,0 nothing competes for the six
+targets, so the accent styling wins where before there was no rule at all. What I could **not** do:
+capture a live screenshot — the in-app browser was unresponsive again this session, and the real
+dialogs need the Tauri backend plus a user action to open. So this rests on the selector-match +
+specificity argument, not a pixel view.
+
+- [ ] **Try:** open **Facies Tie**, **HFU**, **Lorenz**, **ML**, **SHF**, **Thomeer**, and the
+  **Workflow** runner. Each Run button should now be an accent-filled button (like Multimin's and the
+  plot Run buttons), darkening on hover — not a native grey one. Multimin's Run button should look
+  exactly as before.
+
 ## Round 71 — R12: one cutoff source, so Monte Carlo net-pay reconciles with the pay summary (2026-07-24)
 
 A data-consistency finding — the quiet-but-expensive kind. The pay-cutoff quartet (VSH ≤ / PHIE ≥ /
