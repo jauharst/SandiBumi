@@ -7,6 +7,31 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 82 — R23: the Field Dashboard Compute posted a redundant "Pay summary" job card (2026-07-24)
+
+The tail of R19. `run_pay_summary`'s silent-run guard was `if req.stats_only && req.skip_version`, but
+the Field Dashboard sets `stats_only` **alone** (`skip_version` defaults false) — so that branch matched
+**no** caller, and every dashboard **Compute** fell through to `run_simple_job`, posting a
+"Pay summary — cutoffs & pay" card in the Processing panel. That card is redundant (the dashboard already
+reports "Computing N well(s)…" then the result in its own status line) and mildly misleading — labelled
+"cutoffs & pay" for a run that, being `stats_only`, writes nothing (a faint echo of the R19 lie).
+
+Fixed by keying the silence on the real invariant: `if req.stats_only`. A stats-only pay summary persists
+nothing (`workflow.rs` gates every FLAG_* write behind `!stats_only`), so it is a pure read and never
+needs a job card. The dashboard is the only stats-only caller, so this touches only it; a **persisting**
+pay summary — an explicit Cutoffs & Summary run, or a report render (`skip_version`, `stats_only` false) —
+still shows a job. The old guard encoded "dashboard" by an incidental two-flag coincidence that the
+stats_only refactor had silently broken; the new one ties silence to "persists nothing".
+
+Verified: `cargo test pay_summary` — 4/4 green via the pinned 14.29 toolchain, incl.
+`pay_summary_stats_only_persists_nothing` (the invariant this fix relies on); whole-crate compile clean,
+no warnings. This is a Tauri command (not directly unit-testable), and the change is grep-proven to affect
+only the dashboard (`stats_only: true` has one command-level caller). Backend-only.
+
+- [ ] **Try:** open the **Field Dashboard**, press **Compute** a few times. The **Processing** panel must
+  stay quiet — no "Pay summary" card appears — while the dashboard's own status line shows progress and the
+  result. Then run **Cutoffs & Summary** (or export a **report**): those must still show a job card as before.
+
 ## Round 81 — R22: the legacy Multimin module is retired (your decision) (2026-07-24)
 
 This one is a **decision**, not an F-sweep finding — the follow-on R17 surfaced. The legacy fixed

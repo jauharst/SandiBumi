@@ -871,12 +871,13 @@ async fn run_pay_summary(
     req: workflow::PaySummaryRequest,
 ) -> Result<Vec<workflow::PaySummaryRow>, String> {
     let conn = db.0.clone();
-    // A pay summary that both returns stats only and skips versioning persists nothing, so run
-    // it silently off-thread (no job card) to avoid flooding the Processing panel. NOTE: the
-    // Field Dashboard currently sets stats_only alone (skip_version defaults false), so it takes
-    // the job-card path below, not this one; this silent branch is reached only if a caller sets
-    // both flags. A user-initiated pay summary still shows a job.
-    if req.stats_only && req.skip_version {
+    // A stats-only pay summary persists nothing (workflow.rs gates every FLAG_* write behind
+    // !stats_only), so it is a pure read — run it silently off-thread rather than posting a
+    // "Pay summary" job card the user never asked for. The Field Dashboard is the only stats-only
+    // caller and it reports its own progress in its status line, so a card would be redundant and,
+    // labelled "cutoffs & pay", misleading (nothing is written). A persisting pay summary — an
+    // explicit Cutoffs & Summary run, or a report render — still shows a job.
+    if req.stats_only {
         return tauri::async_runtime::spawn_blocking(move || workflow::run_pay_summary(&conn, &req))
             .await
             .map_err(|e| e.to_string())?;
