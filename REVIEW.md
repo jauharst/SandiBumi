@@ -7,6 +7,45 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 70 — V6: Raincloud plots in the Vega panel (your PtitPrince ask) (2026-07-24)
+
+A requested feature, not a review item. New **Raincloud** chart type in the Vega panel: per group a
+half-violin KDE **cloud** (top), a **box** (IQR + median + Tukey whiskers, middle), and a jittered
+strip of raw **rain** points (bottom). A **Group** dropdown drives it — *By zone* (each sample
+assigned to the zone whose interval contains its depth) or *any curve* (rounded to categorical
+classes: rock-type / facies / RT). It shares the value (X) axis; Y / Colour / Trend don't apply and
+dim out. Themed, exportable (PNG/SVG/PDF) and last-used-persisted like the other Vega types.
+
+Design worth recording: Vega-Lite has no native violin, and its density / boxplot / facet paths
+fight the panel's `width:"container"` autosize (every other chart type is single-view). So the
+geometry — Gaussian KDE (Silverman bandwidth, robust via min σ, IQR/1.349), per-group quartiles +
+1.5·IQR fences, and the jitter — is computed in **JS** and drawn with trivial single-view marks
+(`area` / `bar` / `rule` / `point`) on a synthetic group-lane y-axis. That drops into the existing
+sizing / export / repaint / theme machinery unchanged, and — the real payoff — makes the whole
+thing **numerically verifiable** instead of needing a screenshot.
+
+Data honesty, per the cardinal rule: samples outside every zone form an explicit **"(outside
+zones)"** lane instead of being dropped; a group curve with **>24** distinct values is **refused**
+with a message pointing at categorical curves, not silently binned into noise; samples missing a
+group value are counted and surfaced in the status line ("· N with no <curve>").
+
+Verification: `tsc && vite build` clean (vegaPanel lazy chunk 864.35 → 870.82 kB, main bundle
+unchanged). Headless (`scratchpad/rc_geom.cjs`, real vega-lite compile + vega render), **13 checks,
+all green**: geometry invariants — cloud never inverts, stays inside its lane and actually bulges;
+quartiles monotonic; whiskers bracket the box; every rain point sits in its lane; recovered medians
+match the injected distribution order — **and** the exact production spec shape both *compiles* with
+`container` sizing and *renders* with the real empty-top-data + per-layer-data structure (the two
+ways it differs from a toy spec). What I could **not** do: see it in the running app — the panel
+needs the Tauri backend plus a well with curves, and the in-app browser was unreliable this session,
+so there is no live screenshot. Correctness rests on the numeric geometry proof + the compile/render
+check, not a pixel view.
+
+- [ ] **Try:** open a **Vega Chart** panel, Type → **Raincloud**, X → **PHIE** (or Sw), Group → **By
+  zone**. Expect one cloud+box+rain stack per zone, each labelled, sharing the value axis, medians
+  landing where each zone's distribution centres. Switch Group to a **rock-type / facies** curve →
+  one lane per class. Pick a **continuous** curve as Group → it should refuse with "pick a
+  categorical curve". Hover a point/box for the tooltip; export SVG and PNG.
+
 ## Round 69 — R11: the depth-scale dropdown gets its themed background back in every palette (2026-07-24)
 
 Small but real, and wrong in **all eight** theme blocks. `.lv-scale` — the log-view depth-scale

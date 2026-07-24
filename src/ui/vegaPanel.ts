@@ -32,7 +32,7 @@
 //     Layered spec — the selection params sit on the points layer, the variable signals top-level.
 import vegaEmbed, { type VisualizationSpec, type Result as VegaResult } from "vega-embed";
 import type { EditorView } from "codemirror";
-import { getCurveData, type TrackCurveSeries, type WellSummary } from "../ipc";
+import { getCurveData, listZones, type TrackCurveSeries, type WellSummary, type ZoneEntry } from "../ipc";
 import { recordProcess } from "../processLog";
 import { appState, clearBrush, setBrushedDepths, type BrushSelection } from "../state";
 import { buildZoneSelect, curveSelect, loadCurveNames, loadPlotProps, savePlotProps, trySelect, type PlotContent } from "./plotCommon";
@@ -40,17 +40,30 @@ import { buildImageExportButtons } from "./plotExport";
 import { messageNode } from "./safeDom";
 import { saveSvg } from "./svgExport";
 
-type ChartType = "scatter" | "line" | "histogram" | "density";
+type ChartType = "scatter" | "line" | "histogram" | "density" | "raincloud";
 
 interface Row {
   x: number;
   y?: number;
   z?: number;
   depth: number;
+  /** Raincloud only: the categorical lane this sample belongs to (a zone or a class value). */
+  group?: string;
 }
 
-/** Types with per-sample point marks that take part in linked brushing (emit + consume). Histogram
- *  and density are aggregates, so they neither publish nor reflect a shared selection. */
+/** Options threaded through buildSpec: the scatter trend overlay, and the raincloud group ordering. */
+interface SpecOpts {
+  trend?: boolean;
+  method?: string;
+  /** Raincloud lane order (zones run structurally top→bottom; class values come pre-sorted). */
+  groupOrder?: string[];
+  /** Raincloud: what the grouping represents ("zone" or a curve mnemonic) — for tooltips. */
+  groupLabel?: string;
+}
+
+/** Types with per-sample point marks that take part in linked brushing (emit + consume). Histogram,
+ *  density and raincloud are aggregates/distributions, so they neither publish nor reflect a shared
+ *  selection. */
 const brushable = (t: ChartType): boolean => t === "scatter" || t === "line";
 
 /** One CSS custom property off :root, with a fallback so the spec never carries an empty string. */
@@ -97,6 +110,179 @@ function xValues(series: TrackCurveSeries[], xName: string): Row[] {
   return out;
 }
 
+// ---- Raincloud (PtitPrince-style) geometry -------------------------------------------------
+// A raincloud stacks, per group: a jittered strip of raw points (rain, bottom), a boxplot
+// (middle), and a half-violin KDE (cloud, top). Vega-Lite has no native violin, and its density /
+// boxplot / facet paths fight the panel's `container` sizing, so the geometry is computed here and
+// drawn with trivial single-view marks (area / bar / rule / point). Everything shares one synthetic
+// quantitative y where group `gi` sits on a lane at gy = gi * LANE:
+//   cloud [gy, gy+CLOUD_H]   box [gy+BOX_LO, gy+BOX_HI]   rain [gy+RAIN_LO, gy+RAIN_HI]
+const LANE = 2,
+  CLOUD_H = 0.9,
+  BOX_HI = -0.1,
+  BOX_LO = -0.3,
+  RAIN_HI = -0.38,
+  RAIN_LO = -0.95;
+const MAX_GROUPS = 24;
+
+function quantileSorted(s: number[], p: number): number {
+  const n = s.length;
+  if (n === 0) return NaN;
+  if (n === 1) return s[0];
+  const idx = p * (n - 1),
+    lo = Math.floor(idx),
+    hi = Math.ceil(idx);
+  return s[lo] + (s[hi] - s[lo]) * (idx - lo);
+}
+function stddev(values: number[]): number {
+  const n = values.length;
+  if (n < 2) return 0;
+  const m = values.reduce((a, b) => a + b, 0) / n;
+  return Math.sqrt(values.reduce((a, b) => a + (b - m) * (b - m), 0) / (n - 1));
+}
+/** Gaussian KDE on a shared grid; Silverman bandwidth made robust via min(sd, IQR/1.349). */
+function kde(values: number[], gridMin: number, gridMax: number, steps: number): { v: number; d: number }[] {
+  const n = values.length;
+  const s = [...values].sort((a, b) => a - b);
+  const iqr = quantileSorted(s, 0.75) - quantileSorted(s, 0.25);
+  const spread = Math.min(stddev(values), iqr / 1.349) || stddev(values) || 1e-6;
+  const bw = 1.06 * spread * Math.pow(n, -0.2) || (gridMax - gridMin) / 20 || 1e-6;
+  const out: { v: number; d: number }[] = [];
+  for (let i = 0; i < steps; i++) {
+    const v = gridMin + ((gridMax - gridMin) * i) / (steps - 1);
+    let d = 0;
+    for (const x of values) {
+      const u = (v - x) / bw;
+      d += Math.exp(-0.5 * u * u);
+    }
+    out.push({ v, d: d / (n * bw * Math.sqrt(2 * Math.PI)) });
+  }
+  return out;
+}
+interface BoxStat {
+  group: string;
+  q1: number;
+  med: number;
+  q3: number;
+  lo: number;
+  hi: number;
+  n: number;
+  yb0: number;
+  yb1: number;
+  ymid: number;
+}
+function boxStats(values: number[]): { q1: number; med: number; q3: number; lo: number; hi: number; n: number } {
+  const s = [...values].sort((a, b) => a - b);
+  const q1 = quantileSorted(s, 0.25),
+    med = quantileSorted(s, 0.5),
+    q3 = quantileSorted(s, 0.75);
+  const iqr = q3 - q1,
+    loF = q1 - 1.5 * iqr,
+    hiF = q3 + 1.5 * iqr;
+  return { q1, med, q3, lo: s.find((v) => v >= loF) ?? s[0], hi: [...s].reverse().find((v) => v <= hiF) ?? s[s.length - 1], n: s.length };
+}
+interface Raincloud {
+  cloud: { group: string; x: number; yTop: number; yBase: number }[];
+  box: BoxStat[];
+  rain: { group: string; x: number; y: number; depth: number }[];
+  labels: { group: string; x: number; y: number }[];
+  yMin: number;
+  yMax: number;
+  xMin: number;
+  xMax: number;
+}
+/** Turn grouped samples into the six mark datasets. `groupOrder` fixes the lane order; groups with
+ *  no rows are dropped. Cloud density is normalised per group (each peaks at CLOUD_H), so shapes are
+ *  comparable even when group counts differ — the standard raincloud/violin convention. */
+function buildRaincloud(rows: Row[], groupOrder: string[]): Raincloud {
+  const byG = new Map<string, Row[]>();
+  for (const r of rows) {
+    const g = r.group ?? "";
+    if (!byG.has(g)) byG.set(g, []);
+    byG.get(g)!.push(r);
+  }
+  const groups = groupOrder.filter((g) => byG.has(g));
+  const allX = rows.map((r) => r.x);
+  const xMin = allX.length ? Math.min(...allX) : 0,
+    xMax = allX.length ? Math.max(...allX) : 1;
+  const pad = (xMax - xMin) * 0.02 || 1;
+  const cloud: Raincloud["cloud"] = [],
+    box: BoxStat[] = [],
+    rain: Raincloud["rain"] = [],
+    labels: Raincloud["labels"] = [];
+  groups.forEach((g, gi) => {
+    const gy = gi * LANE;
+    const rs = byG.get(g)!;
+    const vals = rs.map((r) => r.x);
+    const dens = kde(vals, xMin - pad, xMax + pad, 64);
+    const maxD = Math.max(...dens.map((p) => p.d)) || 1;
+    for (const p of dens) cloud.push({ group: g, x: p.v, yTop: gy + (p.d / maxD) * CLOUD_H, yBase: gy });
+    box.push({ group: g, ...boxStats(vals), yb0: gy + BOX_LO, yb1: gy + BOX_HI, ymid: gy + (BOX_LO + BOX_HI) / 2 });
+    for (const r of rs) rain.push({ group: g, x: r.x, y: gy + RAIN_HI - Math.random() * (RAIN_HI - RAIN_LO), depth: r.depth });
+    labels.push({ group: g, x: xMin - pad, y: gy + CLOUD_H * 0.45 });
+  });
+  return { cloud, box, rain, labels, yMin: -1.0, yMax: (groups.length - 1) * LANE + CLOUD_H + 0.15, xMin: xMin - pad, xMax: xMax + pad };
+}
+
+/** Assign each finite X sample to the zone whose [top, bottom) contains its depth. Samples outside
+ *  every zone form an honest "(outside zones)" lane rather than being dropped; with no zones defined
+ *  the whole well is one "(all)" lane. */
+function groupByZone(xs: TrackCurveSeries, zones: ZoneEntry[]): { rows: Row[]; order: string[] } {
+  const rows: Row[] = [];
+  if (zones.length === 0) {
+    for (let i = 0; i < xs.depth.length; i++) if (Number.isFinite(xs.value[i])) rows.push({ x: xs.value[i], group: "(all)", depth: xs.depth[i] });
+    return { rows, order: ["(all)"] };
+  }
+  const sorted = [...zones].sort((a, b) => a.top_depth - b.top_depth);
+  const order = sorted.map((z) => z.zone_name);
+  let outside = false;
+  for (let i = 0; i < xs.depth.length; i++) {
+    const v = xs.value[i];
+    if (!Number.isFinite(v)) continue;
+    const d = xs.depth[i];
+    const z = sorted.find((zz) => d >= zz.top_depth && d < zz.bottom_depth);
+    if (z) rows.push({ x: v, group: z.zone_name, depth: d });
+    else {
+      rows.push({ x: v, group: "(outside zones)", depth: d });
+      outside = true;
+    }
+  }
+  if (outside) order.push("(outside zones)");
+  return { rows, order };
+}
+
+/** Group each finite X sample by the (rounded) value of a second, categorical curve — rock-type /
+ *  facies / RT. Samples with no group value at their depth are counted and reported, not silently
+ *  kept. Refuses (returns an error) when the curve resolves to too many classes to be categorical. */
+function groupByCurve(
+  xs: TrackCurveSeries,
+  gs: TrackCurveSeries,
+  label: string,
+): { rows: Row[]; order: string[]; note: string; error?: string } {
+  const gByD = new Map<number, number>();
+  for (let i = 0; i < gs.depth.length; i++) if (Number.isFinite(gs.value[i])) gByD.set(dKey(gs.depth[i]), gs.value[i]);
+  const rows: Row[] = [];
+  const seen = new Set<string>();
+  let missing = 0;
+  for (let i = 0; i < xs.depth.length; i++) {
+    const v = xs.value[i];
+    if (!Number.isFinite(v)) continue;
+    const g = gByD.get(dKey(xs.depth[i]));
+    if (g === undefined) {
+      missing++;
+      continue;
+    }
+    const key = Number.isInteger(g) ? String(g) : g.toFixed(2);
+    rows.push({ x: v, group: key, depth: xs.depth[i] });
+    seen.add(key);
+  }
+  const order = [...seen].sort((a, b) => Number(a) - Number(b) || a.localeCompare(b));
+  if (order.length > MAX_GROUPS) {
+    return { rows: [], order: [], note: "", error: `'${label}' has ${order.length} distinct values — pick a categorical curve (rock-type / facies / RT), not a continuous one.` };
+  }
+  return { rows, order, note: missing > 0 ? ` · ${missing.toLocaleString()} with no ${label}` : "" };
+}
+
 /** A themed Vega-Lite spec for one chart type. Colours are pulled from the active theme's CSS vars
  *  at build time; a theme switch re-embeds from the cached rows (see repaint). Scatter/line carry
  *  three params: `grid` (scales-bound, Shift-drag pan + wheel zoom), `brush` (plain-drag interval
@@ -109,7 +295,7 @@ function buildSpec(
   xName: string,
   yName: string,
   zName: string | null,
-  opts?: { trend?: boolean; method?: string },
+  opts?: SpecOpts,
 ): VisualizationSpec {
   const text = cssVar("--text", "#333333");
   const dim = cssVar("--text-dim", "#888888");
@@ -164,6 +350,88 @@ function buildSpec(
           { aggregate: "count", type: "quantitative", title: "count" },
         ],
       },
+    } as VisualizationSpec;
+  }
+
+  if (type === "raincloud") {
+    // Six trivial layers over one synthetic quantitative y (group lanes). x is the value axis,
+    // shared across layers; y is hidden (the group labels name each lane). Not brushable — it is a
+    // distribution summary, not a per-sample scatter.
+    const geo = buildRaincloud(rows, opts?.groupOrder ?? []);
+    const yScale = { domain: [geo.yMin, geo.yMax], nice: false };
+    const y = (f: string): Record<string, unknown> => ({ field: f, type: "quantitative", scale: yScale, axis: null });
+    const gTitle = opts?.groupLabel ?? "group";
+    return {
+      ...base,
+      data: { values: [] }, // each layer carries its own precomputed data; no shared top-level rows
+      encoding: {
+        x: { type: "quantitative", scale: { domain: [geo.xMin, geo.xMax], nice: false }, axis: { title: xName, ...axis } },
+      },
+      layer: [
+        // cloud — half-violin KDE band, filled from the lane baseline up to the density
+        {
+          data: { values: geo.cloud },
+          mark: { type: "area", opacity: 0.4, color: accent },
+          encoding: {
+            x: { field: "x" },
+            y: y("yTop"),
+            y2: { field: "yBase" },
+            detail: { field: "group" },
+            order: { field: "x" },
+            tooltip: [{ field: "group", type: "nominal", title: gTitle }],
+          },
+        },
+        // box — inter-quartile range
+        {
+          data: { values: geo.box },
+          mark: { type: "bar", color: dim, opacity: 0.5 },
+          encoding: {
+            x: { field: "q1", type: "quantitative" },
+            x2: { field: "q3" },
+            y: y("yb0"),
+            y2: { field: "yb1" },
+            tooltip: [
+              { field: "group", type: "nominal", title: gTitle },
+              { field: "med", type: "quantitative", title: "median", format: ".3f" },
+              { field: "q1", type: "quantitative", format: ".3f" },
+              { field: "q3", type: "quantitative", format: ".3f" },
+              { field: "n", type: "quantitative", title: "count" },
+            ],
+          },
+        },
+        // box — median rule
+        {
+          data: { values: geo.box },
+          mark: { type: "rule", color: text, strokeWidth: 2 },
+          encoding: { x: { field: "med", type: "quantitative" }, y: y("yb0"), y2: { field: "yb1" } },
+        },
+        // box — whiskers (Tukey 1.5·IQR fences)
+        {
+          data: { values: geo.box },
+          mark: { type: "rule", color: dim },
+          encoding: { x: { field: "lo", type: "quantitative" }, x2: { field: "hi" }, y: y("ymid") },
+        },
+        // rain — jittered raw samples
+        {
+          data: { values: geo.rain },
+          mark: { type: "point", filled: true, size: 7, opacity: 0.3, color: accent },
+          encoding: {
+            x: { field: "x", type: "quantitative" },
+            y: y("y"),
+            tooltip: [
+              { field: "group", type: "nominal", title: gTitle },
+              { field: "x", type: "quantitative", title: xName, format: ".3f" },
+              { field: "depth", type: "quantitative", title: "Depth", format: ".2f" },
+            ],
+          },
+        },
+        // group labels, one per lane
+        {
+          data: { values: geo.labels },
+          mark: { type: "text", align: "left", baseline: "middle", dx: 2, color: text, fontSize: 11 },
+          encoding: { x: { field: "x", type: "quantitative" }, y: y("y"), text: { field: "group", type: "nominal" } },
+        },
+      ],
     } as VisualizationSpec;
   }
 
@@ -331,17 +599,34 @@ export async function buildVegaContent(
     ["line", "Line"],
     ["histogram", "Histogram"],
     ["density", "Density"],
+    ["raincloud", "Raincloud"],
   ] as [ChartType, string][]) {
     const o = document.createElement("option");
     o.value = v;
     o.textContent = label;
     typeSel.appendChild(o);
   }
-  typeSel.value = ["scatter", "line", "histogram", "density"].includes(seed.type ?? "") ? (seed.type as ChartType) : "scatter";
+  typeSel.value = ["scatter", "line", "histogram", "density", "raincloud"].includes(seed.type ?? "") ? (seed.type as ChartType) : "scatter";
 
   const xSel = curveSelect(curveNames, seed.x ?? "NPHI");
   const ySel = curveSelect(curveNames, seed.y ?? "RHOB");
   const zSel = colorSelect(curveNames, seed.z ?? "");
+
+  // Raincloud group-by: "By zone" (sentinel) or a categorical curve (rock-type / facies / RT).
+  const GROUP_ZONE = "__zone__";
+  const groupSel = document.createElement("select");
+  groupSel.className = "form-control";
+  const zoneGroupOpt = document.createElement("option");
+  zoneGroupOpt.value = GROUP_ZONE;
+  zoneGroupOpt.textContent = "By zone";
+  groupSel.appendChild(zoneGroupOpt);
+  for (const name of curveNames) {
+    const o = document.createElement("option");
+    o.value = name;
+    o.textContent = name;
+    groupSel.appendChild(o);
+  }
+  groupSel.value = seed.group === GROUP_ZONE || curveNames.includes(seed.group ?? "") ? (seed.group as string) : GROUP_ZONE;
 
   // V5: a regression trend overlay (scatter only) — a fit line + R² on top of the cloud.
   const trendMethods = ["linear", "log", "exp", "pow", "quad"];
@@ -367,7 +652,8 @@ export async function buildVegaContent(
   toolbar.className = "vega-toolbar";
   const yField = field("Y", ySel);
   const zField = field("Color", zSel);
-  toolbar.append(field("Type", typeSel), field("X", xSel), yField, zField, trendField, field("Zone", zoneSel.select));
+  const groupField = field("Group", groupSel);
+  toolbar.append(field("Type", typeSel), field("X", xSel), yField, zField, trendField, groupField, field("Zone", zoneSel.select));
 
   const chartHost = document.createElement("div");
   chartHost.className = "vega-chart-host";
@@ -377,14 +663,19 @@ export async function buildVegaContent(
   // irrelevant to a histogram; colour and the trend overlay are meaningful only on a scatter.
   const syncControls = (): void => {
     const t = typeSel.value as ChartType;
-    ySel.disabled = t === "histogram";
+    const isRC = t === "raincloud";
+    // Raincloud uses X as the distribution variable and the Group picker; Y / Colour / Trend don't
+    // apply. Histogram also has no Y. Group applies only to raincloud.
+    ySel.disabled = t === "histogram" || isRC;
     zSel.disabled = t !== "scatter";
     const trendable = t === "scatter";
     trendChk.disabled = !trendable;
     trendMethodSel.disabled = !trendable || !trendChk.checked;
+    groupSel.disabled = !isRC;
     yField.classList.toggle("vega-field-off", ySel.disabled);
     zField.classList.toggle("vega-field-off", zSel.disabled);
     trendField.classList.toggle("vega-field-off", !trendable);
+    groupField.classList.toggle("vega-field-off", !isRC);
   };
   syncControls();
 
@@ -403,6 +694,8 @@ export async function buildVegaContent(
   let lastZ: string | null = null;
   let lastTrend = false;
   let lastMethod = "linear";
+  let lastGroupOrder: string[] = [];
+  let lastGroupLabel = "";
   // V4: an optional hand-edited spec. When set it replaces the generated grammar (the current rows
   // are injected as its data); a chart-type change clears it since the grammar is type-specific.
   let specOverride: VisualizationSpec | null = null;
@@ -412,7 +705,7 @@ export async function buildVegaContent(
     xName: string,
     yName: string,
     zName: string | null,
-    opts: { trend?: boolean; method?: string },
+    opts: SpecOpts,
   ): VisualizationSpec =>
     specOverride
       ? ({ ...(specOverride as Record<string, unknown>), data: { values: rows } } as VisualizationSpec)
@@ -493,14 +786,14 @@ export async function buildVegaContent(
     xName: string,
     yName: string,
     zName: string | null,
-    opts: { trend?: boolean; method?: string },
+    opts: SpecOpts,
     myGen: number,
   ): Promise<void> {
     current?.finalize();
     current = null;
     chartHost.innerHTML = "";
     if (rows.length === 0) {
-      const what = type === "histogram" ? xName : `${xName} / ${yName}`;
+      const what = type === "histogram" || type === "raincloud" ? xName : `${xName} / ${yName}`;
       const zc = zoneSel.current();
       // `well.well_name` and the curve mnemonics in `what` are LAS-supplied and stored verbatim;
       // building this line as textContent (not innerHTML) keeps a hostile `~W WELL` value inert.
@@ -545,6 +838,72 @@ export async function buildVegaContent(
     const useTrend = type === "scatter" && trendChk.checked;
     const method = trendMethodSel.value;
     const zc = zoneSel.current();
+
+    if (type === "raincloud") {
+      const groupBy = groupSel.value;
+      const byZone = groupBy === GROUP_ZONE;
+      const needed = byZone || groupBy === xName ? [xName] : [xName, groupBy];
+      setStatus(`Vega — loading ${needed.join(", ")}…`);
+      let series: TrackCurveSeries[];
+      try {
+        series = await getCurveData(well.well_id, needed, zc.depthMin, zc.depthMax);
+      } catch (err) {
+        if (disposed || myGen !== gen) return;
+        chartHost.replaceChildren(messageNode("logview-message", `Failed to load curves: ${err}`));
+        setStatus("Vega — load failed");
+        return;
+      }
+      if (disposed || myGen !== gen) return;
+      const xs = series.find((s) => s.curve_name === xName);
+      if (!xs) {
+        chartHost.replaceChildren(messageNode("logview-message", `No ${xName} data in ${well.well_name}.`));
+        setStatus("Vega — no data");
+        return;
+      }
+      let rows: Row[], order: string[], note = "", groupLabel: string;
+      if (byZone) {
+        let zones: ZoneEntry[] = [];
+        try {
+          zones = await listZones(well.well_id);
+        } catch {
+          zones = [];
+        }
+        if (disposed || myGen !== gen) return;
+        ({ rows, order } = groupByZone(xs, zones));
+        groupLabel = "zone";
+      } else {
+        const gs = series.find((s) => s.curve_name === groupBy);
+        if (!gs) {
+          chartHost.replaceChildren(messageNode("logview-message", `No ${groupBy} data in ${well.well_name}.`));
+          setStatus("Vega — no data");
+          return;
+        }
+        const res = groupByCurve(xs, gs, groupBy);
+        if (res.error) {
+          chartHost.replaceChildren(messageNode("logview-message", res.error));
+          setStatus("Vega — too many groups");
+          return;
+        }
+        ({ rows, order, note } = res);
+        groupLabel = groupBy;
+      }
+      lastRows = rows;
+      lastType = type;
+      lastX = xName;
+      lastY = "";
+      lastZ = null;
+      lastTrend = false;
+      lastMethod = method;
+      lastGroupOrder = order;
+      lastGroupLabel = groupLabel;
+      await embedRows(type, rows, xName, "", null, { groupOrder: order, groupLabel }, myGen);
+      // embedRows sets a generic status; refine it with the group count and any dropped-sample note.
+      if (current && !disposed && myGen === gen) {
+        setStatus(`Vega — raincloud · ${order.length} group(s) · ${rows.length.toLocaleString()} pts${note}`);
+      }
+      return;
+    }
+
     const needed = type === "histogram" ? [xName] : useZ ? [xName, yName, useZ] : [xName, yName];
     setStatus(`Vega — loading ${needed.join(", ")}…`);
     let series: TrackCurveSeries[];
@@ -573,7 +932,7 @@ export async function buildVegaContent(
   async function repaint(): Promise<void> {
     if (!lastRows) return;
     const myGen = ++gen;
-    await embedRows(lastType, lastRows, lastX, lastY, lastZ, { trend: lastTrend, method: lastMethod }, myGen);
+    await embedRows(lastType, lastRows, lastX, lastY, lastZ, { trend: lastTrend, method: lastMethod, groupOrder: lastGroupOrder, groupLabel: lastGroupLabel }, myGen);
   }
 
   // --- V4: last-used persistence, export, spec editor ------------------------
@@ -586,6 +945,7 @@ export async function buildVegaContent(
       zone: zoneSel.select.value,
       trend: trendChk.checked ? "1" : "",
       trendMethod: trendMethodSel.value,
+      group: groupSel.value,
     });
 
   // Export. Vega renders to a <canvas>, so the shared PNG copy/save/print buttons work against it;
@@ -647,9 +1007,14 @@ export async function buildVegaContent(
   const templateJson = (): string => {
     const type = typeSel.value as ChartType;
     const useZ = type === "scatter" && zSel.value ? zSel.value : null;
-    const spec = buildSpec(type, [], xSel.value, ySel.value, useZ, {
+    // Raincloud bakes its geometry into per-layer data (there is no shared top-level dataset to
+    // elide), so show it built from the live rows; the other types show grammar with data elided.
+    const rows = type === "raincloud" ? (lastRows ?? []) : [];
+    const spec = buildSpec(type, rows, xSel.value, ySel.value, useZ, {
       trend: type === "scatter" && trendChk.checked,
       method: trendMethodSel.value,
+      groupOrder: type === "raincloud" ? lastGroupOrder : undefined,
+      groupLabel: type === "raincloud" ? lastGroupLabel : undefined,
     }) as Record<string, unknown>;
     delete spec.data;
     return JSON.stringify(spec, null, 2);
@@ -705,7 +1070,7 @@ export async function buildVegaContent(
     if (specOpen) refreshTemplate();
     void render();
   });
-  for (const sel of [xSel, ySel, zSel, zoneSel.select]) {
+  for (const sel of [xSel, ySel, zSel, groupSel, zoneSel.select]) {
     sel.addEventListener("change", () => {
       persist();
       if (specOpen && !specOverride) refreshTemplate();
