@@ -129,6 +129,20 @@ fn page_header(ops: &mut Vec<DrawOp>, pw: f64, section: &str, well: &str) -> f64
     MARGIN + 10.0
 }
 
+/// A single page carrying just a section header and a wrapped note line — used when a section has
+/// no table to show (a compute/storage error, or a legitimately empty result) so a deliverable
+/// never silently drops the section: the header still appears, with an explicit reason underneath.
+fn note_page(section: &str, well: &str, note: &str, pw: f64) -> Vec<DrawOp> {
+    let mut ops: Vec<DrawOp> = Vec::new();
+    let y = page_header(&mut ops, pw, section, well);
+    let size = 3.0;
+    let max_chars = ((pw - 2.0 * MARGIN) / (CHAR_W * size)) as usize;
+    for (i, line) in wrap(note, max_chars).into_iter().enumerate() {
+        text(&mut ops, MARGIN, y + size + i as f64 * size * LINE_H_FACTOR, size, Anchor::Start, false, "#222222", line);
+    }
+    ops
+}
+
 /// Paginated table: fixed column widths (mm), wrapped cells, header row repeated on
 /// every page. Returns one `Vec<DrawOp>` per page.
 fn table_pages(
@@ -364,8 +378,16 @@ fn report_pages(
             pages.extend(table_pages("Zone Parameters", &well_name, &z_cols, &z_rows, pw, ph, 2.7));
         }
 
-        // 4 — pay summary (locks internally)
-        let pay_rows = run_pay_summary(
+        // 4 — pay summary (locks internally). Emit the section header unconditionally: a storage
+        // error or an uninterpreted well must leave a visible note in the deliverable rather than a
+        // silently missing section — this is a client PDF, and dropping a table it cannot support
+        // (unwrap_or_default previously collapsed both Err and empty into "no section at all") is
+        // exactly the cardinal-rule failure the report path must not allow.
+        let pay_section = format!(
+            "Pay Summary  (VSH ≤ {:.2}, PHIE ≥ {:.2}, SWE ≤ {:.2})",
+            spec.vsh_max, spec.phie_min, spec.swe_max
+        );
+        match run_pay_summary(
             db,
             &PaySummaryRequest {
                 well_ids: vec![spec.composite.well_id.clone()],
@@ -376,57 +398,63 @@ fn report_pages(
                 skip_version: true, // report render side-effect — don't version the pay flags
                 stats_only: false,  // report persists FLAG_* in place (unchanged behavior)
             },
-        )
-        .unwrap_or_default();
-        if !pay_rows.is_empty() {
-            let p_rows: Vec<Vec<String>> = pay_rows
-                .iter()
-                .map(|r| {
-                    vec![
-                        r.zone.clone(),
-                        r.flag.clone(),
-                        fmt_num(r.top, 1),
-                        fmt_num(r.bottom, 1),
-                        fmt_num(r.gross, 1),
-                        // A well whose VSH/PHIE/SWE were never computed classifies to NaN
-                        // everywhere, leaving net/ntg/hpv at exactly 0 — indistinguishable in
-                        // print from a genuine wet zone. This is a client deliverable, so it must
-                        // not assert a zero it cannot support: emit the same "-" the NaN averages
-                        // already use, and let the reader see the row was not interpreted.
-                        if r.n_classified == 0 { "-".to_string() } else { fmt_num(r.net, 1) },
-                        if r.n_classified == 0 { "-".to_string() } else { fmt_num(r.ntg, 2) },
-                        fmt_num(r.avg_vsh, 2),
-                        fmt_num(r.avg_phie, 3),
-                        fmt_num(r.avg_swe, 2),
-                        if r.n_classified == 0 { "-".to_string() } else { fmt_num(r.hpv, 2) },
-                    ]
-                })
-                .collect();
-            let p_cols: [(&str, f64, Anchor); 11] = [
-                ("Zone", usable * 0.16, Anchor::Start),
-                ("Flag", usable * 0.11, Anchor::Start),
-                ("Top", usable * 0.08, Anchor::End),
-                ("Bottom", usable * 0.08, Anchor::End),
-                ("Gross", usable * 0.08, Anchor::End),
-                ("Net", usable * 0.08, Anchor::End),
-                ("NTG", usable * 0.07, Anchor::End),
-                ("VSH", usable * 0.07, Anchor::End),
-                ("PHIE", usable * 0.08, Anchor::End),
-                ("SWE", usable * 0.07, Anchor::End),
-                ("HPV (m)", usable * 0.12, Anchor::End),
-            ];
-            pages.extend(table_pages(
-                &format!(
-                    "Pay Summary  (VSH ≤ {:.2}, PHIE ≥ {:.2}, SWE ≤ {:.2})",
-                    spec.vsh_max, spec.phie_min, spec.swe_max
-                ),
+        ) {
+            Ok(pay_rows) if !pay_rows.is_empty() => {
+                let p_rows: Vec<Vec<String>> = pay_rows
+                    .iter()
+                    .map(|r| {
+                        vec![
+                            r.zone.clone(),
+                            r.flag.clone(),
+                            fmt_num(r.top, 1),
+                            fmt_num(r.bottom, 1),
+                            fmt_num(r.gross, 1),
+                            // A well whose VSH/PHIE/SWE were never computed classifies to NaN
+                            // everywhere, leaving net/ntg/hpv at exactly 0 — indistinguishable in
+                            // print from a genuine wet zone. This is a client deliverable, so it
+                            // must not assert a zero it cannot support: emit the same "-" the NaN
+                            // averages already use, and let the reader see the row was not interpreted.
+                            if r.n_classified == 0 { "-".to_string() } else { fmt_num(r.net, 1) },
+                            if r.n_classified == 0 { "-".to_string() } else { fmt_num(r.ntg, 2) },
+                            fmt_num(r.avg_vsh, 2),
+                            fmt_num(r.avg_phie, 3),
+                            fmt_num(r.avg_swe, 2),
+                            if r.n_classified == 0 { "-".to_string() } else { fmt_num(r.hpv, 2) },
+                        ]
+                    })
+                    .collect();
+                let p_cols: [(&str, f64, Anchor); 11] = [
+                    ("Zone", usable * 0.16, Anchor::Start),
+                    ("Flag", usable * 0.11, Anchor::Start),
+                    ("Top", usable * 0.08, Anchor::End),
+                    ("Bottom", usable * 0.08, Anchor::End),
+                    ("Gross", usable * 0.08, Anchor::End),
+                    ("Net", usable * 0.08, Anchor::End),
+                    ("NTG", usable * 0.07, Anchor::End),
+                    ("VSH", usable * 0.07, Anchor::End),
+                    ("PHIE", usable * 0.08, Anchor::End),
+                    ("SWE", usable * 0.07, Anchor::End),
+                    ("HPV (m)", usable * 0.12, Anchor::End),
+                ];
+                pages.extend(table_pages(&pay_section, &well_name, &p_cols, &p_rows, pw, ph, 2.4));
+            }
+            // Ran cleanly but produced no rows: the well has no curve frame, or its zones could not
+            // be read. Show the header + an explicit note rather than a blank gap.
+            Ok(_) => pages.push(note_page(
+                &pay_section,
                 &well_name,
-                &p_cols,
-                &p_rows,
+                "No pay summary — this well has no curve data to classify.",
                 pw,
-                ph,
-                2.4,
-            ));
+            )),
+            // The pay numbers were computed in memory but a storage-side error (read-only DB, disk
+            // full, appender failure) failed the FLAG_* write. Surface it in the document instead of
+            // dropping the section, and keep the rest of the report (composite pages) intact.
+            Err(e) => pages.push(note_page(
+                &pay_section,
+                &well_name,
+                &format!("Pay Summary unavailable — {e}"),
+                pw,
+            )),
         }
 
         // 5 — composite log pages
@@ -530,6 +558,29 @@ mod tests {
         for p in &pages {
             assert!(p.iter().any(|op| matches!(op, DrawOp::Rect { fill: Some(f), .. } if f == "#e8e4da")));
         }
+    }
+
+    #[test]
+    fn note_page_shows_section_header_and_message() {
+        // The section header and the note text must both render — this is what stops a failed or
+        // empty pay run from leaving no trace at all in the client PDF.
+        let ops = note_page(
+            "Pay Summary  (VSH ≤ 0.50, PHIE ≥ 0.10, SWE ≤ 0.60)",
+            "BLSO-001",
+            "Pay Summary unavailable — read-only database",
+            210.0,
+        );
+        let texts: Vec<String> = ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::Text { s, .. } => Some(s.clone()),
+                _ => None,
+            })
+            .collect();
+        let joined = texts.join(" ");
+        assert!(joined.contains("Pay Summary"), "section header must be present");
+        assert!(texts.iter().any(|s| s.contains("BLSO-001")), "well name must be present");
+        assert!(joined.contains("unavailable"), "the failure note must render, not be dropped");
     }
 
     #[test]

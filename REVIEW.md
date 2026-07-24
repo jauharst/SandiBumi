@@ -7,6 +7,34 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 77 — R18: the report PDF silently dropped the Pay Summary section on error (2026-07-24)
+
+Section 4 of the report did `run_pay_summary(...).unwrap_or_default()`, which collapses **both** an
+`Err` (the `FLAG_*` write at `workflow.rs` failing — read-only DB, disk full, appender error) **and**
+a legitimately empty result into the same empty `Vec`. The `if !pay_rows.is_empty()` guard then
+dropped the **entire** section — header included — from the deliverable PDF, and `report_pages`
+returned `Ok`. The PDF was indistinguishable from a well that genuinely has no pay, and
+`export_report_batch` recorded the well in `written`, not `errors` — so a 540-well Mahakam batch could
+ship 540 "successful" client PDFs, every one missing its pay table, with an **empty error list**. The
+sharpest part: the pay numbers are computed in memory *before* the write side-effect, so a storage
+error suppressed a table whose values were already fully renderable.
+
+Fixed by emitting the section header **unconditionally** and branching on the `Result`: the table on
+rows, an explicit **`Pay Summary unavailable — {e}`** note page on `Err`, and a "no curve data to
+classify" note on the legitimately-empty case. It deliberately does **not** propagate the `Err`
+(that would abort the whole PDF and lose the composite log pages the user did want over one bad pay
+run) — the well is still counted as `written`, but the document now always carries a visible trace of
+what happened. New `note_page` helper (section header + wrapped note) for the two non-table branches.
+
+Verified: `cargo test` green via the pinned 14.29 toolchain; new `note_page_shows_section_header_and_message`
+asserts the header, the well name, and the failure note all render (the old code rendered none of
+them). Whole-crate compile clean. Backend-only, browser-independent.
+
+- [ ] **Try:** export a report (or a **batch** export) for a well whose pay run can't complete — e.g.
+  a well with no computed curves, or with the project DB file set read-only. The PDF must still show
+  a **Pay Summary** header page with a note ("unavailable — …" or "no curve data …"), never a report
+  that simply skips from Zone Parameters straight to the composite log pages with no pay section.
+
 ## Round 76 — R17: the legacy Multimin solver mixed PEF by the wrong physics (2026-07-24)
 
 The legacy `multimin` module (superseded by SandiMin/`multimin2`, hidden from every UI picker but
