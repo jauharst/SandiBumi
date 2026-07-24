@@ -22,13 +22,27 @@ findings fixed pre-commit. The #9 polish then ran follow-on rounds beyond the B�
 **SVG** export, single-chart **PDF** export, and the free-form **net-flag polygon** — so the
 deferred-#9 list is now fully exhausted. Final verification: cargo **354/0/7**, tsc 0.
 
-**Push state:** Jauhar has pushed through `9107294` (now origin/master); the six commits after it
-(`9a6b041 → a351ba5 → db3dc61 → 3c648b9 → 201352e → a4e05e9`) are local/unpushed for him.
+**✅ POST-HALF FIX-AND-FEATURE CHAIN (2026-07-24)** — after both halves shipped, an adversarial
+F-sweep over the whole app produced a ranked backlog. The five top items landed and were re-reviewed
+(**R1–R5** + a refinement pass), then a continued one-finding-per-commit chain: **R6** silent
+startup-DB death → **R7** inert Cancel on non-cancellable jobs → **R8** fresh-clone test-compile →
+**R9** LAS-well-name XSS→RCE → **R10** rejected undo silently dropping the action → **R11**
+depth-scale `var(--bg)` transparent in every palette → **R12** one cutoff-defaults source (Monte
+Carlo net-pay now reconciles with the pay summary) → **R13** six module-dialog Run buttons rendered
+native. Plus a requested feature — **V6 Raincloud** (PtitPrince-style half-violin + box + rain in the
+Vega panel). Each carries a REVIEW "Try:" line; see the R6–R13 table below and REVIEW Rounds 61–72.
 
-**Remaining (needs a fresh pick):** the first-half residuals + the maturation (DECIDE) track below,
-and — outside this tracker — Feature Wave B, Performance #128–132 (need a live 100-well benchmark),
-and the §4 interpretation-workflow open items. Jauhar's manual click-through (REVIEW.md) gates
-release, not the build.
+**Push state (2026-07-24):** local `master` HEAD is **`ae5bcb9`**, **49 commits ahead of
+`origin/master`**, all unpushed — Jauhar pushes himself. Working tree clean.
+
+**Remaining (needs a fresh pick):** the named fix-now F-sweep items are cleared. What's left is the
+invasive DB-lock responsiveness refactors (Autocorrelate / SandiMin load↔compute split), R9's
+security backlog (the full 17-site innerHTML sweep, a real CSP, scoping `save_png`), and the ~100
+pre-triaged Med/Low findings — plus, outside this tracker, the maturation (DECIDE) track below,
+Feature Wave B, Performance #128–132 (need a live 100-well benchmark), and the §4
+interpretation-workflow items. Jauhar's manual click-through (REVIEW.md) gates release, not the
+build. NB: the in-app browser was unresponsive on 2026-07-24, so the visual fixes (R11 / R13) are
+verified by selector/specificity construction, not a live screenshot.
 
 ---
 
