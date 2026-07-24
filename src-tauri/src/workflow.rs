@@ -76,8 +76,13 @@ fn resolve_param_arrays(
         let in_range =
             |v: f64| arg.min.map_or(true, |lo| v >= lo) && arg.max.map_or(true, |hi| v <= hi);
 
+        // Same test both sides. A non-finite value is out of range by definition — it cannot be
+        // clamped, compared or averaged — and letting it through here while rejecting it below
+        // left the two supply routes disagreeing about what a valid parameter is. JSON cannot
+        // carry NaN or Infinity, so today's single caller cannot trigger it; the point is that
+        // the next caller (a chain computing a parameter, say) meets one rule, not two.
         if let Some(&v) = req_params.get(&arg.name) {
-            if v.is_finite() && !in_range(v) {
+            if !v.is_finite() || !in_range(v) {
                 bad.push(format!("{} = {v} ({})", arg.name, range()));
             }
         }

@@ -1054,14 +1054,26 @@ export class Ribbon {
     setStatus(`Importing ${paths.length} LAS file(s)...`);
     try {
       const results = await importLasFiles(paths);
-      const ok = results.filter((r) => !r.error).length;
-      const warned = results.filter((r) => r.warning);
-      // "depth issues" was accurate when depth sanitising was the only note; it now also carries
-      // duplicate-name and failed-full-curve-load warnings, so name the count and let the
-      // per-well notes below say what actually happened.
+      // Partition on `well_id`, which is set only when a well row was actually committed.
+      // `!r.error` used to stand in for "imported", but cancelling an import now returns an entry
+      // with neither a well nor an error — so every cancelled file counted as imported, and
+      // "Imported 120/120" was written to the permanent History for a run that stopped at 75.
+      const imported = results.filter((r) => r.well_id);
+      const failed = results.filter((r) => r.error);
+      const cancelled = results.length - imported.length - failed.length;
+      // Warnings belong to wells that DID import: "depth issues" was accurate when depth
+      // sanitising was the only note, but it now also carries duplicate-name and failed
+      // full-curve-load warnings, so name the count and let the per-well notes say what happened.
+      // A cancelled file carries a note too; it is reported in the aggregate instead.
+      const warned = imported.filter((r) => r.warning);
       const warnNote = warned.length ? ` ${warned.length} well(s) imported with warnings.` : "";
-      setStatus(`Imported ${ok}/${results.length} well(s).${warnNote}`);
-      recordProcess("Import", `Imported ${ok}/${results.length} LAS well(s)`);
+      const cancelNote = cancelled > 0 ? ` ${cancelled} cancelled before import.` : "";
+      setStatus(`Imported ${imported.length}/${results.length} well(s).${warnNote}${cancelNote}`);
+      recordProcess(
+        "Import",
+        `Imported ${imported.length}/${results.length} LAS well(s)` +
+          (cancelled > 0 ? ` — ${cancelled} cancelled` : ""),
+      );
       for (const w of warned) {
         recordProcess("Import", `${w.well_name ?? w.path}: ${w.warning}`, w.well_name ?? undefined);
       }

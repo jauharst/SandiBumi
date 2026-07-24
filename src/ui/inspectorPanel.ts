@@ -57,8 +57,8 @@ export class InspectorPanel {
   private equations: EquationDef[] = [];
   private current: EquationDef = { ...BLANK_EQUATION };
   private editor: EditorView | null = null;
-  /// Bumped on every `renderEquationEditor`, so an in-flight async CodeMirror mount that is
-  /// superseded by a newer render drops itself instead of attaching to a replaced host.
+  /** Bumped on every `renderEquationEditor`, so an in-flight async CodeMirror mount that is
+   *  superseded by a newer render drops itself instead of attaching to a replaced host. */
   private editorGen = 0;
   /** Path of the Python the backend found; null = none; undefined = not asked yet. */
   private pythonPath: string | null | undefined = undefined;
@@ -143,7 +143,13 @@ export class InspectorPanel {
 
   private renderEquationEditor(): void {
     const eq = this.current;
+    // Null it, don't just destroy it. `destroy()` tears down the DOM but leaves `view.state`
+    // readable, so a destroyed view still answers `readFormIntoCurrent` with the PREVIOUS
+    // equation's text. That was harmless while the mount below was synchronous — the field was
+    // reassigned on the next line — but it is now awaited, and saving in that window would write
+    // the old equation's script into the newly-selected one.
     this.editor?.destroy();
+    this.editor = null;
     this.equationTab.innerHTML = `
       <div class="eq-form">
         <div class="eq-note" id="eq-lang-note">${escapeHtml(LANGUAGE_NOTES[eq.language] ?? LANGUAGE_NOTES.rhai)}</div>
@@ -204,10 +210,11 @@ export class InspectorPanel {
     `;
 
     // CodeMirror replaces the old plain textarea (python syntax highlighting when apt). It mounts
-    // asynchronously because the module is dynamic-imported; `readFormIntoCurrent` already falls
-    // back to `this.current.script` while `this.editor` is null, so a Save in that window keeps
-    // the script rather than blanking it. The language mode is fetched only for python, so a
-    // Rhai-only session never pays for the lezer parser either.
+    // asynchronously because the module is dynamic-imported, so between here and the mount
+    // `this.editor` is null (cleared above) and `readFormIntoCurrent` falls back to
+    // `this.current.script` — which is this equation's own text, so a Save in that window keeps
+    // the script rather than blanking it or writing the previously-open equation's. The language
+    // mode is fetched only for python, so a Rhai-only session never pays for the lezer parser.
     const scriptHost = this.equationTab.querySelector<HTMLElement>("#eq-script-host")!;
     const gen = ++this.editorGen;
     void (async () => {

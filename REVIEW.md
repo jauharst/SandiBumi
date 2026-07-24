@@ -7,6 +7,61 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 63 — refining R1–R5: one regression R5 introduced, one defect it met (2026-07-24)
+
+I re-read the five landed diffs adversarially instead of trusting my own summary of them. Two of
+the six findings are real defects; the rest are hardening. **Round 62's claim that saving before
+the editor mounted was "already safe" was wrong** — see the strikethrough below.
+
+**1. R5 introduced a data-loss window (the important one).** `renderEquationEditor` calls
+`this.editor?.destroy()` but never nulls the field. `destroy()` tears down the DOM yet leaves
+`view.state` readable — **a destroyed view is not a null view** — so `readFormIntoCurrent` kept
+answering with the *previously open* equation's text. That was harmless while the mount was
+synchronous, because the field was reassigned on the very next line. R5 put an `await` in that
+gap. Result: open equation A, pick equation B, hit **Save** before the CodeMirror chunk finishes
+loading, and **A's script is written into B**. The guard I described in Round 62 as already
+present did not exist; it does now (`this.editor = null`).
+
+**2. Cancelling a LAS import still reported every file as imported.** R3 added a cancel path that
+returns an entry with neither a well nor an error, and `ribbon.ts` counted success as `!r.error` —
+so cancelled files counted as imported. Cancel an import of 120 files at file 75 and the status
+line read **"Imported 120/120 well(s)"**, with that same sentence written into the permanent
+History, followed by 45 per-well notes each saying "cancelled". Exactly the class of defect R4
+existed to close, created by R3 landing next to it. Counting is now partitioned on `well_id` —
+the only field that proves a well row was actually committed — and cancelled files are reported
+as their own count.
+
+**3. The R1 wire guard had a hole on the Rust side.** `SPEC_FIELDS` was hand-maintained and only
+TypeScript was compared against it, so a field added to the Rust struct carrying
+`#[serde(default)]` — the one shape that deserializes happily forever — could sit there
+permanently unknown to `ipc.ts`. The contract is now also checked against **serde's own** field
+list, recovered from the `deny_unknown_fields` error text. Proven by dropping a name from the
+contract and watching it fail. Worth noting: adding a field to the struct *also* breaks the build
+outright, because the tests construct it with struct literals — an incidental second layer I
+hadn't credited.
+
+**4–6. Hardening.** The dashboard's row filter set its "n excluded" counter as a side effect while
+the CSV handler called it outside the render path, so the note could describe a different
+selection than the table — now returns the count with the rows. The out-of-range parameter check
+rejected non-finite zone values but let non-finite request values through (unreachable today, as
+JSON carries neither NaN nor Infinity — but two rules where there should be one). Plus the
+"—" explanation sentence, which parsed as gibberish because the em dash it was describing sat
+mid-sentence unquoted.
+
+cargo **370/0/7**, release build and `tsc && vite build` clean. Eager chunk 664.53 kB (+0.18 kB).
+
+- [ ] **Try (the R5 fix, most important):** Inspector → Equation. Open an equation with a
+  distinctive script, then pick a **different** equation from the dropdown and hit **Save**
+  immediately — before the editor finishes appearing. The saved script must be the one you
+  selected, not the one you were just looking at. Re-open both to confirm neither was overwritten.
+- [ ] **Try (the import fix):** start a LAS import of a large folder, hit **Cancel** partway.
+  The status line must read "Imported *n*/*N* well(s). *m* cancelled before import." with
+  *n* matching the wells that actually appeared in the tree — not *N*/*N*. Check the History
+  panel says the same thing.
+- [ ] **Try (the dashboard fix):** Field Dashboard with at least one uninterpreted well in scope —
+  the "*n* interval(s) excluded" note must match what the table shows, and **Export CSV** must
+  contain only the interpreted rows.
+
 ## Round 62 — R5: 461 kB of CodeMirror off every launch (2026-07-24)
 
 I suspected this during scouting — CodeMirror is a dependency and the Vega spec editor is
@@ -22,9 +77,11 @@ either.
 
 The mount became async, which needed two guards: a generation counter, so a re-render (equation
 picked, language switched) that lands while the import is in flight owns the host and the stale
-mount drops itself; and a check that the host is still connected. Saving in the window before the
+mount drops itself; and a check that the host is still connected. ~~Saving in the window before the
 editor mounts was already safe — `readFormIntoCurrent` falls back to the stored script rather than
-reading a null editor.
+reading a null editor.~~ **← wrong, corrected in Round 63.** It needed a third guard: the editor
+field was destroyed but never nulled, and a destroyed CodeMirror view still answers with the *old*
+equation's text.
 
 **Measured, not estimated:**
 

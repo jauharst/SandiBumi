@@ -115,16 +115,17 @@ export async function buildDashboardContent(
   // than a mis-rendered cell: feeding those zeros into the medians and box plots would drag
   // every aggregate down with data that does not exist. So they are excluded from the panel and
   // counted, rather than blanked in place.
-  let uninterpreted = 0;
-  const rowsForFlag = () => {
+  // Returns the count alongside the rows rather than assigning to an outer variable: the CSV
+  // handler calls this outside `render`, so a side-effecting version would leave the on-screen
+  // "n excluded" note describing a different selection than the one displayed.
+  const rowsForFlag = (): { rows: PaySummaryRow[]; uninterpreted: number } => {
     const forFlag = allRows.filter((r) => r.flag === flagSel.value);
-    const usable = forFlag.filter((r) => r.n_classified > 0);
-    uninterpreted = forFlag.length - usable.length;
-    return usable;
+    const rows = forFlag.filter((r) => r.n_classified > 0);
+    return { rows, uninterpreted: forFlag.length - rows.length };
   };
 
   const render = () => {
-    const rows = rowsForFlag();
+    const { rows, uninterpreted } = rowsForFlag();
     body.innerHTML = "";
     if (rows.length === 0) {
       const why =
@@ -284,7 +285,9 @@ export async function buildDashboardContent(
 
   flagSel.addEventListener("change", render);
   metricSel.addEventListener("change", render);
-  csvBtn.addEventListener("click", () => exportCsv(rowsForFlag(), flagSel.value));
+  // Exports the same usable rows the panel shows — an uninterpreted well's zeros would read as a
+  // genuine wet zone in a spreadsheet, where there is no dimmed styling to say otherwise.
+  csvBtn.addEventListener("click", () => exportCsv(rowsForFlag().rows, flagSel.value));
 
   return { el };
 }

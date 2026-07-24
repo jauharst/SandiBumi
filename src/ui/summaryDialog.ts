@@ -144,8 +144,8 @@ function renderTable(container: HTMLElement, rows: PaySummaryRow[]): void {
     const note = document.createElement("p");
     note.className = "summary-note";
     note.textContent =
-      `${uninterpreted} of ${rows.length} row(s) show — because no sample could be classified: ` +
-      `run VSH/PHIE/SWE for those wells first.`;
+      `${uninterpreted} of ${rows.length} row(s) show "—" for Net, N/G and HPV: no sample could ` +
+      `be classified, so those wells have no interpretation yet. Run VSH/PHIE/SWE first.`;
     container.appendChild(note);
   }
 }

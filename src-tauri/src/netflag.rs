@@ -256,7 +256,7 @@ mod tests {
         let obj = json.as_object().expect("an object");
         let mut keys: Vec<&str> = obj.keys().map(String::as_str).collect();
         keys.sort_unstable();
-        assert_eq!(keys, ["evaluated", "inside", "output_curve", "written"]);
+        assert_eq!(keys, RESULT_FIELDS, "the serialized keys ARE the contract");
         assert_eq!(obj["output_curve"], "NET_FLAG");
     }
 
@@ -267,6 +267,27 @@ mod tests {
         "well_id", "x_curve", "x_log", "y_curve", "y_log",
     ];
     const RESULT_FIELDS: [&str; 4] = ["evaluated", "inside", "output_curve", "written"];
+
+    /// Ask serde what `NetFlagSpec` will actually accept off the wire, rather than trusting the
+    /// hand-written list above. `deny_unknown_fields` rejects a probe key with "unknown field
+    /// `__probe__`, expected one of `well_id`, `x_curve`, …", which enumerates every field the
+    /// struct really binds. Without this the contract was only ever checked against TypeScript,
+    /// so a field added to the Rust struct with `#[serde(default)]` — the one shape that
+    /// deserializes happily forever — could sit there permanently unknown to `ipc.ts`.
+    fn serde_spec_fields() -> Vec<String> {
+        let err = serde_json::from_str::<NetFlagSpec>(r#"{"__probe__":0}"#)
+            .expect_err("deny_unknown_fields must reject an unknown key");
+        let msg = err.to_string();
+        let at = msg
+            .find("expected one of ")
+            .unwrap_or_else(|| panic!("serde's unknown-field message changed shape: {msg}"));
+        // …`a`, `b`, `c` at line 1 column N → split on the backticks and keep the odd elements.
+        let mut out: Vec<String> =
+            msg[at..].split('`').skip(1).step_by(2).map(str::to_string).collect();
+        assert!(!out.is_empty(), "no field names parsed out of: {msg}");
+        out.sort_unstable();
+        out
+    }
 
     /// Pull the field names out of an interface in the real `src/ipc.ts`.
     fn ts_interface_fields(src: &str, iface: &str) -> Vec<String> {
@@ -296,6 +317,16 @@ mod tests {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/ipc.ts");
         let src = std::fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+
+        // Rust side first: the contract must still describe the struct. Checking only TypeScript
+        // against it would let a field added on the Rust side drift out of the comparison
+        // entirely, taking the ipc.ts check down to a subset of the real wire.
+        assert_eq!(
+            serde_spec_fields(),
+            SPEC_FIELDS,
+            "NetFlagSpec's serde fields drifted from the stated contract — update SPEC_FIELDS and \
+             declare the field in ipc.ts, or the frontend will never send it"
+        );
 
         assert_eq!(
             ts_interface_fields(&src, "NetFlagSpec"),
