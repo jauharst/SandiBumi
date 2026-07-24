@@ -28,6 +28,13 @@
   --accent2: #5f7350;
   --accent2-soft: #e2e8d5;
   --warn: #a83e2c;
+  /* Semantic QC status colours (pass / warn / fail) — deliberately NOT the brand
+     --accent/--accent2/--warn tokens, so a client skin can never re-roll the meaning of the
+     Results-QC scorecard. Chosen for legibility on any light panel; the dark themes override below.
+     All five brand skins are light-background, so they inherit these unchanged. */
+  --qc-ok: #2e7d32;
+  --qc-warn: #c07000;
+  --qc-alert: #c62828;
   --track-hd: #ece1c8;
   /* Typography tokens (theme-independent unless a branded skin overrides them): every
      canvas ctx.font and mono field derives from these, never from per-file literals. */
@@ -50,6 +57,9 @@
   --accent2: #8ca377;
   --accent2-soft: #2c3325;
   --warn: #d96a52;
+  --qc-ok: #5cc264;
+  --qc-warn: #e0a52e;
+  --qc-alert: #ef5350;
   --track-hd: #2e2519;
 }
 
@@ -69,6 +79,9 @@
     --accent2: #8ca377;
     --accent2-soft: #2c3325;
     --warn: #d96a52;
+    --qc-ok: #5cc264;
+    --qc-warn: #e0a52e;
+    --qc-alert: #ef5350;
     --track-hd: #2e2519;
   }
 }
@@ -2644,24 +2657,26 @@ textarea {
 }
 .rqc-dot {
   flex: 0 0 auto;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
+  width: 1.1em;
+  text-align: center;
   align-self: center;
-  background: var(--text-dim);
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 700;
+  color: var(--text-dim);
 }
 .rqc-dot-ok {
-  background: var(--accent);
+  color: var(--qc-ok);
 }
 .rqc-dot-warn {
-  background: var(--accent2);
+  color: var(--qc-warn);
 }
 .rqc-dot-alert {
-  background: var(--warn);
+  color: var(--qc-alert);
 }
 .rqc-dot-na {
-  background: var(--text-dim);
-  opacity: 0.5;
+  color: var(--text-dim);
+  opacity: 0.7;
 }
 .rqc-check-label {
   flex: 0 0 130px;

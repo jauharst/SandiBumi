@@ -7,6 +7,47 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 75 — R16: the Results-QC scorecard status was carried by brand colour alone (2026-07-24)
+
+The one panel whose entire job is to tell you a result is degraded encoded each check's verdict
+(`ok` / `warn` / `alert` / `na`) as a **9px colour dot only**, and the dot's colour reused the
+**brand** `--accent` / `--accent2` / `--warn` tokens — chosen for branding, never for pass/fail
+meaning. Two consequences, both live on **default** screens, not just demo skins:
+
+- **Default theme:** `warn` mapped to `--accent2` = `#5f7350` (olive **green**) and `ok` to
+  `--accent` = `#b5651d` (ochre). So a Buckles BVW check that trips its warn threshold paints green
+  next to a passing check painted orange — **the degraded result reads as the clean one**. That is
+  exactly the cardinal data-honesty rule inverted.
+- **Halliburton skin:** `ok` = `#e31b23` (bright red) vs `alert` = `#b3141b` (dark red) — at 9px
+  these are one colour, so every clean zone reads as an alarm across a 60-dot scorecard. And `warn`
+  (graphite `--accent2`) collided with `na` (dimmed `--text-dim`).
+
+Fixed with **redundant coding** — shape *and* hue, so neither channel alone has to carry the
+verdict. (1) Each row now shows a **glyph** (`✓` / `⚠` / `✗` / `–`, the set `processingPanel`
+already renders as monochrome text in this runtime) via `dot.textContent`, plus `role="img"` +
+`aria-label` (`pass` / `warning` / `fail` / `not run`) so a screen reader announces the status word.
+(2) New **semantic** `--qc-ok` / `--qc-warn` / `--qc-alert` tokens (green / amber / red) drive the
+colour, decoupled from the brand palette — declared once in `:root` (all five brand skins are
+light-background, so they inherit an identical, legible triple) with a brighter override in the two
+dark contexts. `.rqc-dot` became a glyph carrier instead of a filled circle. This also removes a
+standing hazard: every future client skin previously re-rolled the meaning of the QC colours for
+free; now it can't.
+
+Purely additive — one DOM line + three CSS vars per theme + the `.rqc-dot` restyle; no computation,
+threshold, or shared component touched, and the `na` text rows ("run SandiMin recon QC first", etc.)
+and the CSV export were already fully readable and are unchanged. Verified: `tsc && vite build`
+clean; grep confirms `--qc-*` defined in `:root` + both dark blocks and consumed only by the three
+`.rqc-dot-*` rules, and that no `.rqc-dot` rule still references a brand token. Browser-observable
+(needs the full Tauri app to populate a scorecard + a theme switch), and the in-app browser is still
+down this session — so this carries a click-through Try line, and I've attached a swatch comparison
+below rather than a live screenshot.
+
+- [ ] **Try:** run a full interpretation + SandiMin recon + Monte Carlo so the **Results-QC** panel
+  shows a scorecard with a mix of pass / warn / fail rows. Each row must show a `✓` / `⚠` / `✗` glyph
+  (not a bare dot). Switch the theme to **Halliburton** and to the **default** earth-tone: a passing
+  check must never look like a failing one, and a warn must never look like a pass, in **any**
+  palette. Confirm the glyphs stay monochrome (not colour-emoji).
+
 ## Round 74 — R15: the Vega panel keeps plotting pre-run values after a module run (2026-07-24)
 
 The interactive Vega panel (the V1–V6 work) was the **only plot panel with no `dataVersion`

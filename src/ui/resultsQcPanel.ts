@@ -145,12 +145,23 @@ function num(input: HTMLInputElement, fallback: number): number {
   return Number.isFinite(v) ? v : fallback;
 }
 
-/** A traffic-light check row: coloured dot + label + detail, with the full notes trail as a tooltip. */
+/** Redundant status coding for the traffic-light rows — reuses processingPanel's proven glyph set
+ *  plus a screen-reader word, so a verdict is never carried by colour alone. The status colours map
+ *  to the brand `--accent`/`--accent2`/`--warn` tokens, which on the shipped skins make a pass read
+ *  as an alarm (Halliburton red) or a warn read as a pass (default olive `--accent2`); a glyph keeps
+ *  every row legible in any palette and to colour-vision-deficient readers. */
+const CHECK_GLYPH: Record<CheckStatus, string> = { ok: "✓", warn: "⚠", alert: "✗", na: "–" };
+const CHECK_WORD: Record<CheckStatus, string> = { ok: "pass", warn: "warning", alert: "fail", na: "not run" };
+
+/** A traffic-light check row: status glyph + label + detail, with the full notes trail as a tooltip. */
 function checkRow(status: CheckStatus, label: string, detail: string, tooltip?: string): HTMLElement {
   const row = document.createElement("div");
   row.className = "rqc-check";
   const dot = document.createElement("span");
   dot.className = `rqc-dot rqc-dot-${status}`;
+  dot.textContent = CHECK_GLYPH[status];
+  dot.setAttribute("role", "img");
+  dot.setAttribute("aria-label", CHECK_WORD[status]);
   const name = document.createElement("span");
   name.className = "rqc-check-label";
   name.textContent = label;
