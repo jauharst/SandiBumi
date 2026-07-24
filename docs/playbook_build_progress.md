@@ -32,8 +32,10 @@ Carlo net-pay now reconciles with the pay summary) → **R13** six module-dialog
 native. Plus a requested feature — **V6 Raincloud** (PtitPrince-style half-violin + box + rain in the
 Vega panel). Each carries a REVIEW "Try:" line; see the R6–R13 table below and REVIEW Rounds 61–72.
 
-**Push state (2026-07-24):** local `master` HEAD is **`ae5bcb9`**, **49 commits ahead of
-`origin/master`**, all unpushed — Jauhar pushes himself. Working tree clean.
+**Push state (2026-07-24):** everything through this update — both halves plus the whole R1–R13 fix
+chain and V6 — is committed locally and **unpushed** (`origin/master` is many commits behind); Jauhar
+pushes himself. Working tree clean. (Exact ahead-count omitted on purpose — it goes stale the moment
+this file is committed.)
 
 **Remaining (needs a fresh pick):** the named fix-now F-sweep items are cleared. What's left is the
 invasive DB-lock responsiveness refactors (Autocorrelate / SandiMin load↔compute split), R9's
