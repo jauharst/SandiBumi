@@ -272,7 +272,7 @@ export async function buildDashboardContent(
         stats_only: true,
       });
       const flags = new Set(allRows.map((r) => r.flag));
-      statusEl.textContent = `${wellIds.length} well(s) · ${allRows.length} zone-rows across ${flags.size} flag level(s). FLAG curves written.`;
+      statusEl.textContent = `${wellIds.length} well(s) · ${allRows.length} zone-rows across ${flags.size} flag level(s). Stats only — no FLAG curves written; run Cutoffs & Summary to persist flags.`;
       setStatus(`Field dashboard: ${allRows.length} rows over ${wellIds.length} wells`);
       render();
     } catch (err) {

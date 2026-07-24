@@ -35,11 +35,14 @@ Results-QC scorecard verdict is now a glyph + semantic colour, not brand colour 
 pass-reads-as-alarm inversion on the default *and* Halliburton skins) → **R17** the legacy Multimin
 solver now mixes PEF as the volumetric `U = Pe·ρe` (was raw per-electron Pe, which floored RECON_ERR
 at ~1σ and inflated VSH) → **R18** the report PDF no longer silently drops the Pay Summary section on
-error (a batch could ship pay-less client PDFs with zero reported errors). Plus a requested feature —
+error (a batch could ship pay-less client PDFs with zero reported errors) → **R19** the Field Dashboard
+no longer claims "FLAG curves written." on its `stats_only` Compute (which persists nothing) — the
+status line now tells the truth, and five stale `skip_version`/dashboard-attribution comments were
+corrected to match the post-`stats_only` reality. Plus a requested feature —
 **V6 Raincloud** (PtitPrince-style half-violin + box + rain in the Vega panel). Each carries a REVIEW
-"Try:" line; see the R6–R18 table below and REVIEW Rounds 61–77.
+"Try:" line; see the R6–R19 table below and REVIEW Rounds 61–78.
 
-**Push state (2026-07-24):** everything through this update — both halves plus the whole R1–R18 fix
+**Push state (2026-07-24):** everything through this update — both halves plus the whole R1–R19 fix
 chain and V6 — is committed locally and **unpushed** (`origin/master` is many commits behind); Jauhar
 pushes himself. Working tree clean. (Exact ahead-count omitted on purpose — it goes stale the moment
 this file is committed.)
@@ -48,7 +51,12 @@ this file is committed.)
 innerHTML sweep; R15 closed the Vega `dataVersion` gap). What's left is the invasive DB-lock
 responsiveness refactors (Autocorrelate / SandiMin load↔compute split), R9's residual security
 backlog (a real CSP, scoping `save_png` — both want live browser testing), and the ~100 pre-triaged
-Med/Low findings (the High fix-now F-sweep tier is now empty — R16 was its last open item) — plus,
+Med/Low findings (the High fix-now F-sweep tier is now empty — R16 was its last open item; R17/R18/R19
+have been working the Med **data-honesty** sub-tier). Two items R17/R19 surfaced that need Jauhar's
+call before action: retiring/​unifying the legacy `multimin` endpoint table (R17), and whether the
+Field Dashboard's Compute should be silent again — its `lib.rs` off-thread guard requires
+`stats_only && skip_version` but the dashboard now sets `stats_only` alone, so it posts a "Pay summary"
+job card on every Compute (R19 documented the gap, did not change the guard). Plus,
 outside this tracker, the maturation (DECIDE) track below,
 Feature Wave B, Performance #128–132 (need a live 100-well benchmark), and the §4
 interpretation-workflow items. Jauhar's manual click-through (REVIEW.md) gates release, not the
@@ -286,11 +294,14 @@ or failed result must never be presented as a clean one** — applied to five di
 | R15 | **The Vega panel kept plotting pre-run values after a module run.** It was the only plot panel with no `dataVersion` subscription (siblings crossplot/histogram/pickett/correlation all carry one), so a SandiMin/equation re-run redrew every neighbour but left the Vega cloud stale — two contradictory clouds of the same two curves on screen, the stale one exportable to a client PDF. Newly written `MM_*` curves were also absent from the dropdowns until reopen | Mirrored the sibling primed `dataVersion` subscription: refills the 4 curve selects from a fresh `loadCurveNames()` and calls the existing race-guarded `render()`; released in `dispose`. New `refillCurveSelect` preserves the current selection (a vanished curve stays as a leading option, no silent axis jump). tsc + build; 20-check headless refill-invariant harness; verified-by-construction vs the four proven siblings (live redraw needs the Tauri app — browser still down) | `68a77a4` |
 | R16 | **The Results-QC scorecard carried each check's verdict in brand colour alone** — a 9px dot coloured from `--accent`/`--accent2`/`--warn`, tokens chosen for branding not meaning. On the **default** theme `warn`→olive-green and `ok`→ochre, so a degraded check read as the clean one; under **Halliburton** `ok` #e31b23 vs `alert` #b3141b are one red at 9px, and `warn` collided with `na` | Redundant coding — shape + hue. Each row now shows a glyph (`✓`/`⚠`/`✗`/`–`, processingPanel's monochrome set) + `role=img`/`aria-label`; new **semantic** `--qc-ok`/`--qc-warn`/`--qc-alert` (green/amber/red) decoupled from the brand palette, declared once in `:root` (5 light brand skins inherit) + a dark override in the 2 dark blocks; `.rqc-dot` restyled circle→glyph. Additive only. tsc + build; grep-proved `--qc-*` in `:root`+both dark blocks and no `.rqc-dot` still on a brand token | `4fd1099` |
 | R17 | **Legacy Multimin mixed PEF by the wrong physics.** The hidden-but-still-registered `multimin` module (reachable via any saved chain / dockview layout id `module:multimin`) pushed raw per-electron PEF into its NNLS system; PEF must mix as the volumetric `U = Pe·ρe`. With defaults a 50/50 quartz-water sample carried a 0.30 b/e residual = 1× SIG_PEF, so RECON_ERR blamed good logs and NNLS over-assigned clay (VSH↑, pay↓) | Convert every endpoint + the measured reading to U before mixing; carry σ in U space (σ_PEF·ρe); drop the PEF row when RHOB absent. `ρe(ρb)` now one `pub(crate)` fn in multimin2 both solvers call (no drift). The complicit recovery test (forward-modelled PEF with the same wrong law) now uses the U law → real guard; +2 new tests. cargo test green (46) | `8fc873b` |
-| R18 | **The report PDF silently dropped the whole Pay Summary section on error.** `report.rs` did `run_pay_summary(...).unwrap_or_default()`, collapsing an Err (FLAG_* write failure) AND a legit-empty result into one empty Vec; the `if !rows.is_empty()` guard dropped the section (header included) with no trace, and `export_report_batch` reported zero errors — a 540-well batch could ship 540 pay-less client PDFs | Emit the section header unconditionally via `match`: table on rows, a `note_page` "Pay Summary unavailable — {e}" on Err, "no curve data" note on empty. Does NOT propagate (would lose the composite log pages) — well still counted `written`, but always leaves a visible trace. New `note_page` helper + unit test. cargo test green | *(this update)* |
+| R18 | **The report PDF silently dropped the whole Pay Summary section on error.** `report.rs` did `run_pay_summary(...).unwrap_or_default()`, collapsing an Err (FLAG_* write failure) AND a legit-empty result into one empty Vec; the `if !rows.is_empty()` guard dropped the section (header included) with no trace, and `export_report_batch` reported zero errors — a 540-well batch could ship 540 pay-less client PDFs | Emit the section header unconditionally via `match`: table on rows, a `note_page` "Pay Summary unavailable — {e}" on Err, "no curve data" note on empty. Does NOT propagate (would lose the composite log pages) — well still counted `written`, but always leaves a visible trace. New `note_page` helper + unit test. cargo test green | `43ed3dc` |
+| R19 | **The Field Dashboard claimed "FLAG curves written." on the path that writes nothing.** Compute runs `run_pay_summary` with `stats_only: true` (the comment above it even says "persist nothing"); `workflow.rs` gates the whole FLAG-write block behind `if !req.stats_only`, so nothing is written — pinned by `pay_summary_stats_only_persists_nothing`. The user then hunts for `FLAG_PAY` that was never written (or, after a cutoff tweak, reads **stale** flags from a prior run as if freshly written) | Status line now truthful — "Stats only — no FLAG curves written; run Cutoffs & Summary to persist flags." The same stale "dashboard writes FLAG_* / sets skip_version" attribution was mirrored in **5** comments (the TS doc a mirror of the Rust struct-doc); all corrected — `skip_version`'s real writer today is the report/composite render pass. Backend edits comment-only. tsc + build; cargo test green. Surfaced (not changed): `lib.rs` silent-guard needs `stats_only && skip_version` but dashboard sets `stats_only` alone → posts a job card on every Compute | *(this update)* |
 
-`tsc && vite build` clean throughout; R6–R8, R17 and R18 are cargo-green (R17 a pure backend physics
-change cargo-proven by 46 tests incl. 2 new PEF-mixing guards; R18 a report-honesty fix with a new
-`note_page` unit test — both browser-independent). R10/R15 have no
+`tsc && vite build` clean throughout; R6–R8, R17, R18 and R19 are cargo-green (R17 a pure backend
+physics change cargo-proven by 46 tests incl. 2 new PEF-mixing guards; R18 a report-honesty fix with a
+new `note_page` unit test; R19 comment-only backend edits proven by a whole-crate recompile plus the
+pre-existing `pay_summary_stats_only_persists_nothing` test that is itself the evidence the old status
+string lied — all browser-independent). R10/R15 have no
 cargo/vitest surface (pure TS logic, no frontend test harness exists) — their proof is the headless
 ports in `scratchpad/undo_check.mjs` and `scratchpad/refill_check.mjs`. Live desktop click-through for
 the UI-facing rounds stays on REVIEW's Try lines.

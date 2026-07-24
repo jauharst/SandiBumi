@@ -1488,8 +1488,10 @@ export interface PaySummaryRequest {
   phie_min: number;
   swe_max: number;
   perm_min: number | null;
-  /** Field Dashboard sets this true so its field-wide QC pass writes FLAG_* in place instead
-   *  of versioning the pay flags (with the cutoffs in provenance) per well on every refresh. */
+  /** Write FLAG_* in place without creating a versioned log set, instead of versioning the pay
+   *  flags (with the cutoffs in provenance) per well. Set by the report/composite render pass,
+   *  whose flags are a render side-effect that should not churn the archive with a version per
+   *  render. The explicit Cutoffs & Summary run leaves this false so its flags are versioned. */
   skip_version?: boolean;
   /** Compute + return the per-zone stats WITHOUT persisting any FLAG_* curves. The Field
    *  Dashboard sets this: it only reads the returned rows, so writing flags per well on every

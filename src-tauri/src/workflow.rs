@@ -503,10 +503,11 @@ pub struct PaySummaryRequest {
     pub swe_max: f64,
     /// Optional PERM >= perm_min added to the pay flag when PERM exists.
     pub perm_min: Option<f64>,
-    /// When true (Field Dashboard's field-wide QC pass), FLAG_* curves are written in place
-    /// without creating a versioned log set — avoids an archive version per well on every
-    /// dashboard refresh. The explicit Cutoffs & Summary run leaves this false, so its pay
-    /// flags are versioned with the cutoffs recorded in provenance (log_sets.params_json).
+    /// When true, FLAG_* curves are written in place without creating a versioned log set. Set
+    /// by the report/composite render pass, whose pay flags are a render side-effect that must
+    /// not churn the archive with a version per render. The explicit Cutoffs & Summary run
+    /// leaves this false, so its pay flags are versioned with the cutoffs recorded in provenance
+    /// (log_sets.params_json).
     #[serde(default)]
     pub skip_version: bool,
     /// When true, compute and return the per-zone statistics WITHOUT persisting any FLAG_*
@@ -617,7 +618,7 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
         if !req.stats_only {
             let conn = db.lock().unwrap();
             if req.skip_version {
-                // Field-wide QC (dashboard): overwrite FLAG_* in place, no version churn.
+                // Render side-effect (report/composite): overwrite FLAG_* in place, no version churn.
                 for (name, values) in
                     [("FLAG_SAND", &flag_sand), ("FLAG_RESERVOIR", &flag_res), ("FLAG_PAY", &flag_pay)]
                 {
@@ -1737,7 +1738,7 @@ mod tests {
             assert!(params.contains("\"swe_max\":0.5"), "cutoffs in provenance: {params}");
         }
 
-        // skip_version (dashboard/report side-effect): writes FLAG_* in place, no new version.
+        // skip_version (report/composite render side-effect): writes FLAG_* in place, no new version.
         let req_skip = PaySummaryRequest {
             well_ids: vec![w.clone()],
             vsh_max: 0.5,

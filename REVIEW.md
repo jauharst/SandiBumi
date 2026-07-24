@@ -7,6 +7,48 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 78 — R19: the Field Dashboard claimed "FLAG curves written." on the path that writes nothing (2026-07-24)
+
+Pressing **Compute** on the Field Dashboard runs `run_pay_summary` with `stats_only: true` — the
+comment three lines above the write even says *"compute the stats, persist nothing."* Yet the panel's
+status line asserted **"FLAG curves written."** `workflow.rs` gates the *entire* FLAG-write block
+(both the in-place and the versioned branches) behind `if !req.stats_only`, so with `stats_only: true`
+**nothing is written** — this is pinned by the unit test `pay_summary_stats_only_persists_nothing`
+("stats_only must not write any FLAG_* curve", "…must not create a PAYFLAG log set"). A petrophysicist
+who read that line and then opened a Log View or picked `FLAG_PAY` as a crossplot Z-curve found
+nothing, with no error to explain it — a classic hunt-for-the-bug-that-is-a-lying-status-message. The
+sharper case: if an earlier **Cutoffs & Summary** run already wrote `FLAG_PAY`, the dashboard claimed
+"FLAG curves written" after a **cutoff tweak** while Log View still showed **stale** flags computed at
+the *old* cutoffs — silently wrong, not merely absent.
+
+Fixed the status line to tell the truth — *"Stats only — no FLAG curves written; run Cutoffs & Summary
+to persist flags."* — which covers both the absent-flags and the stale-flags cases (it says **this**
+Compute persisted nothing, so any `FLAG_*` in Log View is from a prior run, possibly at other cutoffs).
+
+The lie was not confined to that one string: the same stale attribution — *"the Field Dashboard writes
+`FLAG_*` in place / sets `skip_version`"* — was mirrored across **five** comments, the TS doc the sweep
+named being merely a mirror of its Rust struct-doc source. Post-`stats_only` refactor the dashboard
+sets `stats_only` **alone**; `skip_version`'s only real writer today is the **report/composite render
+pass** (`report.rs:398`). Corrected all five (`ipc.ts`, `workflow.rs` struct-doc + write-branch +
+test, `lib.rs`) so a future maintainer deciding whether `skip_version`/`stats_only` can be collapsed
+reads the truth. All backend edits are **comment-only** — zero logic change.
+
+Surfaced but deliberately **not** changed (behavior decision, needs your call): `lib.rs`'s silent
+off-thread guard is `if req.stats_only && req.skip_version`, but the dashboard sets only `stats_only`
+(`skip_version` defaults false), so it now takes the **job-card** path — every dashboard Compute posts
+a "Pay summary" card, the opposite of the silence that guard was meant to give it. I documented the
+gap in the comment rather than silently flipping the guard to `if req.stats_only`.
+
+Verified: `tsc --noEmit` clean + `vite build` clean (frontend string/JSDoc); `cargo test
+pay_summary_stats_only_persists_nothing` green via the pinned 14.29 toolchain (whole-crate recompile
+clean, so the five comment edits didn't break anything, and the test is itself the proof the old
+string lied). Browser-independent.
+
+- [ ] **Try:** open the **Field Dashboard**, press **Compute**. The status line must read
+  "…Stats only — no FLAG curves written; run Cutoffs & Summary to persist flags." — never "FLAG curves
+  written." Then open a **Log View** on any well: there must be no *newly* written `FLAG_PAY`/`FLAG_SAND`
+  from that Compute. To actually persist flags, run **Cutoffs & Summary** and re-open the Log View.
+
 ## Round 77 — R18: the report PDF silently dropped the Pay Summary section on error (2026-07-24)
 
 Section 4 of the report did `run_pay_summary(...).unwrap_or_default()`, which collapses **both** an

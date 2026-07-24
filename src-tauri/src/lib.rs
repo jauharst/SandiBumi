@@ -871,9 +871,11 @@ async fn run_pay_summary(
     req: workflow::PaySummaryRequest,
 ) -> Result<Vec<workflow::PaySummaryRow>, String> {
     let conn = db.0.clone();
-    // The Field Dashboard's automatic field-wide QC pass (stats_only + skip_version) runs on
-    // every refresh — keep it silent (off-thread, but no job card) so it doesn't flood the
-    // Processing panel. A user-initiated pay summary still shows a job.
+    // A pay summary that both returns stats only and skips versioning persists nothing, so run
+    // it silently off-thread (no job card) to avoid flooding the Processing panel. NOTE: the
+    // Field Dashboard currently sets stats_only alone (skip_version defaults false), so it takes
+    // the job-card path below, not this one; this silent branch is reached only if a caller sets
+    // both flags. A user-initiated pay summary still shows a job.
     if req.stats_only && req.skip_version {
         return tauri::async_runtime::spawn_blocking(move || workflow::run_pay_summary(&conn, &req))
             .await
