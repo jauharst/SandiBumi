@@ -1,14 +1,26 @@
-# SONAR ingest + offline counterpart prompt (deterministic, AI-free, 100k+ files)
+# SegaraBumi — build prompt (study SONAR, design a deterministic AI-free O&G data tool)
 
 A reusable prompt for ingesting the **Pertamina PHE OSES "SONAR" hackathon deck** and
-designing **our own SONAR**: an oil-and-gas data-management system that — unlike SONAR —
-runs **fully offline with ZERO AI at runtime** (no LLM, no embeddings, no neural models, no
-inference server — plain CPU/GPU compute is fine) yet captures **hundreds of thousands of files across the full breadth of
-O&G data types**. SONAR is the study object, not the blueprint: we adopt its data model and
-pipeline discipline, and replace every AI component with a deterministic, auditable
-equivalent. Unlike the Geolog-V14 / Techlog 2018.2 / IP 2025.3 ingests (install trees mined
-for catalogs), the source here is a 20-page architecture deck — extraction is fast; the
-value is the AI-dependency audit and the deterministic redesign, which this file pre-loads.
+designing **SegaraBumi**: an oil-and-gas data-management system that — unlike SONAR —
+runs **fully offline** on the client's own hardware as **two tiers** — a mandatory
+deterministic core (zero-AI, air-gap-capable, reproducible, auditable) plus an *optional*
+local-LLM enrichment tier (small models on the user's laptop/PC, no server) — yet captures
+**hundreds of thousands of files across the full breadth of O&G data types**. SONAR is the
+study object, not the blueprint: SegaraBumi keeps its data model and pipeline discipline,
+demotes every AI component to an optional local tier over a deterministic floor SONAR
+lacks, and needs no GPU inference server. Unlike the Geolog-V14 / Techlog 2018.2 / IP 2025.3 ingests (install
+trees mined for catalogs), the source here is a 20-page architecture deck — extraction is
+fast; the value is the AI-dependency audit and the deterministic redesign, which this file
+pre-loads.
+
+**The name.** *Segara* (sea) + *Bumi* (earth): a sonar is sea-sounding technology, so
+SegaraBumi sounds out what is buried in the earth's data — the deterministic, offline
+Indonesian answer to SONAR. It is the sibling of **SandiBumi** (*sandi* = code/cipher) in a
+deliberate `-Bumi` product family: **SandiBumi interprets the earth; SegaraBumi navigates
+the data about it.** BUILD IT STANDALONE FIRST — SegaraBumi is a self-contained product
+(sellable on its own, deployable at client sites), and SandiBumi later expands its
+capability by consuming SegaraBumi's index/API. Design every target with that boundary in
+mind: shared Rust/SQLite core, but no hard dependency from SegaraBumi back into SandiBumi.
 
 **Source (verified on disk 2026-07-23):**
 `D:\XX. Clauding\Materi_FINAL_ Model_Beta_SONAR_Hackathon_2026.pdf` — 20 pages, 5.3 MB,
@@ -28,20 +40,43 @@ already its deterministic parts** (SHA dedup, filename fast path ~200 ms, LAS pa
 "skips LLM", metadata pre-filter, BM25, well-alias resolution, verify flags) — the deck
 itself is the evidence that the deterministic spine carries the system.
 
-## Design doctrine (the non-negotiables for OUR system)
+## Design doctrine (the non-negotiables for SegaraBumi)
 
-1. **Zero AI at runtime.** No LLM, no embeddings, no vision-language models, no trained
-   ML classifiers, no inference server, no internet. Classical, reproducible algorithms
-   only: format parsers, regex/grammars, hashing, SQLite FTS5 (BM25 keyword search is
-   classical IR, not AI), rule engines, statistics. **Hardware is not the constraint —
-   AI is:** CPU multi-threading and GPU acceleration of deterministic workloads
-   (parallel scanning/hashing/parsing, image processing, rendering) are welcome wherever
-   they help throughput, provided results stay bit-identical run-to-run. AI (Claude) is
-   welcome at **build time** — authoring dictionaries, rules, taxonomies, test fixtures
-   — but the shipped system must run on an air-gapped workstation.
-2. **Auditable.** Every classification and metadata decision traceable to a rule ID a
-   petrophysicist can read, test, and override. Re-running the indexer on the same corpus
-   gives byte-identical results (embeddings can't promise that; we can).
+1. **Deterministic core, optional local-LLM tier (TWO TIERS — this is the architecture).**
+   Revised 2026-07-23: a *local, offline* LLM is now in scope (small models on the
+   client's own laptop/PC/workstation, like SONAR's Ollama approach but no server). It is
+   an OPTIONAL ENRICHMENT TIER on top of a mandatory deterministic core — never a hard
+   dependency, never the source of truth:
+   - **Tier 1 — deterministic core (mandatory, always runs).** Format parsers,
+     regex/grammars, hashing, SQLite FTS5 (classical IR), rule engines, statistics, the
+     dictionaries and well-alias resolver. Must run STANDALONE with no model present:
+     reproducible (byte-identical re-index), auditable (every decision → a rule ID), and
+     deployable in an air-gapped / AI-prohibited client environment. This tier alone is a
+     complete, sellable product. CPU/GPU parallelism of these deterministic workloads is
+     welcome for speed (bit-identical results required).
+   - **Tier 2 — local-LLM enrichment (optional, degrades gracefully).** When a local
+     model is available on the machine, it ADDS the capabilities determinism can't reach:
+     semantic/natural-language search (local embeddings), scanned-document + table
+     extraction (local vision model), free-text summaries and Q&A over prose. Everything
+     here runs offline on the user's own hardware — no cloud, no external inference
+     server. **Contract:** Tier-2 output is assistive and clearly labelled (source =
+     model, low-confidence, review-required); it is written to SEPARATE columns/tables so
+     it never overwrites Tier-1 deterministic facts, and it is flagged for human/physics
+     validation before it becomes authoritative. If no model is present, every feature
+     still works at Tier-1 quality — the app just shows fewer semantic extras.
+   - **Why this beats SONAR outright:** SONAR *requires* a 30B model on a GPU inference
+     server to answer anything. SegaraBumi answers structured questions with zero AI at
+     millisecond latency AND, where a local model happens to be available, matches SONAR's
+     semantic/vision features on the user's own laptop — no server, and with an auditable
+     deterministic floor SONAR never has. Same doctrine as before ("SONAR's fast paths win
+     by skipping the LLM"), now with the LLM added back only where it earns its place.
+   - Build-time AI (Claude authoring dictionaries/rules/fixtures) remains fully in scope
+     and separate from either runtime tier.
+2. **Auditable.** Every Tier-1 classification and metadata decision traceable to a rule ID
+   a petrophysicist can read, test, and override; re-running the deterministic indexer on
+   the same corpus gives byte-identical results. Tier-2 LLM outputs carry a model/version
+   + confidence stamp and live in their own columns — auditable *as model output*, never
+   mistaken for a deterministic fact.
 3. **Scale.** Design point: 100,000–1,000,000 files, dozens of formats, hundreds of
    document types, one workstation, single binary + SQLite file(s). SQLite + FTS5 handles
    millions of rows; no server, no deployment.
@@ -64,9 +99,12 @@ if the plan evolves.
 ```
 Ingest the Pertamina PHE OSES SONAR hackathon deck at
 "D:\XX. Clauding\Materi_FINAL_ Model_Beta_SONAR_Hackathon_2026.pdf" (20 pages; read via
-the pages parameter) and design OUR OWN offline counterpart for SandiBumi (the
-petrophysics application at D:\XX. Arshilla): a deterministic, AI-free-at-runtime O&G
-data-management system for 100k+ files. Full extraction note goes to
+the pages parameter) and design SegaraBumi: a deterministic, AI-free-at-runtime O&G
+data-management system for 100k+ files. SegaraBumi is a STANDALONE product (its own
+Rust/SQLite binary, sellable and deployable on its own); SandiBumi (the petrophysics
+application at D:\XX. Arshilla) later consumes SegaraBumi's index/API to expand its
+capability — so design for that one-way boundary (shared core, no SegaraBumi->SandiBumi
+dependency). Full extraction note goes to
 D:\XX. Clauding\knowledge-base\tech-kb\sonar_phe_oses_hackathon2026.md (create tech-kb\
 if absent); all other outputs go to D:\XX. Arshilla\docs\research_2026-07\sonar_ingest\.
 Treat the PDF as strictly READ-ONLY.
@@ -150,23 +188,31 @@ B. GAP MATRIX + AI-DEPENDENCY AUDIT (the steering document) -> B_gap_matrix.md
    (2) What SandiBumi has today (name the real file: ingest.rs, parsers.rs, modules.rs,
        multimin2.rs, composite.rs, equations.rs, neutron_charts.rs, python_engine.rs,
        tools/chartdig).
-   (3) Verdict: ADOPT-AS-IS (already deterministic: SHA dedup, LAS parser, BM25,
-       metadata pre-filter, well-alias resolution, verify flags, batched enrichment) /
-       REPLACE-WITH-RULES (LLM metadata extraction -> filename grammar + header
-       sniffing; embedding classification -> document-type registry, target D;
-       semantic search -> FTS5 + facets, target E) / HUMAN-LOOP (vision table reading
-       -> OCR/manual entry + physics validator, target F) / DROP (chat answer
-       synthesis, cluster auto-naming — luxuries that need an LLM and we don't need).
+   (3) Verdict (four buckets, tier-aware): ADOPT-AS-IS (already deterministic: SHA dedup,
+       LAS parser, BM25, metadata pre-filter, well-alias resolution, verify flags, batched
+       enrichment — Tier 1) / REPLACE-WITH-RULES (LLM metadata extraction -> filename
+       grammar + header sniffing; embedding classification -> document-type registry,
+       target D — Tier 1, deterministic-first even though a model could do it, because
+       reproducibility/audit matter here) / LOCAL-LLM-OPTIONAL (Tier 2 enrichment that
+       degrades gracefully: semantic search via local embeddings on top of FTS5, target E;
+       vision table/scan extraction via a local vision model feeding the physics
+       validator, target F; free-text summaries and NL Q&A over prose) / DROP (only what
+       serves nobody offline — e.g. cloud-dependent features). For EACH capability, state
+       which tier it lands in and — critically — what the Tier-1 experience is when no
+       model is present (the graceful-degradation contract). Nothing may become a hard
+       LLM dependency; the deterministic floor must always answer.
    Include the reverse rows: what SandiBumi has that SONAR lacks entirely (a full
    interpretation engine — SSC/SSPW, SandiMin, LRLC Sw methods, chart overlays; SONAR
    retrieves and tabulates, it computes nothing). Architecture direction is DECIDED
-   (Jauhar, 2026-07-23): build STANDALONE FIRST — a separate companion tool/workspace —
-   with SandiBumi integration later. So B must design the boundary, not the choice:
-   a core library crate (indexer, registry, dictionaries, validator) + CLI + thin UI,
-   with SandiBumi integrating afterwards by depending on the core crate and/or opening
-   the same SQLite file. Specify the integration contract now (stable .db schema +
-   crate API) so nothing needs rework at integration time; the super-dictionary and
-   well master live in the tool as single source of truth, SandiBumi reads them.
+   (Jauhar, 2026-07-23): the tool is named SegaraBumi and ships STANDALONE FIRST — its
+   own Rust/SQLite binary/workspace, sellable and deployable alone — with SandiBumi
+   integration later. So B must design the boundary, not the choice: a core library crate
+   (indexer, registry, dictionaries, validator) + CLI + thin UI, with SandiBumi
+   integrating afterwards by depending on the core crate and/or opening the same SQLite
+   file — one-way only, no SegaraBumi->SandiBumi dependency. Specify the integration
+   contract now (stable .db schema + crate API) so nothing needs rework at integration
+   time; the super-dictionary and well master live in SegaraBumi as single source of
+   truth, SandiBumi reads them.
 
 C. DATA FOUNDATION: WELL MASTER + SUPER-DICTIONARY + UNITS -> C_data_foundation.md
    All-deterministic backbone; design schema DDL + build plan (no code):
@@ -238,17 +284,28 @@ E. INDEXER + SEARCH AT 100k-1M SCALE -> E_indexer_search.md
      tags [FILE_ID | well | type | "Title"] (adopt p12). Structured query API
      equivalents of SONAR's tools (p13): ListWells, GetWellDocuments, GetWellInfo,
      GetStats, FindNearestWells (coordinate math), QueryLasPoint (well, curve, depth ->
-     value over indexed curves). Latency target: < 50 ms interactive on laptop.
-     Explicitly OUT: chat answer synthesis, semantic similarity search — document the
-     mitigation (facets + boolean/phrase/prefix FTS + curve-availability filters cover
-     the engineer questions in the deck, e.g. "how many wells have core data in Krisna
-     Field?" becomes one faceted count query — faster AND exact, where SONAR runs a
-     GPU inference to approximate it).
+     value over indexed curves). Latency target: < 50 ms interactive on laptop. This
+     Tier-1 layer is the DEFAULT and always present: faceted structured questions
+     ("how many wells have core data in Krisna Field?") become one exact count query —
+     faster AND exact where SONAR runs GPU inference to approximate it.
+   4) Tier-2 semantic search (OPTIONAL, local embeddings — design the seam, not a hard
+     dependency): when a local embedding model is available on the machine, add a dense
+     vector index over chunks and fuse it with FTS5 via RRF (k=60, adopt SONAR p12) for
+     natural-language/semantic recall over prose (the drilling-report "losses/LCM/total
+     loss" problem FTS5 misses). Store vectors in a separate table keyed to chunks; if no
+     model is present the search silently runs FTS5-only at full quality. Specify: the
+     pluggable embedder interface, how results are marked (semantic vs exact), and that
+     ranking stays explainable (show which tier surfaced each hit). Chat answer synthesis
+     over retrieved context is likewise a Tier-2 optional feature — grounded, cited,
+     labelled as model output — never the only way to get an answer.
 
 F. DIGITIZATION: LEAN CAPTURE + PHYSICS VALIDATOR -> F_digitization_design.md
-   Honest statement up front: vision-LLM table reading (SONAR p14) is the one SONAR
-   capability with no full deterministic replacement. SCOPE CONTAINMENT is the design
-   problem — this target must NOT balloon into per-report-type UI development:
+   Tier picture: table reading is the natural home of the OPTIONAL Tier-2 local vision
+   model (SONAR p14's Qwen2.5-VL, but running on the user's own GPU, no server). It is
+   allowed at runtime now — NOT only at build time. But it stays optional and its output
+   is never trusted raw: it feeds the deterministic physics validator, which is the real
+   differentiator SONAR lacks. SCOPE CONTAINMENT is still the design problem — this target
+   must NOT balloon into per-report-type UI development:
    - Digitization is ON-DEMAND, per active study, never wholesale archive conversion.
      Size the real exposure from the deck's own numbers (p3): ~4,600 digitization-class
      docs in a 700k corpus (<1%). The indexer (D/E) finds documents; only what a study
@@ -260,10 +317,13 @@ F. DIGITIZATION: LEAN CAPTURE + PHYSICS VALIDATOR -> F_digitization_design.md
      templates are the entry surface (engineers already live in Excel) and SandiBumi
      builds only import + validate + flag + store. Design BOTH variants and estimate
      their effort so the choice is explicit.
-   - OCR path only for typed/tabular scans where layout rules can be written — offline
-     engine, GPU-accelerated if useful; state the boundary honestly: modern OCR engines
-     embed small neural character recognizers, so if the strict no-neural line matters,
-     specify the legacy pattern-matching engine mode and quantify the accuracy cost.
+   - Capture ladder, cheapest first: (a) classical OCR for typed/tabular scans where
+     layout rules can be written (offline, GPU-accelerated if useful); (b) OPTIONAL
+     Tier-2 local vision model for messy scans/complex tables OCR can't handle — same
+     role SONAR gives Qwen-VL, on the user's own hardware, output routed straight into
+     the validator; (c) structured manual entry as the always-available floor. If no
+     vision model is present, (a)+(c) still fully work — that is the graceful-degradation
+     contract. Every captured row records which rung produced it.
    - THE differentiator SONAR lacks: an automatic physics-validation layer on every row
      regardless of capture method — unit checks; physical ranges (porosity 0-45 v/v,
      grain density ~2.55-3.0 g/cc, perm > 0 log-normal, Sw 0-1); cross-row consistency
@@ -272,12 +332,13 @@ F. DIGITIZATION: LEAN CAPTURE + PHYSICS VALIDATOR -> F_digitization_design.md
      first; row-level IsEdited/IsVerified audit flags (adopt p14). The validator is
      rule TABLES over template columns — seed directly from the existing QC-gate and
      tool-response-constant specs in docs/ — shared infrastructure, days not months.
-   - Per-row provenance: source file + page + capture method (OCR/manual/build-time AI).
-   - Expected workhorse in practice: AI-assisted extraction as a separate BUILD-TIME
-     tool (Jauhar runs Claude on a scan when a study needs the table; output lands in
-     the same template -> validator -> review queue) — allowed because it never ships
-     in the runtime. Human effort then shrinks to verifying flagged rows — minutes per
-     report, not retyping. Note SONAR's own flow ends the same way (engineer reviews
+   - Per-row provenance: source file + page + capture method (OCR / local-vision-model +
+     model version / manual / build-time AI).
+   - Expected workhorse in practice: local-vision extraction (Tier 2) OR build-time AI
+     extraction (Jauhar runs Claude on a scan) — either way the output lands in the same
+     template -> physics validator -> review queue, and human effort shrinks to verifying
+     the flagged rows — minutes per report, not retyping. Note SONAR's own flow ends the
+     same way (engineer reviews
      IsVerified rows, p14): the human loop never disappears with AI, it just moves.
    Reuse lessons from tools/chartdig. Economics (p17): PHE OSES budgets USD 72/file for
    manual digitization — a validator-backed workflow at consultant quality is also a
@@ -299,11 +360,15 @@ G. FINDINGS + BACKLOG -> FINDINGS.md
      rows (catches wrong data, not just unread data); citation doc-level ->
      parameter-level provenance via project-kb decision records; well intelligence
      lookup-only -> lookup + full interpretation engine (categorical).
-   - WHAT WE LOSE by dropping AI, stated plainly: no natural-language Q&A, no semantic
-     search over unstructured prose, no auto-summaries, no zero-config clustering of
-     unlabeled corpora. For each: the deterministic mitigation and the residual gap.
-     Where SONAR's approach is simply right for THEIR problem (700k-file enterprise
-     archive, many casual users), say so.
+   - GRACEFUL-DEGRADATION CONTRACT (replaces the old "what we lose" section, since a
+     local LLM is now optionally in scope): for each Tier-2 capability — semantic search,
+     NL Q&A, auto-summaries, vision extraction — state (a) the Tier-1 experience with NO
+     model present (must be genuinely useful, not broken), (b) what the local model adds
+     when available, (c) the residual gap vs SONAR's 30B-on-a-server. The headline: SONAR
+     needs the GPU server to answer at all; SegaraBumi answers at Tier 1 always and
+     reaches Tier-2 parity on the user's own laptop when a model is installed — with an
+     auditable deterministic floor SONAR never has. Where SONAR's server approach is
+     simply right for THEIR problem (700k files, many casual users), say so.
    - Ranked shortlist by value-per-effort (S/M/L) for Mahakam-delta/LRLC consultant
      workflows + the standalone-product angle, then an ADR-style backlog entry
      (context, decision, acceptance criteria) per survivor. Validation corpus for
@@ -324,9 +389,9 @@ in the PDF's folder. Implementation happens later, serially, in the main working
 
 ---
 
-## 2. Calibration: SONAR component -> our deterministic counterpart
+## 2. Calibration: SONAR component -> SegaraBumi's two-tier counterpart
 
-| SONAR component (deck page) | AI? | Our counterpart | Target |
+| SONAR component (deck page) | AI? | SegaraBumi counterpart (Tier 1 = deterministic floor, Tier 2 = optional local LLM) | Target |
 |---|---|---|---|
 | SHA dedup, FileIndex, incremental scan (p10) | no | adopt as-is | E |
 | Well Master 2,418 x 207 + WellAliasService (p7, p12) | no | adopt shape; alias resolver becomes the keystone | **C** |
@@ -335,9 +400,9 @@ in the PDF's folder. Implementation happens later, serially, in the main working
 | Filename fast path (p10) | partly (embeds result) | filename/path grammar + bilingual keyword lexicon + alias resolution — no embedding | **D** |
 | Embedding classification, Fase A6/B (p11) | yes | document-type registry (100-300 types) + recognition cascade with rule IDs | **D** |
 | LLM metadata extraction, 5 fields (p10) | yes | rule cascade (filename/header/content regex); scans -> review queue, never guessed | D |
-| BM25 + dense + RRF retrieval (p12) | half | FTS5 BM25 + metadata pre-filter + facets; dense layer dropped | E |
-| Chat answer synthesis, agent tool selection (p12-13) | yes | DROP — replaced by faceted/structured queries (SONAR's own "PATCH 11" bypass shows the way) | E |
-| Qwen-VL Run Tabulation (p14) | yes | classical OCR + structured entry + physics validator + verify flags | **F** |
+| BM25 + dense + RRF retrieval (p12) | half | Tier 1: FTS5 BM25 + metadata pre-filter + facets (always on). Tier 2: optional local-embedding dense index + RRF fusion | E |
+| Chat answer synthesis, agent tool selection (p12-13) | yes | Tier 1: faceted/structured queries (SONAR's own "PATCH 11" bypass shows the way). Tier 2: optional grounded/cited local-LLM answers | E |
+| Qwen-VL Run Tabulation (p14) | yes | OCR + optional local vision model (Tier 2) + structured entry, ALL feeding the deterministic physics validator SONAR lacks | **F** |
 | Interpretation/computation engine | — | SandiBumi's whole raison d'être; SONAR has none | B (reverse row) |
 
 ## 3. Practical notes
