@@ -152,9 +152,10 @@ export async function buildWorkflowContent(
 
   // --- Step builder --------------------------------------------------------
   const moduleSelect = document.createElement("select");
-  // The legacy 4-component `multimin` module is superseded by SandiMin (its own Advance-tab
-  // pane) — keep it out of the chain step picker so new chains don't wire up the deprecated
-  // solver. Saved chains that already reference it still resolve via moduleByName.
+  // The legacy 4-component `multimin` module is retired, superseded by SandiMin (its own
+  // Advance-tab pane) — keep it out of the chain step picker so new chains don't wire it up. A
+  // saved chain that already references it still resolves via moduleByName (so its step renders)
+  // but the backend now refuses to run it, pointing at SandiMin (`modules::retired_module`).
   const DEPRECATED_STEP_MODULES = new Set(["multimin"]);
   const byCategory = new Map<string, ModuleSpec[]>();
   for (const m of modules) {

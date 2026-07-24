@@ -390,9 +390,10 @@ export class Ribbon {
    *  "Advance" tab — Jauhar's flagship in-house methods. Skipped by the category render
    *  so they appear only once, as their own buttons. */
   /** "multimin" (the legacy fixed 4-component inversion) is filtered out of the Saturation
-   *  dropdown but given no Advance button: it is superseded by SandiMin (the generalized
-   *  solver) and Jauhar asked for mineral inversion to be independent of Sw. It still runs
-   *  in saved workflow chains. */
+   *  dropdown and given no Advance button: it is superseded by SandiMin (the generalized
+   *  solver) and Jauhar asked for mineral inversion to be independent of Sw. It is now RETIRED —
+   *  a saved workflow chain that still references it resolves by name but fails on run with a
+   *  message directing to SandiMin (backend `modules::retired_module`), rather than running. */
   private static readonly ADVANCED_MODULE_IDS = ["ssc", "sspw", "sw_rtc", "sw_imts", "thin_bed_ts", "multimin"] as const;
 
   /** Fetches the backend manifests once and fills both module areas: the Petrophysics

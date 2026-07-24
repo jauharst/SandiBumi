@@ -1476,19 +1476,19 @@ mod tests {
             run_workflow_module(&dbm, &req)
         };
 
-        // (1) multimin — PEF comes only from the generic store. If the fallback were
-        // broken, PEF would be all-NaN but the other three tools still solve; so to prove
-        // PEF was actually read we check the clean-sand recovery is tight (all four tools).
+        // (1) multimin is RETIRED — even with every input present (incl. PEF from the generic
+        // store), the runner must refuse it with a clear SandiMin migration message and write no
+        // curves, rather than silently running the superseded 4-component solver. It resolves by
+        // name (the spec stays in the catalog) so this is a Failed run, not "unknown module". The
+        // generic-store family-resolution fallback this part used to prove is still covered by (2)
+        // below (HDRA→DRHO, HCAL→CALI).
         let r = run("multimin", &[], &[]);
-        assert!(r[0].error.is_none(), "multimin: {:?}", r[0].error);
-        assert!(r[0].output_curves.contains(&"VOL_SAND".to_string()));
-        {
-            let conn = dbm.lock().unwrap();
-            let (_, cols) = equations::fetch_curve_frame(&conn, &w, &["VOL_SAND".into(), "VOL_WATER".into(), "VOL_CLAY".into()]).unwrap();
-            assert!((cols["VOL_SAND"][0] - 0.70).abs() < 0.02, "sand={}", cols["VOL_SAND"][0]);
-            assert!((cols["VOL_WATER"][0] - 0.30).abs() < 0.02, "water={}", cols["VOL_WATER"][0]);
-            assert!(cols["VOL_CLAY"][0] < 0.03, "clay leaked (PEF likely not read): {}", cols["VOL_CLAY"][0]);
-        }
+        assert!(
+            r[0].error.as_deref().unwrap_or("").contains("SandiMin"),
+            "retired multimin must return a SandiMin migration error, got {:?}",
+            r[0].error
+        );
+        assert!(r[0].output_curves.is_empty(), "a retired module must write no curves");
 
         // (2) badhole — DRHO and CALI resolve from the generic store; sample 2 is bad.
         let r = run("badhole", &[("DRHO_MAX", 0.05), ("DCAL_MAX", 1.0), ("BS_DEF", 8.5)], &[]);

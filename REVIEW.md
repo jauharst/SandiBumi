@@ -7,6 +7,41 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 81 — R22: the legacy Multimin module is retired (your decision) (2026-07-24)
+
+This one is a **decision**, not an F-sweep finding — the follow-on R17 surfaced. The legacy fixed
+4-component `multimin` inversion (superseded by SandiMin, hidden from every UI picker since long ago)
+was still a **live compute path**: `list_modules` returned it, so any saved workflow chain with a
+`multimin` step — or a restored `module:multimin` dockview panel — still ran the old solver, silently,
+with endpoint defaults that could drift from SandiMin's library. You chose **graceful retirement** over
+a hard delete or a keep-and-consolidate.
+
+Implemented so a retired module fails **loudly and actionably** rather than vanishing or running stale
+physics: a new backend registry `modules::retired_module(name)` is the single source of truth;
+`run_module` checks it first and returns *"The Multimin module is retired… Re-run this step with
+SandiMin (Advance ▸ Mineral Solver)."* before any dispatch. The `multimin` **spec is kept** in the
+catalog on purpose — a saved chain step still resolves by name and renders its stored parameters, so
+you can see what it was before re-doing it in SandiMin — but the solver body and its R17 physics tests
+are removed (unreachable now; R17's reusable `rho_e` Pe↔U relation stays in `multimin2`, where SandiMin
+uses it). New-chain wiring already excluded it; the two frontend comments that still claimed *"it runs
+in saved chains"* are corrected.
+
+Why graceful, not hard-delete: a hard removal would drop the id from the catalog, so a saved chain would
+die with a cryptic *"unknown module 'multimin'"* instead of a message that tells you what to do. Why not
+keep-and-consolidate: you asked for retirement — the trade-off is that a delivered chain containing a
+`multimin` step can no longer reproduce its old output; it must be re-run in SandiMin.
+
+Verified: full `cargo test` — **372 passed / 0 failed / 7 ignored**, whole-crate compile clean with **no
+warnings** (the solver removal left no dead code / unused imports). New `multimin_is_retired_but_still_cataloged`
+(registry + still-cataloged) and the converted end-to-end guard `phase7_generic_store_feeds_modules_and_mask`
+(running `multimin` now returns a SandiMin error and writes no curves) both pass; every SandiMin/`multimin2`
+test still passes. `tsc --noEmit` + `vite build` clean.
+
+- [ ] **Try:** if you have any saved **workflow chain** with a Multimin step, run it — the step must
+  fail with "…retired… Re-run this step with SandiMin (Advance ▸ Mineral Solver)", *not* run silently
+  and *not* say "unknown module". Confirm SandiMin (Advance ▸ Mineral Solver) still runs normally. New
+  chains: the step picker must not offer Multimin.
+
 ## Round 80 — R21: ML training wells that contributed zero samples were silently dropped (2026-07-24)
 
 Supervised ML pools labelled rows across the selected training wells. `fetch_curve_frame` returns an

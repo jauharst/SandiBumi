@@ -213,8 +213,29 @@ pub fn list_modules() -> Vec<ModuleSpec> {
     ]
 }
 
+/// Modules retired from the compute path: still returned by `list_modules` (so a saved chain step
+/// or a `module:<name>` dockview panel resolves by name and can explain itself), but no longer
+/// runnable — `run_module` blocks them with this message instead of silently running superseded
+/// physics. Adding a name here is the whole retirement; there is no per-spec flag to thread
+/// through the ~40 module literals.
+pub(crate) fn retired_module(name: &str) -> Option<&'static str> {
+    match name {
+        "multimin" => Some(
+            "The Multimin module is retired — its fixed 4-component inversion is superseded by \
+             SandiMin. Re-run this step with SandiMin (Advance ▸ Mineral Solver).",
+        ),
+        _ => None,
+    }
+}
+
 /// Dispatches a module run by name.
 pub fn run_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, String> {
+    // Retired modules resolve by name (their spec stays in the catalog) but must not run — a
+    // saved chain step that reaches one fails loudly and actionably rather than silently
+    // producing superseded results.
+    if let Some(msg) = retired_module(name) {
+        return Err(msg.to_string());
+    }
     match name {
         "vsh_gr" => Ok(vsh_gr(ctx)),
         "vsh_dn" => Ok(vsh_dn(ctx)),
@@ -237,7 +258,6 @@ pub fn run_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, Stri
         "sspw" => Ok(crate::ssc::sspw(ctx)),
         "sw_rtc" => Ok(crate::lrlc::sw_rtc(ctx)),
         "sw_imts" => Ok(crate::lrlc::sw_imts(ctx)),
-        "multimin" => Ok(crate::multimin::multimin(ctx)),
         "sw_height" => Ok(crate::satheight::sw_height(ctx)),
         "rocktyping" => Ok(crate::rocktyping::rocktyping(ctx)),
         "lucia_rfn" => Ok(crate::rocktyping::lucia_rfn_module(ctx)),
@@ -2615,6 +2635,22 @@ mod tests {
 
         // Equal bounds are degenerate but legal, and must still clamp rather than read missing.
         assert_eq!(limit(0.7, 0.3, 0.3), 0.3, "lo == hi is a valid clamp");
+    }
+
+    /// The legacy `multimin` module is retired: it must stay in the catalog so a saved workflow
+    /// chain that references it still resolves by name (and can show its stored params), but be
+    /// flagged retired so `run_module` blocks it. A live module is not flagged. (The end-to-end
+    /// block — a Failed run carrying the SandiMin message through the real runner — is pinned by
+    /// `workflow::tests::phase7_generic_store_feeds_modules_and_mask`.)
+    #[test]
+    fn multimin_is_retired_but_still_cataloged() {
+        let msg = retired_module("multimin").expect("multimin must be marked retired");
+        assert!(msg.contains("SandiMin"), "retirement message must point at SandiMin: {msg}");
+        assert!(retired_module("vsh_gr").is_none(), "a live module must not be flagged retired");
+        assert!(
+            list_modules().iter().any(|m| m.name == "multimin"),
+            "retired multimin must stay in the catalog so saved chains resolve by name"
+        );
     }
 
     /// The KNN z-score floor used `if *s < 1e-9`, which a NaN std slips past (`NaN < x` is false),
