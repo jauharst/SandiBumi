@@ -7,6 +7,46 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 80 — R21: ML training wells that contributed zero samples were silently dropped (2026-07-24)
+
+Supervised ML pools labelled rows across the selected training wells. `fetch_curve_frame` returns an
+**all-NaN** column for any curve a well lacks, so a training well with **no target curve under the
+chosen mnemonic** (or no input, or fully masked) contributed **zero** rows through the `is_finite()`
+filter — invisibly. Nothing recorded which training wells were actually used; `MlResult.wells` only
+ever carries the *apply* wells. The `n_train < 10` guard never fires because the few real wells supply
+tens of thousands of samples at 0.1524 m. So the run returned success with R²/RMSE, and the user
+believed a 20-well model was fitted. The scenario is the *normal* one here: core-calibrated PERM/facies
+models where CPERM or core-facies exist in a small minority of the field — select 20, have the target
+tied to the log grid in 3, and you ship a "20-well field model" that is a **3-well model**, with a
+wrong-mnemonic typo (CPERM vs KCORE) producing output identical to a correct run. The **Compare** button
+in the *same file* (`run_ml_eval`) already warns about exactly this ("N of M training well(s)
+contributed no samples") — only the **Run** button was silent.
+
+Fixed by tracking, per training well, whether it moved the labelled pool at all, and collecting the
+ones that didn't — whatever the cause (unreadable, missing target/feature, or fully masked). A new
+`notes: Vec<String>` on `MlResult` carries a count summary ("{k} of {n} training well(s) contributed
+no usable samples … the model was fit on the remaining {n−k}"), mirroring the `run_ml_eval` sibling;
+`mlDialog` renders it as a `⚠` warning at the top of the results (glyph + `--warn`, honouring R16's
+redundant-coding rule). The two **dead** `else { continue }` guards the finding flagged (the all-NaN
+fallback made them unreachable) are gone, and the previously-silent `fetch_curve_frame` **error** branch
+now also lands in the empty-well list instead of vanishing.
+
+The honesty-critical logic — *which wells contribute nothing* — was extracted into a pure
+`assemble_training` helper so it is unit-testable **without python** (the existing `run_ml` tests skip
+when sklearn is absent). Backend + a small additive frontend note.
+
+Verified: `cargo test ml::` — 11/11 green via the pinned 14.29 toolchain, incl. the new
+`assemble_training_flags_wells_with_no_target` (a well with the target contributes all its rows; a
+target-less well is flagged empty, not dropped) **and** the python-backed end-to-end tests, which ran
+and passed — so the extraction didn't regress the real `run_ml` path. `tsc --noEmit` + `vite build`
+clean.
+
+- [ ] **Try:** run a supervised model (e.g. regression PERM, or k-NN facies) over a group where the
+  **target** curve exists on only some wells — select 10+ training wells, of which only a few actually
+  carry the target under the chosen mnemonic. The results panel must show a **⚠** line like "7 of 10
+  training well(s) contributed no usable samples … fit on the remaining 3", not a clean metrics-only
+  card. Then run one where every training well has the target: **no** warning line.
+
 ## Round 79 — R20: the SQL console reported the LIMIT-capped row count as the true total (2026-07-24)
 
 The SQL console runs every query through `runQuery(sql, 1000)`; the backend wrapped it in

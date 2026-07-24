@@ -257,11 +257,66 @@ pub struct MlResult {
     pub outputs: Vec<String>,
     pub metrics: serde_json::Value,
     pub wells: Vec<MlWellResult>,
+    /// Advisories that qualify a successful run — e.g. training wells that contributed no usable
+    /// samples, so a 20-well selection was really fit on 3. Empty on a fully clean run.
+    pub notes: Vec<String>,
     pub error: Option<String>,
 }
 
 fn fail(msg: &str) -> MlResult {
-    MlResult { outputs: vec![], metrics: serde_json::Value::Null, wells: vec![], error: Some(msg.to_string()) }
+    MlResult { outputs: vec![], metrics: serde_json::Value::Null, wells: vec![], notes: vec![], error: Some(msg.to_string()) }
+}
+
+/// Pools labelled training rows across the training wells and reports which wells contributed
+/// ZERO usable samples — unreadable, missing the target or an input curve (`fetch_curve_frame`
+/// returns an all-NaN column for a curve the well lacks, so a wrong target mnemonic lands here
+/// rather than as an error), or fully masked. That list is the honesty signal the caller
+/// surfaces, so a 20-well selection cannot silently be fit on 3.
+fn assemble_training(
+    conn: &Connection,
+    train_well_ids: &[String],
+    features: &[String],
+    tgt: &str,
+    mask_curve: Option<&String>,
+) -> (Vec<f32>, Vec<f32>, Vec<String>) {
+    let mut fetch_names = features.to_vec();
+    fetch_names.push(tgt.to_string());
+    if let Some(mk) = mask_curve {
+        fetch_names.push(mk.clone());
+    }
+    let mut x_train: Vec<f32> = Vec::new();
+    let mut y_train: Vec<f32> = Vec::new();
+    let mut empty_train: Vec<String> = Vec::new();
+    for well_id in train_well_ids {
+        let before = y_train.len();
+        if let Ok((depth, cols)) = fetch_curve_frame(conn, well_id, &fetch_names) {
+            if let (Some(tv), Some(fcols)) = (
+                cols.get(tgt),
+                features.iter().map(|f| cols.get(f)).collect::<Option<Vec<_>>>(),
+            ) {
+                let mcol = mask_curve.and_then(|mk| cols.get(mk));
+                for i in 0..depth.len() {
+                    // MASK convention (workflow.rs): a mask value of exactly 1.0 excludes the
+                    // sample from X/y; 0.0 / NaN / absent keeps it.
+                    if mcol.map_or(false, |m| m[i] == 1.0) {
+                        continue;
+                    }
+                    if tv[i].is_finite() && fcols.iter().all(|c| c[i].is_finite()) {
+                        for c in &fcols {
+                            x_train.push(c[i]);
+                        }
+                        y_train.push(tv[i]);
+                    }
+                }
+            }
+        }
+        // A well that moved y_train not at all contributed nothing — unreadable, lacking the
+        // target/feature, or fully masked. Record it instead of dropping it invisibly.
+        if y_train.len() == before {
+            empty_train.push(well_id.clone());
+        }
+    }
+    (x_train, y_train, empty_train)
 }
 
 struct ApplyWell {
@@ -304,36 +359,18 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
     let d = features.len();
     let mut x_train: Vec<f32> = Vec::new();
     let mut y_train: Vec<f32> = Vec::new();
+    let mut empty_train: Vec<String> = Vec::new();
     let mut apply: Vec<ApplyWell> = Vec::new();
     let mut x_apply: Vec<f32> = Vec::new();
     {
         let conn = db.lock().unwrap();
         if supervised {
             let tgt = target.clone().unwrap();
-            let mut fetch_names = features.clone();
-            fetch_names.push(tgt.clone());
-            if let Some(mk) = &mask_curve {
-                fetch_names.push(mk.clone());
-            }
-            for well_id in &req.train_well_ids {
-                let Ok((depth, cols)) = fetch_curve_frame(&conn, well_id, &fetch_names) else { continue };
-                let Some(tv) = cols.get(&tgt) else { continue };
-                let Some(fcols) = features.iter().map(|f| cols.get(f)).collect::<Option<Vec<_>>>() else { continue };
-                let mcol = mask_curve.as_ref().and_then(|mk| cols.get(mk));
-                for i in 0..depth.len() {
-                    // MASK convention (workflow.rs): a mask value of exactly 1.0 excludes the
-                    // sample from X/y; 0.0 / NaN / absent keeps it.
-                    if mcol.map_or(false, |m| m[i] == 1.0) {
-                        continue;
-                    }
-                    if tv[i].is_finite() && fcols.iter().all(|c| c[i].is_finite()) {
-                        for c in &fcols {
-                            x_train.push(c[i]);
-                        }
-                        y_train.push(tv[i]);
-                    }
-                }
-            }
+            let (xt, yt, empty) =
+                assemble_training(&conn, &req.train_well_ids, &features, &tgt, mask_curve.as_ref());
+            x_train = xt;
+            y_train = yt;
+            empty_train = empty;
         }
         let mut apply_fetch = features.clone();
         if let Some(mk) = &mask_curve {
@@ -383,6 +420,18 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
     if supervised && n_train < 10 {
         return fail(&format!(
             "only {n_train} labelled training samples - need at least 10 (input curves + target must overlap in the training wells)"
+        ));
+    }
+    // Surface training wells that contributed nothing (wrong target mnemonic, missing input, or
+    // fully masked). Without this, a 20-well selection fit on 3 wells looks like a clean 20-well
+    // run — the exact silent-degradation the app's cardinal rule forbids.
+    let mut notes: Vec<String> = Vec::new();
+    if supervised && !empty_train.is_empty() {
+        let requested = req.train_well_ids.len();
+        notes.push(format!(
+            "{} of {requested} training well(s) contributed no usable samples (missing the target or an input curve, or fully masked); the model was fit on the remaining {}",
+            empty_train.len(),
+            requested - empty_train.len()
         ));
     }
     let n_apply = x_apply.len() / d;
@@ -484,7 +533,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                 }
                 start += m;
             }
-            MlResult { outputs: out_names, metrics, wells, error: None }
+            MlResult { outputs: out_names, metrics, wells, notes, error: None }
         }
     }
 }
@@ -1208,6 +1257,54 @@ mod tests {
         assert!(r.error.is_none(), "masked regression should run: {:?}", r.error);
         let r2 = r.metrics.get("r2_train").and_then(|v| v.as_f64()).unwrap_or(0.0);
         assert!(r2 > 0.999, "outlier masked out of the fit → clean line; r2_train = {r2}");
+    }
+
+    /// A training well whose target curve is absent (a wrong mnemonic, or an older well) must be
+    /// REPORTED as contributing zero samples, not silently pooled away — the pure core of the
+    /// honesty fix, exercised without python. `fetch_curve_frame` hands back an all-NaN column
+    /// for the missing target, so the well reads as "no usable samples", and the run must not
+    /// present a 2-well selection as if both trained the model.
+    #[test]
+    fn assemble_training_flags_wells_with_no_target() {
+        use crate::db;
+        use duckdb::Connection;
+        use uuid::Uuid;
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let n = 20usize;
+        let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let gr: Vec<f32> = (0..n).map(|i| 10.0 + i as f32).collect();
+        let rhob: Vec<f32> = gr.iter().map(|g| 2.0 * g + 1.0).collect();
+
+        // GOOD: has both GR (feature) and RHOB (target).
+        let good = Uuid::new_v4();
+        db::insert_well(&conn, good, "GOOD", None, None, Some(0.0)).unwrap();
+        db::insert_standard_curves(
+            &conn, good, depths.clone(), gr.clone(),
+            vec![f32::NAN; n], vec![f32::NAN; n], rhob, vec![f32::NAN; n], vec![f32::NAN; n],
+        )
+        .unwrap();
+
+        // BAD: has GR but NO RHOB (target all-NaN) — the wrong-target-mnemonic case.
+        let bad = Uuid::new_v4();
+        db::insert_well(&conn, bad, "BAD", None, None, Some(0.0)).unwrap();
+        db::insert_standard_curves(
+            &conn, bad, depths.clone(), gr,
+            vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
+        )
+        .unwrap();
+
+        let features = vec!["GR".to_string()];
+        let ids = vec![good.to_string(), bad.to_string()];
+        let (_x, y, empty) = assemble_training(&conn, &ids, &features, "RHOB", None);
+
+        assert_eq!(y.len(), n, "the well with the target contributes all its rows");
+        assert_eq!(
+            empty,
+            vec![bad.to_string()],
+            "the target-less well is flagged empty, not silently dropped"
+        );
     }
 
     /// Masking that empties a whole training well must be reported truthfully: the leaderboard

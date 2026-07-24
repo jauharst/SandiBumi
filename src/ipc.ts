@@ -863,6 +863,9 @@ export interface MlResult {
   outputs: string[];
   metrics: Record<string, unknown> | null;
   wells: MlWellResult[];
+  /** Advisories that qualify a successful run — e.g. training wells that contributed no usable
+   *  samples, so the model was fit on fewer wells than were selected. Empty on a clean run. */
+  notes: string[];
   error: string | null;
 }
 

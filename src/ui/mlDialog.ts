@@ -547,6 +547,15 @@ function renderResults(host: HTMLElement, res: MlResult): void {
   host.innerHTML = "";
   if (res.error) return;
 
+  // Backend advisories (e.g. training wells that contributed no usable samples) — shown at the
+  // top so a partially-degraded run can't read as a clean one from the metrics alone.
+  for (const note of res.notes ?? []) {
+    const warn = document.createElement("div");
+    warn.className = "mc-note mc-note-err";
+    warn.textContent = `⚠ ${note}`;
+    host.appendChild(warn);
+  }
+
   if (res.metrics && typeof res.metrics === "object") {
     const table = document.createElement("table");
     table.className = "mc-table";
