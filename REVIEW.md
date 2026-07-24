@@ -39,8 +39,9 @@ and the CSV export were already fully readable and are unchanged. Verified: `tsc
 clean; grep confirms `--qc-*` defined in `:root` + both dark blocks and consumed only by the three
 `.rqc-dot-*` rules, and that no `.rqc-dot` rule still references a brand token. Browser-observable
 (needs the full Tauri app to populate a scorecard + a theme switch), and the in-app browser is still
-down this session — so this carries a click-through Try line, and I've attached a swatch comparison
-below rather than a live screenshot.
+down this session — so this carries a click-through Try line, and the exact before/after colour
+mapping is written out above (the `--accent` / `--accent2` / `--warn` hexes vs the new `--qc-*`
+triple) rather than shown in a live screenshot.
 
 - [ ] **Try:** run a full interpretation + SandiMin recon + Monte Carlo so the **Results-QC** panel
   shows a scorecard with a mix of pass / warn / fail rows. Each row must show a `✓` / `⚠` / `✗` glyph
