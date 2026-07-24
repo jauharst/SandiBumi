@@ -7,6 +7,38 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 84 — R25: the Correlation panel leaked a window `pointerup` listener every open/close (2026-07-24)
+
+Second F5 lifecycle-tier fix, and a corroborated one — dimensions F5a and F5b flagged it independently.
+`correlationPanel.ts` registered `window.addEventListener("pointerup", () => (dragging = false))` with an
+**anonymous** handler and a `dispose()` that released only the ResizeObserver and two subscriptions. A
+`window` listener outlives the panel (unlike the canvas-scoped ones, which die with the detached `el`
+subtree), so every close stranded one dead handler — and because it closes over `dragging`, which shares a
+scope with `strips`, each stranded listener pinned that build's **entire `WellStrip[]`**: per well a
+1400-sample decimated curve pair plus a two-`Float64Array` TVDSS map, for every well in the active group.
+Correlation panels are `freshId(kind)` (never singletons), so the retained set grew per open/close cycle —
+~1.5–7 MB pinned per cycle on Jauhar's 40–200-well groups, monotonic for the process life, surviving Reset
+Workspace / Open Session (same dispose path). `LogCanvasRenderer.ts:540-561` even carries a comment warning
+about this exact trap; correlation was the lone panel builder that fell into it.
+
+Fixed by the documented house pattern: hoist to a named `const onWindowPointerUp`, register it, and add
+`window.removeEventListener("pointerup", onWindowPointerUp)` to `dispose()`. Same edit captures the
+`setTimeout(fit, 50)` as `fitTimer` and `clearTimeout`s it in dispose, so a panel closed inside 50 ms can't
+run `fit()`→`draw()` against an already-detached canvas. No behaviour change — pure teardown hygiene.
+
+Verified: `tsc && vite build` clean. Proof for a leak is dispose symmetry: a repo-wide grep of every
+`window.addEventListener` now shows every **per-panel** listener has a matching `removeEventListener`
+(crossplot 2047↔2101, correlation 1049↔1114, map, plotCanvas, vega 1129↔1179, viewerChrome,
+LogCanvasRenderer) — the only add-only ones left are the app-shell singletons built once at boot (ribbon,
+workspace, autosave, main, interactionGuard), which the F5 review classifies as one-off, not defects. So
+correlation was the last panel builder missing its removal, and it no longer is. Verified-by-construction
+against the three proven siblings the fix copies. Frontend-only.
+
+- [ ] **Try:** hard to see directly (it's a leak), but sanity-check nothing regressed: open a **Correlation**
+  panel on a multi-well group, **drag** a strip up/down to pan (release the mouse *outside* the canvas — panning
+  must still stop cleanly), hover to confirm the linked depth still syncs, then close and reopen the panel a few
+  times. Everything should behave exactly as before; the fix only frees memory on close.
+
 ## Round 83 — R24: the Report pane never opened in the multi-select state (TDZ crash) (2026-07-24)
 
 A flat user-facing bug, not an honesty one: with **no active well group** but a **multi-selection or ★-pins**

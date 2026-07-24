@@ -1037,7 +1037,16 @@ export async function buildCorrelationContent(
     dragging = true;
     lastY = e.clientY;
   });
-  window.addEventListener("pointerup", () => (dragging = false));
+  // A drag started on the canvas must end even when the pointer is released outside it, so this
+  // lives on `window` — which means it survives the panel being removed on close. Keep a named
+  // reference and remove it in dispose(), or every closed correlation panel leaks one pointerup
+  // that pins this whole builder closure (every strip's decimated curve arrays + the detached
+  // canvas) for the app's life — the exact trap LogCanvasRenderer.ts:540-561 documents and the
+  // only window-level listener in a panel builder that was missing its removal.
+  const onWindowPointerUp = () => {
+    dragging = false;
+  };
+  window.addEventListener("pointerup", onWindowPointerUp);
   canvas.addEventListener("pointermove", (e) => {
     const rect = canvas.getBoundingClientRect();
     const y = e.clientY - rect.top;
@@ -1092,8 +1101,9 @@ export async function buildCorrelationContent(
   } catch (err) {
     setStatus(`Correlation load failed: ${err}`);
   }
-  // Initial fit once the panel has a size (dock lays out after mount).
-  setTimeout(fit, 50);
+  // Initial fit once the panel has a size (dock lays out after mount). Captured so a panel closed
+  // inside 50 ms doesn't run fit()→draw() against a canvas that has already been detached.
+  const fitTimer = setTimeout(fit, 50);
 
   return {
     el,
@@ -1101,6 +1111,8 @@ export async function buildCorrelationContent(
       resizeObserver.disconnect();
       unsubData();
       unsubTheme();
+      window.removeEventListener("pointerup", onWindowPointerUp);
+      clearTimeout(fitTimer);
     },
   };
 }
