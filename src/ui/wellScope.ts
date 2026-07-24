@@ -243,15 +243,25 @@ export async function buildWellScope(opts: WellScopeOptions = {}): Promise<WellS
     emit();
   }
 
-  // Live: pinning/selecting/activating a group while the dialog is open updates the count and,
-  // when relevant, the active scope.
+  // Live: pinning/selecting while the dialog is open updates the count and, when relevant, the
+  // scope. `Observable.subscribe` fires its listener SYNCHRONOUSLY on subscribe (state.ts:29), so
+  // without a guard that first fire runs `emit()` — and therefore the caller's `onChange` — while
+  // the caller is still parked on `await buildWellScope(...)`, before it has declared the `const`s
+  // the callback closes over. reportDialog's onChange reads `batchBtn`, a not-yet-initialised const,
+  // so that synthetic fire throws a TDZ ReferenceError out of subscribe, rejects this promise, and
+  // leaves the Report pane stuck on "Failed to open". `ready` gates the callbacks so only genuine
+  // post-construction changes emit; every caller does its own first paint (reportDialog sets the
+  // batch label from getWellIds(), cutoffDialog awaits refreshZoneDst()), so nothing is lost. Same
+  // primed-flag shape as plotCommon.ts:349 / mapPanel.ts:434.
+  let ready = false;
   const unsub: Array<() => void> = [];
-  unsub.push(appState.pinnedWellIds.subscribe(() => { if (mode === "pinned") emit(); }));
-  unsub.push(appState.multiSelectedWellIds.subscribe(() => { if (mode === "selection") emit(); }));
+  unsub.push(appState.pinnedWellIds.subscribe(() => { if (ready && mode === "pinned") emit(); }));
+  unsub.push(appState.multiSelectedWellIds.subscribe(() => { if (ready && mode === "selection") emit(); }));
 
   reflectMode();
   renderDetail();
   updateCount();
+  ready = true;
 
   return {
     el,

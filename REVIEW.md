@@ -7,6 +7,38 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 83 — R24: the Report pane never opened in the multi-select state (TDZ crash) (2026-07-24)
+
+A flat user-facing bug, not an honesty one: with **no active well group** but a **multi-selection or ★-pins**
+present, opening **Report** failed outright — the pane showed "Failed to open the report generator:
+ReferenceError: Cannot access 'batchBtn' before initialization". That is exactly the state you are in when
+you reach for **batch** report export, which is why it survived: the usual active-group state dodges it.
+
+Root cause is an async-constructor / synchronous-observer collision. `buildWellScope` is `async` and, after
+awaiting `listWells`/`listWellGroups`, subscribes to `pinnedWellIds`/`multiSelectedWellIds`. `Observable.subscribe`
+fires its listener **synchronously** on subscribe (`state.ts:29`), and when `smartDefault()` lands on "pinned"/
+"selection" that first fire runs `emit()` → the caller's `onChange`. But the caller (`reportDialog`) is still
+parked on `await buildWellScope(...)`, so the `const batchBtn` its `onChange` reads is still in its temporal dead
+zone → `ReferenceError`, which rejects the builder's promise and the whole pane. Same failure mode as the earlier
+V3 Vega TDZ, in a different place.
+
+Fixed with the house **primed-flag** pattern (as in `plotCommon.ts:349` / `mapPanel.ts:434`): a `let ready = false`
+gates both subscribe callbacks, set `true` only after the scope's own first paint. The synthetic construction-time
+fire is suppressed; genuine post-construction pin/select changes still emit. Nothing is lost — every caller does its
+own first paint (reportDialog sets the batch label from `getWellIds()`, cutoffDialog awaits `refreshZoneDst()`), and
+of the 13 `buildWellScope` callers only those two pass an `onChange` at all. Frontend-only.
+
+Verified: `tsc && vite build` clean. TDZ is a runtime error `tsc` cannot see, so a **headless Node harness**
+(`wellscope_tdz_harness.mjs`) models the exact mechanism — a synchronous-fire Observable, an async builder that
+subscribes after two awaits, a caller whose `onChange` reads a const declared after its await — and proves it:
+the unguarded pattern throws the TDZ ReferenceError, the guarded (`ready`) pattern opens cleanly with the right
+label, the construction-time fire is suppressed, and a real post-construction change still emits. 5/5 pass.
+
+- [ ] **Try:** with a project open, leave the group selector on **All wells** (no active group). In the **Wells**
+  pane, **Ctrl-click two wells** (or ★-pin one and clear the selection). Ribbon → **Report**. The pane must open
+  normally showing a **Batch (N wells)…** button — not "Failed to open". Then pin/select another well while it is
+  open: the **Batch (…)** count must update live. Repeat with a group active to confirm nothing regressed there.
+
 ## Round 82 — R23: the Field Dashboard Compute posted a redundant "Pay summary" job card (2026-07-24)
 
 The tail of R19. `run_pay_summary`'s silent-run guard was `if req.stats_only && req.skip_version`, but

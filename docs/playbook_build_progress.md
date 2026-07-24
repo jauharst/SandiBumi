@@ -49,25 +49,31 @@ Jauhar's call: still cataloged so a saved chain step resolves + self-documents, 
 blocks it with a "use SandiMin" message instead of silently running the superseded solver → **R23**
 (the tail of R19) the Field Dashboard Compute no longer posts a redundant, mislabelled "Pay summary"
 job card — its silent-run guard now keys on `stats_only` (persists-nothing = pure read) instead of a
-dead two-flag coincidence. Plus a requested feature —
+dead two-flag coincidence → **R24** (first F5 lifecycle-tier fix) the **Report pane no longer crashes
+on open** in the no-group + multi-select/pinned state: `buildWellScope`'s synchronous first subscribe
+fire re-entered the caller's `onChange` while `reportDialog`'s `batchBtn` const was still in its TDZ,
+rejecting the pane — now suppressed by a `ready` primed-flag guard (the `plotCommon`/`mapPanel` pattern).
+Plus a requested feature —
 **V6 Raincloud** (PtitPrince-style half-violin + box + rain in the Vega panel). Each carries a REVIEW
-"Try:" line; see the R6–R23 table below and REVIEW Rounds 61–82.
+"Try:" line; see the R6–R24 table below and REVIEW Rounds 61–83.
 
-**Push state (2026-07-24):** everything through this update — both halves plus the whole R1–R23 fix
+**Push state (2026-07-24):** everything through this update — both halves plus the whole R1–R24 fix
 chain and V6 — is committed locally and **unpushed** (`origin/master` is many commits behind); Jauhar
 pushes himself. Working tree clean. (Exact ahead-count omitted on purpose — it goes stale the moment
 this file is committed.)
 
 **Remaining (needs a fresh pick):** the named fix-now F-sweep items are cleared (R14 closed the
-innerHTML sweep; R15 closed the Vega `dataVersion` gap). What's left is the invasive DB-lock
-responsiveness refactors (Autocorrelate / SandiMin load↔compute split), R9's residual security
-backlog (a real CSP, scoping `save_png` — both want live browser testing), and the ~100 pre-triaged
-Med/Low findings (the High fix-now F-sweep tier is now empty — R16 was its last open item; R17/R18/R19
-have been working the Med **data-honesty** sub-tier). Two items R17/R19 surfaced that need Jauhar's
-call before action: retiring/​unifying the legacy `multimin` endpoint table (R17), and whether the
-Field Dashboard's Compute should be silent again — its `lib.rs` off-thread guard requires
-`stats_only && skip_version` but the dashboard now sets `stats_only` alone, so it posts a "Pay summary"
-job card on every Compute (R19 documented the gap, did not change the guard). Plus,
+innerHTML sweep; R15 closed the Vega `dataVersion` gap), and both decisions that earlier rounds
+surfaced are now resolved — the legacy `multimin` endpoint table by **R22** (graceful retirement) and
+the Field Dashboard silent-Compute guard by **R23**. The active seam is now the **F5 lifecycle & leaks
+tier** (19 actionable findings; `docs/review_sweep/F5.md`), several of them browser-independent —
+**R24** took its first, the Report-pane TDZ. Note F5's own list is partly stale against the R-chain: its
+#14 (Vega `dataVersion`) was already closed by R15, and its #2 (Cancel-honesty) by R7 — so each F5 item
+is re-verified against live code before it is picked. What still needs the live app: the invasive DB-lock
+responsiveness refactors (Autocorrelate / SandiMin load↔compute split; F5 #3 project-switch
+connection-swap; F5 #4 Python-exec timeout), the browser-blocked visual empty-state honesty items and
+R9's residual security backlog (a real CSP, scoping `save_png`), and the rest of the ~100 pre-triaged
+Med/Low findings. Plus,
 outside this tracker, the maturation (DECIDE) track below,
 Feature Wave B, Performance #128–132 (need a live 100-well benchmark), and the §4
 interpretation-workflow items. Jauhar's manual click-through (REVIEW.md) gates release, not the
@@ -310,7 +316,8 @@ or failed result must never be presented as a clean one** — applied to five di
 | R20 | **The SQL console reported the LIMIT-capped count as the true total.** `run_readonly_query` wrapped every query in `LIMIT 1000` and returned `total_rows = rows.len()`, so a 400,000-row query came back "1000 row(s)" with no marker — indistinguishable from a real 1000-row result, and the common case (any row-level `standard_curves` query exceeds 1000 on one well). The DB Inspector next door shows a real `COUNT(*)`, training the user to trust `total_rows` | Definitive backend signal, not a guess: fetch `LIMIT + 1`, set a new `truncated: bool` on `TablePage` when the probe overflows, return exactly `limit` rows. Chosen over the verifier's frontend `rows.length===limit` heuristic because that mislabels an exactly-1000-row result (false positive) **and** a backend flag is the only cargo-testable version (browser down). Inspector path sets `truncated:false` (real COUNT). Panel renders "…display cap reached; more rows exist (not the total)". New test locks all 3 boundaries incl. exactly-at-cap. cargo test 11/11; tsc + build | `32d2304` |
 | R21 | **Supervised ML silently dropped training wells that contributed zero samples.** `fetch_curve_frame` returns an all-NaN column for a missing curve, so a training well with no target under the chosen mnemonic contributed 0 rows via the `is_finite()` filter — invisibly; `n_train<10` never fired (few real wells = tens of thousands of samples), so a 20-well selection fit on 3 returned clean R²/RMSE. The `run_ml_eval` sibling in the SAME file already warned about this; only the Run button was silent. Wrong-mnemonic typo → output identical to a correct run | Track per-well contribution, collect wells that moved the pool not at all (unreadable / missing target-or-input / fully masked); new `notes:Vec<String>` on `MlResult` carries a count summary (mirrors `run_ml_eval`), rendered as a `⚠` warning in `mlDialog` (glyph+`--warn`, honours R16). Deleted the 2 dead `else{continue}` guards + covered the silent fetch-error branch. Honesty logic extracted to a pure `assemble_training` helper → unit-testable **without python** (existing `run_ml` tests skip when sklearn absent). cargo test ml:: 11/11 (incl. python-backed e2e); tsc + build | `978c9b0` |
 | R22 | **Legacy `multimin` was a hidden-but-live compute path (decision, not an F-finding).** Superseded by SandiMin and hidden from every UI picker, but `list_modules` still returned it, so a saved chain step or a `module:multimin` dockview panel silently ran the old fixed-4-component solver (endpoint defaults free to drift from SandiMin's). R17 surfaced the retire/unify question; Jauhar chose **graceful retirement** | Single-source `modules::retired_module(name)` registry; `run_module` checks it first and returns a "use SandiMin (Advance ▸ Mineral Solver)" error before dispatch (removed the dispatch arm). Spec **kept** in the catalog so a saved step resolves + renders its stored params; solver body + R17 physics tests removed (unreachable; `rho_e` stays in `multimin2` where SandiMin uses it). Two stale frontend comments ("still runs in saved chains") corrected. `phase7` e2e test converted to a retirement guard + new `multimin_is_retired_but_still_cataloged`. Full cargo 372/0/7, no warnings; tsc + build | `73f952d` |
-| R23 | **Field Dashboard Compute posted a redundant, mislabelled "Pay summary" job card (tail of R19).** `run_pay_summary`'s silent-run guard was `stats_only && skip_version`, which no caller sets (dashboard sets `stats_only` alone since the stats_only refactor), so every Compute fell through to `run_simple_job` and showed a "cutoffs & pay" card — redundant with the dashboard's own status line, and misleading since a `stats_only` run writes nothing | Key the silence on the real invariant — `if req.stats_only` (persists-nothing = pure read = no card). Dashboard is the only stats-only caller, so this touches only it; a persisting pay summary (Cutoffs & Summary, or a report render) still shows a job. `cargo test pay_summary` 4/4 incl. `pay_summary_stats_only_persists_nothing`; compile clean, no warnings. Backend one-condition change; grep-proven blast radius | *(this update)* |
+| R23 | **Field Dashboard Compute posted a redundant, mislabelled "Pay summary" job card (tail of R19).** `run_pay_summary`'s silent-run guard was `stats_only && skip_version`, which no caller sets (dashboard sets `stats_only` alone since the stats_only refactor), so every Compute fell through to `run_simple_job` and showed a "cutoffs & pay" card — redundant with the dashboard's own status line, and misleading since a `stats_only` run writes nothing | Key the silence on the real invariant — `if req.stats_only` (persists-nothing = pure read = no card). Dashboard is the only stats-only caller, so this touches only it; a persisting pay summary (Cutoffs & Summary, or a report render) still shows a job. `cargo test pay_summary` 4/4 incl. `pay_summary_stats_only_persists_nothing`; compile clean, no warnings. Backend one-condition change; grep-proven blast radius | `2eca7f8` |
+| R24 | **The Report pane crashed on open in the no-group + multi-select/pinned state (first F5 lifecycle-tier fix).** `buildWellScope` is `async` and, after its `listWells`/`listWellGroups` awaits, subscribes to `pinnedWellIds`/`multiSelectedWellIds`; `Observable.subscribe` fires **synchronously** (`state.ts:29`), so when `smartDefault()` lands on "pinned"/"selection" that first fire ran `emit()` → the caller's `onChange` while `reportDialog` was still parked on `await buildWellScope(...)` — reading `batchBtn`, a `const` declared 128 lines later, from its **temporal dead zone**. The ReferenceError rejected the builder's promise and the whole pane ("Failed to open the report generator"). Exactly the state you're in for **batch** export, which is why the dev's usual active-group state never hit it | House **primed-flag** guard (as `plotCommon.ts:349` / `mapPanel.ts:434`): `let ready = false` gates both subscribe callbacks, set `true` after the scope's own first paint — the synthetic construction-time fire is suppressed, real post-construction changes still emit. Nothing lost: of 13 `buildWellScope` callers only reportDialog + cutoffDialog pass `onChange`, and both do their own first paint (batch label from `getWellIds()`; `await refreshZoneDst()`). Frontend-only. `tsc && vite build` clean; TDZ is invisible to `tsc`, so a headless `wellscope_tdz_harness.mjs` models the mechanism (unguarded→ReferenceError, guarded→opens, live-emit preserved), 5/5 | *(this update)* |
 
 `tsc && vite build` clean throughout; R6–R8, R17–R21 are cargo-green (R17 a pure backend
 physics change cargo-proven by 46 tests incl. 2 new PEF-mixing guards; R18 a report-honesty fix with a
@@ -322,9 +329,11 @@ locked by `assemble_training_flags_wells_with_no_target` — python-free, and th
 e2e tests still pass after the extraction; R22 a structural retirement proven by the FULL cargo suite
 (372/0/7, zero warnings) incl. `multimin_is_retired_but_still_cataloged` and the converted `phase7`
 retirement guard; R23 a Tauri-command one-condition change proven by a clean compile + `cargo test
-pay_summary` (4/4) and a grep-proven single-caller blast radius — all browser-independent). R10/R15 have no
+pay_summary` (4/4) and a grep-proven single-caller blast radius — all browser-independent). R10/R15/R24 have no
 cargo/vitest surface (pure TS logic, no frontend test harness exists) — their proof is the headless
-ports in `scratchpad/undo_check.mjs` and `scratchpad/refill_check.mjs`. Live desktop click-through for
+ports in `scratchpad/undo_check.mjs`, `scratchpad/refill_check.mjs` and `scratchpad/wellscope_tdz_harness.mjs`
+(the last models the exact TDZ mechanism: unguarded pattern throws the ReferenceError, `ready`-guarded pattern
+opens cleanly, live post-construction changes still emit). Live desktop click-through for
 the UI-facing rounds stays on REVIEW's Try lines.
 
 ## Per-increment discipline (playbook acceptance bar)
