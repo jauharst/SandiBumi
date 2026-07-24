@@ -29,22 +29,26 @@ startup-DB death → **R7** inert Cancel on non-cancellable jobs → **R8** fres
 **R9** LAS-well-name XSS→RCE → **R10** rejected undo silently dropping the action → **R11**
 depth-scale `var(--bg)` transparent in every palette → **R12** one cutoff-defaults source (Monte
 Carlo net-pay now reconciles with the pay summary) → **R13** six module-dialog Run buttons rendered
-native. Plus a requested feature — **V6 Raincloud** (PtitPrince-style half-violin + box + rain in the
-Vega panel). Each carries a REVIEW "Try:" line; see the R6–R13 table below and REVIEW Rounds 61–72.
+native → **R14** finished R9's deferred innerHTML sweep (a real autoCorr well-name XSS was still open)
+→ **R15** the Vega panel now refreshes on `dataVersion` (no more stale post-run cloud). Plus a
+requested feature — **V6 Raincloud** (PtitPrince-style half-violin + box + rain in the Vega panel).
+Each carries a REVIEW "Try:" line; see the R6–R15 table below and REVIEW Rounds 61–74.
 
-**Push state (2026-07-24):** everything through this update — both halves plus the whole R1–R13 fix
+**Push state (2026-07-24):** everything through this update — both halves plus the whole R1–R15 fix
 chain and V6 — is committed locally and **unpushed** (`origin/master` is many commits behind); Jauhar
 pushes himself. Working tree clean. (Exact ahead-count omitted on purpose — it goes stale the moment
 this file is committed.)
 
-**Remaining (needs a fresh pick):** the named fix-now F-sweep items are cleared. What's left is the
-invasive DB-lock responsiveness refactors (Autocorrelate / SandiMin load↔compute split), R9's
-security backlog (the full 17-site innerHTML sweep, a real CSP, scoping `save_png`), and the ~100
-pre-triaged Med/Low findings — plus, outside this tracker, the maturation (DECIDE) track below,
+**Remaining (needs a fresh pick):** the named fix-now F-sweep items are cleared (R14 closed the
+innerHTML sweep; R15 closed the Vega `dataVersion` gap). What's left is the invasive DB-lock
+responsiveness refactors (Autocorrelate / SandiMin load↔compute split), R9's residual security
+backlog (a real CSP, scoping `save_png` — both want live browser testing), and the ~100 pre-triaged
+Med/Low findings — plus, outside this tracker, the maturation (DECIDE) track below,
 Feature Wave B, Performance #128–132 (need a live 100-well benchmark), and the §4
 interpretation-workflow items. Jauhar's manual click-through (REVIEW.md) gates release, not the
 build. NB: the in-app browser was unresponsive on 2026-07-24, so the visual fixes (R11 / R13) are
-verified by selector/specificity construction, not a live screenshot.
+verified by selector/specificity construction and R15 by sibling-pattern equivalence + a refill
+harness, not a live screenshot.
 
 ---
 
@@ -272,11 +276,13 @@ or failed result must never be presented as a clean one** — applied to five di
 | R11 | The **depth-scale `<select>` had a transparent background in all 8 palettes** — `.lv-scale` used `var(--bg)`, a variable no palette defines, so it fell to `transparent` (IACVT) instead of the themed surface | → `var(--bg-app)`, the canonical form-control surface (matches `.form-control` + `.mm-dialog select`). Deterministic computed-value swap; grep-proved `--bg` in 0 palettes, `--bg-app` in all 8 | `f34d8f6` |
 | R12 | The **pay-cutoff quartet was copy-pasted into 5 panes and 2 drifted** — Monte Carlo *and* the Results-QC cutoff probe defaulted to PHIE ≥ 0.08 / SWE ≤ 0.5 vs the pay summary's 0.1 / 0.6, so an MC net-pay silently used different cutoffs than the deterministic one (its tooltip even claimed they matched); only the pay summary read the project's saved cutoffs | One shared `src/ui/cutoffs.ts` — canonical `DEFAULT_CUTOFFS` + `loadCutoffDefaults()` (saved doc merged over the constant). All 5 panes (cutoff editor / pay summary / MC / report / Results-QC) seed from it; defaults now un-copyable and every pane honours saved cutoffs. tsc + build; 10 headless merge checks incl. the 0.08→0.1 / 0.5→0.6 regression | `9654ac5` |
 | R13 | **6 module-dialog Run buttons rendered as native grey buttons** — faciesTie/HFU/Lorenz/ML/SHF/Thomeer (+ the Workflow runner) build a raw `<button class="primary">`, but `.primary` had no standalone rule (only compound selectors), and the base `button` rule sets only font — so they fell back to UA styling, the only Run buttons not accent-filled | One scoped rule `.mc-run-row .primary:not(.mm-run-btn), .workflow-run-row .primary` → the app's accent primary look (mirrors `.mm-run-btn`). multimin excluded (keeps its own), MC's button isn't `.primary`; verified `--accent`/`--accent-dim` in all 8 palettes (no repeat of R11). tsc + build; deterministic selector-match/specificity (live screenshot blocked — browser unresponsive) | `ae5bcb9` |
-| R14 | **Finished R9's deferred innerHTML sweep — a real XSS was still open.** `autoCorrDialog` wrote the LAS-supplied well name (`~W WELL`, verbatim) into `tr.innerHTML` in the autocorrelate error row: the exact R9 vector at a site R9 didn't scope. Plus zone/param names+values and backend error strings across zones/workspace | Swept all 14 interpolated-`innerHTML` sites (autoCorr/zones/workspace/dashboard/tops); every interpolated string now `escapeHtml()`-wrapped, numbers left as-is. tsc + build; grep proves zero unescaped interpolations and no other HTML sinks (`insertAdjacentHTML`/`outerHTML`/concat). Still deferred: real CSP + scope `save_png` | *(this update)* |
+| R14 | **Finished R9's deferred innerHTML sweep — a real XSS was still open.** `autoCorrDialog` wrote the LAS-supplied well name (`~W WELL`, verbatim) into `tr.innerHTML` in the autocorrelate error row: the exact R9 vector at a site R9 didn't scope. Plus zone/param names+values and backend error strings across zones/workspace | Swept all 14 interpolated-`innerHTML` sites (autoCorr/zones/workspace/dashboard/tops); every interpolated string now `escapeHtml()`-wrapped, numbers left as-is. tsc + build; grep proves zero unescaped interpolations and no other HTML sinks (`insertAdjacentHTML`/`outerHTML`/concat). Still deferred: real CSP + scope `save_png` | `a2092be` |
+| R15 | **The Vega panel kept plotting pre-run values after a module run.** It was the only plot panel with no `dataVersion` subscription (siblings crossplot/histogram/pickett/correlation all carry one), so a SandiMin/equation re-run redrew every neighbour but left the Vega cloud stale — two contradictory clouds of the same two curves on screen, the stale one exportable to a client PDF. Newly written `MM_*` curves were also absent from the dropdowns until reopen | Mirrored the sibling primed `dataVersion` subscription: refills the 4 curve selects from a fresh `loadCurveNames()` and calls the existing race-guarded `render()`; released in `dispose`. New `refillCurveSelect` preserves the current selection (a vanished curve stays as a leading option, no silent axis jump). tsc + build; 20-check headless refill-invariant harness; verified-by-construction vs the four proven siblings (live redraw needs the Tauri app — browser still down) | *(this update)* |
 
-`tsc && vite build` clean throughout; R6–R8 also cargo-green. R10 has no cargo/vitest surface (pure
-TS promise logic, no frontend test harness exists) — its proof is the headless port in
-`scratchpad/undo_check.mjs`. Live desktop click-through for all five stays on REVIEW's Try lines.
+`tsc && vite build` clean throughout; R6–R8 also cargo-green. R10/R15 have no cargo/vitest surface
+(pure TS logic, no frontend test harness exists) — their proof is the headless ports in
+`scratchpad/undo_check.mjs` and `scratchpad/refill_check.mjs`. Live desktop click-through for the
+UI-facing rounds stays on REVIEW's Try lines.
 
 ## Per-increment discipline (playbook acceptance bar)
 

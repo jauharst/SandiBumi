@@ -7,6 +7,46 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 74 — R15: the Vega panel keeps plotting pre-run values after a module run (2026-07-24)
+
+The interactive Vega panel (the V1–V6 work) was the **only plot panel with no `dataVersion`
+subscription**. Its siblings — `crossplotPanel`, `histogramPanel`, `pickettPanel`,
+`correlationPanel` — each carry the same primed `appState.dataVersion.subscribe(… reload)` block, so
+after a SandiMin / equation run they re-fetch and redraw with the new curves. The Vega panel didn't:
+it subscribed only to `brushedDepths` and `themeVersion`, and `workspace.createPlot` only rebuilds on
+`selectedWell`. So you could run SandiMin to recompute SW, watch the crossplot beside it redraw with
+the new cloud, while the Vega scatter of the **same two curves** silently kept showing the pre-run
+values — **two contradictory clouds on screen, the stale one presented as a clean result**. That is
+exactly this app's cardinal data-honesty violation, and the Vega panel is the one with the SVG/PNG
+export path, so a stale cloud can walk straight into a client deliverable. A second symptom: the newly
+written curves (`MM_PHIE`, `MM_SW`) never appeared in the X/Y/Colour/Group dropdowns until the panel
+was closed and reopened — which reads as "the run didn't write the curves."
+
+Fixed by mirroring the sibling pattern: a **primed** `dataVersion` subscription (first synchronous
+fire swallowed, so panel build doesn't double-load) that refills the four curve selects from a fresh
+`loadCurveNames()` and calls the existing `render()` (which re-fetches through `getCurveData` and is
+already race-guarded by its `gen` counter + `disposed` check). Released in `dispose` alongside
+`unsubBrush`/`unsubTheme`. The refill is done by a small `refillCurveSelect` helper that **preserves
+the current selection** — a curve that has vanished from the catalog is kept as a leading option so
+the axis never silently jumps to a different curve. A `dataVersion` bump resets the vega zoom/pan (a
+full `render()`), which the file already accepts explicitly for theme repaints. `loadCurveNames`
+failure is caught and still triggers a re-render, so a fetch error surfaces through `render`'s own
+"Failed to load curves" path rather than freezing on stale data.
+
+Verified: `tsc && vite build` clean. A 20-check headless harness pins the `refillCurveSelect`
+invariant — selection preserved across curves added / removed / renamed, the `— None —` and
+`By zone` lead options never duplicated, every outcome resolves to an existing option, idempotent.
+The fix is a line-for-line copy of a subscription proven in four sibling panels, so the wiring is
+verified by construction; the live redraw itself is browser-observable but needs the full Tauri app
+to bump `dataVersion` (a module run), and the in-app browser is still unresponsive this session — so
+this one carries a click-through Try line rather than a captured screenshot.
+
+- [ ] **Try:** open a **Vega** scatter of PHIE vs SW for a well, then run **SandiMin** (or any module
+  that recomputes SW). The Vega cloud must redraw to match the crossplot beside it — not keep the old
+  cloud — and the newly written `MM_*` curves must now be pickable in the X / Y / Colour / Group
+  dropdowns **without** closing and reopening the panel. Confirm your current axis selections are
+  preserved across the redraw.
+
 ## Round 73 — R14: finish the innerHTML sweep R9 deferred — a real well-name XSS was still open (2026-07-24)
 
 R9 closed the five interpolated-`innerHTML` sites it scoped but explicitly deferred "the full 17-site

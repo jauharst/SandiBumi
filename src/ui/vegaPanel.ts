@@ -574,6 +574,31 @@ function colorSelect(names: string[], initial: string): HTMLSelectElement {
   return sel;
 }
 
+/** Rebuild a curve <select>'s options from a fresh catalog after a data-version bump, keeping the
+ *  current selection. `lead` are the fixed non-curve options that must survive the rebuild (the
+ *  colour channel's "— None —", the raincloud group's "By zone"). A selected curve that has since
+ *  vanished from the catalog is re-added as a leading option so the axis never silently jumps to a
+ *  different curve. */
+function refillCurveSelect(
+  sel: HTMLSelectElement,
+  names: string[],
+  lead: { value: string; label: string }[] = [],
+): void {
+  const current = sel.value;
+  const opt = (value: string, label: string): void => {
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = label;
+    sel.appendChild(o);
+  };
+  sel.replaceChildren();
+  for (const l of lead) opt(l.value, l.label);
+  const leadValues = new Set(lead.map((l) => l.value));
+  if (current && !leadValues.has(current) && !names.includes(current)) opt(current, current);
+  for (const n of names) opt(n, n);
+  sel.value = current;
+}
+
 /** Build the well-bound Vega chart panel. Signature matches the other plot builders
  *  (`workspace.createPlot`), returning `{ el, dispose, getState }`. */
 export async function buildVegaContent(
@@ -1108,6 +1133,32 @@ export async function buildVegaContent(
     if (embedded && lastRows) void repaint();
   });
 
+  // Re-fetch and refill the curve dropdowns when computed curves change (a module/equation run,
+  // import, or undo) so the panel never keeps plotting pre-run values while every sibling plot
+  // beside it has already redrawn — and so newly written curves (e.g. MM_PHIE/MM_SW) appear in the
+  // X/Y/Colour/Group lists without reopening the panel. Mirrors the primed dataVersion subscription
+  // every sibling plot carries; the synchronous first fire is swallowed so build doesn't double-load.
+  let dataPrimed = false;
+  const unsubData = appState.dataVersion.subscribe(() => {
+    if (!dataPrimed) {
+      dataPrimed = true;
+      return;
+    }
+    void (async () => {
+      try {
+        const names = await loadCurveNames();
+        if (disposed) return;
+        refillCurveSelect(xSel, names);
+        refillCurveSelect(ySel, names);
+        refillCurveSelect(zSel, names, [{ value: "", label: "— None —" }]);
+        refillCurveSelect(groupSel, names, [{ value: GROUP_ZONE, label: "By zone" }]);
+      } catch {
+        // Catalog refill failed; still re-render below so the plot reflects the new data version.
+      }
+      if (!disposed && embedded) await render();
+    })();
+  });
+
   // vega's container sizing needs the host attached with a non-zero size, which only happens once
   // the dock appends this panel. Embed on the first non-zero measurement; vega tracks resizes after.
   const ro = new ResizeObserver(() => {
@@ -1128,6 +1179,7 @@ export async function buildVegaContent(
       window.removeEventListener("pointerup", onPointerUp);
       unsubBrush();
       unsubTheme();
+      unsubData();
       ro.disconnect();
       zoneSel.dispose();
       editor?.destroy();
