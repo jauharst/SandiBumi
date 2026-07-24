@@ -8,7 +8,8 @@ import {
   readAutosave,
   showCrashRecoveryDialog,
 } from "./autosave";
-import { saveDocument } from "./ipc";
+import { saveDocument, startupProblem } from "./ipc";
+import { showStartupProblemDialog } from "./startupNotice";
 import { applyStoredTheme } from "./theme";
 import { Ribbon } from "./ui/ribbon";
 import { Workspace } from "./ui/workspace";
@@ -66,9 +67,23 @@ window.addEventListener("DOMContentLoaded", () => {
     installAutosave(workspace);
   };
 
-  if (crashed && autosave) {
-    showCrashRecoveryDialog((choice) => boot(choice === "restore" ? "restore-autosave" : "safe"));
-  } else {
-    boot("normal");
-  }
+  const bootWithWorkspaceChoice = () => {
+    if (crashed && autosave) {
+      showCrashRecoveryDialog((choice) => boot(choice === "restore" ? "restore-autosave" : "safe"));
+    } else {
+      boot("normal");
+    }
+  };
+
+  // Did the project itself open? This is asked first and answered before anything is built:
+  // if the project did not open, which workspace layout to restore is a secondary question, and
+  // showing an empty well list before explaining why would read as "my project is gone".
+  // The command only clones an Option behind a mutex; if it fails outright we are no worse off
+  // than before it existed, so boot normally.
+  void startupProblem()
+    .catch(() => null)
+    .then((problem) => {
+      if (problem) showStartupProblemDialog(problem, bootWithWorkspaceChoice);
+      else bootWithWorkspaceChoice();
+    });
 });

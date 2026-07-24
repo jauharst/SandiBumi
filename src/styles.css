@@ -4719,6 +4719,18 @@ input[type="number"].num-editing:focus {
   border-color: var(--accent);
   color: #fff;
 }
+/* The verbatim DuckDB error in the startup-failure notice. Monospace and wrapped because it is
+   raw tool output — often a long file path — and it is the one line a user would send us. */
+.startup-notice-reason {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--bg-panel-alt);
+  border-left: 3px solid var(--warn);
+  padding: 6px 8px;
+  margin: 6px 0;
+}
 /* Unsaved-state dot on the QAT Save Session button (lit while any panel has state
    not yet in a named save; the tab itself carries a ● prefix). */
 .qat-btn.qat-dirty {

@@ -1909,6 +1909,25 @@ export interface RecentProject {
   exists: boolean;
 }
 
+/** Why the project on disk could not be opened at launch, and what this session is running on
+ *  instead. `null` on a normal launch. Startup happens before the window exists, so a failure
+ *  there used to abort the process with no window and no message at all — see `StartupProblem`
+ *  in `lib.rs`. Field names are snake_case: they cross the wire from a plain serde struct. */
+export interface StartupProblem {
+  /** The project we tried, and failed, to open. */
+  attempted_path: string;
+  /** The underlying error verbatim — it names the real cause. */
+  message: string;
+  /** The throwaway project actually in use; `""` = memory only. */
+  recovered_to: string;
+  /** False = nothing will persist anywhere, not even to a recovery file. */
+  recovery_persists: boolean;
+}
+
+export async function startupProblem(): Promise<StartupProblem | null> {
+  return invoke("startup_problem");
+}
+
 export async function listRecentProjects(): Promise<RecentProject[]> {
   return invoke("list_recent_projects");
 }

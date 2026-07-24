@@ -7,6 +7,50 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 64 — R6: the app can no longer fail to start without telling you (2026-07-24)
+
+This was on the deferred list from the F-sweep, and it is the worst user-facing item on it.
+
+Three `.expect()` calls ran **before the window was created** — `init_db_resilient` plus the two
+launch migrations. The release profile sets `panic = "abort"` and `windows_subsystem = "windows"`,
+so any one of them failing killed the process with **no window, no dialog and no console**. You
+double-click SandiBumi and *nothing happens*. Nothing to read, nothing to send me.
+
+`init_db_resilient` self-heals a corrupted WAL and nothing else, and the likeliest trigger is
+completely mundane: **DuckDB takes an exclusive lock, so launching a second SandiBumi while the
+first still has the project open used to silently kill the second one.** A read-only volume, a
+network drive that dropped, or a file written by a newer DuckDB did the same.
+
+The runtime path was already graceful — `open_project` returns a `Result` and reports failures
+properly. Only startup panicked. So the open-and-migrate sequence is now shared between the two
+(`project::open_and_migrate`), and startup treats failure as a value:
+
+1. Open the real project. Normal case, unchanged.
+2. If it fails → open a throwaway `sandibumi-recovery-<stamp>.duckdb` in the temp folder, so the
+   app starts and can explain itself.
+3. If *that* fails → memory only.
+
+All three land you in a running app showing a dialog that names the file, quotes the DuckDB error
+verbatim, says plainly that **your project file has not been changed**, and points at the likely
+cause. The failed project is deliberately **not** added to the recents — a file that would not
+open should not be the first thing tried at the next launch. "Save As" follows the recovery, so a
+recovered session cannot checkpoint the temp database and then copy the project that never opened.
+
+Two tests pin the contract startup depends on: an unopenable path returns `Err` rather than
+panicking, and a fresh recovery file really is created with a working schema. cargo **372/0/7**,
+release build and `tsc && vite build` clean.
+
+I could not exercise this end-to-end myself — it needs two real app instances against a real
+project, and the first instance would open your working file read-write.
+
+- [ ] **Try:** launch SandiBumi normally and confirm nothing has changed. Then, **with it still
+  open**, launch it a second time. The second window must appear (it used to not appear at all)
+  with a dialog naming your project and the lock error. Click Continue — you should be in an
+  empty temporary project. Confirm your real project is untouched: close both, reopen once, and
+  check your wells are all still there.
+- [ ] **Try:** check the recents dropdown after that — the failed project must **not** have been
+  pushed to the top of the list by the second instance.
+
 ## Round 63 — refining R1–R5: one regression R5 introduced, one defect it met (2026-07-24)
 
 I re-read the five landed diffs adversarially instead of trusting my own summary of them. Two of

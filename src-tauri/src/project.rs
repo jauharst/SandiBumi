@@ -134,16 +134,38 @@ pub fn startup_path() -> String {
     LEGACY_DEFAULT.to_string()
 }
 
+/// Opens (or, for a fresh file, creates) the DuckDB at `path` and brings it up to the current
+/// schema. Shared by the runtime project switch and by startup, so the same file failing reports
+/// the same reason either way — and, more importantly, so **startup can treat that failure as a
+/// value instead of a panic**. A panic in `run()` happens before any window exists, and with
+/// `panic = "abort"` plus `windows_subsystem = "windows"` it kills the process with no window, no
+/// dialog and no console: the user double-clicks SandiBumi and nothing happens at all.
+///
+/// The per-step timings are the diagnostic for the ~5-minute open on the 540-well / ~2 GB file:
+/// they say whether the DB open, the standard-curves backfill or the PK-drop check dominates.
+/// They live here rather than at the call site so switching projects is measured too.
+pub fn open_and_migrate(path: &str) -> Result<duckdb::Connection, String> {
+    let t = std::time::Instant::now();
+    let conn = db::init_db_resilient(path).map_err(|e| format!("could not open {path}: {e}"))?;
+    eprintln!("[boot] init_db_resilient: {:?}  ({path})", t.elapsed());
+
+    let t = std::time::Instant::now();
+    db::migrate_standard_curves_to_generic_store(&conn)
+        .map_err(|e| format!("curve-store migration failed: {e}"))?;
+    eprintln!("[boot] migrate_standard_curves_to_generic_store: {:?}", t.elapsed());
+
+    let t = std::time::Instant::now();
+    db::migrate_drop_computed_curves_pk(&conn)
+        .map_err(|e| format!("computed-curves migration failed: {e}"))?;
+    eprintln!("[boot] migrate_drop_computed_curves_pk: {:?}", t.elapsed());
+    Ok(conn)
+}
+
 /// Opens (or, for a fresh file, creates) the DuckDB at `path`, runs the launch
 /// migrations, swaps it in as the live connection and records it in the recents.
 /// On any error the current project stays open untouched.
 pub fn switch_project(db: &DbState, path: &str) -> Result<RecentProject, String> {
-    let new_conn =
-        db::init_db_resilient(path).map_err(|e| format!("could not open {path}: {e}"))?;
-    db::migrate_standard_curves_to_generic_store(&new_conn)
-        .map_err(|e| format!("curve-store migration failed: {e}"))?;
-    db::migrate_drop_computed_curves_pk(&new_conn)
-        .map_err(|e| format!("computed-curves migration failed: {e}"))?;
+    let new_conn = open_and_migrate(path)?;
     {
         let mut guard = db.0.lock().unwrap();
         // Flush the outgoing project's WAL; failure is not fatal to the switch
@@ -170,6 +192,42 @@ pub fn is_current(state: &ProjectState, path: &str) -> bool {
 mod tests {
     use super::*;
     use std::sync::Mutex;
+
+    /// The whole startup-recovery design rests on this: a project that cannot be opened must
+    /// come back as an `Err` VALUE, never a panic. `run()` calls this before the Tauri window
+    /// exists, and with `panic = "abort"` plus `windows_subsystem = "windows"` a panic there
+    /// kills the process with no window, no dialog and no console — the app simply never
+    /// appears. If this ever starts panicking instead of returning, that symptom comes back.
+    #[test]
+    fn open_and_migrate_reports_an_unopenable_path_instead_of_panicking() {
+        // A directory: it exists, so this takes the genuine open-failure branch rather than the
+        // create-a-new-file branch, and no filesystem state is disturbed either way.
+        let dir = std::env::temp_dir();
+        let err = open_and_migrate(dir.to_str().unwrap())
+            .expect_err("a directory is not a project file and must not open");
+        assert!(
+            err.contains("could not open"),
+            "the message must name what failed so the startup dialog can show it: {err}"
+        );
+    }
+
+    /// ...and the other half: the fallback needs somewhere to fall back TO, so creating a fresh
+    /// project at a writable path must work. This is exactly what `run()` does with its
+    /// `sandibumi-recovery-<stamp>.duckdb` when the real project will not open.
+    #[test]
+    fn open_and_migrate_creates_a_fresh_recovery_project() {
+        let p = std::env::temp_dir()
+            .join(format!("sandibumi-recovery-test-{}.duckdb", std::process::id()));
+        let _ = std::fs::remove_file(&p);
+        let conn = open_and_migrate(p.to_str().unwrap())
+            .expect("a fresh project file at a writable path must open");
+        // The schema is really there — a recovery session has to be usable, not just openable.
+        conn.execute_batch("SELECT count(*) FROM wells;").expect("schema created");
+        drop(conn);
+        assert!(p.exists(), "the recovery project is a real file, so Save As can copy it");
+        let _ = std::fs::remove_file(&p);
+        let _ = std::fs::remove_file(p.with_extension("duckdb.wal"));
+    }
 
     /// Recents round-trip, startup fallback and a live connection swap, in ONE test —
     /// SANDIBUMI_CONFIG_DIR is process-global, so splitting these into parallel tests

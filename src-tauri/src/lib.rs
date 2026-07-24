@@ -54,6 +54,41 @@ use uuid::Uuid;
 /// registries' `any_active` guards block a switch while a job is still running.
 pub struct DbState(pub Arc<Mutex<Connection>>);
 
+/// Why the project on disk could not be opened, and what the session is running on instead.
+///
+/// Startup runs before the window exists, so a failure there cannot be reported the way every
+/// other error in this app is. `panic = "abort"` plus `windows_subsystem = "windows"` means an
+/// aborting `run()` produces no window, no dialog and no console — the user double-clicks
+/// SandiBumi and *nothing happens*, with nothing to read and nothing to send us. So every
+/// startup failure becomes one of these instead, and the app opens far enough to say so.
+///
+/// The likeliest trigger is mundane: DuckDB takes an exclusive lock, so launching a second
+/// SandiBumi while the first still has the project open used to kill the second one silently.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct StartupProblem {
+    /// The project we tried, and failed, to open.
+    pub attempted_path: String,
+    /// The underlying error verbatim — it names the actual cause (another instance holding the
+    /// lock, a read-only volume, a DuckDB file written by a newer version).
+    pub message: String,
+    /// The throwaway project the session is running on instead. Empty = memory only.
+    pub recovered_to: String,
+    /// False when even the recovery file could not be created, so **nothing will persist**.
+    /// The UI has to say so plainly: the alternative is a petrophysicist doing an afternoon's
+    /// interpretation into a database that evaporates on close.
+    pub recovery_persists: bool,
+}
+
+/// `None` on a normal launch. Read once by the frontend at boot.
+pub struct StartupState(pub Mutex<Option<StartupProblem>>);
+
+/// What went wrong opening the project at launch, if anything. The frontend calls this on boot
+/// and, when it returns something, blocks the workspace behind an explanatory dialog.
+#[tauri::command]
+fn startup_problem(state: tauri::State<StartupState>) -> Option<StartupProblem> {
+    state.0.lock().unwrap().clone()
+}
+
 /// Checkpoints the DuckDB WAL and copies the project file to `dest_path` ("Save As").
 /// Deliberately a backup export: the app KEEPS working on the current file.
 #[tauri::command]
@@ -1530,25 +1565,80 @@ pub fn run() {
     // pinpoint which one dominates the ~5-min open on the 540-well / ~2 GB file so the fix can
     // target it precisely (DB open vs the standard-curves backfill vs the PK-drop check).
     let boot = std::time::Instant::now();
-    let conn = db::init_db_resilient(&startup).expect("failed to initialize DuckDB");
-    eprintln!("[boot] init_db_resilient: {:?}  ({startup})", boot.elapsed());
-    let t = std::time::Instant::now();
-    db::migrate_standard_curves_to_generic_store(&conn).expect("failed to migrate curves into the generic curve store");
-    eprintln!("[boot] migrate_standard_curves_to_generic_store: {:?}", t.elapsed());
-    let t = std::time::Instant::now();
-    db::migrate_drop_computed_curves_pk(&conn).expect("failed to drop legacy computed_curves primary key");
-    eprintln!("[boot] migrate_drop_computed_curves_pk: {:?}", t.elapsed());
+    let (conn, problem) = match project::open_and_migrate(&startup) {
+        Ok(conn) => {
+            project::register_recent(&startup);
+            (conn, None)
+        }
+        Err(message) => {
+            // Never abort here — see `StartupProblem`. Get far enough to put a window up and let
+            // the UI explain. The file that failed is left completely untouched, and it is
+            // deliberately NOT registered in the recents: a project that would not open should
+            // not be the first thing we try again at the next launch.
+            eprintln!("[boot] {message}");
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let recovery = std::env::temp_dir()
+                .join(format!("sandibumi-recovery-{stamp}.duckdb"))
+                .to_string_lossy()
+                .into_owned();
+            match project::open_and_migrate(&recovery) {
+                Ok(conn) => (
+                    conn,
+                    Some(StartupProblem {
+                        attempted_path: startup.clone(),
+                        message,
+                        recovered_to: recovery,
+                        recovery_persists: true,
+                    }),
+                ),
+                Err(second) => {
+                    // Even the temp directory is unusable. Memory-only still beats a silent
+                    // death: the user gets a window, can read why, and can open a different
+                    // project. The UI is told nothing will persist.
+                    eprintln!("[boot] recovery project also failed: {second}");
+                    // These two are the only remaining panics on the startup path, and neither
+                    // touches the filesystem: an in-memory open and a CREATE TABLE into it.
+                    let conn = Connection::open_in_memory()
+                        .expect("opening an in-memory DuckDB cannot fail");
+                    db::create_schema(&conn)
+                        .expect("creating the schema in a fresh in-memory DuckDB cannot fail");
+                    (
+                        conn,
+                        Some(StartupProblem {
+                            attempted_path: startup.clone(),
+                            message,
+                            recovered_to: String::new(),
+                            recovery_persists: false,
+                        }),
+                    )
+                }
+            }
+        }
+    };
     eprintln!("[boot] total pre-window DB init: {:?}", boot.elapsed());
-    project::register_recent(&startup);
+
+    // "Save As" copies whatever file the connection is actually on, so this has to follow the
+    // recovery rather than the intent — otherwise a recovered session would checkpoint the temp
+    // database and then copy the project that never opened.
+    let project_path = match &problem {
+        Some(p) if p.recovery_persists => p.recovered_to.clone(),
+        Some(_) => String::new(),
+        None => project::absolute(&startup),
+    };
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(DbState(Arc::new(Mutex::new(conn))))
-        .manage(project::ProjectState(Mutex::new(project::absolute(&startup))))
+        .manage(project::ProjectState(Mutex::new(project_path)))
+        .manage(StartupState(Mutex::new(problem)))
         .manage(chain::new_registry())
         .manage(jobs::new_registry())
         .invoke_handler(tauri::generate_handler![
+            startup_problem,
             save_project_as,
             list_recent_projects,
             current_project,
