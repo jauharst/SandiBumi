@@ -222,6 +222,24 @@ The remaining ~120 findings stay in `docs/review_sweep/F1–F5.md`, each already
 independent fix-now / backlog / drop judgement, so the backlog is pre-triaged rather than a flat
 list. Nothing there blocks these five.
 
+#### Refinement pass over R1–R5 (`017b3d7`, REVIEW Round 63)
+
+Re-read the five landed diffs adversarially rather than trusting the summary of them. Two real
+defects, four hardening items. The lesson worth keeping: **the two defects were both at the seams
+between increments, not inside any one of them** — R5's own logic was right but it put an `await`
+into a gap another line depended on, and R3's new cancel path landed next to R4's success-counting
+without either noticing the other.
+
+| # | Finding | Fix |
+|---|---|---|
+| 1 | **R5 introduced a data-loss window.** `destroy()` leaves `view.state` readable — a destroyed CodeMirror view is not a null one — so `readFormIntoCurrent` kept returning the *previous* equation's script. Harmless while the mount was synchronous; R5 put an `await` in that gap. Pick equation B, Save before the chunk loads → **A's script written into B**. Round 62 claimed this window was already guarded; it was not | `this.editor = null` alongside the destroy; Round 62's claim struck through and corrected |
+| 2 | **Cancelled LAS imports counted as imported.** R3's cancel path returns an entry with neither well nor error, and `ribbon.ts` counted success as `!r.error`. Cancel at file 75 of 120 → **"Imported 120/120 well(s)"** in the status line *and* the permanent History, above 45 notes each saying "cancelled" | Partition on `well_id` (the only proof a well row was committed); cancelled reported as its own count |
+| 3 | **R1's guard had a hole on the Rust side.** `SPEC_FIELDS` was hand-kept and only TS was compared to it, so a Rust field with `#[serde(default)]` could stay permanently unknown to `ipc.ts` | Contract now also checked against **serde's own** field list, parsed out of the `deny_unknown_fields` error. Proven by dropping a name and watching it fail. (Adding a field also breaks the build outright — the tests use struct literals — an incidental layer I hadn't credited) |
+| 4–6 | Dashboard row filter set its "n excluded" counter as a side effect while the CSV handler called it off the render path; the range check rejected non-finite zone values but not non-finite request values (unreachable today — JSON carries neither NaN nor Infinity — but two rules where there should be one); the "—" note sentence parsed as gibberish | Filter returns the count with the rows; one rule both sides; sentence rewritten |
+
+cargo **370/0/7** (no new tests — an existing guard was strengthened, not added), release build and
+`tsc && vite build` clean, eager chunk **664.53 kB** (+0.18 kB for the added logic).
+
 ## Per-increment discipline (playbook acceptance bar)
 
 Every increment: explore-and-restate → implement in small steps → `tsc --noEmit` + `cargo
