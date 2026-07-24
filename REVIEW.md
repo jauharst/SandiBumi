@@ -7,6 +7,29 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 66 — R8: the test suite compiles from a fresh clone again (2026-07-24)
+
+Not a runtime item — a build-integrity one from the F-sweep. `db.rs`'s WAL-recovery test
+`include_bytes!`s two fixtures at **compile time**: `corrupt_torn.duckdb` and `corrupt_torn.wal`.
+The `.wal` was committed, but the `.duckdb` was silently caught by the repo-wide `*.duckdb` ignore
+rule (there to keep well databases out of the repo). A missing `include_bytes!` file is a hard
+compile error, so **the whole `src-tauri` test suite could not build from a fresh clone or in CI** —
+it only ever built for us because the file sat untracked in the working tree.
+
+Before versioning it I checked it carries no well data: the `.duckdb` holds only the DuckDB header
+and version string, the `.wal` only `create_schema`'s DDL (table/column names). It is a
+freshly-created, schema-only project torn mid-write — exactly what the recovery test needs, and
+nothing a client would recognise. A scoped `.gitignore` exception now tracks both, with a comment
+recording that check and why a synthetic pair can't substitute (the test comment already notes a
+garbage WAL doesn't reproduce the same DuckDB internal-error path).
+
+Verified with `git archive HEAD`: a fresh checkout now materialises both fixtures (12288 + 3707 B),
+byte-identical to what the test runs against. No code or test logic changed.
+
+- [ ] **Try (optional, for CI/handover):** clone the repo somewhere clean and run
+  `cargo test --lib` in `src-tauri`. It must compile — before this it failed at
+  `include_bytes!("../tests/fixtures/corrupt_torn.duckdb")` with "No such file or directory".
+
 ## Round 65 — R7: the Cancel button is gone from jobs it could never stop (2026-07-24)
 
 This is the **other half of R3's own acceptance criterion**, which I only did half of at the time.
