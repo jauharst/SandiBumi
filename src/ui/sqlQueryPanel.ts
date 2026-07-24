@@ -42,7 +42,9 @@ export class SqlQueryPanel {
       try {
         const page = await runQuery(sql, 1000);
         renderResult(grid, page);
-        info.textContent = `${page.total_rows} row(s)`;
+        info.textContent = page.truncated
+          ? `${page.total_rows} row(s) shown — display cap reached; more rows exist (not the total)`
+          : `${page.total_rows} row(s)`;
       } catch (err) {
         grid.replaceChildren(messageNode("placeholder-note", String(err)));
         info.textContent = "";

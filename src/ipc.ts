@@ -1960,6 +1960,9 @@ export interface TablePage {
   columns: string[];
   rows: (string | null)[][];
   total_rows: number;
+  /** True when `total_rows` is a display cap, not the true count (SQL console hit the row cap).
+   *  The paginated inspector path leaves this false — its `total_rows` is a real COUNT(*). */
+  truncated: boolean;
 }
 
 export function getTablePage(table: string, wellId: string | null, offset: number, limit: number): Promise<TablePage> {

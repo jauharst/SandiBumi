@@ -1199,6 +1199,10 @@ pub struct TablePage {
     /// Cells stringified by DuckDB's VARCHAR cast; None = SQL NULL.
     pub rows: Vec<Vec<Option<String>>>,
     pub total_rows: usize,
+    /// True when `total_rows` is a display cap rather than a true count — the SQL console's
+    /// `LIMIT + 1` probe found more rows than it returned, so the real result is larger. The
+    /// paginated inspector path always leaves this false: its `total_rows` is a real COUNT(*).
+    pub truncated: bool,
 }
 
 /// One page of a whitelisted table, every cell cast to VARCHAR (uniform frontend
@@ -1253,7 +1257,7 @@ pub fn get_table_page(
                 rows.push(r?);
             }
         }
-        Ok(TablePage { columns: columns.iter().map(|c| c.to_string()).collect(), rows, total_rows })
+        Ok(TablePage { columns: columns.iter().map(|c| c.to_string()).collect(), rows, total_rows, truncated: false })
     };
     run().map_err(|e| e.to_string())
 }
@@ -1272,7 +1276,10 @@ pub fn run_readonly_query(conn: &Connection, sql: &str, limit: usize) -> Result<
     }
 
     let limit = limit.clamp(1, 5000);
-    let wrapped = format!("SELECT * FROM ({trimmed}) __sandibumi_q LIMIT {limit}");
+    // Fetch one row beyond the cap so we can tell a result that fills the cap exactly (complete)
+    // from one the cap actually truncated. We return at most `limit` rows; the extra row only
+    // sets `truncated`, so the panel never reports a capped count as the true total.
+    let wrapped = format!("SELECT * FROM ({trimmed}) __sandibumi_q LIMIT {}", limit + 1);
     let mut stmt = conn.prepare(&wrapped).map_err(|e| e.to_string())?;
     let mut rows_out: Vec<Vec<Option<String>>> = Vec::new();
     {
@@ -1291,8 +1298,10 @@ pub fn run_readonly_query(conn: &Connection, sql: &str, limit: usize) -> Result<
         }
     }
     let columns = stmt.column_names().iter().map(|c| c.to_string()).collect();
+    let truncated = rows_out.len() > limit;
+    rows_out.truncate(limit);
     let total = rows_out.len();
-    Ok(TablePage { columns, rows: rows_out, total_rows: total })
+    Ok(TablePage { columns, rows: rows_out, total_rows: total, truncated })
 }
 
 fn value_ref_to_string(value: duckdb::types::ValueRef) -> Option<String> {
@@ -1471,6 +1480,34 @@ mod inspector_tests {
 
         assert!(run_readonly_query(&conn, "DELETE FROM wells", 100).is_err());
         assert!(run_readonly_query(&conn, "SELECT 1; DROP TABLE wells", 100).is_err());
+    }
+
+    /// The SQL console must not report a LIMIT-capped count as the true total. A result larger
+    /// than the cap comes back flagged `truncated`; one at or under the cap is complete. The
+    /// exactly-at-the-cap case is the one a naive `rows.len() == limit` heuristic gets wrong —
+    /// the `LIMIT + 1` probe proves it complete.
+    #[test]
+    fn readonly_query_flags_truncation_at_the_cap() {
+        let conn = mem_db();
+        for i in 0..5 {
+            insert_well(&conn, Uuid::new_v4(), &format!("W{i}"), None, None, None).unwrap();
+        }
+
+        // Cap BELOW the true count: exactly `limit` rows, and truncated is set.
+        let capped = run_readonly_query(&conn, "SELECT well_name FROM wells", 3).unwrap();
+        assert_eq!(capped.rows.len(), 3, "returns exactly the cap");
+        assert_eq!(capped.total_rows, 3);
+        assert!(capped.truncated, "a result larger than the cap must be flagged truncated");
+
+        // Cap ABOVE the true count: complete result, not truncated.
+        let full = run_readonly_query(&conn, "SELECT well_name FROM wells", 100).unwrap();
+        assert_eq!(full.rows.len(), 5);
+        assert!(!full.truncated, "a result under the cap is complete");
+
+        // Cap EXACTLY the true count: complete, not truncated (the heuristic's false positive).
+        let exact = run_readonly_query(&conn, "SELECT well_name FROM wells", 5).unwrap();
+        assert_eq!(exact.rows.len(), 5);
+        assert!(!exact.truncated, "a result that fills the cap exactly is complete, not truncated");
     }
 
     #[test]

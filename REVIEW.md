@@ -7,6 +7,43 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 79 — R20: the SQL console reported the LIMIT-capped row count as the true total (2026-07-24)
+
+The SQL console runs every query through `runQuery(sql, 1000)`; the backend wrapped it in
+`LIMIT 1000` and returned `total_rows = rows_out.len()`, so a query that matched 400,000 rows came
+back as exactly **1000** and the panel printed **"1000 row(s)"** — no truncation marker anywhere,
+indistinguishable from a genuine 1000-row result. And this is the *common* case, not an edge: any
+row-level query against `standard_curves` blows past 1000 on a single well (a 2000 m interval at
+0.1524 m ≈ 13,000 samples), so essentially every non-aggregate query a petrophysicist types — counting
+shaly samples above a GR cut, sizing how many rows a cleanup would touch — silently truncated and then
+reported the cap as the answer. The **DB Inspector** one dock over renders `${from}–${to} of
+${total_rows}` from a real `COUNT(*)`, which actively trains the user to read `total_rows` here as a
+true total.
+
+Fixed with a **definitive** signal, not a guess. The sweep's verifier proposed a frontend-only
+heuristic (`rows.length === limit`), but that mislabels a result that is *exactly* 1000 rows as
+"maybe truncated" — a false positive. Instead the backend now fetches **`LIMIT + 1`**: if more rows
+come back than the cap, it sets a new `truncated: bool` on `TablePage` and returns exactly `limit`
+rows. A result that fills the cap exactly fetches `limit + 1` = one-too-few and reads as **complete**.
+`truncated` is a shared-struct field; the paginated inspector path (real `COUNT(*)`) always sets it
+**false**, so the flag cleanly means "`total_rows` may undercount the true result." The panel now
+renders "1000 row(s) shown — display cap reached; more rows exist (not the total)" when set.
+
+I chose the backend flag over the verifier's frontend heuristic deliberately: it's **exact** (no
+exactly-at-cap false positive) *and* it's the only version that is **cargo-testable** — with the
+in-app browser down this session, a frontend-only change would have no verification surface.
+
+Verified: `cargo test inspector_tests` — 11/11 green via the pinned 14.29 toolchain, incl. the new
+`readonly_query_flags_truncation_at_the_cap`, which locks all three boundaries (below cap → truncated;
+above cap → complete; **exactly at cap → complete**, the heuristic's false positive) and confirms the
+inspector path still reports its real `COUNT(*)`. `tsc --noEmit` + `vite build` clean.
+
+- [ ] **Try:** in the **SQL console**, run a row-level query that exceeds 1000 rows — e.g.
+  `SELECT depth, gr FROM standard_curves` on any well with a long interval. The footer must read
+  "1000 row(s) shown — display cap reached; more rows exist (not the total)", **not** a bare
+  "1000 row(s)". Then run a small query (e.g. `SELECT well_name FROM wells` on a <1000-well project):
+  the footer must read a plain "N row(s)" with no cap marker.
+
 ## Round 78 — R19: the Field Dashboard claimed "FLAG curves written." on the path that writes nothing (2026-07-24)
 
 Pressing **Compute** on the Field Dashboard runs `run_pay_summary` with `stats_only: true` — the
