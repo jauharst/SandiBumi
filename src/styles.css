@@ -4980,6 +4980,15 @@ input[type="number"].num-editing:focus {
   opacity: 0.6;
   cursor: default;
 }
+/* Shown in place of the Cancel button for a job that cannot observe a cancel — muted and
+   help-cursored so it reads as a status note, not a dead button. */
+.proc-uninterruptible {
+  font-size: 10.5px;
+  font-style: italic;
+  color: var(--text-dim);
+  white-space: nowrap;
+  cursor: help;
+}
 .proc-sub {
   margin-top: 5px;
   color: var(--text-dim);

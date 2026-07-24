@@ -7,6 +7,39 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 65 — R7: the Cancel button is gone from jobs it could never stop (2026-07-24)
+
+This is the **other half of R3's own acceptance criterion**, which I only did half of at the time.
+R3 said: for each job kind, *either observe the cancel flag, or do not render the button.* R3
+made "Cancelled" honest after the fact — a run that never observed the flag reports Completed, not
+a false Cancelled. But the button was still offered on every active job, including the ~20-odd
+monolithic ops that cannot observe it. Clicking it did nothing, silently. A control that does
+nothing is the same lie R3 set out to remove, just on the other side of the click.
+
+The split is structural, not a hand-maintained list. A `run_simple_job` worker is a bare
+`FnOnce() -> Result` — it is handed **no** `JobHandle`, so it *cannot* poll the flag; every render,
+export and single subprocess goes through it. A `run_job` worker gets a handle and every current
+one polls (Import LAS, Equation, Module, Monte Carlo, ML, SandiMin, and the workflow chain). So
+`run_simple_job` hardcodes `cancellable = false` and `run_job` takes it as an **explicit
+parameter** — a future non-polling `run_job` caller is forced to pass `false` and cannot silently
+inherit a button that would do nothing.
+
+Active jobs that aren't cancellable now show a muted "can't be interrupted" tag where the button
+was, so it reads as a deliberate status rather than a missing control.
+
+cargo **373/0/7** (one new test: `cancellable` reaches the `JobView` both ways), release build and
+`tsc && vite build` clean.
+
+Not browser-verified — the panel only shows a button when there is a live job, and jobs exist
+only under the Tauri backend, which `npm run dev` alone does not start.
+
+- [ ] **Try:** run a per-well operation with many wells (a **Module** run, or **Monte Carlo**) and
+  confirm the Processing panel still shows a working **Cancel** — click it and the run must stop
+  early, reported Cancelled.
+- [ ] **Try:** run a monolithic op — **Report → export PDF**, or **Composite → export SVG**, or a
+  **core/tops/SCAL import**. The card must show **"can't be interrupted"** instead of a Cancel
+  button. (Before this, it showed a Cancel that did nothing.)
+
 ## Round 64 — R6: the app can no longer fail to start without telling you (2026-07-24)
 
 This was on the deferred list from the F-sweep, and it is the worst user-facing item on it.

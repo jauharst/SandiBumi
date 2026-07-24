@@ -200,7 +200,7 @@ export async function buildProcessingContent(
     pctLabel.className = "proc-pct";
     pctLabel.textContent = `${pct}%`;
     barRow.append(barWrap, pctLabel);
-    if (active) {
+    if (active && job.cancellable) {
       const cancel = document.createElement("button");
       cancel.className = "proc-cancel";
       cancel.type = "button";
@@ -211,6 +211,15 @@ export async function buildProcessingContent(
         void cancelJob(job.id).catch(() => {});
       });
       barRow.appendChild(cancel);
+    } else if (active) {
+      // No Cancel button on a job whose worker never observes the flag — offering one was a
+      // control that did nothing (R3's visible half). Say so plainly instead of leaving a bare
+      // bar that looks like a missing button.
+      const tag = document.createElement("span");
+      tag.className = "proc-uninterruptible";
+      tag.textContent = "can't be interrupted";
+      tag.title = "This operation runs in one step and cannot be stopped partway.";
+      barRow.appendChild(tag);
     }
     card.appendChild(barRow);
 

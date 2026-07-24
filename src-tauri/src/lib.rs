@@ -191,7 +191,7 @@ async fn import_las_files(
     let total = paths.len();
     let conn = db.0.clone();
     let reg = jobs_reg.inner().clone();
-    jobs::run_job(reg, "Import LAS", format!("{total} file(s)"), items, total, move |job| {
+    jobs::run_job(reg, "Import LAS", format!("{total} file(s)"), items, total, true, move |job| {
         let c = conn.lock().unwrap();
         ingest::import_las_files(&c, &paths, Some(&job))
     })
@@ -519,7 +519,7 @@ async fn run_equation(
     let conn = db.0.clone();
     let reg = jobs_reg.inner().clone();
     let label = format!("equation: {}", equation.name);
-    jobs::run_job(reg, "Equation", label, items, total, move |job| {
+    jobs::run_job(reg, "Equation", label, items, total, true, move |job| {
         if equation.language == "python" {
             python_engine::run_python_equation(&conn, &equation, &well_ids, Some(&job))
         } else {
@@ -857,7 +857,7 @@ async fn run_workflow_module(
     let total = req.well_ids.len();
     let conn = db.0.clone();
     let reg = jobs_reg.inner().clone();
-    jobs::run_job(reg, "Module", req.module.clone(), items, total, move |job| {
+    jobs::run_job(reg, "Module", req.module.clone(), items, total, true, move |job| {
         workflow::run_workflow_module_into(&conn, &req, None, Some(&job.cancel), Some(&job))
     })
     .await
@@ -918,7 +918,7 @@ async fn run_monte_carlo(
     let total = req.well_ids.len();
     let conn = db.0.clone();
     let reg = jobs_reg.inner().clone();
-    jobs::run_job(reg, "Monte Carlo", "uncertainty".to_string(), items, total, move |job| {
+    jobs::run_job(reg, "Monte Carlo", "uncertainty".to_string(), items, total, true, move |job| {
         montecarlo::run_monte_carlo(&conn, &req, Some(&job))
     })
     .await
@@ -940,7 +940,7 @@ async fn run_ml(
     let total = req.apply_well_ids.len();
     let conn = db.0.clone();
     let reg = jobs_reg.inner().clone();
-    jobs::run_job(reg, "Machine learning", req.algorithm.clone(), items, total, move |job| {
+    jobs::run_job(reg, "Machine learning", req.algorithm.clone(), items, total, true, move |job| {
         ml::run_ml(&conn, &req, Some(&job))
     })
     .await
@@ -1059,7 +1059,7 @@ async fn run_multimin(
     let total = req.apply_well_ids.len();
     let conn = db.0.clone();
     let reg = jobs_reg.inner().clone();
-    jobs::run_job(reg, "SandiMin", "mineral solver".to_string(), items, total, move |job| {
+    jobs::run_job(reg, "SandiMin", "mineral solver".to_string(), items, total, true, move |job| {
         multimin2::run_multimin(&conn, &req, Some(&job))
     })
     .await
@@ -1477,7 +1477,9 @@ fn run_workflow_chain(
             .collect()
     };
     let label = steps.iter().map(|s| s.module.as_str()).collect::<Vec<_>>().join(" → ");
-    let job = jobs::register(jobs_reg.inner(), uuid, "Workflow chain", label, items, cancel.clone());
+    // Cancellable: the chain re-reads the raw flag between steps and `run_workflow_module_into`
+    // drains the wells on it, marking the observation via `note_cancel_observed`.
+    let job = jobs::register(jobs_reg.inner(), uuid, "Workflow chain", label, items, cancel.clone(), true);
     // Run OFF the IPC/main thread so the window stays responsive and the frontend's
     // get_chain_status poll + Cancel button are actually serviced *during* the run. As a sync
     // command this blocked the event loop for the whole multi-minute chain — which is exactly

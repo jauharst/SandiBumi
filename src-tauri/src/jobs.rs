@@ -82,6 +82,11 @@ struct Job {
     error: Option<String>,
     seq: u64,
     cancel: Arc<AtomicBool>,
+    /// Whether this job's worker actually polls the cancel flag. A monolithic op run through
+    /// [`run_simple_job`] gets no handle and so cannot poll — offering it a Cancel button was a
+    /// control that did nothing, the visible half of the cancel-honesty defect. The panel reads
+    /// this to decide whether to show the button at all.
+    cancellable: bool,
 }
 
 /// Serializable snapshot for the `list_jobs` command.
@@ -97,6 +102,9 @@ pub(crate) struct JobView {
     pub(crate) items: Vec<JobItem>,
     pub(crate) error: Option<String>,
     pub(crate) seq: u64,
+    /// True only when the worker actually observes the cancel flag; the panel shows a Cancel
+    /// button on cancellable jobs and an honest "can't be interrupted" tag on the rest.
+    pub(crate) cancellable: bool,
 }
 
 pub(crate) struct JobStore {
@@ -252,6 +260,10 @@ pub(crate) async fn run_job<T, F>(
     label: impl Into<String>,
     items: Vec<(String, String)>,
     total: usize,
+    // Does `work` poll [`JobHandle::is_cancelled`] (or the raw flag)? Stated explicitly at the
+    // call site rather than inferred, so a future worker that does NOT poll is forced to pass
+    // `false` and cannot silently inherit a Cancel button that would do nothing.
+    cancellable: bool,
     work: F,
 ) -> Result<T, String>
 where
@@ -260,7 +272,7 @@ where
 {
     let id = Uuid::new_v4();
     let cancel = Arc::new(AtomicBool::new(false));
-    let handle = register(&reg, id, kind, label, items, cancel);
+    let handle = register(&reg, id, kind, label, items, cancel, cancellable);
     handle.running(total);
     let finalize = handle.clone();
     match tauri::async_runtime::spawn_blocking(move || work(handle)).await {
@@ -301,7 +313,10 @@ where
     F: FnOnce() -> Result<T, String> + Send + 'static,
 {
     let label = label.into();
-    run_job(reg, kind, label.clone(), vec![(String::from("op"), label)], 1, move |job| {
+    // `false`: a simple job's worker is a bare `FnOnce() -> Result` with no `JobHandle`, so it
+    // structurally cannot observe the cancel flag. This is the class of op the Processing panel
+    // used to offer an inert Cancel button on — a render, an export, a single subprocess.
+    run_job(reg, kind, label.clone(), vec![(String::from("op"), label)], 1, false, move |job| {
         let out = work();
         match &out {
             Ok(_) => job.finish_item("op", ItemState::Ok, None),
@@ -337,6 +352,7 @@ pub(crate) fn register(
     label: impl Into<String>,
     items: Vec<(String, String)>,
     cancel: Arc<AtomicBool>,
+    cancellable: bool,
 ) -> JobHandle {
     let job_items: Vec<JobItem> = items
         .iter()
@@ -367,6 +383,7 @@ pub(crate) fn register(
             error: None,
             seq,
             cancel: cancel.clone(),
+            cancellable,
         },
     );
     prune(&mut store);
@@ -408,6 +425,7 @@ pub(crate) fn list(reg: &JobRegistry) -> Vec<JobView> {
             items: j.items.clone(),
             error: j.error.clone(),
             seq: j.seq,
+            cancellable: j.cancellable,
         })
         .collect();
     views.sort_by(|a, b| b.seq.cmp(&a.seq));
@@ -440,7 +458,7 @@ mod tests {
             ("w1".to_string(), "WELL_1".to_string()),
             ("w2".to_string(), "WELL_2".to_string()),
         ];
-        let h = register(&reg, id, "Workflow chain", "vsh_gr → phi_dn", items, flag.clone());
+        let h = register(&reg, id, "Workflow chain", "vsh_gr → phi_dn", items, flag.clone(), true);
 
         // Registered = queued, both items pending.
         let v = list(&reg).remove(0);
@@ -475,7 +493,7 @@ mod tests {
         let reg = new_registry();
         let id = Uuid::new_v4();
         let flag = Arc::new(AtomicBool::new(false));
-        let h = register(&reg, id, "Module", "sw_indo", vec![], flag.clone());
+        let h = register(&reg, id, "Module", "sw_indo", vec![], flag.clone(), true);
         assert!(any_active(&reg));
         assert!(!h.is_cancelled());
         cancel(&reg, id);
@@ -489,18 +507,35 @@ mod tests {
         let flag = Arc::new(AtomicBool::new(false));
         // One active job that must never be pruned.
         let active = Uuid::new_v4();
-        let ah = register(&reg, active, "Chain", "keep-me", vec![], flag.clone());
+        let ah = register(&reg, active, "Chain", "keep-me", vec![], flag.clone(), true);
         ah.running(1);
         // Flood with finished jobs beyond the cap.
         for _ in 0..(MAX_FINISHED + 10) {
             let id = Uuid::new_v4();
-            let h = register(&reg, id, "Module", "x", vec![], Arc::new(AtomicBool::new(false)));
+            let h = register(&reg, id, "Module", "x", vec![], Arc::new(AtomicBool::new(false)), true);
             h.complete();
         }
         let views = list(&reg);
         let finished = views.iter().filter(|v| v.phase == JobPhase::Completed).count();
         assert!(finished <= MAX_FINISHED, "finished jobs capped at {MAX_FINISHED}");
         assert!(views.iter().any(|v| v.id == active.to_string()), "active job survives pruning");
+    }
+
+    /// `cancellable` rides through to the JobView both ways, so the panel can hide the Cancel
+    /// button on a job whose worker never observes the flag — the visible half of the same
+    /// cancel-honesty defect: a button that does nothing is as much a lie as a false "Cancelled".
+    #[test]
+    fn cancellable_flag_reaches_the_view_both_ways() {
+        let reg = new_registry();
+        let no_poll = Uuid::new_v4();
+        register(&reg, no_poll, "Report", "render", vec![], Arc::new(AtomicBool::new(false)), false);
+        let polls = Uuid::new_v4();
+        register(&reg, polls, "Module", "sw_indo", vec![], Arc::new(AtomicBool::new(false)), true);
+
+        let views = list(&reg);
+        let get = |id: Uuid| views.iter().find(|v| v.id == id.to_string()).expect("job present");
+        assert!(!get(no_poll).cancellable, "a monolithic op must report not-cancellable");
+        assert!(get(polls).cancellable, "a polling worker must report cancellable");
     }
 
     /// The flag being set is NOT evidence the work stopped. Only ~5 of the ~27 job kinds poll it;
@@ -518,6 +553,7 @@ mod tests {
             "unit",
             vec![("a".into(), "A".into())],
             cancel.clone(),
+            true,
         );
 
         assert!(!h.cancel_was_observed(), "nothing observed before anything happens");
@@ -555,6 +591,7 @@ mod tests {
             "unit",
             vec![("a".into(), "A".into())],
             cancel.clone(),
+            true,
         );
         cancel.store(true, Ordering::SeqCst);
         assert!(!h.cancel_was_observed());

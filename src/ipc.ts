@@ -626,6 +626,10 @@ export interface JobView {
   items: JobItem[];
   error: string | null;
   seq: number;
+  /** Whether this job's worker actually polls the cancel flag. The panel shows a Cancel button
+   *  only when true; a monolithic op (a render, an export, a single subprocess) reports false and
+   *  gets an honest "can't be interrupted" tag instead of a button that would do nothing. */
+  cancellable: boolean;
 }
 
 /** Snapshot of every job, most recent first — polled by the Processing panel. */
