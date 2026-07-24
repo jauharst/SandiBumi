@@ -28,6 +28,15 @@ dist-ssr
 *.duckdb
 *.duckdb.wal
 
+# ...EXCEPT the two WAL-recovery test fixtures. `db.rs`'s resilient_open test include_bytes! them
+# at COMPILE time, so with these ignored the whole test suite would not compile from a fresh
+# clone (or in CI) — the *.duckdb rule was silently swallowing a tracked build input. They are a
+# freshly-created, schema-only project torn mid-write: verified to hold only the DuckDB header and
+# create_schema's DDL (table/column names), no well names, field names or log values. Safe to
+# version; regenerating a faithful corrupt pair is not reliably reproducible (see the test).
+!src-tauri/tests/fixtures/corrupt_torn.duckdb
+!src-tauri/tests/fixtures/corrupt_torn.wal
+
 # Local DB backups + personal reference PDFs (not for the shared repo)
 .db-backups/
 Prompt/
