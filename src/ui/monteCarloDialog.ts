@@ -17,6 +17,7 @@ import {
   type ModuleSpec,
   type Pctl,
 } from "../ipc";
+import { loadCutoffDefaults } from "./cutoffs";
 import { formRow } from "./modal";
 import { canvasFont, readTheme } from "./plotCanvas";
 import { recordProcess } from "../processLog";
@@ -451,14 +452,19 @@ export async function buildMonteCarloContent(
   content.appendChild(scope.el);
 
   // --- Settings (cutoffs + run controls) -----------------------------------
+  // Seed the cutoffs from the ONE shared source (saved project defaults → canonical fallback), so
+  // an MC net-pay uses exactly the same cutoffs as the deterministic pay summary — the tooltip below
+  // says "Cutoffs match the pay summary", and now that is structurally true rather than a stale claim
+  // (MC previously hard-coded PHIE ≥ 0.08 / SWE ≤ 0.5 against the summary's 0.1 / 0.6).
+  const cuts = await loadCutoffDefaults();
   const iters = numField("Iterations", 1000, 1, 100000);
   const seed = numField("Seed", 42, 0, 1e9);
   const bins = numField("HPV bins", 12, 3, 60);
   const pctlSel = percentileField();
-  const vshMax = numField("VSH ≤", 0.5, 0, 1);
-  const phieMin = numField("PHIE ≥", 0.08, 0, 1);
-  const sweMax = numField("SWE ≤", 0.5, 0, 1);
-  const permMin = numField("PERM ≥ (blank=off)", NaN, 0, 1e6);
+  const vshMax = numField("VSH ≤", cuts.vsh_max, 0, 1);
+  const phieMin = numField("PHIE ≥", cuts.phie_min, 0, 1);
+  const sweMax = numField("SWE ≤", cuts.swe_max, 0, 1);
+  const permMin = numField("PERM ≥ (blank=off)", cuts.perm_min ?? NaN, 0, 1e6);
   const sampSel = document.createElement("select");
   for (const [v, label] of [
     ["lhs", "Latin Hypercube"],

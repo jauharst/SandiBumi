@@ -10,6 +10,7 @@ import {
 } from "../ipc";
 import { recordProcess } from "../processLog";
 import { appState, bumpDataVersion } from "../state";
+import { DEFAULT_CUTOFFS, loadCutoffDefaults } from "./cutoffs";
 import { formRow } from "./modal";
 import { PlotCanvas, attachResizeRedraw, canvasFont, faciesColor, fitCanvasBackingStore, readTheme, type AxisSpec } from "./plotCanvas";
 import { nearestDepthIndex } from "./plotCommon";
@@ -107,10 +108,13 @@ export async function buildCutoffContent(
     i.value = value;
     return i;
   };
-  const vshIn = numInput("0.5");
-  const phieIn = numInput("0.1");
-  const sweIn = numInput("0.6");
-  const permIn = numInput("");
+  // Seed from the shared cutoff source so reopening reflects the project's saved defaults, not a
+  // frozen literal — the same set the pay summary, Monte Carlo and the report all open with.
+  const cuts = await loadCutoffDefaults();
+  const vshIn = numInput(String(cuts.vsh_max));
+  const phieIn = numInput(String(cuts.phie_min));
+  const sweIn = numInput(String(cuts.swe_max));
+  const permIn = numInput(cuts.perm_min != null ? String(cuts.perm_min) : "");
   permIn.placeholder = "(off)";
   root.appendChild(formRow("VSH ≤", vshIn, "Sand cutoff"));
   root.appendChild(formRow("PHIE ≥", phieIn, "Reservoir cutoff"));
@@ -518,9 +522,9 @@ export async function buildCutoffContent(
       const res = await runCutoffSweep({
         well_ids: wellIds,
         property,
-        vsh_max: numOf(vshIn, 0.5),
-        phie_min: numOf(phieIn, 0.1),
-        swe_max: numOf(sweIn, 0.6),
+        vsh_max: numOf(vshIn, DEFAULT_CUTOFFS.vsh_max),
+        phie_min: numOf(phieIn, DEFAULT_CUTOFFS.phie_min),
+        swe_max: numOf(sweIn, DEFAULT_CUTOFFS.swe_max),
         perm_min: Number.isFinite(permRaw) ? permRaw : null,
         sweep_min: sweepMin,
         sweep_max: sweepMax,
@@ -626,8 +630,8 @@ export async function buildCutoffContent(
       }
       xsets = built;
       // Seed the crosshair from the current cutoff fields (Y=PHIE, X=VSH/SWE by family).
-      yCut = numOf(phieIn, 0.1);
-      xCut = /sw/i.test(xCurve) ? numOf(sweIn, 0.6) : numOf(vshIn, 0.5);
+      yCut = numOf(phieIn, DEFAULT_CUTOFFS.phie_min);
+      xCut = /sw/i.test(xCurve) ? numOf(sweIn, DEFAULT_CUTOFFS.swe_max) : numOf(vshIn, DEFAULT_CUTOFFS.vsh_max);
       const totalDst = built.reduce((a, s) => a + s.dst.reduce((p, q) => p + (q ? 1 : 0), 0), 0);
       setStatus(`DST crossplot: ${built.length} well(s), ${xCurve} vs ${yCurve}, ${totalDst} DST-tested points`);
       redraw();
@@ -745,9 +749,9 @@ export async function buildCutoffContent(
   saveDefaultBtn.addEventListener("click", async () => {
     const permRaw = parseFloat(permIn.value);
     const payload = {
-      vsh_max: numOf(vshIn, 0.5),
-      phie_min: numOf(phieIn, 0.1),
-      swe_max: numOf(sweIn, 0.6),
+      vsh_max: numOf(vshIn, DEFAULT_CUTOFFS.vsh_max),
+      phie_min: numOf(phieIn, DEFAULT_CUTOFFS.phie_min),
+      swe_max: numOf(sweIn, DEFAULT_CUTOFFS.swe_max),
       perm_min: Number.isFinite(permRaw) ? permRaw : null,
     };
     try {

@@ -15,6 +15,7 @@ import {
   type WellSummary,
 } from "../ipc";
 import { appState, bumpDataVersion } from "../state";
+import { loadCutoffDefaults } from "./cutoffs";
 import { formRow } from "./modal";
 import { buildWellScope } from "./wellScope";
 
@@ -119,10 +120,13 @@ export async function buildReportContent(
     el.title = title;
     return el;
   };
-  const vshIn = mkNum("0.5", "VSH ≤ (sand)");
-  const phieIn = mkNum("0.1", "PHIE ≥ (reservoir)");
-  const sweIn = mkNum("0.6", "SWE ≤ (pay)");
-  const permIn = mkNum("", "PERM ≥ mD (optional)");
+  // Seed from the one shared cutoff source (saved project defaults → canonical fallback), so the
+  // report opens with the same cutoffs as the pay summary, Monte Carlo and the cutoff editor.
+  const cuts = await loadCutoffDefaults();
+  const vshIn = mkNum(String(cuts.vsh_max), "VSH ≤ (sand)");
+  const phieIn = mkNum(String(cuts.phie_min), "PHIE ≥ (reservoir)");
+  const sweIn = mkNum(String(cuts.swe_max), "SWE ≤ (pay)");
+  const permIn = mkNum(cuts.perm_min != null ? String(cuts.perm_min) : "", "PERM ≥ mD (optional)");
   permIn.placeholder = "PERM (off)";
   cutoffWrap.appendChild(vshIn);
   cutoffWrap.appendChild(phieIn);

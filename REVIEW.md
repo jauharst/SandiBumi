@@ -7,6 +7,44 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 71 — R12: one cutoff source, so Monte Carlo net-pay reconciles with the pay summary (2026-07-24)
+
+A data-consistency finding — the quiet-but-expensive kind. The pay-cutoff quartet (VSH ≤ / PHIE ≥ /
+SWE ≤ / PERM ≥) was independently hard-coded in **five** panes, and two had drifted: **Monte Carlo**
+*and* the **Results-QC cutoff-sensitivity probe** defaulted to **PHIE ≥ 0.08 / SWE ≤ 0.5**, while the
+canonical **Cutoffs & Pay Summary** uses **PHIE ≥ 0.1 / SWE ≤ 0.6**. So an MC net-pay run "with
+defaults" used *different* cutoffs than the deterministic pay summary "with defaults" — the P50 net
+would not reconcile with the deterministic net, and nothing on screen said why (it reads like an
+uncertainty result, not a cutoff mismatch). The MC settings tooltip even said **"Cutoffs match the
+pay summary"** — an invariant the code documented but did not enforce. Separately, only the pay
+summary loaded the project's **saved** default cutoffs; the other four ignored them and showed frozen
+literals, so a saved cutoff set never propagated.
+
+Fixed at the root: one shared `src/ui/cutoffs.ts` — a canonical `DEFAULT_CUTOFFS` (VSH 0.5 / PHIE 0.1
+/ SWE 0.6 / PERM off) and one `loadCutoffDefaults()` (the saved `cutoffs/__default__` document merged
+over the constant → always a complete, finite set). **All five** panes (cutoff editor, pay summary,
+Monte Carlo, report, Results-QC) now seed from it, and the cutoff editor's save-fallbacks route
+through the same constant. The defaults are now **un-copyable**: "matches the pay summary" is
+structurally true, and every pane honours the user's saved cutoffs.
+
+Not a physics change — cutoffs a user explicitly enters are untouched; only the **defaults** a pane
+opens with, and only for MC and Results-QC (0.08 / 0.5 → 0.1 / 0.6). Anyone who wants 0.08 sets it
+once via **Save default cutoffs** and it now flows everywhere, instead of living in two panes by
+accident.
+
+Verified: `tsc && vite build` clean. Headless (`scratchpad/cutoffs_check.mjs`, the shared merge
+logic ported verbatim), **10 checks**: canonical fallback on missing / partial / garbage / NaN /
+Infinity saved data; finite saved values pass through; `perm_min = 0` kept as a real value (not
+"off"); and the two regressions — a fresh project now yields **PHIE 0.1 not 0.08** and **SWE 0.6 not
+0.5**. Not verified live (needs the Tauri backend + a project with saved docs); the Try line covers
+the click-through.
+
+- [ ] **Try:** in **Cutoffs & Pay Summary** set custom cutoffs and click **Save default cutoffs**.
+  Open **Monte Carlo**, the **Report**, and **Results-QC** — each should now open pre-filled with
+  those saved values (before, MC and Results-QC showed 0.08 / 0.5 regardless). On a fresh project all
+  five should read VSH 0.5 / PHIE 0.1 / SWE 0.6. Run MC and the pay summary with defaults — the
+  net-pay now rests on the same cutoffs.
+
 ## Round 70 — V6: Raincloud plots in the Vega panel (your PtitPrince ask) (2026-07-24)
 
 A requested feature, not a review item. New **Raincloud** chart type in the Vega panel: per group a

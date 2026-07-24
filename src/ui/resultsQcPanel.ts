@@ -11,6 +11,7 @@ import {
   type ZoneEntry,
 } from "../ipc";
 import { appState } from "../state";
+import { loadCutoffDefaults } from "./cutoffs";
 import { formRow } from "./modal";
 import {
   attachResizeRedraw,
@@ -603,9 +604,12 @@ export async function buildResultsQcContent(
   const aIn = numInput(1, "0.1");
   const divIn = numInput(0.1, "0.01");
   // Operating cutoffs for the cutoff-sensitivity probe (the user confirms them — nothing fabricated).
-  const vshMaxIn = numInput(0.5, "0.01");
-  const phieMinIn = numInput(0.08, "0.01");
-  const sweMaxIn = numInput(0.5, "0.01");
+  // Seed from the one shared cutoff source so this probe centres on the same PHIE/SWE the pay summary
+  // and Monte Carlo use — it previously hard-coded PHIE ≥ 0.08 / SWE ≤ 0.5 against their 0.1 / 0.6.
+  const cuts = await loadCutoffDefaults();
+  const vshMaxIn = numInput(cuts.vsh_max, "0.01");
+  const phieMinIn = numInput(cuts.phie_min, "0.01");
+  const sweMaxIn = numInput(cuts.swe_max, "0.01");
   controls.append(
     formRow("Rw", rwIn),
     formRow("Rw °F", rwTIn),
@@ -749,9 +753,9 @@ export async function buildResultsQcContent(
     }
     const reconCurve = pickRecon(catalog);
     const mcKey = pickMcKey(catalog);
-    const vshMax = num(vshMaxIn, 0.5);
-    const phieMin = num(phieMinIn, 0.08);
-    const sweMax = num(sweMaxIn, 0.5);
+    const vshMax = num(vshMaxIn, cuts.vsh_max);
+    const phieMin = num(phieMinIn, cuts.phie_min);
+    const sweMax = num(sweMaxIn, cuts.swe_max);
 
     for (const t of targets) {
       const card = document.createElement("div");
