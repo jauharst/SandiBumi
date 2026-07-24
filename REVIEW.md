@@ -7,6 +7,44 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 67 — R9: a hostile LAS well name can no longer run code (2026-07-24)
+
+F4c, a genuine remote-code-execution chain, verified end to end before fixing:
+`parsers.rs::extract_well_name` stores the `~W WELL` value **verbatim** (trims whitespace, filters
+no characters — confirmed at `parsers.rs:552`), and `vegaPanel.ts:504` wrote `well.well_name`
+straight into `innerHTML`. With `tauri.conf.json` carrying `"csp": null` (confirmed), an
+`<img src=x onerror=…>` embedded in a vendor's LAS header parses into the live document and runs.
+The finding traces it on to the unscoped `save_png` write → a `.bat` in the Startup folder. LAS
+files come from service companies, partners and clients, and this app ships client-brand palettes,
+so it is meant to leave the developer's machine — "our tool executed a payload from a vendor's LAS"
+is a reputational event, not a lint.
+
+Fixed at the vector — escaping, not the sink — so it closes the path for **every** invokable
+command at once, not just `save_png`. Scope per the finding's own recommendation: the three
+`vegaPanel` message lines (well name + curve mnemonics, both LAS-supplied) plus the two DB-panel
+error paths, building each with `textContent` via a new shared `messageNode` helper instead of
+`innerHTML`. While there, the three byte-identical private `escapeHtml` copies
+(dashboard/inspector/tops, plus inspector's `escapeAttr`) collapse into one `src/ui/safeDom.ts`, so
+the next interpolated-innerHTML site has an obvious safe primitive to reach for. Left as backlog,
+per the finding: the full 17-site sweep, a real `csp` (risks breaking vega-embed's inline styling),
+and scoping `save_png`.
+
+There is now **zero** interpolated-`innerHTML` in the three touched panels (grep-verified). The
+DB-cell *value* renderers were already safe (`td.textContent`), so the exposure was only the
+message/error lines.
+
+Verification: `tsc && vite build` clean — which type-checks the `replaceChildren`/`messageNode`
+usage — and the inertness holds by construction (`textContent` never invokes the HTML parser). I
+wrote a standalone repro that runs the exact old vs new paths against a live `<img onerror>`
+payload, but **could not execute it — the in-app browser was unresponsive this session**, and the
+true end-to-end path also needs the Tauri backend plus a crafted LAS import, which I can't stage
+here. So this rests on the construction argument and the source-level proof, not a live repro.
+
+- [ ] **Try (optional):** import a LAS whose `~W` block has `WELL. <b>x</b> : WELL`, open a Vega
+  chart on it with a zone that yields no samples. The empty-state line must show the literal text
+  `<b>x</b>` (not a bold `x`, and certainly nothing executing). Same for a SQL error in the SQL
+  console.
+
 ## Round 66 — R8: the test suite compiles from a fresh clone again (2026-07-24)
 
 Not a runtime item — a build-integrity one from the F-sweep. `db.rs`'s WAL-recovery test

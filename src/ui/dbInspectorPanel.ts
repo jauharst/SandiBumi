@@ -10,6 +10,7 @@ import {
   type TablePage,
 } from "../ipc";
 import { appState, bumpDataVersion, setStatus } from "../state";
+import { messageNode } from "./safeDom";
 import { pushUndo } from "../undo";
 
 const PAGE_SIZE = 200;
@@ -119,14 +120,18 @@ export class DbInspectorPanel {
     const well = appState.selectedWell.get();
     this.scopeEl.textContent = def.wellScoped ? (well ? `Well: ${well.well_name}` : "— select a well —") : "(whole project)";
     if (def.wellScoped && !well) {
-      this.gridHost.innerHTML = `<div class="placeholder-note">Select a well in Wells &amp; Tops to browse ${def.label}.</div>`;
+      // `def.label` is a static internal table label, not untrusted — but keeping the whole
+      // panel on the textContent path means no future edit here reintroduces an innerHTML sink.
+      this.gridHost.replaceChildren(
+        messageNode("placeholder-note", `Select a well in Wells & Tops to browse ${def.label}.`),
+      );
       this.pageInfo.textContent = "";
       return;
     }
     try {
       this.page = await getTablePage(def.key, def.wellScoped ? well!.well_id : null, this.offset, PAGE_SIZE);
     } catch (err) {
-      this.gridHost.innerHTML = `<div class="placeholder-note">Load failed: ${err}</div>`;
+      this.gridHost.replaceChildren(messageNode("placeholder-note", `Load failed: ${err}`));
       this.pageInfo.textContent = "";
       return;
     }

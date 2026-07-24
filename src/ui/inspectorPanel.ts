@@ -25,6 +25,7 @@ import {
   type GenericCurveCatalogEntry,
   type LogSetEntry,
 } from "../ipc";
+import { escapeAttr, escapeHtml } from "./safeDom";
 
 const BLANK_EQUATION: EquationDef = {
   equation_id: "",
@@ -726,12 +727,3 @@ function summarizeRun(results: EquationRunResult[]): string {
   return text;
 }
 
-function escapeHtml(text: string): string {
-  const div = document.createElement("div");
-  div.textContent = text;
-  return div.innerHTML;
-}
-
-function escapeAttr(text: string): string {
-  return escapeHtml(text).replace(/"/g, "&quot;");
-}

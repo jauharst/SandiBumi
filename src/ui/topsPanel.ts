@@ -1,5 +1,6 @@
 import { listTops, type TopEntry } from "../ipc";
 import type { TopInterval } from "../state";
+import { escapeHtml } from "./safeDom";
 
 /** Formation tops for the currently selected well — SandiBumi's own formation-tops
  * interval panel. Clicking a top selects the interval from it down to
@@ -77,8 +78,3 @@ export class TopsPanel {
   }
 }
 
-function escapeHtml(text: string): string {
-  const div = document.createElement("div");
-  div.textContent = text;
-  return div.innerHTML;
-}

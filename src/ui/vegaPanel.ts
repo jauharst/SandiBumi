@@ -37,6 +37,7 @@ import { recordProcess } from "../processLog";
 import { appState, clearBrush, setBrushedDepths, type BrushSelection } from "../state";
 import { buildZoneSelect, curveSelect, loadCurveNames, loadPlotProps, savePlotProps, trySelect, type PlotContent } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
+import { messageNode } from "./safeDom";
 import { saveSvg } from "./svgExport";
 
 type ChartType = "scatter" | "line" | "histogram" | "density";
@@ -501,7 +502,12 @@ export async function buildVegaContent(
     if (rows.length === 0) {
       const what = type === "histogram" ? xName : `${xName} / ${yName}`;
       const zc = zoneSel.current();
-      chartHost.innerHTML = `<div class="logview-message">No finite ${what} samples in ${well.well_name}${zc.zoneName !== "*" ? ` · ${zc.zoneName}` : ""}.</div>`;
+      // `well.well_name` and the curve mnemonics in `what` are LAS-supplied and stored verbatim;
+      // building this line as textContent (not innerHTML) keeps a hostile `~W WELL` value inert.
+      const scope = zc.zoneName !== "*" ? ` · ${zc.zoneName}` : "";
+      chartHost.replaceChildren(
+        messageNode("logview-message", `No finite ${what} samples in ${well.well_name}${scope}.`),
+      );
       setStatus("Vega — no data");
       return;
     }
@@ -525,7 +531,7 @@ export async function buildVegaContent(
       setStatus(`Vega — ${type}, ${rows.length.toLocaleString()} points${scope}`);
     } catch (err) {
       if (disposed || myGen !== gen) return;
-      chartHost.innerHTML = `<div class="logview-message">Vega render failed: ${err}</div>`;
+      chartHost.replaceChildren(messageNode("logview-message", `Vega render failed: ${err}`));
       setStatus("Vega — render failed");
     }
   }
@@ -546,7 +552,7 @@ export async function buildVegaContent(
       series = await getCurveData(well.well_id, needed, zc.depthMin, zc.depthMax);
     } catch (err) {
       if (disposed || myGen !== gen) return;
-      chartHost.innerHTML = `<div class="logview-message">Failed to load curves: ${err}</div>`;
+      chartHost.replaceChildren(messageNode("logview-message", `Failed to load curves: ${err}`));
       setStatus("Vega — load failed");
       return;
     }

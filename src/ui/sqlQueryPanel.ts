@@ -1,5 +1,6 @@
 import { runQuery, type TablePage } from "../ipc";
 import { setStatus } from "../state";
+import { messageNode } from "./safeDom";
 
 const STARTER = `-- Full DuckDB SQL over the project (read-only).
 -- Tables: wells, standard_curves, computed_curves, tops, zones, zone_params, equations, documents
@@ -43,7 +44,7 @@ export class SqlQueryPanel {
         renderResult(grid, page);
         info.textContent = `${page.total_rows} row(s)`;
       } catch (err) {
-        grid.innerHTML = `<div class="placeholder-note">${String(err)}</div>`;
+        grid.replaceChildren(messageNode("placeholder-note", String(err)));
         info.textContent = "";
         setStatus(`Query failed: ${err}`);
       }

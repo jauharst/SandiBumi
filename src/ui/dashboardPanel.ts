@@ -1,5 +1,6 @@
 import { listWells, runPaySummary, type PaySummaryRow } from "../ipc";
 import { filterByActiveGroup } from "../state";
+import { escapeHtml } from "./safeDom";
 
 /** Field Dashboard: multi-well × zone pay statistics in one panel.
  *  Reuses the existing pay-summary engine (`run_pay_summary`) across every well, then
@@ -441,8 +442,3 @@ function weightedMean(rows: PaySummaryRow[], k: keyof PaySummaryRow, weightKey: 
   return wsum > 0 ? vsum / wsum : NaN;
 }
 
-function escapeHtml(text: string): string {
-  const div = document.createElement("div");
-  div.textContent = text;
-  return div.innerHTML;
-}
