@@ -847,7 +847,9 @@ textarea {
   height: 20px;
   font-size: 10.5px;
   color: var(--text);
-  background: var(--bg);
+  /* --bg-app is the themed form-control surface (matches .form-control and .mm-dialog select).
+     The old bare var(--bg) was defined in no palette, so it fell to transparent everywhere. */
+  background: var(--bg-app);
   border: 1px solid var(--border);
   border-radius: 3px;
 }

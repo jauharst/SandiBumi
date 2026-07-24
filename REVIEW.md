@@ -7,6 +7,33 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 69 — R11: the depth-scale dropdown gets its themed background back in every palette (2026-07-24)
+
+Small but real, and wrong in **all eight** theme blocks. `.lv-scale` — the log-view depth-scale
+`<select>` (1:20 … 1:5000, top-right of the track toolbar, `logViewPanel.ts:167`) — set
+`background: var(--bg)`. No palette defines `--bg` (the contract is `--bg-app` / `--bg-panel` /
+`--bg-panel-alt` / `--bg-hover`), so the declaration was **invalid at computed-value time** and
+`background` fell to its initial `transparent`. Being a native `<select>`, it never vanished — it
+just quietly stopped matching the filled, themed look of every other control, worst on the brand
+palettes (Pertamina/Halliburton/SLB/LAPI-ITB) where a transparent control on tinted chrome reads as
+unstyled. This is exactly the failure mode a linter misses: no parse error, no total disappearance.
+
+Fixed to `var(--bg-app)` — the canonical themed form-control surface, the same variable
+`.form-control` uses and the one `.mm-dialog select` was explicitly switched to (there's a comment
+at `styles.css:4399` enforcing "the same brand surface … so the whole app reads one theme"). The
+depth-scale select now matches every other themed input, in all eight palettes.
+
+Verification: grep-proved `--bg` is defined in **zero** palettes and `--bg-app` in **all eight**, so
+the change is a deterministic computed-value swap (IACVT-transparent → the palette surface), not an
+empirical guess; `tsc && vite build` clean. The one thing I could **not** do live: read the real
+select's computed background in-app — the control only exists once a log view is open, which needs
+the running Tauri backend, and a static-snapshot of a standalone repro can't run JS to read the
+computed style. So this rests on the deterministic CSS proof + the grep evidence, not a screenshot.
+
+- [ ] **Try:** open a log view, look at the depth-scale dropdown at the top-right of the track
+  toolbar. It should have the same filled input surface as the other controls, not a see-through
+  background — check one brand palette (e.g. Pertamina) where it was most visible.
+
 ## Round 68 — R10: a failed undo no longer vanishes silently while claiming success (2026-07-24)
 
 A data-integrity finding, and squarely the cardinal rule of this whole review: a failed
