@@ -7,6 +7,40 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 73 — R14: finish the innerHTML sweep R9 deferred — a real well-name XSS was still open (2026-07-24)
+
+R9 closed the five interpolated-`innerHTML` sites it scoped but explicitly deferred "the full 17-site
+sweep." Finishing it turned up a **genuine miss of the same RCE class**: `autoCorrDialog` builds an
+error row as `tr.innerHTML = \`<td>${wellName}</td><td colspan=4>${wp.error}</td>\``, and `wellName`
+is the **LAS-supplied `~W WELL` value, stored verbatim** — the exact R9 vector. With `csp: null`, a
+hostile header injects markup into the autocorrelate results table: the same XSS→(via `save_png`)→RCE
+reach R9 was about, at a site R9 didn't touch.
+
+Swept **all 14** interpolated-`innerHTML` sites across `autoCorrDialog` / `zonesDialog` / `workspace`
+/ `dashboardPanel` / `topsPanel`. Every interpolated **string** value is now wrapped in `escapeHtml()`
+(the safeDom primitive); numeric interpolations (`.toFixed()`, `.length`) are left alone (they can't
+carry markup). The genuinely untrusted ones: the well name (autoCorr), zone / param names and values
+(zones — import-supplied), and backend error strings (`workspace` `${err}`). The rest — dashboard
+flag/metric labels, the tops empty-state text, panel/kind labels — are app-controlled today, but
+escaping them too keeps the invariant total, so a future dynamic value can't silently reopen a hole.
+Table-row sites keep `innerHTML` with `escapeHtml()` on the data (concise, and structure-preserving);
+R9's message-only sites had used DOM construction — both are safe, chosen per context.
+
+Verified: `tsc && vite build` clean. A grep of the whole `src` confirms **every** `innerHTML`
+interpolation is now `escapeHtml(...)` or a number — **zero** unescaped string interpolations remain
+— and there are **no** other HTML-injection sinks (`insertAdjacentHTML`, `outerHTML =`, or
+`+`-concatenated `innerHTML`) anywhere. `escapeHtml`'s inertness is the R9-established `textContent`
+round-trip (markup → text). This is entirely browser-independent, which is just as well — the in-app
+browser is still unresponsive this session.
+
+Still deferred (unchanged from R9): a real `csp` (risks vega-embed / CodeMirror inline styling —
+wants live testing the browser can't give right now) and scoping `save_png`.
+
+- [ ] **Try:** import a LAS whose `~W WELL` value is `<img src=x onerror=alert(1)>`, then run
+  **Autocorrelate** across wells so one returns an error row. The Well cell must show the literal
+  text `<img …>` (not a broken image, and nothing executing). Same for a zone renamed with markup in
+  the **Zones** pane, and a computed-curve error surfaced in a panel.
+
 ## Round 72 — R13: six module-dialog Run buttons stop rendering as native grey buttons (2026-07-24)
 
 Cosmetic-consistency, but wrong on every theme. The **Facies Tie / HFU / Lorenz / ML / SHF /

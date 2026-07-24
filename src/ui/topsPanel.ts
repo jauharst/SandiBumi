@@ -74,7 +74,7 @@ export class TopsPanel {
   }
 
   private renderEmpty(text: string): void {
-    this.container.innerHTML = `<div class="tree-empty">${text}</div>`;
+    this.container.innerHTML = `<div class="tree-empty">${escapeHtml(text)}</div>`;
   }
 }
 

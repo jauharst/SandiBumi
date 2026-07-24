@@ -12,6 +12,7 @@ import { recordProcess } from "../processLog";
 import { bumpDataVersion, filterByActiveGroup } from "../state";
 import { pushUndo } from "../undo";
 import { formRow } from "./modal";
+import { escapeHtml } from "./safeDom";
 
 /** Petrel-style marker autocorrelation: propagate a top (or several tops together) picked
  *  in the source well to other wells by matching the shape of a chosen log (GR by default)
@@ -301,7 +302,9 @@ function renderMultiProposals(
     if (wp.error) {
       const tr = document.createElement("tr");
       tr.classList.add("weak-match");
-      tr.innerHTML = `<td></td><td>${wellName}</td><td colspan="4">${wp.error}</td>`;
+      // wellName is the LAS-supplied ~W WELL value, stored verbatim (see R9) — escape it and the
+      // backend error string so a hostile header can't inject markup into this row.
+      tr.innerHTML = `<td></td><td>${escapeHtml(wellName)}</td><td colspan="4">${escapeHtml(String(wp.error))}</td>`;
       tbody.appendChild(tr);
       continue;
     }

@@ -81,7 +81,7 @@ export async function buildDashboardContent(
   const field = (label: string, node: HTMLElement) => {
     const w = document.createElement("label");
     w.className = "dash-field";
-    w.innerHTML = `<span>${label}</span>`;
+    w.innerHTML = `<span>${escapeHtml(label)}</span>`;
     w.appendChild(node);
     return w;
   };
@@ -133,7 +133,7 @@ export async function buildDashboardContent(
         uninterpreted > 0
           ? `None of the ${uninterpreted} ${flagSel.value} interval(s) could be classified — run VSH/PHIE/SWE for these wells first.`
           : `No ${flagSel.value} intervals. Check cutoffs, or that VSH/PHIE/SWE are computed.`;
-      body.innerHTML = `<div class="dashboard-empty">${why}</div>`;
+      body.innerHTML = `<div class="dashboard-empty">${escapeHtml(why)}</div>`;
       csvBtn.disabled = true;
       return;
     }
@@ -156,7 +156,7 @@ export async function buildDashboardContent(
     const byZone = groupBy(rows, (r) => r.zone);
     const sec = document.createElement("div");
     sec.className = "dashboard-section";
-    sec.innerHTML = `<h4>By zone — ${flagSel.value}</h4>`;
+    sec.innerHTML = `<h4>By zone — ${escapeHtml(flagSel.value)}</h4>`;
     const table = document.createElement("table");
     table.className = "summary-table";
     table.innerHTML =
@@ -182,7 +182,7 @@ export async function buildDashboardContent(
   const sectionBoxPlots = (rows: PaySummaryRow[], metric: (typeof METRICS)[number]) => {
     const sec = document.createElement("div");
     sec.className = "dashboard-section";
-    sec.innerHTML = `<h4>${metric.label} distribution by zone</h4>`;
+    sec.innerHTML = `<h4>${escapeHtml(metric.label)} distribution by zone</h4>`;
     const byZone = groupBy(rows, (r) => r.zone);
     const stats = Array.from(byZone.entries())
       .map(([zone, zr]) => ({ zone, box: boxStats(zr.map((r) => r[metric.key] as number)) }))
@@ -207,7 +207,7 @@ export async function buildDashboardContent(
     });
     const sec = document.createElement("div");
     sec.className = "dashboard-section";
-    sec.innerHTML = `<h4>All ${flagSel.value} intervals (${rows.length})</h4>`;
+    sec.innerHTML = `<h4>All ${escapeHtml(flagSel.value)} intervals (${rows.length})</h4>`;
     const wrap = document.createElement("div");
     wrap.className = "summary-table-wrap";
     const table = document.createElement("table");

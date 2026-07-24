@@ -8,6 +8,7 @@ import {
   type IHeaderActionsRenderer,
 } from "dockview-core";
 import { openModal } from "./modal";
+import { escapeHtml } from "./safeDom";
 import "dockview-core/dist/styles/dockview.css";
 import { appState, bumpDataVersion, setStatus } from "../state";
 import { WORKSPACE_DIRTY, clearDirty, isDirty, markDirty, subscribeDirty } from "../dirty";
@@ -622,7 +623,7 @@ export class Workspace {
           disposer = content.dispose;
         })
         .catch((err) => {
-          host.innerHTML = `<div class="logview-message">Failed to open ${label}: ${err}</div>`;
+          host.innerHTML = `<div class="logview-message">Failed to open ${escapeHtml(label)}: ${escapeHtml(String(err))}</div>`;
         });
       return () => {
         closed = true;
@@ -661,7 +662,7 @@ export class Workspace {
         if (!well) {
           // No well: reset the tab title too, or a closed project's well lingers there.
           params.api.setTitle(titleBase);
-          host.innerHTML = `<div class="logview-message">Select a well (Wells &amp; Tops) — ${label} will follow.</div>`;
+          host.innerHTML = `<div class="logview-message">Select a well (Wells &amp; Tops) — ${escapeHtml(label)} will follow.</div>`;
           return;
         }
         params.api.setTitle(`${titleBase} — ${well.well_name}`);
@@ -677,7 +678,7 @@ export class Workspace {
           })
           .catch((err) => {
             if (closed || gen !== generation) return; // a newer build/close already won
-            host.innerHTML = `<div class="logview-message">Failed to open ${label}: ${err}</div>`;
+            host.innerHTML = `<div class="logview-message">Failed to open ${escapeHtml(label)}: ${escapeHtml(String(err))}</div>`;
           });
       };
 
@@ -1026,7 +1027,7 @@ export class Workspace {
         currentWellId = well?.well_id ?? null;
         // Correlation is inherently multi-well; every other plot needs the selected well.
         if (!well && kind !== "correlation") {
-          host.innerHTML = `<div class="logview-message">Select a well (Wells &amp; Tops) — this ${kind} will follow.</div>`;
+          host.innerHTML = `<div class="logview-message">Select a well (Wells &amp; Tops) — this ${escapeHtml(kind)} will follow.</div>`;
           return;
         }
         if (well && kind !== "correlation") {
@@ -1045,7 +1046,7 @@ export class Workspace {
           })
           .catch((err) => {
             if (closed || gen !== generation) return; // a newer build/close already won
-            host.innerHTML = `<div class="logview-message">Failed to open ${kind}: ${err}</div>`;
+            host.innerHTML = `<div class="logview-message">Failed to open ${escapeHtml(kind)}: ${escapeHtml(String(err))}</div>`;
           });
       };
 

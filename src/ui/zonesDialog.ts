@@ -10,6 +10,7 @@ import {
   type ZoneParamEntry,
 } from "../ipc";
 import { recordProcess } from "../processLog";
+import { escapeHtml } from "./safeDom";
 
 /** Zone manager for the selected well: build zones from tops, add/edit/delete zones,
  *  and set per-zone interval parameter overrides (interval-parameter model —
@@ -48,7 +49,8 @@ export async function buildZonesContent(
         recordProcess("Zone", `Deleted zone ${zone.zone_name}`, well.well_name);
         await refresh();
       });
-      tr.innerHTML = `<td>${zone.zone_name}</td><td>${zone.top_depth.toFixed(1)}</td><td>${zone.bottom_depth.toFixed(1)}</td>`;
+      // zone_name is user/import-supplied — escape it (the depths are formatted numbers, safe).
+      tr.innerHTML = `<td>${escapeHtml(zone.zone_name)}</td><td>${zone.top_depth.toFixed(1)}</td><td>${zone.bottom_depth.toFixed(1)}</td>`;
       const td = document.createElement("td");
       td.appendChild(del);
       tr.appendChild(td);
@@ -68,7 +70,8 @@ export async function buildZonesContent(
       const ptbody = document.createElement("tbody");
       for (const p of params) {
         const tr = document.createElement("tr");
-        tr.innerHTML = `<td>${p.zone_name}</td><td>${p.param_name}</td><td>${p.value_num ?? p.value_text ?? ""}</td>`;
+        // zone_name / param_name / value_text are all user/import-supplied — escape each.
+        tr.innerHTML = `<td>${escapeHtml(p.zone_name)}</td><td>${escapeHtml(p.param_name)}</td><td>${escapeHtml(String(p.value_num ?? p.value_text ?? ""))}</td>`;
         const del = document.createElement("button");
         del.className = "zone-del";
         del.textContent = "✕";
