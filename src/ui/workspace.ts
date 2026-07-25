@@ -963,10 +963,20 @@ export class Workspace {
             : "Top interval cleared — plots back to full depth",
         );
       };
-      // Follow the selected well; refresh on data changes. subscribe() fires immediately, so the
-      // pane populates for the current well without a separate initial call.
+      // Follow the selected well; refresh on data changes. BOTH subscriptions fire immediately, so
+      // the selectedWell one already populates the pane for the current well — skip dataVersion's
+      // first synchronous call rather than issuing a second identical list_tops and a second full
+      // DOM rebuild on every pane open. Same primed-flag shape as the wellGroupsVersion guard in
+      // createWellsTops above.
       const unsubWell = appState.selectedWell.subscribe((well) => void tops.refresh(well?.well_id ?? null));
-      const unsubData = appState.dataVersion.subscribe(() => void tops.refresh(appState.selectedWell.get()?.well_id ?? null));
+      let firstData = true;
+      const unsubData = appState.dataVersion.subscribe(() => {
+        if (firstData) {
+          firstData = false;
+          return;
+        }
+        void tops.refresh(appState.selectedWell.get()?.well_id ?? null);
+      });
       return () => {
         unsubWell();
         unsubData();

@@ -7,6 +7,46 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 87 — R28: the Tops pane could window every plot to another well's depths (2026-07-25)
+
+Fifth F5 fix, and the second wrong-well one. `TopsPanel.refresh()` assigned `this.wellId = wellId`
+**synchronously** but `this.tops` only **after** `await listTops(wellId)` — and nothing cleared the list
+in between. So for the entire width of the DuckDB query the pane showed **well A's rows, still
+clickable, under an id that already said well B**. Click one and `toggle()` paired the two live fields
+and published `{wellId: B, topName: <A's top>, depthMin: <A's depth>}`. Both consumers accept an
+interval on the **id match alone** — `logViewPanel.ts:341` scrolled well B's log view to well A's depth,
+and `plotCommon.ts:322` re-windowed every crossplot / histogram / Pickett of well B to a foreign depth
+range. That is a **parameter pick (Rw, m/n, cutoffs) read off the wrong zone**, and the wrong numbers
+travel into a deliverable long after the session ends. It also defeated the invariant the workspace
+explicitly documents at `workspace.ts:917-921` — "followers never see a foreign interval".
+
+Worth stating plainly: this is **not** a lost race. `list_tops` is a synchronous `#[tauri::command]`
+(`lib.rs:694`), and Tauri runs non-async commands inline in the IPC handler, so responses already
+resolve FIFO — the generation token the original report proposed would have fixed nothing. The defect
+was deterministic and fired on the *load window of every well switch*.
+
+Fixed by making the id and the rows **one unit**: a `TopsView { wellId, tops }` snapshot, assigned only
+together, **captured into each row's click closure** so a row can only ever emit the interval for the
+well it was painted for. On a well change the list is cleared to "Loading tops…" before the await, so
+the stale row is not there to be clicked at all; a *same-well* refresh (dataVersion after a run) keeps
+its rows, so a recompute does not flicker the pane. A `refreshGen` token is still worth its three lines,
+but for the honest reason — it drops a **superseded repaint**, not a stale write. Same snapshot shape as
+R26's `GridView`. Also primed the `dataVersion` double-subscribe at `workspace.ts:968`, which was firing
+a second identical `list_tops` and a second full DOM rebuild on every pane open.
+
+Verified: `tsc` + `vite build` clean. A wrong-well emit is invisible to `tsc` — every type is correct,
+the mismatch is *which* well the id belongs to — so `tops_wrongwell_harness.mjs` models both versions
+against a hand-driven `listTops`: the old code emits `{wellId: B, topName: A-Sand 1}` and the harness
+confirms a log view on well B **accepts** it, while the new code has nothing clickable during the
+window, emits B's own top once B lands, and — even when a row is deliberately held past its refresh —
+still emits a self-consistent pair. **9/9 pass.** Frontend-only.
+
+- [ ] **Try:** open the **Tops** pane, a **Log View** and a **Crossplot** on a large project. Click well
+  **A**, wait for its tops, then click well **B** and *immediately* click a top row while the pane is
+  still mid-load. The pane must show **"Loading tops…"** with nothing clickable — never well A's names
+  under well B. Then let B finish, click one of **B's** tops: the log view and plots must window to that
+  depth. Also confirm a **recompute** (run any module) refreshes the pane **without** flashing "Loading".
+
 ## Round 86 — R27: a Python equation run showed 0% and no failures (2026-07-24)
 
 Fourth F5 fix, and the first backend one of the tier. `run_python_equation` reported per-well progress
