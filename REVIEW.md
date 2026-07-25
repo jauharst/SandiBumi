@@ -7,6 +7,39 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 85 — R26: the DB Inspector could write a cell edit to the wrong well (reload race) (2026-07-24)
+
+Third F5 lifecycle-tier fix, and the one with teeth — a **silent wrong-row write into your own
+well-log DuckDB**. `dbInspectorPanel.reload()` had no token, and `renderGrid()`/`commitEdit()`
+**re-read live state** (`this.tableDef()`, `appState.selectedWell.get()`) at paint/commit time instead
+of the scope the shown page was fetched under. Two failure shapes: (a) a lost race — pick Standard
+Curves (slow 200-row query), then switch table/well before it lands; the slow page renders under the
+now-live def; (b) the sharper one the verifier flagged — switch from well A to B while A's grid is still
+on screen (the header flips to "B" synchronously, the grid lags), double-click a GR cell and Enter, and
+`commitEdit` re-read `selectedWell` = B → `updateStandardSample(B.well_id, <A's depth>, "gr", v)`.
+`db.rs` UPDATEs `WHERE well_id AND depth`, so it's rejected *unless* B has a sample at that depth — and
+Mahakam wells share the 0.1524 m grid, so it usually **does**: a real value silently overwritten in the
+wrong well, with an undo entry recording the wrong inverse so Ctrl+Z compounds it.
+
+Fixed with the pattern the sibling plots already use (`crossplotPanel`/`pickettPanel` `reloadGen`), plus
+the piece a token alone can't cover: bundle the fetched `(def, well, offset, page)` into a `GridView` and
+thread it through `renderGrid → beginEdit → commitEdit`, so an edit is **always** bound to the rows on
+screen — never a live re-read that a mid-flight reload moved on. A `reloadGen`/`disposed` token drops a
+superseded page after its await (and prevents a write to a torn-down panel). One file, no API change, no
+backend change, happy path unchanged.
+
+Verified: `tsc && vite build` clean. A race is invisible to `tsc`, so a headless
+`dbinspector_race_harness.mjs` models both decision points: with a stale grid on screen the OLD live-
+re-read corrupts well B at A's depth while the NEW view-snapshot writes to well A (the row shown), and the
+`reloadGen` token drops a slow reload that resolves after a newer one. 5/5. Verified-by-construction
+against the two proven token siblings the fix mirrors. Frontend-only.
+
+- [ ] **Try:** open **Database Inspector**, pick **Standard Curves** on a well with a long log. In the
+  **Wells & Tops** pane switch to a *different* well and, immediately (before the grid repaints), double-
+  click a GR cell and press Enter. The edit must land on the well whose rows you can see — never the newly
+  selected one — and the status line's well name must match the grid. Then page/table-switch rapidly a few
+  times: no stale rows should ever appear under a mismatched header.
+
 ## Round 84 — R25: the Correlation panel leaked a window `pointerup` listener every open/close (2026-07-24)
 
 Second F5 lifecycle-tier fix, and a corroborated one — dimensions F5a and F5b flagged it independently.

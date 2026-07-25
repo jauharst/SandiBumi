@@ -57,12 +57,18 @@ rejecting the pane — now suppressed by a `ready` primed-flag guard (the `plotC
 leaks a `window` pointerup listener** on every open/close — an anonymous handler `dispose()` couldn't
 remove pinned each build's whole `WellStrip[]` (~1.5–7 MB/cycle on 40–200-well groups, monotonic for the
 process life); now a named handler removed in dispose (+ the `fit` timer captured/cleared), the house
-pattern `LogCanvasRenderer` already documents.
+pattern `LogCanvasRenderer` already documents → **R26** (third F5 fix, the data-integrity one) the **DB
+Inspector can no longer write a cell edit to the wrong well**: `reload()` had no token and
+`renderGrid`/`commitEdit` re-read live `tableDef()`/`selectedWell`, so switching well A→B while A's grid
+was still on screen made a GR edit land on B at A's depth (rejected unless B shares the depth — which
+Mahakam's 0.1524 m grid guarantees). Fixed by a `reloadGen` token (as `crossplot`/`pickett`) plus
+bundling the fetched `(def, well, offset, page)` into a `GridView` threaded through render→edit so a
+commit binds to the rows on screen, never a live re-read.
 Plus a requested feature —
 **V6 Raincloud** (PtitPrince-style half-violin + box + rain in the Vega panel). Each carries a REVIEW
-"Try:" line; see the R6–R25 table below and REVIEW Rounds 61–84.
+"Try:" line; see the R6–R26 table below and REVIEW Rounds 61–85.
 
-**Push state (2026-07-24):** everything through this update — both halves plus the whole R1–R25 fix
+**Push state (2026-07-24):** everything through this update — both halves plus the whole R1–R26 fix
 chain and V6 — is committed locally and **unpushed** (`origin/master` is many commits behind); Jauhar
 pushes himself. Working tree clean. (Exact ahead-count omitted on purpose — it goes stale the moment
 this file is committed.)
@@ -72,11 +78,12 @@ innerHTML sweep; R15 closed the Vega `dataVersion` gap), and both decisions that
 surfaced are now resolved — the legacy `multimin` endpoint table by **R22** (graceful retirement) and
 the Field Dashboard silent-Compute guard by **R23**. The active seam is now the **F5 lifecycle & leaks
 tier** (19 actionable findings; `docs/review_sweep/F5.md`), several of them browser-independent —
-**R24** took its first (the Report-pane TDZ) and **R25** its second (the Correlation `window`-pointerup
-leak). Note F5's own list is partly stale against the R-chain: its #14 (Vega `dataVersion`) was already
-closed by R15, and its #2 (Cancel-honesty) by R7 — so each F5 item is re-verified against live code before
-it is picked. Remaining browser-independent F5 candidates: #9 `run_python_equation` never calls
-`finish_item` (progress stuck at 0%), #16 inspector CodeMirror leak, #6 DB-Inspector reload race. What still needs the live app: the invasive DB-lock
+**R24** took its first (the Report-pane TDZ), **R25** its second (the Correlation `window`-pointerup
+leak), and **R26** its third (the DB-Inspector reload race → wrong-well write, #6). Note F5's own list is
+partly stale against the R-chain: its #14 (Vega `dataVersion`) was already closed by R15, and its #2
+(Cancel-honesty) by R7 — so each F5 item is re-verified against live code before it is picked. Remaining
+browser-independent F5 candidates: #9 `run_python_equation` never calls `finish_item` (progress stuck at
+0%, script errors show no failure), #16 inspector CodeMirror leak, #10 Tops-pane reload race. What still needs the live app: the invasive DB-lock
 responsiveness refactors (Autocorrelate / SandiMin load↔compute split; F5 #3 project-switch
 connection-swap; F5 #4 Python-exec timeout), the browser-blocked visual empty-state honesty items and
 R9's residual security backlog (a real CSP, scoping `save_png`), and the rest of the ~100 pre-triaged
@@ -325,7 +332,8 @@ or failed result must never be presented as a clean one** — applied to five di
 | R22 | **Legacy `multimin` was a hidden-but-live compute path (decision, not an F-finding).** Superseded by SandiMin and hidden from every UI picker, but `list_modules` still returned it, so a saved chain step or a `module:multimin` dockview panel silently ran the old fixed-4-component solver (endpoint defaults free to drift from SandiMin's). R17 surfaced the retire/unify question; Jauhar chose **graceful retirement** | Single-source `modules::retired_module(name)` registry; `run_module` checks it first and returns a "use SandiMin (Advance ▸ Mineral Solver)" error before dispatch (removed the dispatch arm). Spec **kept** in the catalog so a saved step resolves + renders its stored params; solver body + R17 physics tests removed (unreachable; `rho_e` stays in `multimin2` where SandiMin uses it). Two stale frontend comments ("still runs in saved chains") corrected. `phase7` e2e test converted to a retirement guard + new `multimin_is_retired_but_still_cataloged`. Full cargo 372/0/7, no warnings; tsc + build | `73f952d` |
 | R23 | **Field Dashboard Compute posted a redundant, mislabelled "Pay summary" job card (tail of R19).** `run_pay_summary`'s silent-run guard was `stats_only && skip_version`, which no caller sets (dashboard sets `stats_only` alone since the stats_only refactor), so every Compute fell through to `run_simple_job` and showed a "cutoffs & pay" card — redundant with the dashboard's own status line, and misleading since a `stats_only` run writes nothing | Key the silence on the real invariant — `if req.stats_only` (persists-nothing = pure read = no card). Dashboard is the only stats-only caller, so this touches only it; a persisting pay summary (Cutoffs & Summary, or a report render) still shows a job. `cargo test pay_summary` 4/4 incl. `pay_summary_stats_only_persists_nothing`; compile clean, no warnings. Backend one-condition change; grep-proven blast radius | `2eca7f8` |
 | R24 | **The Report pane crashed on open in the no-group + multi-select/pinned state (first F5 lifecycle-tier fix).** `buildWellScope` is `async` and, after its `listWells`/`listWellGroups` awaits, subscribes to `pinnedWellIds`/`multiSelectedWellIds`; `Observable.subscribe` fires **synchronously** (`state.ts:29`), so when `smartDefault()` lands on "pinned"/"selection" that first fire ran `emit()` → the caller's `onChange` while `reportDialog` was still parked on `await buildWellScope(...)` — reading `batchBtn`, a `const` declared 128 lines later, from its **temporal dead zone**. The ReferenceError rejected the builder's promise and the whole pane ("Failed to open the report generator"). Exactly the state you're in for **batch** export, which is why the dev's usual active-group state never hit it | House **primed-flag** guard (as `plotCommon.ts:349` / `mapPanel.ts:434`): `let ready = false` gates both subscribe callbacks, set `true` after the scope's own first paint — the synthetic construction-time fire is suppressed, real post-construction changes still emit. Nothing lost: of 13 `buildWellScope` callers only reportDialog + cutoffDialog pass `onChange`, and both do their own first paint (batch label from `getWellIds()`; `await refreshZoneDst()`). Frontend-only. `tsc && vite build` clean; TDZ is invisible to `tsc`, so a headless `wellscope_tdz_harness.mjs` models the mechanism (unguarded→ReferenceError, guarded→opens, live-emit preserved), 5/5 | `a075f4d` |
-| R25 | **The Correlation panel leaked a `window` pointerup listener on every open/close (corroborated by F5a + F5b).** `correlationPanel.ts:1040` registered `window.addEventListener("pointerup", () => (dragging = false))` anonymously, and `dispose()` released only the ResizeObserver + two subs. A `window` listener outlives the panel (canvas-scoped ones die with the detached `el`); because it closes over `dragging` — same scope as `strips` — each stranded handler pinned that build's entire `WellStrip[]` (per well a 1400-sample curve pair + a two-`Float64Array` TVDSS map, ×every well in the group). Panels are `freshId(kind)` (never singletons), so retention grew per cycle: ~1.5–7 MB pinned/cycle on 40–200-well groups, monotonic, surviving Reset Workspace / Open Session | House pattern (as `LogCanvasRenderer.ts:540-561`, which even comments the trap): hoist to a named `onWindowPointerUp`, `removeEventListener` in dispose; same edit captures `setTimeout(fit,50)` as `fitTimer` + `clearTimeout` in dispose (a panel closed <50 ms can't `fit()`→`draw()` a detached canvas). No behaviour change. `tsc && vite build` clean; proof is dispose symmetry — a repo-wide grep shows every **per-panel** `window.addEventListener` now has a matching removal (correlation was the last missing one), the only add-only ones left being app-shell singletons the F5 review classifies as one-off | *(this update)* |
+| R25 | **The Correlation panel leaked a `window` pointerup listener on every open/close (corroborated by F5a + F5b).** `correlationPanel.ts:1040` registered `window.addEventListener("pointerup", () => (dragging = false))` anonymously, and `dispose()` released only the ResizeObserver + two subs. A `window` listener outlives the panel (canvas-scoped ones die with the detached `el`); because it closes over `dragging` — same scope as `strips` — each stranded handler pinned that build's entire `WellStrip[]` (per well a 1400-sample curve pair + a two-`Float64Array` TVDSS map, ×every well in the group). Panels are `freshId(kind)` (never singletons), so retention grew per cycle: ~1.5–7 MB pinned/cycle on 40–200-well groups, monotonic, surviving Reset Workspace / Open Session | House pattern (as `LogCanvasRenderer.ts:540-561`, which even comments the trap): hoist to a named `onWindowPointerUp`, `removeEventListener` in dispose; same edit captures `setTimeout(fit,50)` as `fitTimer` + `clearTimeout` in dispose (a panel closed <50 ms can't `fit()`→`draw()` a detached canvas). No behaviour change. `tsc && vite build` clean; proof is dispose symmetry — a repo-wide grep shows every **per-panel** `window.addEventListener` now has a matching removal (correlation was the last missing one), the only add-only ones left being app-shell singletons the F5 review classifies as one-off | `07909ba` |
+| R26 | **The DB Inspector could commit a cell edit to the wrong well (reload race, data-integrity).** `dbInspectorPanel.reload()` had no token, and `renderGrid`/`commitEdit` re-read live `tableDef()`/`selectedWell` at paint/commit time. Switch well A→B while A's grid is still on screen (header flips to B synchronously, grid lags): double-click a GR cell + Enter and `commitEdit` re-read `selectedWell` = B → `updateStandardSample(B.well_id, <A's depth>, gr, v)`. `db.rs` UPDATEs `WHERE well_id AND depth`, rejected unless B has that depth — but Mahakam wells share the 0.1524 m grid, so it lands: a real value silently overwritten in the wrong well, with a wrong-inverse undo entry that Ctrl+Z compounds | Token + snapshot: `reloadGen`/`disposed` drops a superseded page after its await (as `crossplot`/`pickett`); the fetched `(def, well, offset, page)` is bundled into a `GridView` threaded through `renderGrid → beginEdit → commitEdit`, so an edit binds to the rows on screen, never a live re-read. One file, no API/backend change, happy path unchanged. `tsc && vite build` clean; headless `dbinspector_race_harness.mjs` proves both — old live-re-read corrupts well B, new view-snapshot writes to A, and the token drops the stale reload (5/5) | *(this update)* |
 
 `tsc && vite build` clean throughout; R6–R8, R17–R21 are cargo-green (R17 a pure backend
 physics change cargo-proven by 46 tests incl. 2 new PEF-mixing guards; R18 a report-honesty fix with a
@@ -343,8 +351,11 @@ ports in `scratchpad/undo_check.mjs`, `scratchpad/refill_check.mjs` and `scratch
 (the last models the exact TDZ mechanism: unguarded pattern throws the ReferenceError, `ready`-guarded pattern
 opens cleanly, live post-construction changes still emit). R25 is also frontend-only but its proof is a
 codebase invariant rather than a harness — a repo-wide grep of `window.addEventListener` showing every
-per-panel listener now has a matching `removeEventListener` (correlation was the last missing one). Live
-desktop click-through for the UI-facing rounds stays on REVIEW's Try lines.
+per-panel listener now has a matching `removeEventListener` (correlation was the last missing one). R26 is
+frontend-only too, proven by `scratchpad/dbinspector_race_harness.mjs` (models both decision points: the
+old live-re-read commits to the wrong well, the new view-snapshot to the right one, and the `reloadGen`
+token drops a superseded reload). Live desktop click-through for the UI-facing rounds stays on REVIEW's
+Try lines.
 
 ## Per-increment discipline (playbook acceptance bar)
 

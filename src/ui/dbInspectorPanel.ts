@@ -8,6 +8,7 @@ import {
   upsertTop,
   upsertZone,
   type TablePage,
+  type WellSummary,
 } from "../ipc";
 import { appState, bumpDataVersion, setStatus } from "../state";
 import { messageNode } from "./safeDom";
@@ -36,6 +37,16 @@ const TABLES: TableDef[] = [
   { key: "aux_data", label: "Aux Data", wellScoped: true, editable: [] },
 ];
 
+/** A rendered page together with the exact scope it was fetched under. Threading this into the grid
+ *  and its edit closures — instead of re-reading `tableSel`/`selectedWell` live at paint/commit time
+ *  — is what keeps a cell edit bound to the rows actually on screen when a reload is in flight. */
+interface GridView {
+  def: TableDef;
+  well: WellSummary | null;
+  offset: number;
+  page: TablePage;
+}
+
 /** Spreadsheet-style editable grid over the project database: pick a table, page
  *  through rows, double-click a cell to edit. Every edit goes through a whitelisted
  *  IPC command, refreshes open views, and lands on the undo stack (Ctrl+Z). */
@@ -49,8 +60,15 @@ export class DbInspectorPanel {
   private nextBtn!: HTMLButtonElement;
 
   private offset = 0;
-  private page: TablePage | null = null;
+  /** The currently displayed page bundled with the (def, well, offset) it was fetched for, so a
+   *  cell edit always writes against the data actually on screen. `null` while no editable page
+   *  is shown (no well selected, load error). */
+  private view: GridView | null = null;
   private unsub: (() => void)[] = [];
+  /** Bumped at the start of every reload; a reload whose token is stale by the time its page
+   *  resolves drops the result, so a slow response can never paint under a newer table/well. */
+  private reloadGen = 0;
+  private disposed = false;
 
   constructor(host: HTMLElement) {
     this.root = document.createElement("div");
@@ -92,7 +110,7 @@ export class DbInspectorPanel {
       void this.reload();
     });
     this.nextBtn.addEventListener("click", () => {
-      if (this.page && this.offset + PAGE_SIZE < this.page.total_rows) {
+      if (this.view && this.offset + PAGE_SIZE < this.view.page.total_rows) {
         this.offset += PAGE_SIZE;
         void this.reload();
       }
@@ -108,6 +126,7 @@ export class DbInspectorPanel {
   }
 
   dispose(): void {
+    this.disposed = true;
     for (const u of this.unsub) u();
   }
 
@@ -116,10 +135,19 @@ export class DbInspectorPanel {
   }
 
   private async reload(): Promise<void> {
+    // Snapshot everything this load depends on up front and tag it with a token. Two subscriptions
+    // (selectedWell + dataVersion) plus the toolbar can start reloads back-to-back; without the
+    // token the slower getTablePage could resolve last and paint its rows under whatever table/well
+    // is live by then. With it, only the newest reload renders — and because the (def, well, offset)
+    // travel with the page into renderGrid/commitEdit, an edit can never be committed under a
+    // different table's rules or against a different well than the rows currently on screen.
+    const gen = ++this.reloadGen;
     const def = this.tableDef();
     const well = appState.selectedWell.get();
+    const offset = this.offset;
     this.scopeEl.textContent = def.wellScoped ? (well ? `Well: ${well.well_name}` : "— select a well —") : "(whole project)";
     if (def.wellScoped && !well) {
+      this.view = null;
       // `def.label` is a static internal table label, not untrusted — but keeping the whole
       // panel on the textContent path means no future edit here reintroduces an innerHTML sink.
       this.gridHost.replaceChildren(
@@ -128,24 +156,28 @@ export class DbInspectorPanel {
       this.pageInfo.textContent = "";
       return;
     }
+    let page: TablePage;
     try {
-      this.page = await getTablePage(def.key, def.wellScoped ? well!.well_id : null, this.offset, PAGE_SIZE);
+      page = await getTablePage(def.key, def.wellScoped ? well!.well_id : null, offset, PAGE_SIZE);
     } catch (err) {
+      if (this.disposed || gen !== this.reloadGen) return;
       this.gridHost.replaceChildren(messageNode("placeholder-note", `Load failed: ${err}`));
       this.pageInfo.textContent = "";
       return;
     }
-    this.renderGrid();
+    if (this.disposed || gen !== this.reloadGen) return; // a newer reload owns the panel now
+    const view: GridView = { def, well, offset, page };
+    this.view = view;
+    this.renderGrid(view);
   }
 
-  private renderGrid(): void {
-    const page = this.page!;
-    const def = this.tableDef();
-    const from = page.total_rows === 0 ? 0 : this.offset + 1;
-    const to = Math.min(this.offset + page.rows.length, page.total_rows);
+  private renderGrid(view: GridView): void {
+    const { def, page, offset } = view;
+    const from = page.total_rows === 0 ? 0 : offset + 1;
+    const to = Math.min(offset + page.rows.length, page.total_rows);
     this.pageInfo.textContent = `${from}–${to} of ${page.total_rows}`;
-    this.prevBtn.disabled = this.offset === 0;
-    this.nextBtn.disabled = this.offset + PAGE_SIZE >= page.total_rows;
+    this.prevBtn.disabled = offset === 0;
+    this.nextBtn.disabled = offset + PAGE_SIZE >= page.total_rows;
 
     const table = document.createElement("table");
     table.className = "dbgrid";
@@ -171,7 +203,7 @@ export class DbInspectorPanel {
         if (def.editable.includes(col)) {
           td.classList.add("editable");
           td.title = "Double-click to edit";
-          td.addEventListener("dblclick", () => this.beginEdit(td, row, col));
+          td.addEventListener("dblclick", () => this.beginEdit(view, td, row, col));
         }
         tr.appendChild(td);
       });
@@ -183,7 +215,7 @@ export class DbInspectorPanel {
     this.gridHost.appendChild(table);
   }
 
-  private beginEdit(td: HTMLElement, row: (string | null)[], column: string): void {
+  private beginEdit(view: GridView, td: HTMLElement, row: (string | null)[], column: string): void {
     const oldValue = td.textContent ?? "";
     const input = document.createElement("input");
     input.className = "dbgrid-edit";
@@ -201,7 +233,7 @@ export class DbInspectorPanel {
       input.remove();
       td.textContent = commit ? newValue : oldValue;
       if (commit && newValue !== oldValue.trim()) {
-        void this.commitEdit(row, column, oldValue.trim(), newValue).catch((err) => {
+        void this.commitEdit(view, row, column, oldValue.trim(), newValue).catch((err) => {
           td.textContent = oldValue;
           setStatus(`Edit failed: ${err}`);
         });
@@ -216,9 +248,11 @@ export class DbInspectorPanel {
   }
 
   /** Applies one cell edit via the matching whitelisted command and records its undo. */
-  private async commitEdit(row: (string | null)[], column: string, oldValue: string, newValue: string): Promise<void> {
-    const def = this.tableDef();
-    const page = this.page!;
+  private async commitEdit(view: GridView, row: (string | null)[], column: string, oldValue: string, newValue: string): Promise<void> {
+    // def / well / page come from the view the edited row was rendered from — never a live re-read,
+    // so a well or table switch that landed mid-edit cannot redirect this write to another well or
+    // interpret the row under another table's schema.
+    const { def, well, page } = view;
     const cell = (name: string): string => {
       const idx = page.columns.indexOf(name);
       return (idx >= 0 ? row[idx] : null) ?? "";
@@ -229,7 +263,6 @@ export class DbInspectorPanel {
       if (Number.isNaN(v)) throw new Error(`'${s}' is not a number`);
       return v;
     };
-    const well = appState.selectedWell.get();
     const wellId = def.key === "wells" ? cell("well_id") : well?.well_id;
     if (!wellId) throw new Error("no well in scope");
 
