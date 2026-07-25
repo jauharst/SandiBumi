@@ -1000,6 +1000,9 @@ export class Workspace {
       return () => {
         unsubData();
         unsubWell();
+        // The panel owns a CodeMirror EditorView whose window/document listeners only come off in
+        // destroy(); unsubscribing alone would strand it. Same as dbInspector/history above.
+        inspector.dispose();
       };
     });
   }

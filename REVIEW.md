@@ -7,6 +7,49 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 88 — R29: the Equation Editor leaked a whole CodeMirror editor every time you closed it (2026-07-25)
+
+Sixth F5 fix, and a pure hygiene one — nothing renders wrong, no result goes stale, no data is at
+risk. `InspectorPanel` had **no `dispose()` at all**. It correctly recycles its CodeMirror `EditorView`
+on internal re-renders (pick another equation, switch language), but the **last** view of each panel
+lifetime was simply abandoned. That is not just a detached DOM node: an `EditorView` registers four
+listeners rooted at `window`/`document` — `resize`, `scroll`, `beforeprint` and `selectionchange`
+(verified in `@codemirror/view/dist/index.js:7480-7492`) — and the **only** code path that removes them
+is `EditorView.destroy()` (7513→7521). `window` and `document` are GC roots, so each abandoned view
+kept itself, its history/autocomplete state, the python parse tree and the detached editor DOM
+reachable **for the life of the process** — and every caret move anywhere in the app still dispatched
+into every one of them.
+
+It compounds faster than "how often do I close that panel?" suggests: the Inspector is closable, and
+`dock.clear()` runs on **every session switch and every workspace reset**, so each of those strands
+another editor too. `vegaPanel.ts` already destroyed its own `EditorView`, and the DB Inspector and
+History panels are already wired to `dispose()` at `workspace.ts:419/428` — so this was an omission,
+not a decision.
+
+Fixed by giving `InspectorPanel` a `dispose()` (destroy + null + a `disposed` flag) and calling it from
+the workspace cleanup closure alongside the two existing unsubscribes. The `disposed` flag matters on
+its own: the editor now mounts **asynchronously** behind a dynamic `import("codemirror")`, and the
+existing `host.isConnected` guard conflates "inactive tab" with "closed panel" (dockview detaches
+inactive tabs), so it is not a dispose signal — without the flag, a panel closed during that import
+window mounts a brand-new editor into a dead panel, with no remaining reference to destroy it.
+
+Verified: `tsc` + `vite build` clean. A leak is invisible to `tsc` — not destroying an object is
+perfectly well-typed — so proof is two-part. (1) A codebase invariant: `src` has exactly **two**
+`EditorView` construction sites, `vegaPanel.ts:1053` and `inspectorPanel.ts:250`, and both are now
+destroyed on dispose. (2) `inspector_leak_harness.mjs` models the lifecycle against a listener registry
+using the real listener set: 15 open/close cycles strand **60** listeners on the old code and **0** on
+the new, stranded views are confirmed still-undestroyed and still holding their payload, a panel closed
+mid-import mounts an unreachable editor on the old code and refuses to mount on the new, and internal
+re-renders still recycle to exactly one live view. **8/8 pass.** Frontend-only.
+
+- [ ] **Try:** hard to see directly — it is memory, not behaviour, so mainly confirm **nothing broke**.
+  Open the **Inspector** (Equation Editor), pick an existing equation, switch its language Rhai↔Python,
+  edit the script and **Save** — all must behave exactly as before. Then close and reopen the Inspector
+  ~10 times and confirm the editor still appears and still loads the selected equation's text each
+  time. If you want to see the fix working, open DevTools ▸ Memory, take a heap snapshot before and
+  after 10 close/reopen cycles: the `EditorView` count should stay flat instead of climbing by one per
+  cycle.
+
 ## Round 87 — R28: the Tops pane could window every plot to another well's depths (2026-07-25)
 
 Fifth F5 fix, and the second wrong-well one. `TopsPanel.refresh()` assigned `this.wellId = wellId`

@@ -61,6 +61,10 @@ export class InspectorPanel {
   /** Bumped on every `renderEquationEditor`, so an in-flight async CodeMirror mount that is
    *  superseded by a newer render drops itself instead of attaching to a replaced host. */
   private editorGen = 0;
+  /** Set by `dispose()`. The CodeMirror mount is async, so a panel closed inside that window would
+   *  otherwise create a brand-new EditorView — and its window/document listeners — AFTER the panel
+   *  is gone, which is the very leak dispose() exists to prevent. */
+  private disposed = false;
   /** Path of the Python the backend found; null = none; undefined = not asked yet. */
   private pythonPath: string | null | undefined = undefined;
   /** Last-loaded generic-store catalog for the selected well, kept so the filter box can
@@ -98,6 +102,23 @@ export class InspectorPanel {
     this.renderLegacyCatalog([]);
     this.refreshEquationList();
     this.refreshCatalog();
+  }
+
+  /** Releases the CodeMirror view when the panel closes. Not optional bookkeeping: an EditorView
+   *  registers four listeners rooted at `window`/`document` — `resize`, `scroll`, `beforeprint` (or
+   *  a matchMedia `change`) and `selectionchange` (@codemirror/view DOMObserver.addWindowListeners,
+   *  index.js:7480-7492) — and the ONLY path that removes them is `EditorView.destroy()`
+   *  (7513→7521). Because `window` and `document` are GC roots, an undestroyed view keeps itself,
+   *  its history/autocomplete state, the python parse tree and the detached editor DOM reachable for
+   *  the app's life, and every caret move anywhere in the app still dispatches into it. The Inspector
+   *  is a CLOSABLE panel and `dock.clear()` runs on every session switch and workspace reset, so this
+   *  is per-cycle growth, not a bounded one-off. `renderEquationEditor` already recycles the view on
+   *  internal re-renders — this covers the last one, which nothing else does. Same shape as
+   *  vegaPanel.ts's `editor?.destroy()` and the dbInspector/history wiring at workspace.ts:419/428. */
+  public dispose(): void {
+    this.disposed = true;
+    this.editor?.destroy();
+    this.editor = null;
   }
 
   private async refreshEquationList(): Promise<void> {
@@ -225,7 +246,7 @@ export class InspectorPanel {
       ]);
       // A re-render (equation picked, language switched) may have landed while we awaited — that
       // render owns the host now, so this one must not mount into a detached or replaced node.
-      if (gen !== this.editorGen || !scriptHost.isConnected) return;
+      if (this.disposed || gen !== this.editorGen || !scriptHost.isConnected) return;
       this.editor = new cm.EditorView({
         doc: eq.script,
         parent: scriptHost,
