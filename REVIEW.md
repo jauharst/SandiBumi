@@ -7,6 +7,37 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 86 — R27: a Python equation run showed 0% and no failures (2026-07-24)
+
+Fourth F5 fix, and the first backend one of the tier. `run_python_equation` reported per-well progress
+on its cancelled / fetch-error / no-data / all-MISSING branches — but **not** on the three that end a
+normal run: the successful write, the write failure, and the script error. `finish_item` is the only
+thing that increments a job's `done`, and `start_item` has already flipped each well to amber
+"Running", so a healthy 20-well Python run rendered **"0%" and "0/20"** with all 20 wells apparently
+mid-flight, then flipped to a **"Completed"** card still reading 0/20. Worse for honesty: a plain
+Python **syntax or runtime error** — the commonest authoring mistake — left its well amber "Running"
+instead of red "Failed", so the Processing panel showed **no failure signal at all** for a script that
+never ran. The tell that this was a slip rather than a design choice: the *cancelled* branch did report,
+so an **aborted** run displayed more progress than a **successful** one.
+
+Fixed by mirroring the Rhai sibling (`equations.rs`) on all three branches — `finish_item(Ok)` after a
+successful write, `finish_item(Failed, e)` on a write error and on a script error. Display/observability
+only: `write_equation_output` already ran, so no curve data was ever wrong or lost — but the live
+progress and the per-well states were.
+
+Verified: `cargo test` — **373 passed / 0 failed / 7 ignored**, whole crate. New
+`python_equation_reports_progress_on_every_terminal_branch` asserts on the `JobView` the panel actually
+renders (done-count + item state), not on the return value, and covers the success and script-error
+branches end-to-end (python is present here, so they really ran) plus the no-python early return as a
+guard on machines without it. I also confirmed it is a **real** guard by reverting just the success
+branch and watching it fail with "a successful write must count one unit of progress (was stuck at 0)".
+Backend-only.
+
+- [ ] **Try:** save an equation with **language = python** (e.g. `vshp = gr / 100.0`) and Run it over
+  several wells. The **Processing** panel must count up to **N/N / 100%** with each well turning green —
+  not sit at 0% with amber rows. Then deliberately break the script (e.g. `vshp = undefined_name + 1`)
+  and Run again: the wells must go **red/Failed** with the Python error as the message, not stay amber.
+
 ## Round 85 — R26: the DB Inspector could write a cell edit to the wrong well (reload race) (2026-07-24)
 
 Third F5 lifecycle-tier fix, and the one with teeth — a **silent wrong-row write into your own

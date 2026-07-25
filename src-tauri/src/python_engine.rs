@@ -331,12 +331,32 @@ pub fn run_python_equation(
                         return EquationRunResult { well_id: well_id.clone(), rows_written: 0, error: Some(msg) };
                     }
                     let conn = db.lock().unwrap();
+                    // Report the terminal state on EVERY branch, exactly as the Rhai sibling does
+                    // (equations.rs). finish_item is the sole incrementer of the job's `done`, so a
+                    // silent success left the bar at 0% with the well stuck amber "Running" under a
+                    // "Completed" card, and a silent write/script error was visually identical to a
+                    // success — no failure surface for the commonest authoring mistake (a bad script).
                     match write_equation_output(&conn, well_id, &depth, equation, &result) {
-                        Ok(()) => EquationRunResult { well_id: well_id.clone(), rows_written: depth.len(), error: None },
-                        Err(e) => EquationRunResult { well_id: well_id.clone(), rows_written: 0, error: Some(e.to_string()) },
+                        Ok(()) => {
+                            if let Some(p) = progress {
+                                p.finish_item(well_id, crate::jobs::ItemState::Ok, None);
+                            }
+                            EquationRunResult { well_id: well_id.clone(), rows_written: depth.len(), error: None }
+                        }
+                        Err(e) => {
+                            if let Some(p) = progress {
+                                p.finish_item(well_id, crate::jobs::ItemState::Failed, Some(e.to_string()));
+                            }
+                            EquationRunResult { well_id: well_id.clone(), rows_written: 0, error: Some(e.to_string()) }
+                        }
                     }
                 }
-                Err(e) => EquationRunResult { well_id: well_id.clone(), rows_written: 0, error: Some(e) },
+                Err(e) => {
+                    if let Some(p) = progress {
+                        p.finish_item(well_id, crate::jobs::ItemState::Failed, Some(e.clone()));
+                    }
+                    EquationRunResult { well_id: well_id.clone(), rows_written: 0, error: Some(e) }
+                }
             }
         })
         .collect()
@@ -345,6 +365,84 @@ pub fn run_python_equation(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every terminal branch must report its per-well state to the job. `finish_item` is the sole
+    /// incrementer of `done`, so a branch that stays silent leaves the Processing panel at 0% with
+    /// the well amber "Running" under a "Completed" card — and, for a script error, with no failure
+    /// surface at all. Asserts on the JobView the panel actually renders, not on the return value.
+    #[test]
+    fn python_equation_reports_progress_on_every_terminal_branch() {
+        use crate::db;
+        use crate::jobs::{self, ItemState};
+        use std::sync::atomic::AtomicBool;
+        use std::sync::Arc;
+        use uuid::Uuid;
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        db::insert_well(&conn, wid, "PY-1", None, None, Some(0.0)).unwrap();
+        let depths = vec![1000.0f32, 1000.5, 1001.0];
+        let n = depths.len();
+        db::insert_standard_curves(
+            &conn, wid, depths.clone(),
+            vec![40.0; n], vec![f32::NAN; n], vec![f32::NAN; n],
+            vec![f32::NAN; n], vec![f32::NAN; n], vec![f32::NAN; n],
+        )
+        .unwrap();
+        let w = wid.to_string();
+        let dbm = Mutex::new(conn);
+
+        let eq = |output: &str, script: &str| EquationDef {
+            equation_id: Uuid::new_v4().to_string(),
+            name: "t".into(),
+            description: None,
+            script: script.into(),
+            input_curves: vec!["GR".into()],
+            output_curve: output.into(),
+            output_units: None,
+            language: "python".into(),
+        };
+
+        // Runs one equation against a fresh job and returns (done, item state) as the panel sees it.
+        let run_with_job = |equation: &EquationDef| -> (usize, ItemState) {
+            let reg = jobs::new_registry();
+            let id = Uuid::new_v4();
+            let h = jobs::register(
+                &reg,
+                id,
+                "Equation",
+                "python",
+                vec![(w.clone(), "PY-1".to_string())],
+                Arc::new(AtomicBool::new(false)),
+                true,
+            );
+            h.running(1);
+            let _ = run_python_equation(&dbm, equation, std::slice::from_ref(&w), Some(&h));
+            let v = jobs::list(&reg).remove(0);
+            (v.done, v.items[0].state)
+        };
+
+        if find_python().is_none() {
+            // No python: the early-return branch must still finish the item (regression guard for
+            // the one branch that is reachable on a machine without python).
+            let (done, state) = run_with_job(&eq("VSHP", "vshp = gr / 100.0"));
+            assert_eq!(done, 1, "the no-python branch must still count the well");
+            assert_eq!(state, ItemState::Failed);
+            eprintln!("skipping the python-backed branches: no python+numpy on this machine");
+            return;
+        }
+
+        // Success: the branch that was silent — a healthy run must report 1/1 done and Ok.
+        let (done, state) = run_with_job(&eq("VSHP", "vshp = gr / 100.0"));
+        assert_eq!(done, 1, "a successful write must count one unit of progress (was stuck at 0)");
+        assert_eq!(state, ItemState::Ok, "a successful well must not stay Running");
+
+        // Script error: must surface as Failed, not sit amber "Running" under a Completed card.
+        let (done, state) = run_with_job(&eq("VSHP", "vshp = undefined_name + 1"));
+        assert_eq!(done, 1, "a script error must count one unit of progress");
+        assert_eq!(state, ItemState::Failed, "a script error must be visible as a failure");
+    }
 
     #[test]
     fn python_vectorized_roundtrip() {
