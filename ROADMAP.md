@@ -772,9 +772,18 @@ _(field-review tier, was "P2"; the rest of the tier is done in [A8](#a8-field-re
       legend with the display-only contract stated on the plot, auto-range over the combined
       cloud, `getState` round-trips the scope (`wells:` spec). `wellScope.ts` gained an
       "Active" mode + `serialize()`/`describe()`; `drawScatter` accepts a uniform colour.
-      **Still open: histogram scope (simpler — no brushing handle), Pickett decision, and a
-      per-well colour-stability rule if Jauhar wants colours pinned across scope edits.**
-      Original design notes follow (kept for the histogram increment):
+      **Increment 2 (2026-07-30): histogram scope SHIPPED** — context wells as stepped
+      outlines behind the active bars, each normalized to its OWN sample count and scaled
+      to the active axis (shape comparison — a 3×-bigger well never dwarfs the active
+      one; in Normalize-% mode outlines are true per-well percentages), pooled X range,
+      legend top-left with the display-only contract. The context machinery (zone/top-by-
+      name window resolution, budgeted concurrent fetch, stride decimation) moved to
+      `plotCommon.ts` (`contextZoneWindow`/`fetchContextLayers`) and the crossplot now
+      shares it — one source of truth for the correctness-critical rules.
+      **Still open: Pickett decision (its m/n/Rw are per-well parameters — overlay clouds
+      with line params bound to the active well, or stay single-well?), and a per-well
+      colour-stability rule if Jauhar wants colours pinned across scope edits.**
+      Original design notes follow (kept for reference):
 - [ ] **Multi-well plots — DESIGNED, not yet built** (T-SHELL-16, 2026-07-29). Design settled
       during the units session; build it as its own increment rather than a tail-end change to
       `crossplotPanel.ts` (~2,100 lines, field-verified, and the most interaction-dense panel

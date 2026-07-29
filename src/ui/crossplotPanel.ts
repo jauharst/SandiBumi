@@ -1,4 +1,4 @@
-import { getCoreData, getCurveData, listTops, listZones, runNetFlag, setZoneParam, type NetFlagSpec, type TrackCurveSeries, type WellSummary } from "../ipc";
+import { getCoreData, getCurveData, runNetFlag, setZoneParam, type NetFlagSpec, type TrackCurveSeries, type WellSummary } from "../ipc";
 import { appState, bumpDataVersion, clearBrush, setBrushedDepths, type BrushSelection } from "../state";
 import { formRow, openModal } from "./modal";
 import {
@@ -10,7 +10,6 @@ import {
   colorRampEx,
   distinctValues,
   drawColorbar,
-  FACIES_PALETTE,
   faciesColor,
   fitCanvasBackingStore,
   fmtValue,
@@ -29,14 +28,17 @@ import { AXIS_ALIASES, CHART_OVERLAYS, findChartOverlay, type ChartOverlayDef } 
 import {
   buildPlotTemplateBar,
   buildZoneSelect,
+  concatValues,
+  contextZoneWindow,
   CORE_OVERLAY_MAP,
   curveSelect,
+  describeContextOutcome,
+  fetchContextLayers,
   loadCurveNames,
   loadPlotProps,
   nearestDepthIndex,
   pickRow,
   savePlotProps,
-  TOP_OPTION,
   trySelect,
   type PlotContent,
 } from "./plotCommon";
@@ -679,21 +681,6 @@ export interface CrossplotContext {
   /** The active well's name, for the legend's first row. */
   activeName: string;
   layers: ContextWellLayer[];
-}
-
-/** Concatenates value arrays for the auto-range percentiles, so context wells aren't
- *  clipped away by a window fitted to the active well alone. */
-function concatValues(head: Float32Array, rest: Float32Array[]): Float32Array {
-  let n = head.length;
-  for (const a of rest) n += a.length;
-  const out = new Float32Array(n);
-  out.set(head, 0);
-  let off = head.length;
-  for (const a of rest) {
-    out.set(a, off);
-    off += a.length;
-  }
-  return out;
 }
 
 export function drawCrossplot(
@@ -1704,35 +1691,13 @@ export async function buildCrossplotContent(
   // points — far past what canvas 2D (or the eye) can use. Each well gets an equal
   // share and is stride-decimated down to it; the scope row reports the decimation.
   const MAX_CONTEXT_POINTS = 60_000;
-  const CTX_FETCH_CONCURRENCY = 8;
   let ctxLayers: ContextWellLayer[] = [];
   let ctxInfo = "";
   let ctxGen = 0;
 
-  /** The active zone choice resolved in ANOTHER well's own depth frame: the same-NAMED
-   *  zone (or top interval) from that well's tables. Never the active well's depths —
-   *  a zone sits at different measured depths in every well, and reusing the active
-   *  window would slice arbitrary rock. null = this well doesn't carry the zone/top. */
-  const contextWindow = async (wellId: string): Promise<[number | null, number | null] | null> => {
-    if (zoneSel.select.value === "*") return [null, null];
-    if (zoneSel.select.value === TOP_OPTION) {
-      const iv = appState.selectedInterval.get();
-      if (!iv) return null;
-      const tops = await listTops(wellId).catch(() => []);
-      const sorted = [...tops].sort((a, b) => a.depth - b.depth);
-      const i = sorted.findIndex((t) => t.top_name === iv.topName);
-      if (i < 0) return null;
-      // Same interval convention as the Wells & Tops pane: this top down to the next; last top → TD.
-      return [sorted[i].depth, sorted[i + 1]?.depth ?? null];
-    }
-    const zones = await listZones(wellId).catch(() => []);
-    const z = zones.find((q) => q.zone_name === zoneSel.current().zoneName);
-    return z ? [z.top_depth, z.bottom_depth] : null;
-  };
-
-  /** Fetches the scoped context wells' X/Y data (concurrency-limited, cancellable by a
-   *  newer call or dispose via the generation token) and decimates each to its share of
-   *  the point budget. Scope = just the active well → clears the overlay: byte-identical
+  /** Fetches the scoped context wells' X/Y data through the shared plotCommon machinery
+   *  (per-well zone/top-by-name windows, point budget, concurrency, cancellation via the
+   *  generation token). Scope = just the active well → clears the overlay: byte-identical
    *  single-well behaviour. */
   const reloadContext = async () => {
     const gen = ++ctxGen;
@@ -1746,63 +1711,22 @@ export async function buildCrossplotContent(
       return;
     }
     setStatus(`Crossplot: loading ${ids.length} context well${ids.length === 1 ? "" : "s"}…`);
-    const names = scope.namesFor(ids);
-    const quota = Math.max(1, Math.floor(MAX_CONTEXT_POINTS / ids.length));
-    const layers: (ContextWellLayer | null)[] = new Array(ids.length).fill(null);
-    let skipped = 0;
-    let shown = 0;
-    let decimated = false;
-    let next = 0;
-    const worker = async (): Promise<void> => {
-      while (next < ids.length && gen === ctxGen) {
-        const i = next++;
-        try {
-          const win = await contextWindow(ids[i]);
-          if (gen !== ctxGen) return;
-          if (!win) {
-            skipped++;
-            continue;
-          }
-          const series = await getCurveData(ids[i], [xSel.value, ySel.value], win[0], win[1]);
-          if (gen !== ctxGen) return;
-          const byName = new Map(series.map((s) => [s.curve_name, s]));
-          const sx = byName.get(xSel.value.toUpperCase())?.value;
-          const sy = byName.get(ySel.value.toUpperCase())?.value;
-          const n = Math.min(sx?.length ?? 0, sy?.length ?? 0);
-          if (!sx || !sy || n === 0) {
-            skipped++;
-            continue;
-          }
-          let dx: Float32Array;
-          let dy: Float32Array;
-          const stride = Math.max(1, Math.ceil(n / quota));
-          if (stride > 1) {
-            decimated = true;
-            const m = Math.ceil(n / stride);
-            dx = new Float32Array(m);
-            dy = new Float32Array(m);
-            for (let k = 0, j = 0; k < n; k += stride, j++) {
-              dx[j] = sx[k];
-              dy[j] = sy[k];
-            }
-          } else {
-            dx = sx.subarray(0, n);
-            dy = sy.subarray(0, n);
-          }
-          layers[i] = { name: names[i], xs: dx, ys: dy, color: FACIES_PALETTE[i % FACIES_PALETTE.length] };
-          shown += dx.length;
-        } catch {
-          skipped++;
-        }
-      }
-    };
-    await Promise.all(Array.from({ length: Math.min(CTX_FETCH_CONCURRENCY, ids.length) }, () => worker()));
-    if (gen !== ctxGen) return;
-    ctxLayers = layers.filter((l): l is ContextWellLayer => l !== null);
-    ctxInfo =
-      `Context: ${ctxLayers.length} well${ctxLayers.length === 1 ? "" : "s"} · ~${shown.toLocaleString()} pts` +
-      (decimated ? " (decimated)" : "") +
-      (skipped ? ` · ${skipped} skipped (no data or no matching zone/top)` : "");
+    const outcome = await fetchContextLayers({
+      ids,
+      names: scope.namesFor(ids),
+      curves: [xSel.value, ySel.value],
+      windowFor: (id) => contextZoneWindow(zoneSel, id),
+      budget: MAX_CONTEXT_POINTS,
+      isStale: () => gen !== ctxGen,
+    });
+    if (!outcome) return; // superseded by a newer call (or dispose)
+    ctxLayers = outcome.layers.map((l) => ({
+      name: l.name,
+      color: l.color,
+      xs: l.series.get(xSel.value.toUpperCase())!,
+      ys: l.series.get(ySel.value.toUpperCase())!,
+    }));
+    ctxInfo = describeContextOutcome(outcome);
     updateScopeUi();
     setStatus(`Crossplot ${ctxInfo.toLowerCase()}`);
     redraw();

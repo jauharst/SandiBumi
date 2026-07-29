@@ -4978,6 +4978,35 @@ behind the active well; everything interactive stays on the active well.
       pane — the rebuilt crossplot keeps scope All (and the new active well takes over the
       interactive role). SVG/PDF/PNG export includes the context layer.
 
+## Multi-well histogram overlay (T-SHELL-16 increment 2, 2026-07-30)
+
+Same scope treatment as the crossplot, adapted to distributions: context wells draw
+as **stepped outline curves** behind the active well's bars, one colour per well.
+The comparability rule: **each context well is normalized to its own sample count**
+and scaled to the active axis — you compare distribution SHAPES, so a neighbour
+with 3× the samples never dwarfs the active well (this is the GR-normalization
+use case). Pickett is deliberately NOT scoped yet — your call pending (m/n/Rw are
+per-well parameters).
+
+- [ ] **Wells: Active button** in the histogram toolbar (after Zone) — same scope row
+      as the crossplot. Default **Active** = today's single-well histogram, unchanged.
+- [ ] **Wider scope**: context wells appear as stepped outlines behind the bars, with a
+      **Wells legend top-left** (active well first with a filled swatch, context wells
+      with line swatches matching how they render; footer "context: per-well shape ·
+      display-only"). Works in bars and line mode, count and Normalize-% mode.
+- [ ] **Shape, not size**: overlay a small zone of a big well — its outline peaks near
+      the active well's bars (same shape → same height), NOT 3× above them. In
+      Normalize-% mode the outline is that well's true per-well percentage.
+- [ ] **Pooled X range**: a context well whose distribution sits outside the active
+      well's P2–P98 (e.g. an unnormalized hot GR well) stretches the axis so its curve
+      is visible, not clipped. Single-well range behaviour unchanged.
+- [ ] **Stats stay active-well**: chips, P5/P50/P95/mean markers, user percentiles, box
+      plot, cumulative curve, picks A/B and the brushed sub-distribution all still read
+      the ACTIVE well only — context outlines never move a statistic.
+- [ ] **Same zone-by-name + skip rule** as the crossplot; scope row reports counts,
+      decimation and skips. Scope survives a well switch; SVG/PDF export includes the
+      outlines and legend.
+
 ---
 
 _Made in SandiBumi._ © 2026 SandiBumi. All rights reserved.
