@@ -4,7 +4,7 @@
     {
       "name": "arshilla-vite",
       "runtimeExecutable": "C:\\Program Files\\nodejs\\node.exe",
-      "runtimeArgs": ["D:\\XX. Arshilla\\node_modules\\vite\\bin\\vite.js", "D:\\XX. Arshilla"],
+      "runtimeArgs": ["D:\\XX. SandiBumi\\node_modules\\vite\\bin\\vite.js", "D:\\XX. SandiBumi"],
       "port": 1420
     }
   ]

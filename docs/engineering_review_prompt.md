@@ -45,7 +45,7 @@ published web pages and are **not** review authorities.
 ## 1. The master prompt (copy, fill in `{{...}}`, run)
 
 ```
-Run engineering review pass "{{PASS_ID}} — {{PASS_NAME}}" over SandiBumi at D:\XX. Arshilla.
+Run engineering review pass "{{PASS_ID}} — {{PASS_NAME}}" over SandiBumi at D:\XX. SandiBumi.
 
 Checklist for this pass: {{CHECKLIST}}
 Surfaces in scope: {{SURFACES}}

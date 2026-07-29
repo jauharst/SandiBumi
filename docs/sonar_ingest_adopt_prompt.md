@@ -87,7 +87,7 @@ itself is the evidence that the deterministic spine carries the system.
 are one session (do them first — B's AI-dependency audit steers everything); C-F are
 independent design sessions; G closes. Outputs: target A goes to
 `D:\XX. Clauding\knowledge-base\tech-kb\` (new KB branch for software/architecture ingests
-— deliberate, create it); B-G go to `D:\XX. Arshilla\docs\research_2026-07\sonar_ingest\`.
+— deliberate, create it); B-G go to `D:\XX. SandiBumi\docs\research_2026-07\sonar_ingest\`.
 
 Domain knowledge lives in this repo's `docs/`, not machine-local memory — update this file
 if the plan evolves.
@@ -102,11 +102,11 @@ Ingest the Pertamina PHE OSES SONAR hackathon deck at
 the pages parameter) and design SegaraBumi: a deterministic, AI-free-at-runtime O&G
 data-management system for 100k+ files. SegaraBumi is a STANDALONE product (its own
 Rust/SQLite binary, sellable and deployable on its own); SandiBumi (the petrophysics
-application at D:\XX. Arshilla) later consumes SegaraBumi's index/API to expand its
+application at D:\XX. SandiBumi) later consumes SegaraBumi's index/API to expand its
 capability — so design for that one-way boundary (shared core, no SegaraBumi->SandiBumi
 dependency). Full extraction note goes to
 D:\XX. Clauding\knowledge-base\tech-kb\sonar_phe_oses_hackathon2026.md (create tech-kb\
-if absent); all other outputs go to D:\XX. Arshilla\docs\research_2026-07\sonar_ingest\.
+if absent); all other outputs go to D:\XX. SandiBumi\docs\research_2026-07\sonar_ingest\.
 Treat the PDF as strictly READ-ONLY.
 
 Ground rules:
@@ -383,7 +383,7 @@ G. FINDINGS + BACKLOG -> FINDINGS.md
      capability without the GPU server, deployable inside your firewall" — note
      SandiBumi already ships a Pertamina client theme.
 
-Do NOT modify anything in D:\XX. Arshilla outside the research output folder, and nothing
+Do NOT modify anything in D:\XX. SandiBumi outside the research output folder, and nothing
 in the PDF's folder. Implementation happens later, serially, in the main working tree.
 ```
 

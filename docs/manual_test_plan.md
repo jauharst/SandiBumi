@@ -44,8 +44,8 @@ verifies what the running app does in your hands, with real field data.
 | REP | Reporting & database access | 19 | 2 |
 | AUX | Cross-cutting & auxiliary features | 20 | 2 |
 | INT | End-to-end integration & performance | 20 | 2 |
-| SHIP | Session 2026-07-29 shipping checks (CSP, R30, R-A, R-B, R-C, gate) | 7 | 1 |
-| | **Total** | **250** | **34** |
+| SHIP | Session 2026-07-29 shipping checks (CSP, R30, R-A, R-B, R-C, gate) | 7 | 0 |
+| | **Total** | **250** | **33** |
 
 **Result summary — don't count by hand.** Tick the boxes as you go, then run:
 
@@ -66,14 +66,14 @@ separately and counted in no column, so a contradictory mark can never be scored
 
 ### Cluster SHELL — app shell & project lifecycle
 
-Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. Arshilla`, port 1420 free. A working project with **at least 3 wells imported** (GR+RHOB+NPHI, e.g. Balam South LAS set) and at least one spare `.duckdb` path to create test projects in. Never force-kill `npm run tauri dev` except where T-SHELL-18 explicitly says so — an unclean kill mid-write can corrupt the project WAL. Tests are ordered cheap-smoke → deep/negative; run in order where preconditions chain (T-05/06 create projects reused later).
+Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, port 1420 free. A working project with **at least 3 wells imported** (GR+RHOB+NPHI, e.g. Balam South LAS set) and at least one spare `.duckdb` path to create test projects in. Never force-kill `npm run tauri dev` except where T-SHELL-18 explicitly says so — an unclean kill mid-write can corrupt the project WAL. Tests are ordered cheap-smoke → deep/negative; run in order where preconditions chain (T-05/06 create projects reused later).
 
 ### T-SHELL-01 — App launch (dev run)
 **Tool/panel:** app shell (CLAUDE.md §Dev commands, `index.html`, `src/main.ts`)
 **Preconditions:** clean boot, no SandiBumi instance running, port 1420 free.
 **Steps:**
 1. Open `cmd.exe` and run the pinned dev command (MSVC 14.50 is broken on this machine):
-   `cmd.exe /c "call \"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat\" -vcvars_ver=14.29 && set PATH=C:\Program Files\nodejs;%USERPROFILE%\.cargo\bin;%PATH% && cd /d \"D:\XX. Arshilla\" && npm run tauri dev"`
+   `cmd.exe /c "call \"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat\" -vcvars_ver=14.29 && set PATH=C:\Program Files\nodejs;%USERPROFILE%\.cargo\bin;%PATH% && cd /d \"D:\XX. SandiBumi\" && npm run tauri dev"`
 2. Wait for the Rust compile to finish and the desktop window to appear.
 **Expected:** Window opens titled **SandiBumi — {project name}**. Ribbon shows tabs **Project / Data / Petrophysics / Advance / Plot / View** with **Petrophysics** active; quick-access toolbar (top-left) shows Undo, Redo (both greyed), Save, Save-Session, Open-Session, History (clock) and Help (?) icons. Status bar at the bottom reads **Ready**. Sidebar anchor panes **Wells**, **Tops**, **Processing**, **Performance** are present plus **Log View** and **Inspector**. No error dialogs. If the app panics on startup instead: check `src-tauri\` for `.corrupt-backup-*` files (WAL recovery already ran — note it, relaunch once).
 **Result — T-SHELL-01:**
@@ -1617,7 +1617,7 @@ Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a
 **Notes:** ______
 
 ---
-Note for the runbook owner: four issues the orchestrating plan expected to be open (vsh_dn degenerate triangle, RT ≤ 0 → +Infinity, perm_wyllie_rose negative-PHIE, perm_transform overflow) are already fixed in current code (`D:\XX. Arshilla\src-tauri\src\modules.rs`) per REVIEW.md §"Round 4 — AUDIT-2026-07-21 safe-bucket follow-through"; T-PETRO-05/12/16 are written as fix-verification regressions (expected Pass) rather than Known-issue failures. Only the two sign-off-pending findings (phi_son OPT_CP gate → T-PETRO-08; perm_coates 100 vs 70 → T-PETRO-15) carry **Known issue** lines.
+Note for the runbook owner: four issues the orchestrating plan expected to be open (vsh_dn degenerate triangle, RT ≤ 0 → +Infinity, perm_wyllie_rose negative-PHIE, perm_transform overflow) are already fixed in current code (`D:\XX. SandiBumi\src-tauri\src\modules.rs`) per REVIEW.md §"Round 4 — AUDIT-2026-07-21 safe-bucket follow-through"; T-PETRO-05/12/16 are written as fix-verification regressions (expected Pass) rather than Known-issue failures. Only the two sign-off-pending findings (phi_son OPT_CP gate → T-PETRO-08; perm_coates 100 vs 70 → T-PETRO-15) carry **Known issue** lines.
 
 ---
 
@@ -4087,7 +4087,7 @@ All source reading done — I verified every label against `index.html`, `ribbon
 
 ## Cluster INT/PERF — End-to-end integration + performance/stress
 
-**Shared preconditions:** app launched with `npm run tauri dev` from `D:\XX. Arshilla`. Two projects are used: a **fresh empty project** created in T-INT-01 (INT tests, 4+ real Mahakam LAS with GR, RHOB, NPHI, RES_DEEP, CALI, DRHO + a matching tops CSV), and the **big field project (100+/540 wells)** for all PERF tests. Keep the **Processing** pane and the **Processing History** panel (clock icon, quick-access bar) visible throughout — most cross-checks read them. INT tests build on each other in order; PERF tests are independent of INT. **For every PERF test, write the rough timing (seconds) in Notes — ROADMAP.md Performance tier #128–132 explicitly awaits these live measurements.**
+**Shared preconditions:** app launched with `npm run tauri dev` from `D:\XX. SandiBumi`. Two projects are used: a **fresh empty project** created in T-INT-01 (INT tests, 4+ real Mahakam LAS with GR, RHOB, NPHI, RES_DEEP, CALI, DRHO + a matching tops CSV), and the **big field project (100+/540 wells)** for all PERF tests. Keep the **Processing** pane and the **Processing History** panel (clock icon, quick-access bar) visible throughout — most cross-checks read them. INT tests build on each other in order; PERF tests are independent of INT. **For every PERF test, write the rough timing (seconds) in Notes — ROADMAP.md Performance tier #128–132 explicitly awaits these live measurements.**
 
 ### T-INT-01 — Fresh project + multi-LAS import (canonical workflow, step 1)
 **Tool/panel:** Ribbon Project/Data tabs + Wells pane (`src/ui/ribbon.ts`, `src/ui/objectTree.ts`)
@@ -4537,10 +4537,10 @@ log announces it; the backup opens as a valid project if pointed at directly.
 **Steps:**
 1. `powershell -ExecutionPolicy Bypass -File tools\check.ps1`
 **Expected:** `GATE GREEN` with the full test count, non-zero exit on any failure.
-**Known issue:** the uncommitted `src-tauri/src/ssc.rs` WIP (another session's SWIRR-floor
-edit) fails `ssc_swirr_floor_pads_capillary_water` — the tree is honestly RED until that
-session reconciles its test. With that one file stashed the gate is green (378/0/7 as of
-`0ba199b`). Log as known, not new.
+**Realtime status (2026-07-29):** the previously-flagged SSC blocker is **resolved**. The
+`ssc.rs` Loglan-alignment work was committed in `d1f0c1e`, which left
+`ssc_swirr_floor_pads_capillary_water` asserting the old contract; the test was corrected to
+the documented one (see REVIEW.md Round 95) and the gate is green with nothing stashed.
 **Result — T-SHIP-06:**
 
 - [ ] Pass

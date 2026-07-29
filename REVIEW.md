@@ -7,6 +7,33 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 95 — SSC gas conditioning changed the numbers; the stale test that hid it is fixed (2026-07-29)
+
+**This one needs your eyes on real data — SSC output values moved.** Your `d1f0c1e` commit
+re-aligned `ssc.rs` to the Loglan reference, and one change is numerical, not cosmetic: the
+gas/HC conditioning now pulls a point onto the sand base line at the **RMS midpoint**
+(`sqrt((φD²+φN²)/2)`, matching `sspw.lls`'s gas branch) instead of the old 1.6-weighted form,
+which overshot the midpoint and inverted the density-neutron crossover. Any gas-affected
+sample will therefore report a different PHIT/PHIE than before. Per `RELEASE.md`, that is a
+"numbers that changed" event.
+
+That commit also left the gate red: `ssc_swirr_floor_pads_capillary_water` asserted
+`SWIRR_T >= SWIRR_MIN`, which contradicted **its own name** and both references. The floor
+(`ssc.rs` `if ... bw / phit < swirr_min`) pads **CWSH** — capillary water — raising BW;
+`SWIRR_T` is deliberately the *pre-conditioning* ratio (`.lls` 213-216, and
+`docs/method_ssc_sspw.md` §8 computes SWIRR first, then lists the conditioning). So the code
+matched the spec and the test was the stale artifact. I did not touch any physics.
+
+The test now pins **both** halves of that contract — the floor must raise CWSH and lift
+BW/PHIT to SWIRR_MIN, *and* SWIRR_T must stay the pre-conditioning value — plus a guard that
+the fixture actually starts below the floor, so it can't pass vacuously. Gate: green with
+nothing stashed.
+
+- [ ] **Try:** re-run SSC on a well with a known gas effect and compare PHIT/PHIE against
+  your previous run (or the reference-suite LAS export). The non-gas samples should be
+  unchanged; gas-affected ones will differ, and the new values are the ones that match the
+  Loglan. If they don't match the reference export, tell me — that is a real finding.
+
 ## Round 94 — R-C: closing the app no longer risks losing the writes since the last checkpoint (2026-07-29)
 
 Found by the packaged-build verification, not by code review — and it is the biggest catch of

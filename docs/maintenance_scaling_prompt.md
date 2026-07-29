@@ -46,7 +46,7 @@ Verifier correction wins. It was written by someone who tried to disprove the fi
 ## Mode A — EXPAND (add a capability)
 
 ```
-Add {{WHAT}} to SandiBumi at D:\XX. Arshilla.
+Add {{WHAT}} to SandiBumi at D:\XX. SandiBumi.
 
 ## Step 1 — Find the cheapest shape before writing any code
 
@@ -106,7 +106,7 @@ maintenance surface grows permanently. Ask for the cheap shape first, every time
 ## Mode B — DEBUG (something is wrong)
 
 ```
-Something is wrong in SandiBumi at D:\XX. Arshilla.
+Something is wrong in SandiBumi at D:\XX. SandiBumi.
 
 Symptom: {{WHAT I SAW}}
 Where: {{panel / module / well / zone}}
@@ -169,7 +169,7 @@ memory across open/close cycles. Skipping the classification is how a fix gets s
 ## Mode C — MAINTAIN (keep it healthy)
 
 ```
-Maintenance increment for SandiBumi at D:\XX. Arshilla.
+Maintenance increment for SandiBumi at D:\XX. SandiBumi.
 
 Source of work: {{ROADMAP §4b | docs/review_sweep/{{TIER}}.md | a [x] in REVIEW.md | dependency
 bump | doc drift}}
@@ -238,7 +238,7 @@ proof of something `tsc` structurally cannot observe.
 broken there — missing `clui.dll`):
 
 ```bash
-cmd.exe /c "call \"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat\" -vcvars_ver=14.29 && cd /d \"D:\XX. Arshilla\src-tauri\" && cargo test"
+cmd.exe /c "call \"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat\" -vcvars_ver=14.29 && cd /d \"D:\XX. SandiBumi\src-tauri\" && cargo test"
 ```
 
 Run scratchpad `cargo`/`.bat` invocations through **PowerShell**, not Git Bash — Bash mangles the

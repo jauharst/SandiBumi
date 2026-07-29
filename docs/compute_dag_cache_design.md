@@ -16,7 +16,7 @@
 
 # Phase A — Compute DAG + Content-Addressed Result Cache for Workflow Chains
 
-**Repo:** `D:\XX. Arshilla` (SandiBumi). All paths below are `src-tauri/src/…` unless noted.
+**Repo:** `D:\XX. SandiBumi` (SandiBumi). All paths below are `src-tauri/src/…` unless noted.
 **Scope:** manual chain runs only, no UX change beyond additive reporting. Phase B = hooks only.
 
 ## 0. Verification of the established facts

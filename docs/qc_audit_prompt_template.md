@@ -21,7 +21,7 @@ evolve, not a memory note.
 ## 1. The master prompt (copy, fill in `{{...}}`, run)
 
 ```
-Run a full A-to-Z QC audit of the SandiBumi tool "{{TOOL}}" at D:\XX. Arshilla.
+Run a full A-to-Z QC audit of the SandiBumi tool "{{TOOL}}" at D:\XX. SandiBumi.
 
 Files involved: {{FILES}}
 Relevant spec-of-record doc(s), if any: {{DOCS}}   (docs/ wins over code when they conflict —

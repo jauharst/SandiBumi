@@ -1,6 +1,6 @@
 # SandiBumi — Petrophysical Software Engine
 
-> **SandiBumi** (formerly *Arshilla*) — the project folder on disk is still `D:\XX. Arshilla`; only the
+> **SandiBumi** (formerly *Arshilla*) — the project folder on disk is still `D:\XX. SandiBumi`; only the
 > product/branding was renamed. The compiled binary is now `sandibumi.exe`, bundle id `com.sandibumi.petro`.
 
 Desktop application for multi-well (2000+) petrophysical log analysis. Stack: **Tauri (Rust) + DuckDB (embedded, bundled) + TypeScript/WebGPU**.
@@ -335,7 +335,7 @@ no Tauri backend needed. In vite-only preview every `invoke` error
 6. Claude auto-memory is machine-local — everything durable lives in this file,
    `docs/`, `ROADMAP.md`, `REVIEW.md`, `AUDIT-*.md`. Trust the repo over memory.
 
-### Reference machine (ARUNIKA / D:\XX. Arshilla)
+### Reference machine (ARUNIKA / D:\XX. SandiBumi)
 
 Rust, Node.js, and the MSVC linker are all installed and working — **but new shells may not pick up PATH updates from installers**. If `cargo`/`node`/`npm` report "not found," don't assume they're missing; verify with the full paths below before reinstalling anything:
 
@@ -354,7 +354,7 @@ There, any command that compiles Rust must go through vcvars pinned to 14.29 (on
 machine, plain `npm run tauri dev` is fine):
 
 ```
-cmd.exe /c "call \"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat\" -vcvars_ver=14.29 && set PATH=C:\Program Files\nodejs;%USERPROFILE%\.cargo\bin;%PATH% && cd /d \"D:\XX. Arshilla\" && npm run tauri dev"
+cmd.exe /c "call \"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat\" -vcvars_ver=14.29 && set PATH=C:\Program Files\nodejs;%USERPROFILE%\.cargo\bin;%PATH% && cd /d \"D:\XX. SandiBumi\" && npm run tauri dev"
 ```
 
 ```sh

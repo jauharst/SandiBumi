@@ -1,4 +1,4 @@
-# DIALOG-vs-PANE architecture + theme compliance (SandiBumi, D:\XX. Arshilla)
+# DIALOG-vs-PANE architecture + theme compliance (SandiBumi, D:\XX. SandiBumi)
 
 ## Current state
 == 1. DIALOG INVENTORY ==
@@ -54,29 +54,29 @@ PREREQ INFRA: (a) extend SessionSnapshot (workspace.ts) so tool panes can persis
 THEME FIX LIST (independent, low-risk, do first): define --danger/--muted/--panel-2/--surface-2/--bg-subtle in all 7 theme blocks OR rewrite those ~15 declarations onto the 15-var contract (--warn/--text-dim/--bg-panel-alt cover them); re-skin .cursor-readout and .workflow-invalid onto vars; replace hard-coded "#b5651d"/"#5f7350"/"#888"/"#999"/rgba(0,0,0,0.65) in crossplotPanel/pickettPanel/histogramPanel/logViewPanel with plotColors() reads; audit color:#fff accent buttons if a light-accent brand theme is ever added.
 
 ## Key files
-- D:\XX. Arshilla\src\ui\modal.ts
-- D:\XX. Arshilla\src\ui\workspace.ts
-- D:\XX. Arshilla\src\ui\workflowDialog.ts
-- D:\XX. Arshilla\src\ui\moduleDialog.ts
-- D:\XX. Arshilla\src\ui\multiminDialog.ts
-- D:\XX. Arshilla\src\ui\mlDialog.ts
-- D:\XX. Arshilla\src\ui\monteCarloDialog.ts
-- D:\XX. Arshilla\src\ui\summaryDialog.ts
-- D:\XX. Arshilla\src\ui\reportDialog.ts
-- D:\XX. Arshilla\src\ui\compositeDialog.ts
-- D:\XX. Arshilla\src\ui\zonesDialog.ts
-- D:\XX. Arshilla\src\ui\autoCorrDialog.ts
-- D:\XX. Arshilla\src\ui\curveEditDialog.ts
-- D:\XX. Arshilla\src\ui\layoutPropsDialog.ts
-- D:\XX. Arshilla\src\ui\wellGroups.ts
-- D:\XX. Arshilla\src\ui\topsEditor.ts
-- D:\XX. Arshilla\src\ui\ribbon.ts
-- D:\XX. Arshilla\src\ui\plotCommon.ts
-- D:\XX. Arshilla\src\ui\plotCanvas.ts
-- D:\XX. Arshilla\src\ui\crossplotPanel.ts
-- D:\XX. Arshilla\src\ui\histogramPanel.ts
-- D:\XX. Arshilla\src\ui\pickettPanel.ts
-- D:\XX. Arshilla\src\ui\logViewPanel.ts
-- D:\XX. Arshilla\src\styles.css
-- D:\XX. Arshilla\src\theme.ts
-- D:\XX. Arshilla\index.html
+- D:\XX. SandiBumi\src\ui\modal.ts
+- D:\XX. SandiBumi\src\ui\workspace.ts
+- D:\XX. SandiBumi\src\ui\workflowDialog.ts
+- D:\XX. SandiBumi\src\ui\moduleDialog.ts
+- D:\XX. SandiBumi\src\ui\multiminDialog.ts
+- D:\XX. SandiBumi\src\ui\mlDialog.ts
+- D:\XX. SandiBumi\src\ui\monteCarloDialog.ts
+- D:\XX. SandiBumi\src\ui\summaryDialog.ts
+- D:\XX. SandiBumi\src\ui\reportDialog.ts
+- D:\XX. SandiBumi\src\ui\compositeDialog.ts
+- D:\XX. SandiBumi\src\ui\zonesDialog.ts
+- D:\XX. SandiBumi\src\ui\autoCorrDialog.ts
+- D:\XX. SandiBumi\src\ui\curveEditDialog.ts
+- D:\XX. SandiBumi\src\ui\layoutPropsDialog.ts
+- D:\XX. SandiBumi\src\ui\wellGroups.ts
+- D:\XX. SandiBumi\src\ui\topsEditor.ts
+- D:\XX. SandiBumi\src\ui\ribbon.ts
+- D:\XX. SandiBumi\src\ui\plotCommon.ts
+- D:\XX. SandiBumi\src\ui\plotCanvas.ts
+- D:\XX. SandiBumi\src\ui\crossplotPanel.ts
+- D:\XX. SandiBumi\src\ui\histogramPanel.ts
+- D:\XX. SandiBumi\src\ui\pickettPanel.ts
+- D:\XX. SandiBumi\src\ui\logViewPanel.ts
+- D:\XX. SandiBumi\src\styles.css
+- D:\XX. SandiBumi\src\theme.ts
+- D:\XX. SandiBumi\index.html

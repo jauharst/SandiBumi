@@ -15,7 +15,7 @@ anatomy work (Jul 2026: `.lls` sources, `.info` manifests, `.paysum` specs, `ali
 
 **How to use it:** run the master prompt below as a fresh Claude Code session (multiple
 sessions fine — targets A–I are independent; do A/D/E first, they're the highest value).
-Outputs go to `D:\XX. Arshilla\docs\research_<YYYY-MM>\techlog_ingest\`. If the `sw-techlog`
+Outputs go to `D:\XX. SandiBumi\docs\research_<YYYY-MM>\techlog_ingest\`. If the `sw-techlog`
 skill is available, load it for concept grounding (Families/Aliases, Quanti, Quanti.Elan,
 LogView).
 
@@ -29,9 +29,9 @@ if the extraction checklist needs to evolve.
 ```
 Ingest the local Techlog 2018.2 material at
 "D:\01. Work\00. Guidebook\03. Guidebooks Techlog" and extract everything useful for
-SandiBumi development (the petrophysics application at D:\XX. Arshilla). The install tree is
+SandiBumi development (the petrophysics application at D:\XX. SandiBumi). The install tree is
 "Techlog 2018.2 (r22885)" inside that folder — call it TL below. Write all outputs to
-D:\XX. Arshilla\docs\research_<YYYY-MM>\techlog_ingest\ ; treat the source folder as
+D:\XX. SandiBumi\docs\research_<YYYY-MM>\techlog_ingest\ ; treat the source folder as
 strictly READ-ONLY.
 
 Ground rules:
@@ -129,7 +129,7 @@ I. TRAINING DATASET — "Training Techlog\Dataset\" (36 LAS + csv/txt): catalog 
   implementing" (already exists? Geolog ingest already covered it? niche for our
   workflows?). Only survivors go in the shortlist; say plainly if a target yielded nothing.
 
-Do NOT modify anything in D:\XX. Arshilla except writing into the research output folder.
+Do NOT modify anything in D:\XX. SandiBumi except writing into the research output folder.
 Implementation happens later, serially, in the main working tree per house convention.
 ```
 

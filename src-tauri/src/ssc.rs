@@ -586,10 +586,42 @@ mod tests {
             &spec,
             1,
         );
+        // Baseline with the default SWIRR_MIN = 0 (floor inactive).
+        let base = ssc(&ctx);
+        let (base_bw, base_cwsh) = (base["BW"][0] as f64, base["CWSH"][0] as f64);
+        let phit = base["PHIT_SSC"][0] as f64;
+        let base_ratio = base_bw / phit;
+        assert!(
+            base_ratio < 0.35,
+            "fixture must start BELOW the floor or this test proves nothing: {base_ratio}"
+        );
+
         ctx.params.insert("SWIRR_MIN".into(), vec![0.35]);
         let out = ssc(&ctx);
-        let swirr = out["SWIRR_T"][0];
-        assert!(swirr >= 0.34, "SWIRR floor not applied: {swirr}");
+
+        // The floor pads CAPILLARY water (what this test is named for): CWSH rises until
+        // total bound water reaches SWIRR_MIN*PHIT (ssc.rs `if ... bw / phit < swirr_min`).
+        let bw = out["BW"][0] as f64;
+        assert!(
+            out["CWSH"][0] as f64 > base_cwsh,
+            "floor must raise CWSH: {base_cwsh} -> {}",
+            out["CWSH"][0]
+        );
+        assert!(
+            bw / phit >= 0.35 - 1e-6,
+            "bound water not padded to the floor: {}",
+            bw / phit
+        );
+
+        // ...but SWIRR_T is the PRE-conditioning pair (.lls 213-216, docs/method_ssc_sspw.md
+        // §8 computes SWIRR before listing the conditioning), so it must NOT move. Writing
+        // the post-conditioning ratio here would make the written SWIRR_T/SWIRR_EFF pair
+        // mutually inconsistent whenever this floor fires.
+        assert!(
+            ((out["SWIRR_T"][0] as f64) - base_ratio).abs() < 1e-6,
+            "SWIRR_T must stay the pre-conditioning ratio {base_ratio}, got {}",
+            out["SWIRR_T"][0]
+        );
     }
 
     #[test]
