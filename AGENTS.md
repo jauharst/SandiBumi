@@ -373,6 +373,32 @@ Two hard runtime rules (both learned the painful way):
 - After browser verification against the vite dev server, **stop the server so port 1420
   is free** for the user's own `npm run tauri dev`.
 
+## Delegating work to subagents
+
+(Tool-specific form of this rule lives in `CLAUDE.md` — keep the principle in sync.)
+
+Split by **task shape, not task size**. The cost driver in this repo is the verify loop
+(`cargo check` through vcvars, ~minutes), not tokens: a cheap-model edit that fails to
+compile twice costs more wall-clock than one correct expensive-model pass.
+
+**The rule: cheap model + cheap verification = good. Cheap model + expensive verification
+= bad. Never delegate to a cheaper model when a wrong answer would be SILENT** — a number
+that is wrong but compiles ships into a client report, and no `cargo check` catches it.
+
+- **Cheapest tier** — read-only retrieval, inventory and grep sweeps. Verification is free.
+- **Mid tier** — mechanical edits behind a compiler gate: renames, Tauri command wrappers,
+  docs, test scaffolding, TS/dockview plumbing, i18n entries.
+- **Strongest tier (default)** — anything numeric or convention-bound: `equations.rs`,
+  `multimin.rs`/`multimin2.rs`, `ssc.rs`, `lrlc.rs`, `satheight.rs`, `thomeer.rs`,
+  `hfu.rs`, `montecarlo.rs`, chart overlays, the theme var contract, dockview layout.
+
+Reduce reasoning effort before dropping a tier on domain work — lower effort keeps the
+petrophysics judgment, a tier drop discards it. A delegated edit is not done until
+`npx tsc --noEmit` + `cargo check` pass; never report a subagent's result as verified on
+the subagent's own say-so. **Physics defaults** (must trace to `docs/` or a cited source)
+and **anything touching the DuckDB write discipline** stay with the main agent regardless
+of size.
+
 ## Collaboration protocol (Jauhar ↔ Codex)
 
 Jauhar is a petrophysicist (Mahakam Delta, Indonesia) and a beginner programmer — explain
@@ -405,3 +431,5 @@ in petrophysics terms, not programming jargon. The working rhythm, on every mach
 ---
 
 _Made in SandiBumi._ © 2026 SandiBumi. All rights reserved.
+
+Planning artifacts live in .castforge/ (plan.md, research.md, decisions.md, ui-spec.md, verification.md); peer work-logs live in .castforge/roles/; per-phase records (plan slice, completion summary, verification verdict) live in .castforge/phases/<phase>/; investigation notes live in .castforge/debug/. Read them before starting work.
