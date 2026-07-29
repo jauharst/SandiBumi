@@ -12,8 +12,12 @@ use serde::Serialize;
 use std::collections::HashMap;
 
 pub(crate) const J_CONST: f64 = 0.21645;
+/// Hydrostatic gradient per unit specific gravity, per FOOT of column — so any height fed
+/// to it must be converted to feet first (`units::to_feet`). The old `FT_PER_M` constant
+/// that used to live here is gone: it encoded the assumption that heights arrive in
+/// metres, which is exactly what broke Pc on foot-declared projects. Conversion now goes
+/// through `units.rs`, which knows what unit the project is actually in.
 pub(crate) const PSI_PER_FT_PER_SG: f64 = 0.433;
-pub(crate) const FT_PER_M: f64 = 3.28084;
 
 // ---------------------------------------------------------------------------
 // Leverett-J fit: Sw = A * J^B by least squares in log-log space
@@ -178,7 +182,11 @@ pub(crate) fn sw_height(ctx: &ModuleContext) -> ModuleOutputs {
             let rho_w = ctx.p("RHO_W", i);
             let rho_hc = ctx.p("RHO_HC", i);
             let ift = ctx.p("IFT_RES", i);
-            let pc = PSI_PER_FT_PER_SG * (rho_w - rho_hc) * (h * FT_PER_M);
+            // PSI_PER_FT_PER_SG is per FOOT of column, so the height must be in feet. This
+            // used to be `h * FT_PER_M`, which assumed h arrived in metres — on a project
+            // declared in feet that scaled an already-foot height and returned Pc 3.28x
+            // too high (Jauhar's Rokan projects are foot-declared).
+            let pc = PSI_PER_FT_PER_SG * (rho_w - rho_hc) * crate::units::to_feet(h, ctx.depth_unit);
             if pc <= 0.0 || ift <= 0.0 {
                 continue;
             }
@@ -198,6 +206,18 @@ mod tests {
     use crate::modules::ArgKind;
 
     fn ctx_from_spec(n: usize, logs: &[(&str, Vec<f32>)], overrides: &[(&str, f64)], opts: &[(&str, &str)]) -> ModuleContext {
+        ctx_in_unit(n, logs, overrides, opts, crate::units::DepthUnit::Metres)
+    }
+
+    /// Same as `ctx_from_spec` but with an explicit project depth unit, so a test can pin
+    /// that the SAME physical well gives the SAME answer in either declaration.
+    fn ctx_in_unit(
+        n: usize,
+        logs: &[(&str, Vec<f32>)],
+        overrides: &[(&str, f64)],
+        opts: &[(&str, &str)],
+        depth_unit: crate::units::DepthUnit,
+    ) -> ModuleContext {
         let spec = sw_height_spec();
         let mut params: HashMap<String, Vec<f64>> = spec
             .args
@@ -213,7 +233,40 @@ mod tests {
             logs: logs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect(),
             params,
             opts: opts.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+            depth_unit,
         }
+    }
+
+    /// The regression this whole units change exists for. One physical well, described
+    /// twice: 100 m above the FWL in a metre-declared project, and the identical 328.084
+    /// ft above the FWL in a foot-declared one. The capillary-pressure law is per FOOT, so
+    /// before the fix the foot project multiplied an already-foot height by 3.28084 and
+    /// returned a Pc 3.28x too high — a wrong Sw that computed, plotted and shipped.
+    #[test]
+    fn saturation_height_is_identical_whichever_unit_the_project_declares() {
+        use crate::units::DepthUnit;
+        let logs_m: Vec<(&str, Vec<f32>)> =
+            vec![("DEPTH", vec![1900.0]), ("TVD", vec![1900.0]), ("PHIE", vec![0.25]), ("PERM", vec![100.0])];
+        // 2000 m FWL - 1900 m TVD = 100 m of column.
+        let m_ctx = ctx_in_unit(1, &logs_m, &[("FWL", 2000.0)], &[("OPT_SWH", "LEVERETT")], DepthUnit::Metres);
+        let metric = sw_height(&m_ctx)["SWH"][0];
+
+        // The same well in feet: 6561.68 ft TVD, 6889.764 ft FWL — still 328.084 ft = 100 m.
+        let logs_ft: Vec<(&str, Vec<f32>)> = vec![
+            ("DEPTH", vec![6561.6797]),
+            ("TVD", vec![6561.6797]),
+            ("PHIE", vec![0.25]),
+            ("PERM", vec![100.0]),
+        ];
+        let ft_ctx =
+            ctx_in_unit(1, &logs_ft, &[("FWL", 6889.7638)], &[("OPT_SWH", "LEVERETT")], DepthUnit::Feet);
+        let imperial = sw_height(&ft_ctx)["SWH"][0];
+
+        assert!(metric.is_finite() && metric > 0.0 && metric < 1.0, "metric Sw not usable: {metric}");
+        assert!(
+            (metric - imperial).abs() < 1e-3,
+            "same well, same height above FWL, different declared unit: metric Sw {metric} vs foot Sw {imperial}"
+        );
     }
 
     #[test]

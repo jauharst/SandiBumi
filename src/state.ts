@@ -1,4 +1,5 @@
 import type { Layout, WellGroupEntry, WellSummary } from "./ipc";
+import type { DepthUnit } from "./units";
 
 /** Shared application state with a tiny pub/sub — replaces the closure variables the
  *  single-window main.ts used to hold. Dock panels subscribe to what they care about;
@@ -88,6 +89,14 @@ export const appState = {
    *  range, ⇄ invert); empty = no multi-selection. Batch dialogs pre-tick these
    *  instead of just the active well. */
   multiSelectedWellIds: new Observable<string[]>([]),
+  /** The unit every depth in THIS project's database is stored in, declared at its first
+   *  import (see units.rs). Everything the backend returns is in this unit; it is also what
+   *  the true 1:N print scale is derived from, since that ratio depends on how long a
+   *  stored unit physically is. Loaded at startup and after a project switch. */
+  projectDepthUnit: new Observable<DepthUnit>("M"),
+  /** The unit depths are SHOWN in — a pure view setting, switchable at any time, that
+   *  never touches stored data. Defaults to the project unit; persisted per machine. */
+  displayDepthUnit: new Observable<DepthUnit>("M"),
   /** Persisted "pinned" wells — a favourites subset independent of groups (the ★ toggle in the
    *  Wells pane). Reused by the shared well-scope selector as a one-click run scope. Loaded from
    *  the project on open and kept in sync as pins toggle. */

@@ -459,7 +459,7 @@ mod tests {
         let mut params = HashMap::new();
         params.insert("K".to_string(), vec![k; n]);
         params.insert("SEED".to_string(), vec![7.0; n]);
-        ModuleContext { n, logs, params, opts: HashMap::new() }
+        ModuleContext { n, logs, params, opts: HashMap::new(), depth_unit: Default::default() }
     }
 
     #[test]

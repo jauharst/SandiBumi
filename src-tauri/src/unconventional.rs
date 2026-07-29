@@ -194,7 +194,7 @@ mod kerogen_tests {
         let mut params = HashMap::new();
         params.insert("RHO_KERO".to_string(), vec![rho_kero; n]);
         params.insert("K_TOC2OM".to_string(), vec![k; n]);
-        ModuleContext { n, logs, params, opts: HashMap::new() }
+        ModuleContext { n, logs, params, opts: HashMap::new(), depth_unit: Default::default() }
     }
 
     #[test]
@@ -400,7 +400,7 @@ mod gip_tests {
         params.insert("GC".to_string(), vec![gc; n]);
         let mut opts = HashMap::new();
         opts.insert("MODE".to_string(), mode.to_string());
-        ModuleContext { n, logs, params, opts }
+        ModuleContext { n, logs, params, opts, depth_unit: Default::default() }
     }
 
     #[test]
@@ -622,7 +622,7 @@ mod brittleness_tests {
         params.insert("NU_HI".to_string(), vec![0.15]);
         let mut opts = HashMap::new();
         opts.insert("METHOD".to_string(), "elastic".to_string());
-        ModuleContext { n: 1, logs, params, opts }
+        ModuleContext { n: 1, logs, params, opts, depth_unit: Default::default() }
     }
 
     fn mineral_ctx(method: &str, qz: f32, cc: f32, dol: f32, clay: f32, org: f32) -> ModuleContext {
@@ -634,7 +634,7 @@ mod brittleness_tests {
         logs.insert("VORG".to_string(), vec![org]);
         let mut opts = HashMap::new();
         opts.insert("METHOD".to_string(), method.to_string());
-        ModuleContext { n: 1, logs, params: HashMap::new(), opts }
+        ModuleContext { n: 1, logs, params: HashMap::new(), opts, depth_unit: Default::default() }
     }
 
     #[test]
@@ -731,7 +731,7 @@ mod tests {
         params.insert("TOC_BG".to_string(), vec![toc_bg; n]);
         let mut opts = HashMap::new();
         opts.insert("OVERLAY".to_string(), overlay.to_string());
-        ModuleContext { n, logs, params, opts }
+        ModuleContext { n, logs, params, opts, depth_unit: Default::default() }
     }
 
     #[test]

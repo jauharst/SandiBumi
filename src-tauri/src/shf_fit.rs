@@ -17,7 +17,7 @@
 //! Mahakam sands). Deferred: SCAL porous-plate / centrifuge importers, MICP-calibrated coeffs.
 
 use crate::equations::fetch_curve_frame;
-use crate::satheight::{FT_PER_M, J_CONST, PSI_PER_FT_PER_SG};
+use crate::satheight::{J_CONST, PSI_PER_FT_PER_SG};
 use duckdb::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -830,6 +830,9 @@ fn fit_height_method(
     method: &str,
     samples: &[&Sample],
     req: &ShfFitRequest,
+    // Height `h` here is a DEPTH DIFFERENCE, so it is in the project's depth unit — the
+    // Leverett-J branch needs it in feet for the 0.433 psi/ft/SG constant.
+    depth_unit: crate::units::DepthUnit,
 ) -> Result<(Vec<(String, f64)>, f64, usize, Vec<(f64, f64)>), String> {
     let pts: Vec<(f64, f64)> = samples.iter().map(|s| (s.h, s.sw)).collect();
     if pts.is_empty() {
@@ -894,7 +897,7 @@ fn fit_height_method(
                 r2,
                 n,
                 Box::new(move |h: f64| {
-                    let pc = PSI_PER_FT_PER_SG * (rho_w - rho_hc) * (h * FT_PER_M);
+                    let pc = PSI_PER_FT_PER_SG * (rho_w - rho_hc) * crate::units::to_feet(h, depth_unit);
                     if pc <= 0.0 {
                         return 1.0;
                     }
@@ -940,7 +943,12 @@ fn fit_height_method(
 
 /// Per-rock-type fits: one law of the requested family per rounded RT class. Groups whose fit
 /// fails are reported with the failure, never silently dropped.
-fn fit_groups(samples: &[Sample], method: &str, req: &ShfFitRequest) -> Vec<ShfGroupFit> {
+fn fit_groups(
+    samples: &[Sample],
+    method: &str,
+    req: &ShfFitRequest,
+    depth_unit: crate::units::DepthUnit,
+) -> Vec<ShfGroupFit> {
     let mut by_rt: BTreeMap<i32, Vec<&Sample>> = BTreeMap::new();
     for s in samples {
         if let Some(rt) = s.rt {
@@ -949,7 +957,7 @@ fn fit_groups(samples: &[Sample], method: &str, req: &ShfFitRequest) -> Vec<ShfG
     }
     by_rt
         .into_iter()
-        .map(|(rt, gp)| match fit_height_method(method, &gp, req) {
+        .map(|(rt, gp)| match fit_height_method(method, &gp, req, depth_unit) {
             Ok((params, r2, n, curve)) => ShfGroupFit { rt, params, r2, n_points: n, curve, error: None },
             Err(e) => ShfGroupFit {
                 rt,
@@ -1014,6 +1022,12 @@ pub fn run_shf_fit(db: &Mutex<Connection>, req: &ShfFitRequest) -> ShfFitResult 
         }
     }
     let rt_name = req.rt_curve.trim().to_uppercase();
+    // `h` below is (FWL - TVDSS), a depth difference, so it carries the project's depth
+    // unit. The Leverett-J Pc law is per foot of column, so it needs the unit to convert.
+    let depth_unit = {
+        let conn = db.lock().unwrap();
+        crate::units::project_depth_unit_or_default(&conn)
+    };
 
     // Pool samples above the FWL / porosity cutoff, counting what gets dropped and why.
     let mut samples: Vec<Sample> = Vec::new();
@@ -1066,7 +1080,8 @@ pub fn run_shf_fit(db: &Mutex<Connection>, req: &ShfFitRequest) -> ShfFitResult 
                 let (j, sqrt_kphi) = if leverett {
                     let k = kv.and_then(|v| v.get(i)).map(|v| *v as f64).unwrap_or(f64::NAN);
                     if k.is_finite() && k > 0.0 {
-                        let pc = PSI_PER_FT_PER_SG * (req.rho_w - req.rho_hc) * (h * FT_PER_M);
+                        let pc =
+                            PSI_PER_FT_PER_SG * (req.rho_w - req.rho_hc) * crate::units::to_feet(h, depth_unit);
                         let skp = (k / p).sqrt();
                         (Some(J_CONST * pc / req.ift_res * skp), Some(skp))
                     } else {
@@ -1125,7 +1140,7 @@ pub fn run_shf_fit(db: &Mutex<Connection>, req: &ShfFitRequest) -> ShfFitResult 
 
     // Pooled (all-samples) fit of the requested family.
     let all: Vec<&Sample> = samples.iter().collect();
-    let (params, r2, n, curve) = match fit_height_method(&req.method, &all, req) {
+    let (params, r2, n, curve) = match fit_height_method(&req.method, &all, req, depth_unit) {
         Ok(out) => out,
         Err(e) => {
             let mut res = shf_err(&req.method, &e);
@@ -1142,7 +1157,7 @@ pub fn run_shf_fit(db: &Mutex<Connection>, req: &ShfFitRequest) -> ShfFitResult 
         if no_rt > 0 {
             notes.push(format!("{no_rt} samples have no {rt_name} value and joined only the pooled fit"));
         }
-        groups = fit_groups(&samples, &req.method, req);
+        groups = fit_groups(&samples, &req.method, req, depth_unit);
     }
     if let Some(nb) = buckles_note(&samples) {
         notes.push(nb);
@@ -1281,7 +1296,11 @@ mod tests {
         let mut pts = Vec::new();
         for i in 1..=40 {
             let h = i as f64 * 4.0;
-            let pc = PSI_PER_FT_PER_SG * (rho_w - rho_hc) * (h * FT_PER_M);
+            // This synthetic well's heights are metres, stated explicitly rather than
+            // baked into a bare 3.28084 multiply.
+            let pc = PSI_PER_FT_PER_SG
+                * (rho_w - rho_hc)
+                * crate::units::to_feet(h, crate::units::DepthUnit::Metres);
             let j = J_CONST * pc / ift * sqrt_kphi;
             let sw = a_true * j.powf(b_true);
             if sw < 1.0 {
@@ -1334,7 +1353,7 @@ mod tests {
         let mut samples = mk(1, 0.10, 3.0, 0.45, &[4.0, 6.0, 9.0, 14.0, 22.0, 35.0, 55.0, 90.0]);
         samples.extend(mk(2, 0.30, 8.0, 1.3, &[10.0, 14.0, 20.0, 30.0, 45.0, 70.0, 110.0, 170.0]));
         let req = dummy_req("brooks_corey");
-        let groups = fit_groups(&samples, "brooks_corey", &req);
+        let groups = fit_groups(&samples, "brooks_corey", &req, Default::default());
         assert_eq!(groups.len(), 2);
         assert!(groups.iter().all(|gp| gp.error.is_none()), "groups: {groups:?}");
         assert_eq!((groups[0].rt, groups[1].rt), (1, 2));

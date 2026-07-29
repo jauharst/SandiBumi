@@ -297,6 +297,7 @@ mod tests {
             logs: logs.into_iter().map(|(k, v)| (k.to_string(), v)).collect(),
             params,
             opts,
+            depth_unit: Default::default(),
         }
     }
 

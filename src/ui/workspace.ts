@@ -29,6 +29,7 @@ import { SqlQueryPanel } from "./sqlQueryPanel";
 import { HistoryPanel } from "./historyPanel";
 import { showContextMenu, type ContextMenuEntry } from "./contextMenu";
 import { imageExportMenuEntries } from "./plotExport";
+import { forgetViewer, isWorkingPane, markActiveViewer } from "./activeViewer";
 
 const LAYOUT_STORAGE_KEY = "sandibumi.workspace";
 /** Id of the blank content-area placeholder shown only when every real content pane is closed
@@ -78,6 +79,9 @@ export class Workspace {
   private dock: DockviewComponent;
   private rootContainer!: HTMLElement;
   private logViews = new Map<string, LogViewPanel>();
+  /** Each open plot pane's Properties dialog opener, so the pane's right-click menu can
+   *  offer it (the canvas no longer hijacks right-click for the dialog). */
+  private plotProps = new Map<string, () => void>();
   private counter = 0;
   /** Layout-change events before this time don't mark the workspace dirty — set around
    *  programmatic rebuilds (applySession/reset) and named saves, whose tab-title updates
@@ -686,15 +690,17 @@ export class Workspace {
         const nextId = well?.well_id ?? null;
         if (generation > 0 && nextId === currentWell?.well_id) return;
         // Pin OFF = working-pane mode: an already-built pane holding a well only follows
-        // the selection to ANOTHER real well while it is the active panel. Always rebuild
+        // the selection to ANOTHER real well while it is the WORKING pane. Always rebuild
         // when the pane has no well yet (catch up to a selection) or the selection was
         // cleared (project switch), so a stale well can never linger in the pane.
+        // The gate is isWorkingPane, not api.isActive — selecting a well activates the
+        // Wells tree, so no viewer is ever "active" at that instant (see activeViewer.ts).
         if (
           generation > 0 &&
           currentWell !== null &&
           nextId !== null &&
           !appState.wellPinned.get() &&
-          !params.api.isActive
+          !isWorkingPane(params.api.id)
         )
           return;
         rebuild(well);
@@ -718,13 +724,29 @@ export class Workspace {
         });
       });
 
+      const untrack = this.trackViewer(params);
       return () => {
         closed = true;
+        untrack();
         unsubWell();
         unsubData();
         disposer?.();
       };
     });
+  }
+
+  /** Registers a viewer pane (log view, plot, well-bound tool pane) with the working-pane
+   *  tracker that drives Pin-OFF following. Returns the teardown to run on close. */
+  private trackViewer(params: GroupPanelPartInitParameters): () => void {
+    const id = params.api.id;
+    if (params.api.isActive) markActiveViewer(id);
+    const sub = params.api.onDidActiveChange((e) => {
+      if (e.isActive) markActiveViewer(id);
+    });
+    return () => {
+      sub.dispose();
+      forgetViewer(id);
+    };
   }
 
   /** Adds a new (empty) window beside `group` — the user's Split Right / Split Down. */
@@ -790,8 +812,13 @@ export class Workspace {
       }
     } else if (kind === "histogram" || kind === "crossplot" || kind === "pickett" || kind === "correlation") {
       const nice = kind[0].toUpperCase() + kind.slice(1);
+      items.push({ heading: nice });
+      // Properties first — right-click used to open this dialog directly, which cost the
+      // plots their pane menu (split/float/export). It is now the menu's top entry, so
+      // both are reachable (Jauhar field review 2026-07-29, T-SHELL-17).
+      const openProps = this.plotProps.get(panelId);
+      if (openProps) items.push({ label: "Properties…", onClick: () => openProps() }, "sep");
       items.push(
-        { heading: nice },
         ...imageExportMenuEntries(() => host.querySelector<HTMLCanvasElement>("canvas.plot-canvas"), nice, setStatus),
         "sep",
         { label: `New ${kind} window`, onClick: () => this.openPlot(kind as PlotKind, group) },
@@ -893,10 +920,14 @@ export class Workspace {
         applyTitle();
       });
       view.onUserEdit = () => markDirty(panelId);
-      view.isActivePanel = () => params.api.isActive;
+      // Pin-OFF follow gate: the WORKING pane, not dockview's instantaneous active panel
+      // (selecting a well activates the Wells tree — see activeViewer.ts).
+      view.isActivePanel = () => isWorkingPane(panelId);
       const unsubDirty = subscribeDirty(applyTitle);
+      const untrack = this.trackViewer(params);
       this.logViews.set(panelId, view);
       return () => {
+        untrack();
         unsubDirty();
         clearDirty(panelId);
         this.logViews.delete(panelId);
@@ -1037,6 +1068,7 @@ export class Workspace {
         disposer = undefined;
         getState = undefined;
         host.innerHTML = "";
+        this.plotProps.delete(params.api.id);
         currentWellId = well?.well_id ?? null;
         // Correlation is inherently multi-well; every other plot needs the selected well.
         if (!well && kind !== "correlation") {
@@ -1056,6 +1088,8 @@ export class Workspace {
             host.appendChild(content.el);
             disposer = content.dispose;
             getState = content.getState;
+            // Expose this plot's Properties dialog to the pane's right-click menu.
+            if (content.openProperties) this.plotProps.set(params.api.id, content.openProperties);
           })
           .catch((err) => {
             if (closed || gen !== generation) return; // a newer build/close already won
@@ -1069,14 +1103,18 @@ export class Workspace {
           return;
         }
         if (generation > 0 && (well?.well_id ?? null) === currentWellId) return;
-        // Pin OFF = working-pane mode: an already-built plot only follows the
-        // selection while it is the active panel (fresh panels always build).
-        if (generation > 0 && !appState.wellPinned.get() && !params.api.isActive) return;
+        // Pin OFF = working-pane mode: an already-built plot only follows the selection
+        // while it is the WORKING pane (fresh panels always build). Not api.isActive —
+        // clicking a well activates the Wells tree, never a plot (see activeViewer.ts).
+        if (generation > 0 && !appState.wellPinned.get() && !isWorkingPane(params.api.id)) return;
         rebuild(well);
       });
 
+      const untrack = this.trackViewer(params);
       return () => {
         closed = true;
+        untrack();
+        this.plotProps.delete(params.api.id);
         unsubWell();
         disposer?.();
       };

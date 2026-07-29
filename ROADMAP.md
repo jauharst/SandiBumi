@@ -739,6 +739,61 @@ _(field-review tier, was "P2"; the rest of the tier is done in [A8](#a8-field-re
       highlights → tops.
 - [ ] **Typography**: text reads slightly fuzzy/washed-out up close — investigate WebView2 rendering
       (display scaling, weight, contrast). Waiting on Jauhar to say whether it's blurriness or lightness.
+- [ ] **Depth units, increment 2** (2026-07-29; increment 1 shipped — `units.rs`, project-declared
+      unit, import conversion, `wells.depth_unit`). Remaining, all gated on a project declared in
+      FEET (a metric project is correct today):
+      (a) **`satheight.rs:181` + `shf_fit.rs:897/1069/1284`** — `pc = 0.433·Δρ·(h·FT_PER_M)`
+      assumes `h` arrived in metres, so Pc is 3.28× off on a foot project. Needs the project unit
+      inside `ModuleContext`; the two production construction sites are `workflow.rs:320` and
+      `montecarlo.rs:1128` (the other ~15 are test helpers, so a reserved opts key beats widening
+      the struct). **Silent numeric error — do not delegate.**
+      **LIVE, not theoretical (Jauhar, 2026-07-29): he will declare Rokan/Central-Sumatra
+      projects in FEET**, so every saturation-height run on those projects returns a Pc 3.28×
+      too high until this lands. He has deliberately deferred it to his manual-test pass of the
+      saturation-height section — so it must be fixed BEFORE any foot-project SHF result is
+      trusted or shipped, and this is the highest-priority item in increment 2.
+      (b) **`LogCanvasRenderer.PX_PER_UNIT_1_1`** (96/0.0254) hardcodes metres, so every named
+      1:N print scale is mislabelled by 3.28× on a foot project.
+      (c) **The view toggle** Jauhar asked for: `appState.displayDepthUnit`, independent of the
+      stored unit, live-switchable. Display sites: log-view depth axis (`logViewPanel.refreshDepthAxis`,
+      one function), depth readout, tops panel + tops editor, zones, composite scale bar, report
+      pages, dashboard depth columns, crossplot/histogram depth-coloured axes.
+      (d) **Settings UI** to re-declare the project unit, refusing (or offering a full migration)
+      once wells exist — re-declaring alone would silently reinterpret every stored depth.
+      (e) Tops/zones/core/deviation CSV imports carry no unit and are assumed to be in the project
+      unit; say so at the import dialog.
+      Curve units (RHOB g/cc↔kg/m³, CALI in↔cm, DT us/ft↔us/m) are a later wave — Jauhar chose
+      depth-first. Downstream: this is the interchange contract with **SegaraBumi**.
+- [ ] **Multi-well plots — DESIGNED, not yet built** (T-SHELL-16, 2026-07-29). Design settled
+      during the units session; build it as its own increment rather than a tail-end change to
+      `crossplotPanel.ts` (~2,100 lines, field-verified, and the most interaction-dense panel
+      in the app).
+      **Approach: additive overlay, not a rewrite of the fetch path.** Scope defaults to
+      "Active well", where behaviour must be byte-identical to today; any additional wells are
+      fetched separately and drawn as a context layer BEHIND the active well's points, in a
+      per-well colour with a legend. This keeps the blast radius off the existing single-well
+      path, which is what the field review already accepted.
+      **The complication that forces the design** (found while scoping): linked brushing maps
+      crossplot points back to depths via `setBrushedDepths`, and a depth only means something
+      relative to ONE well. So brushing, the parameter-pick handle, the zone selector, core
+      overlay and Thomas-Stieber endpoints stay bound to the ACTIVE well; context wells are
+      display-only. That has to be stated in the UI, not just assumed, or a user will brush a
+      cloud and get the wrong well's depths highlighted.
+      Also needed: a total-point budget with decimation (2,000 wells x ~5,000 samples is 10M
+      points — the existing single-well path never had to care), and `getState` round-tripping
+      of the scope so a well switch doesn't silently drop the overlay.
+      Same treatment afterwards for histogram (simpler — no brushing handle) and a decision on
+      whether Pickett takes a scope at all, since its m/n/Rw are per-well parameters.
+- [ ] **Multi-well plots, original note** (T-SHELL-16, 2026-07-29): "histo, xplot etc (except log view) cant display
+      multiple groups together, better have option for well selections like modules". Histogram,
+      crossplot and Pickett are hard-wired to `selectedWell` — one well per pane, so a field-wide
+      crossplot means opening N panes. Give them the same **well-scope selector the run dialogs use**
+      (`wellScope.ts buildWellScope`: All / Active / ★ Pinned / Group / Custom), fetch and concatenate
+      the scoped wells, and colour/legend by well. Needs: scope selector in each plot toolbar, a
+      multi-well fetch path, per-well colour + legend, a point-budget/decimation rule for 2000 wells,
+      and `getState`/plot-template round-tripping of the scope. Pickett and the chart overlays already
+      assume one well's parameters — decide whether they take the scope too or stay single-well.
+      **Medium-sized increment; not a bug fix — deliberately not bundled with the Round 97 fixes.**
 
 ## B3. Feature Wave B (§4c) — leverage existing engines (small-to-medium, high payoff)
 

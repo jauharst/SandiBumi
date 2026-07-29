@@ -7,6 +7,213 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 99 — Depth units, increment 2: the Pc fix and the m/ft view toggle (2026-07-29)
+
+**1. The saturation-height error is fixed.** `pc = 0.433 psi/ft/SG · Δρ · h` is per FOOT of
+column, but `satheight.rs` and `shf_fit.rs` multiplied the height by 3.28084 unconditionally,
+assuming it arrived in metres. On your foot-declared Rokan projects that scaled an
+already-foot height and returned a Pc **3.28× too high**.
+
+The test that pins it takes one physical well described twice — 100 m above the FWL in a
+metre project, the identical 328.084 ft in a foot project — and requires the same Sw. Against
+the old formula it fails with **Sw 0.2685 vs 0.1670**: a 38% error in water saturation that
+computed, plotted and would have shipped. It now passes.
+
+`ModuleContext` carries a typed `depth_unit` rather than a magic options key, deliberately: a
+missing string key would silently mean metres, which is the failure mode itself. `FT_PER_M` is
+deleted rather than left unused — it *was* the assumption.
+
+**2. The m/ft view toggle you asked for.** A small **m / ft** button in each Log View's own
+toolbar, beside the zoom controls. It changes what you READ and never touches stored data —
+that separation is the whole point, and the button turns accent-coloured whenever the numbers
+on screen are converted rather than stored, so a converted view can't be mistaken for the
+real ones. The choice persists per machine and defaults to the project's own unit, so doing
+nothing shows depths exactly as your files delivered them.
+
+**3. Print scales no longer lie on foot projects.** `PX_PER_UNIT_1_1` derived px-per-depth-unit
+from 96 px/in ÷ 0.0254 m/in — metres, always — so every named 1:N scale on a foot project was
+off by 3.28×. It now reads the project unit: 3779.53 px/m or exactly 1152 px/ft (96 px/in ×
+12). Verified that **1:200 in a 400 px pane shows 21.17 m in a metric project and 69.44 ft in
+a foot one — the same physical section.** Note the scale follows the STORED unit, not the
+display toggle: "1:200" is a ratio of rock to paper, so it can't depend on which unit you
+happen to be reading.
+
+**4. Re-declaring a project's unit is refused once it holds wells** — their depths are already
+stored in the old unit, so a re-declaration would silently reinterpret every one of them
+(a 2,438 m well would start reading as 2,438 ft). The error says so and points at the display
+toggle instead. Converting stored data would be a real migration, not a settings change.
+
+**Verified:** `cargo test` 384 passed / 0 failed; `npx tsc --noEmit` and `cargo check` clean;
+conversion, print-scale and toggle behaviour driven live in the browser (8000/8050/8100 ft →
+2438/2454/2469 m on the depth axis, stored unit unchanged, button state and tooltip correct
+in both directions).
+
+- [ ] **Try:** open a foot project and check the depth axis reads feet, then click **ft → m** in the Log View toolbar. Depths convert, the button turns accent-coloured, and the status line says the data is unchanged.
+- [ ] **Try:** with the display in metres, check the **1:N** dropdown still frames the same physical section it did in feet — the scale must not move when you change what you're reading.
+- [ ] **Try:** run **sw_height** (Leverett) on a foot project against a well you know. This is the number that was 3.28× wrong; if the Sw still looks off, tell me before trusting it.
+- [ ] **Try:** the depth readout under the cursor now carries its unit ("Depth: 8000.0 ft").
+- [ ] **Still metres-only, increment 3:** tops/zones panels, composite scale bar, report pages, dashboard depth columns and depth-coloured plot axes still print raw stored depths without conversion. They are correct on a project whose display unit equals its stored unit — which is the default — but they do not yet follow the toggle.
+
+## Round 98 — Depth units, increment 1: the project declares one, imports convert to it (2026-07-29)
+
+Your instinct was right, and it lands on an **already-verified audit finding** (engineering
+review **F2e**, "fix-now", high confidence) that nobody had actioned. The LAS index unit was
+being parsed at `parsers.rs` and **thrown away** under `#[allow(dead_code)]`, and `curves.rs`
+FAMILIES has no DEPTH entry — so `convert_to_canonical` never touched the index. A foot-indexed
+Rokan/Caltex LAS put its raw foot numbers in the same column as a metric Mahakam well, and the
+import was reported as clean. A top at 8,000 (ft) and one at 2,438 (m) in the *same formation*
+sat 5,500 units apart, and correlation, contact planes and the tops slide window compared them
+as if that were real.
+
+Per your two decisions: **the project declares its depth unit and imports must match**, and
+**depth first, curve units later**.
+
+**What ships now (the storage layer):**
+
+- `src-tauri/src/units.rs` — one place that knows metres from feet. Exact international foot
+  (0.3048; the US survey foot differs by 2 ppm ≈ 5 mm over a 2,500 m well, so it is not
+  modelled). Unrecognized unit strings return `None` rather than a guess, because guessing is
+  the exact failure this exists to stop.
+- **Project setting**: stored as a `documents` row, so no schema migration. A **fresh project
+  adopts the unit of its first import** — the common case needs no decision from you at all.
+- **Import reconciliation**: a file matching the project stores as-is and says nothing; a file
+  in the *other* unit is converted and the import is flagged; a file declaring no unit is
+  assumed and flagged. Every case except a clean match produces a note in the import warning
+  you already see.
+- Both stores convert **identically** — the generic-store loader re-reads the same file, so it
+  had to apply the same conversion or the two would hold the same curves 3.28× apart.
+- `wells.depth_unit` records what the stored numbers mean, next to the data itself.
+- Both `#[allow(dead_code)]` attributes are **gone**, so the compiler can never again hide the
+  fact that nothing reads the index unit.
+
+**Verified:** `cargo test` 383 passed / 0 failed, including 5 new unit tests (unit-string
+spellings that occur in real field LAS, 8000 ft = 2438.4 m exactly and back, NaN preserved
+through conversion, and every project×file unit combination).
+
+**One thing this does NOT yet fix, stated plainly.** A project declared in **feet** still has
+two places that assume metres:
+`satheight.rs:181` and `shf_fit.rs:897/1069/1284` compute `pc = 0.433·Δρ·(h · 3.28084)`, i.e.
+they assume the height above free water arrived in metres — so **Pc is 3.28× off on a
+foot-declared project**; and `LogCanvasRenderer.PX_PER_UNIT_1_1` derives the true 1:N print
+scale from 96 px/in ÷ 0.0254 m/in, so every named scale is mislabelled by the same factor.
+A **metric** project is correct today, and mixed-unit imports are now correct because they
+convert. Both sites are increment 2, together with the view toggle.
+
+- [ ] **Try:** import a metric LAS into a fresh project, then a foot-indexed one. The second should import with a note that the depth index was converted, and its tops should line up with the first well's in correlation rather than sitting thousands of units away.
+- [ ] **Try:** import a LAS whose `~C` block declares no index unit — expect the note "this file declares no index unit — depths assumed to be m".
+**Answered (2026-07-29): feet.** Rokan/Central-Sumatra projects will be declared in FEET, keeping
+the depths you know. That makes the increment-2 Pc fix **live rather than theoretical** — a
+foot-declared project returns a saturation-height Pc 3.28× too high until it lands. You have
+deferred it to your manual-test pass of the saturation-height section, which is a reasonable
+call because it surfaces in testing rather than in a deliverable. The one rule that follows:
+**do not trust or ship an SHF/`sw_height` result from a foot-declared project until increment 2
+is in.** Metric projects are unaffected.
+
+## Round 97 — SHELL field-test fixes: Pin OFF, plot right-click, repeat reload key (2026-07-29)
+
+From your run through **Section SHELL** of `docs/manual_test_plan.md` — 16 of 18 passed;
+T-SHELL-16 and T-SHELL-17 failed. Three separate causes, all fixed.
+
+**1. "Pin off, never follow well even for active panel"** — the real bug of the three, and a
+good catch. Pin OFF is meant to mean *only the active panel follows*, and it asked
+dockview "is this pane active?" **at the moment the selection changed**. But a well is
+selected by **clicking it in the Wells tree**, and that click makes the *tree* the active
+pane — so at that instant no viewer was active and **nothing followed at all**. The pin
+effectively became "freeze everything".
+
+The gate now reads a **working pane** (`src/ui/activeViewer.ts`): the last *viewer* you
+clicked into. Browsing panes (Wells, Tops, Inspector) never claim the role, so clicking a
+well can't steal it. If no viewer has ever been activated the first one to ask claims it,
+so "pin off" can never again degrade to "nobody follows". Applies to log views, plots and
+the well-bound tool panes alike.
+
+**2. "right click in xplot showed properties instead of option like in log view"** — the
+plot canvases swallowed right-click to open Properties directly, which cost them the pane
+menu every other panel has (Split right/down, Float, Maximize, image export, Close).
+Right-click on a plot now opens the **normal pane menu with `Properties…` as its first
+entry**, so both are one click away. Double-click still opens Properties on histogram and
+crossplot; Pickett keeps its ⚙ toolbar button (its double-click is reserved for picks).
+
+**3. "ctrl+R does nothing"** — this one was half a documentation defect. The step said
+"Press F5, then Ctrl+R", so by the time Ctrl+R was pressed the F5 dialog was **already
+open** — and the guard returned silently rather than opening a second one. Correct
+behaviour, invisible feedback. A repeat reload key now **pulses the open dialog** instead.
+Two related hardenings while in there: the key is matched on physical `code` as well as
+`key` (a non-US layout would have missed it), and **Escape** now closes the confirm even
+after focus has left it (it was bound to the dialog, so one stray Tab left Escape dead).
+The step-4 wording in the test plan was ambiguous and has been rewritten.
+
+**Verified:** `npx tsc --noEmit` clean, `npm run build` clean, and the reload guard driven
+through five live scenarios in the browser (Ctrl+R alone → dialog; foreign-layout `KeyR` →
+dialog; F5-then-Ctrl+R → one dialog, pulsed; Escape with focus outside → closes; Cancel →
+closes). The working-pane tracker's semantics were unit-exercised live. What I could **not**
+drive from a browser is a real dockview activation with real wells — that is exactly what
+the re-test below covers.
+
+- [ ] **Try:** two Log Views, pin OFF. Click into Log View 1, select well C in the tree → **only Log View 1** moves. Click into Log View 2, select well A → **only Log View 2** moves. This is the failure you reported; it should now be impossible for nothing to move.
+- [ ] **Try:** with pin OFF, open a Crossplot and a Log View side by side. Click the crossplot, pick a well — the crossplot follows and the log view holds. Plots obey the same working-pane rule now.
+- [ ] **Try:** right-click a Crossplot, a Histogram and a Pickett canvas → pane menu with **Properties…** on top, then export items, then Split right / Split down / Float / Close. Compare against a right-click in the Log View.
+- [ ] **Try:** F5 → Escape. Ctrl+R → Cancel. F5 then Ctrl+R while the dialog is up → one dialog, pulsing. **This is the one to check first — if Ctrl+R on its own still does nothing, the cause is not what I diagnosed and I need to know.**
+- [ ] **Try:** the two re-tests above are T-SHELL-16 and T-SHELL-17 — your original Fail marks are left in place as the record; re-run those two rows in the xlsx.
+
+## Round 96 — Non-colour design tokens, and a client-skin colour bug found on the way (2026-07-29)
+
+**The important part of this round is not the polish — it is a pre-existing bug the polish
+exposed.** On any machine whose **OS is set to dark** (yours is), the five *light* client
+skins — Pertamina, Halliburton, Schlumberger, LAPI-ITB, white — kept their white panels but
+silently picked up the **dark** `--qc-*` status colours. Measured contrast of the Results-QC
+scorecard against the white panel:
+
+| Token | Was | Now | WCAG AA (4.5:1) |
+|---|---|---|---|
+| `--qc-ok` | 2.24:1 | **5.13:1** | fail → **pass** |
+| `--qc-alert` | 3.49:1 | **5.62:1** | fail → **pass** |
+| `--qc-warn` | 2.19:1 | 3.78:1 | fail → still fail |
+
+Cause: `@media (prefers-color-scheme: dark)` was scoped to `:root:not([data-theme="light"])`,
+but `theme.ts` **deletes** the attribute for "system" and **sets** it for every other choice —
+so the block also caught the explicitly-chosen light brand skins. Now `:root:not([data-theme])`
+— "no theme chosen at all" — so an explicit choice ignores the OS preference entirely. The
+comment in `:root` claiming the skins "inherit these unchanged" is finally true.
+
+Note `--qc-warn` at 3.78:1 still misses AA. That is the light theme's own designed amber
+(`#c07000`), not a regression, and darkening a QC semantic colour is your call — flag it if
+you want it changed.
+
+The polish itself: colour was the only axis this stylesheet ever tokenised, so radius, type
+size, motion and elevation had been decided per rule by hand — **12 distinct corner radii and
+11 font sizes**, four of them half-pixel (11.5/10.5/12.5/9.5px, 45 declarations) which land off
+the pixel grid and render soft. Added `--r-*`, `--s-*`, `--fs-*`, `--dur-*`/`--ease`, `--el-*`
+and `--focus-ring`, then swept **104 radius** and **201 font-size** literals onto them.
+Chips and badges became true pills; dockview's own `--dv-border-radius` / tab font-size /
+floating shadow now read from the same scale.
+
+Motion and focus are **one block** near the top of the file, not a line added to forty rules —
+reviewable and revertable in one place. Two properties keep it safe: `:where()` has zero
+specificity so every existing rule still wins (`.btn` verifiably kept its own 0.12s), and only
+**paint** properties are transitioned — never transform/width/position — so dockview drags,
+sash resizing and canvas panning stay instant. Buttons got a focus ring (they had none; form
+fields already did, and were left alone). Dialogs fade in on opacity only — no transform,
+because the modal is drag-positioned and a transform animation would fight an immediate grab.
+
+Verified: ribbon geometry **byte-identical** before and after (112px ribbon / 80px panel /
+24px QAT, A/B'd against the stashed original at a fixed viewport — an earlier 122px reading was
+a viewport artifact, not a reflow); **663 elements swept for unresolved `var()`, zero found**
+(an undefined token would silently collapse radius to 0); all 7 themes checked; gate green
+378/0/7.
+
+- [ ] **Try:** switch to a **client skin** (Project ▸ Appearance ▸ Pertamina) and open a
+  Results-QC scorecard. The pass/warn/fail colours should now be legible dark green/amber/red
+  on white, not the pale dark-theme versions. This is the one item with a real deliverable
+  consequence.
+- [ ] **Try:** hover the ribbon tabs and buttons — they should ease rather than snap. If
+  anything feels laggy against real field data, the whole motion layer is one block in
+  `styles.css` and can be cut without touching anything else.
+- [ ] **Try:** drag a dockview panel between windows and pan a log view. Both must still feel
+  instant — geometry was deliberately excluded from the transitions.
+- [ ] **Try:** confirm the tighter type reads as *cleaner* and not *cramped* at your normal
+  window size, on a dense panel (Monte Carlo params, the multimin endpoint matrix).
+
 ## Round 95 — SSC gas conditioning changed the numbers; the stale test that hid it is fixed (2026-07-29)
 
 **This one needs your eyes on real data — SSC output values moved.** Your `d1f0c1e` commit

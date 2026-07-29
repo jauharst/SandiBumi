@@ -40,6 +40,70 @@
      canvas ctx.font and mono field derives from these, never from per-file literals. */
   --font-canvas: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --font-mono: "Cascadia Code", Consolas, monospace;
+
+  /* ------------------------------------------------------------------
+     Non-colour design tokens (added 2026-07-29).
+     Colour was the only axis this stylesheet ever tokenised, so radius,
+     type size, motion and elevation had been decided per-rule by hand —
+     12 distinct radii and 11 font sizes (four of them half-pixel, which
+     lands off the pixel grid and renders soft). These scales replace the
+     literals. They are theme-INDEPENDENT except --el-*, which is re-tuned
+     per theme below because a shadow alpha that reads on cream is
+     invisible on near-black.
+     ------------------------------------------------------------------ */
+
+  /* Corner radius — 3 steps + a pill. Semantic, not by size:
+     sm = swatches/dots/dense inline controls, md = buttons/inputs/boxes,
+     lg = floating surfaces (dialogs, menus), pill = chips and badges. */
+  --r-sm: 3px;
+  --r-md: 5px;
+  --r-lg: 8px;
+  --r-pill: 999px;
+
+  /* Spacing — 2px base, matching the existing dense petrophysics rhythm. */
+  --s-1: 2px;
+  --s-2: 4px;
+  --s-3: 6px;
+  --s-4: 8px;
+  --s-5: 12px;
+  --s-6: 16px;
+
+  /* Type scale — no half-pixel steps. */
+  --fs-2xs: 9px;
+  --fs-xs: 10px;
+  --fs-sm: 11px;
+  --fs-md: 12px;
+  --fs-lg: 13px;
+  --fs-xl: 16px;
+
+  /* Motion. Only PAINT properties are ever transitioned through these
+     (background/border/colour/shadow) — never transform, width or
+     position — so dockview drags and canvas pans stay instant. */
+  --dur-fast: 90ms;
+  --dur-base: 140ms;
+  --dur-slow: 220ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Elevation. The overlays already had shadows, but as hardcoded rgba()
+     literals — several tuned to the light theme's brown (51, 42, 31) and
+     left unchanged on dark, where they read as a muddy halo. Tokenising
+     lets each theme set its own. */
+  --el-1: 0 2px 8px rgba(51, 42, 31, 0.2); /* tooltips, small hover cards */
+  --el-2: 0 6px 18px rgba(51, 42, 31, 0.18); /* menus, popovers */
+  --el-3: 0 12px 40px rgba(51, 42, 31, 0.28); /* dialogs, floating panels */
+
+  /* One focus ring for everything. The pattern already existed on form
+     fields (.field-row input:focus) but never reached buttons. */
+  --focus-ring: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* Motion is an OS-level accessibility preference, not decoration. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 1ms;
+    --dur-base: 1ms;
+    --dur-slow: 1ms;
+  }
 }
 
 :root[data-theme="dark"] {
@@ -61,10 +125,22 @@
   --qc-warn: #e0a52e;
   --qc-alert: #ef5350;
   --track-hd: #2e2519;
+  /* Neutral black at higher alpha: the light theme's brown tint is invisible
+     against #1c1610 and only muddies the edge. */
+  --el-1: 0 2px 8px rgba(0, 0, 0, 0.45);
+  --el-2: 0 6px 18px rgba(0, 0, 0, 0.42);
+  --el-3: 0 12px 40px rgba(0, 0, 0, 0.55);
 }
 
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
+  /* `:not([data-theme])` — no theme chosen AT ALL — not `:not([data-theme="light"])`.
+     theme.ts deletes the attribute for "system" and sets it for every other choice, so
+     the old test also caught the five explicitly-chosen LIGHT client skins: on any machine
+     whose OS is set to dark, Pertamina/Halliburton/Schlumberger/LAPI-ITB/white kept their
+     white panels but picked up the DARK --qc-* status colours, putting pale #5cc264 on
+     #ffffff (~2:1 contrast) in the Results-QC scorecard of a client deliverable.
+     An explicit theme choice must ignore the OS preference entirely. */
+  :root:not([data-theme]) {
     --bg-app: #1c1610;
     --bg-panel: #241d15;
     --bg-panel-alt: #2e2519;
@@ -83,6 +159,9 @@
     --qc-warn: #e0a52e;
     --qc-alert: #ef5350;
     --track-hd: #2e2519;
+    --el-1: 0 2px 8px rgba(0, 0, 0, 0.45);
+    --el-2: 0 6px 18px rgba(0, 0, 0, 0.42);
+    --el-3: 0 12px 40px rgba(0, 0, 0, 0.55);
   }
 }
 
@@ -189,6 +268,67 @@
 }
 
 /* --------------------------------------------------------------------------
+   Motion + focus layer (added 2026-07-29)
+
+   Deliberately ONE block rather than a transition line added to forty
+   component rules: it is reviewable in one place, and revertable in one
+   place if any panel starts feeling laggy against real field data.
+
+   Two safety properties make this safe to apply this broadly:
+
+   1. `:where()` has ZERO specificity, so every existing rule still wins.
+      .btn already declares its own 0.12s transition and keeps it; this only
+      reaches elements that had nothing.
+   2. Only PAINT properties are transitioned — background, border, colour,
+      shadow. Never transform, width, height, top/left. That is what keeps
+      dockview panel drags, sash resizing and canvas panning instant: those
+      move geometry, and geometry is not in this list.
+
+   Measured before this existed: .ribbon-tab, .ribbon-btn and .qat-btn all
+   reported transition-duration: 0s on the live DOM.
+   -------------------------------------------------------------------------- */
+
+:where(
+  button,
+  select,
+  input,
+  textarea,
+  .tree-node,
+  .ribbon-tab,
+  .ribbon-menu-item,
+  .context-menu-item,
+  .lp-item
+) {
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
+}
+
+/* Buttons had no focus style at all. Form fields DO already have one
+   (.field-row input:focus and friends), so this targets buttons only rather
+   than re-styling controls that were already handled — and uses `outline`
+   rather than `box-shadow` so it survives forced-colors/high-contrast mode,
+   where box-shadows are dropped. */
+:where(button, [role="button"]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Dialog entry. Opacity ONLY, no transform: the modal is drag-positioned
+   (.modal-head has cursor: move), and a transform animation would fight the
+   drag if the user grabbed the header inside the first frame. */
+@keyframes sb-dialog-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* --------------------------------------------------------------------------
    Base + app shell
    -------------------------------------------------------------------------- */
 
@@ -202,7 +342,7 @@ body {
      would snap 500 down to 400 and make this a no-op. Base weight raised for
      readability — de-emphasis now uses 400 explicitly, emphasis stays 600/700. */
   font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
-  font-size: 12px;
+  font-size: var(--fs-md);
   font-weight: 500;
   color: var(--text);
   background: var(--bg-app);
@@ -254,13 +394,13 @@ body {
   opacity: 0.7;
 }
 .canvas-hint {
-  font-size: 12px;
+  font-size: var(--fs-md);
   color: var(--text-dim);
 }
 
 #status-bar {
   padding: 3px 12px;
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--text-dim);
   background: var(--bg-panel-alt);
   border-top: 1px solid var(--border);
@@ -307,7 +447,7 @@ textarea {
   align-items: center;
   gap: 6px;
   font-weight: 700;
-  font-size: 12px;
+  font-size: var(--fs-md);
   color: var(--accent);
   padding: 0 14px 0 4px;
   letter-spacing: 0.4px;
@@ -316,7 +456,7 @@ textarea {
 .ribbon-logo {
   width: 18px;
   height: 18px;
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   flex: 0 0 auto;
 }
 
@@ -324,7 +464,7 @@ textarea {
   border: none;
   background: none;
   padding: 6px 14px;
-  font-size: 12px;
+  font-size: var(--fs-md);
   color: var(--text-dim);
   cursor: pointer;
   border-bottom: 2px solid transparent;
@@ -385,7 +525,7 @@ textarea {
   border: none;
   background: var(--bg-panel);
   color: var(--text-dim);
-  font-size: 16px;
+  font-size: var(--fs-xl);
   line-height: 1;
   cursor: pointer;
   z-index: 20;
@@ -434,7 +574,7 @@ textarea {
 }
 
 .ribbon-group-caption {
-  font-size: 9.5px;
+  font-size: var(--fs-2xs);
   color: var(--text-dim);
   text-align: center;
   white-space: nowrap;
@@ -448,9 +588,9 @@ textarea {
   padding: 5px 10px;
   background: none;
   border: 1px solid transparent;
-  border-radius: 4px;
+  border-radius: var(--r-md);
   color: var(--text);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -480,7 +620,7 @@ textarea {
 .ribbon-btn-compact {
   flex-direction: row;
   padding: 4px 9px;
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   border: 1px solid var(--border);
 }
 
@@ -495,7 +635,7 @@ textarea {
 }
 
 .ribbon-caret {
-  font-size: 8px;
+  font-size: var(--fs-2xs);
   color: var(--text-dim);
 }
 
@@ -509,8 +649,8 @@ textarea {
   min-width: 220px;
   background: var(--bg-panel);
   border: 1px solid var(--border-strong);
-  border-radius: 0 0 6px 6px;
-  box-shadow: 0 6px 18px rgba(51, 42, 31, 0.18);
+  border-radius: 0 0 var(--r-md) var(--r-md);
+  box-shadow: var(--el-2);
   padding: 4px;
   display: flex;
   flex-direction: column;
@@ -527,10 +667,10 @@ textarea {
   border: none;
   text-align: left;
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--fs-md);
   color: var(--text);
   padding: 7px 10px;
-  border-radius: 4px;
+  border-radius: var(--r-md);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -544,7 +684,7 @@ textarea {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--text);
   flex: 1;
 }
@@ -554,9 +694,9 @@ textarea {
   background: var(--bg-app);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   padding: 3px 6px;
-  font-size: 11px;
+  font-size: var(--fs-sm);
   font-family: inherit;
 }
 
@@ -564,11 +704,11 @@ textarea {
   width: 22px;
   height: 22px;
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   background: var(--bg-app);
   color: var(--text);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--fs-lg);
   line-height: 1;
 }
 
@@ -578,7 +718,7 @@ textarea {
 }
 
 .ribbon-hint {
-  font-size: 10px;
+  font-size: var(--fs-xs);
   color: var(--text-dim);
 }
 
@@ -590,7 +730,7 @@ textarea {
   --dv-group-view-background-color: var(--bg-panel);
   --dv-tabs-and-actions-container-background-color: var(--bg-panel-alt);
   --dv-tabs-and-actions-container-height: 28px;
-  --dv-tabs-and-actions-container-font-size: 11px;
+  --dv-tabs-and-actions-container-font-size: var(--fs-sm);
   --dv-activegroup-visiblepanel-tab-background-color: var(--bg-panel);
   --dv-activegroup-visiblepanel-tab-color: var(--accent);
   --dv-activegroup-hiddenpanel-tab-background-color: var(--bg-panel-alt);
@@ -606,9 +746,9 @@ textarea {
   --dv-active-sash-color: var(--accent);
   --dv-paneview-header-border-color: var(--border);
   --dv-icon-hover-background-color: var(--bg-hover);
-  --dv-floating-box-shadow: 0 10px 34px rgba(0, 0, 0, 0.35);
+  --dv-floating-box-shadow: var(--el-3);
   --dv-background-color: var(--bg-app);
-  --dv-border-radius: 3px;
+  --dv-border-radius: var(--r-sm);
   height: 100%;
   width: 100%;
 }
@@ -626,10 +766,10 @@ textarea {
   background: none;
   border: none;
   color: var(--text-dim);
-  font-size: 12px;
+  font-size: var(--fs-md);
   line-height: 1;
   padding: 3px 5px;
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   cursor: pointer;
 }
 
@@ -646,8 +786,8 @@ textarea {
   min-width: 180px;
   background: var(--bg-panel);
   border: 1px solid var(--border-strong);
-  border-radius: 6px;
-  box-shadow: 0 6px 18px rgba(51, 42, 31, 0.18);
+  border-radius: var(--r-md);
+  box-shadow: var(--el-2);
   padding: 4px;
   display: flex;
   flex-direction: column;
@@ -707,14 +847,14 @@ textarea {
 }
 
 .rh-label {
-  font-size: 9px;
+  font-size: var(--fs-2xs);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: var(--text-dim);
 }
 
 .rh-value {
-  font-size: 11.5px;
+  font-size: var(--fs-md);
   color: var(--text);
   font-weight: 600;
 }
@@ -785,7 +925,7 @@ textarea {
 }
 
 .track-header-title {
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: var(--text);
   text-align: center;
@@ -835,12 +975,12 @@ textarea {
   min-width: 22px;
   height: 20px;
   padding: 0 4px;
-  font-size: 11px;
+  font-size: var(--fs-sm);
   line-height: 1;
   color: var(--text-dim);
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   cursor: pointer;
 }
 
@@ -856,19 +996,30 @@ textarea {
   border-color: var(--accent);
 }
 
+/* Display-unit toggle (m / ft). It carries a word rather than a glyph, so it gets a
+   readable weight and a visible outline even at rest — this button tells the user what
+   unit they are reading, which must never be something they have to hover to discover.
+   The .active state is inherited above and marks a CONVERTED view, i.e. the numbers on
+   screen are not the numbers in the database. */
+.lv-btn.lv-unit {
+  min-width: 26px;
+  font-weight: 600;
+  border-color: var(--border);
+}
+
 .lv-scale {
   height: 20px;
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   color: var(--text);
   /* --bg-app is the themed form-control surface (matches .form-control and .mm-dialog select).
      The old bare var(--bg) was defined in no palette, so it fell to transparent everywhere. */
   background: var(--bg-app);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--r-sm);
 }
 
 .lv-label {
-  font-size: 10px;
+  font-size: var(--fs-xs);
   color: var(--text-dim);
   padding: 0 2px;
 }
@@ -890,11 +1041,11 @@ textarea {
 .legend-dot.blocks {
   border-top: none;
   height: 8px;
-  border-radius: 2px;
+  border-radius: var(--r-sm);
 }
 
 .legend-name {
-  font-size: 10px;
+  font-size: var(--fs-xs);
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
@@ -904,7 +1055,7 @@ textarea {
 .scale-line {
   display: flex;
   justify-content: space-between;
-  font-size: 9.5px;
+  font-size: var(--fs-2xs);
   color: var(--text-dim);
 }
 
@@ -920,10 +1071,10 @@ textarea {
   position: fixed;
   z-index: 200;
   width: 64px;
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   padding: 1px 4px;
   border: 1px solid var(--accent);
-  border-radius: 2px;
+  border-radius: var(--r-sm);
   background: var(--bg-panel);
   color: var(--text);
 }
@@ -1023,7 +1174,7 @@ textarea {
   position: absolute;
   right: 6px;
   transform: translateY(-50%);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
 }
@@ -1042,8 +1193,8 @@ textarea {
   left: 64px;
   bottom: 8px;
   padding: 3px 10px;
-  font-size: 10.5px;
-  border-radius: 3px;
+  font-size: var(--fs-xs);
+  border-radius: var(--r-sm);
   background: color-mix(in srgb, var(--text) 80%, transparent);
   color: var(--bg-panel);
   pointer-events: none;
@@ -1067,7 +1218,7 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: var(--fs-md);
   color: var(--text-dim);
   pointer-events: none;
   padding: 16px;
@@ -1088,7 +1239,7 @@ textarea {
 }
 
 .sidebar-title {
-  font-size: 10px;
+  font-size: var(--fs-xs);
   text-transform: uppercase;
   letter-spacing: 0.6px;
   color: var(--text-dim);
@@ -1098,12 +1249,12 @@ textarea {
 }
 
 .sidebar-body {
-  font-size: 11.5px;
+  font-size: var(--fs-md);
 }
 
 .tree-node {
   padding: 3px 6px;
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
@@ -1150,7 +1301,7 @@ textarea {
   flex: none;
   width: 14px;
   text-align: center;
-  font-size: 12px;
+  font-size: var(--fs-md);
   line-height: 1;
   color: var(--text-dim);
   opacity: 0.45;
@@ -1188,7 +1339,7 @@ textarea {
 .top-color {
   width: 10px;
   height: 10px;
-  border-radius: 2px;
+  border-radius: var(--r-sm);
   flex: 0 0 auto;
   border: 1px solid var(--border-strong);
 }
@@ -1219,7 +1370,7 @@ textarea {
   border: none;
   background: none;
   padding: 5px 10px;
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--text-dim);
   cursor: pointer;
   border-bottom: 2px solid transparent;
@@ -1247,13 +1398,13 @@ textarea {
 
 /* Blue info panel replacing the italic run-on note. */
 .eq-note {
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   line-height: 1.45;
   color: var(--text);
   background: var(--bg-panel-alt);
   border: 1px solid var(--border);
   border-left: 3px solid var(--accent);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   padding: 7px 9px;
 }
 
@@ -1275,7 +1426,7 @@ textarea {
 
 .field-label {
   display: block;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   letter-spacing: 0.3px;
   text-transform: uppercase;
@@ -1309,9 +1460,9 @@ textarea {
   background: var(--bg-app);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   padding: 5px 8px;
-  font-size: 11.5px;
+  font-size: var(--fs-md);
   font-family: inherit;
   transition: border-color 0.12s ease, box-shadow 0.12s ease;
 }
@@ -1325,7 +1476,7 @@ textarea {
 /* Monospace input fields built in TS (report methodology, script editors). */
 .mono-input {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 
 .field-row input:focus,
@@ -1344,7 +1495,7 @@ textarea {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--text);
 }
 
@@ -1367,9 +1518,9 @@ textarea {
   background: var(--bg-panel-alt);
   color: var(--text);
   border: 1px solid var(--border-strong);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   padding: 5px 14px;
-  font-size: 11.5px;
+  font-size: var(--fs-md);
   font-weight: 600;
   cursor: pointer;
   transition: background 0.12s ease, border-color 0.12s ease;
@@ -1388,10 +1539,10 @@ textarea {
 }
 
 .eq-status {
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--text);
   background: var(--bg-panel-alt);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   padding: 6px 9px;
 }
 .eq-status.error {
@@ -1400,7 +1551,7 @@ textarea {
 }
 
 .placeholder-note {
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   color: var(--text-dim);
   font-style: italic;
   margin: 6px 0;
@@ -1415,15 +1566,15 @@ textarea {
   min-width: 190px;
   background: var(--bg-panel);
   border: 1px solid var(--border-strong);
-  border-radius: 7px;
-  box-shadow: 0 8px 24px rgba(51, 42, 31, 0.22);
+  border-radius: var(--r-lg);
+  box-shadow: var(--el-2);
   padding: 5px;
   display: flex;
   flex-direction: column;
 }
 
 .context-menu-heading {
-  font-size: 9px;
+  font-size: var(--fs-2xs);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.6px;
@@ -1436,9 +1587,9 @@ textarea {
   border: none;
   background: none;
   color: var(--text);
-  font-size: 11.5px;
+  font-size: var(--fs-md);
   padding: 6px 10px;
-  border-radius: 4px;
+  border-radius: var(--r-md);
   cursor: pointer;
 }
 .context-menu-item:hover:not(:disabled) {
@@ -1464,7 +1615,7 @@ textarea {
 .catalog-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 
 .catalog-table th {
@@ -1485,16 +1636,16 @@ textarea {
   box-sizing: border-box;
   margin: 4px 0 8px;
   padding: 4px 8px;
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--text);
   background: var(--bg-panel);
   border: 1px solid var(--border-strong);
-  border-radius: 4px;
+  border-radius: var(--r-md);
 }
 
 .catalog-run {
   color: var(--text-dim);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 /* --------------------------------------------------------------------------
@@ -1524,8 +1675,9 @@ textarea {
   flex-direction: column;
   background: var(--bg-panel);
   border: 1px solid var(--border-strong);
-  border-radius: 6px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  border-radius: var(--r-lg);
+  box-shadow: var(--el-3);
+  animation: sb-dialog-in var(--dur-base) var(--ease);
 }
 
 .modal-head {
@@ -1535,7 +1687,7 @@ textarea {
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-panel-alt);
-  border-radius: 6px 6px 0 0;
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
   cursor: move;
   user-select: none;
 }
@@ -1553,7 +1705,7 @@ textarea {
   overflow: hidden;
   min-height: 0;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--r-md);
 }
 
 .lp-col {
@@ -1575,12 +1727,12 @@ textarea {
 .lp-iconbtn {
   width: 26px;
   height: 26px;
-  border-radius: 5px;
+  border-radius: var(--r-md);
   border: 1px solid var(--border-strong);
   background: var(--bg-panel);
   color: var(--text);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--fs-lg);
   line-height: 1;
   display: flex;
   align-items: center;
@@ -1600,8 +1752,8 @@ textarea {
 
 .lp-item {
   padding: 7px 9px;
-  border-radius: 6px;
-  font-size: 12.5px;
+  border-radius: var(--r-md);
+  font-size: var(--fs-md);
   cursor: pointer;
   margin-bottom: 2px;
   display: flex;
@@ -1622,7 +1774,7 @@ textarea {
 
 .lp-item-dim {
   opacity: 0.65;
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
 }
 
 .lp-detail {
@@ -1647,7 +1799,7 @@ textarea {
 }
 
 .lp-field label {
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   color: var(--text-dim);
   font-weight: 600;
   text-transform: uppercase;
@@ -1657,9 +1809,9 @@ textarea {
 .lp-field input,
 .lp-field select {
   font-family: inherit;
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   padding: 6px 8px;
-  border-radius: 5px;
+  border-radius: var(--r-md);
   border: 1px solid var(--border-strong);
   background: var(--bg-app);
   color: var(--text);
@@ -1667,7 +1819,7 @@ textarea {
 }
 
 .lp-section-title {
-  font-size: 11px;
+  font-size: var(--fs-sm);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.4px;
@@ -1678,13 +1830,13 @@ textarea {
 .lp-curvetable {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--fs-md);
   margin-bottom: 10px;
 }
 
 .lp-curvetable th {
   text-align: left;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.3px;
@@ -1703,9 +1855,9 @@ textarea {
 .lp-curvetable input[type="number"],
 .lp-curvetable select {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 11.5px;
+  font-size: var(--fs-md);
   padding: 4px 5px;
-  border-radius: 4px;
+  border-radius: var(--r-md);
   border: 1px solid var(--border-strong);
   background: var(--bg-app);
   color: var(--text);
@@ -1716,7 +1868,7 @@ textarea {
   width: 30px;
   height: 24px;
   padding: 1px;
-  border-radius: 4px;
+  border-radius: var(--r-md);
   border: 1px solid var(--border-strong);
   cursor: pointer;
 }
@@ -1732,10 +1884,10 @@ textarea {
 
 .lp-btn {
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--fs-md);
   font-weight: 500;
   padding: 6px 12px;
-  border-radius: 5px;
+  border-radius: var(--r-md);
   border: 1px solid var(--border-strong);
   background: var(--bg-panel-alt);
   color: var(--text);
@@ -1767,7 +1919,7 @@ textarea {
 
 .modal-head h3 {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fs-lg);
   color: var(--text);
 }
 
@@ -1776,7 +1928,7 @@ textarea {
   border: none;
   color: var(--text-dim);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--fs-lg);
 }
 
 .modal-close:hover {
@@ -1790,26 +1942,26 @@ textarea {
 
 .modal-body h4 {
   margin: 12px 0 4px;
-  font-size: 11.5px;
+  font-size: var(--fs-md);
   color: var(--text);
 }
 
 .modal-doc {
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--text-dim);
   margin: 0 0 10px;
   line-height: 1.45;
 }
 
 .modal-hint {
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   color: var(--text-dim);
   margin: 8px 0;
 }
 
 .modal-result {
   margin-top: 10px;
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 
 .result-ok {
@@ -1824,13 +1976,13 @@ textarea {
 
 /* Contextual Help modal (the ? quick-access tool → guide for the active panel). */
 .help-body {
-  font-size: 12px;
+  font-size: var(--fs-md);
   color: var(--text);
   line-height: 1.5;
   margin: 0 0 12px;
 }
 .help-note {
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   color: var(--text-dim);
   font-style: italic;
   margin: 0;
@@ -1845,20 +1997,20 @@ textarea {
 
 .form-label {
   flex: 0 0 180px;
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--text);
 }
 
 /* One-line explanation under a dialog's operation selector (curve edit etc.). */
 .form-hint {
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   color: var(--text-dim);
   margin: -3px 0 7px;
 }
 
 /* Section label inside a properties dialog (Crossplot/Histogram v2). */
 .props-section {
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -1878,9 +2030,9 @@ textarea {
   background: var(--bg-app);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   padding: 4px 7px;
-  font-size: 11.5px;
+  font-size: var(--fs-md);
   font-family: inherit;
 }
 
@@ -1893,9 +2045,9 @@ textarea {
   background: var(--accent);
   color: #fff;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--r-md);
   padding: 6px 18px;
-  font-size: 11.5px;
+  font-size: var(--fs-md);
   cursor: pointer;
   margin-top: 6px;
 }
@@ -1914,7 +2066,7 @@ textarea {
   max-height: 110px;
   overflow-y: auto;
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   padding: 4px 7px;
   background: var(--bg-app);
 }
@@ -1923,7 +2075,7 @@ textarea {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--text);
   padding: 1.5px 0;
   cursor: pointer;
@@ -1955,7 +2107,7 @@ textarea {
 .zone-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 11px;
+  font-size: var(--fs-sm);
   margin: 4px 0 8px;
 }
 
@@ -1983,7 +2135,7 @@ textarea {
   border: none;
   color: var(--text-dim);
   cursor: pointer;
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .zone-del:hover {
@@ -2005,13 +2157,13 @@ textarea {
 
 .summary-note {
   margin: 8px 0 0;
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   color: var(--text-dim);
 }
 
 .summary-table {
   border-collapse: collapse;
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   white-space: nowrap;
   width: 100%;
 }
@@ -2071,7 +2223,7 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  font-size: 9px;
+  font-size: var(--fs-2xs);
   font-weight: 600;
   letter-spacing: 0.3px;
   text-transform: uppercase;
@@ -2082,9 +2234,9 @@ textarea {
   background: var(--bg-app);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   padding: 4px 6px;
-  font-size: 11.5px;
+  font-size: var(--fs-md);
   font-family: inherit;
 }
 .dash-num {
@@ -2095,7 +2247,7 @@ textarea {
 }
 
 .dashboard-status {
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--text-dim);
   padding: 6px 12px;
   border-bottom: 1px solid var(--border);
@@ -2112,7 +2264,7 @@ textarea {
 }
 .dashboard-section h4 {
   margin: 0 0 4px;
-  font-size: 11px;
+  font-size: var(--fs-sm);
   font-weight: 700;
   color: var(--text);
   letter-spacing: 0.2px;
@@ -2120,7 +2272,7 @@ textarea {
 
 .dashboard-empty {
   padding: 18px 4px;
-  font-size: 11.5px;
+  font-size: var(--fs-md);
   font-style: italic;
   color: var(--text-dim);
 }
@@ -2140,13 +2292,13 @@ textarea {
 }
 .dashboard-boxplot .bp-label {
   fill: var(--text);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 600;
 }
 .dashboard-boxplot .bp-value,
 .dashboard-boxplot .bp-axis {
   fill: var(--text-dim);
-  font-size: 9px;
+  font-size: var(--fs-2xs);
   font-variant-numeric: tabular-nums;
 }
 .dashboard-boxplot .bp-box {
@@ -2189,10 +2341,10 @@ textarea {
   border: 1px solid var(--border-strong);
   background: transparent;
   color: var(--text);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   cursor: pointer;
   padding: 3px 9px;
-  font-size: 12px;
+  font-size: var(--fs-md);
 }
 .map-btn:hover:not(:disabled) {
   background: var(--accent);
@@ -2210,7 +2362,7 @@ textarea {
 }
 .map-info {
   margin-left: auto;
-  font-size: 12px;
+  font-size: var(--fs-md);
   color: var(--text-dim);
 }
 .map-info.map-warn {
@@ -2286,7 +2438,7 @@ textarea {
 }
 
 .dbi-scope {
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--text-dim);
 }
 
@@ -2295,7 +2447,7 @@ textarea {
 }
 
 .dbi-pageinfo {
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--text-dim);
   min-width: 90px;
   text-align: center;
@@ -2305,14 +2457,14 @@ textarea {
   flex: 1;
   overflow: auto;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   background: var(--bg-panel);
 }
 
 .dbgrid {
   border-collapse: collapse;
   width: 100%;
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 
 .dbgrid th {
@@ -2329,7 +2481,7 @@ textarea {
 .dbgrid th.editable::after {
   content: " ✎";
   color: var(--text-dim);
-  font-size: 9px;
+  font-size: var(--fs-2xs);
 }
 
 .dbgrid td {
@@ -2368,18 +2520,18 @@ textarea {
   min-height: 110px;
   resize: vertical;
   font-family: Consolas, "Cascadia Mono", monospace;
-  font-size: 11.5px;
+  font-size: var(--fs-md);
   color: var(--text);
   background: var(--bg-panel);
   border: 1px solid var(--border-strong);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   padding: 6px 8px;
 }
 
 /* CodeMirror equation editor host (replaces the plain textarea). */
 .eq-editor {
   border: 1px solid var(--border-strong);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   margin: 4px 0 8px;
   overflow: hidden;
 }
@@ -2387,7 +2539,7 @@ textarea {
 .eq-editor .cm-editor {
   min-height: 150px;
   max-height: 320px;
-  font-size: 12px;
+  font-size: var(--fs-md);
   background: var(--bg-panel);
   color: var(--text);
 }
@@ -2418,9 +2570,9 @@ textarea {
 .stat-chip {
   border: 1px solid var(--border-strong);
   background: none;
-  border-radius: 12px;
+  border-radius: var(--r-pill);
   padding: 3px 10px;
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-family: inherit;
   color: var(--text-dim);
   cursor: pointer;
@@ -2446,7 +2598,7 @@ textarea {
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--text);
   cursor: pointer;
   white-space: nowrap;
@@ -2506,7 +2658,7 @@ textarea {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--fs-md);
   white-space: nowrap;
 }
 .contacts-table {
@@ -2534,7 +2686,7 @@ textarea {
   height: 26px;
   padding: 0;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   background: none;
   cursor: pointer;
 }
@@ -2546,7 +2698,7 @@ textarea {
   align-self: flex-start;
 }
 .contacts-empty {
-  font-size: 12px;
+  font-size: var(--fs-md);
   opacity: 0.7;
   padding: 4px 0;
 }
@@ -2562,7 +2714,7 @@ textarea {
   gap: 6px;
 }
 .contacts-section-title {
-  font-size: 12px;
+  font-size: var(--fs-md);
   font-weight: 600;
   opacity: 0.85;
 }
@@ -2579,14 +2731,14 @@ textarea {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--fs-md);
   opacity: 0.8;
 }
 .contacts-section-results {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--fs-md);
 }
 .contacts-cand {
   display: flex;
@@ -2624,7 +2776,7 @@ textarea {
   align-self: flex-end;
 }
 .rqc-status {
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--text-dim);
 }
 .rqc-body {
@@ -2634,7 +2786,7 @@ textarea {
 }
 .rqc-card {
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--r-md);
   background: var(--bg-panel-alt);
   padding: 8px 10px;
 }
@@ -2644,7 +2796,7 @@ textarea {
 }
 .rqc-card-head {
   font-weight: 600;
-  font-size: 12px;
+  font-size: var(--fs-md);
   margin-bottom: 6px;
   color: var(--text);
 }
@@ -2653,14 +2805,14 @@ textarea {
   align-items: baseline;
   gap: 8px;
   padding: 2px 0;
-  font-size: 12px;
+  font-size: var(--fs-md);
 }
 .rqc-dot {
   flex: 0 0 auto;
   width: 1.1em;
   text-align: center;
   align-self: center;
-  font-size: 12px;
+  font-size: var(--fs-md);
   line-height: 1;
   font-weight: 700;
   color: var(--text-dim);
@@ -2708,7 +2860,7 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 12px;
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--text-dim);
   align-items: center;
 }
@@ -2721,7 +2873,7 @@ textarea {
 .rqc-swatch {
   width: 11px;
   height: 3px;
-  border-radius: 1px;
+  border-radius: var(--r-sm);
   display: inline-block;
 }
 .rqc-legend-note {
@@ -2740,7 +2892,7 @@ textarea {
   gap: 3px;
 }
 .rqc-plot-title {
-  font-size: 11px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--text-dim);
 }
@@ -2753,7 +2905,7 @@ textarea {
   display: block;
   width: 100%;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   cursor: crosshair;
 }
 
@@ -2761,14 +2913,14 @@ textarea {
    (attachScatterTooltip); pointer-events off so it never intercepts the canvas's mouse. */
 .plot-tooltip {
   font-family: var(--font-ui, system-ui, sans-serif);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   line-height: 1.35;
   color: var(--text);
   background: var(--bg-panel);
   border: 1px solid var(--border-strong);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   padding: 4px 7px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--el-1);
   white-space: nowrap;
   max-width: 260px;
 }
@@ -2830,7 +2982,7 @@ textarea {
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 11.5px;
+  font-size: var(--fs-md);
   color: var(--text-dim);
 }
 /* A control that doesn't apply to the active chart type (Y on a histogram, Color off scatter). */
@@ -2854,7 +3006,7 @@ textarea {
   flex: 1 1 auto;
   overflow: auto;
   max-height: 220px;
-  font-size: 12px;
+  font-size: var(--fs-md);
 }
 .vega-spec-bar {
   display: flex;
@@ -2865,7 +3017,7 @@ textarea {
 }
 .vega-spec-err {
   color: var(--danger, #d9534f);
-  font-size: 11.5px;
+  font-size: var(--fs-md);
   font-family: var(--mono, monospace);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2896,10 +3048,10 @@ textarea {
   border: 1px solid var(--border-strong);
   background: transparent;
   color: var(--text);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   cursor: pointer;
   padding: 3px 7px;
-  font-size: 13px;
+  font-size: var(--fs-lg);
   line-height: 1;
 }
 .tree-group-manage:hover {
@@ -2918,7 +3070,7 @@ textarea {
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   overflow: hidden;
 }
 
@@ -2934,7 +3086,7 @@ textarea {
   border-top: none;
 }
 .wg-header {
-  font-size: 11px;
+  font-size: var(--fs-sm);
   text-transform: uppercase;
   letter-spacing: 0.03em;
   color: var(--text-dim);
@@ -2966,10 +3118,10 @@ textarea {
   border: 1px solid var(--border-strong);
   background: transparent;
   color: var(--text);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   cursor: pointer;
   padding: 2px 7px;
-  font-size: 12px;
+  font-size: var(--fs-md);
 }
 .wg-btn:hover {
   background: var(--accent);
@@ -3005,7 +3157,7 @@ textarea {
   max-height: 220px;
   overflow-y: auto;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   padding: 4px 6px;
 }
 .wg-well-check {
@@ -3032,7 +3184,7 @@ textarea {
   gap: 8px;
   padding: 4px 6px;
   border: 1px solid transparent;
-  border-radius: 4px;
+  border-radius: var(--r-md);
   margin-top: 4px;
   cursor: pointer;
 }
@@ -3045,18 +3197,18 @@ textarea {
 .pick-swatch {
   width: 14px;
   height: 4px;
-  border-radius: 2px;
+  border-radius: var(--r-sm);
   flex: 0 0 auto;
 }
 
 .pick-label {
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--text);
   flex: 0 0 70px;
 }
 
 .pick-value {
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--text);
   font-variant-numeric: tabular-nums;
   flex: 0 0 80px;
@@ -3087,7 +3239,7 @@ textarea {
 
 ::-webkit-scrollbar-thumb {
   background: var(--border-strong);
-  border-radius: 5px;
+  border-radius: var(--r-md);
   border: 2px solid transparent;
   background-clip: content-box;
 }
@@ -3104,7 +3256,7 @@ textarea {
   overflow: auto;
   background: var(--bg-panel-alt);
   padding: 8px;
-  border-radius: 4px;
+  border-radius: var(--r-md);
   display: flex;
   justify-content: center;
 }
@@ -3134,7 +3286,7 @@ textarea {
   margin: 6px 0 12px;
   padding: 0;
   border: 1px solid var(--border, #d8d2c4);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   max-height: 300px;
   overflow-y: auto;
 }
@@ -3155,11 +3307,11 @@ textarea {
   padding: 5px 8px;
 }
 .workflow-step-title {
-  font-size: 13px;
+  font-size: var(--fs-lg);
 }
 .workflow-step-badge {
   flex: 1;
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--text-dim);
 }
 .workflow-step-badge-set {
@@ -3183,14 +3335,14 @@ textarea {
   margin-bottom: 4px;
 }
 .workflow-editor-row label {
-  font-size: 12px;
+  font-size: var(--fs-md);
   color: var(--text-dim);
   cursor: help;
 }
 .workflow-editor-row select,
 .workflow-editor-row input {
   width: 100%;
-  font-size: 12px;
+  font-size: var(--fs-md);
   padding: 2px 4px;
 }
 .workflow-invalid {
@@ -3210,14 +3362,14 @@ textarea {
 .workflow-grid-wrap {
   margin: 6px 0 12px;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   max-height: 320px;
   overflow: auto;
 }
 .workflow-grid {
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 12px;
+  font-size: var(--fs-md);
   min-width: 100%;
 }
 .workflow-grid th,
@@ -3266,7 +3418,7 @@ textarea {
 }
 .workflow-grid-unit {
   margin-left: 3px;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 400;
   color: var(--text-dim);
 }
@@ -3282,7 +3434,7 @@ textarea {
 .workflow-grid-mod > input,
 .workflow-grid-mod > select {
   border: 1px solid var(--accent);
-  border-radius: 2px;
+  border-radius: var(--r-sm);
 }
 /* Grid view uses the whole pane width; the form column keeps its cap (same
    exemption as the SandiMin endpoints matrix). */
@@ -3291,12 +3443,12 @@ textarea {
 }
 .workflow-grid input[type="number"] {
   width: 80px;
-  font-size: 12px;
+  font-size: var(--fs-md);
   padding: 2px 4px;
 }
 .workflow-grid select {
   max-width: 140px;
-  font-size: 12px;
+  font-size: var(--fs-md);
   padding: 1px 2px;
 }
 .workflow-grid .workflow-step-badge {
@@ -3310,19 +3462,19 @@ textarea {
   margin-top: 6px;
 }
 .workflow-editor-outputs {
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--text-dim);
 }
 .workflow-empty {
   padding: 10px;
   color: var(--text-dim);
-  font-size: 12px;
+  font-size: var(--fs-md);
   text-align: center;
 }
 .workflow-mini {
   min-width: 24px;
   padding: 2px 6px;
-  font-size: 12px;
+  font-size: var(--fs-md);
   line-height: 1.2;
 }
 .workflow-mini:disabled {
@@ -3336,9 +3488,9 @@ textarea {
   overflow-y: auto;
   padding: 6px 8px;
   border: 1px solid var(--border, #d8d2c4);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   margin-bottom: 10px;
-  font-size: 13px;
+  font-size: var(--fs-lg);
 }
 .workflow-wells-head {
   display: flex;
@@ -3359,7 +3511,7 @@ textarea {
   padding: 6px 24px;
   background: var(--accent);
   border: 1px solid var(--accent);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   color: #fff;
   font-weight: 600;
   cursor: pointer;
@@ -3380,7 +3532,7 @@ textarea {
   margin: 8px 0 4px;
 }
 .workflow-status {
-  font-size: 12px;
+  font-size: var(--fs-md);
   color: var(--text-dim);
   min-height: 16px;
 }
@@ -3390,13 +3542,13 @@ textarea {
   max-width: 620px;
 }
 .mc-chain-note {
-  font-size: 12px;
+  font-size: var(--fs-md);
   color: var(--accent, #b5651d);
   margin: 2px 0 8px;
 }
 .mc-params {
   border: 1px solid var(--border, #d8d2c4);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   margin: 6px 0 12px;
   max-height: 180px;
   overflow-y: auto;
@@ -3417,9 +3569,9 @@ textarea {
   background: var(--bg-app);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   padding: 3px 6px;
-  font-size: 11.5px;
+  font-size: var(--fs-md);
   font-family: inherit;
 }
 .mc-param-row select:focus {
@@ -3437,12 +3589,12 @@ textarea {
    (docs/ref_monte_carlo_seeds.md) rather than the generic magnitude heuristic. */
 .mc-seed-tag {
   flex: 0 0 auto;
-  font-size: 9px;
+  font-size: var(--fs-2xs);
   font-weight: 600;
   letter-spacing: 0.03em;
   color: var(--accent);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   padding: 0 3px;
   opacity: 0.85;
   cursor: help;
@@ -3464,7 +3616,7 @@ textarea {
   width: 60px;
   height: 22px;
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   background: var(--bg-app);
 }
 .mc-spark-fill {
@@ -3477,19 +3629,19 @@ textarea {
 .mc-field {
   display: flex;
   flex-direction: column;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   color: var(--text-dim, #6f6857);
   gap: 1px;
 }
 .mc-field input,
 .mc-field select {
   width: 76px;
-  font-size: 11.5px;
+  font-size: var(--fs-md);
   padding: 3px 5px;
   background: var(--bg-app);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   font-family: inherit;
 }
 .mc-field select {
@@ -3507,18 +3659,18 @@ textarea {
 .mc-empty {
   padding: 10px;
   text-align: center;
-  font-size: 12px;
+  font-size: var(--fs-md);
   color: var(--text-dim);
 }
 .mc-zone-inp {
   flex: 0 0 96px;
   width: 96px;
-  font-size: 11px;
+  font-size: var(--fs-sm);
   padding: 3px 5px;
   background: var(--bg-app);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   font-family: inherit;
 }
 .mc-zone-inp:focus {
@@ -3528,7 +3680,7 @@ textarea {
 /* Correlation mini-editor: paramA ↔ paramB ρ [0.7] ✕ rows, same rhythm as .mc-param-row. */
 .mc-corr-list {
   border: 1px solid var(--border, #d8d2c4);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   margin: 6px 0 12px;
 }
 .mc-corr-row {
@@ -3547,25 +3699,25 @@ textarea {
   background: var(--bg-app);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   padding: 3px 6px;
-  font-size: 11.5px;
+  font-size: var(--fs-md);
   font-family: inherit;
 }
 .mc-corr-link,
 .mc-corr-rho-lbl {
   color: var(--text-dim);
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 .mc-corr-rho {
   flex: 0 0 64px;
   width: 64px;
-  font-size: 11.5px;
+  font-size: var(--fs-md);
   padding: 3px 5px;
   background: var(--bg-app);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   font-family: inherit;
 }
 /* Convergence sparkline block + backend advisory notes. */
@@ -3573,7 +3725,7 @@ textarea {
   margin: 6px 0 10px;
 }
 .mc-conv-caption {
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--text-dim);
   margin-bottom: 3px;
 }
@@ -3589,7 +3741,7 @@ textarea {
   margin: 4px 0 8px;
 }
 .mc-note {
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--text-dim);
   padding: 1px 0;
 }
@@ -3597,7 +3749,7 @@ textarea {
   color: var(--warn, #b5651d);
 }
 .mc-mini {
-  font-size: 12px;
+  font-size: var(--fs-md);
   padding: 2px 8px;
 }
 
@@ -3611,11 +3763,11 @@ textarea {
 .shf-tab {
   padding: 2px 10px;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   background: var(--bg-panel-alt);
   color: var(--text-dim);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--fs-md);
 }
 .shf-tab:hover {
   background: var(--bg-hover);
@@ -3627,7 +3779,7 @@ textarea {
 }
 .shf-diag {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--fs-md);
   color: var(--text-dim);
 }
 .shf-diag .warn {
@@ -3646,11 +3798,11 @@ textarea {
   padding: 5px 16px;
   border: 1px solid transparent;
   border-bottom: none;
-  border-radius: 6px 6px 0 0;
+  border-radius: var(--r-md) var(--r-md) 0 0;
   background: transparent;
   color: var(--text-dim);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--fs-lg);
 }
 .mm-tab:hover {
   background: var(--bg-hover);
@@ -3679,7 +3831,7 @@ textarea {
   grid-template-columns: 1fr 1fr;
   gap: 2px 10px;
   margin-bottom: 8px;
-  font-size: 12px;
+  font-size: var(--fs-md);
 }
 .mc-settings {
   display: flex;
@@ -3697,11 +3849,11 @@ textarea {
 .mc-run-btn {
   width: 100%;
   margin-top: 0;
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   padding: 8px 18px;
 }
 .mc-status {
-  font-size: 12px;
+  font-size: var(--fs-md);
   color: var(--text-dim, #6f6857);
   min-height: 1.1em;
 }
@@ -3711,7 +3863,7 @@ textarea {
 .mc-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 .mc-table th,
 .mc-table td {
@@ -3770,7 +3922,7 @@ textarea {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 .ml-imp-name {
   flex: 0 0 90px;
@@ -3781,7 +3933,7 @@ textarea {
   flex: 1 1 auto;
   height: 12px;
   background: var(--bg-panel-alt, #e9dfc8);
-  border-radius: 2px;
+  border-radius: var(--r-sm);
   overflow: hidden;
 }
 .ml-imp-bar {
@@ -3805,7 +3957,7 @@ textarea {
   margin-top: 10px;
 }
 .mc-hist-caption {
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--text-dim, #6f6857);
   margin-bottom: 3px;
 }
@@ -3813,7 +3965,7 @@ textarea {
   width: 100%;
   height: 200px;
   border: 1px solid var(--border, #e6e0d2);
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   background: var(--bg-panel, #fbf7ee);
 }
 
@@ -3827,7 +3979,7 @@ textarea {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--fs-md);
   cursor: pointer;
 }
 .mc-sens {
@@ -3837,7 +3989,7 @@ textarea {
   margin-top: 0;
 }
 .mc-sens-title {
-  font-size: 12px;
+  font-size: var(--fs-md);
   font-weight: 600;
   color: var(--text, #2c2519);
   margin-bottom: 6px;
@@ -3849,7 +4001,7 @@ textarea {
   margin-bottom: 4px;
 }
 .mc-sens-caption {
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--text-dim, #6f6857);
   margin-bottom: 3px;
 }
@@ -3857,7 +4009,7 @@ textarea {
   width: 100%;
   height: 220px;
   border: 1px solid var(--border, #e6e0d2);
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   background: var(--bg-panel, #fbf7ee);
 }
 
@@ -3865,11 +4017,11 @@ textarea {
 .mc-table-wrap {
   overflow-x: auto;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--r-md);
 }
 .mc-table th .mc-th-sub {
   display: block;
-  font-size: 9px;
+  font-size: var(--fs-2xs);
   font-weight: 400;
   opacity: 0.75;
   letter-spacing: 0.02em;
@@ -3885,7 +4037,7 @@ textarea {
 }
 .mc-cell-range {
   display: block;
-  font-size: 9px;
+  font-size: var(--fs-2xs);
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
 }
@@ -3906,8 +4058,8 @@ textarea {
   border: 1px solid var(--border);
   background: var(--bg-panel-alt);
   color: var(--text-dim);
-  border-radius: 4px;
-  font-size: 12px;
+  border-radius: var(--r-md);
+  font-size: var(--fs-md);
   line-height: 1;
   padding: 3px 7px;
   cursor: pointer;
@@ -3924,14 +4076,14 @@ textarea {
   padding: 8px 10px;
   margin-bottom: 6px;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   background: var(--bg-panel-alt);
 }
 .mc-prop {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--text-dim);
   white-space: nowrap;
 }
@@ -3940,12 +4092,12 @@ textarea {
 }
 .mc-prop-num {
   width: 60px;
-  font-size: 11px;
+  font-size: var(--fs-sm);
   padding: 2px 4px;
   background: var(--bg-app);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   font-family: inherit;
 }
 .mc-prop-color {
@@ -3953,7 +4105,7 @@ textarea {
   height: 20px;
   padding: 0;
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   background: none;
   cursor: pointer;
 }
@@ -3961,7 +4113,7 @@ textarea {
   margin-top: 14px;
 }
 .mc-table-caption {
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--text-dim);
   margin-bottom: 3px;
 }
@@ -3977,7 +4129,7 @@ textarea {
   margin: 8px 0 12px;
   padding: 8px;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   background: var(--bg-panel-alt);
 }
 .well-scope-head {
@@ -3987,14 +4139,14 @@ textarea {
   gap: 8px;
 }
 .well-scope-label {
-  font-size: 12px;
+  font-size: var(--fs-md);
   font-weight: 600;
   color: var(--text);
 }
 .well-scope-modes {
   display: inline-flex;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   overflow: hidden;
 }
 .well-scope-mode {
@@ -4002,7 +4154,7 @@ textarea {
   border-right: 1px solid var(--border);
   background: var(--bg-panel);
   color: var(--text-dim);
-  font-size: 12px;
+  font-size: var(--fs-md);
   padding: 3px 9px;
   cursor: pointer;
 }
@@ -4018,7 +4170,7 @@ textarea {
 }
 .well-scope-count {
   margin-left: auto;
-  font-size: 12px;
+  font-size: var(--fs-md);
   font-weight: 600;
   color: var(--accent);
   cursor: default;
@@ -4030,13 +4182,13 @@ textarea {
   margin-top: 8px;
 }
 .well-scope-hint {
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--text-dim);
 }
 .well-scope-group-sel {
   width: 100%;
   max-width: 320px;
-  font-size: 12px;
+  font-size: var(--fs-md);
   padding: 3px 4px;
 }
 .well-scope-custom-tools {
@@ -4048,11 +4200,11 @@ textarea {
 .well-scope-search {
   flex: 1;
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--fs-md);
   padding: 3px 6px;
 }
 .well-scope-mini {
-  font-size: 11px;
+  font-size: var(--fs-sm);
   padding: 2px 8px;
   white-space: nowrap;
 }
@@ -4064,9 +4216,9 @@ textarea {
   overflow-y: auto;
   padding: 4px 2px;
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   background: var(--bg-panel);
-  font-size: 12px;
+  font-size: var(--fs-md);
 }
 .well-scope-custom-list label {
   display: flex;
@@ -4101,9 +4253,13 @@ textarea {
   width: 26px;
   height: 24px;
   border: 1px solid transparent;
-  border-radius: 4px;
+  border-radius: var(--r-md);
   background: transparent;
   color: var(--text);
+  /* These are icon-only (fixed 26x24 with an SVG child), so this is hygiene
+     rather than a visible change: without it the button inherits the UA
+     default 13.33px while everything else in the same strip is 11-12px. */
+  font-size: var(--fs-sm);
   cursor: pointer;
 }
 .qat-btn svg {
@@ -4138,10 +4294,10 @@ textarea {
   border: 1px solid var(--border-strong);
   background: var(--bg-panel);
   color: var(--text);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   cursor: pointer;
   padding: 3px 8px;
-  font-size: 12px;
+  font-size: var(--fs-md);
   line-height: 1.2;
   white-space: nowrap;
 }
@@ -4190,7 +4346,7 @@ textarea {
   flex: 1 1 auto;
 }
 .history-count {
-  font-size: 12px;
+  font-size: var(--fs-md);
   color: var(--text-dim);
 }
 .history-list {
@@ -4202,7 +4358,7 @@ textarea {
 .history-empty {
   padding: 14px;
   color: var(--text-dim);
-  font-size: 12px;
+  font-size: var(--fs-md);
   line-height: 1.5;
 }
 .history-row {
@@ -4211,7 +4367,7 @@ textarea {
   gap: 8px;
   align-items: baseline;
   padding: 3px 8px;
-  font-size: 12px;
+  font-size: var(--fs-md);
   border-bottom: 1px solid var(--border);
 }
 .history-row:hover {
@@ -4225,7 +4381,7 @@ textarea {
   font-weight: 600;
   color: var(--accent);
   text-transform: uppercase;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   letter-spacing: 0.4px;
 }
 .history-kind-import,
@@ -4251,7 +4407,7 @@ textarea {
 .session-empty {
   padding: 14px;
   color: var(--text-dim);
-  font-size: 12px;
+  font-size: var(--fs-md);
   text-align: center;
 }
 .session-row {
@@ -4264,10 +4420,10 @@ textarea {
   text-align: left;
   padding: 8px 10px;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--r-md);
   background: var(--bg-panel);
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--fs-lg);
   cursor: pointer;
 }
 .session-open-btn:hover {
@@ -4278,7 +4434,7 @@ textarea {
   flex: 0 0 auto;
   width: 34px;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--r-md);
   background: var(--bg-panel);
   color: var(--text-dim);
   cursor: pointer;
@@ -4305,7 +4461,7 @@ textarea {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--fs-md);
   min-width: 0;
 }
 .mm-tool-row > input[type="checkbox"] {
@@ -4363,19 +4519,19 @@ textarea {
   max-height: 260px;
   overflow-y: auto;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--r-md);
   padding: 6px 8px;
 }
 .mm-comp-row {
   display: flex;
   gap: 6px;
   align-items: center;
-  font-size: 12px;
+  font-size: var(--fs-md);
   padding: 1px 0;
   cursor: pointer;
 }
 .mm-group-head {
-  font-size: 11px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -4383,16 +4539,16 @@ textarea {
   margin: 6px 0 3px;
 }
 .mm-badge {
-  font-size: 9px;
+  font-size: var(--fs-2xs);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--r-pill);
   padding: 0 5px;
   color: var(--text-dim);
   margin-left: auto;
 }
 .mm-fluid {
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--r-md);
   padding: 6px 10px 8px;
   margin-top: 8px;
 }
@@ -4405,28 +4561,28 @@ textarea {
   display: flex;
   gap: 6px;
   align-items: center;
-  font-size: 12px;
+  font-size: var(--fs-md);
 }
 .mm-fluid-cell span {
   color: var(--text-dim);
 }
 .mm-fluid-preview {
   margin-top: 6px;
-  font-size: 11px;
+  font-size: var(--fs-sm);
   font-family: var(--font-mono, monospace);
   color: var(--text-dim);
 }
 .mm-cell-auto {
   color: var(--text-dim);
   text-align: center;
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 .mm-add-custom {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--fs-md);
   background: transparent;
   border: 1px dashed var(--border);
-  border-radius: 6px;
+  border-radius: var(--r-md);
   padding: 3px 10px;
   color: var(--text-dim);
   cursor: pointer;
@@ -4446,9 +4602,9 @@ textarea {
   background: var(--bg-app);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--r-sm);
   padding: 3px 5px;
-  font-size: 11.5px;
+  font-size: var(--fs-md);
   font-family: inherit;
 }
 .mm-dialog input[type="number"]:focus,
@@ -4467,7 +4623,7 @@ textarea {
    A click on the head shrinks the group; long lists cap their height and scroll. */
 .mm-collapse {
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--r-md);
   margin-bottom: 6px;
   overflow: hidden;
 }
@@ -4480,7 +4636,7 @@ textarea {
   border: none;
   cursor: pointer;
   padding: 4px 8px;
-  font-size: 11px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -4497,7 +4653,7 @@ textarea {
   letter-spacing: 0;
 }
 .mm-collapse-chevron {
-  font-size: 10px;
+  font-size: var(--fs-xs);
   transition: transform 0.12s ease;
 }
 .mm-collapse.collapsed .mm-collapse-chevron {
@@ -4523,7 +4679,7 @@ textarea {
 /* Run / apply-to-wells section pinned ABOVE the parameter tabs (Jauhar field review 2026-07-23). */
 .mm-run-section {
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--r-md);
   background: var(--bg-panel-alt);
   padding: 8px 10px 10px;
   margin-bottom: 12px;
@@ -4584,11 +4740,11 @@ input[type="number"].num-editing:focus {
   background: var(--bg-panel);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.35);
+  border-radius: var(--r-lg);
+  box-shadow: var(--el-3);
   max-width: 420px;
   padding: 16px 18px;
-  font-size: 13px;
+  font-size: var(--fs-lg);
   line-height: 1.45;
 }
 .guard-confirm-row {
@@ -4602,6 +4758,17 @@ input[type="number"].num-editing:focus {
   border-color: var(--warn);
   color: #fff;
 }
+/* Pressing a reload key again while the confirm is already up pulses it, so the second
+   press is visibly acknowledged instead of reading as a dead key. */
+@keyframes sb-guard-flash {
+  50% {
+    transform: scale(1.03);
+    border-color: var(--accent);
+  }
+}
+.guard-confirm-flash {
+  animation: sb-guard-flash var(--dur-slow) var(--ease);
+}
 
 /* Workflow Builder as a dock pane (was a popup dialog). */
 .dock-workflow {
@@ -4614,7 +4781,7 @@ input[type="number"].num-editing:focus {
 /* Recent-projects dropdown: placeholder row when the list is empty. */
 .ribbon-menu-empty {
   padding: 6px 12px;
-  font-size: 11px;
+  font-size: var(--fs-sm);
   color: var(--text-dim);
   white-space: nowrap;
 }
@@ -4653,7 +4820,7 @@ input[type="number"].num-editing:focus {
 .cutoff-seg {
   display: inline-flex;
   border: 1px solid var(--border-strong);
-  border-radius: 5px;
+  border-radius: var(--r-md);
   overflow: hidden;
 }
 .cutoff-seg-btn {
@@ -4663,7 +4830,7 @@ input[type="number"].num-editing:focus {
   background: var(--bg-inset, var(--bg-app));
   color: var(--text);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--fs-md);
 }
 .cutoff-seg-btn:last-child {
   border-right: none;
@@ -4687,18 +4854,18 @@ input[type="number"].num-editing:focus {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--fs-md);
   color: var(--text);
 }
 .cutoff-canvas {
   width: 100%;
   height: 340px;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   touch-action: none;
 }
 .cutoff-readout {
-  font-size: 11.5px;
+  font-size: var(--fs-md);
   color: var(--text-dim);
   min-height: 1.3em;
 }
@@ -4711,7 +4878,7 @@ input[type="number"].num-editing:focus {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 11.5px;
+  font-size: var(--fs-md);
   color: var(--text);
 }
 .cutoff-dot {
@@ -4729,11 +4896,11 @@ input[type="number"].num-editing:focus {
 .cutoff-btn {
   padding: 4px 12px;
   border: 1px solid var(--border-strong);
-  border-radius: 5px;
+  border-radius: var(--r-md);
   background: var(--bg-inset, var(--bg-app));
   color: var(--text);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--fs-md);
 }
 .cutoff-btn:hover {
   border-color: var(--accent);
@@ -4765,7 +4932,7 @@ input[type="number"].num-editing:focus {
    raw tool output — often a long file path — and it is the one line a user would send us. */
 .startup-notice-reason {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   white-space: pre-wrap;
   word-break: break-word;
   background: var(--bg-panel-alt);
@@ -4805,7 +4972,7 @@ input[type="number"].num-editing:focus {
   padding-top: 8px;
 }
 .catalog-sets-title {
-  font-size: 11px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--text-dim);
   text-transform: uppercase;
@@ -4817,15 +4984,15 @@ input[type="number"].num-editing:focus {
   align-items: center;
   gap: 8px;
   padding: 3px 0;
-  font-size: 12px;
+  font-size: var(--fs-md);
   border-bottom: 1px dotted var(--border, #d8d2c4);
 }
 .catalog-set-badge {
   flex: 0 0 auto;
   font-family: var(--font-mono, monospace);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   padding: 1px 6px;
-  border-radius: 4px;
+  border-radius: var(--r-md);
   border: 1px solid var(--border);
   color: var(--text-dim);
 }
@@ -4843,10 +5010,10 @@ input[type="number"].num-editing:focus {
 }
 .catalog-set-btn {
   flex: 0 0 auto;
-  font-size: 11px;
+  font-size: var(--fs-sm);
   padding: 1px 8px;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   background: transparent;
   color: var(--text);
   cursor: pointer;
@@ -4871,8 +5038,8 @@ input[type="number"].num-editing:focus {
   display: inline-block;
   margin-left: 6px;
   padding: 0 5px;
-  border-radius: 8px;
-  font-size: 9px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-2xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -4909,7 +5076,7 @@ input[type="number"].num-editing:focus {
   overflow: auto;
   background: var(--bg-app);
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--fs-md);
 }
 .proc-list {
   display: flex;
@@ -4924,7 +5091,7 @@ input[type="number"].num-editing:focus {
 }
 .proc-job {
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--r-md);
   background: var(--bg-panel);
   padding: 8px 10px;
 }
@@ -4953,11 +5120,11 @@ input[type="number"].num-editing:focus {
   white-space: nowrap;
 }
 .proc-phase {
-  font-size: 10px;
+  font-size: var(--fs-xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   padding: 1px 6px;
-  border-radius: 10px;
+  border-radius: var(--r-pill);
   border: 1px solid var(--border);
   color: var(--text-dim);
 }
@@ -4981,7 +5148,7 @@ input[type="number"].num-editing:focus {
 .proc-bar-wrap {
   flex: 1;
   height: 8px;
-  border-radius: 5px;
+  border-radius: var(--r-md);
   background: var(--bg-panel-alt);
   overflow: hidden;
 }
@@ -5009,7 +5176,7 @@ input[type="number"].num-editing:focus {
 .proc-cancel {
   padding: 2px 10px;
   border: 1px solid var(--border-strong);
-  border-radius: 4px;
+  border-radius: var(--r-md);
   background: var(--bg-panel-alt);
   color: var(--text);
   cursor: pointer;
@@ -5025,7 +5192,7 @@ input[type="number"].num-editing:focus {
 /* Shown in place of the Cancel button for a job that cannot observe a cancel — muted and
    help-cursored so it reads as a status note, not a dead button. */
 .proc-uninterruptible {
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-style: italic;
   color: var(--text-dim);
   white-space: nowrap;
@@ -5058,7 +5225,7 @@ input[type="number"].num-editing:focus {
   background: transparent;
   color: var(--text-dim);
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 .proc-toggle:hover {
   color: var(--accent);
@@ -5124,13 +5291,13 @@ input[type="number"].num-editing:focus {
 .proc-group-wells {
   padding-left: 18px;
   color: var(--text-dim);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   overflow-wrap: anywhere;
 }
 .proc-group-advice {
   padding-left: 18px;
   color: var(--text);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-style: italic;
 }
 
@@ -5143,7 +5310,7 @@ input[type="number"].num-editing:focus {
   overflow: auto;
   background: var(--bg-app);
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--fs-md);
   padding: 10px 12px;
   display: flex;
   flex-direction: column;
@@ -5161,7 +5328,7 @@ input[type="number"].num-editing:focus {
 }
 .health-bar-wrap {
   height: 12px;
-  border-radius: 6px;
+  border-radius: var(--r-md);
   background: var(--bg-panel-alt);
   border: 1px solid var(--border);
   overflow: hidden;
@@ -5183,5 +5350,5 @@ input[type="number"].num-editing:focus {
 .health-note {
   margin-top: 2px;
   color: var(--text-dim);
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }

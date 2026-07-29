@@ -10,6 +10,8 @@ import {
   type WellSummary,
 } from "../ipc";
 import { appState, setStatus } from "../state";
+import { setDisplayDepthUnit } from "../depthUnitPref";
+import { unitLabel } from "../units";
 import { pushUndo } from "../undo";
 import type { ContextMenuEntry } from "./contextMenu";
 import { openCurveEditDialog } from "./curveEditDialog";
@@ -186,6 +188,34 @@ export class LogViewPanel {
     bar.appendChild(scaleSel);
     btn("−", "Zoom out", () => this.stepZoom(1 / 1.25));
     btn("＋", "Zoom in", () => this.stepZoom(1.25));
+
+    // Display-unit toggle. Purely a view setting — it converts what is SHOWN and never
+    // touches stored depths, which stay in the project's declared unit. The 1:N scale
+    // above is deliberately unaffected: it is a physical ratio of rock to paper.
+    const unitBtn = btn("", "", () => {
+      setDisplayDepthUnit(appState.displayDepthUnit.get() === "M" ? "FT" : "M");
+    });
+    unitBtn.classList.add("lv-unit");
+    const paintUnit = () => {
+      const display = appState.displayDepthUnit.get();
+      const stored = appState.projectDepthUnit.get();
+      unitBtn.textContent = unitLabel(display);
+      unitBtn.title =
+        display === stored
+          ? `Depths shown in ${unitLabel(display)} (the unit they are stored in). Click to show ${unitLabel(display === "M" ? "FT" : "M")}.`
+          : `Depths shown in ${unitLabel(display)}, converted from the stored ${unitLabel(stored)} — stored data is unchanged. Click to switch back.`;
+      // Flag the converted state so it is never mistaken for the stored numbers.
+      unitBtn.classList.toggle("active", display !== stored);
+    };
+    paintUnit();
+    this.unsubscribers.push(
+      appState.displayDepthUnit.subscribe(() => {
+        paintUnit();
+        this.refreshDepthAxis();
+        this.renderer?.repaint();
+      }),
+      appState.projectDepthUnit.subscribe(paintUnit),
+    );
     sep();
 
     const widthLabel = document.createElement("span");

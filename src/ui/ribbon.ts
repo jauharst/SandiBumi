@@ -30,6 +30,7 @@ import {
 import { appState, bumpThemeVersion, setStatus } from "../state";
 import { anyDirty, clearDirty, subscribeDirty } from "../dirty";
 import { syncWellGroups } from "./wellGroups";
+import { syncDepthUnits } from "../depthUnitPref";
 import { clearUndoStacks, nextRedoLabel, nextUndoLabel, onUndoChange, pushUndo, redo, redoDepth, undo, undoDepth } from "../undo";
 import { recordProcess } from "../processLog";
 import { getTheme, setTheme, type ThemeChoice } from "../theme";
@@ -790,6 +791,9 @@ export class Ribbon {
     appState.selectedInterval.set(null);
     appState.selectedWell.set(null);
     clearUndoStacks();
+    // A different project can be in a different depth unit. Re-read it BEFORE panels
+    // reload — a stale unit would mislabel every depth and skew the 1:N print scale.
+    await syncDepthUnits().catch(() => {});
     await syncWellGroups().catch(() => {});
     this.reflectProject(info, true);
     this.workspace.notifyDataChanged();

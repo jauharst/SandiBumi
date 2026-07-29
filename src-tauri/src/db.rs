@@ -145,6 +145,12 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
         -- "50S" for the Mahakam Delta, "48S"/"49S" for ONWJ) so multi-zone fields can be
         -- distinguished; coordinates are plotted in their raw easting/northing. Added via
         -- ALTER so existing databases converge on the same shape.
+        -- The unit every depth stored for this well is in. Equal to the project's declared
+        -- depth unit (units.rs) — a file whose index was in the other unit is converted on
+        -- import, so this records what the numbers MEAN, not what the source file said.
+        -- Null on wells imported before unit handling existed; those are read as the
+        -- project unit, which is what they already were in practice.
+        ALTER TABLE wells ADD COLUMN IF NOT EXISTS depth_unit VARCHAR;
         ALTER TABLE wells ADD COLUMN IF NOT EXISTS surface_x DOUBLE;
         ALTER TABLE wells ADD COLUMN IF NOT EXISTS surface_y DOUBLE;
         ALTER TABLE wells ADD COLUMN IF NOT EXISTS utm_zone VARCHAR;

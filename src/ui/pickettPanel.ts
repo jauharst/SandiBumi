@@ -394,13 +394,10 @@ export async function buildPickettContent(
     redraw();
   });
 
-  // Right-click opens Properties (matches Histogram/Crossplot v2); left-click stays reserved
-  // for water-line picks, so — unlike the other plots — double-click is not overloaded here.
-  canvas.addEventListener("contextmenu", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    openProps();
-  });
+  // Right-click belongs to the pane context menu (Properties… is its first entry), not to
+  // the canvas. Left-click stays reserved for water-line picks, so — unlike the other
+  // plots — double-click is not overloaded here either; the ⚙ toolbar button is the
+  // direct route to Properties.
 
   makeCanvasAccessible(canvas, `Pickett plot: ${rtSel.value} versus ${phiSel.value}`);
   const detachZoomPan = attachZoomPan({ canvas, getPlot: () => plot, view: viewRef, redraw });
@@ -582,5 +579,6 @@ export async function buildPickettContent(
       rw: rwIn.value,
       zone: zoneSel.select.value,
     }),
+    openProperties: openProps,
   };
 }

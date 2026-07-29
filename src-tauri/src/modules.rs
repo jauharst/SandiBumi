@@ -129,6 +129,13 @@ pub struct ModuleContext {
     pub logs: HashMap<String, Vec<f32>>,
     pub params: HashMap<String, Vec<f64>>,
     pub opts: HashMap<String, String>,
+    /// The unit DEPTH (and any depth-derived param such as a free-water level) is in for
+    /// this run — the project's declared unit. Modules whose physics is unit-specific must
+    /// consult this rather than assume: the capillary-pressure law in `satheight.rs` is
+    /// per FOOT of column, so on a foot-declared project a hardcoded metres→feet multiply
+    /// returned a Pc 3.28x too high. A typed field rather than an `opts` key deliberately:
+    /// a missing string key would silently mean metres, which is the failure mode itself.
+    pub depth_unit: crate::units::DepthUnit,
 }
 
 impl ModuleContext {
@@ -2680,6 +2687,7 @@ mod tests {
             logs: logs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect(),
             params: params.iter().map(|(k, v)| (k.to_string(), vec![*v; n])).collect(),
             opts: opts.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+            depth_unit: Default::default(),
         }
     }
 

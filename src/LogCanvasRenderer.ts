@@ -1,5 +1,7 @@
 import type { Layout, TrackCurveSeries } from "./ipc";
 import { faciesColor } from "./ui/plotCanvas";
+import { appState } from "./state";
+import { pxPerUnitAt1to1 } from "./units";
 
 const VERTEX_SHADER = /* wgsl */ `
 struct Transform {
@@ -56,17 +58,24 @@ interface ReadoutSample {
   value: number;
 }
 
-// CSS px per depth unit (metre) at a true 1:1 print scale: 96 CSS px/in ÷ 0.0254 m/in.
-// A named "1:N" scale is therefore PX_PER_UNIT_1_1 / N px per depth unit.
-export const PX_PER_UNIT_1_1 = 96 / 0.0254; // ≈ 3779.5
+// CSS px per STORED depth unit at a true 1:1 print scale — 96 CSS px/in ÷ 0.0254 m/in for
+// metres, exactly 96 × 12 for feet. A named "1:N" scale is therefore pxPerUnit1to1() / N.
+//
+// This used to be a metres-only constant, which meant every named scale on a foot-indexed
+// well was mislabelled by 3.28× (engineering review F2e). It reads the PROJECT unit, never
+// the display unit: "1:200" claims 200 units of rock per unit of paper, so it depends on
+// how long a stored unit physically is, not on which unit the reader prefers.
+function pxPerUnit1to1(): number {
+  return pxPerUnitAt1to1(appState.projectDepthUnit.get());
+}
 // Open at a 1:2000 overview (≈212 m of section in a 400 px pane) — a real, honest ratio.
 // The old 96/100 = 0.96 was labelled "1:100" but was actually ~1:3937, and the dropdown's
 // true 1:100 then clamped to 20 (see MAX_PX_PER_UNIT), so 1:20/1:50/1:100 all looked identical.
-const DEFAULT_PX_PER_UNIT = PX_PER_UNIT_1_1 / 2000;
+const defaultPxPerUnit = (): number => pxPerUnit1to1() / 2000;
 // Zoom bounds, shared by setScale/zoomAt so every path clamps identically. Max = a true 1:10
 // (finer than any preset); min ≈ 1:189000 (frames a whole deep well when zoomed fully out).
 const MIN_PX_PER_UNIT = 0.02;
-const MAX_PX_PER_UNIT = PX_PER_UNIT_1_1 / 10; // ≈ 378
+const maxPxPerUnit = (): number => pxPerUnit1to1() / 10;
 
 /**
  * Multi-track hardware-accelerated log viewer. Given a Layout (tracks + per-curve
@@ -91,7 +100,7 @@ export class LogCanvasRenderer {
   /** Horizontal extents (0–1 canvas fractions) per track, for cursor hit-testing. */
   private trackRanges: { title: string; leftFrac: number; rightFrac: number }[] = [];
 
-  private view: ViewState = { topDepth: 0, pxPerUnit: DEFAULT_PX_PER_UNIT };
+  private view: ViewState = { topDepth: 0, pxPerUnit: defaultPxPerUnit() };
   private dirty = true;
   private running = false;
   /** Cached clear color read from --bg-panel. getComputedStyle forces a style recalc, and a
@@ -465,20 +474,20 @@ export class LogCanvasRenderer {
 
   /** Sets the vertical scale directly (px per depth unit). Prefer setScaleRatio for "1:N". */
   setScale(pxPerUnit: number): void {
-    this.view.pxPerUnit = Math.min(MAX_PX_PER_UNIT, Math.max(MIN_PX_PER_UNIT, pxPerUnit));
+    this.view.pxPerUnit = Math.min(maxPxPerUnit(), Math.max(MIN_PX_PER_UNIT, pxPerUnit));
     this.dirty = true;
     this.onViewSettled?.();
   }
 
   /** Sets a true print-style vertical scale of 1:ratio (e.g. 200 → 1:200). */
   setScaleRatio(ratio: number): void {
-    if (ratio > 0 && Number.isFinite(ratio)) this.setScale(PX_PER_UNIT_1_1 / ratio);
+    if (ratio > 0 && Number.isFinite(ratio)) this.setScale(pxPerUnit1to1() / ratio);
   }
 
   /** The current true vertical scale as the N in "1:N" (derived from the live pxPerUnit),
    *  so the UI can show the real scale after a zoom instead of a stale preset. */
   getScaleRatio(): number {
-    return PX_PER_UNIT_1_1 / this.view.pxPerUnit;
+    return pxPerUnit1to1() / this.view.pxPerUnit;
   }
 
   /** Multiplies the current scale by `factor`, re-centering on the currently visible midpoint. */
@@ -490,7 +499,7 @@ export class LogCanvasRenderer {
    *  natural "zoom toward the cursor" gesture used by Ctrl+scroll. */
   zoomAt(pixelY: number, factor: number): void {
     const anchorDepth = this.view.topDepth + pixelY / this.view.pxPerUnit;
-    this.view.pxPerUnit = Math.min(MAX_PX_PER_UNIT, Math.max(MIN_PX_PER_UNIT, this.view.pxPerUnit * factor));
+    this.view.pxPerUnit = Math.min(maxPxPerUnit(), Math.max(MIN_PX_PER_UNIT, this.view.pxPerUnit * factor));
     this.view.topDepth = anchorDepth - pixelY / this.view.pxPerUnit;
     this.dirty = true;
     this.onViewSettled?.();
@@ -498,7 +507,7 @@ export class LogCanvasRenderer {
 
   resetView(): void {
     this.view.topDepth = this.depthMin;
-    this.view.pxPerUnit = DEFAULT_PX_PER_UNIT;
+    this.view.pxPerUnit = defaultPxPerUnit();
     this.dirty = true;
     this.onViewSettled?.();
   }
