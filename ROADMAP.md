@@ -764,7 +764,27 @@ _(field-review tier, was "P2"; the rest of the tier is done in [A8](#a8-field-re
       unit; say so at the import dialog.
       Curve units (RHOB g/cc↔kg/m³, CALI in↔cm, DT us/ft↔us/m) are a later wave — Jauhar chose
       depth-first. Downstream: this is the interchange contract with **SegaraBumi**.
-- [ ] **Multi-well plots** (T-SHELL-16, 2026-07-29): "histo, xplot etc (except log view) cant display
+- [ ] **Multi-well plots — DESIGNED, not yet built** (T-SHELL-16, 2026-07-29). Design settled
+      during the units session; build it as its own increment rather than a tail-end change to
+      `crossplotPanel.ts` (~2,100 lines, field-verified, and the most interaction-dense panel
+      in the app).
+      **Approach: additive overlay, not a rewrite of the fetch path.** Scope defaults to
+      "Active well", where behaviour must be byte-identical to today; any additional wells are
+      fetched separately and drawn as a context layer BEHIND the active well's points, in a
+      per-well colour with a legend. This keeps the blast radius off the existing single-well
+      path, which is what the field review already accepted.
+      **The complication that forces the design** (found while scoping): linked brushing maps
+      crossplot points back to depths via `setBrushedDepths`, and a depth only means something
+      relative to ONE well. So brushing, the parameter-pick handle, the zone selector, core
+      overlay and Thomas-Stieber endpoints stay bound to the ACTIVE well; context wells are
+      display-only. That has to be stated in the UI, not just assumed, or a user will brush a
+      cloud and get the wrong well's depths highlighted.
+      Also needed: a total-point budget with decimation (2,000 wells x ~5,000 samples is 10M
+      points — the existing single-well path never had to care), and `getState` round-tripping
+      of the scope so a well switch doesn't silently drop the overlay.
+      Same treatment afterwards for histogram (simpler — no brushing handle) and a decision on
+      whether Pickett takes a scope at all, since its m/n/Rw are per-well parameters.
+- [ ] **Multi-well plots, original note** (T-SHELL-16, 2026-07-29): "histo, xplot etc (except log view) cant display
       multiple groups together, better have option for well selections like modules". Histogram,
       crossplot and Pickett are hard-wired to `selectedWell` — one well per pane, so a field-wide
       crossplot means opening N panes. Give them the same **well-scope selector the run dialogs use**
