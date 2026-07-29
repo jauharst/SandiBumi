@@ -764,6 +764,17 @@ _(field-review tier, was "P2"; the rest of the tier is done in [A8](#a8-field-re
       unit; say so at the import dialog.
       Curve units (RHOB g/cc↔kg/m³, CALI in↔cm, DT us/ft↔us/m) are a later wave — Jauhar chose
       depth-first. Downstream: this is the interchange contract with **SegaraBumi**.
+- [ ] **Multi-well plots — crossplot SHIPPED 2026-07-30** (T-SHELL-16 increment 1): the
+      additive context-overlay design below, exactly as recorded — well-scope button in the
+      crossplot toolbar (Active default = old behaviour byte-identical), context wells fetched
+      per-well with zone/top windows resolved BY NAME in each well's own depth frame (missing →
+      skipped + counted), 60k-point total budget with stride decimation, per-well colours +
+      legend with the display-only contract stated on the plot, auto-range over the combined
+      cloud, `getState` round-trips the scope (`wells:` spec). `wellScope.ts` gained an
+      "Active" mode + `serialize()`/`describe()`; `drawScatter` accepts a uniform colour.
+      **Still open: histogram scope (simpler — no brushing handle), Pickett decision, and a
+      per-well colour-stability rule if Jauhar wants colours pinned across scope edits.**
+      Original design notes follow (kept for the histogram increment):
 - [ ] **Multi-well plots — DESIGNED, not yet built** (T-SHELL-16, 2026-07-29). Design settled
       during the units session; build it as its own increment rather than a tail-end change to
       `crossplotPanel.ts` (~2,100 lines, field-verified, and the most interaction-dense panel

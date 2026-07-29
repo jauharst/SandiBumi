@@ -4948,6 +4948,36 @@ Five asks from your VSH-panel screenshot (SandiMin deferred for later review).
       blank **Workspace** pane fills the rest (rather than the sidebar stretching); open any log
       view/plot and the blank pane disappears again.
 
+## Multi-well crossplot overlay (T-SHELL-16 increment 1, 2026-07-30)
+
+Crossplot only in this increment (histogram is next; Pickett needs a decision — its
+m/n/Rw are per-well parameters). Design: extra wells draw as a FADED CONTEXT LAYER
+behind the active well; everything interactive stays on the active well.
+
+- [ ] **Wells: Active button** in the crossplot toolbar (after Zone) — click it to open
+      the well-scope row: Active / Group / ★ Pinned / Selection / All / Custom…, the same
+      control as the batch dialogs. Default **Active** = today's single-well plot, unchanged.
+- [ ] **Pick a wider scope** (e.g. All, or a group): the other wells' points fade in
+      BEHIND the active well's cloud, one colour per well, with a **Wells legend** top-right
+      (active well first; long names truncate; >10 wells collapse to "+N more"). The legend
+      footer says "context is display-only".
+- [ ] **Context wells are display-only**: brushing (Shift+drag), the draggable parameter
+      handle, zone-parameter writes, core overlay, T-S endpoints, regression, tooltips and
+      the net polygon all still act on the ACTIVE well only — check the brush highlights
+      only active-well points and log views follow only its depths.
+- [ ] **Zone windows resolve per well by NAME**: with a zone (or a selected top) chosen,
+      each context well shows ITS OWN depths for that same-named zone/top — wells without
+      it are skipped and counted in the scope row ("N skipped"), never guessed from the
+      active well's depths.
+- [ ] **Point budget**: a huge scope decimates context wells to ~60k points total — the
+      scope row reports "~N pts (decimated)". The active well is never decimated.
+- [ ] **Axis auto-range covers the field**: with context wells on and auto ranges, a
+      neighbour whose cloud sits outside the active well's spread is still visible (not
+      clipped); manual ranges and mnemonic defaults (NPHI/RHOB…) behave as before.
+- [ ] **Scope survives a well switch**: set scope All, click another well in the Wells
+      pane — the rebuilt crossplot keeps scope All (and the new active well takes over the
+      interactive role). SVG/PDF/PNG export includes the context layer.
+
 ---
 
 _Made in SandiBumi._ © 2026 SandiBumi. All rights reserved.

@@ -304,8 +304,10 @@ export interface ZoneSelect {
   dispose: () => void;
 }
 
-/** The zone select's option value for the Wells & Tops pane's selected top interval. */
-const TOP_OPTION = "@top";
+/** The zone select's option value for the Wells & Tops pane's selected top interval.
+ *  Exported so panels can tell "windowed to a top interval" apart from a named zone
+ *  (the ZoneChoice's zoneName is the top's name in that case, which could collide). */
+export const TOP_OPTION = "@top";
 
 /** Zone dropdown: "All depth" plus the well's zones. Selecting a zone windows the data
  *  and targets that zone for parameter writes. When a top is selected in the Wells &
