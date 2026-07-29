@@ -7,6 +7,64 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 96 — Non-colour design tokens, and a client-skin colour bug found on the way (2026-07-29)
+
+**The important part of this round is not the polish — it is a pre-existing bug the polish
+exposed.** On any machine whose **OS is set to dark** (yours is), the five *light* client
+skins — Pertamina, Halliburton, Schlumberger, LAPI-ITB, white — kept their white panels but
+silently picked up the **dark** `--qc-*` status colours. Measured contrast of the Results-QC
+scorecard against the white panel:
+
+| Token | Was | Now | WCAG AA (4.5:1) |
+|---|---|---|---|
+| `--qc-ok` | 2.24:1 | **5.13:1** | fail → **pass** |
+| `--qc-alert` | 3.49:1 | **5.62:1** | fail → **pass** |
+| `--qc-warn` | 2.19:1 | 3.78:1 | fail → still fail |
+
+Cause: `@media (prefers-color-scheme: dark)` was scoped to `:root:not([data-theme="light"])`,
+but `theme.ts` **deletes** the attribute for "system" and **sets** it for every other choice —
+so the block also caught the explicitly-chosen light brand skins. Now `:root:not([data-theme])`
+— "no theme chosen at all" — so an explicit choice ignores the OS preference entirely. The
+comment in `:root` claiming the skins "inherit these unchanged" is finally true.
+
+Note `--qc-warn` at 3.78:1 still misses AA. That is the light theme's own designed amber
+(`#c07000`), not a regression, and darkening a QC semantic colour is your call — flag it if
+you want it changed.
+
+The polish itself: colour was the only axis this stylesheet ever tokenised, so radius, type
+size, motion and elevation had been decided per rule by hand — **12 distinct corner radii and
+11 font sizes**, four of them half-pixel (11.5/10.5/12.5/9.5px, 45 declarations) which land off
+the pixel grid and render soft. Added `--r-*`, `--s-*`, `--fs-*`, `--dur-*`/`--ease`, `--el-*`
+and `--focus-ring`, then swept **104 radius** and **201 font-size** literals onto them.
+Chips and badges became true pills; dockview's own `--dv-border-radius` / tab font-size /
+floating shadow now read from the same scale.
+
+Motion and focus are **one block** near the top of the file, not a line added to forty rules —
+reviewable and revertable in one place. Two properties keep it safe: `:where()` has zero
+specificity so every existing rule still wins (`.btn` verifiably kept its own 0.12s), and only
+**paint** properties are transitioned — never transform/width/position — so dockview drags,
+sash resizing and canvas panning stay instant. Buttons got a focus ring (they had none; form
+fields already did, and were left alone). Dialogs fade in on opacity only — no transform,
+because the modal is drag-positioned and a transform animation would fight an immediate grab.
+
+Verified: ribbon geometry **byte-identical** before and after (112px ribbon / 80px panel /
+24px QAT, A/B'd against the stashed original at a fixed viewport — an earlier 122px reading was
+a viewport artifact, not a reflow); **663 elements swept for unresolved `var()`, zero found**
+(an undefined token would silently collapse radius to 0); all 7 themes checked; gate green
+378/0/7.
+
+- [ ] **Try:** switch to a **client skin** (Project ▸ Appearance ▸ Pertamina) and open a
+  Results-QC scorecard. The pass/warn/fail colours should now be legible dark green/amber/red
+  on white, not the pale dark-theme versions. This is the one item with a real deliverable
+  consequence.
+- [ ] **Try:** hover the ribbon tabs and buttons — they should ease rather than snap. If
+  anything feels laggy against real field data, the whole motion layer is one block in
+  `styles.css` and can be cut without touching anything else.
+- [ ] **Try:** drag a dockview panel between windows and pan a log view. Both must still feel
+  instant — geometry was deliberately excluded from the transitions.
+- [ ] **Try:** confirm the tighter type reads as *cleaner* and not *cramped* at your normal
+  window size, on a dense panel (Monte Carlo params, the multimin endpoint matrix).
+
 ## Round 95 — SSC gas conditioning changed the numbers; the stale test that hid it is fixed (2026-07-29)
 
 **This one needs your eyes on real data — SSC output values moved.** Your `d1f0c1e` commit
