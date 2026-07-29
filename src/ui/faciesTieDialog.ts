@@ -1,5 +1,6 @@
 import { listCurveCatalog, runFaciesConfusion, type FaciesConfusionResult } from "../ipc";
 import { formRow } from "./modal";
+import { preferredCurveSelect } from "./plotCommon";
 import { recordProcess } from "../processLog";
 import { buildWellScope } from "./wellScope";
 
@@ -18,20 +19,8 @@ export async function buildFaciesTieContent(
   const content = document.createElement("div");
   content.className = "mc-dialog";
 
-  const curveSel = (preferred: string[]): HTMLSelectElement => {
-    const sel = document.createElement("select");
-    for (const n of names) {
-      const o = document.createElement("option");
-      o.value = n;
-      o.textContent = n;
-      sel.appendChild(o);
-    }
-    const pick = preferred.find((p) => names.includes(p));
-    if (pick) sel.value = pick;
-    return sel;
-  };
-  const predSel = curveSel(["RT_LOG"]);
-  const refSel = curveSel(["RT", "RT_LUCIA", "FACIES", "FACIES_ML"]);
+  const predSel = preferredCurveSelect(names, ["RT_LOG"]);
+  const refSel = preferredCurveSelect(names, ["RT", "RT_LUCIA", "FACIES", "FACIES_ML"]);
   content.appendChild(formRow("Predicted RT (log)", predSel, "Log-domain rock type, e.g. RT_LOG from the cutoff classifier."));
   content.appendChild(formRow("Reference RT (core)", refSel, "The 'truth' rock type — a core-derived RT or a rock-typing RT."));
   content.appendChild(scope.el);

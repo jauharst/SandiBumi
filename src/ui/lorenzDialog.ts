@@ -2,6 +2,7 @@ import { listCurveCatalog, listWells, runLorenz, type LorenzResult } from "../ip
 import { appState, filterByActiveGroup } from "../state";
 import { formRow } from "./modal";
 import { attachResizeRedraw, canvasFont, faciesColor, readTheme } from "./plotCanvas";
+import { preferredCurveSelect } from "./plotCommon";
 import { recordProcess } from "../processLog";
 
 /** Stratigraphic Modified Lorenz Plot (playbook #3, increment 3c — the visual for the 3a solver).
@@ -36,20 +37,8 @@ export async function buildLorenzContent(
   }
   content.appendChild(formRow("Well", wellSel, "The SMLP is a single-well stratigraphic walk — one column at a time."));
 
-  const curveSel = (preferred: string[]): HTMLSelectElement => {
-    const sel = document.createElement("select");
-    for (const n of names) {
-      const o = document.createElement("option");
-      o.value = n;
-      o.textContent = n;
-      sel.appendChild(o);
-    }
-    const pick = preferred.find((p) => names.includes(p));
-    if (pick) sel.value = pick;
-    return sel;
-  };
-  const phiSel = curveSel(["PHIE", "MM_PHIE", "PHIT", "MM_PHIT"]);
-  const permSel = curveSel(["PERM", "KLOGH", "PERM_RT", "KH", "K"]);
+  const phiSel = preferredCurveSelect(names, ["PHIE", "MM_PHIE", "PHIT", "MM_PHIT"]);
+  const permSel = preferredCurveSelect(names, ["PERM", "KLOGH", "PERM_RT", "KH", "K"]);
   content.appendChild(formRow("Porosity (φ)", phiSel));
   content.appendChild(
     formRow("Permeability (k)", permSel, "mD — an imported KLOGH, a computed PERM, or the rock-typing PERM_RT estimate."),

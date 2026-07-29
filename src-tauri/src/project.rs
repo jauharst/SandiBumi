@@ -155,7 +155,7 @@ pub fn open_and_migrate(path: &str) -> Result<duckdb::Connection, String> {
     eprintln!("[boot] migrate_standard_curves_to_generic_store: {:?}", t.elapsed());
 
     let t = std::time::Instant::now();
-    db::migrate_drop_computed_curves_pk(&conn)
+    db::migrate_drop_computed_curves_pk(&conn, Some(path))
         .map_err(|e| format!("computed-curves migration failed: {e}"))?;
     eprintln!("[boot] migrate_drop_computed_curves_pk: {:?}", t.elapsed());
     Ok(conn)

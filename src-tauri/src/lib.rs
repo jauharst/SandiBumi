@@ -1763,6 +1763,26 @@ pub fn run() {
             save_plot_pdf,
             get_core_data
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // R-C (data-loss on plain window close, found 2026-07-29 by the packaged-build
+            // verification): Tauri exits via std::process::exit, which skips Rust
+            // destructors — the DuckDB connection never closes cleanly, so every close
+            // leaves an unflushed WAL. Reproduced twice: import 20 rows, close with the
+            // window ✕, relaunch → WAL fails replay, recovery moves it aside as
+            // `.corrupt-backup-<ts>`, and the import is silently gone. Writes below the
+            // auto-checkpoint threshold live ONLY in the WAL, so small edits (an import,
+            // a parameter change) are exactly the writes at risk. Flushing here turns
+            // every graceful exit into a clean checkpoint; force-kills stay covered by
+            // `init_db_resilient` as before.
+            if let tauri::RunEvent::Exit = event {
+                use tauri::Manager as _;
+                if let Some(db) = app_handle.try_state::<DbState>() {
+                    if let Ok(conn) = db.0.lock() {
+                        let _ = conn.execute_batch("CHECKPOINT;");
+                    }
+                }
+            }
+        });
 }
