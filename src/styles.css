@@ -996,6 +996,17 @@ textarea {
   border-color: var(--accent);
 }
 
+/* Display-unit toggle (m / ft). It carries a word rather than a glyph, so it gets a
+   readable weight and a visible outline even at rest — this button tells the user what
+   unit they are reading, which must never be something they have to hover to discover.
+   The .active state is inherited above and marks a CONVERTED view, i.e. the numbers on
+   screen are not the numbers in the database. */
+.lv-btn.lv-unit {
+  min-width: 26px;
+  font-weight: 600;
+  border-color: var(--border);
+}
+
 .lv-scale {
   height: 20px;
   font-size: var(--fs-xs);

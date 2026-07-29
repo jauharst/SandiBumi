@@ -1,6 +1,8 @@
 import type { Layout, Track, WellSummary } from "../ipc";
 import { FACIES_PALETTE } from "./plotCanvas";
 import { formatValue } from "./plotCommon";
+import { appState } from "../state";
+import { formatDepth, unitLabel } from "../units";
 
 export interface TrackChromeCallbacks {
   /** Fired after resize, reorder, or scale edit — needs a full geometry rebuild. */
@@ -261,7 +263,8 @@ export function renderDepthAxis(container: HTMLElement, top: number, bottom: num
     const tick = document.createElement("div");
     tick.className = "depth-tick";
     tick.style.top = `${frac * 100}%`;
-    tick.textContent = depth.toFixed(0);
+    // Depths arrive in the project's STORED unit; show them in the unit the user chose.
+    tick.textContent = formatDepth(depth, appState.projectDepthUnit.get(), appState.displayDepthUnit.get(), 0);
     container.appendChild(tick);
   }
 }
@@ -280,7 +283,8 @@ export function renderReadout(
   container.hidden = false;
   container.innerHTML = "";
   const depthSpan = document.createElement("span");
-  depthSpan.textContent = `Depth: ${depth.toFixed(1)}`;
+  const display = appState.displayDepthUnit.get();
+  depthSpan.textContent = `Depth: ${formatDepth(depth, appState.projectDepthUnit.get(), display, 1)} ${unitLabel(display)}`;
   container.appendChild(depthSpan);
   for (const s of samples) {
     const item = document.createElement("span");

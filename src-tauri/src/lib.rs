@@ -168,6 +168,47 @@ fn new_project(
     Ok(info)
 }
 
+/// The project's declared depth unit as a code ("M"/"FT"), and whether it was explicitly
+/// declared. The frontend needs it for two different jobs: converting stored depths into
+/// the unit the user wants to READ, and deriving the true 1:N print scale (which depends
+/// on how long a stored unit physically is, not on what is displayed).
+#[tauri::command]
+fn get_project_depth_unit(db: tauri::State<DbState>) -> Result<(String, bool), String> {
+    let conn = db.0.lock().unwrap();
+    let declared = units::project_depth_unit(&conn).map_err(|e| e.to_string())?;
+    Ok((declared.unwrap_or_default().code().to_string(), declared.is_some()))
+}
+
+/// Declares the project's depth unit.
+///
+/// Refuses once the project holds wells: their depths are already STORED in the old unit,
+/// so re-declaring alone would silently reinterpret every one of them (a 2,438 m well
+/// would start reading as 2,438 ft). Converting stored data is a separate, deliberate
+/// migration — not a side effect of changing a preference.
+#[tauri::command]
+fn set_project_depth_unit(db: tauri::State<DbState>, unit: String) -> Result<(), String> {
+    let Some(target) = units::DepthUnit::from_code(&unit) else {
+        return Err(format!("unknown depth unit '{unit}' (expected M or FT)"));
+    };
+    let conn = db.0.lock().unwrap();
+    let current = units::project_depth_unit(&conn).map_err(|e| e.to_string())?;
+    if current == Some(target) {
+        return Ok(());
+    }
+    let wells: i64 = conn
+        .query_row("SELECT COUNT(*) FROM wells", [], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+    if wells > 0 {
+        return Err(format!(
+            "this project already holds {wells} well(s) whose depths are stored in {}. \
+             Changing the unit here would reinterpret every stored depth rather than convert it — \
+             switch the DISPLAY unit instead, or start a new project.",
+            current.unwrap_or_default().label()
+        ));
+    }
+    units::set_project_depth_unit(&conn, target).map_err(|e| e.to_string())
+}
+
 /// Lists every well in the project, for the object tree panel.
 #[tauri::command]
 fn list_wells(db: tauri::State<DbState>) -> Result<Vec<db::WellSummary>, String> {
@@ -1648,6 +1689,8 @@ pub fn run() {
         .manage(jobs::new_registry())
         .invoke_handler(tauri::generate_handler![
             startup_problem,
+            get_project_depth_unit,
+            set_project_depth_unit,
             save_project_as,
             list_recent_projects,
             current_project,

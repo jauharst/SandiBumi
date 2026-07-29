@@ -7,6 +7,53 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 99 — Depth units, increment 2: the Pc fix and the m/ft view toggle (2026-07-29)
+
+**1. The saturation-height error is fixed.** `pc = 0.433 psi/ft/SG · Δρ · h` is per FOOT of
+column, but `satheight.rs` and `shf_fit.rs` multiplied the height by 3.28084 unconditionally,
+assuming it arrived in metres. On your foot-declared Rokan projects that scaled an
+already-foot height and returned a Pc **3.28× too high**.
+
+The test that pins it takes one physical well described twice — 100 m above the FWL in a
+metre project, the identical 328.084 ft in a foot project — and requires the same Sw. Against
+the old formula it fails with **Sw 0.2685 vs 0.1670**: a 38% error in water saturation that
+computed, plotted and would have shipped. It now passes.
+
+`ModuleContext` carries a typed `depth_unit` rather than a magic options key, deliberately: a
+missing string key would silently mean metres, which is the failure mode itself. `FT_PER_M` is
+deleted rather than left unused — it *was* the assumption.
+
+**2. The m/ft view toggle you asked for.** A small **m / ft** button in each Log View's own
+toolbar, beside the zoom controls. It changes what you READ and never touches stored data —
+that separation is the whole point, and the button turns accent-coloured whenever the numbers
+on screen are converted rather than stored, so a converted view can't be mistaken for the
+real ones. The choice persists per machine and defaults to the project's own unit, so doing
+nothing shows depths exactly as your files delivered them.
+
+**3. Print scales no longer lie on foot projects.** `PX_PER_UNIT_1_1` derived px-per-depth-unit
+from 96 px/in ÷ 0.0254 m/in — metres, always — so every named 1:N scale on a foot project was
+off by 3.28×. It now reads the project unit: 3779.53 px/m or exactly 1152 px/ft (96 px/in ×
+12). Verified that **1:200 in a 400 px pane shows 21.17 m in a metric project and 69.44 ft in
+a foot one — the same physical section.** Note the scale follows the STORED unit, not the
+display toggle: "1:200" is a ratio of rock to paper, so it can't depend on which unit you
+happen to be reading.
+
+**4. Re-declaring a project's unit is refused once it holds wells** — their depths are already
+stored in the old unit, so a re-declaration would silently reinterpret every one of them
+(a 2,438 m well would start reading as 2,438 ft). The error says so and points at the display
+toggle instead. Converting stored data would be a real migration, not a settings change.
+
+**Verified:** `cargo test` 384 passed / 0 failed; `npx tsc --noEmit` and `cargo check` clean;
+conversion, print-scale and toggle behaviour driven live in the browser (8000/8050/8100 ft →
+2438/2454/2469 m on the depth axis, stored unit unchanged, button state and tooltip correct
+in both directions).
+
+- [ ] **Try:** open a foot project and check the depth axis reads feet, then click **ft → m** in the Log View toolbar. Depths convert, the button turns accent-coloured, and the status line says the data is unchanged.
+- [ ] **Try:** with the display in metres, check the **1:N** dropdown still frames the same physical section it did in feet — the scale must not move when you change what you're reading.
+- [ ] **Try:** run **sw_height** (Leverett) on a foot project against a well you know. This is the number that was 3.28× wrong; if the Sw still looks off, tell me before trusting it.
+- [ ] **Try:** the depth readout under the cursor now carries its unit ("Depth: 8000.0 ft").
+- [ ] **Still metres-only, increment 3:** tops/zones panels, composite scale bar, report pages, dashboard depth columns and depth-coloured plot axes still print raw stored depths without conversion. They are correct on a project whose display unit equals its stored unit — which is the default — but they do not yet follow the toggle.
+
 ## Round 98 — Depth units, increment 1: the project declares one, imports convert to it (2026-07-29)
 
 Your instinct was right, and it lands on an **already-verified audit finding** (engineering

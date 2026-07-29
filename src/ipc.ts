@@ -1,4 +1,17 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { DepthUnit } from "./units";
+
+/** The project's stored depth unit, plus whether it was explicitly declared (false = a
+ *  fresh project that will adopt the unit of its first import). */
+export function getProjectDepthUnit(): Promise<[DepthUnit, boolean]> {
+  return invoke("get_project_depth_unit");
+}
+
+/** Declares the project's stored depth unit. The backend REFUSES once wells exist —
+ *  re-declaring would reinterpret every stored depth rather than convert it. */
+export function setProjectDepthUnit(unit: DepthUnit): Promise<void> {
+  return invoke("set_project_depth_unit", { unit });
+}
 
 export interface EquationDef {
   equation_id: string;

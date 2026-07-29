@@ -15,6 +15,7 @@ import { Ribbon } from "./ui/ribbon";
 import { Workspace } from "./ui/workspace";
 import { installUndoHotkeys } from "./undo";
 import { loadProcessLog } from "./processLog";
+import { syncDepthUnits } from "./depthUnitPref";
 
 // Apply the stored theme before first paint to avoid a flash of the wrong palette.
 applyStoredTheme();
@@ -42,6 +43,10 @@ window.addEventListener("DOMContentLoaded", () => {
     const workspace = new Workspace(dockRoot);
     new Ribbon(ribbonEl, workspace);
     installUndoHotkeys(setStatus);
+    // Which unit this project's depths are stored in, and which to show them in. Async:
+    // panels open on the metre default and re-render when it lands, which is correct for
+    // a metric project and a one-frame correction for a foot one.
+    void syncDepthUnits();
     // Restore the project's processing history (async; the History panel updates when it lands).
     void loadProcessLog();
 
