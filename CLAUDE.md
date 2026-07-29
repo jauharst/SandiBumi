@@ -363,9 +363,12 @@ npm run tauri dev             # full desktop app (use the pinned command above)
 npx tsc --noEmit              # fast frontend type check
 cd src-tauri && cargo check   # fast Rust-only compile check (no vcvars needed)
 npm run tauri build           # production bundle (size-optimized [profile.release])
+powershell -ExecutionPolicy Bypass -File tools\check.ps1   # THE GREEN GATE: npm build + cargo test (vcvars-pinned), non-zero on first failure
 ```
 
-Verify every change: `npx tsc --noEmit` + `cargo check` + a browser functional test.
+Verify every change: `npx tsc --noEmit` + `cargo check` + a browser functional test — and
+before a commit that claims "verified", `tools\check.ps1` is the one-command version of the
+full bar (`-SkipRust`/`-SkipFrontend` for the inner loop only; green means the FULL gate).
 
 Two hard runtime rules (both learned the painful way):
 - **Never force-kill `npm run tauri dev`** (task-kill, shell timeout) — an unclean kill

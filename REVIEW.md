@@ -7,6 +7,40 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 91 — the green gate: one command that proves the tree is healthy (2026-07-29)
+
+Q3 of the 1.0 quality bar (`docs/V1_SCOPE.md` §5, defined in `docs/RELEASE.md` §5 step 0) — until
+now the three verification gates were run by hand, separately, from memory. **`tools\check.ps1`**
+runs them in order and exits non-zero at the FIRST failure: (1) `npm run build` (tsc runs inside
+it, so no duplicate type-check pass), then (2) full `cargo test` in src-tauri **through vcvars
+pinned to 14.29** when that toolset exists (this machine's 14.50 is broken), plain `cargo test`
+otherwise — so the same script works on a healthy machine. `-SkipRust`/`-SkipFrontend` exist for
+the inner loop, but "green" means the full gate. It also prepends the known node/cargo homes to
+PATH, so it works from a fresh shell that missed the installer PATH updates.
+
+Verified with real runs, not by reading the script: **(a) green** — full gate on the committed
+tree: frontend 7 s, backend 37 s (373 passed / 0 failed / 7 ignored), `GATE GREEN in 44s`, exit 0;
+**(b) red** — its very first full run caught a REAL failure and propagated it (`GATE FAILED at
+backend (cargo test) (exit 101)`, script exit 1); **(c) toolchain failure** — a bogus
+`-VcVarsVer 99.99` fails fast at vcvars before cargo ever runs, exit 1.
+
+**Worth knowing about (b), because it's a live finding in your working tree:** the failure it
+caught is the in-progress `ssc.rs` edit (another session's work, dated 2026-07-29, uncommitted) —
+it moves `SWIRR_T` to the pre-conditioning value per the Loglan, and the old test
+`ssc_swirr_floor_pads_capillary_water`, which pins the post-conditioning floor semantics, now
+fails against it. Proven by stash round-trip: HEAD's `ssc.rs` passes all 6 ssc tests; the WIP
+version fails that one. Nothing was changed — the SSC work is mid-edit and its test reconciliation
+is that session's to finish — but until it is, **a full-tree gate run will be red**, and that red
+is true.
+
+- [ ] **Try:** from PowerShell in the repo root run
+  `powershell -ExecutionPolicy Bypass -File tools\check.ps1` — expect the two stage banners and
+  `GATE GREEN in ~45s` (first run after a Rust change recompiles, so longer). Then break something
+  trivial on purpose (e.g. add `let x: number = "no";` to any .ts file), run it again — it must
+  stop at stage 1 with `GATE FAILED` and a red message, and `$LASTEXITCODE` must be 1. Revert the
+  break. (If you run it before the SSC session finishes its test reconciliation, expect the honest
+  red described above.)
+
 ## Round 90 — R30: three dialogs silently computed on GR when the curve they wanted was missing (2026-07-29)
 
 From the F1 sweep (finding #4), verified still open against live code before touching anything.
