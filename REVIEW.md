@@ -196,6 +196,46 @@ option; the full Lorenz dialog builds with φ=`PHIE`, k=`PERM` on an empty catal
   shape in **SHF fitting** (φ shows PHIE on a bare well) and **Facies tie-in**. All curve dropdowns
   in these three dialogs now also render with the app's styled look instead of the native browser
   select.
+## Round 89 — PRD pass: webview CSP turned on, unused OS capability removed (2026-07-29)
+
+Not an R-chain bug fix — this came out of writing `docs/PRD.md`, where §7.5 asks the question a
+client's IT department asks: *what leaves the machine, and what can this app do that it doesn't
+need to?* Two answers were worse than they should have been.
+
+**1. The webview had no Content Security Policy at all** (`"csp": null`). That matters here
+specifically because of R9 in this file — a hostile well name inside an imported LAS reaching the
+DOM. That hole is closed by escaping, but a null CSP meant there was no second line of defence
+behind it, and untrusted text arrives with *every* imported file. There is now a real policy in
+`tauri.conf.json`. Two relaxations are deliberate: `script-src` keeps `'unsafe-eval'` because Vega
+compiles chart expressions through the `Function` constructor and would silently stop rendering
+without it, and `style-src` keeps `'unsafe-inline'` because CodeMirror injects a `<style>` element
+and the print path writes one into its hidden iframe. Neither re-opens R9 — inline handlers and
+inline `<script>` need `'unsafe-inline'` in **script-src**, which is absent.
+
+**2. `tauri-plugin-opener` was registered and permitted but never used.** It grants the app the
+ability to hand a URL or path to the OS. There were **zero call sites** anywhere in `src/`, so
+nothing was ever passed to it — but a granted capability the product doesn't use is exactly what an
+enterprise security review flags. Removed at all four layers: the Rust plugin registration, the
+crate dependency, the `opener:default` capability entry, and the npm package.
+
+Also in this pass: `README.md` no longer describes the product as "the reference suite-class"
+(competitor-referential copy in the customer-facing document), `CLAUDE.md`'s collaboration protocol
+now states this file's **actual** mark convention (`[x]` = accepted — it had preserved the
+superseded `[o]` legend, under which your 72 accepted items read as 72 broken ones), and
+`docs/IP_PROVENANCE.md` records where every piece of reference data in the repo came from.
+
+Verified: `tsc` + `vite build` clean, `cargo check` clean after the plugin removal.
+
+- [ ] **Try:** the CSP **cannot be tested with `npm run tauri dev`** — with a dev URL the webview
+  loads Vite directly and Tauri never delivers the policy. It only applies to a packaged build. So:
+  run `npm run tauri build`, install/launch the built app, and exercise the three paths the
+  relaxations exist for — (a) open the **Vega** panel and render a chart, (b) open the **Inspector**
+  (Equation Editor) and confirm the editor appears and highlights, (c) open any crossplot/histogram
+  and use **Print** from its toolbar. All three must work exactly as before. If any of them is
+  blank or dead, open DevTools ▸ Console and look for a `Content Security Policy` violation — the
+  message names the directive that needs widening. Everything else in the app should be unaffected.
+  Separately, confirm nothing anywhere tried to open an external link (nothing should — there were
+  no call sites).
 
 ## Round 88 — R29: the Equation Editor leaked a whole CodeMirror editor every time you closed it (2026-07-25)
 

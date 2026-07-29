@@ -11,7 +11,13 @@ project forever — *could a software engineer I hire be productive here in week
 | `maintenance_scaling_prompt.md` | one increment: expand / debug / maintain | every session |
 | `engineering_review_prompt.md` | whole-app *behaviour* sweep, tiers F1–F5 | occasional, produces findings |
 | `qc_audit_prompt_template.md` | one tool, end to end, physics correctness | per tool |
+| `product_definition_prompt.md` | what the *product* is: PRD, target architecture, v1.0 gate | once, then before each major release |
 | **this file** | whole-repo *structure*, decisions, onboarding | quarterly, plus once before any hire |
+
+A separate family, deliberately outside this table: the one-shot vendor-intelligence prompts
+(`sandibumi_maturation_prompt.md`, `techlog_ingest_prompt.md`, `sonar_ingest_adopt_prompt.md`).
+They extract from an external source rather than examine this repo, and they run per source, not
+on a cadence.
 
 The distinction that matters: the other three ask **"is this correct?"** This one asks
 **"is this survivable by someone who is not me?"** A codebase can be 100% correct and still be
