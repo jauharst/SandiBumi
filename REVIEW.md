@@ -7,6 +7,37 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 93 — R-B: a destructive migration now backs up the project file first (2026-07-29)
+
+Requirement R-B from `docs/RELEASE.md` §3.2, the sibling of Round 92's R-A and the other
+1.0-gate item. The finding: the PK-drop migration (the one that made 100-well chains 2.4×
+faster) **rebuilds the whole `computed_curves` table in place** — `DROP TABLE` mid-sequence —
+with no recoverable copy. On a field-scale file, a crash mid-rebuild loses computed results
+with nothing to fall back to.
+
+Now: when that migration is actually going to run (and only then — additive migrations like
+the R-A stamp and the generic-store backfill are exempt, so backups stay meaningful), the
+project is first copied beside itself as `<name>.pre-1-backup.duckdb` and the launch log says
+so. Two honesty properties: a **failed backup aborts the migration** (the un-migrated file
+still opens fine — the PK only slows writes — so refusing costs nothing, while proceeding
+would break the exact promise), and an **existing backup is never overwritten** (collision →
+timestamped name, the WAL-recovery convention). One Windows reality the test caught: DuckDB
+holds its file with exclusive sharing, so a filesystem copy of an open project is impossible —
+the copy is made by the engine itself (`ATTACH` + `COPY FROM DATABASE`), which also preserves
+the schema *with* the PK, so the backup is provably the pre-migration file.
+
+Verified: 2 new `db.rs` tests against real temp files — the destructive path writes the backup
+first (openable, PK intact, both rows present), a no-op open writes nothing, a fresh project
+never accumulates backups, and a name collision takes a new name. Full green gate:
+`GATE GREEN in 39s`, **378 passed / 0 failed / 7 ignored** (SSC WIP stash-roundtripped as
+before).
+
+- [ ] **Try:** open your real project — since increment 5 already migrated it, the pass
+  condition is **absence**: no new `*-backup.duckdb` file beside it, launch not slower.
+  To see it fire, open any pre-2026-07-19 project copy that still has the old PK: a
+  `<name>.pre-1-backup.duckdb` appears beside it and the console log announces it before
+  the rebuild. (Full list of session-wide manual checks: `docs/manual_check_plan.md`.)
+
 ## Round 92 — R-A: the project file now carries a format stamp, and an older build refuses a newer file by name (2026-07-29)
 
 Requirement R-A from `docs/RELEASE.md` §3.1 (on the 1.0 gate; the doc arrives with PR #2). The

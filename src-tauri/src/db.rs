@@ -521,6 +521,39 @@ pub fn migrate_standard_curves_to_generic_store(conn: &Connection) -> DbResult<(
     Ok(())
 }
 
+/// RELEASE.md §3.2 (requirement R-B): before a migration that rewrites or drops data, copy
+/// the project file beside itself as `<name>.pre-<FORMAT_VERSION>-backup.duckdb`. Purely
+/// additive migrations are exempt — a backup on every open would bury the one that matters.
+///
+/// The copy is made BY THE ENGINE (`ATTACH` + `COPY FROM DATABASE`), not by the filesystem:
+/// DuckDB holds the project file with exclusive sharing on Windows, so `std::fs::copy` of an
+/// open database fails with a sharing violation (os error 32) — and the engine copy is better
+/// anyway: it needs no CHECKPOINT (the engine reads its own current state, WAL included) and
+/// it carries schema WITH constraints, so the backup keeps the very PK being migrated away.
+/// An existing backup is NEVER overwritten (it may be the only good copy of an earlier
+/// format); on a name collision the copy gets a unix-timestamp suffix, the same convention
+/// as the WAL recovery's `.corrupt-backup-<ts>`.
+fn backup_before_destructive_migration(conn: &Connection, path: &str) -> DbResult<String> {
+    let stem = path.strip_suffix(".duckdb").unwrap_or(path);
+    let mut backup = format!("{stem}.pre-{FORMAT_VERSION}-backup.duckdb");
+    if std::path::Path::new(&backup).exists() {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        backup = format!("{stem}.pre-{FORMAT_VERSION}-backup-{ts}.duckdb");
+    }
+    let src: String = conn.query_row("SELECT current_database()", [], |r| r.get(0))?;
+    conn.execute_batch(&format!(
+        "ATTACH '{}' AS rb_backup;
+         COPY FROM DATABASE \"{}\" TO rb_backup;
+         DETACH rb_backup;",
+        backup.replace('\'', "''"),
+        src.replace('"', "\"\""),
+    ))?;
+    Ok(backup)
+}
+
 /// One-time migration that drops the legacy 3-column PRIMARY KEY from `computed_curves`.
 ///
 /// Older databases created the table with `PRIMARY KEY (well_id, depth, curve_name)`, whose
@@ -529,7 +562,14 @@ pub fn migrate_standard_curves_to_generic_store(conn: &Connection) -> DbResult<(
 /// table is rebuilt without it. Idempotent: `duckdb_constraints()` is consulted first, so on
 /// databases already PK-less (including every freshly created one) this is a no-op. Uniqueness
 /// is preserved by the write discipline documented on the table (see `create_schema`).
-pub fn migrate_drop_computed_curves_pk(conn: &Connection) -> DbResult<()> {
+///
+/// This rebuild is the shipped example of a DESTRUCTIVE migration (RELEASE §3.2), so when it
+/// is actually going to run, `path` is backed up first. A failed backup ABORTS the migration:
+/// the un-migrated file still opens fine (the PK only makes writes slower), so refusing costs
+/// nothing, while rewriting a field-scale project after the promised copy failed breaks the
+/// exact guarantee R-B exists to make. `path: None` is for in-memory test databases only —
+/// every real caller must pass the project-file path.
+pub fn migrate_drop_computed_curves_pk(conn: &Connection, path: Option<&str>) -> DbResult<()> {
     let has_pk: i64 = conn.query_row(
         "SELECT COUNT(*) FROM duckdb_constraints()
          WHERE table_name = 'computed_curves' AND constraint_type = 'PRIMARY KEY'",
@@ -538,6 +578,10 @@ pub fn migrate_drop_computed_curves_pk(conn: &Connection) -> DbResult<()> {
     )?;
     if has_pk == 0 {
         return Ok(());
+    }
+    if let Some(path) = path {
+        let backup = backup_before_destructive_migration(conn, path)?;
+        eprintln!("[boot] destructive migration (computed_curves PK drop) ahead: project backed up to {backup}");
     }
     // Rebuild PK-less, preserving every row, atomically.
     conn.execute_batch(
@@ -1709,20 +1753,104 @@ mod inspector_tests {
         conn.execute("INSERT INTO computed_curves VALUES (?1, 1000.5, 'PHIE', 0.21)", params![w]).unwrap();
         assert_eq!(pk_count(&conn, "computed_curves"), 1, "fixture starts with a PK");
 
-        migrate_drop_computed_curves_pk(&conn).unwrap();
+        migrate_drop_computed_curves_pk(&conn, None).unwrap();
         assert_eq!(pk_count(&conn, "computed_curves"), 0, "PK dropped");
         let rows: i64 = conn.query_row("SELECT COUNT(*) FROM computed_curves", [], |r| r.get(0)).unwrap();
         assert_eq!(rows, 2, "no rows lost in the rebuild");
 
         // Idempotent: a second run does nothing (no PK to drop).
-        migrate_drop_computed_curves_pk(&conn).unwrap();
+        migrate_drop_computed_curves_pk(&conn, None).unwrap();
         assert_eq!(pk_count(&conn, "computed_curves"), 0);
 
         // No-op on a fresh (already PK-less) schema.
         let fresh = mem_db();
         assert_eq!(pk_count(&fresh, "computed_curves"), 0);
-        migrate_drop_computed_curves_pk(&fresh).unwrap();
+        migrate_drop_computed_curves_pk(&fresh, None).unwrap();
         assert_eq!(pk_count(&fresh, "computed_curves"), 0);
+    }
+
+    /// R-B (RELEASE §3.2): when the destructive PK-drop migration actually fires against a
+    /// real file, a complete pre-migration copy must exist beside it FIRST — openable, PK
+    /// still present, every row intact. Opens that don't migrate must write no backup, and
+    /// an existing backup must never be overwritten (collision → timestamped name).
+    #[test]
+    fn destructive_migration_backs_up_the_project_file_first() {
+        let dir = std::env::temp_dir().join(format!("sandibumi-rb-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("field.duckdb");
+        let db_path_str = db_path.to_str().unwrap().to_string();
+        let count_backups = || -> usize {
+            std::fs::read_dir(&dir)
+                .unwrap()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_name().to_string_lossy().contains("-backup"))
+                .count()
+        };
+        let make_legacy_file = |path: &str| {
+            // A LEGACY project: computed_curves still carries the 3-column PK.
+            let conn = Connection::open(path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE computed_curves (
+                     well_id UUID NOT NULL, depth FLOAT NOT NULL, curve_name VARCHAR NOT NULL, value FLOAT,
+                     PRIMARY KEY (well_id, depth, curve_name));",
+            )
+            .unwrap();
+            let w = Uuid::new_v4().to_string();
+            conn.execute("INSERT INTO computed_curves VALUES (?1, 1000.0, 'PHIE', 0.2)", params![w]).unwrap();
+            conn.execute("INSERT INTO computed_curves VALUES (?1, 1000.5, 'PHIE', 0.21)", params![w]).unwrap();
+        };
+
+        make_legacy_file(&db_path_str);
+        let conn = Connection::open(&db_path_str).unwrap();
+        migrate_drop_computed_curves_pk(&conn, Some(&db_path_str)).unwrap();
+        assert_eq!(pk_count(&conn, "computed_curves"), 0, "live file migrated");
+
+        let backup = dir.join(format!("field.pre-{FORMAT_VERSION}-backup.duckdb"));
+        assert!(backup.exists(), "backup must exist beside the project, named per RELEASE 3.2");
+        {
+            let bconn = Connection::open(backup.to_str().unwrap()).unwrap();
+            assert_eq!(pk_count(&bconn, "computed_curves"), 1, "backup is the PRE-migration file: PK intact");
+            let rows: i64 = bconn.query_row("SELECT COUNT(*) FROM computed_curves", [], |r| r.get(0)).unwrap();
+            assert_eq!(rows, 2, "backup holds every pre-migration row (engine copy reads WAL state)");
+        }
+
+        // Already-migrated open: no second backup.
+        migrate_drop_computed_curves_pk(&conn, Some(&db_path_str)).unwrap();
+        assert_eq!(count_backups(), 1, "a non-destructive open must not write a backup");
+        drop(conn);
+
+        // Collision: a NEW legacy file at the same path must not overwrite the old backup.
+        std::fs::remove_file(&db_path).unwrap();
+        let _ = std::fs::remove_file(dir.join("field.duckdb.wal"));
+        make_legacy_file(&db_path_str);
+        let conn = Connection::open(&db_path_str).unwrap();
+        migrate_drop_computed_curves_pk(&conn, Some(&db_path_str)).unwrap();
+        assert_eq!(count_backups(), 2, "second destructive run takes a timestamped name, never overwrites");
+        drop(conn);
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A fresh project (born PK-less) must never see a backup file: the migration is a no-op
+    /// and the R-A stamp/generic-store migrations are additive, so opening writes nothing
+    /// beside the file.
+    #[test]
+    fn fresh_project_open_writes_no_backup() {
+        let dir = std::env::temp_dir().join(format!("sandibumi-rb-fresh-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("fresh.duckdb");
+        let db_path_str = db_path.to_str().unwrap().to_string();
+
+        let conn = init_db(&db_path_str).unwrap();
+        migrate_drop_computed_curves_pk(&conn, Some(&db_path_str)).unwrap();
+        let backups = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains("-backup"))
+            .count();
+        assert_eq!(backups, 0, "fresh projects must not accumulate backup files");
+        drop(conn);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// Without the PK, uniqueness rests on the write discipline: `write_computed_curves_batch`
