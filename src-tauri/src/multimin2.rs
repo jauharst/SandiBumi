@@ -2982,7 +2982,13 @@ mod tests {
         .iter()
         .map(|(k, v)| (k.to_string(), vec![*v; nsamp]))
         .collect();
-        let ctx = crate::modules::ModuleContext { n: nsamp, logs, params, opts: HashMap::new() };
+        let ctx = crate::modules::ModuleContext {
+            n: nsamp,
+            logs,
+            params,
+            opts: HashMap::new(),
+            depth_unit: Default::default(),
+        };
         let out = crate::modules::run_module("vsh_dn", &ctx).expect("vsh_dn run");
         let flag = &out["VSH_DN_FLAG"];
         let vsh = &out["VSH"];

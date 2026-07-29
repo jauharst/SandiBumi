@@ -405,7 +405,7 @@ mod tests {
         opts.insert("METHOD".to_string(), method.to_string());
         let mut params = HashMap::new();
         params.insert("PS_EXP".to_string(), vec![ps_exp]);
-        ModuleContext { n, logs, params, opts }
+        ModuleContext { n, logs, params, opts, depth_unit: Default::default() }
     }
 
     #[test]
@@ -486,7 +486,7 @@ mod tests {
         logs.insert("PERM".to_string(), perm);
         let mut opts = HashMap::new();
         opts.insert("APEX".to_string(), apex.to_string());
-        ModuleContext { n, logs, params: HashMap::new(), opts }
+        ModuleContext { n, logs, params: HashMap::new(), opts, depth_unit: Default::default() }
     }
 
     #[test]
@@ -541,7 +541,7 @@ mod tests {
         params.insert("PHI1".to_string(), vec![0.12; n]);
         params.insert("VSH2".to_string(), vec![0.35; n]);
         params.insert("PHI2".to_string(), vec![0.06; n]);
-        let c = ModuleContext { n, logs, params, opts: HashMap::new() };
+        let c = ModuleContext { n, logs, params, opts: HashMap::new(), depth_unit: Default::default() };
         let out = rt_cutoff(&c);
         assert_eq!(out["RT_LOG"][0], 1.0); // clean + porous → RT1
         assert_eq!(out["RT_LOG"][1], 2.0); // moderate → RT2

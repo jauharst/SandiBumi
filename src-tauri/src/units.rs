@@ -40,6 +40,16 @@ pub enum DepthUnit {
     Feet,
 }
 
+/// Metres — the unit the whole codebase assumed before units existed, and the unit
+/// `wells.kb`/`td` and the Field Map's UTM coordinates are already documented in. Every
+/// pre-existing test was written against that assumption, so defaulting here keeps their
+/// expected numbers meaningful rather than quietly reinterpreting them.
+impl Default for DepthUnit {
+    fn default() -> Self {
+        DepthUnit::Metres
+    }
+}
+
 impl DepthUnit {
     /// Stable code persisted in the project settings document and `wells.depth_unit`.
     pub fn code(self) -> &'static str {
@@ -94,6 +104,17 @@ pub fn convert_depth(value: f64, from: DepthUnit, to: DepthUnit) -> f64 {
         (DepthUnit::Metres, DepthUnit::Feet) => value / M_PER_FT,
         _ => value,
     }
+}
+
+/// A height expressed in `from` units, converted to FEET.
+///
+/// Exists for the capillary-pressure law `pc = 0.433 psi/ft/SG · Δρ · h[ft]`, whose
+/// constant is per FOOT of column: `satheight.rs` and `shf_fit.rs` used to hardcode
+/// `h * FT_PER_M`, silently assuming the height arrived in metres. On a project declared
+/// in feet that multiply ran on a height already in feet and returned a Pc 3.28x too
+/// high. Call this instead of multiplying — it reads as the unit conversion it is.
+pub fn to_feet(value: f64, from: DepthUnit) -> f64 {
+    convert_depth(value, from, DepthUnit::Feet)
 }
 
 /// Converts a whole depth index in place. NaN is preserved (missing stays missing).

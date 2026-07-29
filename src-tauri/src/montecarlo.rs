@@ -683,6 +683,9 @@ fn conv_stable(checks: &[ConvCheck], tol: f64) -> bool {
 struct StepPlan {
     module: String,
     opts: HashMap<String, String>,
+    /// The project's depth unit, captured here so the in-memory realization loop (which
+    /// runs with no DB connection) can hand it to every `ModuleContext`.
+    depth_unit: crate::units::DepthUnit,
     /// (arg name, resolved input curve name UPPERCASE).
     log_args: Vec<(String, String)>,
     param_args: Vec<String>,
@@ -1066,7 +1069,14 @@ fn build_plans(
             base_params.insert(a.name.clone(), resolve_zone_param(&a.name, base, &zones_raw, &zone_params, &depth));
         }
 
-        plans.push(StepPlan { module: step.module.clone(), opts, log_args, param_args, base_params });
+        plans.push(StepPlan {
+            module: step.module.clone(),
+            opts,
+            depth_unit: crate::units::project_depth_unit_or_default(conn),
+            log_args,
+            param_args,
+            base_params,
+        });
     }
 
     Ok(WellPlan { plans, raw_pool, depth, step_thick, zones: zones_raw, produced })
@@ -1125,7 +1135,7 @@ fn run_realization(
             }
             params.insert(pname.clone(), arr);
         }
-        let ctx = ModuleContext { n, logs, params, opts: plan.opts.clone() };
+        let ctx = ModuleContext { n, logs, params, opts: plan.opts.clone(), depth_unit: plan.depth_unit };
         match modules::run_module(&plan.module, &ctx) {
             Ok(outputs) => {
                 for (k, v) in outputs {

@@ -179,6 +179,13 @@ pub fn run_workflow_module_into(
         opts.insert(k.clone(), v.clone());
     }
 
+    // The project's depth unit, read ONCE here rather than per well: it is a project-level
+    // fact, and the wells below run under rayon where each lock acquisition would contend.
+    let depth_unit = {
+        let conn = db.lock().unwrap();
+        crate::units::project_depth_unit_or_default(&conn)
+    };
+
     // Input curves: dialog mnemonic over manifest default mnemonic.
     let log_args: Vec<(String, String)> = spec
         .args
@@ -317,7 +324,7 @@ pub fn run_workflow_module_into(
                     }
                 }
 
-                let ctx = ModuleContext { n: depth.len(), logs, params, opts: opts.clone() };
+                let ctx = ModuleContext { n: depth.len(), logs, params, opts: opts.clone(), depth_unit };
                 let mut outputs = modules::run_module(&req.module, &ctx)?;
 
                 // Blank flagged samples in the OUTPUTS too, so a flagged depth's result is
