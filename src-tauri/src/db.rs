@@ -11,15 +11,90 @@ pub enum DbError {
     LengthMismatch(String),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("{0}")]
+    FormatTooNew(String),
 }
 
 pub type DbResult<T> = Result<T, DbError>;
 
+/// The project-file format this build reads and writes. Bump rules live in
+/// `docs/RELEASE.md` §2.1: additive tables/columns do NOT bump this; a change an older
+/// build would silently misread DOES (and is a MAJOR release). The stamp exists so an
+/// OLDER app can refuse a NEWER file by name instead of opening it, finding only the
+/// tables it knows, and presenting a partial project as the whole thing (RELEASE §3.1).
+pub const FORMAT_VERSION: i64 = 1;
+
 /// Opens (creating if needed) the embedded DuckDB file and applies the schema.
+///
+/// The format check runs BEFORE `create_schema` on purpose: `CREATE TABLE IF NOT EXISTS`
+/// is itself a mutation, and a file written by a newer SandiBumi must be refused
+/// untouched, not first edited into a hybrid of two formats.
 pub fn init_db(path: &str) -> DbResult<Connection> {
     let conn = Connection::open(path)?;
+    check_and_stamp_format(&conn)?;
     create_schema(&conn)?;
     Ok(conn)
+}
+
+/// RELEASE.md §3.1 (requirement R-A). Three cases:
+/// - no `project_meta` table — a fresh file OR a legacy pre-stamp project; both are by
+///   definition ≤ this build's format, so create the table and stamp them (additive —
+///   exempt from the R-B backup rule).
+/// - stamped ≤ `FORMAT_VERSION` — open normally; when older, re-stamp to current (the
+///   launch migrations in `project::open_and_migrate` bring the schema forward anyway,
+///   so after this open the file IS the current format — one-way, per RELEASE §3.3).
+/// - stamped > `FORMAT_VERSION` — refuse, naming both versions and the app that wrote
+///   the file. Silently misreading a newer project is the one unacceptable behaviour.
+fn check_and_stamp_format(conn: &Connection) -> DbResult<()> {
+    let has_meta: i64 = conn.query_row(
+        "SELECT count(*) FROM duckdb_tables() WHERE table_name = 'project_meta'",
+        [],
+        |r| r.get(0),
+    )?;
+    let stamp = |written_by: &str| -> DbResult<()> {
+        conn.execute(
+            "UPDATE project_meta SET value = ? WHERE key = 'format_version'",
+            params![FORMAT_VERSION.to_string()],
+        )?;
+        conn.execute(
+            "INSERT INTO project_meta SELECT 'format_version', ? WHERE NOT EXISTS
+                 (SELECT 1 FROM project_meta WHERE key = 'format_version')",
+            params![FORMAT_VERSION.to_string()],
+        )?;
+        conn.execute("DELETE FROM project_meta WHERE key = 'written_by'", [])?;
+        conn.execute(
+            "INSERT INTO project_meta VALUES ('written_by', ?)",
+            params![written_by],
+        )?;
+        Ok(())
+    };
+    let app = concat!("SandiBumi ", env!("CARGO_PKG_VERSION"));
+    if has_meta == 0 {
+        conn.execute_batch("CREATE TABLE project_meta (key VARCHAR PRIMARY KEY, value VARCHAR);")?;
+        return stamp(app);
+    }
+    // A present table with a missing/unparsable version row is treated as legacy (0),
+    // never as newer — refusing must require positive evidence of a newer writer.
+    let (ver, written_by): (i64, String) = conn
+        .query_row(
+            "SELECT
+                coalesce(max(CASE WHEN key = 'format_version' THEN value END), '0'),
+                coalesce(max(CASE WHEN key = 'written_by' THEN value END), 'an unknown SandiBumi build')
+             FROM project_meta",
+            [],
+            |r| Ok((r.get::<_, String>(0)?.parse::<i64>().unwrap_or(0), r.get(1)?)),
+        )?;
+    if ver > FORMAT_VERSION {
+        return Err(DbError::FormatTooNew(format!(
+            "this project was written by {written_by} (file format {ver}); this build reads \
+             format {FORMAT_VERSION} and lower - upgrade SandiBumi to open it (the file was \
+             left unmodified)"
+        )));
+    }
+    if ver < FORMAT_VERSION {
+        stamp(app)?;
+    }
+    Ok(())
 }
 
 /// Opens the database, self-healing from a corrupted write-ahead log that fails to
@@ -1333,6 +1408,71 @@ mod inspector_tests {
         let conn = Connection::open_in_memory().unwrap();
         create_schema(&conn).unwrap();
         conn
+    }
+
+    fn tmp_db(tag: &str) -> String {
+        let p = std::env::temp_dir().join(format!("sandibumi_fmt_{tag}_{}.duckdb", Uuid::new_v4()));
+        p.to_str().unwrap().to_string()
+    }
+
+    fn read_meta(conn: &Connection, key: &str) -> Option<String> {
+        conn.query_row("SELECT value FROM project_meta WHERE key = ?", params![key], |r| r.get(0))
+            .ok()
+    }
+
+    #[test]
+    fn fresh_project_is_stamped_with_current_format() {
+        let path = tmp_db("fresh");
+        let conn = init_db(&path).unwrap();
+        assert_eq!(read_meta(&conn, "format_version").as_deref(), Some(FORMAT_VERSION.to_string().as_str()));
+        let by = read_meta(&conn, "written_by").unwrap();
+        assert!(by.starts_with("SandiBumi "), "written_by should name the app: {by}");
+        drop(conn);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn legacy_project_without_stamp_is_stamped_on_open() {
+        let path = tmp_db("legacy");
+        {
+            // A pre-R-A project: full schema, no project_meta at all.
+            let conn = Connection::open(&path).unwrap();
+            create_schema(&conn).unwrap();
+        }
+        let conn = init_db(&path).unwrap();
+        assert_eq!(read_meta(&conn, "format_version").as_deref(), Some("1"));
+        drop(conn);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn future_format_is_refused_and_left_unmodified() {
+        let path = tmp_db("future");
+        {
+            // A file from a hypothetical future format: it carries a stamp but NOT the
+            // current schema (a future format may have renamed any table) — so if
+            // create_schema ran despite the refusal, `wells` would appear.
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE project_meta (key VARCHAR PRIMARY KEY, value VARCHAR);
+                 INSERT INTO project_meta VALUES ('format_version', '999'), ('written_by', 'SandiBumi 9.9.9');",
+            )
+            .unwrap();
+        }
+        let err = init_db(&path).err().expect("a newer file must be refused");
+        let msg = err.to_string();
+        assert!(msg.contains("format 999"), "must name the file's format: {msg}");
+        assert!(msg.contains("SandiBumi 9.9.9"), "must name the writer: {msg}");
+        assert!(msg.contains("upgrade SandiBumi"), "must say what to do: {msg}");
+        // The refusal must have mutated nothing: no schema, stamp intact.
+        let conn = Connection::open(&path).unwrap();
+        let wells: i64 = conn
+            .query_row("SELECT count(*) FROM duckdb_tables() WHERE table_name = 'wells'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(wells, 0, "create_schema must not have run on a refused file");
+        assert_eq!(read_meta(&conn, "format_version").as_deref(), Some("999"), "stamp must be untouched");
+        drop(conn);
+        let _ = std::fs::remove_file(&path);
     }
 
     /// Reproduces the exact failure that motivated `init_db_resilient`, using a real

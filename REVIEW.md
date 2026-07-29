@@ -7,6 +7,40 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 92 — R-A: the project file now carries a format stamp, and an older build refuses a newer file by name (2026-07-29)
+
+Requirement R-A from `docs/RELEASE.md` §3.1 (on the 1.0 gate; the doc arrives with PR #2). The
+finding behind it: the project `.duckdb` carried **no format version anywhere** — every table is
+`CREATE TABLE IF NOT EXISTS`, read by name — so an older SandiBumi opening a file written by a
+newer one would open it, find the tables it knows, silently ignore the rest, and present a partial
+project as the whole thing. Months of interpretation, shown with pieces missing, no warning. That
+is the cardinal rule (a degraded result presented as clean) with a whole project as the blast
+radius, and it was the *default* behaviour.
+
+Now: a `project_meta` table (`format_version`, `written_by`) is stamped into every project on
+open. `db::FORMAT_VERSION` starts at 1; the check runs **before** `create_schema` on purpose,
+because `CREATE TABLE IF NOT EXISTS` is itself a mutation and a newer file must be refused
+*untouched*. Three cases: no stamp (fresh file or legacy project) → stamp it, additive; stamp ≤
+current → open normally, re-stamp if older; stamp > current → **refuse**, naming the file's
+format, the app that wrote it, and what to do ("this project was written by SandiBumi X (file
+format N); this build reads format 1 and lower - upgrade SandiBumi to open it (the file was left
+unmodified)"). A missing or unparsable version row counts as legacy, never as newer — refusal
+requires positive evidence. The refusal message contains no "WAL", so `init_db_resilient` can
+never mistake it for corruption and move a healthy newer file's WAL aside.
+
+Verified: 3 new tests in `db.rs` — fresh project stamped with format 1 + `written_by SandiBumi
+0.1.0`; a legacy pre-stamp project (full schema, no meta) is stamped on open; a future-format
+file (stamp 999, deliberately without the current schema) is refused with all three message parts
+AND left byte-honest — `wells` still absent after (proving `create_schema` never ran), stamp
+still 999. Full green gate: `GATE GREEN in 47s`, **376 passed / 0 failed / 7 ignored** (SSC WIP
+stashed for the run and restored after, as in Round 91).
+
+- [ ] **Try:** open any existing project normally — everything must work exactly as before (the
+  stamp is invisible). Then in the **SQL Query** panel run `SELECT * FROM project_meta` — expect
+  two rows: `format_version` = 1 and `written_by` = SandiBumi 0.1.0. The refusal path needs a
+  future build to demonstrate for real, which is the point — it exists so that *next year's*
+  files are safe in *this year's* app; the test suite stands in for the future build today.
+
 ## Round 91 — the green gate: one command that proves the tree is healthy (2026-07-29)
 
 Q3 of the 1.0 quality bar (`docs/V1_SCOPE.md` §5, defined in `docs/RELEASE.md` §5 step 0) — until
