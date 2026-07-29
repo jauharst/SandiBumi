@@ -83,6 +83,24 @@ pub fn import_las_files(
 
 fn insert_parsed_well(conn: &Connection, path: String, well_name: String, mut columns: CurveColumns) -> ImportResult {
     let well_id = Uuid::new_v4();
+
+    // Reconcile the file's depth index with the project's declared unit BEFORE anything
+    // else touches the depths. A project holds exactly one depth unit (units.rs); a
+    // foot-indexed Rokan LAS landing its raw numbers in a metric project used to be
+    // reported as a clean import while every cross-well comparison silently put 8,000
+    // against 2,438 for the same formation.
+    let declared = crate::units::project_depth_unit(conn).ok().flatten();
+    let file_unit = columns.depth_unit.as_deref().and_then(crate::units::DepthUnit::parse);
+    let unit_action = crate::units::resolve_index_unit(declared, file_unit);
+    let stored_unit = match unit_action {
+        crate::units::IndexUnitAction::Convert { from, to } => {
+            crate::units::convert_depths(&mut columns.depth, from, to);
+            to
+        }
+        crate::units::IndexUnitAction::Adopted(u) => u,
+        crate::units::IndexUnitAction::Matches(u) | crate::units::IndexUnitAction::Assumed(u) => u,
+    };
+
     // Drop non-finite / duplicate depths so the (well_id, depth) PK can't trip and abort the
     // whole file (which would also orphan the well row); report what was removed.
     let report = parsers::sanitize_curve_columns(&mut columns);
@@ -110,6 +128,9 @@ fn insert_parsed_well(conn: &Connection, path: String, well_name: String, mut co
     let non_monotonic = columns.depth.windows(2).any(|w| w[0] < w[1])
         && columns.depth.windows(2).any(|w| w[0] > w[1]);
     let mut notes: Vec<String> = Vec::new();
+    if let Some(n) = unit_action.note() {
+        notes.push(n);
+    }
     if !report.is_clean() {
         notes.push(format!(
             "dropped {} row(s) with missing depth and {} with duplicate depth",
@@ -144,6 +165,12 @@ fn insert_parsed_well(conn: &Connection, path: String, well_name: String, mut co
     // instead of stranding a curve-less orphan (with_txn = BEGIN/COMMIT/ROLLBACK).
     let result: db::DbResult<()> = db::with_txn(conn, |conn| {
         db::insert_well(conn, well_id, &well_name, None, None, None)?;
+        // Record the unit the stored depths are actually in, alongside the data itself so
+        // the two can never drift apart.
+        conn.execute(
+            "UPDATE wells SET depth_unit = ?2 WHERE well_id = ?1",
+            params![well_id.to_string(), stored_unit.code()],
+        )?;
         db::insert_standard_curves(
             conn,
             well_id,
@@ -160,6 +187,13 @@ fn insert_parsed_well(conn: &Connection, path: String, well_name: String, mut co
 
     match result {
         Ok(()) => {
+            // The project adopts this file's unit only once the well actually committed,
+            // so a failed import can't leave a project declaring a unit it holds no data in.
+            if let crate::units::IndexUnitAction::Adopted(u) = unit_action {
+                if let Err(e) = crate::units::set_project_depth_unit(conn, u) {
+                    eprintln!("warning: could not record the project depth unit: {e}");
+                }
+            }
             // Phase 6: additionally load *every* curve from the file into the generic
             // store (set RAW), so PEF/CALI/multiple-runs — anything beyond the fixed 6 —
             // is available even though the legacy `standard_curves` path above still feeds
@@ -191,6 +225,13 @@ pub fn import_all_curves_into_generic_store(conn: &Connection, well_id: &str, pa
         Ok(f) => f,
         Err(e) => return Err(db::DbError::LengthMismatch(format!("parse_las_2_all: {e}"))),
     };
+    // This re-reads the same file the standard-curve path already imported, so it MUST
+    // apply the identical index conversion — otherwise the two stores would hold the same
+    // curves at depths 3.28x apart and every generic-store lookup would miss.
+    let target = crate::units::project_depth_unit_or_default(conn);
+    if let Some(file_unit) = frame.depth_unit.as_deref().and_then(crate::units::DepthUnit::parse) {
+        crate::units::convert_depths(&mut frame.depth, file_unit, target);
+    }
     // curve_samples has PK (curve_id, depth) just like standard_curves, so the same non-finite
     // / duplicate depths the standard-curves path drops would otherwise abort each curve's
     // insert here — silently, since this whole import is best-effort (its Err is only logged).
@@ -808,6 +849,7 @@ mod tests {
         db::create_schema(&conn).unwrap();
 
         let cols = || CurveColumns {
+            depth_unit: None,
             depth: vec![1000.0, 1000.5, 1001.0],
             gr: vec![40.0, 45.0, 50.0],
             res: vec![f32::NAN; 3],

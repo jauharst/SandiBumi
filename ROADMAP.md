@@ -739,6 +739,26 @@ _(field-review tier, was "P2"; the rest of the tier is done in [A8](#a8-field-re
       highlights → tops.
 - [ ] **Typography**: text reads slightly fuzzy/washed-out up close — investigate WebView2 rendering
       (display scaling, weight, contrast). Waiting on Jauhar to say whether it's blurriness or lightness.
+- [ ] **Depth units, increment 2** (2026-07-29; increment 1 shipped — `units.rs`, project-declared
+      unit, import conversion, `wells.depth_unit`). Remaining, all gated on a project declared in
+      FEET (a metric project is correct today):
+      (a) **`satheight.rs:181` + `shf_fit.rs:897/1069/1284`** — `pc = 0.433·Δρ·(h·FT_PER_M)`
+      assumes `h` arrived in metres, so Pc is 3.28× off on a foot project. Needs the project unit
+      inside `ModuleContext`; the two production construction sites are `workflow.rs:320` and
+      `montecarlo.rs:1128` (the other ~15 are test helpers, so a reserved opts key beats widening
+      the struct). **Silent numeric error — do not delegate.**
+      (b) **`LogCanvasRenderer.PX_PER_UNIT_1_1`** (96/0.0254) hardcodes metres, so every named
+      1:N print scale is mislabelled by 3.28× on a foot project.
+      (c) **The view toggle** Jauhar asked for: `appState.displayDepthUnit`, independent of the
+      stored unit, live-switchable. Display sites: log-view depth axis (`logViewPanel.refreshDepthAxis`,
+      one function), depth readout, tops panel + tops editor, zones, composite scale bar, report
+      pages, dashboard depth columns, crossplot/histogram depth-coloured axes.
+      (d) **Settings UI** to re-declare the project unit, refusing (or offering a full migration)
+      once wells exist — re-declaring alone would silently reinterpret every stored depth.
+      (e) Tops/zones/core/deviation CSV imports carry no unit and are assumed to be in the project
+      unit; say so at the import dialog.
+      Curve units (RHOB g/cc↔kg/m³, CALI in↔cm, DT us/ft↔us/m) are a later wave — Jauhar chose
+      depth-first. Downstream: this is the interchange contract with **SegaraBumi**.
 - [ ] **Multi-well plots** (T-SHELL-16, 2026-07-29): "histo, xplot etc (except log view) cant display
       multiple groups together, better have option for well selections like modules". Histogram,
       crossplot and Pickett are hard-wired to `selectedWell` — one well per pane, so a field-wide

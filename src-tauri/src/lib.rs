@@ -40,6 +40,7 @@ mod ssc;
 mod python_engine;
 mod tops;
 mod unconventional;
+mod units;
 mod workflow;
 
 use duckdb::Connection;

@@ -33,6 +33,11 @@ pub struct LogDataRow {
 /// Columnar curve data ready to be handed to the DuckDB Appender.
 #[derive(Debug, Clone, Default)]
 pub struct CurveColumns {
+    /// The index column's declared unit, verbatim from the ~C block (e.g. "M", "FT").
+    /// `None` when the file declares none. Resolved against the project's depth unit at
+    /// ingest — see `units::resolve_index_unit`; storing a foot index in a metric project
+    /// was a silent corruption before this was carried through.
+    pub depth_unit: Option<String>,
     pub depth: Vec<f32>,
     pub gr: Vec<f32>,
     pub res: Vec<f32>,
@@ -127,6 +132,7 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
 
     let mut section = LasSection::Header;
     let mut curve_names: Vec<String> = Vec::new();
+    let mut curve_units: Vec<Option<String>> = Vec::new();
     let mut cols = CurveColumns::default();
 
     // Index lookup into curve_names for the columns we care about, resolved once the
@@ -179,6 +185,15 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
                 // LAS curve line format: "MNEM .UNIT  VALUE : DESCRIPTION"
                 if let Some(mnem) = trimmed.split('.').next() {
                     curve_names.push(mnem.trim().to_uppercase());
+                    // Same extraction as parse_las_2_all, kept parallel to curve_names so
+                    // the index column's unit can be read once the depth column resolves.
+                    curve_units.push(
+                        trimmed
+                            .split_once('.')
+                            .and_then(|(_, rest)| rest.split_whitespace().next())
+                            .map(|u| u.trim().to_string())
+                            .filter(|u| !u.is_empty()),
+                    );
                 }
             }
             LasSection::AsciiData => {
@@ -190,6 +205,7 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
                     // matching parse_las_2_all — a TDEP/MD/other-indexed file must not produce
                     // an all-NaN depth column.
                     idx_depth = resolve_curve_index(&curve_names, &DEPTH_ALIASES).or(Some(0));
+                    cols.depth_unit = idx_depth.and_then(|i| curve_units.get(i).cloned().flatten());
                     let alias_sets =
                         [&GR_ALIASES[..], &RES_ALIASES, &NPHI_ALIASES, &RHOB_ALIASES, &DT_ALIASES, &SP_ALIASES];
                     for (k, aliases) in alias_sets.iter().enumerate() {
@@ -366,7 +382,10 @@ pub struct LasFrame {
     // index depth in metres or feet?); captured now with the rest of the frame.
     #[allow(dead_code)]
     pub depth_mnemonic: String,
-    #[allow(dead_code)]
+    /// Read at ingest to reconcile the file's index against the project's depth unit
+    /// (`units::resolve_index_unit`). Deliberately NOT `#[allow(dead_code)]` any more —
+    /// it was silenced here for a whole release cycle, which is precisely what hid the
+    /// fact that nothing ever consulted it.
     pub depth_unit: Option<String>,
     pub depth: Vec<f32>,
     pub curves: Vec<RawLasCurve>,
@@ -1871,6 +1890,7 @@ mod las_depth_tests {
     fn cols_from(depth: Vec<f32>) -> CurveColumns {
         let seq: Vec<f32> = (0..depth.len()).map(|i| i as f32).collect();
         CurveColumns {
+            depth_unit: None,
             depth,
             gr: seq.clone(),
             res: seq.clone(),

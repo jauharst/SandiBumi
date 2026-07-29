@@ -7,6 +7,55 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 98 — Depth units, increment 1: the project declares one, imports convert to it (2026-07-29)
+
+Your instinct was right, and it lands on an **already-verified audit finding** (engineering
+review **F2e**, "fix-now", high confidence) that nobody had actioned. The LAS index unit was
+being parsed at `parsers.rs` and **thrown away** under `#[allow(dead_code)]`, and `curves.rs`
+FAMILIES has no DEPTH entry — so `convert_to_canonical` never touched the index. A foot-indexed
+Rokan/Caltex LAS put its raw foot numbers in the same column as a metric Mahakam well, and the
+import was reported as clean. A top at 8,000 (ft) and one at 2,438 (m) in the *same formation*
+sat 5,500 units apart, and correlation, contact planes and the tops slide window compared them
+as if that were real.
+
+Per your two decisions: **the project declares its depth unit and imports must match**, and
+**depth first, curve units later**.
+
+**What ships now (the storage layer):**
+
+- `src-tauri/src/units.rs` — one place that knows metres from feet. Exact international foot
+  (0.3048; the US survey foot differs by 2 ppm ≈ 5 mm over a 2,500 m well, so it is not
+  modelled). Unrecognized unit strings return `None` rather than a guess, because guessing is
+  the exact failure this exists to stop.
+- **Project setting**: stored as a `documents` row, so no schema migration. A **fresh project
+  adopts the unit of its first import** — the common case needs no decision from you at all.
+- **Import reconciliation**: a file matching the project stores as-is and says nothing; a file
+  in the *other* unit is converted and the import is flagged; a file declaring no unit is
+  assumed and flagged. Every case except a clean match produces a note in the import warning
+  you already see.
+- Both stores convert **identically** — the generic-store loader re-reads the same file, so it
+  had to apply the same conversion or the two would hold the same curves 3.28× apart.
+- `wells.depth_unit` records what the stored numbers mean, next to the data itself.
+- Both `#[allow(dead_code)]` attributes are **gone**, so the compiler can never again hide the
+  fact that nothing reads the index unit.
+
+**Verified:** `cargo test` 383 passed / 0 failed, including 5 new unit tests (unit-string
+spellings that occur in real field LAS, 8000 ft = 2438.4 m exactly and back, NaN preserved
+through conversion, and every project×file unit combination).
+
+**One thing this does NOT yet fix, stated plainly.** A project declared in **feet** still has
+two places that assume metres:
+`satheight.rs:181` and `shf_fit.rs:897/1069/1284` compute `pc = 0.433·Δρ·(h · 3.28084)`, i.e.
+they assume the height above free water arrived in metres — so **Pc is 3.28× off on a
+foot-declared project**; and `LogCanvasRenderer.PX_PER_UNIT_1_1` derives the true 1:N print
+scale from 96 px/in ÷ 0.0254 m/in, so every named scale is mislabelled by the same factor.
+A **metric** project is correct today, and mixed-unit imports are now correct because they
+convert. Both sites are increment 2, together with the view toggle.
+
+- [ ] **Try:** import a metric LAS into a fresh project, then a foot-indexed one. The second should import with a note that the depth index was converted, and its tops should line up with the first well's in correlation rather than sitting thousands of units away.
+- [ ] **Try:** import a LAS whose `~C` block declares no index unit — expect the note "this file declares no index unit — depths assumed to be m".
+- [ ] **Tell me:** are your Rokan/Central-Sumatra projects ones you'd want declared in **feet** (keeping the depths you know) or converted to metres? That decides whether the increment-2 Pc fix is urgent for you or merely correct.
+
 ## Round 97 — SHELL field-test fixes: Pin OFF, plot right-click, repeat reload key (2026-07-29)
 
 From your run through **Section SHELL** of `docs/manual_test_plan.md` — 16 of 18 passed;
