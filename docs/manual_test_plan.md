@@ -4465,11 +4465,23 @@ Run it once yourself for the release build, but expect green.
 4. Leave the app via the window ✕ (never task-kill — WAL).
 **Expected:** all three work exactly as in dev mode. Any CSP violation shows as a feature
 silently doing nothing — if one does, note which feature and check the webview console.
-**Realtime status (2026-07-29):** Vega leg ✅ machine-verified under the enforced CSP
-(`eval`/`Function` allowed as designed; a real scatter of 20 imported synthetic points
-rendered — the `marks` canvas has painted pixels; zero violations). Equation Editor and
-Composite-PDF legs still need your click (they run through the Rust backend, so CSP risk
-is minimal — this is a general packaged-mode smoke, not a CSP question).
+**Realtime status (2026-07-29): ✅ ALL LEGS machine-verified** in a packaged debug build
+carrying the PR's real CSP, on an isolated scratch project. The policy was first proven
+*enforced* in that exact build — deliberate probes were blocked with messages quoting our own
+directives (remote fetch → `connect-src`, injected inline `<script>` → `script-src`) while
+`eval`/`Function` stayed allowed — so the clean results below mean something:
+- **Vega**: real scatter of 20 imported points; `marks` canvas has painted pixels.
+- **Equation Editor**: CodeMirror mounts (its lazy chunk loads under `script-src 'self'`);
+  a **Rhai** run (`gr * 2.0`) and a **Python/numpy** run (`np.clip(gr/150,0,1)`) each wrote
+  20 rows with numerically exact results (77–204.8 and 0.2567–0.6827 for a GR range of
+  38.5–102.4). Python engine auto-discovered at `…\Python312\python.exe`.
+- **Composite PDF**: `render_composite` → 1 page; `export_composite_pdf` wrote a real
+  5,634-byte file starting with `%PDF-`.
+- **`printCanvas`** (the genuinely CSP-risky path, checked on purpose): its srcless iframe +
+  inline `<style>` + `data:` image all worked — image loaded, style applied, **0 violations**.
+Zero unexpected CSP violations and zero console errors across the whole run.
+**Note on convention** (cost me a false alarm): equation scripts receive inputs **lowercase**
+and assign to the **output curve name** — `vsh = np.clip((gr-20)/120, 0, 1)`, not `GR`/`out`.
 **Result — T-SHIP-02:**
 
 - [ ] Pass
