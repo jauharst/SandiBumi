@@ -30,7 +30,7 @@ unhireable, and that is the failure mode that kills vibe-coded products — not 
 Recorded so future audits measure *drift* rather than re-arguing from scratch. Re-measure with
 Prompt 3; do not trust these numbers after a few months of work.
 
-**SandiBumi** (`D:\XX. Arshilla`)
+**SandiBumi** (`D:\XX. SandiBumi`)
 
 | Metric | Value | Reading |
 |---|---|---|
@@ -62,7 +62,7 @@ The cheapest prompt in this file by a wide margin. Run it *once*, at the start.
 
 ```
 I am about to start building SegaraBumi as a standalone Rust workspace. The design is complete
-and lives in D:\XX. Arshilla\docs\research_2026-07\sonar_ingest\ (B_gap_matrix, C_data_foundation,
+and lives in D:\XX. SandiBumi\docs\research_2026-07\sonar_ingest\ (B_gap_matrix, C_data_foundation,
 D_type_registry, E_indexer_search, F_digitization_design, FINDINGS). Read those first, plus
 docs/sonar_ingest_adopt_prompt.md.
 
@@ -141,7 +141,7 @@ flag cannot be violated by accident.
 Run once per project. Re-run only after a large change of direction.
 
 ```
-Produce the stewardship documents for {{SandiBumi at D:\XX. Arshilla | SegaraBumi at <path>}}.
+Produce the stewardship documents for {{SandiBumi at D:\XX. SandiBumi | SegaraBumi at <path>}}.
 Write documents only -- no behaviour changes in this session.
 
 Read first: CLAUDE.md, AGENTS.md, CONTRIBUTING.md, README.md, ROADMAP.md, REVIEW.md,

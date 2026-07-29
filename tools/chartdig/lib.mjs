@@ -1,5 +1,5 @@
 // Shared chartbook-digitization functions (method proven on Por-11/12; see
-// D:\XX. Arshilla\tools\chartdig\README.md). All 2013-edition charts share the
+// D:\XX. SandiBumi\tools\chartdig\README.md). All 2013-edition charts share the
 // style: gray grid (155,156,159), graduation dashes whose TIP marks the exact
 // data coordinate, label-anchored grid-index calibration.
 import { readFileSync } from "fs";

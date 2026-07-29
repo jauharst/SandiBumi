@@ -7,6 +7,195 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 95 — SSC gas conditioning changed the numbers; the stale test that hid it is fixed (2026-07-29)
+
+**This one needs your eyes on real data — SSC output values moved.** Your `d1f0c1e` commit
+re-aligned `ssc.rs` to the Loglan reference, and one change is numerical, not cosmetic: the
+gas/HC conditioning now pulls a point onto the sand base line at the **RMS midpoint**
+(`sqrt((φD²+φN²)/2)`, matching `sspw.lls`'s gas branch) instead of the old 1.6-weighted form,
+which overshot the midpoint and inverted the density-neutron crossover. Any gas-affected
+sample will therefore report a different PHIT/PHIE than before. Per `RELEASE.md`, that is a
+"numbers that changed" event.
+
+That commit also left the gate red: `ssc_swirr_floor_pads_capillary_water` asserted
+`SWIRR_T >= SWIRR_MIN`, which contradicted **its own name** and both references. The floor
+(`ssc.rs` `if ... bw / phit < swirr_min`) pads **CWSH** — capillary water — raising BW;
+`SWIRR_T` is deliberately the *pre-conditioning* ratio (`.lls` 213-216, and
+`docs/method_ssc_sspw.md` §8 computes SWIRR first, then lists the conditioning). So the code
+matched the spec and the test was the stale artifact. I did not touch any physics.
+
+The test now pins **both** halves of that contract — the floor must raise CWSH and lift
+BW/PHIT to SWIRR_MIN, *and* SWIRR_T must stay the pre-conditioning value — plus a guard that
+the fixture actually starts below the floor, so it can't pass vacuously. Gate: green with
+nothing stashed.
+
+- [ ] **Try:** re-run SSC on a well with a known gas effect and compare PHIT/PHIE against
+  your previous run (or the reference-suite LAS export). The non-gas samples should be
+  unchanged; gas-affected ones will differ, and the new values are the ones that match the
+  Loglan. If they don't match the reference export, tell me — that is a real finding.
+
+## Round 94 — R-C: closing the app no longer risks losing the writes since the last checkpoint (2026-07-29)
+
+Found by the packaged-build verification, not by code review — and it is the biggest catch of
+the session. Tauri exits through `std::process::exit`, which skips Rust destructors, so the
+DuckDB connection **never closed cleanly on any exit**: every close — including a plain window
+✕ — abandoned a live WAL. Reproduced twice against the packaged app: import a 20-row LAS,
+close with ✕, relaunch → the WAL fails replay, `init_db_resilient` moves it aside as
+`.corrupt-backup-<ts>`, and the import is **silently gone** (`Wells (0)`). Writes below
+DuckDB's auto-checkpoint threshold live only in the WAL, so the writes at risk are exactly the
+small, recent ones: an import, a parameter edit, a tops pick made just before closing. This
+also explains the WAL-corruption plague CLAUDE.md attributes to `tauri dev` force-kills — every
+close abandoned a WAL; the force-kills were just the ones caught badly enough to notice.
+
+Fix: `lib.rs` now runs the app with a `RunEvent::Exit` handler that locks the connection and
+executes `CHECKPOINT` — every graceful exit flushes the WAL into the project file while the
+process still can. Force-kills stay covered by `init_db_resilient` exactly as before.
+
+Verified end-to-end on the packaged exe (isolated scratch project, `SANDIBUMI_CONFIG_DIR`):
+same import-close-relaunch sequence → after close there is **no `.wal` at all** beside the
+project, relaunch lists the imported well, and no new corrupt-backup appears. Full green gate:
+`GATE GREEN in 68s` (378/0/7, SSC WIP stash-roundtripped).
+
+- [ ] **Try (= T-SHIP-07 in `docs/manual_test_plan.md`):** in a COPY of a project, import one
+  LAS, close the app with ✕ immediately, look beside the `.duckdb`: no `.wal` should remain.
+  Reopen — the imported well must still be there and no new `.corrupt-backup-*` file appears.
+
+## Round 93 — R-B: a destructive migration now backs up the project file first (2026-07-29)
+
+Requirement R-B from `docs/RELEASE.md` §3.2, the sibling of Round 92's R-A and the other
+1.0-gate item. The finding: the PK-drop migration (the one that made 100-well chains 2.4×
+faster) **rebuilds the whole `computed_curves` table in place** — `DROP TABLE` mid-sequence —
+with no recoverable copy. On a field-scale file, a crash mid-rebuild loses computed results
+with nothing to fall back to.
+
+Now: when that migration is actually going to run (and only then — additive migrations like
+the R-A stamp and the generic-store backfill are exempt, so backups stay meaningful), the
+project is first copied beside itself as `<name>.pre-1-backup.duckdb` and the launch log says
+so. Two honesty properties: a **failed backup aborts the migration** (the un-migrated file
+still opens fine — the PK only slows writes — so refusing costs nothing, while proceeding
+would break the exact promise), and an **existing backup is never overwritten** (collision →
+timestamped name, the WAL-recovery convention). One Windows reality the test caught: DuckDB
+holds its file with exclusive sharing, so a filesystem copy of an open project is impossible —
+the copy is made by the engine itself (`ATTACH` + `COPY FROM DATABASE`), which also preserves
+the schema *with* the PK, so the backup is provably the pre-migration file.
+
+Verified: 2 new `db.rs` tests against real temp files — the destructive path writes the backup
+first (openable, PK intact, both rows present), a no-op open writes nothing, a fresh project
+never accumulates backups, and a name collision takes a new name. Full green gate:
+`GATE GREEN in 39s`, **378 passed / 0 failed / 7 ignored** (SSC WIP stash-roundtripped as
+before).
+
+- [ ] **Try:** open your real project — since increment 5 already migrated it, the pass
+  condition is **absence**: no new `*-backup.duckdb` file beside it, launch not slower.
+  To see it fire, open any pre-2026-07-19 project copy that still has the old PK: a
+  `<name>.pre-1-backup.duckdb` appears beside it and the console log announces it before
+  the rebuild. (Full list of session-wide manual checks: `docs/manual_check_plan.md`.)
+
+## Round 92 — R-A: the project file now carries a format stamp, and an older build refuses a newer file by name (2026-07-29)
+
+Requirement R-A from `docs/RELEASE.md` §3.1 (on the 1.0 gate; the doc arrives with PR #2). The
+finding behind it: the project `.duckdb` carried **no format version anywhere** — every table is
+`CREATE TABLE IF NOT EXISTS`, read by name — so an older SandiBumi opening a file written by a
+newer one would open it, find the tables it knows, silently ignore the rest, and present a partial
+project as the whole thing. Months of interpretation, shown with pieces missing, no warning. That
+is the cardinal rule (a degraded result presented as clean) with a whole project as the blast
+radius, and it was the *default* behaviour.
+
+Now: a `project_meta` table (`format_version`, `written_by`) is stamped into every project on
+open. `db::FORMAT_VERSION` starts at 1; the check runs **before** `create_schema` on purpose,
+because `CREATE TABLE IF NOT EXISTS` is itself a mutation and a newer file must be refused
+*untouched*. Three cases: no stamp (fresh file or legacy project) → stamp it, additive; stamp ≤
+current → open normally, re-stamp if older; stamp > current → **refuse**, naming the file's
+format, the app that wrote it, and what to do ("this project was written by SandiBumi X (file
+format N); this build reads format 1 and lower - upgrade SandiBumi to open it (the file was left
+unmodified)"). A missing or unparsable version row counts as legacy, never as newer — refusal
+requires positive evidence. The refusal message contains no "WAL", so `init_db_resilient` can
+never mistake it for corruption and move a healthy newer file's WAL aside.
+
+Verified: 3 new tests in `db.rs` — fresh project stamped with format 1 + `written_by SandiBumi
+0.1.0`; a legacy pre-stamp project (full schema, no meta) is stamped on open; a future-format
+file (stamp 999, deliberately without the current schema) is refused with all three message parts
+AND left byte-honest — `wells` still absent after (proving `create_schema` never ran), stamp
+still 999. Full green gate: `GATE GREEN in 47s`, **376 passed / 0 failed / 7 ignored** (SSC WIP
+stashed for the run and restored after, as in Round 91).
+
+- [ ] **Try:** open any existing project normally — everything must work exactly as before (the
+  stamp is invisible). Then in the **SQL Query** panel run `SELECT * FROM project_meta` — expect
+  two rows: `format_version` = 1 and `written_by` = SandiBumi 0.1.0. The refusal path needs a
+  future build to demonstrate for real, which is the point — it exists so that *next year's*
+  files are safe in *this year's* app; the test suite stands in for the future build today.
+
+## Round 91 — the green gate: one command that proves the tree is healthy (2026-07-29)
+
+Q3 of the 1.0 quality bar (`docs/V1_SCOPE.md` §5, defined in `docs/RELEASE.md` §5 step 0) — until
+now the three verification gates were run by hand, separately, from memory. **`tools\check.ps1`**
+runs them in order and exits non-zero at the FIRST failure: (1) `npm run build` (tsc runs inside
+it, so no duplicate type-check pass), then (2) full `cargo test` in src-tauri **through vcvars
+pinned to 14.29** when that toolset exists (this machine's 14.50 is broken), plain `cargo test`
+otherwise — so the same script works on a healthy machine. `-SkipRust`/`-SkipFrontend` exist for
+the inner loop, but "green" means the full gate. It also prepends the known node/cargo homes to
+PATH, so it works from a fresh shell that missed the installer PATH updates.
+
+Verified with real runs, not by reading the script: **(a) green** — full gate on the committed
+tree: frontend 7 s, backend 37 s (373 passed / 0 failed / 7 ignored), `GATE GREEN in 44s`, exit 0;
+**(b) red** — its very first full run caught a REAL failure and propagated it (`GATE FAILED at
+backend (cargo test) (exit 101)`, script exit 1); **(c) toolchain failure** — a bogus
+`-VcVarsVer 99.99` fails fast at vcvars before cargo ever runs, exit 1.
+
+**Worth knowing about (b), because it's a live finding in your working tree:** the failure it
+caught is the in-progress `ssc.rs` edit (another session's work, dated 2026-07-29, uncommitted) —
+it moves `SWIRR_T` to the pre-conditioning value per the Loglan, and the old test
+`ssc_swirr_floor_pads_capillary_water`, which pins the post-conditioning floor semantics, now
+fails against it. Proven by stash round-trip: HEAD's `ssc.rs` passes all 6 ssc tests; the WIP
+version fails that one. Nothing was changed — the SSC work is mid-edit and its test reconciliation
+is that session's to finish — but until it is, **a full-tree gate run will be red**, and that red
+is true.
+
+- [ ] **Try:** from PowerShell in the repo root run
+  `powershell -ExecutionPolicy Bypass -File tools\check.ps1` — expect the two stage banners and
+  `GATE GREEN in ~45s` (first run after a Rust change recompiles, so longer). Then break something
+  trivial on purpose (e.g. add `let x: number = "no";` to any .ts file), run it again — it must
+  stop at stage 1 with `GATE FAILED` and a red message, and `$LASTEXITCODE` must be 1. Revert the
+  break. (If you run it before the SSC session finishes its test reconciliation, expect the honest
+  red described above.)
+
+## Round 90 — R30: three dialogs silently computed on GR when the curve they wanted was missing (2026-07-29)
+
+From the F1 sweep (finding #4), verified still open against live code before touching anything.
+Three dialogs — **SMLP/Lorenz**, **SHF fitting**, and **Facies tie-in** — had byte-identical private
+copies of a curve-dropdown builder that walked the catalog and pre-selected the first "preferred"
+name it found (`PERM`, `PHIE`, `TVDSS`, …). The trap was the miss path: **when none of the
+preferred names existed in the well, it selected nothing — and an unset `<select>` falls back to
+option 0 of the catalog, which is deterministically GR** (the catalog seeds `GR, RES_DEEP, NPHI,
+RHOB, DT, SP` ahead of everything else). GR in gAPI (20–150) is numerically indistinguishable from
+permeability in mD, so the Lorenz backend — which *does* guard honestly ("permeability curve 'PERM'
+has no data in this well") — never got the chance to refuse: the dialog handed it a curve that
+**did** have data, and it computed a fully plausible Lorenz coefficient and flow-unit table from
+gamma ray. A clean cardinal-rule violation: a wrong result indistinguishable from a right one.
+
+Fixed by deleting all three private copies and routing the **9 call sites** through one shared
+helper (`plotCommon.ts preferredCurveSelect`): when no preferred curve exists, the first preferred
+name (e.g. `PERM`) stays **selected and visible** in the dropdown — `curveSelect` prepends it as a
+real option — so the run reaches the backend's own guard and fails loudly with the named curve,
+instead of silently substituting GR. Bonus from the shared path: the private copies never set
+`.form-control`, so all 9 dropdowns were also unstyled (the R13 defect class); they now match the
+rest of the app. Two legs of the original report were corrected during verification and are noted
+for honesty: the faciesTie leg was already *functionally* dead (the backend errors when predicted
+== reference, which is what the double-GR fallback produced), and the headline TVDSS example was
+weak (shf_fit drops non-positive heights) — the real damage was Lorenz-PERM and SHF-PHIE.
+
+Verified: `tsc` + `vite build` clean; browser functional test against the real modules
+(vite-only, server stopped afterward): catalog-without-PERM now yields a dropdown showing `PERM`
+(7 options, styled), not GR; a catalog containing the preferred curve selects it with no duplicate
+option; the full Lorenz dialog builds with φ=`PHIE`, k=`PERM` on an empty catalog.
+
+- [ ] **Try:** open **Petrophysics → Rock Typing → SMLP / Lorenz…** on a well that has **no**
+  permeability curve computed or imported. The Permeability (k) dropdown must show **PERM** (not
+  GR). Click **Run** — you must get *"permeability curve 'PERM' has no data in this well"*, not a
+  plot. Then compute/import a PERM and reopen — it should be found and selected as before. Same
+  shape in **SHF fitting** (φ shows PHIE on a bare well) and **Facies tie-in**. All curve dropdowns
+  in these three dialogs now also render with the app's styled look instead of the native browser
+  select.
 ## Round 89 — PRD pass: webview CSP turned on, unused OS capability removed (2026-07-29)
 
 Not an R-chain bug fix — this came out of writing `docs/PRD.md`, where §7.5 asks the question a

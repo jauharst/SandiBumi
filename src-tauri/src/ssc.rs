@@ -13,16 +13,45 @@
 //! arithmetic here is reconstructed from the module spec (`porosity_sspw.lls`) and
 //! the same physics the SSC source spells out — verify against the reference LAS output.
 //!
-//! Deviations from the Loglan, both deliberate:
+//! Deviations from the Loglan, all deliberate:
 //! - `RANNORMAL(SWIRR_MIN*PHIT, 0.005)` becomes deterministic `SWIRR_MIN*PHIT`.
 //! - NPHIMA is limited to [0,1] (the Loglan's 0.5–5 limit is a copy-paste of the
 //!   RHOMA limit and would clamp every neutron matrix value up to 0.5).
+//! - Gas/HC conditioning uses the RMS midpoint from sspw.lls's gas branch (the SSC
+//!   Loglan declares PHID/PHIDI but carries no correction code); an earlier 1.6
+//!   weight overshot the midpoint and was fixed 2026-07-29.
+//!
+//! Reference-inherited quirks (line-verified against the .lls, 2026-07-29) — kept
+//! for parity, do NOT "fix" without changing the Loglan too:
+//! - PHIFF_GR: when PHIFF ≤ 0.005 the Loglan sets PHIFF_GR = 1−VSHGR (the whole
+//!   sand-side volume as free-fluid porosity) and leaves VSAND_GR unset (NaN here).
+//! - CWSH algebra reduces to VSH·PHIT_SH/(1−PHIT_SH): VWSH = VSH/(1−PHIT_SH)
+//!   re-wets the already-wet VWCL, so BW double-counts clay-bound water.
+//! - VSHND uses the fraction-mixed (RHOMA, NPHIMA) as its matrix endpoint — near-
+//!   degenerate with the projection by construction — and is unclamped (.lls 181).
+//! - Branch-1 fraction split omits the −NPHI_MA offset (exact only at NPHI_MA = 0,
+//!   discontinuous at the silt point otherwise); matrix mix treats the dry-silt
+//!   point as clay-free although it sits at DCLF_SI clay (.lls 338-340).
+//! - SWIRR_T/SWIRR_EFF are the pre-conditioning pair (.lls 213-216).
+//!
+//! SSPW divergence (found 2026-07-29): a full exec body DOES exist on disk —
+//! `sspw.lls` (2025-02-28, two-branch N-D PHIT solve using NPHI_SH/NPHI_MA/NPHI_FL)
+//! next to the spec-only `porosity_sspw.lls` (2022) this port was reconstructed
+//! from. Re-porting sspw() against it is pending Jauhar's sign-off; until then the
+//! declared NPHI_* parameters here are read by the UI but unused by the math.
 
 use crate::modules::{log_in, log_out, opt, param, ModuleContext, ModuleOutputs, ModuleSpec};
 use std::collections::HashMap;
 
 fn limit(v: f64, lo: f64, hi: f64) -> f64 {
-    if v.is_nan() { v } else { v.clamp(lo, hi) }
+    // Mirror modules::limit — `f64::clamp` panics on a NaN bound (release builds are
+    // panic = "abort"), and `hi` can be NaN-poisoned here (e.g. `phit - cbw` downstream
+    // of an unset parameter).
+    if v.is_nan() || !(lo <= hi) {
+        f64::NAN
+    } else {
+        v.clamp(lo, hi)
+    }
 }
 
 fn vsh_from_gr(method: &str, mut v: f64) -> f64 {
@@ -139,14 +168,18 @@ pub fn ssc(ctx: &ModuleContext) -> ModuleOutputs {
             continue;
         }
 
-        // Gas/HC conditioning: pull points above the sand base line back onto it.
+        // Gas/HC conditioning: pull points above the sand base line back onto it at the
+        // RMS midpoint, matching the reference gas branch in sspw.lls
+        // (`PHIT = (((dphi_volan)**2+(NPHI)**2)/2)**(0.5)`). The previous form weighted
+        // the pull by 1.6/2 = 0.8 per side, which overshoots the midpoint and *inverts*
+        // the D-N crossover (phid² became 0.2·φD²+0.8·φN², nphi_cor² its mirror); only
+        // equal halves land both corrected values on sqrt((φD²+φN²)/2), i.e. on the
+        // base line as the comment always claimed. NPHI enters squared, so a negative
+        // neutron loses its sign here — the Loglan squares it identically.
         let phidi = (rhob_ma - r) / (rhob_ma - rhob_fl);
         let (rhob_cor, nphi_cor) = if np <= 1.05 * phidi {
-            let phid = (phidi * phidi - 1.6 * (phidi * phidi - np * np).abs() / 2.0).max(0.0).sqrt();
-            (
-                rhob_ma - (rhob_ma - rhob_fl) * phid,
-                (np * np + 1.6 * (phidi * phidi - np * np).abs() / 2.0).max(0.0).sqrt(),
-            )
+            let mid = ((phidi * phidi + np * np) / 2.0).max(0.0).sqrt();
+            (rhob_ma - (rhob_ma - rhob_fl) * mid, mid)
         } else {
             (r, np)
         };
@@ -222,7 +255,12 @@ pub fn ssc(ctx: &ModuleContext) -> ModuleOutputs {
         // original expression gives -inf->0 ("all water movable") or 0/0->NaN. A zero-
         // effective-porosity sample is fully bound, so report 1.0. (Only degenerate
         // phie==0 samples change; every phie>0 result is unchanged.)
-        let swirr_eff = if phie > 0.0 {
+        // A NaN PHIE must stay NaN (missing-data contract) — `NaN > 0.0` is false, so
+        // without the explicit branch a missing sample would fall into the else and
+        // read as fully bound (1.0) instead of absent.
+        let swirr_eff = if phie.is_nan() {
+            f64::NAN
+        } else if phie > 0.0 {
             limit(1.0 - phit * (1.0 - swirr_t) / phie, 0.0, 1.0)
         } else {
             1.0
@@ -289,7 +327,12 @@ pub fn ssc(ctx: &ModuleContext) -> ModuleOutputs {
         set("CBW", cbw);
         set("CWSH", cwsh);
         set("BW", limit(bw, 0.0, phit));
-        set("SWIRR_T", limit(bw / phit, 0.0, 1.0));
+        // The Loglan computes SWIRR_T and SWIRR_EFF together BEFORE the capillary
+        // conditioning (.lls lines 213-216) and never revisits them; recomputing only
+        // SWIRR_T from the post-conditioning BW here made the written pair mutually
+        // inconsistent whenever the SWIRR_MIN floor or the PHIT<0.05 rule fired.
+        // Write the reference's consistent pre-conditioning pair.
+        set("SWIRR_T", swirr_t);
         set("SWIRR_EFF", swirr_eff);
         set("VSAND_GR", vsand_g);
         set("VSILT_GR", vsilt_g);
@@ -367,7 +410,19 @@ pub fn sspw(ctx: &ModuleContext) -> ModuleOutputs {
         let vol_cbw_sh = ctx.p("VOL_CBW_SH", i);
         let swirr_min = ctx.p("SWIRR_MIN", i);
         let rhob_fl = ctx.p("RHOB_FL", i);
-        if r.is_nan() || vsh.is_nan() || rhob_mat.is_nan() || rhob_fl.is_nan() {
+        // Shale/CBW params joined the guard: with any of them NaN, `(phit_sh -
+        // vol_cbw_sh).max(0.0)` silently swallowed the NaN into 0.0 and a NaN `cbw`
+        // then reached `limit` as a NaN clamp bound. Outputs are NaN-initialised, so
+        // skipping the sample is the contract-correct result. SWIRR_MIN stays out —
+        // it is legitimately optional and checked with `!is_nan()` at use.
+        if r.is_nan()
+            || vsh.is_nan()
+            || rhob_mat.is_nan()
+            || rhob_fl.is_nan()
+            || rhob_sh.is_nan()
+            || rhob_dsh.is_nan()
+            || vol_cbw_sh.is_nan()
+        {
             continue;
         }
         let vsh = limit(vsh, 0.0, 1.0);
@@ -531,10 +586,42 @@ mod tests {
             &spec,
             1,
         );
+        // Baseline with the default SWIRR_MIN = 0 (floor inactive).
+        let base = ssc(&ctx);
+        let (base_bw, base_cwsh) = (base["BW"][0] as f64, base["CWSH"][0] as f64);
+        let phit = base["PHIT_SSC"][0] as f64;
+        let base_ratio = base_bw / phit;
+        assert!(
+            base_ratio < 0.35,
+            "fixture must start BELOW the floor or this test proves nothing: {base_ratio}"
+        );
+
         ctx.params.insert("SWIRR_MIN".into(), vec![0.35]);
         let out = ssc(&ctx);
-        let swirr = out["SWIRR_T"][0];
-        assert!(swirr >= 0.34, "SWIRR floor not applied: {swirr}");
+
+        // The floor pads CAPILLARY water (what this test is named for): CWSH rises until
+        // total bound water reaches SWIRR_MIN*PHIT (ssc.rs `if ... bw / phit < swirr_min`).
+        let bw = out["BW"][0] as f64;
+        assert!(
+            out["CWSH"][0] as f64 > base_cwsh,
+            "floor must raise CWSH: {base_cwsh} -> {}",
+            out["CWSH"][0]
+        );
+        assert!(
+            bw / phit >= 0.35 - 1e-6,
+            "bound water not padded to the floor: {}",
+            bw / phit
+        );
+
+        // ...but SWIRR_T is the PRE-conditioning pair (.lls 213-216, docs/method_ssc_sspw.md
+        // §8 computes SWIRR before listing the conditioning), so it must NOT move. Writing
+        // the post-conditioning ratio here would make the written SWIRR_T/SWIRR_EFF pair
+        // mutually inconsistent whenever this floor fires.
+        assert!(
+            ((out["SWIRR_T"][0] as f64) - base_ratio).abs() < 1e-6,
+            "SWIRR_T must stay the pre-conditioning ratio {base_ratio}, got {}",
+            out["SWIRR_T"][0]
+        );
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # SandiBumi — Petrophysical Software Engine
 
-> **SandiBumi** (formerly *Arshilla*) — the project folder on disk is still `D:\XX. Arshilla`; only the
+> **SandiBumi** (formerly *Arshilla*) — the project folder on disk is still `D:\XX. SandiBumi`; only the
 > product/branding was renamed. The compiled binary is now `sandibumi.exe`, bundle id `com.sandibumi.petro`.
 
 Desktop application for multi-well (2000+) petrophysical log analysis. Stack: **Tauri (Rust) + DuckDB (embedded, bundled) + TypeScript/WebGPU**.
@@ -335,7 +335,7 @@ no Tauri backend needed. In vite-only preview every `invoke` error
 6. Codex auto-memory is machine-local — everything durable lives in this file,
    `docs/`, `ROADMAP.md`, `REVIEW.md`, `AUDIT-*.md`. Trust the repo over memory.
 
-### Reference machine (ARUNIKA / D:\XX. Arshilla)
+### Reference machine (ARUNIKA / D:\XX. SandiBumi)
 
 Rust, Node.js, and the MSVC linker are all installed and working — **but new shells may not pick up PATH updates from installers**. If `cargo`/`node`/`npm` report "not found," don't assume they're missing; verify with the full paths below before reinstalling anything:
 
@@ -354,7 +354,7 @@ There, any command that compiles Rust must go through vcvars pinned to 14.29 (on
 machine, plain `npm run tauri dev` is fine):
 
 ```
-cmd.exe /c "call \"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat\" -vcvars_ver=14.29 && set PATH=C:\Program Files\nodejs;%USERPROFILE%\.cargo\bin;%PATH% && cd /d \"D:\XX. Arshilla\" && npm run tauri dev"
+cmd.exe /c "call \"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat\" -vcvars_ver=14.29 && set PATH=C:\Program Files\nodejs;%USERPROFILE%\.cargo\bin;%PATH% && cd /d \"D:\XX. SandiBumi\" && npm run tauri dev"
 ```
 
 ```sh
@@ -372,6 +372,32 @@ Two hard runtime rules (both learned the painful way):
   mid-write corrupts the project DuckDB WAL (see "DuckDB WAL resilience" below).
 - After browser verification against the vite dev server, **stop the server so port 1420
   is free** for the user's own `npm run tauri dev`.
+
+## Delegating work to subagents
+
+(Tool-specific form of this rule lives in `CLAUDE.md` — keep the principle in sync.)
+
+Split by **task shape, not task size**. The cost driver in this repo is the verify loop
+(`cargo check` through vcvars, ~minutes), not tokens: a cheap-model edit that fails to
+compile twice costs more wall-clock than one correct expensive-model pass.
+
+**The rule: cheap model + cheap verification = good. Cheap model + expensive verification
+= bad. Never delegate to a cheaper model when a wrong answer would be SILENT** — a number
+that is wrong but compiles ships into a client report, and no `cargo check` catches it.
+
+- **Cheapest tier** — read-only retrieval, inventory and grep sweeps. Verification is free.
+- **Mid tier** — mechanical edits behind a compiler gate: renames, Tauri command wrappers,
+  docs, test scaffolding, TS/dockview plumbing, i18n entries.
+- **Strongest tier (default)** — anything numeric or convention-bound: `equations.rs`,
+  `multimin.rs`/`multimin2.rs`, `ssc.rs`, `lrlc.rs`, `satheight.rs`, `thomeer.rs`,
+  `hfu.rs`, `montecarlo.rs`, chart overlays, the theme var contract, dockview layout.
+
+Reduce reasoning effort before dropping a tier on domain work — lower effort keeps the
+petrophysics judgment, a tier drop discards it. A delegated edit is not done until
+`npx tsc --noEmit` + `cargo check` pass; never report a subagent's result as verified on
+the subagent's own say-so. **Physics defaults** (must trace to `docs/` or a cited source)
+and **anything touching the DuckDB write discipline** stay with the main agent regardless
+of size.
 
 ## Collaboration protocol (Jauhar ↔ Codex)
 
@@ -405,3 +431,5 @@ in petrophysics terms, not programming jargon. The working rhythm, on every mach
 ---
 
 _Made in SandiBumi._ © 2026 SandiBumi. All rights reserved.
+
+Planning artifacts live in .castforge/ (plan.md, research.md, decisions.md, ui-spec.md, verification.md); peer work-logs live in .castforge/roles/; per-phase records (plan slice, completion summary, verification verdict) live in .castforge/phases/<phase>/; investigation notes live in .castforge/debug/. Read them before starting work.

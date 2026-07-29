@@ -1,7 +1,7 @@
-# DATABASE/PROJECT handling + IMPORT tools UI + fluid contacts in correlation + well diagram in layout (SandiBumi, D:\XX. Arshilla)
+# DATABASE/PROJECT handling + IMPORT tools UI + fluid contacts in correlation + well diagram in layout (SandiBumi, D:\XX. SandiBumi)
 
 ## Current state
-1) DATABASE/PROJECT: The DuckDB file is a hard-coded RELATIVE path. `run()` in D:\XX. Arshilla\src-tauri\src\lib.rs line 715 calls `db::init_db_resilient("project.duckdb")` before the Tauri builder starts, wraps it in `DbState(Mutex<Connection>)`, and every one of the ~80 commands locks that single global connection. The relative path resolves against process cwd — in dev that is D:\XX. Arshilla\src-tauri\project.duckdb (file confirmed present, with WAL corrupt-backup siblings). `init_db_resilient` (db.rs line 33) self-heals a torn WAL. There is NO open-project command, NO project switching, NO recent-projects list, and NO frontend project picker: src/main.ts boots straight into Workspace+Ribbon (with only a crash-recovery dialog). The only project-level operation is `save_project_as` (lib.rs line 39): CHECKPOINT then `std::fs::copy("project.duckdb", dest)` — a one-way export copy; the app keeps using the original. Frontend side: `Ribbon.handleSaveProject` (ribbon.ts line 529) with the tauri-plugin-dialog `save()` picker; also "sessions" (named workspace arrangements) stored INSIDE the same db via `save_document("session", ...)` — a per-database concept, not a project picker. ROADMAP.md line 472 lists "merge wells from another project file" and "per-project workspace persistence" as backlog. An IP-style picker would touch: lib.rs run() (connection created before Builder — must become swappable state, e.g. Mutex<Option<Connection>> or an open_project command that replaces DbState), a new open/create/close project command + recent-list persistence (needs a home outside the project db, e.g. tauri app-config dir), frontend startup in src/main.ts (show picker before Workspace boot), ribbon Project tab (index.html lines 49-80 currently holds only Theme+Language), and every panel that caches well lists (they already refresh via appState.dataVersion, so a "project changed" bump could reuse that).
+1) DATABASE/PROJECT: The DuckDB file is a hard-coded RELATIVE path. `run()` in D:\XX. SandiBumi\src-tauri\src\lib.rs line 715 calls `db::init_db_resilient("project.duckdb")` before the Tauri builder starts, wraps it in `DbState(Mutex<Connection>)`, and every one of the ~80 commands locks that single global connection. The relative path resolves against process cwd — in dev that is D:\XX. SandiBumi\src-tauri\project.duckdb (file confirmed present, with WAL corrupt-backup siblings). `init_db_resilient` (db.rs line 33) self-heals a torn WAL. There is NO open-project command, NO project switching, NO recent-projects list, and NO frontend project picker: src/main.ts boots straight into Workspace+Ribbon (with only a crash-recovery dialog). The only project-level operation is `save_project_as` (lib.rs line 39): CHECKPOINT then `std::fs::copy("project.duckdb", dest)` — a one-way export copy; the app keeps using the original. Frontend side: `Ribbon.handleSaveProject` (ribbon.ts line 529) with the tauri-plugin-dialog `save()` picker; also "sessions" (named workspace arrangements) stored INSIDE the same db via `save_document("session", ...)` — a per-database concept, not a project picker. ROADMAP.md line 472 lists "merge wells from another project file" and "per-project workspace persistence" as backlog. An IP-style picker would touch: lib.rs run() (connection created before Builder — must become swappable state, e.g. Mutex<Option<Connection>> or an open_project command that replaces DbState), a new open/create/close project command + recent-list persistence (needs a home outside the project db, e.g. tauri app-config dir), frontend startup in src/main.ts (show picker before Workspace boot), ribbon Project tab (index.html lines 49-80 currently holds only Theme+Language), and every panel that caches well lists (they already refresh via appState.dataVersion, so a "project changed" bump could reuse that).
 
 2) IMPORT TOOLS / RIBBON: Ribbon markup is static HTML in index.html; ribbon.ts wires handlers. Tabs: Project | Data | Petrophysics | Advance | Plot | View (index.html lines 40-45). The Data tab (lines 82-201) has 3 groups: "Import / Export" — 9 flat icon buttons in one ribbon-btn-row: Import LAS, Export LAS, Import Core, Import SCAL, Import Tops, Import Aux (petrography/XRD/perforation via a dataset dropdown inside its modal), Autocorrelate, Shift Core, Import DLIS; "Well Data" — 2 buttons: Import Deviation, Well Header; "Manage" — 4 buttons: Wells & Tops, Curve Catalog, DB Inspector, SQL Query. So 15 wide labeled buttons total, ~11 of them import/data-entry, all at top level. A reusable dropdown component ALREADY EXISTS: `buildRibbonDropdown(label, iconPath, items)` in ribbon.ts lines 48-83 (Office-style big button + ▾ menu, auto-close via static block line 521) — it is currently used only for the auto-generated Petrophysics category dropdowns (`renderCategoryModules`, line 295, categories VSH/Porosity/Saturation/etc.). Compacting imports means either generating the Data groups from TS with buildRibbonDropdown (e.g. "Import Logs ▾" = LAS/DLIS, "Import Data ▾" = Core/SCAL/Tops/Aux/Deviation, "Tools ▾" = Autocorrelate/Shift Core/Well Header) or adding static markup mimicking .ribbon-dropdown; handlers already exist as named private methods so rewiring is mechanical.
 
@@ -13,21 +13,21 @@
 1) Project picker: needs (a) DbState made swappable (open/close/create commands replacing the connection under the mutex; run migrations on open); (b) recent-projects persistence outside the project db (tauri app-config dir or localStorage) storing path+name+last-opened; (c) startup picker UI in src/main.ts before Workspace boot (or a default-open-last with a switcher) plus "Open Project…"/"New Project…"/recent list in the Project ribbon tab; (d) a projectVersion/dataVersion bump so all panels (object tree, log views, correlation, inspector) reload; (e) decide fate of `save_project_as` semantics (currently copy-and-keep-using-old; IP-style would switch to the copy) and of the hard-coded "project.duckdb" cwd dependency (should become an absolute default under app-data). Autosave/session/process-log are stored per-database so they follow automatically. 2) Import compaction: regenerate the Data tab's Import/Export + Well Data groups using the existing buildRibbonDropdown component (categorised: Well Logs LAS/DLIS, Well Data core/SCAL/tops/aux/deviation, Export, Tools) — pure frontend, handlers already exist; alternatively extend buildRibbonDropdown to support icons per menu item. 3) Fluid contacts in correlation: no data model — needs a per-well or per-field contacts store (either a new `fluid_contacts` table (well_id/field, contact_type OWC|GWC|GOC|GDT|ODT, depth MD or TVDSS, color, note) or a convention on the existing tops table), CRUD commands, a contacts editor UI, and rendering in correlationPanel.ts as distinct horizontal lines/connectors (ideally in TVDSS, which itself requires adding a TVD/TVDSS depth mode to the correlation panel using deviation.rs well paths — contacts are flat in TVDSS, not MD). Optional: show contacts in logView topsEditor overlay too. 4) Well-diagram track: no track-type concept exists — needs `Track` to grow a `kind` field (e.g. "curves" | "well_diagram", serde-default "curves" for saved-layout compat), layout.rs + Layout TS type + layoutPropsDialog.ts UI to add such a track, a renderer path (WebGPU renderer only draws polylines/blocks; the well-diagram could be drawn on the existing 2D overlay canvas like core plugs/borders in logViewPanel.drawCoreOverlay), data sources: perforations already in aux_data (depth_top/depth_base intervals with STATUS item), casing/shoe/completion data has NO store or importer yet (needs either a dedicated table+importer or a reserved aux_data dataset like 'COMPLETION'), bit size available as BS curve. Composite/report exporters (composite.rs, report.rs) would need the same track kind for print parity.
 
 ## Key files
-- D:\XX. Arshilla\src-tauri\src\lib.rs
-- D:\XX. Arshilla\src-tauri\src\db.rs
-- D:\XX. Arshilla\src-tauri\src\layout.rs
-- D:\XX. Arshilla\src-tauri\src\ingest.rs
-- D:\XX. Arshilla\src-tauri\src\deviation.rs
-- D:\XX. Arshilla\src-tauri\src\curves.rs
-- D:\XX. Arshilla\src-tauri\src\composite.rs
-- D:\XX. Arshilla\src\main.ts
-- D:\XX. Arshilla\index.html
-- D:\XX. Arshilla\src\ui\ribbon.ts
-- D:\XX. Arshilla\src\ui\correlationPanel.ts
-- D:\XX. Arshilla\src\ui\logViewPanel.ts
-- D:\XX. Arshilla\src\ui\layoutPropsDialog.ts
-- D:\XX. Arshilla\src\ui\topsEditor.ts
-- D:\XX. Arshilla\src\ui\dbInspectorPanel.ts
-- D:\XX. Arshilla\src\ipc.ts
-- D:\XX. Arshilla\ROADMAP.md
-- D:\XX. Arshilla\src-tauri\project.duckdb
+- D:\XX. SandiBumi\src-tauri\src\lib.rs
+- D:\XX. SandiBumi\src-tauri\src\db.rs
+- D:\XX. SandiBumi\src-tauri\src\layout.rs
+- D:\XX. SandiBumi\src-tauri\src\ingest.rs
+- D:\XX. SandiBumi\src-tauri\src\deviation.rs
+- D:\XX. SandiBumi\src-tauri\src\curves.rs
+- D:\XX. SandiBumi\src-tauri\src\composite.rs
+- D:\XX. SandiBumi\src\main.ts
+- D:\XX. SandiBumi\index.html
+- D:\XX. SandiBumi\src\ui\ribbon.ts
+- D:\XX. SandiBumi\src\ui\correlationPanel.ts
+- D:\XX. SandiBumi\src\ui\logViewPanel.ts
+- D:\XX. SandiBumi\src\ui\layoutPropsDialog.ts
+- D:\XX. SandiBumi\src\ui\topsEditor.ts
+- D:\XX. SandiBumi\src\ui\dbInspectorPanel.ts
+- D:\XX. SandiBumi\src\ipc.ts
+- D:\XX. SandiBumi\ROADMAP.md
+- D:\XX. SandiBumi\src-tauri\project.duckdb

@@ -3,7 +3,7 @@
 // chart agents (por20/por22/lith1/lith2/lith6). node assemble.mjs [dest]
 import { readFileSync, writeFileSync, existsSync } from "fs";
 
-const dest = process.argv[2] || "D:\\XX. Arshilla\\src\\ui\\chartOverlays.ts";
+const dest = process.argv[2] || "D:\\XX. SandiBumi\\src\\ui\\chartOverlays.ts";
 const defs = [];
 const seen = new Set();
 const files = ["out_dn_family.json", "out_por20.json", "out_por22.json", "out_lith1.json", "out_lith2.json", "out_lith6.json"];

@@ -24,6 +24,13 @@ cd src-tauri && cargo check   # fast Rust-only check
 cargo test           # Rust unit/integration tests (real petrophysics math is tested)
 ```
 
+One command that proves the whole tree is healthy (frontend build + full cargo test through
+the pinned toolchain, exits non-zero at the first failure):
+
+```
+powershell -ExecutionPolicy Bypass -File tools\check.ps1
+```
+
 Full app (note the pinned toolset — adapt the VS path to your install):
 
 ```

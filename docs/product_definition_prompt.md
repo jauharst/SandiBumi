@@ -85,7 +85,7 @@ a PRD is ordered by value and is allowed to say *no*.
 ## Prompt 1 — THE PRD (run once; two steps, one session each)
 
 ```
-Write the Product Requirements Document for SandiBumi at D:\XX. Arshilla.
+Write the Product Requirements Document for SandiBumi at D:\XX. SandiBumi.
 
 Read docs/product_definition_prompt.md section 0 FIRST and obey it — especially "shipped is not
 planned" and "do not invent market facts". Then read: README.md, CLAUDE.md, ROADMAP.md,
@@ -209,7 +209,7 @@ survives, because the next session has to argue with the reason rather than just
 ## Prompt 2 — TARGET-STATE ARCHITECTURE (run after the PRD is accepted)
 
 ```
-Produce docs/TARGET_ARCHITECTURE.md for SandiBumi at D:\XX. Arshilla.
+Produce docs/TARGET_ARCHITECTURE.md for SandiBumi at D:\XX. SandiBumi.
 
 READ FIRST and respect the boundary: docs/stewardship_prompt.md Prompt 2 Deliverable 1
 commissions ARCHITECTURE.md, which is a DESCRIPTIVE map of the system as built, for a new
@@ -297,7 +297,7 @@ surprise during a rewrite.
 ## Prompt 3 — v1.0 DEFINITION AND VERSIONING (run with, or just after, Prompt 1 Step 2)
 
 ```
-Produce docs/RELEASE.md for SandiBumi at D:\XX. Arshilla -- what 1.0 means, how versions work,
+Produce docs/RELEASE.md for SandiBumi at D:\XX. SandiBumi -- what 1.0 means, how versions work,
 and what the product promises across versions.
 
 Inputs: docs/PRD.md, docs/V1_SCOPE.md, REVIEW.md, ROADMAP.md, db.rs (schema + migrations),
