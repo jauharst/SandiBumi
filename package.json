@@ -13,7 +13,6 @@
     "@codemirror/lang-python": "^6.2.1",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.7.1",
-    "@tauri-apps/plugin-opener": "^2",
     "codemirror": "^6.0.2",
     "dockview-core": "^7.0.2",
     "vega": "^5.33.1",

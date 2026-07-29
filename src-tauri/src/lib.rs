@@ -1634,8 +1634,11 @@ pub fn run() {
         None => project::absolute(&startup),
     };
 
+    // No opener plugin: the app never hands a URL or path to the OS, and a granted-but-unused
+    // capability is exactly what an enterprise security review asks about. If a future feature
+    // needs to open an external link, re-add the plugin AND the `opener:default` capability
+    // together, and revisit the zero-network-egress claim in docs/PRD.md section 7.5.
     tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(DbState(Arc::new(Mutex::new(conn))))
         .manage(project::ProjectState(Mutex::new(project_path)))
