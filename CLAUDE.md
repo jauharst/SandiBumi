@@ -373,6 +373,41 @@ Two hard runtime rules (both learned the painful way):
 - After browser verification against the vite dev server, **stop the server so port 1420
   is free** for the user's own `npm run tauri dev`.
 
+## Delegating work to subagents
+
+Split by **task shape, not task size**. The cost driver in this repo is the verify loop
+(`cargo check` through vcvars, ~minutes), not tokens: a cheap-model edit that fails to
+compile twice costs more wall-clock than one correct expensive-model pass.
+
+**The rule: cheap model + cheap verification = good. Cheap model + expensive verification
+= bad. Never delegate to a cheaper model when a wrong answer would be SILENT** — a number
+that is wrong but compiles ships into a client report, and no `cargo check` catches it.
+
+| Task shape | Model | Why |
+|---|---|---|
+| Read-only retrieval — "which modules lack tests", "find every call site of `phie`", inventory/grep sweeps | **haiku** | Verification is free: you read the answer |
+| Mechanical edits with a compiler gate — renames, a Tauri command wrapper, docs, test scaffolding, TS/dockview plumbing, i18n dictionary entries | **sonnet** | `cargo check` / `npx tsc --noEmit` is the verifier; a wrong answer is caught, not shipped |
+| Anything numeric or convention-bound — `equations.rs`, `multimin.rs`/`multimin2.rs`, `ssc.rs`, `lrlc.rs`, `satheight.rs`, `thomeer.rs`, `hfu.rs`, `montecarlo.rs`, chart overlays, the theme var contract, dockview layout | **session model (default)** | Silent numeric/behavioural wrongness that no compiler catches |
+
+The ladder is session-relative. On an **opus** session the strong tier IS the session model.
+On a **fable** session, **opus** additionally becomes a mid-strong delegation tier — full
+domain judgment at half fable's rate — for domain-aware work the main agent will
+independently re-check (second-opinion reviews of numeric modules, domain test suites);
+final judgment and sign-off still never leave the session model.
+
+Mechanics:
+
+- The `Agent` tool takes `model: haiku | sonnet | opus | fable`. Subagents otherwise
+  inherit the session model.
+- Only `Workflow` scripts expose per-agent `effort`. **Lower effort before downgrading the
+  model** on domain work — `opus` at `effort: "low"` keeps the petrophysics judgment while
+  cutting emitted tokens; downgrading the model throws the judgment away.
+- Whatever the tier, a delegated edit is not done until `npx tsc --noEmit` + `cargo check`
+  pass. Do not report a subagent's result as verified on the subagent's own say-so.
+- Two things stay with the main agent regardless of size: **physics defaults** (they must
+  be traced to `docs/` or a cited source per collaboration rule 5) and **anything touching
+  the DuckDB write discipline** (the PK-less `computed_curves` contract).
+
 ## Collaboration protocol (Jauhar ↔ Claude)
 
 Jauhar is a petrophysicist (Mahakam Delta, Indonesia) and a beginner programmer — explain
@@ -383,8 +418,11 @@ in petrophysics terms, not programming jargon. The working rhythm, on every mach
    add a `REVIEW.md` checklist entry → commit (and push once a remote exists) → send a
    completion report that leads with outcomes and proposes the next increment.
 2. Jauhar replies **"go ahead"** to accept the proposal; anything else redirects.
-3. He field-verifies against real well data via `REVIEW.md` (`[o]` OK / `[x]` wrong /
-   `[ ]` untested) — check for new `[x]` marks at session start.
+3. He field-verifies against real well data via `REVIEW.md`: **`[x]` = accepted** (clicked
+   through, works as described) / `[ ]` = not yet checked. If something is wrong he says so
+   directly rather than marking it — it then gets fixed and logged in `ROADMAP.md` §4. Check
+   for new `[x]` marks at session start. (The single legacy `[o]` at `REVIEW.md:4317` is the
+   original mark style, superseded by `[x]`; do not read `[x]` as "wrong".)
 4. **Git/GitHub**: the repo is private; credentials are Jauhar's own. Claude NEVER runs
    `gh auth login` or handles tokens/passwords — he authenticates himself, then Claude
    may create repos/push using his session. Commit messages: plain descriptive, avoid
@@ -398,7 +436,7 @@ in petrophysics terms, not programming jargon. The working rhythm, on every mach
 - `src-tauri/` — Rust backend: DuckDB access, parsers, IPC commands, petrophysics engine.
 - `src/` — TypeScript frontend: WebGPU log canvas renderer, Tauri IPC calls.
 - `src-tauri/icons/` — app icon set + brand assets: `logo.png` (master), `logo-mark.svg`/`logo-mark.png` (square monogram), `logo-full.svg`/`logo-full.png` (full lockup). Frontend favicon/ribbon assets in `public/`.
-- `docs/` — method math + solver specs (SSC/SSPW, LRLC RtC/IMTS, workflow standards, the reference suite/IP multimin extraction), plus four reusable prompts, boundaries kept sharp (the table in `stewardship_prompt.md` is authoritative): `maintenance_scaling_prompt.md` (one increment — expand / debug / maintain), `engineering_review_prompt.md` (whole-app behaviour sweeps F1–F5), `qc_audit_prompt_template.md` (one tool end-to-end), `stewardship_prompt.md` (whole-repo structure + onboarding). Portable knowledge lives here, not in machine-local memory.
+- `docs/` — method math + solver specs (SSC/SSPW, LRLC RtC/IMTS, workflow standards, the reference suite/IP multimin extraction), plus five reusable prompts, boundaries kept sharp (the table in `stewardship_prompt.md` is authoritative): `maintenance_scaling_prompt.md` (one increment — expand / debug / maintain), `engineering_review_prompt.md` (whole-app behaviour sweeps F1–F5), `qc_audit_prompt_template.md` (one tool end-to-end), `stewardship_prompt.md` (whole-repo structure + onboarding), `product_definition_prompt.md` (what the product IS — PRD, target architecture, v1.0 gate; licensed-product posture). Portable knowledge lives here, not in machine-local memory. Separate family, not in that table: the one-shot vendor-intelligence prompts (`sandibumi_maturation_prompt.md`, `techlog_ingest_prompt.md`, `sonar_ingest_adopt_prompt.md`).
 - `tools/chartdig/` — chartbook vector digitizer (generates `src/ui/chartOverlays.ts`).
 - `Prompt/` — original phase-by-phase spec (`Claude_Implementation_Guide.pdf`). **Gitignored** — local-only, won't exist on a fresh clone.
 
