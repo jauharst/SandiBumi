@@ -13,16 +13,19 @@ verifies what the running app does in your hands, with real field data.
 2. Work through sections in order — they're sequenced so earlier tests create the data later
    tests need (imports before modules, modules before pay summary, SCAL before Pc/SHF fits).
    Within a section, tests are ordered cheap-smoke first.
-3. For each test mark **Pass / Fail / Blocked** and jot anything odd in Notes — including rough
-   timings on the PERF tests (ROADMAP's Performance tier #128–132 is explicitly waiting on those
-   numbers).
+3. Each test ends in a **clickable checklist** — tick exactly one of Pass / Fail / Blocked and
+   jot anything odd in Notes, including rough timings on the PERF tests (ROADMAP's Performance
+   tier #128–132 is explicitly waiting on those numbers). These are standard markdown task
+   boxes (`- [ ]` → `- [x]`), so VS Code, GitHub and Obsidian all let you click them; in a
+   plain editor just type an `x` between the brackets.
 4. Tests carrying a **Known issue** line are *expected* to fail that specific way — the cause is
    already confirmed in `AUDIT-2026-07-21-full-qc.md` and queued for fixing. Log them as
    "known, confirmed in app" rather than as new bugs. If one fails in a *different* way than
    described, that IS a new finding — note it.
 5. A test that can't run because its precondition failed is **Blocked**, not Fail.
-6. When done, fill in the tally table below and feed this file (or just the Fail/Notes rows)
-   back to a Claude Code session in this repo for serial fixing.
+6. When done, run `tools\testplan-tally.ps1` (see under the Tally table) — it counts the ticks
+   for you and prints the Fail/Blocked rows with their Notes, ready to hand back to a Claude
+   Code session in this repo for serial fixing.
 
 ## Tally
 
@@ -44,7 +47,16 @@ verifies what the running app does in your hands, with real field data.
 | SHIP | Session 2026-07-29 shipping checks (CSP, R30, R-A, R-B, R-C, gate) | 7 | 1 |
 | | **Total** | **250** | **34** |
 
-**Result summary (fill in when done):** Pass ____ / Fail ____ (new ____ , known ____ ) / Blocked ____
+**Result summary — don't count by hand.** Tick the boxes as you go, then run:
+
+```bash
+powershell -ExecutionPolicy Bypass -File tools\testplan-tally.ps1
+```
+
+It reads the marks back and prints this table filled in (per-section Pass / Fail / Blocked /
+Untested), then the **Fail / Blocked list with each test's Notes** — which is exactly what
+step 6 above asks you to hand back for fixing. A test with more than one box ticked is listed
+separately and counted in no column, so a contradictory mark can never be scored as a pass.
 
 ---
 
@@ -64,7 +76,13 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. Arshilla`, po
    `cmd.exe /c "call \"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat\" -vcvars_ver=14.29 && set PATH=C:\Program Files\nodejs;%USERPROFILE%\.cargo\bin;%PATH% && cd /d \"D:\XX. Arshilla\" && npm run tauri dev"`
 2. Wait for the Rust compile to finish and the desktop window to appear.
 **Expected:** Window opens titled **SandiBumi — {project name}**. Ribbon shows tabs **Project / Data / Petrophysics / Advance / Plot / View** with **Petrophysics** active; quick-access toolbar (top-left) shows Undo, Redo (both greyed), Save, Save-Session, Open-Session, History (clock) and Help (?) icons. Status bar at the bottom reads **Ready**. Sidebar anchor panes **Wells**, **Tops**, **Processing**, **Performance** are present plus **Log View** and **Inspector**. No error dialogs. If the app panics on startup instead: check `src-tauri\` for `.corrupt-backup-*` files (WAL recovery already ran — note it, relaunch once).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-SHELL-01:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-SHELL-02 — Ribbon tab walk + overflow chevrons
 **Tool/panel:** ribbon (`index.html`, `src/ui/ribbon.ts`)
@@ -74,7 +92,13 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. Arshilla`, po
 2. On **Data**, open **Import Logs ▾**, then click **Import Data ▾** — then click elsewhere.
 3. Narrow the app window until a tab's groups no longer fit (≈720 px); click the **›** box; widen the window again.
 **Expected:** Each tab shows its groups: Project = Open/New Project + Recent ▾ + Theme + Language; Data = Import Logs ▾ / Import Data ▾ / **Export LAS…** / Tools ▾ + Wells & Tops / Curve Catalog / DB Inspector / SQL Query; Petrophysics = module dropdowns + Zones… + Cutoffs & Summary… + batch group; Advance = SSC/SSPW/RtC/IMTS buttons + **SandiMin…** + **ML Models…**; Plot = Log Views / Parameter Selection / Correlation / Deliverables; View = New Window / Reset Workspace. Only one dropdown menu is open at a time; picking an item or clicking outside closes it (covers REVIEW.md §"Highlight tool + ribbon overflow…" and §Wave A-2). When narrow, no raw scrollbar — a boxed **›** appears at the overflowing edge, clicking scrolls the row and **‹** appears at the left; chevrons disappear when the window is wide again.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-SHELL-02:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-SHELL-03 — UI language switch EN → ID → SU → JV → EN
 **Tool/panel:** Project tab → Language select (`src/i18n.ts`, `index.html`)
@@ -85,7 +109,13 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. Arshilla`, po
 3. Switch to **Basa Sunda**, then **Basa Jawa**, checking a few labels each time.
 4. Switch back to **English**.
 **Expected:** Status line shows **Language: Bahasa Indonesia**. Labels translate live without a restart: Petrophysics→**Petrofisika**, View→**Tampilan**, Import Logs→**Impor Log**, Tools→**Alat**, Save→**Simpan**; in Basa Jawa: Save→**Simpen**, Depth→**Jero**, Reload→**Muat manèh**. Technical terms stay English by design (Monte Carlo, Pickett, SandiMin, curve mnemonics, LAS/DLIS). Well names and layout names are never translated; the Language dropdown's own option labels stay native names in every language. Back to English restores every label exactly. Choice survives a relaunch. Covers REVIEW.md §"Held-item resolutions" (Bahasa Jawa item) and §Wave A-2 (translated import labels).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-SHELL-03:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-SHELL-04 — Theme switching, all 8 themes, live repaint
 **Tool/panel:** Project tab → Theme select (`src/theme.ts`, `src/ui/ribbon.ts`, styles.css)
@@ -96,7 +126,13 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. Arshilla`, po
 3. Leave a client theme active and restart the app once (close window, relaunch).
 **Expected:** Every switch repaints **immediately, without reopening any panel**: dockview chrome, ribbon, and all canvas plots recolor (theme change bumps `themeVersion`). Status line shows **Theme: {value}** (e.g. `Theme: pertamina`). Client themes are all light/professional in their brand colors; Dark inverts the cursor readout pill legibly; histogram/crossplot pick swatches follow the theme accents (Pertamina = blue/lime) — covers REVIEW.md §Wave A-1 "Theme check". After relaunch the chosen theme is still active.
 **Known issue:** AUDIT-2026-07-21 §Monte Carlo — "Monte Carlo's HPV histogram canvas never repaints on a live theme swap or panel resize, unlike every sibling Canvas-2D dock pane": if a Monte Carlo pane with results is open, expect its HPV histogram to keep the old colors until re-run — log as known, not new.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-SHELL-04:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-SHELL-05 — New Project + data isolation
 **Tool/panel:** Project tab (`src/ui/ribbon.ts` handleNewProject/switchProject)
@@ -106,7 +142,13 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. Arshilla`, po
 2. Data tab → **Import Logs ▾ → Import LAS…** → import one LAS.
 3. Project tab → **Recent ▾** → switch back to the main project.
 **Expected:** After step 1: status **Switching project…** then **Project: uat-test**; window title becomes **SandiBumi — uat-test**; the Project group caption shows **uat-test** (hover = full path); Wells pane shows **No wells ingested yet**; QAT Undo/Redo grey out (undo stacks cleared). After step 2 the well appears only here. After step 3 the main project's wells return and the imported test well is NOT in the list. History panel (QAT clock) has a **Project — Opened project …** entry in each project's own history. Covers REVIEW.md §Wave A-3 items 1 and 3.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-SHELL-05:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-SHELL-06 — Open Project + Recent list (incl. missing file)
 **Tool/panel:** Project tab (`src/ui/ribbon.ts` handleOpenProject/refreshRecentMenu)
@@ -117,7 +159,13 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. Arshilla`, po
 3. Switch back via **Open Project…** (native dialog, `.duckdb` filter) picking the main project file.
 4. With the app closed later (or from Explorer now), rename `uat-test.duckdb` away, then reopen **Recent ▾**.
 **Expected:** Recent lists up to 12 projects, the current one prefixed **●** and disabled (stored outside any project in `%APPDATA%\SandiBumi\projects.json`). Switching reloads everything: title + caption, wells, and the open Histogram re-reads (empty/new data — no stale plot of the old project); well selection and undo history clear. After step 4 the renamed project shows greyed with suffix **(missing)** and cannot be clicked. Covers REVIEW.md §Wave A-3 item 2.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-SHELL-06:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-SHELL-07 — Save Project As (QAT) = backup copy
 **Tool/panel:** quick-access toolbar Save button (`src/ui/ribbon.ts` handleSaveProject)
@@ -128,7 +176,13 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. Arshilla`, po
 3. Make a small change (e.g. pin a well ★, or add a top) and note it.
 4. Close and reopen the app.
 **Expected:** Status **Project saved to {path}**; History entry **Project — Saved project to {path}**; the file exists on disk at the chosen path. The app KEEPS working on the original project (backup-copy semantics, not IP-style switch-to-copy): the step-3 change is in the original project on relaunch, and opening `backup-uat.duckdb` via Open Project shows the pre-change state. Covers REVIEW.md §Wave A-3 note item ("QAT Save Project As stays a backup copy").
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-SHELL-07:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-SHELL-08 — Clean relaunch restores last project + workspace
 **Tool/panel:** app shell (`src/autosave.ts` applyAutosaveExtras, recents)
@@ -138,7 +192,13 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. Arshilla`, po
 2. Close the window normally (✕), let `npm run tauri dev` exit on its own.
 3. Relaunch with the T-SHELL-01 command.
 **Expected:** No recovery dialog (clean exit). The **last project you had open** reopens (title confirms). The pane arrangement is back, the **active well is still well B**, and the Log View shows its customized layout/track state (autosave carries what dockview's JSON can't). Covers REVIEW.md §Wave A-3 item 4.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-SHELL-08:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-SHELL-09 — NEGATIVE: project switch refused while a chain runs
 **Tool/panel:** Workflow Builder + Project tab (`src/ui/ribbon.ts`, chain registry)
@@ -147,7 +207,13 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. Arshilla`, po
 1. Petrophysics tab → **Workflow…** → run the chain with scope **All** so it takes at least several seconds.
 2. While the Processing panel shows live progress, go Project tab → **Open Project…** and pick another project.
 **Expected:** A clear refusal (status/error à la **Project switch failed: …** naming the running chain) — NOT a switch. The chain keeps running to completion in the Processing panel; the current project stays open and uncorrupted. Afterwards (chain finished) the same switch succeeds. Covers REVIEW.md §Wave A-3 item 5.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-SHELL-09:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-SHELL-10 — Sessions: Save Session As / Open Session / delete
 **Tool/panel:** QAT session buttons (`src/ui/ribbon.ts` handleSaveSession/handleOpenSession, `src/ui/workspace.ts` snapshotSession)
@@ -159,7 +225,13 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. Arshilla`, po
 4. Click QAT **Open Session…** → in the **Open Session** dialog click **UAT Layout A**.
 5. Reopen **Open Session** and click the row's **🗑** button.
 **Expected:** Step 1: nothing happens on empty name (dialog stays). Step 2: status **Session "UAT Layout A" saved**; History entry **Session — Saved session "UAT Layout A"**. Step 4: panes, arrangement and the **active well (B)** come back; Log Views restore their per-view layouts; plot panes reopen in place but their internal curve selections may reset (known limitation — not carried by the snapshot). Status **Opened session "UAT Layout A"**. Step 5: status **Deleted session "UAT Layout A"** and the list updates (empty list shows "No saved sessions yet. Use Save Session to create one."). Sessions live in the project DB — they do not appear in other projects.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-SHELL-10:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-SHELL-11 — Quiet Ctrl+S re-save + Escape closes ribbon menus
 **Tool/panel:** shell hotkeys (`src/ui/ribbon.ts` quickSaveSession)
@@ -169,7 +241,13 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. Arshilla`, po
 2. Click into any text input (e.g. SQL Query editor or a dialog name field) and press **Ctrl+S** again.
 3. Open **Recent ▾** on the Project tab; press **Escape**.
 **Expected:** Step 1: status **Session "…" saved** with NO dialog (quiet in-place re-save of the last-named session) and the unsaved dot on the Save-Session button clears. Step 2: the app-level save does NOT fire while typing in an input/CodeMirror (editors keep their own Ctrl+S). Step 3: the ribbon menu closes; nothing else (no dialog dismissed). Covers REVIEW.md §"Held-item resolutions" (Quiet Ctrl+S save + Escape closes ribbon menus).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-SHELL-11:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-SHELL-12 — Dirty-state ● indicators
 **Tool/panel:** panel tabs + QAT (`src/dirty.ts`, `src/ui/workspace.ts`)
@@ -180,7 +258,13 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. Arshilla`, po
 3. Plot tab → **Save Layout…**, save under a name.
 4. Rearrange the panes (drag a tab), then click QAT **Save Session As…** and save.
 **Expected:** Step 2: the Log View tab shows **●** and the Save-Session button gets a red dot, its tooltip gains "— unsaved changes". Step 3: that panel's ● clears (layout is now in a named save) but the workspace-arrangement dot may remain if panes moved. Step 4: **everything** clears — no ● on any tab, no red dot. The dot means "not in a named save yet" only; the 10-s crash autosave runs regardless. Covers REVIEW.md §P1-b "Unsaved markers" (unchecked item).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-SHELL-12:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-SHELL-13 — QAT Undo/Redo with live labels (+ History cross-check)
 **Tool/panel:** QAT Undo/Redo (`src/undo.ts`, `src/ui/topsEditor.ts`)
@@ -192,7 +276,13 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. Arshilla`, po
 4. Hover the QAT Redo arrow; click it.
 5. Clean up: Undo once more (leave the project without `UAT_TOP`).
 **Expected:** After step 2: Undo enables, tooltip **Undo add top UAT_TOP (Ctrl+Z)**; History panel gains **Tops — {well}: Added top UAT_TOP at {depth}**. Step 3: status **Undo: add top UAT_TOP**; the top vanishes from the Log View AND the Tops pane; Redo enables with tooltip **Redo add top UAT_TOP (Ctrl+Y)**. Step 4: the top returns at the same depth. Ctrl+Z / Ctrl+Y do the same as the buttons.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-SHELL-13:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-SHELL-14 — Processing History panel: entries, export, clear
 **Tool/panel:** Processing History pane (`src/ui/historyPanel.ts`, `src/processLog.ts`)
@@ -204,7 +294,13 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. Arshilla`, po
 4. Restart the app; reopen the panel.
 5. Click **🗑 Clear** → in the confirm ("Clear the processing history for this project? This cannot be undone.") choose **Cancel** (negative). Click **🗑 Clear** again → **OK**.
 **Expected:** A pane titled **Processing History** opens (singleton — clicking again refocuses). Newest entries first, each row = time + colored kind chip (**Project / Import / Module / Tops / Session / Export…**) + detail, well-scoped entries prefixed with the well name; toolbar shows **N operations**. Export: status **Processing history exported to {path}**; the file starts `SandiBumi processing history (N entries)` with one `YYYY-MM-DD hh:mm:ss  [Kind] Well: detail` line per row matching the panel. After restart the history is still there (persisted in the project DB — it also travels with Save Project As). Cancel keeps everything; OK empties the list to "No operations recorded yet…" and **0 operations**. Covers REVIEW.md §"Polish — UX" item "Processing history now covers every operation".
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-SHELL-14:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-SHELL-15 — History attribution: single-well vs batch module run
 **Tool/panel:** module pane + Processing History (`src/ui/workspace.ts` onRunComplete, wellScope)
@@ -214,7 +310,13 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. Arshilla`, po
 2. In the Wells pane Ctrl-click two OTHER wells; back in the module pane pick scope **Selection** (should show 2). Click **Run**.
 3. Read the two new **Module** entries in the History panel.
 **Expected:** Petrophysically: VSH_GR lands 0–1, high in shales, low in clean sand (spot-check in a log view). History cross-check: the step-1 entry names the well that was ACTUALLY run (not the globally selected one); the step-2 batch entry carries **no well name** (field/batch convention). Covers REVIEW.md §Round 4 "History attribution" (fix pending click-through — if the entry still names the wrong/selected well, the fix regressed: log as Fail with the well names seen).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-SHELL-15:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-SHELL-16 — Global well pin 📌 (workspace-follow vs working-pane)
 **Tool/panel:** Wells pane group bar (`src/ui/objectTree.ts`)
@@ -225,7 +327,13 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. Arshilla`, po
 3. Click **📌** (Pin OFF); click inside Log View 1 to make it active, then click well C in the tree.
 4. Click **📌** again (Pin ON) and click well A.
 **Expected:** Step 2 (Pin ON): BOTH Log Views and any plots switch to well B; status **Pin ON — every view and plot follows the selected well** was shown when toggling. Step 3 (Pin OFF): status **Pin OFF — only the active panel follows; other views keep their wells**; only Log View 1 switches to C, Log View 2 stays on B; browsing panes (Tops, Inspector) still track the selection. Step 4: everything follows again (all views on A). Do not confuse 📌 with the per-well **★** star — that is the pinned-favourites run scope, unrelated to following.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-SHELL-16:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-SHELL-17 — Interaction guards: right-click, reload, armed number fields
 **Tool/panel:** app-wide guards (`src/interactionGuard.ts`, `src/ui/contextMenu.ts`)
@@ -237,7 +345,13 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. Arshilla`, po
 4. Press **F5**, then **Ctrl+R**; in the dialog press **Escape** once, then repeat and click **Cancel**; finally press the mouse Back (side) button.
 5. Single-click the module pane's number field, then double-click it.
 **Expected:** Step 1: the custom app context menu appears (panel-specific items + window actions like Split right / Split down). Step 2: NO menu at all (native WebView menu suppressed — a stray "Refresh" there would wipe the workspace). Step 3: the native EDIT menu appears (undo/cut/copy/paste — no Refresh/Back). Step 4: a blocking confirm "Reload SandiBumi? The workspace re-opens from its last saved state…" with **Cancel** / red **Reload**; Escape and Cancel both dismiss without reloading; mouse Back/Forward do nothing. Step 5: first click only arms the field (status tip "Number fields arm on click — double-click to edit", no caret); double-click enters edit with the value selected — a stray click+scroll can never change a parameter.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-SHELL-17:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-SHELL-18 — Crash resilience: autosave + recovery dialog (run LAST)
 **Tool/panel:** crash recovery (`src/autosave.ts`, `src/main.ts`)
@@ -249,7 +363,13 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. Arshilla`, po
 4. Repeat steps 1–2, relaunch, and this time choose **Start in Safe Mode**.
 5. Click QAT **Open Session…**.
 **Expected:** Step 3: BEFORE anything loads, a blocking dialog titled **"SandiBumi did not close properly last time."** offers **Start in Safe Mode** / **Restore autosaved workspace** (the latter focused). Restore brings back panes, arrangement, active well and log-view layouts as of ≤10 s before the kill; status **Workspace restored from the crash autosave**. Step 4: Safe Mode boots the clean default layout; status **Safe Mode — previous workspace kept as session "Recovered {date time}"**. Step 5: the **Recovered …** session is listed and opening it restores the pre-crash workspace — nothing silently lost. If the app instead panics on launch: look for `.corrupt-backup-*` in `src-tauri\` (DuckDB WAL recovery ran) — record as a note, relaunch again.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-SHELL-18:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -268,7 +388,13 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 2. In the file dialog multi-select 3 LAS files → Open.
 3. Watch the status line; then open the **Wells** pane, the **Processing History** pane, and **Curve Catalog**.
 **Expected:** Status shows `Importing 3 LAS file(s)...` then `Imported 3/3 well(s).` All 3 wells appear in the Wells pane without a manual refresh. History gains an `Import — Imported 3/3 LAS well(s)` entry. Curve Catalog lists every curve from each file (standard GR/RES_DEEP/NPHI/RHOB/DT/SP plus extras like PEF/CALI as RAW-set rows with the LAS file's units). Null values (−999.25 or the file's own `~W NULL` declaration — covers REVIEW.md §Chartbook overlay library + audit quick fixes, LAS NULL item) render as gaps in a Log View, not as spikes. GR should read ~10–120 gapi with shale/sand character intact.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-IMP-01:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-IMP-02 — Re-import a same-named LAS → duplicate-name warning, separate record
 **Tool/panel:** Import LAS… (ribbon.ts `handleImport`, ingest.rs ~104–118)
@@ -276,7 +402,13 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 **Steps:**
 1. Data tab → **Import Logs ▾** → **Import LAS…** → pick one of the SAME files imported in T-IMP-01 → Open.
 **Expected:** Import completes (`Imported 1/1 well(s). 1 well(s) had depth issues.` — the generic warning note), and History gains a per-well entry containing `a well named '<name>' already exists — imported as a separate record`. The Wells pane now shows two rows with the same name (merge is deliberately NOT automatic). Covers REVIEW.md §Round 4 — AUDIT safe-bucket ("LAS duplicate-name warning").
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-IMP-02:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-IMP-03 — Malformed LAS: duplicated depth section imports with a dropped-rows warning
 **Tool/panel:** Import LAS… (parsers.rs `sanitize_curve_columns`/`sanitize_las_frame`, ingest.rs)
@@ -285,7 +417,13 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 1. Data tab → **Import Logs ▾** → **Import LAS…** → pick `dup_depth.las`.
 2. Check status, History, then open the well in a Log View.
 **Expected:** Import SUCCEEDS (`Imported 1/1 well(s). 1 well(s) had depth issues.`) — never a silent partial well or a raw PK-constraint error. History carries the per-well warning `dropped 0 row(s) with missing depth and 20 with duplicate depth` (first occurrence kept). Log View shows continuous curves with no doubled interval. Covers REVIEW.md §P0 senior-audit backlog ("LAS import survives duplicate/odd-depth files on BOTH stores").
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-IMP-03:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-IMP-04 — Malformed LAS: all-null depth column and truncated last row → clean error, no orphan well
 **Tool/panel:** Import LAS… (parsers.rs, ingest.rs ~83)
@@ -295,7 +433,13 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 2. Data tab → **Import Logs ▾** → **Import LAS…** → pick `null_depth.las`.
 3. Repeat with `truncated.las`.
 **Expected:** Each import ends with status `Imported 0/1 well(s).` and the Wells pane count is UNCHANGED — no empty orphan well, no partial curves in the Curve Catalog. (Backend errors: "no importable rows: N had missing depth…" and "ASCII data ended with N leftover token(s)… truncated or corrupt LAS?".) Covers REVIEW.md §P0 senior-audit backlog (all-null depth errors cleanly) and §Low-tier correctness & data-integrity sweep (truncated-row loud failure).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-IMP-04:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-IMP-05 — No-well-selected guards and cancel mid-dialog leave no side-effects
 **Tool/panel:** all Data-tab importers (ribbon.ts guard clauses)
@@ -305,7 +449,13 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 2. Try **Import DLIS…**, **Import Core…**, **Import SCAL…**, **Import Aux…**, **Import Deviation…**, **Export LAS…**, and Tools ▾ → **Shift Core…** — each without a selected well.
 3. Select a well, open **Import LAS…**, then press **Cancel** in the file dialog. Repeat Cancel for **Import Tops…** and **Import Deviation…**.
 **Expected:** Steps 2: every tool refuses with status `Select a well first (Wells & Tops panel)` — no dialog opens, no History entry. Step 3: cancelling the file picker returns silently — no status change, no History entry, no data change (open plots do not refresh).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-IMP-05:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-IMP-06 — DLIS import: sentinels screened, re-import replaced-count, LAS-mnemonic collision
 **Tool/panel:** Import DLIS… (ribbon.ts `handleImportDlis`, src-tauri/src/dlis.rs)
@@ -317,7 +467,13 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 4. Open a module dialog (e.g. Petrophysics → VSH — Gamma Ray) and check which GR the input dropdown resolves.
 **Expected:** Step 1: `Imported N curve(s), M samples into <well>.` + History entry. Step 2: no curve min/max shows −999.25/−9999 or |v|>1e30 — sentinels are screened to missing; curves read physically (RHOB ~1.9–2.9 g/cc, NPHI ~0–0.6). Step 3: status now appends `(replaced N existing curve(s))` — covers REVIEW.md §P0 senior-audit backlog ("DLIS null sentinels + no silent overwrite"). Step 4: modules still resolve the original LAS curve, not the DLIS run.
 **Known issue:** AUDIT-2026-07-21 §DLIS import #2 — "The 'no silent overwrite' collision check only catches a re-import of the identical DLIS file — the far more common case (a DLIS curve reusing a mnemonic already present in the well from LAS/standard_curves at run_no NULL) is never flagged, and the shadowed DLIS curve becomes permanently invisible to every module/equation with zero indication to the user." Expect step 1 to report a clean unqualified success even when the DLIS carries GR/NPHI/RHOB names the well already has, and the DLIS copies (visible as `run N` rows in the Curve Catalog) to be unreachable in step 4. Log as known, not new.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-IMP-06:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-IMP-07 — Core CSV import: plugs off the log grid overlay at native depths
 **Tool/panel:** Import Core… (ribbon.ts `handleImportCore`, parsers.rs `parse_core_csv`)
@@ -328,7 +484,13 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 3. Open a **Crossplot** pane, set X/Y to NPHI vs RHOB (or PHIE vs PERM) and switch ON the **Core data** overlay toggle in plot properties.
 4. Data → **DB Inspector** → table **Core Data**.
 **Expected:** Status: `Imported N core sample(s) for <well>.` + History entry `Imported N core sample(s) ← <path>`. Log View draws core points as markers over the matching track (CPOR over PHIT/PHIE/NPHI, CGD over RHOB, CPERM over PERM) at their NATIVE plug depths — between log samples, not snapped to the grid. Crossplot shows the core diamonds; CPOR should sit near log PHIT in clean sand (within ~2–3 p.u.), CGD ~2.6–2.7 g/cc for quartzose Mahakam sands. DB Inspector shows the rows with cpor/csw as fractions (0–1).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-IMP-07:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-IMP-08 — Core CSV with a duplicated plug depth imports (first kept), never aborts
 **Tool/panel:** Import Core… (parsers.rs `parse_core_csv` dedup, db.rs `insert_core_data`)
@@ -337,7 +499,13 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 1. Select the well → **Import Data ▾** → **Import Core…** → pick the doctored CSV.
 2. Check DB Inspector → **Core Data** row count.
 **Expected:** Import SUCCEEDS with `Imported N core sample(s)` where N = file rows − 1 (first occurrence of the repeated depth wins) — NOT a raw `PRIMARY KEY or UNIQUE constraint violation` error with 0 rows. Re-import replaces (row count stays N, not doubled). Covers REVIEW.md §Round 4 — import-robustness batch 2, fix (1).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-IMP-08:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-IMP-09 — Shift Core: constant core-to-log shift, undo, invalid input rejected
 **Tool/panel:** Tools ▾ → Shift Core… (ribbon.ts `handleShiftCore`)
@@ -348,7 +516,13 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 3. Enter `2.5` → **Apply Shift**.
 4. Press **Ctrl+Z**.
 **Expected:** Step 2: status `Enter a non-zero shift in metres`, dialog stays open, nothing written. Step 3: status `Shifted N core plug(s) of <well> by +2.5 m`, History entry `Edit — Core shift +2.5 m (N plugs)`, and the open Log View's core points visibly move 2.5 m deeper immediately. Step 4: points move back (undo re-shifts −2.5 m, with its own status/History trace).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-IMP-09:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-IMP-10 — Tops CSV: multi-well WELL column, single-well file, unmatched + blank WELL cells
 **Tool/panel:** Import Tops… (ribbon.ts `handleImportTops`, ingest.rs `import_tops_file`)
@@ -359,7 +533,13 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 3. With well B selected → **Import Tops…** → file (b).
 4. Open a Log View on well B.
 **Expected:** Step 1: status `Tops: N marker(s) across 2 well(s) — unmatched well name(s): <bogus>`; History entry; tops appear immediately under the matched wells and as lines in open log views (dataVersion refresh). The blank-WELL row is SKIPPED, not routed to the selected well (covers REVIEW.md §Round 4 — import-robustness batch 2, fix (5)). Step 3: all tops land in well B only. Step 4: tops lines drawn at the right depths. Covers REVIEW.md §P2-a — Tops-style imports.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-IMP-10:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-IMP-11 — Aux data import: PERFORATION and XRD land per-well, replace on re-import
 **Tool/panel:** Import Aux… (ribbon.ts `handleImportAux`)
@@ -370,7 +550,13 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 3. Repeat with Dataset = **XRD** and the XRD CSV. Also try Dataset = **Custom…** with an empty name → Choose file.
 4. Data → **DB Inspector** → table **Aux Data**.
 **Expected:** Step 2/3: result box `Imported N value(s) across M column(s): <names>`; status + History entry per import. Step 3 empty-Custom: refused with `Enter a dataset name.` (no file dialog). Step 4: rows visible per well/dataset (read-only). Re-importing the same dataset replaces that dataset's rows only (count stays, other datasets untouched). XRD quartz+clay+carbonate percentages should sum to ~100%. Covers REVIEW.md §P2-a — Tops-style imports (Aux item).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-IMP-11:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-IMP-12 — Deviation survey import: TVD/TVDSS computed; duplicate-MD survives; TVD not yet consumable
 **Tool/panel:** Import Deviation… (ribbon.ts `handleImportDeviation`, parsers.rs `parse_deviation_csv`, deviation.rs)
@@ -383,7 +569,13 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 5. Cross-check consumption: open the **SW — Saturation-Height** module dialog and look at its TVD input.
 **Expected:** Step 2: status `Imported N survey station(s); TVD/TVDSS computed for <well>.` + History entry; dialog closes. Step 3: TVD ≤ MD everywhere (equal only in the vertical section), monotonically increasing, TVDSS = TVD − datum; at 30° inclination TVD grows ~0.866 m per m MD — sanity-check one station by hand. Step 4: import still succeeds with the duplicate MD dropped (first kept) — covers REVIEW.md §Round 4 — import-robustness batch 2, fix (2).
 **Known issue:** AUDIT-2026-07-21 §Importers B #1 — "Deviation-survey TVD/TVDSS is computed and stored, but no code path ever exposes it as a fetchable curve — sw_height's 'TVD' input (the P0 fix's whole point) is permanently unreachable for any well relying on Import Deviation, and the module dialog silently pre-selects it as if it worked." Expect step 5 to show "TVD" pre-selected even though no TVD curve exists; a run will silently fall back to MD per sample (SWH unchanged vs MD-based). `getWellPath` has no UI consumer yet. Log as known, not new.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-IMP-12:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-IMP-13 — Well locations import → wells post on the Field Map at UTM coordinates
 **Tool/panel:** Import Well Locations… (ribbon.ts `handleImportWellLocations`, mapPanel.ts)
@@ -394,7 +586,13 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 3. Check the Field Map.
 4. Tools ▾ → **Well Header…** on one located well.
 **Expected:** Step 2: result box `Located N well(s)… Open Field Map to view.` (blank-WELL row skipped and reported, no unrelated well relocated); status + History entry. Step 3: the already-open map auto-fits and posts the wells at the correct relative geometry (inter-well distances/bearing match the field layout). Step 4: Surface X / Surface Y / UTM zone fields show the imported values (not blank); changing only TD and clicking **Save Header** preserves the coordinates. Covers REVIEW.md §Field Map — well surface coordinates (first four checklist items).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-IMP-13:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-IMP-14 — SCAL Pc/Sw import: multi-file, auto-detect, Leverett-J fit reported
 **Tool/panel:** Import SCAL… (ribbon.ts `handleImportScal`)
@@ -405,7 +603,13 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 3. Negative: reopen, set Fluid system = **Other / custom** (sigma field clears), leave it blank → **Import & Fit**.
 4. Re-import the same files and compare point counts.
 **Expected:** Step 2: result box `Imported N Pc point(s). J-fit: A = …, B = …, R² = … (n points). Enter these as SWH_A/SWH_B in SW — Saturation-Height.` (or the honest `Too few valid points…` message if plugs lack perm/poro); status + History entry (`Imported SCAL Pc data (auto) ← <path>`). B should be negative (Sw falls as J rises) and R² > ~0.7 for a consistent rock family. Step 3: refused with `Lab sigma·cosθ must be a positive number.` — nothing imported. Step 4: points REPLACE (count unchanged), never append; a zero-point parse refuses the replace-write instead of wiping existing data. Covers REVIEW.md §Round 3 — (8) increment 2 — SCAL importers (incl. the post-review hardening items).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-IMP-14:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-IMP-15 — LAS export: NaN→−999.25, computed curves included, mixed-case name exports real values
 **Tool/panel:** Export LAS… (ribbon.ts `handleExport`, src-tauri/src/export.rs)
@@ -414,7 +618,13 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 1. Select the well → Data tab → **Export LAS…** → accept the default filename `<well>.las` → Save.
 2. Open the exported file in a text editor.
 **Expected:** Status `Exported <well> (N rows) to <path>`; History entry `Export — Exported LAS (N rows) → <path>`. In the file: `NULL. −999.25` declared in `~W`; every gap in the source curves written as −999.25; header lists GR/RES_DEEP/NPHI/RHOB/DT/SP plus each computed curve; the `Vsh_final` column carries REAL values (0–1, high in shale), NOT −999.25 at every depth. Covers REVIEW.md §Round 4 — backend robustness batch 1, fix (9) (mixed-case export column).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-IMP-15:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-IMP-16 — Round-trip: export → fresh project → re-import → values identical
 **Tool/panel:** Export LAS… + Import LAS… (export.rs ↔ parsers.rs/ingest.rs)
@@ -425,7 +635,13 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 3. Open a Log View; read the same 3 depths. Optionally Data → **SQL Query**: `SELECT depth, gr, rhob FROM standard_curves WHERE depth BETWEEN <d1> AND <d2>`.
 4. Reopen the original project (Project → **Recent ▾**) and confirm it is untouched.
 **Expected:** Import succeeds `Imported 1/1 well(s).`; the well carries the full curve set including `VSH_FINAL`-named computed curve (re-imported as a RAW curve — provenance is now "imported", visible in the Curve Catalog set/run columns). Spot values match the source to LAS precision (4 decimals); −999.25 rows come back as gaps, not as spikes of −999. Depth range and sample count match the source well's export row count N.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-IMP-16:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-IMP-17 — Cross-checks: open panes refresh on import (dataVersion) and repaint on theme switch
 **Tool/panel:** whole Data tab + workspace (state.ts dataVersion, theme.ts)
@@ -436,7 +652,13 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 3. Without clicking any refresh: check all four panes.
 4. Open the **Import SCAL…** or **Import Aux…** dialog, then Project tab → **Theme** → switch (e.g. Default → Dark → Pertamina) with the dialog and panes open.
 **Expected:** Step 3: the new well appears in Wells and the Curve Catalog well/curve lists without manual action; History shows the entry at the top; open plots stay consistent (no stale curve lists in their curve pickers). Step 4: ribbon, panes, modal dialog, and plot canvases all repaint immediately in the new palette — no white-on-white text or unstyled dialog remnants (theme contract: all 15 CSS vars).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-IMP-17:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -456,7 +678,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 3. Click 📌 to turn it OFF (status: "Pin OFF — only the active panel follows…"), activate the Log View tab, then click a third well.
 4. Click the ☆ star left of a well name.
 **Expected:** (1–2) clicked well highlights, and with 📌 ON every open view (Log View, Histogram) reloads to it. (3) With 📌 OFF only the active Log View follows; the Histogram keeps the previous well. (4) Star turns ★, status "Well pinned — available as a run scope", and it survives an app restart (persisted). Covers REVIEW.md §Panes ("★ pin a well").
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-WELL-01:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-WELL-02 — Multi-select: Ctrl-click, Shift-click range, ⇄ invert, plain-click clear
 **Tool/panel:** Wells pane object tree (src/ui/objectTree.ts)
@@ -468,7 +696,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 4. Click the **⇄** button in the group bar.
 5. Plain-click any well.
 **Expected:** (1) B and C get the accent multi-select edge; header reads "Wells (N) • 2 selected"; status "2 wells selected — batch dialogs will pre-tick them". (2) Active well unchanged — Ctrl-click never fires well activation. (3) The whole range highlights. (4) Selection inverts within the visible list (previously selected wells clear, the rest select). (5) Multi-selection clears, status "Multi-selection cleared", and the clicked well activates. Covers REVIEW.md §Well scope.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-WELL-02:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-WELL-03 — Multi-selection feeds a batch dialog's "Selection" scope, live
 **Tool/panel:** Well scope selector in module pane (src/ui/wellScope.ts, src/ui/moduleDialog.ts)
@@ -480,7 +714,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 4. With the pane still open, Ctrl-click a 4th well in the Wells pane.
 5. Click **Custom…**.
 **Expected:** (2–3) **Selection** is the active scope, count "3 wells", hover tooltip lists exactly the 3 well names, hint reads "Running on the wells selected in the Wells pane (Ctrl/Shift-click)". (4) Count updates live to "4 wells" without reopening. (5) Custom opens a searchable checklist seeded with those 4 wells ticked. Covers REVIEW.md §Well scope.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-WELL-03:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-WELL-04 — Well Groups manager: create, edit membership, rename, delete
 **Tool/panel:** Well Groups modal (src/ui/wellGroups.ts), opened from the Wells pane **⚙** button
@@ -492,7 +732,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 4. Double-click the group name, rename to "UAT-N" in the prompt.
 5. Click **Delete** on the group; cancel the confirm; click Delete again and accept.
 **Expected:** (2) Group row appears, membership editor jumps straight to it. (3) Status "Group “UAT-North” now has 3 wells"; the row's wells count reads 3; live "3 selected" label tracks ticking. (4) Row shows "UAT-N". (5) First confirm cancels harmlessly; second removes the row; wells themselves are untouched (count in "All wells" unchanged).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-WELL-04:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-WELL-05 — Active group scopes the tree and freshly opened batch dialogs
 **Tool/panel:** Group bar dropdown (src/ui/objectTree.ts) + module pane scope
@@ -503,7 +749,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 3. Petrophysics ▸ **VSH ▾** ▸ **VSH from Gamma Ray** (close it first if already open, via the pane's ✕).
 4. Switch the dropdown back to **All wells**.
 **Expected:** (1) Status "Active well group: North (3 wells)". (2) Header "Wells — North (3)"; only member wells listed; empty groups would show "No wells in this group — Edit wells to add some". (3) The scope row defaults to **Group** with "North" selected in its group dropdown, count "3 wells". (4) Status "Well group cleared — showing all wells"; full list returns.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-WELL-05:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-WELL-06 — NEGATIVE: already-open batch dialog does NOT re-scope on group switch
 **Tool/panel:** Any batch pane left open across a group switch (src/ui/wellScope.ts + src/ui/workflowDialog.ts)
@@ -515,7 +767,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 4. Also create a brand-new group via ⚙ and check whether it appears in the open pane's Group dropdown.
 **Expected (spec):** the open dialog's Group scope should follow the new active group (or at minimum offer it).
 **Known issue:** AUDIT-2026-07-21-full-qc.md, Substrate — well-group scoping sweep #1: "No batch-run dialog re-scopes to a new active well group while it's already open — only the Wells sidebar tree and Map pane react live to a group switch." Expect the pane to keep "North" and its stale membership/count, and new groups to be missing until the pane is closed and reopened. A run launched now would silently compute over the WRONG group — log as known, note which panes you tried.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-WELL-06:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-WELL-07 — Field Map smoke: markers, pan/zoom, Fit, info line, group ring, theme, auto-fit
 **Tool/panel:** Field Map pane (src/ui/mapPanel.ts), Petrophysics ▸ **Field Map…**
@@ -527,7 +785,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 4. Project tab ▸ **Theme** — switch theme, watch the map.
 5. On a second project with NO coordinates, open Field Map first (empty-state message), then run **Data ▸ Import Data ▾ ▸ Import Well Locations…**.
 **Expected:** (1) Info reads "N located · UTM <zone>" (or "mixed zones (…)" with a warning tint if zones differ); markers labeled when ≤80 wells; scale bar bottom-left reads a sensible distance (well spacing in a Mahakam field ~ hundreds of m–km). (2) Zoom anchors under the cursor; Fit frames every well. (3) Active-group wells are ring-highlighted. (4) Map repaints immediately in the new palette — no interaction needed. (5) Empty state says "No wells have surface coordinates yet… Data ▸ Import Well Locations…"; after import the map fits automatically, no manual Fit. Covers REVIEW.md §Field Map bullets 1 and 4.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-WELL-07:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-WELL-08 — Draw polygon → assign enclosed wells to a NEW group
 **Tool/panel:** Field Map pane (src/ui/mapPanel.ts)
@@ -538,7 +802,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 3. Click **Assign to group…**; in the "Assign wells to group" dialog keep Target = "＋ New group…", type "MAP-UAT" in Name, click **Assign**.
 4. Check the Wells pane group dropdown and the Processing History pane.
 **Expected:** (1) Rubber-band line follows the cursor; on close the polygon fills faintly, enclosed markers enlarge/recolor. (2) Status "Polygon closed — N well(s) enclosed…"; info "…polygon encloses N"; **Assign to group…** enabled only when N > 0. (3) Dialog lists the enclosed well names; status "Created group “MAP-UAT” with N well(s)." (4) "MAP-UAT (N)" appears in the group dropdown and ⚙ manager; History gains a **Group** entry "Created group \"MAP-UAT\" from map polygon (N wells)". Covers REVIEW.md §Field Map bullet 5 and §Polish — Processing history (map-polygon→group).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-WELL-08:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-WELL-09 — Polygon editing, union into EXISTING group, Esc/Clear negatives
 **Tool/panel:** Field Map pane (src/ui/mapPanel.ts) + modal Escape scoping (src/ui/modal.ts)
@@ -550,7 +820,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 4. Start drawing again, drop 3 vertices, then open any dialog (e.g. Data ▸ Tools ▾ ▸ **Well Header…**) and press **Escape** once.
 5. Draw a small polygon enclosing NO wells; check **Assign to group…**; click **Clear**.
 **Expected:** (1) Enclosed set re-highlights live while dragging. (2) Status "Group “MAP-UAT” now has M well(s) (+k)" — a union, no duplicates; History gains a **Group** entry. (3) Esc cancels the half-drawn polygon. (4) Escape closes only the dialog; the in-progress polygon is still there (covers REVIEW.md §P1 "Dialog Escape is scoped to the dialog" map-polygon test). (5) With 0 enclosed, **Assign to group…** is disabled ("No wells inside the polygon." if forced); **Clear** removes the polygon and disables itself.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-WELL-09:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-WELL-10 — Tops pane: click a top windows plots to its interval
 **Tool/panel:** Tops pane (src/ui/topsPanel.ts) + plot zone follower (src/ui/plotCommon.ts)
@@ -562,7 +838,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 4. Click the same top again.
 5. Select a well with no tops.
 **Expected:** (1) Separate resizable "Tops" panel — covers REVIEW.md §Panes ("Tops is its own pane now"). (2) Row highlights; Log View scrolls so that top's depth is at view top; the interval runs down to the next top (or TD). (3) Plot zone selector shows/offers "Top <NAME> (<top>–<next|TD>)" and the histogram recomputes over only that interval (sample count drops accordingly). (4) Deselects; plots return to the full logged interval. (5) Pane shows "No tops for this well"; with no well selected, "Select a well".
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-WELL-10:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-WELL-11 — Tops editor: 🏷 add a top, undo, History, cross-pane sync
 **Tool/panel:** Tops overlay editor in the Log View toolbar (src/ui/topsEditor.ts, src/ui/logViewPanel.ts)
@@ -575,7 +857,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 5. Press **Ctrl+Z**.
 6. Try adding a top with a blank name, then with a non-numeric depth.
 **Expected:** (3) Name auto-uppercases to TOP_UAT_A; status "Added top TOP_UAT_A at <d>"; a labeled colored line appears across all tracks and tracks pan/zoom. (4) Top appears immediately in the Tops pane and every other view of that well; History gains a **Tops** entry. (5) Status "Undo: add top TOP_UAT_A"; line and pane row vanish everywhere. (6) Both rejected with status "Top needs a name and a numeric depth" — dialog stays open, nothing written. Covers REVIEW.md §P2-b ("Tops lines in the log view", "🏷 edit mode").
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-WELL-11:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-WELL-12 — Tops editor: drag-move, edit/rename/recolor/delete, stratigraphic crossing warning
 **Tool/panel:** Tops overlay editor (src/ui/topsEditor.ts), backend check_top_order
@@ -588,7 +876,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 5. Now drag TOP_B ABOVE TOP_A in this well only, watch the status bar.
 6. Verify wheel zoom still works with edit mode on; toggle **🖍** and confirm 🏷 switches off.
 **Expected:** (1) Status "<NAME>: <old> → <new>"; Tops pane depth updates. (2–4) Every operation undoable/redoable with named status messages; History logs **Tops** entries for edit and delete. (5) A ⚠ crossing warning appears in the status bar naming the reversed pair against the majority vote of the other wells (e.g. "below it in 4 of 5 other wells"). (6) 🏷 and 🖍 are mutually exclusive. Covers REVIEW.md §P2-b ("Crossing warnings").
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-WELL-12:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-WELL-13 — Top autocorrelation: propagate by GR shape, untick, apply, batch undo
 **Tool/panel:** Autocorrelate Tops pane (src/ui/autoCorrDialog.ts), Data ▸ **Tools ▾** ▸ **Autocorrelate Tops…**
@@ -601,7 +895,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 5. Click **Apply k picks**.
 6. Check target wells' Tops panes + History, then press **Ctrl+Z** once.
 **Expected:** (3) Button reads "Correlating…" then restores. (4) Rows with r ≥ 0.70 come pre-ticked; weak matches are dimmed and unticked; failed wells show "—" and a per-row error, checkbox disabled; the Apply label tracks the tick count. (5) Status "<TOP> picked in k well(s) by autocorrelation"; the top appears at the proposed depth in each ticked well (within your ±25 m search window of your own hand pick — judge r against the deltaic GR character). History gains "Tops — Autocorrelated <TOP> into k well(s)". (6) ONE undo reverts the whole batch (restores prior depths, deletes where none existed). Covers REVIEW.md §P2-b ("Autocorrelate… (Data tab)").
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-WELL-13:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-WELL-14 — Autocorrelation negatives: no tops, bad curve, no targets
 **Tool/panel:** Autocorrelate Tops pane (src/ui/autoCorrDialog.ts)
@@ -611,7 +911,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 2. Back on a well WITH tops, open the pane, set **Log** to a curve that exists nowhere (e.g. "XXNOPE"), click **Correlate N wells**.
 3. Activate the single-well group (source is its only member), reopen the pane.
 **Expected:** (1) Message pane: "No tops picked in <well> yet — pick one in the log view first (🏷)" — no crash. (2) A backend error is surfaced in the results area and status ("Autocorrelate: …"); button re-enables; NO tops are written and History gains nothing. (3) Message "No other wells (in the active group) to correlate to".
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-WELL-14:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-WELL-15 — Zones pane: From Tops, add/update/delete, invalid input, History
 **Tool/panel:** Zones pane (src/ui/zonesDialog.ts), Petrophysics ▸ **Zones…** (Intervals group)
@@ -624,7 +930,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 5. Switch to another well and back.
 6. (Cross-check) In a Log View use **🖍** to paint a band, double-click it, choose **Convert to zone** — check it lands in this pane.
 **Expected:** (1) Status "Built N zone(s) from tops for <well>"; table lists one zone per consecutive top pair with correct top/bottom depths; History gains a **Zone** entry. (2) Nothing is added — the row is silently rejected (note: no error message today; record what you see). (3) Zone appears; the re-add UPDATES the same row to 2050–2150 rather than duplicating. (4) Row removed; History "Deleted zone UAT_TEST". (5) Pane follows the well — each well keeps its own zone list. (6) Converted band appears as a zone (covers REVIEW.md §Highlight tool item (e)). Covers REVIEW.md §Polish — Processing history (zone add/edit/delete).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-WELL-15:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-WELL-16 — Per-zone parameter override actually drives a module run
 **Tool/panel:** Zones pane overrides (src/ui/zonesDialog.ts) + VSH from Gamma Ray (src/ui/moduleDialog.ts, src-tauri/src/modules.rs vsh_gr)
@@ -635,7 +947,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 3. Petrophysics ▸ **VSH ▾** ▸ **VSH from Gamma Ray**; leave GR_MA at its dialog default 20 and GR_SH 120; scope to just this well; click **Run**.
 4. Display VSH in the Log View across the ZONE_A/ZONE_B boundary; open the Curve Catalog.
 **Expected:** (3) Result line "✓ <well>: N samples → VSH_GR, VSH"; History entry "Module — Ran VSH from Gamma Ray" attributed to this well (covers REVIEW.md §Round 4 "History attribution"). (4) VSH ∈ [0,1] everywhere, high in shale, low in clean sand; inside ZONE_A VSH is systematically LOWER than the same GR would give elsewhere (denominator GR_SH−GR_MA shrinks 100→60 but the numerator drops more: at GR=60, VSH=0 in ZONE_A vs 0.40 outside) with a visible step exactly at the zone boundary — proving the zone value beat the dialog value, as the pane's hint promises ("Overrides beat the value typed in a module dialog"). VSH/VSH_GR appear in the Curve Catalog with a new version. Remove the override (✕) and re-run: the step disappears.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-WELL-16:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-WELL-17 — NEGATIVE: degenerate zone override (TD_BHT = 0) reports honestly, no garbage
 **Tool/panel:** Zones pane + Formation Temperature module (src-tauri/src/modules.rs ftemp_grad, BHT mode)
@@ -646,7 +964,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 3. Inspect FTEMP in the Log View / Curve Catalog min-max.
 4. Remove the override and re-run.
 **Expected:** (2–3) The BHT interpolation must NOT emit ±Infinity or a fake green success: FTEMP comes back MISSING where TD_BHT ≤ 0 applies, and an all-missing run is reported as an error/Warned in the Processing panel rather than "✓ N samples" (covers REVIEW.md §Round 4 "All-NaN module runs report honestly"; the TD_BHT guard from AUDIT finding "ftemp_grad's BHT mode divides by TD_BHT with no degenerate-value guard" is now in modules.rs with a unit test — this test field-verifies it). (4) With the override gone, FTEMP is a smooth monotonic ramp from TSURF (~27 °C) to BHT at TD — physically sensible for a Mahakam gradient (~0.03 °C/m).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-WELL-17:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -667,7 +991,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 4. Open **Data Prep ▸ Bad-Hole QC Flag**: its optional inputs (DRHO, CALI, BS) each offer a leading **"(none)"** entry in the dropdown even though curves of those names exist.
 5. Click **?** (Help) in the quick-access bar with the Formation Temperature pane focused — the method narration/formula for the module appears.
 **Expected:** All 13 titles present; pane form matches the manifest exactly; "(none)" selectable on optional inputs (covers REVIEW.md §Round 4 "Blank '(none)' for optional inputs"); pane docks/undocks like any other (covers REVIEW.md §All tools as dockview panes #24).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PREP-01:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PREP-02 — Formation Temperature: GRADIENT and BHT modes
 **Tool/panel:** Formation Temperature pane (`ftemp_grad`, src-tauri/src/modules.rs)
@@ -677,7 +1007,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 2. Add FTEMP to a log view (Plot ▸ New Log View, then **Properties…** ▸ add curve FTEMP) or check Min/Max in the Curve Catalog.
 3. Set **OPT_FT = BHT**, enter the well's real BHT and TD (e.g. BHT 100, TD_BHT 2000). Click **Run** again.
 **Expected:** GRADIENT: FTEMP is perfectly linear, ≈26.7 °C at 0 m and TSURF + 0.03·TD at TD (e.g. ≈86.7 °C at 2000 m) — a plausible Mahakam gradient. BHT: FTEMP interpolates linearly from TSURF at surface to exactly BHT at TD_BHT. Second run creates INTERP **v2** in the Curve Catalog "Constellations" list — v1 is not overwritten. Result line: "All 1 well(s) computed…"; Processing panel shows one ✓ line.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PREP-02:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PREP-03 — Formation Temperature negative: TD_BHT ≤ 0 zone override yields MISSING, not ±Infinity
 **Tool/panel:** Formation Temperature pane + Zones… (Petrophysics ▸ Zones…)
@@ -687,7 +1023,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 2. In the Formation Temperature pane set **OPT_FT = BHT**, Run.
 3. Inspect FTEMP inside that zone (log view cursor readout, or Curve Catalog Min/Max).
 **Expected:** Samples in the overridden zone are MISSING (blank), never ±Infinity; FTEMP outside the zone is unchanged; Curve Catalog Min/Max for FTEMP stay finite and physically sensible. Covers REVIEW.md §Round 4 "backend robustness batch 1" item (2) — verifies the fix for the audit finding "ftemp_grad's BHT mode divides by TD_BHT with no degenerate-value guard".
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PREP-03:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PREP-04 — Pre-Calculation: FTEMP/FPRESS/RMF/CT/CXO plausible on a known well
 **Tool/panel:** Pre-Calculation (P / T / Rmf / Ct / Cxo) pane (`precalc`, modules.rs)
@@ -698,7 +1040,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 3. Spot-check one depth by hand: FTEMP_F = 77 + 0.026·TVDSS; FTEMP = same in degC; FPRESS = 0.433·TVDSS psi (near-hydrostatic); RMF at depth ≈ surface Rmf × (T₁+6.77)/(T₂+6.77) (Arps).
 4. Check CT = 1000/RT and CXO = 1000/RXO at a depth where you know RT; confirm CT/CXO are MISSING wherever RT/RXO are missing or ≤ 0.
 **Expected:** Six new curves (FTEMP degC, FTEMP_F degF, FPRESS, RMF, CT, CXO) in the Curve Catalog with module = precalc provenance. Values physically plausible for Mahakam: FTEMP monotonic-increasing, RMF decreasing with depth, FPRESS ≈ hydrostatic; no negative or infinite resistivity-derived values. Covers REVIEW.md §Wave E-17 pre-calculation module items 1–3 and 5.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PREP-04:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PREP-05 — Pre-Calculation: degC metric mode + per-zone gradient kink
 **Tool/panel:** Pre-Calculation pane + Zones…
@@ -708,7 +1056,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 2. In **Zones…**, override TEMP_GRAD (e.g. 0.035) for one zone. Re-run.
 3. Plot FTEMP vs depth in a log view.
 **Expected:** The FTEMP trend kinks exactly at the zone boundary (per-zone params resolve per sample); both segments linear; no discontinuity artifacts elsewhere. Covers REVIEW.md §Wave E-17 items 4 and 6.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PREP-05:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PREP-06 — Bad-Hole QC Flag: washout flagging vs DRHO/CALI
 **Tool/panel:** Bad-Hole QC Flag pane (`badhole`, modules.rs)
@@ -718,7 +1072,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 2. Add BADHOLE next to CALI and DRHO in a log view.
 3. Negative: re-open the pane, set DRHO, CALI and BS all to **"(none)"**, Run on the same well.
 **Expected:** BADHOLE = 1 exactly where |DRHO| > 0.05 or (CALI − bit) > 1"; 0 in gauge hole; MISSING where neither QC curve reads. The flagged set visually matches the washouts the caliper shows. Negative run: every sample MISSING — with the Round-4 honesty fix the Processing panel shows **⚠ "no finite output"**, not a green ✓ (covers REVIEW.md §Round 4 "All-NaN module runs report honestly").
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PREP-06:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PREP-07 — Data Conditioning Flags: coal / tight / crossover / shoulder on the log view
 **Tool/panel:** Data Conditioning Flags pane (`condflag`, modules.rs)
@@ -730,7 +1090,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 4. Check SHOULDER_FLAG brackets each coal/tight bed by ~0.5 m; a lone one-sample spike is dropped (MIN_THICK 0.25); a washout interval reads into COND_FLAG but a one-sample BADHOLE blip does not dilate.
 5. In **Zones…** override RHO_MA = 2.71 for a carbonate zone, re-run: TIGHT/XOVER shift there only.
 **Expected:** Flags land on the intervals you would hand-pick; washed-out intervals are never called coal; COND_FLAG = coal ∪ tight ∪ badhole ∪ shoulder (no crossover, OPT_XCOND = NO default). Covers REVIEW.md §Data Conditioning Flags module #20 (all five unchecked items).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PREP-07:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PREP-08 — Neutron Matrix Conversion: LS/SS/DOL + chart spot-check
 **Tool/panel:** Neutron Matrix Conversion pane (`nphimat`, modules.rs + neutron_charts.rs)
@@ -741,7 +1107,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 3. Hand-check against the paper chart (Por-5 for CNL/TNPH, Por-4 for APS/SNP) at that depth.
 4. Feed NPHI_SS + RHO_MA 2.65 into a condflag (or phi_dn) run: crossover in the known gas sand should now appear at the default XOVER_MIN 0.04, no limestone-offset fudge.
 **Expected:** NPHI_SS ≈ NPHI_LS + 0.03–0.04 in clean sand; NPHI_DOL well below both (thermal dolomite bow); the input convention passes through unchanged; hand-chart agreement within ~0.5 pu (the shipped worked example TNPH 18 pu @ 250 kppm → SS 24 pu reproduces to 0.04 pu). Covers REVIEW.md §Neutron Matrix Conversion module #21 items 1–3.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PREP-08:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PREP-09 — GR Hole-Size Correction
 **Tool/panel:** GR Hole-Size Correction pane (`gr_hole_corr`, modules.rs)
@@ -751,7 +1123,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 2. Overlay GR_EC on GR in a log view.
 3. Negative: set CALI to **"(none)"** and Run again.
 **Expected:** GR_EC > GR only where CALI > bit size (in the washout, GR_EC restored upward by ~0.75 %/inch of enlargement); GR_EC = GR in gauge and in undersize hole (no negative correction). With CALI = (none): GR_EC identical to GR (documented pass-through), still reported as a normal ✓ run.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PREP-09:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PREP-10 — Density Hole-Size Correction
 **Tool/panel:** Density Hole-Size Correction pane (`rhob_hole_corr`, modules.rs)
@@ -760,7 +1138,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 1. Open **Data Prep ▸ Density Hole-Size Correction**, defaults (K_RHO 0.004, HD_REF 10). **Run**.
 2. Overlay RHOB_EC on RHOB.
 **Expected:** RHOB_EC = RHOB wherever CALI ≤ 10"; above 10" RHOB_EC is shifted up by 0.004 g/cc per inch beyond 10 — a small (<~0.05 g/cc) correction; grossly washed-out intervals should instead be excluded via BADHOLE downstream (the module doc says no correction is trustworthy there).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PREP-10:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PREP-11 — Neutron Environmental Correction: computed-only FTEMP contract
 **Tool/panel:** Neutron Environmental Correction pane (`nphi_env_corr`, modules.rs)
@@ -770,7 +1154,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 2. Compare NPHI_EC to NPHI at a hot deep level and a shallow level.
 3. Negative: Run on the well with only the raw LAS FTEMP (no precalc/ftemp_grad output).
 **Expected:** Step 2: correction = 0.0001·(FTEMP−24) − 0.0004 — small, positive at depth, larger where hotter; NPHI_EC tracks NPHI within a few thousandths v/v. Step 3: the raw degF FTEMP must NOT be consumed (FTEMP is a computed-only input) — only the salinity term applies, so NPHI_EC = NPHI − 0.0004 everywhere. Covers REVIEW.md §Round 4 "backend robustness batch 1" item (5) — verifies the fix for the audit finding "nphi_env_corr's FTEMP input is a plain log_in, not computed_only".
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PREP-11:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PREP-12 — Gas Correction WITH precalc + condflag: plausible de-gassed density
 **Tool/panel:** Gas Correction (density, iterated) pane (`gascorr`, modules.rs)
@@ -781,7 +1171,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 3. Check a coal streak (flagged by COAL_FLAG, excluded from XOVER_FLAG) stays untouched.
 4. Feed RHOB_GC to **phi_den** (Porosity dropdown) — NOT phi_dn (doc: corrected RHOB + still-gas-affected NPHI biases porosity low).
 **Expected:** In the gas sand RHOB_GC > RHOB (gas replaced by liquid, density restored up); PHIT_GC slightly below the uncorrected density porosity; GASDEN ≈ 0.10–0.15 g/cc at typical Mahakam P/T (the KK example pins 0.1297 at 2743 psi / 93.9 °C); SWT_GC in [0,1]. Coal untouched. Outside flagged zones RHOB_GC = RHOB. Covers REVIEW.md §Gas Correction module #23 items 1, 2 and 5.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PREP-12:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PREP-13 — Gas Correction negatives: no condflag → hard error; no precalc → honest all-NaN report
 **Tool/panel:** Gas Correction pane + Processing panel
@@ -792,7 +1188,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 3. Open the Processing panel and Processing History; inspect how each run is reported.
 **Expected:** Step 1: explicit error — "OPT_GATE = FLAGGED but the gas flag '…' has no data — run condflag first or set OPT_GATE = EVERYWHERE" (covers REVIEW.md §Gas Correction #23 item 3). Step 2: every output sample is MISSING and the run must be reported as **⚠/error "no finite output — every sample is missing (check inputs, e.g. precalc not run)"** — NOT a green "✓ N samples" success (covers REVIEW.md §Round 4 "All-NaN module runs report honestly" and §Gas Correction #23 item 4).
 **Known issue:** AUDIT-2026-07-21 finding "Module-run status reports '✓ success' even when every output sample is MISSING" (§precalc / SandiMin / gascorr #1) predicts a green success line with the full sample count. An uncommitted Round-4 fix is in the working tree — if you still see the green ✓ with all-NaN curves, log it against that known finding, not as new.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PREP-13:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PREP-14 — GR Normalization: P3/P97 alignment across two wells
 **Tool/panel:** GR Normalization (Two-Point Percentile) pane (`gr_normalize`) + Histogram (Plot ▸ Histogram)
@@ -802,7 +1204,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 2. Open **Data Prep ▸ GR Normalization (Two-Point Percentile)**. Wells scope = **Selection** with both wells (Ctrl-click in the Wells pane). Keep defaults (P_LOW 3, P_HIGH 97, GR_LOW_REF 53.68, GR_HIGH_REF 133.93 — the Rokan 562-well calibration; substitute your field refs if set). **Run**.
 3. Histogram of **GRN** on each well with the same "3, 97" percentiles.
 **Expected:** For every normalized well, GRN's P3 ≈ 53.68 and P97 ≈ 133.93 gAPI (percentile pinning) — the histograms now overlay; shale intervals read high, clean sands low, character preserved (a linear rescale, no shape change). Both wells get their own ✓ line in the Processing panel.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PREP-14:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PREP-15 — MASK machinery: BADHOLE mask changes gr_normalize percentiles and blanks outputs
 **Tool/panel:** GR Normalization pane + Mask dropdown (src/ui/moduleDialog.ts, workflow.rs masking)
@@ -811,7 +1219,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 1. Re-run GR Normalization on one well with **Mask (optional) = BADHOLE**, Output cons = "TEST" (type it — new constellation).
 2. Compare GRN (TEST, masked) against GRN (INTERP, unmasked) in a log view (use Input cons to pick each).
 **Expected:** Two observable differences: (a) GRN is MISSING inside every BADHOLE = 1 interval (outputs blanked); (b) GRN values in GOOD hole shift too, because the well P3/P97 are now computed from unmasked samples only — the washout/hot-streak GR no longer anchors the two-point transform. If (b) shows no change at all, the input-side masking is broken. Both runs visible as separate constellations (INTERP vs TEST) in the Curve Catalog.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PREP-15:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PREP-16 — Synthetic Log (KNN Predict): fill a gap, then the masked-washout case
 **Tool/panel:** Synthetic Log (KNN Predict) pane (`log_predict`, modules.rs; workflow.rs output-masking)
@@ -823,7 +1237,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 4. Negative: run with TARGET = a curve with under 10 valid samples (or scope a nearly-empty well).
 **Expected:** Step 2: filled values are plausible DT (within the well's DT range, tracking lithology — high in shale/coal, low in tight streaks); no extrapolated nonsense outside predictor coverage. Step 4: all-MISSING output reported as ⚠ "no finite output", not green success. Step 3 SHOULD show a finite repaired RHOB inside the washout (that is the module's purpose), but see below.
 **Known issue:** AUDIT-2026-07-21 finding "log_predict's MAX_RAW/repaired-synthetic value is unconditionally re-blanked at masked (washout) depths by workflow.rs's output-masking step" (§Prep statistical #1, CONFIRMED; still unfixed — listed in REVIEW.md Round 4 under "6 findings that … await your sign-off"). Expect step 3 to FAIL: RHOB_SYN will be NaN exactly inside the masked washout it exists to fill. Log as known.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PREP-16:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PREP-17 — Depth Shift: block shift + dialog range validation
 **Tool/panel:** Depth Shift pane (`depth_shift`, modules.rs)
@@ -834,7 +1254,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 3. Negative: type SHIFT = 5000 and click Run.
 4. Zone case: in **Zones…** give one zone SHIFT = −1 and re-run; check the shift flips only inside that zone.
 **Expected:** The marker on GR_DS sits exactly 2 m deeper; curve shape preserved (linear resample); ends that shift off the depth range go MISSING; the raw GR is untouched. Step 3: inline validation "SHIFT: value must be between -1000 and 1000." and no run occurs. Output named GR_DS in the Curve Catalog.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PREP-17:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PREP-18 — Splice Curves: run-to-run splice at depth
 **Tool/panel:** Splice Curves pane (`splice`, modules.rs)
@@ -843,7 +1269,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 1. Open **Data Prep ▸ Splice Curves**. TOP_CURVE = run-1 GR, BOT_CURVE = run-2 GR, SPLICE_DEPTH = the casing-shoe/overlap depth. **Run**.
 2. Overlay the output on both inputs around the splice depth.
 **Expected:** Output (named `<top input>_SPL`) equals TOP_CURVE strictly above SPLICE_DEPTH and BOT_CURVE at and below it — one clean handover, no averaging, no gap; inputs unmodified. Where the contributing curve is MISSING the output is MISSING (no fill from the other curve).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PREP-18:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PREP-19 — Cross-checks: multi-well scope, Processing lines, History attribution, provenance, live refresh, theme
 **Tool/panel:** Pre-Calculation pane + Processing panel + Processing History + Curve Catalog (workspace.ts, inspectorPanel.ts)
@@ -857,7 +1289,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 6. With the module pane and Processing panel open, switch **Project tab ▸ Theme** to Dark, then Pertamina: both panes repaint immediately in the new palette (form fields, result text, per-well lines readable).
 7. Import a new LAS (or compute any curve) while the precalc pane stays open: its curve dropdowns pick up the new names without losing your current selections.
 **Expected:** All seven observations hold. Covers REVIEW.md §Round 4 "History attribution" and "Race guards" (step 7 exercises the refresh race fix for the audit finding "moduleDialog.ts's persistent-pane data refresh has no race-guard generation counter"), and REVIEW.md §P1 "Plots refresh after a module run, keeping their viewport".
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PREP-19:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -881,7 +1319,13 @@ Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a
 3. Leave `OPT_GR` = LINEAR; set `GR_MA` / `GR_SH` to your histogram picks; `GR` input = GR; **Output cons** = `INTERP`.
 4. Click **Run**.
 **Expected:** Result line "All 1 well(s) computed. Per-well details are in the Processing panel."; status bar reads "vsh_gr: 1/1 well(s) computed"; the **Processing** panel auto-opens with a ✓ for the well. Curve Catalog gains **VSH_GR** and **VSH** rows (Set = INTERP, Source = vsh_gr). Domain: VSH within 0–1, ≈1 in massive shale, <0.15 in clean sand; VSH_GR (unlimited) may run slightly outside 0–1 but never ±Infinity. Processing History shows "\<well>: Ran VSH from Gamma Ray".
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PETRO-01:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PETRO-02 — vsh_gr nonlinear options + version N+1
 **Tool/panel:** VSH from Gamma Ray module pane (as T-01)
@@ -891,7 +1335,13 @@ Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a
 2. Repeat for **LARINOV2**, **STIEBER1**, **CLAVIER** (four more runs, same Output cons `INTERP`).
 3. Open Curve Catalog and inspect the versioned-run list under Constellations; hover a version row.
 **Expected:** Each re-run lands as version N+1 (never overwrites; catalog list shows "vsh_gr · \<timestamp>" per run, hover tooltip lists params so you can tell which OPT_GR each version used). Domain: at intermediate GR every nonlinear VSH < the LINEAR VSH (all corrections concave — e.g. linear 0.50 → Larionov-Tertiary ≈0.33, Larionov-older ≈0.22); endpoints 0 and 1 unchanged; all limited VSH stay 0–1.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PETRO-02:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PETRO-03 — vsh_gr invalid parameters (negative)
 **Tool/panel:** VSH from Gamma Ray module pane (as T-01)
@@ -900,7 +1350,13 @@ Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a
 1. Type `GR_SH` = 1500 (above its 1000 max); click **Run**.
 2. Restore `GR_SH` = 120; set `GR_MA` = 150 (≥ GR_SH, but inside its own 0–200 range); click **Run**.
 **Expected:** Step 1: no run — the result line reads "GR_SH: value must be between 0 and 1000." and focus returns to the field. Step 2: the run executes but every sample is skipped by the GR_MA ≥ GR_SH guard → all-NaN output, and the Processing panel reports the well as **Warned/error ("no finite output")**, NOT a green success (covers REVIEW.md §"Round 4 — AUDIT-2026-07-21 safe-bucket follow-through" item "All-NaN module runs report honestly"). No crash; catalog stats stay finite.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PETRO-03:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PETRO-04 — vsh_dn crossplot VSH + VSH_DN_FLAG
 **Tool/panel:** "VSH from Density-Neutron" module pane — Petrophysics ▸ VSH ▸ VSH from Density-Neutron (`vsh_dn_spec`)
@@ -910,7 +1366,13 @@ Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a
 2. Set matrix/shale/fluid endpoints from your crossplot picks (`RHO_MA`, `RHO_SH`, `NPHI_SH` etc.); leave `GR` input = GR (it is optional — note the "(none)" entry exists); `FLAG_TOL` = 0.25.
 3. **Run**; add VSH_DN_FLAG and both VSH curves to a log view.
 **Expected:** Outputs **VSH_DN**, **VSH**, **VSH_DN_FLAG** in the catalog. VSH 0–1, high in shale. VSH_DN_FLAG is strictly 0/1 and raises 1 exactly where (a) the point falls off the matrix–shale–fluid triangle (VSH_DN < −0.05 or > 1.05) or (b) N-D VSH diverges from GR VSH by > FLAG_TOL — expect flagged streaks across the gas interval (N-D reads low vs GR) and across kaolinite-rich vs illite intervals (clay-type sensitivity).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PETRO-04:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PETRO-05 — vsh_dn degenerate-triangle regression (no ±Infinity)
 **Tool/panel:** VSH from Density-Neutron module pane (as T-04)
@@ -919,7 +1381,13 @@ Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a
 1. Leave all endpoints at defaults but type `RHO_SH` = **2.0482843** (makes matrix/shale/fluid collinear: (c−d) ≈ 0).
 2. **Run**; then check the VSH_DN row's stats in the Curve Catalog and autoscale in a log view.
 **Expected:** No ±Infinity anywhere: the degenerate samples are skipped to MISSING, so VSH_DN is blank and the run is reported **Warned ("no finite output")** in the Processing panel; catalog min/max and plot autoscale stay finite. This verifies the fix for AUDIT-2026-07-21 finding "vsh_dn's density-neutron crossplot divides by (c − d) with no guard against a degenerate matrix/shale/fluid triangle" (covers REVIEW.md §"Round 4…" item "(1) vsh_dn now skips a degenerate matrix/shale/fluid triangle"). If the curve pins at ±Inf, log Fail citing that finding.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PETRO-05:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PETRO-06 — phi_den density porosity incl. shale branch
 **Tool/panel:** "Porosity from Density" module pane — Petrophysics ▸ Porosity ▸ Porosity from Density (`phi_den_spec`)
@@ -929,7 +1397,13 @@ Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a
 2. Set `RHO_MA` 2.645 (Mahakam sand), `RHO_SH`, `RHO_FL`; leave `OPT_PHIEMAX` = SHALE_REDUCED, `PHIE_MAX` = 0.3. **Run**.
 3. Re-run with `OPT_PHIEMAX` = MAXIMUM and compare versions.
 **Expected:** Outputs PHIE_DEN, PHIT_DEN, **PHIE**, **PHIT**. Domain: 0 ≤ PHIE ≤ PHIT ≤ ~0.35; clean Mahakam sand PHIE ≈ 0.20–0.33; in VSH ≥ 0.95 intervals PHIE = 0 exactly and PHIT = the shale porosity (RHO_DSH−RHO_SH)/(RHO_DSH−RHO_W) ≈ 0.09 at defaults. SHALE_REDUCED caps PHIE at PHIE_MAX·(1−VSH), so mid-shaly samples cap lower than the MAXIMUM version; the two versions differ only where the cap bites. (Note: phi_den/phi_dn had zero unit tests per the audit — your hand-check here is the coverage.)
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PETRO-06:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PETRO-07 — phi_dn crossplot porosity, AVERAGE vs GAS_RMS
 **Tool/panel:** "Porosity from Density-Neutron" module pane — Petrophysics ▸ Porosity ▸ Porosity from Density-Neutron (`phi_dn_spec`)
@@ -939,7 +1413,13 @@ Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a
 2. Change `OPT_XPLOT` = **GAS_RMS**; **Run** again into the same cons.
 3. Compare the two PHIE versions across the gas interval in a log view.
 **Expected:** Both versions: 0 ≤ PHIE ≤ PHIT ≤ ~0.35, PHIE = 0 in VSH ≥ 0.95 shale. Domain: in the gas interval (density porosity ≫ neutron porosity) **GAS_RMS PHIE > AVERAGE PHIE** — the RMS restores gas-suppressed porosity; in water-bearing sand the two are nearly identical. No negative PHIE spikes at the shale-reduction clamps.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PETRO-07:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PETRO-08 — phi_son Wyllie/RHG + OPT_CP compaction correction
 **Tool/panel:** "Porosity from Sonic" module pane — Petrophysics ▸ Porosity ▸ Porosity from Sonic (`phi_son_spec`)
@@ -950,7 +1430,13 @@ Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a
 3. Set `OPT_SON` = **RHG**, `OPT_CP` still ON; **Run**. Compare the three PHIT_SON versions.
 **Expected:** Baseline: PHIT_SON = (DT−DT_MA)/(DT_FL−DT_MA), 0–1, tracking the D-N porosity in compacted sand. RHG version unaffected by OPT_CP (self-compacting). Domain expectation for step 2: with DT_SH = 90 (≤ 100 µs/ft, i.e. compacted shale) the Cp correction should be a **no-op** — instead the current code divides by Cp = 0.9 and **inflates PHIT_SON ≈ +11 %** over the whole well. Covers REVIEW.md §"Held-item resolutions" item "Wyllie lack-of-compaction (Cp) correction — shipped as opt-in".
 **Known issue:** AUDIT-2026-07-21 finding "phi_son OPT_CP lack-of-compaction correction is missing the DT_SH>100 us/ft gate — it inflates porosity instead of no-op below the threshold, including at the module's own default". Expect step 2 to fail the domain check (porosity rises ~11 % where it should be unchanged); awaiting your sign-off on the gate — log as known, not new.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PETRO-08:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PETRO-09 — phimax constant + TVDSS-trend porosity ceiling
 **Tool/panel:** "Porosity Ceiling (φmax)" module pane — Petrophysics ▸ Porosity ▸ Porosity Ceiling (φmax) (`phimax_spec`)
@@ -960,7 +1446,13 @@ Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a
 2. Overlay **PHIE_CAP** and **PHIE_MAX** with PHIE in a log view.
 3. `MODE` = **linear**, `TVDSS_REF` = a shallow depth, `PHIMAX_GRAD` = 0.03; **Run** (no TVDSS curve → it reads against measured DEPTH — fine for a near-vertical well).
 **Expected:** Constant mode: PHIE_CAP = PHIE wherever PHIE < 0.25 and flattens at exactly 0.25 above it; PHIE_MAX is a flat 0.25 line; no point pokes above the ceiling; input PHIE itself is untouched (same version/stats as before). Linear mode: PHIE_MAX declines with depth (deeper = lower ceiling); a deep zone's ceiling < a shallow zone's. Output curves are named **PHIE_CAP / PHIE_MAX** (named after the input curve).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PETRO-09:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PETRO-10 — sw_arch smoke + coal/tight zero-porosity guard
 **Tool/panel:** "SW — Archie" module pane — Petrophysics ▸ Saturation ▸ SW — Archie (`sw_arch_spec`)
@@ -969,7 +1461,13 @@ Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a
 1. Petrophysics ▸ **Saturation** ▸ **SW — Archie**; `OPT_RW` = CONSTANT, `RW` = your Rw at formation temperature; A/M/N = 1/2/2; `RT` input = RES_DEEP.
 2. **Run**; display SWT, SWE, SWT_ARCH in a log view; check SWT_ARCH min/max in the Curve Catalog.
 **Expected:** SWT and SWE within 0–1; SWE ≤ SWT everywhere; ≈1 in known wet sands; low (≈0.2–0.5, fresh-water Mahakam caveat noted) in pay; VOL_UWAT = PHIE·SWE. Over coal/tight PHIT = 0 streaks SWT = SWE = 1 (all-water convention) and **SWT_ARCH stays finite** — catalog min/max never shows Infinity (covers REVIEW.md §"Low-tier correctness & data-integrity sweep" item "Archie SWT_ARCH no longer writes +Infinity").
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PETRO-10:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PETRO-11 — sw_indo vs sw_sim vs sw_arch on the same interval
 **Tool/panel:** "SW — Indonesia (Poupon-Leveaux)" and "SW — Simandoux" module panes (`sw_indo_spec`, `sw_sim_spec`)
@@ -980,7 +1478,13 @@ Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a
 3. Put SWT_ARCH, SWE_INDO, SWE_SIM in one log-view track over a shaly-sand interval.
 4. Re-run Simandoux with `OPT_SIM` = **SCHLUMBERGER** and check a VSH = 1 massive-shale interval.
 **Expected:** All three within 0–1 after limiting. Domain: in shaly zones **Indonesia and Simandoux read LOWER Sw than Archie** (Archie ignores shale conductivity and overestimates Sw); in clean sand the three converge to within a few s.u.; Indonesia ≈ Simandoux over moderate VSH. Step 4: pure shale resolves to SWE = 1 (all-water), not a silent gap — covers REVIEW.md §"Low-tier…sweep" item "Simandoux (SCHLUMBERGER) no longer divides by zero at VSH=1".
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PETRO-11:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PETRO-12 — RT = 0 null-streak regression (no +Infinity in unlimited Sw)
 **Tool/panel:** SW — Archie / SW — Indonesia module panes (as T-10/11)
@@ -989,7 +1493,13 @@ Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a
 1. Run **SW — Archie** and **SW — Indonesia** over that well (defaults from T-10/11).
 2. Inspect SWT_ARCH and SWE_INDO in the Curve Catalog (min/max) and in a log view over the streak.
 **Expected:** The RT ≤ 0 streak reads as a **gap (MISSING)** in SWT_ARCH/SWE_INDO — not Sw = 1, and never +Infinity; curve autoscale is not pinned to a huge number; catalog min/max finite. This verifies the fix for AUDIT-2026-07-21 finding "sw_arch/sw_indo store +Infinity in their unlimited curves when RT is exactly 0 (or negative)" (covers REVIEW.md §"Round 4…" item "Correctness — RT ≤ 0 → +Infinity in the Sw modules"). If the streak pins the scale, log Fail citing that finding.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PETRO-12:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PETRO-13 — zone parameter override: RW in one zone only
 **Tool/panel:** Zones pane (Petrophysics ▸ **Zones…**, src/ui/zonesDialog.ts) + SW — Archie pane
@@ -1000,7 +1510,13 @@ Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a
 3. Re-run **SW — Archie** with the dialog still showing `RW` = 0.1 (overrides beat the dialog value, per the pane's own hint).
 4. Compare the new SWT version against the previous one in a log view.
 **Expected:** SWT changes **only inside the overridden zone**: with N = 2, SWT there drops by ×√(0.02/0.1) ≈ ×0.45; outside the zone the two versions are identical sample-for-sample. Processing History shows "\<well>: Set RW = 0.02 on zone \<name>" and the re-run entry.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PETRO-13:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PETRO-14 — perm_wyllie_rose, all OPT_WR variants
 **Tool/panel:** "Permeability — Wyllie-Rose" module pane — Petrophysics ▸ Permeability ▸ Permeability — Wyllie-Rose (`perm_wyllie_rose_spec`)
@@ -1010,7 +1526,13 @@ Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a
 2. Re-run with **MORRIS_BIGGS_OIL**, **MORRIS_BIGGS_GAS**, **TIXIER** (same cons → 4 versions).
 3. Histogram PERM_WR (log scale) per version.
 **Expected:** PERM_WR/PERM ≥ 0, MISSING where PHIE is missing, 0 at PHIE = 0. Domain sanity at φ ≈ 0.25, Swirr 0.15: TIMUR ≈ 900 mD, MORRIS_BIGGS_OIL ≈ 700 mD, MORRIS_BIGGS_GAS ≈ 70 mD. **MORRIS_BIGGS_OIL and TIXIER are byte-identical** (same C=250/D=3/E=1 in this port — confirm, it is documented in the pane's doc); GAS is lowest by >~1 decade.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PETRO-14:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PETRO-15 — perm_coates default constant
 **Tool/panel:** "Permeability — Coates" module pane — Petrophysics ▸ Permeability ▸ Permeability — Coates (`perm_coates_spec`)
@@ -1021,7 +1543,13 @@ Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a
 3. Re-run with `CONST_COATES` = **70** and compare again.
 **Expected:** PERM = (C·PHIE²·(1−Swirr)/Swirr)², finite and ≥ 0, MISSING where PHIE missing. Step 3 (C = 70) should match Geolog.
 **Known issue:** AUDIT-2026-07-21 finding "perm_coates default CONST_COATES (100) doesn't match the reference suite source it claims to port (documented default is 70)". Expect step 2 to read **≈ 2.04× (=(100/70)²) higher than Geolog** at the default; awaiting your sign-off on 100→70 — log as known, not new, and note which constant you want as the shipped default.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PETRO-15:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PETRO-16 — perm_transform vs core φ–k + overflow regression
 **Tool/panel:** "Permeability — Por-Perm Transform" module pane — Petrophysics ▸ Permeability ▸ Permeability — Por-Perm Transform (`perm_transform_spec`)
@@ -1031,7 +1559,13 @@ Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a
 2. Crossplot PERM_XFM (log axis) vs PHIE and compare against the core φ–k points — same fit line.
 3. Negative test: set `PT_A` = 100, `PT_B` = 5 (both in-range); **Run**; check the highest-porosity samples.
 **Expected:** Step 2: the transform curve tracks the core cloud (it IS the regression — deviations only from the difference between log-derived and core porosity). Step 3: samples where 10^(PT_A·φ+PT_B) overflows come out **MISSING, never +Infinity** — catalog min/max finite (covers REVIEW.md §"Round 4…" item "(4) perm_transform emits MISSING instead of +Infinity"; closes the matching AUDIT finding).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PETRO-16:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PETRO-17 — thin_bed_ts Thomas-Stieber decomposition
 **Tool/panel:** "Thin Beds — Thomas-Stieber" module pane — Petrophysics ▸ Thin Beds ▸ Thin Beds — Thomas-Stieber (`thin_bed_ts_spec`)
@@ -1040,7 +1574,13 @@ Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a
 1. Petrophysics ▸ **Thin Beds** ▸ **Thin Beds — Thomas-Stieber**; set `PHI_SD_MAX`, `PHI_SH`; inputs PHIT/VSH; **Run**.
 2. Display VLAM, VDISP, VSAND, PHIE_LAM with VSH and PHIT in a log view over both intervals.
 **Expected:** All fractions 0–1; VLAM + VDISP ≈ VSH; VSAND = 1 − VLAM. Domain: in the laminated interval **VLAM ≫ VDISP** (points near the laminated line) and **PHIE_LAM > PHIT** (sand porosity restored after stripping laminar shale, capped at PHI_SD_MAX); in clean sand VLAM ≈ VDISP ≈ 0 and PHIE_LAM ≈ PHIT; in massive shale VLAM → VSH. PHIE_LAM goes MISSING only where VSAND ≈ 0.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PETRO-17:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PETRO-18 — missing input curve + Cancel mid-batch (negative)
 **Tool/panel:** Porosity from Sonic + VSH from Gamma Ray panes; Processing panel (src/ui/processingPanel.ts)
@@ -1050,7 +1590,13 @@ Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a
 2. In the Processing panel open **▸ details** and read the per-well breakdown.
 3. **VSH from Gamma Ray** ▸ Wells = **All** ▸ **Run**; while the bar fills, click **Cancel** in the Processing panel.
 **Expected:** Step 1–2: DT-less wells show ⚠/✗ with a message (missing input / no finite output), the rest ✓; result line reads "X/Y well(s) computed — Z need attention. Open Processing → details for the report." — never a green all-clear. Step 3: button flips to "Cancelling…", the job stops within a well or two and shows state **Cancelled**; wells already computed keep their new version; open plots do NOT show stale data afterwards (dataVersion bumps on cancel — covers REVIEW.md §"Round 4…" item "dataVersion refresh … on workflow-chain cancel/fail"). No frozen UI at any point (the run lives off the main thread — closes the AUDIT finding "vsh_gr / vsh_dn standalone module runs never leave the Tauri main thread").
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PETRO-18:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PETRO-19 — provenance, History attribution, live refresh, theme repaint
 **Tool/panel:** Curve Catalog (Data ▸ Curve Catalog), Processing History (quick-access clock icon), any module pane
@@ -1062,7 +1608,13 @@ Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a
 4. Watch the already-open log view and VSH histogram as each run completes.
 5. Project tab ▸ **Theme** ▸ Dark (then back).
 **Expected:** Step 2: entry reads "\<well B>: Ran VSH from Gamma Ray" — attributed to the well actually run, NOT the selected well A (covers REVIEW.md §"Round 4…" item "History attribution"; closes the AUDIT finding "Batch module runs … attribute their History-panel entry to the globally 'selected' well"). Step 3: entry reads "Ran VSH from Gamma Ray on N wells" with no single-well name. Step 4: both open plots redraw with the new version automatically — no reopen needed; the module pane's own curve dropdowns now list the new outputs. Step 5: ribbon, module pane, catalog and plots all repaint in the new theme with no white/stale patches; switching back restores exactly.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PETRO-19:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 Note for the runbook owner: four issues the orchestrating plan expected to be open (vsh_dn degenerate triangle, RT ≤ 0 → +Infinity, perm_wyllie_rose negative-PHIE, perm_transform overflow) are already fixed in current code (`D:\XX. Arshilla\src-tauri\src\modules.rs`) per REVIEW.md §"Round 4 — AUDIT-2026-07-21 safe-bucket follow-through"; T-PETRO-05/12/16 are written as fix-verification regressions (expected Pass) rather than Known-issue failures. Only the two sign-off-pending findings (phi_son OPT_CP gate → T-PETRO-08; perm_coates 100 vs 70 → T-PETRO-15) carry **Known issue** lines.
@@ -1085,7 +1637,13 @@ Shared preconditions: project open in `npm run tauri dev` with at least one Maha
 3. Confirm the **Mineral Solver** group shows **SandiMin…** and that no button named "Mineral Inv" / legacy "multimin" appears anywhere on the tab.
 4. Narrow the window until the tab overflows; a **›** chevron appears at the right edge and scrolls the panel; **‹** appears after scrolling.
 **Expected:** all five method buttons plus SandiMin… present with correct tooltips; legacy multimin absent (superseded by SandiMin); overflow chevrons work.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-ADV-01:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-ADV-02 — SSC run with LQR defaults: wiring + cross-checks
 **Tool/panel:** SSC module pane (Advance ▸ SSC; form auto-built by src/ui/moduleDialog.ts from src-tauri/src/ssc.rs `ssc_spec`)
@@ -1095,7 +1653,13 @@ Shared preconditions: project open in `npm run tauri dev` with at least one Maha
 2. Verify defaults: GR = GRN, RHOB = RHOB, NPHI = NPHI; OPT_VSHGR = LINEAR; GR_MA 10 / GR_SH 150 / RHOB_MA 2.65 / RHOB_WCL 2.3 / NPHI_WCL 0.6 / RHOB_DCL 2.71 / PHIT_CL 0.24; **Mask (optional)** = (none); **Output cons** = INTERP. The hint line lists all 23 outputs (VSAND … PHIT_GR).
 3. Click **Run**.
 **Expected:** result line "Running ssc on 1 well(s)… see the Processing panel for progress", the **Processing** panel surfaces automatically and shows the well ✓; then "All 1 well(s) computed…"; status line "ssc: 1/1 well(s) computed". Quick-access clock button ▸ **Processing History** pane has a new "Module" entry naming this well (covers REVIEW.md §Round 4 "History attribution"). Data ▸ **Curve Catalog**: VSAND, VSILT, VDCL, VWCL, VSH_SSC, VSHGR, VSHND, PHIT_SSC, PHIE_SSC, PHIFF_SSC, CBW, CWSH, BW, SWIRR_T, SWIRR_EFF and the 8 `*_GR` curves all listed under cons INTERP v1.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-ADV-02:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-ADV-03 — SSC domain validation: closure, porosity ladder, bound-water split
 **Tool/panel:** Log View (Plot ▸ New Log View) reading SSC outputs
@@ -1105,7 +1669,13 @@ Shared preconditions: project open in `npm run tauri dev` with at least one Maha
 2. At 3 depths (one clean sand, one silty interval, one shale) use the cursor readout to read values and hand-sum VSAND+VSILT+VDCL+PHIT_SSC.
 3. Check the ladder PHIT_SSC ≥ PHIE_SSC ≥ PHIFF_SSC ≥ 0 everywhere; check BW = CBW+CWSH ≤ PHIT_SSC and SWIRR_T = BW/PHIT_SSC ∈ [0,1].
 **Expected:** closure ≈ 1.00 (±0.01) at every spot-check; volumes each in [0,1]; VSH_SSC high (→ ~1) in shale, low (< ~0.2) in clean sand and broadly tracking VSHGR; PHIT_SSC in a plausible Mahakam range (~0.10–0.35 in sands); CBW grows with clay content; SWIRR_T low in clean sand, → 1 in shale; SWIRR_EFF = 1 (not 0) at zero-PHIE shale points (covers REVIEW.md §Low-tier sweep "SSC SWIRR_EFF no longer 0 at a 100 %-shale point").
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-ADV-03:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-ADV-04 — SSC GR-equivalent family (*_GR): eyeball closely
 **Tool/panel:** Log View on SSC `*_GR` outputs (ssc.rs GR-rescale block)
@@ -1117,7 +1687,13 @@ Shared preconditions: project open in `npm run tauri dev` with at least one Maha
 4. Find a pure-shale streak (VWSH → 1): the `*_GR` curves go blank there.
 **Expected:** closure and the two porosity identities hold at every spot-check; `*_GR` blank (MISSING) at pure-shale/degenerate-VWSH samples is BY DESIGN, not a failure; no negative volumes.
 **Known issue:** AUDIT-2026-07-21 "SSC's 8-curve GR-equivalent output family (*_GR) has zero unit-test coverage" — a closure regression test was added only in the uncommitted Round-4 batch (REVIEW.md §Round 4 "New test coverage", unchecked) and the family has never had domain sign-off (REVIEW.md §Phase 8.5 validation item). This is the least-proven output family in the app: eyeball it against your reference-suite run and log ANY discrepancy against the audit finding.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-ADV-04:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-ADV-05 — SSC negative tests: bad param, empty scope, no-GR well
 **Tool/panel:** SSC module pane
@@ -1127,7 +1703,13 @@ Shared preconditions: project open in `npm run tauri dev` with at least one Maha
 2. Restore 2.65. Switch scope to **★ Pinned** with no wells pinned; **Run** → "No wells in scope — pick a group, pin/select wells, or choose All."
 3. Scope back to **Selection**; select the no-GRN well (GR dropdown may still offer "GRN" even though absent). **Run**.
 **Expected:** steps 1–2 block cleanly with the quoted messages. Step 3: run completes; density-neutron outputs (VSAND…PHIT_SSC, bound-water) are finite but VSHGR and all 8 `*_GR` curves are blank — SSC degrades gracefully, no crash, no fabricated VSHGR.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-ADV-05:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-ADV-06 — SSC re-run: versioning + open-plot refresh (dataVersion)
 **Tool/panel:** SSC module pane + Curve Catalog + open Log View
@@ -1137,7 +1719,13 @@ Shared preconditions: project open in `npm run tauri dev` with at least one Maha
 2. Watch the open Log View without touching it.
 3. Data ▸ **Curve Catalog**: check the log-set version history for the well.
 **Expected:** the open Log View's PHIT_SSC/VDCL tracks redraw with the new values within a moment of the run finishing (no manual reopen); Curve Catalog shows INTERP at version 2 with version 1 preserved (re-run = N+1, never overwrites); a second Processing History entry appears.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-ADV-06:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-ADV-07 — SSPW run: PHR-standard porosity ladder
 **Tool/panel:** SSPW module pane (Advance ▸ SSPW; src-tauri/src/ssc.rs `sspw_spec`)
@@ -1147,7 +1735,13 @@ Shared preconditions: project open in `npm run tauri dev` with at least one Maha
 2. **Run**.
 3. Log View: PHIT_SSPW/PHIE_SSPW/PHIFF_SSPW + CBW_SSPW/CAPBW_SSPW/BW_SSPW/SWIRR_SSPW.
 **Expected:** run reports 1/1 computed; PHIT_SSPW ≥ PHIE_SSPW ≥ PHIFF_SSPW; CBW_SSPW ≈ VSH·0.1 (rises with VSH); SWIRR_SSPW ∈ [0,1], high in shale; Curve Catalog gains the 7 `*_SSPW` rows under INTERP; History entry recorded.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-ADV-07:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-ADV-08 — SW-RtC after SSC: corrected Rt, Sw vs Indonesia
 **Tool/panel:** RtC module pane (Advance ▸ RtC; src-tauri/src/lrlc.rs `sw_rtc_spec`)
@@ -1157,7 +1751,13 @@ Shared preconditions: project open in `npm run tauri dev` with at least one Maha
 2. Petrophysics ▸ Saturation ▸ **SW — Indonesia (Poupon-Leveaux)** on the same well with PHIE = PHIE_SSC, VSH = VSH_SSC, same RW/M/N. **Run**.
 3. Log View: RES_DEEP + RT_CORR (log scale), CEX_RTC, then SWT_RTC/SWE_RTC/SWE_INDO on one track.
 **Expected:** SWT_RTC and SWE_RTC ∈ [0,1] with SWE_RTC ≤ SWT_RTC; RT_CORR ≥ RES_DEEP everywhere (conductivity only removed, capped at 98%); CEX_RTC ≥ 0 and largest in clayey/silty intervals. Domain acceptance: in the high-clay microporous pay interval SWE_RTC reads visibly LOWER than SWE_INDO (that is the point of the method); in the clean water sand the two agree and both read ~1.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-ADV-08:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-ADV-09 — SW-IMTS after SSC: iterative Waxman-Smits-family Sw
 **Tool/panel:** IMTS module pane (Advance ▸ IMTS; src-tauri/src/lrlc.rs `sw_imts_spec`)
@@ -1166,7 +1766,13 @@ Shared preconditions: project open in `npm run tauri dev` with at least one Maha
 1. Advance ▸ **IMTS**, scope **Selection**. Defaults: RT = RES_DEEP, PHIT = PHIT_SSC, VKAOL = VDCL, SWIRR = SWIRR_T, CBW = CBW; set RW and TEMP_C to your zone values; MSTAR/NSTAR 1.9, S_FACTOR 0.5, CEC_KAOL 8 / CEC_ILL 25. **Run**.
 2. Log View: SWT_IMTS/SWE_IMTS next to SWE_INDO and SWT_RTC; add QVEFF.
 **Expected:** SWT_IMTS ∈ [0,1]; QVEFF ≥ 0, rising with clay volume and shrinking porosity; in high-clay LRLC pay SWT_IMTS reads LOWER than SWE_INDO and broadly agrees with SWT_RTC (the two excess-conductivity methods should tell the same geological story); clean water sand ~1 for all. Curve Catalog + History entries as usual.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-ADV-09:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-ADV-10 — RtC/IMTS on an SSPW-only well: SSPW fallback
 **Tool/panel:** RtC + IMTS panes (lrlc.rs `prefer()` fallback)
@@ -1177,7 +1783,13 @@ Shared preconditions: project open in `npm run tauri dev` with at least one Maha
 3. Log View: SWT_RTC / SWT_IMTS on this well.
 **Expected:** both runs succeed with FINITE Sw curves — PHIT/CAPBW/CBW silently fall back per-sample to PHIT_SSPW/CAPBW_SSPW/CBW_SSPW (covers REVIEW.md §Round 4 "LRLC SSPW fallback", **Try** case verbatim). Sw values plausible per T-ADV-08/09 criteria.
 **Known issue:** AUDIT-2026-07-21 "sw_rtc/sw_imts default input wiring points only to SSC's curve names; running them against an SSPW-only well silently produces an all-NaN 'success'" — fixed in the uncommitted Round-4 batch. Expect PASS; an all-blank Sw curve here is that finding resurfacing — log as known, not new.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-ADV-10:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-ADV-11 — RtC on a well with NO porosity curve at all: honest failure
 **Tool/panel:** RtC pane + Processing panel (workflow.rs all-NaN guard)
@@ -1187,7 +1799,13 @@ Shared preconditions: project open in `npm run tauri dev` with at least one Maha
 2. Read the pane result line and the Processing panel row for this well.
 **Expected:** NOT a green "N samples → …" success: the well is reported as an error / **Warned** with "no finite output — every sample is missing (check inputs…)" and the pane says "0/1 well(s) computed — 1 need attention" (covers REVIEW.md §Round 4 "All-NaN module runs report honestly").
 **Known issue:** AUDIT-2026-07-21 "Module-run status reports '✓ success' even when every output sample is MISSING" — fixed in the uncommitted Round-4 batch. Expect PASS; a green full-sample-count success here is that finding — log as known.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-ADV-11:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-ADV-12 — Saturation-Height (Leverett) with SCAL-fitted A/B
 **Tool/panel:** Import SCAL modal (Data ▸ Import Data ▾ ▸ Import SCAL…, src/ui/ribbon.ts `handleImportScal`) + SW — Saturation-Height pane (Petrophysics ▸ Saturation dropdown; src-tauri/src/satheight.rs)
@@ -1198,7 +1816,13 @@ Shared preconditions: project open in `npm run tauri dev` with at least one Maha
 3. Petrophysics ▸ Saturation ▸ **SW — Saturation-Height**: OPT_SWH = LEVERETT, FWL = your contact (same depth reference as the well — negative for TVDSS), RHO_W/RHO_HC/IFT_RES per fluid, **SWH_A/SWH_B = the fitted A/B**, PHIE = PHIE, PERM = PERM. **Run**.
 4. Log View: SWH + HAFWL, alongside your resistivity Sw (SWE_INDO or SWT_RTC).
 **Expected:** SCAL import reports the fit and leaves an "Import" History entry; SWH = 1 at and below the FWL (HAFWL ≤ 0), decreases with height above it, lowest in high-perm/high-φ intervals, never below SWT_IRR; HAFWL = FWL − depth. Domain acceptance: SWH broadly tracks the resistivity-based Sw in the transition zone. B ≈ negative (typically −0.2…−0.8); < 3 valid Pc points instead reports "Too few valid points to fit…".
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-ADV-12:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-ADV-13 — Saturation-Height on a DEVIATED well: TVD input is a no-op
 **Tool/panel:** SW — Saturation-Height pane, TVD input (satheight.rs; workflow.rs input resolution)
@@ -1209,7 +1833,13 @@ Shared preconditions: project open in `npm run tauri dev` with at least one Maha
 3. By hand compute FWL − MD and FWL − trueTVD (from the survey) at that depth and compare with HAFWL.
 **Expected:** (desired behaviour) HAFWL = FWL − trueTVD, i.e. the height honours the deviation survey.
 **Known issue:** AUDIT-2026-07-21 "sw_height's TVD input has no producer anywhere in the app — the deviated-well fix (marked DONE, unit-tested) is a no-op in real use" — NOT yet fixed. Expect HAFWL = FWL − MD exactly (the TVD dropdown is a false affordance: no curve named TVD exists, the module silently falls back to measured depth, overstating height ≈ 1/cos(inc) and understating SWH in the deviated section). Mark **Fail — known**, log against the audit finding.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-ADV-13:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-ADV-14 — SandiMin pane smoke + fluid autofill from precalc (incl. well-switch race)
 **Tool/panel:** SandiMin — Mineral Solver pane (Advance ▸ SandiMin…; src/ui/multiminDialog.ts)
@@ -1221,7 +1851,13 @@ Shared preconditions: project open in `npm run tauri dev` with at least one Maha
 4. On a well never precalc'd, click **Read**.
 **Expected:** steps 1–2 as described. Step 3: the form is NOT stamped with the wrong well's FTEMP/RMF after the switch (stale response discarded). Step 4: status "SandiMin autofill: no FTEMP_F/RMF samples on … — run the precalc module first"; nothing applied.
 **Known issue:** AUDIT-2026-07-21 "SandiMin's 'Autofill from precalc' Read button has no stale-response race guard, unlike refreshZones() in the same file" — fixed in the uncommitted Round-4 batch (REVIEW.md §Round 4 "Race guards", unchecked). Expect PASS on step 3; stale values appearing is that finding — log as known.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-ADV-14:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-ADV-15 — SandiMin wet→dry clay converter (KKT ONWJ workflow)
 **Tool/panel:** SandiMin pane, "Wet clay → dry clay (PHIT-basis endpoints)" box
@@ -1232,7 +1868,13 @@ Shared preconditions: project open in `npm run tauri dev` with at least one Maha
 3. Click **Apply to clay + include BoundWater**.
 4. Change Formation temp by 20 °F and watch both the fluid preview AND the dry-clay preview update.
 **Expected:** preview shows a sensible φ_clay (~0.3–0.4 for these picks) and CEC_eq > 0; on Apply, Illite's RHOB/NPHI/GR endpoints in the table change to the dry values, its CEC cell = CEC_eq, and **BoundWater** becomes ticked automatically; status message ends "…(re-apply if fluid T/Rw/α or this clay's RHOB endpoint change)" — the pairing rule of §#22. Both previews refresh on the temperature edit.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-ADV-15:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-ADV-16 — SandiMin full run: closure, RECON, vs deterministic answers
 **Tool/panel:** SandiMin pane + Log View + Curve Catalog
@@ -1244,7 +1886,13 @@ Shared preconditions: project open in `npm run tauri dev` with at least one Maha
 4. Read the result table (Well | Samples solved | Mean recon (σ) | Note).
 5. Log View: VOL_QUARTZ/VOL_ILLITE/VOL_* + MM_PHIT/MM_SWT/MM_RECON; cursor-sum Σ(mineral + unflushed-fluid VOL_*) at 3 depths; compare MM_PHIT vs PHIT_SSC and MM_SWT vs SWT_RTC.
 **Expected:** status "SandiMin: running…" then "SandiMin: wrote N curves to 1 well(s)"; Samples solved ≈ the interval sample count, Mean recon low (order ~1σ, i.e. ≲ 2); Σ VOL_* (minerals + unflushed fluids) ≈ 1.00 at every spot-check; MM_PHIT tracks PHIT_SSC within a few p.u.; MM_SWT tells the same story as SWT_RTC (low in pay, ~1 in water sand); MM_SXOT ≥ MM_SWT (WBM invasion). Curve Catalog: all VOL_* + MM_* rows under set SANDIMIN; History entry "SandiMin (Quartz, Illite, …) → …" naming the well; any open plot showing an input refreshes.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-ADV-16:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-ADV-17 — SandiMin re-run with a lowercase prefix: no shadow rows
 **Tool/panel:** SandiMin pane + Curve Catalog / DB Inspector (multimin2.rs prefix uppercasing)
@@ -1255,7 +1903,13 @@ Shared preconditions: project open in `npm run tauri dev` with at least one Maha
 3. Optional deep check: Data ▸ **DB Inspector** ▸ computed_curves — filter curve_name LIKE 'MM_%' / 'mm_%'.
 **Expected:** the run writes to the SAME uppercase MM_PHIE/MM_PHIT/… names (prefix is canonicalized); the catalog shows ONE row per MM_ curve at a bumped version — no duplicate lowercase "mm_*" rows, and plots of MM_SWT show the fresh values.
 **Known issue:** AUDIT-2026-07-21 "SandiMin's free-text Output Prefix isn't case-normalized, giving the confirmed db-write-versioning-discipline bug a second live trigger" — fixed in the uncommitted batch-1 (REVIEW.md §Round 4 batch 1, items (6)+(7): prefix upper-cased + case-insensitive DELETE). Expect PASS; duplicate `mm_*`/`MM_*` rows or a plot showing stale values is that finding — log as known.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-ADV-17:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-ADV-18 — SandiMin negative tests: too few components / under-determined / empty scope
 **Tool/panel:** SandiMin pane
@@ -1265,7 +1919,13 @@ Shared preconditions: project open in `npm run tauri dev` with at least one Maha
 2. Re-tick a 5–6-component model (Quartz, Illite, Kaolinite, Water Sxo, Water Sw, Gas Sw) but untick tools until only **Formation Density** and **Neutron** remain; **Run**.
 3. Restore tools; set **Apply to wells** to ★ Pinned with nothing pinned; **Run** → "No wells in scope — pick a group, pin/select wells, or choose All".
 **Expected:** step 2 refuses with "need at least N input logs to constrain M components (have 2)" (covers REVIEW.md §P0 "SandiMin refuses under-determined models") — no curves written, no History entry for any refused run; the pane stays usable afterwards (Run re-enabled).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-ADV-18:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-ADV-19 — Theme switch repaints open Advance panes
 **Tool/panel:** Project tab ▸ Appearance ▸ Theme; SSC pane + SandiMin pane
@@ -1274,7 +1934,13 @@ Shared preconditions: project open in `npm run tauri dev` with at least one Maha
 1. Project tab ▸ **Theme** ▸ **Dark**.
 2. Then **Pertamina**; then back to **Default**.
 **Expected:** on each switch, both panes repaint immediately in the new palette — SandiMin's endpoints matrix, group headers, result table and the module form controls all restyle with no white/stale patches and no reopen needed; any open Log View/Crossplot showing SSC/SandiMin curves repaints too.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-ADV-19:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -1297,7 +1963,13 @@ Covers the four Rock Typing modules on the Petrophysics ribbon (`rocktyping`, `l
 4. Click each entry in turn; a dock pane opens per module. In the **Rock Typing (FZI / R35 / PGS)** pane check: a Wells scope row (mode buttons **Group / ★ Pinned / Selection / All / Custom…**), a **METHOD** select with entries `ghe` and `winland_port`, a **PS_EXP [-]** numeric (default 3.5), **PHI** and **PERM** curve selects, **Mask (optional)**, **Input cons** (default "(latest values)"), **Output cons** (default "INTERP"), the note "Outputs: RQI, PHIZ, FZI, R35, PGEOM, PSTRUC, RT, PERM_RT", and a **Run** button.
 5. Click the same ribbon entry again — the existing pane is focused, not duplicated (singleton).
 **Expected:** All four entries present with those exact titles; each opens a parameter pane without errors; re-clicking never duplicates a pane. Legacy "Multimin — Mineral Inversion" does NOT appear anywhere in the Petrophysics tab or the Advance tab.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-RT-01:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-RT-02 — Smoke: the four rock-typing workspace panes exist in the ＋ add-panel menu
 **Tool/panel:** Workspace tab-bar **＋** button menu (src/ui/workspace.ts `showAddPanelMenu`)
@@ -1308,7 +1980,13 @@ Covers the four Rock Typing modules on the Petrophysics ribbon (`rocktyping`, `l
 3. Open each of the four; check the tab titles read **SHF Fit (Cuddy FOIL)**, **Pc Fit (Thomeer)**, **HFU Clustering (FZI)**, **Facies Tie-in**.
 4. Re-pick one from the ＋ menu of a second window — the singleton pane MOVES to that window instead of duplicating.
 **Expected:** All four entries present with those labels; each opens its pane (empty-state, no crash even with no core/SCAL yet); singletons move rather than duplicate.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-RT-02:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-RT-03 — Rock Typing (FZI / R35 / PGS) run, GHE method: outputs, catalog provenance, History, plot refresh
 **Tool/panel:** "Rock Typing (FZI / R35 / PGS)" module pane (src-tauri/src/rocktyping.rs `rocktyping`; pane host src/ui/moduleDialog.ts)
@@ -1323,7 +2001,13 @@ Covers the four Rock Typing modules on the Petrophysics ribbon (`rocktyping`, `l
 7. Domain sanity from the catalog Min/Max/Mean columns: **FZI Min > 0** (never negative/−Inf), **R35** within ~0.05–50 µm for Mahakam sands (meso/macro for good sand, micro in silts), **RT** Min ≥ 1 and Max ≤ 10 with only whole-number classes, **PERM_RT Min > 0**.
 8. Crossplot PERM_RT vs PERM (log-log): points should scatter around 1:1 within roughly half a decade for samples inside a coherent GHE class.
 **Expected:** All 8 curves written and versioned into INTERP; provenance correct; open plots refresh automatically; History entry recorded; domain checks in steps 7–8 hold (RT ordinal — higher class = higher FZI = better rock).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-RT-03:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-RT-04 — Re-run with METHOD = winland_port: port classes and version N+1 (no overwrite)
 **Tool/panel:** Same pane as T-RT-03
@@ -1334,7 +2018,13 @@ Covers the four Rock Typing modules on the Petrophysics ribbon (`rocktyping`, `l
 3. Check **RT** now spans 1..5 only (Winland port classes nano→mega), no longer 1..10.
 4. Cross-check one depth by hand: R35 ≈ 6–7 µm must give RT = 4 (macro, 2.5–10 µm band).
 **Expected:** Re-run creates version 2 alongside version 1 (the pane's own hint: "a re-run becomes version N+1, never overwriting"); RT re-binned to the 5 port classes consistent with the R35 curve.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-RT-04:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-RT-05 — Negative: run rocktyping on a well with no permeability curve
 **Tool/panel:** Same pane; runner in src-tauri/src/modules.rs
@@ -1344,7 +2034,13 @@ Covers the four Rock Typing modules on the Petrophysics ribbon (`rocktyping`, `l
 2. Keep **PERM** pointing at the permeability mnemonic that exists only on the cored well. Click **Run**.
 3. Watch the Processing panel per-well breakdown and the pane's one-line outcome.
 **Expected:** A clean per-well failure (✗/⚠ with an error naming the input problem) — no crash, no freeze. The Curve Catalog for that well gains NO FZI/RT rows, and no half-written curves appear. Catalog Min/Max of existing curves unchanged (no ±Inf poisoning).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-RT-05:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-RT-06 — Lucia Rock-Fabric Number on a well with carbonate stringers
 **Tool/panel:** "Lucia Rock-Fabric Number (carbonate)" module pane (src-tauri/src/rocktyping.rs `lucia_rfn_module`)
@@ -1356,7 +2052,13 @@ Covers the four Rock Typing modules on the Petrophysics ribbon (`rocktyping`, `l
 4. Domain sanity: RT_LUCIA takes only values 1, 2, 3 (grainstone → mud-dominated); catalog **n** (sample count) for RT_LUCIA is much smaller than for RFN's well coverage on a clastic-dominated well — samples with RFN outside the calibrated 0.5–4 band must be MISSING, not clamped to 1 or 3.
 5. Against the stringer interval on a log view: the carbonate streaks should carry the populated RT_LUCIA values; the clastic background should be blank.
 **Expected:** RFN + RT_LUCIA written; class values strictly in {1,2,3}; out-of-band → MISSING; populated only where the rock is actually carbonate-like. History entry recorded.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-RT-06:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-RT-07 — Rock Type from Cutoffs: RT_LOG ladder + inconsistent-cutoff behavior
 **Tool/panel:** "Rock Type from Cutoffs (electrofacies)" module pane (src-tauri/src/rocktyping.rs `rt_cutoff`)
@@ -1368,7 +2070,13 @@ Covers the four Rock Typing modules on the Petrophysics ribbon (`rocktyping`, `l
 4. Negative sub-check: set **VSH1** = 0.50 and **VSH2** = 0.20 (violates the doc's "Requires VSH1 ≤ VSH2") and **Run**. Record what happens — the pane validates only the 0–1 range per field, so the run is expected to proceed; note whether any warning appears and whether the resulting ladder is self-contradictory.
 5. Restore defaults and re-run so a sane RT_LOG (new version) exists for T-RT-15.
 **Expected:** Steps 1–3: correct 1/2/3 ladder honoring the cutoffs, MISSING propagated. Step 4: no crash; document the (current) silent acceptance of an inconsistent ladder in Notes — candidate for a cross-field validation ticket.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-RT-07:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-RT-08 — Pittman Pore-Throat Radii: r10–r75 family + APEX selector
 **Tool/panel:** "Pittman Pore-Throat Radii (r10–r75)" module pane (src-tauri/src/rocktyping.rs `pittman_rx`)
@@ -1380,7 +2088,13 @@ Covers the four Rock Typing modules on the Petrophysics ribbon (`rocktyping`, `l
 4. Cross-check PR35 vs the Winland **R35** from T-RT-03 on a crossplot — same order of magnitude, correlated but not identical (different regressions).
 5. Change **APEX** to `r50`, **Run** again (version N+1): RAPEX now tracks PR50 and RT_PITT re-bins accordingly (generally one class finer or equal).
 **Expected:** Full family written; monotone ordering holds everywhere both curves are populated; RAPEX follows the chosen APEX row; invalid samples (φ∉(0,1), k≤0) blank in ALL eleven outputs.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-RT-08:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-RT-09 — HFU Clustering (Ward) on core φ-k: table, crossplot, histogram, highlight, theme repaint
 **Tool/panel:** **HFU Clustering (FZI)** pane (src/ui/hfuDialog.ts; backend src-tauri/src/hfu.rs)
@@ -1396,7 +2110,13 @@ Covers the four Rock Typing modules on the Petrophysics ribbon (`rocktyping`, `l
 8. Curve Catalog: unchanged (this pane is read-only, writes no curves). Processing History: a "RockType" entry "HFU cluster (ward): …".
 9. Domain acceptance: compare the FZI histogram breaks and the per-HFU FZI bands against your known rock types for this well — the K=5 partition should not split an obviously single population.
 **Expected:** All of steps 2–8 as described; clustering is reproducible (re-clicking Cluster HFUs with the same inputs gives identical boundaries).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-RT-09:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-RT-10 — HFU Clustering: histogram method, K cap, and the no-core negative
 **Tool/panel:** Same pane as T-RT-09
@@ -1407,7 +2127,13 @@ Covers the four Rock Typing modules on the Petrophysics ribbon (`rocktyping`, `l
 3. Set **HFUs (K)** = 1 and click **Cluster HFUs**: rejected in-app with "HFUs (K) must be at least 2" (status bar), no backend call.
 4. Re-scope to only the core-less well and **Cluster HFUs**.
 **Expected:** Step 4 fails gracefully with the exact backend message: "no core plugs with valid φ (0–1) and k (>0) in the selected wells — import core data first" shown as "Failed: …" in the pane's status line; previous results are cleared, no crash.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-RT-10:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-RT-11 — Pc Fit (Thomeer): per-plug fit, Hg-equivalent standardization, Swanson-k suppression
 **Tool/panel:** **Pc Fit (Thomeer)** pane (src/ui/thomeerDialog.ts; backend src-tauri/src/thomeer.rs)
@@ -1422,7 +2148,13 @@ Covers the four Rock Typing modules on the Petrophysics ribbon (`rocktyping`, `l
 7. Artifact flag: if any plug shows "⚠" beside Pd, hover it — the tooltip explains Pd is pinned at a search bound (entry-truncated curve); treat that Pd as unresolved, not a real entry pressure.
 8. Processing History: "RockType" entry "Thomeer fit: N plug(s)…". Curve Catalog unchanged (read-only pane).
 **Expected:** Fits, plots, row-selection, standardization (step 5), "(raw)"/Swanson suppression (step 6), and the Pd ⚠ flag behave exactly as described; Pd–G clusters group consistently with your known rock types.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-RT-11:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-RT-12 — SHF Fit — Cuddy FOIL with FWL scan
 **Tool/panel:** **SHF Fit (Cuddy FOIL)** pane (src/ui/shfDialog.ts; backend src-tauri/src/shf_fit.rs)
@@ -1437,7 +2169,13 @@ Covers the four Rock Typing modules on the Petrophysics ribbon (`rocktyping`, `l
 7. Domain acceptance: the scanned FWL within a few metres of your DST/pressure-derived contact.
 8. Processing History: "SHF" entry "Cuddy FOIL fit: BVW=…·H^… (R²=…)". Curve Catalog unchanged (writes no curves — the (a, b) law is for the forward sw_height apply).
 **Expected:** Fit and scan behave as described, with the domain checks in steps 4 and 7 holding.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-RT-12:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-RT-13 — SHF Fit — Brooks-Corey and Skelt-Harrison forms
 **Tool/panel:** Same pane (REVIEW.md SHF-forms item, unchecked: "**Try:** SHF Fit ▸ pick Brooks-Corey / Skelt-Harrison.")
@@ -1449,7 +2187,13 @@ Covers the four Rock Typing modules on the Petrophysics ribbon (`rocktyping`, `l
 4. Switch to **Skelt-Harrison**, **Fit SHF**: fitted curve monotone decreasing toward 1−A at large H, R² reported; overlay sensible.
 5. Both runs write a "SHF" History entry naming the method and parameters.
 **Expected:** Form selector drives button label + scan-row visibility; both fits converge on real field data with monotone Sw-height curves overlaying the scatter; parameter values physically plausible.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-RT-13:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-RT-14 — Negative: SHF Fit with a starved point cloud
 **Tool/panel:** Same pane
@@ -1459,7 +2203,13 @@ Covers the four Rock Typing modules on the Petrophysics ribbon (`rocktyping`, `l
 2. Repeat with **Brooks-Corey**.
 3. Then set the scope to a well with no TVDSS or no Sw curve and try once more.
 **Expected:** Each case fails cleanly with "Failed: …" in the pane's status line (the fitters reject too-few/degenerate input per their unit-tested guards); previous results are cleared, not left stale; no crash and no nonsense parameters (e.g. no NaN/Inf rows in the table).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-RT-14:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-RT-15 — Facies Tie-in: RT_LOG vs reference RT confusion matrix + purity
 **Tool/panel:** **Facies Tie-in (RT confusion)** pane (src/ui/faciesTieDialog.ts; backend src-tauri/src/facies_tie.rs)
@@ -1474,7 +2224,13 @@ Covers the four Rock Typing modules on the Petrophysics ribbon (`rocktyping`, `l
 7. Negative: scope a well where the two curves never coexist at a depth — expect "Failed: no matched samples where both curves are present".
 8. Processing History: "RockType" entry "Facies tie-in: RT_LOG vs …, purity …%".
 **Expected:** Matrix + purity computed and internally consistent (step 4); both guards fire (steps 6–7); History recorded.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-RT-15:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-RT-16 — Legacy Multimin: deprecated entry filtered from the Workflow step picker (audit-fix regression)
 **Tool/panel:** Workflow Builder step picker (Petrophysics ▸ **Workflow…** button; src/ui/workflowDialog.ts `DEPRECATED_STEP_MODULES`)
@@ -1487,7 +2243,13 @@ Covers the four Rock Typing modules on the Petrophysics ribbon (`rocktyping`, `l
 5. Cross-check the ribbon: neither the Petrophysics Saturation dropdown nor the Advance tab shows a "Multimin — Mineral Inversion" / "Mineral Inv" button.
 **Expected:** The deprecated solver is unreachable from any new-chain or ribbon path; the only remaining route is loading a pre-existing saved workflow that already references it (see T-RT-17). This verifies the fix REVIEW.md records as an unchecked click-through item: "the deprecated legacy `multimin` module is filtered out of the Workflow step picker (use SandiMin)."
 **Known issue:** AUDIT-2026-07-21-full-qc.md, Legacy multimin finding 1: "Workflow Builder's step picker exposes the deprecated multimin module unfiltered/unlabeled, while SandiMin has no path into chains at all … a user building a brand-new chain today can only silently add the deprecated fixed 4-component solver … with no UI signal". The picker half was fixed post-audit (workflowDialog.ts now filters `multimin`) — this test confirms the fix holds; the SandiMin-not-chainable half is unchanged by design.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-RT-16:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-RT-17 — Legacy Multimin v1 run (via a pre-existing saved chain): VOL_* + RECON_ERR outputs
 **Tool/panel:** "Multimin — Mineral Inversion" module (src-tauri/src/multimin.rs), executed through a saved Workflow chain (src-tauri/src/workflow.rs)
@@ -1500,7 +2262,13 @@ Covers the four Rock Typing modules on the Petrophysics ribbon (`rocktyping`, `l
 5. RECON_ERR with all 4 tools live: near zero where the default endpoints fit, genuinely elevated across intervals the 4-component model can't explain (coals, heavy-mineral streaks) — this is the informative configuration.
 6. Note in the Curve Catalog how easily these legacy mnemonics (PHIT_MM/VSH_MM/SWT_MM) sit beside SandiMin's MM_PHIT/MM_VSH/MM_SWT — record any mis-pick risk you notice for the follow-up ticket.
 **Expected:** The saved chain still runs the legacy solver end-to-end; all 8 outputs written with the step 4 identities holding; History entry "Ran chain (…)" recorded.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-RT-17:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-RT-18 — Legacy Multimin RECON_ERR at exactly 3 tools (known QC blindness)
 **Tool/panel:** Same saved chain as T-RT-17; step parameter editor (gear icon, "Edit parameters for this step")
@@ -1511,7 +2279,13 @@ Covers the four Rock Typing modules on the Petrophysics ribbon (`rocktyping`, `l
 3. **Run chain** on the same well; inspect the new RECON_ERR version and the volume curves.
 **Expected (desired behavior):** RECON_ERR should flag the wrong-endpoint intervals (or the curve should be NaN/flagged as under-constrained at 3 tools) so the tester is never shown a silently-perfect QC on a mis-parameterized model.
 **Known issue:** AUDIT-2026-07-21-full-qc.md, Legacy multimin finding 2 (CONFIRMED, fix currently HELD per REVIEW.md "6 findings that WOULD change interpretation numbers await your sign-off (… legacy-multimin RECON_ERR at 3 tools …)"): "RECON_ERR is a near-guaranteed ~0 (uninformative) QC signal whenever exactly 3 of the 4 tools are live — the common one-log-missing case (e.g. no PEF)" — with 3 tool rows + the unity row the system is square, so "the NNLS solve is provably equal to the exact solution of that square system … so RECON_ERR … reads ~0 regardless of whether the chosen endpoints are physically right for the rock." Expect RECON_ERR ≈ 0 everywhere despite the wrong endpoint (while VOL_CLAY can be off by up to 100% relative per the verifier's numerical experiment). Mark Fail-as-predicted and record the observed RECON_ERR magnitude for the sign-off decision.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-RT-18:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -1536,7 +2310,13 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 3. Click **Workflow…** again — no second pane; the existing one is focused (covers REVIEW.md §"Pane layout + MC/workflow polish" run-dialogs-are-singleton-panes item).
 4. Open the **Add module** dropdown; scroll every category group (VSH, Porosity, Saturation, Permeability, …).
 **Expected:** Steps area shows "No steps yet — add modules above." Module picker lists modules grouped by category with full titles. **No "Multimin" entry appears anywhere in the picker** — the legacy solver is filtered out (use SandiMin from the Advance tab); covers REVIEW.md §Round 4 "the deprecated legacy `multimin` module is filtered out of the Workflow step picker". SandiMin itself is also absent from the picker (by design — it is not chainable yet).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-BATCH-01:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-BATCH-02 — Compose and run the 4-step chain across 5+ wells with live progress
 **Tool/panel:** Workflow Builder + Processing panel (workflowDialog.ts, processingPanel.ts)
@@ -1547,7 +2327,13 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 3. In the **Wells** scope row pick **All** (or a Group covering ≥5 wells); leave **Input cons** = "(latest values)", **Output cons** = `INTERP`.
 4. Click **Run chain**.
 **Expected:** The **Processing** panel pops open automatically (also reachable via Petrophysics ▸ Batch ▸ **Processing**). It shows a "Workflow" job with a live progress bar, "Running", the current well name, and per-well **✓** outcomes accumulating; the builder's status line reads "Step k/4: … — see Processing panel". App stays responsive throughout (covers REVIEW.md §"Workflow chain runs without freezing the app + live progress works" and §"Processing panel"). On finish: status "Done: 4 steps, N curves across M wells"; Processing job phase **Done** with all wells ✓. Domain check in a Log View: VSH in [0,1], high in shales, low in clean sand; PHIE in [0,~0.35], anti-correlated with VSH; SWE in [0,1], low in the known pay; PERM positive, spanning ~0.1–1000s mD in sands and near-zero in shales (Coates needs the earlier PHIE — all-NaN PERM means chaining failed). History (clock button, top-left QAT) shows "Workflow — Ran chain (4 step(s) × M well(s))".
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-BATCH-02:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-BATCH-03 — Chain outputs: Curve Catalog provenance, versioning, open-plot refresh
 **Tool/panel:** Workflow Builder + Inspector ▸ Curve Catalog tab (workspace.ts, inspectorPanel.ts)
@@ -1558,7 +2344,13 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 3. With the Log View still open and showing VSH, re-run the same chain (**Run chain**).
 4. Re-check the Curve Catalog.
 **Expected:** First run created INTERP **version N**; the re-run adds **version N+1** — nothing overwritten (covers REVIEW.md §"One version per chain run"). The open Log View refreshes automatically when the run completes (dataVersion bump) — no manual reopen needed. Curve values of version N remain restorable from the Catalog.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-BATCH-03:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-BATCH-04 — Save, reload, and delete the chain as a workflow document
 **Tool/panel:** Workflow Builder (workflowDialog.ts)
@@ -1570,7 +2362,13 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 4. Toggle **List | Grid**; in Grid, confirm the edited parameter shows in its column; use the **Set all** row to write a shared parameter across steps (covers REVIEW.md §"Wave A-4: workflow grid inspector" save/reload item).
 5. **Delete** removes it from the dropdown (re-save it afterwards — T-BATCH-16 needs it).
 **Expected:** Load restores all 4 steps with the edited parameter intact; status `Loaded workflow "UAT_CHAIN4" (4 steps)`; Grid and List views show identical steps; Delete confirms via status line.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-BATCH-04:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-BATCH-05 — Cancel mid-chain: quick stop, honest status, plots still refresh
 **Tool/panel:** Workflow Builder + Processing panel (workflowDialog.ts, processingPanel.ts)
@@ -1579,7 +2377,13 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 1. **Run chain** across all wells; watch the Processing panel.
 2. After 1–2 wells show ✓, click **Cancel** (either the builder's Cancel or the job's **Cancel** in the Processing panel — they share the same flag).
 **Expected:** Button flips to "Cancelling…"; the run drains within a well or two; builder status "Cancelled at step k"; Processing panel phase **Cancelled**; no stuck progress bar (covers REVIEW.md §"Cancel empties the progress bar"). Critically: wells completed **before** the cancel keep their newly written curves, and the open Log View **refreshes to show them** — a cancelled run must not leave open plots stale (covers REVIEW.md §Round 4 "dataVersion refresh … on workflow-chain cancel/fail"; this verifies the fix for audit finding "Cancelling a workflow chain never bumps dataVersion", now applied in workflowDialog.ts).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-BATCH-05:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-BATCH-06 — Workflow negatives: no steps, empty scope, one broken well
 **Tool/panel:** Workflow Builder + Processing panel
@@ -1589,7 +2393,13 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 2. Add one step; set Wells scope to **Selection** with nothing selected ▸ **Run chain** → "No wells in scope — pick a group, pin/select wells, or choose All".
 3. Scope **All** (including the GR-less well) ▸ run the 4-step chain.
 **Expected:** Steps 1–2 refuse to start, no job appears in the Processing panel. Step 3: the GR-less well shows **⚠/✗** in the Processing panel's notable-wells list with an advice line (e.g. "Check these wells have the input curves (Curve Catalog)…"), while every other well completes ✓ — one bad well must not kill the batch. Completion status counts the warnings ("— n well/step warnings").
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-BATCH-06:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-BATCH-07 — Cutoffs & Pay Summary: flags, table sanity, History, PAYFLAG version
 **Tool/panel:** Cutoffs & Pay Summary pane (src/ui/summaryDialog.ts; ribbon Petrophysics ▸ Reporting ▸ **Cutoffs & Summary…**)
@@ -1601,7 +2411,13 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 4. Open **Inspector ▸ Curve Catalog**; then the History panel (QAT clock button ▸ **Processing History**).
 5. Re-run Compute Summary once.
 **Expected:** Table with columns Well | Zone | Flag | Top | Bottom | Gross | Net | N/G | Avg VSH | Avg PHIE | Avg SWE | HPV (m), rows for SAND/RESERVOIR/PAY per well-zone. Domain acceptance: **Net ≤ Gross** everywhere; N/G in [0,1]; per zone PAY-net ≤ RESERVOIR-net ≤ SAND-net; SAND rows' Avg VSH ≤ 0.5, RESERVOIR rows' Avg PHIE ≥ 0.1, PAY rows' Avg SWE ≤ 0.6; HPV ≤ Net × Avg PHIE. Status line "Pay summary: N rows; FLAG curves written". Cross-checks: Curve Catalog shows a **PAYFLAG** log set holding FLAG_SAND/FLAG_RESERVOIR/FLAG_PAY whose provenance records the cutoffs; the re-run makes it **version N+1** (covers REVIEW.md §"Pay-summary provenance — FLAG_* versioned + cutoffs recorded"); a **"Pay Summary"** entry appears in Processing History listing the cutoffs and well count (covers REVIEW.md §Round 4 "Pay Summary → Processing History" — verifies the fixed audit finding "Compute Summary … never calls recordProcess"); an open Log View with a FLAG curve refreshes.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-BATCH-07:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-BATCH-08 — Pay Summary negatives: PERM cutoff without PERM, bare well, per-well isolation
 **Tool/panel:** Cutoffs & Pay Summary
@@ -1611,7 +2427,13 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 2. Set PERM back to blank; scope to only the well with **no computed curves** ▸ Compute Summary.
 3. Scope a mix of good wells + the bare well ▸ Compute Summary.
 **Expected:** (1) PAY rows show Net = 0 / no PAY intervals — a sample with missing PERM must FAIL the cutoff, not silently pass (REVIEW.md, confirmed [x] item "with a PERM cutoff active, samples with missing PERM now FAIL the cutoff"); SAND/RESERVOIR rows are unaffected. (2) "No results — check that VSH/PHIE/SWE have been computed for the selected wells." — no crash, no misleading rows. (3) Good wells still return full rows; the bare well contributes nothing — one well's failure no longer zeroes the whole response (covers REVIEW.md §Round 4 "Per-well isolation").
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-BATCH-08:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-BATCH-09 — Cutoff Sensitivity sweep: pick a VSH cutoff and reconcile with Pay Summary
 **Tool/panel:** Cutoff Sensitivity pane (src/ui/cutoffDialog.ts; ribbon Petrophysics ▸ Reporting ▸ **Cutoff Sensitivity…**)
@@ -1624,7 +2446,13 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 5. Click **Save as pay-summary default**; then open **Cutoffs & Pay Summary**.
 6. Cross-check: with identical VSH/PHIE/SWE, whole well, no zone/DST, compare the sweep's Net at the picked cutoff against the Pay Summary's Net for the same well.
 **Expected:** One sweep line per well (net pay monotonically non-decreasing as VSH cutoff loosens); pick/readout as described; the pay-summary pane opens **preloaded with the saved cutoffs**; sweep Net at the fixed cutoffs **matches the Pay Summary Net** for the same well (shared `classify_sample` math); History gains a "Cutoffs — Saved default cutoffs (…)" entry. Covers the unchecked click-throughs in REVIEW.md §"Cutoff Sensitivity pane (2026-07-20 #25)".
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-BATCH-09:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-BATCH-10 — Cutoff Sensitivity: NTG stays ≤ 1 with a mid-sample zone/DST boundary
 **Tool/panel:** Cutoff Sensitivity (backend src-tauri/src/workflow.rs `run_cutoff_sweep`/`compute_sweep`)
@@ -1634,7 +2462,13 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 2. Read the curve maximum; place the pick at the loosest cutoff (VSH = 1).
 3. Cross-check the same well/zone/DST at fixed cutoffs against **Cutoffs & Pay Summary** Net and N/G.
 **Expected:** NTG never exceeds 1.0 anywhere on the sweep, including at fully-permissive cutoffs, and the sweep's numbers agree with the Pay Summary for the same slice — the boundary sample now contributes only its clamped overlap (covers REVIEW.md §Round 4 "Cutoff-sweep geometric clamp"; verifies the fixed audit finding "Cutoff-sweep NET/HPV/NTG isn't clamped to the zone/DST overlap — it re-introduces the exact 'step bleed past boundary' bug").
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-BATCH-10:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-BATCH-11 — Cutoff Sensitivity crossplot + DST overlay + invalid-range negative
 **Tool/panel:** Cutoff Sensitivity (cutoffDialog.ts)
@@ -1646,7 +2480,13 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 4. Negative: switch back to Sweep, set **From → to** = 1 → 0 ▸ Compute.
 5. Theme check: Project tab ▸ **Theme** ▸ Dark — the crossplot repaints immediately in the new palette.
 **Expected:** Crossplot draws all samples dim with **DST-interval samples highlighted**; DST points should cluster at high PHIE / low Vclay (that is the defensible-pay argument); crosshair writes go to the correct fields. Step 4: readout "Sweep range invalid: 'to' must exceed 'from'." and no run. Step 5: instant repaint (this pane subscribes to themeVersion — note the contrast with T-BATCH-19).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-BATCH-11:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-BATCH-12 — Field Dashboard: grid, sort, box plots, CSV export, read-only
 **Tool/panel:** Field Dashboard (src/ui/dashboardPanel.ts; ribbon Petrophysics ▸ Batch ▸ **Field Dashboard…**)
@@ -1658,7 +2498,13 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 4. Click **Export CSV**; open the file.
 5. Re-check the Curve Catalog's PAYFLAG version count.
 **Expected:** Compute finishes in **seconds, not minutes**, even across every well (covers REVIEW.md §"Field Dashboard is fast now"); status "N well(s) · M zone-rows across K flag level(s)…". Three sections render: **By zone — PAY** aggregation (Zone | Wells | Σ Net (m) | Σ HPV (m) | Mean N/G | Mean PHIE | Mean SWE), **HPV (m) distribution by zone** box plots (median line inside the box, whiskers, `median (n)` labels; per-zone medians should rank consistently with the By-zone table), and the sortable interval grid; empty aggregates render "—" with no crash (covers §"Field Dashboard no longer crashes on ~540 wells"). CSV headers match the grid columns; nulls are empty cells, not "null". PAYFLAG version count is **unchanged** — the dashboard is read-only, persisting flags stays with Cutoffs & Pay Summary. (The status line's trailing "FLAG curves written." is stale wording from before the read-only change — the Catalog check is the truth; note it in the ledger if observed.)
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-BATCH-12:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-BATCH-13 — Monte Carlo smoke: default chain, 2 uncertain parameters, percentile ordering
 **Tool/panel:** Monte Carlo pane (src/ui/monteCarloDialog.ts; ribbon Petrophysics ▸ Batch ▸ **Monte Carlo…**)
@@ -1668,7 +2514,13 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 2. Click **+ Add uncertain parameter** twice; in the two rows pick two different parameters from the dropdown (e.g. the vsh_gr shale point GR_SH and the sw_indo water resistivity — the dropdown lists every numeric parameter the chain exposes) with distribution **normal**; adjust mean/std dev to field-plausible values.
 3. **Settings**: Iterations 200, Seed 42, HPV bins 12, Percentiles **P10 / P90**, VSH ≤ 0.5, PHIE ≥ 0.08, SWE ≤ 0.5, PERM ≥ blank. Scope 2+ wells ▸ **Run Monte Carlo**.
 **Expected:** Status "Running 200 realizations × M well(s)…" then "Done in X ms · N well-zone results"; a **Monte Carlo** job with per-well progress and Cancel appears in the **Processing** panel (MC now runs off-thread). Results: HPV histogram with dashed **P10/P50/P90** marker lines and a y-axis count; per well-zone table (Well | Zone | Gross | Net pay | NTG | Avg PHIE | Avg SWE | HPV) where every banded cell satisfies **lo ≤ P50 ≤ hi** (P10 ≤ P50 ≤ P90) and the P10–P90 band **brackets** the headline P50; clicking a table row switches the histogram to that zone. Domain: P50 Net/NTG/HPV should sit near the deterministic Pay Summary values at the same cutoffs, with spread widening as you widen the std devs. History gains "Monte Carlo — 200 realizations across M well(s) → N zone results".
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-BATCH-13:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-BATCH-14 — Monte Carlo seed reproducibility
 **Tool/panel:** Monte Carlo pane
@@ -1678,7 +2530,13 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 2. Run again, same Seed 42, nothing else changed.
 3. Change Seed to 43 ▸ run again.
 **Expected:** Runs 1 and 2 produce **identical numbers to every displayed digit** for every cell (seeded per-realization RNG); run 3 differs slightly in the percentile bands but P50s stay close (200 realizations of the same distributions).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-BATCH-14:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-BATCH-15 — Monte Carlo sensitivity: Spearman ranks + tornado sweep
 **Tool/panel:** Monte Carlo pane (renderSensitivity/drawTornado)
@@ -1688,7 +2546,13 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 2. In **Parameter sensitivity**, switch **Zone** and **Metric** (HPV / Net pay / NTG / Avg PHIE / Avg SWE).
 3. Switch **Percentiles** to P5 / P95 ▸ re-run.
 **Expected:** Tornado shows horizontal bars around a dashed "base" line, longest bar on top, split-coloured low/high sides, significant ρ annotations on the right; a parameter that cannot move the chosen metric is hidden (e.g. the Rw-type parameter must vanish for Avg PHIE — Sw does not feed porosity), with the caption explaining the gating; GR_SH should dominate VSH-driven metrics. After step 3 the histogram markers and table band read **P5/P95** and the tornado sweeps to the new percentiles. Covers REVIEW.md §"Monte Carlo parameter sensitivity + tornado (Wave B #13)".
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-BATCH-15:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-BATCH-16 — Monte Carlo PERM cutoff with chain-produced PERM
 **Tool/panel:** Monte Carlo pane + montecarlo.rs
@@ -1699,7 +2563,13 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 3. Run again with **PERM ≥** set high enough that it must bite (e.g. 50) — compare.
 **Expected:** The PERM-cutoff run should report **lower or equal** Net/HPV, mirroring the Pay Summary's behavior with the same cutoff.
 **Known issue:** AUDIT-2026-07-21 §Monte Carlo — "PERM cutoff is silently ignored whenever PERM is produced by the Monte Carlo chain itself (not read from the DB)": `has_perm_cut` only checks the DB-read input pool, and chain-produced PERM never enters it, so **expect both runs to return identical numbers**. Still unfixed (REVIEW.md holds it for sign-off as an interpretation-changing fix). Log as known, not new.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-BATCH-16:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-BATCH-17 — Cross-check: Monte Carlo vs Workflow chain with a bad-hole MASK
 **Tool/panel:** Monte Carlo pane + Workflow Builder + Cutoffs & Pay Summary
@@ -1709,7 +2579,13 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 2. Run **Monte Carlo** on the same saved chain, same well, same cutoffs, **no** uncertain parameters, Iterations 10, Seed 42 — note P50 Net pay.
 **Expected:** The two should agree: the MC engine claims to run "the same chain", so masked (washout) samples must be excluded from pay in both.
 **Known issue:** AUDIT-2026-07-21 §Monte Carlo — "montecarlo.rs's own from-scratch chain executor misses two correctness behaviors the real chain runner enforces: MASK blanking and computed_only provenance resolution": MC ignores the step's MASK, so **expect MC Net/HPV ≥ the pay-summary value**, inflated by flagged intervals. Still unfixed (held for sign-off). Log as known.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-BATCH-17:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-BATCH-18 — Monte Carlo negatives: empty scope, dry well, cancel mid-run
 **Tool/panel:** Monte Carlo pane + Processing panel
@@ -1719,7 +2595,13 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 2. Scope only the stub well ▸ run → "No results (no curve data or no zones matched)." — no crash; any dry metric cell renders **"—"**, never a fake hard 0 (covers REVIEW.md item "(10) Monte Carlo summarize() returns NaN (→ '—') for a dry/no-data metric").
 3. Scope all wells, Iterations 5000 ▸ run ▸ in the **Processing** panel click the Monte Carlo job's **Cancel** mid-run.
 **Expected:** (3) The job stops at a well boundary (phase reflects the early stop); the pane renders whatever well-zone results completed, without hanging; the app stays responsive throughout.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-BATCH-18:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-BATCH-19 — Monte Carlo plots on pane resize and live theme swap
 **Tool/panel:** Monte Carlo pane (monteCarloDialog.ts drawHistogram/drawTornado)
@@ -1730,7 +2612,13 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 3. Click a different table row (forces a redraw) and compare.
 **Expected:** Step 1: histogram and tornado re-rasterize crisp at the new width — no blurry stretched bitmap (a ResizeObserver now handles this half). Step 2 (desired): both canvases repaint immediately in the new palette, exactly as the Cutoff Sensitivity plot did in T-BATCH-11.
 **Known issue:** AUDIT-2026-07-21 §Monte Carlo — "Monte Carlo's HPV histogram canvas never repaints on a live theme swap or panel resize, unlike every sibling Canvas-2D dock pane": the resize half has since been fixed, but there is still no themeVersion subscription — **expect the theme-swap repaint to fail** (stale colors until step 3's click). REVIEW.md lists "MC histogram theme-repaint" as deferred polish. Log as known.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-BATCH-19:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -1750,7 +2638,13 @@ Everything verified against source. Composing the test plan now — this is my f
 1. Ribbon → **Advance** tab → **ML Models…** (Machine Learning group).
 2. Inspect the pane top to bottom without running anything.
 **Expected:** a dock pane titled **Machine Learning** opens (non-blocking). Controls present: **Task** = "Predict a continuous log (regression)", **Algorithm** = "Random Forest Regressor" with a one-line description under it; **Input curves** checkbox list (GR, NPHI, RHOB, RES_DEEP, DT pre-checked where they exist); **Target curve**; **Train wells** checklist; the shared **Wells** scope row (Group / ★ Pinned / Selection / All / Custom… with a live count); **Parameters** (trees = 200, max depth = 0); **Output curve** = ML_PRED; **Common** = "Standardize inputs (z-score)" checked, Seed = 42; **Run Model** button; **Compare** row with subset dropdown ("Full set only") and **Compare algorithms** button; hint line "Needs Python with numpy + scikit-learn". Switching Task swaps the algorithm list and the Output curve default (ML_CLASS / FACIES_ML / PC).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-MLEQ-01:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-MLEQ-02 — Inspector opens; Python engine status is shown
 **Tool/panel:** Inspector — Equation Editor tab (src/ui/inspectorPanel.ts)
@@ -1760,7 +2654,13 @@ Everything verified against source. Composing the test plan now — this is my f
 2. In the Inspector pane confirm two tabs: **Equation Editor** (active) and **Curve Catalog**.
 3. In Equation Editor set **Language** = "Python (numpy)". Read the note line at the top.
 **Expected:** the note reads "Python (numpy): input curves are float32 arrays (NaN = missing) plus `depth`…" and, after a moment, appends **"(engine: \<path to python\>)"** — the live worker path. If it instead appends "⚠ No Python with numpy found — install Python 3.10+ & numpy, or set ARSHILLA_PYTHON", stop: Python-dependent tests (03, 05, 10–15) are **Blocked** until the environment is fixed.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-MLEQ-02:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-MLEQ-03 — Python equation PHIE_TEST = PHIT × 0.9 on 2 wells
 **Tool/panel:** Inspector — Equation Editor (src/ui/inspectorPanel.ts → src-tauri/src/python_engine.rs)
@@ -1772,7 +2672,13 @@ Everything verified against source. Composing the test plan now — this is my f
 4. Select well A in the Wells tree, leave **Apply to all wells** unchecked, click **Run**.
 5. Select well B, click **Run** again.
 **Expected:** each run reports "1/1 well(s) succeeded, N rows written." Curve Catalog tab (well A or B selected): row **PHIE_TEST** with **Set = EQUATION v1**; the Constellations section gains an **EQUATION v1** entry. Processing History shows two **Equation** entries `Ran "PHIE_TEST" on 1 well(s)`. Domain check: PHIE_TEST = exactly 0.9 × PHIT everywhere (spot-check in a log view or DB Inspector), range 0 – ~0.35 v/v, NaN where PHIT is NaN.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-MLEQ-03:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-MLEQ-04 — Rhai equation (legacy per-sample engine)
 **Tool/panel:** Inspector — Equation Editor (src-tauri/src/equations.rs Rhai path)
@@ -1782,7 +2688,13 @@ Everything verified against source. Composing the test plan now — this is my f
 2. Script (a single expression, lowercased variable): `gr / 150.0`
 3. **Save**, then **Run** on one selected well.
 **Expected:** "1/1 well(s) succeeded, N rows written." VSHR_TEST appears in the Curve Catalog under set EQUATION. Domain check: VSHR_TEST ≈ GR/150 — high (→ ~0.7–1) in shale intervals, low (< 0.3) in clean sand, NaN wherever GR is NaN (per the Rhai note, any NaN input yields NaN).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-MLEQ-04:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-MLEQ-05 — Equation negatives: unsaved run, syntax error, unresolvable input
 **Tool/panel:** Inspector — Equation Editor
@@ -1793,7 +2705,13 @@ Everything verified against source. Composing the test plan now — this is my f
 3. Fix the script but set **Input curves** = `PHIT_NOPE` (a curve that doesn't exist), **Save**, **Run**.
 **Expected:** (1) status "Save the equation before running it." — no run. (2) a readable per-well error naming the Python failure (status turns error-styled, "Errors: \<well\>: …") — the app does not crash and the worker stays alive (a following valid run still works). (3) an **error**, not a green success: the run must not report rows written for an input that resolves to nothing.
 **Known issue:** audit finding "An equation with an unresolvable input or output curve name 'succeeds' silently as all-NaN, indistinguishable from a legitimate result" (Equations engine §3). A Round-4 uncommitted fix ("All-NaN module runs report honestly… Same guard on Rhai + Python equations") claims step 3 now errors — if you still get a clean success with an all-NaN output, mark Fail and log it as this known finding, not a new one.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-MLEQ-05:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-MLEQ-06 — Equation re-run: open plots refresh, version v2 kept
 **Tool/panel:** Inspector — Equation Editor + any open plot (dataVersion cross-check)
@@ -1804,7 +2722,13 @@ Everything verified against source. Composing the test plan now — this is my f
 3. Open Curve Catalog tab → Constellations section.
 **Expected:** the open log view/histogram re-reads and redraws the new (lower) PHIE_TEST in place — no reopen needed. Constellations shows **EQUATION v1 AND v2** (old values kept, v2 current). Covers REVIEW.md §Round 4 "dataVersion refresh after equation / ML / report runs" and §P1-c "Never overwrite".
 **Known issue:** audit finding "Equation runs never bump dataVersion — every other open panel goes stale after Run" (Equations engine §1). The fix is present in the current working tree (inspectorPanel.ts:322) but unverified — if the plot stays stale until something else refreshes it, mark Fail and log as this known finding.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-MLEQ-06:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-MLEQ-07 — Electrofacies (K-means), K=4, block track + theme repaint
 **Tool/panel:** module pane "Electrofacies (K-means)" (src/ui/moduleDialog.ts + src-tauri/src/facies.rs)
@@ -1816,7 +2740,13 @@ Everything verified against source. Composing the test plan now — this is my f
 4. Open a log view on a run well and pick the built-in **Facies** layout (or set FACIES's display to "Facies blocks").
 5. Ribbon → **Project** tab → **Theme** dropdown → switch theme, then switch back.
 **Expected:** result line "All N well(s) computed. Per-well details are in the Processing panel." FACIES is integer 0–3 only. Domain check: **FACIES 0 is the cleanest class** (lowest mean GR — clean sand), 3 the shaliest; blocks follow the GR character bed-by-bed. History gains a **Module** entry "Ran Electrofacies (K-means) on N wells". On theme switch the facies block colors and pane chrome repaint immediately (covers REVIEW.md §"FACIES block track" and §"Theme switch repaints everything immediately"; folds in §"Electrofacies — k-means").
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-MLEQ-07:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-MLEQ-08 — Electrofacies (GMM, soft): FACIES_GMM + FPROB
 **Tool/panel:** module pane "Electrofacies (GMM, soft)" (src/ui/moduleDialog.ts + facies.rs)
@@ -1826,7 +2756,13 @@ Everything verified against source. Composing the test plan now — this is my f
 2. **Run**, then display FACIES_GMM as facies blocks next to FACIES, and FPROB as a 0–1 curve.
 3. Color a crossplot (e.g. RHOB vs NPHI) by FACIES_GMM.
 **Expected:** outputs **FACIES_GMM** (0–3) and **FPROB** (0–1) both land in the catalog. Domain check: FACIES_GMM broadly agrees with the k-means FACIES in thick homogeneous beds; **FPROB ≈ 1 mid-bed and dips toward ~1/K (0.25) at bed boundaries/transitional silty intervals** — transitional beds visible instead of forced. Crossplot shows coherent, GR-ordered clusters with the categorical F0..F3 legend. Covers REVIEW.md §"GMM soft electrofacies" (both unchecked items).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-MLEQ-08:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-MLEQ-09 — Facies negative: well with no usable input curves
 **Tool/panel:** module pane "Electrofacies (K-means)" + Processing panel (facies.rs guards)
@@ -1836,7 +2772,13 @@ Everything verified against source. Composing the test plan now — this is my f
 2. **Run**, then open the Processing panel details for the run.
 **Expected:** the well is reported as an **error / ⚠ warned** ("no input curve present" class of failure) — NOT a green "✓ N samples" success; no plausible-looking all-NaN FACIES version should be silently added for that well.
 **Known issue:** audit finding "facies.rs's 'can't cluster this well' cases (no input curve present, or fewer complete samples than K) are silently reported as a full successful run with a plausible row count, not a warning or error" (Facies §2). Round 4's uncommitted "All-NaN module runs report honestly" fix claims this now warns — if you still see ✓ success with an all-NaN FACIES, mark Fail and log as this known finding.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-MLEQ-09:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-MLEQ-10 — ML regression: predict DT from GR/RHOB/NPHI (+ leaderboard)
 **Tool/panel:** Machine Learning pane (mlDialog.ts + src-tauri/src/ml.rs)
@@ -1848,7 +2790,13 @@ Everything verified against source. Composing the test plan now — this is my f
 4. Click **Run Model**.
 5. Then click **Compare algorithms** (subset "Full set only").
 **Expected:** status "Done in N ms → DT_SYN"; app status line "Random Forest Regressor: wrote DT_SYN to N well(s)". Metrics table shows **r2_train** (expect ≥ ~0.8 for these correlated logs), rmse_train, n_train; per-well table lists predicted sample counts including the DT-less well. Domain check: on a well WITH real DT, overlay DT_SYN vs DT in a log view — same track scale 40–140 µs/ft, they track within ~±10 µs/ft; on the DT-less well DT_SYN is petrophysically plausible (higher in shale/high-NPHI, lower in tight/high-RHOB streaks). Curve Catalog: DT_SYN in **set ML v1**; History gains an **ML** entry. The Compare click renders the blind-well CV **leaderboard** (best R² first, ± std) plus permutation-importance bars, and writes no curves (covers REVIEW.md §Round 3 item (3) "ML comparison leaderboard").
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-MLEQ-10:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-MLEQ-11 — ML classification: ML_CLASS + ML_CLASS_PROB
 **Tool/panel:** Machine Learning pane
@@ -1858,7 +2806,13 @@ Everything verified against source. Composing the test plan now — this is my f
 2. **Input curves** = GR, RHOB, NPHI (uncheck the rest). **Target curve** = FACIES (auto-selected when present).
 3. **Train wells** = the wells carrying FACIES; **Wells** scope = All. **Output curve** = `ML_CLASS`. **Run Model**.
 **Expected:** status "Done in N ms → ML_CLASS, ML_CLASS_PROB" — TWO curves written (the _PROB suffix is automatic). Metrics: accuracy_train (expect high, ≥0.9 — it learned these very wells), class_counts per facies id, n_train. Domain check: on a train well ML_CLASS ≈ FACIES; on other wells the predicted classes follow log character; **ML_CLASS_PROB ∈ [0.25, 1] dips where the log character is ambiguous** (silty transitions), ≈1 in unambiguous beds. Covers REVIEW.md §"ML suite" supervised item. Cross-check: both curves in Curve Catalog under set ML.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-MLEQ-11:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-MLEQ-12 — ML clustering: K-Means k=4, silhouette, plots refresh
 **Tool/panel:** Machine Learning pane (field-wide pooled clustering)
@@ -1869,7 +2823,13 @@ Everything verified against source. Composing the test plan now — this is my f
 3. Watch the already-open log view; then add FACIES_ML as a facies-blocks track in two wells side by side.
 **Expected:** metrics table shows **cluster_sizes** (4 non-empty classes) and a **silhouette** row (expect ~0.2–0.6; < 0.1 means the 4 clusters barely separate — note it). Domain check: **FACIES_ML 0 = lowest-GR (cleanest) class**, monotone to 3 = shaliest; because clustering pools all wells, class ids are consistent across the two side-by-side wells. The open log view refreshes to show the new curve availability without reopening. Covers REVIEW.md §"ML suite" field-wide electrofacies.
 **Known issue:** audit finding "mlDialog.ts never bumps dataVersion after a successful run, unlike every sibling curve-writing dialog" (ML bridge §2). The bump now exists in the working tree (mlDialog.ts:482, REVIEW.md Round 4 unchecked) — if open plots/catalog do NOT refresh after the run, mark Fail and log as this known finding.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-MLEQ-12:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-MLEQ-13 — ML dimensionality reduction: PCA
 **Tool/panel:** Machine Learning pane
@@ -1878,7 +2838,13 @@ Everything verified against source. Composing the test plan now — this is my f
 1. **Task** = "Dimensionality reduction (PCA / t-SNE)", **Algorithm** = Principal Component Analysis, **components** = 3. Input curves GR, RHOB, NPHI, DT. **Output curve** stays `PC`. **Run Model**.
 2. Crossplot PC1 vs PC2, colored by FACIES_ML.
 **Expected:** status "Done in N ms → PC1, PC2, PC3" — numbered components, all three in the Curve Catalog (set ML). Metrics show **explained_variance_pct** as a descending list; PC1 should dominate (typically > 50% for correlated porosity-lithology logs, sum of 3 near 90%+). Domain check: the PC1-PC2 crossplot separates the electrofacies classes into coherent point clouds (PCA and clustering see the same structure).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-MLEQ-13:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-MLEQ-14 — ML negatives + missing bad-hole Mask
 **Tool/panel:** Machine Learning pane
@@ -1889,7 +2855,13 @@ Everything verified against source. Composing the test plan now — this is my f
 3. Search the whole ML pane for any "Mask (optional)" control (compare: every module pane, e.g. Electrofacies, has one above "Input cons").
 **Expected:** (1) status "Check at least one input curve", nothing runs. (2) "Blind-well comparison needs at least 2 training wells". (3) desired behavior would be a mask picker so washout/casing samples can be excluded from training/pooling — it does not exist, so flagged bad-hole samples silently bias the scaler, cluster centers, trained models and PCs for every well in the run.
 **Known issue:** audit finding "run_ml has no bad-hole/flag MASK support at all, unlike every module wired through workflow.rs" (ML bridge §1) — NOT in the Round-4 fix list. Expect step 3 to Fail; log as known, and treat ML results over bad-hole intervals with suspicion until fixed.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-MLEQ-14:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-MLEQ-15 — ML pane list staleness while open
 **Tool/panel:** Machine Learning pane (dataVersion subscription gap)
@@ -1900,7 +2872,13 @@ Everything verified against source. Composing the test plan now — this is my f
 3. Close and reopen the ML pane; look again.
 **Expected:** desired: the lists refresh in place (the module panes do exactly this). Actual pass criterion for the reopen step: after reopening, the new curve/well IS listed.
 **Known issue:** audit finding "mlDialog.ts never subscribes to dataVersion, so its own wells/curve-catalog lists go stale while the pane stays open" (ML bridge §3) — explicitly deferred in REVIEW.md Round 4 ("Low-value polish left: … ml/wellScope dataVersion subscribe"). Expect step 2 to Fail (stale until reopen); log as known.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-MLEQ-15:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-MLEQ-16 — Curve Catalog: provenance, statistics, search/sort
 **Tool/panel:** Inspector — Curve Catalog tab (inspectorPanel.ts)
@@ -1910,7 +2888,13 @@ Everything verified against source. Composing the test plan now — this is my f
 2. Verify one row per curve produced so far (PHIE_TEST, VSHR_TEST, FACIES, FACIES_GMM, FPROB, DT_SYN, ML_CLASS, ML_CLASS_PROB, FACIES_ML, PC1–PC3) with columns Mnemonic / Unit / Family / **Set** (with vN) / **Module / Source** / When / n / Min / Max / Mean.
 3. In the **Constellations** section hover a set row; then type `electrofacies` (then `EQUATION`) in the search box; click the **Mean** header twice.
 **Expected:** every computed curve shows its set + version (EQUATION / ML / INTERP …), producing module, timestamp and n/min/max/mean stats. The hover tooltip reveals the exact **params / inputs / curves** of that run (e.g. K=4, SEED=7, CURVE1=GR — answer to "where did this FACIES come from?" in one glance). Search filters live across mnemonic/set/module/unit/date; header clicks sort then reverse. Covers REVIEW.md §P1-c "Per-curve provenance" and "Catalog search/filter/sort".
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-MLEQ-16:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-MLEQ-17 — Restore an old constellation version
 **Tool/panel:** Inspector — Curve Catalog, Constellations section
@@ -1921,7 +2905,13 @@ Everything verified against source. Composing the test plan now — this is my f
 3. Click **Restore** on v1. Watch the open log view.
 4. Click **Restore** on v2 to return.
 **Expected:** status "Version restored (N samples back in the current curves)"; History gains a **Constellation** entry. The open log view's FACIES track flips back to the 4-class v1 blocks WITHOUT reopening (dataVersion bump), then to 6-class on step 4. The old run's values were never destroyed by the re-run. Covers REVIEW.md §P1-c "Never overwrite" and "Restore a version".
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-MLEQ-17:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-MLEQ-18 — Delete a version: history pruned, current values untouched
 **Tool/panel:** Inspector — Curve Catalog, Constellations section
@@ -1931,7 +2921,13 @@ Everything verified against source. Composing the test plan now — this is my f
 2. Wait ~3 s WITHOUT clicking → it reverts to "Delete" (accidental-click guard).
 3. Click **Delete** then **Confirm delete**.
 **Expected:** status "Constellation version deleted (current curve values kept)". Only the v1 history row disappears; the open plot's PHIE_TEST values are byte-identical (still the v2 result, = 0.8×PHIT) — current curves are never touched by a prune. History gains a **Constellation** "Deleted a constellation version" entry. Covers REVIEW.md §P1-c "Prune old versions" (incl. the two-click confirm).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-MLEQ-18:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -1951,7 +2947,13 @@ Shared preconditions for the whole cluster: app running via `npm run tauri dev`;
 3. Select a different well in Wells & Tops.
 4. In a pane's ＋ add-panel menu, confirm **New Log View** is also listed there.
 **Expected:** Curves draw on the WebGPU canvas; status line shows "Loaded well *X*"; track headers show each curve with its color and min/max scale; report strip shows Well / Field / Depth Coverage. Switching wells reloads the same layout for the new well and resets the scroll to the top of the well. If WebGPU is unavailable the panel must say "WebGPU unavailable — viewer disabled", not hang.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PLOT-01:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PLOT-02 — Depth scale, zoom, pan (true 1:N)
 **Tool/panel:** Log View mini toolbar — `src/ui/logViewPanel.ts` (covers REVIEW.md §Held-item resolutions "Depth-scale dropdown now shows the TRUE scale" and §Low-tier sweep "Log-view smoothness")
@@ -1963,7 +2965,13 @@ Shared preconditions for the whole cluster: app running via `npm run tauri dev`;
 4. Watch the 1:N box after each zoom: between presets it must show a transient "**1:N ⟳**" with the live ratio, never stick on the last preset.
 5. Click **⟳** (Reset view).
 **Expected:** 1:200 and 1:500 are honestly different scales (1:200 ≈ 5 mm of screen per metre); pan is smooth on a busy 15-curve layout with no stutter; depth axis ticks update continuously; ⟳ returns to top-of-well at the default 1:2000 and the selector re-reads "1:2000".
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PLOT-02:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PLOT-03 — Cursor readout with units + track scoping
 **Tool/panel:** Log View readout — `src/ui/viewerChrome.ts` `renderReadout` (covers REVIEW.md §Polish — UX "Cursor readout: real units + no more mangled values")
@@ -1974,7 +2982,13 @@ Shared preconditions for the whole cluster: app running via `npm run tauri dev`;
 3. Single-click (no drag) a track — status says "Track "*X*" selected — readout follows it"; move the cursor over other tracks.
 4. Click the same track again to release.
 **Expected:** Values keep resolution and carry catalog units: RT reads like "2151 ohm.m" (not "2151.00"), PHIE like "0.18 v/v", a low perm keeps "0.003" (never "0.00"). While a track is selected the readout sticks to its curves regardless of cursor position; releasing returns to follow-the-cursor. Hovered track's header tints.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PLOT-03:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PLOT-04 — Track resize, reorder, curve drag between tracks, scale edit
 **Tool/panel:** Track headers — `src/ui/viewerChrome.ts` `renderTrackHeaders`
@@ -1988,7 +3002,13 @@ Shared preconditions for the whole cluster: app running via `npm run tauri dev`;
 6. Click a curve's color swatch or name — the curve toggles hidden/visible.
 7. Toolbar **▤** — headers cycle full → compact → titles-only; **▦** opens **Track borders** (set Dashed, width 2, **Apply**).
 **Expected:** Every change repaints the canvas immediately; curve drawn against the new scale after the scale edit (e.g. GR 0–150 visibly stretches vs 0–200); curve-move is bit-exact undoable via QAT (status "Undo: move GR → …"); a curve dropped on a track already showing it is refused silently; pane tab shows the unsaved dot (●) after edits; borders redraw dashed between tracks.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PLOT-04:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PLOT-05 — Layout Properties dialog + Save Layout
 **Tool/panel:** Layout Properties — `src/ui/layoutPropsDialog.ts`; ribbon **Plot ▸ Properties…** / **Save Layout…** (covers REVIEW.md §Low-tier sweep "Duplicate track titles prevented")
@@ -2002,7 +3022,13 @@ Shared preconditions for the whole cluster: app running via `npm run tauri dev`;
 6. Click **Apply** (dialog stays), then **OK**. Then Ctrl+Z.
 7. Ribbon **Plot ▸ Save Layout…**, give a name; then switch the ribbon **Layout** dropdown between the saved layout and the original.
 **Expected:** Apply/OK repaint the view with new colors/fills/scales; Cancel discards; Ctrl+Z restores the pre-dialog layout in one step (status "Undo: layout properties (…)"); the saved layout appears in the **Layout** dropdown and switching it rebuilds the active view; on reopen the saved layout persists (stored in the project DB).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PLOT-05:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PLOT-06 — FACIES block track
 **Tool/panel:** Layout Properties fill = "Facies blocks" — `src/ui/layoutPropsDialog.ts` + `logViewPanel.ts`
@@ -2011,7 +3037,13 @@ Shared preconditions for the whole cluster: app running via `npm run tauri dev`;
 1. Layout Properties → insert a track, add the FACIES curve, set **Fill** = **Facies blocks**, OK.
 2. Inspect the track header and the drawn track; zoom in/out.
 **Expected:** The track fills with solid colored blocks, one color per class, spanning full track width; header shows a striped multi-color swatch and the scale line reads "**class blocks**" (no editable min/max); block boundaries land exactly at the depths where FACIES changes value (cross-check against the readout); blocks track pan/zoom without smearing. Right-click on this track must NOT offer "Edit FACIES…" (block curves are not editable).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PLOT-06:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PLOT-07 — Tops overlay, tops editing, interval windowing everywhere
 **Tool/panel:** Tops editor + zone windowing — `src/ui/topsEditor.ts`, `plotCommon.ts` `buildZoneSelect` (covers REVIEW.md §Highlight tool… "Highlight tool — colored depth bands in the Log View")
@@ -2022,7 +3054,13 @@ Shared preconditions for the whole cluster: app running via `npm run tauri dev`;
 3. Toolbar **🖍** — drag to paint a highlight band; double-click it → recolor/label; confirm 🏷 and 🖍 are mutually exclusive (turning one on turns the other off).
 4. In the **Wells & Tops** pane click a top: the log view scrolls to it, AND in the open Histogram/Crossplot the **Zone** dropdown auto-selects "Top *X* (*min–max*)" and the plot reloads windowed to that interval.
 **Expected:** Tops add/move/rename/delete all undoable and recorded in History ("[Tops]"-kind entries); the windowed histogram/crossplot show only samples in the top interval (n drops accordingly); highlight bands persist across a well switch and back, sit below tops lines.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PLOT-07:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PLOT-08 — Core-point overlays in the log view
 **Tool/panel:** Core overlay — `src/ui/logViewPanel.ts` `drawCoreOverlay`
@@ -2032,7 +3070,13 @@ Shared preconditions for the whole cluster: app running via `npm run tauri dev`;
 2. Zoom and pan across the core points.
 3. Edit the PHIE track scale (e.g. max 0.25) via the header.
 **Expected:** Diamond markers appear over the PHIE track at plug depths (CPOR) and over the PERM track (CPERM), in the host curve's color, positioned on that curve's own scale — on a log-scaled PERM track the diamonds must sit log-correctly. Petro check: CPOR diamonds should track the PHIE curve within a few p.u. in good hole. Values outside the track scale are simply not drawn (never clamped to the track edge). Diamonds re-register perfectly through pan/zoom and after the scale edit.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PLOT-08:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PLOT-09 — Pin / follow-well behavior (side-by-side wells)
 **Tool/panel:** Well pin — `src/ui/logViewPanel.ts` (pin toggle in the workspace/toolbar), Wells & Tops
@@ -2043,7 +3087,13 @@ Shared preconditions for the whole cluster: app running via `npm run tauri dev`;
 3. Make view B active, select well 3 — only B reloads.
 4. Turn pin back ON, switch well — all views follow again.
 **Expected:** Pin OFF gives true side-by-side multi-well viewing; each pane's tab title shows its own well; no cross-contamination of series when rapidly switching wells (titles and curves always match — fast switches never paint a stale well's curves).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PLOT-09:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PLOT-10 — Histogram: bins, overlays, percentiles, picks → zone parameters, templates
 **Tool/panel:** Histogram — `src/ui/histogramPanel.ts` (covers REVIEW.md §Low-tier sweep "Histogram: constant curves render; the n never silently disagrees" and §Low-tier "Stats / regression reject ±Infinity")
@@ -2058,7 +3108,13 @@ Shared preconditions for the whole cluster: app running via `npm run tauri dev`;
 7. Change Zone to a real zone — data windows; n drops.
 8. Negative: pick a constant FLAG curve.
 **Expected:** P3/P97 markers appear (Jauhar's GR normalization anchors); cumulative curve rises to 100% at right; box strip spans P5–P95 with P50 line at the bar mode; status confirms "GR_MA = … set on zone '…' " and the value lands in the zone's parameters (visible in Zones dialog / used by the next VSH run); axis label reads "n = X of Y" whenever the P2–P98 window clips tails — never contradicting the chips; template recall restores every option; the constant curve draws one central bar, NOT "No valid data". Petro check: GR histogram of a sand-shale interval is bimodal; GR_MA < GR_SH.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PLOT-10:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PLOT-11 — Crossplot: log axes, regression (all models × methods), Z-color
 **Tool/panel:** Crossplot — `src/ui/crossplotPanel.ts` (covers REVIEW.md §Performance "Crossplot: Z coloring memoized across pan/zoom/hover")
@@ -2071,7 +3127,13 @@ Shared preconditions for the whole cluster: app running via `npm run tauri dev`;
 5. Color = FACIES — categorical swatch legend (F1, F2, …) replaces the color bar.
 6. Pan/drag and Ctrl+wheel with a dense cloud colored by Z — motion must stay smooth (memoized colors).
 **Expected:** R², n, and the fitted equation display in real units; por-perm exponential/power fit slope is positive (perm rises with porosity); Z coloring identical before/after pan (only a Z/colormap change recolors); "— None —" Z gives single-color points.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PLOT-11:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PLOT-12 — Crossplot overlays: N-D chartbook, matrix points, core, Thomas-Stieber
 **Tool/panel:** Crossplot overlays — `src/ui/crossplotPanel.ts`, `chartOverlays.ts` (covers REVIEW.md §P2-f+ — D-N chartbook overlay: "A real Mahakam sand interval should plot on/left of the quartz sandstone line" and its "Gating" item)
@@ -2083,7 +3145,13 @@ Shared preconditions for the whole cluster: app running via `npm run tauri dev`;
 4. Tick **Core data (diamonds)** with X = PHIE, Y = PERM — core plugs draw as diamonds; only depths with BOTH measurements plot.
 5. Tick **T-S triangle**: axes auto-switch to VSH vs PHIT (status message). Drag the **PHI_SD_MAX** (VSH=0) and **PHI_SH** (VSH=1) circle handles vertically; release.
 **Expected:** Chart curves stay registered under zoom/pan (drawn in data space); T-S laminated line runs sand→shale, dispersed line dips to its porosity minimum at VSH = PHI_SD; on release the status confirms "PHI_SD_MAX = … set on zone …" / "PHI_SH = … set on zone …" (zone-parameter write). Petro check: laminated sand-shale data should scatter between the laminated and dispersed lines.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PLOT-12:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PLOT-13 — Crossplot parameter handle, click-pick, zoom-to-cursor
 **Tool/panel:** Crossplot picks — `src/ui/crossplotPanel.ts`
@@ -2095,7 +3163,13 @@ Shared preconditions for the whole cluster: app running via `npm run tauri dev`;
 4. Ctrl+wheel at a cluster — zoom centers on the cursor; drag background pans (the handle grab must NOT pan); double-click resets zoom; double-click again (unzoomed) opens Properties.
 5. Cancel test: press Esc / close the Properties dialog without Apply — no settings change.
 **Expected:** Release writes BOTH zone parameters (status "NPHI_SH = … set on zone '…' " then "RHO_SH = …"); values honor the drop position (check against the axes); a failed write must surface "Failed to set …", never silent success. Petro check: shale point in a Mahakam shale cluster ≈ NPHI 0.3–0.45, RHOB 2.3–2.6 g/cc.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PLOT-13:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PLOT-14 — Pickett plot: two-point pick ⇄ typed M/Rw, Z-color, axis config
 **Tool/panel:** Pickett — `src/ui/pickettPanel.ts` (covers REVIEW.md §Polish — UX "Pickett v2 — properties dialog, typed M/Rw, configurable axes, Z-color")
@@ -2108,7 +3182,13 @@ Shared preconditions for the whole cluster: app running via `npm run tauri dev`;
 5. **⚙** (or right-click) → RT axis 0.2 → 200, PHIE axis 0.05 → 0.5, **Color by** = VSH, Colormap Viridis; **Apply**.
 6. Close the pane, reopen Pickett — axis/point/Z settings persist.
 **Expected:** After the two-point pick the **M and Rw fields fill** with the fit and the solid Sw=1 line plus dashed Sw=0.5/0.25 lines draw; annotation reads "Sw=1 line: M = …, Rw = … ohmm (N = 2)". Typing Rw/M moves the lines instantly — verify geometrically: the Sw=1 line must pass through RT = Rw at PHIE = 1.0. Petro checks: M ≈ 1.7–2.2 for Mahakam sands; points above/right of the water line are hydrocarbon-bearing (higher RT at same φ); low-VSH points should lie closest to the water trend when colored by VSH. Pick rows write **M** / **RW** to the zone via **Set**.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PLOT-14:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PLOT-15 — Correlation: strips, tops connected, flatten, TVDSS, contacts, live well list
 **Tool/panel:** Correlation — `src/ui/correlationPanel.ts` (covers REVIEW.md §Polish — UX "Correlation: fresh well list + Ctrl+wheel zoom" and §Round 3 "(9) Fluid contacts in Correlation")
@@ -2125,7 +3205,13 @@ Shared preconditions for the whole cluster: app running via `npm run tauri dev`;
 9. Negative: untick ALL wells — panel must show "No wells included — pick some under Wells…", no crash.
 **Expected:** Flattening puts the datum top at display depth 0 as a dashed accent line and the connected top lines become horizontal; a TVDSS-stored contact drawn in TVDSS mode is **perfectly flat across every well** including the deviated one (in MD mode it shifts per well); geological sanity: tops should not cross between adjacent wells in a layer-cake section.
 **Known issue:** AUDIT finding "No batch-run dialog re-scopes to a new active well group while it's already open — only the Wells sidebar tree and Map pane react live to a group switch" — switching the active well group while Correlation is open will NOT refilter the strips/Wells menu until a data event (e.g. an import) fires. Log as known, not new.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PLOT-15:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PLOT-16 — Synchronized hover crosshair across all open plots
 **Tool/panel:** hoverDepth broadcast — `logViewPanel.ts`, `histogramPanel.ts`, `crossplotPanel.ts`, `pickettPanel.ts`, `correlationPanel.ts`
@@ -2136,7 +3222,13 @@ Shared preconditions for the whole cluster: app running via `npm run tauri dev`;
 3. Hover a strip in Correlation instead.
 4. Move the cursor off the canvas.
 **Expected:** The second log view draws a horizontal crosshair line at the same depth; the histogram shows a marker at the GR value of that depth; crossplot and Pickett ring the sample nearest that depth (ring skips when the sample is NaN); hovering Correlation drives the same crosshairs in the log views — with Correlation in TVDSS mode the broadcast still lands at the correct **measured** depth in the log view (check against a top). Leaving the canvas hides all crosshairs/markers. Cross-check the depth number in the log-view readout equals the correlation hover depth.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PLOT-16:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PLOT-17 — Plot export: Copy / Image / Print + per-plot right-click menu
 **Tool/panel:** `src/ui/plotExport.ts` toolbar + workspace context menu
@@ -2149,7 +3241,13 @@ Shared preconditions for the whole cluster: app running via `npm run tauri dev`;
 5. Open the **History** panel.
 6. Negative: cancel the save dialog — no file, no false success status.
 **Expected:** Status line confirms "*name* copied to clipboard" / "*name* image saved to *path*"; the PNG matches the on-screen plot including overlays and Z color bar; History gains "[Export]" entries for copy and save; the Log View has no image-export buttons (it exports via Composite — WebGPU canvas, by design).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PLOT-17:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PLOT-18 — Curve Edit dialog: all five ops, bit-exact undo, History
 **Tool/panel:** Curve Edit — `src/ui/curveEditDialog.ts` from log-view right-click
@@ -2162,7 +3260,13 @@ Shared preconditions for the whole cluster: app running via `npm run tauri dev`;
 5. **Interpolate across** a spike → the spike bridges linearly between the interval edges → Undo.
 6. **Scale a·v + b** with a = 1.1, b = 5 → GR visibly recalibrated → Undo.
 **Expected:** Each Apply: status "*op* GR (*well*) — N samples changed (Ctrl+Z undoes)", every open plot of that well refreshes (histogram re-bins, log view repaints — dataVersion), and a "[Edit]" History entry appears with the op, curve, well and sample count; each Undo restores values **bit-exactly** (readout matches pre-edit to the last digit) and also bumps the plots. "Nothing changed" status when the interval contains no samples.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PLOT-18:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PLOT-19 — Curve Edit negative tests (invalid input, stale undo)
 **Tool/panel:** Curve Edit — `src/ui/curveEditDialog.ts` + backend `curve_edit.rs`
@@ -2173,7 +3277,13 @@ Shared preconditions for the whole cluster: app running via `npm run tauri dev`;
 3. Stale-undo probe: **Set constant** on a VSH curve interval → re-run the VSH module (recomputing VSH) → now press Ctrl+Z on the old edit. Compare the VSH curve against the fresh module output.
 **Expected:** Ideally Apply should refuse an empty/invalid Value with a hint.
 **Known issue:** AUDIT finding ""Set constant" (and other numeric fields) silently coerce invalid/empty input to 0.0, not an error" — expect step 1/2 to silently overwrite the interval with 0.0 and report "N samples changed" as success. Also AUDIT finding "restore_curve_values (the undo path) has no staleness/version check" — expect step 3's Ctrl+Z to silently splice pre-edit values over the freshly recomputed VSH with an unqualified "Undo: …" success. Log both as known, not new; recover with a module re-run.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PLOT-19:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PLOT-20 — dataVersion refresh preserving viewport; theme repaint; clean dispose
 **Tool/panel:** All plot panels — `state.ts` dataVersion/themeVersion wiring (covers REVIEW.md §Round 4 "dataVersion refresh" and §Cutoff Sensitivity theme-switch item pattern)
@@ -2184,7 +3294,13 @@ Shared preconditions for the whole cluster: app running via `npm run tauri dev`;
 3. Project tab → **Theme** → switch Light → Dark → **Pertamina** with all panes visible.
 4. Close each plot pane with its ✕; also close a log view mid-well-load (open, immediately close).
 **Expected:** (2) fresh curve values appear in every plot (no stale data), viewport/picks preserved. (3) every canvas repaints in the new palette immediately — WebGPU log view background + curves, plot frames/text, core-overlay diamond outlines — with no interaction needed and no white-flash panes left behind. (4) no console errors on dispose; after closing, hovering remaining views raises no errors (subscriptions cleaned up); reopening a closed plot works normally.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PLOT-20:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -2204,7 +3320,13 @@ Shared preconditions for this cluster: app running via `npm run tauri dev`; a pr
 3. In Wells & Tops, select a well with full curves.
 4. Right-click inside an open Log View → click **Print / export layout…**.
 **Expected:** Both panes open as dockable panes (not popups). With no well: each shows "Select a well (Wells & Tops) — … will follow", tab titles plain "Composite Log" / "Report". After selecting a well: both panes fill in their forms and tab titles become "Composite Log — {well}" / "Report — {well}". Step 4 focuses the existing Composite pane (singleton, no duplicate). Covers REVIEW.md §All tools as dockview panes (2026-07-20 #24), unchecked items "Open the Zones / Composite / Report pane with no well selected" and "Docking sanity … 'Print / export layout…' opens the Composite pane".
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-REP-01:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-REP-02 — Composite render: layout, print scale, page size, pagination
 **Tool/panel:** Composite Log pane (src/ui/compositeDialog.ts → src-tauri/src/composite.rs)
@@ -2216,7 +3338,13 @@ Shared preconditions for this cluster: app running via `npm run tauri dev`; a pr
 4. Change **Print scale** to 1:200 → **Render**. Then 1:1000 → **Render**.
 5. Change **Page size** to A3 (297×420) → **Render**.
 **Expected:** A vector preview appears (tracks, depth grid, curve traces matching the on-screen Log View for the same layout). Page 1 header shows well name, "Field: … TD: … KB: …", "Layout: {name} Scale 1:{n} Interval {top}–{bot} m", and the grey footer "Made in SandiBumi — composite log". Depth per page must be physically exact: at 1:500 an A4 track window covers ~2.5× the metres of 1:200 — so 1:200 gives ≈2.5× the pages of 1:500, and 1:1000 halves the 1:500 count; each page label's top–bottom range must tile the full logged interval with no gaps/overlap. A3 gives fewer pages than A4 at the same scale. ◀ is disabled on page 1, ▶ on the last.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-REP-02:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-REP-03 — Composite depth window + invalid window (negative)
 **Tool/panel:** Composite Log pane (src/ui/compositeDialog.ts)
@@ -2227,7 +3355,13 @@ Shared preconditions for this cluster: app running via `npm run tauri dev`; a pr
 3. Enter top **below** bottom (e.g. top 1700, bottom 1500) → **Render**.
 4. Enter a window entirely outside the logged interval (e.g. 9000 / 9100) → **Render**.
 **Expected:** (1) Pages cover only 1500–1700 m; page labels confirm. (2) Full interval returns. (3)+(4) A clear failure in the status line ("Render failed: …" e.g. empty depth range) — no crash, no stale preview left claiming to be the new window; **Save SVG…/Save PDF…** become disabled after a failed render.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-REP-03:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-REP-04 — Composite export SVG
 **Tool/panel:** Composite Log pane (src/ui/compositeDialog.ts, exportCompositeSvg)
@@ -2236,7 +3370,13 @@ Shared preconditions for this cluster: app running via `npm run tauri dev`; a pr
 1. Click **Save SVG…**; accept the default name `{well}_composite.svg`; save to a scratch folder.
 2. Read the status line; open the folder; open one SVG in a browser.
 **Expected:** Status "Wrote N file(s): …" — one SVG per preview page. Each SVG opens as vector graphics (text selectable/sharp at any zoom, not a bitmap) and matches the corresponding preview page: same tracks, curve shapes, depth annotations, header, "Made in SandiBumi — composite log" footer.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-REP-04:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-REP-05 — Composite export PDF, verify against on-screen log view
 **Tool/panel:** Composite Log pane (src/ui/compositeDialog.ts → src-tauri/src/composite.rs assemble_pdf)
@@ -2248,7 +3388,13 @@ Shared preconditions for this cluster: app running via `npm run tauri dev`; a pr
 4. Measure one page: at 1:500 on A4, 10 cm of paper track = 50 m of depth (check against the depth grid).
 5. (If a FACIES curve exists) switch Layout to the built-in **Facies** layout, re-render, re-export → the FACIES track prints as solid colored rectangles.
 **Expected:** One multi-page PDF; every preview page present in order; header block (well/field/TD/KB, Layout/Scale/Interval) and footer "Made in SandiBumi — composite log" on page 1; curve geometry and track scales identical to the on-screen view; the paper-scale check in step 4 holds within measurement error. Step 5 covers REVIEW.md §FACIES block track, unchecked item "Composite export shows the blocks".
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-REP-05:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-REP-06 — Report render: cover, methodology, zone params, pay summary, composite pages
 **Tool/panel:** Report pane (src/ui/reportDialog.ts → src-tauri/src/report.rs)
@@ -2258,7 +3404,13 @@ Shared preconditions for this cluster: app running via `npm run tauri dev`; a pr
 2. Leave **Cutoffs VSH/PHIE/SWE/PERM** at defaults 0.5 / 0.1 / 0.6 / blank; **Tables only** unchecked.
 3. Click **Render**; page through with ◀ / ▶.
 **Expected:** Status "{well}: N report page(s)." Page order: (1) cover with title, well, interval, "Prepared by: {name}"; (2) Methodology table (Parameter | Method | Remarks — defaults if you typed nothing); (3) Zone Parameters table listing your zones (zones without params show "-"), your RW override visible; (4) Pay Summary table titled "Pay Summary (VSH ≤ 0.50, PHIE ≥ 0.10, SWE ≤ 0.60)" with per-zone SAND/RESERVOIR/PAY rows — domain check: Net ≤ Gross, 0 ≤ NTG ≤ 1, avg VSH low on SAND rows, avg PHIE plausible for Mahakam sands (~0.1–0.3), HPV ≥ 0 and PAY ⊆ RESERVOIR ⊆ SAND (each successive Net no larger); (5) the composite pages. Each table page footer: "Made in SandiBumi".
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-REP-06:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-REP-07 — Methodology table edit persists as report_template document
 **Tool/panel:** Report pane (src/ui/reportDialog.ts, TEMPLATE_DOC_TYPE "report_template")
@@ -2271,7 +3423,13 @@ Shared preconditions for this cluster: app running via `npm run tauri dev`; a pr
 5. Data tab → **SQL Query** → run: `SELECT doc_type, name, json FROM documents WHERE doc_type = 'report_template'`.
 6. Restart the app (`npm run tauri dev` again), reopen Report.
 **Expected:** Steps 4 and 6: the edited rows survive pane reopen AND app restart. Step 5: exactly one row, doc_type `report_template`, name `default`, json a serialized array of your {parameter, method, remarks} rows. Clearing the textarea and rendering falls back to the built-in default methodology.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-REP-07:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-REP-08 — Report export single PDF
 **Tool/panel:** Report pane (src/ui/reportDialog.ts, exportReportPdf)
@@ -2281,7 +3439,13 @@ Shared preconditions for this cluster: app running via `npm run tauri dev`; a pr
 2. Open in a reader; compare all pages against the preview.
 3. Zoom the bottom of a table page.
 **Expected:** One multi-page PDF matching the preview page-for-page (cover → methodology → zone params → pay summary → composite); the same pay-summary numbers as on screen; centered grey footer "Made in SandiBumi" on report pages and "Made in SandiBumi — composite log" on the composite pages. Status line "Wrote {well}_report.pdf" and the app status bar "Report PDF exported for {well}."
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-REP-08:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-REP-09 — "Tables only" mode
 **Tool/panel:** Report pane (src/ui/reportDialog.ts → src-tauri/src/report.rs report_pages)
@@ -2291,7 +3455,13 @@ Shared preconditions for this cluster: app running via `npm run tauri dev`; a pr
 2. Page through; then **Save PDF…**.
 **Expected:** Output is correct: cover + methodology + zone params + pay summary only, **no** composite pages, and the cover still states the true logged interval. However the render should feel meaningfully faster than the full render — it currently will NOT be.
 **Known issue:** AUDIT-2026-07-21 (Viz/reporting #3) — "Report generator's 'Tables only' mode still does the full composite computation — it only skips appending the result." Expect tables-only render time ≈ full render time; log as known, not new. Output content itself should still be correct.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-REP-09:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-REP-10 — Cross-check: report render writes FLAG_* curves; catalog + open plots refresh
 **Tool/panel:** Report pane × Curve Catalog (inspectorPanel.ts) × Log View (dataVersion)
@@ -2301,7 +3471,13 @@ Shared preconditions for this cluster: app running via `npm run tauri dev`; a pr
 2. In the Report pane click **Render** (report render intentionally persists the pay flags).
 3. Without touching anything else, look at the open Log View's FLAG_PAY track and re-open the Curve Catalog.
 **Expected:** Immediately after render: FLAG_SAND, FLAG_RESERVOIR, FLAG_PAY appear in the Curve Catalog for the well; the already-open Log View repaints its FLAG_PAY track (dataVersion bump — no manual refresh, no well re-select). Domain check: FLAG_PAY = 1 only where VSH ≤ 0.5, PHIE ≥ 0.1, SWE ≤ 0.6 — spot-check one flagged interval against the curves. Covers REVIEW.md §Round 4 — AUDIT-2026-07-21 safe-bucket follow-through, unchecked item "dataVersion refresh after equation / ML / report runs".
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-REP-10:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-REP-11 — Cross-check: composite/report exports in Processing History
 **Tool/panel:** Processing History panel (src/ui/historyPanel.ts) × composite/report exports
@@ -2311,7 +3487,13 @@ Shared preconditions for this cluster: app running via `npm run tauri dev`; a pr
 2. Search the list for Export entries for the composite SVG, composite PDF, and report PDF you just wrote (compare: an **Export LAS…** run and plot-image exports DO log entries like "Exported LAS (N rows) → path").
 **Expected:** By the app's own convention every export should appear as an "Export" entry with well name and destination.
 **Known issue:** AUDIT-2026-07-21 (Viz/reporting #2) — "Report generator's Render/Save/Batch actions persist FLAG_* … but never … record to History": neither compositeDialog.ts nor reportDialog.ts calls recordProcess, so expect NO History entries for composite/report exports (the dataVersion half of this finding has since been fixed; the History half has not). Log as known.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-REP-11:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-REP-12 — Batch export, one PDF per well, with a broken well in scope
 **Tool/panel:** Report pane batch (src/ui/reportDialog.ts, wellScope.ts → src-tauri/src/report.rs export_report_batch; job via lib.rs "Report batch")
@@ -2322,7 +3504,13 @@ Shared preconditions for this cluster: app running via `npm run tauri dev`; a pr
 3. Watch the status line and the **Processing** panel while it runs.
 4. When finished, open the destination folder; open one good well's PDF.
 **Expected:** Per-well failure isolation: every good well gets `{WELL}_report.pdf` (non-alphanumeric name chars become `_`), each a complete report for THAT well (check the cover well name differs per file). The broken well is skipped, not fatal: the status line reports the mixed outcome — "Batch export: wrote {N−1} file(s); failed: {well_id}: no curve data for this well" (note the failure is identified by well **UUID**, not name — worth logging as UX feedback). The Processing panel shows a "Report batch" job entry. No partial/corrupt PDF for the failed well in the folder.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-REP-12:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-REP-13 — Export cancels and empty scope (negative)
 **Tool/panel:** Composite + Report panes (compositeDialog.ts, reportDialog.ts)
@@ -2332,7 +3520,13 @@ Shared preconditions for this cluster: app running via `npm run tauri dev`; a pr
 2. Report pane → **Batch (N wells)…** → in the folder dialog press **Cancel**.
 3. Set the report scope to a selection containing zero wells (e.g. an empty group) so the button reads **Batch (0 wells)…** → click it.
 **Expected:** (1)+(2) No file written, no error, buttons re-enable, previous status text intact or unchanged — the app never hangs on a cancelled dialog. (3) Status "No wells in scope — pick a group, pin/select wells, or choose All." and no folder dialog opens.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-REP-13:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-REP-14 — DB Inspector: browse all 8 tables, page through
 **Tool/panel:** Database Inspector pane (src/ui/dbInspectorPanel.ts → src-tauri/src/db.rs get_table_page / TABLE_SPECS)
@@ -2344,7 +3538,13 @@ Shared preconditions for this cluster: app running via `npm run tauri dev`; a pr
 4. Note the scope caption per table.
 5. Deselect the well (or pick none) and revisit Standard Curves.
 **Expected:** Every table renders its whitelisted columns (Wells: well_id/well_name/field_name/td/kb; Standard Curves: depth/gr/res_deep/nphi/rhob/dt/sp; Computed Curves: depth/curve_name/value; etc.). Wells shows "(whole project)" scope; all others show "Well: {name}". Paging is 200 rows a step, pager arithmetic correct, ◀ disabled on the first page, ▶ on the last. Depths strictly increasing within a page; GR values plausible (roughly 0–250 gAPI); NULL cells visibly distinct. Step 5: the grid shows "Select a well in Wells & Tops to browse Standard Curves." — no crash.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-REP-14:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-REP-15 — DB Inspector: double-click edits in wells, standard_curves, zone_params — persist, refresh, undo
 **Tool/panel:** Database Inspector pane (src/ui/dbInspectorPanel.ts, pushUndo)
@@ -2356,7 +3556,13 @@ Shared preconditions for this cluster: app running via `npm run tauri dev`; a pr
 4. Press **Ctrl+Z** three times, watching the grid and status bar.
 5. Restart-check: re-do edit (1), restart the app, reopen DB Inspector ▸ Wells.
 **Expected:** Each commit: cell updates, status bar logs "edit {Table}.{column}: 'old' → 'new'". Step 2: the open Log View's GR trace shows the spike at that depth without manual refresh (dataVersion). Step 4: each Ctrl+Z reverts one edit in reverse order — grid values return, Log View spike disappears, zone param restores. Step 5: the (re-done) field_name edit survives restart — it is a real DB write. Esc during editing cancels without a write.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-REP-15:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-REP-16 — DB Inspector negatives: bad input, stale-row edit, read-only Aux Data
 **Tool/panel:** Database Inspector pane (dbInspectorPanel.ts → db.rs sample editors)
@@ -2367,7 +3573,13 @@ Shared preconditions for this cluster: app running via `npm run tauri dev`; a pr
 3. Stale-row: keep the Standard Curves grid on screen, then depth-shift or rewrite the well's curves elsewhere (e.g. Curve Editor depth shift), come back WITHOUT paging, and edit a now-moved row.
 4. Table = **Aux Data** → double-click any cell.
 **Expected:** (1) "Edit failed: 'abc' is not a number" in the status bar; the cell reverts; Ctrl+Z does NOT replay a phantom edit. (2) The cell empties and persists as NULL/MISSING (verify with SQL: the sample reads NULL). (3) The 0-row update must error ("no … sample matched depth …"), cell reverts, no bogus undo entry — covers REVIEW.md §Low-tier correctness & data-integrity sweep (2026-07-21), unchecked item "DB-inspector edit no longer reports success on a 0-row update". (4) Nothing happens — Aux Data has no editable columns (hint: re-import the file to change values) — covers REVIEW.md §P2-a — Tops-style imports, unchecked item "View it: Data → DB Inspector → table 'Aux Data'".
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-REP-16:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-REP-17 — SQL Query: starter query + provenance join computed_curves ↔ log_sets
 **Tool/panel:** SQL Query pane (src/ui/sqlQueryPanel.ts → src-tauri/src/db.rs run_readonly_query)
@@ -2379,7 +3591,13 @@ Shared preconditions for this cluster: app running via `npm run tauri dev`; a pr
    → Run.
 3. Run `SELECT * FROM standard_curves` on a big well.
 **Expected:** (1) One row per well: sample counts > 0, avg_gr plausible (~20–150 gAPI for Mahakam sand/shale), top < bottom matching the wells' logged intervals. (2) The join executes — every computed curve (VSH, PHIE, SWE, FLAG_*, …) appears against the well's log-set provenance rows (set_name/version/module tell you what run produced curves for that well); counts consistent with the Curve Catalog. (3) Result silently caps at the display limit ("1000 row(s)") rather than freezing the UI.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-REP-17:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-REP-18 — SQL Query rejects writes (negative)
 **Tool/panel:** SQL Query pane (src-tauri/src/db.rs run_readonly_query)
@@ -2392,7 +3610,13 @@ Shared preconditions for this cluster: app running via `npm run tauri dev`; a pr
 5. Run the CTE smuggle `WITH x AS (SELECT 1) DELETE FROM tops`.
 6. Re-run `SELECT COUNT(*) FROM tops`.
 **Expected:** (1)–(3) rejected before execution with "only SELECT queries are allowed here" in the results area; (4) rejected with "one statement at a time"; (5) starts with WITH so it passes the prefix check but must still fail as a SQL error from the read-only subquery wrapper — under no circumstance may it delete. (6) The tops count is unchanged from the start — zero rows were harmed. App stays responsive throughout; the status bar logs "Query failed: …" for each rejection.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-REP-18:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-REP-19 — Cross-check: theme switch repaints reporting & DB panes
 **Tool/panel:** All four panes × theme system (Project tab ▸ Theme select)
@@ -2402,7 +3626,13 @@ Shared preconditions for this cluster: app running via `npm run tauri dev`; a pr
 2. Switch to **Pertamina**, then back to **Default**.
 3. In Dark, re-export a composite PDF and reopen it.
 **Expected:** (1) Form labels, grids, status text, and pane chrome repaint live in every pane; the composite/report preview surface must NOT stay light grey in dark themes (page paper stays white by design — it is a print preview — but the surface around it follows the theme); DB grid rows/NULL styling remain readable. (2) Accent colors follow the client palette; no pane needs reopening. (3) The exported PDF is theme-independent: identical black-on-white print output with the same "Made in SandiBumi" branding regardless of UI theme. Covers REVIEW.md §Wave A-1: tool panes + theme compliance, unchecked theme-check item "…the composite preview surface is no longer light grey in dark themes".
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-REP-19:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -2429,7 +3659,13 @@ This cluster sweeps the tools and behaviours the first drafting pass missed: the
 6. If any gauge reads **n/a**, note which one (metrics are Windows-only, best-effort).
 7. Right-click empty space in the pane — the context menu heading must read **Performance**, and the pane must not offer Close (it is an anchor pane).
 **Expected:** Four live colour-coded gauges updating every ~1.5 s without flicker; n/a only for genuinely unavailable metrics; pane survives (cannot be closed) and keeps its width when other panes open/close. *(REVIEW.md ▸ "Hardware Health Monitor" — unchecked "[ ] Test: open Health → MEM/USER/GDI show live %; leave a few heavy panels open and watch GDI/USER climb". Note: REVIEW describes a GPU Memory gauge; the shipped panel replaced it with CPU — record what you actually see.)*
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-AUX-01:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -2443,7 +3679,13 @@ This cluster sweeps the tools and behaviours the first drafting pass missed: the
 4. Repeat the right-click help on a Log View and on the DB Inspector (its blurb must say "spreadsheet-style", not any vendor name).
 5. Confirm each help modal ends with the note "Illustrated help for each panel will open here in a later release."
 **Expected:** QAT ? and the right-click **Help for this panel…** entry open the same contextual guide; module panes show the method doc, other panels a short blurb; no vendor trademarks appear. *(REVIEW.md ▸ "Help (?) tool" — unchecked "[ ] click the ? in the top quick-access bar (or right-click any panel → Help for this panel…)"; and ▸ trademark scrub "hover the DB Inspector ribbon button + open Help → reads 'spreadsheet-style'".)*
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-AUX-02:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -2458,7 +3700,13 @@ This cluster sweeps the tools and behaviours the first drafting pass missed: the
 5. Open the **Processing History** pane (QAT clock button): a new **Edit** entry "Updated well header" attributed to this well.
 6. Restore the original TD.
 **Expected:** TD/KB always prefilled; a partial edit never wipes coordinates; History records the edit; Field Map marker does not move. *(REVIEW.md ▸ "[ ] Well Header shows current TD / KB … the field shows it, not an empty box" and ▸ Field Map "[ ] Tools ▸ Well Header on a located well → Surface X/Y/zone show the imported values (not blank); change only TD and Save → the coordinates survive".)*
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-AUX-03:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -2473,7 +3721,13 @@ This cluster sweeps the tools and behaviours the first drafting pass missed: the
 5. Pan and zoom the view — bands must track depth exactly (band edges stay glued to their depths), and curves must stay readable through the translucency. Tops lines must draw ON TOP of bands.
 6. Switch to well B in the Wells pane, then back to well A — all three bands reload at their depths.
 **Expected:** Bands render across all tracks, track pan/zoom, persist per well across well switches (they live in the `highlights` DB table). As a domain check: band depths should match the intervals you dragged to ±1 screen pixel of the depth axis. *(REVIEW.md ▸ "Highlight tool — colored depth bands in the Log View", sub-items (a)–(c), (g), unchecked.)*
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-AUX-04:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -2489,7 +3743,13 @@ This cluster sweeps the tools and behaviours the first drafting pass missed: the
 6. Double-click "Washout" → **Delete**. Band vanishes; the **Processing History** pane shows a **Highlights** entry ("Deleted highlight {top}–{bottom}"). **Ctrl+Z** restores it.
 7. Enter equal top and bottom depths in the dialog and Save → status "Highlight needs two different numeric depths", nothing written (negative check).
 **Expected:** Every add/edit/delete/convert is undoable and visible immediately; Convert to zone feeds the real zones table (pay summary sees it); degenerate depths are rejected. *(REVIEW.md ▸ Highlight tool sub-items (d)–(f), unchecked.)*
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-AUX-05:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -2506,7 +3766,13 @@ This cluster sweeps the tools and behaviours the first drafting pass missed: the
 5. Domain acceptance: shoe depths and perf intervals must match the completion report depths on the depth axis; the deeper string must be the narrower one.
 6. Pan/zoom — the diagram tracks depth like any curve track.
 **Expected:** Both aux imports succeed (History shows two Import entries; re-import replaces, not duplicates); the well-diagram track renders casing/shoe/perfs at the correct depths in the live view. *(REVIEW.md ▸ "Round 3 … (16) Well-diagram track", unchecked: "Try: import a COMPLETION CSV, add a track, set it to Well diagram.")*
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-AUX-06:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -2519,7 +3785,13 @@ This cluster sweeps the tools and behaviours the first drafting pass missed: the
 3. **Plot ▸ Deliverables ▸ Report…** — set a **Study title**, pick the same layout, **Render**, then **Save PDF…**. The composite pages inside the report carry the diagram track too.
 4. Compatibility: load an OLD saved layout (one created before this feature) via the **Plot ▸ Layout** selector — it must open normally, every track behaving as a Curves track (kind defaults to "curves"), no errors.
 **Expected:** Diagram renders identically in live view, composite SVG/PDF and report PDF; legacy layouts unaffected. *(REVIEW.md ▸ "(16) Well-diagram track … Renders in the log view and the composite/report SVG. Old saved layouts still load (kind defaults to 'curves')", unchecked.)*
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-AUX-07:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -2536,7 +3808,13 @@ This cluster sweeps the tools and behaviours the first drafting pass missed: the
 7. Delete the GWC row with **✕** — line disappears immediately.
 8. Restart the app (`npm run tauri dev` again) and reopen Correlation — the OWC contact persists (DB-backed).
 **Expected:** Contacts CRUD is immediate and persistent; scope controls which strips draw the line; colors honored. Domain check: the OWC must plot at the same measured depth on a vertical well's strip as the log feature (resistivity drop) you know it corresponds to. *(REVIEW.md ▸ "Round 3 … (9) Fluid contacts in Correlation", unchecked.)*
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-AUX-08:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -2552,7 +3830,13 @@ This cluster sweeps the tools and behaviours the first drafting pass missed: the
 6. Domain acceptance: on the deviated well, MD-vs-TVDSS displacement of the contact should be consistent with the well's deviation (MD deeper than TVD by roughly the cumulative 1/cos(inc) effect; sanity-check against the deviation listing).
 **Expected:** TVDSS-stored contacts flatten in TVDSS mode via each well's TVDSS curve; MD contacts flatten only in MD mode; the switch needs no refetch (instant). *(REVIEW.md ▸ "(9) … Try: open Correlation, add an OWC as TVDSS, switch MD↔TVDSS, watch it flatten", unchecked.)*
 **Known issue:** AUDIT-2026-07-21-full-qc.md (Importers B §1, CONFIRMED): "Deviation-survey TVD/TVDSS is computed and stored, but no code path ever exposes it as a fetchable curve". The Correlation pane builds its MD→TVDSS lookup from a curve literally named TVDSS (`names = [opts.curve, "TVDSS"]`); a deviated well whose TVDSS exists ONLY from Import Deviation "falls back to MD == TVDSS" (treated as vertical) — step 4's strip re-map will silently NOT happen unless the well's LAS/DLIS delivery itself carried a TVDSS curve. If step 4 shows no shift on the deviated well, record Fail and note whether Curve Catalog lists a TVDSS curve.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-AUX-09:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -2568,7 +3852,13 @@ This cluster sweeps the tools and behaviours the first drafting pass missed: the
 6. Let step 2 begin, then click **Cancel** → button text becomes "Cancelling…" and the run stops within a well or two; the job card phase shows **Cancelled**.
 7. Cross-check: any log view displaying VSH refreshes to show the wells that DID complete before cancel (dataVersion bumps on cancel), and the History pane records the chain run.
 **Expected:** Live per-well progress, honest step-boundary status, working shared Cancel, no second progress bar in the builder, stale-curve-free plots after cancel. *(REVIEW.md ▸ "[ ] Universal Processing panel — live per-well progress + Cancel", "[ ] Processing panel: the step-boundary 'pause' now says what it's doing", "[ ] Workflow Builder no longer shows its own redundant progress bar", and Round 3 "[ ] dataVersion refresh … on workflow-chain cancel/fail" — all unchecked.)*
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-AUX-10:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -2583,7 +3873,13 @@ This cluster sweeps the tools and behaviours the first drafting pass missed: the
 5. Click a failed well's row/card — the message text is readable and names the missing input (domain check: the message should let you diagnose "no NPHI" without opening the well).
 6. Negative-honesty check: pick one well with NPHI present but wholly NaN over the interval (or temporarily blank it via curve edit) and re-run scoped to that well — the run must report an error/Warned, NOT a green success. Undo any curve edit afterwards (Ctrl+Z).
 **Expected:** Compact per-reason failure cards at scale; per-well results only in Processing; all-MISSING output reported as failure. *(REVIEW.md ▸ "[ ] Bulk failure report", "[ ] Module form no longer lists per-well results", "[ ] Per-well detail lives in Processing → details", and Round 3 "[ ] All-NaN module runs report honestly" — all unchecked.)*
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-AUX-11:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -2599,7 +3895,13 @@ This cluster sweeps the tools and behaviours the first drafting pass missed: the
 6. Toggle **List** ↔ **Grid** repeatedly: values, badges and invalid-input flagging identical in both; reopen the Workflow pane — the last view choice is remembered.
 7. Type a name in the **workflow name** box, click **Save**. Click **Load** on it: the grid reloads with IDENTICAL values, tints and badges (saved-JSON shape unchanged). **Run chain** on one pinned well to prove the loaded chain executes.
 **Expected:** One-edit fan-out with range-checked skips, amber only-store-differences override accounting, view parity, and byte-stable save/reload. *(REVIEW.md ▸ "Wave A-4: workflow grid inspector" — all five sub-items unchecked.)*
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-AUX-12:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -2615,7 +3917,13 @@ This cluster sweeps the tools and behaviours the first drafting pass missed: the
 6. Cleanup: undo the remaining edits.
 **Expected:** A 6-deep mixed stack walks down and up losslessly with correct labels; a new edit after partial undo invalidates redo (`pushUndo` clears the redo branch); stack cap is 100 so nothing rolls off here.
 **Known issue:** AUDIT-2026-07-21-full-qc.md (Curve edit / undo §2, CONFIRMED): "restore_curve_values (the undo path) has no staleness/version check — an old edit's Ctrl+Z can silently overwrite a curve that's been legitimately recomputed since, and the frontend never checks how many samples actually got restored." If you interleave a module recompute of the edited curve between step 1(e) and the undo walk, the step-2 undo of (e) may splice stale pre-run values into the fresh curve and still report success — do NOT interleave recomputes in this test's main path; optionally probe it and note the result.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-AUX-13:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -2631,7 +3939,13 @@ This cluster sweeps the tools and behaviours the first drafting pass missed: the
 6. Theme cross-check: **Project ▸ Theme ▸ Dark** (then back) — both canvases repaint to the new palette immediately, bands/tops/core overlays included.
 7. Domain acceptance: after step 5 the VSH curve in both views must be identical sample-for-sample (cursor readout at the same depth shows the same value in both).
 **Expected:** N independent viewports/layouts over one well; a single recompute refreshes every instance via dataVersion; theme repaint hits all canvases.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-AUX-14:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -2647,7 +3961,13 @@ This cluster sweeps the tools and behaviours the first drafting pass missed: the
 6. Probe: with the module pane still open, pin a third well, then reselect **★ Pinned** / press Run — the run must include 3 wells (the scope "resolves against live state at run time").
 7. Unpin all but your usual set.
 **Expected:** Stars persist; ★ Pinned scope resolves exactly the pinned set at run time; provenance and History confirm only in-scope wells were written. *(REVIEW.md ▸ "[ ] ★ pin a well in the Wells pane" and ▸ "Well scope — no more well-by-well checklists" with "Group · ★ Pinned · Selection · All · Custom…", and Round 3 "[ ] History attribution" — unchecked.)*
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-AUX-15:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -2662,7 +3982,13 @@ This cluster sweeps the tools and behaviours the first drafting pass missed: the
 5. Regression probe: rename **Output curve** to `np`, Run → must error cleanly (reserved-namespace collision), not crash the worker.
 6. Cleanup: delete the EQUATION-set curve (Curve Catalog / log-set delete) and Ctrl+Z anything else.
 **Expected:** A no-op in-place script is rejected loudly; a real in-place edit passes; `np`/`numpy` output names cannot crash the engine; success bumps dataVersion. *(REVIEW.md ▸ Round 3 "[ ] Python in-place equation guard … (Also fixed a worker crash when the output was named np/numpy.)" and "[ ] dataVersion refresh after equation … runs" — unchecked.)*
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-AUX-16:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -2679,7 +4005,13 @@ This cluster sweeps the tools and behaviours the first drafting pass missed: the
 5. Rhai-path variant: switch Language to Rhai (legacy), script `nphi * 1.0`, input `NPHI` → on the NPHI-less well the run must fail per-well with "equation produced no finite output — check the input/output curve name(s) resolve to data", not a clean success.
 6. Cleanup: delete the PHIN_TEST curves.
 **Expected:** Runtime errors surface per well in the Processing job with actionable messages; healthy wells complete and write; all-NaN outputs are never written as success. *(REVIEW.md ▸ Round 3 "[ ] All-NaN module runs report honestly … Same guard on Rhai + Python equations (an unresolvable input/output curve → error, not a clean success)" — unchecked.)*
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-AUX-17:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -2694,7 +4026,13 @@ This cluster sweeps the tools and behaviours the first drafting pass missed: the
 5. Sanity re-check the happy path is intact: import a known-good DLIS → "Imported N curve(s), M samples into {well}." plus a History **Import** entry, and if it replaced same-named DLIS curves the status appends "(replaced K existing curve(s))".
 6. With no well selected, open Import DLIS → status "Select a well first (Wells & Tops panel)" and no file picker.
 **Expected:** A clean, specific failure message; zero partial writes, zero orphan wells, zero phantom History entries; guard when no well is selected. *(REVIEW.md ▸ "[ ] DLIS null sentinels + no silent overwrite" and import-robustness batch 2 "(3) DLIS import sanitizes each frame's depth … so one bad sample can't abort the file" — unchecked.)*
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-AUX-18:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -2711,7 +4049,13 @@ This cluster sweeps the tools and behaviours the first drafting pass missed: the
 6. Pick **Other / custom** → the σcosθ field CLEARS and focuses (no stale preset silently stored). Click **Import & Fit** with it empty → refused with "Lab sigma·cosθ must be a positive number." and nothing imported.
 7. Cancel out (✕) without importing — the well's existing `scal_pc` data must be untouched (an import that parses zero points refuses the replace-write).
 **Expected:** Blank-WELL rows skip-and-report instead of misrouting; the mixed-fluid-system warning path (single system select + doc warning + cleared σcosθ on Other) blocks a biased pooled J-fit; no partial/empty replace-writes. *(REVIEW.md ▸ Field Map "[ ] Import a file that has a WELL column but a blank cell in one row → that row is skipped and surfaced as '1 blank-WELL row(s)'", and ▸ SCAL importers post-review hardening items (1) zero-point refuse, (5) Other clears σcosθ, plus "The dialog also now warns: ONE lab fluid system per import" — unchecked.)*
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-AUX-19:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -2726,7 +4070,13 @@ This cluster sweeps the tools and behaviours the first drafting pass missed: the
 5. Switch **Project ▸ Language ▸ Basa Jawa**: Save→Simpen, Reload→"Muat manèh" (spot-check any dialog), then back to **English** → every label reverts exactly to source (originals are remembered, not re-translated).
 6. Repaint check: while in a non-English locale open and close two more dialogs — no mixed-language flicker or stuck translations (the MutationObserver translates late-added DOM too).
 **Expected:** Dialog-level translation works beyond the ribbon for all dictionary-covered generic vocabulary; petrophysics jargon and curve mnemonics stay English by design; the PDF deliverable keeps English section headers; round-trip back to English is lossless. *(REVIEW.md ▸ "[ ] Bahasa Jawa (jv) added + fuller Bahasa Indonesia / Basa Sunda … petrophysics jargon still stays English by design … switch back to English → everything reverts from source" and ▸ "[ ] Bahasa Indonesia / Basa Sunda: the new labels translate (Impor Log / Impor Data / Alat)" — unchecked.)*
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-AUX-20:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -2747,7 +4097,13 @@ All source reading done — I verified every label against `index.html`, `ribbon
 2. **Data → Import Logs ▾ → Import LAS…**, multi-select all 4+ LAS files, open.
 3. Watch the status bar, then the Wells pane and History panel.
 **Expected:** status line "Importing N LAS file(s)..." then "Imported N/N well(s)."; all wells appear in the Wells pane; History shows an "Import" entry ("Imported N/N LAS well(s)") plus one entry per depth-warning well if any; **Data → Curve Catalog** for a selected well lists GR/RHOB/NPHI/RES_DEEP etc. with units and sample counts matching the LAS.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-INT-01:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-INT-02 — Duplicate LAS re-import warns (negative)
 **Tool/panel:** LAS importer (`src/ui/ribbon.ts` handleImport; backend `import.rs`)
@@ -2755,7 +4111,13 @@ All source reading done — I verified every label against `index.html`, `ribbon
 **Steps:**
 1. **Data → Import Logs ▾ → Import LAS…** and re-import one of the SAME files from T-INT-01.
 **Expected:** the import completes but the status/History carries an "already exists" duplicate-name warning; a separate well record is created (merge is deliberate, not automatic) — you should see the warning, not a silent second copy. Covers REVIEW.md §Round 4 — "LAS duplicate-name warning". Delete the duplicate well afterwards to keep the project clean.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-INT-02:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-INT-03 — Tops import → zones from tops (+ empty-well negative)
 **Tool/panel:** Import Tops + Zones pane (`src/ui/ribbon.ts`, `src/ui/zonesDialog.ts`)
@@ -2766,7 +4128,13 @@ All source reading done — I verified every label against `index.html`, `ribbon
 3. Check the Zones table against the known formation tops.
 4. Negative: select a well the CSV did not cover, open **Zones…**, click **From Tops**.
 **Expected:** (2) status "Built N zone(s) from tops for <well>"; zone Top/Bottom depths match the tops, zones are contiguous top-down; History gets a "Zone" entry per action. (4) "Built 0 zone(s)…" and the table shows `No zones — use "From Tops" or add one below.` — no crash, no phantom zones.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-INT-03:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-INT-04 — Conditioning prep: gr_normalize → badhole → condflag → precalc
 **Tool/panel:** Module panes from Petrophysics → Data Prep ▾ (`src/ui/moduleDialog.ts`, `src-tauri/src/modules.rs`)
@@ -2777,7 +4145,13 @@ All source reading done — I verified every label against `index.html`, `ribbon
 3. **Data Prep ▾ → Data Conditioning Flags**: defaults; **Run**.
 4. **Data Prep ▾ → Pre-Calculation (P / T / Rmf / Ct / Cxo)**: defaults; **Run**.
 **Expected:** each Run: the Processing panel comes forward with a job (kind "Module", progress bar, Cancel), the pane shows one line "All N well(s) computed. Per-well details are in the Processing panel." (no per-well list in the form — covers REVIEW.md §Module-panel cleanup); Curve Catalog gains GRN, BADHOLE, COND_FLAG, precalc outputs with Module/Source and Set `INTERP v1`; History gets a "Module" entry per run. Petrophysics check: GRN preserves GR character but well-to-well histograms now overlay at P3/P97; BADHOLE = 1 exactly where DRHO > 0.05 g/cc or |CALI−BS| > 1 in.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-INT-04:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-INT-05 — Interpretation chain by hand: vsh → phi → sw → perm, each feeding the next
 **Tool/panel:** Module panes (`src/ui/moduleDialog.ts`) + Log View (`src/ui/logViewPanel.ts`)
@@ -2789,7 +4163,13 @@ All source reading done — I verified every label against `index.html`, `ribbon
 4. **Permeability ▾ → Permeability — Wyllie-Rose**: PHIE = **PHIE**; **Run**.
 5. After each run, look at the open Log View.
 **Expected:** every step's input dropdown already offers the previous step's outputs (persistent-pane refresh); after each Run the open Log View repaints with the new curve (dataVersion) without reopening. Petrophysics: VSH ∈ [0,1], high in shales, low in clean sand; PHIE ≤ PHIT ≤ PHIE_MAX (0.30 default) and mirrors VSH inversely; SWE ∈ [0,1], ≈1 in wet/shale intervals, low in pay; PERM > 0 mD, orders-of-magnitude range tracking PHIE. Masked (BADHOLE=1) intervals are blank in ALL outputs. Curve Catalog: each output row shows module, `INTERP` version, timestamp; Constellations list grows one version per run.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-INT-05:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-INT-06 — Negative trio: missing curve, out-of-range param, empty scope
 **Tool/panel:** Module panes (`src/ui/moduleDialog.ts`)
@@ -2799,7 +4179,13 @@ All source reading done — I verified every label against `index.html`, `ribbon
 2. In **VSH from Gamma Ray**, type GR_SH = `2000` (max 1000) and **Run**.
 3. Set scope = **Selection** with nothing selected in the Wells pane and **Run**.
 **Expected:** (1) the run is reported as an error/⚠ Warned in the Processing panel — NOT a green all-wells-computed success (an all-NaN output must not pass as success; covers REVIEW.md §Round 4 — "All-NaN module runs report honestly"). (2) inline validation "GR_SH: value must be between 0 and 1000." and no run starts. (3) "No wells in scope — pick a group, pin/select wells, or choose All." and no run starts. No crash in any case.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-INT-06:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-INT-07 — Cutoffs & Pay Summary + History/flags cross-check
 **Tool/panel:** Cutoffs & Summary pane (`src/ui/summaryDialog.ts`)
@@ -2808,7 +4194,13 @@ All source reading done — I verified every label against `index.html`, `ribbon
 1. **Petrophysics → Cutoffs & Summary…**; scope = **All**; VSH ≤ 0.5, PHIE ≥ 0.1, SWE ≤ 0.6 (or your study cutoffs); click **Compute Summary**.
 2. Inspect the table; then check History and the Curve Catalog.
 **Expected:** per-well per-zone rows with SAND/RESERVOIR/PAY flags; Net ≤ Gross, 0 ≤ N/G ≤ 1, Avg VSH/PHIE/SWE inside their cutoff-consistent ranges, HPV ≈ Net·PHIE·(1−SWE); empty aggregates show "—" not a crash. Status "Pay summary: N rows; FLAG curves written". History gains a "Pay Summary" entry with the cutoffs (covers REVIEW.md §Round 4 — "Pay Summary → Processing History"); FLAG_SAND/FLAG_RESERVOIR/FLAG_PAY appear in the Curve Catalog (PAYFLAG set) and any open Log View showing them refreshes.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-INT-07:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-INT-08 — Composite + Report PDF; report numbers must equal the on-screen pay summary
 **Tool/panel:** Composite + Report dialogs (`src/ui/compositeDialog.ts`, `src/ui/reportDialog.ts`)
@@ -2819,7 +4211,13 @@ All source reading done — I verified every label against `index.html`, `ribbon
 3. Compare the report's pay-summary page numbers (Net, N/G, Avg PHIE/SWE, HPV per zone) against the Cutoffs & Summary table.
 4. After the report run, glance at an open plot/log view.
 **Expected:** composite pages cover the full logged interval at true print scale with correct depth annotation; the report PDF has cover + methodology + zone parameters + pay summary + composite pages; **every pay-summary number in the PDF matches the on-screen table digit-for-digit** (same cutoffs, same wells). Open panels refresh after the report run and a History entry appears (covers REVIEW.md §Round 4 — "dataVersion refresh after … report runs").
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-INT-08:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-INT-09 — Well-group scoping end-to-end (3-well group)
 **Tool/panel:** Well Groups manager + Wells pane group bar + module pane scope (`src/ui/wellGroups.ts`, `src/ui/objectTree.ts`, `src/ui/wellScope.ts`)
@@ -2830,7 +4228,13 @@ All source reading done — I verified every label against `index.html`, `ribbon
 3. NOW open a batch pane you had NOT opened since activation (e.g. **Petrophysics → VSH ▾ → VSH from Gamma Ray**): the Wells scope row must default to **Group** mode showing "3 wells" (hover the count for names).
 4. **Run**; then per well check the Curve Catalog: the 3 members have new VSH; the 4th well must NOT.
 **Expected:** scope defaults to the active group with exactly 3 wells; run writes curves ONLY to the 3 members; the module form reports "All 3 well(s) computed…"; History entry reads "Ran VSH from Gamma Ray on 3 wells" (batch attributed correctly, not to the globally-selected well — covers REVIEW.md §Round 4 — "History attribution").
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-INT-09:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-INT-10 — Switch active group WITH a batch pane already open (negative)
 **Tool/panel:** Workflow Builder + Wells pane group dropdown (`src/ui/workflowDialog.ts`, `src/ui/wellScope.ts`)
@@ -2842,7 +4246,13 @@ All source reading done — I verified every label against `index.html`, `ribbon
 4. Check which wells actually received curves.
 **Expected (desired):** the open pane re-scopes to `UAT-South` and the run covers only its wells.
 **Known issue:** AUDIT-2026-07-21-full-qc.md, §Substrate — well-group scoping sweep #1: "No batch-run dialog re-scopes to a new active well group while it's already open — only the Wells sidebar tree and Map pane react live to a group switch." Expect the pane to keep showing `UAT-North` and the run to silently compute the OLD group's wells with no error — log as known, record which panes you see it in (module panes, Workflow, Monte Carlo, Cutoffs, Report all share the same scope control).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-INT-10:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-INT-11 — Constellation versioning round-trip: two vsh_gr runs, restore v1, downstream consumes it
 **Tool/panel:** Module pane + Curve Catalog Constellations (`src/ui/moduleDialog.ts`, `src/ui/inspectorPanel.ts`)
@@ -2854,7 +4264,13 @@ All source reading done — I verified every label against `index.html`, `ribbon
 4. Click **Restore** on `TEST v1`.
 5. Run **Porosity from Density** (VSH input = VSH) on well 1 and read PHIE in the shaly interval.
 **Expected:** two versions coexist — nothing overwritten ("Constellations — every run is kept as a version"). After step 2 VSH is HIGHER in shaly beds (lower GR_SH inflates VSH). Restore shows "Version restored (N samples back in the current curves)", bumps every open panel, and VSH drops back to the v1 (GR_SH=120) values. Step 5's PHIE matches a v1-VSH computation (higher PHIE in shaly beds than it would be under v2) — proving downstream modules consume the restored values, and the Curve Catalog shows the new PHIE version's provenance.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-INT-11:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-INT-12 — Session round-trip: busy workspace → save → close app → reopen → restore
 **Tool/panel:** Quick-access Save/Open Session + workspace (`src/ui/ribbon.ts`, `src/ui/workspace.ts` snapshotSession/applySession)
@@ -2866,7 +4282,13 @@ All source reading done — I verified every label against `index.html`, `ribbon
 4. Close the app entirely (window ✕), relaunch `npm run tauri dev`, then **Open Session…** → `UAT Busy` again.
 5. **Project → Theme** → switch to Dark (then back).
 **Expected:** (3) and (4): every pane returns in its arrangement, the session's well (well 2) is active everywhere, the Log View's customized layout is back (not the default), and the plots reopen with their curve choices/zone and persisted plot properties; status "Opened session \"UAT Busy\""; History records the session save/open. (5) every canvas panel — log view, plots, correlation — repaints immediately in the new theme with no stale colors (themeVersion).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-INT-12:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PERF-01 — App launch time on the big field project
 **Tool/panel:** app shell + Wells pane (`src/main.ts`, `src/ui/objectTree.ts`)
@@ -2875,7 +4297,13 @@ All source reading done — I verified every label against `index.html`, `ribbon
 1. Launch; stopwatch from window appearing to (a) status bar "Ready" and (b) the Wells pane fully populated.
 2. Click through the 6 ribbon tabs and open the Curve Catalog on one well.
 **Expected:** launch completes without white-screen hangs or "not responding"; well tree scrolls smoothly at 540 wells; ribbon stays responsive during load. Record (a)/(b) seconds in Notes — ROADMAP #128/#129 need this baseline.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______ s to Ready, ______ s to well tree
+**Result — T-PERF-01:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______ s to Ready, ______ s to well tree
 
 ### T-PERF-02 — Single-module run across ALL wells: UI responsiveness + Cancel
 **Tool/panel:** VSH from Gamma Ray module pane + Processing panel (`src/ui/moduleDialog.ts`, `src/ui/processingPanel.ts`, `src-tauri/src/lib.rs` run_workflow_module)
@@ -2887,7 +4315,13 @@ All source reading done — I verified every label against `index.html`, `ribbon
 4. Re-run and press **Cancel** in the Processing panel mid-run.
 **Expected:** the window stays draggable/responsive for the whole run; the Processing panel shows a live "Module" job with per-well progress and an integrated Cancel; Cancel stops within a well or two. Record total run seconds in Notes.
 **Known issue:** AUDIT-2026-07-21-full-qc.md, §VSH #1: "vsh_gr / vsh_dn standalone module runs never leave the Tauri main thread … no Processing-panel progress and no Cancel" (also §Prep statistical #3, "run_workflow_module … is still a synchronous main-thread-blocking command"). Note: current code contains a post-audit conversion (`run_workflow_module` now routed through the background job registry), so this may in fact pass — if the app DOES freeze with no Cancel, log it as this known finding, not a new bug; if it stays responsive, mark the finding field-verified fixed.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______ s, responsive: Y/N
+**Result — T-PERF-02:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______ s, responsive: Y/N
 
 ### T-PERF-03 — Full workflow chain across all wells: speed + live progress
 **Tool/panel:** Workflow Builder + Processing panel (`src/ui/workflowDialog.ts`, `src/ui/processingPanel.ts`)
@@ -2896,7 +4330,13 @@ All source reading done — I verified every label against `index.html`, `ribbon
 1. **Petrophysics → Workflow…**; add steps **VSH from Gamma Ray → Porosity from Density-Neutron → SW — Indonesia (Poupon-Leveaux)**; scope = **All**; Output cons `PERFTEST`; **Run chain**.
 2. During the run: drag the window; watch the Processing panel's "Step k/3: <module>" line, the counts row, and the boundary "Writing N well(s)…" message.
 **Expected:** the chain on ~540 wells finishes in **seconds to a low number of minutes, not 30 min**; the window never goes "not responding"; the progress bar advances per well; step boundaries read "Writing N well(s)…" instead of sitting frozen; on completion the builder shows "Done: 3 steps, N curves across N wells" and open panels refresh. Covers REVIEW.md §540-well test — "Workflow chain runs without freezing…", "A chain of many wells now finishes in seconds…", "Processing panel: the step-boundary pause…". Record seconds/step in Notes.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______ s total
+**Result — T-PERF-03:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______ s total
 
 ### T-PERF-04 — Cancel a 540-well chain mid-run
 **Tool/panel:** Workflow Builder / Processing panel Cancel (`src/ui/workflowDialog.ts`, `src/ui/processingPanel.ts`)
@@ -2906,7 +4346,13 @@ All source reading done — I verified every label against `index.html`, `ribbon
 2. Time Cancel-press → "Cancelled at step N".
 3. Look at the open Log View and Curve Catalog afterwards.
 **Expected:** cancel drains "in a well or two" (≈ seconds, not minutes); the bar clears; both Cancel buttons drive the same flag. Wells that completed BEFORE the cancel keep their committed step-1/2 curves (by design), and the open Log View/plots REFRESH to show them — no stale pre-run display (covers REVIEW.md §Round 4 — "dataVersion refresh … on workflow-chain cancel/fail" and §540-well test cancel items). Record cancel latency in Notes.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______ s to cancel
+**Result — T-PERF-04:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______ s to cancel
 
 ### T-PERF-05 — Field Dashboard compute on all wells
 **Tool/panel:** Field Dashboard (`src/ui/dashboardPanel.ts`)
@@ -2915,7 +4361,13 @@ All source reading done — I verified every label against `index.html`, `ribbon
 1. **Petrophysics → Field Dashboard…**; set cutoffs; **Compute**.
 2. Tweak one cutoff, **Compute** again. Sort by a column; **Export CSV**.
 **Expected:** compute across ~540 wells takes **seconds, not minutes** (stats-only — it must NOT write FLAG curves; verify no new FLAG versions pile up in a well's Curve Catalog); grid renders with "—" for empty/NaN aggregates and no `toFixed` crash; re-compute is equally fast; N/G ∈ [0,1] everywhere. Covers REVIEW.md §540-well test — "Field Dashboard no longer crashes…" and "Field Dashboard is fast now". Record seconds in Notes.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______ s
+**Result — T-PERF-05:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______ s
 
 ### T-PERF-06 — Correlation with 20+ strips
 **Tool/panel:** Correlation panel (`src/ui/correlationPanel.ts`)
@@ -2925,7 +4377,13 @@ All source reading done — I verified every label against `index.html`, `ribbon
 2. Pick the shared curve (GR/GRN); flatten on a common datum top.
 3. Pan/zoom the depth axis; hover; switch **Project → Theme** once.
 **Expected:** 20+ strips render with tops connectors and the datum flattened to a level line ("(no datum)" labels only on wells genuinely lacking it); pan/zoom stays interactive (no multi-second repaints); the theme switch repaints the canvas immediately. Geology check: correlatable markers align horizontally after flattening. Record redraw feel/seconds in Notes.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PERF-06:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PERF-07 — Crossplot dense-cloud pan/zoom after the memoized-color fix
 **Tool/panel:** Crossplot panel (`src/ui/crossplotPanel.ts` computeCrossplotColors memoization)
@@ -2935,7 +4393,13 @@ All source reading done — I verified every label against `index.html`, `ribbon
 2. Drag-pan, Ctrl+wheel-zoom, drag the parameter handle, and hover from a Log View — continuously for ~10 s each.
 3. Switch the Color curve and colormap.
 **Expected:** motion stays smooth on the dense cloud (colors are memoized — pan/zoom/hover must NOT re-sort percentiles per frame); colors, color-bar range and legend unchanged during motion; switching Z/colormap recolors immediately; a module re-run recolors against new data. Covers REVIEW.md §Performance (field-scale speed) — "Crossplot: Z coloring memoized across pan/zoom/hover". Note any stutter in Notes.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-PERF-07:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-PERF-08 — DB size / WAL behavior + force-kill while IDLE (crash recovery)
 **Tool/panel:** DuckDB project file + crash-recovery flow (`src/autosave.ts`, `src-tauri/src/db.rs` WAL recovery)
@@ -2946,7 +4410,13 @@ All source reading done — I verified every label against `index.html`, `ribbon
 3. Relaunch. At the abnormal-exit prompt choose **restore the autosaved workspace** (first run) — later repeat once choosing **Safe Mode**.
 4. Open the Curve Catalog and the DB Inspector; spot-check counts against pre-kill.
 **Expected:** relaunch detects the abnormal exit and offers restore/Safe Mode (Safe Mode stashes the autosave as a "Recovered …" session — nothing silently lost); the project opens with NO corruption — every well, curve version and history entry from before the kill is intact; any WAL replays silently (a corrupted-WAL fallback would recover from the last checkpoint and say so in the console — report that if seen). DB size should be broadly proportional to data (hundreds of MB is plausible at 540 wells; note it for the versioning-growth baseline).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** DB ______ MB, WAL present: Y/N, recovery: ______
+**Result — T-PERF-08:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** DB ______ MB, WAL present: Y/N, recovery: ______
 
 ---
 
@@ -2976,7 +4446,13 @@ over the WebView2 debug port with the PR's CSP applied: full UI rendered (12 rib
 dockview, QAT), policy proven LIVE (deliberate probe violations quote it: remote fetch blocked
 by connect-src, injected inline script refused by script-src), zero unexpected violations.
 Run it once yourself for the release build, but expect green.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-SHIP-01:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-SHIP-02 — CSP-sensitive features in the packaged app
 **Tool/panel:** Vega panel (needs `'unsafe-eval'`), Equation Editor, Composite PDF
@@ -2994,7 +4470,13 @@ silently doing nothing — if one does, note which feature and check the webview
 rendered — the `marks` canvas has painted pixels; zero violations). Equation Editor and
 Composite-PDF legs still need your click (they run through the Rust backend, so CSP risk
 is minimal — this is a general packaged-mode smoke, not a CSP question).
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-SHIP-02:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-SHIP-03 — R30: missing perm curve fails loudly, never computes on GR
 **Tool/panel:** Lorenz, SHF fit, Facies tie-in dialogs (`plotCommon.preferredCurveSelect`)
@@ -3007,7 +4489,13 @@ is minimal — this is a general packaged-mode smoke, not a CSP question).
 **Expected:** step 2 fails with the backend's own message naming the curve ("permeability
 curve 'PERM' has no data in this well") — NOT a plausible-looking result silently computed
 on GR. REVIEW.md Round 90 has the full story.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-SHIP-03:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-SHIP-04 — R-A: the project carries a format stamp
 **Tool/panel:** SQL Query panel (`db.rs` `check_and_stamp_format`)
@@ -3017,7 +4505,13 @@ on GR. REVIEW.md Round 90 has the full story.
 2. SQL Query panel: `SELECT * FROM project_meta`.
 **Expected:** two rows — `format_version` = 1, `written_by` = SandiBumi 0.1.0. The refusal
 path (newer file on older build) is cargo-tested; no manual setup can produce it today.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-SHIP-04:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-SHIP-05 — R-B: destructive migration backs up first; normal opens write nothing
 **Tool/panel:** project open path (`db.rs` `backup_before_destructive_migration`)
@@ -3029,7 +4523,13 @@ project copy that still has the old computed_curves PRIMARY KEY.
 **Expected:** step 1: NO new `*-backup.duckdb` appears, launch is not slower — absence is
 the pass. Step 2: a `<name>.pre-1-backup.duckdb` appears BEFORE the rebuild and the launch
 log announces it; the backup opens as a valid project if pointed at directly.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-SHIP-05:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ### T-SHIP-06 — The green gate from your own shell
 **Tool/panel:** `tools/check.ps1`
@@ -3041,7 +4541,13 @@ log announces it; the backup opens as a valid project if pointed at directly.
 edit) fails `ssc_swirr_floor_pads_capillary_water` — the tree is honestly RED until that
 session reconciles its test. With that one file stashed the gate is green (378/0/7 as of
 `0ba199b`). Log as known, not new.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-SHIP-06:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
 
@@ -3062,6 +4568,12 @@ vanished). Full story: REVIEW.md Round 94.
 **Realtime status (2026-07-29):** ✅ machine-verified on the packaged exe by the exact
 failing scenario (import → ✕ → relaunch: well persists, no WAL, no corrupt-backup). Run it
 once on real data for confidence.
-**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+**Result — T-SHIP-07:**
+
+- [ ] Pass
+- [ ] Fail
+- [ ] Blocked
+
+**Notes:** ______
 
 ---
