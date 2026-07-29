@@ -54,7 +54,13 @@ convert. Both sites are increment 2, together with the view toggle.
 
 - [ ] **Try:** import a metric LAS into a fresh project, then a foot-indexed one. The second should import with a note that the depth index was converted, and its tops should line up with the first well's in correlation rather than sitting thousands of units away.
 - [ ] **Try:** import a LAS whose `~C` block declares no index unit — expect the note "this file declares no index unit — depths assumed to be m".
-- [ ] **Tell me:** are your Rokan/Central-Sumatra projects ones you'd want declared in **feet** (keeping the depths you know) or converted to metres? That decides whether the increment-2 Pc fix is urgent for you or merely correct.
+**Answered (2026-07-29): feet.** Rokan/Central-Sumatra projects will be declared in FEET, keeping
+the depths you know. That makes the increment-2 Pc fix **live rather than theoretical** — a
+foot-declared project returns a saturation-height Pc 3.28× too high until it lands. You have
+deferred it to your manual-test pass of the saturation-height section, which is a reasonable
+call because it surfaces in testing rather than in a deliverable. The one rule that follows:
+**do not trust or ship an SHF/`sw_height` result from a foot-declared project until increment 2
+is in.** Metric projects are unaffected.
 
 ## Round 97 — SHELL field-test fixes: Pin OFF, plot right-click, repeat reload key (2026-07-29)
 

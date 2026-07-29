@@ -747,6 +747,11 @@ _(field-review tier, was "P2"; the rest of the tier is done in [A8](#a8-field-re
       inside `ModuleContext`; the two production construction sites are `workflow.rs:320` and
       `montecarlo.rs:1128` (the other ~15 are test helpers, so a reserved opts key beats widening
       the struct). **Silent numeric error — do not delegate.**
+      **LIVE, not theoretical (Jauhar, 2026-07-29): he will declare Rokan/Central-Sumatra
+      projects in FEET**, so every saturation-height run on those projects returns a Pc 3.28×
+      too high until this lands. He has deliberately deferred it to his manual-test pass of the
+      saturation-height section — so it must be fixed BEFORE any foot-project SHF result is
+      trusted or shipped, and this is the highest-priority item in increment 2.
       (b) **`LogCanvasRenderer.PX_PER_UNIT_1_1`** (96/0.0254) hardcodes metres, so every named
       1:N print scale is mislabelled by 3.28× on a foot project.
       (c) **The view toggle** Jauhar asked for: `appState.displayDepthUnit`, independent of the
