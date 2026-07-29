@@ -7,6 +7,44 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 90 — R30: three dialogs silently computed on GR when the curve they wanted was missing (2026-07-29)
+
+From the F1 sweep (finding #4), verified still open against live code before touching anything.
+Three dialogs — **SMLP/Lorenz**, **SHF fitting**, and **Facies tie-in** — had byte-identical private
+copies of a curve-dropdown builder that walked the catalog and pre-selected the first "preferred"
+name it found (`PERM`, `PHIE`, `TVDSS`, …). The trap was the miss path: **when none of the
+preferred names existed in the well, it selected nothing — and an unset `<select>` falls back to
+option 0 of the catalog, which is deterministically GR** (the catalog seeds `GR, RES_DEEP, NPHI,
+RHOB, DT, SP` ahead of everything else). GR in gAPI (20–150) is numerically indistinguishable from
+permeability in mD, so the Lorenz backend — which *does* guard honestly ("permeability curve 'PERM'
+has no data in this well") — never got the chance to refuse: the dialog handed it a curve that
+**did** have data, and it computed a fully plausible Lorenz coefficient and flow-unit table from
+gamma ray. A clean cardinal-rule violation: a wrong result indistinguishable from a right one.
+
+Fixed by deleting all three private copies and routing the **9 call sites** through one shared
+helper (`plotCommon.ts preferredCurveSelect`): when no preferred curve exists, the first preferred
+name (e.g. `PERM`) stays **selected and visible** in the dropdown — `curveSelect` prepends it as a
+real option — so the run reaches the backend's own guard and fails loudly with the named curve,
+instead of silently substituting GR. Bonus from the shared path: the private copies never set
+`.form-control`, so all 9 dropdowns were also unstyled (the R13 defect class); they now match the
+rest of the app. Two legs of the original report were corrected during verification and are noted
+for honesty: the faciesTie leg was already *functionally* dead (the backend errors when predicted
+== reference, which is what the double-GR fallback produced), and the headline TVDSS example was
+weak (shf_fit drops non-positive heights) — the real damage was Lorenz-PERM and SHF-PHIE.
+
+Verified: `tsc` + `vite build` clean; browser functional test against the real modules
+(vite-only, server stopped afterward): catalog-without-PERM now yields a dropdown showing `PERM`
+(7 options, styled), not GR; a catalog containing the preferred curve selects it with no duplicate
+option; the full Lorenz dialog builds with φ=`PHIE`, k=`PERM` on an empty catalog.
+
+- [ ] **Try:** open **Petrophysics → Rock Typing → SMLP / Lorenz…** on a well that has **no**
+  permeability curve computed or imported. The Permeability (k) dropdown must show **PERM** (not
+  GR). Click **Run** — you must get *"permeability curve 'PERM' has no data in this well"*, not a
+  plot. Then compute/import a PERM and reopen — it should be found and selected as before. Same
+  shape in **SHF fitting** (φ shows PHIE on a bare well) and **Facies tie-in**. All curve dropdowns
+  in these three dialogs now also render with the app's styled look instead of the native browser
+  select.
+
 ## Round 88 — R29: the Equation Editor leaked a whole CodeMirror editor every time you closed it (2026-07-25)
 
 Sixth F5 fix, and a pure hygiene one — nothing renders wrong, no result goes stale, no data is at

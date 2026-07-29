@@ -8,6 +8,7 @@ import {
 } from "../ipc";
 import { formRow } from "./modal";
 import { canvasFont, readTheme } from "./plotCanvas";
+import { preferredCurveSelect } from "./plotCommon";
 import { recordProcess } from "../processLog";
 import { buildWellScope } from "./wellScope";
 
@@ -61,21 +62,9 @@ export async function buildShfContent(
     ),
   );
 
-  const curveSel = (preferred: string[]): HTMLSelectElement => {
-    const sel = document.createElement("select");
-    for (const n of names) {
-      const o = document.createElement("option");
-      o.value = n;
-      o.textContent = n;
-      sel.appendChild(o);
-    }
-    const pick = preferred.find((p) => names.includes(p));
-    if (pick) sel.value = pick;
-    return sel;
-  };
-  const phieSel = curveSel(["PHIE", "PHIT"]);
-  const swSel = curveSel(["SWE", "SWT", "SW"]);
-  const tvdSel = curveSel(["TVDSS", "TVD"]);
+  const phieSel = preferredCurveSelect(names, ["PHIE", "PHIT"]);
+  const swSel = preferredCurveSelect(names, ["SWE", "SWT", "SW"]);
+  const tvdSel = preferredCurveSelect(names, ["TVDSS", "TVD"]);
   content.appendChild(formRow("Porosity (φ)", phieSel));
   content.appendChild(formRow("Water saturation (Sw)", swSel));
   content.appendChild(formRow("TVDSS", tvdSel, "True vertical depth subsea; height above FWL = FWL − TVDSS."));
@@ -105,7 +94,7 @@ export async function buildShfContent(
   // Leverett-J inputs: PERM + fluid props. Seeds are Tier A (per docs/ref_shf.md): σ·cosθ 26
   // dyn/cm = IP cap-pressure Res(Water-Oil) 30·cos30°, Water-Gas 50·cos0°; ρhc 0.7 g/cc from
   // the Techlog sand-summary default — seeds, not field truth; all overridable per run.
-  const permSel = curveSel(["PERM", "KINT", "K", "KTIM"]);
+  const permSel = preferredCurveSelect(names, ["PERM", "KINT", "K", "KTIM"]);
   const sysSel = document.createElement("select");
   for (const [val, lbl] of [
     ["oil", "Water-Oil (σcosθ 26)"],
@@ -139,7 +128,7 @@ export async function buildShfContent(
   // Per-rock-type fitting: any family + an RT/facies curve → one law per RT class.
   const rtCb = document.createElement("input");
   rtCb.type = "checkbox";
-  const rtSel = curveSel(["RT", "RT_GHE", "GHE", "FACIES", "RT35"]);
+  const rtSel = preferredCurveSelect(names, ["RT", "RT_GHE", "GHE", "FACIES", "RT35"]);
   const rtWrap = document.createElement("div");
   rtWrap.className = "mc-settings";
   const rtLabel = document.createElement("label");

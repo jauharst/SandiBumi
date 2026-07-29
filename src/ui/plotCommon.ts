@@ -239,6 +239,16 @@ export function curveSelect(names: string[], selected: string): HTMLSelectElemen
   return select;
 }
 
+/** Curve select seeded from a preference list (e.g. ["PERM", "KLOGH", "K"]): the first
+ *  preferred name present in the catalog wins. When NONE is present, the first preferred
+ *  name stays selected anyway — curveSelect prepends it as a visible option — so the run
+ *  fails loudly with the backend's own "curve has no data in this well" instead of
+ *  silently defaulting to option 0 of the catalog (deterministically GR, whose gAPI range
+ *  is numerically indistinguishable from mD and computes a fully plausible wrong answer). */
+export function preferredCurveSelect(names: string[], preferred: string[]): HTMLSelectElement {
+  return curveSelect(names, preferred.find((p) => names.includes(p)) ?? preferred[0] ?? names[0] ?? "");
+}
+
 export async function loadCurveNames(): Promise<string[]> {
   const catalog = await listCurveCatalog();
   return catalog.map((c) => c.name);
