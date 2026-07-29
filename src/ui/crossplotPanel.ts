@@ -1962,15 +1962,12 @@ export async function buildCrossplotContent(
   });
 
   // Double-click = properties, unless a zoom is active (then attachZoomPan — registered
-  // after this listener — resets it on the same event). Right-click = properties.
+  // after this listener — resets it on the same event). Right-click is deliberately NOT
+  // bound here: it belongs to the pane context menu (which lists Properties… first), so
+  // the plots keep the same split/float/export actions every other pane has.
   canvas.addEventListener("dblclick", () => {
     if (lasso.active) return; // a double-click while lassoing just drops two vertices, no dialog
     if (!viewRef.current) openProps();
-  });
-  canvas.addEventListener("contextmenu", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    openProps();
   });
 
   const detachZoomPan = attachZoomPan({
@@ -2103,5 +2100,6 @@ export async function buildCrossplotContent(
       zoneSel.dispose();
     },
     getState: () => ({ x: xSel.value, y: ySel.value, z: zSel.value, zone: zoneSel.select.value }),
+    openProperties: openProps,
   };
 }

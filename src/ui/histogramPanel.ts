@@ -745,14 +745,10 @@ export async function buildHistogramContent(
 
   // Double-click = properties, unless a zoom is active (then attachZoomPan — registered
   // after this listener — resets it on the same event; the next double-click opens
-  // properties). Right-click = properties, kept away from the workspace panel menu.
+  // properties). Right-click is deliberately NOT bound here: it belongs to the pane
+  // context menu, which lists Properties… first alongside the window actions.
   canvas.addEventListener("dblclick", () => {
     if (!viewRef.current) openProps();
-  });
-  canvas.addEventListener("contextmenu", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    openProps();
   });
 
   // Wheel-zoom + drag-pan on the X axis only (Y is the count axis); double-click resets.
@@ -816,5 +812,6 @@ export async function buildHistogramContent(
       zoneSel.dispose();
     },
     getState: () => ({ curve: curveSel.value, zone: zoneSel.select.value }),
+    openProperties: openProps,
   };
 }

@@ -739,6 +739,16 @@ _(field-review tier, was "P2"; the rest of the tier is done in [A8](#a8-field-re
       highlights → tops.
 - [ ] **Typography**: text reads slightly fuzzy/washed-out up close — investigate WebView2 rendering
       (display scaling, weight, contrast). Waiting on Jauhar to say whether it's blurriness or lightness.
+- [ ] **Multi-well plots** (T-SHELL-16, 2026-07-29): "histo, xplot etc (except log view) cant display
+      multiple groups together, better have option for well selections like modules". Histogram,
+      crossplot and Pickett are hard-wired to `selectedWell` — one well per pane, so a field-wide
+      crossplot means opening N panes. Give them the same **well-scope selector the run dialogs use**
+      (`wellScope.ts buildWellScope`: All / Active / ★ Pinned / Group / Custom), fetch and concatenate
+      the scoped wells, and colour/legend by well. Needs: scope selector in each plot toolbar, a
+      multi-well fetch path, per-well colour + legend, a point-budget/decimation rule for 2000 wells,
+      and `getState`/plot-template round-tripping of the scope. Pickett and the chart overlays already
+      assume one well's parameters — decide whether they take the scope too or stay single-well.
+      **Medium-sized increment; not a bug fix — deliberately not bundled with the Round 97 fixes.**
 
 ## B3. Feature Wave B (§4c) — leverage existing engines (small-to-medium, high payoff)
 

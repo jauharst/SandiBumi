@@ -4747,6 +4747,17 @@ input[type="number"].num-editing:focus {
   border-color: var(--warn);
   color: #fff;
 }
+/* Pressing a reload key again while the confirm is already up pulses it, so the second
+   press is visibly acknowledged instead of reading as a dead key. */
+@keyframes sb-guard-flash {
+  50% {
+    transform: scale(1.03);
+    border-color: var(--accent);
+  }
+}
+.guard-confirm-flash {
+  animation: sb-guard-flash var(--dur-slow) var(--ease);
+}
 
 /* Workflow Builder as a dock pane (was a popup dialog). */
 .dock-workflow {

@@ -14,6 +14,10 @@ export interface PlotContent {
   /** Current user selections (curves/zone) so the workspace can rebuild the plot for a
    *  newly selected well without losing them. */
   getState?: () => Record<string, string>;
+  /** Opens this plot's Properties dialog. The workspace puts it at the top of the pane's
+   *  right-click menu — the canvas no longer swallows right-click to open it directly,
+   *  which had hidden the window actions (split/float/export) on every plot. */
+  openProperties?: () => void;
 }
 
 /** Maps a log curve mnemonic to the core measurement it's calibrated against, so

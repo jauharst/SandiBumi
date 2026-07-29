@@ -39,7 +39,11 @@ function installReloadGuards(): void {
   window.addEventListener(
     "keydown",
     (e) => {
-      const reload = e.key === "F5" || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "r");
+      // Match Ctrl+R on `code` as well as `key`: on a non-US layout `key` is whatever
+      // character sits on that key, so a `key`-only test misses the reload shortcut.
+      const reload =
+        e.key === "F5" ||
+        ((e.ctrlKey || e.metaKey) && (e.code === "KeyR" || e.key?.toLowerCase() === "r"));
       if (reload) {
         e.preventDefault();
         e.stopPropagation();
@@ -67,7 +71,18 @@ function installReloadGuards(): void {
 /** Blocking confirm shown on a reload attempt. Deliberately NOT the shared openModal —
  *  that scrim is pointer-transparent by design; a destructive confirm must block. */
 function confirmReload(): void {
-  if (document.querySelector(".guard-confirm-scrim")) return;
+  // A second reload attempt while the confirm is already up must not look like a dead
+  // key. It used to return silently, so pressing F5 and then Ctrl+R (exactly what
+  // T-SHELL-17 step 4 asks for) read as "Ctrl+R does nothing" — Jauhar field review
+  // 2026-07-29. Re-focus and pulse the existing dialog instead: the key visibly landed.
+  const open = document.querySelector<HTMLElement>(".guard-confirm");
+  if (open) {
+    open.classList.remove("guard-confirm-flash");
+    void open.offsetWidth; // restart the animation on a repeat press
+    open.classList.add("guard-confirm-flash");
+    open.querySelector<HTMLButtonElement>("button")?.focus();
+    return;
+  }
   const scrim = document.createElement("div");
   scrim.className = "guard-confirm-scrim";
   const box = document.createElement("div");
@@ -84,15 +99,20 @@ function confirmReload(): void {
   ok.type = "button";
   ok.className = "danger";
   ok.textContent = "Reload";
-  const close = () => scrim.remove();
+  // Escape is bound on the window, not the scrim: a scrim-local listener only sees the
+  // key while focus is still inside the dialog, so one stray Tab left Escape dead.
+  const onEsc = (e: KeyboardEvent) => {
+    if (e.key !== "Escape") return;
+    e.stopPropagation(); // don't also close a dialog behind the confirm
+    close();
+  };
+  const close = () => {
+    window.removeEventListener("keydown", onEsc, true);
+    scrim.remove();
+  };
+  window.addEventListener("keydown", onEsc, true);
   cancel.addEventListener("click", close);
   ok.addEventListener("click", () => window.location.reload());
-  scrim.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") {
-      e.stopPropagation();
-      close();
-    }
-  });
   row.append(cancel, ok);
   box.append(msg, row);
   scrim.appendChild(box);

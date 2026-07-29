@@ -94,7 +94,7 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
    **Expected:** Window opens titled **SandiBumi — {project name}**. Ribbon shows tabs **Project / Data / Petrophysics / Advance / Plot / View** with **Petrophysics** active; quick-access toolbar (top-left) shows Undo, Redo (both greyed), Save, Save-Session, Open-Session, History (clock) and Help (?) icons. Status bar at the bottom reads **Ready**. Sidebar anchor panes **Wells**, **Tops**, **Processing**, **Performance** are present plus **Log View** and **Inspector**. No error dialogs. If the app panics on startup instead: check `src-tauri\` for `.corrupt-backup-*` files (WAL recovery already ran — note it, relaunch once).
    **Result — T-SHELL-01:**
 
-- [ ] Pass
+- [x] Pass
 - [ ] Fail
 - [ ] Blocked
 
@@ -112,7 +112,7 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
    **Expected:** Each tab shows its groups: Project = Open/New Project + Recent ▾ + Theme + Language; Data = Import Logs ▾ / Import Data ▾ / **Export LAS…** / Tools ▾ + Wells & Tops / Curve Catalog / DB Inspector / SQL Query; Petrophysics = module dropdowns + Zones… + Cutoffs & Summary… + batch group; Advance = SSC/SSPW/RtC/IMTS buttons + **SandiMin…** + **ML Models…**; Plot = Log Views / Parameter Selection / Correlation / Deliverables; View = New Window / Reset Workspace. Only one dropdown menu is open at a time; picking an item or clicking outside closes it (covers REVIEW.md §"Highlight tool + ribbon overflow…" and §Wave A-2). When narrow, no raw scrollbar — a boxed **›** appears at the overflowing edge, clicking scrolls the row and **‹** appears at the left; chevrons disappear when the window is wide again.
    **Result — T-SHELL-02:**
 
-- [ ] Pass
+- [x] Pass
 - [ ] Fail
 - [ ] Blocked
 
@@ -131,7 +131,7 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
    **Expected:** Status line shows **Language: Bahasa Indonesia**. Labels translate live without a restart: Petrophysics→**Petrofisika**, View→**Tampilan**, Import Logs→**Impor Log**, Tools→**Alat**, Save→**Simpan**; in Basa Jawa: Save→**Simpen**, Depth→**Jero**, Reload→**Muat manèh**. Technical terms stay English by design (Monte Carlo, Pickett, SandiMin, curve mnemonics, LAS/DLIS). Well names and layout names are never translated; the Language dropdown's own option labels stay native names in every language. Back to English restores every label exactly. Choice survives a relaunch. Covers REVIEW.md §"Held-item resolutions" (Bahasa Jawa item) and §Wave A-2 (translated import labels).
    **Result — T-SHELL-03:**
 
-- [ ] Pass
+- [x] Pass
 - [ ] Fail
 - [ ] Blocked
 
@@ -150,7 +150,7 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
    **Known issue:** AUDIT-2026-07-21 §Monte Carlo — "Monte Carlo's HPV histogram canvas never repaints on a live theme swap or panel resize, unlike every sibling Canvas-2D dock pane": if a Monte Carlo pane with results is open, expect its HPV histogram to keep the old colors until re-run — log as known, not new.
    **Result — T-SHELL-04:**
 
-- [ ] Pass
+- [x] Pass
 - [ ] Fail
 - [ ] Blocked
 
@@ -168,7 +168,7 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
    **Expected:** After step 1: status **Switching project…** then **Project: uat-test**; window title becomes **SandiBumi — uat-test**; the Project group caption shows **uat-test** (hover = full path); Wells pane shows **No wells ingested yet**; QAT Undo/Redo grey out (undo stacks cleared). After step 2 the well appears only here. After step 3 the main project's wells return and the imported test well is NOT in the list. History panel (QAT clock) has a **Project — Opened project …** entry in each project's own history. Covers REVIEW.md §Wave A-3 items 1 and 3.
    **Result — T-SHELL-05:**
 
-- [ ] Pass
+- [x] Pass
 - [ ] Fail
 - [ ] Blocked
 
@@ -187,7 +187,7 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
    **Expected:** Recent lists up to 12 projects, the current one prefixed **●** and disabled (stored outside any project in `%APPDATA%\SandiBumi\projects.json`). Switching reloads everything: title + caption, wells, and the open Histogram re-reads (empty/new data — no stale plot of the old project); well selection and undo history clear. After step 4 the renamed project shows greyed with suffix **(missing)** and cannot be clicked. Covers REVIEW.md §Wave A-3 item 2.
    **Result — T-SHELL-06:**
 
-- [ ] Pass
+- [x] Pass
 - [ ] Fail
 - [ ] Blocked
 
@@ -206,7 +206,7 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
    **Expected:** Status **Project saved to {path}**; History entry **Project — Saved project to {path}**; the file exists on disk at the chosen path. The app KEEPS working on the original project (backup-copy semantics, not IP-style switch-to-copy): the step-3 change is in the original project on relaunch, and opening `backup-uat.duckdb` via Open Project shows the pre-change state. Covers REVIEW.md §Wave A-3 note item ("QAT Save Project As stays a backup copy").
    **Result — T-SHELL-07:**
 
-- [ ] Pass
+- [x] Pass
 - [ ] Fail
 - [ ] Blocked
 
@@ -224,7 +224,7 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
    **Expected:** No recovery dialog (clean exit). The **last project you had open** reopens (title confirms). The pane arrangement is back, the **active well is still well B**, and the Log View shows its customized layout/track state (autosave carries what dockview's JSON can't). Covers REVIEW.md §Wave A-3 item 4.
    **Result — T-SHELL-08:**
 
-- [ ] Pass
+- [x] Pass
 - [ ] Fail
 - [ ] Blocked
 
@@ -241,7 +241,7 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
    **Expected:** A clear refusal (status/error à la **Project switch failed: …** naming the running chain) — NOT a switch. The chain keeps running to completion in the Processing panel; the current project stays open and uncorrupted. Afterwards (chain finished) the same switch succeeds. Covers REVIEW.md §Wave A-3 item 5.
    **Result — T-SHELL-09:**
 
-- [ ] Pass
+- [x] Pass
 - [ ] Fail
 - [ ] Blocked
 
@@ -261,7 +261,7 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
    **Expected:** Step 1: nothing happens on empty name (dialog stays). Step 2: status **Session "UAT Layout A" saved**; History entry **Session — Saved session "UAT Layout A"**. Step 4: panes, arrangement and the **active well (B)** come back; Log Views restore their per-view layouts; plot panes reopen in place but their internal curve selections may reset (known limitation — not carried by the snapshot). Status **Opened session "UAT Layout A"**. Step 5: status **Deleted session "UAT Layout A"** and the list updates (empty list shows "No saved sessions yet. Use Save Session to create one."). Sessions live in the project DB — they do not appear in other projects.
    **Result — T-SHELL-10:**
 
-- [ ] Pass
+- [x] Pass
 - [ ] Fail
 - [ ] Blocked
 
@@ -279,7 +279,7 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
    **Expected:** Step 1: status **Session "…" saved** with NO dialog (quiet in-place re-save of the last-named session) and the unsaved dot on the Save-Session button clears. Step 2: the app-level save does NOT fire while typing in an input/CodeMirror (editors keep their own Ctrl+S). Step 3: the ribbon menu closes; nothing else (no dialog dismissed). Covers REVIEW.md §"Held-item resolutions" (Quiet Ctrl+S save + Escape closes ribbon menus).
    **Result — T-SHELL-11:**
 
-- [ ] Pass
+- [x] Pass
 - [ ] Fail
 - [ ] Blocked
 
@@ -298,7 +298,7 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
    **Expected:** Step 2: the Log View tab shows **●** and the Save-Session button gets a red dot, its tooltip gains "— unsaved changes". Step 3: that panel's ● clears (layout is now in a named save) but the workspace-arrangement dot may remain if panes moved. Step 4: **everything** clears — no ● on any tab, no red dot. The dot means "not in a named save yet" only; the 10-s crash autosave runs regardless. Covers REVIEW.md §P1-b "Unsaved markers" (unchecked item).
    **Result — T-SHELL-12:**
 
-- [ ] Pass
+- [x] Pass
 - [ ] Fail
 - [ ] Blocked
 
@@ -318,7 +318,7 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
    **Expected:** After step 2: Undo enables, tooltip **Undo add top UAT_TOP (Ctrl+Z)**; History panel gains **Tops — {well}: Added top UAT_TOP at {depth}**. Step 3: status **Undo: add top UAT_TOP**; the top vanishes from the Log View AND the Tops pane; Redo enables with tooltip **Redo add top UAT_TOP (Ctrl+Y)**. Step 4: the top returns at the same depth. Ctrl+Z / Ctrl+Y do the same as the buttons.
    **Result — T-SHELL-13:**
 
-- [ ] Pass
+- [x] Pass
 - [ ] Fail
 - [ ] Blocked
 
@@ -338,7 +338,7 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
    **Expected:** A pane titled **Processing History** opens (singleton — clicking again refocuses). Newest entries first, each row = time + colored kind chip (**Project / Import / Module / Tops / Session / Export…**) + detail, well-scoped entries prefixed with the well name; toolbar shows **N operations**. Export: status **Processing history exported to {path}**; the file starts `SandiBumi processing history (N entries)` with one `YYYY-MM-DD hh:mm:ss  [Kind] Well: detail` line per row matching the panel. After restart the history is still there (persisted in the project DB — it also travels with Save Project As). Cancel keeps everything; OK empties the list to "No operations recorded yet…" and **0 operations**. Covers REVIEW.md §"Polish — UX" item "Processing history now covers every operation".
    **Result — T-SHELL-14:**
 
-- [ ] Pass
+- [x] Pass
 - [ ] Fail
 - [ ] Blocked
 
@@ -356,7 +356,7 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
    **Expected:** Petrophysically: VSH_GR lands 0–1, high in shales, low in clean sand (spot-check in a log view). History cross-check: the step-1 entry names the well that was ACTUALLY run (not the globally selected one); the step-2 batch entry carries **no well name** (field/batch convention). Covers REVIEW.md §Round 4 "History attribution" (fix pending click-through — if the entry still names the wrong/selected well, the fix regressed: log as Fail with the well names seen).
    **Result — T-SHELL-15:**
 
-- [ ] Pass
+- [x] Pass
 - [ ] Fail
 - [ ] Blocked
 
@@ -370,16 +370,16 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
 
 1. Hover the **📌** button in the Wells pane's group bar — note its tooltip; it should be highlighted (Pin ON is the default).
 2. Click well B in the tree.
-3. Click **📌** (Pin OFF); click inside Log View 1 to make it active, then click well C in the tree.
-4. Click **📌** again (Pin ON) and click well A.
-   **Expected:** Step 2 (Pin ON): BOTH Log Views and any plots switch to well B; status **Pin ON — every view and plot follows the selected well** was shown when toggling. Step 3 (Pin OFF): status **Pin OFF — only the active panel follows; other views keep their wells**; only Log View 1 switches to C, Log View 2 stays on B; browsing panes (Tops, Inspector) still track the selection. Step 4: everything follows again (all views on A). Do not confuse 📌 with the per-well **★** star — that is the pinned-favourites run scope, unrelated to following.
+3. Click **📌** (Pin OFF); click inside Log View 1 to make it the working pane, then click well C in the tree.
+4. Click inside Log View 2, click well A in the tree, then click **📌** again (Pin ON) and click well B.
+   **Expected:** Step 2 (Pin ON): BOTH Log Views and any plots switch to well B; status **Pin ON — every view and plot follows the selected well** was shown when toggling. Step 3 (Pin OFF): status **Pin OFF — only the active panel follows; other views keep their wells**; only Log View 1 switches to C, Log View 2 stays on B; browsing panes (Tops, Inspector) still track the selection. Step 4: Log View 2 (the pane you clicked into last) takes C→A while Log View 1 keeps C; then with the pin back ON everything follows to B. "Active panel" means **the viewer you last clicked into** — clicking a well in the tree does not hand the role to the tree, so with the pin off exactly one viewer always follows. Do not confuse 📌 with the per-well **★** star — that is the pinned-favourites run scope, unrelated to following.
    **Result — T-SHELL-16:**
 
 - [ ] Pass
-- [ ] Fail
+- [x] Fail
 - [ ] Blocked
 
-**Notes:**
+**Notes:** Pin off, never follow well even for active panel, and other visual pane such histo, xplot, etc (except log view) cant display multiple groups together, better have option for well selections like modules
 
 ### T-SHELL-17 — Interaction guards: right-click, reload, armed number fields
 
@@ -390,16 +390,16 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
 1. Right-click the Crossplot canvas, then the empty grey background of a pane.
 2. Right-click a ribbon button, a well row in the tree, and a pane toolbar.
 3. Right-click inside a text input (e.g. the session-name field or SQL editor).
-4. Press **F5**, then **Ctrl+R**; in the dialog press **Escape** once, then repeat and click **Cancel**; finally press the mouse Back (side) button.
+4. Press **F5**; dismiss the dialog with **Escape**. Press **Ctrl+R**; dismiss it by clicking **Cancel**. Press **F5** and then, with the dialog still up, press **Ctrl+R** again. Finally press the mouse Back (side) button.
 5. Single-click the module pane's number field, then double-click it.
-   **Expected:** Step 1: the custom app context menu appears (panel-specific items + window actions like Split right / Split down). Step 2: NO menu at all (native WebView menu suppressed — a stray "Refresh" there would wipe the workspace). Step 3: the native EDIT menu appears (undo/cut/copy/paste — no Refresh/Back). Step 4: a blocking confirm "Reload SandiBumi? The workspace re-opens from its last saved state…" with **Cancel** / red **Reload**; Escape and Cancel both dismiss without reloading; mouse Back/Forward do nothing. Step 5: first click only arms the field (status tip "Number fields arm on click — double-click to edit", no caret); double-click enters edit with the value selected — a stray click+scroll can never change a parameter.
+   **Expected:** Step 1: the custom app context menu appears (panel-specific items + window actions like Split right / Split down) — on a plot canvas that menu leads with **Properties…**, so the plot's own settings and the window actions are both one click away. Step 2: NO menu at all (native WebView menu suppressed — a stray "Refresh" there would wipe the workspace). Step 3: the native EDIT menu appears (undo/cut/copy/paste — no Refresh/Back). Step 4: **each** of F5 and Ctrl+R raises the same blocking confirm "Reload SandiBumi? The workspace re-opens from its last saved state…" with **Cancel** / red **Reload**; Escape and Cancel both dismiss without reloading; a second reload key pressed while the dialog is already up does NOT open a second dialog — it briefly pulses the open one, so the key is visibly acknowledged; mouse Back/Forward do nothing. Step 5: first click only arms the field (status tip "Number fields arm on click — double-click to edit", no caret); double-click enters edit with the value selected — a stray click+scroll can never change a parameter.
    **Result — T-SHELL-17:**
 
 - [ ] Pass
-- [ ] Fail
+- [x] Fail
 - [ ] Blocked
 
-**Notes:**
+**Notes:** right click in xplot showed properties instead of option like in log view, ctrl+R does nothing, beside that good
 
 ### T-SHELL-18 — Crash resilience: autosave + recovery dialog (run LAST)
 
@@ -415,7 +415,7 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
    **Expected:** Step 3: BEFORE anything loads, a blocking dialog titled **"SandiBumi did not close properly last time."** offers **Start in Safe Mode** / **Restore autosaved workspace** (the latter focused). Restore brings back panes, arrangement, active well and log-view layouts as of ≤10 s before the kill; status **Workspace restored from the crash autosave**. Step 4: Safe Mode boots the clean default layout; status **Safe Mode — previous workspace kept as session "Recovered {date time}"**. Step 5: the **Recovered …** session is listed and opening it restores the pre-crash workspace — nothing silently lost. If the app instead panics on launch: look for `.corrupt-backup-*` in `src-tauri\` (DuckDB WAL recovery ran) — record as a note, relaunch again.
    **Result — T-SHELL-18:**
 
-- [ ] Pass
+- [x] Pass
 - [ ] Fail
 - [ ] Blocked
 

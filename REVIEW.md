@@ -7,6 +7,53 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 97 — SHELL field-test fixes: Pin OFF, plot right-click, repeat reload key (2026-07-29)
+
+From your run through **Section SHELL** of `docs/manual_test_plan.md` — 16 of 18 passed;
+T-SHELL-16 and T-SHELL-17 failed. Three separate causes, all fixed.
+
+**1. "Pin off, never follow well even for active panel"** — the real bug of the three, and a
+good catch. Pin OFF is meant to mean *only the active panel follows*, and it asked
+dockview "is this pane active?" **at the moment the selection changed**. But a well is
+selected by **clicking it in the Wells tree**, and that click makes the *tree* the active
+pane — so at that instant no viewer was active and **nothing followed at all**. The pin
+effectively became "freeze everything".
+
+The gate now reads a **working pane** (`src/ui/activeViewer.ts`): the last *viewer* you
+clicked into. Browsing panes (Wells, Tops, Inspector) never claim the role, so clicking a
+well can't steal it. If no viewer has ever been activated the first one to ask claims it,
+so "pin off" can never again degrade to "nobody follows". Applies to log views, plots and
+the well-bound tool panes alike.
+
+**2. "right click in xplot showed properties instead of option like in log view"** — the
+plot canvases swallowed right-click to open Properties directly, which cost them the pane
+menu every other panel has (Split right/down, Float, Maximize, image export, Close).
+Right-click on a plot now opens the **normal pane menu with `Properties…` as its first
+entry**, so both are one click away. Double-click still opens Properties on histogram and
+crossplot; Pickett keeps its ⚙ toolbar button (its double-click is reserved for picks).
+
+**3. "ctrl+R does nothing"** — this one was half a documentation defect. The step said
+"Press F5, then Ctrl+R", so by the time Ctrl+R was pressed the F5 dialog was **already
+open** — and the guard returned silently rather than opening a second one. Correct
+behaviour, invisible feedback. A repeat reload key now **pulses the open dialog** instead.
+Two related hardenings while in there: the key is matched on physical `code` as well as
+`key` (a non-US layout would have missed it), and **Escape** now closes the confirm even
+after focus has left it (it was bound to the dialog, so one stray Tab left Escape dead).
+The step-4 wording in the test plan was ambiguous and has been rewritten.
+
+**Verified:** `npx tsc --noEmit` clean, `npm run build` clean, and the reload guard driven
+through five live scenarios in the browser (Ctrl+R alone → dialog; foreign-layout `KeyR` →
+dialog; F5-then-Ctrl+R → one dialog, pulsed; Escape with focus outside → closes; Cancel →
+closes). The working-pane tracker's semantics were unit-exercised live. What I could **not**
+drive from a browser is a real dockview activation with real wells — that is exactly what
+the re-test below covers.
+
+- [ ] **Try:** two Log Views, pin OFF. Click into Log View 1, select well C in the tree → **only Log View 1** moves. Click into Log View 2, select well A → **only Log View 2** moves. This is the failure you reported; it should now be impossible for nothing to move.
+- [ ] **Try:** with pin OFF, open a Crossplot and a Log View side by side. Click the crossplot, pick a well — the crossplot follows and the log view holds. Plots obey the same working-pane rule now.
+- [ ] **Try:** right-click a Crossplot, a Histogram and a Pickett canvas → pane menu with **Properties…** on top, then export items, then Split right / Split down / Float / Close. Compare against a right-click in the Log View.
+- [ ] **Try:** F5 → Escape. Ctrl+R → Cancel. F5 then Ctrl+R while the dialog is up → one dialog, pulsing. **This is the one to check first — if Ctrl+R on its own still does nothing, the cause is not what I diagnosed and I need to know.**
+- [ ] **Try:** the two re-tests above are T-SHELL-16 and T-SHELL-17 — your original Fail marks are left in place as the record; re-run those two rows in the xlsx.
+
 ## Round 96 — Non-colour design tokens, and a client-skin colour bug found on the way (2026-07-29)
 
 **The important part of this round is not the polish — it is a pre-existing bug the polish
