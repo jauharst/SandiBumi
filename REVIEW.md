@@ -7,6 +7,32 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## Round 94 — R-C: closing the app no longer risks losing the writes since the last checkpoint (2026-07-29)
+
+Found by the packaged-build verification, not by code review — and it is the biggest catch of
+the session. Tauri exits through `std::process::exit`, which skips Rust destructors, so the
+DuckDB connection **never closed cleanly on any exit**: every close — including a plain window
+✕ — abandoned a live WAL. Reproduced twice against the packaged app: import a 20-row LAS,
+close with ✕, relaunch → the WAL fails replay, `init_db_resilient` moves it aside as
+`.corrupt-backup-<ts>`, and the import is **silently gone** (`Wells (0)`). Writes below
+DuckDB's auto-checkpoint threshold live only in the WAL, so the writes at risk are exactly the
+small, recent ones: an import, a parameter edit, a tops pick made just before closing. This
+also explains the WAL-corruption plague CLAUDE.md attributes to `tauri dev` force-kills — every
+close abandoned a WAL; the force-kills were just the ones caught badly enough to notice.
+
+Fix: `lib.rs` now runs the app with a `RunEvent::Exit` handler that locks the connection and
+executes `CHECKPOINT` — every graceful exit flushes the WAL into the project file while the
+process still can. Force-kills stay covered by `init_db_resilient` exactly as before.
+
+Verified end-to-end on the packaged exe (isolated scratch project, `SANDIBUMI_CONFIG_DIR`):
+same import-close-relaunch sequence → after close there is **no `.wal` at all** beside the
+project, relaunch lists the imported well, and no new corrupt-backup appears. Full green gate:
+`GATE GREEN in 68s` (378/0/7, SSC WIP stash-roundtripped).
+
+- [ ] **Try (= T-SHIP-07 in `docs/manual_test_plan.md`):** in a COPY of a project, import one
+  LAS, close the app with ✕ immediately, look beside the `.duckdb`: no `.wal` should remain.
+  Reopen — the imported well must still be there and no new `.corrupt-backup-*` file appears.
+
 ## Round 93 — R-B: a destructive migration now backs up the project file first (2026-07-29)
 
 Requirement R-B from `docs/RELEASE.md` §3.2, the sibling of Round 92's R-A and the other

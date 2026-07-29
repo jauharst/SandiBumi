@@ -41,7 +41,8 @@ verifies what the running app does in your hands, with real field data.
 | REP | Reporting & database access | 19 | 2 |
 | AUX | Cross-cutting & auxiliary features | 20 | 2 |
 | INT | End-to-end integration & performance | 20 | 2 |
-| | **Total** | **243** | **33** |
+| SHIP | Session 2026-07-29 shipping checks (CSP, R30, R-A, R-B, R-C, gate) | 7 | 1 |
+| | **Total** | **250** | **34** |
 
 **Result summary (fill in when done):** Pass ____ / Fail ____ (new ____ , known ____ ) / Blocked ____
 
@@ -2946,5 +2947,121 @@ All source reading done — I verified every label against `index.html`, `ribbon
 4. Open the Curve Catalog and the DB Inspector; spot-check counts against pre-kill.
 **Expected:** relaunch detects the abnormal exit and offers restore/Safe Mode (Safe Mode stashes the autosave as a "Recovered …" session — nothing silently lost); the project opens with NO corruption — every well, curve version and history entry from before the kill is intact; any WAL replays silently (a corrupted-WAL fallback would recover from the last checkpoint and say so in the console — report that if seen). DB size should be broadly proportional to data (hundreds of MB is plausible at 540 wells; note it for the versioning-growth baseline).
 **Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** DB ______ MB, WAL present: Y/N, recovery: ______
+
+---
+
+# Section SHIP — Session 2026-07-28/29 shipping checks
+
+Added 2026-07-29. Covers what that session shipped: the hardened Content-Security-Policy
+(`tauri.conf.json`), R30 (loud failure on missing perm curve), R-A (project format stamp),
+R-B (pre-migration backup) and the green gate (`tools/check.ps1`). REVIEW.md Rounds 89–93
+carry the full narratives. **Realtime status notes below each test say what Claude already
+machine-verified** — those tests you can run lighter; the rest need your hands.
+Non-app items from the same session (PRD/V1_SCOPE read-through, IP_PROVENANCE lawyer
+questions, Python-prerequisite decision, PR #2 merge) live in `docs/manual_check_plan.md`.
+
+### T-SHIP-01 — Packaged app launches under the hardened CSP
+**Tool/panel:** packaged build (`src-tauri/tauri.conf.json` `security.csp`)
+**Preconditions:** none. The CSP is enforced ONLY in packaged builds (`npm run tauri build`,
+with or without `--debug`); `npm run tauri dev` uses the vite dev server and ignores it, so
+every dev-mode session to date has never exercised it.
+**Steps:**
+1. Build through the vcvars pin: `npm run tauri build -- --debug --no-bundle` (or the full
+   release build) and launch `src-tauri\target\debug\sandibumi.exe` (or release).
+2. Wait for the window.
+**Expected:** a normal SandiBumi window — ribbon, panes, wells list. A blank white window
+means the CSP blocked the app bundle itself (script-src): report which, don't work around it.
+**Realtime status (2026-07-29):** ✅ machine-verified by Claude — packaged debug exe driven
+over the WebView2 debug port with the PR's CSP applied: full UI rendered (12 ribbon tabs,
+dockview, QAT), policy proven LIVE (deliberate probe violations quote it: remote fetch blocked
+by connect-src, injected inline script refused by script-src), zero unexpected violations.
+Run it once yourself for the release build, but expect green.
+**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+
+### T-SHIP-02 — CSP-sensitive features in the packaged app
+**Tool/panel:** Vega panel (needs `'unsafe-eval'`), Equation Editor, Composite PDF
+**Preconditions:** T-SHIP-01 passed; a project with at least one well of real curves.
+**Steps:**
+1. Plot tab → Vega Chart — pick X/Y curves, confirm a chart draws (Vega compiles specs with
+   the `Function` constructor; this is the directive most likely to be wrong).
+2. Equation Editor: run one Rhai and one Python equation.
+3. Plot → Composite… → export a PDF; open it.
+4. Leave the app via the window ✕ (never task-kill — WAL).
+**Expected:** all three work exactly as in dev mode. Any CSP violation shows as a feature
+silently doing nothing — if one does, note which feature and check the webview console.
+**Realtime status (2026-07-29):** Vega leg ✅ machine-verified under the enforced CSP
+(`eval`/`Function` allowed as designed; a real scatter of 20 imported synthetic points
+rendered — the `marks` canvas has painted pixels; zero violations). Equation Editor and
+Composite-PDF legs still need your click (they run through the Rust backend, so CSP risk
+is minimal — this is a general packaged-mode smoke, not a CSP question).
+**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+
+### T-SHIP-03 — R30: missing perm curve fails loudly, never computes on GR
+**Tool/panel:** Lorenz, SHF fit, Facies tie-in dialogs (`plotCommon.preferredCurveSelect`)
+**Preconditions:** one well WITH a PERM/KLOGH/K curve, one well WITHOUT any.
+**Steps:**
+1. On the with-perm well: open each of the three dialogs — check the perm slot preselects
+   the real curve (styled dropdown, no duplicate entry).
+2. On the without-perm well: the perm dropdown shows the preferred name (e.g. `PERM`)
+   anyway; Run each dialog.
+**Expected:** step 2 fails with the backend's own message naming the curve ("permeability
+curve 'PERM' has no data in this well") — NOT a plausible-looking result silently computed
+on GR. REVIEW.md Round 90 has the full story.
+**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+
+### T-SHIP-04 — R-A: the project carries a format stamp
+**Tool/panel:** SQL Query panel (`db.rs` `check_and_stamp_format`)
+**Preconditions:** any project opened at least once by a build at or after commit `1842bc8`.
+**Steps:**
+1. Open the project normally — everything must behave exactly as before (stamp is invisible).
+2. SQL Query panel: `SELECT * FROM project_meta`.
+**Expected:** two rows — `format_version` = 1, `written_by` = SandiBumi 0.1.0. The refusal
+path (newer file on older build) is cargo-tested; no manual setup can produce it today.
+**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+
+### T-SHIP-05 — R-B: destructive migration backs up first; normal opens write nothing
+**Tool/panel:** project open path (`db.rs` `backup_before_destructive_migration`)
+**Preconditions:** your current (already-migrated) project; optionally a pre-2026-07-19
+project copy that still has the old computed_curves PRIMARY KEY.
+**Steps:**
+1. Open your current project; check its folder in Explorer.
+2. (Optional) Open the old copy; watch its folder and the console.
+**Expected:** step 1: NO new `*-backup.duckdb` appears, launch is not slower — absence is
+the pass. Step 2: a `<name>.pre-1-backup.duckdb` appears BEFORE the rebuild and the launch
+log announces it; the backup opens as a valid project if pointed at directly.
+**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+
+### T-SHIP-06 — The green gate from your own shell
+**Tool/panel:** `tools/check.ps1`
+**Preconditions:** repo checkout; no other cargo build running.
+**Steps:**
+1. `powershell -ExecutionPolicy Bypass -File tools\check.ps1`
+**Expected:** `GATE GREEN` with the full test count, non-zero exit on any failure.
+**Known issue:** the uncommitted `src-tauri/src/ssc.rs` WIP (another session's SWIRR-floor
+edit) fails `ssc_swirr_floor_pads_capillary_water` — the tree is honestly RED until that
+session reconciles its test. With that one file stashed the gate is green (378/0/7 as of
+`0ba199b`). Log as known, not new.
+**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
+
+---
+
+### T-SHIP-07 — R-C: a normal close must not lose recent writes (added 2026-07-29)
+**Tool/panel:** app exit path (`lib.rs` `RunEvent::Exit` checkpoint)
+**Preconditions:** a COPY of a project (or a fresh scratch project) — this test writes.
+**Steps:**
+1. Import one small LAS (or edit one sample value).
+2. Close the app with the window ✕ immediately (no waiting).
+3. In Explorer, look beside the `.duckdb` file.
+4. Reopen the app on the same project.
+**Expected:** after step 3 there is NO `.duckdb.wal` file left (the exit checkpoint flushed
+it) and no new `.corrupt-backup-*` appears; after step 4 the import/edit is still there.
+**Why it exists:** before this fix, every close — window ✕ included, not just force-kills —
+abandoned a live WAL; on the next open the WAL could fail replay and the recovery silently
+dropped everything written since the last auto-checkpoint (reproduced twice: a fresh import
+vanished). Full story: REVIEW.md Round 94.
+**Realtime status (2026-07-29):** ✅ machine-verified on the packaged exe by the exact
+failing scenario (import → ✕ → relaunch: well persists, no WAL, no corrupt-backup). Run it
+once on real data for confidence.
+**Result:** ☐ Pass ☐ Fail ☐ Blocked — **Notes:** ______
 
 ---
