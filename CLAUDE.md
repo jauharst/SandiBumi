@@ -368,6 +368,19 @@ how a 15-minute one-time migration looked like a hang.** DuckDB files never shri
 DELETE (module re-runs bloated BLSO to ~4× its live size), so point users at Compact
 Project when a long-lived project drags.
 
+## Text-import encoding (2026-07-30)
+
+**Every** text import goes through `parsers::read_text_file` — never `read_to_string` or
+`BufReader<File>`, both of which reject a whole file on one stray byte. `decode_text` honours a
+BOM first (UTF-8, UTF-16LE/BE — Excel's "Unicode text" export is UTF-16, and decoding it as
+cp1252 would silently yield NUL-riddled nonsense instead of an error), then tries UTF-8, then
+falls back to **cp1252**, which cannot fail. Found by a real Duri core table: 330 KB of pure
+ASCII except two `0x95` bullets opening a lithology description, refused with "stream did not
+contain valid UTF-8" — 3,045 plugs lost to two characters in a comment field. Bytes are
+interpreted, never rejected; the worst case is a mangled character in a description, not a lost
+delivery. Tests: `parsers::encoding_tests` (plus `probe_real_duri_core`, `#[ignore]`d, which
+runs against the real file on this machine).
+
 ## Startup: the window exists before the database does (2026-07-30)
 
 `run()` builds the Tauri app on an **empty in-memory placeholder** connection; `setup()` spawns

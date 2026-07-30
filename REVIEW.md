@@ -5411,4 +5411,28 @@ behind it.
 
 ---
 
+## 2026-07-30 — Imports no longer refuse a file over its text encoding
+
+Your Duri core table failed with `Core import failed: io error: stream did not contain valid
+UTF-8`. The cause, found in the bytes: **330 KB of pure ASCII except two `0x95` bytes** — the
+Windows bullet "•" that opens a lithology description — and the whole delivery was refused over
+two characters in a comment field. Any file that has been near Excel or Word can carry those
+(smart quotes, en/em dashes, °, µ).
+
+Every text import now decodes tolerantly: a byte-order mark is honoured first (so Excel's
+"Unicode text" UTF-16 export works too), then UTF-8, and anything left falls back to Windows
+cp1252 — which cannot fail, so **an import is never refused over encoding again**. This covers
+core, LAS, tops, aux/point data, SCAL and deviation alike, not just the file that reported it.
+
+- [ ] **Import your Duri `Core.csv`** — it should now read 12 columns, **3,045 plugs across 15
+      wells** (DURI00513 … DURI01887), depth detected as **ft**, and CPOR/CPERM/CGD(GDEN)/CSW
+      mapped automatically. The DESC / LITH / CORE_NO / KV / CSO columns are offered as extra
+      point-data columns in the same wizard.
+- [ ] **The bullet survives as a bullet** in the description, not as a `?` or a black diamond —
+      check a DESC value in the Database Inspector after import.
+- [ ] **Nothing else changed**: re-import an ordinary UTF-8 or plain-ASCII file (BLSO core, a
+      LAS) and confirm identical results to before.
+
+---
+
 _Made in SandiBumi._ © 2026 SandiBumi. All rights reserved.
