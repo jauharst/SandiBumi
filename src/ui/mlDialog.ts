@@ -1,10 +1,15 @@
 import {
+  applyMlModel,
+  deleteMlModel,
   listCurveCatalog,
+  listMlModels,
   listWells,
+  renameMlModel,
   runMl,
   runMlEval,
   type MlEvalResult,
   type MlEvalRow,
+  type MlModelInfo,
   type MlRequest,
   type MlResult,
   type WellSummary,
@@ -343,6 +348,9 @@ export async function buildMlContent(
     targetRow.style.display = task.supervised ? "" : "none";
     trainRow.style.display = task.supervised ? "" : "none";
     compareRow.style.display = task.supervised ? "" : "none";
+    // Only a supervised fit is a reusable artifact. Clustering and reduction are fitted on the
+    // very wells they are applied to, so "apply it later" would mean something different.
+    saveRow.style.display = task.supervised ? "" : "none";
     if (!outEdited) outInput.value = algo.out ?? task.defaultOut;
     renderParams();
   }
@@ -367,6 +375,20 @@ export async function buildMlContent(
   runRow.className = "mc-run-row";
   runRow.append(runBtn, statusLine);
   content.appendChild(runRow);
+
+  // --- Keep the fitted model ------------------------------------------------
+  // Until now the fit died with the subprocess: you could not train on the cored wells and
+  // apply THAT SAME model to the rest of the field later. Naming it here makes it an artifact
+  // a delivered curve can cite.
+  const saveInput = document.createElement("input");
+  saveInput.className = "form-control";
+  saveInput.placeholder = "leave blank to not keep the model";
+  const saveRow = formRow(
+    "Save model as",
+    saveInput,
+    "Keeps the fitted model (and its scaler) so it can be applied to other wells later, without refitting",
+  );
+  content.appendChild(saveRow);
 
   // --- Compare (leaderboard) — supervised only ------------------------------
   const subsetSel = document.createElement("select");
@@ -461,6 +483,128 @@ export async function buildMlContent(
   hint.textContent = "Needs Python with numpy + scikit-learn (pip install scikit-learn); xgboost optional.";
   content.appendChild(hint);
 
+  // --- Saved models ---------------------------------------------------------
+  // A trained model is a named, dated, citable artifact here: apply it to new wells without
+  // refitting, because a refit on different data is a different model.
+  const savedWrap = document.createElement("div");
+  savedWrap.className = "mc-section";
+  const savedHead = document.createElement("h4");
+  savedHead.textContent = "Saved models";
+  const savedList = document.createElement("div");
+  savedList.className = "mc-saved-list";
+  const savedNote = document.createElement("div");
+  savedNote.className = "mc-chain-note";
+  savedWrap.append(savedHead, savedList, savedNote);
+  content.appendChild(savedWrap);
+
+  const refreshSaved = async (): Promise<void> => {
+    let models: MlModelInfo[];
+    try {
+      models = await listMlModels();
+    } catch (e) {
+      savedNote.textContent = `Could not list saved models: ${e}`;
+      return;
+    }
+    savedList.innerHTML = "";
+    if (models.length === 0) {
+      savedNote.textContent =
+        "None yet. Run a supervised model with a name in “Save model as”, then apply it here to wells it has never seen.";
+      return;
+    }
+    savedNote.textContent =
+      "Applying uses the model's OWN input curves, in the order it was fitted on — a well missing one is reported by name rather than predicted from the wrong columns.";
+    for (const m of models) {
+      const row = document.createElement("div");
+      row.className = "mc-saved-row";
+      const desc = document.createElement("div");
+      desc.className = "mc-saved-desc";
+      const mb = m.bytes >= 1024 * 1024 ? `${(m.bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(m.bytes / 1024))} kB`;
+      desc.textContent =
+        `${m.name} — ${m.algorithm} ${m.task}` +
+        (m.target_curve ? ` → ${m.target_curve}` : "") +
+        `  ·  ${m.feature_curves.join(", ")}` +
+        `  ·  ${m.n_train} samples from ${m.trained_on.length} well(s)  ·  ${m.created_at}  ·  ${mb}`;
+      desc.title =
+        `Trained on: ${m.trained_on.join(", ") || "—"}\n` +
+        `scikit-learn ${m.sklearn_version ?? "unknown"}\n` +
+        `Standardized: ${m.standardize ? "yes (the scaler is stored with the model)" : "no"}`;
+      const applyBtn = document.createElement("button");
+      applyBtn.type = "button";
+      applyBtn.textContent = "Apply to scope";
+      const renameBtn = document.createElement("button");
+      renameBtn.type = "button";
+      renameBtn.textContent = "Rename";
+      const delBtn = document.createElement("button");
+      delBtn.type = "button";
+      delBtn.textContent = "Delete";
+      row.append(desc, applyBtn, renameBtn, delBtn);
+      savedList.appendChild(row);
+
+      applyBtn.addEventListener("click", async () => {
+        const applyIds = scope.getWellIds();
+        if (applyIds.length === 0) {
+          setStatus("No wells in scope — pick a group, pin/select wells, or choose All");
+          return;
+        }
+        applyBtn.disabled = true;
+        statusLine.textContent = `Applying '${m.name}' to ${applyIds.length} well(s)…`;
+        try {
+          const res: MlResult = await applyMlModel({
+            model_id: m.model_id,
+            apply_well_ids: applyIds,
+            output_curve: outInput.value,
+            mask_curve: maskSel.value || null,
+          });
+          if (res.error) {
+            statusLine.textContent = `Failed: ${res.error}`;
+          } else {
+            const total = res.wells.length || applyIds.length;
+            const ok = res.wells.filter((w) => !w.error).length;
+            const outs = res.outputs.join(", ");
+            statusLine.textContent =
+              `Applied '${m.name}' → ${outs}` + (ok < total ? ` — ${total - ok} well(s) need attention` : "");
+            if (ok > 0) {
+              setStatus(`Applied model ${m.name}: wrote ${outs} to ${ok}/${total} well(s)`);
+              recordProcess("ML", `Applied saved model ${m.name}: wrote ${outs} to ${ok}/${total} well(s)`);
+              bumpDataVersion();
+            }
+          }
+          renderResults(results, res);
+        } catch (e) {
+          statusLine.textContent = `Failed: ${e}`;
+        } finally {
+          applyBtn.disabled = false;
+        }
+      });
+
+      renameBtn.addEventListener("click", async () => {
+        const next = window.prompt("New name for this model", m.name);
+        if (!next || next.trim() === m.name) return;
+        try {
+          const stored = await renameMlModel(m.model_id, next.trim());
+          savedNote.textContent = stored === next.trim() ? "" : `Name in use — saved as '${stored}'.`;
+          await refreshSaved();
+        } catch (e) {
+          savedNote.textContent = `Rename failed: ${e}`;
+        }
+      });
+
+      delBtn.addEventListener("click", async () => {
+        // A deleted model cannot be rebuilt from the curves it produced, so confirm by name.
+        if (!window.confirm(`Delete the saved model '${m.name}'?\n\nCurves it already produced are kept, but they can no longer be reproduced from this model.`)) {
+          return;
+        }
+        try {
+          await deleteMlModel(m.model_id);
+          await refreshSaved();
+        } catch (e) {
+          savedNote.textContent = `Delete failed: ${e}`;
+        }
+      });
+    }
+  };
+  void refreshSaved();
+
   runBtn.addEventListener("click", async () => {
     const features = [...featChecks.entries()].filter(([, cb]) => cb.checked).map(([n]) => n);
     const applyIds = scope.getWellIds();
@@ -488,6 +632,7 @@ export async function buildMlContent(
       train_well_ids: task.supervised ? trainIds : [],
       apply_well_ids: applyIds,
       output_curve: outInput.value,
+      save_model_as: task.supervised && saveInput.value.trim() ? saveInput.value.trim() : null,
     };
     runBtn.disabled = true;
     statusLine.textContent = "Running…";
@@ -515,6 +660,12 @@ export async function buildMlContent(
         // A run that wrote nothing is not a process worth recording as if it had succeeded.
         if (ok > 0) {
           recordProcess("ML", `${algo.label}: wrote ${outs} to ${scope}`);
+        }
+        if (res.model_name) {
+          statusLine.textContent += ` · model saved as '${res.model_name}'`;
+          recordProcess("ML", `Saved model '${res.model_name}' (${algo.label} on ${req.target_curve ?? "-"})`);
+          saveInput.value = "";
+          void refreshSaved();
         }
         bumpDataVersion(); // ML wrote curves — refresh open plots/log views/catalog
       }

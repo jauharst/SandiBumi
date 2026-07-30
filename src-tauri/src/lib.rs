@@ -1544,6 +1544,52 @@ async fn run_ml(
     .await
 }
 
+/// Applies a SAVED model to wells it has never seen. Nothing is refitted — that is the point:
+/// a refit on different data is a different model.
+#[tauri::command]
+async fn apply_ml_model(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    req: ml::MlApplyRequest,
+) -> Result<ml::MlResult, String> {
+    let items = {
+        let conn = db.0.lock().unwrap();
+        well_items(&conn, &req.apply_well_ids)
+    };
+    let total = req.apply_well_ids.len();
+    let conn = db.0.clone();
+    let reg = jobs_reg.inner().clone();
+    jobs::run_job(reg, "Machine learning", String::from("apply saved model"), items, total, true, move |job| {
+        ml::apply_ml_model(&conn, &req, Some(&job))
+    })
+    .await
+}
+
+/// Every saved model, newest first. Never carries the model bytes — a random forest is megabytes
+/// and the picker only needs the description.
+#[tauri::command]
+async fn list_ml_models(db: tauri::State<'_, DbState>) -> Result<Vec<db::MlModelInfo>, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let c = conn.lock().unwrap();
+        db::list_ml_models(&c).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn rename_ml_model(db: tauri::State<'_, DbState>, model_id: String, new_name: String) -> Result<String, String> {
+    let conn = db.0.lock().unwrap();
+    db::rename_ml_model(&conn, &model_id, &new_name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_ml_model(db: tauri::State<'_, DbState>, model_id: String) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    db::delete_ml_model(&conn, &model_id).map_err(|e| e.to_string())
+}
+
 /// Model-comparison leaderboard (Wave B item 3): blind-well GroupKFold CV over algorithm ×
 /// feature-subset combos, with permutation importance + confusion matrix. Evaluation only — it
 /// writes no curves. Off-thread so the fit/predict sweep doesn't freeze the IPC thread.
@@ -2480,6 +2526,10 @@ pub fn run() {
             export_las,
             python_status,
             run_ml,
+            apply_ml_model,
+            list_ml_models,
+            rename_ml_model,
+            delete_ml_model,
             run_ml_eval,
             run_cuddy_foil,
             run_shf_fit,

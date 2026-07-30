@@ -7,6 +7,37 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-07-31 — Trained models are kept, named and re-runnable
+
+Until now a model died with the run: you could not train on your cored wells and apply **that
+same model** to the rest of the field later, and a delivered curve could not say which model
+made it. Now it can.
+
+- [ ] **Train and keep.** Petrophysics ▸ ML Models…, pick a supervised task (say regression,
+      PHIT or PERM as the target), select your cored wells as training wells, and type a name in
+      **Save model as** (e.g. `PERM_FROM_CORE`). Run. The status line should end with
+      *"model saved as 'PERM_FROM_CORE'"* and it should appear in the **Saved models** list with
+      its algorithm, its input curves, how many samples and from how many wells, and its size.
+- [ ] **Apply it to wells it has never seen.** Change the well scope to the uncored wells, then
+      press **Apply to scope** on the saved model. Nothing is refitted — check the Processing
+      monitor says "apply saved model", not "training".
+- [ ] **The result is traceable.** The new curves' log set records `ml:apply:<model name>` with
+      the model id, so months later you can answer "which model produced this?".
+- [ ] **A missing input is named.** Apply a model to a well that lacks one of its input curves —
+      it should tell you **which curve by name**, not just "missing input curve data".
+- [ ] **Retraining does not overwrite.** Run again with the same name: it should save as
+      `..._1` and say so. A model an existing delivered curve was made with must never be
+      silently replaced.
+- [ ] **The scaler went with it.** If you trained with "Standardize" on, the applied curve should
+      look right on wells whose GR/RHOB ranges differ from the training wells. (This is the
+      subtle one — re-standardizing on the new wells would give a different, wrong answer.)
+- [ ] **Rename and Delete** work, and Delete asks first. Deleting a model does not remove curves
+      it already produced — but they can no longer be reproduced from it.
+- [ ] **Only supervised models are offered.** The "Save model as" field disappears for
+      clustering and reduction, because those are fitted on the very wells they are applied to.
+- [ ] **Project size.** A random forest can be a few MB. Check the size column; if your project
+      grows more than you like, Data ▸ Tools ▸ Compact Project still works.
+
 ## 2026-07-31 — The field as an asset-team deck
 
 Last of the office deliverables. **Plot ▸ Deliverables ▸ Deck…** builds a PowerPoint from the

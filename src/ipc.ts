@@ -1072,6 +1072,10 @@ export interface MlRequest {
   train_well_ids: string[];
   apply_well_ids: string[];
   output_curve: string;
+  /** Keep the fitted model under this name so it can be applied to other wells later. Supervised
+   *  tasks only — clustering and reduction are fitted on the wells they are applied to. */
+  save_model_as?: string | null;
+  model_note?: string | null;
 }
 
 export interface MlWellResult {
@@ -1088,6 +1092,11 @@ export interface MlResult {
   /** Advisories that qualify a successful run — e.g. training wells that contributed no usable
    *  samples, so the model was fit on fewer wells than were selected. Empty on a clean run. */
   notes: string[];
+  /** Set when the fit was kept as a reusable artifact. */
+  model_id: string | null;
+  /** The name it was actually stored under — an existing name is auto-suffixed, never
+   *  overwritten, so this can differ from what was asked for. */
+  model_name: string | null;
   error: string | null;
 }
 
@@ -1096,6 +1105,53 @@ export interface MlResult {
  *  apply samples (field-wide, globally consistent cluster ids). */
 export function runMl(req: MlRequest): Promise<MlResult> {
   return invoke<MlResult>("run_ml", { req });
+}
+
+/** A saved, re-runnable model. `feature_curves` is ORDERED — the order is part of the apply
+ *  contract, not a display detail. */
+export interface MlModelInfo {
+  model_id: string;
+  name: string;
+  task: string;
+  algorithm: string;
+  feature_curves: string[];
+  target_curve: string | null;
+  params_json: string;
+  metrics_json: string;
+  /** Names of the wells that actually contributed samples. */
+  trained_on: string[];
+  n_train: number;
+  standardize: boolean;
+  sklearn_version: string | null;
+  note: string | null;
+  created_at: string;
+  bytes: number;
+}
+
+export interface MlApplyRequest {
+  model_id: string;
+  apply_well_ids: string[];
+  output_curve: string;
+  mask_curve?: string | null;
+}
+
+export function listMlModels(): Promise<MlModelInfo[]> {
+  return invoke<MlModelInfo[]>("list_ml_models");
+}
+
+/** Applies a saved model to wells it has never seen. Nothing is refitted — a refit on different
+ *  data is a different model. The model's own curve list drives the inputs, so the caller cannot
+ *  reorder them. */
+export function applyMlModel(req: MlApplyRequest): Promise<MlResult> {
+  return invoke<MlResult>("apply_ml_model", { req });
+}
+
+export function renameMlModel(modelId: string, newName: string): Promise<string> {
+  return invoke<string>("rename_ml_model", { modelId, newName });
+}
+
+export function deleteMlModel(modelId: string): Promise<void> {
+  return invoke<void>("delete_ml_model", { modelId });
 }
 
 /** Model-comparison leaderboard (Wave B item 3). */

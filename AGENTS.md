@@ -444,6 +444,39 @@ with the cap stated in the slide note - a deck is read from across a room, and a
 reads as "all of them". Like every other export here it runs `stats_only` and writes nothing
 back.
 
+Saved ML models (2026-07-31) - a fitted model is an ARTIFACT now, not a by-product.
+`MlRequest` carried the training wells and the apply wells in ONE call, so the model died with
+the subprocess: there was no way to train on the cored wells and apply THAT SAME model to the
+rest of the field later, and "which model produced this PERM curve?" had no answer. A refit on
+different data is a different model.
+
+`ml_models` (schema in `db.rs`, picked up by `create_schema` on every open - no migration) holds
+a joblib dump in `data`, plus the description every reader needs: task, algorithm, ORDERED
+feature curves, target, params, metrics, the wells that actually contributed, n_train,
+standardize, the scikit-learn version that wrote it, and a note. **PRIMARY KEY is the
+`well_images` argument again** - one index entry per MODEL is free, and a duplicate would make a
+cited model ambiguous. `list_ml_models` NEVER selects `data`; only `apply_ml_model` fetches it.
+Names are unique and auto-suffix like a delivery set (`PERM_RF` -> `PERM_RF_1`): **retraining
+makes a NEW model rather than replacing the one an existing curve was made with**, which is the
+provenance the whole feature exists for.
+
+Three contracts. **The scaler travels with the estimator** in the same dump - refitting a
+StandardScaler on the apply wells would be a different transform, and the predictions would be
+quietly wrong rather than obviously broken. **Feature ORDER is part of the contract**: the
+artifact carries its own feature list, `apply_ml_model` drives the fetch from the MODEL's list so
+a caller cannot restate or reorder it, and `ML_APPLY_RUNNER` re-checks inside the artifact and
+REFUSES rather than predicting - a model fitted on [GR, RHOB] fed [RHOB, GR] returns confident
+nonsense nothing downstream can catch (pinned by
+`a_model_refuses_a_matrix_whose_columns_are_in_the_wrong_order`). **Saving never fails a run**:
+the model is stored AFTER the curves are written, so a storage problem costs the artifact, not
+the work, and says so in `MlResult.notes`.
+
+Supervised only. Clustering and reduction are fitted on the very wells they are applied to by
+construction, so "apply it later" would mean something different - and supervised classification
+with a FACIES/litho target is already the train-on-cored-wells route. Applied curves record
+`ml:apply:<model name>` with the model id in provenance. UI: "Save model as" (supervised only)
+plus a **Saved models** list in `mlDialog.ts` with Apply to scope / Rename / Delete.
+
 UI language (2026-07-19) — `src/i18n.ts` translates visible DOM text (+ title/placeholder/
 aria-label/optgroup-label) to Bahasa Indonesia / Basa Sunda by exact-phrase dictionary
 lookup, live via MutationObserver. English is the source language: keep writing UI strings

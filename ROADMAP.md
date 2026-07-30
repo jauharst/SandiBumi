@@ -1041,7 +1041,22 @@ joblib (ML) → office four (deliverables) → opencv (digitizing).
         plate whose path held any non-ASCII character failed with "No such file or directory"
         naming a filename nobody had. Proven both ways against a real file and pinned by
         `a_word_document_keeps_non_ascii_text_intact`.
-- [ ] **`joblib` model persistence** — a confirmed capability hole, not a guess: `MlRequest`
+- [x] **`joblib` model persistence → SHIPPED 2026-07-31** — `ml_models` (a joblib dump plus the
+      full description) + `MlRequest.save_model_as` + `apply_ml_model` / `list_ml_models` /
+      `rename_ml_model` / `delete_ml_model`, with "Save model as" and a **Saved models** list in
+      `mlDialog.ts`. Picked up by `create_schema` on every open, so no migration.
+      Contracts not to weaken: **the scaler is dumped WITH the estimator** (refitting a
+      StandardScaler on the apply wells is a different transform, and the predictions would be
+      quietly wrong rather than obviously broken); **feature ORDER is part of the contract** —
+      the artifact carries its own feature list, the apply path drives the fetch from it so a
+      caller cannot reorder it, and the runner re-checks inside the artifact and refuses rather
+      than predicting; **retraining auto-suffixes rather than overwriting**, because the model an
+      existing delivered curve was made with must stay reproducible; **saving happens after the
+      curves are written** so a storage failure costs the artifact, not the run. Supervised only —
+      clustering/reduction are fitted on the wells they are applied to by construction.
+      Open follow-ups: exporting/importing a model file so it can move between projects, and
+      showing a model's metrics in the saved list rather than only in its tooltip.
+- [ ] ~~**`joblib` model persistence**~~ — a confirmed capability hole, not a guess: `MlRequest`
       carries `train_well_ids` and `apply_well_ids` in the SAME call, so the fitted model dies
       with the subprocess. There is currently no way to train on the cored wells and apply *that
       same model* later — a refit on different data is a different model. Persisting makes a

@@ -529,6 +529,41 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             PRIMARY KEY (well_id, dataset, set_name)
         );
 
+        -- Trained machine-learning models, kept as ARTIFACTS rather than dying with the run.
+        --
+        -- Until now a run carried its training wells and its apply wells in one call, so the
+        -- fitted model was thrown away: there was no way to train on the cored wells and apply
+        -- THAT SAME model to the rest of the field later. A refit on different data is a
+        -- different model, and "which model produced this PERM curve?" had no answer.
+        --
+        -- `data` is a joblib dump of BOTH the scaler and the estimator. The scaler must travel
+        -- with the model — refitting a StandardScaler on the apply wells would be a different
+        -- transform, and the predictions would be quietly wrong rather than obviously broken.
+        -- `feature_curves` is an ORDERED JSON array and is the contract: applying the model
+        -- resolves exactly those curves in exactly that order, and fails a well by name when one
+        -- is missing rather than substituting or reordering.
+        --
+        -- PRIMARY KEY here is the `well_images` argument, not a `computed_curves` inconsistency:
+        -- one index entry per MODEL is free, and a duplicate would make a cited model ambiguous.
+        CREATE TABLE IF NOT EXISTS ml_models (
+            model_id        UUID NOT NULL,
+            name            VARCHAR NOT NULL,
+            task            VARCHAR NOT NULL,
+            algorithm       VARCHAR NOT NULL,
+            feature_curves  VARCHAR NOT NULL,   -- JSON array, ORDER IS PART OF THE CONTRACT
+            target_curve    VARCHAR,
+            params_json     VARCHAR NOT NULL,
+            metrics_json    VARCHAR NOT NULL,
+            trained_on      VARCHAR NOT NULL,   -- JSON array of well names (provenance)
+            n_train         INTEGER NOT NULL,
+            standardize     INTEGER NOT NULL,
+            sklearn_version VARCHAR,
+            note            VARCHAR,
+            created_at      TIMESTAMP NOT NULL DEFAULT now(),
+            data            BLOB NOT NULL,
+            PRIMARY KEY (model_id)
+        );
+
         -- Special core analysis: capillary-pressure measurements. Several Pc/Sw points
         -- per plug, so no primary key — re-import replaces per well (like core_data).
         CREATE TABLE IF NOT EXISTS scal_pc (
@@ -1958,6 +1993,182 @@ pub fn update_well_image(
          WHERE image_id = ?1",
         params![image_id, depth_top, depth_base, name, caption],
     )?)
+}
+
+// ---------------------------------------------------------------------------
+// Trained ML models
+// ---------------------------------------------------------------------------
+
+/// A saved model's record WITHOUT its bytes. Listing every model must stay cheap — a random
+/// forest is megabytes, and the picker only ever needs the description.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MlModelInfo {
+    pub model_id: String,
+    pub name: String,
+    pub task: String,
+    pub algorithm: String,
+    /// ORDERED — the order is part of the apply contract, not a display detail.
+    pub feature_curves: Vec<String>,
+    pub target_curve: Option<String>,
+    pub params_json: String,
+    pub metrics_json: String,
+    pub trained_on: Vec<String>,
+    pub n_train: i64,
+    pub standardize: bool,
+    pub sklearn_version: Option<String>,
+    pub note: Option<String>,
+    pub created_at: String,
+    pub bytes: i64,
+}
+
+fn json_names(s: &str) -> Vec<String> {
+    serde_json::from_str::<Vec<String>>(s).unwrap_or_default()
+}
+
+/// A model must be citable, so its name must be unique. Same rule as a delivery set: an
+/// existing name is auto-suffixed rather than overwritten — retraining produces a NEW model,
+/// and silently replacing the one a delivered curve was made with would destroy its provenance.
+pub fn resolve_model_name(conn: &Connection, desired: &str) -> DbResult<String> {
+    let base = desired.trim();
+    let base = if base.is_empty() { "MODEL" } else { base };
+    let taken: Vec<String> = {
+        let mut stmt = conn.prepare("SELECT name FROM ml_models")?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        rows.collect::<Result<Vec<_>, _>>()?
+    };
+    if !taken.iter().any(|t| t.eq_ignore_ascii_case(base)) {
+        return Ok(base.to_string());
+    }
+    for i in 1..10_000 {
+        let candidate = format!("{base}_{i}");
+        if !taken.iter().any(|t| t.eq_ignore_ascii_case(&candidate)) {
+            return Ok(candidate);
+        }
+    }
+    Ok(format!("{base}_{}", Uuid::new_v4()))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn insert_ml_model(
+    conn: &Connection,
+    name: &str,
+    task: &str,
+    algorithm: &str,
+    feature_curves: &[String],
+    target_curve: Option<&str>,
+    params_json: &str,
+    metrics_json: &str,
+    trained_on: &[String],
+    n_train: usize,
+    standardize: bool,
+    sklearn_version: Option<&str>,
+    note: Option<&str>,
+    data: &[u8],
+) -> DbResult<(String, String)> {
+    let name = resolve_model_name(conn, name)?;
+    let id = Uuid::new_v4().to_string();
+    conn.execute(
+        "INSERT INTO ml_models (model_id, name, task, algorithm, feature_curves, target_curve,
+                                params_json, metrics_json, trained_on, n_train, standardize,
+                                sklearn_version, note, data)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        params![
+            id,
+            name,
+            task,
+            algorithm,
+            serde_json::to_string(feature_curves).unwrap_or_else(|_| "[]".into()),
+            target_curve,
+            params_json,
+            metrics_json,
+            serde_json::to_string(trained_on).unwrap_or_else(|_| "[]".into()),
+            n_train as i64,
+            i32::from(standardize),
+            sklearn_version,
+            note,
+            data,
+        ],
+    )?;
+    Ok((id, name))
+}
+
+/// Every saved model, newest first. Never selects `data`.
+pub fn list_ml_models(conn: &Connection) -> DbResult<Vec<MlModelInfo>> {
+    let mut stmt = conn.prepare(
+        "SELECT model_id, name, task, algorithm, feature_curves, target_curve, params_json,
+                metrics_json, trained_on, n_train, standardize, sklearn_version, note,
+                strftime(created_at, '%Y-%m-%d %H:%M'), octet_length(data)
+         FROM ml_models ORDER BY created_at DESC, name",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok(MlModelInfo {
+            model_id: r.get(0)?,
+            name: r.get(1)?,
+            task: r.get(2)?,
+            algorithm: r.get(3)?,
+            feature_curves: json_names(&r.get::<_, String>(4)?),
+            target_curve: r.get(5)?,
+            params_json: r.get(6)?,
+            metrics_json: r.get(7)?,
+            trained_on: json_names(&r.get::<_, String>(8)?),
+            n_train: r.get(9)?,
+            standardize: r.get::<_, i32>(10)? != 0,
+            sklearn_version: r.get(11)?,
+            note: r.get(12)?,
+            created_at: r.get(13)?,
+            bytes: r.get(14)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
+/// The record AND its bytes — only the apply path asks for this.
+pub fn get_ml_model(conn: &Connection, model_id: &str) -> DbResult<(MlModelInfo, Vec<u8>)> {
+    let info = conn.query_row(
+        "SELECT model_id, name, task, algorithm, feature_curves, target_curve, params_json,
+                metrics_json, trained_on, n_train, standardize, sklearn_version, note,
+                strftime(created_at, '%Y-%m-%d %H:%M'), octet_length(data), data
+         FROM ml_models WHERE model_id = ?1",
+        params![model_id],
+        |r| {
+            Ok((
+                MlModelInfo {
+                    model_id: r.get(0)?,
+                    name: r.get(1)?,
+                    task: r.get(2)?,
+                    algorithm: r.get(3)?,
+                    feature_curves: json_names(&r.get::<_, String>(4)?),
+                    target_curve: r.get(5)?,
+                    params_json: r.get(6)?,
+                    metrics_json: r.get(7)?,
+                    trained_on: json_names(&r.get::<_, String>(8)?),
+                    n_train: r.get(9)?,
+                    standardize: r.get::<_, i32>(10)? != 0,
+                    sklearn_version: r.get(11)?,
+                    note: r.get(12)?,
+                    created_at: r.get(13)?,
+                    bytes: r.get(14)?,
+                },
+                r.get::<_, Vec<u8>>(15)?,
+            ))
+        },
+    )?;
+    Ok(info)
+}
+
+pub fn rename_ml_model(conn: &Connection, model_id: &str, new_name: &str) -> DbResult<String> {
+    let name = resolve_model_name(conn, new_name)?;
+    conn.execute("UPDATE ml_models SET name = ?2 WHERE model_id = ?1", params![model_id, name])?;
+    Ok(name)
+}
+
+pub fn delete_ml_model(conn: &Connection, model_id: &str) -> DbResult<()> {
+    conn.execute("DELETE FROM ml_models WHERE model_id = ?1", params![model_id])?;
+    Ok(())
 }
 
 /// One capillary-pressure row as imported/fetched (see `scal_pc` table).

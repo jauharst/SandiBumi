@@ -3808,6 +3808,44 @@ textarea {
   max-height: 180px;
   overflow-y: auto;
 }
+/* Saved ML models: a scrolling list of artifacts, each with its own actions. */
+.mc-section {
+  margin: 14px 0 4px;
+}
+.mc-section > h4 {
+  margin: 0 0 6px;
+  font-size: var(--fs-md);
+}
+.mc-saved-list {
+  border: 1px solid var(--border, #d8d2c4);
+  border-radius: var(--r-md);
+  max-height: 190px;
+  overflow-y: auto;
+}
+.mc-saved-list:empty {
+  display: none;
+}
+.mc-saved-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border, #d8d2c4);
+}
+.mc-saved-row:last-child {
+  border-bottom: none;
+}
+.mc-saved-desc {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mc-saved-row button {
+  flex: 0 0 auto;
+}
 .mc-param-row {
   display: flex;
   align-items: center;
