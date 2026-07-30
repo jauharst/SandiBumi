@@ -742,15 +742,20 @@ _(field-review tier, was "P2"; the rest of the tier is done in [A8](#a8-field-re
       Six unit tests pin it, incl. each mineral landing nearest its OWN chart point and an explicit
       test that a density-only apparent porosity is **algebraically degenerate** (returns the assumed
       matrix density for every sample) — that option is deliberately absent.
-      **Follow-up, the one real approximation left: a true chart-lookup DN crossplot porosity.**
-      OPT_PHIA=XPLOT averages the apparent-limestone density and neutron porosities analytically,
-      which drags points toward the assumed RHO_MA_A: quartz lands ~0.013 g/cc heavy (UMAA within
-      0.001 of the chart) but dolomite ~0.06 g/cc light and ~0.34 b/cm³ left of its chart point —
-      20% of the shortest triangle edge, so minerals never cross over, but the bias is real. The fix
-      is a genuine Por-11-style 2-D lookup (solve for the matrix/porosity pair that satisfies BOTH
-      tools); `neutron_charts.rs` already holds the digitized per-matrix neutron tables, so the
-      remaining work is the density leg plus a root-find. Until then OPT_PHIA=LOG (feed a trusted
-      porosity) is the accurate route.
+- [x] **Chart-lookup DN crossplot porosity for the MID plot** — **SHIPPED 2026-07-30**, same day,
+      closing the approximation the module shipped with. `OPT_PHIA=CHART` is now the default and
+      reads the crossplot the way Por-11 is read by hand. The trick that makes it cheap: the two
+      unknowns (matrix, porosity) collapse to one, because at any trial porosity each tool implies
+      a matrix density on its own — density's rises with φ, the neutron's falls — so their
+      difference is strictly monotone with exactly one root. Bisection, ~20 halvings to 1e-6, no
+      derivatives, no initial guess, cannot diverge. `TOOL`/`SALINITY` pick the curve family
+      (reusing `nphimat`'s tables and `chart_lerp`, now `pub(crate)`); `RHO_MA_SS/LS/DOL` are the
+      three matrix lines, refused if a zone override crosses them out of order.
+      Round-trip tested and that is the real proof: build the two readings a known rock produces,
+      feed them back, and the solver returns that rock — φ to 1e-3 and RHOMAA onto its own matrix
+      line for all three matrices at 0/5/12/25/35 pu. The dolomite bias is gone (0.002 vs XPLOT's
+      0.06 g/cc). Off-family samples clamp instead of vanishing, so anhydrite still plots heavy and
+      the gas signature stays low-left. XPLOT is retained for comparison with commercial suites.
 - [ ] **Data prep**: **split & merge** of curves/intervals; **normalization with tops-referenced
       intervals** — reference top/bottom from a chosen tops set; missing marker → nearest stratigraphic
       marker (top → shallowest, bottom → deepest); percentiles extrapolated over the whole interval and

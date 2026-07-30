@@ -5055,13 +5055,22 @@ nothing to plot on it. New **Lithology** category in the Petrophysics ribbon.
 - [ ] **Read a known carbonate or a clean sand** and check the cloud sits where the
       lithology says it should. Please push back if the placement disagrees with your
       chartbook reading — the analytic apparent porosity is the one approximation here.
-- [ ] **The porosity basis is a visible choice** (OPT_PHIA in the run dialog): **XPLOT**
-      (default, textbook average of the apparent-limestone density and neutron
-      porosities), **NEUTRON**, or **LOG** (feed a porosity curve you already trust —
-      the accurate route). The method note in the dialog states the known bias: at zero
-      porosity quartz lands about 0.013 g/cc heavy (UMAA within 0.001 of the chart) and
-      dolomite about 0.06 g/cc light and 0.34 b/cm³ left of the chart's dolomite point.
-      All three still resolve to their own chart point by a wide margin (unit-tested).
+- [ ] **The porosity basis is a visible choice** (OPT_PHIA in the run dialog), and the
+      default **CHART** now reads the density-neutron crossplot the way you would by hand
+      on Por-11 — it solves for the porosity at which both tools imply the same matrix,
+      interpolating across the chartbook's sandstone / limestone / dolomite curves. Pick
+      the curve family with **TOOL** / **SALINITY** (same choices as Neutron Matrix
+      Conversion). **NPHI must be in apparent-limestone units** — run Neutron Matrix
+      Conversion first if your log is recorded in sandstone or dolomite units.
+- [ ] **Compare CHART against XPLOT on a dolomite or mixed-carbonate interval**: XPLOT
+      (the analytic average commercial suites take, kept for comparison) leaves dolomite
+      about 0.06 g/cc light and 0.34 b/cm³ left of its chart point; CHART puts it on the
+      dolomite line. If your chartbook reading disagrees with CHART, that's the one I
+      most want to hear about.
+- [ ] **Anhydrite / pyrite intervals stay heavy** rather than dropping out (denser than
+      every matrix line, they clamp to the end of the search and plot in the chart's
+      high-RHOMAA corner). **Gas** pushes points low-left, exactly as on the printed
+      chart — the module does not "fix" gas, so the gas signature stays readable.
 - [ ] **Density-only porosity is deliberately absent** — it is algebraically degenerate
       (it returns the assumed matrix density for every sample, a constant curve that
       would still plot convincingly). There is a unit test stating the trap.

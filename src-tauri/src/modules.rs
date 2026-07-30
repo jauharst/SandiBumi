@@ -1347,7 +1347,7 @@ fn nphimat_spec() -> ModuleSpec {
 /// Piecewise-linear read of a digitized chart curve (strictly increasing in both
 /// coordinates). `inverse` swaps the axes — true porosity back to apparent
 /// limestone. Outside the tabulated span the end segment's slope is extended.
-fn chart_lerp(table: &[(f32, f32)], v: f64, inverse: bool) -> f64 {
+pub(crate) fn chart_lerp(table: &[(f32, f32)], v: f64, inverse: bool) -> f64 {
     let at = |i: usize| -> (f64, f64) {
         let (x, y) = table[i];
         if inverse { (y as f64, x as f64) } else { (x as f64, y as f64) }
@@ -1369,7 +1369,7 @@ fn chart_lerp(table: &[(f32, f32)], v: f64, inverse: bool) -> f64 {
 }
 
 /// The (sandstone, dolomite) chart tables for a tool choice.
-fn nphimat_tables(tool: &str, salt: bool) -> (&'static [(f32, f32)], &'static [(f32, f32)]) {
+pub(crate) fn nphimat_tables(tool: &str, salt: bool) -> (&'static [(f32, f32)], &'static [(f32, f32)]) {
     use crate::neutron_charts as nc;
     match tool {
         "NPHI" => (nc::CNL_NPHI_SS, nc::CNL_NPHI_DOL),

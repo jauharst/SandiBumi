@@ -44,6 +44,102 @@ pub(crate) fn electron_density(rhob_logged: f64) -> f64 {
     (rhob_logged + RHOE_OFFSET) / RHOE_SLOPE
 }
 
+/// Porosity bracket the crossplot lookup searches. Wider than any reservoir on purpose:
+/// the ends are where dense (anhydrite, pyrite) and washed-out samples land, and a sample
+/// that wants to sit outside is clamped to the end rather than dropped, so it still plots
+/// in the right corner of the MID chart instead of vanishing.
+const PHI_SEARCH_LO: f64 = -0.05;
+const PHI_SEARCH_HI: f64 = 0.60;
+
+/// Piecewise-linear interpolation of `ys` against strictly-increasing `xs` at `x`, with the
+/// end segments extended beyond the ends. Used across the three matrix lines, so the
+/// extrapolation is what carries gas-affected and off-family samples.
+fn lerp_across(xs: &[f64; 3], ys: &[f64; 3], x: f64) -> f64 {
+    let seg = |i: usize, j: usize| -> f64 {
+        let dx = xs[j] - xs[i];
+        if dx.abs() < 1e-9 {
+            return (ys[i] + ys[j]) / 2.0;
+        }
+        ys[i] + (x - xs[i]) * (ys[j] - ys[i]) / dx
+    };
+    if x <= xs[1] {
+        seg(0, 1)
+    } else {
+        seg(1, 2)
+    }
+}
+
+/// Apparent porosity by a genuine density-neutron crossplot LOOKUP — what you do by hand on
+/// chart Por-11, rather than averaging the two porosities and hoping.
+///
+/// The chart is a family of matrix lines (sandstone, limestone, dolomite) graduated in true
+/// porosity. Reading it means finding the point on that family matching BOTH tools. That
+/// looks like two unknowns, but it collapses to one: at any trial porosity each tool implies
+/// a matrix density on its own,
+///
+///   density says   rho_ma = (RHOB - phi*RHO_FL) / (1 - phi)        — rises with phi
+///   neutron says   rho_ma = where NPHI falls across the three lines' readings at phi
+///                                                                   — falls with phi
+///
+/// so their difference is strictly monotone and has exactly one root. Bisection finds it
+/// without derivatives or an initial guess, and cannot diverge — which matters because this
+/// runs per sample over every well in a field.
+///
+/// `nphi_ls` must be APPARENT LIMESTONE (the chart's x-axis). Run `nphimat` first if the log
+/// is recorded in sandstone or dolomite units.
+fn crossplot_porosity(
+    rhob: f64,
+    nphi_ls: f64,
+    rho_fl: f64,
+    rho_ma: [f64; 3],
+    tables: (&[(f32, f32)], &[(f32, f32)]),
+) -> f64 {
+    // What each matrix line reads on the apparent-limestone axis at this true porosity.
+    // Limestone IS that axis, so it is the identity; the other two come from the chartbook
+    // tables, read backwards (true porosity -> apparent limestone).
+    let matrix_density_from_neutron = |phi: f64| -> f64 {
+        let readings = [
+            crate::modules::chart_lerp(tables.0, phi, true),
+            phi,
+            crate::modules::chart_lerp(tables.1, phi, true),
+        ];
+        lerp_across(&readings, &rho_ma, nphi_ls)
+    };
+    let disagreement = |phi: f64| -> f64 {
+        (rhob - phi * rho_fl) / (1.0 - phi) - matrix_density_from_neutron(phi)
+    };
+
+    let (mut lo, mut hi) = (PHI_SEARCH_LO, PHI_SEARCH_HI);
+    let f_lo = disagreement(lo);
+    let f_hi = disagreement(hi);
+    if !f_lo.is_finite() || !f_hi.is_finite() {
+        return f64::NAN;
+    }
+    // No sign change means the root lies outside the bracket: the sample is denser than any
+    // matrix line (clamps low, plotting high on the MID chart, as anhydrite and pyrite
+    // should) or more porous than the bracket (clamps high, where PHIA_MAX then rejects it).
+    if f_lo > 0.0 {
+        return lo;
+    }
+    if f_hi < 0.0 {
+        return hi;
+    }
+    // Bisection: ~20 halvings take the 0.65-wide bracket below 1e-6 porosity units, three
+    // orders finer than any log resolves. The cap is a backstop, not the exit condition.
+    for _ in 0..50 {
+        if hi - lo < 1e-6 {
+            break;
+        }
+        let mid = 0.5 * (lo + hi);
+        if disagreement(mid) > 0.0 {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+    0.5 * (lo + hi)
+}
+
 pub fn midplot_spec() -> ModuleSpec {
     ModuleSpec {
         name: "midplot".into(),
@@ -55,15 +151,23 @@ pub fn midplot_spec() -> ModuleSpec {
               U = PEF * rho_e with rho_e = (RHOB + 0.1883)/1.0704; the fluid is then removed from \
               both: RHOMAA = (RHOB - phi*RHO_FL)/(1 - phi), UMAA = (U - phi*U_FL)/(1 - phi). \
               \
-              PHI here is the APPARENT porosity and it is the one judgement call in the method. \
-              OPT_PHIA = XPLOT (default) averages the apparent-limestone density and neutron \
-              porosities, the textbook basis; it is analytic, not a chart lookup, so it drags \
-              points toward the assumed RHO_MA_A: at zero porosity quartz lands ~0.013 g/cc heavy \
-              (UMAA within 0.001 of the chart) and dolomite ~0.06 g/cc light and ~0.34 b/cm3 left \
-              of the chart's dolomite point. All three minerals still resolve to their own chart \
-              point by a wide margin. NEUTRON uses the neutron alone (no density circularity, but \
-              carries the neutron's matrix effect); LOG takes a porosity curve you already trust \
-              (e.g. from SandiMin or a chart-based workflow) and is the accurate route. \
+              PHI here is the APPARENT porosity, the one judgement call in the method. \
+              OPT_PHIA = CHART (default) reads it off the density-neutron crossplot the way you \
+              would by hand on Por-11: it solves for the porosity at which the density and the \
+              neutron imply the SAME matrix, interpolating across the chartbook's sandstone, \
+              limestone and dolomite curves (pick the curve family with TOOL/SALINITY, exactly as \
+              in Neutron Matrix Conversion). Build a rock's two tool readings, feed them back, and \
+              this returns that rock: porosity to 1e-3 and RHOMAA onto its own matrix line, for \
+              sandstone, limestone and dolomite alike. Rocks denser than every matrix line \
+              (anhydrite, pyrite) clamp to the end of the search and stay heavy rather than \
+              dropping out, and gas pushes points low-left just as it does on the printed chart. \
+              \
+              XPLOT is the analytic average commercial suites take — kept for comparison, not for \
+              accuracy: it drags points toward the assumed RHO_MA_A, leaving dolomite about 0.06 \
+              g/cc light and 0.34 b/cm3 left of its chart point. NEUTRON uses the neutron alone. \
+              LOG takes a porosity curve you already trust. NPHI must be APPARENT LIMESTONE for \
+              CHART and NEUTRON — run Neutron Matrix Conversion first if the log is recorded in \
+              sandstone or dolomite units. \
               \
               Density-only apparent porosity is deliberately NOT offered: it is algebraically \
               degenerate (it returns RHO_MA_A for every sample). Barite mud makes PEF, and \
@@ -73,9 +177,27 @@ pub fn midplot_spec() -> ModuleSpec {
             opt(
                 "OPT_PHIA",
                 "Apparent porosity basis (see the method note — this choice moves the points)",
-                "XPLOT",
-                &["XPLOT", "NEUTRON", "LOG"],
+                "CHART",
+                &["CHART", "XPLOT", "NEUTRON", "LOG"],
             ),
+            opt(
+                "TOOL",
+                "Neutron measurement the log comes from, for the CHART lookup (same chart families as Neutron Matrix Conversion)",
+                "TNPH",
+                &["TNPH", "NPHI", "APLC", "FPLC", "SNP"],
+            ),
+            opt(
+                "SALINITY",
+                "Formation salinity for the CHART lookup (TNPH curves only; SALT_250K = 250,000 ppm)",
+                "FRESH",
+                &["FRESH", "SALT_250K"],
+            ),
+            // The chart's three matrix lines, in the density scale the tool reports (the
+            // chart's own y-axis). Exposed because a arkosic or heavy-mineral sand is not
+            // 2.65 — the same reason every porosity module here takes RHO_MA.
+            param("RHO_MA_SS", "Sandstone matrix line, CHART lookup", "g/cc", 2.65, 2.0, 3.2),
+            param("RHO_MA_LS", "Limestone matrix line, CHART lookup", "g/cc", 2.71, 2.0, 3.2),
+            param("RHO_MA_DOL", "Dolomite matrix line, CHART lookup", "g/cc", 2.87, 2.0, 3.2),
             // 2.71 (limestone), NOT the 2.645 sandstone default the porosity modules use: the
             // neutron leg is apparent-LIMESTONE porosity, so the density leg has to be on the
             // same apparent-limestone basis or averaging the two is meaningless.
@@ -100,9 +222,11 @@ pub fn midplot_spec() -> ModuleSpec {
     }
 }
 
-/// Which apparent porosity the run is built on. `Xplot` is the textbook average of the
-/// apparent-limestone density and neutron porosities.
+/// Which apparent porosity the run is built on. `Chart` solves the density-neutron
+/// crossplot; `Xplot` is the analytic average of the apparent-limestone density and
+/// neutron porosities that commercial suites take.
 enum PhiBasis {
+    Chart,
     Xplot,
     Neutron,
     Log,
@@ -114,10 +238,12 @@ pub fn midplot(ctx: &ModuleContext) -> ModuleOutputs {
     let pef = ctx.log("PEF");
     let phi_in = ctx.log("PHI_IN");
     let basis = match ctx.o("OPT_PHIA") {
+        "XPLOT" => PhiBasis::Xplot,
         "NEUTRON" => PhiBasis::Neutron,
         "LOG" => PhiBasis::Log,
-        _ => PhiBasis::Xplot,
+        _ => PhiBasis::Chart,
     };
+    let tables = crate::modules::nphimat_tables(ctx.o("TOOL"), ctx.o("SALINITY") == "SALT_250K");
 
     let mut u_out = vec![f32::NAN; ctx.n];
     let mut rhomaa = vec![f32::NAN; ctx.n];
@@ -139,6 +265,17 @@ pub fn midplot(ctx: &ModuleContext) -> ModuleOutputs {
         }
 
         let phi = match basis {
+            PhiBasis::Chart => {
+                let np = nphi[i] as f64;
+                let lines = [ctx.p("RHO_MA_SS", i), ctx.p("RHO_MA_LS", i), ctx.p("RHO_MA_DOL", i)];
+                // The lookup interpolates ACROSS the three lines, so they have to stay in
+                // chart order; a zone override that crossed them would silently invert the
+                // lithology axis.
+                if np.is_nan() || lines.iter().any(|v| v.is_nan()) || !(lines[0] < lines[1] && lines[1] < lines[2]) {
+                    continue;
+                }
+                crossplot_porosity(rb, np, rho_fl, lines, tables)
+            }
             PhiBasis::Xplot => {
                 let np = nphi[i] as f64;
                 if np.is_nan() || rho_ma_a == rho_fl {
@@ -202,6 +339,9 @@ mod tests {
             ("RHO_FL".to_string(), vec![1.0]),
             ("U_FL".to_string(), vec![0.398]),
             ("PHIA_MAX".to_string(), vec![0.5]),
+            ("RHO_MA_SS".to_string(), vec![2.65]),
+            ("RHO_MA_LS".to_string(), vec![2.71]),
+            ("RHO_MA_DOL".to_string(), vec![2.87]),
         ]);
         for (k, v) in params {
             p.insert((*k).to_string(), vec![*v]);
@@ -302,6 +442,85 @@ mod tests {
         assert!((u - QUARTZ_PT.0).abs() < 0.01, "UMAA {u:.4} should be within 0.01 of {}", QUARTZ_PT.0);
         let heavy = r - QUARTZ_PT.1;
         assert!((heavy - 0.013).abs() < 0.005, "RHOMAA bias {heavy:.4} should be the documented ~+0.013 g/cc");
+    }
+
+    /// The three chart matrix lines, in the order the lookup interpolates across them.
+    const MATRIX_LINES: [f64; 3] = [2.65, 2.71, 2.87];
+
+    /// Forward model: what the density and neutron tools read for a rock of the given matrix
+    /// (0 = sandstone, 1 = limestone, 2 = dolomite) at the given TRUE porosity. The neutron
+    /// side is the chartbook table read backwards — true porosity to apparent limestone —
+    /// which is the direction chart Por-11's matrix curves are graduated in. Defaults
+    /// (TNPH, fresh), matching what `run` leaves the TOOL option as.
+    fn tool_readings(matrix: usize, phi: f64) -> (f64, f64) {
+        let (t_ss, t_dol) = crate::modules::nphimat_tables("TNPH", false);
+        let rhob = MATRIX_LINES[matrix] * (1.0 - phi) + 1.0 * phi;
+        let nphi = match matrix {
+            0 => crate::modules::chart_lerp(t_ss, phi, true),
+            2 => crate::modules::chart_lerp(t_dol, phi, true),
+            _ => phi,
+        };
+        (rhob, nphi)
+    }
+
+    /// The test that decides whether the chart lookup is real: build the two readings a known
+    /// rock would produce, hand them back, and require the solver to return that rock.
+    /// Porosity must come back to bisection tolerance and RHOMAA must land on the matrix line
+    /// itself — no bias left to document, because nothing was approximated.
+    #[test]
+    fn chart_lookup_recovers_the_rock_it_was_built_from() {
+        for (matrix, name) in [(0, "sandstone"), (1, "limestone"), (2, "dolomite")] {
+            for phi in [0.0, 0.05, 0.12, 0.25, 0.35] {
+                let (rhob, nphi) = tool_readings(matrix, phi);
+                let out = run(rhob, nphi, 3.0, "CHART", &[]);
+                let got_phi = out["PHIA"][0] as f64;
+                let got_rho = out["RHOMAA"][0] as f64;
+                assert!((got_phi - phi).abs() < 1e-3, "{name} at phi {phi}: recovered {got_phi:.5}");
+                assert!(
+                    (got_rho - MATRIX_LINES[matrix]).abs() < 2e-3,
+                    "{name} at phi {phi}: RHOMAA {got_rho:.4}, want the {} line",
+                    MATRIX_LINES[matrix],
+                );
+            }
+        }
+    }
+
+    /// The payoff over the analytic average, on the case that motivated the work: dolomite.
+    /// CHART must put it on its own matrix line; XPLOT is the one that drifts.
+    #[test]
+    fn chart_lookup_removes_the_dolomite_bias_that_the_average_carries() {
+        let (rhob, nphi) = tool_readings(2, 0.0);
+        let chart = run(rhob, nphi, 3.142, "CHART", &[])["RHOMAA"][0] as f64;
+        let xplot = run(rhob, nphi, 3.142, "XPLOT", &[])["RHOMAA"][0] as f64;
+        let dolomite = MATRIX_LINES[2];
+        assert!((chart - dolomite).abs() < 2e-3, "CHART put dolomite at {chart:.4}");
+        assert!(
+            (chart - dolomite).abs() * 10.0 < (xplot - dolomite).abs(),
+            "CHART {chart:.4} should beat XPLOT {xplot:.4} against the {dolomite} line by a wide margin",
+        );
+        // And the average drifts in the documented direction: too light.
+        assert!(xplot < dolomite);
+    }
+
+    /// Off-family samples must stay diagnostic rather than vanish. A rock denser than every
+    /// matrix line (anhydrite, pyrite) clamps to the low end of the search and still reports
+    /// a heavy RHOMAA — which is exactly the corner of the MID chart it belongs in.
+    #[test]
+    fn denser_than_any_matrix_line_clamps_instead_of_failing() {
+        let out = run(2.98, 0.0, 5.05, "CHART", &[]);
+        let rho = out["RHOMAA"][0] as f64;
+        assert!(rho.is_finite() && rho > 2.9, "anhydrite should stay heavy, got {rho:.4}");
+        assert!(out["UMAA"][0].is_finite());
+    }
+
+    /// A zone override that crossed the three matrix lines would silently invert the
+    /// lithology axis, so out-of-order lines are refused rather than interpolated.
+    #[test]
+    fn out_of_order_matrix_lines_are_refused() {
+        let (rhob, nphi) = tool_readings(1, 0.1);
+        assert!(run(rhob, nphi, 3.0, "CHART", &[])["RHOMAA"][0].is_finite());
+        let crossed = run(rhob, nphi, 3.0, "CHART", &[("RHO_MA_DOL", 2.60)]);
+        assert!(crossed["RHOMAA"][0].is_nan() && crossed["PHIA"][0].is_nan());
     }
 
     /// A density-derived apparent porosity is algebraically degenerate — RHOMAA collapses to
