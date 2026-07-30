@@ -528,6 +528,189 @@ pub fn import_core_csv(conn: &Connection, well_id: &str, path: &str) -> CoreImpo
     }
 }
 
+/// Per-well outcome of a multi-well core table import (T-IMP-07).
+#[derive(Debug, Clone, Serialize)]
+pub struct CoreWellOutcome {
+    /// The well name as written in the FILE (or the fallback well's name when the file
+    /// has no well column).
+    pub well_name: String,
+    /// Rows carried for this name in the file.
+    pub rows: usize,
+    /// Rows actually stored (post depth-dedup); 0 when the name didn't import.
+    pub imported: usize,
+    /// None = imported cleanly; Some = why this name's rows were skipped.
+    pub problem: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CoreTableImportResult {
+    pub path: String,
+    pub rows_imported: usize,
+    pub wells_imported: usize,
+    pub outcomes: Vec<CoreWellOutcome>,
+    /// Rows with a blank well cell in a well-routed file — skipped, never misrouted
+    /// (same rule as multi-well tops import).
+    pub skipped_blank_well: usize,
+    pub error: Option<String>,
+}
+
+/// Imports one core table under a dialog-confirmed mapping (probe → confirm → commit).
+///
+/// Routing: with a well column mapped, rows go to the project well matching their cell's
+/// normalized name — exactly one match imports; zero or several report and skip (the
+/// same rules LAS attach uses, so pre-set-era duplicate records can't be guessed at).
+/// Without a well column, everything goes to `fallback_well_id` (the selected well).
+/// Depths convert from `depth_unit` (the dialog's confirmed file unit; None = already
+/// the project unit) to the project's declared unit — a feet-plugged Rokan CSV landing
+/// raw in a metric project would overlay 3.28× off, silently. Per-well semantics stay
+/// replace-on-reimport (`insert_core_data`).
+pub fn import_core_table(
+    conn: &Connection,
+    path: &str,
+    mapping: &parsers::CoreMapping,
+    depth_unit: Option<&str>,
+    fallback_well_id: Option<&str>,
+) -> CoreTableImportResult {
+    let fail = |e: String| CoreTableImportResult {
+        path: path.to_string(),
+        rows_imported: 0,
+        wells_imported: 0,
+        outcomes: Vec::new(),
+        skipped_blank_well: 0,
+        error: Some(e),
+    };
+
+    let rows = match parsers::parse_core_table_mapped(path, mapping) {
+        Ok(r) => r,
+        Err(e) => return fail(e.to_string()),
+    };
+    if rows.is_empty() {
+        return fail("no rows with a parsable depth".into());
+    }
+
+    // Group rows by their routing target, keeping file order within each group.
+    let mut skipped_blank_well = 0usize;
+    let mut groups: Vec<(String, Vec<&parsers::MappedCoreRow>)> = Vec::new();
+    let mut fallback_rows: Vec<&parsers::MappedCoreRow> = Vec::new();
+    for r in &rows {
+        match (&r.well, mapping.well) {
+            (Some(name), Some(_)) => match groups.iter_mut().find(|(n, _)| n == name) {
+                Some((_, list)) => list.push(r),
+                None => groups.push((name.clone(), vec![r])),
+            },
+            // A blank cell in a well-routed file: skipping is the only safe answer —
+            // guessing "probably the previous row's well" would misroute lab padding rows.
+            (None, Some(_)) => skipped_blank_well += 1,
+            _ => fallback_rows.push(r),
+        }
+    }
+
+    let project_unit = crate::units::project_depth_unit_or_default(conn);
+    let file_unit = depth_unit.and_then(crate::units::DepthUnit::parse).unwrap_or(project_unit);
+
+    let mut outcomes: Vec<CoreWellOutcome> = Vec::new();
+    let mut rows_imported = 0usize;
+    let mut wells_imported = 0usize;
+
+    let mut store = |well_id: &str, well_name: &str, list: &[&parsers::MappedCoreRow], outcomes: &mut Vec<CoreWellOutcome>| {
+        let mut depth: Vec<f32> = list.iter().map(|r| r.depth).collect();
+        crate::units::convert_depths(&mut depth, file_unit, project_unit);
+        let mut cpor: Vec<f32> = list.iter().map(|r| r.cpor).collect();
+        let mut cperm: Vec<f32> = list.iter().map(|r| r.cperm).collect();
+        let mut cgd: Vec<f32> = list.iter().map(|r| r.cgd).collect();
+        let mut csw: Vec<f32> = list.iter().map(|r| r.csw).collect();
+        // Depth-dedup per WELL (first kept), matching the legacy path — the core_data PK
+        // is (well_id, depth), so one repeated plug depth would abort the well's insert.
+        let (keep, report) = parsers::depth_keep_indices(&depth);
+        if !report.is_clean() {
+            let take = |src: &[f32]| -> Vec<f32> { keep.iter().map(|&i| src[i]).collect() };
+            depth = take(&depth);
+            cpor = take(&cpor);
+            cperm = take(&cperm);
+            cgd = take(&cgd);
+            csw = take(&csw);
+        }
+        match db::insert_core_data(conn, well_id, &depth, &cpor, &cperm, &cgd, &csw) {
+            Ok(()) => {
+                rows_imported += depth.len();
+                wells_imported += 1;
+                outcomes.push(CoreWellOutcome {
+                    well_name: well_name.to_string(),
+                    rows: list.len(),
+                    imported: depth.len(),
+                    problem: (!report.is_clean())
+                        .then(|| format!("{} duplicate depth row(s) dropped (first kept)", report.duplicate)),
+                });
+            }
+            Err(e) => outcomes.push(CoreWellOutcome {
+                well_name: well_name.to_string(),
+                rows: list.len(),
+                imported: 0,
+                problem: Some(e.to_string()),
+            }),
+        }
+    };
+
+    for (name, list) in &groups {
+        // Normalized-name match against the project, LAS-attach rules: 1 → import,
+        // 0 / many → report and skip.
+        let norm = name.trim().to_uppercase();
+        let ids: Vec<String> = {
+            let mut stmt = match conn
+                .prepare("SELECT well_id FROM wells WHERE upper(trim(well_name)) = ?1 ORDER BY well_id")
+            {
+                Ok(s) => s,
+                Err(e) => return fail(e.to_string()),
+            };
+            match stmt
+                .query_map(params![norm], |r| r.get::<_, String>(0))
+                .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+            {
+                Ok(v) => v,
+                Err(e) => return fail(e.to_string()),
+            }
+        };
+        match ids.len() {
+            1 => store(&ids[0], name, list, &mut outcomes),
+            0 => outcomes.push(CoreWellOutcome {
+                well_name: name.clone(),
+                rows: list.len(),
+                imported: 0,
+                problem: Some("no well of this name in the project".into()),
+            }),
+            n => outcomes.push(CoreWellOutcome {
+                well_name: name.clone(),
+                rows: list.len(),
+                imported: 0,
+                problem: Some(format!("{n} wells share this name — ambiguous, merge or delete duplicates first")),
+            }),
+        }
+    }
+
+    if !fallback_rows.is_empty() {
+        match fallback_well_id {
+            Some(wid) => {
+                let name: String = conn
+                    .query_row("SELECT well_name FROM wells WHERE well_id = ?1", params![wid], |r| r.get(0))
+                    .unwrap_or_else(|_| wid.to_string());
+                store(wid, &name, &fallback_rows, &mut outcomes);
+            }
+            None => {
+                return fail("file has no well column and no well is selected — select a well or map a WELL column".into())
+            }
+        }
+    }
+
+    CoreTableImportResult {
+        path: path.to_string(),
+        rows_imported,
+        wells_imported,
+        outcomes,
+        skipped_blank_well,
+        error: None,
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ScalImportResult {
     pub path: String,
@@ -860,26 +1043,31 @@ pub struct AuxImportResult {
     pub rows: usize,
     /// Value columns found in the file (QUARTZ, STATUS, …).
     pub items: Vec<String>,
+    /// Wells that received rows (1 for a single-well file).
+    pub wells_imported: usize,
+    /// Routing story for a multi-well file: unmatched/ambiguous names, blank-well rows.
+    pub notes: Option<String>,
     pub error: Option<String>,
 }
 
-/// Imports a tops-style dataset (petrography / XRD / perforations) for one well,
-/// replacing that well's previous rows of the same dataset. Numeric cells land in
-/// value_num, everything else in value_text.
+/// Imports a tops-style dataset (petrography / XRD / perforations), replacing each
+/// receiving well's previous rows of the same dataset. Numeric cells land in value_num,
+/// everything else in value_text.
+///
+/// Routing (T-IMP-11, same rules as tops/core): a file WITH a well column routes every
+/// row by its cell's normalized name — exactly-one-match imports, unmatched/ambiguous
+/// names are reported and skipped, blank cells are skipped (never misrouted). A file
+/// WITHOUT a well column binds wholly to `well_id` (the selected well).
 pub fn import_aux_file(conn: &Connection, well_id: &str, dataset: &str, path: &str) -> AuxImportResult {
     let fail = |e: String| AuxImportResult {
         path: path.to_string(),
         dataset: dataset.to_string(),
         rows: 0,
         items: vec![],
+        wells_imported: 0,
+        notes: None,
         error: Some(e),
     };
-    let exists: bool = conn
-        .query_row("SELECT 1 FROM wells WHERE well_id = ?1", params![well_id], |_| Ok(true))
-        .unwrap_or(false);
-    if !exists {
-        return fail(format!("unknown well '{well_id}'"));
-    }
     let dataset = dataset.trim().to_uppercase();
     if dataset.is_empty() {
         return fail("dataset name is empty".into());
@@ -889,31 +1077,121 @@ pub fn import_aux_file(conn: &Connection, well_id: &str, dataset: &str, path: &s
         Ok(d) => d,
         Err(e) => return fail(e.to_string()),
     };
-    let mut rows: Vec<db::AuxRow> = Vec::new();
-    for (top, base, values) in &data.rows {
-        for (item, raw) in data.items.iter().zip(values) {
-            let Some(raw) = raw else { continue };
-            let num = raw.replace(',', ".").parse::<f32>().ok();
-            rows.push(db::AuxRow {
-                dataset: dataset.clone(),
-                depth_top: *top,
-                depth_base: *base,
-                item: item.clone(),
-                value_num: num,
-                value_text: if num.is_some() { None } else { Some(raw.clone()) },
-            });
+
+    // One AuxRow batch per routing target. `None` key = the selected-well fallback
+    // (only used when the file has no well column).
+    let to_aux_rows = |idx: &[usize]| -> Vec<db::AuxRow> {
+        let mut rows: Vec<db::AuxRow> = Vec::new();
+        for &i in idx {
+            let (top, base, values) = &data.rows[i];
+            for (item, raw) in data.items.iter().zip(values) {
+                let Some(raw) = raw else { continue };
+                let num = raw.replace(',', ".").parse::<f32>().ok();
+                rows.push(db::AuxRow {
+                    dataset: dataset.clone(),
+                    depth_top: *top,
+                    depth_base: *base,
+                    item: item.clone(),
+                    value_num: num,
+                    value_text: if num.is_some() { None } else { Some(raw.clone()) },
+                });
+            }
+        }
+        rows
+    };
+
+    let mut notes: Vec<String> = Vec::new();
+    let mut rows_written = 0usize;
+    let mut wells_imported = 0usize;
+
+    if data.has_well_column {
+        // Group row indices by well cell, keeping file order.
+        let mut groups: Vec<(String, Vec<usize>)> = Vec::new();
+        let mut blank = 0usize;
+        for (i, w) in data.wells.iter().enumerate() {
+            match w {
+                Some(name) => match groups.iter_mut().find(|(n, _)| n == name) {
+                    Some((_, list)) => list.push(i),
+                    None => groups.push((name.clone(), vec![i])),
+                },
+                None => blank += 1,
+            }
+        }
+        if blank > 0 {
+            notes.push(format!("{blank} row(s) with a blank well cell skipped"));
+        }
+        let mut unmatched: Vec<String> = Vec::new();
+        for (name, idx) in &groups {
+            let norm = name.trim().to_uppercase();
+            let ids: Vec<String> = {
+                let mut stmt = match conn
+                    .prepare("SELECT well_id FROM wells WHERE upper(trim(well_name)) = ?1 ORDER BY well_id")
+                {
+                    Ok(s) => s,
+                    Err(e) => return fail(e.to_string()),
+                };
+                match stmt
+                    .query_map(params![norm], |r| r.get::<_, String>(0))
+                    .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+                {
+                    Ok(v) => v,
+                    Err(e) => return fail(e.to_string()),
+                }
+            };
+            match ids.len() {
+                1 => {
+                    let rows = to_aux_rows(idx);
+                    match db::insert_aux_data(conn, &ids[0], &dataset, &rows) {
+                        Ok(()) => {
+                            rows_written += rows.len();
+                            wells_imported += 1;
+                        }
+                        Err(e) => notes.push(format!("{name}: {e}")),
+                    }
+                }
+                0 => unmatched.push(name.clone()),
+                n => notes.push(format!("{name}: {n} wells share this name — ambiguous, skipped")),
+            }
+        }
+        if !unmatched.is_empty() {
+            notes.push(format!(
+                "{} name(s) not in the project, skipped: {}",
+                unmatched.len(),
+                unmatched.join(", ")
+            ));
+        }
+        if wells_imported == 0 {
+            return fail(format!(
+                "no rows imported — none of the file's well names matched the project ({})",
+                notes.join("; ")
+            ));
+        }
+    } else {
+        let exists: bool = conn
+            .query_row("SELECT 1 FROM wells WHERE well_id = ?1", params![well_id], |_| Ok(true))
+            .unwrap_or(false);
+        if !exists {
+            return fail(format!("unknown well '{well_id}'"));
+        }
+        let idx: Vec<usize> = (0..data.rows.len()).collect();
+        let rows = to_aux_rows(&idx);
+        match db::insert_aux_data(conn, well_id, &dataset, &rows) {
+            Ok(()) => {
+                rows_written = rows.len();
+                wells_imported = 1;
+            }
+            Err(e) => return fail(e.to_string()),
         }
     }
-    let n = rows.len();
-    match db::insert_aux_data(conn, well_id, &dataset, &rows) {
-        Ok(()) => AuxImportResult {
-            path: path.to_string(),
-            dataset,
-            rows: n,
-            items: data.items,
-            error: None,
-        },
-        Err(e) => fail(e.to_string()),
+
+    AuxImportResult {
+        path: path.to_string(),
+        dataset,
+        rows: rows_written,
+        items: data.items,
+        wells_imported,
+        notes: (!notes.is_empty()).then(|| notes.join("; ")),
+        error: None,
     }
 }
 
@@ -1237,6 +1515,123 @@ mod tests {
         let catalog = db::list_generic_curve_catalog(&conn, &ids).unwrap();
         let pef = catalog.iter().find(|c| c.mnemonic == "PEF").expect("PEF must reach the generic store");
         assert_eq!(pef.n_samples, 2, "generic PEF deduped to 2 rows, not aborted");
+    }
+
+    /// Core import v2 (T-IMP-07): the BLSO-delivery shape end-to-end — WN well column,
+    /// units row, feet depths, percent porosity, an unmatched name, an ambiguous name,
+    /// and a blank well cell. Probe must SEE all of it; commit must route, convert, and
+    /// report without guessing.
+    #[test]
+    fn core_table_probe_and_multiwell_import() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        // Metric project (declared explicitly, as a LAS import would have).
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
+        let wa = Uuid::new_v4();
+        let wb = Uuid::new_v4();
+        db::insert_well(&conn, wa, "W-A", None, None, None).unwrap();
+        db::insert_well(&conn, wb, "W-B", None, None, None).unwrap();
+        // Two records sharing a name → ambiguous, must never be guessed at.
+        db::insert_well(&conn, Uuid::new_v4(), "DUP-C", None, None, None).unwrap();
+        db::insert_well(&conn, Uuid::new_v4(), "DUP-C", None, None, None).unwrap();
+
+        let csv = "TAPE_NAME,TOOL_STRING,WN,DEPTH,CPERM_1,CPOR_2,CSO_1,CSW_1,GDEN_1\n\
+                   \"\",\"\",\"\",FEET,MD,V/V,V/V,V/V,G/C3\n\
+                   \"\",\"\",W-A,1000.0,120.0,24.5,15.0,55.0,2.66\n\
+                   \"\",\"\",W-A,1001.0,85.0,22.0,20.0,60.0,2.65\n\
+                   \"\",\"\",W-B,2000.0,10.0,18.0,5.0,80.0,2.68\n\
+                   \"\",\"\",W-B,2001.0,12.0,19.0,6.0,78.0,2.67\n\
+                   \"\",\"\",GHOST-9,3000.0,1.0,10.0,1.0,90.0,2.70\n\
+                   \"\",\"\",DUP-C,4000.0,2.0,11.0,2.0,88.0,2.69\n\
+                   \"\",\"\",,5000.0,3.0,12.0,3.0,85.0,2.71\n";
+        let path = std::env::temp_dir().join("sandibumi_core_v2_test.csv");
+        std::fs::write(&path, csv).unwrap();
+        let spath = path.to_str().unwrap();
+
+        // --- Probe: everything the dialog shows must be detected. ---
+        let probe = parsers::probe_core_table(&path).unwrap();
+        assert_eq!(probe.well, Some(2), "WN resolves as the well column");
+        assert_eq!(probe.depth, Some(3));
+        assert_eq!(probe.cperm, Some(4), "CPERM_1 resolves");
+        assert_eq!(probe.cpor, Some(5), "CPOR_2 resolves");
+        assert_eq!(probe.cgd, Some(8), "GDEN_1 resolves");
+        assert!(probe.units_row_skipped, "the FEET/MD/V-V row is a units row, not a plug");
+        assert_eq!(probe.depth_unit_guess.as_deref(), Some("ft"), "unit read from the units row");
+        assert_eq!(probe.n_rows, 7, "7 data rows (units row excluded)");
+        assert!(probe.percent_roles.iter().any(|r| r == "CPOR"), "24.5/22/18/19 read as percent");
+        assert_eq!(probe.wells.len(), 4, "W-A, W-B, GHOST-9, DUP-C (blank cell not a well)");
+        assert_eq!(probe.wells[0].name, "W-A");
+        assert_eq!(probe.wells[0].rows, 2);
+
+        // --- Commit under the probed mapping, feet → metres. ---
+        let mapping = parsers::CoreMapping {
+            well: probe.well,
+            depth: probe.depth.unwrap(),
+            cpor: probe.cpor,
+            cperm: probe.cperm,
+            cgd: probe.cgd,
+            csw: probe.csw,
+        };
+        let res = import_core_table(&conn, spath, &mapping, Some("ft"), None);
+        assert!(res.error.is_none(), "{:?}", res.error);
+        assert_eq!(res.wells_imported, 2, "W-A and W-B only");
+        assert_eq!(res.rows_imported, 4);
+        assert_eq!(res.skipped_blank_well, 1, "the blank-well row is skipped, never misrouted");
+        let ghost = res.outcomes.iter().find(|o| o.well_name == "GHOST-9").unwrap();
+        assert!(ghost.problem.as_deref().unwrap_or("").contains("no well"), "unmatched reported");
+        let dup = res.outcomes.iter().find(|o| o.well_name == "DUP-C").unwrap();
+        assert!(dup.problem.as_deref().unwrap_or("").contains("ambiguous"), "ambiguous reported");
+
+        // Depths landed in METRES (1000 ft = 304.8 m) and porosity in v/v.
+        let (d, p): (f32, f32) = conn
+            .query_row(
+                "SELECT min(depth), min(cpor) FROM core_data WHERE well_id = ?1",
+                params![wa.to_string()],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert!((d - 304.8).abs() < 0.05, "feet converted to project metres, got {d}");
+        assert!((p - 0.22).abs() < 1e-3, "percent porosity converted to v/v, got {p}");
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// Aux import v2 (T-IMP-11): a WELL-columned petrography file routes rows by name;
+    /// unmatched names and blank cells are reported, and a file with no well column
+    /// still binds wholly to the selected well.
+    #[test]
+    fn aux_import_routes_by_well_column() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wa = Uuid::new_v4();
+        let wb = Uuid::new_v4();
+        db::insert_well(&conn, wa, "W-A", None, None, None).unwrap();
+        db::insert_well(&conn, wb, "W-B", None, None, None).unwrap();
+
+        let csv = "WELL,TOP,BASE,LITHOLOGY,QUARTZ\n\
+                   W-A,1000.0,1002.0,Sandstone,72.1\n\
+                   W-B,2000.0,2001.5,Claystone,38.0\n\
+                   NOPE-1,3000.0,3001.0,Limestone,5.0\n\
+                   ,4000.0,4001.0,Coal,1.0\n";
+        let path = std::env::temp_dir().join("sandibumi_aux_v2_test.csv");
+        std::fs::write(&path, csv).unwrap();
+
+        let res = import_aux_file(&conn, &wa.to_string(), "PETROGRAPHY", path.to_str().unwrap());
+        assert!(res.error.is_none(), "{:?}", res.error);
+        assert_eq!(res.wells_imported, 2, "W-A and W-B routed by the WELL column");
+        let notes = res.notes.as_deref().unwrap_or("");
+        assert!(notes.contains("NOPE-1"), "unmatched name reported: {notes}");
+        assert!(notes.contains("blank well cell"), "blank-cell skip reported: {notes}");
+        // W-B's rows must have gone to W-B, NOT the selected fallback well.
+        let n_b: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM aux_data WHERE well_id = ?1 AND dataset = 'PETROGRAPHY'",
+                params![wb.to_string()],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(n_b > 0, "W-B received its own rows");
+        std::fs::remove_file(&path).ok();
     }
 
     /// Import sets (T-IMP-02): a second delivery of the SAME well attaches as a named set

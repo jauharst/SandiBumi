@@ -1,5 +1,5 @@
 use rayon::prelude::*;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -1547,8 +1547,9 @@ pub struct TopsRecord {
     pub depth: f32,
 }
 
-const TOPS_WELL_ALIASES: [&str; 7] =
-    ["WELL", "WELLNAME", "WELL_NAME", "WELLBORE", "BOREHOLE", "UWI", "WELL_ID"];
+// WN: the BLSO/PHR core-log delivery's well-name column.
+const TOPS_WELL_ALIASES: [&str; 8] =
+    ["WELL", "WELLNAME", "WELL_NAME", "WELLBORE", "BOREHOLE", "UWI", "WELL_ID", "WN"];
 const TOPS_NAME_ALIASES: [&str; 9] =
     ["TOP", "TOP_NAME", "TOPS", "MARKER", "SURFACE", "FORMATION", "HORIZON", "ZONE", "NAME"];
 const TOPS_DEPTH_ALIASES: [&str; 7] =
@@ -1748,14 +1749,19 @@ pub struct IntervalData {
     pub items: Vec<String>,
     /// (top, base, raw values parallel to `items`; None = empty cell).
     pub rows: Vec<(f32, Option<f32>, Vec<Option<String>>)>,
+    /// Parallel to `rows`: the WELL cell, when the file has a well column and the cell is
+    /// non-blank (T-IMP-11 — multi-well aux files route rows by name, like tops).
+    pub wells: Vec<Option<String>>,
+    pub has_well_column: bool,
 }
 
 const AUX_TOP_ALIASES: [&str; 7] = ["TOP", "DEPTH", "TOP_MD", "FROM", "TOP_DEPTH", "MD", "DEPT"];
 const AUX_BASE_ALIASES: [&str; 6] = ["BASE", "BOTTOM", "TO", "BASE_MD", "BOT", "BOTTOM_DEPTH"];
 
 /// Parses a tops-style dataset file (CSV/TXT, same delimiter detection as tops): needs a
-/// TOP/DEPTH column; BASE/BOTTOM makes rows intervals; a WELL column is ignored (the
-/// import dialog binds the file to one well). All remaining columns become items.
+/// TOP/DEPTH column; BASE/BOTTOM makes rows intervals; a WELL column is captured per
+/// row so the importer can route multi-well files by name (T-IMP-11) — it never becomes
+/// an item. All remaining columns become items.
 pub fn parse_interval_file<P: AsRef<Path>>(path: P) -> ParseResult<IntervalData> {
     let (headers, rows) = read_delimited(path)?;
     if headers.is_empty() {
@@ -1774,7 +1780,12 @@ pub fn parse_interval_file<P: AsRef<Path>>(path: P) -> ParseResult<IntervalData>
         return Err(ParseError::Las("file has no value columns besides depth".into()));
     }
 
-    let mut out = IntervalData { items, rows: Vec::new() };
+    let mut out = IntervalData {
+        items,
+        rows: Vec::new(),
+        wells: Vec::new(),
+        has_well_column: idx_well.is_some(),
+    };
     for row in rows {
         let top = row
             .get(idx_top)
@@ -1789,10 +1800,278 @@ pub fn parse_interval_file<P: AsRef<Path>>(path: P) -> ParseResult<IntervalData>
             .iter()
             .map(|&i| row.get(i).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()))
             .collect();
+        out.wells.push(
+            idx_well
+                .and_then(|i| row.get(i))
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
+        );
         out.rows.push((top, base, values));
     }
     if out.rows.is_empty() {
         return Err(ParseError::Las("data file has no parsable rows".into()));
+    }
+    Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// Core import v2 (T-IMP-07): probe → confirm → commit.
+//
+// A real core delivery is a wide lab export — well name inside the data (WN /
+// WELL NAME), a units row under the headers, percent porosities, feet depths —
+// and the old single-well, comma-only path imported it half-blind. The wizard
+// flow: `probe_core_table` reads the file once and reports everything the
+// dialog needs to CONFIRM (headers, guessed roles, column types, sample rows,
+// distinct wells, percent + depth-unit detection); the user adjusts;
+// `parse_core_table_mapped` then extracts rows under the CONFIRMED mapping.
+// ---------------------------------------------------------------------------
+
+/// Confirmed column mapping for a core table: indices into the file's columns.
+/// Serialized both ways — the probe suggests one, the dialog returns one.
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+pub struct CoreMapping {
+    pub well: Option<usize>,
+    pub depth: usize,
+    pub cpor: Option<usize>,
+    pub cperm: Option<usize>,
+    pub cgd: Option<usize>,
+    pub csw: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct WellRowCount {
+    pub name: String,
+    pub rows: usize,
+}
+
+/// Everything the import dialog shows before anything is written.
+#[derive(Debug, Clone, Serialize)]
+pub struct TableProbe {
+    /// Upper-cased headers, file order.
+    pub headers: Vec<String>,
+    /// Data rows (units row, when detected, excluded).
+    pub n_rows: usize,
+    /// Guessed role → column index; None where no alias resolved. `depth` is a guess
+    /// here (Option) — the confirmed `CoreMapping` requires it.
+    pub well: Option<usize>,
+    pub depth: Option<usize>,
+    pub cpor: Option<usize>,
+    pub cperm: Option<usize>,
+    pub cgd: Option<usize>,
+    pub csw: Option<usize>,
+    /// "number" | "text" | "empty" per column, sniffed from up to 200 data rows.
+    pub column_kind: Vec<String>,
+    /// Up to 5 raw data rows for the dialog's preview grid.
+    pub sample_rows: Vec<Vec<String>>,
+    /// Distinct well-cell values with row counts (capped at 100), when a well column
+    /// was guessed. The dialog shows these so routing is confirmed, not assumed.
+    pub wells: Vec<WellRowCount>,
+    /// Roles ("CPOR"/"CSW") whose values read as percent (median > 1.5) — the import
+    /// will divide them to v/v, and the dialog says so out loud.
+    pub percent_roles: Vec<String>,
+    /// "ft" / "m" when the units row or the depth header names one, else None.
+    pub depth_unit_guess: Option<String>,
+    /// True when the first data row was a units row (non-numeric depth cell) — skipped.
+    pub units_row_skipped: bool,
+}
+
+/// Splits `s` into alphanumeric tokens and looks for a depth-unit word.
+fn unit_token_guess(s: &str) -> Option<&'static str> {
+    for tok in s.split(|c: char| !c.is_ascii_alphanumeric()) {
+        match tok.to_ascii_uppercase().as_str() {
+            "FT" | "FEET" | "FOOT" => return Some("ft"),
+            "M" | "METRE" | "METRES" | "METER" | "METERS" => return Some("m"),
+            _ => {}
+        }
+    }
+    None
+}
+
+/// True when the first data row is a UNITS row (BLSO-style: `,,,FEET,MD,V/V,…`):
+/// the depth cell exists but does not parse as a number.
+fn is_units_row(row: &[String], depth_col: usize) -> bool {
+    row.get(depth_col)
+        .map(|c| c.trim())
+        .is_some_and(|c| !c.is_empty() && c.replace(',', ".").parse::<f32>().is_err())
+}
+
+/// Reads a core table (CSV/TXT, delimiter auto-detected) and reports everything the
+/// import dialog needs to confirm the mapping. Writes nothing.
+pub fn probe_core_table<P: AsRef<Path>>(path: P) -> ParseResult<TableProbe> {
+    let (headers, mut rows) = read_delimited(path)?;
+    if headers.is_empty() {
+        return Err(ParseError::Las("file is empty".into()));
+    }
+
+    let depth = resolve_header_index(&headers, &CORE_DEPTH_ALIASES);
+    // Well column: several headers can satisfy the aliases (Duri exports carry both a
+    // numeric WELL and a textual WELL NAME). Prefer the first candidate whose values are
+    // mostly NON-numeric — a well NAME routes rows; a bare pad number usually doesn't.
+    let well_candidates: Vec<usize> = (0..headers.len())
+        .filter(|&i| TOPS_WELL_ALIASES.iter().any(|a| header_matches(&headers[i], a)))
+        .collect();
+    let mostly_text = |col: usize| -> bool {
+        let mut num = 0usize;
+        let mut txt = 0usize;
+        for row in rows.iter().take(200) {
+            let Some(cell) = row.get(col).map(|c| c.trim()).filter(|c| !c.is_empty()) else { continue };
+            if cell.replace(',', ".").parse::<f32>().is_ok() { num += 1 } else { txt += 1 }
+        }
+        txt > num
+    };
+    let well = well_candidates
+        .iter()
+        .copied()
+        .find(|&c| mostly_text(c))
+        .or(well_candidates.first().copied());
+
+    let units_row = depth.is_some_and(|d| rows.first().is_some_and(|r| is_units_row(r, d)));
+    let units_cells = if units_row { Some(rows.remove(0)) } else { None };
+
+    // Depth unit: the units row's depth cell first, else the depth header itself.
+    let depth_unit_guess = depth.and_then(|d| {
+        units_cells
+            .as_ref()
+            .and_then(|u| u.get(d))
+            .and_then(|c| unit_token_guess(c))
+            .or_else(|| unit_token_guess(&headers[d]))
+            .map(str::to_string)
+    });
+
+    // Column kinds from up to 200 data rows.
+    let column_kind: Vec<String> = (0..headers.len())
+        .map(|col| {
+            let mut num = 0usize;
+            let mut txt = 0usize;
+            for row in rows.iter().take(200) {
+                let Some(cell) = row.get(col).map(|c| c.trim()).filter(|c| !c.is_empty()) else { continue };
+                if cell.replace(',', ".").parse::<f32>().is_ok() { num += 1 } else { txt += 1 }
+            }
+            if num == 0 && txt == 0 { "empty" } else if num >= txt { "number" } else { "text" }.to_string()
+        })
+        .collect();
+
+    // Distinct wells (row counts), file order, capped for the dialog.
+    let mut wells: Vec<WellRowCount> = Vec::new();
+    if let Some(w) = well {
+        for row in &rows {
+            let Some(name) = row.get(w).map(|c| c.trim()).filter(|c| !c.is_empty()) else { continue };
+            if let Some(e) = wells.iter_mut().find(|e| e.name == name) {
+                e.rows += 1;
+            } else if wells.len() < 100 {
+                wells.push(WellRowCount { name: name.to_string(), rows: 1 });
+            }
+        }
+    }
+
+    // Percent detection on the roles percent_to_fraction would touch.
+    let median_of = |col: Option<usize>| -> Option<f32> {
+        let mut vals: Vec<f32> = rows
+            .iter()
+            .filter_map(|r| col.and_then(|c| r.get(c)).and_then(|c| c.trim().replace(',', ".").parse::<f32>().ok()))
+            .filter(|v| v.is_finite())
+            .collect();
+        if vals.is_empty() { return None }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        Some(vals[vals.len() / 2])
+    };
+    let cpor = resolve_header_index(&headers, &CORE_CPOR_ALIASES);
+    let csw = resolve_header_index(&headers, &CORE_CSW_ALIASES);
+    let mut percent_roles = Vec::new();
+    if median_of(cpor).is_some_and(|m| m > 1.5) {
+        percent_roles.push("CPOR".to_string());
+    }
+    if median_of(csw).is_some_and(|m| m > 1.5) {
+        percent_roles.push("CSW".to_string());
+    }
+
+    Ok(TableProbe {
+        n_rows: rows.len(),
+        sample_rows: rows.iter().take(5).cloned().collect(),
+        well,
+        depth,
+        cpor,
+        cperm: resolve_header_index(&headers, &CORE_CPERM_ALIASES),
+        cgd: resolve_header_index(&headers, &CORE_CGD_ALIASES),
+        csw,
+        column_kind,
+        wells,
+        percent_roles,
+        depth_unit_guess,
+        units_row_skipped: units_row,
+        headers,
+    })
+}
+
+/// One core-table row under a confirmed mapping. `well` is the raw cell (None when the
+/// mapping has no well column or the cell is blank) — the importer routes/reports it.
+#[derive(Debug, Clone)]
+pub struct MappedCoreRow {
+    pub well: Option<String>,
+    pub depth: f32,
+    pub cpor: f32,
+    pub cperm: f32,
+    pub cgd: f32,
+    pub csw: f32,
+}
+
+/// Extracts core rows under the dialog-confirmed `mapping`. The units row (when present)
+/// is skipped by the same rule the probe used; rows whose depth cell doesn't parse are
+/// dropped; CPOR/CSW get the file-wide percent→fraction conversion. Depth-unit
+/// conversion is NOT done here — the importer owns it (it knows the project unit).
+pub fn parse_core_table_mapped<P: AsRef<Path>>(
+    path: P,
+    mapping: &CoreMapping,
+) -> ParseResult<Vec<MappedCoreRow>> {
+    let (headers, mut rows) = read_delimited(path)?;
+    if mapping.depth >= headers.len() {
+        return Err(ParseError::Las(format!(
+            "depth column {} is out of range for this file ({} columns)",
+            mapping.depth,
+            headers.len()
+        )));
+    }
+    if rows.first().is_some_and(|r| is_units_row(r, mapping.depth)) {
+        rows.remove(0);
+    }
+
+    let cell = |row: &Vec<String>, col: Option<usize>| -> f32 {
+        col.and_then(|c| row.get(c))
+            .map(|c| c.trim().replace(',', "."))
+            .filter(|c| !c.is_empty())
+            .and_then(|c| c.parse::<f32>().ok())
+            .unwrap_or(f32::NAN)
+    };
+    let mut out: Vec<MappedCoreRow> = Vec::new();
+    for row in &rows {
+        let depth = cell(row, Some(mapping.depth));
+        if !depth.is_finite() {
+            continue;
+        }
+        let well = mapping
+            .well
+            .and_then(|c| row.get(c))
+            .map(|c| c.trim().to_string())
+            .filter(|c| !c.is_empty());
+        out.push(MappedCoreRow {
+            well,
+            depth,
+            cpor: cell(row, mapping.cpor),
+            cperm: cell(row, mapping.cperm),
+            cgd: cell(row, mapping.cgd),
+            csw: cell(row, mapping.csw),
+        });
+    }
+    // File-wide percent→fraction on porosity and saturation (same heuristic and scope as
+    // the legacy parser: one decision per file, never per well, so a well whose few plugs
+    // all sit under 1.0 can't dodge a conversion the rest of the file clearly needs).
+    let mut cpor: Vec<f32> = out.iter().map(|r| r.cpor).collect();
+    let mut csw: Vec<f32> = out.iter().map(|r| r.csw).collect();
+    percent_to_fraction(&mut cpor);
+    percent_to_fraction(&mut csw);
+    for (r, (p, s)) in out.iter_mut().zip(cpor.into_iter().zip(csw)) {
+        r.cpor = p;
+        r.csw = s;
     }
     Ok(out)
 }

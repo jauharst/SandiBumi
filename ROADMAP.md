@@ -637,16 +637,31 @@ Multimin Parameters.xlsx, extracted into `ref_kkt_onwj_wave_e.md` — client fil
       (T-IMP-06 duplicates). **Resolution compatibility: set RAW keeps ABSOLUTE priority** in
       `fetch_generic_curve_aligned`, so every existing project resolves byte-identically and
       only mnemonics RAW lacks reach the attached sets.
-- [ ] **(T-IMP-07/-10/-11) Core & aux import v2 — auto-detect well names.** _NEXT._ Core/SCAL/aux
-      imports still bind to the SELECTED well; they must route by a WELL column like tops
-      already does, accept one file or many (CSV/TXT/tab), and confirm each property's
-      name/unit/type up front. Acceptance test: the 321 per-well CSVs in `03. Core Logs`
-      (they carry a `WN` column) imported in one action. Blocks T-IMP-09 (core shift).
-- [ ] **(T-IMP-05) Silent import guards.** Core/SCAL do nothing at all with no well selected
-      while Tops opens its dialog — inconsistent. Guards must say why, or the dialog should
-      open and disable its action.
+- [x] **(T-IMP-07/-10/-11) Core & aux import v2 — auto-detect well names.** _(Done 2026-07-30)_
+      Import Core is probe → confirm → commit: `parsers::probe_core_table` (role guesses incl.
+      a WELL/WN column with prefer-textual-over-numeric candidate choice, per-column type
+      sniff, sample rows, distinct wells, percent + depth-unit detection from units row /
+      header suffix) + `ingest::import_core_table` (routes rows per normalized well name —
+      exactly-one-match rule, unmatched/ambiguous reported never guessed; blank cells skipped;
+      feet↔metres conversion to the project unit; per-well replace + depth dedup).
+      `coreImportDialog.ts` wizard confirms the mapping ONCE by header name and re-resolves it
+      per file (multi-select of e.g. all 321 BLSO core CSVs); `.txt`/tab/semicolon sniffed by
+      `read_delimited`. Aux imports (`import_aux_file`) now route by a WELL column the same
+      way. Unblocks T-IMP-09. Per Jauhar (2026-07-30): **BLSO is an exemplar, not the spec —
+      importer must accept ANY delimited text with mixed column types (alpha/int/real/…);**
+      delimiter sniffing + type detection are in, see the follow-up below.
+- [ ] **Core files' EXTRA columns → point-data store.** A core delivery carries more than the
+      four fixed properties (LITH text, So, Kv/Kh, Sample IDs). The wizard already sees and
+      types every column; the unmapped ones should be importable into `aux_data` (numeric or
+      text per cell) from the same dialog instead of needing a second Import Aux pass. This is
+      the remainder of Jauhar's "any column, any data type" requirement.
+- [ ] **(T-IMP-05) Silent import guards.** Core is now covered (the wizard opens without a
+      selected well and refuses with a reason only when nothing can be routed). SCAL still
+      status-bar-refuses without a well; Jauhar may want a louder guard — his call after the
+      2026-07-30 test-plan explanation.
 - [ ] **(T-IMP-08/-12) Duplicate/versioning for core + deviation data.** Sets answer this for
-      curves; core plugs and surveys still replace wholesale. Ride on core-import v2.
+      curves; core plugs and surveys still replace wholesale (per well). Revisit if multiple
+      core services per well (Core Type column) become real.
 
 Cross-cutting notes: (11) Balam South testing is the per-increment verification standard, not a separate
 item. New suites must land as panes (Wave A first), use the 15-var theme contract, manifest-driven

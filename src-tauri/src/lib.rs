@@ -266,6 +266,31 @@ async fn import_core_csv(
     .await
 }
 
+/// Core import v2 (T-IMP-07), probe half: reads a core CSV/TXT (delimiter auto-detected)
+/// and reports headers, guessed roles (incl. a WELL/WN column), column types, sample rows,
+/// distinct wells, percent + depth-unit detection — everything the mapping dialog shows
+/// for CONFIRMATION. Writes nothing.
+#[tauri::command]
+fn probe_core_table(path: String) -> Result<parsers::TableProbe, String> {
+    parsers::probe_core_table(&path).map_err(|e| e.to_string())
+}
+
+/// Core import v2 commit half: imports one core table under the dialog-confirmed mapping.
+/// Rows route per well name (exactly-one-match rule; unmatched/ambiguous reported, never
+/// guessed) or all to `fallback_well_id`; depths convert from `depth_unit` to the
+/// project's declared unit. Per-well replace-on-reimport semantics.
+#[tauri::command]
+fn import_core_table(
+    db: tauri::State<DbState>,
+    path: String,
+    mapping: parsers::CoreMapping,
+    depth_unit: Option<String>,
+    fallback_well_id: Option<String>,
+) -> Result<ingest::CoreTableImportResult, String> {
+    let conn = db.0.lock().unwrap();
+    Ok(ingest::import_core_table(&conn, &path, &mapping, depth_unit.as_deref(), fallback_well_id.as_deref()))
+}
+
 /// Imports formation tops from a CSV/TXT file (P2). Files with a WELL column update
 /// every matching well; single-well files use `default_well_id` (the selected well).
 #[tauri::command]
@@ -1819,6 +1844,8 @@ pub fn run() {
             cancel_job,
             health_snapshot,
             import_core_csv,
+            probe_core_table,
+            import_core_table,
             import_tops_csv,
             import_well_locations,
             wells_in_polygon,

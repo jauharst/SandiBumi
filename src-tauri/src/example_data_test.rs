@@ -145,6 +145,66 @@ fn scal_examples_parse_all_three_shapes() {
     }
 }
 
+/// Core import v2 exemplars: the multi-well BLSO-shaped core CSV probes correctly and
+/// routes per well into a project built from the SANDI LAS examples; the tab-delimited
+/// multi-well XRD TXT routes through the aux importer the same way.
+#[test]
+fn multiwell_core_and_aux_examples_import_end_to_end() {
+    let db_path = std::env::temp_dir().join("sandibumi_example_multiwell_test.duckdb");
+    let _ = std::fs::remove_file(&db_path);
+    let _ = std::fs::remove_file(db_path.with_extension("duckdb.wal"));
+    let conn = crate::db::init_db(db_path.to_str().unwrap()).expect("init_db");
+    let paths: Vec<String> =
+        ["SANDI-01.las", "SANDI-02.las", "SANDI-03.las"].iter().map(|f| example(f)).collect();
+    let results = crate::ingest::import_las_files(&conn, &paths, None);
+    assert!(results.iter().all(|r| r.error.is_none()));
+
+    // Probe sees the BLSO delivery shape: WN column, units row, percent porosity.
+    let core = example("core_rcal_multiwell.csv");
+    let probe = parsers::probe_core_table(&core).unwrap();
+    assert_eq!(probe.well, Some(2), "WN is the well column");
+    assert!(probe.units_row_skipped);
+    assert_eq!(probe.wells.len(), 3, "SANDI-01/02/03 in one file");
+    assert!(probe.percent_roles.iter().any(|r| r == "CPOR"));
+    assert_eq!(probe.depth_unit_guess.as_deref(), Some("m"), "units row says M");
+
+    // Commit under the probed mapping: every well receives its own plugs.
+    let mapping = parsers::CoreMapping {
+        well: probe.well,
+        depth: probe.depth.unwrap(),
+        cpor: probe.cpor,
+        cperm: probe.cperm,
+        cgd: probe.cgd,
+        csw: probe.csw,
+    };
+    let res = crate::ingest::import_core_table(&conn, &core, &mapping, probe.depth_unit_guess.as_deref(), None);
+    assert!(res.error.is_none(), "{:?}", res.error);
+    assert_eq!(res.wells_imported, 3, "all three wells routed by name: {:?}", res.outcomes);
+    for r in &results {
+        let n: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM core_data WHERE well_id = ?1",
+                duckdb::params![r.well_id.as_deref().unwrap()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(n > 5, "{}: {} core rows", r.well_name.as_deref().unwrap(), n);
+    }
+
+    // Tab-delimited multi-well XRD TXT routes through the aux importer.
+    let aux = crate::ingest::import_aux_file(
+        &conn,
+        results[0].well_id.as_deref().unwrap(), // fallback, unused: the file routes itself
+        "XRD",
+        &example("xrd_multiwell.txt"),
+    );
+    assert!(aux.error.is_none(), "{:?}", aux.error);
+    assert_eq!(aux.wells_imported, 3, "rows routed to all three wells: {:?}", aux.notes);
+    drop(conn);
+    let _ = std::fs::remove_file(&db_path);
+    let _ = std::fs::remove_file(db_path.with_extension("duckdb.wal"));
+}
+
 #[test]
 fn tops_deviation_locations_examples_parse() {
     let (has_well, tops) = parsers::parse_tops_file(example("tops_multiwell.csv")).unwrap();

@@ -5189,4 +5189,39 @@ RAW, and mixes them — one import batch is one set by design. Import per folder
 
 ---
 
+## 2026-07-30 — Core & aux import v2: the "hundred wells with cores" workflow (T-IMP-07/-09/-10/-11)
+
+Import Core is now **probe → confirm → commit**: nothing is written until you have seen and
+approved what the file means. Your note is the spec: well names come FROM THE DATA, every
+property column is confirmed first (name, type, unit, percent), and 1-or-many CSV **or
+TXT/tab-delimited** files work in one action. BLSO is just the exemplar — the reader takes
+any delimited text and shows each column's sniffed type (number/text/empty).
+
+- [ ] **Data → Import Core… with NO well selected** → pick
+      `dataset for test/examples/core_rcal_multiwell.csv` → the wizard shows: WN as the well
+      column, 3 wells with row counts, the units row detected and skipped, depth unit `m`,
+      CPOR/CSW flagged as percent, and a 5-row preview. Import → plugs land on all three
+      SANDI wells by name.
+- [ ] **Real data:** multi-select ALL 321 files in `03. Core Logs\BLSO_LAPI2023_CORE` in one
+      Import Core. The mapping is confirmed once (by header name) and applied per file;
+      depth unit should read `ft` from the units row and convert to the project unit.
+      Unmatched well names are listed by name, never guessed.
+- [ ] **The Duri trap:** import the parent folder's `Core.csv` — it has a numeric `WELL`
+      column (804) AND a textual `WELL NAME` (DURI00804). The wizard must pre-pick **WELL
+      NAME** (a pad number can't route rows); check the routing line before importing.
+- [ ] **Wrong mapping is refusable:** change Depth to a text column, or blank the well
+      column with no well selected — Import refuses with a reason, writes nothing.
+- [ ] **Import Aux… routes by WELL now:** pick `xrd_multiwell.txt` (tab-delimited) with any
+      well selected → rows land on all three wells; the result box names unmatched/blank
+      rows. A file with no WELL column still binds to the selected well as before.
+- [ ] **Shift Core (T-IMP-09) is unblocked** — run it as written in the test plan; it still
+      shifts the SELECTED well's plugs only.
+
+*Recorded follow-up (your "any text type / any data type" note):* columns beyond the four
+fixed core properties (LITH descriptions, So, Kv/Kh…) still import only via Import Aux —
+folding a core file's EXTRA columns into a per-well point-data store from the same wizard
+is the next natural increment. Say the word.
+
+---
+
 _Made in SandiBumi._ © 2026 SandiBumi. All rights reserved.

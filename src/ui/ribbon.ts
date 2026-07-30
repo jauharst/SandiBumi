@@ -2,7 +2,6 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import {
   exportLas,
   importAuxData,
-  importCoreCsv,
   importDeviationCsv,
   materializeTvd,
   importScalFiles,
@@ -38,6 +37,7 @@ import { getLocale, setLocale, type Locale } from "../i18n";
 import type { SessionSnapshot, Workspace } from "./workspace";
 import { formRow, openModal } from "./modal";
 import { openImportSetDialog, suggestSetName } from "./importSetDialog";
+import { openCoreImportWizard } from "./coreImportDialog";
 
 interface RibbonMenuItem {
   label: string;
@@ -1124,40 +1124,26 @@ export class Ribbon {
     }
   }
 
-  /** "Import Core…" — replaces the selected well's routine core analysis data
-   *  (CPOR/CPERM/CGD/CSW) from a CSV; overlaid onto the crossplot panel. */
+  /** "Import Core…" — core import v2 (T-IMP-07): probe → confirm-mapping wizard →
+   *  commit. Multi-file and multi-well: files with a WELL/WN column route rows by name
+   *  (no well needs to be selected); files without one land on the selected well. CSV
+   *  and TXT/tab-delimited both accepted. */
   private async handleImportCore(): Promise<void> {
     const well = appState.selectedWell.get();
-    if (!well) {
-      setStatus("Select a well first (Wells & Tops panel)");
-      return;
-    }
-    let path: string | null;
+    let paths: string[] | null;
     try {
       const selection = await open({
-        multiple: false,
-        filters: [{ name: "Core Data CSV", extensions: ["csv"] }],
+        multiple: true,
+        filters: [{ name: "Core data (CSV/TXT)", extensions: ["csv", "txt", "dat"] }],
       });
-      path = Array.isArray(selection) ? (selection[0] ?? null) : selection;
+      paths = Array.isArray(selection) ? selection : selection ? [selection] : null;
     } catch (err) {
       setStatus(`Import dialog unavailable: ${err}`);
       return;
     }
-    if (!path) return;
+    if (!paths || paths.length === 0) return;
 
-    setStatus(`Importing core data for ${well.well_name}...`);
-    try {
-      const result = await importCoreCsv(well.well_id, path);
-      if (result.error) {
-        setStatus(`Core import failed: ${result.error}`);
-      } else {
-        setStatus(`Imported ${result.rows} core sample(s) for ${well.well_name}.`);
-        recordProcess("Import", `Imported ${result.rows} core sample(s) ← ${path}`, well.well_name);
-        this.workspace.notifyDataChanged();
-      }
-    } catch (err) {
-      setStatus(`Core import failed: ${err}`);
-    }
+    await openCoreImportWizard(paths, well, () => this.workspace.notifyDataChanged());
   }
 
   /** "Shift Core…" — constant core-to-log depth shift for the selected well's plugs.
@@ -1500,7 +1486,9 @@ export class Ribbon {
     doc.textContent =
       "Tops-style data: a TOP/DEPTH column (plus optional BASE/TO for intervals); every other " +
       "column becomes an item — mineral percentages, textural values, perforation status. " +
-      "Re-importing a dataset replaces this well's previous rows of that dataset only.";
+      "A WELL column routes rows to each named well (multi-well files); without one, rows land " +
+      "on this well. Re-importing a dataset replaces each receiving well's previous rows of " +
+      "that dataset only.";
     content.appendChild(doc);
 
     const dsSelect = document.createElement("select");
@@ -1558,9 +1546,15 @@ export class Ribbon {
           resultBox.textContent = `Import failed: ${result.error}`;
           return;
         }
-        resultBox.textContent = `Imported ${result.rows} value(s) across ${result.items.length} column(s): ${result.items.join(", ")}`;
-        setStatus(`${result.dataset}: ${result.rows} values imported for ${well.well_name}`);
-        recordProcess("Import", `Imported ${result.dataset} (${result.rows} values) ← ${path}`, well.well_name);
+        // Multi-well files route by their WELL column (T-IMP-11); say where rows went
+        // and surface the routing story (unmatched names, blank cells) instead of
+        // pretending everything landed on the selected well.
+        const where = result.wells_imported > 1 ? `${result.wells_imported} wells (by WELL column)` : well.well_name;
+        const notes = result.notes ? ` — ${result.notes}` : "";
+        resultBox.textContent =
+          `Imported ${result.rows} value(s) into ${where} across ${result.items.length} column(s): ${result.items.join(", ")}${notes}`;
+        setStatus(`${result.dataset}: ${result.rows} values imported into ${where}${notes}`);
+        recordProcess("Import", `Imported ${result.dataset} (${result.rows} values, ${result.wells_imported} well(s))${notes} ← ${path}`, well.well_name);
         this.workspace.notifyDataChanged();
       } catch (err) {
         resultBox.textContent = `Import failed: ${err}`;

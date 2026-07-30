@@ -1648,6 +1648,78 @@ export function importCoreCsv(wellId: string, path: string): Promise<CoreImportR
   return invoke<CoreImportResult>("import_core_csv", { wellId, path });
 }
 
+// --- Core import v2 (T-IMP-07): probe → confirm mapping → commit -------------
+
+export interface WellRowCount {
+  name: string;
+  rows: number;
+}
+
+/** Everything the mapping dialog shows before anything is written. */
+export interface TableProbe {
+  headers: string[];
+  n_rows: number;
+  well: number | null;
+  depth: number | null;
+  cpor: number | null;
+  cperm: number | null;
+  cgd: number | null;
+  csw: number | null;
+  /** "number" | "text" | "empty" per column. */
+  column_kind: string[];
+  sample_rows: string[][];
+  wells: WellRowCount[];
+  /** Roles ("CPOR"/"CSW") whose values read as percent — divided to v/v on import. */
+  percent_roles: string[];
+  /** "ft" / "m" when the units row or depth header names one. */
+  depth_unit_guess: string | null;
+  units_row_skipped: boolean;
+}
+
+/** Dialog-confirmed column mapping (indices into the file's columns). */
+export interface CoreMapping {
+  well: number | null;
+  depth: number;
+  cpor: number | null;
+  cperm: number | null;
+  cgd: number | null;
+  csw: number | null;
+}
+
+export interface CoreWellOutcome {
+  well_name: string;
+  rows: number;
+  imported: number;
+  problem: string | null;
+}
+
+export interface CoreTableImportResult {
+  path: string;
+  rows_imported: number;
+  wells_imported: number;
+  outcomes: CoreWellOutcome[];
+  skipped_blank_well: number;
+  error: string | null;
+}
+
+/** Reads a core CSV/TXT (delimiter auto-detected) and reports headers, guessed roles,
+ *  sample rows, distinct wells, percent + depth-unit detection. Writes nothing. */
+export function probeCoreTable(path: string): Promise<TableProbe> {
+  return invoke<TableProbe>("probe_core_table", { path });
+}
+
+/** Commits one core table under the confirmed mapping: rows route per well name
+ *  (unmatched/ambiguous reported, never guessed) or all to `fallbackWellId`; depths
+ *  convert from `depthUnit` ("ft"/"m"; null = already project unit). */
+export function importCoreTable(
+  path: string,
+  mapping: CoreMapping,
+  depthUnit: string | null,
+  fallbackWellId: string | null,
+): Promise<CoreTableImportResult> {
+  return invoke<CoreTableImportResult>("import_core_table", { path, mapping, depthUnit, fallbackWellId });
+}
+
 // --- P2 tops-style imports: tops CSV/TXT + petrography/XRD/perforation ------
 
 export interface TopsImportResult {
@@ -1669,6 +1741,10 @@ export interface AuxImportResult {
   dataset: string;
   rows: number;
   items: string[];
+  /** Wells that received rows (multi-well files route by their WELL column). */
+  wells_imported: number;
+  /** Routing story: unmatched/ambiguous names, blank-well rows skipped. */
+  notes: string | null;
   error: string | null;
 }
 

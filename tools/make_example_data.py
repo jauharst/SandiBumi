@@ -195,6 +195,44 @@ def make_core_csv() -> str:
     return "".join(rows)
 
 
+def make_core_multiwell_csv() -> str:
+    """ONE core file for the whole field, in the BLSO/PHR delivery shape: WN well-name
+    column, a units row under the headers, suffixed mnemonics, porosity/Sw in percent.
+    The import wizard (T-IMP-07) detects all of it and routes rows per well — no well
+    selection needed."""
+    rng = Lcg(7005)
+    rows = ["TAPE_NAME,TOOL_STRING,WN,DEPTH,CPERM_1,CPOR_2,CSW_1,GDEN_1\n",
+            '"","","",M,MD,V/V,V/V,G/C3\n']
+    for well, shift in WELLS.items():
+        d = TOPS["TOP_SAND_A"] + shift + 0.55
+        while d < TOPS["TOP_SHALE_2"] + shift - 4.0:
+            rhob = zone_blend(d, shift, ZONES["RHOB"])
+            poro = (2.65 - rhob) / 1.65 + 0.02 * rng.gauss()
+            perm = 10 ** (18.0 * poro - 2.2 + 0.25 * rng.gauss())
+            gd = 2.65 + 0.012 * rng.gauss()
+            in_gas = d < TOPS["TOP_SAND_B"] + shift
+            sw = (32.0 if in_gas else 84.0) + 4.0 * rng.gauss()
+            rows.append(f'"","",{well},{d:.2f},{perm:.1f},{poro*100:.1f},{sw:.1f},{gd:.3f}\n')
+            d += 2.4 + 0.8 * rng.next()
+    return "".join(rows)
+
+
+def make_xrd_multiwell_txt() -> str:
+    """Tab-delimited TXT with a WELL column: exercises both the delimiter sniffing and
+    the aux importer's per-well routing (T-IMP-11) in one exemplar."""
+    lines = ["WELL\tDEPTH\tQUARTZ\tCALCITE\tILLITE\tKAOLINITE\n"]
+    data = [
+        ("SANDI-01", 1521.1, 72.5, 2.8, 6.8, 8.1),
+        ("SANDI-01", 1537.8, 61.2, 3.1, 12.4, 11.5),
+        ("SANDI-02", 1531.4, 70.9, 2.5, 7.4, 8.8),
+        ("SANDI-02", 1547.2, 59.8, 3.4, 13.1, 12.0),
+        ("SANDI-03", 1516.6, 71.7, 2.9, 7.0, 8.4),
+    ]
+    for well, d, q, c, i, k in data:
+        lines.append(f"{well}\t{d}\t{q}\t{c}\t{i}\t{k}\n")
+    return "".join(lines)
+
+
 def make_scal_long() -> str:
     """Flat lab export: plug context only on each plug's FIRST row (merged-cell style —
     the parser forward-fills). Sw in %PV."""
@@ -378,6 +416,8 @@ def main() -> None:
     files["bad_dup_depth.las"] = make_bad_las("SANDI-BAD-DUP", "dup")
     files["bad_null_depth.las"] = make_bad_las("SANDI-BAD-NULL", "null")
     files["core_rcal_SANDI-01.csv"] = make_core_csv()
+    files["core_rcal_multiwell.csv"] = make_core_multiwell_csv()
+    files["xrd_multiwell.txt"] = make_xrd_multiwell_txt()
     files["scal_pc_long_SANDI-01.csv"] = make_scal_long()
     files["scal_porous_plate_wide_SANDI-01.csv"] = make_scal_wide()
     files["scal_centrifuge_SANDI-01.csv"] = make_scal_centrifuge()

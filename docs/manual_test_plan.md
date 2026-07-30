@@ -594,6 +594,25 @@ a separate bug from the curves, and I'll need the well name to chase it.
 
 **Notes:** Core imported, but it should detect well name of core imported from the data inside, and for other properties / point curve it should be confirmed first (what unit it is, is it float, alpha, real, etc type of data), and name of each properties / point curve should be confirmed as well in the beginning. Imagine managing hundred wells that have cores. And should be worket either it comes from 1 csv or multiple csv, or even .txt or tab delimited data
 
+**Update 2026-07-30 — BUILT (core import v2 wizard).** Import Core is now probe → CONFIRM →
+commit. The dialog shows what was detected and lets you fix every piece before anything is
+written: the **well-name column** (WN / WELL NAME / WELL…, detected from the data — rows
+route to project wells by name, no well selection needed; a numeric pad-number column loses
+to a textual name column when both exist), the **depth column and its unit** (units row
+`FEET/M` and header suffixes like `MD (ft.)` are read; converted to the project unit — the
+silent 3.28× trap), the **property columns** (CPOR/CPERM/CGD/CSW with each column's sniffed
+type shown: number/text/empty), and **percent detection** ("CPOR reads as percent → divided
+to v/v"). Multi-select works (one CSV per well, the BLSO shape) — the mapping is confirmed
+once by header NAME and re-applied per file; `.txt`/tab/semicolon/whitespace delimiters are
+auto-sniffed. Unmatched and ambiguous well names are REPORTED and skipped, never guessed.
+Try it on `dataset for test/examples/core_rcal_multiwell.csv` (whole field in one file),
+your real `03. Core Logs` folder (multi-select all 321), and the parent folder's Duri
+`Core.csv` (WELL NAME beside a numeric WELL column). **Per Jauhar's note: BLSO is only an
+exemplar, not the spec — the importer must take ANY delimited text with mixed column types
+(alpha/integer/real/…). Delimiter sniffing + per-column type detection are in; columns
+beyond the four fixed core properties still only import via Import Aux — extending core
+files' extra columns into a generic point-data store is the recorded follow-up.**
+
 ### T-IMP-08 — Core CSV with a duplicated plug depth imports (first kept), never aborts
 
 **Tool/panel:** Import Core… (parsers.rs `parse_core_csv` dedup, db.rs `insert_core_data`)
@@ -630,6 +649,10 @@ a separate bug from the curves, and I'll need the well name to chase it.
 
 **Notes:** we should have resolve previous problem to do this
 
+**Update 2026-07-30 — UNBLOCKED.** T-IMP-07 is resolved (core import v2 wizard), so this
+test can run as written. Note the shift is per WELL: after a multi-well core import,
+Shift Core still applies to the selected well's plugs only.
+
 ### T-IMP-10 — Tops CSV: multi-well WELL column, single-well file, unmatched + blank WELL cells
 
 **Tool/panel:** Import Tops… (ribbon.ts `handleImportTops`, ingest.rs `import_tops_file`)
@@ -649,6 +672,10 @@ a separate bug from the curves, and I'll need the well name to chase it.
 
 **Notes:** same for core import, it should auto detect well names, either it comes from 1 csv or multiple csv
 
+**Update 2026-07-30 — DONE for core.** Core import now auto-detects the well-name column
+and routes rows exactly the way tops always did (this test's own routing rules), including
+multi-select of many files and .txt/tab delimiters. See the T-IMP-07 update.
+
 ### T-IMP-11 — Aux data import: PERFORATION and XRD land per-well, replace on re-import
 
 **Tool/panel:** Import Aux… (ribbon.ts `handleImportAux`)
@@ -667,6 +694,13 @@ a separate bug from the curves, and I'll need the well name to chase it.
 - [ ] Blocked
 
 **Notes:** same for core import, it should auto detect well names, either it comes from 1 csv or multiple csv
+
+**Update 2026-07-30 — BUILT (aux routing).** Import Aux now honors a WELL column: rows
+route to each named project well (unmatched/ambiguous names and blank cells reported,
+never guessed); a file without one binds to the selected well as before. The result box
+says where the rows went. Try `dataset for test/examples/xrd_multiwell.txt` (tab-delimited,
+3 wells in one file). Mixed value types per column (numbers AND text) were already stored
+correctly (value_num vs value_text per cell).
 
 ### T-IMP-12 — Deviation survey import: TVD/TVDSS computed; duplicate-MD survives; TVD not yet consumable
 

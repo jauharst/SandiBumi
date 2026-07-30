@@ -2057,6 +2057,35 @@ textarea {
   margin: -3px 0 7px;
 }
 
+/* Core import wizard: the sample-rows preview grid. Wide lab exports overflow the
+   dialog, so the TABLE scrolls inside its own box — never the dialog body. */
+.core-import-preview {
+  max-height: 140px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin: 8px 0;
+}
+.core-import-preview table {
+  border-collapse: collapse;
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+.core-import-preview th,
+.core-import-preview td {
+  padding: 2px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  color: var(--text-dim);
+}
+.core-import-preview th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-weight: 600;
+}
+
 /* Section label inside a properties dialog (Crossplot/Histogram v2). */
 .props-section {
   font-size: var(--fs-xs);
