@@ -1265,6 +1265,24 @@ fn set_zone_param(
     db::set_zone_param(&conn, &well_id, &zone_name, &param_name, value_num, value_text.as_deref()).map_err(|e| e.to_string())
 }
 
+/// Every whole-well parameter override in the project, for the per-well parameter grid.
+#[tauri::command]
+fn list_well_param_overrides(db: tauri::State<DbState>) -> Result<Vec<db::WellParamOverride>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_well_param_overrides(&conn).map_err(|e| e.to_string())
+}
+
+/// Applies a batch of whole-well parameter overrides atomically; a null value clears one.
+/// The grid's fill/paste actions and their undo all come through here.
+#[tauri::command]
+fn set_well_param_overrides(
+    db: tauri::State<DbState>,
+    entries: Vec<(String, String, Option<f32>)>,
+) -> Result<usize, String> {
+    let mut conn = db.0.lock().unwrap();
+    db::set_well_param_overrides(&mut conn, &entries).map_err(|e| e.to_string())
+}
+
 /// One page of a whitelisted table for the Database Inspector, every cell as VARCHAR.
 #[tauri::command]
 fn get_table_page(
@@ -1749,6 +1767,8 @@ pub fn run() {
             zones_from_tops,
             list_zone_params,
             set_zone_param,
+            list_well_param_overrides,
+            set_well_param_overrides,
             get_table_page,
             update_well_field,
             update_standard_sample,

@@ -19,6 +19,7 @@ import { formRow } from "./modal";
 import { maskCurveNames } from "./moduleDialog";
 import { recordProcess } from "../processLog";
 import { buildWellScope } from "./wellScope";
+import { openWellParamsDialog } from "./wellParamsDialog";
 
 const WORKFLOW_DOC_TYPE = "workflow";
 const VIEW_KEY = "sandibumi.workflowView";
@@ -764,9 +765,16 @@ export async function buildWorkflowContent(
   const cancelBtn = button("Cancel");
   cancelBtn.disabled = true;
 
+  // A step's parameters apply to every well it runs on; this opens the grid where a well can
+  // be given its own value (stored as a `zone_params` whole-well row, which the run already
+  // resolves between the step value and any per-zone override).
+  const perWellBtn = button("Per-well parameters…");
+  perWellBtn.title = "Give individual wells their own value for any parameter in this workflow";
+  perWellBtn.addEventListener("click", () => void openWellParamsDialog(steps));
+
   const runRow = document.createElement("div");
   runRow.className = "workflow-run-row";
-  runRow.append(runBtn, cancelBtn);
+  runRow.append(runBtn, cancelBtn, perWellBtn);
 
   let currentJob: string | null = null;
 

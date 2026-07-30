@@ -1498,6 +1498,29 @@ export async function setZoneParam(
   return invoke("set_zone_param", { wellId, zoneName, paramName, valueNum, valueText });
 }
 
+/** A whole-well override of a module parameter: a `zone_params` row whose zone is `*`.
+ *  At run time it fills the whole curve before any named zone overrides it, so it sits
+ *  between the workflow step's value and the per-zone values. */
+export interface WellParamOverride {
+  well_id: string;
+  param_name: string;
+  value_num: number;
+}
+
+/** Every whole-well parameter override in the project (one query, not one per well). */
+export async function listWellParamOverrides(): Promise<WellParamOverride[]> {
+  return invoke<WellParamOverride[]>("list_well_param_overrides");
+}
+
+/** Applies a batch of whole-well overrides atomically; a null value clears one. Returns the
+ *  number of rows written or cleared. Used by the per-well grid's edits AND their undo, so a
+ *  fill-column sweep and its reversal are the same single transaction shape. */
+export async function setWellParamOverrides(
+  entries: [string, string, number | null][],
+): Promise<number> {
+  return invoke<number>("set_well_param_overrides", { entries });
+}
+
 export interface PaySummaryRequest {
   well_ids: string[];
   vsh_max: number;

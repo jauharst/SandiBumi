@@ -5079,6 +5079,50 @@ nothing to plot on it. New **Lithology** category in the Petrophysics ribbon.
 - [ ] **Over-porous samples drop out** as blanks rather than as huge numbers (PHIA_MAX,
       default 0.5, is an editable parameter — not a hidden constant).
 
+## Per-well parameter override table (Phase 9-2, 2026-07-30)
+
+The last open Phase 9 item. A workflow step carries one parameter set for every well,
+which breaks when a field needs a different Rw per fault block. The storage already
+allowed the fix (a `zone_params` row with zone `*` is a whole-well override, and runs
+already apply it) — what was missing was a way to reach it for more than one well at a
+time. **Resolution order is unchanged: step value → this whole-well override → named
+zone.** Nothing about how your existing runs resolve has moved.
+
+- [ ] **Petrophysics → Batch → Workflow…**, build or open a chain, then **Per-well
+      parameters…** next to Run. Rows are wells, columns are the numeric parameters the
+      chain's steps actually take.
+- [ ] **Grey = inherited, amber = overridden.** A fresh grid is all grey (every well
+      inherits the step value). Double-click a cell to give one well its own value — it
+      turns amber. The cell tooltip tells you which it is.
+- [ ] **Double-click to edit, not single-click** — same rule as every other numeric field
+      in the app, so a stray click near a parameter can't change it. Enter commits, Escape
+      cancels, blank clears the override.
+- [ ] **Typing the inherited value back clears the override** (cell returns to grey)
+      rather than storing a duplicate — the same only-store-differences rule the per-step
+      editors use.
+- [ ] **Columns marked ⚠ behave differently on purpose.** If two steps in the chain take
+      the same parameter with *different* step values (e.g. Archie RW 0.05, Indonesia RW
+      0.07), the header shows ⚠ and the column displays only the first step's number.
+      There, typing the displayed value **stores** it instead of clearing — because
+      clearing would leave the two steps disagreeing again, when what you meant was "this
+      value for every step in this well". Hover the header for the explanation.
+- [ ] **Out-of-range values are refused with a status-bar message, not clamped.** Try
+      entering RW = 25 (a v/v value typed as a percentage). This matters: the run itself
+      REJECTS an out-of-range override and fails the whole chain, so catching it here turns
+      a failed 2000-well run into a red cell.
+- [ ] **Set for all shown / Clear for all shown**: pick a column, type a value, and every
+      well currently listed takes it in one write. Narrow the list first with the **Wells**
+      scope (All / Group / ★ Pinned / Selection / Custom) and the **Filter** box — the
+      buttons act on exactly what you can see.
+- [ ] **One Ctrl+Z reverses a whole sweep.** Set a column across 50 wells, then undo once —
+      all 50 revert together, not one per press. Redo re-applies them.
+- [ ] **Copy as CSV** puts the shown grid on the clipboard so you can diff it against your
+      own well table in Excel. *(CSV import back is the obvious next step and is NOT built
+      yet — tell me if you want it, it's small now that the write path exists.)*
+- [ ] **Zone parameters still win.** Set a whole-well RW here and a different RW on one
+      zone (Zones panel) — the zone value should govern inside that zone and the grid value
+      everywhere else. This is the check that matters most.
+
 ---
 
 _Made in SandiBumi._ © 2026 SandiBumi. All rights reserved.

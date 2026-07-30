@@ -360,8 +360,20 @@ auto-memory (`method-ssc-sspw-lqr`, `method-lrlc-imts-rtc`, `method-workflow-sta
 - **Per-step parameter editing** ✅ (2026-07-18, inc. 2): each step has an expandable ⚙ editor
   (manifest-driven) — input selectors, options, validated params, universal bad-hole Mask. Only
   non-default values are stored on the step; `zone_params` still override per zone at run time.
-  Override-count badge + Reset. Persists in the `workflow` document. **Remaining**: per-well parameter
-  override table (→ [Part B](#b4-carried-forward-deferrals-from-the-build-arc)).
+  Override-count badge + Reset. Persists in the `workflow` document.
+- **Per-well parameter override table** ✅ (2026-07-30, Phase 9-2 closed): `wellParamsDialog.ts`,
+  opened from the Workflow Builder's run bar. Rows = wells, columns = the numeric params the chain's
+  steps take. No new resolution machinery — a cell writes the `zone_params` whole-well row (`zone_name
+  = '*'`) that `resolve_param_arrays` already applies, so the order stays step → whole-well → named
+  zone. Columns are keyed by param NAME, not by step, because the storage is: one RW override applies
+  to every step taking RW, and a column per step would imply an independence that does not exist.
+  Backend `list_well_param_overrides` (one scan, no per-well round trips) + `set_well_param_overrides`
+  (one transaction — fill-column and its undo are the same atomic shape). Cells are text until
+  double-clicked (the app-wide click-to-arm rule, and what keeps thousands of rows cheap); amber =
+  overridden, grey = inherited; typing the inherited value clears the override; out-of-range values
+  are REFUSED, mirroring `resolve_param_arrays`, so a percent-typed fraction becomes a red cell rather
+  than a failed 2,000-well run. A column sweep is one undo entry. Copy-as-CSV out; **CSV import back
+  is the obvious follow-up and is not built**.
 - **Monte Carlo uncertainty (PT06)** ✅ (2026-07-18, inc. 3): `montecarlo.rs` — put
   normal/uniform/triangular distributions on any model parameter, run N seeded realizations of a chain,
   get P10/P50/P90 net pay / NTG / avg PHIE / avg SWE / HPV **per zone** + an HPV histogram. Runs
@@ -884,7 +896,8 @@ Small-to-medium open bits left behind by shipped phases (each linked from its ph
 - **Log-view read path from the generic store** (Phase 6): rewire `get_track_data` so PEF/CALI are
   drawable in a track; curve-set selector in the layout picker; optional TVD depth scale in log/correlation
   (plumbing already built, dead-code-tagged).
-- **Per-well parameter override table** in the Workflow Builder (Phase 9-2).
+- ~~**Per-well parameter override table** in the Workflow Builder (Phase 9-2).~~ **DONE 2026-07-30** —
+  see Phase 9-2 above. Follow-up left open: CSV **import** back into the grid (export exists).
 - **Monte Carlo** (Phase 9-3): per-zone parameter distributions (currently well-wide); persisted
   P10/P50/P90 *curves*. *(Plus the §4 New-capability "print LOW/BASE/HIGH curves" item in [C5](#c5-new-capability-misc-4).)*
 - **Full-field responsiveness** (Phase 9-5): lazy catalog loading, decimation cache, keep the UI responsive

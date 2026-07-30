@@ -1451,6 +1451,88 @@ fn value_ref_to_string(value: duckdb::types::ValueRef) -> Option<String> {
 }
 
 #[cfg(test)]
+mod well_param_override_tests {
+    use super::*;
+
+    fn db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        conn
+    }
+
+    /// `zone_params.well_id` is a UUID column, so a well id has to be a real UUID string —
+    /// a readable stand-in like "W1" fails the conversion rather than inserting.
+    fn well() -> String {
+        Uuid::new_v4().to_string()
+    }
+
+    /// The grid's whole contract in one pass: a batch upserts, re-running it updates in place
+    /// rather than duplicating, and a `None` clears a well back to the step value.
+    #[test]
+    fn batch_upserts_updates_and_clears() {
+        let mut conn = db();
+        let (w1, w2) = (well(), well());
+        let n = set_well_param_overrides(
+            &mut conn,
+            &[
+                (w1.clone(), "RW".into(), Some(0.08)),
+                (w2.clone(), "RW".into(), Some(0.12)),
+                (w1.clone(), "RHO_MA".into(), Some(2.68)),
+            ],
+        )
+        .unwrap();
+        assert_eq!(n, 3);
+        assert_eq!(list_well_param_overrides(&conn).unwrap().len(), 3);
+
+        // Same key again updates in place — the grid re-sends a well's value on every edit.
+        set_well_param_overrides(&mut conn, &[(w1.clone(), "RW".into(), Some(0.09))]).unwrap();
+        let rows = list_well_param_overrides(&conn).unwrap();
+        assert_eq!(rows.len(), 3, "an upsert must not add a second row for the same well+param");
+        let rw1 = rows.iter().find(|r| r.well_id == w1 && r.param_name == "RW").unwrap();
+        assert!((rw1.value_num - 0.09).abs() < 1e-6);
+
+        // Clearing removes the row so the step value takes over again.
+        set_well_param_overrides(&mut conn, &[(w1.clone(), "RW".into(), None)]).unwrap();
+        let rows = list_well_param_overrides(&conn).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert!(!rows.iter().any(|r| r.well_id == w1 && r.param_name == "RW"));
+    }
+
+    /// The grid writes whole-well rows (`zone_name = '*'`) and must never surface, or collide
+    /// with, a per-zone value — those still override it per zone at run time.
+    #[test]
+    fn per_zone_values_are_untouched_and_unlisted() {
+        let mut conn = db();
+        let w1 = well();
+        set_zone_param(&conn, &w1, "SAND_A", "RW", Some(0.05), None).unwrap();
+        set_well_param_overrides(&mut conn, &[(w1.clone(), "RW".into(), Some(0.10))]).unwrap();
+
+        let listed = list_well_param_overrides(&conn).unwrap();
+        assert_eq!(listed.len(), 1, "only the whole-well row belongs in the grid");
+        assert_eq!(listed[0].param_name, "RW");
+        assert!((listed[0].value_num - 0.10).abs() < 1e-6);
+
+        // The zone row is still there, with its own value.
+        let zone_rows = list_zone_params(&conn, &w1).unwrap();
+        let sand = zone_rows.iter().find(|z| z.zone_name == "SAND_A").unwrap();
+        assert!((sand.value_num.unwrap() - 0.05).abs() < 1e-6);
+    }
+
+    /// A text-valued override is not a number the grid can edit, so it must stay invisible
+    /// there rather than render as a blank cell inviting a numeric overwrite.
+    #[test]
+    fn text_valued_overrides_are_not_listed() {
+        let mut conn = db();
+        let w1 = well();
+        set_zone_param(&conn, &w1, "*", "OPT_NOTE", None, Some("checked")).unwrap();
+        set_well_param_overrides(&mut conn, &[(w1, "RW".into(), Some(0.07))]).unwrap();
+        let rows = list_well_param_overrides(&conn).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].param_name, "RW");
+    }
+}
+
+#[cfg(test)]
 mod inspector_tests {
     use super::*;
 
@@ -2487,4 +2569,74 @@ pub fn set_zone_param(
         params![well_id, zone_name, param_name, value_num, value_text],
     )?;
     Ok(())
+}
+
+/// One well's whole-well override of a module parameter — a `zone_params` row whose zone is
+/// `*`. At run time `workflow::resolve_param_arrays` fills the whole curve with it before any
+/// named zone overrides it, so it sits between the step's value and the per-zone values.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WellParamOverride {
+    pub well_id: String,
+    pub param_name: String,
+    pub value_num: f32,
+}
+
+/// Every whole-well parameter override in the project, for the per-well parameter grid.
+///
+/// Deliberately unfiltered by well: the grid shows hundreds to thousands of rows, and one
+/// scan of a table holding a handful of rows per well beats either N round trips or an
+/// `IN (...)` list long enough to hit a binding limit. Text-valued overrides are skipped —
+/// the grid edits numeric module parameters, and silently rendering a text override as an
+/// empty cell would invite overwriting it with a number.
+pub fn list_well_param_overrides(conn: &Connection) -> DbResult<Vec<WellParamOverride>> {
+    let mut stmt = conn.prepare(
+        "SELECT well_id, param_name, value_num FROM zone_params
+         WHERE zone_name = '*' AND value_num IS NOT NULL
+         ORDER BY well_id, param_name",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok(WellParamOverride { well_id: r.get(0)?, param_name: r.get(1)?, value_num: r.get(2)? })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
+/// Applies a batch of whole-well parameter overrides in ONE transaction: a `Some` value
+/// upserts, a `None` clears that well's override so the step (or manifest) value takes over
+/// again. Returns how many rows were written or cleared.
+///
+/// Atomic on purpose. The grid's fill-column and paste actions touch every well at once, and
+/// undo replays the previous values the same way — a half-applied sweep would leave a field
+/// with two different parameter sets and no record of where the boundary fell.
+pub fn set_well_param_overrides(
+    conn: &mut Connection,
+    entries: &[(String, String, Option<f32>)],
+) -> DbResult<usize> {
+    let tx = conn.transaction()?;
+    let mut n = 0usize;
+    for (well_id, param_name, value) in entries {
+        match value {
+            Some(v) => {
+                tx.execute(
+                    "INSERT INTO zone_params (well_id, zone_name, param_name, value_num, value_text)
+                     VALUES (?1, '*', ?2, ?3, NULL)
+                     ON CONFLICT (well_id, zone_name, param_name)
+                     DO UPDATE SET value_num = excluded.value_num, value_text = NULL",
+                    params![well_id, param_name, v],
+                )?;
+            }
+            None => {
+                tx.execute(
+                    "DELETE FROM zone_params WHERE well_id = ?1 AND zone_name = '*' AND param_name = ?2",
+                    params![well_id, param_name],
+                )?;
+            }
+        }
+        n += 1;
+    }
+    tx.commit()?;
+    Ok(n)
 }

@@ -268,13 +268,16 @@ lookup, true depth-scale print ratios, tops-editor overwrite undo.
 
 **`REVIEW.md` is the user's pending click-through checklist — keep it current when
 shipping features.** Full roadmap and deferred items: `ROADMAP.md` (**§4b = senior-audit
-backlog, priority-ordered P0–P3**; Phase 9 remaining: per-well parameter override table,
-lazy catalog loading / decimation cache / UI responsiveness + 2000-well stress fixture —
-write-path perf done; Phase 10 done: facies + block track + GMM + full ML suite —
-supervised facies = ML classification with a FACIES/litho target; remaining ML deferral:
-autoencoders). Queued next increments: **Pickett v2** (N with M and Rw, free line params,
-Z-color gradient — absorbs the audit's Pickett findings) and a **UMAA/RHOMAA computation
-module** to feed the Lith-6 MID overlay.
+backlog, priority-ordered P0–P3**; Phase 9 remaining: lazy catalog loading / decimation
+cache / UI responsiveness + 2000-well stress fixture — write-path perf and the **per-well
+parameter override table** (`wellParamsDialog.ts`, 2026-07-30) both done; Phase 10 done:
+facies + block track + GMM + full ML suite — supervised facies = ML classification with a
+FACIES/litho target; remaining ML deferral: autoencoders). Shipped 2026-07-30: multi-well
+context overlays on crossplot/histogram/Pickett (T-SHELL-16, shared machinery in
+`plotCommon.ts`), Pickett v2 completion, and the **MID plot module** (`lithology.rs` —
+UMAA/RHOMAA feeding the Lith-6 overlay, with a real Por-11 crossplot-porosity lookup).
+Open follow-ups: CSV import into the per-well parameter grid, and a per-well colour-stability
+rule for the multi-well overlays.
 
 ## DuckDB WAL resilience
 

@@ -4125,6 +4125,75 @@ textarea {
    Well scope selector — the shared "which wells" control used by every batch
    dialog in place of a per-well checklist (workable at 2000 wells).
    -------------------------------------------------------------------------- */
+/* --- Per-well parameter grid (wellParamsDialog) -------------------------- */
+.wellparams-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+.wellparams-scroll {
+  max-height: 46vh;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.wellparams-grid {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12px;
+}
+.wellparams-grid th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-panel-alt);
+  border-bottom: 1px solid var(--border);
+  padding: 5px 8px;
+  text-align: right;
+  white-space: nowrap;
+}
+.wellparams-grid th.wellparams-wellcol,
+.wellparams-grid td.wellparams-wellcol {
+  text-align: left;
+  position: sticky;
+  left: 0;
+  background: var(--bg-panel);
+  z-index: 1;
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wellparams-grid th.wellparams-wellcol {
+  z-index: 2;
+  background: var(--bg-panel-alt);
+}
+.wellparams-grid td {
+  border-bottom: 1px solid var(--border);
+  padding: 3px 8px;
+  text-align: right;
+  white-space: nowrap;
+}
+.wellparams-grid tr:hover td {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.08));
+}
+/* Amber = this well carries its own value; grey = inherited from the step. Same amber the
+   per-step editors use for a stored override, so "edited" reads the same across the app. */
+.wellparams-override {
+  color: var(--warn, #b5651d);
+  font-weight: 600;
+}
+.wellparams-inherited {
+  opacity: 0.55;
+}
+.wellparams-input {
+  width: 88px;
+  text-align: right;
+  padding: 1px 4px;
+}
+
 .well-scope {
   margin: 8px 0 12px;
   padding: 8px;
