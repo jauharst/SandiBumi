@@ -649,7 +649,7 @@ The imported set becomes that well's **active** core.
 Unlike curve sets, core sets do NOT merge: two deliveries measure the same plugs, so
 **exactly one set is active per well** and every reader follows it — log overlay, φ-k
 crossplots, HFU, SandiMin core calibration, Shift Core, DB Inspector edits. Switch or delete
-deliveries in **Data → Tools ▾ → Core Sets & Surveys…** (● marks the live one, with plug
+deliveries in **Data → Tools ▾ → Data Sets…** (● marks the live one, with plug
 count, source file and import date).
 
 Duplicated depths WITHIN one delivery still drop first-kept — that is a broken row inside a
@@ -663,9 +663,11 @@ point data should behave like core — XRD, CEC, oil show, etc.* Every `aux_data
 the same way: **Import Aux… takes a Set name**, a re-delivery is auto-suffixed and becomes
 live, and **one set per (well, dataset)** is read — panel counts follow the active delivery,
 never the sum. Datasets are independent: switching XRD leaves CEC and oil show alone. Core
-EXTRAS are stored under the core set's own name, so a core switch carries them. Browse and
-switch everything from the **Wells pane ▸ twisty** (Core / Surveys / Point data, ● = live,
-double-click to switch) or the manager dialog.
+EXTRAS are stored under the core set's own name, so a core switch carries them. **SCAL Pc
+follows the same rule** — the files selected together in one Import SCAL are one named
+delivery, and only the live one feeds Pc QC, the Leverett-J fit and Thomeer. Browse and
+switch everything from the **Wells pane ▸ twisty** (Core / SCAL / Surveys / Point data,
+● = live, double-click to switch) or **Data → Tools ▾ → Data Sets…** (four sections).
 
 ### T-IMP-09 — Shift Core: constant core-to-log shift, undo, invalid input rejected
 

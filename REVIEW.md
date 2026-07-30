@@ -5270,7 +5270,7 @@ DB Inspector edits, TVD/TVDSS.
       deliveries are kept, the newest is live.
 - [ ] **The plug count does NOT double.** Open a φ-k crossplot or the core overlay after that
       second import — same number of points as one delivery, not two.
-- [ ] **Data → Tools ▾ → Core Sets & Surveys…** on that well: both sets listed with plug
+- [ ] **Data → Tools ▾ → Data Sets…** on that well: both sets listed with plug
       count, source file and import date, ● on the live one. Click **Use** on the older one →
       the plots repaint to that delivery. **Delete** asks first; deleting the live one hands
       over to the next newest (never leaves plugs no panel can see).
@@ -5310,6 +5310,26 @@ core: **one delivery = one named set, one live per (well, dataset)**.
       extras with it instead of leaving a mismatched pair.
 - [ ] **Old projects:** point data predating this is adopted as set `RAW`, active — your XRD
       and petrography read exactly as before. (Unlike core, this needs no table rebuild.)
+
+---
+
+## 2026-07-30 — SCAL deliveries version too; the manager is now "Data Sets…"
+
+The last store that still overwrote on re-import. A capillary-pressure report is now a named
+delivery like everything else — **the files you select together in one Import SCAL are ONE
+set** — and only the live one feeds Pc QC, the Leverett-J fit and Thomeer.
+
+- [ ] **Import SCAL… has a SCAL set field** (default `SCAL`). Import a centrifuge set, then a
+      porous-plate report → status says `Set SCAL_1`, both are kept, the newest is live, and
+      the Pc QC plot shows ONE report's points.
+- [ ] **Switch back** in **Data → Tools ▾ → Data Sets…** (renamed — it now has four sections:
+      Core, SCAL, Deviation surveys, Point data) or by double-clicking the row in the Wells
+      tree → the Pc plot and any J-fit you re-run follow the other report.
+- [ ] **Old projects:** existing Pc points are adopted as set `SCAL`… actually `RAW`, active —
+      your saturation-height work reads exactly as before.
+
+That completes the sweep: **curves, core, SCAL, surveys and every point dataset now version
+the same way.** Nothing in the app silently overwrites a delivery on re-import any more.
 
 ---
 

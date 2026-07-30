@@ -309,33 +309,37 @@ stay aligned; replace-on-reimport per (well, dataset). **Extras are stored VERBA
 percent/unit conversion; do not add one silently.** `extras` is `#[serde(default)]`, so
 older IPC payloads still deserialize.
 
-Delivery sets are UNIVERSAL (2026-07-30, T-IMP-08/-12) — core plugs, deviation surveys and
-**every point dataset** (`aux_data`: XRD, CEC, oil show, petrography, perforations, core
-extras) follow the set model, with a deliberately DIFFERENT resolution rule from curves:
-curve sets are read together (RAW priority, others fill gaps), but two core/point deliveries
-measure the SAME plugs or samples, so **exactly ONE core set, ONE survey and one set per
-(well, dataset) are active, and every reader follows them**. `core_data.set_name` (PK
-well_id,set_name,depth) + `core_sets`; `well_path.survey_name` + `well_surveys`
-(active/source/datum/imported_at); `aux_data.set_name` (column LAST — the Appender is
-positional and migrated DBs get it appended) + `aux_sets` (PK well_id,dataset,set_name).
-**All such reads go through the shared SQL fragments `db::ACTIVE_CORE_SET` /
-`ACTIVE_SURVEY` / `ACTIVE_AUX_SET` (the last correlates on `a.dataset`, so one query spans
-every dataset and still sees one delivery of each) — a reader that forgets the filter
-silently unions two deliveries and doubles a φ-k cloud or a mineral count; keep new readers
-on the fragment.** Core EXTRAS are written under the core set's own name, so switching a
+Delivery sets are UNIVERSAL (2026-07-30, T-IMP-08/-12) — **every non-curve store** follows
+the set model: core plugs, SCAL Pc, deviation surveys and every point dataset (`aux_data`:
+XRD, CEC, oil show, petrography, perforations, core extras), with a deliberately DIFFERENT
+resolution rule from curves: curve sets are read together (RAW priority, others fill gaps),
+but two such deliveries measure the SAME plugs or samples, so **exactly ONE core set, ONE
+SCAL set, ONE survey and one set per (well, dataset) are active, and every reader follows
+them**. `core_data.set_name` (PK well_id,set_name,depth) + `core_sets`;
+`well_path.survey_name` + `well_surveys` (active/source/datum/imported_at);
+`aux_data.set_name` + `aux_sets` (PK well_id,dataset,set_name); `scal_pc.set_name` +
+`scal_sets`. On the PK-less tables (`aux_data`, `scal_pc`) `set_name` is the LAST column —
+the Appender is positional and migrated DBs get it appended, so fresh and migrated schemas
+must agree. **All such reads go through the shared SQL fragments `db::ACTIVE_CORE_SET` /
+`ACTIVE_SURVEY` / `ACTIVE_AUX_SET` / `ACTIVE_SCAL_SET` (the aux one correlates on
+`a.dataset`, so one query spans every dataset and still sees one delivery of each) — a
+reader that forgets the filter silently unions two deliveries and doubles a φ-k cloud, a
+mineral count or a Pc curve; keep new readers on the fragment.** Core EXTRAS are written under the core set's own name, so switching a
 well's core switches its extras with it. `db::migrate_point_data_sets`
 rebuilds pre-set-era projects (rows become RAW/active — byte-identical readings; core/well_path
-are rebuilt for the PK, aux_data only ALTERed + registered), idempotent, backed up per RELEASE
-§3.2, wired into `project::open_and_migrate`. Imports take a name (`import_core_table(...,
-set_name)`, `import_deviation_csv(..., survey_name)`, `import_aux_file(..., set_name)`),
-resolved PER WELL via `resolve_core_set_name`/`resolve_survey_name`/`resolve_aux_set_name`
-(auto-suffix, never overwrite), and the new set becomes active. **`set_active_survey` MUST
+are rebuilt for the PK, aux_data/scal_pc only ALTERed + back-filled + registered), idempotent,
+backed up per RELEASE §3.2, wired into `project::open_and_migrate`. Imports take a name
+(`import_core_table(..., set_name)`, `import_deviation_csv(..., survey_name)`,
+`import_aux_file(..., set_name)`, `import_scal_files(..., set_name)` — the files selected
+together are ONE delivery), resolved PER WELL via `resolve_core_set_name`/`resolve_survey_name`/
+`resolve_aux_set_name`/`resolve_scal_set_name` (auto-suffix, never overwrite), and the new set
+becomes active. **`set_active_survey` MUST
 re-materialize TVD/TVDSS** (the Tauri command does) — stale stored TVD would keep feeding
 height calculations the old geometry. `shift_core_depths` and `update_core_sample` act on the
-ACTIVE set only. UI: `dataSetsDialog.ts` (Data → Tools ▾ → Core Sets & Surveys…, three
-sections) + the Wells-pane ▸ tree, which lists Core / Surveys / Point data under each well
-with ● on the live one and **double-click** to switch (single click is inert on purpose;
-delete stays in the dialog).
+ACTIVE set only. UI: `dataSetsDialog.ts` (Data → Tools ▾ → Data Sets…, four sections) + the
+Wells-pane ▸ tree, which lists Core / SCAL / Surveys / Point data under each well with ● on
+the live one and **double-click** to switch (single click is inert on purpose; delete stays
+in the dialog).
 
 ## DuckDB WAL resilience
 

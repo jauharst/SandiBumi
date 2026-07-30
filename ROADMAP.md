@@ -679,7 +679,7 @@ Multimin Parameters.xlsx, extracted into `ref_kkt_onwj_wave_e.md` — client fil
       SURVEY), auto-suffix per well rather than overwriting, and the new set/survey goes live;
       the status line names the set and says which wells were suffixed. `set_active_survey`
       re-materializes TVD/TVDSS so stored curves never keep the previous geometry. UI =
-      `dataSetsDialog.ts` (Data → Tools ▾ → Core Sets & Surveys…): both lists, ● active, Use /
+      `dataSetsDialog.ts` (Data → Tools ▾ → Data Sets…): both lists, ● active, Use /
       Delete, delete-the-active hands over to the newest survivor. Shift Core and DB Inspector
       cell edits target the ACTIVE set only.
 - [x] **Delivery sets are UNIVERSAL — every point dataset, not just core.** _(Done 2026-07-30,
@@ -695,6 +695,14 @@ Multimin Parameters.xlsx, extracted into `ref_kkt_onwj_wave_e.md` — client fil
       The Wells-pane ▸ tree now lists **Core / Surveys / Point data** under each well with ● on
       the live one and double-click to switch (single click inert; delete stays in the dialog),
       and the manager dialog has a third section grouped by dataset.
+- [x] **SCAL Pc deliveries too — the last store that replaced wholesale.** _(Done 2026-07-30)_
+      `scal_pc.set_name` (+ `scal_sets` registry, `db::ACTIVE_SCAL_SET`): the files selected in
+      one Import SCAL are ONE delivery, named and auto-suffixed rather than overwriting the
+      previous report, and `get_scal_pc` — hence Pc QC, the Leverett-J fit and Thomeer — reads
+      only the live one. Migration is an ALTER + back-fill + registration (no PK). The manager
+      dialog is now **Data Sets…** with four sections (core / SCAL / surveys / point data) and
+      the tree gained a SCAL kind. Every delivery-shaped store in the app now versions the same
+      way; nothing left that silently overwrites on re-import.
 
 Cross-cutting notes: (11) Balam South testing is the per-increment verification standard, not a separate
 item. New suites must land as panes (Wave A first), use the 15-var theme contract, manifest-driven

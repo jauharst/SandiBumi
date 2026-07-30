@@ -839,6 +839,8 @@ pub struct ScalImportResult {
     /// reported straight back to the import dialog so the user can carry SWH_A/SWH_B
     /// into the sw_height module.
     pub fit: Option<crate::satheight::LeverettFit>,
+    /// The SCAL set these points landed in (auto-suffixed when the name was taken).
+    pub set_name: Option<String>,
     pub error: Option<String>,
 }
 
@@ -846,18 +848,20 @@ pub struct ScalImportResult {
 /// rows, and fits the Leverett-J function (Sw = A·J^B) over the points at `ift_lab`
 /// (sigma·cosθ of the lab fluid system, dyn/cm — e.g. 72 air-brine, 367 air-mercury).
 pub fn import_scal_csv(conn: &Connection, well_id: &str, path: &str, ift_lab: f64) -> ScalImportResult {
-    import_scal_files(conn, well_id, &[path.to_string()], "long", "", ift_lab)
+    import_scal_files(conn, well_id, &[path.to_string()], "long", "", ift_lab, None)
 }
 
 /// Multi-file, multi-format SCAL Pc import. Each file is parsed with `format` — "long"
 /// (flat Pc/Sw CSV), "porous_plate" (Corelab-style wide table: pressure columns × plug
 /// rows), "centrifuge" (per-plug key-value blocks + Pc/Sw tables), or "auto" to sniff
-/// each file — so a set of single-plug centrifuge exports imports in one shot. The
-/// combined records REPLACE the well's `scal_pc` rows (same discipline as re-import),
-/// then the Leverett-J function is fitted over all points at `ift_lab`. `system` labels
-/// every stored point with the lab fluid system ('air_brine', 'hg_air', ...; "" = not
-/// recorded) alongside `ift_lab`, so later standardization (Thomeer, J-from-SCAL) knows
-/// which system each point was measured in.
+/// each file — so a set of single-plug centrifuge exports imports in one shot. The files
+/// selected together form ONE delivery: their combined records land in the SCAL set
+/// `set_name` (auto-suffixed if the well already carries that name, so a later report never
+/// overwrites an earlier one), which becomes the well's live SCAL data, and the Leverett-J
+/// function is fitted over all of them at `ift_lab`. `system` labels every stored point with
+/// the lab fluid system ('air_brine', 'hg_air', ...; "" = not recorded) alongside `ift_lab`,
+/// so later standardization (Thomeer, J-from-SCAL) knows which system each point was
+/// measured in.
 pub fn import_scal_files(
     conn: &Connection,
     well_id: &str,
@@ -865,9 +869,16 @@ pub fn import_scal_files(
     format: &str,
     system: &str,
     ift_lab: f64,
+    set_name: Option<&str>,
 ) -> ScalImportResult {
     let joined = paths.join("; ");
-    let fail = |error: String| ScalImportResult { path: joined.clone(), rows: 0, fit: None, error: Some(error) };
+    let fail = |error: String| ScalImportResult {
+        path: joined.clone(),
+        rows: 0,
+        fit: None,
+        set_name: None,
+        error: Some(error),
+    };
 
     let exists: bool = conn
         .query_row("SELECT 1 FROM wells WHERE well_id = ?1", params![well_id], |_| Ok(true))
@@ -924,7 +935,15 @@ pub fn import_scal_files(
             ift: Some(ift_lab as f32),
         })
         .collect();
-    if let Err(e) = db::insert_scal_pc(conn, well_id, &rows) {
+    let desired = set_name
+        .map(|s| s.trim().to_uppercase().replace(' ', "_"))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "SCAL".to_string());
+    let set = match db::resolve_scal_set_name(conn, well_id, &desired) {
+        Ok(s) => s,
+        Err(e) => return fail(e.to_string()),
+    };
+    if let Err(e) = db::insert_scal_pc(conn, well_id, &set, Some(&joined), &rows) {
         return fail(e.to_string());
     }
 
@@ -933,7 +952,7 @@ pub fn import_scal_files(
         .map(|r| crate::satheight::ScalPoint { pc: r.pc, sw: r.sw, perm: r.perm, poro: r.poro })
         .collect();
     let fit = crate::satheight::fit_leverett_j(&points, ift_lab);
-    ScalImportResult { path: joined, rows: rows.len(), fit, error: None }
+    ScalImportResult { path: joined, rows: rows.len(), fit, set_name: Some(set), error: None }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -2156,7 +2175,7 @@ mod tests {
         std::fs::write(&p2, cf("S-16A", 2701.8)).unwrap();
         let paths = vec![p1.to_str().unwrap().to_string(), p2.to_str().unwrap().to_string()];
 
-        let res = import_scal_files(&conn, &ids, &paths, "auto", "air_brine", 72.0);
+        let res = import_scal_files(&conn, &ids, &paths, "auto", "air_brine", 72.0, None);
         assert!(res.error.is_none(), "{:?}", res.error);
         assert_eq!(res.rows, 8, "both plugs land in one combined import");
         assert!(res.fit.is_some(), "J-fit solves over the pooled points");
@@ -2168,15 +2187,25 @@ mod tests {
             "fluid system + IFT stored on every point"
         );
 
-        // A porous-plate re-import replaces the centrifuge set (write discipline).
+        // A porous-plate re-import is a SECOND delivery: the centrifuge report is kept,
+        // the new one goes live, and a reader still sees exactly one delivery's points.
         let wide = "Sample,Depth (m),Perm (mD),Poro (%),1,2,4,8\n4,2001.5,150.0,22.5,98.5,95.2,88.1,79.4\n";
         let p3 = std::env::temp_dir().join(format!("sandibumi_scal_pp_{ids}.csv"));
         std::fs::write(&p3, wide).unwrap();
         let res2 =
-            import_scal_files(&conn, &ids, &[p3.to_str().unwrap().to_string()], "porous_plate", "air_brine", 72.0);
+            import_scal_files(&conn, &ids, &[p3.to_str().unwrap().to_string()], "porous_plate", "air_brine", 72.0, None);
         assert!(res2.error.is_none(), "{:?}", res2.error);
         assert_eq!(res2.rows, 4);
-        assert_eq!(db::get_scal_pc(&conn, &ids).unwrap().len(), 4, "replace, not append");
+        assert_eq!(res2.set_name.as_deref(), Some("SCAL_1"), "auto-suffixed, first report kept");
+        assert_eq!(db::get_scal_pc(&conn, &ids).unwrap().len(), 4, "one delivery read, never both merged");
+        let scal_sets = db::list_scal_sets(&conn, &ids).unwrap();
+        assert_eq!(scal_sets.len(), 2, "both reports on the well: {scal_sets:?}");
+        assert!(scal_sets[0].active && scal_sets[0].set_name == "SCAL_1" && scal_sets[0].rows == 4);
+        assert!(!scal_sets[1].active && scal_sets[1].rows == 8, "the centrifuge report is intact");
+        // Switching back restores the centrifuge points wholesale.
+        db::set_active_scal_set(&conn, &ids, "SCAL").unwrap();
+        assert_eq!(db::get_scal_pc(&conn, &ids).unwrap().len(), 8);
+        db::set_active_scal_set(&conn, &ids, "SCAL_1").unwrap();
 
         // One bad file fails the whole import and names the file.
         let res3 = import_scal_files(
@@ -2186,6 +2215,7 @@ mod tests {
             "auto",
             "air_brine",
             72.0,
+            None,
         );
         assert!(res3.error.as_deref().is_some_and(|e| e.contains("nope.csv")));
         assert_eq!(db::get_scal_pc(&conn, &ids).unwrap().len(), 4, "failed import leaves prior rows intact");
@@ -2207,14 +2237,14 @@ mod tests {
 
         let good = std::env::temp_dir().join(format!("sandibumi_scal_good_{ids}.csv"));
         std::fs::write(&good, "PC,SW\n5,0.55\n10,0.45\n20,0.35\n").unwrap();
-        let res = import_scal_files(&conn, &ids, &[good.to_str().unwrap().to_string()], "long", "hg_air", 367.0);
+        let res = import_scal_files(&conn, &ids, &[good.to_str().unwrap().to_string()], "long", "hg_air", 367.0, None);
         assert!(res.error.is_none(), "{:?}", res.error);
         assert_eq!(db::get_scal_pc(&conn, &ids).unwrap().len(), 3);
 
         // Header-only export (e.g. a filtered/template sheet) → error, data intact.
         let empty = std::env::temp_dir().join(format!("sandibumi_scal_empty_{ids}.csv"));
         std::fs::write(&empty, "PC,SW\n").unwrap();
-        let res2 = import_scal_files(&conn, &ids, &[empty.to_str().unwrap().to_string()], "auto", "hg_air", 367.0);
+        let res2 = import_scal_files(&conn, &ids, &[empty.to_str().unwrap().to_string()], "auto", "hg_air", 367.0, None);
         assert!(res2.error.as_deref().is_some_and(|e| e.contains("untouched")), "{:?}", res2.error);
         assert_eq!(db::get_scal_pc(&conn, &ids).unwrap().len(), 3, "existing points survive");
 

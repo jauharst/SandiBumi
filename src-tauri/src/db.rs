@@ -408,6 +408,21 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
         -- existing databases converge on the same shape; NULL = imported before this.
         ALTER TABLE scal_pc ADD COLUMN IF NOT EXISTS system VARCHAR;
         ALTER TABLE scal_pc ADD COLUMN IF NOT EXISTS ift FLOAT;
+        -- …and the delivery it came in, like every other point store: a second SCAL
+        -- report lands beside the first, one set per well is ACTIVE. Added by ALTER (no
+        -- PK to rebuild) and back-filled; the column is LAST because the Appender writes
+        -- positionally. `migrate_point_data_sets` registers pre-set-era rows.
+        ALTER TABLE scal_pc ADD COLUMN IF NOT EXISTS set_name VARCHAR;
+        UPDATE scal_pc SET set_name = 'RAW' WHERE set_name IS NULL;
+
+        CREATE TABLE IF NOT EXISTS scal_sets (
+            well_id     UUID NOT NULL,
+            set_name    VARCHAR NOT NULL,
+            active      INTEGER NOT NULL DEFAULT 0,
+            source      VARCHAR,
+            imported_at TIMESTAMP NOT NULL DEFAULT now(),
+            PRIMARY KEY (well_id, set_name)
+        );
 
         -- Named user documents (saved layouts, plot property sets, ...), stored as JSON.
         CREATE TABLE IF NOT EXISTS documents (
@@ -706,7 +721,11 @@ pub fn migrate_point_data_sets(conn: &Connection, path: Option<&str>) -> DbResul
          INSERT INTO aux_sets (well_id, dataset, set_name, active)
          SELECT DISTINCT a.well_id, a.dataset, a.set_name, 1 FROM aux_data a
          WHERE NOT EXISTS (SELECT 1 FROM aux_sets s
-                           WHERE s.well_id = a.well_id AND s.dataset = a.dataset);",
+                           WHERE s.well_id = a.well_id AND s.dataset = a.dataset);
+         UPDATE scal_pc SET set_name = 'RAW' WHERE set_name IS NULL;
+         INSERT INTO scal_sets (well_id, set_name, active)
+         SELECT DISTINCT p.well_id, p.set_name, 1 FROM scal_pc p
+         WHERE NOT EXISTS (SELECT 1 FROM scal_sets s WHERE s.well_id = p.well_id);",
     )?;
 
     if has_set > 0 && has_survey > 0 {
@@ -1240,26 +1259,160 @@ pub struct ScalPcRow {
     pub ift: Option<f32>,
 }
 
-/// Bulk-inserts SCAL capillary-pressure rows for one well, replacing any prior rows
-/// (re-import overwrites, like `insert_core_data`).
-pub fn insert_scal_pc(conn: &Connection, well_id: &str, rows: &[ScalPcRow]) -> DbResult<()> {
-    with_txn(conn, |conn| {
-        conn.execute("DELETE FROM scal_pc WHERE well_id = ?1", params![well_id])?;
-        let mut appender: Appender = conn.appender("scal_pc")?;
-        for r in rows {
-            appender
-                .append_row(params![well_id, r.sample_no, r.depth, r.perm, r.poro, r.pc, r.sw, r.system, r.ift])?;
+/// SQL fragment naming a well's ACTIVE SCAL delivery — the last of the four point stores
+/// to follow the set model. Two Pc reports describe the same plugs, so reading both would
+/// double every Pc curve and skew a Leverett-J or Thomeer fit.
+const ACTIVE_SCAL_SET: &str = "COALESCE((SELECT set_name FROM scal_sets WHERE well_id = ?1
+                                         ORDER BY active DESC, imported_at DESC LIMIT 1), 'RAW')";
+
+/// One SCAL delivery of one well, as the set manager and the Wells tree show it.
+#[derive(Debug, Clone, Serialize)]
+pub struct ScalSetInfo {
+    pub set_name: String,
+    pub rows: i64,
+    pub active: bool,
+    pub source: Option<String>,
+    pub imported_at: Option<String>,
+}
+
+/// A well's SCAL deliveries, active first then newest, with point counts.
+pub fn list_scal_sets(conn: &Connection, well_id: &str) -> DbResult<Vec<ScalSetInfo>> {
+    let mut stmt = conn.prepare(
+        "SELECT s.set_name, s.active, s.source, CAST(s.imported_at AS VARCHAR),
+                (SELECT COUNT(*) FROM scal_pc d WHERE d.well_id = s.well_id AND d.set_name = s.set_name)
+         FROM scal_sets s WHERE s.well_id = ?1
+         ORDER BY s.active DESC, s.imported_at DESC, s.set_name",
+    )?;
+    let rows = stmt.query_map(params![well_id], |r| {
+        Ok(ScalSetInfo {
+            set_name: r.get(0)?,
+            active: r.get::<_, i32>(1)? != 0,
+            source: r.get(2)?,
+            imported_at: r.get(3)?,
+            rows: r.get(4)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
+/// The name a new SCAL delivery will be stored under — `desired`, else `desired_1`, … .
+pub fn resolve_scal_set_name(conn: &Connection, well_id: &str, desired: &str) -> DbResult<String> {
+    let base = {
+        let t = desired.trim().to_uppercase().replace(' ', "_");
+        if t.is_empty() { "SCAL".to_string() } else { t }
+    };
+    let taken = |name: &str| -> DbResult<bool> {
+        let n: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM scal_sets WHERE well_id = ?1 AND upper(set_name) = ?2",
+            params![well_id, name],
+            |r| r.get(0),
+        )?;
+        Ok(n > 0)
+    };
+    if !taken(&base)? {
+        return Ok(base);
+    }
+    for i in 1..1000 {
+        let cand = format!("{base}_{i}");
+        if !taken(&cand)? {
+            return Ok(cand);
         }
-        appender.flush()?;
+    }
+    Err(DbError::LengthMismatch(format!("too many SCAL sets named {base}")))
+}
+
+/// Makes one SCAL delivery the well's live one.
+pub fn set_active_scal_set(conn: &Connection, well_id: &str, set_name: &str) -> DbResult<()> {
+    with_txn(conn, |conn| {
+        conn.execute("UPDATE scal_sets SET active = 0 WHERE well_id = ?1", params![well_id])?;
+        let n = conn.execute(
+            "UPDATE scal_sets SET active = 1 WHERE well_id = ?1 AND set_name = ?2",
+            params![well_id, set_name],
+        )?;
+        if n == 0 {
+            return Err(DbError::LengthMismatch(format!("no SCAL set '{set_name}' on this well")));
+        }
         Ok(())
     })
 }
 
-pub fn get_scal_pc(conn: &Connection, well_id: &str) -> DbResult<Vec<ScalPcRow>> {
-    let mut stmt = conn.prepare(
-        "SELECT sample_no, depth, perm, poro, pc, sw, system, ift FROM scal_pc
-         WHERE well_id = ?1 ORDER BY sample_no NULLS FIRST, pc",
+/// Deletes one SCAL delivery; the newest survivor takes over.
+pub fn delete_scal_set(conn: &Connection, well_id: &str, set_name: &str) -> DbResult<usize> {
+    let removed = with_txn(conn, |conn| -> DbResult<usize> {
+        let n = conn.execute(
+            "DELETE FROM scal_pc WHERE well_id = ?1 AND set_name = ?2",
+            params![well_id, set_name],
+        )?;
+        conn.execute(
+            "DELETE FROM scal_sets WHERE well_id = ?1 AND set_name = ?2",
+            params![well_id, set_name],
+        )?;
+        Ok(n)
+    })?;
+    let has_active: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM scal_sets WHERE well_id = ?1 AND active = 1",
+        params![well_id],
+        |r| r.get(0),
     )?;
+    if has_active == 0 {
+        let next: Option<String> = conn
+            .query_row(
+                "SELECT set_name FROM scal_sets WHERE well_id = ?1 ORDER BY imported_at DESC LIMIT 1",
+                params![well_id],
+                |r| r.get(0),
+            )
+            .ok();
+        if let Some(next) = next {
+            set_active_scal_set(conn, well_id, &next)?;
+        }
+    }
+    Ok(removed)
+}
+
+/// Bulk-inserts one SCAL DELIVERY for a well under `set_name`, replacing only that set's
+/// points and making it the live one. Earlier reports are untouched.
+pub fn insert_scal_pc(
+    conn: &Connection,
+    well_id: &str,
+    set_name: &str,
+    source: Option<&str>,
+    rows: &[ScalPcRow],
+) -> DbResult<()> {
+    with_txn(conn, |conn| {
+        conn.execute(
+            "DELETE FROM scal_pc WHERE well_id = ?1 AND set_name = ?2",
+            params![well_id, set_name],
+        )?;
+        let mut appender: Appender = conn.appender("scal_pc")?;
+        for r in rows {
+            appender.append_row(params![
+                well_id, r.sample_no, r.depth, r.perm, r.poro, r.pc, r.sw, r.system, r.ift, set_name
+            ])?;
+        }
+        appender.flush()?;
+        conn.execute(
+            "DELETE FROM scal_sets WHERE well_id = ?1 AND set_name = ?2",
+            params![well_id, set_name],
+        )?;
+        conn.execute("UPDATE scal_sets SET active = 0 WHERE well_id = ?1", params![well_id])?;
+        conn.execute(
+            "INSERT INTO scal_sets (well_id, set_name, active, source) VALUES (?1, ?2, 1, ?3)",
+            params![well_id, set_name, source],
+        )?;
+        Ok(())
+    })
+}
+
+/// One well's capillary-pressure points, from the ACTIVE SCAL delivery.
+pub fn get_scal_pc(conn: &Connection, well_id: &str) -> DbResult<Vec<ScalPcRow>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT sample_no, depth, perm, poro, pc, sw, system, ift FROM scal_pc
+         WHERE well_id = ?1 AND set_name = {ACTIVE_SCAL_SET} ORDER BY sample_no NULLS FIRST, pc"
+    ))?;
     let rows = stmt.query_map(params![well_id], |row| {
         Ok(ScalPcRow {
             sample_no: row.get(0)?,
@@ -2316,7 +2469,7 @@ mod inspector_tests {
     /// the RAW set/survey, registered active, and the readers return them unchanged.
     /// Idempotent — a second run is a no-op, and a fresh database never migrates at all.
     #[test]
-    fn core_and_survey_set_migration_preserves_every_row_and_is_idempotent() {
+    fn point_data_set_migration_preserves_every_row_and_is_idempotent() {
         let conn = Connection::open_in_memory().unwrap();
         // A LEGACY shape: no set_name / survey_name anywhere.
         conn.execute_batch(
@@ -2348,12 +2501,25 @@ mod inspector_tests {
                  well_id UUID NOT NULL, dataset VARCHAR NOT NULL, set_name VARCHAR NOT NULL,
                  active INTEGER NOT NULL DEFAULT 0, source VARCHAR,
                  imported_at TIMESTAMP NOT NULL DEFAULT now(),
-                 PRIMARY KEY (well_id, dataset, set_name));",
+                 PRIMARY KEY (well_id, dataset, set_name));
+             CREATE TABLE scal_pc (
+                 well_id UUID NOT NULL, sample_no INTEGER, depth FLOAT, perm FLOAT, poro FLOAT,
+                 pc FLOAT NOT NULL, sw FLOAT NOT NULL, system VARCHAR, ift FLOAT);
+             ALTER TABLE scal_pc ADD COLUMN IF NOT EXISTS set_name VARCHAR;
+             CREATE TABLE scal_sets (
+                 well_id UUID NOT NULL, set_name VARCHAR NOT NULL, active INTEGER NOT NULL DEFAULT 0,
+                 source VARCHAR, imported_at TIMESTAMP NOT NULL DEFAULT now(),
+                 PRIMARY KEY (well_id, set_name));",
         )
         .unwrap();
         let w = Uuid::new_v4().to_string();
         conn.execute(
             "INSERT INTO aux_data (well_id, dataset, depth_top, item, value_num) VALUES (?1, 'XRD', 2000.0, 'QUARTZ', 45.2)",
+            params![w],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO scal_pc (well_id, sample_no, pc, sw) VALUES (?1, 1, 10.0, 0.42)",
             params![w],
         )
         .unwrap();
@@ -2383,6 +2549,10 @@ mod inspector_tests {
         assert_eq!(aux.len(), 1, "unregistered aux rows must stay readable after migration");
         let aux_sets = list_aux_sets(&conn, &w).unwrap();
         assert!(aux_sets.len() == 1 && aux_sets[0].active && aux_sets[0].dataset == "XRD");
+        // …and the same for SCAL, the fourth point store.
+        assert_eq!(get_scal_pc(&conn, &w).unwrap().len(), 1, "legacy Pc points stay readable");
+        let scal_sets = list_scal_sets(&conn, &w).unwrap();
+        assert!(scal_sets.len() == 1 && scal_sets[0].active && scal_sets[0].set_name == "RAW");
 
         // Idempotent, and a no-op on a database that was created with the current schema.
         migrate_point_data_sets(&conn, None).unwrap();

@@ -568,8 +568,8 @@ async fn import_scal_csv(
 
 /// Multi-file, multi-format SCAL Pc import (increment 2): flat/long CSVs, Corelab-style
 /// porous-plate wide tables, and per-plug centrifuge block files ("auto" sniffs each
-/// file). All files land in ONE combined replace-write of the well's `scal_pc` rows,
-/// with the Leverett-J fit over the pooled points.
+/// file). The selected files form ONE delivery, stored as the named SCAL set (auto-suffixed
+/// rather than overwriting an earlier report) with the Leverett-J fit over the pooled points.
 #[tauri::command]
 async fn import_scal_files(
     db: tauri::State<'_, DbState>,
@@ -579,6 +579,7 @@ async fn import_scal_files(
     format: String,
     system: String,
     ift_lab: f64,
+    set_name: Option<String>,
 ) -> Result<ingest::ScalImportResult, String> {
     let conn = db.0.clone();
     let detail = if paths.len() == 1 {
@@ -588,16 +589,36 @@ async fn import_scal_files(
     };
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import SCAL", detail, move || {
         let c = conn.lock().unwrap();
-        Ok(ingest::import_scal_files(&c, &well_id, &paths, &format, &system, ift_lab))
+        Ok(ingest::import_scal_files(&c, &well_id, &paths, &format, &system, ift_lab, set_name.as_deref()))
     })
     .await
 }
 
-/// Fetches a well's SCAL Pc/Sw points (for the saturation-height QC plot).
+/// Fetches a well's SCAL Pc/Sw points from its ACTIVE delivery (saturation-height QC plot).
 #[tauri::command]
 fn get_scal_pc(db: tauri::State<DbState>, well_id: String) -> Result<Vec<db::ScalPcRow>, String> {
     let conn = db.0.lock().unwrap();
     db::get_scal_pc(&conn, &well_id).map_err(|e| e.to_string())
+}
+
+/// A well's SCAL deliveries, for the set manager and the Wells tree.
+#[tauri::command]
+fn list_scal_sets(db: tauri::State<DbState>, well_id: String) -> Result<Vec<db::ScalSetInfo>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_scal_sets(&conn, &well_id).map_err(|e| e.to_string())
+}
+
+/// Makes one SCAL delivery live — Pc/Sw QC, Leverett-J and Thomeer fits all follow it.
+#[tauri::command]
+fn set_active_scal_set(db: tauri::State<DbState>, well_id: String, set_name: String) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    db::set_active_scal_set(&conn, &well_id, &set_name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_scal_set(db: tauri::State<DbState>, well_id: String, set_name: String) -> Result<usize, String> {
+    let conn = db.0.lock().unwrap();
+    db::delete_scal_set(&conn, &well_id, &set_name).map_err(|e| e.to_string())
 }
 
 /// Saves (or updates, by unique name) a user-authored equation and returns its id.
@@ -1955,6 +1976,9 @@ pub fn run() {
             import_scal_csv,
             import_scal_files,
             get_scal_pc,
+            list_scal_sets,
+            set_active_scal_set,
+            delete_scal_set,
             render_composite,
             export_composite_svg,
             export_composite_pdf,

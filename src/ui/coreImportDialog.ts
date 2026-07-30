@@ -251,7 +251,7 @@ export async function openCoreImportWizard(
   setHint.className = "form-hint";
   setHint.textContent =
     "The imported set becomes each receiving well's ACTIVE core — what the log overlay, φ-k plots and " +
-    "calibration read. Switch or delete deliveries later in Data → Tools → Core Sets & Surveys…";
+    "calibration read. Switch or delete deliveries later in Data → Tools → Data Sets…";
   wrap.appendChild(setHint);
 
   // --- Depth unit (the silent-3.28× guard). ---

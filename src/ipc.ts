@@ -1834,7 +1834,31 @@ export interface ScalImportResult {
   path: string;
   rows: number;
   fit: LeverettFit | null;
+  /** The SCAL delivery these points landed in (auto-suffixed if the name was taken). */
+  set_name: string | null;
   error: string | null;
+}
+
+/** One SCAL delivery of a well. Exactly one is active; Pc QC, Leverett-J and Thomeer
+ *  fits all read it. */
+export interface ScalSetInfo {
+  set_name: string;
+  rows: number;
+  active: boolean;
+  source: string | null;
+  imported_at: string | null;
+}
+
+export function listScalSets(wellId: string): Promise<ScalSetInfo[]> {
+  return invoke<ScalSetInfo[]>("list_scal_sets", { wellId });
+}
+
+export function setActiveScalSet(wellId: string, setName: string): Promise<void> {
+  return invoke<void>("set_active_scal_set", { wellId, setName });
+}
+
+export function deleteScalSet(wellId: string, setName: string): Promise<number> {
+  return invoke<number>("delete_scal_set", { wellId, setName });
 }
 
 export interface ScalPcRow {
@@ -1861,18 +1885,20 @@ export function importScalCsv(wellId: string, path: string, iftLab: number): Pro
  *  key-value blocks + Pc/Sw tables, or "auto" to sniff each file. */
 export type ScalFormat = "auto" | "long" | "porous_plate" | "centrifuge";
 
-/** Multi-file SCAL Pc import (e.g. a set of single-plug centrifuge exports): all files
- *  land in ONE combined replace-write of the well's scal_pc rows, with the Leverett-J
- *  fit over the pooled points. `system` labels every stored point with the lab fluid
- *  system ('air_brine', 'hg_air', 'oil_brine', ...) alongside the entered sigma·cosθ. */
+/** Multi-file SCAL Pc import (e.g. a set of single-plug centrifuge exports): the files
+ *  selected together form ONE delivery, stored as the named SCAL set (auto-suffixed rather
+ *  than overwriting an earlier report) and made live, with the Leverett-J fit over the
+ *  pooled points. `system` labels every stored point with the lab fluid system
+ *  ('air_brine', 'hg_air', 'oil_brine', ...) alongside the entered sigma·cosθ. */
 export function importScalFiles(
   wellId: string,
   paths: string[],
   format: ScalFormat,
   system: string,
   iftLab: number,
+  setName: string | null = null,
 ): Promise<ScalImportResult> {
-  return invoke<ScalImportResult>("import_scal_files", { wellId, paths, format, system, iftLab });
+  return invoke<ScalImportResult>("import_scal_files", { wellId, paths, format, system, iftLab, setName });
 }
 
 export interface ThomeerSampleFit {

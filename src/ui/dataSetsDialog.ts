@@ -1,15 +1,19 @@
 import {
   deleteAuxSet,
   deleteCoreSet,
+  deleteScalSet,
   deleteSurvey,
   listAuxSets,
   listCoreSets,
+  listScalSets,
   listSurveys,
   setActiveAuxSet,
   setActiveCoreSet,
+  setActiveScalSet,
   setActiveSurvey,
   type AuxSetInfo,
   type CoreSetInfo,
+  type ScalSetInfo,
   type SurveyInfo,
 } from "../ipc";
 import { setStatus } from "../state";
@@ -188,9 +192,9 @@ export function openDataSetsDialog(
   const doc = document.createElement("p");
   doc.className = "modal-doc";
   doc.textContent =
-    "Every delivery ever imported for this well — core, deviation surveys and point data (XRD, CEC, oil show, …). " +
-    "One of each is ACTIVE (●) — that is what log overlays, φ-k plots, calibration, TVD/TVDSS and the data panels " +
-    "read. The rest are kept, not lost.";
+    "Every delivery ever imported for this well — core, SCAL, deviation surveys and point data (XRD, CEC, oil show, …). " +
+    "One of each is ACTIVE (●) — that is what log overlays, φ-k plots, Pc/J-fits, calibration, TVD/TVDSS and the data " +
+    "panels read. The rest are kept, not lost.";
   wrap.appendChild(doc);
 
   const core = buildSection<CoreSetInfo>({
@@ -216,6 +220,30 @@ export function openDataSetsDialog(
     },
   });
   wrap.appendChild(core.root);
+
+  const scal = buildSection<ScalSetInfo>({
+    title: "SCAL (capillary pressure)",
+    empty: "No SCAL Pc data imported for this well yet.",
+    nameOf: (r) => r.set_name,
+    isActive: (r) => r.active,
+    countLabel: (r) => `${r.rows} point(s)`,
+    sourceOf: (r) => r.source,
+    dateOf: (r) => r.imported_at,
+    load: () => listScalSets(well.well_id),
+    activate: async (name) => {
+      await setActiveScalSet(well.well_id, name);
+      setStatus(`SCAL set ${name} is now active for ${well.well_name}.`);
+      recordProcess("Edit", `Active SCAL set → ${name}`, well.well_name);
+      onChanged();
+    },
+    remove: async (name) => {
+      const n = await deleteScalSet(well.well_id, name);
+      setStatus(`Deleted SCAL set ${name} (${n} point(s)) from ${well.well_name}.`);
+      recordProcess("Edit", `Deleted SCAL set ${name} (${n} points)`, well.well_name);
+      onChanged();
+    },
+  });
+  wrap.appendChild(scal.root);
 
   const surveys = buildSection<SurveyInfo>({
     title: "Deviation surveys",
@@ -276,7 +304,9 @@ export function openDataSetsDialog(
     "Deleting the active one hands over to the next newest.";
   wrap.appendChild(note);
 
-  openModal(`Core Sets & Surveys — ${well.well_name}`, wrap, 620);
+  openModal(`Data Sets — ${well.well_name}`, wrap, 620);
   void core.refresh();
+  void scal.refresh();
   void surveys.refresh();
+  void aux.refresh();
 }

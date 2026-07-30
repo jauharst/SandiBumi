@@ -362,8 +362,8 @@ export class Ribbon {
           onPick: () => this.handleShiftCore(),
         },
         {
-          label: "Core Sets & Surveys…",
-          doc: "Every core delivery and deviation survey imported for the selected well — switch which one is active, or delete one",
+          label: "Data Sets…",
+          doc: "Every core, SCAL, survey and point-data delivery imported for the selected well — switch which one is active, or delete one",
           onPick: () => this.handleDataSets(),
         },
         {
@@ -1152,7 +1152,7 @@ export class Ribbon {
     await openCoreImportWizard(paths, well, () => this.workspace.notifyDataChanged());
   }
 
-  /** "Core Sets & Surveys…" — the selected well's core deliveries and deviation surveys:
+  /** "Data Sets…" — every delivery on the selected well (core, SCAL, surveys, point data):
    *  which one is live, switch, or delete (T-IMP-08 / T-IMP-12). */
   private handleDataSets(): void {
     const well = appState.selectedWell.get();
@@ -1410,6 +1410,19 @@ export class Ribbon {
       if (!v) iftInput.focus();
     });
     content.appendChild(formRow("Lab sigma·cosθ (dyn/cm)", iftInput, "Fluid system of the lab measurement"));
+    // The delivery these files form (T-IMP-08): a later report never overwrites an
+    // earlier one — it becomes a second SCAL set and goes live.
+    const setInput = document.createElement("input");
+    setInput.type = "text";
+    setInput.className = "form-control";
+    setInput.value = "SCAL";
+    content.appendChild(
+      formRow(
+        "SCAL set",
+        setInput,
+        "Names this delivery (the files selected together). A name already on the well is suffixed (SCAL → SCAL_1); the new set becomes live and drives Pc QC, J-fits and Thomeer.",
+      ),
+    );
     const apply = document.createElement("button");
     apply.className = "form-run-btn";
     apply.textContent = "Import & Fit";
@@ -1428,7 +1441,7 @@ export class Ribbon {
       apply.disabled = true;
       resultBox.textContent = `Importing SCAL data for ${well.well_name}…`;
       const fmt = fmtSel.value as "auto" | "long" | "porous_plate" | "centrifuge";
-      void importScalFiles(well.well_id, paths, fmt, sysSel.value, ift)
+      void importScalFiles(well.well_id, paths, fmt, sysSel.value, ift, setInput.value.trim() || "SCAL")
         .then((result) => {
           if (result.error) {
             resultBox.textContent = `SCAL import failed: ${result.error}`;
@@ -1440,8 +1453,9 @@ export class Ribbon {
               `R² = ${result.fit.r2.toFixed(3)} (${result.fit.n_points} points). ` +
               `Enter these as SWH_A/SWH_B in SW — Saturation-Height.`
             : "Too few valid points to fit the J-function (need Pc, Sw, perm and poro on ≥ 3 rows).";
-          resultBox.textContent = `Imported ${result.rows} Pc point(s). ${fitText}`;
-          setStatus(`SCAL: ${result.rows} points imported for ${well.well_name}.`);
+          const setNote = result.set_name ? ` Set ${result.set_name}.` : "";
+          resultBox.textContent = `Imported ${result.rows} Pc point(s).${setNote} ${fitText}`;
+          setStatus(`SCAL: ${result.rows} points imported for ${well.well_name}.${setNote}`);
           this.workspace.notifyDataChanged();
         })
         .catch((err) => {
@@ -1539,7 +1553,7 @@ export class Ribbon {
       formRow(
         "Set",
         setInput,
-        "Names this delivery. A name already used for this dataset on a well is suffixed (RAW → RAW_1) — an import never overwrites earlier rows. The new set becomes the live one; switch or delete in Tools → Core Sets & Surveys…",
+        "Names this delivery. A name already used for this dataset on a well is suffixed (RAW → RAW_1) — an import never overwrites earlier rows. The new set becomes the live one; switch or delete in Tools → Data Sets…",
       ),
     );
 
