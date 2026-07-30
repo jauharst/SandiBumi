@@ -5038,6 +5038,38 @@ are per-well parameters and never come from a context well.
       and legend. Same zone-by-name + skip rule, budget and scope-row reporting as
       the other two plots.
 
+## MID plot module — UMAA / RHOMAA (2026-07-30)
+
+Feeds the Lith-6 chart overlay that has been sitting in the chartbook library with
+nothing to plot on it. New **Lithology** category in the Petrophysics ribbon.
+
+- [ ] **Petrophysics → Lithology → Apparent Matrix (MID plot)** runs on a well with
+      RHOB + NPHI + PEF and writes four curves: **UMAA**, **RHOMAA**, **U** (volumetric
+      photoelectric factor) and **PHIA** (the apparent porosity it actually used —
+      exposed so the basis is never hidden).
+- [ ] **Crossplot X = UMAA, Y = RHOMAA** opens on the chart's own window (UMAA 0–16,
+      RHOMAA 2.2–3.1 with density increasing downward). Properties → Chart overlay now
+      lists **"Lith-6 Umaa-Rhomaa MID plot"** under *For these axes* — switch it on and
+      the quartz / calcite / dolomite triangle, the clay and anhydrite points and the
+      percentage lines land around your cloud.
+- [ ] **Read a known carbonate or a clean sand** and check the cloud sits where the
+      lithology says it should. Please push back if the placement disagrees with your
+      chartbook reading — the analytic apparent porosity is the one approximation here.
+- [ ] **The porosity basis is a visible choice** (OPT_PHIA in the run dialog): **XPLOT**
+      (default, textbook average of the apparent-limestone density and neutron
+      porosities), **NEUTRON**, or **LOG** (feed a porosity curve you already trust —
+      the accurate route). The method note in the dialog states the known bias: at zero
+      porosity quartz lands about 0.013 g/cc heavy (UMAA within 0.001 of the chart) and
+      dolomite about 0.06 g/cc light and 0.34 b/cm³ left of the chart's dolomite point.
+      All three still resolve to their own chart point by a wide margin (unit-tested).
+- [ ] **Density-only porosity is deliberately absent** — it is algebraically degenerate
+      (it returns the assumed matrix density for every sample, a constant curve that
+      would still plot convincingly). There is a unit test stating the trap.
+- [ ] **Barite mud warning** is in the method note: PEF is unreadable there. Run with
+      **Mask = BADHOLE** on rugose intervals.
+- [ ] **Over-porous samples drop out** as blanks rather than as huge numbers (PHIA_MAX,
+      default 0.5, is an editable parameter — not a hidden constant).
+
 ---
 
 _Made in SandiBumi._ © 2026 SandiBumi. All rights reserved.

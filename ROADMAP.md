@@ -729,8 +729,28 @@ fixes (1 already fixed); #135 resolved the 4 held items per Jauhar (below). Comm
 ## B2. Interpretation-workflow open items (§4)
 
 _(field-review tier, was "P2"; the rest of the tier is done in [A8](#a8-field-review--trust--safety--interpretation-workflow-4).)_
-- [ ] **Pickett v2**: N together with M and Rw; free user input of line parameters (lines follow);
-      Z-value coloring by a chosen log with customizable gradient. (Tracked as Polish-4/#125 above.)
+- [x] **Pickett v2** — **COMPLETE 2026-07-30.** N with M and Rw, free line-parameter input, Z-colour
+      by a chosen log: all shipped as Polish-4/#125 above. The tail landed with the multi-well work:
+      template bar, RT default widened to 0.2–2000 (audit), `sanitizePickettProps`, Sw lines spanning
+      the visible φ window, and the T-SHELL-16 context overlay (line stays the ACTIVE well's).
+- [x] **UMAA / RHOMAA MID-plot module** — **SHIPPED 2026-07-30.** `src-tauri/src/lithology.rs`
+      (`midplot`), new **Lithology** ribbon category; writes UMAA, RHOMAA, U and PHIA, feeding the
+      already-digitized `lith6_mid` chart overlay. Physics: rho_e = (RHOB+0.1883)/1.0704, U = PEF·rho_e,
+      then the fluid stripped from both. RHOB is used AS LOGGED — verified against the chart's own
+      quartz point (2.6489 = the tool reading for quartz, not its true 2.654 density), which is what
+      makes the minerals register. Crossplot gained UMAA/RHOMAA axis defaults (0–16; 2.2–3.1 inverted).
+      Six unit tests pin it, incl. each mineral landing nearest its OWN chart point and an explicit
+      test that a density-only apparent porosity is **algebraically degenerate** (returns the assumed
+      matrix density for every sample) — that option is deliberately absent.
+      **Follow-up, the one real approximation left: a true chart-lookup DN crossplot porosity.**
+      OPT_PHIA=XPLOT averages the apparent-limestone density and neutron porosities analytically,
+      which drags points toward the assumed RHO_MA_A: quartz lands ~0.013 g/cc heavy (UMAA within
+      0.001 of the chart) but dolomite ~0.06 g/cc light and ~0.34 b/cm³ left of its chart point —
+      20% of the shortest triangle edge, so minerals never cross over, but the bias is real. The fix
+      is a genuine Por-11-style 2-D lookup (solve for the matrix/porosity pair that satisfies BOTH
+      tools); `neutron_charts.rs` already holds the digitized per-matrix neutron tables, so the
+      remaining work is the density leg plus a root-find. Until then OPT_PHIA=LOG (feed a trusted
+      porosity) is the accurate route.
 - [ ] **Data prep**: **split & merge** of curves/intervals; **normalization with tops-referenced
       intervals** — reference top/bottom from a chosen tops set; missing marker → nearest stratigraphic
       marker (top → shallowest, bottom → deepest); percentiles extrapolated over the whole interval and

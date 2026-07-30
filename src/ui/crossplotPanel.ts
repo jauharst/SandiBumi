@@ -427,6 +427,13 @@ function axisDefaults(curve: string): { min: number; max: number; invert: boolea
     case "SWE":
     case "SWT":
       return { min: 0, max: 1, invert: false };
+    // MID-plot axes (Lith-6): the window spans the chart's own mineral points, quartz
+    // (4.8, 2.65) to anhydrite (14.9, 2.98), and RHOMAA increases downward like RHOB so
+    // the triangle sits the way the printed chart draws it.
+    case "UMAA":
+      return { min: 0, max: 16, invert: false };
+    case "RHOMAA":
+      return { min: 2.2, max: 3.1, invert: true };
     default:
       return null;
   }

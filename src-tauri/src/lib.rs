@@ -17,6 +17,7 @@ mod hfu;
 mod ingest;
 mod jobs;
 mod layout;
+mod lithology;
 mod lorenz;
 mod lrlc;
 mod ml;
