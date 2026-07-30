@@ -76,8 +76,11 @@ export class InspectorPanel {
   private catalogFilter = "";
   private catalogSortKey = "name";
   private catalogSortAsc = true;
+  /** Kept so `focusCatalog` can drive the tab buttons from outside. */
+  private root: HTMLElement;
 
   constructor(root: HTMLElement) {
+    this.root = root;
     const tabButtons = Array.from(root.querySelectorAll<HTMLButtonElement>(".tab-btn"));
     const tabContents = new Map<string, HTMLElement>(
       Array.from(root.querySelectorAll<HTMLElement>(".tab-content")).map((el) => [
@@ -129,6 +132,19 @@ export class InspectorPanel {
       this.equations = [];
     }
     this.renderEquationEditor();
+  }
+
+  /** Switches to the Curve Catalog tab and filters it to `filter` (a mnemonic, usually).
+   *  Entry point for the Wells-pane right-click — landing on the row the user meant beats
+   *  opening an unfiltered catalog of every curve in the well. */
+  public focusCatalog(filter: string): void {
+    this.catalogFilter = filter;
+    for (const b of this.root.querySelectorAll<HTMLButtonElement>(".tab-btn")) {
+      b.classList.toggle("active", b.dataset.tab === "catalog");
+    }
+    this.equationTab.hidden = true;
+    this.catalogTab.hidden = false;
+    void this.refreshCatalog();
   }
 
   public async refreshCatalog(): Promise<void> {

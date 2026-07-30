@@ -2287,6 +2287,26 @@ export function promoteGenericCurve(curveId: string): Promise<void> {
   return invoke<void>("promote_generic_curve", { curveId });
 }
 
+/** A curve's editable identity — returned by `updateCurveMeta` as it was BEFORE the edit,
+ *  which is exactly what an undo needs. */
+export interface CurveMetaEdit {
+  mnemonic: string;
+  unit: string | null;
+  family: string | null;
+}
+
+/** Renames / re-units / re-families one imported curve. Metadata only — no sample changes —
+ *  but modules resolve their inputs by mnemonic and family, so this repoints what they read.
+ *  Returns the previous values so the caller can push an undo. */
+export function updateCurveMeta(
+  curveId: string,
+  mnemonic: string,
+  unit: string | null,
+  family: string | null,
+): Promise<CurveMetaEdit> {
+  return invoke<CurveMetaEdit>("update_curve_meta", { curveId, mnemonic, unit, family });
+}
+
 export interface CurveSamplePoint {
   depth: number;
   value: number;

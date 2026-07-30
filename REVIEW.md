@@ -5435,4 +5435,32 @@ core, LAS, tops, aux/point data, SCAL and deviation alike, not just the file tha
 
 ---
 
+## 2026-07-30 — Wells pane: right-click on everything, and point data expands like curves
+
+Your two asks: expanded items should have a right-click menu (including a route into the Curve
+Catalog for editing), and non-curve data should behave like curves — expandable within a set,
+with its own menu.
+
+- [ ] **Right-click a curve** (under an expanded set) → Open in Curve Catalog · Edit name /
+      unit / family… · Make this curve win its name · Delete. "Open in Curve Catalog" should
+      land on the Inspector's Catalog tab **already filtered to that curve**, not on a list of
+      everything.
+- [ ] **Double-click a curve** opens the same edit dialog (single click stays inert on purpose —
+      these rows sit in the same list as wells, and a stray click must not move the workspace).
+- [ ] **Rename a curve and check it took**: `GRN_CS` → `GR` on your Duri well. Values must be
+      unchanged (same sample count in the Catalog), and a **GR-based module should now see it** —
+      that is the real reason to rename, not cosmetics. **Ctrl+Z undoes it.**
+- [ ] **Point data / core / SCAL / surveys now have a ▸ twisty** and expand:
+      - Core → the properties its plugs actually carry (`CPOR (61)`, `CPERM (61)`, …)
+      - Point data → its named items (`LITH (305)`, `CSO (61)` — your Duri core extras)
+      - SCAL → one row per plug with its Pc point count
+      - Surveys → station count, MD range, TVD at TD, max inclination
+      Only the **live** delivery expands; an inactive one says so rather than showing the
+      active one's contents (which would be a lie).
+- [ ] **Right-click a delivery** → show contents · make it the live one · Open Database
+      Inspector · Data Sets…. Deleting still lives only in Data Sets…, never a stray click.
+- [ ] **Right-click a well** → expand · Curve Catalog · Database Inspector · Data Sets… · pin.
+
+---
+
 _Made in SandiBumi._ © 2026 SandiBumi. All rights reserved.

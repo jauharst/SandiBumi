@@ -879,6 +879,22 @@ fn promote_generic_curve(db: tauri::State<DbState>, curve_id: String) -> Result<
     db::promote_generic_curve(&conn, &curve_id).map_err(|e| e.to_string())
 }
 
+/// Renames / re-units / re-families one imported curve, returning its PREVIOUS identity so
+/// the caller can push an undo. Metadata only — no sample is touched — but the mnemonic and
+/// family are what module inputs resolve by, so this repoints what modules read.
+#[tauri::command]
+fn update_curve_meta(
+    db: tauri::State<DbState>,
+    curve_id: String,
+    mnemonic: String,
+    unit: Option<String>,
+    family: Option<String>,
+) -> Result<db::CurveMetaEdit, String> {
+    let conn = db.0.lock().unwrap();
+    db::update_curve_meta_fields(&conn, &curve_id, &mnemonic, unit.as_deref(), family.as_deref())
+        .map_err(|e| e.to_string())
+}
+
 /// Phase 6: imports a deviation-survey CSV for one well, computing minimum-curvature
 /// TVD/TVDSS and storing it in `well_path`.
 #[tauri::command]
@@ -2143,6 +2159,7 @@ pub fn run() {
             get_generic_curve_samples,
             delete_generic_curve,
             promote_generic_curve,
+            update_curve_meta,
             import_deviation_csv,
             list_core_sets,
             list_surveys,

@@ -1391,6 +1391,32 @@ textarea {
 .tree-dataset-active .tree-set-label {
   font-weight: 600;
 }
+/* ●/○ live-delivery mark. Distinct from .tree-twisty: a delivery row carries BOTH — the
+   twisty opens its contents, this says whether it is the one every panel reads — so this
+   one is deliberately not clickable (double-click the row, or use the right-click menu). */
+.tree-dataset-mark {
+  flex: none;
+  width: 10px;
+  text-align: center;
+  font-size: var(--fs-xs);
+  line-height: 1;
+  cursor: default;
+  user-select: none;
+}
+.tree-dataset-active .tree-dataset-mark {
+  color: var(--accent);
+}
+/* Contents of an expanded delivery (core properties, XRD items, Pc samples, survey shape) —
+   one level deeper than the delivery row, matching .tree-curve under a curve set. */
+.tree-data-item {
+  padding-left: 58px;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  cursor: default;
+}
+.tree-data-item:hover {
+  color: var(--text);
+}
 
 /* The well / top interval currently driving every plot and log view. */
 .tree-selected,

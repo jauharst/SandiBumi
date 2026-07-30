@@ -13,6 +13,10 @@ pub enum DbError {
     Io(#[from] std::io::Error),
     #[error("{0}")]
     FormatTooNew(String),
+    /// A caller-supplied value the database refuses (e.g. a blank curve name). Carries a
+    /// message written for the user, not a diagnostic.
+    #[error("{0}")]
+    Invalid(String),
 }
 
 pub type DbResult<T> = Result<T, DbError>;
@@ -2406,6 +2410,49 @@ mod inspector_tests {
         assert_eq!(pef_id, pef_id2);
     }
 
+    /// Editing a curve's identity from the Wells pane: metadata changes, SAMPLES DO NOT, and
+    /// the previous identity comes back so the edit can be undone. The rename is the point —
+    /// a delivery whose mnemonic is GRN_CS is invisible to a module asking for GR until it is
+    /// renamed — so this also pins the normalization (trim + upper-case) that makes the
+    /// renamed curve resolvable, and the blank-name refusal that would otherwise orphan it.
+    #[test]
+    fn curve_meta_edit_renames_without_touching_samples_and_is_reversible() {
+        let conn = mem_db();
+        let w = Uuid::new_v4();
+        insert_well(&conn, w, "W", None, None, None).unwrap();
+        let ids = w.to_string();
+        let id = upsert_curve_meta(&conn, &ids, "FPROOH", "GRN_CS", Some("GAPI"), Some("GR"), None, None).unwrap();
+        insert_curve_samples(&conn, &id, &[1000.0, 1000.5], &[42.0, 43.0]).unwrap();
+
+        let before = update_curve_meta_fields(&conn, &id, "  gr  ", Some("gAPI"), Some("gr")).unwrap();
+        assert_eq!(before.mnemonic, "GRN_CS", "the caller needs the OLD name to offer an undo");
+        assert_eq!(before.unit.as_deref(), Some("GAPI"));
+
+        let after = list_generic_curve_catalog(&conn, &ids).unwrap();
+        let c = after.iter().find(|c| c.curve_id == id).expect("the curve survives a rename");
+        assert_eq!(c.mnemonic, "GR", "trimmed and upper-cased, the way imports store mnemonics");
+        assert_eq!(c.family.as_deref(), Some("GR"), "family upper-cased too");
+        assert_eq!(c.n_samples, 2, "a rename is metadata only — no sample may be lost");
+        assert_eq!(get_curve_samples(&conn, &id).unwrap()[0].value, 42.0, "values untouched");
+
+        // Undo restores the previous identity exactly.
+        update_curve_meta_fields(&conn, &id, &before.mnemonic, before.unit.as_deref(), before.family.as_deref())
+            .unwrap();
+        let back = list_generic_curve_catalog(&conn, &ids).unwrap();
+        let c = back.iter().find(|c| c.curve_id == id).unwrap();
+        assert_eq!(c.mnemonic, "GRN_CS");
+        assert_eq!(c.unit.as_deref(), Some("GAPI"));
+
+        // A blank unit means "no unit", stored as NULL rather than an empty string, so the
+        // catalog has one representation of absent.
+        update_curve_meta_fields(&conn, &id, "GRN_CS", Some("   "), None).unwrap();
+        let c = list_generic_curve_catalog(&conn, &ids).unwrap().into_iter().find(|c| c.curve_id == id).unwrap();
+        assert!(c.unit.is_none(), "blank unit must be NULL, got {:?}", c.unit);
+
+        // A curve may never be left nameless — resolution is by name, so a blank would orphan it.
+        assert!(update_curve_meta_fields(&conn, &id, "   ", None, None).is_err());
+    }
+
     /// Launch-perf fix: the migration records each processed well in `curve_migration_done` so it
     /// is never re-scanned on later opens (the ~20 s-per-launch cost on 540 wells), while a well
     /// imported AFTER a migration still gets backfilled on the next run.
@@ -3237,6 +3284,53 @@ pub fn promote_generic_curve(conn: &Connection, curve_id: &str) -> DbResult<()> 
         )?;
         conn.execute("UPDATE curve_meta SET pinned = 1 WHERE curve_id = ?1", params![curve_id])?;
         Ok(())
+    })
+}
+
+/// One generic curve's editable identity — what `update_curve_meta_fields` returns so the
+/// caller can offer an undo without a second query.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CurveMetaEdit {
+    pub mnemonic: String,
+    pub unit: Option<String>,
+    pub family: Option<String>,
+}
+
+/// Renames / re-units / re-families one imported curve, returning its PREVIOUS identity so
+/// the edit can be pushed onto the undo stack (rule 8 — data edits are undoable).
+///
+/// This is metadata only: not one sample is touched, so it is exactly reversible. It matters
+/// more than cosmetics though — the mnemonic and family are what `fetch_generic_curve_aligned`
+/// resolves module inputs by, so renaming a curve REPOINTS what modules read. Blank names are
+/// refused for that reason; the mnemonic is upper-cased and trimmed to match how imports store
+/// them (resolution is case-insensitive, but a mixed-case catalog reads as a mess). An empty
+/// unit/family string is stored as NULL rather than "", so "no unit" has one representation.
+pub fn update_curve_meta_fields(
+    conn: &Connection,
+    curve_id: &str,
+    mnemonic: &str,
+    unit: Option<&str>,
+    family: Option<&str>,
+) -> DbResult<CurveMetaEdit> {
+    let mnemonic = mnemonic.trim().to_uppercase();
+    if mnemonic.is_empty() {
+        return Err(DbError::Invalid("a curve must keep a name".into()));
+    }
+    let blank_to_none = |s: Option<&str>| s.map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+    let unit = blank_to_none(unit);
+    let family = blank_to_none(family).map(|f| f.to_uppercase());
+
+    with_txn(conn, |conn| {
+        let before: CurveMetaEdit = conn.query_row(
+            "SELECT mnemonic, unit, family FROM curve_meta WHERE curve_id = ?1",
+            params![curve_id],
+            |r| Ok(CurveMetaEdit { mnemonic: r.get(0)?, unit: r.get(1)?, family: r.get(2)? }),
+        )?;
+        conn.execute(
+            "UPDATE curve_meta SET mnemonic = ?2, unit = ?3, family = ?4 WHERE curve_id = ?1",
+            params![curve_id, mnemonic, unit, family],
+        )?;
+        Ok(before)
     })
 }
 
