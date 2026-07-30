@@ -10,6 +10,8 @@ import {
   importDlisFile,
   importLasFiles,
   currentProject,
+  bootReport,
+  compactProject,
   listRecentProjects,
   newProject,
   openProject,
@@ -370,6 +372,11 @@ export class Ribbon {
           label: "Well Header…",
           doc: "Edit the selected well's header (field, TD, KB datum)",
           onPick: () => void this.handleWellHeader(),
+        },
+        {
+          label: "Compact Project…",
+          doc: "Rewrite the project file keeping only live data — module re-runs leave dead space the file never returns (a field project can carry 4× its true size). The original file is kept beside it until you delete it",
+          onPick: () => void this.handleCompactProject(),
         },
       ],
     );
@@ -791,7 +798,7 @@ export class Ribbon {
   /** Runs one of the project-switch commands, then resets everything that referenced
    *  the old database: selection, undo stacks, well groups, and every data-driven pane. */
   private async switchProject(action: () => Promise<RecentProject>): Promise<void> {
-    setStatus("Switching project…");
+    setStatus("Opening project… (a first open after an update can run one-time storage upgrades — a large project may take minutes)");
     let info: RecentProject;
     try {
       info = await action();
@@ -811,6 +818,15 @@ export class Ribbon {
     this.workspace.notifyDataChanged();
     recordProcess("Project", `Opened project ${info.name} (${info.path})`);
     setStatus(`Project: ${info.name}`);
+    // Anything noteworthy the open did (one-time migration backups, a slow open
+    // explained) goes into the history — and the status line, so it isn't silent.
+    void bootReport()
+      .then((notes) => {
+        for (const n of notes) recordProcess("Project", n);
+        const visible = notes.filter((n) => !n.startsWith("DuckDB memory"));
+        if (visible.length > 0) setStatus(visible[visible.length - 1]);
+      })
+      .catch(() => {});
   }
 
   /** Window title + Project group caption show which project is open. */
@@ -1161,6 +1177,30 @@ export class Ribbon {
       return;
     }
     openDataSetsDialog(well, () => this.workspace.notifyDataChanged());
+  }
+
+  /** "Compact Project…" — rewrite the project file with only live rows. Asks first (the
+   *  app is briefly unresponsive while gigabytes rewrite), reports old → new size, and
+   *  names the parked original so the user can reclaim the disk once satisfied. */
+  private async handleCompactProject(): Promise<void> {
+    const ok = window.confirm(
+      "Compact this project?\n\n" +
+        "The project file is rewritten keeping only live data — re-running modules leaves dead space " +
+        "behind, and a long-lived field project can carry several times its true size. " +
+        "The app will be busy for a while on a large project.\n\n" +
+        "The original file is kept beside the project until you delete it yourself.",
+    );
+    if (!ok) return;
+    setStatus("Compacting project — this can take a few minutes on a large project…");
+    try {
+      const rep = await compactProject();
+      const mb = (b: number) => `${Math.round(b / 1048576).toLocaleString()} MB`;
+      const line = `Compacted: ${mb(rep.bytes_before)} → ${mb(rep.bytes_after)}. Original kept as ${rep.old_file} — delete it once you are happy.`;
+      setStatus(line);
+      recordProcess("Project", line);
+    } catch (err) {
+      setStatus(`Compact failed: ${err}`);
+    }
   }
 
   /** "Shift Core…" — constant core-to-log depth shift for the ACTIVE core set's plugs

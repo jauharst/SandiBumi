@@ -93,21 +93,56 @@ fn startup_problem(state: tauri::State<StartupState>) -> Option<StartupProblem> 
     state.0.lock().unwrap().clone()
 }
 
-/// Checkpoints the DuckDB WAL and copies the project file to `dest_path` ("Save As").
-/// Deliberately a backup export: the app KEEPS working on the current file.
+/// Engine-copies the live project to `dest_path` ("Save As"). Deliberately a backup
+/// export: the app KEEPS working on the current file. The engine copy (rather than a
+/// file copy) writes only live rows, so a Save As is also a compaction — a field project
+/// bloated by months of module re-runs exports at its true data size.
 #[tauri::command]
 fn save_project_as(
     db: tauri::State<DbState>,
     proj: tauri::State<project::ProjectState>,
     dest_path: String,
 ) -> Result<(), String> {
-    {
-        let conn = db.0.lock().unwrap();
-        conn.execute_batch("CHECKPOINT;").map_err(|e| e.to_string())?;
-    }
     let src = proj.0.lock().unwrap().clone();
-    std::fs::copy(&src, &dest_path).map_err(|e| e.to_string())?;
-    Ok(())
+    if src == dest_path {
+        return Err("That is the currently open file — Save As needs a different destination".to_string());
+    }
+    // The OS save dialog already confirmed an overwrite; a stale same-named file (and any
+    // WAL it left) must go first, or ATTACH would merge into it instead of replacing it.
+    if std::path::Path::new(&dest_path).exists() {
+        std::fs::remove_file(&dest_path).map_err(|e| format!("could not overwrite {dest_path}: {e}"))?;
+    }
+    let stale_wal = format!("{dest_path}.wal");
+    if std::path::Path::new(&stale_wal).exists() {
+        std::fs::remove_file(&stale_wal).map_err(|e| format!("could not overwrite {stale_wal}: {e}"))?;
+    }
+    let conn = db.0.lock().unwrap();
+    db::engine_copy_to(&conn, &dest_path).map_err(|e| e.to_string())
+}
+
+/// "Compact Project": rewrites the open project in place, dropping the dead space left by
+/// module re-runs (see `project::compact_project`). Blocked while background jobs run —
+/// the connection swap must not race a chain mid-write.
+#[tauri::command]
+fn compact_project(
+    db: tauri::State<DbState>,
+    proj: tauri::State<project::ProjectState>,
+    chains: tauri::State<chain::ChainRegistry>,
+    jobs_reg: tauri::State<jobs::JobRegistry>,
+) -> Result<project::CompactReport, String> {
+    if chain::any_active(&chains) || jobs::any_active(&jobs_reg) {
+        return Err("A background job is still running — wait for it to finish before compacting".to_string());
+    }
+    let path = proj.0.lock().unwrap().clone();
+    project::compact_project(&db, &path)
+}
+
+/// Drains the queued boot/maintenance notices (one-time migration backups, memory caps,
+/// compaction results) for the status line and process history. Each notice is returned
+/// exactly once.
+#[tauri::command]
+fn boot_report() -> Vec<String> {
+    db::take_boot_notes()
 }
 
 /// The recent-projects list (most recent first), for the Project ribbon dropdown.
@@ -1858,6 +1893,8 @@ pub fn run() {
             get_project_depth_unit,
             set_project_depth_unit,
             save_project_as,
+            compact_project,
+            boot_report,
             list_recent_projects,
             current_project,
             open_project,

@@ -31,9 +31,74 @@ pub const FORMAT_VERSION: i64 = 1;
 /// untouched, not first edited into a hybrid of two formats.
 pub fn init_db(path: &str) -> DbResult<Connection> {
     let conn = Connection::open(path)?;
+    tune_connection(&conn);
     check_and_stamp_format(&conn)?;
     create_schema(&conn)?;
     Ok(conn)
+}
+
+/// Caps DuckDB's memory appetite. The engine's factory default allows itself ~80% of the
+/// machine's RAM, which it will happily fill during a large scan, migration backup or
+/// COPY FROM DATABASE — on the 2.5 GB BLSO project that showed up as ~6 GB of the user's
+/// 8 GB machine. A desktop app sharing the machine gets a QUARTER of that default
+/// (≈20% of RAM), clamped to [1 GiB, 4 GiB]; anything bigger spills to DuckDB's on-disk
+/// temp space (enabled by default for file-backed databases). `SANDIBUMI_DB_MEMORY`
+/// overrides the cap verbatim (e.g. "8GB") for power users on big field machines.
+///
+/// Never fatal: a database that opens with the default limit is strictly better than one
+/// that refuses to open over a tuning pragma, so every failure here just logs.
+fn tune_connection(conn: &Connection) {
+    let limit = match std::env::var("SANDIBUMI_DB_MEMORY") {
+        Ok(v) if !v.trim().is_empty() => v.trim().to_string(),
+        _ => {
+            // The default limit is 80% of physical RAM, so it doubles as a RAM probe:
+            // default/4 ≈ 20% of the machine, without any OS-specific API.
+            let default_bytes = conn
+                .query_row("SELECT current_setting('memory_limit')", [], |r| r.get::<_, String>(0))
+                .ok()
+                .and_then(|s| parse_mem_bytes(&s));
+            const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
+            let capped = (default_bytes.unwrap_or(8.0 * GIB) / 4.0).clamp(GIB, 4.0 * GIB);
+            format!("{}MiB", (capped / (1024.0 * 1024.0)).round() as u64)
+        }
+    };
+    if let Err(e) = conn.execute_batch(&format!("SET memory_limit='{}'", limit.replace('\'', ""))) {
+        boot_note(format!("memory cap '{limit}' not applied ({e}); running with the engine default"));
+    } else {
+        boot_note(format!("DuckDB memory capped at {limit}"));
+    }
+}
+
+/// Parses DuckDB's human-readable memory sizes ("6.4 GiB", "512.0 MiB") into bytes.
+fn parse_mem_bytes(s: &str) -> Option<f64> {
+    let mut parts = s.split_whitespace();
+    let num: f64 = parts.next()?.parse().ok()?;
+    let mult = match parts.next()? {
+        "B" => 1.0,
+        "KiB" | "KB" => 1024.0,
+        "MiB" | "MB" => 1024.0 * 1024.0,
+        "GiB" | "GB" => 1024.0 * 1024.0 * 1024.0,
+        "TiB" | "TB" => 1024.0f64.powi(4),
+        _ => return None,
+    };
+    Some(num * mult)
+}
+
+/// Boot/maintenance notices the USER should see (one-time migration backups, memory caps,
+/// compaction results). `eprintln!` alone is invisible in a built exe
+/// (`windows_subsystem = "windows"` has no console), which is exactly how a 15-minute
+/// one-time migration ended up looking like a hang — so noteworthy events are queued here
+/// and the frontend drains them into the status line / process history via `boot_report`.
+static BOOT_NOTES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+pub fn boot_note(msg: String) {
+    eprintln!("[boot] {msg}");
+    BOOT_NOTES.lock().unwrap().push(msg);
+}
+
+/// Drains the queued notices (each is returned exactly once).
+pub fn take_boot_notes() -> Vec<String> {
+    std::mem::take(&mut *BOOT_NOTES.lock().unwrap())
 }
 
 /// RELEASE.md §3.1 (requirement R-A). Three cases:
@@ -625,15 +690,32 @@ fn backup_before_destructive_migration(conn: &Connection, path: &str) -> DbResul
             .unwrap_or(0);
         backup = format!("{stem}.pre-{FORMAT_VERSION}-backup-{ts}.duckdb");
     }
+    engine_copy_to(conn, &backup)?;
+    Ok(backup)
+}
+
+/// Engine copy of the CURRENT database to a fresh file at `dest` (`ATTACH` +
+/// `COPY FROM DATABASE`). Two properties matter to every caller:
+///
+/// - it reads the engine's own live state (WAL included), so no CHECKPOINT is needed and
+///   no filesystem sharing violation is possible (unlike `std::fs::copy` of an open DB);
+/// - it writes ONLY live rows, so the copy is **compacted**: none of the dead space that
+///   months of DELETE+append module re-runs leave in the source file (DuckDB reuses freed
+///   pages internally but never shrinks the file) comes along. This is what makes it the
+///   engine of both the migration backups and "Compact Project" / "Save As".
+///
+/// `dest` must not exist — attaching an existing file would open it as a live database
+/// and merge into it instead of producing a clean copy.
+pub fn engine_copy_to(conn: &Connection, dest: &str) -> DbResult<()> {
     let src: String = conn.query_row("SELECT current_database()", [], |r| r.get(0))?;
     conn.execute_batch(&format!(
-        "ATTACH '{}' AS rb_backup;
-         COPY FROM DATABASE \"{}\" TO rb_backup;
-         DETACH rb_backup;",
-        backup.replace('\'', "''"),
+        "ATTACH '{}' AS rb_copy_target;
+         COPY FROM DATABASE \"{}\" TO rb_copy_target;
+         DETACH rb_copy_target;",
+        dest.replace('\'', "''"),
         src.replace('"', "\"\""),
     ))?;
-    Ok(backup)
+    Ok(())
 }
 
 /// One-time migration that drops the legacy 3-column PRIMARY KEY from `computed_curves`.
@@ -663,7 +745,7 @@ pub fn migrate_drop_computed_curves_pk(conn: &Connection, path: Option<&str>) ->
     }
     if let Some(path) = path {
         let backup = backup_before_destructive_migration(conn, path)?;
-        eprintln!("[boot] destructive migration (computed_curves PK drop) ahead: project backed up to {backup}");
+        boot_note(format!("One-time storage upgrade (write-speed index removal): project backed up first to {backup}"));
     }
     // Rebuild PK-less, preserving every row, atomically.
     conn.execute_batch(
@@ -733,7 +815,7 @@ pub fn migrate_point_data_sets(conn: &Connection, path: Option<&str>) -> DbResul
     }
     if let Some(path) = path {
         let backup = backup_before_destructive_migration(conn, path)?;
-        eprintln!("[boot] destructive migration (point-data set columns) ahead: project backed up to {backup}");
+        boot_note(format!("One-time storage upgrade (delivery sets for core/surveys): project backed up first to {backup}"));
     }
 
     if has_set == 0 {
@@ -2168,6 +2250,26 @@ mod inspector_tests {
         assert!(by.starts_with("SandiBumi "), "written_by should name the app: {by}");
         drop(conn);
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// Every file-backed open must cap DuckDB's memory appetite: the engine default (~80%
+    /// of RAM) is what let a 2.5 GB field project eat ~6 GB of an 8 GB machine. The cap is
+    /// default/4 clamped to [1 GiB, 4 GiB], so whatever this machine's RAM, the applied
+    /// setting must land inside that clamp.
+    #[test]
+    fn init_db_caps_the_engine_memory_limit() {
+        let path = tmp_db("memcap");
+        let conn = init_db(&path).unwrap();
+        let lim: String = conn
+            .query_row("SELECT current_setting('memory_limit')", [], |r| r.get(0))
+            .unwrap();
+        let bytes = parse_mem_bytes(&lim).unwrap_or_else(|| panic!("unparsable limit: {lim}"));
+        const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
+        assert!(bytes <= 4.0 * GIB * 1.01, "cap must be at most 4 GiB, got {lim}");
+        assert!(bytes >= 0.9 * GIB, "cap must be at least ~1 GiB, got {lim}");
+        drop(conn);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{path}.wal"));
     }
 
     #[test]

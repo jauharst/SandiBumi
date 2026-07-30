@@ -2108,7 +2108,8 @@ export function restoreCurveValues(wellId: string, curve: string, pointCount: nu
   return invoke<number>("restore_curve_values", { wellId, curve, pointCount, data });
 }
 
-/** Checkpoints the DuckDB project database and copies it to `destPath`. */
+/** Engine-copies the project database to `destPath` (live rows only, so the export is
+ *  also compacted). The app keeps working on the current file. */
 export async function saveProjectAs(destPath: string): Promise<void> {
   return invoke("save_project_as", { destPath });
 }
@@ -2160,6 +2161,25 @@ export async function openProject(path: string): Promise<RecentProject> {
 /** Creates a fresh, empty project file and switches to it. */
 export async function newProject(path: string): Promise<RecentProject> {
   return invoke("new_project", { path });
+}
+
+/** Result of "Compact Project": sizes around the rewrite + where the original was parked. */
+export interface CompactReport {
+  bytes_before: number;
+  bytes_after: number;
+  old_file: string;
+}
+
+/** Rewrites the project file keeping only live rows (drops re-run dead space) and swaps it
+ *  in at the same path. The original is kept beside it as `.pre-compact-<ts>.duckdb`. */
+export async function compactProject(): Promise<CompactReport> {
+  return invoke("compact_project");
+}
+
+/** One-time boot/maintenance notices (migration backups, memory caps, compaction results).
+ *  Each notice is returned exactly once — record what comes back. */
+export async function bootReport(): Promise<string[]> {
+  return invoke("boot_report");
 }
 
 // ---------------------------------------------------------------------------

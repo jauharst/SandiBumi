@@ -988,6 +988,11 @@ Small-to-medium open bits left behind by shipped phases (each linked from its ph
   P10/P50/P90 *curves*. *(Plus the §4 New-capability "print LOW/BASE/HIGH curves" item in [C5](#c5-new-capability-misc-4).)*
 - **Full-field responsiveness** (Phase 9-5): lazy catalog loading, decimation cache, keep the UI responsive
   during full-field runs, 2000-well synthetic stress fixture (100-well is the current proof).
+  **Shipped 2026-07-30 (from the BLSO 2.5 GB / 6 GB RAM / 15-min-open field report):** DuckDB
+  memory cap on every open (default/4 clamped [1,4] GiB, `SANDIBUMI_DB_MEMORY` overrides),
+  **Compact Project** (engine rewrite in place, all-table row-count verification, original parked
+  as `.pre-compact-<ts>`), Save As now engine-copies (compacted export), and boot/migration
+  notices surface in the status line + History (`boot_report`) instead of an invisible stderr.
 - **Missing-curve synthesis** (Phase 10): per-field regressors for DT/NPHI where absent, with holdout-well
   R² report.
 - **Auto-picks** (Phase 10): per-zone GR_MA/GR_SH percentile suggestions, change-point auto-zonation,

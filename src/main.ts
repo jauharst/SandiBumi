@@ -8,7 +8,8 @@ import {
   readAutosave,
   showCrashRecoveryDialog,
 } from "./autosave";
-import { saveDocument, startupProblem } from "./ipc";
+import { bootReport, saveDocument, startupProblem } from "./ipc";
+import { recordProcess } from "./processLog";
 import { showStartupProblemDialog } from "./startupNotice";
 import { applyStoredTheme } from "./theme";
 import { Ribbon } from "./ui/ribbon";
@@ -47,8 +48,21 @@ window.addEventListener("DOMContentLoaded", () => {
     // panels open on the metre default and re-render when it lands, which is correct for
     // a metric project and a one-frame correction for a foot one.
     void syncDepthUnits();
-    // Restore the project's processing history (async; the History panel updates when it lands).
-    void loadProcessLog();
+    // Restore the project's processing history, then append anything noteworthy the
+    // backend did while opening (one-time migration backups, the memory cap, a slow open
+    // explained) — invisible in a built exe otherwise. The last notice also lands in the
+    // status line so a "why did that take 15 minutes" has an answer on screen, not just
+    // in the History panel. Sequenced after the load so the notes append to, rather than
+    // race, the restored history.
+    void loadProcessLog().then(() =>
+      bootReport()
+        .then((notes) => {
+          for (const n of notes) recordProcess("Project", n);
+          const visible = notes.filter((n) => !n.startsWith("DuckDB memory"));
+          if (visible.length > 0) setStatus(visible[visible.length - 1]);
+        })
+        .catch(() => {}),
+    );
 
     if (mode === "restore-autosave" && autosave) {
       workspace.applySession(autosave);

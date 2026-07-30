@@ -351,6 +351,23 @@ Wells-pane ▸ tree, which lists Core / SCAL / Surveys / Point data under each w
 the live one and **double-click** to switch (single click is inert on purpose; delete stays
 in the dialog).
 
+## Open-path hardening (2026-07-30 — from the BLSO 2.5 GB field report)
+
+Every file-backed open runs `db::tune_connection`: DuckDB's memory_limit is capped at
+default/4 clamped to [1 GiB, 4 GiB] (the engine default is ~80% of RAM — it ate ~6 GB of an
+8 GB field machine); `SANDIBUMI_DB_MEMORY` overrides verbatim. `db::engine_copy_to`
+(ATTACH + COPY FROM DATABASE) is the ONE copy primitive — it writes live rows only, so every
+copy is compacted; migration backups, **Save As** and **Compact Project** (Data → Tools ▾)
+all go through it. `project::compact_project` rewrites the project at the same path:
+engine copy → row-count verification over EVERY catalog table → connection swap under the
+DbState mutex → original parked as `.pre-compact-<ts>.duckdb` (never deleted by us); any
+failure renames the original back. User-visible one-time events (migration backups, memory
+cap, compaction, a ≥10 s open) go through `db::boot_note` → the `boot_report` command →
+status line + process history — **never eprintln alone; a built exe has no console, which is
+how a 15-minute one-time migration looked like a hang.** DuckDB files never shrink on
+DELETE (module re-runs bloated BLSO to ~4× its live size), so point users at Compact
+Project when a long-lived project drags.
+
 ## DuckDB WAL resilience
 
 `tauri dev` restarts `sandibumi.exe` on every Rust source change; an unclean kill

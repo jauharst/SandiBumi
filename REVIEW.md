@@ -5333,4 +5333,32 @@ the same way.** Nothing in the app silently overwrites a delivery on re-import a
 
 ---
 
+## 2026-07-30 — Field-scale open hardening: memory cap, Compact Project, visible upgrades
+
+From your BLSO report (2.5 GB file, ~6 GB RAM, 15-minute open). The 15 minutes was the two
+one-time storage upgrades each backing up the whole project first — but the file itself was
+~75% dead space (632 MB of live data in a 2,487 MB file), the engine was allowed ~80% of the
+machine's RAM, and all of it happened silently. All three fixed:
+
+- [ ] **Second open of BLSO is fast.** The upgrades ran once; reopening the project should
+      take well under a minute now. If it is still slow, tell me — that would be a
+      different problem than the one fixed here.
+- [ ] **RAM stays civil.** With BLSO open, SandiBumi's memory should sit near 4 GB at the
+      very worst (the engine is capped at min(≈20% of RAM, 4 GB), spilling to disk beyond
+      that instead of taking the machine). Power users: set `SANDIBUMI_DB_MEMORY=8GB` in the
+      environment to raise it on a big field machine.
+- [ ] **Data → Tools ▾ → Compact Project…** on BLSO: after the confirm, the status line
+      should report roughly `2,487 MB → ~630 MB`, everything still opens and plots, and the
+      original file is parked beside the project as `.pre-compact-<ts>.duckdb` — delete it
+      yourself once satisfied. Every table's row count is verified before the swap; any
+      failure puts the original back untouched.
+- [ ] **Save Project As now compacts too** — it exports through the engine (live rows only),
+      so a Save As of a bloated project lands at its true size.
+- [ ] **Nothing silent any more:** opening a project that needs a one-time upgrade shows
+      "Opening project… (a first open after an update can run one-time storage upgrades…)"
+      while it works, and afterwards the status line + History panel say what ran, how long
+      it took, and where the backup went.
+
+---
+
 _Made in SandiBumi._ © 2026 SandiBumi. All rights reserved.
