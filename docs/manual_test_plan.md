@@ -463,6 +463,17 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 
 **Notes:** i need to state that for every curve set or any data set that imported together, it should have defined "set name", refer how geolog or IP managed this. So later user can trace which curve set he wanna use, even its duplicate. And it better be accessed either in well panes (each well can be expanded to see curve set and curve as well that it has), or in database.
 
+**Update 2026-07-30 — BUILT (import sets).** Import LAS now opens a **curve set** dialog first:
+the set name is suggested from what the filenames share (`blso*_lapi2023_fprooh.las` → `FPROOH`),
+and **Attach to existing wells** (default ON) makes a re-delivery of a well already in the
+project land as a NEW SET on that one record instead of a duplicate well row. A set name
+already used on a well is auto-suffixed (`FPROOH` → `FPROOH_1`) — an import never overwrites
+an earlier delivery. The Wells pane row now has a **▸ twisty** that expands into
+well → sets → curves (the Geolog tree), lazily loaded per well. Curve resolution is unchanged
+for existing projects: **set RAW keeps absolute priority**, and only a mnemonic RAW does not
+carry is looked up in the attached sets. Re-test this case with `01. Final Log`'s RAW +
+FPROOH + MULTIMIN folders for the same well.
+
 ### T-IMP-03 — Malformed LAS: duplicated depth section imports with a dropped-rows warning
 
 **Tool/panel:** Import LAS… (parsers.rs `sanitize_curve_columns`/`sanitize_las_frame`, ingest.rs)
@@ -479,6 +490,12 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 - [x] Blocked
 
 **Notes:** i dont understand this part, where do u provide dup_depth.las?
+
+**Update 2026-07-30 — FIXED.** Fair complaint: the step asked you to doctor a file yourself
+and never said so. The file now EXISTS: **`dataset for test/examples/bad_dup_depth.las`**
+(40 rows, of which rows 10–14 repeat row 9's depth). Import it and expect 35 rows plus a
+dropped-duplicates warning. A cargo test asserts exactly that, so the exemplar and the app
+can't drift apart.
 
 ### T-IMP-04 — Malformed LAS: all-null depth column and truncated last row → clean error, no orphan well
 
@@ -497,6 +514,10 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 - [x] Blocked
 
 **Notes:** i dont understand this part, where do u provide null_depth.las?
+
+**Update 2026-07-30 — FIXED.** Same fix: **`dataset for test/examples/bad_null_depth.las`**
+(every depth cell is −999.25). Import it and expect a clean error with NO well row created —
+check the Wells pane and the DB Inspector for a stray `SANDI-BAD-NULL`. Asserted by cargo test.
 
 ### T-IMP-05 — No-well-selected guards and cancel mid-dialog leave no side-effects
 
@@ -535,6 +556,15 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 - [ ] Blocked
 
 **Notes:** dlis imported (processing history showed it) but well not showing, and duplicate logs should be also imported, we dont always know what inside, refer to T-IMP-02 to discuss how curve set or any data set managed.
+
+**Update 2026-07-30 — PARTLY BUILT.** The duplicate half is done: Import DLIS now asks for a
+**set name** first. Give the second tape its own name and both are KEPT (auto-suffixed
+`WIRE` → `WIRE_1`); `replaced` can only be non-zero when you leave it as RAW, which preserves
+the old replace-by-(mnemonic, run) behaviour. Both sets are then visible under the well's
+▸ twisty in the Wells pane, so "we don't always know what's inside" is now inspectable after
+import rather than guessed before it. **Still open:** "well not showing" — retest with the
+set tree in place and tell me exactly what you see; if the well row itself is missing that is
+a separate bug from the curves, and I'll need the well name to chase it.
 
 ### T-IMP-07 — Core CSV import: plugs off the log grid overlay at native depths
 

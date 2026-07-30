@@ -141,6 +141,42 @@ def make_las(well: str, shift: float, seed: int) -> str:
     return "".join(lines)
 
 
+def make_bad_las(well: str, mode: str) -> str:
+    """Deliberately malformed LAS exemplars for the manual test plan's failure-path
+    tests (T-IMP-03 / T-IMP-04): `dup` repeats a block of depths (imports with a
+    dropped-rows warning); `null` has an all-NULL depth column (clean error, no well)."""
+    rng = Lcg(9001)
+    top, n = 1500.0, 40
+    hdr = f"""~Version Information
+ VERS.                 2.0 : CWLS Log ASCII Standard - Version 2.0
+ WRAP.                  NO : One line per depth step
+~Well Information
+ STRT.M           {top:.4f}             : Start depth
+ STOP.M           {top + (n - 1) * STEP:.4f}             : Stop depth
+ STEP.M           {STEP:.4f}                : Step
+ NULL.            {NULL}               : Null value
+ WELL.            {well}              : Well name
+ LOC .            Deliberately malformed exemplar : Location
+~Curve Information
+ DEPT.M                                 : Measured depth
+ GR  .GAPI                              : Gamma ray
+ RHOB.G/C3                              : Bulk density
+~ASCII
+"""
+    lines = [hdr]
+    for i in range(n):
+        if mode == "null":
+            d = NULL  # every depth is the null sentinel -> no importable rows
+        elif mode == "dup" and 10 <= i < 15:
+            d = top + 9 * STEP  # rows 10..14 repeat row 9's depth -> 5 dropped, rest import
+        else:
+            d = top + i * STEP
+        gr = 95.0 + 6.0 * rng.gauss()
+        rhob = 2.42 + 0.02 * rng.gauss()
+        lines.append(f"{d:10.4f} {gr:8.2f} {rhob:8.4f}\n")
+    return "".join(lines)
+
+
 def make_core_csv() -> str:
     """RCAL plugs for SANDI-01, off the 0.1524 grid on purpose (core is stored at native
     depths). Porosity/Sw in PERCENT — the importer's percent→fraction heuristic converts."""
@@ -288,11 +324,59 @@ def make_perforations() -> str:
     )
 
 
+def make_bad_las(well: str, kind: str) -> str:
+    """The two DELIBERATELY BROKEN exemplars behind manual test plan T-IMP-03/-04, so
+    Jauhar never has to doctor a file by hand to exercise a failure path.
+
+    `kind="dup"`  — 40 rows, of which rows 10-14 repeat row 9's depth (the shape a bad
+                    tape splice produces). Must IMPORT: 35 rows kept (first occurrence
+                    of each depth wins) plus a dropped-rows warning.
+    `kind="null"` — every depth cell is the NULL sentinel. Must FAIL CLEANLY with
+                    "no importable rows" and commit no orphan well row.
+
+    Deliberately short (40 rows) so the expected counts in the README and in
+    `example_data_test.rs` can be stated exactly rather than approximately.
+    """
+    n = 40
+    top = 1500.0
+    rng = Lcg(4000 + len(kind))
+    hdr = f"""~Version Information
+ VERS.                 2.0 : CWLS Log ASCII Standard - Version 2.0
+ WRAP.                  NO : One line per depth step
+~Well Information
+ STRT.M           {top:.4f}             : Start depth
+ STOP.M           {top + (n - 1) * STEP:.4f}             : Stop depth
+ STEP.M           {STEP:.4f}                : Step
+ NULL.            {NULL}               : Null value
+ WELL.            {well}          : Well name
+ FLD .            SANDI                 : Field
+~Curve Information
+ DEPT.M                                 : Measured depth
+ GR  .GAPI                              : Gamma ray
+ RHOB.G/C3                              : Bulk density
+~ASCII
+"""
+    lines = [hdr]
+    for i in range(n):
+        if kind == "null":
+            depth = NULL
+        elif 9 <= i <= 13:
+            depth = top + 8 * STEP  # rows 10-14 (1-indexed) repeat row 9's depth
+        else:
+            depth = top + i * STEP
+        gr = curve_value("GR", top + i * STEP, 0.0, rng)
+        rhob = curve_value("RHOB", top + i * STEP, 0.0, rng)
+        lines.append(f"{depth:10.4f} {gr:8.2f} {rhob:8.4f}\n")
+    return "".join(lines)
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     files = {}
     for i, (well, shift) in enumerate(WELLS.items()):
         files[f"{well}.las"] = make_las(well, shift, seed=1000 + i)
+    files["bad_dup_depth.las"] = make_bad_las("SANDI-BAD-DUP", "dup")
+    files["bad_null_depth.las"] = make_bad_las("SANDI-BAD-NULL", "null")
     files["core_rcal_SANDI-01.csv"] = make_core_csv()
     files["scal_pc_long_SANDI-01.csv"] = make_scal_long()
     files["scal_porous_plate_wide_SANDI-01.csv"] = make_scal_wide()

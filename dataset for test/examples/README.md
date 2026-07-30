@@ -33,6 +33,18 @@ accepts your real file of the same shape. Regenerate after editing the recipe wi
 After step 1–5 you can already run the full module chain, and after 6–8 the
 saturation-height tools (SCAL Pc → J-function fit → Sw(height)) have real input.
 
+## Malformed exemplars — for the failure-path tests (T-IMP-03 / T-IMP-04)
+
+These two files are BROKEN on purpose, so you can watch the app refuse them gracefully
+instead of having to doctor a file yourself:
+
+| File | What's wrong | Expected on import |
+|------|--------------|--------------------|
+| `bad_dup_depth.las` | rows 10–14 repeat row 9's depth | Imports **with a warning** — status/History note says 5 row(s) dropped for duplicate depth; well SANDI-BAD-DUP appears with 35 rows. |
+| `bad_null_depth.las` | every depth is −999.25 | **Clean error**, nothing imported — no orphan SANDI-BAD-NULL well row appears in the Wells pane or the database. |
+
+Delete SANDI-BAD-DUP afterwards if you imported it into a real project.
+
 ## What each parser actually requires (for shaping your real files)
 
 Headers are **case-insensitive** and **alias-resolved** — column order never matters.

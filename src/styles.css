@@ -1316,6 +1316,55 @@ textarea {
   opacity: 1;
 }
 
+/* ▸/▾ twisty on a well or set row — expands the curve-set subtree (T-IMP-02). Sized like
+   the ★ so labels line up whether or not a row has one. */
+.tree-twisty {
+  flex: none;
+  width: 12px;
+  text-align: center;
+  font-size: var(--fs-sm);
+  line-height: 1;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+.tree-twisty:hover {
+  color: var(--accent);
+}
+
+/* Curve sets and their curves, indented under the owning well. */
+.tree-set {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 22px;
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.tree-set-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.tree-curve {
+  padding-left: 46px;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  cursor: default;
+}
+.tree-curve:hover {
+  color: var(--text);
+}
+.tree-set-loading,
+.tree-set-empty {
+  padding-left: 22px;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  font-style: italic;
+  cursor: default;
+}
+
 /* The well / top interval currently driving every plot and log view. */
 .tree-selected,
 .top-selected {

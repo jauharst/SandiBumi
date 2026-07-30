@@ -18,7 +18,16 @@ This file is the Claude Code equivalent of `.cursorrules` (kept in this repo for
 7. **Python equations run as a SUBPROCESS** (`python_engine.rs`), never PyO3/embedded — a missing Python must never stop the app from launching. Discovery: `ARSHILLA_PYTHON` → `%LOCALAPPDATA%\Programs\Python\Python31x` → PATH; requires numpy. **DLIS import (`dlis.rs`) reuses the same subprocess mechanism** (`find_python` + a `dlisio` helper script), never a native parser; needs the `dlisio` pip package (installed: `dlisio 1.0.4` in the Python312 env). A missing `dlisio` fails only the DLIS import, with a clear message — never the app.
 8. **Data/UI edits must be undoable** (`src/undo.ts` `pushUndo`); module runs are re-runnable, not undone.
 9. **New petrophysics modules** = Rust fn + manifest in `modules.rs`; parameter dialogs auto-generate — write no UI code for them. Heavy solvers can live in their own file (e.g. `multimin.rs` — deterministic NNLS mineral inversion; do NOT confuse with `inversion.rs`, which is the separate background async stochastic-job registry) and be referenced from `modules.rs::list_modules`/`run_module`.
-10. **Module inputs are generic-store aware**: `equations::fetch_curve_frame` resolves any non-standard, non-computed curve name from `curve_meta`/`curve_samples` (set RAW) by mnemonic-then-family, so modules/equations can take PEF/CALI/DRHO/extra runs — not just the fixed six. (Log-view rendering `get_track_data` still reads only `standard_curves`.) Runs can pass `opts["MASK"]="<flag curve>"` (e.g. BADHOLE) to NaN-out flagged samples in every output.
+10a. **Import sets (2026-07-30)**: one delivery = one named SET in the generic store. LAS/DLIS
+    import take a set name (`ingest::LasImportOptions`, `canonical_set_name`/`resolve_set_name`);
+    a name already used on a well is auto-suffixed (`FPROOH`→`FPROOH_1`) — **an import never
+    overwrites an existing set**. With `attach`, a file whose well name matches exactly ONE
+    existing well writes ONLY the generic store on that record (never `standard_curves`, never
+    a second well row); >1 match is ambiguous → separate record + warning. **Curve resolution:
+    set RAW has ABSOLUTE priority in `equations::fetch_generic_curve_aligned` — do not
+    reorder that; other sets are consulted only for mnemonics RAW does not carry.** Browse via
+    the Wells-pane ▸ twisty (`objectTree.ts`, lazy per well).
+11. **Module inputs are generic-store aware**: `equations::fetch_curve_frame` resolves any non-standard, non-computed curve name from `curve_meta`/`curve_samples` (set RAW) by mnemonic-then-family, so modules/equations can take PEF/CALI/DRHO/extra runs — not just the fixed six. (Log-view rendering `get_track_data` still reads only `standard_curves`.) Runs can pass `opts["MASK"]="<flag curve>"` (e.g. BADHOLE) to NaN-out flagged samples in every output.
 
 ## Current state (2026-07-20)
 

@@ -76,6 +76,37 @@ fn las_examples_import_end_to_end() {
     let _ = std::fs::remove_file(db_path.with_extension("duckdb.wal"));
 }
 
+/// The malformed exemplars behave exactly as the manual test plan documents
+/// (T-IMP-03 / T-IMP-04): duplicated depths import WITH a dropped-rows warning;
+/// an all-NULL depth column errors cleanly and commits no orphan well.
+#[test]
+fn malformed_las_exemplars_fail_the_documented_way() {
+    let db_path = std::env::temp_dir().join("sandibumi_example_badlas_test.duckdb");
+    let _ = std::fs::remove_file(&db_path);
+    let _ = std::fs::remove_file(db_path.with_extension("duckdb.wal"));
+    let conn = crate::db::init_db(db_path.to_str().unwrap()).expect("init_db");
+
+    let dup = &crate::ingest::import_las_files(&conn, &[example("bad_dup_depth.las")], None)[0];
+    assert!(dup.error.is_none(), "dup-depth file must still import: {:?}", dup.error);
+    assert_eq!(dup.rows, 35, "40 rows minus the 5 duplicated depths");
+    assert!(
+        dup.warning.as_deref().unwrap_or("").contains("duplicate depth"),
+        "must warn about dropped duplicates, got: {:?}",
+        dup.warning
+    );
+
+    let null = &crate::ingest::import_las_files(&conn, &[example("bad_null_depth.las")], None)[0];
+    assert!(null.error.is_some(), "all-null depth column must be a clean error");
+    assert!(null.well_id.is_none(), "no orphan well row may be committed");
+    let wells: i64 = conn
+        .query_row("SELECT count(*) FROM wells WHERE well_name = 'SANDI-BAD-NULL'", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(wells, 0);
+    drop(conn);
+    let _ = std::fs::remove_file(&db_path);
+    let _ = std::fs::remove_file(db_path.with_extension("duckdb.wal"));
+}
+
 #[test]
 fn core_csv_example_parses() {
     let cols = parsers::parse_core_csv(example("core_rcal_SANDI-01.csv")).unwrap();

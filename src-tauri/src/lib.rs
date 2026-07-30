@@ -227,7 +227,12 @@ async fn import_las_files(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
     paths: Vec<String>,
+    set_name: Option<String>,
+    attach: Option<bool>,
 ) -> Result<Vec<ingest::ImportResult>, String> {
+    // Import-sets options (T-IMP-02): one set name per batch; attach-by-name defaults ON
+    // when the frontend doesn't say otherwise (the dialog always sends it explicitly).
+    let opts = ingest::LasImportOptions { set_name, attach: attach.unwrap_or(true) };
     // One job item per file (label = basename) so the Processing panel shows "WELL_12.las ✓".
     let items: Vec<(String, String)> = paths
         .iter()
@@ -238,7 +243,7 @@ async fn import_las_files(
     let reg = jobs_reg.inner().clone();
     jobs::run_job(reg, "Import LAS", format!("{total} file(s)"), items, total, true, move |job| {
         let c = conn.lock().unwrap();
-        ingest::import_las_files(&c, &paths, Some(&job))
+        ingest::import_las_files_with(&c, &paths, Some(&job), &opts)
     })
     .await
 }
@@ -717,19 +722,22 @@ fn materialize_tvd(db: tauri::State<DbState>, well_ids: Vec<String>) -> Result<V
 }
 
 /// Phase 6: imports every scalar channel of a DLIS file into one existing well's generic
-/// curve store (via `dlisio` through the Python subprocess).
+/// curve store (via `dlisio` through the Python subprocess). `set_name` (import-sets):
+/// omitted/RAW = legacy replace-with-count semantics; anything else auto-suffixes per
+/// well so duplicates are kept.
 #[tauri::command]
 async fn import_dlis_file(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
     well_id: String,
     path: String,
+    set_name: Option<String>,
 ) -> Result<dlis::DlisImportResult, String> {
     let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
     let conn = db.0.clone();
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import DLIS", base, move || {
         let c = conn.lock().unwrap();
-        Ok(dlis::import_dlis_file(&c, &well_id, &path))
+        Ok(dlis::import_dlis_file(&c, &well_id, &path, set_name.as_deref()))
     })
     .await
 }

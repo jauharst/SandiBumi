@@ -112,7 +112,12 @@ pub struct DlisImportResult {
 }
 
 /// Imports every scalar channel of a DLIS file into one existing well's generic curve store.
-pub fn import_dlis_file(conn: &Connection, well_id: &str, path: &str) -> DlisImportResult {
+///
+/// `set_name` (import-sets, T-IMP-02/06): None/"RAW" keeps the established behavior — set
+/// RAW with per-frame run numbers, same-(mnemonic, run) re-imports REPLACE and are counted
+/// in `replaced`. Any other name is auto-suffixed per well (`WIRE` taken → `WIRE_1`,
+/// Geolog-style), so duplicates are always KEPT and `replaced` stays 0.
+pub fn import_dlis_file(conn: &Connection, well_id: &str, path: &str, set_name: Option<&str>) -> DlisImportResult {
     let fail = |e: String| DlisImportResult { path: path.to_string(), curves_imported: 0, rows: 0, replaced: 0, error: Some(e) };
 
     let exists: bool = conn
@@ -121,6 +126,9 @@ pub fn import_dlis_file(conn: &Connection, well_id: &str, path: &str) -> DlisImp
     if !exists {
         return fail(format!("unknown well '{well_id}'"));
     }
+    let desired = crate::ingest::canonical_set_name(set_name);
+    let target_set =
+        if desired == "RAW" { desired } else { crate::ingest::resolve_set_name(conn, well_id, &desired) };
 
     let Some(python) = find_python() else {
         return fail("no Python with numpy found — install Python 3.10+ with numpy and dlisio, or set ARSHILLA_PYTHON".into());
@@ -191,11 +199,12 @@ pub fn import_dlis_file(conn: &Connection, well_id: &str, path: &str) -> DlisImp
         let run_no = Some(meta.run);
 
         // Report (don't hide) any genuine overwrite — e.g. re-importing the same DLIS.
+        // Only possible in set RAW: a named set was auto-suffixed to a fresh name above.
         let collides: bool = conn
             .query_row(
-                "SELECT 1 FROM curve_meta WHERE well_id = ?1 AND set_name = 'RAW' AND mnemonic = ?2
+                "SELECT 1 FROM curve_meta WHERE well_id = ?1 AND set_name = ?4 AND mnemonic = ?2
                  AND run_no IS NOT DISTINCT FROM ?3",
-                params![well_id, &meta.mnemonic, run_no],
+                params![well_id, &meta.mnemonic, run_no, &target_set],
                 |_| Ok(true),
             )
             .unwrap_or(false);
@@ -217,7 +226,7 @@ pub fn import_dlis_file(conn: &Connection, well_id: &str, path: &str) -> DlisImp
         };
 
         let res: db::DbResult<()> = (|| {
-            let curve_id = db::upsert_curve_meta(conn, well_id, "RAW", &meta.mnemonic, unit.as_deref(), family, Some("DLIS import"), run_no)?;
+            let curve_id = db::upsert_curve_meta(conn, well_id, &target_set, &meta.mnemonic, unit.as_deref(), family, Some("DLIS import"), run_no)?;
             db::insert_curve_samples(conn, &curve_id, &depth, &values)?;
             Ok(())
         })();
@@ -276,7 +285,7 @@ mod tests {
         db::insert_well(&conn, well_id, "DLIS-1", None, None, None).unwrap();
         let ids = well_id.to_string();
 
-        let res = import_dlis_file(&conn, &ids, &path);
+        let res = import_dlis_file(&conn, &ids, &path, None);
         assert!(res.error.is_none(), "{:?}", res.error);
         assert!(res.curves_imported > 0, "expected at least one curve");
         let catalog = db::list_generic_curve_catalog(&conn, &ids).unwrap();

@@ -105,10 +105,27 @@ export interface ImportResult {
   /** Non-fatal note for a successful import (e.g. rows dropped for a bad/duplicate depth). */
   warning: string | null;
   error: string | null;
+  /** Set the curves landed under when this file ATTACHED to an existing well instead of
+   *  creating a new record. null = a new well was created. */
+  attached_set: string | null;
 }
 
-export function importLasFiles(paths: string[]): Promise<ImportResult[]> {
-  return invoke<ImportResult[]>("import_las_files", { paths });
+/** Import-sets choices from the Import LAS dialog (T-IMP-02, the Geolog/IP set model). */
+export interface LasImportOptions {
+  /** Set name for every curve of this batch; auto-suffixed per well (`FPROOH` → `FPROOH_1`)
+   *  so a re-import never overwrites an earlier delivery. Empty/omitted → RAW. */
+  setName?: string | null;
+  /** Attach a file whose well name already exists to that well as a new set, instead of
+   *  creating a duplicate well record. Defaults to true backend-side. */
+  attach?: boolean;
+}
+
+export function importLasFiles(paths: string[], opts?: LasImportOptions): Promise<ImportResult[]> {
+  return invoke<ImportResult[]>("import_las_files", {
+    paths,
+    setName: opts?.setName ?? null,
+    attach: opts?.attach ?? null,
+  });
 }
 
 export interface TopEntry {
@@ -2134,6 +2151,6 @@ export interface DlisImportResult {
 
 /** Imports every scalar channel of a DLIS file into the selected well's generic store
  *  (via dlisio through the Python subprocess). */
-export function importDlisFile(wellId: string, path: string): Promise<DlisImportResult> {
-  return invoke<DlisImportResult>("import_dlis_file", { wellId, path });
+export function importDlisFile(wellId: string, path: string, setName?: string | null): Promise<DlisImportResult> {
+  return invoke<DlisImportResult>("import_dlis_file", { wellId, path, setName: setName ?? null });
 }

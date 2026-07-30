@@ -37,6 +37,7 @@ import { getTheme, setTheme, type ThemeChoice } from "../theme";
 import { getLocale, setLocale, type Locale } from "../i18n";
 import type { SessionSnapshot, Workspace } from "./workspace";
 import { formRow, openModal } from "./modal";
+import { openImportSetDialog, suggestSetName } from "./importSetDialog";
 
 interface RibbonMenuItem {
   label: string;
@@ -1067,9 +1068,18 @@ export class Ribbon {
 
     if (!paths || paths.length === 0) return;
 
-    setStatus(`Importing ${paths.length} LAS file(s)...`);
+    // Which curve set does this delivery land under, and should same-named files attach to
+    // the wells already in the project? (T-IMP-02 — the Geolog/IP set model.)
+    const choice = await openImportSetDialog(paths);
+    if (!choice) {
+      setStatus("Import cancelled");
+      return;
+    }
+
+    const setLabel = choice.setName ? choice.setName.toUpperCase().replace(/\s+/g, "_") : "RAW";
+    setStatus(`Importing ${paths.length} LAS file(s) as set ${setLabel}...`);
     try {
-      const results = await importLasFiles(paths);
+      const results = await importLasFiles(paths, choice);
       // Partition on `well_id`, which is set only when a well row was actually committed.
       // `!r.error` used to stand in for "imported", but cancelling an import now returns an entry
       // with neither a well nor an error — so every cancelled file counted as imported, and
@@ -1077,6 +1087,17 @@ export class Ribbon {
       const imported = results.filter((r) => r.well_id);
       const failed = results.filter((r) => r.error);
       const cancelled = results.length - imported.length - failed.length;
+      // Files that landed on an EXISTING well as a new set rather than creating a record.
+      // Reported separately because "Imported 544 wells" would be a lie when 544 files
+      // attached to 544 wells that were already there — the count of NEW wells is what
+      // changed, and the attach count is what the user asked the dialog to do.
+      const attached = imported.filter((r) => r.attached_set);
+      const created = imported.length - attached.length;
+      const attachNote = attached.length
+        ? ` ${attached.length} attached to existing well(s) as set ${
+            [...new Set(attached.map((r) => r.attached_set))].join(", ")
+          }.`
+        : "";
       // Warnings belong to wells that DID import: "depth issues" was accurate when depth
       // sanitising was the only note, but it now also carries duplicate-name and failed
       // full-curve-load warnings, so name the count and let the per-well notes say what happened.
@@ -1084,10 +1105,14 @@ export class Ribbon {
       const warned = imported.filter((r) => r.warning);
       const warnNote = warned.length ? ` ${warned.length} well(s) imported with warnings.` : "";
       const cancelNote = cancelled > 0 ? ` ${cancelled} cancelled before import.` : "";
-      setStatus(`Imported ${imported.length}/${results.length} well(s).${warnNote}${cancelNote}`);
+      setStatus(
+        `Imported ${imported.length}/${results.length} file(s) as set ${setLabel}` +
+          ` — ${created} new well(s).${attachNote}${warnNote}${cancelNote}`,
+      );
       recordProcess(
         "Import",
-        `Imported ${imported.length}/${results.length} LAS well(s)` +
+        `Imported ${imported.length}/${results.length} LAS file(s) as set ${setLabel}: ` +
+          `${created} new well(s), ${attached.length} attached` +
           (cancelled > 0 ? ` — ${cancelled} cancelled` : ""),
       );
       for (const w of warned) {
@@ -1189,7 +1214,10 @@ export class Ribbon {
   }
 
   /** "Import DLIS…" — loads every scalar channel from a DLIS file into the selected
-   *  well's generic curve store (RAW set), via dlisio through the Python subprocess. */
+   *  well's generic curve store, via dlisio through the Python subprocess. The set-name
+   *  prompt (T-IMP-06) means a second DLIS never silently replaces the first: you rarely
+   *  know what a vendor tape holds until it is in, so duplicates are KEPT under their own
+   *  set and compared afterwards. */
   private async handleImportDlis(): Promise<void> {
     const well = appState.selectedWell.get();
     if (!well) {
@@ -1209,17 +1237,28 @@ export class Ribbon {
     }
     if (!path) return;
 
-    setStatus(`Importing DLIS into ${well.well_name}… (dlisio may take a moment)`);
+    const setName = await this.askDlisSetName(path);
+    if (setName === null) {
+      setStatus("Import cancelled");
+      return;
+    }
+    const setLabel = setName ? setName.toUpperCase().replace(/\s+/g, "_") : "RAW";
+
+    setStatus(`Importing DLIS into ${well.well_name} as set ${setLabel}… (dlisio may take a moment)`);
     try {
-      const result = await importDlisFile(well.well_id, path);
+      const result = await importDlisFile(well.well_id, path, setName);
       if (result.error) {
         setStatus(`DLIS import failed: ${result.error}`);
       } else {
+        // `replaced` can only be non-zero in RAW: a named set was auto-suffixed to a free
+        // name, so nothing of the earlier import was touched.
         const replacedNote = result.replaced > 0 ? ` (replaced ${result.replaced} existing curve(s))` : "";
-        setStatus(`Imported ${result.curves_imported} curve(s), ${result.rows} samples into ${well.well_name}.${replacedNote}`);
+        setStatus(
+          `Imported ${result.curves_imported} curve(s), ${result.rows} samples into ${well.well_name} as set ${setLabel}.${replacedNote}`,
+        );
         recordProcess(
           "Import",
-          `Imported DLIS (${result.curves_imported} curves, ${result.rows} samples)${replacedNote} ← ${path}`,
+          `Imported DLIS as set ${setLabel} (${result.curves_imported} curves, ${result.rows} samples)${replacedNote} ← ${path}`,
           well.well_name,
         );
         this.workspace.notifyDataChanged();
@@ -1227,6 +1266,68 @@ export class Ribbon {
     } catch (err) {
       setStatus(`DLIS import failed: ${err}`);
     }
+  }
+
+  /** One-field set-name prompt for a DLIS import. Resolves with the typed name (may be
+   *  empty = RAW), or null when the user cancels. Deliberately lighter than the LAS
+   *  dialog: DLIS always targets the already-selected well, so there is nothing to attach. */
+  private askDlisSetName(path: string): Promise<string | null> {
+    return new Promise((resolve) => {
+      const wrap = document.createElement("div");
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "form-control";
+      input.value = suggestSetName([path]);
+      input.placeholder = "RAW";
+      input.spellcheck = false;
+      wrap.appendChild(
+        formRow("Set name", input, "Curves land under this name. Blank = RAW."),
+      );
+      const hint = document.createElement("p");
+      hint.className = "form-hint";
+      hint.textContent =
+        "A name already used on this well is auto-suffixed (WIRE → WIRE_1), so a second tape " +
+        "never overwrites the first — import it, then compare. Leaving this as RAW keeps the " +
+        "old behaviour, where same-mnemonic channels of the same run are replaced.";
+      wrap.appendChild(hint);
+
+      const actions = document.createElement("div");
+      actions.className = "form-actions";
+      const cancelBtn = document.createElement("button");
+      cancelBtn.className = "btn";
+      cancelBtn.textContent = "Cancel";
+      const okBtn = document.createElement("button");
+      okBtn.className = "btn btn-accent";
+      okBtn.textContent = "Import";
+      actions.append(cancelBtn, okBtn);
+      wrap.appendChild(actions);
+
+      let settled = false;
+      const finish = (v: string | null) => {
+        if (settled) return;
+        settled = true;
+        close();
+        resolve(v);
+      };
+      const close = openModal("Import DLIS — curve set", wrap, 520);
+      cancelBtn.addEventListener("click", () => finish(null));
+      okBtn.addEventListener("click", () => finish(input.value.trim()));
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") okBtn.click();
+      });
+      const root = document.querySelector<HTMLElement>("#modal-root");
+      if (root) {
+        const observer = new MutationObserver(() => {
+          if (!wrap.isConnected) {
+            observer.disconnect();
+            finish(null);
+          }
+        });
+        observer.observe(root, { childList: true });
+      }
+      input.focus();
+      input.select();
+    });
   }
 
   /** "Import SCAL…" — replaces the well's capillary-pressure (Pc/Sw) points from one or

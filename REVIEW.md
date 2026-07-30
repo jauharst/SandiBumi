@@ -5152,4 +5152,41 @@ red. Regenerate with `py -3 tools/make_example_data.py` (deterministic).
 
 ---
 
+## 2026-07-30 — Import sets: one well, many deliveries (T-IMP-02, -03, -04, -06)
+
+Your Geolog screenshots, built. A delivery folder is now a **set**: `01. Final Log`'s RAW,
+FPROOH, MULTIMIN, SSC and SSPW can all land on **one** well record instead of five
+same-named ones, and you can see which is which.
+
+- [ ] **Import LAS… now asks first.** A "Import LAS — curve set" dialog opens with the set
+      name already filled from what your filenames share: pick the FPROOH folder's files and
+      it suggests `FPROOH`; MULTIMIN suggests `MULTIMIN`. Verified against all five of your
+      BLSO folders. Blank = RAW.
+- [ ] **Attach to existing wells (default ON).** Import blso00025 from **RAW**, then again
+      from **FPROOH**, then **MULTIMIN** — you should end with **ONE** well carrying three
+      sets, not three wells. The status line says how many were new and how many attached.
+- [ ] **A set name is never overwritten.** Import the same FPROOH folder twice: the second
+      lands as `FPROOH_1` (Geolog's WIRE → WIRE_1 rule). Nothing from the first import moves.
+- [ ] **▸ twisty in the Wells pane** expands a well into its sets, and a set into its curves
+      (mnemonic + unit; hover for sample count, family, run number). Both FPROOH's PHIE and
+      MULTIMIN's PHIE are visible under their own sets — that was the whole ask.
+- [ ] **Existing projects behave EXACTLY as before.** This is the check that matters most:
+      **set RAW keeps absolute priority** in curve resolution. A module asking for PHIE still
+      gets RAW's PHIE when RAW has one; only a mnemonic RAW does *not* carry (e.g. `PHIFF`,
+      `VOL_QUARTZ`) is looked up in the attached sets. Re-run a module you have run before
+      and confirm the numbers are identical.
+- [ ] **Import DLIS… also asks for a set name.** Give a second tape its own name and both are
+      kept instead of the second replacing the first — your "we don't always know what's
+      inside" point. Leaving it as RAW keeps the old replace-and-count behaviour.
+- [ ] **The malformed exemplars you asked for now exist** (you wrote "where do u provide
+      dup_depth.las?"): `dataset for test/examples/bad_dup_depth.las` imports with a
+      dropped-duplicates warning and 35 rows; `bad_null_depth.las` fails cleanly and creates
+      no well row. Both are asserted by cargo test.
+
+*Not built, and worth saying plainly:* selecting files from **two different sets in one
+import** (e.g. an FPROOH and a MULTIMIN file together) finds no common name, falls back to
+RAW, and mixes them — one import batch is one set by design. Import per folder.
+
+---
+
 _Made in SandiBumi._ © 2026 SandiBumi. All rights reserved.

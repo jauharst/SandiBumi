@@ -14,15 +14,77 @@ pub struct ImportResult {
     /// Non-fatal note for a successful import, e.g. rows dropped for a bad/duplicate depth.
     pub warning: Option<String>,
     pub error: Option<String>,
+    /// Set name the curves landed under when this file ATTACHED to an existing well
+    /// (import-sets mode) instead of creating a new record. None = a well was created.
+    pub attached_set: Option<String>,
+}
+
+/// Options for a LAS import batch (the Import LAS dialog's choices).
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct LasImportOptions {
+    /// Set name for every curve of this batch in the generic store (one delivery = one
+    /// set). None/empty → "RAW". Auto-suffixed PER WELL (`FPROOH` taken → `FPROOH_1`,
+    /// Geolog-style) so a re-import can never overwrite an earlier delivery.
+    pub set_name: Option<String>,
+    /// When true (the dialog default), a file whose well name matches exactly one
+    /// existing well ATTACHES its curves to that well as a new set instead of creating
+    /// a duplicate well record. False = always create records (the legacy behavior).
+    pub attach: bool,
+}
+
+/// Normalizes a user/derived set name to the store's convention: trimmed, upper-cased,
+/// spaces collapsed to `_`; empty → RAW.
+pub fn canonical_set_name(raw: Option<&str>) -> String {
+    let s = raw.unwrap_or("").trim().to_uppercase().replace(' ', "_");
+    if s.is_empty() { "RAW".to_string() } else { s }
+}
+
+/// Returns `desired` if this well has no curves under it yet, else the first free
+/// `desired_1`, `desired_2`, … — the Geolog re-import convention (WIRE, WIRE_1, …):
+/// an import NEVER overwrites an existing set of the same name.
+pub fn resolve_set_name(conn: &Connection, well_id: &str, desired: &str) -> String {
+    let taken = |name: &str| -> bool {
+        conn.query_row(
+            "SELECT 1 FROM curve_meta WHERE well_id = ?1 AND set_name = ?2 LIMIT 1",
+            params![well_id, name],
+            |_| Ok(()),
+        )
+        .is_ok()
+    };
+    if !taken(desired) {
+        return desired.to_string();
+    }
+    for i in 1.. {
+        let candidate = format!("{desired}_{i}");
+        if !taken(&candidate) {
+            return candidate;
+        }
+    }
+    unreachable!()
 }
 
 /// Parses every given LAS file concurrently via `rayon` (CPU-bound), then inserts each
 /// well and its curves into DuckDB sequentially — the connection is behind a single lock,
 /// so only the parsing step benefits from parallelism, which is also the expensive part.
+/// Legacy entry point (no set naming, always create well records) — kept for the test
+/// suite's many import call sites; production goes through `import_las_files_with`.
+#[cfg(test)]
 pub fn import_las_files(
     conn: &Connection,
     paths: &[String],
     progress: Option<&crate::jobs::JobHandle>,
+) -> Vec<ImportResult> {
+    import_las_files_with(conn, paths, progress, &LasImportOptions::default())
+}
+
+/// Import-sets-aware batch import (Phase 9-3 / T-IMP-02): every curve of the batch lands
+/// under one named set; files whose well name matches an existing well attach instead of
+/// duplicating (when `opts.attach`).
+pub fn import_las_files_with(
+    conn: &Connection,
+    paths: &[String],
+    progress: Option<&crate::jobs::JobHandle>,
+    opts: &LasImportOptions,
 ) -> Vec<ImportResult> {
     let parsed: Vec<(String, Result<(String, CurveColumns), ParseError>)> = paths
         .par_iter()
@@ -55,6 +117,7 @@ pub fn import_las_files(
                     rows: 0,
                     warning: Some("cancelled before import".into()),
                     error: None,
+                    attached_set: None,
                 };
             }
             if let Some(p) = progress {
@@ -63,8 +126,8 @@ pub fn import_las_files(
                 p.start_item(&path);
             }
             let out = match result {
-                Ok((well_name, columns)) => insert_parsed_well(conn, path.clone(), well_name, columns),
-                Err(e) => ImportResult { path: path.clone(), well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()) },
+                Ok((well_name, columns)) => insert_parsed_well(conn, path.clone(), well_name, columns, opts),
+                Err(e) => ImportResult { path: path.clone(), well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None },
             };
             if let Some(p) = progress {
                 let (state, msg) = if out.error.is_some() {
@@ -81,7 +144,13 @@ pub fn import_las_files(
         .collect()
 }
 
-fn insert_parsed_well(conn: &Connection, path: String, well_name: String, mut columns: CurveColumns) -> ImportResult {
+fn insert_parsed_well(
+    conn: &Connection,
+    path: String,
+    well_name: String,
+    mut columns: CurveColumns,
+    opts: &LasImportOptions,
+) -> ImportResult {
     let well_id = Uuid::new_v4();
 
     // Reconcile the file's depth index with the project's declared unit BEFORE anything
@@ -119,6 +188,7 @@ fn insert_parsed_well(conn: &Connection, path: String, well_name: String, mut co
                 "no importable rows: {} had missing depth, {} duplicated an earlier depth",
                 report.nonfinite, report.duplicate
             )),
+            attached_set: None,
         };
     }
 
@@ -140,19 +210,41 @@ fn insert_parsed_well(conn: &Connection, path: String, well_name: String, mut co
     if non_monotonic {
         notes.push("depth index is non-monotonic — column 0 may not be the true depth curve".to_string());
     }
-    // A well of the same (normalized) name already exists. LAS import still creates a SEPARATE
-    // record here — reuse/merge is a deliberate action that needs a user confirmation flow, not
-    // an automatic side effect — but warn so a corrected re-delivery (or the same file picked
-    // twice) doesn't silently fragment a well's curves across two disconnected records.
+    // Wells of the same (normalized) name already in the project. With `opts.attach` (the
+    // dialog default) and exactly ONE match, this file's curves ATTACH to that well as a
+    // new named set — the Geolog/IP set model (T-IMP-02): a re-delivery lands beside the
+    // earlier one instead of fragmenting the well across duplicate records. Ambiguous
+    // (several same-named records, from pre-set-era imports) or attach-off falls back to
+    // the legacy separate-record behavior, with a warning either way.
     let name_norm = well_name.trim().to_uppercase();
-    let dup_exists = conn
-        .query_row(
-            "SELECT 1 FROM wells WHERE upper(trim(well_name)) = ?1 LIMIT 1",
-            params![name_norm],
-            |_| Ok(()),
-        )
-        .is_ok();
-    if dup_exists {
+    let matches: Vec<String> = {
+        let mut stmt = match conn
+            .prepare("SELECT well_id FROM wells WHERE upper(trim(well_name)) = ?1 ORDER BY well_id")
+        {
+            Ok(s) => s,
+            Err(e) => {
+                return ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None }
+            }
+        };
+        match stmt
+            .query_map(params![name_norm], |r| r.get::<_, String>(0))
+            .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+        {
+            Ok(v) => v,
+            Err(e) => {
+                return ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None }
+            }
+        }
+    };
+    if opts.attach && matches.len() == 1 {
+        return attach_curves_to_existing_well(conn, path, well_name, &matches[0], opts, notes);
+    }
+    if matches.len() > 1 {
+        notes.push(format!(
+            "{} wells named '{well_name}' already exist — ambiguous, imported as a separate record (merge or delete the duplicates first)",
+            matches.len()
+        ));
+    } else if matches.len() == 1 {
         notes.push(format!(
             "a well named '{well_name}' already exists — imported as a separate record"
         ));
@@ -195,11 +287,13 @@ fn insert_parsed_well(conn: &Connection, path: String, well_name: String, mut co
                 }
             }
             // Phase 6: additionally load *every* curve from the file into the generic
-            // store (set RAW), so PEF/CALI/multiple-runs — anything beyond the fixed 6 —
-            // is available even though the legacy `standard_curves` path above still feeds
-            // the current UI. A failure here must not fail the whole import (the standard
-            // curves are already in), so it's logged, not propagated.
-            if let Err(e) = import_all_curves_into_generic_store(conn, &well_id.to_string(), &path) {
+            // store (under the batch's set name, default RAW), so PEF/CALI/multiple-runs —
+            // anything beyond the fixed 6 — is available even though the legacy
+            // `standard_curves` path above still feeds the current UI. A failure here must
+            // not fail the whole import (the standard curves are already in), so it's
+            // logged, not propagated.
+            let set = resolve_set_name(conn, &well_id.to_string(), &canonical_set_name(opts.set_name.as_deref()));
+            if let Err(e) = import_all_curves_into_generic_store(conn, &well_id.to_string(), &path, &set) {
                 eprintln!("warning: generic-store import for {well_name} failed (standard curves still imported): {e}");
                 // stderr alone is invisible in a release build, so the import used to report a
                 // clean success while every curve beyond the fixed six — PEF, CALI, DTS, a second
@@ -210,17 +304,57 @@ fn insert_parsed_well(conn: &Connection, path: String, well_name: String, mut co
                 ));
             }
             let warning = (!notes.is_empty()).then(|| notes.join("; "));
-            ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), rows, warning, error: None }
+            ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), rows, warning, error: None, attached_set: None }
         }
-        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()) },
+        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None },
+    }
+}
+
+/// The attach half of the import-sets model: writes every curve of `path` into an
+/// EXISTING well's generic store under the batch's set name (auto-suffixed per well so
+/// nothing is ever overwritten), touching neither the well row nor `standard_curves` —
+/// the first delivery's six keep driving the legacy log-view path. The generic-store
+/// loader applies the same depth-unit reconciliation as the create path.
+fn attach_curves_to_existing_well(
+    conn: &Connection,
+    path: String,
+    well_name: String,
+    well_id: &str,
+    opts: &LasImportOptions,
+    notes: Vec<String>,
+) -> ImportResult {
+    let set = resolve_set_name(conn, well_id, &canonical_set_name(opts.set_name.as_deref()));
+    match import_all_curves_into_generic_store(conn, well_id, &path, &set) {
+        // A normal attach is a SUCCESS, not a warning — `attached_set` carries the story
+        // and the frontend reports it separately. Only genuine notes (unit reconciliation,
+        // dropped rows) reach `warning`.
+        Ok((_curves, rows)) => {
+            ImportResult {
+                path,
+                well_id: Some(well_id.to_string()),
+                well_name: Some(well_name),
+                rows,
+                warning: (!notes.is_empty()).then(|| notes.join("; ")),
+                error: None,
+                attached_set: Some(set),
+            }
+        }
+        // Attaching IS the import here (no well/standard-curve write happened), so a
+        // loader failure is a real per-file error, not a note.
+        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None },
     }
 }
 
 /// Re-reads a LAS file keeping all curves and writes each into `curve_meta`/`curve_samples`
-/// as set RAW, tagging family (via the mnemonic dictionary) and normalizing units where a
-/// conversion is known. The unit stored is the canonical one when converted, else the
-/// file's original unit.
-pub fn import_all_curves_into_generic_store(conn: &Connection, well_id: &str, path: &str) -> db::DbResult<()> {
+/// under `set_name`, tagging family (via the mnemonic dictionary) and normalizing units
+/// where a conversion is known. The unit stored is the canonical one when converted, else
+/// the file's original unit. Returns `(curves_written, rows)`.
+pub fn import_all_curves_into_generic_store(
+    conn: &Connection,
+    well_id: &str,
+    path: &str,
+    set_name: &str,
+) -> db::DbResult<(usize, usize)> {
     let mut frame = match parsers::parse_las_2_all(path) {
         Ok(f) => f,
         Err(e) => return Err(db::DbError::LengthMismatch(format!("parse_las_2_all: {e}"))),
@@ -239,9 +373,10 @@ pub fn import_all_curves_into_generic_store(conn: &Connection, well_id: &str, pa
     // standard path, so both stores hold the same rows for the same file).
     parsers::sanitize_las_frame(&mut frame);
     if frame.depth.is_empty() {
-        return Ok(());
+        return Ok((0, 0));
     }
 
+    let mut curves_written = 0usize;
     for raw in &frame.curves {
         let mut values = raw.values.clone();
         // Align to the depth column length (defensive: malformed files can short a column).
@@ -257,10 +392,11 @@ pub fn import_all_curves_into_generic_store(conn: &Connection, well_id: &str, pa
             }
         }
         let curve_id =
-            db::upsert_curve_meta(conn, well_id, "RAW", &raw.mnemonic, unit.as_deref(), family, Some("LAS import"), None)?;
+            db::upsert_curve_meta(conn, well_id, set_name, &raw.mnemonic, unit.as_deref(), family, Some("LAS import"), None)?;
         db::insert_curve_samples(conn, &curve_id, &frame.depth, &values)?;
+        curves_written += 1;
     }
-    Ok(())
+    Ok((curves_written, frame.depth.len()))
 }
 
 /// Parses a deviation-survey CSV (columns MD/INC/AZI, alias-tolerant) and stores the
@@ -860,7 +996,7 @@ mod tests {
         };
 
         // First import: a fresh well, no duplicate warning.
-        let r1 = insert_parsed_well(&conn, "a.las".into(), "DUP-1".into(), cols());
+        let r1 = insert_parsed_well(&conn, "a.las".into(), "DUP-1".into(), cols(), &LasImportOptions::default());
         assert!(r1.error.is_none(), "{:?}", r1.error);
         assert!(
             r1.warning.as_deref().map_or(true, |w| !w.contains("already exists")),
@@ -870,7 +1006,7 @@ mod tests {
 
         // Second import of the SAME well name (normalized: lower-case + trailing space): a
         // separate record, but a duplicate warning.
-        let r2 = insert_parsed_well(&conn, "b.las".into(), "dup-1  ".into(), cols());
+        let r2 = insert_parsed_well(&conn, "b.las".into(), "dup-1  ".into(), cols(), &LasImportOptions::default());
         assert!(r2.error.is_none(), "{:?}", r2.error);
         assert!(
             r2.warning.as_deref().unwrap_or("").contains("already exists"),
@@ -908,7 +1044,7 @@ mod tests {
         let path = std::env::temp_dir().join(format!("arshilla_pef_test_{ids}.las"));
         std::fs::write(&path, las).unwrap();
 
-        import_all_curves_into_generic_store(&conn, &ids, path.to_str().unwrap()).unwrap();
+        import_all_curves_into_generic_store(&conn, &ids, path.to_str().unwrap(), "RAW").unwrap();
         std::fs::remove_file(&path).ok();
 
         let catalog = db::list_generic_curve_catalog(&conn, &ids).unwrap();
@@ -1101,6 +1237,68 @@ mod tests {
         let catalog = db::list_generic_curve_catalog(&conn, &ids).unwrap();
         let pef = catalog.iter().find(|c| c.mnemonic == "PEF").expect("PEF must reach the generic store");
         assert_eq!(pef.n_samples, 2, "generic PEF deduped to 2 rows, not aborted");
+    }
+
+    /// Import sets (T-IMP-02): a second delivery of the SAME well attaches as a named set
+    /// on the ONE existing record instead of creating a duplicate; a third lands beside it
+    /// auto-suffixed; and the resolver reaches attached-set curves while RAW keeps
+    /// absolute priority for anything it already carries.
+    #[test]
+    fn import_sets_attach_suffix_and_resolution() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+
+        // Delivery 1 (RAW): the field print — GR 55 everywhere.
+        let raw_las = "~Version\nVERS. 2.0 :\n~Well\nWELL. SETW-1 :\n\
+                       ~Curve\nDEPT .M : depth\nGR .GAPI : gamma\nPEF .B/E : pe\n\
+                       ~ASCII\n1000.0 55.0 5.1\n1000.5 55.0 5.2\n1001.0 55.0 5.0\n";
+        // Delivery 2 (FPROOH): same well, a reprocessed GR (99 — must NOT shadow RAW's)
+        // plus a curve RAW does not have (PHIFF — must resolve from here).
+        let fp_las = "~Version\nVERS. 2.0 :\n~Well\nWELL. SETW-1 :\n\
+                      ~Curve\nDEPT .M : depth\nGR .GAPI : gamma\nPHIFF .V/V : free fluid\n\
+                      ~ASCII\n1000.0 99.0 0.21\n1000.5 99.0 0.22\n1001.0 99.0 0.23\n";
+        let p1 = std::env::temp_dir().join("sandibumi_set_raw_test.las");
+        let p2 = std::env::temp_dir().join("sandibumi_set_fprooh_test.las");
+        std::fs::write(&p1, raw_las).unwrap();
+        std::fs::write(&p2, fp_las).unwrap();
+        let attach = |set: &str| LasImportOptions { set_name: Some(set.into()), attach: true };
+
+        // 1. First import creates the well (attach on, but nothing to attach to).
+        let r1 = &import_las_files_with(&conn, &[p1.to_str().unwrap().into()], None, &attach("RAW"))[0];
+        assert!(r1.error.is_none(), "{:?}", r1.error);
+        assert!(r1.attached_set.is_none(), "a fresh well is created, not attached");
+        let well_id = r1.well_id.clone().unwrap();
+
+        // 2. Second delivery ATTACHES to that record as set FPROOH — still ONE well.
+        let r2 = &import_las_files_with(&conn, &[p2.to_str().unwrap().into()], None, &attach("FPROOH"))[0];
+        assert!(r2.error.is_none(), "{:?}", r2.error);
+        assert_eq!(r2.attached_set.as_deref(), Some("FPROOH"));
+        assert_eq!(r2.well_id.as_deref(), Some(well_id.as_str()), "attached to the SAME record");
+        let n_wells: i64 = conn.query_row("SELECT COUNT(*) FROM wells", [], |r| r.get(0)).unwrap();
+        assert_eq!(n_wells, 1, "no duplicate well record");
+
+        // 3. Re-importing the same delivery auto-suffixes (Geolog WIRE → WIRE_1), never overwrites.
+        let r3 = &import_las_files_with(&conn, &[p2.to_str().unwrap().into()], None, &attach("FPROOH"))[0];
+        assert_eq!(r3.attached_set.as_deref(), Some("FPROOH_1"));
+        let catalog = db::list_generic_curve_catalog(&conn, &well_id).unwrap();
+        let mut sets: Vec<&str> = catalog.iter().map(|c| c.set_name.as_str()).collect();
+        sets.sort();
+        sets.dedup();
+        assert_eq!(sets, vec!["FPROOH", "FPROOH_1", "RAW"]);
+
+        // 4. Resolution: RAW keeps absolute priority (GR = 55, not FPROOH's 99), and a
+        //    mnemonic RAW lacks (PHIFF) resolves from the attached set.
+        let (_grid, cols) =
+            crate::equations::fetch_curve_frame(&conn, &well_id, &["GR".into(), "PHIFF".into()]).unwrap();
+        assert!(cols["GR"].iter().all(|&v| (v - 55.0).abs() < 1e-3), "RAW GR must win: {:?}", cols["GR"]);
+        assert!(
+            cols["PHIFF"].iter().zip([0.21f32, 0.22, 0.23]).all(|(&v, e)| (v - e).abs() < 1e-3),
+            "PHIFF must resolve from the attached FPROOH set: {:?}",
+            cols["PHIFF"]
+        );
+
+        std::fs::remove_file(&p1).ok();
+        std::fs::remove_file(&p2).ok();
     }
 
     /// #118 follow-up: a file whose (unrecognized) index column is entirely the null sentinel
