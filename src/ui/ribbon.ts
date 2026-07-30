@@ -43,6 +43,7 @@ import { openCoreImportWizard } from "./coreImportDialog";
 import { openImageImportDialog } from "./imageImportDialog";
 import { openDataSetsDialog } from "./dataSetsDialog";
 import { openWorkbookDialog } from "./workbookDialog";
+import { openDeckDialog } from "./deckDialog";
 
 interface RibbonMenuItem {
   label: string;
@@ -276,6 +277,7 @@ export class Ribbon {
     q<HTMLButtonElement>("#composite-btn")?.addEventListener("click", () => workspace.openComposite());
     q<HTMLButtonElement>("#report-btn")?.addEventListener("click", () => workspace.openReport());
     q<HTMLButtonElement>("#workbook-btn")?.addEventListener("click", () => void openWorkbookDialog());
+    q<HTMLButtonElement>("#deck-btn")?.addEventListener("click", () => void openDeckDialog());
     const layoutSelect = q<HTMLSelectElement>("#layout-select");
     if (layoutSelect) {
       layoutSelect.addEventListener("change", () => {

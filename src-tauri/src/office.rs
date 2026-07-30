@@ -55,6 +55,9 @@ pub struct OfficeSupport {
     pub docx: bool,
     pub pptx: bool,
     pub openpyxl: bool,
+    /// The deck needs BOTH python-pptx and matplotlib: python-pptx assembles the slides,
+    /// matplotlib draws the figures they carry.
+    pub matplotlib: bool,
 }
 
 /// One subprocess for all four packages: starting Python is the expensive part, and asking
@@ -62,7 +65,7 @@ pub struct OfficeSupport {
 const SUPPORT_PROBE: &str = r#"
 import json, importlib
 out = {}
-for key, mod in (("xlsxwriter", "xlsxwriter"), ("docx", "docx"), ("pptx", "pptx"), ("openpyxl", "openpyxl")):
+for key, mod in (("xlsxwriter", "xlsxwriter"), ("docx", "docx"), ("pptx", "pptx"), ("openpyxl", "openpyxl"), ("matplotlib", "matplotlib")):
     try:
         importlib.import_module(mod)
         out[key] = True
@@ -81,6 +84,8 @@ struct ProbeReply {
     pptx: bool,
     #[serde(default)]
     openpyxl: bool,
+    #[serde(default)]
+    matplotlib: bool,
 }
 
 pub fn office_support() -> OfficeSupport {
@@ -98,6 +103,7 @@ pub fn office_support() -> OfficeSupport {
             support.docx = reply.docx;
             support.pptx = reply.pptx;
             support.openpyxl = reply.openpyxl;
+            support.matplotlib = reply.matplotlib;
         }
     }
     support
@@ -1114,6 +1120,614 @@ pub fn export_report_docx_batch(
 }
 
 // ---------------------------------------------------------------------------
+// The asset-team deck
+// ---------------------------------------------------------------------------
+
+/// A pre-computed box, in matplotlib's own `ax.bxp` vocabulary.
+///
+/// **The statistics are computed HERE, by `distribution.rs`, and matplotlib only draws them.**
+/// Handing it the raw samples instead would let it apply its own percentile convention, and
+/// the deck's boxes would then disagree with the Field Dashboard's for the same wells — two
+/// pictures of one dataset that a reader has no way to reconcile. `distribution.rs` pins R
+/// type-7 percentiles and Tukey whiskers that land on a real sample; those are the numbers
+/// that must reach the slide.
+#[derive(Debug, Clone, Serialize)]
+pub struct BoxSpec {
+    pub label: String,
+    pub whislo: f64,
+    pub q1: f64,
+    pub med: f64,
+    pub q3: f64,
+    pub whishi: f64,
+    pub mean: f64,
+    pub fliers: Vec<f64>,
+    /// How many wells stand behind this box — a box drawn from three wells is not the same
+    /// statement as one drawn from ninety, and the slide says so under the label.
+    pub n: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BoxPanel {
+    pub label: String,
+    pub boxes: Vec<BoxSpec>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Series {
+    pub name: String,
+    /// `None` is a genuine gap — the same "not interpreted" statement the workbook's blank
+    /// makes. It is drawn as no bar, never as a bar of height zero.
+    pub values: Vec<Option<f64>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Chart {
+    Bars {
+        categories: Vec<String>,
+        series: Vec<Series>,
+        y_label: String,
+        horizontal: bool,
+    },
+    BoxPanels {
+        panels: Vec<BoxPanel>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Slide {
+    Title { title: String, subtitle: String, meta: String },
+    Bullets { title: String, items: Vec<String> },
+    Table { title: String, sheet: Sheet, blank_text: String },
+    Chart { title: String, chart: Chart, note: String },
+}
+
+/// Rows per table slide. A deck is read from across a room, so a table that would be legible
+/// in a report is not legible here; longer tables continue on further slides rather than
+/// shrinking until nobody can read them.
+const DECK_ROWS_PER_SLIDE: usize = 12;
+/// Wells on the ranking slide. The full list is the workbook's job.
+const DECK_RANK_WELLS: usize = 20;
+
+const PPTX_RUNNER: &str = r##"
+import io, json, sys
+
+try:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from pptx import Presentation
+    from pptx.util import Inches, Pt, Emu
+    from pptx.dml.color import RGBColor
+    from pptx.enum.text import PP_ALIGN
+except Exception as e:
+    sys.stderr.write("deck-missing: " + str(e) + "\n")
+    sys.exit(2)
+
+# sys.stdin.buffer, never sys.stdin - see the note on the other runners.
+req = json.loads(sys.stdin.buffer.read())
+
+W, H = 13.333, 7.5           # 16:9, the shape every projector in an asset-team room is
+prs = Presentation()
+prs.slide_width = Inches(W)
+prs.slide_height = Inches(H)
+BLANK = prs.slide_layouts[6]
+
+INK = RGBColor(0x22, 0x2B, 0x35)
+MUTED = RGBColor(0x5A, 0x65, 0x72)
+MUTED_HEX = "#5A6572"
+ACCENT = "#5b4a36"
+ACCENT2 = "#8a6f4a"
+HEADFILL = RGBColor(0xE8, 0xEE, 0xF6)
+LITFILL = RGBColor(0xFF, 0xF3, 0xCD)
+
+DECIMALS = {"int": 0, "num1": 1, "num2": 2, "num3": 3}
+
+def cell_text(value, key, blank):
+    if value is None:
+        return blank
+    if isinstance(value, str):
+        return value
+    d = DECIMALS.get(key)
+    if d is None:
+        return str(value)
+    return "{0:,.{1}f}".format(value, d)
+
+def textbox(slide, left, top, width, height, text, size, bold=False, color=INK, align=PP_ALIGN.LEFT):
+    box = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(height))
+    tf = box.text_frame
+    tf.word_wrap = True
+    p = tf.paragraphs[0]
+    p.alignment = align
+    r = p.add_run()
+    r.text = text
+    r.font.size = Pt(size)
+    r.font.bold = bold
+    r.font.color.rgb = color
+    return box
+
+def heading(slide, title):
+    textbox(slide, 0.6, 0.35, W - 1.2, 0.9, title, 28, bold=True)
+
+def nan(v):
+    return float("nan") if v is None else float(v)
+
+def figure_png(chart):
+    kind = chart["kind"]
+    if kind == "bars":
+        cats = chart["categories"]
+        series = chart["series"]
+        horizontal = chart.get("horizontal", False)
+        height = max(4.0, 0.32 * len(cats) + 1.6) if horizontal else 5.0
+        fig, ax = plt.subplots(figsize=(11.0, height), dpi=170)
+        n = max(1, len(series))
+        span = 0.8 / n
+        pos = range(len(cats))
+        for i, s in enumerate(series):
+            offs = [p + (i - (n - 1) / 2.0) * span for p in pos]
+            vals = [nan(v) for v in s["values"]]
+            color = ACCENT if i == 0 else ACCENT2
+            if horizontal:
+                ax.barh(offs, vals, height=span, label=s["name"], color=color)
+            else:
+                ax.bar(offs, vals, width=span, label=s["name"], color=color)
+        if horizontal:
+            ax.set_yticks(list(pos)); ax.set_yticklabels(cats, fontsize=9)
+            ax.set_xlabel(chart.get("y_label", ""), fontsize=10)
+            ax.invert_yaxis()
+        else:
+            ax.set_xticks(list(pos)); ax.set_xticklabels(cats, fontsize=9, rotation=30, ha="right")
+            ax.set_ylabel(chart.get("y_label", ""), fontsize=10)
+        if len(series) > 1:
+            ax.legend(fontsize=9, frameon=False)
+        ax.grid(axis="x" if horizontal else "y", alpha=0.25)
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(False)
+    else:
+        panels = chart["panels"]
+        fig, axes = plt.subplots(1, max(1, len(panels)), figsize=(11.0, 4.6), dpi=170)
+        if len(panels) == 1:
+            axes = [axes]
+        for ax, panel in zip(axes, panels):
+            stats = []
+            labels = []
+            for b in panel["boxes"]:
+                stats.append({
+                    "label": b["label"],
+                    "whislo": b["whislo"], "q1": b["q1"], "med": b["med"],
+                    "q3": b["q3"], "whishi": b["whishi"], "mean": b["mean"],
+                    "fliers": b["fliers"],
+                })
+                labels.append("%s\n(n=%d)" % (b["label"], b["n"]))
+            if stats:
+                # bxp, NOT boxplot: these percentiles were computed by distribution.rs and
+                # must not be recomputed here under a different convention.
+                ax.bxp(stats, showmeans=True, showfliers=True,
+                       boxprops=dict(color=ACCENT), medianprops=dict(color=ACCENT2, linewidth=2),
+                       meanprops=dict(marker="D", markersize=4, markerfacecolor=ACCENT2, markeredgecolor="none"),
+                       flierprops=dict(marker=".", markersize=3, markerfacecolor=MUTED_HEX, markeredgecolor="none"))
+                ax.set_xticklabels(labels, fontsize=8, rotation=30, ha="right")
+            ax.set_title(panel["label"], fontsize=11)
+            ax.grid(axis="y", alpha=0.25)
+            for side in ("top", "right"):
+                ax.spines[side].set_visible(False)
+    fig.tight_layout()
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", transparent=False, facecolor="white")
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
+charts = 0
+for s in req["slides"]:
+    kind = s["kind"]
+    slide = prs.slides.add_slide(BLANK)
+    if kind == "title":
+        textbox(slide, 0.8, 2.4, W - 1.6, 1.2, s["title"], 40, bold=True, align=PP_ALIGN.CENTER)
+        if s.get("subtitle"):
+            textbox(slide, 0.8, 3.6, W - 1.6, 0.8, s["subtitle"], 20, color=MUTED, align=PP_ALIGN.CENTER)
+        if s.get("meta"):
+            textbox(slide, 0.8, 4.4, W - 1.6, 0.8, s["meta"], 13, color=MUTED, align=PP_ALIGN.CENTER)
+        textbox(slide, 0.8, H - 0.9, W - 1.6, 0.4, "Made in SandiBumi", 10, color=MUTED, align=PP_ALIGN.CENTER)
+    elif kind == "bullets":
+        heading(slide, s["title"])
+        box = slide.shapes.add_textbox(Inches(0.8), Inches(1.5), Inches(W - 1.6), Inches(H - 2.2))
+        tf = box.text_frame
+        tf.word_wrap = True
+        for i, item in enumerate(s["items"]):
+            p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+            r = p.add_run()
+            r.text = item
+            r.font.size = Pt(16)
+            r.font.color.rgb = INK
+    elif kind == "table":
+        heading(slide, s["title"])
+        sheet = s["sheet"]
+        blank = s.get("blank_text", "-")
+        cols = sheet["columns"]
+        rows = sheet["rows"]
+        t = slide.shapes.add_table(len(rows) + 1, len(cols),
+                                   Inches(0.6), Inches(1.45),
+                                   Inches(W - 1.2), Inches(0.42 * (len(rows) + 1))).table
+        for c, col in enumerate(cols):
+            cell = t.cell(0, c)
+            cell.text = col["header"]
+            cell.fill.solid(); cell.fill.fore_color.rgb = HEADFILL
+            for p in cell.text_frame.paragraphs:
+                for r in p.runs:
+                    r.font.size = Pt(11); r.font.bold = True; r.font.color.rgb = INK
+        sh = sheet.get("shade")
+        for ri, row in enumerate(rows):
+            lit = bool(sh) and sh["col"] < len(row) and row[sh["col"]] == sh["equals"]
+            for c in range(len(cols)):
+                cell = t.cell(ri + 1, c)
+                cell.text = cell_text(row[c] if c < len(row) else None, cols[c]["fmt"], blank)
+                if lit:
+                    cell.fill.solid(); cell.fill.fore_color.rgb = LITFILL
+                for p in cell.text_frame.paragraphs:
+                    for r in p.runs:
+                        r.font.size = Pt(11); r.font.color.rgb = INK
+    elif kind == "chart":
+        heading(slide, s["title"])
+        buf = figure_png(s["chart"])
+        pic = slide.shapes.add_picture(buf, Inches(0.6), Inches(1.35), width=Inches(W - 1.2))
+        # Never let a tall figure run off the bottom: rescale about its own aspect instead.
+        max_h = Emu(int(Inches(H - 1.95)))
+        if pic.height > max_h:
+            ratio = max_h / pic.height
+            pic.height = int(pic.height * ratio)
+            pic.width = int(pic.width * ratio)
+            pic.left = Emu(int((prs.slide_width - pic.width) / 2))
+        charts += 1
+        if s.get("note"):
+            textbox(slide, 0.6, H - 0.75, W - 1.2, 0.5, s["note"], 10, color=MUTED)
+
+prs.save(req["dest"])
+print(json.dumps({"ok": True, "slides": len(req["slides"]), "charts": charts}))
+"##;
+
+#[derive(Deserialize)]
+struct DeckReply {
+    #[serde(default)]
+    slides: usize,
+}
+
+fn write_deck(slides: &[Slide], dest: &str) -> Result<usize, String> {
+    let python = find_python().ok_or_else(|| {
+        "no Python found - install Python 3.10+ with python-pptx and matplotlib, or set ARSHILLA_PYTHON"
+            .to_string()
+    })?;
+    let mut cmd = Command::new(&python);
+    cmd.args(["-c", PPTX_RUNNER]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    hide_console(&mut cmd);
+    let mut child = cmd.spawn().map_err(|e| format!("failed to start python: {e}"))?;
+    let req = serde_json::json!({ "dest": dest, "slides": slides });
+    {
+        let stdin = child.stdin.as_mut().ok_or("python stdin closed")?;
+        stdin.write_all(req.to_string().as_bytes()).map_err(|e| e.to_string())?;
+        stdin.flush().map_err(|e| e.to_string())?;
+    }
+    drop(child.stdin.take());
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        let last = err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("deck write failed");
+        return Err(if last.contains("deck-missing") {
+            "python-pptx and matplotlib are needed for the deck (pip install python-pptx matplotlib)".to_string()
+        } else {
+            last.trim().to_string()
+        });
+    }
+    let reply: DeckReply =
+        serde_json::from_slice(&out.stdout).map_err(|e| format!("bad deck reply: {e}"))?;
+    Ok(reply.slides)
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DeckSpec {
+    pub well_ids: Vec<String>,
+    pub vsh_max: f64,
+    pub phie_min: f64,
+    pub swe_max: f64,
+    #[serde(default)]
+    pub perm_min: Option<f64>,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub author: String,
+    /// Which cutoff level the deck summarises. A deck is an executive summary, so it speaks
+    /// about ONE level and says which; SAND and RESERVOIR stay in the workbook.
+    #[serde(default = "pay_flag")]
+    pub flag: String,
+}
+
+fn pay_flag() -> String {
+    "PAY".to_string()
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DeckResult {
+    pub path: String,
+    pub slides: usize,
+    pub wells: usize,
+    pub wells_with_results: usize,
+    pub bytes: u64,
+}
+
+/// Splits a long table across slides, because a deck that shrinks a table until it fits is a
+/// deck nobody at the back of the room can read.
+fn table_slides(title: &str, sheet: &Sheet) -> Vec<Slide> {
+    if sheet.rows.len() <= DECK_ROWS_PER_SLIDE {
+        return vec![Slide::Table {
+            title: title.to_string(),
+            sheet: sheet.clone(),
+            blank_text: BLANK_MARK.to_string(),
+        }];
+    }
+    let chunks: Vec<&[Vec<Cell>]> = sheet.rows.chunks(DECK_ROWS_PER_SLIDE).collect();
+    let total = chunks.len();
+    chunks
+        .into_iter()
+        .enumerate()
+        .map(|(i, rows)| {
+            let mut part = sheet.clone();
+            part.rows = rows.to_vec();
+            Slide::Table {
+                title: format!("{title}  ({} of {total})", i + 1),
+                sheet: part,
+                blank_text: BLANK_MARK.to_string(),
+            }
+        })
+        .collect()
+}
+
+/// Zones ordered shallow to deep by their shallowest top — the same rule the workbook's field
+/// sheet uses, so the two documents list them in the same order.
+fn zones_by_depth(rows: &[&PaySummaryRow]) -> Vec<String> {
+    let mut zones: Vec<(String, f64)> = Vec::new();
+    for r in rows {
+        if let Some(e) = zones.iter_mut().find(|(z, _)| *z == r.zone) {
+            e.1 = e.1.min(r.top as f64);
+        } else {
+            zones.push((r.zone.clone(), r.top as f64));
+        }
+    }
+    zones.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal).then(a.0.cmp(&b.0)));
+    zones.into_iter().map(|(z, _)| z).collect()
+}
+
+fn box_panel(label: &str, zones: &[String], rows: &[&PaySummaryRow], pick: &dyn Fn(&PaySummaryRow) -> f32) -> BoxPanel {
+    let mut boxes = Vec::new();
+    for zone in zones {
+        let values: Vec<f32> = rows
+            .iter()
+            .filter(|r| &r.zone == zone && interpreted(r))
+            .map(|r| pick(r))
+            .filter(|v| v.is_finite())
+            .collect();
+        // distribution.rs decides what a box IS — Tukey 1.5 IQR, whiskers landing on a real
+        // sample, R type-7 percentiles. matplotlib only draws the result.
+        if let Some(s) = crate::distribution::box_stats(&values, 25.0, 75.0, crate::distribution::Whisker::Tukey(1.5))
+        {
+            boxes.push(BoxSpec {
+                label: zone.clone(),
+                whislo: s.whisker_lo as f64,
+                q1: s.lo as f64,
+                med: s.med as f64,
+                q3: s.hi as f64,
+                whishi: s.whisker_hi as f64,
+                mean: s.mean as f64,
+                fliers: s.outliers.iter().map(|v| *v as f64).collect(),
+                n: s.n,
+            });
+        }
+    }
+    BoxPanel { label: label.to_string(), boxes }
+}
+
+/// Builds every slide. All of it is decided here; the runner only draws.
+pub fn build_deck_slides(
+    rows: &[PaySummaryRow],
+    spec: &DeckSpec,
+    unit: &str,
+    stamp: &str,
+    well_names: &[(String, String)],
+) -> Vec<Slide> {
+    let flag = spec.flag.to_uppercase();
+    let level: Vec<&PaySummaryRow> = rows.iter().filter(|r| r.flag.eq_ignore_ascii_case(&flag)).collect();
+    let judged: Vec<&PaySummaryRow> = level.iter().copied().filter(|r| interpreted(r)).collect();
+    let zones = zones_by_depth(&judged);
+
+    let mut with_results: Vec<&str> = judged.iter().map(|r| r.well_id.as_str()).collect();
+    with_results.sort_unstable();
+    with_results.dedup();
+    let blind: Vec<&str> = well_names
+        .iter()
+        .filter(|(id, _)| !with_results.contains(&id.as_str()))
+        .map(|(_, n)| n.as_str())
+        .collect();
+
+    let title = if spec.title.trim().is_empty() { "Petrophysical Evaluation" } else { spec.title.trim() };
+    let mut slides = vec![Slide::Title {
+        title: title.to_string(),
+        subtitle: format!("{} wells  ·  {} zones  ·  {flag} summary", well_names.len(), zones.len()),
+        meta: if spec.author.trim().is_empty() {
+            stamp.to_string()
+        } else {
+            format!("{}  ·  {stamp}", spec.author.trim())
+        },
+    }];
+
+    // 1 — what the numbers mean, before any number is shown.
+    let mut items = vec![
+        format!("Cutoffs: VSH <= {:.2}, PHIE >= {:.2}, SWE <= {:.2}{}", spec.vsh_max, spec.phie_min, spec.swe_max,
+            spec.perm_min.map(|p| format!(", PERM >= {p:.1} mD")).unwrap_or_default()),
+        format!("Summarised at the {flag} level; SAND and RESERVOIR are in the workbook."),
+        format!("Wells in scope: {}  ·  interpreted: {}", well_names.len(), with_results.len()),
+        format!("Thicknesses and HPV in {unit}; VSH, PHIE and SWE as v/v fractions."),
+        "Averages are net-weighted. Wells that were never interpreted contribute nothing rather than counting as zero.".into(),
+    ];
+    if !blind.is_empty() {
+        items.push(format!("{} well(s) produced no interpreted zone - named at the end.", blind.len()));
+    }
+    slides.push(Slide::Bullets { title: "Scope and cutoffs".into(), items });
+
+    // 2 — the field roll-up, filtered to the chosen level.
+    let field = field_sheet(&level.iter().map(|r| (*r).clone()).collect::<Vec<_>>(), unit);
+    if !field.rows.is_empty() {
+        slides.extend(table_slides("Field summary by zone", &field));
+    }
+
+    // 3 — net and HPV per zone. Both are lengths, so they share one axis honestly.
+    if !zones.is_empty() {
+        let sum = |zone: &str, f: &dyn Fn(&PaySummaryRow) -> f32| -> Option<f64> {
+            let vals: Vec<f64> = judged
+                .iter()
+                .filter(|r| r.zone == zone)
+                .filter_map(|r| { let v = f(r); v.is_finite().then_some(v as f64) })
+                .collect();
+            (!vals.is_empty()).then(|| vals.iter().sum())
+        };
+        slides.push(Slide::Chart {
+            title: format!("Net {} and hydrocarbon pore volume by zone", flag.to_lowercase()),
+            chart: Chart::Bars {
+                categories: zones.clone(),
+                series: vec![
+                    Series { name: format!("Net ({unit})"), values: zones.iter().map(|z| sum(z, &|r| r.net)).collect() },
+                    Series { name: format!("HPV ({unit})"), values: zones.iter().map(|z| sum(z, &|r| r.hpv)).collect() },
+                ],
+                y_label: unit.to_string(),
+                horizontal: false,
+            },
+            note: "Summed over the wells that were interpreted in each zone.".into(),
+        });
+
+        // 4 — distributions. The boxes come straight from distribution.rs.
+        slides.push(Slide::Chart {
+            title: "Property distributions by zone".into(),
+            chart: Chart::BoxPanels {
+                panels: vec![
+                    box_panel("N/G", &zones, &judged, &|r| r.ntg),
+                    box_panel("PHIE (v/v)", &zones, &judged, &|r| r.avg_phie),
+                    box_panel("SWE (v/v)", &zones, &judged, &|r| r.avg_swe),
+                ],
+            },
+            note: "Box = P25-P75, line = P50, diamond = mean, whiskers = Tukey 1.5 x IQR landing on a real well; \
+                   points beyond are shown individually. n is the number of wells behind each box."
+                .into(),
+        });
+    }
+
+    // 5 — which wells carry the field.
+    let mut by_well: Vec<(String, f64)> = Vec::new();
+    for r in &judged {
+        if !r.hpv.is_finite() {
+            continue;
+        }
+        match by_well.iter_mut().find(|(n, _)| *n == r.well_name) {
+            Some(e) => e.1 += r.hpv as f64,
+            None => by_well.push((r.well_name.clone(), r.hpv as f64)),
+        }
+    }
+    by_well.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    if !by_well.is_empty() {
+        let shown = by_well.len().min(DECK_RANK_WELLS);
+        let note = if by_well.len() > shown {
+            format!("Top {shown} of {} interpreted wells by HPV; the full list is in the workbook.", by_well.len())
+        } else {
+            format!("All {shown} interpreted wells.")
+        };
+        slides.push(Slide::Chart {
+            title: format!("Wells ranked by hydrocarbon pore volume ({unit})"),
+            chart: Chart::Bars {
+                categories: by_well[..shown].iter().map(|(n, _)| n.clone()).collect(),
+                series: vec![Series {
+                    name: format!("HPV ({unit})"),
+                    values: by_well[..shown].iter().map(|(_, v)| Some(*v)).collect(),
+                }],
+                y_label: format!("HPV ({unit})"),
+                horizontal: true,
+            },
+            note,
+        });
+    }
+
+    // 6 — the wells that produced nothing. Naming them is the honest counterpart to every
+    // average on the slides before: a reader must be able to see what is NOT in them.
+    if !blind.is_empty() {
+        let mut items: Vec<String> =
+            blind.iter().take(24).map(|n| (*n).to_string()).collect();
+        if blind.len() > items.len() {
+            items.push(format!("... and {} more (all named in the workbook).", blind.len() - items.len()));
+        }
+        slides.push(Slide::Bullets {
+            title: format!("Not interpreted ({} well(s))", blind.len()),
+            items,
+        });
+    }
+
+    slides
+}
+
+pub fn export_deck(
+    db_lock: &Mutex<Connection>,
+    spec: &DeckSpec,
+    dest: &str,
+) -> Result<DeckResult, String> {
+    if spec.well_ids.is_empty() {
+        return Err("no wells in scope".into());
+    }
+    // stats_only, like every other export here: a deck must not change the project.
+    let rows = run_pay_summary(
+        db_lock,
+        &PaySummaryRequest {
+            well_ids: spec.well_ids.clone(),
+            vsh_max: spec.vsh_max,
+            phie_min: spec.phie_min,
+            swe_max: spec.swe_max,
+            perm_min: spec.perm_min,
+            skip_version: true,
+            stats_only: true,
+        },
+    )?;
+
+    let (stamp, unit, wells) = {
+        let conn = db_lock.lock().map_err(|e| e.to_string())?;
+        let stamp: String = conn
+            .query_row("SELECT strftime(now(), '%Y-%m-%d')", [], |r| r.get(0))
+            .unwrap_or_default();
+        let unit = units::project_depth_unit_or_default(&conn).label().to_string();
+        let mut wells: Vec<(String, String)> = Vec::with_capacity(spec.well_ids.len());
+        for id in &spec.well_ids {
+            let name: String = conn
+                .query_row("SELECT well_name FROM wells WHERE well_id = ?1", params![id], |r| r.get(0))
+                .unwrap_or_else(|_| id.clone());
+            wells.push((id.clone(), name));
+        }
+        (stamp, unit, wells)
+    };
+
+    let slides = build_deck_slides(&rows, spec, &unit, &stamp, &wells);
+    let written = write_deck(&slides, dest)?;
+    let mut with_results: Vec<&str> = rows
+        .iter()
+        .filter(|r| interpreted(r) && r.flag.eq_ignore_ascii_case(&spec.flag))
+        .map(|r| r.well_id.as_str())
+        .collect();
+    with_results.sort_unstable();
+    with_results.dedup();
+    let bytes = std::fs::metadata(dest).map(|m| m.len()).unwrap_or(0);
+    Ok(DeckResult {
+        path: dest.to_string(),
+        slides: written,
+        wells: wells.len(),
+        wells_with_results: with_results.len(),
+        bytes,
+    })
+}
+
+// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -1376,6 +1990,213 @@ sys.stdout.buffer.write(json.dumps([p.text for p in doc.paragraphs if p.text], e
             paras.iter().any(|p| p == needle),
             "the en dash / middot / rho did not survive the pipe: {paras:?}"
         );
+        let _ = std::fs::remove_file(&dest);
+    }
+
+    // --- The deck ----------------------------------------------------------
+
+    fn deck_spec() -> DeckSpec {
+        DeckSpec {
+            well_ids: vec!["id-A".into()],
+            vsh_max: 0.5,
+            phie_min: 0.1,
+            swe_max: 0.6,
+            perm_min: None,
+            title: "Balam South".into(),
+            author: String::new(),
+            flag: "PAY".into(),
+        }
+    }
+
+    fn slide_titles(slides: &[Slide]) -> Vec<String> {
+        slides
+            .iter()
+            .map(|s| match s {
+                Slide::Title { title, .. } => title.clone(),
+                Slide::Bullets { title, .. } => title.clone(),
+                Slide::Table { title, .. } => title.clone(),
+                Slide::Chart { title, .. } => title.clone(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_deck_summarises_one_cutoff_level_and_says_which() {
+        // Mixing PAY with SAND on one chart would be three different questions on one axis.
+        let rows = vec![
+            row("A", "Z1", "SAND", 90.0, 0.2, 900),
+            row("A", "Z1", "RESERVOIR", 60.0, 0.2, 900),
+            row("A", "Z1", "PAY", 40.0, 0.2, 900),
+        ];
+        let slides = build_deck_slides(&rows, &deck_spec(), "m", "2026-07-31", &[("id-A".into(), "A".into())]);
+        let field = slides.iter().find_map(|s| match s {
+            Slide::Table { sheet, .. } => Some(sheet.clone()),
+            _ => None,
+        });
+        let field = field.expect("a field-summary table slide");
+        assert_eq!(field.rows.len(), 1, "only the chosen level reaches the deck");
+        assert_eq!(field.rows[0][1], Cell::Text("PAY".into()));
+        match &slides[0] {
+            Slide::Title { subtitle, .. } => assert!(subtitle.contains("PAY summary"), "the level is stated: {subtitle}"),
+            _ => panic!("first slide is the title"),
+        }
+    }
+
+    #[test]
+    fn box_statistics_come_from_distribution_rs_not_from_matplotlib() {
+        // The whole point of pre-computing: these must be the SAME numbers the Field Dashboard
+        // draws. Five wells, so P25/P50/P75 are checkable by hand under R type-7.
+        let rows: Vec<PaySummaryRow> = [0.10f32, 0.20, 0.30, 0.40, 0.50]
+            .iter()
+            .enumerate()
+            .map(|(i, p)| row(&format!("W{i}"), "Z1", "PAY", 10.0, *p, 100))
+            .collect();
+        let slides = build_deck_slides(
+            &rows,
+            &deck_spec(),
+            "m",
+            "2026-07-31",
+            &rows.iter().map(|r| (r.well_id.clone(), r.well_name.clone())).collect::<Vec<_>>(),
+        );
+        let panels = slides.iter().find_map(|s| match s {
+            Slide::Chart { chart: Chart::BoxPanels { panels }, .. } => Some(panels.clone()),
+            _ => None,
+        });
+        let panels = panels.expect("a distributions slide");
+        let phie = panels.iter().find(|p| p.label.starts_with("PHIE")).expect("a PHIE panel");
+        let b = &phie.boxes[0];
+        assert_eq!(b.n, 5, "five wells behind the box");
+        assert!((b.med - 0.30).abs() < 1e-6, "median of 0.1..0.5 is 0.30, got {}", b.med);
+        assert!((b.q1 - 0.20).abs() < 1e-6, "P25 (R type-7) is 0.20, got {}", b.q1);
+        assert!((b.q3 - 0.40).abs() < 1e-6, "P75 (R type-7) is 0.40, got {}", b.q3);
+        assert!(b.fliers.is_empty(), "no outliers in an even spread");
+        // The same statistics the shared core would give any other consumer.
+        let direct = crate::distribution::box_stats(
+            &[0.10, 0.20, 0.30, 0.40, 0.50],
+            25.0,
+            75.0,
+            crate::distribution::Whisker::Tukey(1.5),
+        )
+        .unwrap();
+        assert!((b.whislo - direct.whisker_lo as f64).abs() < 1e-9);
+        assert!((b.whishi - direct.whisker_hi as f64).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_well_that_was_never_interpreted_is_named_on_its_own_slide() {
+        // The honest counterpart to every average on the slides before it.
+        let rows = vec![row("A", "Z1", "PAY", 90.0, 0.2, 900), row("B", "Z1", "PAY", 0.0, 0.0, 0)];
+        let wells = vec![("id-A".into(), "A".into()), ("id-B".to_string(), "B".to_string())];
+        let slides = build_deck_slides(&rows, &deck_spec(), "m", "2026-07-31", &wells);
+        let last = slides.last().expect("slides");
+        match last {
+            Slide::Bullets { title, items } => {
+                assert!(title.contains("Not interpreted"), "got {title}");
+                assert!(items.iter().any(|i| i == "B"), "the well is named: {items:?}");
+            }
+            _ => panic!("the closing slide names the blind wells"),
+        }
+    }
+
+    #[test]
+    fn a_long_table_continues_on_further_slides_rather_than_shrinking() {
+        // A deck is read from across a room: 40 zones squeezed onto one slide is not a table.
+        let rows: Vec<PaySummaryRow> = (0..40)
+            .map(|i| {
+                let mut r = row("A", &format!("Z{i:02}"), "PAY", 10.0, 0.2, 100);
+                r.top = 1000.0 + i as f32 * 10.0;
+                r
+            })
+            .collect();
+        let slides = build_deck_slides(&rows, &deck_spec(), "m", "2026-07-31", &[("id-A".into(), "A".into())]);
+        let table_titles: Vec<String> =
+            slide_titles(&slides).into_iter().filter(|t| t.starts_with("Field summary by zone")).collect();
+        assert!(table_titles.len() > 1, "40 zones must paginate: {table_titles:?}");
+        assert!(table_titles[0].contains("(1 of "), "each part says which it is: {}", table_titles[0]);
+        for s in &slides {
+            if let Slide::Table { sheet, .. } = s {
+                assert!(sheet.rows.len() <= DECK_ROWS_PER_SLIDE, "no slide over the row cap");
+            }
+        }
+    }
+
+    #[test]
+    fn the_well_ranking_is_capped_and_says_so() {
+        let rows: Vec<PaySummaryRow> = (0..30)
+            .map(|i| row(&format!("W{i:02}"), "Z1", "PAY", 10.0, 0.1 + i as f32 * 0.005, 100))
+            .collect();
+        let wells: Vec<(String, String)> =
+            rows.iter().map(|r| (r.well_id.clone(), r.well_name.clone())).collect();
+        let slides = build_deck_slides(&rows, &deck_spec(), "m", "2026-07-31", &wells);
+        let (cats, note) = slides
+            .iter()
+            .find_map(|s| match s {
+                Slide::Chart { chart: Chart::Bars { categories, horizontal: true, .. }, note, .. } => {
+                    Some((categories.clone(), note.clone()))
+                }
+                _ => None,
+            })
+            .expect("a ranking slide");
+        assert_eq!(cats.len(), DECK_RANK_WELLS, "capped for legibility");
+        assert!(note.contains("of 30"), "the cap is never silent: {note}");
+    }
+
+    /// Real python-pptx + matplotlib round-trip, read back to prove the figures and the table
+    /// actually reached the slides. `#[ignore]`d like the others — rule 7.
+    #[test]
+    #[ignore]
+    fn writes_a_real_deck_with_figures_on_it() {
+        let support = office_support();
+        assert!(support.pptx && support.matplotlib, "this test needs python-pptx + matplotlib: {support:?}");
+        let dest = std::env::temp_dir().join("sandibumi_office_deck.pptx");
+        let dest_s = dest.to_string_lossy().to_string();
+        let rows: Vec<PaySummaryRow> = (0..6)
+            .map(|i| {
+                let mut r = row(&format!("W{i}"), if i % 2 == 0 { "MENGGALA" } else { "BEKASAP" }, "PAY", 10.0 + i as f32, 0.15 + i as f32 * 0.01, 200);
+                r.top = if i % 2 == 0 { 1500.0 } else { 1700.0 };
+                r
+            })
+            .collect();
+        let wells: Vec<(String, String)> =
+            rows.iter().map(|r| (r.well_id.clone(), r.well_name.clone())).collect();
+        let slides = build_deck_slides(&rows, &deck_spec(), "m", "2026-07-31", &wells);
+        let n = write_deck(&slides, &dest_s).expect("deck written");
+        assert_eq!(n, slides.len());
+        let bytes = std::fs::read(&dest).expect("file exists");
+        assert!(bytes.len() > 40_000, "a deck with figures is not {} bytes", bytes.len());
+        assert_eq!(&bytes[..2], b"PK", "pptx is a zip container");
+
+        let python = find_python().expect("python");
+        const READBACK: &str = r#"
+import json, sys
+from pptx import Presentation
+prs = Presentation(sys.argv[1])
+out = []
+for s in prs.slides:
+    kinds = [sh.shape_type is not None and str(sh.shape_type) for sh in s.shapes]
+    out.append({
+        "pics": sum(1 for sh in s.shapes if sh.shape_type is not None and "PICTURE" in str(sh.shape_type)),
+        "tables": sum(1 for sh in s.shapes if sh.has_table),
+        "text": " | ".join(sh.text_frame.text for sh in s.shapes if sh.has_text_frame)[:120],
+    })
+sys.stdout.buffer.write(json.dumps(out, ensure_ascii=True).encode("ascii"))
+"#;
+        let mut cmd = Command::new(&python);
+        cmd.args(["-c", READBACK, &dest_s]).stdout(Stdio::piped()).stderr(Stdio::piped());
+        hide_console(&mut cmd);
+        let out = cmd.output().expect("readback ran");
+        #[derive(Deserialize)]
+        struct SlideInfo {
+            pics: usize,
+            tables: usize,
+            text: String,
+        }
+        let info: Vec<SlideInfo> = serde_json::from_slice(&out.stdout)
+            .unwrap_or_else(|e| panic!("readback json: {e} / {}", String::from_utf8_lossy(&out.stderr)));
+        assert_eq!(info.len(), slides.len(), "every slide reached the file");
+        assert!(info.iter().filter(|s| s.pics > 0).count() >= 3, "the matplotlib figures are on the slides");
+        assert!(info.iter().any(|s| s.tables > 0), "the field-summary table is a real table");
+        assert!(info[0].text.contains("Balam South"), "title slide carries the title: {}", info[0].text);
         let _ = std::fs::remove_file(&dest);
     }
 

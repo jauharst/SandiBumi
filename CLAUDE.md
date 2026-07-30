@@ -428,6 +428,31 @@ had - and is fixed here. Pinned by `a_word_document_keeps_non_ascii_text_intact`
 needs python-docx). Same family as `parsers::read_text_file`: bytes must be interpreted, never
 assumed.
 
+Asset-team deck (2026-07-31) - `office.rs` also writes the **PowerPoint deck** (Plot ribbon ->
+Deliverables -> **Deck...**, `deckDialog.ts`), completing the office set. Slides are built from
+the pay-summary DATA with matplotlib figures, **deliberately not from composite pages**: a
+composite is drawn at a true print scale, and python-pptx embeds PNG/EMF rather than vectors, so
+a pasted log plot would be a picture that stops being at 1:200 the moment anyone resizes it.
+That was Jauhar's explicit call when the choice was put to him.
+
+Slides: title, scope-and-cutoffs, field roll-up by zone (the workbook's `field_sheet`, a FOURTH
+rendering of the same table definition), net + HPV per zone, N/G / PHIE / SWE distributions, a
+well ranking by HPV, and a closing slide **naming every well that produced nothing** - the
+honest counterpart to every average before it. `DeckSpec.flag` picks ONE cutoff level (default
+PAY) and the title slide says which; mixing PAY with SAND on one axis would be three questions
+in one picture. 16:9, one subprocess for every figure and the deck.
+
+Three rules the runner must keep. **Box statistics are computed by `distribution.rs` and passed
+in matplotlib's `ax.bxp` vocabulary** - never `ax.boxplot(raw)`, which would apply matplotlib's
+own percentile convention and make the deck disagree with the Field Dashboard for the same
+wells; `BoxSpec.n` rides along because a box drawn from three wells is not the statement a box
+from ninety is. **A `None` in a `Series` is a gap, not a zero** - the zone still gets its axis
+label but no bar, the same statement the workbook's blank cell makes. **Long tables continue on
+further slides** (`DECK_ROWS_PER_SLIDE`) and the well ranking is capped at `DECK_RANK_WELLS`
+with the cap stated in the slide note - a deck is read from across a room, and a silent top-N
+reads as "all of them". Like every other export here it runs `stats_only` and writes nothing
+back.
+
 UI language (2026-07-19) — `src/i18n.ts` translates visible DOM text (+ title/placeholder/
 aria-label/optgroup-label) to Bahasa Indonesia / Basa Sunda by exact-phrase dictionary
 lookup, live via MutationObserver. English is the source language: keep writing UI strings

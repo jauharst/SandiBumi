@@ -999,11 +999,26 @@ joblib (ML) → office four (deliverables) → opencv (digitizing).
         Open follow-ups: a per-well curve-data sheet (LAS covers it today); whether he wants PHIE
         displayed as a percent format rather than the v/v decimal that matches the PDF; and a
         saved workbook "template" (which sheets, which cutoffs) like the plot templates.
-      - [ ] `python-pptx` → an asset-team deck: composite plot per well, zone-summary and
-        field-summary slides. **Blocked on rasterization**: python-pptx embeds PNG/EMF, not PDF or
-        SVG, and the composite path produces vectors; `save_png` rasterizes in the FRONTEND from a
-        canvas, so either the deck is driven from the frontend or the slides are built from data
-        (matplotlib is installed) rather than from composite pages. Decide before building.
+      - [x] **`python-pptx` → SHIPPED 2026-07-31** — asset-team deck (Plot ▸ Deliverables ▸
+        **Deck…**, `deckDialog.ts` → `export_deck`). The rasterization question was put to Jauhar
+        and he chose **matplotlib figures from the data** over pasted composite pages — the right
+        call: python-pptx embeds PNG/EMF, not vectors, so a composite at 1:200 would become a
+        picture that stops being at 1:200 the moment anyone resizes it.
+        Slides: title, scope-and-cutoffs, field roll-up by zone (the workbook's `field_sheet` — a
+        FOURTH rendering of one table definition), net + HPV per zone, N/G / PHIE / SWE
+        distributions, well ranking by HPV, and a closing slide naming every well that produced
+        nothing. `DeckSpec.flag` picks ONE cutoff level (default PAY) and the title slide says
+        which. 16:9; one subprocess for every figure and the deck.
+        Rules not to re-litigate: **box statistics come from `distribution.rs` and are passed in
+        matplotlib's `ax.bxp` vocabulary**, never `ax.boxplot(raw)` — otherwise matplotlib's own
+        percentile convention would make the deck disagree with the Field Dashboard for the same
+        wells, and `BoxSpec.n` rides along because a box from three wells is not the statement a
+        box from ninety is; **a `None` in a `Series` is a gap, not a zero** (axis label, no bar);
+        long tables paginate (`DECK_ROWS_PER_SLIDE`) and the ranking cap (`DECK_RANK_WELLS`) is
+        stated in the slide note, because a silent top-N reads as the whole field.
+        Open follow-ups: a per-well slide set (needs the frontend rasterization route after all),
+        a client `.pptx` template to build onto instead of python-pptx's default, and whether he
+        wants a zone-by-zone map slide once the map panel can export.
       - [x] **`python-docx` → SHIPPED 2026-07-31** — the EDITABLE `.docx` twin of `report.rs`'s
         PDF: report pane ▸ **Save Word…**, plus a format select on the Batch button (`as PDF` /
         `as Word`) driving `export_report_docx` / `export_report_docx_batch`. Same title, author,

@@ -1,26 +1,28 @@
 import { save } from "@tauri-apps/plugin-dialog";
-import { exportWorkbook, officeSupport, type OfficeSupport } from "../ipc";
+import { exportDeck, officeSupport, type OfficeSupport } from "../ipc";
 import { appState, setStatus } from "../state";
 import { recordProcess } from "../processLog";
 import { loadCutoffDefaults } from "./cutoffs";
 import { formRow, openModal } from "./modal";
 import { buildWellScope } from "./wellScope";
 
-/** Excel workbook export (Plot ▸ Deliverables ▸ Workbook…).
+const FLAGS = [
+  ["PAY", "PAY — sand, reservoir and hydrocarbon"],
+  ["RESERVOIR", "RESERVOIR — sand and porosity"],
+  ["SAND", "SAND — shale cutoff only"],
+] as const;
+
+/** Asset-team deck (Plot ▸ Deliverables ▸ Deck…).
  *
- *  The gap this closes: everything a finished study produces left the app as a PDF, an SVG,
- *  a LAS or a flat CSV, so the table an asset team actually works in was re-typed by hand.
+ *  The slides are built from the pay-summary DATA — matplotlib figures drawn from the same
+ *  numbers the workbook and the report carry — deliberately NOT from composite log pages. A
+ *  composite is drawn at a true print scale, and a picture on a slide stops being at that
+ *  scale the moment anyone resizes it.
  *
- *  Two things the dialog is careful about:
- *
- *  • It uses the SAME cutoff defaults as the pay summary, the report and Monte Carlo
- *    (`loadCutoffDefaults`), so a workbook can never quote different cutoffs than the PDF
- *    handed over with it.
- *  • The workbook is written by Python's `xlsxwriter` (rule 7 — subprocess, never embedded).
- *    If it is not installed the dialog says so BEFORE the user picks a filename, and names
- *    the interpreter to install it into, rather than failing after the save dialog.
+ *  It needs python-pptx AND matplotlib; the dialog says which is missing before the save
+ *  dialog appears, not after.
  */
-export async function openWorkbookDialog(): Promise<void> {
+export async function openDeckDialog(): Promise<void> {
   const support: OfficeSupport = await officeSupport().catch(() => ({
     python: null,
     xlsxwriter: false,
@@ -29,28 +31,45 @@ export async function openWorkbookDialog(): Promise<void> {
     openpyxl: false,
     matplotlib: false,
   }));
+  const ready = support.pptx && support.matplotlib;
   const cutoffs = await loadCutoffDefaults();
 
   const wrap = document.createElement("div");
-  const close = openModal("Export workbook (Excel)", wrap, 620);
+  const close = openModal("Export deck (PowerPoint)", wrap, 620);
 
-  // Built before the scope so the scope's live count can retitle it from its first callback.
   const runBtn = document.createElement("button");
   runBtn.className = "btn btn-accent";
 
   const scope = await buildWellScope({
     onChange: (ids) => {
       runBtn.textContent = `Export ${ids.length} well(s)…`;
-      runBtn.disabled = ids.length === 0 || !support.xlsxwriter;
+      runBtn.disabled = ids.length === 0 || !ready;
     },
   });
   wrap.appendChild(scope.el);
 
+  const activeWell = appState.selectedWell.get();
   const titleIn = document.createElement("input");
   titleIn.className = "form-control";
-  const activeWell = appState.selectedWell.get();
   titleIn.value = `Petrophysical Evaluation — ${activeWell?.field_name ?? activeWell?.well_name ?? "Field"}`;
-  wrap.appendChild(formRow("Study title", titleIn, "Shown on the workbook's Summary sheet"));
+  wrap.appendChild(formRow("Deck title", titleIn, "Shown on the title slide"));
+
+  const authorIn = document.createElement("input");
+  authorIn.className = "form-control";
+  authorIn.placeholder = "optional";
+  wrap.appendChild(formRow("Presented by", authorIn));
+
+  const flagSel = document.createElement("select");
+  flagSel.className = "form-control";
+  for (const [value, label] of FLAGS) {
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = label;
+    flagSel.appendChild(o);
+  }
+  wrap.appendChild(
+    formRow("Summarise at", flagSel, "A deck speaks about one cutoff level and says which; the workbook carries all three"),
+  );
 
   const numIn = (value: number | null, step: string, placeholder = ""): HTMLInputElement => {
     const el = document.createElement("input");
@@ -70,35 +89,22 @@ export async function openWorkbookDialog(): Promise<void> {
   wrap.appendChild(formRow("SWE max (v/v)", sweIn, "Pay cutoff"));
   wrap.appendChild(formRow("PERM min (mD)", permIn, "Optional — leave blank to not apply a permeability floor"));
 
-  const check = (label: string, hint: string): HTMLInputElement => {
-    const el = document.createElement("input");
-    el.type = "checkbox";
-    el.className = "form-check";
-    el.checked = true;
-    const holder = document.createElement("label");
-    holder.appendChild(el);
-    wrap.appendChild(formRow(label, holder, hint));
-    return el;
-  };
-  const paySheet = check("Pay Summary sheet", "One row per well, zone and cutoff level — the same table the report PDF prints");
-  const fieldSheet = check("Field Summary sheet", "Per-zone roll-up across every well in scope");
-  const zoneSheet = check("Zone Parameters sheet", "The interval parameters each interpretation used");
-
   const hint = document.createElement("div");
   hint.className = "form-hint";
   hint.textContent =
-    "Numbers are exported as numbers, so the workbook can be pivoted and re-averaged. " +
-    "A blank cell means the well was not interpreted over that zone — it is not a zero. " +
-    "Nothing is written back to the project: the pay flags are computed in memory only.";
+    "Title, scope and cutoffs, field roll-up by zone, net and HPV per zone, N/G–PHIE–SWE distributions, " +
+    "a well ranking, and any well that produced nothing, named. Box plots use the app's own statistics, " +
+    "so they match the Field Dashboard. Composite log plots stay in the PDF. Nothing is written back to the project.";
   wrap.appendChild(hint);
 
-  if (!support.xlsxwriter) {
+  if (!ready) {
     const warn = document.createElement("div");
     warn.className = "form-hint";
     warn.style.color = "var(--warn)";
+    const missing = [!support.pptx && "python-pptx", !support.matplotlib && "matplotlib"].filter(Boolean).join(" and ");
     warn.textContent = support.python
-      ? `xlsxwriter is not installed in the Python SandiBumi found (${support.python}). Run: pip install xlsxwriter`
-      : "No Python was found. Install Python 3.10+ with xlsxwriter, or set ARSHILLA_PYTHON to its python.exe.";
+      ? `${missing} not installed in the Python SandiBumi found (${support.python}). Run: pip install ${missing.replace(" and ", " ")}`
+      : "No Python was found. Install Python 3.10+ with python-pptx and matplotlib, or set ARSHILLA_PYTHON to its python.exe.";
     wrap.appendChild(warn);
   }
 
@@ -112,7 +118,7 @@ export async function openWorkbookDialog(): Promise<void> {
   cancelBtn.className = "btn";
   cancelBtn.textContent = "Cancel";
   runBtn.textContent = `Export ${scope.count()} well(s)…`;
-  runBtn.disabled = scope.count() === 0 || !support.xlsxwriter;
+  runBtn.disabled = scope.count() === 0 || !ready;
   actions.append(cancelBtn, runBtn);
   wrap.appendChild(actions);
 
@@ -130,9 +136,9 @@ export async function openWorkbookDialog(): Promise<void> {
     let dest: string | null;
     try {
       dest = await save({
-        title: "Export workbook",
-        defaultPath: `${stem}.xlsx`,
-        filters: [{ name: "Excel workbook", extensions: ["xlsx"] }],
+        title: "Export deck",
+        defaultPath: `${stem}.pptx`,
+        filters: [{ name: "PowerPoint deck", extensions: ["pptx"] }],
       });
     } catch (err) {
       status.textContent = `Save dialog unavailable: ${err}`;
@@ -142,7 +148,7 @@ export async function openWorkbookDialog(): Promise<void> {
     runBtn.disabled = true;
     status.textContent = `Computing ${wellIds.length} well(s)…`;
     try {
-      const res = await exportWorkbook(
+      const res = await exportDeck(
         {
           well_ids: wellIds,
           vsh_max: parseFloat(vshIn.value),
@@ -150,23 +156,20 @@ export async function openWorkbookDialog(): Promise<void> {
           swe_max: parseFloat(sweIn.value),
           perm_min: Number.isNaN(permRaw) ? null : permRaw,
           title: titleIn.value.trim(),
-          include_pay: paySheet.checked,
-          include_field: fieldSheet.checked,
-          include_zone_params: zoneSheet.checked,
+          author: authorIn.value.trim(),
+          flag: flagSel.value,
         },
         dest,
       );
-      // The blind-well count is stated, never swallowed: a workbook whose Summary says
-      // "12 of 40 wells with results" is a finding, not a formatting detail.
       const blind = res.wells - res.wells_with_results;
-      const note = blind > 0 ? `, ${blind} well(s) not interpreted (named on the Summary sheet)` : "";
-      const msg = `Workbook: ${res.sheets} sheet(s), ${res.pay_rows} zone-rows, ${res.wells_with_results}/${res.wells} wells${note} → ${res.path}`;
+      const note = blind > 0 ? `, ${blind} well(s) not interpreted (named on the last slide)` : "";
+      const msg = `Deck: ${res.slides} slide(s), ${res.wells_with_results}/${res.wells} wells${note} → ${res.path}`;
       status.textContent = msg;
       setStatus(msg);
-      recordProcess("Export", `Exported workbook (${res.pay_rows} zone-rows, ${res.wells} wells) → ${res.path}`);
+      recordProcess("Export", `Exported deck (${res.slides} slides, ${res.wells} wells) → ${res.path}`);
       finish();
     } catch (err) {
-      status.textContent = `Workbook export failed: ${err}`;
+      status.textContent = `Deck export failed: ${err}`;
       runBtn.disabled = false;
     }
   });

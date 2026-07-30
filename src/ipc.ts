@@ -440,6 +440,35 @@ export interface OfficeSupport {
   docx: boolean;
   pptx: boolean;
   openpyxl: boolean;
+  /** The deck needs BOTH pptx and matplotlib — python-pptx assembles the slides, matplotlib
+   *  draws the figures they carry. */
+  matplotlib: boolean;
+}
+
+export interface DeckSpec {
+  well_ids: string[];
+  vsh_max: number;
+  phie_min: number;
+  swe_max: number;
+  perm_min?: number | null;
+  title?: string;
+  author?: string;
+  /** Which cutoff level the deck summarises (default PAY). */
+  flag?: string;
+}
+
+export interface DeckResult {
+  path: string;
+  slides: number;
+  wells: number;
+  wells_with_results: number;
+  bytes: number;
+}
+
+/** Asset-team deck built from the pay-summary DATA (matplotlib figures), not from composite
+ *  pages — a log plot at 1:200 stops being at 1:200 once it is a picture on a slide. */
+export function exportDeck(spec: DeckSpec, destPath: string): Promise<DeckResult> {
+  return invoke<DeckResult>("export_deck", { spec, destPath });
 }
 
 export interface WorkbookSpec {

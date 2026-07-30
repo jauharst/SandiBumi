@@ -7,6 +7,36 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-07-31 — The field as an asset-team deck
+
+Last of the office deliverables. **Plot ▸ Deliverables ▸ Deck…** builds a PowerPoint from the
+data — you chose matplotlib figures over pasted composite pages, so that is what it does.
+
+- [ ] **Export a deck.** Pick a scope, a title, who is presenting, and the cutoff level
+      (**PAY** by default). Open it in PowerPoint. Seven-ish slides: title, scope and cutoffs,
+      field roll-up by zone, net + HPV per zone, N/G–PHIE–SWE distributions, well ranking, and
+      any well that produced nothing.
+- [ ] **The box plots should match the Field Dashboard.** They are the same statistics — the
+      app computes them and matplotlib only draws them, precisely so the two can't disagree.
+      Compare a zone's PHIE box against the dashboard. **If they differ, tell me.**
+- [ ] **Each box says how many wells are behind it** (`n=` under the label). A box from three
+      wells is not the same statement as one from ninety.
+- [ ] **A zone nobody interpreted gets no bar — not a zero bar.** It still gets its axis label
+      so you can see it exists. Check this on a zone you know is uninterpreted.
+- [ ] **The cutoff level is stated on the title slide.** A deck speaks about one level; SAND and
+      RESERVOIR stay in the workbook. Try switching to RESERVOIR and confirm the whole deck
+      follows.
+- [ ] **Long tables continue on more slides** ("1 of 3") rather than shrinking. If your field
+      has many zones, check the table is still readable from the back of a room.
+- [ ] **The well ranking says what it cut** ("Top 20 of 44 interpreted wells"). A silent top-N
+      would read as the whole field.
+- [ ] **The last slide names the wells that produced nothing.** That is the counterpart to
+      every average on the slides before it.
+- [ ] **Everything is editable** — real PowerPoint tables and text, and the charts are pictures
+      you can resize or replace.
+- [ ] **Without the packages.** If python-pptx or matplotlib is missing, the dialog names which
+      one before the save dialog. You have both.
+
 ## 2026-07-31 — The report as an editable Word document (+ an encoding bug fixed)
 
 Second of the office deliverables. The report pane now has **Save Word…** next to Save PDF…,

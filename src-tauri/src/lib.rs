@@ -813,6 +813,23 @@ async fn office_support() -> Result<office::OfficeSupport, String> {
     tauri::async_runtime::spawn_blocking(office::office_support).await.map_err(|e| e.to_string())
 }
 
+/// The asset-team deck. Slides are built from the pay-summary DATA (matplotlib figures), not
+/// from composite pages — a log plot at 1:200 pasted into a slide stops being at 1:200.
+#[tauri::command]
+async fn export_deck(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    spec: office::DeckSpec,
+    dest_path: String,
+) -> Result<office::DeckResult, String> {
+    let conn = db.0.clone();
+    let label = format!("{} well(s)", spec.well_ids.len());
+    jobs::run_simple_job(jobs_reg.inner().clone(), "Deck", label, move || {
+        office::export_deck(&conn, &spec, &dest_path)
+    })
+    .await
+}
+
 /// The EDITABLE Word twin of the report PDF — same title, author, methodology, cutoffs and
 /// tables, so it can be adapted into a client's own template. The native PDF stays the default
 /// deliverable and keeps the composite log pages.
@@ -2524,6 +2541,7 @@ pub fn run() {
             export_workbook,
             export_report_docx,
             export_report_docx_batch,
+            export_deck,
             save_png,
             save_plot_pdf,
             get_core_data
