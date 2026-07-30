@@ -53,7 +53,7 @@ headers below rather than as the primary structure.
 
 ### ◻ Open — do next  → [Part B](#-part-b--open-do-next)
 - **Polish tail** (§4b): ✅ all shipped — units #122, correlation #123, history-coverage #124, Pickett v2 #125, pay-summary provenance #126.
-- **Performance** (§4b): crossplot redraw memoize (#127) ✅, **batch curve reads (#130)** ✅ **persistent Python worker (#132)** ✅ and **raw-IPC ArrayBuffers (#131)** ✅ **shipped + committed 2026-07-21**. Remaining: async commands (#128) and connection pool [**high-risk**] (#129) both need a live 100-well run to sign off.
+- **Performance** (§4b): crossplot redraw memoize (#127) ✅, **batch curve reads (#130)** ✅ **persistent Python worker (#132)** ✅ and **raw-IPC ArrayBuffers (#131)** ✅ **shipped + committed 2026-07-21**; **async commands (#128)** ✅ **shipped 2026-07-30** (project open/switch, Save As, Compact, TVD rebuild and SQL query all off the event loop). Remaining: connection pool [**high-risk**] (#129), needs a live 100-well run to sign off; plus the new pre-window-startup item.
 - **Reliability sliver**: modal Escape-key stacking — ✅ **shipped 2026-07-20** (Escape scoped to the top dialog; single-instance already prevented leaked handlers).
 - **Interpretation-workflow open** (§4): data-prep split/merge + tops-referenced normalization, highlight tool, typography check.
 - **Feature Wave B** (§4c): MC parameter **sensitivity/tornado** (13), ML comparison + leaderboard (3), fluid contacts in correlation (9), well-diagram track (16), rock typing + SHF fitting (8).
@@ -719,14 +719,32 @@ The actionable backlog. Roughly ordered: safe frontend wins first, then Performa
 ## B1. Hardening backlog (§4b)
 
 **Performance (was "P2") — speed at field scale (100+ wells)** — all 6 mapped by a read-only
-investigation wave (file:line + risk). **4 of 6 shipped: #127 (crossplot memoize), #130 (batch curve
-reads), #131 (raw-IPC ArrayBuffers), #132 (persistent Python worker).** Tasks #127–132. The remaining connection-semantics items are architecturally invasive —
-they change DB connection semantics and **cannot be signed off without running `tauri dev` on 100+
-real wells** (the human can't be replaced for perf benchmarking).
-- [ ] **(#128)** Long commands are synchronous Tauri commands — `run_workflow_chain`/`run_ml`/`run_multimin`
-      are sync `fn` on the IPC thread, so a chain run blocks IPC for minutes and Cancel can't fire until it
-      finishes. Move to async + spawn_blocking + progress events. Interacts with the pool item below (the
-      global `Mutex<Connection>` still serializes spawn_blocking on the lock).
+investigation wave (file:line + risk). **5 of 6 shipped: #127 (crossplot memoize), #128 (long
+commands off the event loop), #130 (batch curve reads), #131 (raw-IPC ArrayBuffers), #132
+(persistent Python worker).** Tasks #127–132. Only **#129 (connection pool)** remains — it changes
+DB connection semantics and **cannot be signed off without running `tauri dev` on 100+ real wells**
+(the human can't be replaced for perf benchmarking).
+
+- **New item (2026-07-30): startup opens the project before the window exists.** `run()` calls
+  `open_and_migrate` and only then builds the Tauri app, so a slow first open (one-time migrations
+  on a field-scale project — 15 min on BLSO) shows NO window at all. Needs a placeholder/`Option`
+  `DbState`, a "still opening" reply on every DB command, and a frontend gate. Independent of #129.
+- [x] **(#128)** ~~Long commands are synchronous Tauri commands~~ — **done 2026-07-30.** The three
+      commands this item named were already fixed when it was written: `run_ml`/`run_multimin` run
+      through `jobs::run_job` (async) and `run_workflow_chain` returns immediately after spawning an
+      OS thread (a plain `std::thread`, NOT `spawn_blocking` — a sync command is not on a Tokio
+      worker, so `spawn_blocking` panics there; see the comment at its definition). A re-audit of
+      **every** sync `#[tauri::command]` found the class of bug alive in the project-lifecycle and
+      whole-field commands instead, all now `async` + `tauri::async_runtime::spawn_blocking`:
+      `open_project`, `new_project` (a field-scale open runs one-time migrations — ~15 min on the
+      2.5 GB BLSO project, the entire time with the window frozen), `save_project_as` +
+      `compact_project` (gigabyte engine copies), `materialize_tvd` (every selected well) and
+      `run_query` (user-authored SQL = unbounded cost). Concurrency is unchanged where it matters:
+      the DB `Mutex` still serializes, so nothing observes a half-swapped project.
+      **Still pre-window: the STARTUP open** — `run()` opens the project before the Tauri window
+      exists, so a first-open migration shows no window at all rather than a frozen one. Fixing that
+      needs a placeholder `DbState` + a "database not ready" contract on every command; tracked as
+      its own item, not folded in here.
 - [ ] **(#129) [HIGH-RISK]** Rayon over wells is defeated by the single global `Mutex<Connection>` — every
       well locks the same conn. Split reads (read-only connection pool) from the single serialized writer;
       writes (computed_curves DELETE+append in `with_txn`) **must stay single-writer** to protect the

@@ -5361,4 +5361,32 @@ machine's RAM, and all of it happened silently. All three fixed:
 
 ---
 
+## 2026-07-30 — Audit backlog #128: long operations no longer freeze the window
+
+Follow-on from the open-hardening work. Anything that can run for minutes was still executing on
+the app's main event-loop thread, so while it worked the window itself was frozen — Windows shows
+"not responding", nothing repaints, no button responds. Six such operations now run on a worker
+thread. (Chain/ML/SandiMin runs were already off-thread; this closes the rest.)
+
+- [ ] **Open Project on BLSO** (or any large project): the window stays alive and repainting the
+      whole time, the status line's "this can take minutes" message is readable, and the app is not
+      greyed out / "not responding". This is the one worth checking first — it is the operation you
+      hit the 15 minutes on.
+- [ ] **Compact Project** and **Save Project As** on BLSO: same — the window stays responsive
+      while gigabytes are rewritten. Panels that need the database will pause until it finishes
+      (correct — they must not read a half-swapped project), but the window itself never freezes.
+- [ ] **Recompute TVD/TVDSS Curves** across many wells: window stays alive.
+- [ ] **SQL Query panel**: run a deliberately heavy query (e.g. a join over `computed_curves`
+      with no WHERE). It should be interruptible-feeling — the window stays responsive instead of
+      locking up until the query returns.
+- [ ] **Nothing changed in behaviour** — same results, same errors, same undo. This increment is
+      purely *where* the work runs.
+
+**Still true, and not fixed here:** at **startup** the project opens *before* the window is
+created, so a first-open migration on a big project shows no window at all rather than a frozen
+one. That needs a different fix (a window that opens first and waits for the database) — logged in
+ROADMAP as its own item.
+
+---
+
 _Made in SandiBumi._ © 2026 SandiBumi. All rights reserved.

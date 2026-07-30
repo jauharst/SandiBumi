@@ -97,10 +97,12 @@ fn startup_problem(state: tauri::State<StartupState>) -> Option<StartupProblem> 
 /// export: the app KEEPS working on the current file. The engine copy (rather than a
 /// file copy) writes only live rows, so a Save As is also a compaction — a field project
 /// bloated by months of module re-runs exports at its true data size.
+/// Async: copying a field-scale project is a multi-minute write, and on the event loop that
+/// is a frozen window (see `open_project`).
 #[tauri::command]
-fn save_project_as(
-    db: tauri::State<DbState>,
-    proj: tauri::State<project::ProjectState>,
+async fn save_project_as(
+    db: tauri::State<'_, DbState>,
+    proj: tauri::State<'_, project::ProjectState>,
     dest_path: String,
 ) -> Result<(), String> {
     let src = proj.0.lock().unwrap().clone();
@@ -116,25 +118,33 @@ fn save_project_as(
     if std::path::Path::new(&stale_wal).exists() {
         std::fs::remove_file(&stale_wal).map_err(|e| format!("could not overwrite {stale_wal}: {e}"))?;
     }
-    let conn = db.0.lock().unwrap();
-    db::engine_copy_to(&conn, &dest_path).map_err(|e| e.to_string())
+    let handle = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = handle.lock().unwrap();
+        db::engine_copy_to(&conn, &dest_path).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// "Compact Project": rewrites the open project in place, dropping the dead space left by
 /// module re-runs (see `project::compact_project`). Blocked while background jobs run —
 /// the connection swap must not race a chain mid-write.
 #[tauri::command]
-fn compact_project(
-    db: tauri::State<DbState>,
-    proj: tauri::State<project::ProjectState>,
-    chains: tauri::State<chain::ChainRegistry>,
-    jobs_reg: tauri::State<jobs::JobRegistry>,
+async fn compact_project(
+    db: tauri::State<'_, DbState>,
+    proj: tauri::State<'_, project::ProjectState>,
+    chains: tauri::State<'_, chain::ChainRegistry>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
 ) -> Result<project::CompactReport, String> {
     if chain::any_active(&chains) || jobs::any_active(&jobs_reg) {
         return Err("A background job is still running — wait for it to finish before compacting".to_string());
     }
     let path = proj.0.lock().unwrap().clone();
-    project::compact_project(&db, &path)
+    let owned = DbState(db.0.clone());
+    tauri::async_runtime::spawn_blocking(move || project::compact_project(&owned, &path))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Drains the queued boot/maintenance notices (one-time migration backups, memory caps,
@@ -151,9 +161,9 @@ fn list_recent_projects() -> Vec<project::RecentProject> {
     project::list_recents()
 }
 
-/// Name + path of the project currently open.
-#[tauri::command]
-fn current_project(proj: tauri::State<project::ProjectState>) -> project::RecentProject {
+/// Which project is open, as a `RecentProject`. Shared by the command and by the
+/// project-switch commands (which cannot call a `State`-taking command from an async body).
+fn project_info(proj: &project::ProjectState) -> project::RecentProject {
     let path = proj.0.lock().unwrap().clone();
     project::RecentProject {
         name: project::project_name(&path),
@@ -163,17 +173,31 @@ fn current_project(proj: tauri::State<project::ProjectState>) -> project::Recent
     }
 }
 
-/// Switches the live connection to an EXISTING project file ("IP style" open).
+/// Name + path of the project currently open.
 #[tauri::command]
-fn open_project(
-    db: tauri::State<DbState>,
-    proj: tauri::State<project::ProjectState>,
-    chains: tauri::State<chain::ChainRegistry>,
-    jobs_reg: tauri::State<jobs::JobRegistry>,
+fn current_project(proj: tauri::State<project::ProjectState>) -> project::RecentProject {
+    project_info(&proj)
+}
+
+/// Switches the live connection to an EXISTING project file ("IP style" open).
+///
+/// **Async on purpose.** A sync `#[tauri::command]` runs on the main event-loop thread, so
+/// opening a field-scale project — which may run one-time storage migrations, each backing
+/// up gigabytes first — froze the whole window for the duration (a real 2.5 GB project took
+/// ~15 minutes, during which Windows reports "not responding"). Off-thread, the window keeps
+/// painting and the status line's "this can take minutes" message is actually readable.
+/// Commands that touch the database still block on its mutex, which is correct: they must
+/// not see a half-swapped project.
+#[tauri::command]
+async fn open_project(
+    db: tauri::State<'_, DbState>,
+    proj: tauri::State<'_, project::ProjectState>,
+    chains: tauri::State<'_, chain::ChainRegistry>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
     path: String,
 ) -> Result<project::RecentProject, String> {
     if project::is_current(&proj, &path) {
-        return Ok(current_project(proj));
+        return Ok(project_info(&proj));
     }
     if chain::any_active(&chains) || jobs::any_active(&jobs_reg) {
         return Err("A background job is still running — wait for it to finish before switching projects".to_string());
@@ -181,18 +205,23 @@ fn open_project(
     if !std::path::Path::new(&path).exists() {
         return Err(format!("File not found: {path}"));
     }
-    let info = project::switch_project(&db, &path)?;
+    let owned = DbState(db.0.clone());
+    let info = tauri::async_runtime::spawn_blocking(move || project::switch_project(&owned, &path))
+        .await
+        .map_err(|e| e.to_string())??;
     *proj.0.lock().unwrap() = info.path.clone();
     Ok(info)
 }
 
 /// Creates a FRESH project file (full schema, no wells) and switches to it.
+/// Async for the same reason as `open_project`: the switch closes the OUTGOING project,
+/// whose checkpoint can be slow on a big one.
 #[tauri::command]
-fn new_project(
-    db: tauri::State<DbState>,
-    proj: tauri::State<project::ProjectState>,
-    chains: tauri::State<chain::ChainRegistry>,
-    jobs_reg: tauri::State<jobs::JobRegistry>,
+async fn new_project(
+    db: tauri::State<'_, DbState>,
+    proj: tauri::State<'_, project::ProjectState>,
+    chains: tauri::State<'_, chain::ChainRegistry>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
     path: String,
 ) -> Result<project::RecentProject, String> {
     if chain::any_active(&chains) || jobs::any_active(&jobs_reg) {
@@ -201,7 +230,10 @@ fn new_project(
     if std::path::Path::new(&path).exists() {
         return Err(format!("{path} already exists — use Open Project to open it"));
     }
-    let info = project::switch_project(&db, &path)?;
+    let owned = DbState(db.0.clone());
+    let info = tauri::async_runtime::spawn_blocking(move || project::switch_project(&owned, &path))
+        .await
+        .map_err(|e| e.to_string())??;
     *proj.0.lock().unwrap() = info.path.clone();
     Ok(info)
 }
@@ -878,19 +910,29 @@ struct TvdMaterialize {
 /// depth-mode can consume them by name. Deviation import already does this automatically;
 /// this command re-runs it (e.g. after importing logs later or editing the KB datum). Wells
 /// with no survey or no logs report `samples = 0`.
+/// Async: this runs over EVERY selected well, so at field scale it is a minutes-long write —
+/// on the event loop that would freeze the window (see `open_project`).
 #[tauri::command]
-fn materialize_tvd(db: tauri::State<DbState>, well_ids: Vec<String>) -> Result<Vec<TvdMaterialize>, String> {
-    let conn = db.0.lock().unwrap();
-    let mut out = Vec::with_capacity(well_ids.len());
-    for wid in &well_ids {
-        let well_name: String = conn
-            .query_row("SELECT well_name FROM wells WHERE well_id = ?1", [wid], |r| r.get(0))
-            .unwrap_or_else(|_| wid.clone());
-        let has_survey = !db::get_well_path(&conn, wid).map_err(|e| e.to_string())?.is_empty();
-        let samples = ingest::materialize_tvd_curves(&conn, wid).map_err(|e| e.to_string())?;
-        out.push(TvdMaterialize { well_id: wid.clone(), well_name, samples, has_survey });
-    }
-    Ok(out)
+async fn materialize_tvd(
+    db: tauri::State<'_, DbState>,
+    well_ids: Vec<String>,
+) -> Result<Vec<TvdMaterialize>, String> {
+    let handle = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = handle.lock().unwrap();
+        let mut out = Vec::with_capacity(well_ids.len());
+        for wid in &well_ids {
+            let well_name: String = conn
+                .query_row("SELECT well_name FROM wells WHERE well_id = ?1", [wid], |r| r.get(0))
+                .unwrap_or_else(|_| wid.clone());
+            let has_survey = !db::get_well_path(&conn, wid).map_err(|e| e.to_string())?.is_empty();
+            let samples = ingest::materialize_tvd_curves(&conn, wid).map_err(|e| e.to_string())?;
+            out.push(TvdMaterialize { well_id: wid.clone(), well_name, samples, has_survey });
+        }
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Phase 6: imports every scalar channel of a DLIS file into one existing well's generic
@@ -1656,11 +1698,22 @@ fn sw_method_spread(
     resultsqc::sw_method_spread(&conn, &req)
 }
 
-/// Read-only SQL over the project database (full DuckDB SQL, SELECT-only).
+/// Read-only SQL over the project database (full DuckDB SQL, SELECT-only). Async: the user
+/// writes the query, so its cost is unbounded — a join over a field-scale `computed_curves`
+/// must not freeze the window (see `open_project`).
 #[tauri::command]
-fn run_query(db: tauri::State<DbState>, sql: String, limit: usize) -> Result<db::TablePage, String> {
-    let conn = db.0.lock().unwrap();
-    db::run_readonly_query(&conn, &sql, limit)
+async fn run_query(
+    db: tauri::State<'_, DbState>,
+    sql: String,
+    limit: usize,
+) -> Result<db::TablePage, String> {
+    let handle = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = handle.lock().unwrap();
+        db::run_readonly_query(&conn, &sql, limit)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Exports one well (standard + computed curves) as a LAS 2.0 file; returns row count.
