@@ -8,6 +8,7 @@ import {
 import { setStatus } from "../state";
 import { recordProcess } from "../processLog";
 import { formRow, openModal } from "./modal";
+import { suggestSetName } from "./importSetDialog";
 
 /** Core import v2 wizard (T-IMP-07): probe → CONFIRM → commit.
  *
@@ -57,6 +58,9 @@ export interface CoreImportChoice {
   extraHeaders: string[];
   /** Dataset the extras land under ("CORE" by default). */
   extrasDataset: string;
+  /** Name of the DELIVERY the plugs land in (T-IMP-08). Resolved per well on the backend,
+   *  auto-suffixed rather than overwriting an earlier delivery of the same name. */
+  setName: string;
 }
 
 /** Resolves a by-name choice against one file's probed headers. Returns null (with a
@@ -105,10 +109,15 @@ export function mappingForFile(
 }
 
 /** Aggregates per-file results into the status line + History entries. */
-function report(results: { path: string; res: CoreTableImportResult | null; skipped?: string }[], well: { well_name: string } | null): void {
+function report(
+  results: { path: string; res: CoreTableImportResult | null; skipped?: string }[],
+  well: { well_name: string } | null,
+  requestedSet?: string,
+): void {
   let rows = 0;
   let extraRows = 0;
   const extraItems = new Set<string>();
+  const setsUsed = new Set<string>();
   let wells = new Set<string>();
   const problems: string[] = [];
   for (const { path, res, skipped } of results) {
@@ -126,8 +135,10 @@ function report(results: { path: string; res: CoreTableImportResult | null; skip
     extraRows += res.extra_rows;
     for (const i of res.extra_items) extraItems.add(i);
     for (const o of res.outcomes) {
-      if (o.imported > 0) wells.add(o.well_name);
-      else if (o.problem) problems.push(`${o.well_name}: ${o.problem}`);
+      if (o.imported > 0) {
+        wells.add(o.well_name);
+        if (o.set_name) setsUsed.add(o.set_name);
+      } else if (o.problem) problems.push(`${o.well_name}: ${o.problem}`);
     }
     if (res.skipped_blank_well > 0) problems.push(`${base}: ${res.skipped_blank_well} blank-well row(s) skipped`);
     recordProcess("Import", `Imported ${res.rows_imported} core sample(s) into ${res.wells_imported} well(s) ← ${path}`);
@@ -140,10 +151,20 @@ function report(results: { path: string; res: CoreTableImportResult | null; skip
   if (extraRows) {
     recordProcess("Import", `Stored ${extraRows} core point-data value(s) from ${items.join(", ")}`, well?.well_name);
   }
+  // Say the SET out loud, and especially when it was suffixed — "I asked for RCAL and got
+  // RCAL_1" means that well already carried an RCAL delivery, which is worth knowing.
+  const sets = [...setsUsed];
+  const want = (requestedSet ?? "").trim().toUpperCase().replace(/ /g, "_");
+  const suffixed = want ? sets.filter((s) => s !== want) : [];
+  const setNote = sets.length
+    ? ` Core set ${sets.slice(0, 3).join(", ")}${sets.length > 3 ? ", …" : ""}${
+        suffixed.length ? ` — ${suffixed.length} well(s) already had a '${want}' set, so theirs was suffixed` : ""
+      }.`
+    : "";
   if (rows === 0) {
     setStatus(`Core import: nothing imported.${probNote || " (no matching wells?)"}`);
   } else {
-    setStatus(`Imported ${rows} core sample(s) into ${wells.size} well(s).${extraNote}${probNote}`);
+    setStatus(`Imported ${rows} core sample(s) into ${wells.size} well(s).${setNote}${extraNote}${probNote}`);
   }
   if (problems.length) {
     for (const p of problems) recordProcess("Import", `Core import issue — ${p}`, well?.well_name);
@@ -211,6 +232,27 @@ export async function openCoreImportWizard(
     selects.set(role.key, sel);
     wrap.appendChild(formRow(role.label, sel, role.hint));
   }
+
+  // --- Core set: which DELIVERY these plugs are (T-IMP-08). ---
+  // A well can hold RCAL, a SCAL plug set and a corrected re-delivery side by side; the
+  // import never overwrites an earlier one, so the name is how they are told apart.
+  const setInput = document.createElement("input");
+  setInput.type = "text";
+  setInput.className = "form-control";
+  setInput.value = suggestSetName(paths) || "CORE";
+  wrap.appendChild(
+    formRow(
+      "Core set",
+      setInput,
+      "Names this delivery. Upper-cased; if a well already carries a set with this name the new one is suffixed (RCAL → RCAL_1) — an import never overwrites earlier plugs.",
+    ),
+  );
+  const setHint = document.createElement("p");
+  setHint.className = "form-hint";
+  setHint.textContent =
+    "The imported set becomes each receiving well's ACTIVE core — what the log overlay, φ-k plots and " +
+    "calibration read. Switch or delete deliveries later in Data → Tools → Core Sets & Surveys…";
+  wrap.appendChild(setHint);
 
   // --- Depth unit (the silent-3.28× guard). ---
   const unitSel = document.createElement("select");
@@ -392,6 +434,7 @@ export async function openCoreImportWizard(
         ? lead.headers.filter((h) => !taken.has(h) && checkedExtras.has(h))
         : [],
       extrasDataset: datasetInput.value.trim() || "CORE",
+      setName: setInput.value.trim() || "CORE",
     };
     for (const role of ROLES) {
       const v = selects.get(role.key)?.value ?? "";
@@ -427,12 +470,14 @@ export async function openCoreImportWizard(
           choice.depthUnit,
           fallbackWell?.well_id ?? null,
           choice.extraHeaders.length ? choice.extrasDataset : null,
+          choice.setName,
         );
         if (m.missing.length && !res.error) {
           res.outcomes.push({
             well_name: "(this file)",
             rows: 0,
             imported: 0,
+            set_name: null,
             problem: `column(s) not in this file, left empty: ${m.missing.join(", ")}`,
           });
         }
@@ -441,7 +486,7 @@ export async function openCoreImportWizard(
         results.push({ path, res: null, skipped: String(e) });
       }
     }
-    report(results, fallbackWell);
+    report(results, fallbackWell, choice.setName);
     onDone();
   });
 }

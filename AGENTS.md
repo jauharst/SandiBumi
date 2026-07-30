@@ -309,6 +309,23 @@ stay aligned; replace-on-reimport per (well, dataset). **Extras are stored VERBA
 percent/unit conversion; do not add one silently.** `extras` is `#[serde(default)]`, so
 older IPC payloads still deserialize.
 
+Core sets + survey versions shipped (2026-07-30, T-IMP-08/-12) — core plugs and deviation
+surveys follow the set model, with a deliberately DIFFERENT resolution rule from curves:
+curve sets are read together (RAW priority, others fill gaps), but two core deliveries
+measure the SAME plugs, so **exactly ONE core set and ONE survey are active per well and
+every reader follows it**. `core_data.set_name` (PK well_id,set_name,depth) + `core_sets`
+registry; `well_path.survey_name` + `well_surveys` registry (active/source/datum/imported_at).
+**All core/survey reads go through the shared SQL fragments `db::ACTIVE_CORE_SET` /
+`ACTIVE_SURVEY` — a reader that forgets the filter silently unions two deliveries and
+doubles a φ-k cloud; keep new readers on the fragment.** `db::migrate_core_and_survey_sets`
+rebuilds pre-set-era projects (rows become RAW/active — byte-identical readings), idempotent,
+backed up per RELEASE §3.2, wired into `project::open_and_migrate`. Imports take a name
+(`import_core_table(..., set_name)`, `import_deviation_csv(..., survey_name)`), resolved PER
+WELL via `resolve_core_set_name`/`resolve_survey_name` (auto-suffix, never overwrite), and the
+new set/survey becomes active. **`set_active_survey` MUST re-materialize TVD/TVDSS** (the
+Tauri command does) — stale stored TVD would keep feeding height calculations the old
+geometry. `shift_core_depths` and `update_core_sample` act on the ACTIVE set only. UI:
+`dataSetsDialog.ts` (Data → Tools ▾ → Core Sets & Surveys…).
 
 ## DuckDB WAL resilience
 

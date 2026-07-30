@@ -402,11 +402,17 @@ pub fn import_all_curves_into_generic_store(
 /// Parses a deviation-survey CSV (columns MD/INC/AZI, alias-tolerant) and stores the
 /// computed minimum-curvature TVD/TVDSS in `well_path` for one well. `datum_elevation`
 /// (KB above MSL) is used for TVDSS; if omitted, the well's `kb` is used, else 0.
+///
+/// `survey_name` (T-IMP-12) versions the survey: a definitive survey imported over a
+/// preliminary one becomes a SECOND survey (auto-suffixed if the name is taken), not a
+/// replacement, and the new one becomes active — so the TVD/TVDSS materialized below is
+/// the geometry the user just delivered, while the old survey stays switchable.
 pub fn import_deviation_csv(
     conn: &Connection,
     well_id: &str,
     path: &str,
     datum_elevation: Option<f32>,
+    survey_name: Option<&str>,
 ) -> CoreImportResult {
     let exists: bool = conn
         .query_row("SELECT 1 FROM wells WHERE well_id = ?1", params![well_id], |_| Ok(true))
@@ -431,7 +437,15 @@ pub fn import_deviation_csv(
     });
     let stations = crate::deviation::minimum_curvature(&survey.md, &survey.inc, &survey.azi, datum);
     let rows = stations.len();
-    match db::insert_well_path(conn, well_id, &stations) {
+    let desired = survey_name
+        .map(|s| s.trim().to_uppercase().replace(' ', "_"))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "SURVEY".to_string());
+    let name = match db::resolve_survey_name(conn, well_id, &desired) {
+        Ok(n) => n,
+        Err(e) => return CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()) },
+    };
+    match db::insert_well_path(conn, well_id, &name, Some(path), Some(datum), &stations) {
         Ok(()) => {
             // Materialize TVD/TVDSS onto the log grid so height modules (sw_height, the SHF
             // fits, the TVDSS correlation view) can fetch them by name. Best-effort: the
@@ -507,8 +521,10 @@ pub struct CoreImportResult {
     pub error: Option<String>,
 }
 
-/// Parses a routine-core-analysis CSV and replaces the given well's core plug data.
-/// Unlike LAS import, this attaches to an existing well rather than creating one.
+/// Parses a routine-core-analysis CSV into a NEW core set on the given well (legacy
+/// single-well path, kept for the tests and any caller that has no wizard). The set is
+/// named CORE, auto-suffixed if that name is taken — an import never overwrites an earlier
+/// delivery. Unlike LAS import, this attaches to an existing well rather than creating one.
 pub fn import_core_csv(conn: &Connection, well_id: &str, path: &str) -> CoreImportResult {
     let exists: bool = conn
         .query_row("SELECT 1 FROM wells WHERE well_id = ?1", params![well_id], |_| Ok(true))
@@ -522,7 +538,21 @@ pub fn import_core_csv(conn: &Connection, well_id: &str, path: &str) -> CoreImpo
         Err(e) => return CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()) },
     };
     let rows = columns.depth.len();
-    match db::insert_core_data(conn, well_id, &columns.depth, &columns.cpor, &columns.cperm, &columns.cgd, &columns.csw) {
+    let set = match db::resolve_core_set_name(conn, well_id, "CORE") {
+        Ok(s) => s,
+        Err(e) => return CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()) },
+    };
+    match db::insert_core_data(
+        conn,
+        well_id,
+        &set,
+        Some(path),
+        &columns.depth,
+        &columns.cpor,
+        &columns.cperm,
+        &columns.cgd,
+        &columns.csw,
+    ) {
         Ok(()) => CoreImportResult { path: path.to_string(), rows, error: None },
         Err(e) => CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()) },
     }
@@ -538,6 +568,10 @@ pub struct CoreWellOutcome {
     pub rows: usize,
     /// Rows actually stored (post depth-dedup); 0 when the name didn't import.
     pub imported: usize,
+    /// The core SET the plugs landed in on THIS well — the requested name, or an
+    /// auto-suffixed one when that well already carried a delivery of that name
+    /// (T-IMP-08: an import never overwrites an earlier core delivery).
+    pub set_name: Option<String>,
     /// None = imported cleanly; Some = why this name's rows were skipped.
     pub problem: Option<String>,
 }
@@ -575,6 +609,11 @@ pub struct CoreTableImportResult {
 /// "CORE") at the same converted plug depths — numeric cells as numbers, everything else
 /// as text — so a wide lab export imports whole in one pass instead of needing a second
 /// Import Aux run. Replace-on-reimport per (well, dataset), matching the core discipline.
+///
+/// `set_name` (T-IMP-08) names the DELIVERY. It is resolved PER WELL, so a name already
+/// used on one well is suffixed there (`RCAL` → `RCAL_1`) while other wells still get the
+/// plain name — the plugs of an earlier delivery are never overwritten, and the newly
+/// imported set becomes the well's active one.
 pub fn import_core_table(
     conn: &Connection,
     path: &str,
@@ -582,6 +621,7 @@ pub fn import_core_table(
     depth_unit: Option<&str>,
     fallback_well_id: Option<&str>,
     extras_dataset: Option<&str>,
+    set_name: Option<&str>,
 ) -> CoreTableImportResult {
     let fail = |e: String| CoreTableImportResult {
         path: path.to_string(),
@@ -603,6 +643,10 @@ pub fn import_core_table(
     let extras_dataset = extras_dataset
         .map(|d| d.trim().to_uppercase())
         .filter(|d| !d.is_empty())
+        .unwrap_or_else(|| "CORE".to_string());
+    let desired_set = set_name
+        .map(|s| s.trim().to_uppercase().replace(' ', "_"))
+        .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "CORE".to_string());
     if rows.is_empty() {
         return fail("no rows with a parsable depth".into());
@@ -654,7 +698,22 @@ pub fn import_core_table(
             csw = take(&csw);
             extras = keep.iter().map(|&i| extras[i]).collect();
         }
-        match db::insert_core_data(conn, well_id, &depth, &cpor, &cperm, &cgd, &csw) {
+        // Resolved PER WELL: the same delivery name may be free on one well and already
+        // used on another, and neither well's earlier plugs may be overwritten.
+        let set = match db::resolve_core_set_name(conn, well_id, &desired_set) {
+            Ok(s) => s,
+            Err(e) => {
+                outcomes.push(CoreWellOutcome {
+                    well_name: well_name.to_string(),
+                    rows: list.len(),
+                    imported: 0,
+                    set_name: None,
+                    problem: Some(e.to_string()),
+                });
+                return;
+            }
+        };
+        match db::insert_core_data(conn, well_id, &set, Some(path), &depth, &cpor, &cperm, &cgd, &csw) {
             Ok(()) => {
                 rows_imported += depth.len();
                 wells_imported += 1;
@@ -691,6 +750,7 @@ pub fn import_core_table(
                     well_name: well_name.to_string(),
                     rows: list.len(),
                     imported: depth.len(),
+                    set_name: Some(set.clone()),
                     problem,
                 });
             }
@@ -698,6 +758,7 @@ pub fn import_core_table(
                 well_name: well_name.to_string(),
                 rows: list.len(),
                 imported: 0,
+                set_name: None,
                 problem: Some(e.to_string()),
             }),
         }
@@ -728,12 +789,14 @@ pub fn import_core_table(
                 well_name: name.clone(),
                 rows: list.len(),
                 imported: 0,
+                set_name: None,
                 problem: Some("no well of this name in the project".into()),
             }),
             n => outcomes.push(CoreWellOutcome {
                 well_name: name.clone(),
                 rows: list.len(),
                 imported: 0,
+                set_name: None,
                 problem: Some(format!("{n} wells share this name — ambiguous, merge or delete duplicates first")),
             }),
         }
@@ -1254,6 +1317,8 @@ mod tests {
     use super::*;
     use std::io::Write;
 
+    /// Core import round-trip + the SET discipline (T-IMP-08): a second delivery never
+    /// overwrites the first, exactly one set is live, and every reader follows it.
     #[test]
     fn core_import_roundtrip_and_replace() {
         let conn = Connection::open_in_memory().unwrap();
@@ -1282,30 +1347,63 @@ mod tests {
         assert_eq!(n, 2);
         assert!((cpor0 - 0.18).abs() < 1e-6, "percent porosity must land as v/v, got {cpor0}");
 
-        // Re-import replaces rather than duplicates.
+        // Re-import KEEPS the first delivery and lands beside it as a second SET
+        // (T-IMP-08): the old behaviour silently overwrote plugs the lab had sent once.
         let again = import_core_csv(&conn, &ids, csv);
         assert!(again.error.is_none());
-        let n: i64 = conn
-            .query_row("SELECT COUNT(*) FROM core_data WHERE well_id = ?1", params![ids], |r| r.get(0))
-            .unwrap();
-        assert_eq!(n, 2, "re-import must replace, not append");
+        let sets = db::list_core_sets(&conn, &ids).unwrap();
+        assert_eq!(sets.len(), 2, "second delivery is a second set: {sets:?}");
+        assert_eq!(sets[0].set_name, "CORE_1", "the newest import is active and listed first");
+        assert!(sets[0].active);
+        assert!(sets.iter().all(|s| s.rows == 2));
+        // …but a READER still sees one delivery's worth of plugs, never both merged.
+        assert_eq!(db::get_core_plugs(&conn, &ids).unwrap().len(), 2, "readers see the ACTIVE set only");
+
+        // Switching back makes the first delivery live again.
+        db::set_active_core_set(&conn, &ids, "CORE").unwrap();
+        assert_eq!(db::get_core_plugs(&conn, &ids).unwrap().len(), 2);
+        assert!(db::list_core_sets(&conn, &ids).unwrap().iter().filter(|s| s.active).count() == 1);
 
         // Unknown well is rejected cleanly.
         let bad = import_core_csv(&conn, "no-such-well", csv);
         assert!(bad.error.is_some());
 
-        // Core-to-log shift moves every plug by the same delta and reverses exactly.
+        // Core-to-log shift moves the ACTIVE set's plugs by the same delta and reverses
+        // exactly; the other delivery keeps its own depths.
         let shifted = db::shift_core_depths(&conn, &ids, 2.5).unwrap();
         assert_eq!(shifted, 2);
         let min_depth: f32 = conn
-            .query_row("SELECT MIN(depth) FROM core_data WHERE well_id = ?1", params![ids], |r| r.get(0))
+            .query_row(
+                "SELECT MIN(depth) FROM core_data WHERE well_id = ?1 AND set_name = 'CORE'",
+                params![ids],
+                |r| r.get(0),
+            )
             .unwrap();
         assert!((min_depth - 2003.5).abs() < 1e-4);
+        let untouched: f32 = conn
+            .query_row(
+                "SELECT MIN(depth) FROM core_data WHERE well_id = ?1 AND set_name = 'CORE_1'",
+                params![ids],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!((untouched - 2001.0).abs() < 1e-4, "the inactive delivery must not move");
         db::shift_core_depths(&conn, &ids, -2.5).unwrap();
         let min_depth: f32 = conn
-            .query_row("SELECT MIN(depth) FROM core_data WHERE well_id = ?1", params![ids], |r| r.get(0))
+            .query_row(
+                "SELECT MIN(depth) FROM core_data WHERE well_id = ?1 AND set_name = 'CORE'",
+                params![ids],
+                |r| r.get(0),
+            )
             .unwrap();
         assert!((min_depth - 2001.0).abs() < 1e-4);
+
+        // Deleting the live set hands over to the survivor — never leaves plugs unreadable.
+        db::delete_core_set(&conn, &ids, "CORE").unwrap();
+        let sets = db::list_core_sets(&conn, &ids).unwrap();
+        assert_eq!(sets.len(), 1);
+        assert!(sets[0].active && sets[0].set_name == "CORE_1");
+        assert_eq!(db::get_core_plugs(&conn, &ids).unwrap().len(), 2);
         std::fs::remove_file(&path).ok();
     }
 
@@ -1401,7 +1499,7 @@ mod tests {
         // Deviation survey → TVD/TVDSS.
         let dev = std::env::temp_dir().join(format!("arshilla_dev_test_{ids}.csv"));
         std::fs::write(&dev, "MD,INC,AZI\n0,0,0\n1000,0,0\n2000,60,45\n").unwrap();
-        let res = import_deviation_csv(&conn, &ids, dev.to_str().unwrap(), Some(25.0));
+        let res = import_deviation_csv(&conn, &ids, dev.to_str().unwrap(), Some(25.0), None);
         std::fs::remove_file(&dev).ok();
         assert!(res.error.is_none(), "{:?}", res.error);
         assert_eq!(res.rows, 3);
@@ -1432,7 +1530,7 @@ mod tests {
         // Vertical to 1000, build to 60° by 2000, hold to 3000.
         let dev = std::env::temp_dir().join(format!("arshilla_devmat_{ids}.csv"));
         std::fs::write(&dev, "MD,INC,AZI\n0,0,0\n1000,0,0\n2000,60,45\n3000,60,45\n").unwrap();
-        let res = import_deviation_csv(&conn, &ids, dev.to_str().unwrap(), Some(25.0));
+        let res = import_deviation_csv(&conn, &ids, dev.to_str().unwrap(), Some(25.0), None);
         std::fs::remove_file(&dev).ok();
         assert!(res.error.is_none(), "{:?}", res.error);
 
@@ -1449,6 +1547,58 @@ mod tests {
         for (t, ss) in tvd.iter().zip(tvdss.iter()) {
             assert!((ss - (25.0 - t)).abs() < 1e-1, "TVDSS = 25 - TVD: {ss} vs {}", 25.0 - t);
         }
+    }
+
+    /// Survey versioning (T-IMP-12): a second survey lands beside the first instead of
+    /// replacing it, the newest drives TVD, and switching back RE-materializes the older
+    /// geometry — a stale TVD would silently poison every height calculation.
+    #[test]
+    fn deviation_import_versions_surveys_and_switching_rebuilds_tvd() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, "DEV-VER-1", None, None, None).unwrap();
+        let ids = wid.to_string();
+        let depth = vec![0.0f32, 1000.0, 2000.0, 3000.0];
+        let f = vec![1.0f32; depth.len()];
+        crate::db::insert_standard_curves(
+            &conn, wid, depth.clone(), vec![50.0f32; depth.len()],
+            f.clone(), f.clone(), f.clone(), f.clone(), f,
+        )
+        .unwrap();
+
+        let write = |name: &str, body: &str| -> String {
+            let p = std::env::temp_dir().join(format!("arshilla_devver_{name}_{ids}.csv"));
+            std::fs::write(&p, body).unwrap();
+            p.to_string_lossy().into_owned()
+        };
+        // Preliminary: vertical all the way. Definitive: builds to 60°.
+        let prelim = write("prelim", "MD,INC,AZI\n0,0,0\n1000,0,0\n2000,0,0\n3000,0,0\n");
+        let defin = write("defin", "MD,INC,AZI\n0,0,0\n1000,0,0\n2000,60,45\n3000,60,45\n");
+
+        assert!(import_deviation_csv(&conn, &ids, &prelim, Some(25.0), Some("PRELIM")).error.is_none());
+        assert!(import_deviation_csv(&conn, &ids, &defin, Some(25.0), Some("DEFINITIVE")).error.is_none());
+
+        let surveys = db::list_surveys(&conn, &ids).unwrap();
+        assert_eq!(surveys.len(), 2, "the preliminary survey survives: {surveys:?}");
+        assert_eq!(surveys[0].survey_name, "DEFINITIVE", "newest import is active");
+        assert!(surveys[0].active && !surveys[1].active);
+        assert_eq!(surveys.iter().map(|s| s.stations).sum::<i64>(), 8);
+
+        // Readers see ONE survey, and it is the definitive (deviated) one.
+        let path = db::get_well_path(&conn, &ids).unwrap();
+        assert_eq!(path.len(), 4, "never both surveys merged");
+        assert!(path[3].tvd < 2900.0, "definitive geometry is deviated: {}", path[3].tvd);
+
+        // Switch back: TVD must be rebuilt from the preliminary (vertical) survey.
+        db::set_active_survey(&conn, &ids, "PRELIM").unwrap();
+        materialize_tvd_curves(&conn, &ids).unwrap();
+        let (_g, cols) = crate::equations::fetch_curve_frame(&conn, &ids, &["TVD".to_string()]).unwrap();
+        let last = *cols["TVD"].last().unwrap();
+        assert!((last - 3000.0).abs() < 1e-1, "vertical survey → TVD == MD, got {last}");
+
+        std::fs::remove_file(&prelim).ok();
+        std::fs::remove_file(&defin).ok();
     }
 
     #[test]
@@ -1502,7 +1652,7 @@ mod tests {
         // Import a deviated survey (would compute a very DIFFERENT TVDSS = 25 − TVD).
         let dev = std::env::temp_dir().join(format!("arshilla_devmat3_{ids}.csv"));
         std::fs::write(&dev, "MD,INC,AZI\n0,0,0\n1000,0,0\n2000,60,45\n3000,60,45\n").unwrap();
-        let res = import_deviation_csv(&conn, &ids, dev.to_str().unwrap(), Some(25.0));
+        let res = import_deviation_csv(&conn, &ids, dev.to_str().unwrap(), Some(25.0), None);
         std::fs::remove_file(&dev).ok();
         assert!(res.error.is_none(), "{:?}", res.error);
 
@@ -1629,7 +1779,7 @@ mod tests {
             csw: probe.csw,
             extras: vec![6, 9],
         };
-        let res = import_core_table(&conn, spath, &mapping, Some("ft"), None, Some("core"));
+        let res = import_core_table(&conn, spath, &mapping, Some("ft"), None, Some("core"), None);
         assert!(res.error.is_none(), "{:?}", res.error);
         assert_eq!(res.wells_imported, 2, "W-A and W-B only");
         assert_eq!(res.rows_imported, 4);

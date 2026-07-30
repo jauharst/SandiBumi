@@ -288,6 +288,7 @@ fn import_core_table(
     depth_unit: Option<String>,
     fallback_well_id: Option<String>,
     extras_dataset: Option<String>,
+    set_name: Option<String>,
 ) -> Result<ingest::CoreTableImportResult, String> {
     let conn = db.0.lock().unwrap();
     Ok(ingest::import_core_table(
@@ -297,6 +298,7 @@ fn import_core_table(
         depth_unit.as_deref(),
         fallback_well_id.as_deref(),
         extras_dataset.as_deref(),
+        set_name.as_deref(),
     ))
 }
 
@@ -708,14 +710,61 @@ async fn import_deviation_csv(
     well_id: String,
     path: String,
     datum_elevation: Option<f32>,
+    survey_name: Option<String>,
 ) -> Result<ingest::CoreImportResult, String> {
     let conn = db.0.clone();
     let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import deviation", base, move || {
         let c = conn.lock().unwrap();
-        Ok(ingest::import_deviation_csv(&c, &well_id, &path, datum_elevation))
+        Ok(ingest::import_deviation_csv(&c, &well_id, &path, datum_elevation, survey_name.as_deref()))
     })
     .await
+}
+
+/// One well's core deliveries and deviation surveys, for the set manager (T-IMP-08/-12).
+#[tauri::command]
+fn list_core_sets(db: tauri::State<DbState>, well_id: String) -> Result<Vec<db::CoreSetInfo>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_core_sets(&conn, &well_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn list_surveys(db: tauri::State<DbState>, well_id: String) -> Result<Vec<db::SurveyInfo>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_surveys(&conn, &well_id).map_err(|e| e.to_string())
+}
+
+/// Makes one core delivery the live one — every core reader (log overlay, φ-k clouds,
+/// SandiMin calibration, DB Inspector edits) follows it from here on.
+#[tauri::command]
+fn set_active_core_set(db: tauri::State<DbState>, well_id: String, set_name: String) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    db::set_active_core_set(&conn, &well_id, &set_name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_core_set(db: tauri::State<DbState>, well_id: String, set_name: String) -> Result<usize, String> {
+    let conn = db.0.lock().unwrap();
+    db::delete_core_set(&conn, &well_id, &set_name).map_err(|e| e.to_string())
+}
+
+/// Makes one survey the live one and RE-MATERIALIZES TVD/TVDSS from it — the stored
+/// curves must never keep the previous survey's geometry (they feed every height
+/// calculation). Returns the number of samples rewritten.
+#[tauri::command]
+fn set_active_survey(db: tauri::State<DbState>, well_id: String, survey_name: String) -> Result<usize, String> {
+    let conn = db.0.lock().unwrap();
+    db::set_active_survey(&conn, &well_id, &survey_name).map_err(|e| e.to_string())?;
+    ingest::materialize_tvd_curves(&conn, &well_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_survey(db: tauri::State<DbState>, well_id: String, survey_name: String) -> Result<usize, String> {
+    let conn = db.0.lock().unwrap();
+    let removed = db::delete_survey(&conn, &well_id, &survey_name).map_err(|e| e.to_string())?;
+    // Whatever survey took over (or none) now owns TVD/TVDSS.
+    let _ = ingest::materialize_tvd_curves(&conn, &well_id);
+    Ok(removed)
 }
 
 /// Phase 6: reads one well's deviation survey (with computed TVD/TVDSS) for TVD-aware views.
@@ -1775,6 +1824,12 @@ pub fn run() {
             delete_generic_curve,
             promote_generic_curve,
             import_deviation_csv,
+            list_core_sets,
+            list_surveys,
+            set_active_core_set,
+            delete_core_set,
+            set_active_survey,
+            delete_survey,
             get_well_path,
             materialize_tvd,
             import_dlis_file,

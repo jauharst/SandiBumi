@@ -5252,4 +5252,43 @@ treated as a real curve/measurement instead, tell me which and it becomes a mapp
 
 ---
 
+## 2026-07-30 — Core sets & survey versions: nothing overwrites anything (T-IMP-08 / T-IMP-12)
+
+You marked T-IMP-08 **Fail** with "refer T-IMP-02 about how duplicated data managed", and
+T-IMP-12 the same. That is now the rule for core and surveys as well: **one delivery = one
+named set, and an import never overwrites an earlier one.**
+
+One difference from curve sets, on purpose: curve sets are read TOGETHER (a set supplies
+mnemonics RAW lacks). Two core deliveries measure the SAME plugs, so reading both would
+double your φ-k cloud. Exactly **one core set and one survey are ACTIVE** per well, and
+everything reads that one — log overlay, crossplots, HFU, SandiMin calibration, Shift Core,
+DB Inspector edits, TVD/TVDSS.
+
+- [ ] **Import the same core file twice.** Import Core suggests a set name from the filename
+      (`blso00025_lapi2023_rcal.csv` → `RCAL`). Second import → status says
+      `Core set RCAL_1 — 1 well(s) already had a 'RCAL' set, so theirs was suffixed`. Both
+      deliveries are kept, the newest is live.
+- [ ] **The plug count does NOT double.** Open a φ-k crossplot or the core overlay after that
+      second import — same number of points as one delivery, not two.
+- [ ] **Data → Tools ▾ → Core Sets & Surveys…** on that well: both sets listed with plug
+      count, source file and import date, ● on the live one. Click **Use** on the older one →
+      the plots repaint to that delivery. **Delete** asks first; deleting the live one hands
+      over to the next newest (never leaves plugs no panel can see).
+- [ ] **Surveys:** import a preliminary survey (`SURVEY`), then a definitive one
+      (`DEFINITIVE`). Both listed; TVD at TD reflects the definitive. Switch back with **Use**
+      → status says TVD/TVDSS was rebuilt, and TVD at TD changes back. This is the part worth
+      checking hardest on a real deviated well — a stale TVD would quietly feed every
+      height calculation.
+- [ ] **Your existing projects:** open one that already has core and/or a survey. It migrates
+      on launch (a backup copy is written beside the project first, per the release rule), the
+      old data appears as set/survey **RAW**, active, and **every number reads exactly as
+      before**. Check a φ-k plot and a TVD you know.
+- [ ] **Duplicated depth inside ONE file** still drops first-kept with the note — that is a
+      broken row in a single delivery, not a second delivery.
+
+*Not yet:* core sets don't show in the Wells-pane ▸ tree next to curve sets — the manager
+dialog is the place for now. Say if you want them in the tree.
+
+---
+
 _Made in SandiBumi._ © 2026 SandiBumi. All rights reserved.

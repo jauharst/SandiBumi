@@ -665,9 +665,24 @@ Multimin Parameters.xlsx, extracted into `ref_kkt_onwj_wave_e.md` — client fil
       selected well and refuses with a reason only when nothing can be routed). SCAL still
       status-bar-refuses without a well; Jauhar may want a louder guard — his call after the
       2026-07-30 test-plan explanation.
-- [ ] **(T-IMP-08/-12) Duplicate/versioning for core + deviation data.** Sets answer this for
-      curves; core plugs and surveys still replace wholesale (per well). Revisit if multiple
-      core services per well (Core Type column) become real.
+- [x] **(T-IMP-08/-12) Duplicate/versioning for core + deviation data.** _(Done 2026-07-30)_
+      Core plugs and surveys now follow the set model, with a deliberately DIFFERENT resolution
+      rule from curves: two curve sets can both be read (a set supplies mnemonics RAW lacks),
+      but two core deliveries measure the SAME plugs, so **exactly one core set and one survey
+      are ACTIVE per well** and every reader follows it (`db::ACTIVE_CORE_SET` /
+      `ACTIVE_SURVEY`, one shared SQL fragment so no reader can silently union two deliveries
+      and double a φ-k cloud). Schema: `core_data.set_name` + `core_sets` registry,
+      `well_path.survey_name` + `well_surveys` registry (active/source/datum/imported_at);
+      `db::migrate_core_and_survey_sets` rebuilds pre-set-era projects (existing rows become
+      RAW, active — same numbers as before), idempotent, backed up per RELEASE §3.2. Imports
+      take a name (Core wizard suggests it from the filename, deviation dialog defaults
+      SURVEY), auto-suffix per well rather than overwriting, and the new set/survey goes live;
+      the status line names the set and says which wells were suffixed. `set_active_survey`
+      re-materializes TVD/TVDSS so stored curves never keep the previous geometry. UI =
+      `dataSetsDialog.ts` (Data → Tools ▾ → Core Sets & Surveys…): both lists, ● active, Use /
+      Delete, delete-the-active hands over to the newest survivor. Shift Core and DB Inspector
+      cell edits target the ACTIVE set only.
+      Follow-up: core sets are not yet browsable in the Wells-pane ▸ tree beside curve sets.
 
 Cross-cutting notes: (11) Balam South testing is the per-increment verification standard, not a separate
 item. New suites must land as panes (Wave A first), use the 15-var theme contract, manifest-driven

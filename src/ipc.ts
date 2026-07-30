@@ -1692,6 +1692,8 @@ export interface CoreWellOutcome {
   well_name: string;
   rows: number;
   imported: number;
+  /** The core SET the plugs landed in on this well (auto-suffixed if the name was taken). */
+  set_name: string | null;
   problem: string | null;
 }
 
@@ -1717,13 +1719,16 @@ export function probeCoreTable(path: string): Promise<TableProbe> {
 /** Commits one core table under the confirmed mapping: rows route per well name
  *  (unmatched/ambiguous reported, never guessed) or all to `fallbackWellId`; depths
  *  convert from `depthUnit` ("ft"/"m"; null = already project unit). Columns in
- *  `mapping.extras` land as point data under `extrasDataset` (null = "CORE"). */
+ *  `mapping.extras` land as point data under `extrasDataset` (null = "CORE"). `setName`
+ *  names the delivery: resolved per well, auto-suffixed rather than overwriting an earlier
+ *  one, and the new set becomes that well's active core. */
 export function importCoreTable(
   path: string,
   mapping: CoreMapping,
   depthUnit: string | null,
   fallbackWellId: string | null,
   extrasDataset: string | null = null,
+  setName: string | null = null,
 ): Promise<CoreTableImportResult> {
   return invoke<CoreTableImportResult>("import_core_table", {
     path,
@@ -1731,6 +1736,7 @@ export function importCoreTable(
     depthUnit,
     fallbackWellId,
     extrasDataset,
+    setName,
   });
 }
 
@@ -2204,9 +2210,61 @@ export interface WellPathStation {
 }
 
 /** Imports a deviation survey CSV (MD/INC/AZI) and computes minimum-curvature TVD/TVDSS.
- *  `datumElevation` (KB above MSL) is used for TVDSS; null falls back to the well's KB. */
-export function importDeviationCsv(wellId: string, path: string, datumElevation: number | null): Promise<CoreImportResult> {
-  return invoke<CoreImportResult>("import_deviation_csv", { wellId, path, datumElevation });
+ *  `datumElevation` (KB above MSL) is used for TVDSS; null falls back to the well's KB.
+ *  `surveyName` versions the survey — a second import lands BESIDE the first (auto-suffixed
+ *  if the name is taken) and becomes the active one, never overwriting it. */
+export function importDeviationCsv(
+  wellId: string,
+  path: string,
+  datumElevation: number | null,
+  surveyName: string | null = null,
+): Promise<CoreImportResult> {
+  return invoke<CoreImportResult>("import_deviation_csv", { wellId, path, datumElevation, surveyName });
+}
+
+/** One core delivery of a well (T-IMP-08). Exactly one is `active`; every core reader —
+ *  log overlay, φ-k clouds, SandiMin calibration, DB Inspector edits — follows it. */
+export interface CoreSetInfo {
+  set_name: string;
+  rows: number;
+  active: boolean;
+  source: string | null;
+  imported_at: string | null;
+}
+
+/** One deviation survey of a well (T-IMP-12). The active one drives TVD/TVDSS. */
+export interface SurveyInfo {
+  survey_name: string;
+  stations: number;
+  active: boolean;
+  source: string | null;
+  datum: number | null;
+  imported_at: string | null;
+}
+
+export function listCoreSets(wellId: string): Promise<CoreSetInfo[]> {
+  return invoke<CoreSetInfo[]>("list_core_sets", { wellId });
+}
+
+export function listSurveys(wellId: string): Promise<SurveyInfo[]> {
+  return invoke<SurveyInfo[]>("list_surveys", { wellId });
+}
+
+export function setActiveCoreSet(wellId: string, setName: string): Promise<void> {
+  return invoke<void>("set_active_core_set", { wellId, setName });
+}
+
+export function deleteCoreSet(wellId: string, setName: string): Promise<number> {
+  return invoke<number>("delete_core_set", { wellId, setName });
+}
+
+/** Activates a survey AND rebuilds TVD/TVDSS from it; returns the samples rewritten. */
+export function setActiveSurvey(wellId: string, surveyName: string): Promise<number> {
+  return invoke<number>("set_active_survey", { wellId, surveyName });
+}
+
+export function deleteSurvey(wellId: string, surveyName: string): Promise<number> {
+  return invoke<number>("delete_survey", { wellId, surveyName });
 }
 
 export function getWellPath(wellId: string): Promise<WellPathStation[]> {

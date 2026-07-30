@@ -2111,6 +2111,38 @@ textarea {
   margin: 4px 0 0;
 }
 
+/* Core sets & surveys manager: one row per delivery, active row highlighted. */
+.set-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--fs-sm);
+  margin-bottom: 6px;
+}
+.set-table th,
+.set-table td {
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.set-table th {
+  font-weight: 600;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+.set-table tr.set-active td {
+  color: var(--text);
+  font-weight: 600;
+}
+.set-table td:last-child {
+  text-align: right;
+}
+.set-table td .btn {
+  padding: 1px 8px;
+  margin-left: 4px;
+}
+
 /* Section label inside a properties dialog (Crossplot/Histogram v2). */
 .props-section {
   font-size: var(--fs-xs);

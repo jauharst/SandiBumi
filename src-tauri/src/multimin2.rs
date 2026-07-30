@@ -3347,7 +3347,7 @@ mod tests {
         let cpor = vec![0.30f32, 0.30, 0.30, 30.0];
         let cgd = vec![rho_q as f32, rho_q as f32, rho_q as f32 + 0.10, 999.25];
         let nanv = vec![f32::NAN; 4];
-        crate::db::insert_core_data(&conn, &cored.to_string(), &cd, &cpor, &nanv, &cgd, &nanv).unwrap();
+        crate::db::insert_core_data(&conn, &cored.to_string(), "RAW", None, &cd, &cpor, &nanv, &cgd, &nanv).unwrap();
         let db = Mutex::new(conn);
 
         let req = MultiminRequest {

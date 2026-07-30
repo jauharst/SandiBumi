@@ -38,6 +38,7 @@ import type { SessionSnapshot, Workspace } from "./workspace";
 import { formRow, openModal } from "./modal";
 import { openImportSetDialog, suggestSetName } from "./importSetDialog";
 import { openCoreImportWizard } from "./coreImportDialog";
+import { openDataSetsDialog } from "./dataSetsDialog";
 
 interface RibbonMenuItem {
   label: string;
@@ -359,6 +360,11 @@ export class Ribbon {
           label: "Shift Core…",
           doc: "Shift the selected well's core plugs by a constant depth (core-to-log alignment; undoable)",
           onPick: () => this.handleShiftCore(),
+        },
+        {
+          label: "Core Sets & Surveys…",
+          doc: "Every core delivery and deviation survey imported for the selected well — switch which one is active, or delete one",
+          onPick: () => this.handleDataSets(),
         },
         {
           label: "Well Header…",
@@ -1146,7 +1152,19 @@ export class Ribbon {
     await openCoreImportWizard(paths, well, () => this.workspace.notifyDataChanged());
   }
 
-  /** "Shift Core…" — constant core-to-log depth shift for the selected well's plugs.
+  /** "Core Sets & Surveys…" — the selected well's core deliveries and deviation surveys:
+   *  which one is live, switch, or delete (T-IMP-08 / T-IMP-12). */
+  private handleDataSets(): void {
+    const well = appState.selectedWell.get();
+    if (!well) {
+      setStatus("Select a well first (Wells & Tops panel)");
+      return;
+    }
+    openDataSetsDialog(well, () => this.workspace.notifyDataChanged());
+  }
+
+  /** "Shift Core…" — constant core-to-log depth shift for the ACTIVE core set's plugs
+   *  (other deliveries of the well keep their own depths).
    *  Exactly reversible, so it lands on the undo stack (Ctrl+Z shifts back). */
   private handleShiftCore(): void {
     const well = appState.selectedWell.get();
@@ -1592,6 +1610,19 @@ export class Ribbon {
       "Computes TVD/TVDSS by the minimum-curvature method from the MD/INC/AZI survey. " +
       "Datum elevation (KB above mean sea level) sets TVDSS = datum − TVD; leave blank to use the well's KB.";
     content.appendChild(doc);
+    // T-IMP-12: the survey is VERSIONED. A definitive survey imported over a preliminary
+    // one lands beside it and takes over TVD/TVDSS; the old one stays switchable.
+    const nameInput = document.createElement("input");
+    nameInput.type = "text";
+    nameInput.className = "form-control";
+    nameInput.value = "SURVEY";
+    content.appendChild(
+      formRow(
+        "Survey name",
+        nameInput,
+        "Names this survey. A name already used on the well is suffixed (SURVEY → SURVEY_1) — an import never overwrites an earlier survey. The new survey becomes active and drives TVD/TVDSS.",
+      ),
+    );
     const datumInput = document.createElement("input");
     datumInput.type = "number";
     datumInput.step = "0.1";
@@ -1612,7 +1643,7 @@ export class Ribbon {
         return;
       }
       setStatus(`Importing deviation survey for ${well.well_name}…`);
-      void importDeviationCsv(well.well_id, path, datum)
+      void importDeviationCsv(well.well_id, path, datum, nameInput.value.trim() || "SURVEY")
         .then((result) => {
           if (result.error) {
             setStatus(`Deviation import failed: ${result.error}`);

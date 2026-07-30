@@ -450,7 +450,7 @@ mod tests {
         let cperm: Vec<f32> = plugs.iter().map(|p| p.2).collect();
         let cgd = vec![f32::NAN; plugs.len()];
         let csw = vec![f32::NAN; plugs.len()];
-        crate::db::insert_core_data(&conn, &wid.to_string(), &depths, &cpor, &cperm, &cgd, &csw).unwrap();
+        crate::db::insert_core_data(&conn, &wid.to_string(), "RAW", None, &depths, &cpor, &cperm, &cgd, &csw).unwrap();
         (conn, wid.to_string())
     }
 

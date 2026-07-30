@@ -158,6 +158,11 @@ pub fn open_and_migrate(path: &str) -> Result<duckdb::Connection, String> {
     db::migrate_drop_computed_curves_pk(&conn, Some(path))
         .map_err(|e| format!("computed-curves migration failed: {e}"))?;
     eprintln!("[boot] migrate_drop_computed_curves_pk: {:?}", t.elapsed());
+
+    let t = std::time::Instant::now();
+    db::migrate_core_and_survey_sets(&conn, Some(path))
+        .map_err(|e| format!("core/survey set migration failed: {e}"))?;
+    eprintln!("[boot] migrate_core_and_survey_sets: {:?}", t.elapsed());
     Ok(conn)
 }
 

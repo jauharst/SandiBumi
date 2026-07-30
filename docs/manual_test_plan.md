@@ -639,6 +639,24 @@ DB Inspector → `aux_data`.
 
 **Notes:** refer T-IMP-06 and T-IMP-02 about how duplicated data managed
 
+**Update 2026-07-30 — REBUILT as core SETS (your note is the spec).** Duplicated data is
+now managed the way T-IMP-02 manages curves: **one delivery = one named core set**, and an
+import NEVER overwrites an earlier one. Import Core asks for a **Core set** name (suggested
+from the filename — `blso00025_lapi2023_rcal.csv` → `RCAL`); a well that already carries
+that name gets the new delivery suffixed (`RCAL` → `RCAL_1`), reported in the status line.
+The imported set becomes that well's **active** core.
+
+Unlike curve sets, core sets do NOT merge: two deliveries measure the same plugs, so
+**exactly one set is active per well** and every reader follows it — log overlay, φ-k
+crossplots, HFU, SandiMin core calibration, Shift Core, DB Inspector edits. Switch or delete
+deliveries in **Data → Tools ▾ → Core Sets & Surveys…** (● marks the live one, with plug
+count, source file and import date).
+
+Duplicated depths WITHIN one delivery still drop first-kept — that is a broken row inside a
+single file, not a second delivery. Re-test both: (1) doctored CSV with a repeated depth →
+imports with the dropped-row note; (2) import the same real file twice → two sets, both
+kept, the newest live, and the plug count in any plot does NOT double.
+
 ### T-IMP-09 — Shift Core: constant core-to-log shift, undo, invalid input rejected
 
 **Tool/panel:** Tools ▾ → Shift Core… (ribbon.ts `handleShiftCore`)
@@ -731,6 +749,17 @@ correctly (value_num vs value_text per cell).
 - [ ] Blocked
 
 **Notes:** refer T-IMP-02
+
+**Update 2026-07-30 — surveys are VERSIONED too.** Same model as core sets: Import
+Deviation asks for a **Survey name** (default `SURVEY`, auto-suffixed if taken), a second
+import lands BESIDE the first instead of replacing it, and the new survey becomes active.
+Only the active survey is read anywhere, and **switching one immediately recomputes
+TVD/TVDSS from it** — a stale TVD would otherwise keep feeding every height calculation the
+geometry you just switched away from. Manage them in **Data → Tools ▾ → Core Sets &
+Surveys…**; the row shows station count, datum, source file and import date. Deleting the
+active survey hands over to the next newest and rebuilds TVD from it. Worth testing with a
+preliminary vs definitive survey on the same well: TVD at TD should visibly change when you
+switch, and change back.
 
 ### T-IMP-13 — Well locations import → wells post on the Field Map at UTM coordinates
 

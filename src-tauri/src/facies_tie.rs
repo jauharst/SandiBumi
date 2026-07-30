@@ -283,7 +283,7 @@ mod tests {
         let ck: Vec<f32> = vec![100.0, 110.0, 90.0, 1.0, 1.1, 0.9, -5.0];
         let cp = vec![0.2f32; cd.len()];
         let nanv = vec![f32::NAN; cd.len()];
-        crate::db::insert_core_data(&conn, &ids, &cd, &cp, &ck, &nanv, &nanv).unwrap();
+        crate::db::insert_core_data(&conn, &ids, "RAW", None, &cd, &cp, &ck, &nanv, &nanv).unwrap();
 
         let db = Mutex::new(conn);
         let res = run_facies_confusion(

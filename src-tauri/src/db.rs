@@ -320,14 +320,32 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
         -- Core plug measurements (routine core analysis), sparse/irregular depths that do
         -- NOT align with the standard_curves depth grid — kept in its own table rather
         -- than computed_curves so overlay panels can fetch it at its own resolution.
+        -- `set_name` versions the delivery (T-IMP-08): a well can hold RCAL, a SCAL plug
+        -- set and a corrected re-delivery side by side, and an import NEVER overwrites an
+        -- earlier one (names auto-suffix, as curve sets do). Unlike curve sets, core sets
+        -- do NOT union: two deliveries measure the SAME plugs, so exactly one set is
+        -- ACTIVE per well and every reader sees only that one (`core_sets.active`).
         CREATE TABLE IF NOT EXISTS core_data (
             well_id     UUID NOT NULL,
+            set_name    VARCHAR NOT NULL DEFAULT 'RAW',
             depth       FLOAT NOT NULL,
             cpor        FLOAT, -- core porosity, v/v
             cperm       FLOAT, -- core permeability, mD
             cgd         FLOAT, -- core grain density, g/cc
             csw         FLOAT, -- core water saturation, v/v
-            PRIMARY KEY (well_id, depth)
+            PRIMARY KEY (well_id, set_name, depth)
+        );
+
+        -- Registry of a well's core deliveries: which exist, where they came from, and
+        -- which one is live. Exactly 0 or 1 active per well, enforced in code (same
+        -- discipline as `well_groups.active`).
+        CREATE TABLE IF NOT EXISTS core_sets (
+            well_id     UUID NOT NULL,
+            set_name    VARCHAR NOT NULL,
+            active      INTEGER NOT NULL DEFAULT 0,
+            source      VARCHAR,           -- file the delivery came from
+            imported_at TIMESTAMP NOT NULL DEFAULT now(),
+            PRIMARY KEY (well_id, set_name)
         );
 
         -- Tops-style auxiliary datasets (petrography, XRD, perforations, …): sparse
@@ -403,14 +421,29 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
 
         -- Deviation survey + computed TVD/TVDSS (minimum curvature), one row per
         -- station. `well_path` is empty for vertical wells (MD == TVD assumed).
+        -- `survey_name` versions the survey the same way core sets version plugs
+        -- (T-IMP-12): a definitive survey can sit beside the preliminary one it replaced,
+        -- and re-import never silently overwrites. Exactly one survey is ACTIVE per well;
+        -- it is the one that drives TVD/TVDSS everywhere (`well_surveys.active`).
         CREATE TABLE IF NOT EXISTS well_path (
             well_id     UUID NOT NULL,
+            survey_name VARCHAR NOT NULL DEFAULT 'RAW',
             md          FLOAT NOT NULL,
             inc         FLOAT NOT NULL,   -- inclination, degrees
             azi         FLOAT NOT NULL,   -- azimuth, degrees
             tvd         FLOAT,            -- computed, minimum curvature
             tvdss       FLOAT,            -- tvd - kb (or well.kb if datum omitted)
-            PRIMARY KEY (well_id, md)
+            PRIMARY KEY (well_id, survey_name, md)
+        );
+
+        CREATE TABLE IF NOT EXISTS well_surveys (
+            well_id     UUID NOT NULL,
+            survey_name VARCHAR NOT NULL,
+            active      INTEGER NOT NULL DEFAULT 0,
+            source      VARCHAR,
+            datum       FLOAT,             -- KB/datum elevation the TVDSS was computed at
+            imported_at TIMESTAMP NOT NULL DEFAULT now(),
+            PRIMARY KEY (well_id, survey_name)
         );
 
         -- Well groups: user-defined named sets of wells so a large field (2000+ wells) can
@@ -606,6 +639,87 @@ pub fn migrate_drop_computed_curves_pk(conn: &Connection, path: Option<&str>) ->
     Ok(())
 }
 
+/// One-time migration that gives `core_data` a `set_name` and `well_path` a `survey_name`
+/// (T-IMP-08 / T-IMP-12), so a well can hold several core deliveries and several surveys
+/// instead of each import replacing the last.
+///
+/// Both tables carry a PRIMARY KEY that must gain a column, which DuckDB cannot alter in
+/// place, so each is rebuilt. Existing rows become the set/survey named **RAW** and are
+/// registered ACTIVE — so a migrated project reads exactly the numbers it read before.
+/// Idempotent: the column list is consulted first, so this is a no-op on freshly created
+/// databases and on every launch after the first.
+///
+/// Destructive (a table rebuild), so it follows the RELEASE §3.2 rule: when it is actually
+/// going to run, `path` is backed up first and a failed backup ABORTS the migration.
+/// `path: None` is for in-memory test databases only.
+pub fn migrate_core_and_survey_sets(conn: &Connection, path: Option<&str>) -> DbResult<()> {
+    let has_set: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM duckdb_columns()
+         WHERE table_name = 'core_data' AND column_name = 'set_name'",
+        [],
+        |r| r.get(0),
+    )?;
+    let has_survey: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM duckdb_columns()
+         WHERE table_name = 'well_path' AND column_name = 'survey_name'",
+        [],
+        |r| r.get(0),
+    )?;
+    if has_set > 0 && has_survey > 0 {
+        return Ok(());
+    }
+    if let Some(path) = path {
+        let backup = backup_before_destructive_migration(conn, path)?;
+        eprintln!("[boot] destructive migration (core/survey set columns) ahead: project backed up to {backup}");
+    }
+
+    if has_set == 0 {
+        conn.execute_batch(
+            "BEGIN;
+             CREATE TABLE core_data_new (
+                 well_id     UUID NOT NULL,
+                 set_name    VARCHAR NOT NULL DEFAULT 'RAW',
+                 depth       FLOAT NOT NULL,
+                 cpor        FLOAT,
+                 cperm       FLOAT,
+                 cgd         FLOAT,
+                 csw         FLOAT,
+                 PRIMARY KEY (well_id, set_name, depth)
+             );
+             INSERT INTO core_data_new
+                 SELECT well_id, 'RAW', depth, cpor, cperm, cgd, csw FROM core_data;
+             DROP TABLE core_data;
+             ALTER TABLE core_data_new RENAME TO core_data;
+             INSERT INTO core_sets (well_id, set_name, active, source)
+                 SELECT DISTINCT well_id, 'RAW', 1, NULL FROM core_data;
+             COMMIT;",
+        )?;
+    }
+    if has_survey == 0 {
+        conn.execute_batch(
+            "BEGIN;
+             CREATE TABLE well_path_new (
+                 well_id     UUID NOT NULL,
+                 survey_name VARCHAR NOT NULL DEFAULT 'RAW',
+                 md          FLOAT NOT NULL,
+                 inc         FLOAT NOT NULL,
+                 azi         FLOAT NOT NULL,
+                 tvd         FLOAT,
+                 tvdss       FLOAT,
+                 PRIMARY KEY (well_id, survey_name, md)
+             );
+             INSERT INTO well_path_new
+                 SELECT well_id, 'RAW', md, inc, azi, tvd, tvdss FROM well_path;
+             DROP TABLE well_path;
+             ALTER TABLE well_path_new RENAME TO well_path;
+             INSERT INTO well_surveys (well_id, survey_name, active, source)
+                 SELECT DISTINCT well_id, 'RAW', 1, NULL FROM well_path;
+             COMMIT;",
+        )?;
+    }
+    Ok(())
+}
+
 /// A single standard LAS curve row, used for deserializing incoming parsed data
 /// (LAS 2.0 / generic curve CSV) before batch insertion.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -679,11 +793,137 @@ where
     }
 }
 
-/// Bulk-inserts core plug data for one well, replacing any prior rows for that well
-/// (re-import overwrites rather than duplicating).
+/// SQL fragment naming a well's ACTIVE core set: the flagged one, else the most recently
+/// imported, else 'RAW'. Every core reader filters on this — a missed filter would union
+/// two deliveries of the same plugs and silently double the φ–k cloud. `?1` is the well id
+/// (bound once; the placeholder is reused, as `list_aux_data` already does with `?2`).
+const ACTIVE_CORE_SET: &str = "COALESCE((SELECT set_name FROM core_sets WHERE well_id = ?1
+                                         ORDER BY active DESC, imported_at DESC LIMIT 1), 'RAW')";
+
+/// Same, for deviation surveys.
+const ACTIVE_SURVEY: &str = "COALESCE((SELECT survey_name FROM well_surveys WHERE well_id = ?1
+                                       ORDER BY active DESC, imported_at DESC LIMIT 1), 'RAW')";
+
+/// One core delivery of one well, as the set manager shows it.
+#[derive(Debug, Clone, Serialize)]
+pub struct CoreSetInfo {
+    pub set_name: String,
+    pub rows: i64,
+    pub active: bool,
+    pub source: Option<String>,
+    pub imported_at: Option<String>,
+}
+
+/// A well's core sets, active first then newest, with plug counts.
+pub fn list_core_sets(conn: &Connection, well_id: &str) -> DbResult<Vec<CoreSetInfo>> {
+    let mut stmt = conn.prepare(
+        "SELECT s.set_name, s.active, s.source, CAST(s.imported_at AS VARCHAR),
+                (SELECT COUNT(*) FROM core_data d WHERE d.well_id = s.well_id AND d.set_name = s.set_name)
+         FROM core_sets s WHERE s.well_id = ?1
+         ORDER BY s.active DESC, s.imported_at DESC, s.set_name",
+    )?;
+    let rows = stmt.query_map(params![well_id], |r| {
+        Ok(CoreSetInfo {
+            set_name: r.get(0)?,
+            active: r.get::<_, i32>(1)? != 0,
+            source: r.get(2)?,
+            imported_at: r.get(3)?,
+            rows: r.get(4)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
+/// The name a new core delivery will actually be stored under: `desired` when the well
+/// does not have it yet, else `desired_1`, `_2`, … — an import NEVER overwrites an earlier
+/// delivery (identical rule to `ingest::resolve_set_name` for curves).
+pub fn resolve_core_set_name(conn: &Connection, well_id: &str, desired: &str) -> DbResult<String> {
+    let base = {
+        let t = desired.trim().to_uppercase().replace(' ', "_");
+        if t.is_empty() { "CORE".to_string() } else { t }
+    };
+    let taken = |name: &str| -> DbResult<bool> {
+        let n: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM core_sets WHERE well_id = ?1 AND upper(set_name) = ?2",
+            params![well_id, name],
+            |r| r.get(0),
+        )?;
+        Ok(n > 0)
+    };
+    if !taken(&base)? {
+        return Ok(base);
+    }
+    for i in 1..1000 {
+        let cand = format!("{base}_{i}");
+        if !taken(&cand)? {
+            return Ok(cand);
+        }
+    }
+    Err(DbError::LengthMismatch(format!("too many core sets named {base}")))
+}
+
+/// Makes one core set the well's live one (0 or 1 active per well).
+pub fn set_active_core_set(conn: &Connection, well_id: &str, set_name: &str) -> DbResult<()> {
+    with_txn(conn, |conn| {
+        conn.execute("UPDATE core_sets SET active = 0 WHERE well_id = ?1", params![well_id])?;
+        let n = conn.execute(
+            "UPDATE core_sets SET active = 1 WHERE well_id = ?1 AND set_name = ?2",
+            params![well_id, set_name],
+        )?;
+        if n == 0 {
+            return Err(DbError::LengthMismatch(format!("no core set '{set_name}' on this well")));
+        }
+        Ok(())
+    })
+}
+
+/// Deletes one core delivery outright. If it was the active one, the newest survivor takes
+/// over — a well is never left with plugs no reader can see.
+pub fn delete_core_set(conn: &Connection, well_id: &str, set_name: &str) -> DbResult<usize> {
+    let removed = with_txn(conn, |conn| -> DbResult<usize> {
+        let n = conn.execute(
+            "DELETE FROM core_data WHERE well_id = ?1 AND set_name = ?2",
+            params![well_id, set_name],
+        )?;
+        conn.execute(
+            "DELETE FROM core_sets WHERE well_id = ?1 AND set_name = ?2",
+            params![well_id, set_name],
+        )?;
+        Ok(n)
+    })?;
+    let has_active: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM core_sets WHERE well_id = ?1 AND active = 1",
+        params![well_id],
+        |r| r.get(0),
+    )?;
+    if has_active == 0 {
+        let next: Option<String> = conn
+            .query_row(
+                "SELECT set_name FROM core_sets WHERE well_id = ?1 ORDER BY imported_at DESC LIMIT 1",
+                params![well_id],
+                |r| r.get(0),
+            )
+            .ok();
+        if let Some(next) = next {
+            set_active_core_set(conn, well_id, &next)?;
+        }
+    }
+    Ok(removed)
+}
+
+/// Bulk-inserts one core DELIVERY for a well under `set_name`, replacing only that set's
+/// rows (re-importing the same set name overwrites it; a NEW name leaves earlier deliveries
+/// untouched — callers pass a name from `resolve_core_set_name`). The stored set becomes the
+/// well's active one: it is what the user just imported and expects to see.
 pub fn insert_core_data(
     conn: &Connection,
     well_id: &str,
+    set_name: &str,
+    source: Option<&str>,
     depths: &[f32],
     cpor: &[f32],
     cperm: &[f32],
@@ -695,12 +935,24 @@ pub fn insert_core_data(
         return Err(DbError::LengthMismatch(format!("expected all core columns to have length {n}")));
     }
     with_txn(conn, |conn| {
-        conn.execute("DELETE FROM core_data WHERE well_id = ?1", params![well_id])?;
+        conn.execute(
+            "DELETE FROM core_data WHERE well_id = ?1 AND set_name = ?2",
+            params![well_id, set_name],
+        )?;
         let mut appender: Appender = conn.appender("core_data")?;
         for i in 0..n {
-            appender.append_row(params![well_id, depths[i], cpor[i], cperm[i], cgd[i], csw[i]])?;
+            appender.append_row(params![well_id, set_name, depths[i], cpor[i], cperm[i], cgd[i], csw[i]])?;
         }
         appender.flush()?;
+        conn.execute(
+            "DELETE FROM core_sets WHERE well_id = ?1 AND set_name = ?2",
+            params![well_id, set_name],
+        )?;
+        conn.execute("UPDATE core_sets SET active = 0 WHERE well_id = ?1", params![well_id])?;
+        conn.execute(
+            "INSERT INTO core_sets (well_id, set_name, active, source) VALUES (?1, ?2, 1, ?3)",
+            params![well_id, set_name, source],
+        )?;
         Ok(())
     })
 }
@@ -837,12 +1089,13 @@ pub struct CorePlugRow {
     pub cperm: f32,
 }
 
-/// One well's core plugs (depth ascending) with porosity/permeability only. NULL φ or k
-/// become NaN so the caller can skip them.
+/// One well's core plugs (depth ascending) with porosity/permeability only, from the
+/// ACTIVE core set. NULL φ or k become NaN so the caller can skip them.
 pub fn get_core_plugs(conn: &Connection, well_id: &str) -> DbResult<Vec<CorePlugRow>> {
-    let mut stmt = conn.prepare(
-        "SELECT depth, cpor, cperm FROM core_data WHERE well_id = ?1 ORDER BY depth",
-    )?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT depth, cpor, cperm FROM core_data
+         WHERE well_id = ?1 AND set_name = {ACTIVE_CORE_SET} ORDER BY depth"
+    ))?;
     let rows = stmt.query_map(params![well_id], |row| {
         Ok(CorePlugRow {
             depth: row.get(0)?,
@@ -863,10 +1116,13 @@ pub struct CoreQcRow {
     pub cgd: f32,
 }
 
-/// One well's core plugs (depth ascending) with porosity + grain density only. NULL φ or ρg
-/// become NaN so the caller can skip them.
+/// One well's core plugs (depth ascending) with porosity + grain density only, from the
+/// ACTIVE core set. NULL φ or ρg become NaN so the caller can skip them.
 pub fn get_core_por_gd(conn: &Connection, well_id: &str) -> DbResult<Vec<CoreQcRow>> {
-    let mut stmt = conn.prepare("SELECT depth, cpor, cgd FROM core_data WHERE well_id = ?1 ORDER BY depth")?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT depth, cpor, cgd FROM core_data
+         WHERE well_id = ?1 AND set_name = {ACTIVE_CORE_SET} ORDER BY depth"
+    ))?;
     let rows = stmt.query_map(params![well_id], |row| {
         Ok(CoreQcRow {
             depth: row.get(0)?,
@@ -1314,7 +1570,10 @@ const TABLE_SPECS: &[(&str, &[&str], bool, &str)] = &[
     ("tops", &["top_name", "depth", "color"], true, "depth"),
     ("zones", &["zone_name", "top_depth", "bottom_depth"], true, "top_depth"),
     ("zone_params", &["zone_name", "param_name", "value_num", "value_text"], true, "zone_name, param_name"),
-    ("core_data", &["depth", "cpor", "cperm", "cgd", "csw"], true, "depth"),
+    // set_name is listed (read-only, like every non-editable column) so a well carrying
+    // several core deliveries can be told apart in the grid; edits still target the
+    // ACTIVE set only (see `update_core_sample`).
+    ("core_data", &["set_name", "depth", "cpor", "cperm", "cgd", "csw"], true, "set_name, depth"),
     ("aux_data", &["dataset", "depth_top", "depth_base", "item", "value_num", "value_text"], true, "dataset, depth_top, item"),
 ];
 
@@ -1857,6 +2116,64 @@ mod inspector_tests {
         assert_eq!(pk_count(&fresh, "computed_curves"), 0);
     }
 
+    /// A pre-set-era project (core_data / well_path without the set columns) must come
+    /// forward reading EXACTLY the numbers it read before: every plug and station becomes
+    /// the RAW set/survey, registered active, and the readers return them unchanged.
+    /// Idempotent — a second run is a no-op, and a fresh database never migrates at all.
+    #[test]
+    fn core_and_survey_set_migration_preserves_every_row_and_is_idempotent() {
+        let conn = Connection::open_in_memory().unwrap();
+        // A LEGACY shape: no set_name / survey_name anywhere.
+        conn.execute_batch(
+            "CREATE TABLE core_data (
+                 well_id UUID NOT NULL, depth FLOAT NOT NULL,
+                 cpor FLOAT, cperm FLOAT, cgd FLOAT, csw FLOAT,
+                 PRIMARY KEY (well_id, depth));
+             CREATE TABLE well_path (
+                 well_id UUID NOT NULL, md FLOAT NOT NULL, inc FLOAT NOT NULL, azi FLOAT NOT NULL,
+                 tvd FLOAT, tvdss FLOAT,
+                 PRIMARY KEY (well_id, md));
+             CREATE TABLE core_sets (
+                 well_id UUID NOT NULL, set_name VARCHAR NOT NULL, active INTEGER NOT NULL DEFAULT 0,
+                 source VARCHAR, imported_at TIMESTAMP NOT NULL DEFAULT now(),
+                 PRIMARY KEY (well_id, set_name));
+             CREATE TABLE well_surveys (
+                 well_id UUID NOT NULL, survey_name VARCHAR NOT NULL, active INTEGER NOT NULL DEFAULT 0,
+                 source VARCHAR, datum FLOAT, imported_at TIMESTAMP NOT NULL DEFAULT now(),
+                 PRIMARY KEY (well_id, survey_name));",
+        )
+        .unwrap();
+        let w = Uuid::new_v4().to_string();
+        conn.execute("INSERT INTO core_data VALUES (?1, 2001.0, 0.22, 150.0, 2.65, 0.35)", params![w]).unwrap();
+        conn.execute("INSERT INTO core_data VALUES (?1, 2002.0, 0.18, 20.0, 2.66, 0.42)", params![w]).unwrap();
+        conn.execute("INSERT INTO well_path VALUES (?1, 0.0, 0.0, 0.0, 0.0, 25.0)", params![w]).unwrap();
+        conn.execute("INSERT INTO well_path VALUES (?1, 1000.0, 0.0, 0.0, 1000.0, -975.0)", params![w]).unwrap();
+
+        migrate_core_and_survey_sets(&conn, None).unwrap();
+
+        // Same numbers, now readable through the set-aware readers.
+        let plugs = get_core_plugs(&conn, &w).unwrap();
+        assert_eq!(plugs.len(), 2, "no plug lost or duplicated by the rebuild");
+        assert!((plugs[0].cpor - 0.22).abs() < 1e-6 && (plugs[1].cperm - 20.0).abs() < 1e-3);
+        let path = get_well_path(&conn, &w).unwrap();
+        assert_eq!(path.len(), 2);
+        assert!((path[1].tvdss - (-975.0)).abs() < 1e-3);
+
+        // Registered as RAW and ACTIVE, so the manager shows something real.
+        let sets = list_core_sets(&conn, &w).unwrap();
+        assert_eq!(sets.len(), 1);
+        assert!(sets[0].active && sets[0].set_name == "RAW" && sets[0].rows == 2);
+        let surveys = list_surveys(&conn, &w).unwrap();
+        assert!(surveys.len() == 1 && surveys[0].active && surveys[0].stations == 2);
+
+        // Idempotent, and a no-op on a database that was created with the current schema.
+        migrate_core_and_survey_sets(&conn, None).unwrap();
+        assert_eq!(get_core_plugs(&conn, &w).unwrap().len(), 2);
+        assert_eq!(list_core_sets(&conn, &w).unwrap().len(), 1);
+        let fresh = mem_db();
+        migrate_core_and_survey_sets(&fresh, None).unwrap();
+    }
+
     /// R-B (RELEASE §3.2): when the destructive PK-drop migration actually fires against a
     /// real file, a complete pre-migration copy must exist beside it FIRST — openable, PK
     /// still present, every row intact. Opens that don't migrate must write no backup, and
@@ -2267,17 +2584,18 @@ pub fn update_standard_sample(conn: &Connection, well_id: &str, depth: f32, colu
     Ok(())
 }
 
-/// Applies a constant depth shift to every core plug of one well (core-to-log
-/// alignment). Exactly reversible with -delta, so the frontend makes it undoable.
+/// Applies a constant depth shift to the ACTIVE core set's plugs (core-to-log alignment).
+/// Exactly reversible with -delta, so the frontend makes it undoable. Other deliveries of
+/// the same well keep their own depths — a shift belongs to the set it was judged on.
 pub fn shift_core_depths(conn: &Connection, well_id: &str, delta: f32) -> DbResult<usize> {
     let n = conn.execute(
-        "UPDATE core_data SET depth = depth + ?1 WHERE well_id = ?2",
-        params![delta, well_id],
+        &format!("UPDATE core_data SET depth = depth + ?2 WHERE well_id = ?1 AND set_name = {ACTIVE_CORE_SET}"),
+        params![well_id, delta],
     )?;
     Ok(n)
 }
 
-/// Edits one core-plug sample value (NaN = missing).
+/// Edits one core-plug sample value (NaN = missing) in the ACTIVE core set.
 pub fn update_core_sample(conn: &Connection, well_id: &str, depth: f32, column: &str, value: f32) -> Result<(), String> {
     const EDITABLE: &[&str] = &["cpor", "cperm", "cgd", "csw"];
     if !EDITABLE.contains(&column) {
@@ -2285,8 +2603,11 @@ pub fn update_core_sample(conn: &Connection, well_id: &str, depth: f32, column: 
     }
     let n = conn
         .execute(
-            &format!("UPDATE core_data SET {column} = ?1 WHERE well_id = ?2 AND depth = ?3"),
-            params![value, well_id, depth],
+            &format!(
+                "UPDATE core_data SET {column} = ?3 WHERE well_id = ?1 AND depth = ?2
+                 AND set_name = {ACTIVE_CORE_SET}"
+            ),
+            params![well_id, depth, value],
         )
         .map_err(|e| e.to_string())?;
     if n == 0 {
@@ -2515,23 +2836,161 @@ pub struct WellPathStation {
     pub tvdss: f32,
 }
 
-/// Replaces the deviation survey (with computed TVD/TVDSS) for one well.
-pub fn insert_well_path(conn: &Connection, well_id: &str, stations: &[crate::deviation::Station]) -> DbResult<()> {
-    with_txn(conn, |conn| {
-        conn.execute("DELETE FROM well_path WHERE well_id = ?1", params![well_id])?;
-        let mut appender: Appender = conn.appender("well_path")?;
-        for s in stations {
-            appender.append_row(params![well_id, s.md, s.inc, s.azi, s.tvd, s.tvdss])?;
+/// One deviation survey of one well, as the set manager shows it.
+#[derive(Debug, Clone, Serialize)]
+pub struct SurveyInfo {
+    pub survey_name: String,
+    pub stations: i64,
+    pub active: bool,
+    pub source: Option<String>,
+    pub datum: Option<f32>,
+    pub imported_at: Option<String>,
+}
+
+/// A well's surveys, active first then newest, with station counts.
+pub fn list_surveys(conn: &Connection, well_id: &str) -> DbResult<Vec<SurveyInfo>> {
+    let mut stmt = conn.prepare(
+        "SELECT s.survey_name, s.active, s.source, s.datum, CAST(s.imported_at AS VARCHAR),
+                (SELECT COUNT(*) FROM well_path p WHERE p.well_id = s.well_id AND p.survey_name = s.survey_name)
+         FROM well_surveys s WHERE s.well_id = ?1
+         ORDER BY s.active DESC, s.imported_at DESC, s.survey_name",
+    )?;
+    let rows = stmt.query_map(params![well_id], |r| {
+        Ok(SurveyInfo {
+            survey_name: r.get(0)?,
+            active: r.get::<_, i32>(1)? != 0,
+            source: r.get(2)?,
+            datum: r.get(3)?,
+            imported_at: r.get(4)?,
+            stations: r.get(5)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
+/// The name a new survey will be stored under — `desired`, else `desired_1`, `_2`, …
+/// (never overwrites an earlier survey; same rule as core sets and curve sets).
+pub fn resolve_survey_name(conn: &Connection, well_id: &str, desired: &str) -> DbResult<String> {
+    let base = {
+        let t = desired.trim().to_uppercase().replace(' ', "_");
+        if t.is_empty() { "SURVEY".to_string() } else { t }
+    };
+    let taken = |name: &str| -> DbResult<bool> {
+        let n: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM well_surveys WHERE well_id = ?1 AND upper(survey_name) = ?2",
+            params![well_id, name],
+            |r| r.get(0),
+        )?;
+        Ok(n > 0)
+    };
+    if !taken(&base)? {
+        return Ok(base);
+    }
+    for i in 1..1000 {
+        let cand = format!("{base}_{i}");
+        if !taken(&cand)? {
+            return Ok(cand);
         }
-        appender.flush()?;
+    }
+    Err(DbError::LengthMismatch(format!("too many surveys named {base}")))
+}
+
+/// Makes one survey the well's live one. The caller must re-materialize TVD/TVDSS
+/// afterwards (`ingest::materialize_tvd_curves`) — the stored curves follow the active
+/// survey, and leaving them stale would silently keep the old geometry in every height
+/// calculation.
+pub fn set_active_survey(conn: &Connection, well_id: &str, survey_name: &str) -> DbResult<()> {
+    with_txn(conn, |conn| {
+        conn.execute("UPDATE well_surveys SET active = 0 WHERE well_id = ?1", params![well_id])?;
+        let n = conn.execute(
+            "UPDATE well_surveys SET active = 1 WHERE well_id = ?1 AND survey_name = ?2",
+            params![well_id, survey_name],
+        )?;
+        if n == 0 {
+            return Err(DbError::LengthMismatch(format!("no survey '{survey_name}' on this well")));
+        }
         Ok(())
     })
 }
 
-/// Reads one well's deviation survey (ordered by MD) for TVD-aware display.
+/// Deletes one survey; the newest survivor becomes active so a well is never left with
+/// stations no reader can see.
+pub fn delete_survey(conn: &Connection, well_id: &str, survey_name: &str) -> DbResult<usize> {
+    let removed = with_txn(conn, |conn| -> DbResult<usize> {
+        let n = conn.execute(
+            "DELETE FROM well_path WHERE well_id = ?1 AND survey_name = ?2",
+            params![well_id, survey_name],
+        )?;
+        conn.execute(
+            "DELETE FROM well_surveys WHERE well_id = ?1 AND survey_name = ?2",
+            params![well_id, survey_name],
+        )?;
+        Ok(n)
+    })?;
+    let has_active: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM well_surveys WHERE well_id = ?1 AND active = 1",
+        params![well_id],
+        |r| r.get(0),
+    )?;
+    if has_active == 0 {
+        let next: Option<String> = conn
+            .query_row(
+                "SELECT survey_name FROM well_surveys WHERE well_id = ?1 ORDER BY imported_at DESC LIMIT 1",
+                params![well_id],
+                |r| r.get(0),
+            )
+            .ok();
+        if let Some(next) = next {
+            set_active_survey(conn, well_id, &next)?;
+        }
+    }
+    Ok(removed)
+}
+
+/// Stores one deviation survey (with computed TVD/TVDSS) under `survey_name`, replacing
+/// only that survey's stations and making it the well's active one. Earlier surveys of the
+/// same well are untouched.
+pub fn insert_well_path(
+    conn: &Connection,
+    well_id: &str,
+    survey_name: &str,
+    source: Option<&str>,
+    datum: Option<f32>,
+    stations: &[crate::deviation::Station],
+) -> DbResult<()> {
+    with_txn(conn, |conn| {
+        conn.execute(
+            "DELETE FROM well_path WHERE well_id = ?1 AND survey_name = ?2",
+            params![well_id, survey_name],
+        )?;
+        let mut appender: Appender = conn.appender("well_path")?;
+        for s in stations {
+            appender.append_row(params![well_id, survey_name, s.md, s.inc, s.azi, s.tvd, s.tvdss])?;
+        }
+        appender.flush()?;
+        conn.execute(
+            "DELETE FROM well_surveys WHERE well_id = ?1 AND survey_name = ?2",
+            params![well_id, survey_name],
+        )?;
+        conn.execute("UPDATE well_surveys SET active = 0 WHERE well_id = ?1", params![well_id])?;
+        conn.execute(
+            "INSERT INTO well_surveys (well_id, survey_name, active, source, datum) VALUES (?1, ?2, 1, ?3, ?4)",
+            params![well_id, survey_name, source, datum],
+        )?;
+        Ok(())
+    })
+}
+
+/// Reads one well's ACTIVE deviation survey (ordered by MD) for TVD-aware display.
 pub fn get_well_path(conn: &Connection, well_id: &str) -> DbResult<Vec<WellPathStation>> {
-    let mut stmt =
-        conn.prepare("SELECT md, inc, azi, tvd, tvdss FROM well_path WHERE well_id = ?1 ORDER BY md")?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT md, inc, azi, tvd, tvdss FROM well_path
+         WHERE well_id = ?1 AND survey_name = {ACTIVE_SURVEY} ORDER BY md"
+    ))?;
     let rows = stmt.query_map(params![well_id], |row| {
         Ok(WellPathStation {
             md: row.get(0)?,

@@ -145,9 +145,15 @@ pub fn fetch_curve_data(
 /// `fetch_curve_frame`, this does NOT align onto the well's standard depth grid: core
 /// plug depths are sparse/irregular by nature, so overlay panels plot them at their own
 /// depths rather than resampling.
+/// Only the well's ACTIVE core set is plotted — two deliveries of the same plugs overlaid
+/// would read as twice the data (see `db::list_core_sets` / the set manager to switch).
 pub fn fetch_core_series(conn: &Connection, well_id: &str) -> duckdb::Result<Vec<TrackCurveSeries>> {
-    let mut stmt =
-        conn.prepare("SELECT depth, cpor, cperm, cgd, csw FROM core_data WHERE well_id = ?1 ORDER BY depth")?;
+    let mut stmt = conn.prepare(
+        "SELECT depth, cpor, cperm, cgd, csw FROM core_data
+         WHERE well_id = ?1 AND set_name = COALESCE((SELECT set_name FROM core_sets WHERE well_id = ?1
+                                                     ORDER BY active DESC, imported_at DESC LIMIT 1), 'RAW')
+         ORDER BY depth",
+    )?;
     let rows = stmt.query_map(params![well_id], |row| {
         Ok((
             row.get::<_, f32>(0)?,
