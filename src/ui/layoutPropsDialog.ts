@@ -20,6 +20,9 @@ export function openLayoutPropsDialog(
   /** What the loaded well actually carries as measured samples, for the point-track
    *  suggestion lists. Optional so callers that only edit curve tracks need not gather it. */
   availablePoints: PointSuggestion[] = [],
+  /** Array-log curve names the loaded well carries (MC_PHIE_REAL, NMR T2 …), for the
+   *  array-track picker. Optional for the same reason as `availablePoints`. */
+  availableArrays: string[] = [],
 ): void {
   const working: Layout = structuredClone(layout);
   let selected = 0;
@@ -70,6 +73,7 @@ export function openLayoutPropsDialog(
   suggestList("core", availablePoints.filter((p) => p.source === "core").map((p) => p.item));
   suggestList("item", availablePoints.filter((p) => p.source === "aux").map((p) => p.item));
   suggestList("ds", availablePoints.flatMap((p) => (p.dataset ? [p.dataset] : [])));
+  suggestList("array", availableArrays);
 
   const iconBtn = (label: string, title: string, onClick: () => void): HTMLButtonElement => {
     const b = document.createElement("button");
@@ -238,7 +242,12 @@ export function openLayoutPropsDialog(
         "Track type",
         selectInput(
           track.kind ?? "curves",
-          [["curves", "Curves"], ["point_data", "Point data"], ["well_diagram", "Well diagram"]],
+          [
+            ["curves", "Curves"],
+            ["point_data", "Point data"],
+            ["array_log", "Array log"],
+            ["well_diagram", "Well diagram"],
+          ],
           (v) => {
             track.kind = v;
             renderDetail();
@@ -280,6 +289,10 @@ export function openLayoutPropsDialog(
     // extras) rather than a continuous log, so it has its own style block, not `curves`.
     if ((track.kind ?? "curves") === "point_data") {
       renderPointSection(track);
+      return;
+    }
+    if ((track.kind ?? "curves") === "array_log") {
+      renderArraySection(track);
       return;
     }
 
@@ -569,6 +582,103 @@ export function openLayoutPropsDialog(
         dataset: seed?.dataset,
         item: seed?.item ?? "CPOR",
         color: "#5f7350",
+        min: 0,
+        max: 0.4,
+      });
+      renderAll();
+    });
+    detail.appendChild(addBtn);
+  }
+
+  function renderArraySection(track: Track): void {
+    const sectionTitle = document.createElement("div");
+    sectionTitle.className = "lp-section-title";
+    sectionTitle.textContent = "Array log";
+    detail.appendChild(sectionTitle);
+
+    const note = document.createElement("div");
+    note.className = "lp-note";
+    note.textContent =
+      availableArrays.length > 0
+        ? "Curves holding a whole distribution at every depth — Monte Carlo realizations, NMR T2. All three displays read the SAME stored realizations, so changing the percentiles is a redraw, not a re-run."
+        : "This well has no array logs. Run Monte Carlo with 'Store realizations' switched on to produce one.";
+    detail.appendChild(note);
+
+    track.arrays ??= [];
+    track.arrays.forEach((a, ai) => {
+      const card = document.createElement("div");
+      card.className = "lp-point-card";
+      const grid = document.createElement("div");
+      grid.className = "lp-fieldgrid";
+      card.appendChild(grid);
+
+      const curveIn = textInput(a.curve_name, (v) => {
+        a.curve_name = v.trim().toUpperCase();
+        curveIn.value = a.curve_name;
+      });
+      curveIn.setAttribute("list", `${datalist.id}-array`);
+      grid.appendChild(field("Array curve", curveIn));
+      grid.appendChild(field("Color", colorInput(a.color, (v) => (a.color = v))));
+      grid.appendChild(field("Min", numInput(a.min, (v) => (a.min = v))));
+      grid.appendChild(field("Max", numInput(a.max, (v) => (a.max = v))));
+      grid.appendChild(
+        field(
+          "Display",
+          selectInput(
+            a.display ?? "band",
+            [["band", "Uncertainty band"], ["spaghetti", "Spaghetti"], ["heatmap", "Density heat map"]],
+            (v) => {
+              a.display = v;
+              renderDetail();
+            },
+          ),
+        ),
+      );
+
+      const display = a.display ?? "band";
+      if (display === "band") {
+        // The adjustable part: with the realizations stored, these are display settings.
+        grid.appendChild(field("Band low %", numInput(a.band_lo ?? 10, (v) => (a.band_lo = clampPct(v)))));
+        grid.appendChild(field("Band high %", numInput(a.band_hi ?? 90, (v) => (a.band_hi = clampPct(v)))));
+        grid.appendChild(
+          field("Shading", numInput(a.fill_opacity ?? 0.3, (v) => (a.fill_opacity = Math.max(0, Math.min(1, v))), "0.05"))
+        );
+        const chk = document.createElement("input");
+        chk.type = "checkbox";
+        chk.checked = a.show_median !== false;
+        chk.title = "Draw the P50 line inside the band";
+        chk.addEventListener("change", () => (a.show_median = chk.checked));
+        grid.appendChild(field("Median line", chk));
+      } else if (display === "spaghetti") {
+        grid.appendChild(
+          field(
+            "Traces",
+            numInput(a.traces ?? 40, (v) => (a.traces = Math.max(1, Math.round(v))), "1"),
+          ),
+        );
+      } else {
+        grid.appendChild(
+          field("Value bins", numInput(a.hist_bins ?? 32, (v) => (a.hist_bins = Math.max(2, Math.round(v))), "1")),
+        );
+      }
+
+      const del = iconBtn("✕", "Remove this array series", () => {
+        track.arrays?.splice(ai, 1);
+        renderAll();
+      });
+      del.className = "lp-iconbtn lp-point-del";
+      card.appendChild(del);
+      detail.appendChild(card);
+    });
+
+    const addBtn = document.createElement("button");
+    addBtn.className = "lp-btn";
+    addBtn.textContent = "＋ Add array series";
+    addBtn.addEventListener("click", () => {
+      track.arrays ??= [];
+      track.arrays.push({
+        curve_name: availableArrays[0] ?? "",
+        color: "#4e79a7",
         min: 0,
         max: 0.4,
       });

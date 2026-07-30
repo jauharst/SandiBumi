@@ -1,16 +1,20 @@
 import { LogCanvasRenderer } from "../LogCanvasRenderer";
 import {
+  getArrayLog,
   getCoreData,
   getTrackData,
+  listArrayCurves,
   listAuxData,
   listCurveCatalog,
+  type ArrayLog,
+  type ArrayStyle,
   type AuxRow,
   type Layout,
   type PointStyle,
   type TrackCurveSeries,
   type WellSummary,
 } from "../ipc";
-import { binByDepth, boxStats, histogram, type WhiskerRule } from "../distribution";
+import { band, binByDepth, boxStats, evenIndices, histogram, type WhiskerRule } from "../distribution";
 import { appState, setStatus } from "../state";
 import { setDisplayDepthUnit } from "../depthUnitPref";
 import { unitLabel } from "../units";
@@ -53,6 +57,12 @@ export class LogViewPanel {
   /** Every point dataset for the loaded well (XRD, CEC, oil show, core extras …), one
    *  active delivery of each — the source for `point_data` tracks. */
   private auxRows: AuxRow[] = [];
+  /** Array logs referenced by `array_log` tracks, keyed by upper-cased curve name. Loaded
+   *  lazily — only curves some track actually asks for, since one of these is a whole
+   *  realization matrix and a layout with none must cost nothing. */
+  private arrayLogs = new Map<string, ArrayLog>();
+  /** Array curves available on the loaded well, for the properties dialog's picker. */
+  private arrayCatalog: { set_name: string; curve_name: string }[] = [];
   /** Tops overlay + Petrel-style interactive editor (🏷 in the toolbar toggles editing). */
   private topsEditor!: TopsEditor;
   /** Colored highlight bands + interactive editor (🖍 in the toolbar toggles editing). */
@@ -616,6 +626,7 @@ export class LogViewPanel {
       if (gen !== this.loadGen) return;
       this.auxRows = [];
     }
+    await this.loadArrayLogs(well.well_id, gen);
     this.drawCoreOverlay();
     if (gen !== this.loadGen || !this.renderer) return;
     await this.topsEditor.setWell(well.well_id);
@@ -648,6 +659,7 @@ export class LogViewPanel {
     if (!this.renderer || !this.layout) return;
     this.drawTrackBorders(ctx, w, h);
     this.drawWellDiagram(ctx, w, h);
+    this.drawArrayTracks(ctx, w, h);
     this.drawPointTracks(ctx, w, h);
     if (this.coreByName.size === 0) return;
 
@@ -746,6 +758,213 @@ export class LogViewPanel {
    *  The statistics come from the shared `distribution` module, which is source-agnostic on
    *  purpose so array logs can reuse it unchanged. Values outside the track's scale are
    *  skipped, never clamped to a false position — the same rule the core overlay follows. */
+  /** Loads the array logs this layout actually references, plus the well's array catalog for
+   *  the properties dialog. Only referenced curves are fetched: one array log is a whole
+   *  realization matrix, so a layout with no array track must not pay for any of them. */
+  private async loadArrayLogs(wellId: string, gen: number): Promise<void> {
+    this.arrayLogs.clear();
+    this.arrayCatalog = [];
+    try {
+      const cat = await listArrayCurves(wellId).catch(() => []);
+      if (gen !== this.loadGen) return;
+      this.arrayCatalog = cat.map((c) => ({ set_name: c.set_name, curve_name: c.curve_name }));
+    } catch {
+      /* no backend, or none stored — array tracks simply draw nothing */
+    }
+    const wanted = new Map<string, string | null>();
+    for (const t of this.layout?.tracks ?? []) {
+      if ((t.kind ?? "curves") !== "array_log") continue;
+      for (const a of t.arrays ?? []) {
+        const key = a.curve_name.trim().toUpperCase();
+        if (key && !wanted.has(key)) wanted.set(key, a.set_name ?? null);
+      }
+    }
+    for (const [name, set] of wanted) {
+      try {
+        const log = await getArrayLog(wellId, set, name);
+        if (gen !== this.loadGen) return;
+        if (log.depth.length > 0) this.arrayLogs.set(name, log);
+      } catch {
+        /* a missing array log leaves its track empty rather than failing the whole view */
+      }
+    }
+  }
+
+  /** Array-log tracks: a band, a spaghetti overlay or a density heat map per series.
+   *
+   *  Mirrors `draw_array_series` in `src-tauri/src/composite.rs` — the two must agree, and both
+   *  take their statistics from the shared distribution module so a band here and a box plot on
+   *  a point track answer the same question the same way. */
+  private drawArrayTracks(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    if (!this.renderer || !this.layout || this.arrayLogs.size === 0) return;
+    const arrayTracks = this.layout.tracks.filter((t) => (t.kind ?? "curves") === "array_log");
+    if (arrayTracks.length === 0) return;
+    const [top, bottom] = this.renderer.getVisibleDepthRange();
+    if (bottom <= top) return;
+    const yOf = (d: number): number => ((d - top) / (bottom - top)) * h;
+
+    for (const range of this.renderer.getTrackRanges()) {
+      const track = arrayTracks.find((t) => t.title === range.title);
+      if (!track?.arrays?.length) continue;
+      const left = range.leftFrac * w;
+      const span = (range.rightFrac - range.leftFrac) * w;
+      const log = track.scale_type === "log";
+
+      for (const style of track.arrays) {
+        const series = this.arrayLogs.get(style.curve_name.trim().toUpperCase());
+        if (!series) continue;
+        const lo = log ? Math.log10(Math.max(style.min, 1e-6)) : style.min;
+        const hi = log ? Math.log10(Math.max(style.max, 1e-6)) : style.max;
+        if (hi === lo) continue;
+        // CLAMPED at the track edge, unlike a point sample. The rule follows what the data is:
+        // a discrete plug drawn at a value it never had is a lie, while a continuous reading
+        // running past the scale is the ordinary log-display convention.
+        const xOf = (v: number): number | null => {
+          if (!Number.isFinite(v)) return null;
+          const tv = log ? Math.log10(Math.max(v, 1e-6)) : v;
+          return left + Math.min(1, Math.max(0, (tv - lo) / (hi - lo))) * span;
+        };
+        // Only the depths on screen — a 2000-sample matrix zoomed to 10 m must cost 10 m of work.
+        const rows: number[] = [];
+        for (let i = 0; i < series.depth.length; i++) {
+          if (series.depth[i] >= top && series.depth[i] <= bottom) rows.push(i);
+        }
+        if (rows.length === 0) continue;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(left, 0, span, h);
+        ctx.clip();
+        ctx.fillStyle = style.color;
+        ctx.strokeStyle = style.color;
+        const display = style.display ?? "band";
+        if (display === "spaghetti") this.drawSpaghetti(ctx, style, series, rows, yOf, xOf);
+        else if (display === "heatmap") this.drawArrayHeatmap(ctx, style, series, rows, yOf, left, span);
+        else this.drawArrayBand(ctx, style, series, rows, yOf, xOf);
+        ctx.restore();
+      }
+    }
+  }
+
+  /** One realization's path down the well, for an evenly-spread subset of them. */
+  private drawSpaghetti(
+    ctx: CanvasRenderingContext2D,
+    style: ArrayStyle,
+    s: ArrayLog,
+    rows: number[],
+    yOf: (d: number) => number,
+    xOf: (v: number) => number | null,
+  ): void {
+    ctx.lineWidth = 0.5;
+    ctx.globalAlpha = Math.min(1, Math.max(0.08, 8 / Math.max(1, style.traces ?? 40)));
+    for (const r of evenIndices(s.width, style.traces ?? 40)) {
+      ctx.beginPath();
+      let drawing = false;
+      for (const i of rows) {
+        const x = xOf(s.values[i * s.width + r]);
+        // A realization that produced nothing here BREAKS its own trace rather than being
+        // bridged — joining across the gap would draw a path this realization never took.
+        if (x === null) {
+          drawing = false;
+          continue;
+        }
+        const y = yOf(s.depth[i]);
+        if (drawing) ctx.lineTo(x, y);
+        else {
+          ctx.moveTo(x, y);
+          drawing = true;
+        }
+      }
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /** P-low to P-high shaded, with the median line through it. */
+  private drawArrayBand(
+    ctx: CanvasRenderingContext2D,
+    style: ArrayStyle,
+    s: ArrayLog,
+    rows: number[],
+    yOf: (d: number) => number,
+    xOf: (v: number) => number | null,
+  ): void {
+    const loP = style.band_lo ?? 10;
+    const hiP = style.band_hi ?? 90;
+    // Runs of consecutive summarisable depths: a depth where nothing converged is a GAP, so the
+    // shading stops rather than spanning an interval the study gave no answer for.
+    let run: { y: number; xl: number; xm: number; xh: number }[] = [];
+    const flush = (): void => {
+      if (run.length > 1) {
+        ctx.globalAlpha = style.fill_opacity ?? 0.3;
+        ctx.beginPath();
+        ctx.moveTo(run[0].xh, run[0].y);
+        for (let i = 1; i < run.length; i++) ctx.lineTo(run[i].xh, run[i].y);
+        for (let i = run.length - 1; i >= 0; i--) ctx.lineTo(run[i].xl, run[i].y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        if (style.show_median !== false) {
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(run[0].xm, run[0].y);
+          for (let i = 1; i < run.length; i++) ctx.lineTo(run[i].xm, run[i].y);
+          ctx.stroke();
+        }
+      }
+      run = [];
+    };
+    for (const i of rows) {
+      const st = band(s.values.subarray(i * s.width, (i + 1) * s.width), loP, hiP);
+      const xl = st === null ? null : xOf(st.lo);
+      const xm = st === null ? null : xOf(st.med);
+      const xh = st === null ? null : xOf(st.hi);
+      if (xl === null || xm === null || xh === null) flush();
+      else run.push({ y: yOf(s.depth[i]), xl, xm, xh });
+    }
+    flush();
+  }
+
+  /** Per-depth value histogram, drawn as opacity of the series colour. */
+  private drawArrayHeatmap(
+    ctx: CanvasRenderingContext2D,
+    style: ArrayStyle,
+    s: ArrayLog,
+    rows: number[],
+    yOf: (d: number) => number,
+    left: number,
+    span: number,
+  ): void {
+    const bins = Math.max(1, style.hist_bins ?? 32);
+    const bw = span / bins;
+    for (let k = 0; k < rows.length; k++) {
+      const i = rows[k];
+      // `histogram` DROPS out-of-range values rather than clamping: a heat-map cell is a count
+      // AT a value, so a clamped sample would invent density the data never had.
+      const counts = histogram(s.values.subarray(i * s.width, (i + 1) * s.width), style.min, style.max, bins);
+      let peak = 0;
+      for (const c of counts) if (c > peak) peak = c;
+      if (peak === 0) continue;
+      // Cell extent = half-way to each neighbour, so the column tiles seamlessly at whatever
+      // depth sampling the array happens to have.
+      const yc = yOf(s.depth[i]);
+      const yPrev = k > 0 ? yOf(s.depth[rows[k - 1]]) : null;
+      const yNext = k + 1 < rows.length ? yOf(s.depth[rows[k + 1]]) : null;
+      const t = yPrev !== null ? (yPrev + yc) / 2 : yc - (yNext !== null ? (yNext - yc) / 2 : 1);
+      const b = yNext !== null ? (yNext + yc) / 2 : yc + (yPrev !== null ? (yc - yPrev) / 2 : 1);
+      if (b <= t) continue;
+      for (let j = 0; j < bins; j++) {
+        if (counts[j] === 0) continue;
+        // Normalised to THIS depth's peak, matching the point track's per-bin histogram: it
+        // reads the shape of the distribution at each depth rather than letting one dense
+        // interval flatten every other.
+        ctx.globalAlpha = counts[j] / peak;
+        ctx.fillRect(left + j * bw, t, bw, b - t);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
   private drawPointTracks(ctx: CanvasRenderingContext2D, w: number, h: number): void {
     if (!this.renderer || !this.layout) return;
     const pointTracks = this.layout.tracks.filter((t) => (t.kind ?? "curves") === "point_data");
@@ -1150,7 +1369,7 @@ export class LogViewPanel {
       ...[...this.coreByName.keys()].map((item) => ({ source: "core" as const, item })),
       ...[
         ...new Map(
-          this.auxRows.map((r) => [`${r.dataset} ${r.item}`, { source: "aux" as const, dataset: r.dataset, item: r.item }]),
+          this.auxRows.map((r) => [`${r.dataset}\u0000${r.item}`, { source: "aux" as const, dataset: r.dataset, item: r.item }]),
         ).values(),
       ],
     ];
@@ -1168,6 +1387,7 @@ export class LogViewPanel {
         });
       },
       points,
+      this.arrayCatalog.map((c) => c.curve_name),
     );
   }
 

@@ -268,9 +268,48 @@ agreement** (percentile = R type 7 / NumPy / Excel; Tukey whiskers land on a rea
 never the fence; a percentile whisker rule reports no outliers; histogram DROPS out-of-range
 rather than clamping; empty depth bins are omitted). They are **source-agnostic on purpose**
 — they take a bare value slice — because binning core plugs over an interval and summarising
-N Monte Carlo realizations at one depth are the same operation. Array logs are meant to reuse
-them unchanged; if that ever needs its own code path the abstraction has been broken. The
-Rust side carries the unit tests that pin the numbers.
+N Monte Carlo realizations at one depth are the same operation. Array logs DO reuse them
+unchanged (see below); if that ever needs its own code path the abstraction has been broken.
+The Rust side carries the unit tests that pin the numbers.
+
+Array logs (2026-07-30) — `array_logs` is now a real store: one row per
+`(well_id, set_name, curve_name, depth)` holding a whole VECTOR of values at that depth
+(Monte Carlo realizations, NMR T2 distributions, waveforms). The never-written stub
+`(well_id, depth, nmr_t2_distribution FLOAT[])` is dropped by `db::migrate_array_logs_store`
+(no backup taken — no code path ever wrote a row to it). **`samples` is a BLOB of explicit
+little-endian f32, not a DuckDB list**: it is 4 bytes per value with no text round-trip, and
+rule 3 already requires arrays to reach the frontend as bytes cast to a `Float32Array`, so
+the stored bytes ARE the wire format. **This table DOES carry a PRIMARY KEY, unlike
+`computed_curves` — not an inconsistency**: that ART index costs one entry per SAMPLE, here
+one row holds a thousand samples, so it is ~1000x cheaper per value while the protection
+matters far more (a duplicate depth row would silently double a realization count and bias
+every percentile). Write discipline is still DELETE-then-insert per (well, set, curve).
+
+`montecarlo.rs` gains `persist_realizations` (requires `persist`; off by default) writing
+`MC_<KEY>_REAL` alongside the existing `MC_<KEY>_LOW/_P50/_HIGH/_BASE` curves, capped by
+`realization_cap` (default 256, clamped 8..1024 — the full 1024 at ~2000 samples is ~8 MB per
+curve per well, i.e. 3 GB across a field). **Realization ORDER is preserved and NaNs are
+kept**: index `r` must mean the same realization at every depth or a spaghetti trace is not a
+trace (the sorted percentile buffer must never be what gets stored). The `>= 8 finite` floor
+matches the percentile curves', so stored depths and the persisted curves never disagree
+about where an answer exists — pinned by
+`persist_realizations_stores_a_matrix_that_reproduces_the_percentile_curves`. Matrices go to
+`array_logs`, NOT the versioned archive that holds the curves: the archive exists to make
+re-runs non-destructive, and versioning data this size would balloon the file.
+
+`TrackKind::ArrayLog` + `Track.arrays: Vec<ArrayStyle>` (both `#[serde(default)]`) give three
+displays over ONE stored matrix — `band` (adjustable low/high percentiles + optional P50
+line), `spaghetti`, `heatmap` — which is the whole point: **the percentiles are a display
+setting, not a reason to re-run the study**. Drawn in `logViewPanel.drawArrayTracks` (2D
+overlay; the GPU renderer allocates the column and skips it, exactly as for point and
+well-diagram tracks) and `composite.rs draw_array_series` for print — **keep the two in
+agreement**. Rules: values CLAMP at the track edge (continuous data, unlike a point sample
+which is skipped); a depth where nothing converged is a GAP that splits the band rather than
+being spanned; a failed realization BREAKS its own spaghetti trace rather than being bridged;
+heat-map density is opacity of the series colour normalised to that depth's own peak (no
+second palette to keep in sync), and out-of-range values are dropped by `histogram`, never
+clamped. Spaghetti traces come from `distribution::even_indices`, spread evenly rather than
+the first N — the first N of an LHS design is a biased corner of the sampled space.
 
 UI language (2026-07-19) — `src/i18n.ts` translates visible DOM text (+ title/placeholder/
 aria-label/optgroup-label) to Bahasa Indonesia / Basa Sunda by exact-phrase dictionary

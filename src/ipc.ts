@@ -270,17 +270,45 @@ export interface PointStyle {
   show_samples?: boolean;
 }
 
+/** One array log — a curve holding a whole DISTRIBUTION at every depth (Monte Carlo
+ *  realizations, an NMR T2 distribution, a sonic waveform) rather than a single reading.
+ *
+ *  The three displays are three readings of the SAME stored matrix: with the realizations on
+ *  disk, moving P10 to P5 is a redraw, not a re-run of the study. */
+export interface ArrayStyle {
+  curve_name: string;
+  /** Which array set. Absent = whichever set holds the curve. */
+  set_name?: string;
+  color: string;
+  min: number;
+  max: number;
+  /** "band" (default) | "spaghetti" | "heatmap". */
+  display?: "band" | "spaghetti" | "heatmap";
+  /** Band edges as percentiles (defaults 10 / 90) — the adjustable part. */
+  band_lo?: number;
+  band_hi?: number;
+  /** Draw the P50 line inside the band (default true). */
+  show_median?: boolean;
+  fill_opacity?: number;
+  /** "spaghetti": how many realizations to draw (default 40). */
+  traces?: number;
+  /** "heatmap": bins across the value axis (default 32). */
+  hist_bins?: number;
+}
+
 export interface Track {
   title: string;
   width_weight: number;
   scale_type: ScaleType;
-  /** "curves" (normal log track), "well_diagram" (casing/shoe/perforations), or "point_data"
-   *  (measured samples — core plugs, XRD, CEC …). Optional for backward compat with saved
-   *  layouts; absent = "curves". */
-  kind?: "curves" | "well_diagram" | "point_data";
+  /** "curves" (normal log track), "well_diagram" (casing/shoe/perforations), "point_data"
+   *  (measured samples — core plugs, XRD, CEC …), or "array_log" (a distribution at every
+   *  depth). Optional for backward compat with saved layouts; absent = "curves". */
+  kind?: "curves" | "well_diagram" | "point_data" | "array_log";
   curves: CurveStyle[];
   /** Drawn only when `kind: "point_data"`. Absent in every layout saved before point tracks. */
   points?: PointStyle[];
+  /** Drawn only when `kind: "array_log"`. Absent in every layout saved before array tracks. */
+  arrays?: ArrayStyle[];
 }
 
 export interface Layout {
@@ -789,6 +817,12 @@ export interface McRequest {
   /** Persist per-sample uncertainty curves (MC_<KEY>_LOW/_P50/_HIGH/_BASE for each tracked
    *  output the chain produces) to a fresh version of the MONTECARLO log set per well. */
   persist?: boolean;
+  /** Also store the per-sample REALIZATION MATRIX as MC_<KEY>_REAL in `array_logs`, so a log
+   *  view can draw an adjustable band / spaghetti / heat map from one stored run. Requires
+   *  `persist`; off by default because it is the only output whose size scales with iterations. */
+  persist_realizations?: boolean;
+  /** How many realizations to store per depth (default 256, clamped 8..1024). */
+  realization_cap?: number;
 }
 
 /** Target rank correlation between two MC parameters (rho clamped to ±0.995 backend-side). */
@@ -2113,6 +2147,58 @@ export function getScalPc(wellId: string): Promise<ScalPcRow[]> {
 export async function getCoreData(wellId: string): Promise<TrackCurveSeries[]> {
   const buf = await invoke<ArrayBuffer>("get_core_data", { wellId });
   return decodeCurveBuffer(buf);
+}
+
+// ---------------------------------------------------------------------------
+// Array logs: a whole distribution at every depth (Monte Carlo realizations,
+// NMR T2 distributions, waveforms) rather than one reading per depth.
+// ---------------------------------------------------------------------------
+
+export interface ArrayCurveInfo {
+  set_name: string;
+  curve_name: string;
+  /** Number of depths the array covers. */
+  depths: number;
+  /** Values per depth in the widest row (realizations, T2 bins, …). */
+  width: number;
+  depth_min: number;
+  depth_max: number;
+}
+
+/** One array log in memory: depths, and a row-major matrix `width` values wide.
+ *  A padded or failed slot is NaN, which every consumer already drops. */
+export interface ArrayLog {
+  depth: Float32Array;
+  values: Float32Array;
+  width: number;
+}
+
+export function listArrayCurves(wellId: string): Promise<ArrayCurveInfo[]> {
+  return invoke<ArrayCurveInfo[]>("list_array_curves", { wellId });
+}
+
+export function deleteArrayLog(wellId: string, setName: string, curveName: string): Promise<number> {
+  return invoke<number>("delete_array_log", { wellId, setName, curveName });
+}
+
+/** Decodes the raw array-log buffer. Mirrors the layout documented on `get_array_log` in
+ *  `src-tauri/src/lib.rs`: [u32 depth_count][u32 width][f32 depth × dc][f32 values × dc*width].
+ *
+ *  Copied out of the response rather than aliased: the two f32 blocks start at byte offset 8,
+ *  which is 4-byte aligned, but slicing keeps the whole IPC buffer alive for as long as either
+ *  view is held — a costly thing to leak for a matrix this size. */
+export function decodeArrayLog(buf: ArrayBuffer): ArrayLog {
+  const view = new DataView(buf);
+  const depthCount = view.getUint32(0, true);
+  const width = view.getUint32(4, true);
+  const depth = new Float32Array(buf.slice(8, 8 + depthCount * 4));
+  const values = new Float32Array(buf.slice(8 + depthCount * 4, 8 + depthCount * 4 + depthCount * width * 4));
+  return { depth, values, width };
+}
+
+export async function getArrayLog(wellId: string, setName: string | null, curveName: string): Promise<ArrayLog> {
+  const buf = await invoke<ArrayBuffer>("get_array_log", { wellId, setName, curveName });
+  return decodeArrayLog(buf);
 }
 
 export function updateCoreSample(wellId: string, depth: number, column: string, value: number): Promise<void> {

@@ -226,6 +226,22 @@ pub(crate) fn render_pages(conn: &Connection, spec: &CompositeSpec) -> Result<(V
         Vec::new()
     };
 
+    // Array logs (a distribution at every depth) for any array track, fetched once for the whole
+    // render and keyed by upper-cased curve name. Read whole rather than page by page: a page
+    // boundary must not change which realizations a band was computed from.
+    let mut arrays: HashMap<String, Vec<crate::db::ArrayRow>> = HashMap::new();
+    for track in spec.layout.tracks.iter().filter(|t| t.kind == crate::layout::TrackKind::ArrayLog) {
+        for a in &track.arrays {
+            let key = a.curve_name.trim().to_uppercase();
+            if key.is_empty() || arrays.contains_key(&key) {
+                continue;
+            }
+            let rows = crate::db::read_array_log(conn, &spec.well_id, a.set_name.as_deref(), &key)
+                .unwrap_or_default();
+            arrays.insert(key, rows);
+        }
+    }
+
     let (pw, ph) = spec.page_size.dims();
     let mm_per_m = 1000.0 / spec.scale as f64;
 
@@ -243,8 +259,8 @@ pub(crate) fn render_pages(conn: &Connection, spec: &CompositeSpec) -> Result<(V
         let m_this = if first { m_per_page_first } else { m_per_page_run };
         let d1 = (d0 + m_this).min(bottom);
         let ops = build_page(
-            spec, &header, &depth, &columns, &tops, &zones, &completion, &perforations, &core, &aux, pw, ph,
-            mm_per_m, first, d0 as f32, d1 as f32, idx,
+            spec, &header, &depth, &columns, &tops, &zones, &completion, &perforations, &core, &aux,
+            &arrays, pw, ph, mm_per_m, first, d0 as f32, d1 as f32, idx,
         );
         pages.push(PageOps { ops, top: d0 as f32, bot: d1 as f32, idx });
         d0 = d1;
@@ -319,6 +335,7 @@ fn build_page(
     perforations: &[crate::db::AuxRow],
     core: &[(String, f32, f32)],
     aux: &[crate::db::AuxRow],
+    arrays: &HashMap<String, Vec<crate::db::ArrayRow>>,
     pw: f64,
     ph: f64,
     mm_per_m: f64,
@@ -428,7 +445,14 @@ fn build_page(
             stroke: Some("#333333".into()),
             sw: 0.2,
         });
-        if track.kind == crate::layout::TrackKind::PointData {
+        if track.kind == crate::layout::TrackKind::ArrayLog {
+            for a in &track.arrays {
+                let rows = arrays.get(&a.curve_name.trim().to_uppercase()).map(Vec::as_slice).unwrap_or(&[]);
+                draw_array_series(
+                    &mut ops, a, track.scale_type, rows, tx0, tx1, page_top, page_bot, &y_of,
+                );
+            }
+        } else if track.kind == crate::layout::TrackKind::PointData {
             for ps in &track.points {
                 draw_point_series(
                     &mut ops, ps, track.scale_type, core, aux, tx0, tx1, page_top, page_bot, &y_of,
@@ -1033,6 +1057,154 @@ fn draw_point_series(
                     fill: ps.color.clone(),
                     opacity: 1.0,
                 });
+            }
+        }
+    }
+}
+
+/// Draws one array log — a whole distribution at every depth — as a band, a spaghetti overlay
+/// or a density heat map. Mirrors `drawArrayTracks` in `src/ui/logViewPanel.ts`; the two must
+/// stay in agreement, and both take their statistics from `crate::distribution` so a band and
+/// a point-track box plot answer the same question the same way.
+#[allow(clippy::too_many_arguments)]
+fn draw_array_series(
+    ops: &mut Vec<DrawOp>,
+    as_: &crate::layout::ArrayStyle,
+    scale: ScaleType,
+    rows: &[crate::db::ArrayRow],
+    tx0: f64,
+    tx1: f64,
+    page_top: f32,
+    page_bot: f32,
+    y_of: &dyn Fn(f32) -> f64,
+) {
+    use crate::distribution::{band, even_indices, histogram};
+    let tw = tx1 - tx0;
+    // CLAMPED at the track edge, like `draw_curve` and unlike `draw_point_series`. The rule is
+    // about what the data is, not about tidiness: a discrete plug drawn at a value it never had
+    // is a lie, whereas a continuous reading running past the scale is the ordinary log-display
+    // convention and clipping it is what every log viewer does.
+    let x_at = |v: f32| value_frac(v, as_.min, as_.max, scale).map(|f| tx0 + f.clamp(0.0, 1.0) * tw);
+    let visible: Vec<&crate::db::ArrayRow> =
+        rows.iter().filter(|r| r.depth >= page_top && r.depth <= page_bot).collect();
+    if visible.is_empty() {
+        return;
+    }
+    let color = as_.color.clone();
+
+    match as_.display_kind() {
+        "spaghetti" => {
+            let width = visible.iter().map(|r| r.samples.len()).max().unwrap_or(0);
+            for r_idx in even_indices(width, as_.traces.unwrap_or(40) as usize) {
+                let mut run: Vec<(f64, f64)> = Vec::new();
+                for row in &visible {
+                    match row.samples.get(r_idx).copied().and_then(x_at) {
+                        Some(x) => run.push((x, y_of(row.depth))),
+                        // A realization that produced nothing here BREAKS its own trace. Bridging
+                        // the gap would draw a path down the well that this realization never took.
+                        None => {
+                            if run.len() > 1 {
+                                ops.push(DrawOp::Poly {
+                                    pts: std::mem::take(&mut run),
+                                    stroke: color.clone(),
+                                    sw: 0.08,
+                                });
+                            } else {
+                                run.clear();
+                            }
+                        }
+                    }
+                }
+                if run.len() > 1 {
+                    ops.push(DrawOp::Poly { pts: run, stroke: color.clone(), sw: 0.08 });
+                }
+            }
+        }
+        "heatmap" => {
+            let bins = as_.hist_bins.unwrap_or(32).max(1) as usize;
+            let bw = tw / bins as f64;
+            for (i, row) in visible.iter().enumerate() {
+                // `histogram` DROPS out-of-range values rather than clamping them, which is right
+                // here for the same reason it is right on a point track: a heat-map cell is a
+                // count AT a value, and a clamped sample would invent a count the data never had.
+                let counts = histogram(&row.samples, as_.min, as_.max, bins);
+                let peak = counts.iter().copied().max().unwrap_or(0);
+                if peak == 0 {
+                    continue;
+                }
+                // Cell extent = half-way to each neighbour, so the column tiles seamlessly at
+                // whatever depth sampling the array happens to have been stored at.
+                let yc = y_of(row.depth);
+                let y_prev = i.checked_sub(1).map(|j| y_of(visible[j].depth));
+                let y_next = visible.get(i + 1).map(|n| y_of(n.depth));
+                let top = match y_prev {
+                    Some(p) => (p + yc) / 2.0,
+                    None => yc - y_next.map_or(0.5, |n| (n - yc) / 2.0),
+                };
+                let bot = match y_next {
+                    Some(n) => (n + yc) / 2.0,
+                    None => yc + y_prev.map_or(0.5, |p| (yc - p) / 2.0),
+                };
+                if bot <= top {
+                    continue;
+                }
+                for (b, c) in counts.iter().enumerate() {
+                    if *c == 0 {
+                        continue;
+                    }
+                    // Opacity is normalised to THIS depth's peak, matching the point track's
+                    // per-bin histogram scaling: it reads the shape of the distribution at each
+                    // depth rather than letting one high-count interval flatten the rest.
+                    ops.push(DrawOp::Fill {
+                        pts: vec![
+                            (tx0 + b as f64 * bw, top),
+                            (tx0 + (b + 1) as f64 * bw, top),
+                            (tx0 + (b + 1) as f64 * bw, bot),
+                            (tx0 + b as f64 * bw, bot),
+                        ],
+                        fill: color.clone(),
+                        opacity: *c as f64 / peak as f64,
+                    });
+                }
+            }
+        }
+        // "band"
+        _ => {
+            let (lo_p, hi_p) = as_.band_edges();
+            let opacity = as_.fill_opacity.unwrap_or(0.3) as f64;
+            // Runs of consecutive summarisable depths. A depth with nothing finite is a GAP, so
+            // the shading stops there instead of spanning an interval the study said nothing about.
+            let mut runs: Vec<Vec<(f64, f64, f64, f64)>> = Vec::new(); // (y, x_lo, x_mid, x_hi)
+            let mut run: Vec<(f64, f64, f64, f64)> = Vec::new();
+            for row in &visible {
+                let point = band(&row.samples, lo_p, hi_p)
+                    .and_then(|(lo, med, hi)| Some((x_at(lo)?, x_at(med)?, x_at(hi)?)));
+                match point {
+                    Some((xl, xm, xh)) => run.push((y_of(row.depth), xl, xm, xh)),
+                    None => {
+                        if run.len() > 1 {
+                            runs.push(std::mem::take(&mut run));
+                        } else {
+                            run.clear();
+                        }
+                    }
+                }
+            }
+            if run.len() > 1 {
+                runs.push(run);
+            }
+            for r in &runs {
+                // Down the high edge, back up the low edge — one closed polygon per run.
+                let mut pts: Vec<(f64, f64)> = r.iter().map(|(y, _, _, xh)| (*xh, *y)).collect();
+                pts.extend(r.iter().rev().map(|(y, xl, _, _)| (*xl, *y)));
+                ops.push(DrawOp::Fill { pts, fill: color.clone(), opacity });
+                if as_.show_median.unwrap_or(true) {
+                    ops.push(DrawOp::Poly {
+                        pts: r.iter().map(|(y, _, xm, _)| (*xm, *y)).collect(),
+                        stroke: color.clone(),
+                        sw: 0.25,
+                    });
+                }
             }
         }
     }
@@ -1650,6 +1822,180 @@ mod tests {
         // An interval sample is anchored at its MIDDLE (1000–1002 → 1001), where the
         // description actually applies, not at its top.
         assert!((texts[0].0 - 1001.8).abs() < 0.01);
+    }
+
+    fn array_style(json: serde_json::Value) -> crate::layout::ArrayStyle {
+        serde_json::from_value(json).unwrap()
+    }
+
+    /// 5 depths x 11 realizations, centred on phi = 0.15 and widening downwards. With 11
+    /// evenly-spaced values the percentiles land exactly on samples: P10 = centre - 0.8*spread,
+    /// P50 = centre, P90 = centre + 0.8*spread — so the band geometry is checkable by hand.
+    fn realizations() -> Vec<crate::db::ArrayRow> {
+        (0..5)
+            .map(|i| {
+                let spread = 0.02 * (i as f32 + 1.0);
+                crate::db::ArrayRow {
+                    depth: 1000.0 + i as f32,
+                    samples: (0..=10).map(|k| 0.15 - spread + 2.0 * spread * (k as f32 / 10.0)).collect(),
+                }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_array_band_prints_one_polygon_down_the_high_edge_and_back_up_the_low() {
+        let rows = realizations();
+        let a = array_style(serde_json::json!({
+            "curve_name": "MC_PHIE_REAL", "color": "#4e79a7", "min": 0.0, "max": 1.0
+        }));
+        let mut ops = Vec::new();
+        let y = |x: f32| x as f64;
+        draw_array_series(&mut ops, &a, ScaleType::Linear, &rows, 0.0, 100.0, 990.0, 1010.0, &y);
+
+        let f = fills(&ops);
+        assert_eq!(f.len(), 1, "one closed polygon for one unbroken run");
+        assert_eq!(f[0].1.len(), 10, "5 depths down the high edge, 5 back up the low");
+        // Top depth: spread 0.02, so P90 = 0.166 -> x 16.6 and P10 = 0.134 -> x 13.4.
+        assert!((f[0].1[0].0 - 16.6).abs() < 1e-3, "high edge {:?}", f[0].1[0]);
+        assert_eq!(f[0].1[0].1, 1000.0);
+        assert!((f[0].1[9].0 - 13.4).abs() < 1e-3, "low edge closes the polygon {:?}", f[0].1[9]);
+        // P50 is the median line, at the centre regardless of how wide the band gets.
+        let med = line_pts(&ops);
+        assert_eq!(med.len(), 5);
+        assert!(med.iter().all(|(x, _)| (x - 15.0).abs() < 1e-3), "median: {med:?}");
+    }
+
+    #[test]
+    fn the_median_line_can_be_switched_off_without_losing_the_band() {
+        let a = array_style(serde_json::json!({
+            "curve_name": "MC_PHIE_REAL", "color": "#4e79a7", "min": 0.0, "max": 1.0,
+            "show_median": false
+        }));
+        let mut ops = Vec::new();
+        let y = |x: f32| x as f64;
+        draw_array_series(&mut ops, &a, ScaleType::Linear, &realizations(), 0.0, 100.0, 990.0, 1010.0, &y);
+        assert_eq!(fills(&ops).len(), 1);
+        assert!(!ops.iter().any(|o| matches!(o, DrawOp::Poly { .. })));
+    }
+
+    #[test]
+    fn a_depth_where_nothing_converged_breaks_the_band_instead_of_spanning_it() {
+        let mut rows = realizations();
+        rows[2].samples = vec![f32::NAN; 11]; // every realization failed at this depth
+        let a = array_style(serde_json::json!({
+            "curve_name": "MC_PHIE_REAL", "color": "#4e79a7", "min": 0.0, "max": 1.0
+        }));
+        let mut ops = Vec::new();
+        let y = |x: f32| x as f64;
+        draw_array_series(&mut ops, &a, ScaleType::Linear, &rows, 0.0, 100.0, 990.0, 1010.0, &y);
+        // Two polygons with a hole between them — shading straight through would claim an
+        // uncertainty range at a depth the study produced no answer for.
+        let f = fills(&ops);
+        assert_eq!(f.len(), 2, "the gap must split the shading");
+        assert!(f.iter().all(|(_, pts)| pts.len() == 4), "two depths each: {f:?}");
+    }
+
+    #[test]
+    fn spaghetti_draws_the_asked_for_number_of_traces_and_breaks_them_at_failures() {
+        let rows = realizations();
+        let a = array_style(serde_json::json!({
+            "curve_name": "MC_PHIE_REAL", "color": "#4e79a7", "min": 0.0, "max": 1.0,
+            "display": "spaghetti", "traces": 3
+        }));
+        let mut ops = Vec::new();
+        let y = |x: f32| x as f64;
+        draw_array_series(&mut ops, &a, ScaleType::Linear, &rows, 0.0, 100.0, 990.0, 1010.0, &y);
+        let polys: Vec<usize> = ops
+            .iter()
+            .filter_map(|o| match o {
+                DrawOp::Poly { pts, .. } => Some(pts.len()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(polys, vec![5, 5, 5], "three traces, each spanning all five depths");
+
+        // Realization 5 fails at one depth: its own trace splits, the other two are untouched.
+        let mut broken = realizations();
+        broken[2].samples[5] = f32::NAN;
+        let mut ops2 = Vec::new();
+        draw_array_series(&mut ops2, &a, ScaleType::Linear, &broken, 0.0, 100.0, 990.0, 1010.0, &y);
+        let mut lens: Vec<usize> = ops2
+            .iter()
+            .filter_map(|o| match o {
+                DrawOp::Poly { pts, .. } => Some(pts.len()),
+                _ => None,
+            })
+            .collect();
+        lens.sort_unstable();
+        assert_eq!(lens, vec![2, 2, 5, 5], "the failed trace becomes two runs, not one bridged line");
+    }
+
+    #[test]
+    fn heatmap_cells_off_the_track_scale_are_dropped_not_clamped() {
+        let rows: Vec<crate::db::ArrayRow> = (0..5)
+            .map(|i| crate::db::ArrayRow {
+                depth: 1000.0 + i as f32,
+                // The middle depth sits far off the 0..1 track: it must contribute NO cell
+                // rather than a false column of density at the track edge.
+                samples: vec![if i == 2 { 5.0 } else { 0.5 }; 11],
+            })
+            .collect();
+        let a = array_style(serde_json::json!({
+            "curve_name": "MC_PHIE_REAL", "color": "#4e79a7", "min": 0.0, "max": 1.0,
+            "display": "heatmap", "hist_bins": 4
+        }));
+        let mut ops = Vec::new();
+        let y = |x: f32| x as f64;
+        draw_array_series(&mut ops, &a, ScaleType::Linear, &rows, 0.0, 100.0, 990.0, 1010.0, &y);
+        let f = fills(&ops);
+        assert_eq!(f.len(), 4, "one occupied cell at each of the four in-range depths");
+        // All 11 realizations land in the third of four bins (0.5 -> bin 2), spanning x 50..75.
+        assert!(f.iter().all(|(_, pts)| (pts[0].0 - 50.0).abs() < 1e-6 && (pts[1].0 - 75.0).abs() < 1e-6));
+        assert!(
+            ops.iter().all(|o| matches!(o, DrawOp::Fill { opacity, .. } if (*opacity - 1.0).abs() < 1e-9)),
+            "a single occupied bin is this depth's peak, so it draws at full opacity"
+        );
+    }
+
+    #[test]
+    fn an_array_log_round_trips_through_the_store_with_its_realization_order_intact() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        db::insert_well(&conn, wid, "ARRAYS", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        let depths: Vec<f32> = vec![1000.0, 1000.5, 1001.0];
+        let vals: Vec<Vec<f32>> = vec![
+            vec![0.1, 0.2, f32::NAN],
+            vec![0.15, 0.25, 0.35],
+            vec![], // nothing survived here
+        ];
+        let n = db::write_array_log(&conn, &w, "MONTECARLO", "MC_PHIE_REAL", &depths, &vals).unwrap();
+        assert_eq!(n, 2, "the empty depth is skipped, not stored as a zero-width distribution");
+
+        let back = db::read_array_log(&conn, &w, Some("MONTECARLO"), "mc_phie_real").unwrap();
+        assert_eq!(back.len(), 2);
+        assert_eq!(back[0].depth, 1000.0);
+        assert_eq!(back[0].samples[0], 0.1);
+        assert_eq!(back[0].samples[1], 0.2);
+        assert!(back[0].samples[2].is_nan(), "a failed realization keeps its SLOT so index r stays stable");
+        assert_eq!(back[1].samples, vec![0.15, 0.25, 0.35]);
+
+        // A re-run replaces its own output rather than unioning two runs' realizations.
+        db::write_array_log(&conn, &w, "MONTECARLO", "MC_PHIE_REAL", &[1000.0], &[vec![0.9, 0.8]]).unwrap();
+        let after = db::read_array_log(&conn, &w, None, "MC_PHIE_REAL").unwrap();
+        assert_eq!(after.len(), 1);
+        assert_eq!(after[0].samples, vec![0.9, 0.8]);
+
+        let cat = db::list_array_curves(&conn, &w).unwrap();
+        assert_eq!(cat.len(), 1);
+        assert_eq!((cat[0].set_name.as_str(), cat[0].curve_name.as_str()), ("MONTECARLO", "MC_PHIE_REAL"));
+        assert_eq!((cat[0].depths, cat[0].width), (1, 2));
+
+        assert_eq!(db::delete_array_log(&conn, &w, "MONTECARLO", "MC_PHIE_REAL").unwrap(), 1);
+        assert!(db::list_array_curves(&conn, &w).unwrap().is_empty());
     }
 
     #[test]

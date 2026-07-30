@@ -168,9 +168,89 @@ pub fn bin_by_depth(depth: &[f32], value: &[f32], bin: f32) -> Vec<(f32, f32, Ve
     out
 }
 
+/// Low / median / high percentile of ONE distribution, in a single call.
+///
+/// This is what an uncertainty band is made of: at each depth an array log holds a whole set
+/// of values, and the band is three percentiles through it. Kept here rather than at the two
+/// call sites so the interactive viewer and the print exporter cannot drift on how a band is
+/// derived — the same reason `box_stats` lives here.
+///
+/// Non-finite values are dropped, exactly as everywhere else in this module; `None` means the
+/// depth had nothing finite to summarise and should be a GAP in the band, not a zero.
+pub fn band(values: &[f32], lo_p: f32, hi_p: f32) -> Option<(f32, f32, f32)> {
+    let mut v: Vec<f32> = values.iter().copied().filter(|x| x.is_finite()).collect();
+    if v.is_empty() {
+        return None;
+    }
+    v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let (lo_p, hi_p) = if lo_p <= hi_p { (lo_p, hi_p) } else { (hi_p, lo_p) };
+    Some((percentile(&v, lo_p), percentile(&v, 50.0), percentile(&v, hi_p)))
+}
+
+/// Picks `want` indices spread EVENLY across `total`, for drawing a readable subset of a large
+/// set of realizations.
+///
+/// Evenly rather than the first `want`: a Latin-hypercube design lays its draws out in
+/// stratified order, so the first N of them are a biased corner of the sampled space and a
+/// spaghetti plot built from them would understate the true spread. Returns every index when
+/// `want >= total`, and an empty vector when either is zero.
+pub fn even_indices(total: usize, want: usize) -> Vec<usize> {
+    if total == 0 || want == 0 {
+        return Vec::new();
+    }
+    if want >= total {
+        return (0..total).collect();
+    }
+    // Mid-point sampling of `want` equal strata: symmetric, and never returns index `total`.
+    (0..want).map(|k| ((k as f64 + 0.5) * total as f64 / want as f64) as usize).map(|i| i.min(total - 1)).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_band_is_three_percentiles_of_one_depths_realizations() {
+        // 101 realizations 0.00..1.00: P10/P50/P90 land exactly on 0.10 / 0.50 / 0.90.
+        let vals: Vec<f32> = (0..=100).map(|i| i as f32 / 100.0).collect();
+        let (lo, med, hi) = band(&vals, 10.0, 90.0).unwrap();
+        assert!((lo - 0.10).abs() < 1e-6, "lo {lo}");
+        assert!((med - 0.50).abs() < 1e-6, "med {med}");
+        assert!((hi - 0.90).abs() < 1e-6, "hi {hi}");
+    }
+
+    #[test]
+    fn a_band_ignores_failed_realizations_and_reports_nothing_when_all_failed() {
+        let mixed = [f32::NAN, 0.2, f32::NAN, 0.4, 0.6];
+        let (lo, med, hi) = band(&mixed, 0.0, 100.0).unwrap();
+        assert_eq!((lo, med, hi), (0.2, 0.4, 0.6), "NaN realizations must not shift the band");
+        // A depth where nothing converged is a GAP, never a zero-width band at 0.0.
+        assert!(band(&[f32::NAN, f32::NAN], 10.0, 90.0).is_none());
+        assert!(band(&[], 10.0, 90.0).is_none());
+    }
+
+    #[test]
+    fn band_edges_given_backwards_still_come_back_low_first() {
+        let vals: Vec<f32> = (0..=100).map(|i| i as f32 / 100.0).collect();
+        assert_eq!(band(&vals, 90.0, 10.0).unwrap(), band(&vals, 10.0, 90.0).unwrap());
+    }
+
+    #[test]
+    fn spaghetti_traces_are_drawn_from_across_the_sample_space_not_its_first_corner() {
+        // 8 of 1000: evenly spread, so the drawn subset spans the design rather than sitting in
+        // the low corner an LHS design happens to start in.
+        let idx = even_indices(1000, 8);
+        assert_eq!(idx, vec![62, 187, 312, 437, 562, 687, 812, 937]);
+        assert_eq!(even_indices(5, 5), vec![0, 1, 2, 3, 4], "asking for all gives all, in order");
+        assert_eq!(even_indices(3, 10), vec![0, 1, 2], "never more than exist");
+        assert!(even_indices(0, 4).is_empty() && even_indices(4, 0).is_empty());
+        // Never returns an out-of-bounds index, at any ratio.
+        for total in 1..64usize {
+            for want in 1..64usize {
+                assert!(even_indices(total, want).iter().all(|i| *i < total), "{total}/{want}");
+            }
+        }
+    }
 
     #[test]
     fn percentile_matches_the_spreadsheet_definition() {

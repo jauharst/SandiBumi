@@ -142,3 +142,33 @@ export function binByDepth(depth: ArrayLike<number>, value: ArrayLike<number>, b
     .sort((a, b) => a[0] - b[0])
     .map(([k, values]) => ({ top: k * bin, base: k * bin + bin, values }));
 }
+
+/** Low / median / high percentile of ONE distribution, in a single call.
+ *
+ *  This is what an uncertainty band is made of: at each depth an array log holds a whole set
+ *  of values, and the band is three percentiles through it. Kept here rather than at the call
+ *  site so the viewer and the print exporter cannot drift on how a band is derived — the same
+ *  reason boxStats lives here.
+ *
+ *  Non-finite values are dropped. `null` means the depth had nothing finite to summarise and
+ *  must be drawn as a GAP in the band, never as a zero. */
+export function band(values: ArrayLike<number>, loP: number, hiP: number): { lo: number; med: number; hi: number } | null {
+  const v: number[] = [];
+  for (let i = 0; i < values.length; i++) if (Number.isFinite(values[i])) v.push(values[i]);
+  if (v.length === 0) return null;
+  v.sort((a, b) => a - b);
+  const [a, b] = loP <= hiP ? [loP, hiP] : [hiP, loP];
+  return { lo: percentile(v, a), med: percentile(v, 50), hi: percentile(v, b) };
+}
+
+/** Picks `want` indices spread EVENLY across `total`, for drawing a readable subset of a large
+ *  set of realizations.
+ *
+ *  Evenly rather than the first `want`: a Latin-hypercube design lays its draws out in
+ *  stratified order, so the first N are a biased corner of the sampled space and a spaghetti
+ *  plot built from them would understate the true spread. */
+export function evenIndices(total: number, want: number): number[] {
+  if (total <= 0 || want <= 0) return [];
+  if (want >= total) return Array.from({ length: total }, (_, i) => i);
+  return Array.from({ length: want }, (_, k) => Math.min(total - 1, Math.floor(((k + 0.5) * total) / want)));
+}

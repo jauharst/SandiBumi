@@ -5545,4 +5545,66 @@ When we do array logs, the display options you set here will already mean the sa
 
 ---
 
+## 2026-07-30 — Array logs: adjustable band, spaghetti and density heat map
+
+This is the array-log increment the point-data note above was written for. The
+box/percentile machinery was reused **unchanged** — no second statistics path was created.
+
+**Producing one** (Petrophysics → Batch → Monte Carlo…):
+
+- [ ] **Options** now has **Store realizations (array log)**, greyed out until *Save
+      LOW/BASE/HIGH curves* is ticked (it rides the same pass over the kept runs, so on its
+      own it would silently do nothing).
+- [ ] Run with both ticked. The status line reports the saved curves, and the notes list
+      `stored MC_<KEY>_REAL — N depths x M realizations` per well.
+- [ ] Only outputs the chain **produces** get a matrix — an input curve it merely reads must
+      not come back as a fake zero-width band. (Same rule as the percentile curves.)
+- [ ] With more than 256 realizations kept, a note says the stored set is the first 256, so a
+      band drawn from it can differ slightly from the MC_*_LOW/_HIGH curves. **Nothing should
+      differ silently.**
+
+**Displaying it** (log view → ⚙ → **Track type → Array log** → **＋ Add array series**):
+
+- [ ] The **Array curve** box suggests what this well actually has (`MC_PHIE_REAL`, …). With
+      no array logs at all, the panel says so and points at the Monte Carlo option rather
+      than offering an empty picker.
+- [ ] **Uncertainty band** — shaded P-low to P-high with the P50 line through it.
+- [ ] **This is the adjustable part**: change *Band low %* from 10 to 5 (or to 40/60) and the
+      band redraws immediately from the same stored realizations. **No re-run.** That is the
+      whole reason the matrix is stored rather than just three curves.
+- [ ] *Median line* off leaves the shading alone; *Shading* sets the fill opacity.
+- [ ] **Spaghetti** — individual realizations. *Traces* sets how many. They are sampled
+      **evenly across the run**, not the first N: the first N of a Latin-hypercube design sit
+      in one corner of the sampled space and would understate the spread.
+- [ ] **Density heat map** — per-depth value histogram, darker where more realizations landed.
+      *Value bins* sets the resolution.
+
+**Data-honesty rules to try to break:**
+
+- [ ] **A gap stays a gap.** At a depth where too few realizations converged, the band
+      **splits** rather than shading straight through. Shading across it would claim an
+      uncertainty range for a depth the study gave no answer for.
+- [ ] **A failed realization breaks its own trace** in spaghetti instead of being bridged to
+      the next depth — the bridge would draw a path that realization never took.
+- [ ] **Off-scale heat-map values are dropped, not clamped.** Narrow the track min/max until
+      part of the distribution falls outside: those samples contribute **no** cell rather than
+      a false dark column at the track edge.
+- [ ] Band and spaghetti, being continuous readings, **clip at the track edge** like any log
+      curve — deliberately different from a core plug, which is skipped.
+
+**Print + back-compat:**
+
+- [ ] **Print agrees with screen**: Plot ribbon → Composite… on a layout with an array track.
+      Same band, same gaps, same traces, same heat map.
+- [ ] **Existing layouts are untouched** — a saved layout with no array track opens exactly as
+      before, and an older project migrates without a backup pause (the old `array_logs` stub
+      never held a row, so there is nothing to protect).
+
+**Worth knowing:** a stored matrix is the only Monte Carlo output whose size scales with
+iterations (~2 MB per curve per well at the 256 default). If a project starts to drag, the
+matrices can be dropped without touching the study that produced them, and Data → Tools ▾ →
+Compact Project reclaims the space.
+
+---
+
 _Made in SandiBumi._ © 2026 SandiBumi. All rights reserved.

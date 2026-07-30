@@ -855,7 +855,9 @@ _(field-review tier, was "P2"; the rest of the tier is done in [A8](#a8-field-re
 
 ### Log-view display queue (Jauhar, 2026-07-30 click-through)
 
-Five display gaps he raised in one pass. The first two shipped together; the rest are open.
+Five display gaps he raised in one pass. Four have shipped; two follow-ups remain — **images in
+their own track** (with digitizing later — see §B3) and the ambiguous **QAT-in-ribbon** item,
+which he has since clarified (also §B3).
 
 - [x] **Curve draw style — continuous vs blocky** — **SHIPPED 2026-07-30.** `CurveStyle.draw_style`
       (`"line"` default / `"step"`), implemented in both renderers, exposed as a **Style** column in
@@ -878,19 +880,82 @@ Five display gaps he raised in one pass. The first two shipped together; the res
       `logViewPanel.drawPointTracks` and `composite.rs draw_point_series`. Off-scale samples are
       skipped, never clamped. **Increment (c) — image display (core photo / borehole image) —
       remains open** and needs a blob store, so it is genuinely separate.
-- [ ] **Array logs in the log view** — "for array log such PHIE from montecarlo with 1000x
-      iterations will have 1000 curves embedded as 1 phie array, we should also have …" (his message
-      was cut off). The `array_logs` table exists; nothing renders it. Needs a decision on what the
-      track shows — a P10/P50/P90 band, a spaghetti overlay, or a per-depth density heat map — plus
-      a writer, since `montecarlo.rs` deliberately keeps its realizations in memory and writes none.
-      **The statistics are already built**: `distribution.rs`/`.ts` are source-agnostic by
-      construction (Jauhar's explicit instruction when accepting the point-data increment), so the
-      box/percentile/whisker options a user sets on a point track will mean exactly the same thing
-      on an array log. Reuse them; do not write a second path.
-- [ ] **QAT tools in the Project ribbon** — "it should be better if its shown as tools in Project
-      ribbon", against a screenshot of the quick-access strip (session save/open, history, help).
-      **Ambiguous — ask before touching.** Note this would partly reverse a deliberate earlier
-      decision recorded in CLAUDE.md ("Save Project As is NOT a ribbon button anymore").
+- [x] **Array logs in the log view** — **SHIPPED 2026-07-30.** His answer to the open question was
+      "adjustable band, and all of those in ur mention", so all three displays landed over ONE
+      stored matrix: `band` (adjustable low/high percentiles + optional P50 line), `spaghetti`,
+      `heatmap`. That single-matrix choice is what makes the band genuinely *adjustable* —
+      persisting three percentile curves instead would have made changing P10→P5 a re-run.
+      `array_logs` became a real store (BLOB of little-endian f32, PK'd, `migrate_array_logs_store`
+      drops the never-written stub); `montecarlo.rs` gained `persist_realizations` +
+      `realization_cap` (default 256 — the full 1024 would be ~3 GB across a field);
+      `TrackKind::ArrayLog` + `ArrayStyle` render in `logViewPanel.drawArrayTracks` and
+      `composite.rs draw_array_series`. **The statistics were reused unchanged** —
+      `distribution.rs`/`.ts` gained only `band` and `even_indices`, both source-agnostic; no second
+      path was written, which was Jauhar's explicit instruction when accepting the point-data
+      increment. Verified: a band drawn from the stored matrix reproduces the persisted
+      MC_*_LOW/_HIGH curves to 1e-5.
+- [ ] **QAT tools in the Project ribbon** — **CLARIFIED 2026-07-30**, no longer ambiguous: "those
+      QAT buttons should become labelled tools, together with performance and processing button
+      moved from petrophysics tabs". So: the quick-access strip's buttons become *labelled* ribbon
+      tools, and the **Performance** and **Processing** buttons move out of the Petrophysics tab to
+      join them. Note this partly reverses the earlier decision recorded in CLAUDE.md ("Save Project
+      As is NOT a ribbon button anymore") — that line must be updated, not silently contradicted.
+- [ ] **Images in their own track** — **CLARIFIED 2026-07-30**: "images in separate tracks, such
+      petrography thin section, core photo, or any picture format that can be adjustable (later we
+      should have capablites to digitize it as well)". So this is NOT part of the point-data track:
+      it is its own `TrackKind`, depth-registered, with adjustable placement/scale, over any common
+      raster format. Needs a blob store. **Digitizing is a deliberate later phase** — see the
+      OpenCV note in §B3.
+
+### B3 — Python capability audit (2026-07-30, at Jauhar's request)
+
+He asked which of a list of Python packages could empower the existing tools, aiming at ML and
+office-document output. Verified against the interpreter SandiBumi actually discovers
+(`%LOCALAPPDATA%\Programs\Python\Python312`), not against the list in the abstract.
+
+**Already installed there** (so these cost no install): `numpy`, `scipy`, `pandas`, `sklearn`,
+`joblib`, `python-docx`, `python-pptx`, `openpyxl`, `xlsxwriter`, `matplotlib`, `Pillow`,
+`dlisio`. **Not installed**: `cv2`, `onnxruntime`, `jax`, `tensorflow`, `mediapipe`.
+
+Everything below rides the existing subprocess mechanism, so **rule 7 holds throughout: a
+missing package fails only its own button, never the app**, and the native PDF/SVG/LAS paths
+stay the default. The one real cost is the install matrix for a client machine, which should be
+tiered in CONTRIBUTING.md: nothing required → numpy (equations) → dlisio (DLIS) → sklearn +
+joblib (ML) → office four (deliverables) → opencv (digitizing).
+
+- [ ] **Office deliverables** — the largest gap in the product. `export.rs` exports **LAS only**;
+      everything else leaves as a native PDF or a CSV, so a finished study still has to be
+      re-typed into Excel and PowerPoint by hand.
+      - `xlsxwriter` → pay summary / zone parameters / field dashboard as a formatted multi-sheet
+        workbook (number formats, frozen headers, net-pay shading) instead of flat CSV.
+      - `python-pptx` → an asset-team deck: composite plot per well (the PNG path already
+        exists via `save_png`), zone-summary and field-summary slides.
+      - `python-docx` → an EDITABLE report twin of `report.rs`'s PDF, so methodology text can be
+        adapted into a client template. **The native PDF stays the default path.**
+- [ ] **`joblib` model persistence** — a confirmed capability hole, not a guess: `MlRequest`
+      carries `train_well_ids` and `apply_well_ids` in the SAME call, so the fitted model dies
+      with the subprocess. There is currently no way to train on the cored wells and apply *that
+      same model* later — a refit on different data is a different model. Persisting makes a
+      trained model a named, citable, re-runnable artifact (fits the delivery-set pattern).
+      Small; ride it along with the next ML touch.
+- [ ] **`scipy` in the equation engine** — nearly free: `python_engine.rs` already runs numpy in
+      that interpreter and scipy is importable there. Costs a probe + documentation, and gains
+      `scipy.signal` (despike, Savitzky-Golay), `scipy.interpolate`, `scipy.optimize.curve_fit`
+      for user-written equations. **Boundary: this is for the user's equations, not for core
+      petrophysics — the engine stays Rust.** Must degrade like numpy does.
+- [ ] **`Pillow`** — already present, and enough for the *display* half of the image-track item
+      above (read JPEG/PNG/TIFF, dimensions, downsample). No install needed.
+- [ ] **OpenCV** — NOT installed, and deliberately deferred to the **digitizing** phase of the
+      image track, where it is the actual engine: thin-section modal analysis by colour
+      segmentation (point counting without the point counter), core-photo depth registration and
+      lithology banding, borehole-image processing.
+
+**Rejected, with reasons** (so this is not re-litigated): `pandas` — DuckDB already is the
+columnar frame, and routing through pandas copies data out of the store just to copy it back
+(fine inside a runner script, wrong as architecture). `jax` / `tensorflow` / `onnxruntime` —
+sklearn's `MLPRegressor` covers the neural-net case for logs; a ~200 MB deep-learning runtime to
+unlock the deferred autoencoder is a bad trade. `mediapipe` — face/pose perception, irrelevant.
+
 - [x] **Pickett v2** — **COMPLETE 2026-07-30.** N with M and Rw, free line-parameter input, Z-colour
       by a chosen log: all shipped as Polish-4/#125 above. The tail landed with the multi-well work:
       template bar, RT default widened to 0.2–2000 (audit), `sanitizePickettProps`, Sw lines spanning

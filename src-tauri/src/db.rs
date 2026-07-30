@@ -255,11 +255,27 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             PRIMARY KEY (well_id, depth)
         );
 
+        -- Array logs: one row per (well, set, curve, depth) holding a WHOLE VECTOR of values
+        -- at that depth — Monte Carlo realizations, NMR T2 distributions, sonic waveforms.
+        --
+        -- `samples` is a BLOB of little-endian f32 (bytemuck), NOT a DuckDB FLOAT[] list.
+        -- Rule 1 allows either; the blob wins here because it is exactly 4 bytes per value with
+        -- no text round-trip, and because rule 3 already requires arrays to reach the frontend
+        -- as bytemuck bytes cast to a Float32Array — so the stored bytes ARE the wire format
+        -- and the read path never re-encodes.
+        --
+        -- Unlike `computed_curves` this table DOES carry a primary key, and that is not an
+        -- inconsistency: the ART index that dominated computed_curves costs one entry per
+        -- SAMPLE, whereas here one row holds a thousand samples, so the same index is ~1000x
+        -- cheaper per value — while the protection matters far more. A duplicated depth row
+        -- would silently double a realization count and bias every percentile drawn from it.
         CREATE TABLE IF NOT EXISTS array_logs (
-            well_id             UUID NOT NULL,
-            depth               FLOAT NOT NULL,
-            nmr_t2_distribution FLOAT[],
-            PRIMARY KEY (well_id, depth)
+            well_id     UUID NOT NULL,
+            set_name    VARCHAR NOT NULL DEFAULT 'RAW',
+            curve_name  VARCHAR NOT NULL,
+            depth       FLOAT NOT NULL,
+            samples     BLOB NOT NULL,
+            PRIMARY KEY (well_id, set_name, curve_name, depth)
         );
 
         -- Long/tall store for module + equation outputs: one row per (well, depth, curve),
@@ -766,6 +782,191 @@ pub fn migrate_drop_computed_curves_pk(conn: &Connection, path: Option<&str>) ->
          COMMIT;",
     )?;
     Ok(())
+}
+
+/// One-time migration replacing the never-used `array_logs` stub with the real array store.
+///
+/// The original shape was `(well_id, depth, nmr_t2_distribution FLOAT[])`, declared in the
+/// very first schema as a placeholder for a later phase. **No code path ever wrote a single
+/// row to it** — `dlis.rs` skips array channels with a comment pointing here, and nothing
+/// else mentions the table — so dropping it loses nothing, and this deliberately does NOT
+/// take a backup: there is no data to protect and a field-scale project should not pay a
+/// whole-file copy for an empty table.
+///
+/// Detection is by column name rather than by row count, so the migration is idempotent and
+/// a database already carrying the new shape short-circuits on the first query.
+pub fn migrate_array_logs_store(conn: &Connection) -> DbResult<()> {
+    let old_shape: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM duckdb_columns()
+         WHERE table_name = 'array_logs' AND column_name = 'nmr_t2_distribution'",
+        [],
+        |r| r.get(0),
+    )?;
+    if old_shape == 0 {
+        return Ok(());
+    }
+    conn.execute_batch(
+        "DROP TABLE IF EXISTS array_logs;
+         CREATE TABLE array_logs (
+            well_id     UUID NOT NULL,
+            set_name    VARCHAR NOT NULL DEFAULT 'RAW',
+            curve_name  VARCHAR NOT NULL,
+            depth       FLOAT NOT NULL,
+            samples     BLOB NOT NULL,
+            PRIMARY KEY (well_id, set_name, curve_name, depth)
+         );",
+    )?;
+    Ok(())
+}
+
+/// One depth of an array log: the depth, and every value the array holds there.
+#[derive(Debug, Clone)]
+pub struct ArrayRow {
+    pub depth: f32,
+    pub samples: Vec<f32>,
+}
+
+/// One array curve present on a well, for catalogs and pickers.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ArrayCurveInfo {
+    pub set_name: String,
+    pub curve_name: String,
+    /// Number of depths the array covers.
+    pub depths: i64,
+    /// Values per depth in the WIDEST row — realization counts are uniform in practice, but
+    /// a ragged array (an NMR tool that changed bin count mid-run) must not be misreported.
+    pub width: i64,
+    pub depth_min: f32,
+    pub depth_max: f32,
+}
+
+/// Encodes a value vector as the stored blob: explicit little-endian f32, 4 bytes per value.
+/// Explicit rather than `bytemuck::cast_slice` (which is native-endian) so the on-disk format
+/// is a stated contract, not a property of whichever machine wrote the file.
+fn encode_samples(values: &[f32]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(values.len() * 4);
+    for v in values {
+        out.extend_from_slice(&v.to_le_bytes());
+    }
+    out
+}
+
+/// Decodes a stored blob back to values. A trailing partial value (impossible unless the file
+/// was truncated) is DROPPED rather than read as garbage.
+fn decode_samples(bytes: &[u8]) -> Vec<f32> {
+    bytes
+        .chunks_exact(4)
+        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect()
+}
+
+/// Replaces one array curve on one well, wholesale.
+///
+/// The write discipline mirrors `write_computed_curves_batch`: DELETE the (well, set, curve)
+/// rows first, then insert fresh ones — a re-run replaces its own output and never unions two
+/// runs' realizations into one distribution. `depths` and `samples` must be the same length;
+/// a depth whose vector is EMPTY is skipped rather than stored, so "no realizations survived
+/// here" reads back as an absent depth instead of a zero-width distribution.
+pub fn write_array_log(
+    conn: &Connection,
+    well_id: &str,
+    set_name: &str,
+    curve_name: &str,
+    depths: &[f32],
+    samples: &[Vec<f32>],
+) -> DbResult<usize> {
+    if depths.len() != samples.len() {
+        return Err(DbError::LengthMismatch(format!(
+            "array log {curve_name}: {} depths against {} value vectors",
+            depths.len(),
+            samples.len()
+        )));
+    }
+    conn.execute(
+        "DELETE FROM array_logs WHERE well_id = ? AND set_name = ? AND upper(curve_name) = upper(?)",
+        duckdb::params![well_id, set_name, curve_name],
+    )?;
+    let mut stmt = conn.prepare(
+        "INSERT INTO array_logs (well_id, set_name, curve_name, depth, samples) VALUES (?, ?, ?, ?, ?)",
+    )?;
+    let mut written = 0usize;
+    for (d, vals) in depths.iter().zip(samples) {
+        if vals.is_empty() || !d.is_finite() {
+            continue;
+        }
+        stmt.execute(duckdb::params![well_id, set_name, curve_name, d, encode_samples(vals)])?;
+        written += 1;
+    }
+    Ok(written)
+}
+
+/// Reads one array curve, ordered by depth. `set_name` of `None` takes whichever set holds the
+/// curve, preferring the alphabetically first — array logs are produced outputs, so a well
+/// normally carries exactly one set per curve name.
+pub fn read_array_log(
+    conn: &Connection,
+    well_id: &str,
+    set_name: Option<&str>,
+    curve_name: &str,
+) -> DbResult<Vec<ArrayRow>> {
+    let sql = match set_name {
+        Some(_) => {
+            "SELECT depth, samples FROM array_logs
+             WHERE well_id = ? AND upper(curve_name) = upper(?) AND set_name = ?
+             ORDER BY depth"
+        }
+        None => {
+            "SELECT depth, samples FROM array_logs
+             WHERE well_id = ? AND upper(curve_name) = upper(?)
+               AND set_name = (SELECT min(set_name) FROM array_logs
+                               WHERE well_id = ? AND upper(curve_name) = upper(?))
+             ORDER BY depth"
+        }
+    };
+    let mut stmt = conn.prepare(sql)?;
+    let map = |r: &duckdb::Row| -> duckdb::Result<ArrayRow> {
+        let depth: f32 = r.get(0)?;
+        let bytes: Vec<u8> = r.get(1)?;
+        Ok(ArrayRow { depth, samples: decode_samples(&bytes) })
+    };
+    let rows = match set_name {
+        Some(set) => stmt.query_map(duckdb::params![well_id, curve_name, set], map)?.collect::<duckdb::Result<Vec<_>>>()?,
+        None => stmt
+            .query_map(duckdb::params![well_id, curve_name, well_id, curve_name], map)?
+            .collect::<duckdb::Result<Vec<_>>>()?,
+    };
+    Ok(rows)
+}
+
+/// Every array curve on a well, for the layout dialog's picker and the object tree.
+pub fn list_array_curves(conn: &Connection, well_id: &str) -> DbResult<Vec<ArrayCurveInfo>> {
+    let mut stmt = conn.prepare(
+        "SELECT set_name, curve_name, COUNT(*), max(octet_length(samples)) / 4, min(depth), max(depth)
+         FROM array_logs WHERE well_id = ?
+         GROUP BY set_name, curve_name ORDER BY set_name, curve_name",
+    )?;
+    let rows = stmt
+        .query_map([well_id], |r| {
+            Ok(ArrayCurveInfo {
+                set_name: r.get(0)?,
+                curve_name: r.get(1)?,
+                depths: r.get(2)?,
+                width: r.get(3)?,
+                depth_min: r.get(4)?,
+                depth_max: r.get(5)?,
+            })
+        })?
+        .collect::<duckdb::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// Deletes one array curve from a well (the Data Sets dialog's remove action).
+pub fn delete_array_log(conn: &Connection, well_id: &str, set_name: &str, curve_name: &str) -> DbResult<usize> {
+    let n = conn.execute(
+        "DELETE FROM array_logs WHERE well_id = ? AND set_name = ? AND upper(curve_name) = upper(?)",
+        duckdb::params![well_id, set_name, curve_name],
+    )?;
+    Ok(n)
 }
 
 /// One-time migration that brings every DELIVERY-shaped store onto the set model: a

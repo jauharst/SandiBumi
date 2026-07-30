@@ -515,6 +515,62 @@ fn list_aux_datasets(db: tauri::State<DbState>, well_id: String) -> Result<Vec<(
     db::list_aux_datasets(&conn, &well_id).map_err(|e| e.to_string())
 }
 
+/// Which array logs a well carries, for the layout dialog's picker and the object tree.
+#[tauri::command]
+fn list_array_curves(db: tauri::State<DbState>, well_id: String) -> Result<Vec<db::ArrayCurveInfo>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_array_curves(&conn, &well_id).map_err(|e| e.to_string())
+}
+
+/// Drops one array log. Array logs are the only output whose size scales with iteration count,
+/// so there has to be a way to reclaim one without deleting the study that produced it.
+#[tauri::command]
+fn delete_array_log(
+    db: tauri::State<DbState>,
+    well_id: String,
+    set_name: String,
+    curve_name: String,
+) -> Result<usize, String> {
+    let conn = db.0.lock().unwrap();
+    db::delete_array_log(&conn, &well_id, &set_name, &curve_name).map_err(|e| e.to_string())
+}
+
+/// Fetches one array log — a whole DISTRIBUTION at every depth — as a raw byte buffer.
+///
+/// Raw IPC rather than JSON is not an optimization here, it is the only workable path: a
+/// 2000-sample well with 256 realizations is half a million floats, which serde would encode
+/// as a JSON number array of roughly 4 MB for the frontend to `JSON.parse` on the main thread.
+///
+/// Layout, all little-endian, mirrored by `decodeArrayLog` in `src\ipc.ts`:
+///   [u32 depth_count][u32 width][f32 depth x depth_count][f32 values x depth_count*width]
+///
+/// The value block is ROW-MAJOR by depth and padded with NaN to a uniform `width`. Padding
+/// rather than a ragged encoding keeps the frontend able to index `row * width + r` directly,
+/// and NaN is already this project's only missing-value marker, so a padded cell is dropped by
+/// exactly the same code that drops a realization that failed to converge.
+#[tauri::command]
+fn get_array_log(
+    db: tauri::State<DbState>,
+    well_id: String,
+    set_name: Option<String>,
+    curve_name: String,
+) -> Result<tauri::ipc::Response, String> {
+    let conn = db.0.lock().unwrap();
+    let rows = db::read_array_log(&conn, &well_id, set_name.as_deref(), &curve_name).map_err(|e| e.to_string())?;
+    let width = rows.iter().map(|r| r.samples.len()).max().unwrap_or(0);
+    let mut packed: Vec<f32> = Vec::with_capacity(rows.len() * (width + 1));
+    packed.extend(rows.iter().map(|r| r.depth));
+    for r in &rows {
+        packed.extend_from_slice(&r.samples);
+        packed.extend(std::iter::repeat(f32::NAN).take(width - r.samples.len()));
+    }
+    let mut out = Vec::with_capacity(8 + packed.len() * 4);
+    out.extend_from_slice(&(rows.len() as u32).to_le_bytes());
+    out.extend_from_slice(&(width as u32).to_le_bytes());
+    out.extend_from_slice(bytemuck::cast_slice(&packed));
+    Ok(tauri::ipc::Response::new(out))
+}
+
 /// Fetches a well's core plug data as CPOR/CPERM/CGD/CSW series, for overlay onto
 /// crossplots/log tracks (see `equations::fetch_core_series` for why this isn't
 /// aligned onto the standard depth grid like `get_curve_data`).
@@ -2254,6 +2310,9 @@ pub fn run() {
             import_aux_data,
             list_aux_data,
             list_aux_datasets,
+            list_array_curves,
+            get_array_log,
+            delete_array_log,
             list_aux_sets,
             set_active_aux_set,
             delete_aux_set,
