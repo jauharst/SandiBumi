@@ -780,9 +780,14 @@ _(field-review tier, was "P2"; the rest of the tier is done in [A8](#a8-field-re
       name window resolution, budgeted concurrent fetch, stride decimation) moved to
       `plotCommon.ts` (`contextZoneWindow`/`fetchContextLayers`) and the crossplot now
       shares it — one source of truth for the correctness-critical rules.
-      **Still open: Pickett decision (its m/n/Rw are per-well parameters — overlay clouds
-      with line params bound to the active well, or stay single-well?), and a per-well
-      colour-stability rule if Jauhar wants colours pinned across scope edits.**
+      **Increment 3 (2026-07-30): Pickett SHIPPED** — decision taken: overlay context
+      clouds while the Sw lines / M/N/Rw stay the ACTIVE well's (stated on the plot:
+      "line = ACTIVE well's parameters") — the overlay's purpose is showing whether
+      neighbours share the active well's water line. Also completed the queued Pickett
+      v2 tail: template bar, audit's RT 0.2–2000 default, saved-props sanitizer
+      (`sanitizePickettProps`), Sw lines spanning the visible φ window instead of the
+      fixed 0.01–1. T-SHELL-16 is now CLOSED except: a per-well colour-stability rule
+      if Jauhar wants colours pinned across scope edits (cosmetic, on request).
       Original design notes follow (kept for reference):
 - [ ] **Multi-well plots — DESIGNED, not yet built** (T-SHELL-16, 2026-07-29). Design settled
       during the units session; build it as its own increment rather than a tail-end change to

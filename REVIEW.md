@@ -5007,6 +5007,37 @@ per-well parameters).
       decimation and skips. Scope survives a well switch; SVG/PDF export includes the
       outlines and legend.
 
+## Pickett v2 completion + multi-well overlay (T-SHELL-16 increment 3, 2026-07-30)
+
+The Pickett already had free M/N/Rw fields, Properties (axes, point size, Z-colour)
+and viewport-preserving N changes from an earlier pass. This increment adds the rest
+of the audit items plus the scope overlay. The multi-well decision, as agreed: the
+**overlay shows whether neighbours share the ACTIVE well's water line** — m, n and Rw
+are per-well parameters and never come from a context well.
+
+- [ ] **Wells: Active button** in the Pickett toolbar (after Zone) — same scope row as
+      the other plots. Default **Active** = today's single-well plot, unchanged.
+- [ ] **Wider scope**: context wells' clouds fade in behind the active well's, one
+      colour per well, Wells legend top-right, footer "context is display-only". The
+      water-line readout adds "line = ACTIVE well's parameters" whenever context is on.
+      A neighbour sharing the water line hugs the same Sw=1 edge; one with different Rw
+      sits visibly shifted — that's the point of the overlay.
+- [ ] **Water-line picks, M/N/Rw, brushing, tooltips, zone writes**: all still act on
+      the ACTIVE well only. Clicking two points fits M/Rw from the active cloud even
+      with context wells showing.
+- [ ] **Template bar** (★ Save template / recall / 🗑) — Pickett display settings
+      (axes, point size, Z-colour) now save under a name like Histogram/Crossplot.
+      Recalling a template with garbage values is safe (everything sanitized).
+- [ ] **New default RT axis 0.2–2000 ohmm** (audit fix — 0.1–1000 clipped
+      high-resistivity pay). Your saved axis ranges are untouched; only a fresh
+      panel/profile sees the new defaults.
+- [ ] **Sw lines span the visible window**: set a custom porosity range (e.g.
+      0.02–0.5) or zoom — the Sw = 1 / 0.5 / 0.25 lines run edge to edge instead of
+      stopping at the old fixed φ = 0.01–1 span.
+- [ ] **Scope survives a well switch**; SVG/PDF export includes the context clouds
+      and legend. Same zone-by-name + skip rule, budget and scope-row reporting as
+      the other two plots.
+
 ---
 
 _Made in SandiBumi._ © 2026 SandiBumi. All rights reserved.
