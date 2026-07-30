@@ -98,7 +98,7 @@ export async function openWorkbookDialog(): Promise<void> {
     warn.style.color = "var(--warn)";
     warn.textContent = support.python
       ? `xlsxwriter is not installed in the Python SandiBumi found (${support.python}). Run: pip install xlsxwriter`
-      : "No Python was found. Install Python 3.10+ with xlsxwriter, or set ARSHILLA_PYTHON to its python.exe.";
+      : "No Python was found. Install Python 3.10+ with xlsxwriter, or set SANDIBUMI_PYTHON to its python.exe.";
     wrap.appendChild(warn);
   }
 

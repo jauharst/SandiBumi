@@ -155,7 +155,7 @@ fn insert_parsed_well(
 
     // Reconcile the file's depth index with the project's declared unit BEFORE anything
     // else touches the depths. A project holds exactly one depth unit (units.rs); a
-    // foot-indexed Rokan LAS landing its raw numbers in a metric project used to be
+    // foot-indexed LAS landing its raw numbers in a metric project used to be
     // reported as a clean import while every cross-well comparison silently put 8,000
     // against 2,438 for the same formation.
     let declared = crate::units::project_depth_unit(conn).ok().flatten();
@@ -600,7 +600,7 @@ pub struct CoreTableImportResult {
 /// same rules LAS attach uses, so pre-set-era duplicate records can't be guessed at).
 /// Without a well column, everything goes to `fallback_well_id` (the selected well).
 /// Depths convert from `depth_unit` (the dialog's confirmed file unit; None = already
-/// the project unit) to the project's declared unit — a feet-plugged Rokan CSV landing
+/// the project unit) to the project's declared unit — a feet-plugged core CSV landing
 /// raw in a metric project would overlay 3.28× off, silently. Per-well semantics stay
 /// replace-on-reimport (`insert_core_data`).
 ///
@@ -1380,7 +1380,7 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
         let well_id = Uuid::new_v4();
-        db::insert_well(&conn, well_id, "BALAM-1", None, None, None).unwrap();
+        db::insert_well(&conn, well_id, "SANDI-1", None, None, None).unwrap();
         let ids = well_id.to_string();
 
         let path = std::env::temp_dir().join("arshilla_core_roundtrip.csv");
@@ -1777,7 +1777,7 @@ mod tests {
         assert_eq!(pef.n_samples, 2, "generic PEF deduped to 2 rows, not aborted");
     }
 
-    /// Core import v2 (T-IMP-07): the BLSO-delivery shape end-to-end — WN well column,
+    /// Core import v2 (T-IMP-07): a real delivery shape end-to-end — WN well column,
     /// units row, feet depths, percent porosity, an unmatched name, an ambiguous name,
     /// and a blank well cell. Probe must SEE all of it; commit must route, convert, and
     /// report without guessing.
@@ -2261,14 +2261,14 @@ mod tests {
         db::create_schema(&conn).unwrap();
         let w1 = Uuid::new_v4();
         let w2 = Uuid::new_v4();
-        db::insert_well(&conn, w1, "BALAM-1", None, None, None).unwrap();
-        db::insert_well(&conn, w2, "BALAM-2", None, None, None).unwrap();
+        db::insert_well(&conn, w1, "SANDI-1", None, None, None).unwrap();
+        db::insert_well(&conn, w2, "SANDI-2", None, None, None).unwrap();
         let id1 = w1.to_string();
 
         let path = std::env::temp_dir().join("arshilla_tops_import.csv");
         std::fs::write(
             &path,
-            "WELL,TOP,MD\nbalam-1,TOP_A,1000.0\nBALAM-1,TOP_B,1100.0\nBALAM-2,TOP_A,1010.0\nGHOST-9,TOP_A,900.0\n",
+            "WELL,TOP,MD\nsandi-1,TOP_A,1000.0\nSANDI-1,TOP_B,1100.0\nSANDI-2,TOP_A,1010.0\nGHOST-9,TOP_A,900.0\n",
         )
         .unwrap();
         let res = import_tops_file(&conn, None, path.to_str().unwrap());
@@ -2279,7 +2279,7 @@ mod tests {
 
         // Give TOP_A a color, then re-import a new depth: depth moves, color survives.
         db::upsert_top(&conn, &id1, "TOP_A", 1000.0, Some("#ff0000")).unwrap();
-        std::fs::write(&path, "WELL,TOP,MD\nBALAM-1,TOP_A,1005.0\n").unwrap();
+        std::fs::write(&path, "WELL,TOP,MD\nSANDI-1,TOP_A,1005.0\n").unwrap();
         let res2 = import_tops_file(&conn, None, path.to_str().unwrap());
         assert!(res2.error.is_none());
         let tops = db::list_tops(&conn, &id1).unwrap();
@@ -2371,32 +2371,19 @@ mod tests {
         assert!(bad.error.is_some());
     }
 
-    /// Ad-hoc verification against real field LAS files. Ignored by default since it
-    /// depends on absolute paths that only exist on this machine; run explicitly with
+    /// Ad-hoc verification against a real field delivery — whatever LAS files sit in the
+    /// configured fixture folder (`SANDIBUMI_FIELD_FIXTURES/las/`). Ignored by default and
+    /// skipped with a printed reason when no folder is configured; run explicitly with
     /// `cargo test --release -- --ignored --nocapture test_import_real_field_files`.
     #[test]
     #[ignore]
     fn test_import_real_field_files() {
-        let paths: Vec<String> = vec![
-            r"D:\01. Work\00. Guidebook\02. Guidebook Geolog\Loglan\mina01060d1_study_minas_itb2022_final.las",
-            r"D:\01. Work\2023\10. LQR Balam South - PHR Rokan\13. Delivery Data\01. Final Log\BLSO_LAPI2023_FPROOH\blso00008_lapi2023_fprooh.las",
-            r"D:\01. Work\2023\10. LQR Balam South - PHR Rokan\13. Delivery Data\01. Final Log\BLSO_LAPI2023_FPROOH\blso00009_lapi2023_fprooh.las",
-            r"D:\01. Work\2023\10. LQR Balam South - PHR Rokan\13. Delivery Data\01. Final Log\BLSO_LAPI2023_FPROOH\blso00010_lapi2023_fprooh.las",
-            r"D:\01. Work\2023\10. LQR Balam South - PHR Rokan\13. Delivery Data\01. Final Log\BLSO_LAPI2023_FPROOH\blso00011_lapi2023_fprooh.las",
-            r"D:\01. Work\2023\10. LQR Balam South - PHR Rokan\13. Delivery Data\01. Final Log\BLSO_LAPI2023_FPROOH\blso00012_lapi2023_fprooh.las",
-            r"D:\01. Work\2023\10. LQR Balam South - PHR Rokan\13. Delivery Data\01. Final Log\BLSO_LAPI2023_FPROOH\blso00001_lapi2023_fprooh.las",
-            r"D:\01. Work\2023\10. LQR Balam South - PHR Rokan\13. Delivery Data\01. Final Log\BLSO_LAPI2023_FPROOH\blso00002_lapi2023_fprooh.las",
-            r"D:\01. Work\2023\10. LQR Balam South - PHR Rokan\13. Delivery Data\01. Final Log\BLSO_LAPI2023_FPROOH\blso00004_lapi2023_fprooh.las",
-            r"D:\01. Work\2023\10. LQR Balam South - PHR Rokan\13. Delivery Data\01. Final Log\BLSO_LAPI2023_FPROOH\blso00005_lapi2023_fprooh.las",
-            r"D:\01. Work\2023\10. LQR Balam South - PHR Rokan\13. Delivery Data\01. Final Log\BLSO_LAPI2023_FPROOH\blso00006_lapi2023_fprooh.las",
-            r"D:\01. Work\2023\10. LQR Balam South - PHR Rokan\13. Delivery Data\01. Final Log\BLSO_LAPI2023_FPROOH\blso00007_lapi2023_fprooh.las",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
+        let paths = crate::field_fixtures::las_files(12);
+        if crate::field_fixtures::skip("test_import_real_field_files", paths.len(), 1) {
+            return;
+        }
 
-        let db_path = std::env::temp_dir().join("arshilla_import_test.duckdb");
-        let _ = std::fs::remove_file(&db_path);
+        let db_path = crate::field_fixtures::temp_db("import_test");
         let conn = db::init_db(db_path.to_str().unwrap()).expect("init_db failed");
 
         let results = import_las_files(&conn, &paths, None);

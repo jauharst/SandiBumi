@@ -313,7 +313,7 @@ struct RunnerReply {
 /// megabytes, and a pipe would carry every one of them through this process for no gain.
 fn write_workbook(sheets: &[Sheet], dest: &str) -> Result<usize, String> {
     let python = find_python().ok_or_else(|| {
-        "no Python found - install Python 3.10+ with xlsxwriter, or set ARSHILLA_PYTHON".to_string()
+        "no Python found - install Python 3.10+ with xlsxwriter, or set SANDIBUMI_PYTHON".to_string()
     })?;
     let mut cmd = Command::new(&python);
     cmd.args(["-c", XLSX_RUNNER]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -874,7 +874,7 @@ struct DocxReply {
 
 fn write_docx(blocks: &[Block], dest: &str) -> Result<usize, String> {
     let python = find_python().ok_or_else(|| {
-        "no Python found - install Python 3.10+ with python-docx, or set ARSHILLA_PYTHON".to_string()
+        "no Python found - install Python 3.10+ with python-docx, or set SANDIBUMI_PYTHON".to_string()
     })?;
     let mut cmd = Command::new(&python);
     cmd.args(["-c", DOCX_RUNNER]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -1395,7 +1395,7 @@ struct DeckReply {
 
 fn write_deck(slides: &[Slide], dest: &str) -> Result<usize, String> {
     let python = find_python().ok_or_else(|| {
-        "no Python found - install Python 3.10+ with python-pptx and matplotlib, or set ARSHILLA_PYTHON"
+        "no Python found - install Python 3.10+ with python-pptx and matplotlib, or set SANDIBUMI_PYTHON"
             .to_string()
     })?;
     let mut cmd = Command::new(&python);
@@ -1768,7 +1768,7 @@ mod tests {
     fn an_uninterpreted_well_leaves_results_blank_but_still_states_its_geometry() {
         // n_classified == 0: VSH/PHIE/SWE were never computed, so net/ntg/hpv are 0 for want of
         // an answer. Gross is geometry and is known regardless.
-        let sheet = pay_sheet(&[row("BLSO-01", "Z1", "PAY", 0.0, 0.0, 0)], "m");
+        let sheet = pay_sheet(&[row("SANDI-01", "Z1", "PAY", 0.0, 0.0, 0)], "m");
         let r = &sheet.rows[0];
         assert_eq!(r[5], Cell::Num(100.0), "gross is geometry and stays a number");
         for i in [6usize, 7, 8, 9, 10, 11] {
@@ -1881,7 +1881,7 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
         let id = uuid::Uuid::new_v4();
-        db::insert_well(&conn, id, "BLSO-01", Some("Balam South"), Some(1800.0), Some(12.0)).unwrap();
+        db::insert_well(&conn, id, "SANDI-01", Some("Sandi Field"), Some(1800.0), Some(12.0)).unwrap();
         let well = id.to_string();
         db::upsert_zone(&conn, &well, "MENGGALA", 1500.0, 1560.0).unwrap();
         db::upsert_zone(&conn, &well, "BEKASAP", 1600.0, 1680.0).unwrap();
@@ -1959,7 +1959,7 @@ mod tests {
             Block::Cover {
                 title: "Petrophysical Evaluation".into(),
                 well: needle.into(),
-                field: "Field: Balam South".into(),
+                field: "Field: Sandi Field".into(),
                 meta: "TD: 1800.0 m".into(),
                 author: "Prepared by: Jauhar".into(),
             },
@@ -2002,7 +2002,7 @@ sys.stdout.buffer.write(json.dumps([p.text for p in doc.paragraphs if p.text], e
             phie_min: 0.1,
             swe_max: 0.6,
             perm_min: None,
-            title: "Balam South".into(),
+            title: "Sandi Field".into(),
             author: String::new(),
             flag: "PAY".into(),
         }
@@ -2196,7 +2196,7 @@ sys.stdout.buffer.write(json.dumps(out, ensure_ascii=True).encode("ascii"))
         assert_eq!(info.len(), slides.len(), "every slide reached the file");
         assert!(info.iter().filter(|s| s.pics > 0).count() >= 3, "the matplotlib figures are on the slides");
         assert!(info.iter().any(|s| s.tables > 0), "the field-summary table is a real table");
-        assert!(info[0].text.contains("Balam South"), "title slide carries the title: {}", info[0].text);
+        assert!(info[0].text.contains("Sandi Field"), "title slide carries the title: {}", info[0].text);
         let _ = std::fs::remove_file(&dest);
     }
 

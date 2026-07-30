@@ -3,7 +3,7 @@ import type { LasImportOptions } from "../ipc";
 
 /** The Import LAS "which set?" dialog (T-IMP-02 — the Geolog/IP set model).
  *
- *  A delivery folder is one SET: `blso00025_lapi2023_fprooh.las` and its 543 siblings are
+ *  A delivery folder is one SET: `well00025_2023_fprooh.las` and its 543 siblings are
  *  the FPROOH interpretation of the field, and a well's RAW, FPROOH and MULTIMIN curves
  *  belong on ONE well record, not on three same-named ones. This dialog names the set and
  *  decides whether same-named files attach to the existing well.
@@ -22,7 +22,7 @@ const NOISE_TOKENS = new Set([
  *
  * Files are split on `_`, `-`, `.` and space; a token is a candidate only if it appears in
  * EVERY file (so it describes the delivery, not one well), is not purely numeric or a year
- * (well numbers and `lapi2023` dates differ per delivery but say nothing about content),
+ * (well numbers and delivery dates differ per file but say nothing about content),
  * and is not generic noise.
  *
  * A candidate at POSITION 0 is rejected: vendor names run `<well>_<project>_<product>`, so
@@ -47,7 +47,7 @@ export function suggestSetName(paths: string[]): string {
           !NOISE_TOKENS.has(t.toLowerCase()) &&
           !/^\d+$/.test(t) && // a bare well number
           !/^\d{4}$/.test(t) && // a bare year
-          !/^[A-Z]*\d{3,}[A-Z\d]*$/.test(t), // well ids like BLSO00025 / 00358D1
+          !/^[A-Z]*\d{3,}[A-Z\d]*$/.test(t), // well ids like WELL00025 / 00358D1
       );
   };
   const first = tokensOf(paths[0]);

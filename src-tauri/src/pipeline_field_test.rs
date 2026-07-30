@@ -1,14 +1,21 @@
-//! End-to-end pipeline smoke/validation harness against real BLSO (Balam South) field
-//! LAS files. Not part of the normal test run (marked `#[ignore]`); invoke explicitly:
+//! End-to-end pipeline smoke/validation harness against a **real field delivery** — the kind
+//! of data synthetic examples cannot imitate. Not part of the normal test run (marked
+//! `#[ignore]`); invoke explicitly:
 //!
-//!   cargo test --release pipeline_blso -- --ignored --nocapture
+//!   cargo test --release pipeline_field -- --ignored --nocapture
 //!
-//! It imports the four delivered wells, runs every module in catalogue order with default
-//! parameters (the "run all modules until print" request), runs the pay summary, renders a
-//! PDF report, validates computed PHIE/SWE/VSH against the delivery's own curves, and then
-//! stress-tests 100 duplicated wells to observe rayon parallelism.
+//! It imports the first four wells found in the configured delivery folder
+//! (`SANDIBUMI_FIELD_FIXTURES/las/`, see `field_fixtures.rs`), runs every module in catalogue
+//! order with default parameters (the "run all modules until print" request), runs the pay
+//! summary, renders a PDF report, validates computed PHIE/SWE/VSH against the delivery's own
+//! curves, and then stress-tests 100 duplicated wells to observe rayon parallelism.
+//!
+//! It does not name the delivery. Provenance sweep 2026-07-31: absolute paths naming a client's
+//! operator, contract and wells do not belong in a repository intended for licensing — and a
+//! test that reads whatever the folder holds proves more than one that names four files.
 
 use crate::composite::{CompositeSpec, PageSize};
+use crate::field_fixtures;
 use crate::modules::{self, ArgKind};
 use crate::workflow::{run_pay_summary, run_workflow_module, PaySummaryRequest, RunModuleRequest};
 use duckdb::{params, Connection};
@@ -16,12 +23,8 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Instant;
 
-const LAS_FILES: [&str; 4] = [
-    r"D:\01. Work\2023\10. LQR Balam South - PHR Rokan\13. Delivery Data\01. Final Log\BLSO_LAPI2023_FPROOH\blso00025_lapi2023_fprooh.las",
-    r"D:\01. Work\2023\10. LQR Balam South - PHR Rokan\13. Delivery Data\01. Final Log\BLSO_LAPI2023_FPROOH\blso00358d1_lapi2023_fprooh.las",
-    r"D:\01. Work\2023\10. LQR Balam South - PHR Rokan\13. Delivery Data\01. Final Log\BLSO_LAPI2023_FPROOH\blso00368d1_lapi2023_fprooh.las",
-    r"D:\01. Work\2023\10. LQR Balam South - PHR Rokan\13. Delivery Data\01. Final Log\BLSO_LAPI2023_FPROOH\blso00176_lapi2023_fprooh.las",
-];
+/// How many wells of the delivery this harness exercises.
+const WELLS_WANTED: usize = 4;
 
 /// Count of finite (non-NaN) samples for a computed curve.
 fn finite_count(conn: &Connection, well_id: &str, curve: &str) -> i64 {
@@ -60,14 +63,17 @@ fn raw_mean(conn: &Connection, well_id: &str, mnemonic: &str) -> f64 {
 
 #[test]
 #[ignore]
-fn pipeline_blso_full_run() {
-    let db_path = std::env::temp_dir().join("arshilla_blso_pipeline.duckdb");
-    let _ = std::fs::remove_file(&db_path);
+fn pipeline_field_full_run() {
+    let paths = field_fixtures::las_files(WELLS_WANTED);
+    if field_fixtures::skip("pipeline_field_full_run", paths.len(), WELLS_WANTED) {
+        return;
+    }
+
+    let db_path = field_fixtures::temp_db("field_pipeline");
     let _ = std::fs::remove_file(db_path.with_extension("duckdb.wal"));
     let conn = crate::db::init_db(db_path.to_str().unwrap()).expect("init_db");
 
     // ---- 1. Import -------------------------------------------------------
-    let paths: Vec<String> = LAS_FILES.iter().map(|s| s.to_string()).collect();
     let t0 = Instant::now();
     let results = crate::ingest::import_las_files(&conn, &paths, None);
     println!("\n=== IMPORT ({:?}) ===", t0.elapsed());
@@ -204,8 +210,8 @@ fn pipeline_blso_full_run() {
             scale: 500,
             page_size: PageSize::A4,
         },
-        title: "Petrophysical Evaluation — Balam South".into(),
-        author: "Arshilla pipeline test".into(),
+        title: "Petrophysical Evaluation — field pipeline test".into(),
+        author: "SandiBumi pipeline test".into(),
         methodology: vec![],
         vsh_max: 0.5,
         phie_min: 0.10,
@@ -215,7 +221,7 @@ fn pipeline_blso_full_run() {
     };
     match crate::report::render_report_pdf(&db, &spec) {
         Ok(bytes) => {
-            let out = std::env::temp_dir().join("arshilla_blso_report.pdf");
+            let out = std::env::temp_dir().join("sandibumi_field_report.pdf");
             std::fs::write(&out, &bytes).ok();
             println!("  PDF {} bytes -> {}", bytes.len(), out.display());
             assert!(bytes.len() > 1000, "PDF suspiciously small");
@@ -246,7 +252,7 @@ fn pipeline_blso_full_run() {
             let cm = computed_mean(&conn, wid, computed);
             let dm = raw_mean(&conn, wid, delivered);
             println!(
-                "  {:<5} arshilla_mean={:>8.4}  delivered_mean={:>8.4}  Δ={:>8.4}",
+                "  {:<5} computed_mean={:>8.4}  delivered_mean={:>8.4}  Δ={:>8.4}",
                 computed,
                 cm,
                 dm,
@@ -271,14 +277,17 @@ fn pipeline_blso_full_run() {
 
 #[test]
 #[ignore]
-fn pipeline_blso_100well_stress() {
-    let db_path = std::env::temp_dir().join("arshilla_blso_stress.duckdb");
-    let _ = std::fs::remove_file(&db_path);
+fn pipeline_field_100well_stress() {
+    let one = field_fixtures::las_files(1);
+    if field_fixtures::skip("pipeline_field_100well_stress", one.len(), 1) {
+        return;
+    }
+
+    let db_path = field_fixtures::temp_db("field_stress");
     let _ = std::fs::remove_file(db_path.with_extension("duckdb.wal"));
     let conn = crate::db::init_db(db_path.to_str().unwrap()).expect("init_db");
 
     // Import one real well, then read back its standard curves to clone.
-    let one = vec![LAS_FILES[0].to_string()];
     let res = crate::ingest::import_las_files(&conn, &one, None);
     let src_id = res[0].well_id.clone().expect("import");
 
@@ -324,7 +333,7 @@ fn pipeline_blso_100well_stress() {
     let mut ids = Vec::with_capacity(N_WELLS);
     for i in 0..N_WELLS {
         let id = uuid::Uuid::new_v4();
-        crate::db::insert_well(&conn, id, &format!("BLSO_DUP_{i:03}"), Some("Balam South"), None, None).unwrap();
+        crate::db::insert_well(&conn, id, &format!("STRESS_DUP_{i:03}"), Some("Stress field"), None, None).unwrap();
         crate::db::insert_standard_curves(
             &conn,
             id,

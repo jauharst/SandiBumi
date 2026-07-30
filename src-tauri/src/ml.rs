@@ -469,7 +469,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
         }
     }
     let Some(python) = find_python() else {
-        return fail("no Python with numpy found - install Python 3.10+ with numpy + scikit-learn, or set ARSHILLA_PYTHON to its python.exe");
+        return fail("no Python with numpy found - install Python 3.10+ with numpy + scikit-learn, or set SANDIBUMI_PYTHON to its python.exe");
     };
 
     let d = features.len();
@@ -743,7 +743,7 @@ pub fn apply_ml_model(
         return fail("output curve name is empty");
     }
     let Some(python) = find_python() else {
-        return fail("no Python with numpy found - install Python 3.10+ with numpy + scikit-learn, or set ARSHILLA_PYTHON to its python.exe");
+        return fail("no Python with numpy found - install Python 3.10+ with numpy + scikit-learn, or set SANDIBUMI_PYTHON to its python.exe");
     };
     let mask_curve = req.mask_curve.as_deref().map(|m| m.trim().to_uppercase()).filter(|m| !m.is_empty());
 

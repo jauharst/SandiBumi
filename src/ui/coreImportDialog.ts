@@ -13,14 +13,14 @@ import { suggestSetName } from "./importSetDialog";
 /** Core import v2 wizard (T-IMP-07): probe → CONFIRM → commit.
  *
  *  A core delivery is a wide lab export whose meaning must be confirmed, not assumed:
- *  which column is the well name (BLSO writes WN, Duri writes WELL NAME beside a numeric
+ *  which column is the well name (one delivery writes WN, another writes WELL NAME beside a numeric
  *  WELL), which is depth and in what unit (feet vs the project's metres is a silent 3.28×
  *  error), which columns are porosity/perm/grain-density/Sw, and whether porosity is in
  *  percent. The dialog shows everything the probe detected, lets the user fix it, and
  *  only then writes — per well, replace-on-reimport.
  *
  *  Multi-file: the mapping is confirmed ONCE by HEADER NAME and re-resolved to a column
- *  index per file, so a delivery of one-CSV-per-well (the BLSO shape) imports in one go
+ *  index per file, so a delivery of one-CSV-per-well (the one-well-per-file shape) imports in one go
  *  even if some files order their columns differently. A file missing a mapped header
  *  reports and skips, never guesses.
  *

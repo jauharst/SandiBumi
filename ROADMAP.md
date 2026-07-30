@@ -102,7 +102,7 @@ deliberate deviations from the original plan where reality disagreed with the pl
   **subprocess** (`python_engine.rs`), not embedded via PyO3. Reason: PyO3 links
   `python312.dll` at load time, and this machine's PATH resolves to a bare Python 3.8 with
   no numpy, which would have made the app fail to launch. The subprocess approach with
-  explicit discovery order (`ARSHILLA_PYTHON` → `%LOCALAPPDATA%\Programs\Python\Python31x`
+  explicit discovery order (`SANDIBUMI_PYTHON` → `%LOCALAPPDATA%\Programs\Python\Python31x`
   → PATH) is documented in `CLAUDE.md` rule 7 and is the standing constraint for any future
   Python integration (including Phase 6's DLIS import via `dlisio` and Phase 10's
   scikit-learn facies work — both use the same subprocess mechanism, not PyO3).

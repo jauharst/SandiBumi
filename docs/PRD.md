@@ -394,7 +394,7 @@ capabilities require a Python 3.10+ interpreter on the client machine:
 | The entire ML suite | `scikit-learn` |
 
 Four backend files call `find_python` (`python_engine.rs`, `dlis.rs`, `ml.rs`, `lib.rs`).
-Discovery order is `ARSHILLA_PYTHON` → `%LOCALAPPDATA%\Programs\Python\Python31x` → `PATH`. The
+Discovery order is `SANDIBUMI_PYTHON` → `%LOCALAPPDATA%\Programs\Python\Python31x` → `PATH`. The
 design is deliberately fail-soft: a missing interpreter degrades exactly those three features and
 never prevents the app launching. **The engineering is correct and the procurement problem remains:**
 "install Python and three packages on every seat" is a request many managed Windows estates will

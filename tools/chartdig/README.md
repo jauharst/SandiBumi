@@ -4,8 +4,8 @@ Extracts chart curves from the Schlumberger Log Interpretation Charts 2013 PDF a
 vector precision. Produces `src/ui/chartOverlays.ts` (GENERATED — 19 chart defs as of
 2026-07-20: D-N Por-11..19, PEF Lith-3/4, sonic Por-20/22, Lith-1/2/6) and
 `src-tauri/src/neutron_charts.rs` (GENERATED — Por-4/Por-5 neutron matrix equivalence
-tables for the `nphimat` module). The PDF itself is copyrighted and NOT in the repo
-(reference machine: `D:\01. Work\00. Guidebook\chartbook.pdf`); it is only needed to
+tables for the `nphimat` module). The PDF itself is copyrighted and NOT in the repo — point
+the `CHARTBOOK_PDF` environment variable at your own copy. It is only needed to
 digitize NEW charts. Page-extract JSONs (`p*.json`) are working files — regenerate
 them from the PDF, don't commit them.
 

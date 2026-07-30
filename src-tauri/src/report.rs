@@ -1,5 +1,5 @@
 //! Report generator (Phase 8b) — assembles the client-style petrophysics report PDF
-//! following Jauhar's real report structure (BLSO / Bunga template): cover page →
+//! following Jauhar's real report structure (his standard clastic/carbonate template): cover page →
 //! methodology (parameter–method–remarks table) → per-zone parameter table → pay
 //! summary (cutoffs) → composite log pages. Every page is a `Vec<DrawOp>` in mm
 //! space, serialized through the same SVG/PDF machinery as the composite plot
@@ -33,7 +33,7 @@ pub struct ReportSpec {
     /// Composite settings (well, layout, scale, page size, depth window). The report's
     /// page size and target well come from here.
     pub composite: CompositeSpec,
-    /// Study title on the cover, e.g. "Petrophysical Evaluation — Balam South".
+    /// Study title on the cover, e.g. "Petrophysical Evaluation — Sandi Field".
     pub title: String,
     #[serde(default)]
     pub author: String,
@@ -571,7 +571,7 @@ mod tests {
         // empty pay run from leaving no trace at all in the client PDF.
         let ops = note_page(
             "Pay Summary  (VSH ≤ 0.50, PHIE ≥ 0.10, SWE ≤ 0.60)",
-            "BLSO-001",
+            "SANDI-001",
             "Pay Summary unavailable — read-only database",
             210.0,
         );
@@ -584,7 +584,7 @@ mod tests {
             .collect();
         let joined = texts.join(" ");
         assert!(joined.contains("Pay Summary"), "section header must be present");
-        assert!(texts.iter().any(|s| s.contains("BLSO-001")), "well name must be present");
+        assert!(texts.iter().any(|s| s.contains("SANDI-001")), "well name must be present");
         assert!(joined.contains("unavailable"), "the failure note must render, not be dropped");
     }
 
@@ -595,7 +595,7 @@ mod tests {
                 r#"{"well_id":"w1","layout":{"name":"t","tracks":[]},"scale":200,"page_size":"a4"}"#,
             )
             .unwrap(),
-            title: "Petrophysical Evaluation — Balam South".into(),
+            title: "Petrophysical Evaluation — Sandi Field".into(),
             author: "Jauhar".into(),
             methodology: vec![],
             vsh_max: 0.5,
@@ -605,8 +605,8 @@ mod tests {
             tables_only: true,
         };
         let header = composite::WellHeader {
-            name: "BLSO-001".into(),
-            field: Some("Balam".into()),
+            name: "SANDI-001".into(),
+            field: Some("Sandi".into()),
             td: Some(900.0),
             kb: Some(15.0),
         };
@@ -620,8 +620,8 @@ mod tests {
             .collect();
         // The title may wrap across lines — check the joined text.
         let joined = texts.join(" ");
-        assert!(joined.contains("Balam") && joined.contains("South"));
-        assert!(texts.iter().any(|s| s.contains("BLSO-001")));
+        assert!(joined.contains("Sandi") && joined.contains("Field"));
+        assert!(texts.iter().any(|s| s.contains("SANDI-001")));
         assert!(texts.iter().any(|s| s.contains("Jauhar")));
         assert!(texts.iter().any(|s| s.contains("400.0")));
     }

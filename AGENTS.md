@@ -15,7 +15,7 @@ This file is the Codex equivalent of `.cursorrules` (kept in this repo for Curso
 4. **Concurrency**: `rayon` for CPU-bound cell/well-parallel work; `tokio` for background async scheduling (long-running inversions, I/O).
 5. **Code delivery**: concise, modular, production-speed-focused. No extensive unit test blocks unless explicitly requested.
 6. **Writes are whitelisted**: the frontend never sends SQL for writes — only explicit commands (`db.rs` `TABLE_SPECS` + update fns). The SQL Query panel is read-only (SELECT/WITH only).
-7. **Python equations run as a SUBPROCESS** (`python_engine.rs`), never PyO3/embedded — a missing Python must never stop the app from launching. Discovery: `ARSHILLA_PYTHON` → `%LOCALAPPDATA%\Programs\Python\Python31x` → PATH; requires numpy. **DLIS import (`dlis.rs`) reuses the same subprocess mechanism** (`find_python` + a `dlisio` helper script), never a native parser; needs the `dlisio` pip package (installed: `dlisio 1.0.4` in the Python312 env). A missing `dlisio` fails only the DLIS import, with a clear message — never the app.
+7. **Python equations run as a SUBPROCESS** (`python_engine.rs`), never PyO3/embedded — a missing Python must never stop the app from launching. Discovery: `SANDIBUMI_PYTHON` (the pre-rename `ARSHILLA_PYTHON` is still honoured so no existing setup breaks, but is never named in a message) → `%LOCALAPPDATA%\Programs\Python\Python31x` → PATH; requires numpy. **DLIS import (`dlis.rs`) reuses the same subprocess mechanism** (`find_python` + a `dlisio` helper script), never a native parser; needs the `dlisio` pip package (installed: `dlisio 1.0.4` in the Python312 env). A missing `dlisio` fails only the DLIS import, with a clear message — never the app.
 8. **Data/UI edits must be undoable** (`src/undo.ts` `pushUndo`); module runs are re-runnable, not undone.
 9. **New petrophysics modules** = Rust fn + manifest in `modules.rs`; parameter dialogs auto-generate — write no UI code for them. Heavy solvers can live in their own file (e.g. `multimin.rs` — deterministic NNLS mineral inversion; do NOT confuse with `inversion.rs`, which is the separate background async stochastic-job registry) and be referenced from `modules.rs::list_modules`/`run_module`.
 10. **Module inputs are generic-store aware**: `equations::fetch_curve_frame` resolves any non-standard, non-computed curve name from `curve_meta`/`curve_samples` (set RAW) by mnemonic-then-family, so modules/equations can take PEF/CALI/DRHO/extra runs — not just the fixed six. (Log-view rendering `get_track_data` still reads only `standard_curves`.) Runs can pass `opts["MASK"]="<flag curve>"` (e.g. BADHOLE) to NaN-out flagged samples in every output.
@@ -617,6 +617,35 @@ how a 15-minute one-time migration looked like a hang.** DuckDB files never shri
 DELETE (module re-runs bloated BLSO to ~4× its live size), so point users at Compact
 Project when a long-lived project drags.
 
+## Provenance discipline (2026-07-31)
+
+The repo is intended to be **licensed**, and its author runs consulting studies under
+confidentiality agreements. Three rules follow, and they are enforced by tests, not goodwill.
+
+**No client identifier in the tree.** No operator, block, field, project number, study name,
+well ID or delivery path in source, tests, test data or comments. The real deliveries the
+`#[ignore]`d integration tests need are found through **`SANDIBUMI_FIELD_FIXTURES`**
+(`field_fixtures.rs`: `<root>/las/*.las`, `<root>/core/*.csv`) — the tests take whatever the
+folder holds and **skip with a printed reason** when it is unset, so a fresh clone stays green.
+Test wells are `SANDI-*`, matching `dataset for test/examples/`. Delivery *shapes* are still
+documented (that is why the parser rules exist) — describe the shape, never name the delivery.
+
+**No client-fitted number ships as a default.** A regional calibration is somebody's analytical
+work product AND is silently wrong in another basin — normalized GR always looks plausible, so
+the user gets no warning. `gr_normalize` is pinned by
+`gr_normalize_reference_defaults_are_generic_not_a_field_calibration`, which also rejects a
+non-integer reference on the grounds that a two-decimal endpoint is a regression result.
+Real calibrations live outside the repo as local presets.
+
+**Never strip an attribution while its asset still ships.** The study citation in `lrlc.rs`, the
+tooltips naming which vendor tables seeded a default, the comments recording why a parser rule
+exists — all are the record, and deleting one while shipping what it describes is concealment,
+not a fix. Attribution comes out only when the asset comes out. The register is
+`docs/IP_PROVENANCE.md` (§2.7 is the client tier); the sweep that produced it is
+`docs/provenance_sweep_prompt.md`; findings with `file:line` and the lawyer packet are in the
+gitignored `docs/commercial/`. **`THIRD-PARTY-LICENSES.md` is generated** — re-run
+`node tools/gen-third-party-licenses.mjs` after any dependency change, never hand-edit.
+
 ## Text-import encoding (2026-07-30)
 
 **Every** text import goes through `parsers::read_text_file` — never `read_to_string` or
@@ -695,14 +724,14 @@ no Tauri backend needed. In vite-only preview every `invoke` error
    source — the first `cargo build` is long; no system DuckDB needed).
 3. **Python 3.10+ with `numpy`** for the equation engine (subprocess — see rule 7);
    `pip install dlisio` for DLIS import, `scikit-learn` for the ML suite. If discovery
-   fails, set `ARSHILLA_PYTHON` to the interpreter path.
+   fails, set `SANDIBUMI_PYTHON` to the interpreter path.
 4. Try plain `npm run tauri dev` first — the vcvars 14.29 pin below is a
    reference-machine-specific workaround, only needed if the default MSVC toolset is
    broken.
 5. `tools/chartdig` (chart digitizer) needs `npm i pdfjs-dist@4.10.38` **in that folder**
    and the chartbook PDF (`chartbook.pdf`, Schlumberger Log Interpretation Charts 2013 —
-   copyrighted, NOT in the repo; on the reference machine it's at
-   `D:\01. Work\00. Guidebook\chartbook.pdf`). Only needed to digitize NEW charts — the
+   copyrighted, NOT in the repo; point the `CHARTBOOK_PDF` environment variable at
+   your own copy). Only needed to digitize NEW charts — the
    extracted data is already committed in `src/ui/chartOverlays.ts`.
 6. Codex auto-memory is machine-local — everything durable lives in this file,
    `docs/`, `ROADMAP.md`, `REVIEW.md`, `AUDIT-*.md`. Trust the repo over memory.
@@ -798,7 +827,7 @@ in petrophysics terms, not programming jargon. The working rhythm, on every mach
 - `src-tauri/icons/` — app icon set + brand assets: `logo.png` (master), `logo-mark.svg`/`logo-mark.png` (square monogram), `logo-full.svg`/`logo-full.png` (full lockup). Frontend favicon/ribbon assets in `public/`.
 - `docs/` — method math + solver specs (SSC/SSPW, LRLC RtC/IMTS, workflow standards, the reference suite/IP multimin extraction). Portable knowledge lives here, not in machine-local memory.
 - `tools/chartdig/` — chartbook vector digitizer (generates `src/ui/chartOverlays.ts`).
-- `Prompt/` — original phase-by-phase spec (`Claude_Implementation_Guide.pdf`). **Gitignored** — local-only, won't exist on a fresh clone.
+- `Prompt/` — original phase-by-phase spec (`Claude_Implementation_Guide.pdf`). Listed in `.gitignore`, but the PDF was **committed before that rule was added and is still tracked** — a gitignore entry never untracks a file that is already in. It DOES exist on a fresh clone. Untracking it is an open decision (provenance sweep 2026-07-31, finding 3).
 
 ---
 

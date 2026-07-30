@@ -12,6 +12,8 @@ mod equations;
 #[cfg(test)]
 mod example_data_test;
 mod export;
+#[cfg(test)]
+mod field_fixtures;
 mod facies;
 mod facies_tie;
 mod geo;
@@ -34,7 +36,7 @@ mod neutron_charts;
 mod office;
 mod parsers;
 #[cfg(test)]
-mod pipeline_blso_test;
+mod pipeline_field_test;
 mod project;
 mod report;
 mod resultsqc;
@@ -1722,7 +1724,7 @@ fn multimin_fluid_calc(props: multimin2::FluidProps) -> multimin2::FluidCalc {
     multimin2::fluid_calc(&props)
 }
 
-/// Wet-clay → dry-clay endpoint conversion (KKT ONWJ xlsx workflow) for the
+/// Wet-clay → dry-clay endpoint conversion (wet/dry clay xlsx workflow) for the
 /// SandiMin dialog's converter panel.
 #[tauri::command]
 fn multimin_dry_clay(input: multimin2::WetClayInput) -> Result<multimin2::DryClayCalc, String> {
@@ -2231,7 +2233,7 @@ fn cancel_workflow_chain(registry: tauri::State<chain::ChainRegistry>, job_id: S
 /// thread so the window exists first — see `run` for why that matters.
 ///
 /// Everything here used to happen BEFORE `tauri::Builder`, which is what made a slow first
-/// open look like a dead application: on the 2.5 GB BLSO project the one-time storage
+/// open look like a dead application: on a 2.5 GB field project the one-time storage
 /// migrations took ~15 minutes, and for all of it the user had double-clicked SandiBumi and
 /// gotten no window at all. The recovery ladder is unchanged (project → temp recovery file →
 /// memory-only), it just publishes its outcome instead of returning it.

@@ -22,8 +22,12 @@
 //! The solver is a bounded, equality-constrained active-set least squares (KKT system with
 //! a unity Lagrange multiplier; components can be fixed at 0 or at their upper bound).
 //! RECON is the INCOHERENCE — the σ-weighted RMS of (reconstructed − measured) over the live tool
-//! rows (Quanti.Elan "incoherence" function, Eq 79; see docs/multimin_geolog_spec.md) — so a high
-//! value flags a model that cannot reproduce the logs. With `recon_qc` the reconstruction is
+//! rows. This is the standard goodness-of-fit statistic for a weighted least-squares log-response
+//! inversion: the residual vector divided by each tool's own uncertainty, so tools measured to
+//! different precisions contribute on comparable terms (Mayer & Sibbit, SPE 9341, "GLOBAL, a new
+//! approach to computer-processed log interpretation", 1980 — the primary source for the
+//! simultaneous log-response inversion this module implements). A high value flags a model that
+//! cannot reproduce the logs. With `recon_qc` the reconstruction is
 //! decomposed per tool: `<prefix>_<KEY>_REC` (measurement rebuilt from the volumes, display units)
 //! and `<prefix>_<KEY>_DIF` (that tool's σ-unit residual, whose RMS over tools is RECON), so the
 //! user can see WHICH log the model fails to honour. The reconstruction only discriminates when the
@@ -609,11 +613,11 @@ fn bound_water_multiplier(source: PorositySource, cec: f64, wcp: f64, rho: f64, 
 }
 
 // ---------------------------------------------------------------------------
-// Wet-clay → dry-clay endpoint conversion (KKT ONWJ Multimin Parameters.xlsx)
+// Wet-clay → dry-clay endpoint conversion (from a multimin parameter workbook)
 // ---------------------------------------------------------------------------
 
 /// Wet-clay log readings picked in a shale interval, plus the assumed dry-clay
-/// density (2.70 marine / 2.78 deltaic in the KKT ONWJ study).
+/// density (2.70 marine / 2.78 deltaic in one study).
 #[derive(Debug, Clone, Deserialize)]
 pub struct WetClayInput {
     pub rhob_wet: f64,

@@ -45,7 +45,7 @@ research folders.
 | **Assets** | `src/ui/chartOverlays.ts` (19 chart definitions) · `src-tauri/src/neutron_charts.rs` (Por-4 / Por-5 equivalence tables) |
 | **Source** | *Schlumberger Log Interpretation Charts*, 2013 edition |
 | **How derived** | Vector digitization by `tools/chartdig` from a PDF of the chartbook. Both files declare it in their own headers. |
-| **Source file in repo?** | **No.** `chartbook.pdf` is explicitly excluded; on the reference machine it lives outside the repo at `D:\01. Work\00. Guidebook\chartbook.pdf`. |
+| **Source file in repo?** | **No.** `chartbook.pdf` is explicitly excluded and lives outside the repository; `tools/chartdig` locates it through the `CHARTBOOK_PDF` environment variable (hard-coded to a reference-machine path until 2026-07-31). |
 | **What ships** | The extracted numeric values — curve graduation coordinates, mineral points, region polygons — as TypeScript/Rust data, plus code that renders them as plot overlays. |
 | **Tier as recorded** | Treated as A (factual data points describing physical relationships). |
 | **The open question** | Whether the *coordinates of a published chart's curves* are a protectable expression of that chart or unprotectable facts about a physical relationship — and whether the answer differs when redistributed inside commercial software. **This is a lawyer question and it is the single most exposed item in the product.** |
@@ -116,6 +116,30 @@ installs — which is a materially different obligation from bundling them, and 
 of keeping Python as a prerequisite (`docs/PRD.md` §10.4).
 
 ---
+
+### 2.7 Client-derived material — **the tier this register did not have**
+
+Added 2026-07-31 by the provenance sweep (`docs/provenance_sweep_prompt.md`). Sections 2.1–2.6
+answer *"where did this vendor data come from?"* They do not ask the other question: **which
+parts of this repository came out of a client's wells.** That question has a different answer,
+a different counterparty and, unlike the vendor questions, a written contract that already
+governs it.
+
+**No client is named in this file.** The identified findings, with `file:line`, live in
+`docs/commercial/PROVENANCE_SWEEP.local.md`, which is gitignored — a register that leaks the
+identifiers it exists to control would be self-defeating.
+
+| | |
+|---|---|
+| **What was found** | Four kinds. (a) **Analytical work product shipping as a default** — a two-point GR normalization reference fitted on 562 wells of one operator's field, shipping in the module manifest as though it were a constant, and an excess-conductivity regression from a single study. (b) **Client measurements in the tree** — a tracked CSV of real core-plug analyses (porosity, permeability, saturations, grain density, lithology descriptions) from a named well, referenced by no code. (c) **Delivery manifests** — twenty absolute paths in `#[ignore]`d tests, each naming operator, contract, project and well. (d) **Study citations** in method specs, source comments and research documents. |
+| **How derived** | Consulting studies performed under confidentiality agreements. The methods are Jauhar's; the *calibrations* were fitted to, and the *files* delivered from, client data. |
+| **What ships in the binary** | Only (a) and the comments in (d). (b) and (c) never reach a user — but they travel with any copy of the repository, which is the exposure that matters for source escrow, a technical due diligence, or an employee. |
+| **Tier** | Split, and the split is the whole point. The **method** is Tier D (Jauhar's own — §2.4). The **calibration fitted to a client's wells** is not obviously his to redistribute, and is treated as C pending advice. A number is not a method. |
+| **The open question** | *Under a typical Indonesian upstream consulting agreement, who owns a regression coefficient fitted to the client's log data — and does shipping it inside licensed software constitute disclosure of the client's data?* The physics is unquestionably Jauhar's. Whether the constants are is the question, and it is the same question for every one of his 50+ studies, so answering it once is worth more than any individual fix. |
+| **What was fixed without waiting for the answer** | The GR reference pair is now the app's own generic clean/clay endpoints with a doc string telling the user to derive their own — **which is also the petrophysically correct default**: a reference from one basin is silently wrong in another, and normalized GR always looks plausible. The twenty delivery paths became a configurable fixture folder. The test data became the synthetic example wells. None of that needed a lawyer; all of it makes the product better. |
+| **What was deliberately NOT touched** | Every honest attribution — the study citation in `lrlc.rs`, the tooltip telling a user which vendor tables seeded a default, the comments recording why a parser rule exists. Removing an attribution while its values still ship destroys the record and looks like concealment. Attribution comes out only when the asset comes out. |
+| **Not resolvable in code** | Git history retains the removed files. Surfaced as a decision, not executed. |
+| **Urgency** | The shipped default: **done**. The ownership question: **before first sale**, because it recurs across every study and every future calibration. |
 
 ## 3. Summary — what is actually blocking
 

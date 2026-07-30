@@ -749,8 +749,10 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
 // ---------------------------------------------------------------------------
 // Cutoff sensitivity (ROADMAP Wave E item 21) — sweep the pay engine over a range
 // of candidate cutoffs, holding the other two fixed, to find the elbow where pay
-// stops responding to the cutoff. Method 1 of the KKT ONWJ cutoff study (slides 84–87);
-// Method 2 (the DST-highlighted crossplots) lives in the frontend cutoff pane.
+// stops responding to the cutoff. This is the sensitivity-sweep method; the companion
+// method (DST-highlighted crossplots) lives in the frontend cutoff pane. Both follow the
+// standard cutoff-selection practice: pick the cutoff where net stops responding, then
+// confirm it against tested rock rather than against the sweep alone.
 // ---------------------------------------------------------------------------
 
 /// Per-sample SAND / RESERVOIR / PAY classification against the cutoffs, matching the
@@ -1948,24 +1950,20 @@ mod tests {
         assert_eq!(sets, 2, "one INTERP set version per well after the batch");
     }
 
-    /// Full deterministic chain against real field LAS files: import → VSH(GR) →
-    /// PHI(D-N) → SW(Indonesia) → PERM(Timur) → pay summary. Ignored by default
-    /// (machine-specific paths); run with:
+    /// Full deterministic chain against a real field delivery: import → VSH(GR) →
+    /// PHI(D-N) → SW(Indonesia) → PERM(Timur) → pay summary. Ignored by default and skipped
+    /// with a printed reason when no delivery folder is configured
+    /// (`SANDIBUMI_FIELD_FIXTURES/las/`); run with:
     /// `cargo test --release -- --ignored --nocapture test_full_deterministic_chain`
     #[test]
     #[ignore]
     fn test_full_deterministic_chain() {
-        let paths: Vec<String> = vec![
-            r"D:\01. Work\2023\10. LQR Balam South - PHR Rokan\13. Delivery Data\01. Final Log\BLSO_LAPI2023_FPROOH\blso00001_lapi2023_fprooh.las",
-            r"D:\01. Work\2023\10. LQR Balam South - PHR Rokan\13. Delivery Data\01. Final Log\BLSO_LAPI2023_FPROOH\blso00002_lapi2023_fprooh.las",
-            r"D:\01. Work\00. Guidebook\02. Guidebook Geolog\Loglan\mina01060d1_study_minas_itb2022_final.las",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
+        let paths = crate::field_fixtures::las_files(3);
+        if crate::field_fixtures::skip("test_full_deterministic_chain", paths.len(), 2) {
+            return;
+        }
 
-        let db_path = std::env::temp_dir().join("arshilla_workflow_test.duckdb");
-        let _ = std::fs::remove_file(&db_path);
+        let db_path = crate::field_fixtures::temp_db("workflow_test");
         let conn = crate::db::init_db(db_path.to_str().unwrap()).expect("init_db failed");
 
         let results = ingest::import_las_files(&conn, &paths, None);

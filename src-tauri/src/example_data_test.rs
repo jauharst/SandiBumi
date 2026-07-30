@@ -145,7 +145,7 @@ fn scal_examples_parse_all_three_shapes() {
     }
 }
 
-/// Core import v2 exemplars: the multi-well BLSO-shaped core CSV probes correctly and
+/// Core import v2 exemplars: the multi-well delivery-shaped core CSV probes correctly and
 /// routes per well into a project built from the SANDI LAS examples; the tab-delimited
 /// multi-well XRD TXT routes through the aux importer the same way.
 #[test]
@@ -159,7 +159,7 @@ fn multiwell_core_and_aux_examples_import_end_to_end() {
     let results = crate::ingest::import_las_files(&conn, &paths, None);
     assert!(results.iter().all(|r| r.error.is_none()));
 
-    // Probe sees the BLSO delivery shape: WN column, units row, percent porosity.
+    // Probe sees the delivery shape: WN column, units row, percent porosity.
     let core = example("core_rcal_multiwell.csv");
     let probe = parsers::probe_core_table(&core).unwrap();
     assert_eq!(probe.well, Some(2), "WN is the well column");

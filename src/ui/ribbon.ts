@@ -1831,7 +1831,7 @@ export class Ribbon {
     const zoneSel = document.createElement("select");
     zoneSel.className = "form-control";
     // Indonesian acreage runs across UTM zones 46–54, mostly southern hemisphere
-    // (Mahakam 50S; ONWJ 48S/49S) with the north straddling the equator.
+    // (Mahakam 50S; Java Sea 48S/49S) with the north straddling the equator.
     for (const hemi of ["S", "N"]) {
       for (let z = 46; z <= 54; z++) {
         const o = document.createElement("option");

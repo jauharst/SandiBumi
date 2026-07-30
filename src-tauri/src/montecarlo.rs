@@ -240,7 +240,7 @@ pub struct McRequest {
     /// How many realizations `persist_realizations` stores per depth (default 256, clamped to
     /// 8..=1024). The full kept set can reach 1024, which at ~2000 samples is ~8 MB per curve
     /// per well — 3 GB across a 100-well field, the exact kind of growth that produced the
-    /// 2.5 GB BLSO report. 256 draws put P10/P90 within a hair of the full set at a quarter
+    /// 2.5 GB field report. 256 draws put P10/P90 within a hair of the full set at a quarter
     /// the size; when the cap bites, the run says so rather than letting the band quietly
     /// disagree with the persisted MC_*_LOW/_HIGH curves.
     #[serde(default)]

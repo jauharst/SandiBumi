@@ -177,7 +177,7 @@ struct NumTok {
     end: usize,
     value: f32,
     /// A token qualifies as a depth only if it carries a decimal point or has at least three
-    /// integer digits — otherwise the `01` of `BLSO-01` would be read as a depth of 1 m.
+    /// integer digits — otherwise the `01` of `SANDI-01` would be read as a depth of 1 m.
     qualifies: bool,
 }
 
@@ -214,9 +214,9 @@ fn numeric_tokens(s: &str) -> Vec<NumTok> {
 
 /// Guesses a depth (and, for a photographed interval, a base depth) from a file name.
 ///
-/// `BLSO-01_1523.50.jpg` -> (1523.50, None); `BLSO-01_1523.50-1524.00.jpg` -> a range.
+/// `SANDI-01_1523.50.jpg` -> (1523.50, None); `SANDI-01_1523.50-1524.00.jpg` -> a range.
 /// A pair is only read as a range when the two tokens are adjacent, separated by a single
-/// `-` or `_`, and in increasing depth order — so `BLSO-2021_1523.5` correctly yields the
+/// `-` or `_`, and in increasing depth order — so `SANDI-2021_1523.5` correctly yields the
 /// single depth 1523.5 rather than a 2021 m interval. The result is always shown for
 /// confirmation before anything is stored.
 pub fn parse_depth_from_name(stem: &str) -> (Option<f32>, Option<f32>) {
@@ -426,7 +426,7 @@ pub fn prepare_images(paths: &[String], max_px: u32, quality: u8) -> Vec<Prepare
 
 fn prepare_with_pillow(paths: &[String], max_px: u32, quality: u8) -> Result<Vec<PreparedImage>, String> {
     let python = find_python().ok_or_else(|| {
-        "no Python found - install Python 3.10+ with Pillow, or set ARSHILLA_PYTHON".to_string()
+        "no Python found - install Python 3.10+ with Pillow, or set SANDIBUMI_PYTHON".to_string()
     })?;
     let mut cmd = Command::new(&python);
     cmd.args(["-c", PILLOW_RUNNER]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -718,10 +718,10 @@ mod tests {
 
     #[test]
     fn a_depth_is_read_from_the_filename_but_a_well_number_is_not() {
-        assert_eq!(parse_depth_from_name("BLSO-01_1523.50"), (Some(1523.50), None));
+        assert_eq!(parse_depth_from_name("SANDI-01_1523.50"), (Some(1523.50), None));
         // The `01` must not become a 1 m depth — this is the whole reason a token needs a
         // decimal point or three integer digits to qualify.
-        assert_eq!(parse_depth_from_name("BLSO-01"), (None, None));
+        assert_eq!(parse_depth_from_name("SANDI-01"), (None, None));
         assert_eq!(parse_depth_from_name("TS_A"), (None, None));
     }
 
@@ -730,7 +730,7 @@ mod tests {
         assert_eq!(parse_depth_from_name("CORE_1523.50-1524.00"), (Some(1523.50), Some(1524.00)));
         assert_eq!(parse_depth_from_name("CORE_1523_1524"), (Some(1523.0), Some(1524.0)));
         // A year in the name is not an interval start: the pair must increase.
-        assert_eq!(parse_depth_from_name("BLSO-2021_1523.5"), (Some(1523.5), None));
+        assert_eq!(parse_depth_from_name("SANDI-2021_1523.5"), (Some(1523.5), None));
         // Separated by more than one character, so not a pair.
         assert_eq!(parse_depth_from_name("1523.5_TS_1524.0"), (Some(1524.0), None));
     }

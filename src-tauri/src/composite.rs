@@ -1956,7 +1956,7 @@ mod tests {
     fn seed_well(conn: &Connection) -> String {
         db::create_schema(conn).unwrap();
         let wid = Uuid::new_v4();
-        db::insert_well(conn, wid, "BLSO-COMPOSITE", Some("Balam South"), Some(1800.0), Some(25.0)).unwrap();
+        db::insert_well(conn, wid, "SANDI-COMPOSITE", Some("Sandi Field"), Some(1800.0), Some(25.0)).unwrap();
         let w = wid.to_string();
         let n = 400;
         let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
@@ -2569,13 +2569,13 @@ mod tests {
         let w = seed_well(&conn);
         let res = render_composite(&conn, &full_spec(w, 500, PageSize::A4)).unwrap();
         assert!(res.pages.len() >= 2, "expected multi-page, got {}", res.pages.len());
-        assert_eq!(res.well_name, "BLSO-COMPOSITE");
+        assert_eq!(res.well_name, "SANDI-COMPOSITE");
 
         let p0 = &res.pages[0].svg;
         assert!(p0.starts_with("<svg"));
         assert!(p0.contains("width=\"210mm\""));
-        assert!(p0.contains("BLSO-COMPOSITE"));
-        assert!(p0.contains("Balam South"));
+        assert!(p0.contains("SANDI-COMPOSITE"));
+        assert!(p0.contains("Sandi Field"));
         assert!(p0.contains("1:500"));
         assert!(p0.contains("Top Reservoir"));
         assert!(p0.contains("RES_DEEP"));
@@ -2660,11 +2660,11 @@ mod tests {
         spec.depth_top = Some(1040.0);
         spec.depth_bottom = Some(1120.0);
         let res = render_composite(&conn, &spec).unwrap();
-        let svg_out = std::env::var("ARSHILLA_SVG_OUT")
+        let svg_out = std::env::var("SANDIBUMI_SVG_OUT")
             .unwrap_or_else(|_| std::env::temp_dir().join("arshilla_composite_p0.svg").to_string_lossy().into());
         std::fs::write(&svg_out, &res.pages[0].svg).unwrap();
         let pdf = render_composite_pdf(&conn, &spec).unwrap();
-        let pdf_out = std::env::var("ARSHILLA_PDF_OUT")
+        let pdf_out = std::env::var("SANDIBUMI_PDF_OUT")
             .unwrap_or_else(|_| std::env::temp_dir().join("arshilla_composite.pdf").to_string_lossy().into());
         std::fs::write(&pdf_out, &pdf).unwrap();
         println!("wrote {svg_out} and {pdf_out}");

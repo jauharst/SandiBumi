@@ -303,7 +303,7 @@ export class InspectorPanel {
     if (!note) return;
     note.textContent +=
       this.pythonPath === null
-        ? "  ⚠ No Python with numpy found — install Python 3.10+ & numpy, or set ARSHILLA_PYTHON."
+        ? "  ⚠ No Python with numpy found — install Python 3.10+ & numpy, or set SANDIBUMI_PYTHON."
         : `  (engine: ${this.pythonPath})`;
   }
 

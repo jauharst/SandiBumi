@@ -131,7 +131,7 @@ pub fn import_dlis_file(conn: &Connection, well_id: &str, path: &str, set_name: 
         if desired == "RAW" { desired } else { crate::ingest::resolve_set_name(conn, well_id, &desired) };
 
     let Some(python) = find_python() else {
-        return fail("no Python with numpy found — install Python 3.10+ with numpy and dlisio, or set ARSHILLA_PYTHON".into());
+        return fail("no Python with numpy found — install Python 3.10+ with numpy and dlisio, or set SANDIBUMI_PYTHON".into());
     };
 
     let mut cmd = Command::new(&python);
@@ -274,9 +274,9 @@ mod tests {
     #[test]
     #[ignore]
     fn import_real_dlis() {
-        let path = std::env::var("ARSHILLA_TEST_DLIS").unwrap_or_default();
+        let path = std::env::var("SANDIBUMI_TEST_DLIS").unwrap_or_default();
         if path.is_empty() {
-            eprintln!("set ARSHILLA_TEST_DLIS to a .dlis file to run this");
+            eprintln!("set SANDIBUMI_TEST_DLIS to a .dlis file to run this");
             return;
         }
         let conn = Connection::open_in_memory().unwrap();

@@ -43,7 +43,7 @@ pub fn init_db(path: &str) -> DbResult<Connection> {
 
 /// Caps DuckDB's memory appetite. The engine's factory default allows itself ~80% of the
 /// machine's RAM, which it will happily fill during a large scan, migration backup or
-/// COPY FROM DATABASE — on the 2.5 GB BLSO project that showed up as ~6 GB of the user's
+/// COPY FROM DATABASE — on a 2.5 GB field project that showed up as ~6 GB of the user's
 /// 8 GB machine. A desktop app sharing the machine gets a QUARTER of that default
 /// (≈20% of RAM), clamped to [1 GiB, 4 GiB]; anything bigger spills to DuckDB's on-disk
 /// temp space (enabled by default for file-backed databases). `SANDIBUMI_DB_MEMORY`
@@ -211,7 +211,7 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
         -- Surface location for the Field Map (Wave E item 22). Easting/northing are stored
         -- as DOUBLE (UTM metres reach ~10,000,000 in the southern hemisphere — beyond FLOAT's
         -- ~1 m precision at that magnitude). `utm_zone` is the metre grid's zone label (e.g.
-        -- "50S" for the Mahakam Delta, "48S"/"49S" for ONWJ) so multi-zone fields can be
+        -- "50S" for the Mahakam Delta, "48S"/"49S" for the Java Sea) so multi-zone fields can be
         -- distinguished; coordinates are plotted in their raw easting/northing. Added via
         -- ALTER so existing databases converge on the same shape.
         -- The unit every depth stored for this well is in. Equal to the project's declared
@@ -3371,11 +3371,11 @@ mod inspector_tests {
     #[test]
     fn readonly_query_selects_and_rejects() {
         let conn = mem_db();
-        insert_well(&conn, Uuid::new_v4(), "BALAM-1", Some("Balam"), None, None).unwrap();
+        insert_well(&conn, Uuid::new_v4(), "SANDI-1", Some("Sandi"), None, None).unwrap();
         let page = run_readonly_query(&conn, "SELECT well_name, field_name FROM wells", 100).unwrap();
         assert_eq!(page.columns, vec!["well_name", "field_name"]);
         assert_eq!(page.rows.len(), 1);
-        assert_eq!(page.rows[0][0].as_deref(), Some("BALAM-1"));
+        assert_eq!(page.rows[0][0].as_deref(), Some("SANDI-1"));
 
         assert!(run_readonly_query(&conn, "DELETE FROM wells", 100).is_err());
         assert!(run_readonly_query(&conn, "SELECT 1; DROP TABLE wells", 100).is_err());
@@ -3605,7 +3605,7 @@ mod inspector_tests {
     fn a_second_image_delivery_lands_beside_the_first_and_only_one_is_live() {
         let conn = mem_db();
         let wid = Uuid::new_v4();
-        insert_well(&conn, wid, "BLSO-IMG", None, None, None).unwrap();
+        insert_well(&conn, wid, "SANDI-IMG", None, None, None).unwrap();
         let w = wid.to_string();
 
         let first = resolve_image_set_name(&conn, &w, "THIN SECTION", "PETRO").unwrap();
@@ -3652,7 +3652,7 @@ mod inspector_tests {
         // caller had to load.
         let conn = mem_db();
         let wid = Uuid::new_v4();
-        insert_well(&conn, wid, "BLSO-IMG2", None, None, None).unwrap();
+        insert_well(&conn, wid, "SANDI-IMG2", None, None, None).unwrap();
         let w = wid.to_string();
         let bytes = b"\xFF\xD8_______________\xFF\xD9";
         insert_well_images(&conn, &w, "CORE PHOTO", "RAW", None, &[a_plate("CP-1", 1000.0, Some(1001.0), bytes)])
@@ -3677,7 +3677,7 @@ mod inspector_tests {
     fn deleting_the_live_image_delivery_hands_over_to_the_next_newest() {
         let conn = mem_db();
         let wid = Uuid::new_v4();
-        insert_well(&conn, wid, "BLSO-IMG3", None, None, None).unwrap();
+        insert_well(&conn, wid, "SANDI-IMG3", None, None, None).unwrap();
         let w = wid.to_string();
         insert_well_images(&conn, &w, "SEM", "RUN1", None, &[a_plate("A", 1000.0, None, b"\xFF\xD8a\xFF\xD9")]).unwrap();
         insert_well_images(&conn, &w, "SEM", "RUN2", None, &[a_plate("B", 1001.0, None, b"\xFF\xD8b\xFF\xD9")]).unwrap();

@@ -185,7 +185,7 @@ pub(crate) fn sw_height(ctx: &ModuleContext) -> ModuleOutputs {
             // PSI_PER_FT_PER_SG is per FOOT of column, so the height must be in feet. This
             // used to be `h * FT_PER_M`, which assumed h arrived in metres — on a project
             // declared in feet that scaled an already-foot height and returned Pc 3.28x
-            // too high (Jauhar's Rokan projects are foot-declared).
+            // too high (his Central Sumatra projects are foot-declared).
             let pc = PSI_PER_FT_PER_SG * (rho_w - rho_hc) * crate::units::to_feet(h, ctx.depth_unit);
             if pc <= 0.0 || ift <= 0.0 {
                 continue;

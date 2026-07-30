@@ -224,7 +224,7 @@ fn verify_copy_counts(live: &duckdb::Connection, copy_path: &str) -> Result<(), 
 
 /// Rewrites the open project into a fresh file containing only live rows, then swaps it in
 /// at the SAME path. Months of module re-runs (each a DELETE + append) leave dead space the
-/// engine never returns to the file — the BLSO field project measured ~75% dead (2.5 GB file,
+/// engine never returns to the file — one field project measured ~75% dead (2.5 GB file,
 /// ~0.6 GB live) — and a bloated file drags every scan. The original is verified against the
 /// copy (row counts), then parked beside the project as `.pre-compact-<ts>.duckdb`, never
 /// deleted by us; on ANY failure the original is put back and the report says so.

@@ -6,7 +6,7 @@
 //! very fine grained sediments with fresh–brackish formation water, where classic
 //! shaly-sand analysis overestimates clay and underestimates porosity.
 //!
-//! SSPW is the PHR-standard sandstone workflow (quartz + shale + water, density
+//! SSPW is a three-component sandstone workflow (quartz + shale + water, density
 //! porosity with a dry-shale matrix). Its key message: PHIE = PHIT − clay-bound
 //! water only; capillary-bound water stays inside PHIE, and PHIFF = PHIT − CBW −
 //! CAPBW is what can actually flow. The Loglan exec body is not on disk, so the
@@ -68,7 +68,7 @@ fn vsh_from_gr(method: &str, mut v: f64) -> f64 {
 }
 
 // ---------------------------------------------------------------------------
-// SSC — Sand-Silt-Clay model (Kuttan / GAP 2023, LQR Balam South edit)
+// SSC — Sand-Silt-Clay model (Kuttan / GAP 2023, LQR edit)
 // ---------------------------------------------------------------------------
 
 pub fn ssc_spec() -> ModuleSpec {
@@ -348,7 +348,7 @@ pub fn ssc(ctx: &ModuleContext) -> ModuleOutputs {
 }
 
 // ---------------------------------------------------------------------------
-// SSPW — Sandstone Petrophysical Workflow (PHR standard, March 2022)
+// SSPW — Sandstone Petrophysical Workflow (March 2022)
 // ---------------------------------------------------------------------------
 
 pub fn sspw_spec() -> ModuleSpec {
@@ -356,7 +356,7 @@ pub fn sspw_spec() -> ModuleSpec {
         name: "sspw".into(),
         title: "SSPW — Sandstone Petrophysical Workflow".into(),
         category: "Porosity".into(),
-        doc: "PHR-standard sandstone workflow (quartz + shale + water). PHIT from density \
+        doc: "Three-component sandstone workflow (quartz + shale + water). PHIT from density \
               with a VSH-mixed dry matrix (RHOB_MAT / RHOB_DSH); shale total porosity \
               PHIT_SH = (RHOB_DSH − RHOB_SH)/(RHOB_DSH − RHOB_FL); CBW = VSH·VOL_CBW_SH; \
               CAPBW = VSH·(PHIT_SH − VOL_CBW_SH). Key message: PHIE = PHIT − CBW (clay \

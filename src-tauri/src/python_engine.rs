@@ -5,8 +5,10 @@
 //! Python runs as a SUBPROCESS rather than an embedded interpreter: the app binary has
 //! no link-time Python dependency, so a missing/foreign Python can never stop SandiBumi
 //! from launching — a run just fails with a clear message. Discovery order:
-//! `ARSHILLA_PYTHON` env var, then recent py.org per-user installs, then PATH; the first
-//! interpreter that can `import numpy` wins (cached for the session).
+//! `SANDIBUMI_PYTHON` env var, then the legacy `ARSHILLA_PYTHON` (the app's former name —
+//! honoured silently so nobody's existing setup breaks, but never named in a message), then
+//! recent py.org per-user installs, then PATH; the first interpreter that can `import numpy`
+//! wins (cached for the session).
 //!
 //! **Persistent worker (perf):** rather than spawn a fresh `python.exe` per well (which
 //! re-imports numpy every time — the dominant cost of a field-scale equation run), one
@@ -25,8 +27,16 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 
+/// The environment variable naming the interpreter to use. Every message the user ever sees
+/// names THIS one.
+pub const PYTHON_ENV: &str = "SANDIBUMI_PYTHON";
+/// The pre-rename name, still honoured so an existing setup keeps working. Deliberately never
+/// mentioned in a message: telling a customer to set a variable named after a product that no
+/// longer exists is how the old name outlives the rename.
+pub const PYTHON_ENV_LEGACY: &str = "ARSHILLA_PYTHON";
+
 const NO_PYTHON: &str =
-    "no Python with numpy found — install Python 3.10+ with numpy, or set ARSHILLA_PYTHON to its python.exe";
+    "no Python with numpy found — install Python 3.10+ with numpy, or set SANDIBUMI_PYTHON to its python.exe";
 
 /// Persistent request/response loop: read a JSON header line + raw f32 arrays, exec the
 /// user script with numpy bound (fresh namespace each request), and reply with a
@@ -110,8 +120,16 @@ pub fn find_python() -> Option<PathBuf> {
     FOUND
         .get_or_init(|| {
             let mut candidates: Vec<PathBuf> = Vec::new();
-            if let Ok(p) = std::env::var("ARSHILLA_PYTHON") {
-                candidates.push(PathBuf::from(p));
+            // Current name first, then the pre-rename one. A user who set ARSHILLA_PYTHON
+            // years ago keeps working without being told to change anything; a user reading
+            // an error message today is only ever told the current name.
+            for var in [PYTHON_ENV, PYTHON_ENV_LEGACY] {
+                if let Ok(p) = std::env::var(var) {
+                    let p = p.trim();
+                    if !p.is_empty() {
+                        candidates.push(PathBuf::from(p));
+                    }
+                }
             }
             if let Ok(local) = std::env::var("LOCALAPPDATA") {
                 for ver in ["Python313", "Python312", "Python311", "Python310"] {
@@ -360,6 +378,31 @@ pub fn run_python_equation(
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod env_name_tests {
+    use super::*;
+
+    /// A customer who has no Python is told what to set. Until 2026-07-31 they were told to
+    /// set `ARSHILLA_PYTHON` — a variable named after this app's PREVIOUS name — in ten
+    /// separate messages across DLIS import, ML, images and all three office exports. That is
+    /// an instruction to configure a product that does not exist.
+    ///
+    /// The rule this pins: discovery still ACCEPTS the old name (nobody's setup breaks), but
+    /// no message ever NAMES it.
+    #[test]
+    fn no_user_facing_message_names_the_pre_rename_variable() {
+        assert!(
+            NO_PYTHON.contains(PYTHON_ENV),
+            "the message must name the current variable: {NO_PYTHON}"
+        );
+        assert!(
+            !NO_PYTHON.contains(PYTHON_ENV_LEGACY),
+            "the message must not name the pre-rename variable: {NO_PYTHON}"
+        );
+        assert_ne!(PYTHON_ENV, PYTHON_ENV_LEGACY);
+    }
 }
 
 #[cfg(test)]

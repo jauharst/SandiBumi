@@ -196,7 +196,7 @@ def make_core_csv() -> str:
 
 
 def make_core_multiwell_csv() -> str:
-    """ONE core file for the whole field, in the BLSO/PHR delivery shape: WN well-name
+    """ONE core file for the whole field, in a real delivery shape: WN well-name
     column, a units row under the headers, suffixed mnemonics, porosity/Sw in percent.
     The import wizard (T-IMP-07) detects all of it and routes rows per well — no well
     selection needed.

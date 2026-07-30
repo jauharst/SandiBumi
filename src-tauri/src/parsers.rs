@@ -31,7 +31,7 @@ const CP1252_HIGH: [char; 32] = [
 /// Field data is not reliably UTF-8. A CSV that passed through Excel, Word or an operator's
 /// reporting tool on a Windows machine carries **cp1252** bytes, and a single one of them used
 /// to fail an entire import with the unhelpful `io error: stream did not contain valid UTF-8`.
-/// The case that found this: a 330 KB Duri core table, pure ASCII apart from **two** 0x95
+/// The case that found this: a 330 KB field core table, pure ASCII apart from **two** 0x95
 /// bullets that begin a lithology description — 20,000 good rows rejected over two characters
 /// in a comment field.
 ///
@@ -609,7 +609,7 @@ pub fn extract_well_name<P: AsRef<Path>>(path: P) -> ParseResult<String> {
             && matches!(upper.as_bytes().get(4), None | Some(b'.') | Some(b' ') | Some(b'\t'));
         if well_line {
             if let Some(colon_idx) = trimmed.rfind(':') {
-                // "WELL .        BALAM SOUTH-01   : WELL" — the value is everything
+                // "WELL .        SANDI SOUTH-01   : WELL" — the value is everything
                 // between the mnemonic(+unit) and the colon, NOT just the last token
                 // (multi-word well names must survive intact).
                 let after = trimmed[4..colon_idx].trim_start();
@@ -642,7 +642,7 @@ pub struct CoreColumns {
 const CORE_DEPTH_ALIASES: [&str; 3] = ["DEPTH", "DEPT", "MD"];
 const CORE_CPOR_ALIASES: [&str; 7] = ["CPOR", "CORE_POR", "PHI_CORE", "CPHI", "POROSITY", "PORO", "POR"];
 const CORE_CPERM_ALIASES: [&str; 8] = ["CPERM", "CORE_PERM", "KAIR", "KL", "KH", "PERMEABILITY", "PERM", "K"];
-// GDEN: the BLSO/PHR core-log delivery header (`GDEN_1`, resolved via the `_` boundary rule).
+// GDEN: a real core-log delivery header (`GDEN_1`, resolved via the `_` boundary rule).
 const CORE_CGD_ALIASES: [&str; 5] = ["CGD", "GRAIN_DENSITY", "GRAIN_DEN", "RHOG", "GDEN"];
 const CORE_CSW_ALIASES: [&str; 3] = ["CSW", "CORE_SW", "SW"];
 
@@ -1222,18 +1222,18 @@ mod core_csv_tests {
         assert!((cols.cpor[0] - 0.225).abs() < 1e-6, "already-fractional porosity must not be rescaled");
     }
 
-    /// The exact header shape of the BLSO/PHR Rokan core-log delivery
-    /// (`blso*_lapi2023_core.csv`): suffixed mnemonics (`CPOR_2`, `GDEN_1`) that resolve
+    /// The exact header shape of a real core-log delivery
+    /// (one-CSV-per-field core delivery): suffixed mnemonics (`CPOR_2`, `GDEN_1`) that resolve
     /// via the `_` boundary rule, and a UNITS row as the first record — skipped because
     /// its depth cell ("FEET") is not numeric, never imported as a phantom plug.
     #[test]
-    fn core_csv_blso_delivery_header_resolves() {
+    fn core_csv_delivery_header_resolves() {
         let path = write_temp_csv(
-            "arshilla_core_blso_test.csv",
+            "sandibumi_core_delivery_test.csv",
             "TAPE_NAME,TOOL_STRING,WN,DEPTH,CPERM_1,CPOR_2,CSO_1,CSW_1,GDEN_1\n\
              \"\",\"\",\"\",FEET,MD,V/V,V/V,V/V,G/C3\n\
-             \"\",\"\",BLSO00001,850.5,120.0,0.24,0.15,0.55,2.66\n\
-             \"\",\"\",BLSO00001,851.5,85.0,0.22,0.20,0.60,2.65\n",
+             \"\",\"\",SANDI00001,850.5,120.0,0.24,0.15,0.55,2.66\n\
+             \"\",\"\",SANDI00001,851.5,85.0,0.22,0.20,0.60,2.65\n",
         );
         let cols = parse_core_csv(&path).unwrap();
         std::fs::remove_file(&path).ok();
@@ -1599,7 +1599,7 @@ pub struct TopsRecord {
     pub depth: f32,
 }
 
-// WN: the BLSO/PHR core-log delivery's well-name column.
+// WN: a real core-log delivery's well-name column.
 const TOPS_WELL_ALIASES: [&str; 8] =
     ["WELL", "WELLNAME", "WELL_NAME", "WELLBORE", "BOREHOLE", "UWI", "WELL_ID", "WN"];
 const TOPS_NAME_ALIASES: [&str; 9] =
@@ -1945,7 +1945,7 @@ fn unit_token_guess(s: &str) -> Option<&'static str> {
     None
 }
 
-/// True when the first data row is a UNITS row (BLSO-style: `,,,FEET,MD,V/V,…`):
+/// True when the first data row is a UNITS row (delivery-style: `,,,FEET,MD,V/V,…`):
 /// the depth cell exists but does not parse as a number.
 fn is_units_row(row: &[String], depth_col: usize) -> bool {
     row.get(depth_col)
@@ -1962,7 +1962,7 @@ pub fn probe_core_table<P: AsRef<Path>>(path: P) -> ParseResult<TableProbe> {
     }
 
     let depth = resolve_header_index(&headers, &CORE_DEPTH_ALIASES);
-    // Well column: several headers can satisfy the aliases (Duri exports carry both a
+    // Well column: several headers can satisfy the aliases (some exports carry both a
     // numeric WELL and a textual WELL NAME). Prefer the first candidate whose values are
     // mostly NON-numeric — a well NAME routes rows; a bare pad number usually doesn't.
     let well_candidates: Vec<usize> = (0..headers.len())
@@ -2168,14 +2168,14 @@ mod encoding_tests {
         path
     }
 
-    /// The Duri regression, byte-for-byte. A 330 KB core table that was pure ASCII except for
+    /// The encoding regression, byte-for-byte. A 330 KB core table that was pure ASCII except for
     /// TWO 0x95 bullets opening a lithology description was refused outright with
     /// "io error: stream did not contain valid UTF-8" — 20,000 good plugs lost to two
     /// characters in a comment field. cp1252 0x95 is "•", and the import must now simply read.
     #[test]
     fn cp1252_bullet_in_a_description_does_not_fail_the_import() {
         let mut body: Vec<u8> = b"WELL,DEPTH,CPOR,CPERM,LITH\n".to_vec();
-        body.extend_from_slice(b"DURI-1,661.0,0.266,0.415,");
+        body.extend_from_slice(b"SANDI-1,661.0,0.266,0.415,");
         body.push(0x95); // the byte that broke it
         body.extend_from_slice(b" Sst gry f m gr fri wl srt\n");
         let path = write_bytes("sandibumi_cp1252_core.csv", &body);
@@ -2194,13 +2194,13 @@ mod encoding_tests {
     #[test]
     fn boms_are_honoured_utf8_and_utf16() {
         let mut u8bom: Vec<u8> = vec![0xEF, 0xBB, 0xBF];
-        u8bom.extend_from_slice("WELL,DEPTH\nDURI-1,10.5\n".as_bytes());
+        u8bom.extend_from_slice("WELL,DEPTH\nSANDI-1,10.5\n".as_bytes());
         let p1 = write_bytes("sandibumi_bom8.csv", &u8bom);
         let t1 = read_text_file(&p1).unwrap();
         assert!(t1.starts_with("WELL"), "the UTF-8 BOM must be stripped, not parsed as a header char");
 
         let mut u16le: Vec<u8> = vec![0xFF, 0xFE];
-        for u in "WELL,DEPTH\nDURI-1,10.5\n".encode_utf16() {
+        for u in "WELL,DEPTH\nSANDI-1,10.5\n".encode_utf16() {
             u16le.extend_from_slice(&u.to_le_bytes());
         }
         let p2 = write_bytes("sandibumi_bom16.csv", &u16le);
@@ -2214,18 +2214,20 @@ mod encoding_tests {
         let _ = std::fs::remove_file(&p2);
     }
 
-    /// Probe against the real Duri delivery that reported this bug. Ignored — a fresh clone
-    /// has no such file. Run on the reference machine with:
-    ///   cargo test parsers::encoding_tests::probe_real_duri_core -- --ignored --nocapture
+    /// Probe against the real core delivery that reported this bug — a 330 KB table, pure
+    /// ASCII apart from two 0x95 bullets in a lithology description, which the old reader
+    /// refused outright. Ignored, and skipped with a printed reason when no core folder is
+    /// configured (`SANDIBUMI_FIELD_FIXTURES/core/`). Run with:
+    ///   cargo test parsers::encoding_tests::probe_real_field_core -- --ignored --nocapture
     #[test]
     #[ignore]
-    fn probe_real_duri_core() {
-        let path = r"D:\01. Work\2026\44. Duri Area 09 - PHR\03. Output\Core Jauhar\Core.csv";
-        if !std::path::Path::new(path).exists() {
-            eprintln!("not on this machine: {path}");
+    fn probe_real_field_core() {
+        let Some(path) = crate::field_fixtures::core_table() else {
+            crate::field_fixtures::skip("probe_real_field_core", 0, 1);
             return;
-        }
-        let p = probe_core_table(path).expect("the real file must import");
+        };
+        let path = path.to_string_lossy().into_owned();
+        let p = probe_core_table(&path).expect("the real file must import");
         eprintln!("headers ({}): {:?}", p.headers.len(), p.headers);
         eprintln!("data rows: {}", p.n_rows);
         eprintln!(
@@ -2243,7 +2245,7 @@ mod encoding_tests {
     /// multi-byte characters, which cp1252 decoding would mangle into mojibake.
     #[test]
     fn valid_utf8_is_passed_through_unchanged() {
-        let body = "WELL,DEPTH,NOTE\nDURI-1,10.5,µ-porosity 30°C – ok\n";
+        let body = "WELL,DEPTH,NOTE\nSANDI-1,10.5,µ-porosity 30°C – ok\n";
         let path = write_bytes("sandibumi_utf8.csv", body.as_bytes());
         assert_eq!(read_text_file(&path).unwrap(), body);
         let _ = std::fs::remove_file(&path);
@@ -2267,14 +2269,14 @@ mod tops_aux_tests {
     fn tops_csv_multiwell_aliases() {
         let p = temp(
             "arshilla_tops_test.csv",
-            "# exported tops\nWell Name,Surface,MD\nBALAM-1,TOP_A,1000.5\nBALAM-1,TOP_B,1100.0\nBALAM-2,TOP_A,1010.0\n,BAD_ROW,\n",
+            "# exported tops\nWell Name,Surface,MD\nSANDI-1,TOP_A,1000.5\nSANDI-1,TOP_B,1100.0\nSANDI-2,TOP_A,1010.0\n,BAD_ROW,\n",
         );
         let (has_well, recs) = parse_tops_file(&p).unwrap();
         std::fs::remove_file(&p).ok();
         assert!(has_well, "multi-well file has a WELL column");
         assert_eq!(recs.len(), 3, "row without depth skipped");
-        assert_eq!(recs[0].well.as_deref(), Some("BALAM-1"));
-        assert_eq!(recs[2].well.as_deref(), Some("BALAM-2"));
+        assert_eq!(recs[0].well.as_deref(), Some("SANDI-1"));
+        assert_eq!(recs[2].well.as_deref(), Some("SANDI-2"));
         assert_eq!(recs[1].top_name, "TOP_B");
         assert!((recs[1].depth - 1100.0).abs() < 1e-3);
     }
@@ -2289,12 +2291,12 @@ mod tops_aux_tests {
         let p = temp(
             "arshilla_tops_nonfinite_test.csv",
             "Well Name,Surface,MD\n\
-             BALAM-1,TOP_A,1000.5\n\
-             BALAM-1,TOP_MISSING,NaN\n\
-             BALAM-1,TOP_NAN_LOWER,nan\n\
-             BALAM-1,TOP_INF,inf\n\
-             BALAM-1,TOP_OVERFLOW,1.0E+40\n\
-             BALAM-1,TOP_B,1100.0\n",
+             SANDI-1,TOP_A,1000.5\n\
+             SANDI-1,TOP_MISSING,NaN\n\
+             SANDI-1,TOP_NAN_LOWER,nan\n\
+             SANDI-1,TOP_INF,inf\n\
+             SANDI-1,TOP_OVERFLOW,1.0E+40\n\
+             SANDI-1,TOP_B,1100.0\n",
         );
         let (_, recs) = parse_tops_file(&p).unwrap();
         std::fs::remove_file(&p).ok();

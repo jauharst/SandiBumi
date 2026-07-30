@@ -1,9 +1,8 @@
 # Jauhar's standard petrophysics workflow — normalization, mnemonics, multimin, reports
 
-Distilled from the BLSO final report (STUDY_BLSO_ITB2023), the Bunga Block carbonate report
-(PHE & Posco 2025), and the KKT multimin models (PHE ONWJ 2026,
-`D:\01. Work\2026\42. KKT - PHE ONWJ\05. Multimin Model\`). These are the conventions
-SandiBumi's defaults should follow.
+Distilled from three of Jauhar's own studies held in his study archive (not in this
+repository): a clastic field final report, a carbonate field report, and a multi-well multimin
+model set. These are the conventions SandiBumi's defaults should follow.
 
 ## Standard workflow order (his every study)
 

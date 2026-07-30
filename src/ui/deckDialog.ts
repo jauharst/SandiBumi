@@ -104,7 +104,7 @@ export async function openDeckDialog(): Promise<void> {
     const missing = [!support.pptx && "python-pptx", !support.matplotlib && "matplotlib"].filter(Boolean).join(" and ");
     warn.textContent = support.python
       ? `${missing} not installed in the Python SandiBumi found (${support.python}). Run: pip install ${missing.replace(" and ", " ")}`
-      : "No Python was found. Install Python 3.10+ with python-pptx and matplotlib, or set ARSHILLA_PYTHON to its python.exe.";
+      : "No Python was found. Install Python 3.10+ with python-pptx and matplotlib, or set SANDIBUMI_PYTHON to its python.exe.";
     wrap.appendChild(warn);
   }
 

@@ -3051,7 +3051,7 @@ Everything verified against source. Composing the test plan now — this is my f
 
 ## MLEQ — ML, user equations & curve management
 
-**Shared preconditions:** project open with at least 3 wells imported carrying GR, RHOB, NPHI and DT (DT absent or blanked in one well for T-MLEQ-10); PHIT computed on at least 2 wells (any porosity module or SSC/SSPW run); Python 3.10+ with numpy + scikit-learn on PATH (or `ARSHILLA_PYTHON` set). Ribbon tabs referenced: **Data**, **Petrophysics**, **Advance**, **Project**. The Processing History pane opens from **Project ▸ Monitor ▸ History** or right-click workspace background → **Processing History**.
+**Shared preconditions:** project open with at least 3 wells imported carrying GR, RHOB, NPHI and DT (DT absent or blanked in one well for T-MLEQ-10); PHIT computed on at least 2 wells (any porosity module or SSC/SSPW run); Python 3.10+ with numpy + scikit-learn on PATH (or `SANDIBUMI_PYTHON` set). Ribbon tabs referenced: **Data**, **Petrophysics**, **Advance**, **Project**. The Processing History pane opens from **Project ▸ Monitor ▸ History** or right-click workspace background → **Processing History**.
 
 ### T-MLEQ-01 — ML pane opens with the full form (smoke)
 
@@ -3079,7 +3079,7 @@ Everything verified against source. Composing the test plan now — this is my f
 1. Ribbon → **Data** tab → **Curve Catalog** button (Manage group).
 2. In the Inspector pane confirm two tabs: **Equation Editor** (active) and **Curve Catalog**.
 3. In Equation Editor set **Language** = "Python (numpy)". Read the note line at the top.
-   **Expected:** the note reads "Python (numpy): input curves are float32 arrays (NaN = missing) plus `depth`…" and, after a moment, appends **"(engine: \<path to python\>)"** — the live worker path. If it instead appends "⚠ No Python with numpy found — install Python 3.10+ & numpy, or set ARSHILLA_PYTHON", stop: Python-dependent tests (03, 05, 10–15) are **Blocked** until the environment is fixed.
+   **Expected:** the note reads "Python (numpy): input curves are float32 arrays (NaN = missing) plus `depth`…" and, after a moment, appends **"(engine: \<path to python\>)"** — the live worker path. If it instead appends "⚠ No Python with numpy found — install Python 3.10+ & numpy, or set SANDIBUMI_PYTHON", stop: Python-dependent tests (03, 05, 10–15) are **Blocked** until the environment is fixed.
    **Result — T-MLEQ-02:**
 
 - [ ] Pass

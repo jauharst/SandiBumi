@@ -1,9 +1,19 @@
 // Extract stroked vector paths (with color + CTM applied) from a chartbook page.
 // Usage: node extract.mjs <pageNum> <out.json>
 import { getDocument, OPS } from "pdfjs-dist/legacy/build/pdf.mjs";
-import { readFileSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 
-const PDF = "D:\\01. Work\\00. Guidebook\\chartbook.pdf";
+// The chartbook PDF is copyrighted and is NOT in this repository — point CHARTBOOK_PDF at
+// your own copy. See README.md. (Was a hard-coded reference-machine path until 2026-07-31.)
+const PDF = process.env.CHARTBOOK_PDF || "chartbook.pdf";
+if (!existsSync(PDF)) {
+  console.error(
+    `chartbook PDF not found at "${PDF}".\n` +
+      `Set CHARTBOOK_PDF to your own copy of the chart book, e.g.\n` +
+      `  CHARTBOOK_PDF="/path/to/chartbook.pdf" node extract.mjs 237 page.json`
+  );
+  process.exit(1);
+}
 const pageNum = parseInt(process.argv[2] || "237", 10);
 const outFile = process.argv[3] || "page.json";
 
