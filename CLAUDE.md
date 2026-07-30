@@ -249,6 +249,29 @@ Same-session fix: `composite.rs` used to treat ANY `fill` string other than "rig
 left-edge fill, so a style saved with `fill: "none"` printed shaded while the screen showed
 it clean — the match is explicit now (`left`/`right` only).
 
+Point-data tracks (2026-07-30) — `TrackKind::PointData` + `Track.points: Vec<PointStyle>`
+(both `#[serde(default)]`, so every older layout loads). A point series is deliberately NOT
+a `CurveStyle`: a curve has a value at every depth, a point series only where somebody
+sampled, and joining core plugs with a line would state a continuity the data lacks.
+`source` is `"core"` (a plug property of the ACTIVE core set, via the new
+`db::get_core_point_series` — NULL cells are DROPPED, never read as 0) or `"aux"` (one item
+of one point dataset, via the active-set-filtered `list_aux_data`); an aux row carrying
+`depth_base` is anchored at the interval's MIDDLE. Four displays: `points`, `text`
+(value_text labels, deduped so a densely described core is readable), `box`, `histogram`.
+Drawn on the 2D overlay in `logViewPanel.drawPointTracks` (the renderer skips point tracks
+for GPU geometry exactly as it skips well-diagram tracks, but still allocates the column)
+and in `composite.rs draw_point_series` for print. Off-scale samples are SKIPPED, never
+clamped to a track edge — same rule as the core overlay.
+
+**`distribution.rs` + `distribution.ts` are the shared statistics core and must stay in
+agreement** (percentile = R type 7 / NumPy / Excel; Tukey whiskers land on a real sample,
+never the fence; a percentile whisker rule reports no outliers; histogram DROPS out-of-range
+rather than clamping; empty depth bins are omitted). They are **source-agnostic on purpose**
+— they take a bare value slice — because binning core plugs over an interval and summarising
+N Monte Carlo realizations at one depth are the same operation. Array logs are meant to reuse
+them unchanged; if that ever needs its own code path the abstraction has been broken. The
+Rust side carries the unit tests that pin the numbers.
+
 UI language (2026-07-19) — `src/i18n.ts` translates visible DOM text (+ title/placeholder/
 aria-label/optgroup-label) to Bahasa Indonesia / Basa Sunda by exact-phrase dictionary
 lookup, live via MutationObserver. English is the source language: keep writing UI strings

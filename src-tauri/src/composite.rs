@@ -212,6 +212,19 @@ pub(crate) fn render_pages(conn: &Connection, spec: &CompositeSpec) -> Result<(V
     } else {
         Vec::new()
     };
+    // Point-data tracks (if any) draw measured samples. Fetched once for the whole render;
+    // both readers are active-set filtered, so this is one delivery of each.
+    let has_points = spec.layout.tracks.iter().any(|t| t.kind == crate::layout::TrackKind::PointData);
+    let core: Vec<(String, f32, f32)> = if has_points {
+        crate::db::get_core_point_series(conn, &spec.well_id).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let aux = if has_points {
+        crate::db::list_aux_data(conn, &spec.well_id, None).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
 
     let (pw, ph) = spec.page_size.dims();
     let mm_per_m = 1000.0 / spec.scale as f64;
@@ -230,8 +243,8 @@ pub(crate) fn render_pages(conn: &Connection, spec: &CompositeSpec) -> Result<(V
         let m_this = if first { m_per_page_first } else { m_per_page_run };
         let d1 = (d0 + m_this).min(bottom);
         let ops = build_page(
-            spec, &header, &depth, &columns, &tops, &zones, &completion, &perforations, pw, ph, mm_per_m, first,
-            d0 as f32, d1 as f32, idx,
+            spec, &header, &depth, &columns, &tops, &zones, &completion, &perforations, &core, &aux, pw, ph,
+            mm_per_m, first, d0 as f32, d1 as f32, idx,
         );
         pages.push(PageOps { ops, top: d0 as f32, bot: d1 as f32, idx });
         d0 = d1;
@@ -304,6 +317,8 @@ fn build_page(
     zones: &[crate::db::ZoneEntry],
     completion: &[crate::db::AuxRow],
     perforations: &[crate::db::AuxRow],
+    core: &[(String, f32, f32)],
+    aux: &[crate::db::AuxRow],
     pw: f64,
     ph: f64,
     mm_per_m: f64,
@@ -413,7 +428,13 @@ fn build_page(
             stroke: Some("#333333".into()),
             sw: 0.2,
         });
-        if track.kind == crate::layout::TrackKind::WellDiagram {
+        if track.kind == crate::layout::TrackKind::PointData {
+            for ps in &track.points {
+                draw_point_series(
+                    &mut ops, ps, track.scale_type, core, aux, tx0, tx1, page_top, page_bot, &y_of,
+                );
+            }
+        } else if track.kind == crate::layout::TrackKind::WellDiagram {
             draw_well_diagram(&mut ops, completion, perforations, tx0, tx1, page_top, page_bot, &y_of);
         } else {
             draw_vgrid(&mut ops, track, tx0, tx1, grid_top, grid_bot);
@@ -823,6 +844,196 @@ fn draw_crossover(
                 fill: side(s0),
                 opacity,
             });
+        }
+    }
+}
+
+/// Gathers one point series' samples for the print path. Core reads the ACTIVE core set's
+/// plug property; aux reads one item of one point dataset. An interval sample (depth_base
+/// present) is anchored at its middle, where the measurement actually applies. Mirrors
+/// `logViewPanel.pointSamples` — keep the two gathering the same rows.
+fn point_samples(
+    ps: &crate::layout::PointStyle,
+    core: &[(String, f32, f32)],
+    aux: &[crate::db::AuxRow],
+) -> (Vec<f32>, Vec<f32>, Vec<String>) {
+    let item = ps.item.trim().to_uppercase();
+    let (mut d, mut v, mut t) = (Vec::new(), Vec::new(), Vec::new());
+    if ps.source == "core" {
+        for (name, depth, value) in core {
+            if name.as_str() != item {
+                continue;
+            }
+            d.push(*depth);
+            v.push(*value);
+            t.push(String::new());
+        }
+        return (d, v, t);
+    }
+    let dataset = ps.dataset.as_deref().map(|s| s.trim().to_uppercase());
+    for r in aux {
+        if dataset.as_deref().is_some_and(|ds| r.dataset.to_uppercase() != ds) {
+            continue;
+        }
+        if r.item.to_uppercase() != item {
+            continue;
+        }
+        d.push(r.depth_base.map_or(r.depth_top, |b| (r.depth_top + b) / 2.0));
+        v.push(r.value_num.unwrap_or(f32::NAN));
+        t.push(r.value_text.clone().unwrap_or_default());
+    }
+    (d, v, t)
+}
+
+/// A `point_data` track's series in print: measured samples rather than a continuous log.
+/// Four displays matching the viewer — points, box plot per depth bin, value-axis histogram
+/// per depth bin, and text labels. Statistics come from the shared `distribution` module, so
+/// the printed box is the same box the screen drew.
+#[allow(clippy::too_many_arguments)]
+fn draw_point_series(
+    ops: &mut Vec<DrawOp>,
+    ps: &crate::layout::PointStyle,
+    scale: ScaleType,
+    core: &[(String, f32, f32)],
+    aux: &[crate::db::AuxRow],
+    tx0: f64,
+    tx1: f64,
+    page_top: f32,
+    page_bot: f32,
+    y_of: &dyn Fn(f32) -> f64,
+) {
+    use crate::distribution::{bin_by_depth, box_stats, histogram};
+    let (depth, value, text) = point_samples(ps, core, aux);
+    if depth.is_empty() {
+        return;
+    }
+    let tw = tx1 - tx0;
+    // None (not a clamped edge) for anything off-scale — a clamped sample would print at a
+    // value it never had.
+    let x_at = |v: f32| {
+        value_frac(v, ps.min, ps.max, scale).and_then(|f| (0.0..=1.0).contains(&f).then(|| tx0 + f * tw))
+    };
+
+    match ps.display.as_deref().unwrap_or("points") {
+        "text" => {
+            let mut last_y = f64::NEG_INFINITY;
+            for i in 0..depth.len().min(text.len()) {
+                let d = depth[i];
+                if d < page_top || d > page_bot || text[i].is_empty() {
+                    continue;
+                }
+                let y = y_of(d);
+                // One label per 3 mm, or a densely described core prints as a black smear.
+                if y - last_y < 3.0 {
+                    continue;
+                }
+                last_y = y;
+                ops.push(DrawOp::Text {
+                    x: tx0 + 0.8,
+                    y: y + 0.8,
+                    size: 2.2,
+                    anchor: Anchor::Start,
+                    color: "#333333".into(),
+                    bold: false,
+                    s: text[i].chars().take(28).collect(),
+                });
+            }
+        }
+        "box" | "histogram" => {
+            let bin = ps.bin.filter(|b| *b > 0.0).unwrap_or((page_bot - page_top) / 20.0);
+            let is_hist = ps.display.as_deref() == Some("histogram");
+            for (b_top, b_base, vals) in bin_by_depth(&depth, &value, bin) {
+                if b_base < page_top || b_top > page_bot {
+                    continue;
+                }
+                let (y0, y1) = (y_of(b_top.max(page_top)), y_of(b_base.min(page_bot)));
+                let h = y1 - y0;
+                if h <= 0.0 {
+                    continue;
+                }
+                let mid = (y0 + y1) / 2.0;
+                if is_hist {
+                    let counts = histogram(&vals, ps.min, ps.max, ps.hist_bins.unwrap_or(12) as usize);
+                    let peak = counts.iter().copied().max().unwrap_or(0);
+                    if peak == 0 {
+                        continue;
+                    }
+                    let bar_w = tw / counts.len() as f64;
+                    for (i, c) in counts.iter().enumerate() {
+                        if *c == 0 {
+                            continue;
+                        }
+                        let bar_h = (*c as f64 / peak as f64) * h;
+                        ops.push(DrawOp::Rect {
+                            x: tx0 + i as f64 * bar_w,
+                            y: y1 - bar_h,
+                            w: bar_w * 0.92,
+                            h: bar_h,
+                            fill: Some(ps.color.clone()),
+                            stroke: None,
+                            sw: 0.0,
+                        });
+                    }
+                    continue;
+                }
+                let (blo, bhi) = ps.box_edges();
+                let Some(st) = box_stats(&vals, blo, bhi, ps.whisker_rule()) else { continue };
+                let box_h = (h * 0.6).clamp(1.0, 4.0);
+                if let (Some(wl), Some(wh)) = (x_at(st.whisker_lo), x_at(st.whisker_hi)) {
+                    ops.push(DrawOp::Line { x1: wl, y1: mid, x2: wh, y2: mid, stroke: "#555555".into(), sw: 0.2 });
+                    for x in [wl, wh] {
+                        ops.push(DrawOp::Line {
+                            x1: x, y1: mid - box_h / 3.0, x2: x, y2: mid + box_h / 3.0,
+                            stroke: "#555555".into(), sw: 0.2,
+                        });
+                    }
+                }
+                if let (Some(lo), Some(hi)) = (x_at(st.lo), x_at(st.hi)) {
+                    ops.push(DrawOp::Fill {
+                        pts: vec![
+                            (lo.min(hi), mid - box_h / 2.0), (lo.max(hi), mid - box_h / 2.0),
+                            (lo.max(hi), mid + box_h / 2.0), (lo.min(hi), mid + box_h / 2.0),
+                        ],
+                        fill: ps.color.clone(),
+                        opacity: 0.5,
+                    });
+                    ops.push(DrawOp::Rect {
+                        x: lo.min(hi), y: mid - box_h / 2.0, w: (hi - lo).abs(), h: box_h,
+                        fill: None, stroke: Some(ps.color.clone()), sw: 0.15,
+                    });
+                }
+                if let Some(m) = x_at(st.med) {
+                    ops.push(DrawOp::Line {
+                        x1: m, y1: mid - box_h / 2.0, x2: m, y2: mid + box_h / 2.0,
+                        stroke: ps.color.clone(), sw: 0.4,
+                    });
+                }
+                // Outliers are the whole reason to prefer Tukey — print every one.
+                for o in &st.outliers {
+                    if let Some(x) = x_at(*o) {
+                        ops.push(DrawOp::Rect {
+                            x: x - 0.25, y: mid - 0.25, w: 0.5, h: 0.5,
+                            fill: Some(ps.color.clone()), stroke: None, sw: 0.0,
+                        });
+                    }
+                }
+            }
+        }
+        _ => {
+            for i in 0..depth.len().min(value.len()) {
+                let d = depth[i];
+                if d < page_top || d > page_bot {
+                    continue;
+                }
+                let Some(x) = x_at(value[i]) else { continue };
+                let y = y_of(d);
+                // A small diamond, matching the viewer's glyph.
+                ops.push(DrawOp::Fill {
+                    pts: vec![(x, y - 0.7), (x + 0.7, y), (x, y + 0.7), (x - 0.7, y)],
+                    fill: ps.color.clone(),
+                    opacity: 1.0,
+                });
+            }
         }
     }
 }
@@ -1355,6 +1566,111 @@ mod tests {
             0.0, 10.0, 0.0, 1000.0, &y,
         );
         assert!(fills(&ops).is_empty(), "None must print unshaded, as the viewer draws it");
+    }
+
+    fn point_style(json: serde_json::Value) -> crate::layout::PointStyle {
+        serde_json::from_value(json).unwrap()
+    }
+
+    /// 20 core plugs over 10 m: φ climbing 0.10 → 0.29, plus one absurd plug.
+    fn plugs() -> (Vec<f32>, Vec<f32>) {
+        let d: Vec<f32> = (0..20).map(|i| 1000.0 + i as f32 * 0.5).collect();
+        let mut v: Vec<f32> = (0..20).map(|i| 0.10 + i as f32 * 0.01).collect();
+        v[3] = 0.95; // a plug no sandstone ever had — must survive as an outlier, not vanish
+        (d, v)
+    }
+
+    #[test]
+    fn a_point_series_prints_one_box_per_depth_bin() {
+        let (d, v) = plugs();
+        let core: Vec<(String, f32, f32)> =
+            d.iter().zip(&v).map(|(d, v)| ("CPOR".to_string(), *d, *v)).collect();
+        let ps = point_style(serde_json::json!({
+            "source": "core", "item": "CPOR", "color": "#5f7350",
+            "min": 0.0, "max": 1.0, "display": "box", "bin": 5.0
+        }));
+        let mut ops = Vec::new();
+        let y = |x: f32| x as f64;
+        draw_point_series(
+            &mut ops, &ps, ScaleType::Linear, &core, &[], 0.0, 10.0, 990.0, 1020.0, &y,
+        );
+        // Plugs span 1000.0–1009.5, so a 5 m bin gives exactly two bins, each with a filled
+        // box, a median rule and a whisker spine.
+        let boxes = fills(&ops).len();
+        assert_eq!(boxes, 2, "one box body per populated depth bin");
+        assert!(ops.iter().filter(|o| matches!(o, DrawOp::Line { .. })).count() >= 6);
+        // The 0.95 plug is beyond the Tukey fence, so it prints as its own mark rather than
+        // stretching the box that summarises the real plugs.
+        assert!(ops.iter().any(|o| matches!(o, DrawOp::Rect { w, .. } if (*w - 0.5).abs() < 1e-9)));
+    }
+
+    #[test]
+    fn point_samples_off_the_track_scale_are_skipped_not_clamped() {
+        let core = vec![
+            ("CPOR".to_string(), 1000.0f32, 0.20f32),
+            ("CPOR".to_string(), 1001.0, 5.0), // far off a 0–1 porosity axis
+        ];
+        let ps = point_style(serde_json::json!({
+            "source": "core", "item": "CPOR", "color": "#000000", "min": 0.0, "max": 1.0
+        }));
+        let mut ops = Vec::new();
+        let y = |x: f32| x as f64;
+        draw_point_series(&mut ops, &ps, ScaleType::Linear, &core, &[], 0.0, 10.0, 990.0, 1020.0, &y);
+        assert_eq!(fills(&ops).len(), 1, "the off-scale plug must not print at the track edge");
+    }
+
+    #[test]
+    fn a_text_point_series_prints_its_labels_from_an_aux_dataset() {
+        let aux = vec![
+            crate::db::AuxRow {
+                dataset: "CORE".into(), depth_top: 1000.0, depth_base: Some(1002.0),
+                item: "LITH".into(), value_num: None, value_text: Some("Sandstone, fine".into()),
+            },
+            crate::db::AuxRow {
+                dataset: "CORE".into(), depth_top: 1010.0, depth_base: None,
+                item: "LITH".into(), value_num: None, value_text: Some("Shale".into()),
+            },
+        ];
+        let ps = point_style(serde_json::json!({
+            "source": "aux", "dataset": "CORE", "item": "LITH", "color": "#000000",
+            "min": 0.0, "max": 1.0, "display": "text"
+        }));
+        let mut ops = Vec::new();
+        let y = |x: f32| x as f64;
+        draw_point_series(&mut ops, &ps, ScaleType::Linear, &[], &aux, 0.0, 20.0, 990.0, 1020.0, &y);
+        let texts: Vec<(f64, String)> = ops
+            .iter()
+            .filter_map(|o| match o {
+                DrawOp::Text { y, s, .. } => Some((*y, s.clone())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(texts.len(), 2);
+        assert_eq!(texts[0].1, "Sandstone, fine");
+        // An interval sample is anchored at its MIDDLE (1000–1002 → 1001), where the
+        // description actually applies, not at its top.
+        assert!((texts[0].0 - 1001.8).abs() < 0.01);
+    }
+
+    #[test]
+    fn the_core_point_reader_drops_empty_cells_instead_of_reading_them_as_zero() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        db::insert_well(&conn, wid, "POINTS", None, None, None).unwrap();
+        let w = wid.to_string();
+        conn.execute_batch(&format!(
+            "INSERT INTO core_data (well_id, set_name, depth, cpor, cperm, cgd, csw) VALUES
+               ('{w}', 'RAW', 1000.0, 0.21, 150.0, NULL, NULL),
+               ('{w}', 'RAW', 1000.5, 0.19, NULL, 2.65, NULL);"
+        ))
+        .unwrap();
+        let rows = db::get_core_point_series(&conn, &w).unwrap();
+        let names: Vec<&str> = rows.iter().map(|(n, _, _)| n.as_str()).collect();
+        assert_eq!(names, vec!["CPOR", "CPERM", "CPOR", "CGD"]);
+        // A blank grain-density column must contribute no plug at all — a 0.0 g/cc plug
+        // would land at the left edge of a density track and read as real data.
+        assert!(!rows.iter().any(|(_, _, v)| *v == 0.0));
     }
 
     #[test]

@@ -237,9 +237,10 @@ export class LogCanvasRenderer {
       cumulativeWeight += weight;
       const trackRightFrac = cumulativeWeight / totalWeight;
       this.trackRanges.push({ title: track.title, leftFrac: trackLeftFrac, rightFrac: trackRightFrac });
-      // A well-diagram track keeps its column (so the overlay draws casing/perfs into it) but
-      // draws no curve geometry — the schematic lives entirely on the 2D overlay canvas.
-      if ((track.kind ?? "curves") === "well_diagram") continue;
+      // Well-diagram and point-data tracks keep their column (so the overlay can draw into
+      // it) but contribute no curve geometry — both live entirely on the 2D overlay canvas.
+      const kind = track.kind ?? "curves";
+      if (kind === "well_diagram" || kind === "point_data") continue;
       const trackLeftNdc = -1 + 2 * trackLeftFrac;
       const trackRightNdc = -1 + 2 * trackRightFrac;
 

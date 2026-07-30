@@ -1,6 +1,14 @@
 import type { CurveStyle, Layout, Track } from "../ipc";
 import { openModal } from "./modal";
 
+/** One point series the loaded well actually carries — a core plug property, or an item of
+ *  a point dataset — used to seed and suggest in the point-track editor. */
+export interface PointSuggestion {
+  source: "core" | "aux";
+  dataset?: string;
+  item: string;
+}
+
 /** Layout Properties dialog (per the standard-layout prototype): a track list with
  *  insert/delete/duplicate/reorder on the left, and the selected track's settings +
  *  curve style table (color, scale, fill shading) on the right. Operates on a deep
@@ -9,6 +17,9 @@ export function openLayoutPropsDialog(
   layout: Layout,
   availableCurves: string[],
   onApply: (edited: Layout) => void,
+  /** What the loaded well actually carries as measured samples, for the point-track
+   *  suggestion lists. Optional so callers that only edit curve tracks need not gather it. */
+  availablePoints: PointSuggestion[] = [],
 ): void {
   const working: Layout = structuredClone(layout);
   let selected = 0;
@@ -43,6 +54,22 @@ export function openLayoutPropsDialog(
     datalist.appendChild(opt);
   }
   content.appendChild(datalist);
+
+  // Suggestion lists for the point-track editor, built from what the well actually carries:
+  // core plug properties, aux dataset names, and aux item names.
+  const suggestList = (suffix: string, values: Iterable<string>): void => {
+    const dl = document.createElement("datalist");
+    dl.id = `${datalist.id}-${suffix}`;
+    for (const v of new Set(values)) {
+      const opt = document.createElement("option");
+      opt.value = v;
+      dl.appendChild(opt);
+    }
+    content.appendChild(dl);
+  };
+  suggestList("core", availablePoints.filter((p) => p.source === "core").map((p) => p.item));
+  suggestList("item", availablePoints.filter((p) => p.source === "aux").map((p) => p.item));
+  suggestList("ds", availablePoints.flatMap((p) => (p.dataset ? [p.dataset] : [])));
 
   const iconBtn = (label: string, title: string, onClick: () => void): HTMLButtonElement => {
     const b = document.createElement("button");
@@ -209,10 +236,14 @@ export function openLayoutPropsDialog(
     grid.appendChild(
       field(
         "Track type",
-        selectInput(track.kind ?? "curves", [["curves", "Curves"], ["well_diagram", "Well diagram"]], (v) => {
-          track.kind = v;
-          renderDetail();
-        }),
+        selectInput(
+          track.kind ?? "curves",
+          [["curves", "Curves"], ["point_data", "Point data"], ["well_diagram", "Well diagram"]],
+          (v) => {
+            track.kind = v;
+            renderDetail();
+          },
+        ),
       ),
     );
     grid.appendChild(
@@ -242,6 +273,13 @@ export function openLayoutPropsDialog(
       note.textContent =
         "Draws casing / shoe / tubing / perforations from the well's COMPLETION and PERFORATION datasets (Data ▸ Import aux data). No curves needed.";
       detail.appendChild(note);
+      return;
+    }
+
+    // A point-data track draws measured samples (core plugs, XRD, CEC, oil show, core
+    // extras) rather than a continuous log, so it has its own style block, not `curves`.
+    if ((track.kind ?? "curves") === "point_data") {
+      renderPointSection(track);
       return;
     }
 
@@ -381,6 +419,166 @@ export function openLayoutPropsDialog(
       renderAll();
     });
     detail.appendChild(addBtn);
+  }
+
+  /** Point-data track editor. One card per series rather than a table row: a point series
+   *  carries far more style than a curve (display kind, depth bin, box percentiles, whisker
+   *  rule), and only some of it applies to any one display — so the card shows exactly the
+   *  controls that mean something for the chosen display and hides the rest. */
+  function renderPointSection(track: Track): void {
+    const sectionTitle = document.createElement("div");
+    sectionTitle.className = "lp-section-title";
+    sectionTitle.textContent = "Point data";
+    detail.appendChild(sectionTitle);
+
+    const note = document.createElement("div");
+    note.className = "lp-note";
+    note.textContent =
+      "Measured samples — core plugs, XRD, CEC, oil show, core extras — drawn where they were actually sampled. Box and histogram summarise the samples inside each depth bin.";
+    detail.appendChild(note);
+
+    track.points ??= [];
+    track.points.forEach((p, pi) => {
+      const card = document.createElement("div");
+      card.className = "lp-point-card";
+      const grid = document.createElement("div");
+      grid.className = "lp-fieldgrid";
+      card.appendChild(grid);
+
+      grid.appendChild(
+        field(
+          "Source",
+          selectInput(p.source, [["core", "Core plugs"], ["aux", "Point dataset"]], (v) => {
+            if (v !== p.source) {
+              // Item names do not carry across sources — CPOR is a plug column, not an XRD
+              // item — so a stale name would silently draw nothing. Re-seed from what this
+              // well actually has under the new source.
+              const seed = availablePoints.find((s) => s.source === v);
+              p.source = v;
+              p.dataset = v === "aux" ? seed?.dataset : undefined;
+              p.item = seed?.item ?? "";
+            }
+            renderDetail();
+          }),
+        ),
+      );
+      if (p.source === "aux") {
+        const ds = textInput(p.dataset ?? "", (v) => {
+          p.dataset = v.trim().toUpperCase();
+          ds.value = p.dataset;
+        });
+        ds.setAttribute("list", `${datalist.id}-ds`);
+        grid.appendChild(field("Dataset", ds));
+      }
+      const itemIn = textInput(p.item, (v) => {
+        p.item = v.trim().toUpperCase();
+        itemIn.value = p.item;
+      });
+      itemIn.setAttribute("list", p.source === "core" ? `${datalist.id}-core` : `${datalist.id}-item`);
+      grid.appendChild(field(p.source === "core" ? "Plug property" : "Item", itemIn));
+      grid.appendChild(field("Color", colorInput(p.color, (v) => (p.color = v))));
+      grid.appendChild(field("Min", numInput(p.min, (v) => (p.min = v))));
+      grid.appendChild(field("Max", numInput(p.max, (v) => (p.max = v))));
+      grid.appendChild(
+        field(
+          "Display",
+          selectInput(
+            p.display ?? "points",
+            [["points", "Points"], ["box", "Box plot"], ["histogram", "Histogram"], ["text", "Text"]],
+            (v) => {
+              p.display = v;
+              renderDetail();
+            },
+          ),
+        ),
+      );
+
+      const display = p.display ?? "points";
+      if (display === "box" || display === "histogram") {
+        // Blank = follow the zoom (a twentieth of the visible window). An explicit height is
+        // a fixed depth interval and deliberately does NOT follow the zoom, so the same bin
+        // means the same thing at every scale.
+        const binIn = document.createElement("input");
+        binIn.type = "number";
+        binIn.step = "any";
+        binIn.placeholder = "auto";
+        binIn.value = p.bin != null ? String(p.bin) : "";
+        binIn.title = "Depth-bin height. Blank follows the zoom; a value is a fixed interval.";
+        binIn.addEventListener("change", () => {
+          const v = parseFloat(binIn.value);
+          p.bin = Number.isFinite(v) && v > 0 ? v : undefined;
+        });
+        grid.appendChild(field("Bin height", binIn));
+      }
+      if (display === "box") {
+        grid.appendChild(field("Box low %", numInput(p.box_lo ?? 25, (v) => (p.box_lo = clampPct(v)))));
+        grid.appendChild(field("Box high %", numInput(p.box_hi ?? 75, (v) => (p.box_hi = clampPct(v)))));
+        grid.appendChild(
+          field(
+            "Whiskers",
+            selectInput(
+              p.whisker ?? "tukey",
+              [["tukey", "Tukey (k x IQR)"], ["percentile", "Percentiles"], ["minmax", "Full range"]],
+              (v) => {
+                p.whisker = v;
+                renderDetail();
+              },
+            ),
+          ),
+        );
+        if ((p.whisker ?? "tukey") === "tukey") {
+          grid.appendChild(field("Tukey k", numInput(p.whisker_k ?? 1.5, (v) => (p.whisker_k = Math.max(0, v)), "0.1")));
+        } else if (p.whisker === "percentile") {
+          grid.appendChild(field("Whisker low %", numInput(p.whisker_lo ?? 10, (v) => (p.whisker_lo = clampPct(v)))));
+          grid.appendChild(field("Whisker high %", numInput(p.whisker_hi ?? 90, (v) => (p.whisker_hi = clampPct(v)))));
+        }
+      }
+      if (display === "histogram") {
+        grid.appendChild(
+          field("Value bins", numInput(p.hist_bins ?? 12, (v) => (p.hist_bins = Math.max(2, Math.round(v))), "1"))
+        );
+      }
+      if (display === "box") {
+        // Box only: a histogram's bars already ARE the samples, so the option would be
+        // offered without meaning anything.
+        const chk = document.createElement("input");
+        chk.type = "checkbox";
+        chk.checked = p.show_samples ?? false;
+        chk.title = "Draw the individual samples as ticks above the box";
+        chk.addEventListener("change", () => (p.show_samples = chk.checked));
+        grid.appendChild(field("Show samples", chk));
+      }
+
+      const del = iconBtn("✕", "Remove this point series", () => {
+        track.points?.splice(pi, 1);
+        renderAll();
+      });
+      del.className = "lp-iconbtn lp-point-del";
+      card.appendChild(del);
+      detail.appendChild(card);
+    });
+
+    const addBtn = document.createElement("button");
+    addBtn.className = "lp-btn";
+    addBtn.textContent = "＋ Add point series";
+    addBtn.addEventListener("click", () => {
+      const seed = availablePoints[0];
+      track.points ??= [];
+      track.points.push({
+        source: seed?.source ?? "core",
+        dataset: seed?.dataset,
+        item: seed?.item ?? "CPOR",
+        color: "#5f7350",
+        min: 0,
+        max: 0.4,
+      });
+      renderAll();
+    });
+    detail.appendChild(addBtn);
+  }
+
+  function clampPct(v: number): number {
+    return Math.max(0, Math.min(100, v));
   }
 
   function renderAll(): void {

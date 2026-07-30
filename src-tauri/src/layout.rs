@@ -104,13 +104,86 @@ pub enum ScaleType {
 
 /// What a track draws. "curves" is the normal log track; "well_diagram" ignores curves and
 /// instead draws casing / shoe / tubing / perforations from the well's COMPLETION + PERFORATION
-/// aux datasets. `#[serde(default)]` on the field keeps old saved layouts (no `kind`) loading.
+/// aux datasets; "point_data" ignores curves too and draws the `points` block — measured
+/// samples (core plugs, XRD, CEC, oil show, core extras) rather than a continuous log.
+/// `#[serde(default)]` on the field keeps old saved layouts (no `kind`) loading.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TrackKind {
     #[default]
     Curves,
     WellDiagram,
+    PointData,
+}
+
+/// One measured-sample series drawn in a `point_data` track.
+///
+/// The separation from `CurveStyle` is deliberate. A curve is a continuous reading with a
+/// value at every depth; a point series is a set of discrete measurements at the depths
+/// somebody actually sampled, and the honest displays for the two are different. Interpolating
+/// between core plugs to draw a line would state a continuity the data does not have.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PointStyle {
+    /// "core" reads a plug property (CPOR, CPERM, CGD, CSW …) from the ACTIVE core set;
+    /// "aux" reads an item from a point dataset (XRD, CEC, oil show, core extras …).
+    pub source: String,
+    /// For `source = "aux"`, which dataset. Ignored for core.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dataset: Option<String>,
+    /// The property (core) or item (aux) name within that source.
+    pub item: String,
+    pub color: String,
+    pub min: f32,
+    pub max: f32,
+    /// "points" (default, one glyph per sample) | "box" (a box plot per depth bin) |
+    /// "histogram" (a value-axis histogram per depth bin) | "text" (the sample's text value).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display: Option<String>,
+    /// Depth-bin height for "box" / "histogram", in the project's depth unit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bin: Option<f32>,
+    /// Box edges as percentiles (defaults 25 / 75).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub box_lo: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub box_hi: Option<f32>,
+    /// "tukey" (default) | "percentile" | "minmax". See `distribution::Whisker` — this is an
+    /// interpretive choice, so it is stored with the layout rather than assumed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub whisker: Option<String>,
+    /// Tukey multiplier (default 1.5) or, for "percentile", the low/high pair.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub whisker_k: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub whisker_lo: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub whisker_hi: Option<f32>,
+    /// Bin count across the value axis for "histogram" (default 12).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hist_bins: Option<u32>,
+    /// Draw the individual samples on top of a box/histogram glyph. Off by default; on a
+    /// sparse interval seeing the plugs behind the summary is often the point.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub show_samples: Option<bool>,
+}
+
+impl PointStyle {
+    /// Resolves the stored strings into the whisker rule the shared distribution module takes.
+    pub fn whisker_rule(&self) -> crate::distribution::Whisker {
+        match self.whisker.as_deref() {
+            Some("minmax") => crate::distribution::Whisker::MinMax,
+            Some("percentile") => crate::distribution::Whisker::Percentile(
+                self.whisker_lo.unwrap_or(10.0),
+                self.whisker_hi.unwrap_or(90.0),
+            ),
+            _ => crate::distribution::Whisker::Tukey(self.whisker_k.unwrap_or(1.5)),
+        }
+    }
+
+    /// Box edges, defaulting to the conventional quartiles.
+    pub fn box_edges(&self) -> (f32, f32) {
+        (self.box_lo.unwrap_or(25.0), self.box_hi.unwrap_or(75.0))
+    }
 }
 
 /// One vertical track in a layout, analogous to a track/scale layout block.
@@ -122,6 +195,10 @@ pub struct Track {
     #[serde(default)]
     pub kind: TrackKind,
     pub curves: Vec<CurveStyle>,
+    /// Measured-sample series, drawn only when `kind = "point_data"`. `#[serde(default)]`
+    /// keeps every layout saved before point tracks existed loading unchanged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub points: Vec<PointStyle>,
 }
 
 /// A named, reusable track layout — SandiBumi's reusable track-layout registry.
@@ -141,6 +218,7 @@ pub fn standard_layout() -> Layout {
                 width_weight: 1.0,
                 scale_type: ScaleType::Linear,
                 kind: TrackKind::Curves,
+                points: Vec::new(),
                 curves: vec![filled("GR", "#5f7350", 0.0, 150.0, "left", 0.25)],
             },
             Track {
@@ -148,6 +226,7 @@ pub fn standard_layout() -> Layout {
                 width_weight: 1.0,
                 scale_type: ScaleType::Log,
                 kind: TrackKind::Curves,
+                points: Vec::new(),
                 curves: vec![curve("RES_DEEP", "#a83e2c", 0.2, 2000.0)],
             },
             Track {
@@ -155,6 +234,7 @@ pub fn standard_layout() -> Layout {
                 width_weight: 1.0,
                 scale_type: ScaleType::Linear,
                 kind: TrackKind::Curves,
+                points: Vec::new(),
                 curves: vec![
                     // NPHI runs right-to-left (porosity convention) via a reversed min/max.
                     // The two scales are the standard compatible pair (NPHI 0.45→-0.15 v/v
@@ -181,6 +261,7 @@ pub fn interpretation_layout() -> Layout {
                 width_weight: 1.0,
                 scale_type: ScaleType::Linear,
                 kind: TrackKind::Curves,
+                points: Vec::new(),
                 curves: vec![filled("GR", "#5f7350", 0.0, 150.0, "left", 0.25)],
             },
             Track {
@@ -188,6 +269,7 @@ pub fn interpretation_layout() -> Layout {
                 width_weight: 1.0,
                 scale_type: ScaleType::Log,
                 kind: TrackKind::Curves,
+                points: Vec::new(),
                 curves: vec![curve("RES_DEEP", "#a83e2c", 0.2, 2000.0)],
             },
             Track {
@@ -195,6 +277,7 @@ pub fn interpretation_layout() -> Layout {
                 width_weight: 1.0,
                 scale_type: ScaleType::Linear,
                 kind: TrackKind::Curves,
+                points: Vec::new(),
                 curves: vec![filled("VSH", "#8d6e63", 0.0, 1.0, "left", 0.3)],
             },
             Track {
@@ -202,6 +285,7 @@ pub fn interpretation_layout() -> Layout {
                 width_weight: 1.0,
                 scale_type: ScaleType::Linear,
                 kind: TrackKind::Curves,
+                points: Vec::new(),
                 curves: vec![
                     // Porosity convention: decreasing to the right.
                     curve("PHIT", "#54a0ff", 0.5, 0.0),
@@ -213,6 +297,7 @@ pub fn interpretation_layout() -> Layout {
                 width_weight: 1.0,
                 scale_type: ScaleType::Linear,
                 kind: TrackKind::Curves,
+                points: Vec::new(),
                 curves: vec![curve("SWE", "#00b8d4", 0.0, 1.0)],
             },
             Track {
@@ -220,6 +305,7 @@ pub fn interpretation_layout() -> Layout {
                 width_weight: 1.0,
                 scale_type: ScaleType::Log,
                 kind: TrackKind::Curves,
+                points: Vec::new(),
                 curves: vec![curve("PERM", "#b5651d", 0.01, 10000.0)],
             },
             Track {
@@ -227,6 +313,7 @@ pub fn interpretation_layout() -> Layout {
                 width_weight: 0.5,
                 scale_type: ScaleType::Linear,
                 kind: TrackKind::Curves,
+                points: Vec::new(),
                 curves: vec![
                     filled("FLAG_PAY", "#5f7350", 0.0, 1.0, "left", 0.55),
                     filled("FLAG_RESERVOIR", "#c2ac81", 0.0, 1.0, "left", 0.35),
@@ -247,6 +334,7 @@ pub fn facies_layout() -> Layout {
                 width_weight: 1.0,
                 scale_type: ScaleType::Linear,
                 kind: TrackKind::Curves,
+                points: Vec::new(),
                 curves: vec![filled("GR", "#5f7350", 0.0, 150.0, "left", 0.25)],
             },
             Track {
@@ -254,6 +342,7 @@ pub fn facies_layout() -> Layout {
                 width_weight: 1.0,
                 scale_type: ScaleType::Log,
                 kind: TrackKind::Curves,
+                points: Vec::new(),
                 curves: vec![curve("RES_DEEP", "#a83e2c", 0.2, 2000.0)],
             },
             Track {
@@ -261,6 +350,7 @@ pub fn facies_layout() -> Layout {
                 width_weight: 1.0,
                 scale_type: ScaleType::Linear,
                 kind: TrackKind::Curves,
+                points: Vec::new(),
                 curves: vec![
                     // Same compatible-scaled crossover as the Standard Layout — the porosity
                     // track reads identically wherever it appears.
@@ -273,6 +363,7 @@ pub fn facies_layout() -> Layout {
                 width_weight: 0.6,
                 scale_type: ScaleType::Linear,
                 kind: TrackKind::Curves,
+                points: Vec::new(),
                 curves: vec![block_curve("FACIES", 12.0)],
             },
         ],

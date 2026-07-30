@@ -6,16 +6,18 @@ import {
   listCurveCatalog,
   type AuxRow,
   type Layout,
+  type PointStyle,
   type TrackCurveSeries,
   type WellSummary,
 } from "../ipc";
+import { binByDepth, boxStats, histogram, type WhiskerRule } from "../distribution";
 import { appState, setStatus } from "../state";
 import { setDisplayDepthUnit } from "../depthUnitPref";
 import { unitLabel } from "../units";
 import { pushUndo } from "../undo";
 import type { ContextMenuEntry } from "./contextMenu";
 import { openCurveEditDialog } from "./curveEditDialog";
-import { openLayoutPropsDialog } from "./layoutPropsDialog";
+import { openLayoutPropsDialog, type PointSuggestion } from "./layoutPropsDialog";
 import { formRow, openModal } from "./modal";
 import { canvasFont, readTheme } from "./plotCanvas";
 import { CORE_OVERLAY_MAP, loadCurveUnits } from "./plotCommon";
@@ -48,6 +50,9 @@ export class LogViewPanel {
   /** Completion (casing/tubing/liner) + perforation rows for the loaded well, drawn in any
    *  track whose kind is "well_diagram". Both come from aux_data (COMPLETION / PERFORATION). */
   private wellDiagram: { casing: AuxRow[]; perfs: AuxRow[] } = { casing: [], perfs: [] };
+  /** Every point dataset for the loaded well (XRD, CEC, oil show, core extras …), one
+   *  active delivery of each — the source for `point_data` tracks. */
+  private auxRows: AuxRow[] = [];
   /** Tops overlay + Petrel-style interactive editor (🏷 in the toolbar toggles editing). */
   private topsEditor!: TopsEditor;
   /** Colored highlight bands + interactive editor (🖍 in the toolbar toggles editing). */
@@ -600,6 +605,17 @@ export class LogViewPanel {
       if (gen !== this.loadGen) return;
       this.wellDiagram = { casing: [], perfs: [] };
     }
+    try {
+      // Every point dataset in one read — the backend's active-set filter is correlated on
+      // dataset, so this returns exactly one delivery of each (XRD, CEC, oil show, core
+      // extras) rather than unioning two.
+      const aux = await listAuxData(well.well_id, null).catch(() => [] as AuxRow[]);
+      if (gen !== this.loadGen) return;
+      this.auxRows = aux;
+    } catch {
+      if (gen !== this.loadGen) return;
+      this.auxRows = [];
+    }
     this.drawCoreOverlay();
     if (gen !== this.loadGen || !this.renderer) return;
     await this.topsEditor.setWell(well.well_id);
@@ -632,6 +648,7 @@ export class LogViewPanel {
     if (!this.renderer || !this.layout) return;
     this.drawTrackBorders(ctx, w, h);
     this.drawWellDiagram(ctx, w, h);
+    this.drawPointTracks(ctx, w, h);
     if (this.coreByName.size === 0) return;
 
     const [top, bottom] = this.renderer.getVisibleDepthRange();
@@ -682,6 +699,272 @@ export class LogViewPanel {
           ctx.stroke();
         }
         break; // one core series per track — the first curve with a counterpart wins
+      }
+    }
+  }
+
+  /** Gathers one point series' samples for the loaded well. Core reads the ACTIVE core set's
+   *  plug property; aux reads one item of one point dataset. Text samples come back with a
+   *  NaN value and their string, so a "text" display can draw them and a numeric display
+   *  simply skips them rather than coercing a lithology description to zero. */
+  private pointSamples(style: PointStyle): { depth: number[]; value: number[]; text: (string | null)[] } {
+    const out = { depth: [] as number[], value: [] as number[], text: [] as (string | null)[] };
+    const item = style.item.trim().toUpperCase();
+    if (style.source === "core") {
+      const s = this.coreByName.get(item);
+      if (!s) return out;
+      for (let i = 0; i < s.depth.length; i++) {
+        out.depth.push(s.depth[i]);
+        out.value.push(s.value[i]);
+        out.text.push(null);
+      }
+      return out;
+    }
+    const dataset = style.dataset?.trim().toUpperCase();
+    for (const r of this.auxRows) {
+      if (dataset && r.dataset.toUpperCase() !== dataset) continue;
+      if (r.item.toUpperCase() !== item) continue;
+      // depth_base marks an interval sample (a described core run); anchor it at its middle
+      // so the glyph sits where the measurement actually applies.
+      const d = r.depth_base != null ? (r.depth_top + r.depth_base) / 2 : r.depth_top;
+      out.depth.push(d);
+      out.value.push(r.value_num ?? NaN);
+      out.text.push(r.value_text ?? null);
+    }
+    return out;
+  }
+
+  /** Point-data tracks (Track.kind === "point_data"): measured samples rather than a
+   *  continuous log. Four displays, all drawn on the 2D overlay because none of them is a
+   *  polyline the GPU pipeline can express:
+   *
+   *  - "points"    one glyph per sample at its own depth and value
+   *  - "box"       a box plot per depth bin — box edges, median, whiskers, outliers
+   *  - "histogram" a value-axis histogram per depth bin, bars scaled to the bin's peak count
+   *  - "text"      the sample's text value as a label (lithology descriptions, oil show)
+   *
+   *  The statistics come from the shared `distribution` module, which is source-agnostic on
+   *  purpose so array logs can reuse it unchanged. Values outside the track's scale are
+   *  skipped, never clamped to a false position — the same rule the core overlay follows. */
+  private drawPointTracks(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    if (!this.renderer || !this.layout) return;
+    const pointTracks = this.layout.tracks.filter((t) => (t.kind ?? "curves") === "point_data");
+    if (pointTracks.length === 0) return;
+    const [top, bottom] = this.renderer.getVisibleDepthRange();
+    if (bottom <= top) return;
+
+    const themed = (name: string, fallback: string): string =>
+      getComputedStyle(this.root).getPropertyValue(name).trim() || fallback;
+    const textColor = themed("--text", "#332a1f");
+    const dim = themed("--text-dim", "#7a6f63");
+    const yOf = (d: number): number => ((d - top) / (bottom - top)) * h;
+
+    for (const range of this.renderer.getTrackRanges()) {
+      const track = pointTracks.find((t) => t.title === range.title);
+      if (!track?.points?.length) continue;
+      const left = range.leftFrac * w;
+      const span = (range.rightFrac - range.leftFrac) * w;
+      const log = track.scale_type === "log";
+
+      for (const style of track.points) {
+        const lo = log ? Math.log10(Math.max(style.min, 1e-6)) : style.min;
+        const hi = log ? Math.log10(Math.max(style.max, 1e-6)) : style.max;
+        if (hi === lo) continue;
+        // Returns null (not a clamped edge position) for anything off-scale.
+        const xOf = (v: number): number | null => {
+          const tv = log ? Math.log10(Math.max(v, 1e-6)) : v;
+          const frac = (tv - lo) / (hi - lo);
+          return frac < 0 || frac > 1 ? null : left + frac * span;
+        };
+        const samples = this.pointSamples(style);
+        if (samples.depth.length === 0) continue;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(left, 0, span, h);
+        ctx.clip();
+        ctx.fillStyle = style.color;
+        ctx.strokeStyle = style.color;
+        ctx.lineWidth = 1;
+
+        const display = style.display ?? "points";
+        if (display === "text") {
+          this.drawPointText(ctx, samples, top, bottom, left, span, yOf, textColor);
+        } else if (display === "box" || display === "histogram") {
+          this.drawBinnedPoints(ctx, style, samples, display, top, bottom, yOf, xOf, left, span, dim);
+        } else {
+          this.drawPointGlyphs(ctx, samples, top, bottom, yOf, xOf);
+        }
+        ctx.restore();
+      }
+    }
+  }
+
+  /** One diamond per sample, at its own depth and value. */
+  private drawPointGlyphs(
+    ctx: CanvasRenderingContext2D,
+    s: { depth: number[]; value: number[] },
+    top: number,
+    bottom: number,
+    yOf: (d: number) => number,
+    xOf: (v: number) => number | null,
+    size = 3.5,
+  ): void {
+    for (let i = 0; i < s.depth.length; i++) {
+      const d = s.depth[i];
+      if (d < top || d > bottom) continue;
+      const v = s.value[i];
+      if (!Number.isFinite(v)) continue;
+      const x = xOf(v);
+      if (x == null) continue;
+      const y = yOf(d);
+      ctx.beginPath();
+      ctx.moveTo(x, y - size);
+      ctx.lineTo(x + size, y);
+      ctx.lineTo(x, y + size);
+      ctx.lineTo(x - size, y);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  /** Text samples as labels at their depth — lithology descriptions, oil show, any aux item
+   *  carrying a string. Truncated to the track width rather than spilling into the neighbour. */
+  private drawPointText(
+    ctx: CanvasRenderingContext2D,
+    s: { depth: number[]; text: (string | null)[] },
+    top: number,
+    bottom: number,
+    left: number,
+    span: number,
+    yOf: (d: number) => number,
+    color: string,
+  ): void {
+    ctx.fillStyle = color;
+    ctx.font = "10px system-ui, sans-serif";
+    ctx.textBaseline = "middle";
+    let lastY = -Infinity;
+    for (let i = 0; i < s.depth.length; i++) {
+      const d = s.depth[i];
+      const label = s.text[i];
+      if (d < top || d > bottom || !label) continue;
+      const y = yOf(d);
+      // At a coarse depth scale hundreds of descriptions land on the same few pixels; keep
+      // one label per 11 px so the track stays readable instead of a black smear.
+      if (y - lastY < 11) continue;
+      lastY = y;
+      let text = label;
+      while (text.length > 1 && ctx.measureText(text).width > span - 6) {
+        text = text.slice(0, -2);
+      }
+      ctx.fillText(text === label ? text : `${text}…`, left + 3, y);
+    }
+  }
+
+  /** Box plot or histogram per depth bin. Both share the binning and the distribution stats;
+   *  they differ only in the glyph drawn inside the bin's vertical extent. */
+  private drawBinnedPoints(
+    ctx: CanvasRenderingContext2D,
+    style: PointStyle,
+    s: { depth: number[]; value: number[] },
+    display: "box" | "histogram",
+    top: number,
+    bottom: number,
+    yOf: (d: number) => number,
+    xOf: (v: number) => number | null,
+    left: number,
+    span: number,
+    dimColor: string,
+  ): void {
+    // A default bin of 1/20th of the visible window keeps the glyphs legible at any zoom,
+    // but an explicit bin height is a fixed depth interval and must not follow the zoom.
+    const bin = style.bin && style.bin > 0 ? style.bin : (bottom - top) / 20;
+    const bins = binByDepth(s.depth, s.value, bin);
+    const whisker: WhiskerRule =
+      style.whisker === "minmax"
+        ? { kind: "minmax" }
+        : style.whisker === "percentile"
+          ? { kind: "percentile", lo: style.whisker_lo ?? 10, hi: style.whisker_hi ?? 90 }
+          : { kind: "tukey", k: style.whisker_k ?? 1.5 };
+
+    for (const b of bins) {
+      if (b.base < top || b.top > bottom) continue;
+      const yTop = yOf(b.top);
+      const yBase = yOf(b.base);
+      const height = yBase - yTop;
+      if (height < 2) continue; // too compressed to read — drawing it would be noise
+      const mid = (yTop + yBase) / 2;
+
+      if (display === "histogram") {
+        const counts = histogram(b.values, style.min, style.max, style.hist_bins ?? 12);
+        const peak = Math.max(...counts);
+        if (peak === 0) continue;
+        const barW = span / counts.length;
+        for (let i = 0; i < counts.length; i++) {
+          if (counts[i] === 0) continue;
+          // Bars grow UP from the bin's base, scaled to the bin's own peak count, so a
+          // sparse interval is still readable next to a densely sampled one.
+          const barH = (counts[i] / peak) * (height - 1);
+          ctx.globalAlpha = 0.75;
+          ctx.fillRect(left + i * barW, yBase - barH, Math.max(1, barW - 0.5), barH);
+          ctx.globalAlpha = 1;
+        }
+        continue;
+      }
+
+      const st = boxStats(b.values, style.box_lo ?? 25, style.box_hi ?? 75, whisker);
+      if (!st) continue;
+      const xLo = xOf(st.lo);
+      const xHi = xOf(st.hi);
+      const boxH = Math.max(3, Math.min(height * 0.6, 14));
+      // Whiskers first, so the box paints over their inner ends.
+      const wLo = xOf(st.whiskerLo);
+      const wHi = xOf(st.whiskerHi);
+      ctx.strokeStyle = dimColor;
+      if (wLo != null && wHi != null) {
+        ctx.beginPath();
+        ctx.moveTo(wLo, mid);
+        ctx.lineTo(wHi, mid);
+        ctx.moveTo(wLo, mid - boxH / 3);
+        ctx.lineTo(wLo, mid + boxH / 3);
+        ctx.moveTo(wHi, mid - boxH / 3);
+        ctx.lineTo(wHi, mid + boxH / 3);
+        ctx.stroke();
+      }
+      if (xLo != null && xHi != null) {
+        ctx.globalAlpha = 0.5;
+        ctx.fillStyle = style.color;
+        ctx.fillRect(Math.min(xLo, xHi), mid - boxH / 2, Math.abs(xHi - xLo), boxH);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = style.color;
+        ctx.strokeRect(Math.min(xLo, xHi), mid - boxH / 2, Math.abs(xHi - xLo), boxH);
+      }
+      const xMed = xOf(st.med);
+      if (xMed != null) {
+        ctx.strokeStyle = style.color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(xMed, mid - boxH / 2);
+        ctx.lineTo(xMed, mid + boxH / 2);
+        ctx.stroke();
+        ctx.lineWidth = 1;
+      }
+      // Outliers are the whole reason to prefer Tukey — draw every one, individually.
+      ctx.fillStyle = style.color;
+      for (const o of st.outliers) {
+        const x = xOf(o);
+        if (x == null) continue;
+        ctx.beginPath();
+        ctx.arc(x, mid, 1.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (style.show_samples) {
+        ctx.globalAlpha = 0.55;
+        for (const v of b.values) {
+          const x = xOf(v);
+          if (x == null) continue;
+          ctx.fillRect(x - 0.75, mid - boxH / 2 - 3, 1.5, 3);
+        }
+        ctx.globalAlpha = 1;
       }
     }
   }
@@ -861,16 +1144,31 @@ export class LogViewPanel {
       // No backend (or empty DB) — fall back to the curves the layout already references.
       available = Array.from(new Set(this.layout.tracks.flatMap((t) => t.curves.map((c) => c.curve_name))));
     }
+    // What this well actually carries as measured samples, so the point-track editor
+    // suggests real properties and datasets instead of asking you to remember mnemonics.
+    const points: PointSuggestion[] = [
+      ...[...this.coreByName.keys()].map((item) => ({ source: "core" as const, item })),
+      ...[
+        ...new Map(
+          this.auxRows.map((r) => [`${r.dataset} ${r.item}`, { source: "aux" as const, dataset: r.dataset, item: r.item }]),
+        ).values(),
+      ],
+    ];
     const before = structuredClone(this.layout);
-    openLayoutPropsDialog(this.layout, available, (edited) => {
-      this.applyLayoutEdit(edited);
-      // Layout property changes are undoable (Ctrl+Z restores the previous tracks/styles).
-      pushUndo({
-        label: `layout properties (${edited.name})`,
-        undo: () => this.applyLayoutEdit(structuredClone(before)),
-        redo: () => this.applyLayoutEdit(structuredClone(edited)),
-      });
-    });
+    openLayoutPropsDialog(
+      this.layout,
+      available,
+      (edited) => {
+        this.applyLayoutEdit(edited);
+        // Layout property changes are undoable (Ctrl+Z restores the previous tracks/styles).
+        pushUndo({
+          label: `layout properties (${edited.name})`,
+          undo: () => this.applyLayoutEdit(structuredClone(before)),
+          redo: () => this.applyLayoutEdit(structuredClone(edited)),
+        });
+      },
+      points,
+    );
   }
 
   /** Swaps in an edited layout, keeping user-dragged widths for surviving tracks. */

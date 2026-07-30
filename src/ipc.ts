@@ -234,14 +234,53 @@ export interface CurveStyle {
   fill_opacity?: number;
 }
 
+/** One measured-sample series drawn in a `point_data` track. Kept separate from CurveStyle
+ *  on purpose: a curve has a value at every depth, a point series has values only where
+ *  somebody sampled, and joining core plugs with a line would state a continuity the data
+ *  does not have. */
+export interface PointStyle {
+  /** "core" reads a plug property (CPOR, CPERM, CGD, CSW …) from the ACTIVE core set;
+   *  "aux" reads an item from a point dataset (XRD, CEC, oil show, core extras …). */
+  source: "core" | "aux";
+  /** For `source: "aux"`, which dataset. Ignored for core. */
+  dataset?: string;
+  /** The property (core) or item (aux) name within that source. */
+  item: string;
+  color: string;
+  min: number;
+  max: number;
+  /** "points" (default) | "box" | "histogram" | "text". */
+  display?: "points" | "box" | "histogram" | "text";
+  /** Depth-bin height for "box" / "histogram", in the project's depth unit. */
+  bin?: number;
+  /** Box edges as percentiles (defaults 25 / 75). */
+  box_lo?: number;
+  box_hi?: number;
+  /** "tukey" (default) | "percentile" | "minmax" — an interpretive choice, so it is stored
+   *  with the layout rather than assumed. */
+  whisker?: "tukey" | "percentile" | "minmax";
+  /** Tukey multiplier (default 1.5). */
+  whisker_k?: number;
+  /** Percentile pair when `whisker: "percentile"` (defaults 10 / 90). */
+  whisker_lo?: number;
+  whisker_hi?: number;
+  /** Bin count across the value axis for "histogram" (default 12). */
+  hist_bins?: number;
+  /** Draw the individual samples on top of a box/histogram glyph. */
+  show_samples?: boolean;
+}
+
 export interface Track {
   title: string;
   width_weight: number;
   scale_type: ScaleType;
-  /** "curves" (normal log track) or "well_diagram" (casing/shoe/perforations). Optional for
-   *  backward compat with saved layouts; absent = "curves". */
-  kind?: "curves" | "well_diagram";
+  /** "curves" (normal log track), "well_diagram" (casing/shoe/perforations), or "point_data"
+   *  (measured samples — core plugs, XRD, CEC …). Optional for backward compat with saved
+   *  layouts; absent = "curves". */
+  kind?: "curves" | "well_diagram" | "point_data";
   curves: CurveStyle[];
+  /** Drawn only when `kind: "point_data"`. Absent in every layout saved before point tracks. */
+  points?: PointStyle[];
 }
 
 export interface Layout {

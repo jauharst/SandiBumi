@@ -6,6 +6,7 @@ mod curves;
 mod db;
 mod decimate;
 mod deviation;
+mod distribution;
 mod dlis;
 mod equations;
 #[cfg(test)]

@@ -870,17 +870,23 @@ Five display gaps he raised in one pass. The first two shipped together; the res
       Built-in Standard + Facies layouts now ship the NPHI/RHOB crossover. Fixed in passing: the
       composite exporter treated any `fill` string other than `"right"` as a left-edge fill, so a
       style saved as `fill: "none"` printed shaded while the screen showed it clean.
+- [x] **Point / text data as a track type** — **SHIPPED 2026-07-30** (increments a + b together).
+      `TrackKind::PointData` + `Track.points: Vec<PointStyle>`; sources = core plug properties
+      (ACTIVE core set, NULL cells dropped not read as 0) and aux point-dataset items; displays =
+      points / text / box plot / histogram, with per-series depth bin, box percentiles, whisker
+      rule (Tukey k·IQR / percentile pair / full range) and show-samples. Both renderers:
+      `logViewPanel.drawPointTracks` and `composite.rs draw_point_series`. Off-scale samples are
+      skipped, never clamped. **Increment (c) — image display (core photo / borehole image) —
+      remains open** and needs a blob store, so it is genuinely separate.
 - [ ] **Array logs in the log view** — "for array log such PHIE from montecarlo with 1000x
       iterations will have 1000 curves embedded as 1 phie array, we should also have …" (his message
       was cut off). The `array_logs` table exists; nothing renders it. Needs a decision on what the
       track shows — a P10/P50/P90 band, a spaghetti overlay, or a per-depth density heat map — plus
       a writer, since `montecarlo.rs` deliberately keeps its realizations in memory and writes none.
-- [ ] **Point / text / image data as a track type** — "we dont have any option to show point data,
-      text data, or even image with its own style option to show it as histogram or box plot per x
-      range interval with its own adjustment as well such percentile showing, whisker, etc." Core
-      plugs currently draw as a fixed overlay only. Really 2–3 increments: (a) a point/text track
-      kind with its own style block, (b) per-depth-interval statistics — box plot / histogram,
-      selectable percentiles, whisker rule, (c) image (core photo / borehole image) display.
+      **The statistics are already built**: `distribution.rs`/`.ts` are source-agnostic by
+      construction (Jauhar's explicit instruction when accepting the point-data increment), so the
+      box/percentile/whisker options a user sets on a point track will mean exactly the same thing
+      on an array log. Reuse them; do not write a second path.
 - [ ] **QAT tools in the Project ribbon** — "it should be better if its shown as tools in Project
       ribbon", against a screenshot of the quick-access strip (session save/open, history, help).
       **Ambiguous — ask before touching.** Note this would partly reverse a deliberate earlier

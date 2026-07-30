@@ -1984,6 +1984,31 @@ textarea {
   text-align: center;
 }
 
+/* Point-data track editor: one card per measured-sample series. A card rather than a table
+   row because a point series carries far more style than a curve, and only some of it
+   applies to any one display kind. */
+.lp-point-card {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 8px 30px 8px 8px;
+  margin-bottom: 8px;
+  background: var(--bg-app);
+}
+
+.lp-point-del {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
+
+.lp-note {
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  margin: 2px 0 8px;
+  line-height: 1.4;
+}
+
 /* Shading swatches: one for edge fill, two side by side for crossover (left-of / right-of
    the reference curve), so the cell widens only when crossover is actually chosen. */
 .lp-shade {

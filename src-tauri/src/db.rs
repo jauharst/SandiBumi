@@ -1550,6 +1550,36 @@ pub struct CoreQcRow {
     pub cgd: f32,
 }
 
+/// One well's core plugs as `(property, depth, value)` triples from the ACTIVE core set —
+/// the reader for point-data tracks, which take any plug property by name rather than the
+/// fixed pairs the φ–k and φ–ρg readers return. NULL cells are dropped, not turned into
+/// zeros, so an unfilled column contributes no samples instead of a false cloud at 0.
+pub fn get_core_point_series(conn: &Connection, well_id: &str) -> DbResult<Vec<(String, f32, f32)>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT depth, cpor, cperm, cgd, csw FROM core_data
+         WHERE well_id = ?1 AND set_name = {ACTIVE_CORE_SET} ORDER BY depth"
+    ))?;
+    let rows = stmt.query_map(params![well_id], |r| {
+        Ok((
+            r.get::<_, f32>(0)?,
+            r.get::<_, Option<f32>>(1)?,
+            r.get::<_, Option<f32>>(2)?,
+            r.get::<_, Option<f32>>(3)?,
+            r.get::<_, Option<f32>>(4)?,
+        ))
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (depth, cpor, cperm, cgd, csw) = row?;
+        for (name, v) in [("CPOR", cpor), ("CPERM", cperm), ("CGD", cgd), ("CSW", csw)] {
+            if let Some(v) = v.filter(|v| v.is_finite()) {
+                out.push((name.to_string(), depth, v));
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// One well's core plugs (depth ascending) with porosity + grain density only, from the
 /// ACTIVE core set. NULL φ or ρg become NaN so the caller can skip them.
 pub fn get_core_por_gd(conn: &Connection, well_id: &str) -> DbResult<Vec<CoreQcRow>> {

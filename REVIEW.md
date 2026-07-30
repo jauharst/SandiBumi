@@ -5499,4 +5499,50 @@ curve table**, which gained a **Style** column and two new Fill choices.
 
 ---
 
+## 2026-07-30 — Point-data tracks: core plugs, XRD, text, box plots and histograms
+
+Your ask: "we dont have any option to show point data, text data, or even image with its own
+style option to show it as histogram or box plot per x range interval with its own adjustment
+as well such percentile showing, whisker, etc." Images are still to come; everything else is
+here. Layout Properties → **Track type → Point data**.
+
+- [ ] **Add a point track**: Layout Properties → set Track type to **Point data** → **＋ Add
+      point series**. Source **Core plugs** lists your well's real plug properties
+      (CPOR/CPERM/CGD/CSW); source **Point dataset** lists your real datasets — for Duri that
+      is CORE with LITH, CSO, KV, and whatever else the wizard carried in as extras.
+- [ ] **Points** (default) draws one diamond per plug at its own depth and value. Unlike the
+      old core overlay this is a track of its own, so you can scale it how you like instead of
+      borrowing a curve's scale.
+- [ ] **Text** draws the sample's text at its depth — your `LITH` descriptions, oil show.
+      Labels are thinned so a densely described core stays readable rather than a black smear,
+      and truncated at the track edge instead of spilling into the neighbour.
+- [ ] **Box plot** summarises the plugs inside each depth bin: box edges, median, whiskers,
+      outliers. All adjustable per series — **Bin height** (blank = follow the zoom, a value =
+      a fixed depth interval that stays put at every scale), **Box low/high %**, **Whiskers**
+      (Tukey k×IQR / Percentiles / Full range), and **Show samples** to draw the individual
+      plugs as ticks above the box.
+- [ ] **The whisker rule is a real choice, so check both.** Tukey answers "which plugs are
+      unusual for this interval" and flags outliers individually; Percentiles answers "where
+      do 80% of the plugs lie" and flags nothing. Switch between them on a Duri interval with
+      a wild plug and confirm the picture changes the way you expect.
+- [ ] **Histogram** draws a value-axis histogram per depth bin, bars scaled to that bin's own
+      peak count so a thinly sampled interval is still readable next to a dense one.
+- [ ] **Nothing is clamped.** A plug outside the track's Min/Max is skipped, not pinned to the
+      edge — check by narrowing Max below your highest CPOR and confirming those plugs vanish
+      rather than stacking on the right-hand border.
+- [ ] **A blank cell is not a zero.** If your core table has an empty CGD column for some
+      plugs, those plugs must contribute nothing to a CGD track — not a cloud at 0 g/cc.
+- [ ] **Print agrees with screen**: Plot ribbon → Composite… on a layout with a point track.
+      Same boxes, same medians, same outliers, same labels.
+- [ ] **Existing layouts are untouched** — a saved layout with no point track opens exactly
+      as before.
+
+**Note on where this is heading** (your instruction): the box/percentile/whisker machinery is
+deliberately written to know nothing about core plugs. It takes a set of values and a depth
+bin. That is so **array logs — your 1000-realization Monte Carlo PHIE — reuse it unchanged**,
+because 1000 realizations at one depth is the same statistic as 40 plugs over an interval.
+When we do array logs, the display options you set here will already mean the same thing.
+
+---
+
 _Made in SandiBumi._ © 2026 SandiBumi. All rights reserved.
