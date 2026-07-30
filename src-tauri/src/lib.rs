@@ -320,8 +320,9 @@ async fn import_tops_csv(
     .await
 }
 
-/// Imports a tops-style dataset (PETROGRAPHY / XRD / PERFORATION / custom) for one well,
-/// replacing that well's previous rows of the same dataset (P2).
+/// Imports a tops-style point dataset (PETROGRAPHY / XRD / CEC / OIL SHOW / PERFORATION /
+/// custom) for one well as a NEW named delivery — `set_name` is auto-suffixed per well
+/// rather than overwriting an earlier one, and becomes that dataset's live set (P2/T-IMP-08).
 #[tauri::command]
 async fn import_aux_data(
     db: tauri::State<'_, DbState>,
@@ -329,14 +330,46 @@ async fn import_aux_data(
     well_id: String,
     dataset: String,
     path: String,
+    set_name: Option<String>,
 ) -> Result<ingest::AuxImportResult, String> {
     let conn = db.0.clone();
     let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import dataset", base, move || {
         let c = conn.lock().unwrap();
-        Ok(ingest::import_aux_file(&c, &well_id, &dataset, &path))
+        Ok(ingest::import_aux_file(&c, &well_id, &dataset, &path, set_name.as_deref()))
     })
     .await
+}
+
+/// Every point-data delivery of a well (XRD, CEC, oil show, core extras …), grouped by
+/// dataset — for the set manager and the Wells tree.
+#[tauri::command]
+fn list_aux_sets(db: tauri::State<DbState>, well_id: String) -> Result<Vec<db::AuxSetInfo>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_aux_sets(&conn, &well_id).map_err(|e| e.to_string())
+}
+
+/// Makes one point-data delivery the live one for its dataset (others untouched).
+#[tauri::command]
+fn set_active_aux_set(
+    db: tauri::State<DbState>,
+    well_id: String,
+    dataset: String,
+    set_name: String,
+) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    db::set_active_aux_set(&conn, &well_id, &dataset, &set_name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_aux_set(
+    db: tauri::State<DbState>,
+    well_id: String,
+    dataset: String,
+    set_name: String,
+) -> Result<usize, String> {
+    let conn = db.0.lock().unwrap();
+    db::delete_aux_set(&conn, &well_id, &dataset, &set_name).map_err(|e| e.to_string())
 }
 
 /// One well's auxiliary dataset rows (all datasets when `dataset` is null).
@@ -1916,6 +1949,9 @@ pub fn run() {
             import_aux_data,
             list_aux_data,
             list_aux_datasets,
+            list_aux_sets,
+            set_active_aux_set,
+            delete_aux_set,
             import_scal_csv,
             import_scal_files,
             get_scal_pc,

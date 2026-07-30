@@ -1,10 +1,14 @@
 import {
+  deleteAuxSet,
   deleteCoreSet,
   deleteSurvey,
+  listAuxSets,
   listCoreSets,
   listSurveys,
+  setActiveAuxSet,
   setActiveCoreSet,
   setActiveSurvey,
+  type AuxSetInfo,
   type CoreSetInfo,
   type SurveyInfo,
 } from "../ipc";
@@ -12,14 +16,16 @@ import { setStatus } from "../state";
 import { recordProcess } from "../processLog";
 import { openModal } from "./modal";
 
-/** Core Sets & Surveys manager (T-IMP-08 / T-IMP-12).
+/** Data-set manager: core, surveys and every point dataset (T-IMP-08 / T-IMP-12).
  *
  *  Curves learned the set model first: one delivery = one named set, and an import never
- *  overwrites an earlier one. Core plugs and deviation surveys now work the same way — but
- *  with a different resolution rule, and the difference matters. Two curve sets can BOTH be
- *  read (a set supplies mnemonics RAW lacks); two core deliveries measure the SAME plugs, so
- *  reading both would double the φ-k cloud. Exactly one core set and one survey are ACTIVE
- *  per well, and this dialog is where that choice is made and the rest are kept, not lost.
+ *  overwrites an earlier one. Core plugs, deviation surveys and ALL point data — XRD, CEC,
+ *  oil show, petrography, perforations, core extras — now work the same way, but with a
+ *  different resolution rule, and the difference matters. Two curve sets can BOTH be read (a
+ *  set supplies mnemonics RAW lacks); two deliveries of the same plugs or the same samples
+ *  would just double every count. So exactly ONE core set, ONE survey and one set per point
+ *  dataset are ACTIVE, and this dialog is where that choice is made and the rest are kept,
+ *  not lost.
  *
  *  Switching a survey re-materializes TVD/TVDSS immediately — leaving the old geometry in
  *  the stored curves would silently feed every height calculation the survey you just
@@ -47,9 +53,12 @@ function buildSection<T>(opts: {
   sourceOf: (row: T) => string | null;
   dateOf: (row: T) => string | null;
   extra?: (row: T) => string;
+  /** Point data only: the dataset a row belongs to. Rows are grouped under it, and it is
+   *  passed back on activate/remove — activation is per dataset, not per well. */
+  groupOf?: (row: T) => string;
   load: () => Promise<T[]>;
-  activate: (name: string) => Promise<void>;
-  remove: (name: string) => Promise<void>;
+  activate: (name: string, group?: string) => Promise<void>;
+  remove: (name: string, group?: string) => Promise<void>;
 }): { root: HTMLElement; refresh: () => Promise<void> } {
   const root = document.createElement("div");
   const h = document.createElement("p");
@@ -88,9 +97,22 @@ function buildSection<T>(opts: {
     }
     table.appendChild(head);
 
+    let lastGroup: string | null = null;
     for (const row of rows) {
       const name = opts.nameOf(row);
+      const group = opts.groupOf?.(row);
       const active = opts.isActive(row);
+      // A sub-header per dataset, since the backend already orders by dataset.
+      if (group !== undefined && group !== lastGroup) {
+        lastGroup = group;
+        const gr = document.createElement("tr");
+        const gc = document.createElement("td");
+        gc.colSpan = 6;
+        gc.className = "set-group";
+        gc.textContent = group;
+        gr.appendChild(gc);
+        table.appendChild(gr);
+      }
       const tr = document.createElement("tr");
       if (active) tr.className = "set-active";
 
@@ -124,7 +146,7 @@ function buildSection<T>(opts: {
         use.title = "Make this the active one";
         use.addEventListener("click", () => {
           void opts
-            .activate(name)
+            .activate(name, group)
             .then(() => refresh())
             .catch((err) => setStatus(String(err)));
         });
@@ -136,9 +158,10 @@ function buildSection<T>(opts: {
       // Deleting data is irreversible here (no undo entry), so it asks first and names
       // what goes — a mis-click must not silently drop a lab delivery.
       del.addEventListener("click", () => {
-        if (!window.confirm(`Delete ${name} (${opts.countLabel(row)})? This cannot be undone.`)) return;
+        const what = group ? `${group} / ${name}` : name;
+        if (!window.confirm(`Delete ${what} (${opts.countLabel(row)})? This cannot be undone.`)) return;
         void opts
-          .remove(name)
+          .remove(name, group)
           .then(() => refresh())
           .catch((err) => setStatus(String(err)));
       });
@@ -165,8 +188,9 @@ export function openDataSetsDialog(
   const doc = document.createElement("p");
   doc.className = "modal-doc";
   doc.textContent =
-    "Every core delivery and deviation survey ever imported for this well. One of each is ACTIVE (●) — " +
-    "that is what log overlays, φ-k plots, calibration and TVD/TVDSS read. The rest are kept, not lost.";
+    "Every delivery ever imported for this well — core, deviation surveys and point data (XRD, CEC, oil show, …). " +
+    "One of each is ACTIVE (●) — that is what log overlays, φ-k plots, calibration, TVD/TVDSS and the data panels " +
+    "read. The rest are kept, not lost.";
   wrap.appendChild(doc);
 
   const core = buildSection<CoreSetInfo>({
@@ -217,6 +241,33 @@ export function openDataSetsDialog(
     },
   });
   wrap.appendChild(surveys.root);
+
+  // Point data: one section, grouped by dataset. The dataset is part of the row label
+  // because activation is per dataset — switching XRD leaves CEC and oil show alone.
+  const aux = buildSection<AuxSetInfo>({
+    title: "Point data (XRD, CEC, oil show, core extras …)",
+    empty: "No point data imported for this well yet.",
+    nameOf: (r) => r.set_name,
+    isActive: (r) => r.active,
+    countLabel: (r) => `${r.rows} value(s)`,
+    sourceOf: (r) => r.source,
+    dateOf: (r) => r.imported_at,
+    groupOf: (r) => r.dataset,
+    load: () => listAuxSets(well.well_id),
+    activate: async (name, group) => {
+      await setActiveAuxSet(well.well_id, group ?? "", name);
+      setStatus(`${group}: set ${name} is now active for ${well.well_name}.`);
+      recordProcess("Edit", `Active ${group} set → ${name}`, well.well_name);
+      onChanged();
+    },
+    remove: async (name, group) => {
+      const n = await deleteAuxSet(well.well_id, group ?? "", name);
+      setStatus(`Deleted ${group} set ${name} (${n} value(s)) from ${well.well_name}.`);
+      recordProcess("Edit", `Deleted ${group} set ${name} (${n} values)`, well.well_name);
+      onChanged();
+    },
+  });
+  wrap.appendChild(aux.root);
 
   const note = document.createElement("p");
   note.className = "form-hint";

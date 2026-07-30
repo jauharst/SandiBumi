@@ -735,7 +735,10 @@ pub fn import_core_table(
                             });
                         }
                     }
-                    match db::insert_aux_data(conn, well_id, &extras_dataset, &aux) {
+                    // The extras ARE part of this core delivery, so they carry the same set
+                    // name — switching the well's core set switches its extras with it
+                    // instead of leaving a mismatched pair behind.
+                    match db::insert_aux_data(conn, well_id, &extras_dataset, &set, Some(path), &aux) {
                         Ok(()) => extra_rows += aux.len(),
                         Err(e) => {
                             let note = format!("extra columns not stored: {e}");
@@ -1162,6 +1165,9 @@ pub struct AuxImportResult {
     pub items: Vec<String>,
     /// Wells that received rows (1 for a single-well file).
     pub wells_imported: usize,
+    /// The set name(s) the delivery actually landed in — more than one when some wells
+    /// already carried that name and theirs was suffixed.
+    pub sets: Vec<String>,
     /// Routing story for a multi-well file: unmatched/ambiguous names, blank-well rows.
     pub notes: Option<String>,
     pub error: Option<String>,
@@ -1175,13 +1181,24 @@ pub struct AuxImportResult {
 /// row by its cell's normalized name — exactly-one-match imports, unmatched/ambiguous
 /// names are reported and skipped, blank cells are skipped (never misrouted). A file
 /// WITHOUT a well column binds wholly to `well_id` (the selected well).
-pub fn import_aux_file(conn: &Connection, well_id: &str, dataset: &str, path: &str) -> AuxImportResult {
+///
+/// `set_name` versions the DELIVERY within the dataset, exactly as core sets do: a second
+/// XRD (or CEC, oil show, …) delivery lands beside the first, auto-suffixed per well, and
+/// becomes the live one for that dataset. Nothing is ever overwritten.
+pub fn import_aux_file(
+    conn: &Connection,
+    well_id: &str,
+    dataset: &str,
+    path: &str,
+    set_name: Option<&str>,
+) -> AuxImportResult {
     let fail = |e: String| AuxImportResult {
         path: path.to_string(),
         dataset: dataset.to_string(),
         rows: 0,
         items: vec![],
         wells_imported: 0,
+        sets: vec![],
         notes: None,
         error: Some(e),
     };
@@ -1189,6 +1206,10 @@ pub fn import_aux_file(conn: &Connection, well_id: &str, dataset: &str, path: &s
     if dataset.is_empty() {
         return fail("dataset name is empty".into());
     }
+    let desired_set = set_name
+        .map(|s| s.trim().to_uppercase().replace(' ', "_"))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "RAW".to_string());
 
     let data = match parsers::parse_interval_file(path) {
         Ok(d) => d,
@@ -1220,6 +1241,7 @@ pub fn import_aux_file(conn: &Connection, well_id: &str, dataset: &str, path: &s
     let mut notes: Vec<String> = Vec::new();
     let mut rows_written = 0usize;
     let mut wells_imported = 0usize;
+    let mut sets_used: std::collections::BTreeSet<String> = Default::default();
 
     if data.has_well_column {
         // Group row indices by well cell, keeping file order.
@@ -1258,10 +1280,19 @@ pub fn import_aux_file(conn: &Connection, well_id: &str, dataset: &str, path: &s
             match ids.len() {
                 1 => {
                     let rows = to_aux_rows(idx);
-                    match db::insert_aux_data(conn, &ids[0], &dataset, &rows) {
+                    // Per well, like core sets: a name free on one well may be taken on another.
+                    let set = match db::resolve_aux_set_name(conn, &ids[0], &dataset, &desired_set) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            notes.push(format!("{name}: {e}"));
+                            continue;
+                        }
+                    };
+                    match db::insert_aux_data(conn, &ids[0], &dataset, &set, Some(path), &rows) {
                         Ok(()) => {
                             rows_written += rows.len();
                             wells_imported += 1;
+                            sets_used.insert(set);
                         }
                         Err(e) => notes.push(format!("{name}: {e}")),
                     }
@@ -1292,10 +1323,15 @@ pub fn import_aux_file(conn: &Connection, well_id: &str, dataset: &str, path: &s
         }
         let idx: Vec<usize> = (0..data.rows.len()).collect();
         let rows = to_aux_rows(&idx);
-        match db::insert_aux_data(conn, well_id, &dataset, &rows) {
+        let set = match db::resolve_aux_set_name(conn, well_id, &dataset, &desired_set) {
+            Ok(s) => s,
+            Err(e) => return fail(e.to_string()),
+        };
+        match db::insert_aux_data(conn, well_id, &dataset, &set, Some(path), &rows) {
             Ok(()) => {
                 rows_written = rows.len();
                 wells_imported = 1;
+                sets_used.insert(set);
             }
             Err(e) => return fail(e.to_string()),
         }
@@ -1307,6 +1343,7 @@ pub fn import_aux_file(conn: &Connection, well_id: &str, dataset: &str, path: &s
         rows: rows_written,
         items: data.items,
         wells_imported,
+        sets: sets_used.into_iter().collect(),
         notes: (!notes.is_empty()).then(|| notes.join("; ")),
         error: None,
     }
@@ -1841,7 +1878,7 @@ mod tests {
         let path = std::env::temp_dir().join("sandibumi_aux_v2_test.csv");
         std::fs::write(&path, csv).unwrap();
 
-        let res = import_aux_file(&conn, &wa.to_string(), "PETROGRAPHY", path.to_str().unwrap());
+        let res = import_aux_file(&conn, &wa.to_string(), "PETROGRAPHY", path.to_str().unwrap(), None);
         assert!(res.error.is_none(), "{:?}", res.error);
         assert_eq!(res.wells_imported, 2, "W-A and W-B routed by the WELL column");
         let notes = res.notes.as_deref().unwrap_or("");
@@ -2231,8 +2268,8 @@ mod tests {
     }
 
     /// P2 aux import: XRD point data (numeric + text cells) and perforation intervals
-    /// land in aux_data long format; re-import replaces per (well, dataset); datasets
-    /// are independent.
+    /// land in aux_data long format; datasets are independent; and every dataset follows
+    /// the SET discipline (a re-delivery is kept beside the first, one is live).
     #[test]
     fn aux_import_xrd_and_perforation() {
         let conn = Connection::open_in_memory().unwrap();
@@ -2243,7 +2280,7 @@ mod tests {
 
         let xrd = std::env::temp_dir().join("arshilla_aux_xrd.csv");
         std::fs::write(&xrd, "Depth,Quartz,Illite,Remarks\n2000.0,45.2,12.1,clean\n2001.0,40.0,,silty\n").unwrap();
-        let res = import_aux_file(&conn, &ids, "xrd", xrd.to_str().unwrap());
+        let res = import_aux_file(&conn, &ids, "xrd", xrd.to_str().unwrap(), None);
         assert!(res.error.is_none(), "{:?}", res.error);
         assert_eq!(res.dataset, "XRD", "dataset name normalized upper");
         assert_eq!(res.rows, 5, "empty cell is skipped, text cell kept");
@@ -2260,7 +2297,7 @@ mod tests {
         // Perforation intervals in a second dataset; both coexist.
         let perf = std::env::temp_dir().join("arshilla_aux_perf.csv");
         std::fs::write(&perf, "FROM,TO,STATUS\n2050.0,2055.0,OPEN\n2100.0,2104.0,SQUEEZED\n").unwrap();
-        let res2 = import_aux_file(&conn, &ids, "PERFORATION", perf.to_str().unwrap());
+        let res2 = import_aux_file(&conn, &ids, "PERFORATION", perf.to_str().unwrap(), None);
         assert!(res2.error.is_none());
         assert_eq!(res2.rows, 2);
         let perfs = db::list_aux_data(&conn, &ids, Some("PERFORATION")).unwrap();
@@ -2269,17 +2306,38 @@ mod tests {
         let sets = db::list_aux_datasets(&conn, &ids).unwrap();
         assert_eq!(sets, vec![("PERFORATION".to_string(), 2i64), ("XRD".to_string(), 5i64)]);
 
-        // Re-import of XRD replaces only XRD.
+        // A SECOND XRD delivery: kept beside the first (never overwritten), live, and
+        // counted alone — the whole point of the set model applied to point data.
         std::fs::write(&xrd, "Depth,Quartz\n2000.0,50.0\n").unwrap();
-        let res3 = import_aux_file(&conn, &ids, "XRD", xrd.to_str().unwrap());
+        let res3 = import_aux_file(&conn, &ids, "XRD", xrd.to_str().unwrap(), None);
         assert!(res3.error.is_none());
-        let sets = db::list_aux_datasets(&conn, &ids).unwrap();
-        assert_eq!(sets, vec![("PERFORATION".to_string(), 2i64), ("XRD".to_string(), 1i64)]);
+        assert_eq!(res3.sets, vec!["RAW_1".to_string()], "auto-suffixed, not overwritten");
+        let counts = db::list_aux_datasets(&conn, &ids).unwrap();
+        assert_eq!(
+            counts,
+            vec![("PERFORATION".to_string(), 2i64), ("XRD".to_string(), 1i64)],
+            "counts follow the ACTIVE delivery — never the sum of both"
+        );
+        let aux_sets = db::list_aux_sets(&conn, &ids).unwrap();
+        let xrd_sets: Vec<_> = aux_sets.iter().filter(|s| s.dataset == "XRD").collect();
+        assert_eq!(xrd_sets.len(), 2, "both XRD deliveries kept: {aux_sets:?}");
+        assert!(xrd_sets[0].active && xrd_sets[0].set_name == "RAW_1");
+        assert!(!xrd_sets[1].active && xrd_sets[1].rows == 5, "the first delivery is intact");
+        // Perforation is a different dataset and is untouched by the XRD switch.
+        assert!(aux_sets.iter().any(|s| s.dataset == "PERFORATION" && s.active && s.rows == 2));
+
+        // Switching back restores the first delivery's rows, wholesale.
+        db::set_active_aux_set(&conn, &ids, "XRD", "RAW").unwrap();
+        assert_eq!(db::list_aux_data(&conn, &ids, Some("XRD")).unwrap().len(), 5);
+        // Deleting the live delivery hands over to the survivor.
+        db::delete_aux_set(&conn, &ids, "XRD", "RAW").unwrap();
+        let rows = db::list_aux_data(&conn, &ids, Some("XRD")).unwrap();
+        assert_eq!(rows.len(), 1, "the remaining delivery became live: {rows:?}");
         std::fs::remove_file(&xrd).ok();
         std::fs::remove_file(&perf).ok();
 
         // Unknown well errors cleanly.
-        let bad = import_aux_file(&conn, "nope", "XRD", "x.csv");
+        let bad = import_aux_file(&conn, "nope", "XRD", "x.csv", None);
         assert!(bad.error.is_some());
     }
 

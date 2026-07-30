@@ -954,6 +954,9 @@ export class Workspace {
         appState.selectedWell.set(well);
         setStatus(`Selected well ${well.well_name}`);
       };
+      // Switching a core set / survey / point-data set from the tree changes what every
+      // panel reads, so it has to repaint like any other data change.
+      tree.onDataChanged = () => this.notifyDataChanged();
       tree.selectedWellId = appState.selectedWell.get()?.well_id ?? null;
       void tree.refresh();
       const unsub = appState.dataVersion.subscribe(() => {

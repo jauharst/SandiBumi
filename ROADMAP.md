@@ -673,7 +673,7 @@ Multimin Parameters.xlsx, extracted into `ref_kkt_onwj_wave_e.md` — client fil
       `ACTIVE_SURVEY`, one shared SQL fragment so no reader can silently union two deliveries
       and double a φ-k cloud). Schema: `core_data.set_name` + `core_sets` registry,
       `well_path.survey_name` + `well_surveys` registry (active/source/datum/imported_at);
-      `db::migrate_core_and_survey_sets` rebuilds pre-set-era projects (existing rows become
+      `db::migrate_point_data_sets` rebuilds pre-set-era projects (existing rows become
       RAW, active — same numbers as before), idempotent, backed up per RELEASE §3.2. Imports
       take a name (Core wizard suggests it from the filename, deviation dialog defaults
       SURVEY), auto-suffix per well rather than overwriting, and the new set/survey goes live;
@@ -682,7 +682,19 @@ Multimin Parameters.xlsx, extracted into `ref_kkt_onwj_wave_e.md` — client fil
       `dataSetsDialog.ts` (Data → Tools ▾ → Core Sets & Surveys…): both lists, ● active, Use /
       Delete, delete-the-active hands over to the newest survivor. Shift Core and DB Inspector
       cell edits target the ACTIVE set only.
-      Follow-up: core sets are not yet browsable in the Wells-pane ▸ tree beside curve sets.
+- [x] **Delivery sets are UNIVERSAL — every point dataset, not just core.** _(Done 2026-07-30,
+      Jauhar: "not only core, any kind of point data should behave universally like core — xrd,
+      cec, oil show, etc.")_ `aux_data` gained `set_name` (+ `aux_sets` registry keyed
+      (well, dataset, set)), so a second XRD / CEC / oil-show / petrography / perforation
+      delivery lands beside the first and one set per (well, dataset) is live —
+      `db::ACTIVE_AUX_SET` correlates on `a.dataset`, so a single query spans every dataset and
+      still returns one delivery of each (`list_aux_datasets` counts the active set, never the
+      sum). `aux_data` has no PK, so migration is an ALTER + back-fill + registration rather than
+      a rebuild; the column is LAST because the Appender is positional. Import Aux takes a Set
+      name; core EXTRAS are written under the core set's own name so a core switch carries them.
+      The Wells-pane ▸ tree now lists **Core / Surveys / Point data** under each well with ● on
+      the live one and double-click to switch (single click inert; delete stays in the dialog),
+      and the manager dialog has a third section grouped by dataset.
 
 Cross-cutting notes: (11) Balam South testing is the per-increment verification standard, not a separate
 item. New suites must land as panes (Wave A first), use the 15-var theme contract, manifest-driven

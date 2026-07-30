@@ -1765,7 +1765,33 @@ export interface AuxImportResult {
   wells_imported: number;
   /** Routing story: unmatched/ambiguous names, blank-well rows skipped. */
   notes: string | null;
+  /** Set name(s) the delivery landed in — several when some wells already carried that
+   *  name and theirs was suffixed. */
+  sets: string[];
   error: string | null;
+}
+
+/** One point-data delivery (T-IMP-08 applied to every dataset). Exactly one set per
+ *  (well, dataset) is active; readers and counts follow it. */
+export interface AuxSetInfo {
+  dataset: string;
+  set_name: string;
+  rows: number;
+  active: boolean;
+  source: string | null;
+  imported_at: string | null;
+}
+
+export function listAuxSets(wellId: string): Promise<AuxSetInfo[]> {
+  return invoke<AuxSetInfo[]>("list_aux_sets", { wellId });
+}
+
+export function setActiveAuxSet(wellId: string, dataset: string, setName: string): Promise<void> {
+  return invoke<void>("set_active_aux_set", { wellId, dataset, setName });
+}
+
+export function deleteAuxSet(wellId: string, dataset: string, setName: string): Promise<number> {
+  return invoke<number>("delete_aux_set", { wellId, dataset, setName });
 }
 
 export interface AuxRow {
@@ -1777,10 +1803,16 @@ export interface AuxRow {
   value_text: string | null;
 }
 
-/** Imports a tops-style dataset (PETROGRAPHY / XRD / PERFORATION / custom) for one
- *  well, replacing that well's previous rows of the same dataset. */
-export function importAuxData(wellId: string, dataset: string, path: string): Promise<AuxImportResult> {
-  return invoke<AuxImportResult>("import_aux_data", { wellId, dataset, path });
+/** Imports a tops-style point dataset (PETROGRAPHY / XRD / CEC / OIL SHOW / PERFORATION /
+ *  custom) as a NEW named delivery: `setName` is auto-suffixed per well rather than
+ *  overwriting an earlier one, and becomes that dataset's live set. */
+export function importAuxData(
+  wellId: string,
+  dataset: string,
+  path: string,
+  setName: string | null = null,
+): Promise<AuxImportResult> {
+  return invoke<AuxImportResult>("import_aux_data", { wellId, dataset, path, setName });
 }
 
 export function listAuxData(wellId: string, dataset: string | null): Promise<AuxRow[]> {

@@ -657,6 +657,16 @@ single file, not a second delivery. Re-test both: (1) doctored CSV with a repeat
 imports with the dropped-row note; (2) import the same real file twice → two sets, both
 kept, the newest live, and the plug count in any plot does NOT double.
 
+**Update 2026-07-30 (b) — the rule is UNIVERSAL, not core-only.** Per Jauhar: *any kind of
+point data should behave like core — XRD, CEC, oil show, etc.* Every `aux_data` dataset
+(petrography, XRD, CEC, oil show, perforations, core extras, any custom name) now versions
+the same way: **Import Aux… takes a Set name**, a re-delivery is auto-suffixed and becomes
+live, and **one set per (well, dataset)** is read — panel counts follow the active delivery,
+never the sum. Datasets are independent: switching XRD leaves CEC and oil show alone. Core
+EXTRAS are stored under the core set's own name, so a core switch carries them. Browse and
+switch everything from the **Wells pane ▸ twisty** (Core / Surveys / Point data, ● = live,
+double-click to switch) or the manager dialog.
+
 ### T-IMP-09 — Shift Core: constant core-to-log shift, undo, invalid input rejected
 
 **Tool/panel:** Tools ▾ → Shift Core… (ribbon.ts `handleShiftCore`)

@@ -5286,8 +5286,30 @@ DB Inspector edits, TVD/TVDSS.
 - [ ] **Duplicated depth inside ONE file** still drops first-kept with the note — that is a
       broken row in a single delivery, not a second delivery.
 
-*Not yet:* core sets don't show in the Wells-pane ▸ tree next to curve sets — the manager
-dialog is the place for now. Say if you want them in the tree.
+---
+
+## 2026-07-30 — …and the same rule for EVERY point dataset, plus the tree
+
+Your note: *"not only core, any kind of point data should behave universally like core — we
+have a lot such xrd, cec, oil show, etc."* Right — those all live in one store, and until now
+a second delivery of any of them silently replaced the first. They now version exactly like
+core: **one delivery = one named set, one live per (well, dataset)**.
+
+- [ ] **Import Aux… now has a Set field** (default `RAW`). Import an XRD file twice → the
+      result box says `Set RAW_1`, both deliveries are kept, the newest is live, and the
+      panel counts show ONE delivery's values, not the sum.
+- [ ] **Datasets are independent.** With XRD switched to the older delivery, CEC / oil show /
+      perforation stay exactly as they were — activation is per dataset, not per well.
+- [ ] **Wells pane ▸ twisty** now shows, under each well: its curve sets (as before), then
+      **Core**, **Surveys** and **Point data** with ● on the live one.
+      **Double-click** a dimmed row (○) to make it live — panels repaint. Single click does
+      nothing on purpose, so a stray click in a long well list can't repoint your data.
+      Deleting stays in the manager dialog.
+- [ ] **Core extras follow their core set** — a core file's LITH/So/sample-id columns are
+      stored under the SAME set name as the plugs, so switching a well's core switches its
+      extras with it instead of leaving a mismatched pair.
+- [ ] **Old projects:** point data predating this is adopted as set `RAW`, active — your XRD
+      and petrography read exactly as before. (Unlike core, this needs no table rebuild.)
 
 ---
 

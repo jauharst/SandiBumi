@@ -348,10 +348,18 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             PRIMARY KEY (well_id, set_name)
         );
 
-        -- Tops-style auxiliary datasets (petrography, XRD, perforations, …): sparse
-        -- point or interval samples in long format. One row per (depth, item); values
-        -- may be numeric (mineral %, grain size) or text (status, lithology remarks).
-        -- Import replaces per (well, dataset) — same discipline as core_data.
+        -- Tops-style auxiliary datasets (petrography, XRD, CEC, oil show, perforations,
+        -- core extras, …): sparse point or interval samples in long format. One row per
+        -- (depth, item); values may be numeric (mineral %, grain size) or text (status,
+        -- lithology remarks).
+        --
+        -- `set_name` versions the DELIVERY, exactly as core sets and curve sets do: a
+        -- second XRD or CEC delivery lands beside the first instead of replacing it, and
+        -- exactly ONE set per (well, dataset) is ACTIVE — two deliveries describe the same
+        -- samples, so reading both would double every count (`aux_sets.active`).
+        -- set_name is LAST on purpose: the Appender writes positionally, and databases
+        -- migrated by ALTER get the column appended, so fresh and migrated schemas must
+        -- agree on the order.
         CREATE TABLE IF NOT EXISTS aux_data (
             well_id    UUID NOT NULL,
             dataset    VARCHAR NOT NULL,  -- 'PETROGRAPHY' | 'XRD' | 'PERFORATION' | custom
@@ -359,7 +367,27 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             depth_base FLOAT,             -- NULL = point sample
             item       VARCHAR NOT NULL,  -- source column (QUARTZ, STATUS, …)
             value_num  FLOAT,
-            value_text VARCHAR
+            value_text VARCHAR,
+            set_name   VARCHAR NOT NULL DEFAULT 'RAW'
+        );
+        -- Pre-set-era projects converge on the same shape (additive, no rebuild needed —
+        -- aux_data has no PRIMARY KEY). DuckDB refuses ADD COLUMN with a constraint, so the
+        -- added column is plain and back-filled here; on a migrated database it is nullable
+        -- where a fresh one has NOT NULL, which changes nothing for readers or the Appender
+        -- (position and type match, and every writer passes a value).
+        -- `migrate_point_data_sets` then registers those rows in `aux_sets`.
+        ALTER TABLE aux_data ADD COLUMN IF NOT EXISTS set_name VARCHAR;
+        UPDATE aux_data SET set_name = 'RAW' WHERE set_name IS NULL;
+
+        -- Registry of point-data deliveries, one row per (well, dataset, set).
+        CREATE TABLE IF NOT EXISTS aux_sets (
+            well_id     UUID NOT NULL,
+            dataset     VARCHAR NOT NULL,
+            set_name    VARCHAR NOT NULL,
+            active      INTEGER NOT NULL DEFAULT 0,
+            source      VARCHAR,
+            imported_at TIMESTAMP NOT NULL DEFAULT now(),
+            PRIMARY KEY (well_id, dataset, set_name)
         );
 
         -- Special core analysis: capillary-pressure measurements. Several Pc/Sw points
@@ -639,20 +667,24 @@ pub fn migrate_drop_computed_curves_pk(conn: &Connection, path: Option<&str>) ->
     Ok(())
 }
 
-/// One-time migration that gives `core_data` a `set_name` and `well_path` a `survey_name`
-/// (T-IMP-08 / T-IMP-12), so a well can hold several core deliveries and several surveys
-/// instead of each import replacing the last.
+/// One-time migration that brings every DELIVERY-shaped store onto the set model: a
+/// `set_name` on `core_data` and `aux_data`, a `survey_name` on `well_path`
+/// (T-IMP-08 / T-IMP-12), so a well can hold several core deliveries, several surveys and
+/// several point-data deliveries (XRD, CEC, oil show …) instead of each import replacing
+/// the last.
 ///
-/// Both tables carry a PRIMARY KEY that must gain a column, which DuckDB cannot alter in
-/// place, so each is rebuilt. Existing rows become the set/survey named **RAW** and are
-/// registered ACTIVE — so a migrated project reads exactly the numbers it read before.
-/// Idempotent: the column list is consulted first, so this is a no-op on freshly created
-/// databases and on every launch after the first.
+/// `core_data` and `well_path` carry a PRIMARY KEY that must gain a column, which DuckDB
+/// cannot alter in place, so those two are rebuilt; `aux_data` has no PK, so `create_schema`
+/// simply ALTERs the column in and this only registers the rows. Existing rows become the
+/// set/survey named **RAW**, registered ACTIVE — a migrated project reads exactly the
+/// numbers it read before. Idempotent: the column list is consulted first, and the aux
+/// registration only fills gaps, so this is a no-op on freshly created databases and on
+/// every launch after the first.
 ///
 /// Destructive (a table rebuild), so it follows the RELEASE §3.2 rule: when it is actually
 /// going to run, `path` is backed up first and a failed backup ABORTS the migration.
 /// `path: None` is for in-memory test databases only.
-pub fn migrate_core_and_survey_sets(conn: &Connection, path: Option<&str>) -> DbResult<()> {
+pub fn migrate_point_data_sets(conn: &Connection, path: Option<&str>) -> DbResult<()> {
     let has_set: i64 = conn.query_row(
         "SELECT COUNT(*) FROM duckdb_columns()
          WHERE table_name = 'core_data' AND column_name = 'set_name'",
@@ -665,12 +697,24 @@ pub fn migrate_core_and_survey_sets(conn: &Connection, path: Option<&str>) -> Db
         [],
         |r| r.get(0),
     )?;
+    // Point-data rows predating the registry: adopt them as RAW/active so readers (which
+    // filter on the active set) can still see them. Cheap, gap-filling and idempotent, so
+    // it runs before the early return — a project may have been rebuilt already while a
+    // later aux import path was still writing unregistered rows.
+    conn.execute_batch(
+        "UPDATE aux_data SET set_name = 'RAW' WHERE set_name IS NULL;
+         INSERT INTO aux_sets (well_id, dataset, set_name, active)
+         SELECT DISTINCT a.well_id, a.dataset, a.set_name, 1 FROM aux_data a
+         WHERE NOT EXISTS (SELECT 1 FROM aux_sets s
+                           WHERE s.well_id = a.well_id AND s.dataset = a.dataset);",
+    )?;
+
     if has_set > 0 && has_survey > 0 {
         return Ok(());
     }
     if let Some(path) = path {
         let backup = backup_before_destructive_migration(conn, path)?;
-        eprintln!("[boot] destructive migration (core/survey set columns) ahead: project backed up to {backup}");
+        eprintln!("[boot] destructive migration (point-data set columns) ahead: project backed up to {backup}");
     }
 
     if has_set == 0 {
@@ -968,12 +1012,147 @@ pub struct AuxRow {
     pub value_text: Option<String>,
 }
 
-/// Replaces one well's rows of ONE dataset (petrography / XRD / perforation import).
-pub fn insert_aux_data(conn: &Connection, well_id: &str, dataset: &str, rows: &[AuxRow]) -> DbResult<()> {
+/// SQL fragment naming the ACTIVE set of the point dataset in the row being tested — the
+/// aux twin of `ACTIVE_CORE_SET`, correlated on `a.dataset` so one query can span every
+/// dataset (XRD, CEC, oil show, core extras …) and still see one delivery of each. Every
+/// aux reader uses it; a reader that forgets would union two deliveries of the same samples
+/// and double every count silently. Requires the aux_data table to be aliased `a`.
+const ACTIVE_AUX_SET: &str = "COALESCE((SELECT s.set_name FROM aux_sets s
+                                        WHERE s.well_id = a.well_id AND s.dataset = a.dataset
+                                        ORDER BY s.active DESC, s.imported_at DESC LIMIT 1), 'RAW')";
+
+/// One point-data delivery, as the set manager and the Wells tree show it.
+#[derive(Debug, Clone, Serialize)]
+pub struct AuxSetInfo {
+    pub dataset: String,
+    pub set_name: String,
+    pub rows: i64,
+    pub active: bool,
+    pub source: Option<String>,
+    pub imported_at: Option<String>,
+}
+
+/// Every point-data delivery of a well, grouped by dataset (active first, then newest).
+pub fn list_aux_sets(conn: &Connection, well_id: &str) -> DbResult<Vec<AuxSetInfo>> {
+    let mut stmt = conn.prepare(
+        "SELECT s.dataset, s.set_name, s.active, s.source, CAST(s.imported_at AS VARCHAR),
+                (SELECT COUNT(*) FROM aux_data d
+                 WHERE d.well_id = s.well_id AND d.dataset = s.dataset AND d.set_name = s.set_name)
+         FROM aux_sets s WHERE s.well_id = ?1
+         ORDER BY s.dataset, s.active DESC, s.imported_at DESC, s.set_name",
+    )?;
+    let rows = stmt.query_map(params![well_id], |r| {
+        Ok(AuxSetInfo {
+            dataset: r.get(0)?,
+            set_name: r.get(1)?,
+            active: r.get::<_, i32>(2)? != 0,
+            source: r.get(3)?,
+            imported_at: r.get(4)?,
+            rows: r.get(5)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
+/// The name a new point-data delivery will be stored under within its dataset — `desired`,
+/// else `desired_1`, `_2`, …; an import never overwrites an earlier delivery.
+pub fn resolve_aux_set_name(conn: &Connection, well_id: &str, dataset: &str, desired: &str) -> DbResult<String> {
+    let base = {
+        let t = desired.trim().to_uppercase().replace(' ', "_");
+        if t.is_empty() { "RAW".to_string() } else { t }
+    };
+    let taken = |name: &str| -> DbResult<bool> {
+        let n: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM aux_sets WHERE well_id = ?1 AND dataset = ?2 AND upper(set_name) = ?3",
+            params![well_id, dataset, name],
+            |r| r.get(0),
+        )?;
+        Ok(n > 0)
+    };
+    if !taken(&base)? {
+        return Ok(base);
+    }
+    for i in 1..1000 {
+        let cand = format!("{base}_{i}");
+        if !taken(&cand)? {
+            return Ok(cand);
+        }
+    }
+    Err(DbError::LengthMismatch(format!("too many {dataset} sets named {base}")))
+}
+
+/// Makes one delivery the live one for its dataset (other datasets are untouched).
+pub fn set_active_aux_set(conn: &Connection, well_id: &str, dataset: &str, set_name: &str) -> DbResult<()> {
     with_txn(conn, |conn| {
         conn.execute(
-            "DELETE FROM aux_data WHERE well_id = ?1 AND dataset = ?2",
+            "UPDATE aux_sets SET active = 0 WHERE well_id = ?1 AND dataset = ?2",
             params![well_id, dataset],
+        )?;
+        let n = conn.execute(
+            "UPDATE aux_sets SET active = 1 WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
+            params![well_id, dataset, set_name],
+        )?;
+        if n == 0 {
+            return Err(DbError::LengthMismatch(format!("no {dataset} set '{set_name}' on this well")));
+        }
+        Ok(())
+    })
+}
+
+/// Deletes one point-data delivery; the newest survivor of that dataset takes over.
+pub fn delete_aux_set(conn: &Connection, well_id: &str, dataset: &str, set_name: &str) -> DbResult<usize> {
+    let removed = with_txn(conn, |conn| -> DbResult<usize> {
+        let n = conn.execute(
+            "DELETE FROM aux_data WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
+            params![well_id, dataset, set_name],
+        )?;
+        conn.execute(
+            "DELETE FROM aux_sets WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
+            params![well_id, dataset, set_name],
+        )?;
+        Ok(n)
+    })?;
+    let has_active: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM aux_sets WHERE well_id = ?1 AND dataset = ?2 AND active = 1",
+        params![well_id, dataset],
+        |r| r.get(0),
+    )?;
+    if has_active == 0 {
+        let next: Option<String> = conn
+            .query_row(
+                "SELECT set_name FROM aux_sets WHERE well_id = ?1 AND dataset = ?2
+                 ORDER BY imported_at DESC LIMIT 1",
+                params![well_id, dataset],
+                |r| r.get(0),
+            )
+            .ok();
+        if let Some(next) = next {
+            set_active_aux_set(conn, well_id, dataset, &next)?;
+        }
+    }
+    Ok(removed)
+}
+
+/// Stores one point-data DELIVERY (petrography / XRD / CEC / oil show / perforation / core
+/// extras …) under `set_name`, replacing only that set's rows and making it the live one for
+/// its dataset. Earlier deliveries of the same dataset are untouched — callers pass a name
+/// from `resolve_aux_set_name`.
+pub fn insert_aux_data(
+    conn: &Connection,
+    well_id: &str,
+    dataset: &str,
+    set_name: &str,
+    source: Option<&str>,
+    rows: &[AuxRow],
+) -> DbResult<()> {
+    with_txn(conn, |conn| {
+        conn.execute(
+            "DELETE FROM aux_data WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
+            params![well_id, dataset, set_name],
         )?;
         let mut appender: Appender = conn.appender("aux_data")?;
         for r in rows {
@@ -984,22 +1163,35 @@ pub fn insert_aux_data(conn: &Connection, well_id: &str, dataset: &str, rows: &[
                 r.depth_base,
                 r.item,
                 r.value_num,
-                r.value_text
+                r.value_text,
+                set_name
             ])?;
         }
         appender.flush()?;
+        conn.execute(
+            "DELETE FROM aux_sets WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
+            params![well_id, dataset, set_name],
+        )?;
+        conn.execute(
+            "UPDATE aux_sets SET active = 0 WHERE well_id = ?1 AND dataset = ?2",
+            params![well_id, dataset],
+        )?;
+        conn.execute(
+            "INSERT INTO aux_sets (well_id, dataset, set_name, active, source) VALUES (?1, ?2, ?3, 1, ?4)",
+            params![well_id, dataset, set_name, source],
+        )?;
         Ok(())
     })
 }
 
-/// One well's auxiliary rows, all datasets or one, ordered by depth then item.
+/// One well's auxiliary rows from the ACTIVE set of each dataset, ordered by depth then item.
 pub fn list_aux_data(conn: &Connection, well_id: &str, dataset: Option<&str>) -> DbResult<Vec<AuxRow>> {
-    let mut stmt = conn.prepare(
-        "SELECT dataset, depth_top, depth_base, item, value_num, value_text
-         FROM aux_data
-         WHERE well_id = ?1 AND (?2 IS NULL OR dataset = ?2)
-         ORDER BY dataset, depth_top, item",
-    )?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT a.dataset, a.depth_top, a.depth_base, a.item, a.value_num, a.value_text
+         FROM aux_data a
+         WHERE a.well_id = ?1 AND (?2 IS NULL OR a.dataset = ?2) AND a.set_name = {ACTIVE_AUX_SET}
+         ORDER BY a.dataset, a.depth_top, a.item"
+    ))?;
     let rows = stmt.query_map(params![well_id, dataset], |row| {
         Ok(AuxRow {
             dataset: row.get(0)?,
@@ -1017,11 +1209,14 @@ pub fn list_aux_data(conn: &Connection, well_id: &str, dataset: Option<&str>) ->
     Ok(out)
 }
 
-/// Which auxiliary datasets a well has, with row counts (for panels/dialogs).
+/// Which auxiliary datasets a well has, with the ACTIVE delivery's row counts (for
+/// panels/dialogs) — never the sum across deliveries.
 pub fn list_aux_datasets(conn: &Connection, well_id: &str) -> DbResult<Vec<(String, i64)>> {
-    let mut stmt = conn.prepare(
-        "SELECT dataset, COUNT(*) FROM aux_data WHERE well_id = ?1 GROUP BY dataset ORDER BY dataset",
-    )?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT a.dataset, COUNT(*) FROM aux_data a
+         WHERE a.well_id = ?1 AND a.set_name = {ACTIVE_AUX_SET}
+         GROUP BY a.dataset ORDER BY a.dataset"
+    ))?;
     let rows = stmt.query_map(params![well_id], |row| Ok((row.get(0)?, row.get(1)?)))?;
     let mut out = Vec::new();
     for r in rows {
@@ -2143,13 +2338,31 @@ mod inspector_tests {
                  PRIMARY KEY (well_id, survey_name));",
         )
         .unwrap();
+        // Legacy point data too: no set_name column at all, the pre-registry shape.
+        conn.execute_batch(
+            "CREATE TABLE aux_data (
+                 well_id UUID NOT NULL, dataset VARCHAR NOT NULL, depth_top FLOAT NOT NULL,
+                 depth_base FLOAT, item VARCHAR NOT NULL, value_num FLOAT, value_text VARCHAR);
+             ALTER TABLE aux_data ADD COLUMN IF NOT EXISTS set_name VARCHAR;
+             CREATE TABLE aux_sets (
+                 well_id UUID NOT NULL, dataset VARCHAR NOT NULL, set_name VARCHAR NOT NULL,
+                 active INTEGER NOT NULL DEFAULT 0, source VARCHAR,
+                 imported_at TIMESTAMP NOT NULL DEFAULT now(),
+                 PRIMARY KEY (well_id, dataset, set_name));",
+        )
+        .unwrap();
         let w = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO aux_data (well_id, dataset, depth_top, item, value_num) VALUES (?1, 'XRD', 2000.0, 'QUARTZ', 45.2)",
+            params![w],
+        )
+        .unwrap();
         conn.execute("INSERT INTO core_data VALUES (?1, 2001.0, 0.22, 150.0, 2.65, 0.35)", params![w]).unwrap();
         conn.execute("INSERT INTO core_data VALUES (?1, 2002.0, 0.18, 20.0, 2.66, 0.42)", params![w]).unwrap();
         conn.execute("INSERT INTO well_path VALUES (?1, 0.0, 0.0, 0.0, 0.0, 25.0)", params![w]).unwrap();
         conn.execute("INSERT INTO well_path VALUES (?1, 1000.0, 0.0, 0.0, 1000.0, -975.0)", params![w]).unwrap();
 
-        migrate_core_and_survey_sets(&conn, None).unwrap();
+        migrate_point_data_sets(&conn, None).unwrap();
 
         // Same numbers, now readable through the set-aware readers.
         let plugs = get_core_plugs(&conn, &w).unwrap();
@@ -2165,13 +2378,18 @@ mod inspector_tests {
         assert!(sets[0].active && sets[0].set_name == "RAW" && sets[0].rows == 2);
         let surveys = list_surveys(&conn, &w).unwrap();
         assert!(surveys.len() == 1 && surveys[0].active && surveys[0].stations == 2);
+        // Legacy point data is adopted as RAW/active, so the set-filtered readers see it.
+        let aux = list_aux_data(&conn, &w, Some("XRD")).unwrap();
+        assert_eq!(aux.len(), 1, "unregistered aux rows must stay readable after migration");
+        let aux_sets = list_aux_sets(&conn, &w).unwrap();
+        assert!(aux_sets.len() == 1 && aux_sets[0].active && aux_sets[0].dataset == "XRD");
 
         // Idempotent, and a no-op on a database that was created with the current schema.
-        migrate_core_and_survey_sets(&conn, None).unwrap();
+        migrate_point_data_sets(&conn, None).unwrap();
         assert_eq!(get_core_plugs(&conn, &w).unwrap().len(), 2);
         assert_eq!(list_core_sets(&conn, &w).unwrap().len(), 1);
         let fresh = mem_db();
-        migrate_core_and_survey_sets(&fresh, None).unwrap();
+        migrate_point_data_sets(&fresh, None).unwrap();
     }
 
     /// R-B (RELEASE §3.2): when the destructive PK-drop migration actually fires against a

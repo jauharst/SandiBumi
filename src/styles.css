@@ -1365,6 +1365,33 @@ textarea {
   cursor: default;
 }
 
+/* Non-curve deliveries under a well: core sets, surveys, point data. One of each kind is
+   live (●), so these rows carry a state mark instead of a twisty. */
+.tree-set-kind {
+  padding-left: 22px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  cursor: default;
+}
+.tree-dataset {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 34px;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  cursor: default;
+}
+.tree-dataset-active {
+  color: var(--text);
+}
+.tree-dataset-active .tree-set-label {
+  font-weight: 600;
+}
+
 /* The well / top interval currently driving every plot and log view. */
 .tree-selected,
 .top-selected {
@@ -2137,6 +2164,16 @@ textarea {
 }
 .set-table td:last-child {
   text-align: right;
+}
+/* Dataset sub-header inside the point-data section (XRD, CEC, …). */
+.set-table td.set-group {
+  padding-top: 7px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  border-bottom: none;
+  text-align: left;
 }
 .set-table td .btn {
   padding: 1px 8px;

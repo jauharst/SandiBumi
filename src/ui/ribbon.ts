@@ -1505,8 +1505,8 @@ export class Ribbon {
       "Tops-style data: a TOP/DEPTH column (plus optional BASE/TO for intervals); every other " +
       "column becomes an item — mineral percentages, textural values, perforation status. " +
       "A WELL column routes rows to each named well (multi-well files); without one, rows land " +
-      "on this well. Re-importing a dataset replaces each receiving well's previous rows of " +
-      "that dataset only.";
+      "on this well. Each import is a named DELIVERY: re-importing keeps the earlier one and " +
+      "makes the new one live, so nothing is ever overwritten.";
     content.appendChild(doc);
 
     const dsSelect = document.createElement("select");
@@ -1528,6 +1528,20 @@ export class Ribbon {
     dsSelect.addEventListener("change", () => {
       customRow.style.display = dsSelect.value === "Custom…" ? "" : "none";
     });
+
+    // The delivery name (T-IMP-08 applied to point data): a second XRD/CEC/oil-show
+    // delivery lands beside the first instead of replacing it.
+    const setInput = document.createElement("input");
+    setInput.className = "form-control";
+    setInput.type = "text";
+    setInput.value = "RAW";
+    content.appendChild(
+      formRow(
+        "Set",
+        setInput,
+        "Names this delivery. A name already used for this dataset on a well is suffixed (RAW → RAW_1) — an import never overwrites earlier rows. The new set becomes the live one; switch or delete in Tools → Core Sets & Surveys…",
+      ),
+    );
 
     const pick = document.createElement("button");
     pick.className = "form-run-btn";
@@ -1559,7 +1573,7 @@ export class Ribbon {
       pick.disabled = true;
       resultBox.textContent = `Importing ${dataset} for ${well.well_name}…`;
       try {
-        const result = await importAuxData(well.well_id, dataset, path);
+        const result = await importAuxData(well.well_id, dataset, path, setInput.value.trim() || "RAW");
         if (result.error) {
           resultBox.textContent = `Import failed: ${result.error}`;
           return;
@@ -1569,9 +1583,12 @@ export class Ribbon {
         // pretending everything landed on the selected well.
         const where = result.wells_imported > 1 ? `${result.wells_imported} wells (by WELL column)` : well.well_name;
         const notes = result.notes ? ` — ${result.notes}` : "";
+        // Name the set, and especially a suffix: it means that well already had a
+        // delivery under the requested name and BOTH are now kept.
+        const setNote = result.sets.length ? ` Set ${result.sets.join(", ")}.` : "";
         resultBox.textContent =
-          `Imported ${result.rows} value(s) into ${where} across ${result.items.length} column(s): ${result.items.join(", ")}${notes}`;
-        setStatus(`${result.dataset}: ${result.rows} values imported into ${where}${notes}`);
+          `Imported ${result.rows} value(s) into ${where} across ${result.items.length} column(s): ${result.items.join(", ")}.${setNote}${notes}`;
+        setStatus(`${result.dataset}: ${result.rows} values imported into ${where}.${setNote}${notes}`);
         recordProcess("Import", `Imported ${result.dataset} (${result.rows} values, ${result.wells_imported} well(s))${notes} ← ${path}`, well.well_name);
         this.workspace.notifyDataChanged();
       } catch (err) {
