@@ -5898,4 +5898,54 @@ it is yours), the 2.9 MB of vendor research extractions, and git history.
 
 ---
 
+## scipy in the equation engine (2026-07-31)
+
+Petrophysics → Database Inspector → **Equation Editor**, language **Python (numpy)**. When scipy
+is installed in the interpreter SandiBumi picked, your scripts can now use `signal`,
+`interpolate`, `optimize`, `stats` and `ndimage` directly — no import line needed. numpy is still
+the only requirement; nothing changes if you never touch scipy.
+
+**The note tells you before you write, not after you run:**
+
+- [ ] Open the Equation Editor with language **Python (numpy)**. The grey note under the tab now
+      ends with the interpreter path **and** `· scipy 1.18.0`. If scipy were missing it would say
+      `· no scipy — install it for signal/interpolate/optimize/stats` — a note, not a warning,
+      because the engine is fully usable without it.
+
+**Four things worth trying on a real well** (inputs `GR`, output as named):
+
+- [ ] **Despike** — output `GR_DS`:
+      `gr_ds = signal.medfilt(gr, 5)`
+      A 5-sample median. Casing collars and washout spikes go; the bed boundaries stay put,
+      which a mean filter would smear.
+- [ ] **Smooth** — output `GR_SM`:
+      `gr_sm = signal.savgol_filter(gr, 11, 2)`
+      Savitzky-Golay preserves peak height and shape far better than a running mean.
+      **Despike first.** A polynomial fit over an un-despiked curve fits the spike rather than
+      the rock — try it both ways on a washed-out interval and you will see it immediately.
+- [ ] **Fit your own φ-k** — inputs `PHIE, PERM`, output `PERM_FIT`:
+      ```
+      import numpy as np
+      ok = np.isfinite(phie) & np.isfinite(perm) & (phie > 0) & (perm > 0)
+      def model(x, a, b): return a * np.power(x, b)
+      p, _ = optimize.curve_fit(model, phie[ok], perm[ok], p0=[1.0, 3.0], maxfev=20000)
+      perm_fit = model(phie, *p)
+      ```
+      Mask the invalid samples yourself — `curve_fit` has no NaN handling and will simply fail.
+- [ ] **Resample / fill** — `interpolate.interp1d(depth[ok], curve[ok], bounds_error=False)`.
+
+**Two rules you may want to test deliberately:**
+
+- [ ] **A curve wins a name collision.** If a well ever has a curve called `STATS`, your script
+      gets *your curve*, not `scipy.stats`. Your data never yields to a library name.
+- [ ] **A missing scipy names the fix.** On a machine without scipy, a script using `signal`
+      fails with the interpreter path and the exact `pip install` command — not
+      `NameError: name 'signal' is not defined`. Worth checking on a colleague's machine, since
+      that is the whole point of the message.
+
+**Also renamed here:** the interpreter override is `SANDIBUMI_PYTHON` (see the previous entry);
+your existing `ARSHILLA_PYTHON` still works.
+
+---
+
 _Made in SandiBumi._ © 2026 SandiBumi. All rights reserved.

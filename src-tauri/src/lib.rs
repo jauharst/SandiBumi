@@ -1050,11 +1050,12 @@ async fn run_equation(
     .await
 }
 
-/// Reports which Python interpreter (with numpy) the equation engine will use, if any —
-/// shown in the Equation Editor so a missing install is obvious before a run.
+/// Reports which Python interpreter (with numpy) the equation engine will use, and whether
+/// the optional scipy is importable in it — shown in the Equation Editor so a missing install
+/// is obvious while writing the script, not after it is queued across ninety wells.
 #[tauri::command]
-fn python_status() -> Option<String> {
-    python_engine::find_python().map(|p| p.to_string_lossy().to_string())
+fn python_status() -> python_engine::PythonStatus {
+    python_engine::python_status()
 }
 
 /// Lists the curve catalog (standard + computed curves), auto-derived from the database.

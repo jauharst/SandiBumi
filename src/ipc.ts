@@ -2680,9 +2680,18 @@ export function exportLas(wellId: string, destPath: string): Promise<number> {
   return invoke<number>("export_las", { wellId, destPath });
 }
 
-/** Path of the Python interpreter the equation engine will use (null = none found). */
-export function pythonStatus(): Promise<string | null> {
-  return invoke<string | null>("python_status");
+/** What the Python equation engine can offer, probed once per session. */
+export interface PythonStatus {
+  /** Interpreter the engine will use; null when no Python with numpy was found. */
+  path: string | null;
+  /** scipy version when importable in that interpreter; null when scipy is absent.
+   *  scipy is OPTIONAL — numpy alone is a fully working engine. */
+  scipy: string | null;
+}
+
+/** Interpreter + optional-package status for the equation engine. */
+export function pythonStatus(): Promise<PythonStatus> {
+  return invoke<PythonStatus>("python_status");
 }
 
 // ---------------------------------------------------------------------------

@@ -1062,11 +1062,22 @@ joblib (ML) → office four (deliverables) → opencv (digitizing).
       same model* later — a refit on different data is a different model. Persisting makes a
       trained model a named, citable, re-runnable artifact (fits the delivery-set pattern).
       Small; ride it along with the next ML touch.
-- [ ] **`scipy` in the equation engine** — nearly free: `python_engine.rs` already runs numpy in
-      that interpreter and scipy is importable there. Costs a probe + documentation, and gains
-      `scipy.signal` (despike, Savitzky-Golay), `scipy.interpolate`, `scipy.optimize.curve_fit`
-      for user-written equations. **Boundary: this is for the user's equations, not for core
-      petrophysics — the engine stays Rust.** Must degrade like numpy does.
+- [x] **SHIPPED 2026-07-31 — `scipy` in the equation engine.** The worker binds `scipy` plus
+      `signal`, `interpolate`, `optimize`, `stats` and `ndimage` into the script namespace, so
+      `signal.medfilt` (despike), `signal.savgol_filter`, `interpolate.interp1d` and
+      `optimize.curve_fit` are one line in a user equation. **numpy remains the only
+      requirement**: with scipy absent each name is a stub whose first use raises a message
+      naming the interpreter and the exact pip command, rather than a bare `NameError` that says
+      nothing about what to install or into which of three Pythons. `python_status()` now returns
+      `{path, scipy}` and the Equation Editor states it while the script is being written, the
+      same "probe before the dialog" discipline `office.rs` uses. **A curve mnemonic always
+      shadows a scipy name** — a well logged with a curve called STATS must not silently receive
+      `scipy.stats`. Boundary held: this is for the user's equations; core petrophysics stays in
+      Rust. Verified end to end through the real runner (medfilt removed a 300 gAPI spike;
+      `curve_fit` recovered a φ-k power law to <2%) and both branches are tested — installed and
+      absent.
+      *Open follow-up:* the editor note could carry a worked despike→smooth snippet, since
+      Savitzky-Golay over an un-despiked curve fits the spike rather than the rock.
 - [ ] **`Pillow`** — already present, and enough for the *display* half of the image-track item
       above (read JPEG/PNG/TIFF, dimensions, downsample). No install needed.
 - [ ] **OpenCV** — NOT installed, and deliberately deferred to the **digitizing** phase of the
