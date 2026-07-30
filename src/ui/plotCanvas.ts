@@ -272,10 +272,12 @@ export class PlotCanvas {
     ctx.restore();
   }
 
-  /** Scatter with optional per-point colors (else theme accent). Clips to the plot area. */
-  drawScatter(xs: ArrayLike<number>, ys: ArrayLike<number>, colors?: string[], radius = 1.6): void {
+  /** Scatter with optional colors: per-point array, one uniform color, or the theme
+   *  accent when omitted. Clips to the plot area. */
+  drawScatter(xs: ArrayLike<number>, ys: ArrayLike<number>, colors?: string[] | string, radius = 1.6): void {
     const { ctx } = this;
     const r = this.plotRect;
+    const uniform = typeof colors === "string" ? colors : colors ? null : this.theme.accent;
     ctx.save();
     ctx.beginPath();
     ctx.rect(r.x0, r.y0, r.w, r.h);
@@ -287,7 +289,7 @@ export class PlotCanvas {
       if (this.x.log && vx <= 0) continue;
       if (this.y.log && vy <= 0) continue;
       const [px, py] = this.toPx(vx, vy);
-      ctx.fillStyle = colors ? colors[i] : this.theme.accent;
+      ctx.fillStyle = uniform ?? (colors as string[])[i];
       ctx.beginPath();
       ctx.arc(px, py, radius, 0, Math.PI * 2);
       ctx.fill();

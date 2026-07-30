@@ -493,6 +493,11 @@ export class Ribbon {
         "Porosity",
         "M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14ZM7.5 8.5h.01M12 7h.01M9 12.5h.01M12.5 11.5h.01M7 11h.01",
       ],
+      Lithology: [
+        "Lithology",
+        "Lithology",
+        "M3 15l4-7 3 4 2.5-5L17 15ZM3 15h14",
+      ],
       Saturation: [
         "Saturation",
         "Water Saturation",

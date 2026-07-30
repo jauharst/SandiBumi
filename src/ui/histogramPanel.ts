@@ -19,8 +19,12 @@ import {
 import {
   buildPlotTemplateBar,
   buildZoneSelect,
+  concatValues,
+  contextZoneWindow,
   curveSelect,
   defaultPickParams,
+  describeContextOutcome,
+  fetchContextLayers,
   loadCurveNames,
   loadPlotProps,
   nearestDepthIndex,
@@ -30,6 +34,7 @@ import {
   type PlotContent,
 } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
+import { buildWellScope } from "./wellScope";
 import { renderPlotToSvg } from "./svgExport";
 import { renderPlotToPdf, type PlotPdf } from "./pdfExport";
 
@@ -146,6 +151,20 @@ export function computeHistogram(
 /** Compact percentile label ("P10", "P97.5"). */
 const pLabel = (p: number): string => `P${String(p)}`;
 
+/** One extra well drawn as a stepped outline behind the active well's bars —
+ *  display-only: stats, chips, picks, brushing and markers never read these values. */
+export interface HistogramContextLayer {
+  name: string;
+  values: Float32Array;
+  color: string;
+}
+
+export interface HistogramContext {
+  /** The active well's name, for the legend's first row. */
+  activeName: string;
+  layers: HistogramContextLayer[];
+}
+
 /** Draws the histogram (bars or frequency polyline) with optional cumulative-% overlay,
  *  box-plot strip, statistic/percentile markers, an in-plot statistics block, pick
  *  markers, and an optional synchronized-hover marker at the curve's value under another
@@ -159,10 +178,17 @@ export function drawHistogram(
   hoverValue: number | null = null,
   view: Viewport | null = null,
   brushValues: ArrayLike<number> | null = null,
+  context: HistogramContext | null = null,
 ): PlotCanvas | null {
   fitCanvasBackingStore(canvas);
-  const p2 = percentile(values, 2);
-  const p98 = percentile(values, 98);
+  // With context wells the auto range covers the pooled field spread, so a shifted
+  // neighbour (the GR-normalization case) isn't clipped by the active well's window.
+  const hasCtx = !!context && context.layers.length > 0;
+  const rangeValues = hasCtx
+    ? concatValues(Float32Array.from(values as ArrayLike<number>), context!.layers.map((l) => l.values))
+    : values;
+  const p2 = percentile(rangeValues, 2);
+  const p98 = percentile(rangeValues, 98);
   if (Number.isNaN(p2) || Number.isNaN(p98)) return null;
   // Floor the pad so a legitimately constant curve (p2 === p98, e.g. a flag/class curve or a
   // single-sample zone) still gets a positive-width window and renders one central bar,
@@ -181,7 +207,30 @@ export function drawHistogram(
 
   const stats = basicStats(values);
   const yScale = opts.normalize ? 100 / n : 1;
-  const peak = Math.max(...counts, 1) * yScale;
+
+  // Context wells: each is binned over the SAME edges and normalized to its OWN sample
+  // count, then scaled to the active axis — a neighbour with 3× the samples must not
+  // dwarf the active well; what's compared across wells is distribution SHAPE. In count
+  // mode a same-shaped well peaks at the active well's height; in % mode it's that
+  // well's true per-well percentage. Computed before the axis so yMax covers them.
+  const ctxCurves: { color: string; pts: [number, number][]; peak: number }[] = [];
+  if (hasCtx) {
+    for (const layer of context!.layers) {
+      const { counts: cc, n: cn } = computeHistogram(layer.values, min, max, bins);
+      if (cn === 0) continue;
+      const scale = (n * yScale) / cn;
+      let layerPeak = 0;
+      const pts: [number, number][] = [];
+      for (let i = 0; i < cc.length; i++) {
+        const y = cc[i] * scale;
+        if (y > layerPeak) layerPeak = y;
+        pts.push([edges[i], y], [edges[i + 1], y]);
+      }
+      ctxCurves.push({ color: layer.color, pts, peak: layerPeak });
+    }
+  }
+
+  const peak = Math.max(Math.max(...counts, 1) * yScale, ...ctxCurves.map((c) => c.peak));
   const yMax = peak * 1.06;
   // The P2–P98 axis window can clip tail samples, so the in-window n is below the total valid
   // count that the stats chips show. Surface both ("n = X of Y") so the two never silently
@@ -196,6 +245,15 @@ export function drawHistogram(
   );
   plot.drawFrame();
   const barColor = opts.color || plot.theme.accent;
+
+  // Context wells first (stepped outlines), so the active well's bars read on top.
+  if (ctxCurves.length) {
+    const { ctx } = plot;
+    ctx.save();
+    ctx.globalAlpha = 0.75;
+    for (const c of ctxCurves) plot.drawLine(c.pts, c.color, 1.4);
+    ctx.restore();
+  }
 
   if (opts.mode === "bars") {
     const { ctx } = plot;
@@ -353,6 +411,60 @@ export function drawHistogram(
       ctx.restore();
     }
   }
+
+  // Well legend for the multi-well overlay (top-left; the stats block owns top-right).
+  // The footer states the contract on the plot itself: context wells are scaled to a
+  // per-well shape comparison and are display-only.
+  if (hasCtx) {
+    const { ctx } = plot;
+    const r = plot.plotRect;
+    const MAX_ROWS = 10;
+    const trunc = (s: string) => (s.length > 18 ? `${s.slice(0, 17)}…` : s);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(r.x0, r.y0, r.w, r.h);
+    ctx.clip();
+    const rowH = 15;
+    const boxX = r.x0 + 8;
+    let boxY = r.y0 + (opts.boxPlot ? 42 : 20);
+    ctx.font = canvasFont(plot.theme, 10, 600);
+    ctx.fillStyle = plot.theme.text;
+    ctx.textAlign = "left";
+    ctx.fillText("Wells", boxX, boxY + 9);
+    boxY += rowH;
+    ctx.font = canvasFont(plot.theme, 10);
+    const row = (color: string, filled: boolean, label: string) => {
+      if (filled) {
+        ctx.fillStyle = color;
+        ctx.fillRect(boxX, boxY + 1, 11, 11);
+        ctx.strokeStyle = plot.theme.text;
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(boxX, boxY + 1, 11, 11);
+      } else {
+        // Outline swatch — matches how the context wells render (a stepped line, not bars).
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(boxX, boxY + 7);
+        ctx.lineTo(boxX + 11, boxY + 7);
+        ctx.stroke();
+      }
+      ctx.fillStyle = plot.theme.text;
+      ctx.fillText(label, boxX + 16, boxY + 10);
+      boxY += rowH;
+    };
+    row(barColor, true, `${trunc(context!.activeName)} (active)`);
+    const layers = context!.layers;
+    for (const layer of layers.slice(0, MAX_ROWS)) row(layer.color, false, trunc(layer.name));
+    if (layers.length > MAX_ROWS) {
+      ctx.fillStyle = plot.theme.text;
+      ctx.fillText(`+${layers.length - MAX_ROWS} more`, boxX + 16, boxY + 10);
+      boxY += rowH;
+    }
+    ctx.font = canvasFont(plot.theme, 9);
+    ctx.fillText("context: per-well shape · display-only", boxX, boxY + 9);
+    ctx.restore();
+  }
   return plot;
 }
 
@@ -381,10 +493,47 @@ export async function buildHistogramContent(
   propsBtn.title = "Histogram properties (or double-click / right-click the plot)";
   propsBtn.addEventListener("click", () => openProps());
 
+  // --- Multi-well scope: extra wells drawn as stepped outlines BEHIND the active
+  // well's bars, per-well normalized (shape comparison). Default "Active" keeps
+  // today's single-well behaviour exactly; stats, chips, picks, brushing and the
+  // hover marker stay bound to the active well — context wells are display-only.
+  const scope = await buildWellScope({
+    includeActive: true,
+    defaultMode: "active",
+    initial: initial?.wells,
+    onChange: () => {
+      updateScopeUi();
+      void reloadContext();
+    },
+  });
+  const scopeBtn = document.createElement("button");
+  scopeBtn.className = "plot-export-btn";
+  scopeBtn.title = "Overlay more wells' distributions as outlines behind the active well's bars";
+  const scopeRow = document.createElement("div");
+  scopeRow.style.display = "none";
+  const scopeStaticHint = document.createElement("p");
+  scopeStaticHint.className = "modal-hint";
+  scopeStaticHint.textContent =
+    "Context wells are display-only and normalized per well (shape comparison — a bigger well never dwarfs the active one): " +
+    "statistics, chips, picks and brushing act on the active well only. " +
+    "Zone/top windows are resolved per well by NAME (a well without that zone or top is skipped).";
+  const scopeInfo = document.createElement("p");
+  scopeInfo.className = "modal-hint";
+  scopeRow.append(scope.el, scopeStaticHint, scopeInfo);
+  scopeBtn.addEventListener("click", () => {
+    scopeRow.style.display = scopeRow.style.display === "none" ? "" : "none";
+  });
+  const updateScopeUi = () => {
+    scopeBtn.textContent = `Wells: ${scope.describe()}`;
+    scopeInfo.textContent = ctxInfo;
+    scopeInfo.style.display = ctxInfo ? "" : "none";
+  };
+
   const selRow = document.createElement("div");
   selRow.className = "plot-toolbar";
   selRow.appendChild(formRow("Curve", curveSel));
   selRow.appendChild(formRow("Zone", zoneSel.select));
+  selRow.appendChild(scopeBtn);
   selRow.appendChild(propsBtn);
 
   // Named templates for the display style, and image export (copy / save / print).
@@ -405,6 +554,7 @@ export async function buildHistogramContent(
   );
   selRow.appendChild(buildImageExportButtons(() => canvas, "Histogram", setStatus, () => getSvg(), () => getPdf()));
   content.appendChild(selRow);
+  content.appendChild(scopeRow);
 
   // Statistics chips — click to toggle; active chips show the value and (for the
   // percentile/mean ones) draw a marker line on the plot. User percentiles from the
@@ -511,6 +661,50 @@ export async function buildHistogramContent(
     }
   };
 
+  // --- Context-well data (multi-well overlay) — same budget rule as the crossplot.
+  const MAX_CONTEXT_POINTS = 60_000;
+  let ctxLayers: HistogramContextLayer[] = [];
+  let ctxInfo = "";
+  let ctxGen = 0;
+  const histContext = (): HistogramContext | null =>
+    ctxLayers.length ? { activeName: well.well_name, layers: ctxLayers } : null;
+
+  /** Fetches the scoped context wells' curve through the shared plotCommon machinery
+   *  (per-well zone/top-by-name windows, point budget, cancellation). Scope = just the
+   *  active well → clears the overlay: byte-identical single-well behaviour. */
+  const reloadContext = async () => {
+    const gen = ++ctxGen;
+    const ids = scope.getWellIds().filter((id) => id !== well.well_id);
+    if (ids.length === 0) {
+      const had = ctxLayers.length > 0;
+      ctxLayers = [];
+      ctxInfo = "";
+      updateScopeUi();
+      if (had) redraw();
+      return;
+    }
+    setStatus(`Histogram: loading ${ids.length} context well${ids.length === 1 ? "" : "s"}…`);
+    const outcome = await fetchContextLayers({
+      ids,
+      names: scope.namesFor(ids),
+      curves: [curveSel.value],
+      windowFor: (id) => contextZoneWindow(zoneSel, id),
+      budget: MAX_CONTEXT_POINTS,
+      isStale: () => gen !== ctxGen,
+    });
+    if (!outcome) return; // superseded by a newer call (or dispose)
+    ctxLayers = outcome.layers.map((l) => ({
+      name: l.name,
+      color: l.color,
+      values: l.series.get(curveSel.value.toUpperCase())!,
+    }));
+    ctxInfo = describeContextOutcome(outcome);
+    updateScopeUi();
+    setStatus(`Histogram ${ctxInfo.toLowerCase()}`);
+    redraw();
+  };
+  updateScopeUi();
+
   const redraw = () => {
     canvas.setAttribute("aria-label", `Histogram of ${curveSel.value}`); // a11y label follows the curve
     plot = drawHistogram(
@@ -527,6 +721,7 @@ export async function buildHistogramContent(
       hoverValue,
       viewRef.current,
       brushValues,
+      histContext(),
     );
     if (!plot) {
       const ctx = canvas.getContext("2d")!;
@@ -557,6 +752,7 @@ export async function buildHistogramContent(
       null,
       viewRef.current,
       null,
+      histContext(),
     );
   const getSvg = (): string | null => (plot ? renderPlotToSvg(plot.width, plot.height, drawStatic) : null);
   const getPdf = (): PlotPdf | null => (plot ? renderPlotToPdf(plot.width, plot.height, drawStatic) : null);
@@ -714,8 +910,12 @@ export async function buildHistogramContent(
     (pickA.row.querySelector(".pick-param") as HTMLInputElement).value = pa;
     (pickB.row.querySelector(".pick-param") as HTMLInputElement).value = pb;
     void reload();
+    void reloadContext(); // context wells show the same curve
   });
-  zoneSel.select.addEventListener("change", () => void reload());
+  zoneSel.select.addEventListener("change", () => {
+    void reload();
+    void reloadContext(); // per-well zone windows follow the zone choice
+  });
 
   // Track drag so a pan (below) doesn't also fire a pick. Coordinates are logical (CSS)
   // pixels — the space PlotCanvas.toData works in after HiDPI scaling.
@@ -768,6 +968,7 @@ export async function buildHistogramContent(
       return;
     }
     void reload(true);
+    void reloadContext(); // a module run may have rewritten the context wells' curves too
   });
 
   // Synchronized hover: mark this curve's value at the depth under any log view's cursor.
@@ -798,9 +999,14 @@ export async function buildHistogramContent(
   });
 
   await reload();
+  // Not awaited: a big scope must not block the panel build — the active well's plot
+  // appears immediately and the context outlines fade in when ready.
+  void reloadContext();
   return {
     el: content,
     dispose: () => {
+      ctxGen++; // cancel any in-flight context fetch
+      scope.dispose();
       unsubHover();
       unsubTheme();
       unsubData();
@@ -811,7 +1017,7 @@ export async function buildHistogramContent(
       if (rafId) cancelAnimationFrame(rafId);
       zoneSel.dispose();
     },
-    getState: () => ({ curve: curveSel.value, zone: zoneSel.select.value }),
+    getState: () => ({ curve: curveSel.value, zone: zoneSel.select.value, wells: scope.serialize() }),
     openProperties: openProps,
   };
 }

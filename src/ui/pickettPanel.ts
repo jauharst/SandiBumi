@@ -18,8 +18,12 @@ import {
   type ViewportRef,
 } from "./plotCanvas";
 import {
+  buildPlotTemplateBar,
   buildZoneSelect,
+  contextZoneWindow,
   curveSelect,
+  describeContextOutcome,
+  fetchContextLayers,
   loadCurveNames,
   loadPlotProps,
   nearestDepthIndex,
@@ -29,6 +33,7 @@ import {
   type PlotContent,
 } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
+import { buildWellScope } from "./wellScope";
 import { renderPlotToSvg } from "./svgExport";
 import { renderPlotToPdf, type PlotPdf } from "./pdfExport";
 
@@ -47,8 +52,10 @@ interface PickettProps {
 }
 
 const PICKETT_DEFAULTS: PickettProps = {
-  rtMin: 0.1,
-  rtMax: 1000,
+  // RT 0.2–2000 per the senior audit (AUDIT-2026-07-20, "Pickett plot defaults"): 0.1–1000
+  // clipped high-resistivity pay in the field data it was checked against. Saved props win.
+  rtMin: 0.2,
+  rtMax: 2000,
   phiMin: 0.01,
   phiMax: 1,
   pointSize: 1.8,
@@ -56,6 +63,39 @@ const PICKETT_DEFAULTS: PickettProps = {
   colormap: "rainbow",
   zLog: false,
 };
+
+/** Fills defaults and sanitizes saved/template-supplied props (a template can carry
+ *  anything, so every field is guarded — same policy as normalizeCrossplotOptions). */
+export function sanitizePickettProps(raw: Partial<PickettProps>): PickettProps {
+  const p: PickettProps = { ...PICKETT_DEFAULTS, ...raw };
+  const pos = (v: unknown, fb: number): number =>
+    typeof v === "number" && Number.isFinite(v) && v > 0 ? v : fb;
+  p.rtMin = pos(p.rtMin, PICKETT_DEFAULTS.rtMin);
+  p.rtMax = pos(p.rtMax, PICKETT_DEFAULTS.rtMax);
+  p.phiMin = pos(p.phiMin, PICKETT_DEFAULTS.phiMin);
+  p.phiMax = pos(p.phiMax, PICKETT_DEFAULTS.phiMax);
+  p.pointSize = Math.max(0.5, Math.min(8, pos(p.pointSize, PICKETT_DEFAULTS.pointSize)));
+  p.zCurve = typeof p.zCurve === "string" ? p.zCurve : "";
+  if (p.colormap !== "viridis") p.colormap = "rainbow";
+  p.zLog = !!p.zLog;
+  return p;
+}
+
+/** One extra well's cloud drawn faded behind the active well — display-only: the water
+ *  line, picks, brushing and tooltips stay the ACTIVE well's (m/n/Rw are per-well
+ *  parameters; the overlay shows whether neighbours share the active well's water line). */
+export interface PickettContextLayer {
+  name: string;
+  rt: Float32Array;
+  phi: Float32Array;
+  color: string;
+}
+
+export interface PickettContext {
+  /** The active well's name, for the legend's first row. */
+  activeName: string;
+  layers: PickettContextLayer[];
+}
 
 /** Water line fit from two picked points on the log-log plot:
  *  Sw=1 (Archie): RT = Rw / PHI^m  →  m = -Δlog(RT)/Δlog(PHI),  Rw = RT·PHI^m. */
@@ -84,21 +124,37 @@ export function drawPickett(
   hoverIdx = -1,
   view: Viewport | null = null,
   style?: { rtMin?: number; rtMax?: number; phiMin?: number; phiMax?: number; pointSize?: number; colors?: string[] },
+  context: PickettContext | null = null,
 ): PlotCanvas {
   fitCanvasBackingStore(canvas);
   const plot = new PlotCanvas(
     canvas,
-    { label: "RT (ohmm)", min: view ? view.xMin : style?.rtMin ?? 0.1, max: view ? view.xMax : style?.rtMax ?? 1000, log: true, invert: false },
-    { label: "PHIE (v/v)", min: view ? view.yMin : style?.phiMin ?? 0.01, max: view ? view.yMax : style?.phiMax ?? 1, log: true, invert: false },
+    { label: "RT (ohmm)", min: view ? view.xMin : style?.rtMin ?? PICKETT_DEFAULTS.rtMin, max: view ? view.xMax : style?.rtMax ?? PICKETT_DEFAULTS.rtMax, log: true, invert: false },
+    { label: "PHIE (v/v)", min: view ? view.yMin : style?.phiMin ?? PICKETT_DEFAULTS.phiMin, max: view ? view.yMax : style?.phiMax ?? PICKETT_DEFAULTS.phiMax, log: true, invert: false },
   );
   plot.drawFrame();
+
+  // Context wells first, faded, so the active well's cloud reads on top of them.
+  const hasCtx = !!context && context.layers.length > 0;
+  if (hasCtx) {
+    const { ctx } = plot;
+    ctx.save();
+    ctx.globalAlpha = 0.4;
+    for (const layer of context!.layers) {
+      plot.drawScatter(layer.rt, layer.phi, layer.color, style?.pointSize ?? 1.8);
+    }
+    ctx.restore();
+  }
   plot.drawScatter(rt, phi, style?.colors, style?.pointSize ?? 1.8);
 
   if (line) {
-    // rt(phi) = Rw / (phi^m · sw^n); straight lines in log-log space.
+    // rt(phi) = Rw / (phi^m · sw^n); straight lines in log-log space, spanning the whole
+    // visible porosity window (the old fixed 0.01–1 span truncated under custom ranges/zoom).
+    const phiLo = Math.min(plot.y.min, plot.y.max);
+    const phiHi = Math.max(plot.y.min, plot.y.max);
     const lineFor = (sw: number): [number, number][] => {
       const points: [number, number][] = [];
-      for (const phiV of [0.01, 1.0]) {
+      for (const phiV of [phiLo, phiHi]) {
         points.push([line.rw / (Math.pow(phiV, line.m) * Math.pow(sw, n)), phiV]);
       }
       return points;
@@ -114,7 +170,54 @@ export function drawPickett(
     ctx.fillStyle = plot.theme.text;
     ctx.textAlign = "left";
     ctx.fillText(`Sw=1 line:  M = ${line.m.toFixed(2)},  Rw = ${line.rw.toPrecision(3)} ohmm  (N = ${n})`, r.x0 + 8, r.y0 + 14);
-    ctx.fillText("dashed: Sw = 0.5, 0.25", r.x0 + 8, r.y0 + 27);
+    ctx.fillText(`dashed: Sw = 0.5, 0.25${hasCtx ? "  —  line = ACTIVE well's parameters" : ""}`, r.x0 + 8, r.y0 + 27);
+    ctx.restore();
+  }
+
+  // Well legend for the multi-well overlay (top-right; the water-line readout owns
+  // top-left). The footer states the contract on the plot itself.
+  if (hasCtx) {
+    const { ctx } = plot;
+    const r = plot.plotRect;
+    const MAX_ROWS = 10;
+    const trunc = (s: string) => (s.length > 18 ? `${s.slice(0, 17)}…` : s);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(r.x0, r.y0, r.w, r.h);
+    ctx.clip();
+    const rowH = 15;
+    const boxW = 150;
+    const boxX = r.x0 + r.w - boxW - 8;
+    let boxY = r.y0 + 8;
+    ctx.font = canvasFont(plot.theme, 10, 600);
+    ctx.fillStyle = plot.theme.text;
+    ctx.textAlign = "left";
+    ctx.fillText("Wells", boxX, boxY + 9);
+    boxY += rowH;
+    ctx.font = canvasFont(plot.theme, 10);
+    const row = (color: string | null, label: string) => {
+      if (color) {
+        ctx.fillStyle = color;
+        ctx.fillRect(boxX, boxY + 1, 11, 11);
+        ctx.strokeStyle = plot.theme.text;
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(boxX, boxY + 1, 11, 11);
+      }
+      ctx.fillStyle = plot.theme.text;
+      ctx.fillText(label, boxX + 16, boxY + 10);
+      boxY += rowH;
+    };
+    // The active swatch only means something when the cloud is one color (no Z coloring).
+    row(style?.colors ? null : plot.theme.accent, `${trunc(context!.activeName)} (active${style?.colors ? ", by Z" : ""})`);
+    const layers = context!.layers;
+    for (const layer of layers.slice(0, MAX_ROWS)) row(layer.color, trunc(layer.name));
+    if (layers.length > MAX_ROWS) {
+      ctx.fillStyle = plot.theme.text;
+      ctx.fillText(`+${layers.length - MAX_ROWS} more`, boxX + 16, boxY + 10);
+      boxY += rowH;
+    }
+    ctx.font = canvasFont(plot.theme, 9);
+    ctx.fillText("context is display-only", boxX, boxY + 9);
     ctx.restore();
   }
 
@@ -162,7 +265,7 @@ export async function buildPickettContent(
   const curveNames = await loadCurveNames();
   const zoneSel = await buildZoneSelect(well);
   trySelect(zoneSel.select, initial?.zone);
-  const props: PickettProps = { ...PICKETT_DEFAULTS, ...(await loadPlotProps<PickettProps>("pickett")) };
+  const props: PickettProps = sanitizePickettProps(await loadPlotProps<PickettProps>("pickett"));
 
   const numField = (value: string, placeholder = ""): HTMLInputElement => {
     const i = document.createElement("input");
@@ -190,6 +293,41 @@ export async function buildPickettContent(
   propsBtn.title = "Pickett properties — axes, point size, Z-color (or right-click the plot)";
   propsBtn.addEventListener("click", () => openProps());
 
+  // --- Multi-well scope: extra wells drawn as faded clouds BEHIND the active well's.
+  // The water line, picks, brushing and tooltips stay bound to the ACTIVE well — m/n/Rw
+  // are per-well parameters; the overlay shows whether neighbours share its water line.
+  const scope = await buildWellScope({
+    includeActive: true,
+    defaultMode: "active",
+    initial: initial?.wells,
+    onChange: () => {
+      updateScopeUi();
+      void reloadContext();
+    },
+  });
+  const scopeBtn = document.createElement("button");
+  scopeBtn.className = "plot-export-btn";
+  scopeBtn.title = "Overlay more wells' clouds behind the active well — the water line stays the active well's";
+  const scopeRow = document.createElement("div");
+  scopeRow.style.display = "none";
+  const scopeStaticHint = document.createElement("p");
+  scopeStaticHint.className = "modal-hint";
+  scopeStaticHint.textContent =
+    "Context wells are display-only: the Sw lines, M/N/Rw, water-line picks, brushing and tooltips all belong to the " +
+    "active well (m, n and Rw are per-well parameters — the overlay shows whether neighbours share its water line). " +
+    "Zone/top windows are resolved per well by NAME (a well without that zone or top is skipped).";
+  const scopeInfo = document.createElement("p");
+  scopeInfo.className = "modal-hint";
+  scopeRow.append(scope.el, scopeStaticHint, scopeInfo);
+  scopeBtn.addEventListener("click", () => {
+    scopeRow.style.display = scopeRow.style.display === "none" ? "" : "none";
+  });
+  const updateScopeUi = () => {
+    scopeBtn.textContent = `Wells: ${scope.describe()}`;
+    scopeInfo.textContent = ctxInfo;
+    scopeInfo.style.display = ctxInfo ? "" : "none";
+  };
+
   const selRow = document.createElement("div");
   selRow.className = "plot-toolbar";
   selRow.appendChild(formRow("RT", rtSel));
@@ -198,9 +336,25 @@ export async function buildPickettContent(
   selRow.appendChild(formRow("M", mIn));
   selRow.appendChild(formRow("Rw", rwIn));
   selRow.appendChild(formRow("Zone", zoneSel.select));
+  selRow.appendChild(scopeBtn);
   selRow.appendChild(propsBtn);
+  selRow.appendChild(
+    buildPlotTemplateBar<PickettProps>(
+      "pickett",
+      "Pickett",
+      () => ({ ...props }),
+      (t) => {
+        Object.assign(props, sanitizePickettProps({ ...props, ...t }));
+        savePlotProps("pickett", props);
+        viewRef.current = null; // show the template's axis ranges (a live zoom would mask them)
+        void reload(true); // refetch (the Z curve may have changed); keeps picks + M/Rw line
+      },
+      setStatus,
+    ),
+  );
   selRow.appendChild(buildImageExportButtons(() => canvas, "Pickett", setStatus, () => getSvg(), () => getPdf()));
   content.appendChild(selRow);
+  content.appendChild(scopeRow);
 
   const canvas = document.createElement("canvas");
   canvas.width = 720;
@@ -256,6 +410,51 @@ export async function buildPickettContent(
     return colorRampEx(z, lo, hi, props.colormap, props.zLog);
   };
 
+  // --- Context-well data (multi-well overlay) — same budget rule as crossplot/histogram.
+  const MAX_CONTEXT_POINTS = 60_000;
+  let ctxLayers: PickettContextLayer[] = [];
+  let ctxInfo = "";
+  let ctxGen = 0;
+  const pickettContext = (): PickettContext | null =>
+    ctxLayers.length ? { activeName: well.well_name, layers: ctxLayers } : null;
+
+  /** Fetches the scoped context wells' RT/porosity through the shared plotCommon machinery
+   *  (per-well zone/top-by-name windows, point budget, cancellation). Scope = just the
+   *  active well → clears the overlay: byte-identical single-well behaviour. */
+  const reloadContext = async () => {
+    const gen = ++ctxGen;
+    const ids = scope.getWellIds().filter((id) => id !== well.well_id);
+    if (ids.length === 0) {
+      const had = ctxLayers.length > 0;
+      ctxLayers = [];
+      ctxInfo = "";
+      updateScopeUi();
+      if (had) redraw();
+      return;
+    }
+    setStatus(`Pickett: loading ${ids.length} context well${ids.length === 1 ? "" : "s"}…`);
+    const outcome = await fetchContextLayers({
+      ids,
+      names: scope.namesFor(ids),
+      curves: [rtSel.value, phiSel.value],
+      windowFor: (id) => contextZoneWindow(zoneSel, id),
+      budget: MAX_CONTEXT_POINTS,
+      isStale: () => gen !== ctxGen,
+    });
+    if (!outcome) return; // superseded by a newer call (or dispose)
+    ctxLayers = outcome.layers.map((l) => ({
+      name: l.name,
+      color: l.color,
+      rt: l.series.get(rtSel.value.toUpperCase())!,
+      phi: l.series.get(phiSel.value.toUpperCase())!,
+    }));
+    ctxInfo = describeContextOutcome(outcome);
+    updateScopeUi();
+    setStatus(`Pickett ${ctxInfo.toLowerCase()}`);
+    redraw();
+  };
+  updateScopeUi();
+
   const redraw = () => {
     canvas.setAttribute("aria-label", `Pickett plot: ${rtSel.value} versus ${phiSel.value}`); // a11y label
     const n = parseFloat(nIn.value) || 2;
@@ -266,7 +465,7 @@ export async function buildPickettContent(
       phiMax: props.phiMax,
       pointSize: props.pointSize,
       colors,
-    });
+    }, pickettContext());
     // Ring the samples brushed in the crossplot. Depths come off the same backend grid, so an
     // exact Set membership test aligns them; clipped to the plot and skipping log-invalid points.
     if (plot && brushSet && brushSet.size && depths.length === rt.length) {
@@ -304,7 +503,7 @@ export async function buildPickettContent(
       phiMax: props.phiMax,
       pointSize: props.pointSize,
       colors,
-    });
+    }, pickettContext());
   const getSvg = (): string | null => (plot ? renderPlotToSvg(plot.width, plot.height, drawStatic) : null);
   const getPdf = (): PlotPdf | null => (plot ? renderPlotToPdf(plot.width, plot.height, drawStatic) : null);
 
@@ -345,7 +544,10 @@ export async function buildPickettContent(
   };
 
   for (const sel of [rtSel, phiSel, zoneSel.select]) {
-    sel.addEventListener("change", () => void reload());
+    sel.addEventListener("change", () => {
+      void reload();
+      void reloadContext(); // context wells share the RT/porosity curves and the zone window
+    });
   }
   nIn.addEventListener("change", redraw);
   // Typing M or Rw makes the line follow immediately (free user input of line parameters).
@@ -422,6 +624,7 @@ export async function buildPickettContent(
       return;
     }
     void reload(true);
+    void reloadContext(); // a module run may have rewritten the context wells' curves too
   });
 
   // Synchronized hover: ring the sample nearest the depth under any log view's cursor.
@@ -557,9 +760,14 @@ export async function buildPickettContent(
   });
 
   await reload();
+  // Not awaited: a big scope must not block the panel build — the active well's plot
+  // appears immediately and the context clouds fade in when ready.
+  void reloadContext();
   return {
     el: content,
     dispose: () => {
+      ctxGen++; // cancel any in-flight context fetch
+      scope.dispose();
       unsubHover();
       unsubTheme();
       unsubData();
@@ -578,6 +786,7 @@ export async function buildPickettContent(
       m: mIn.value,
       rw: rwIn.value,
       zone: zoneSel.select.value,
+      wells: scope.serialize(),
     }),
     openProperties: openProps,
   };

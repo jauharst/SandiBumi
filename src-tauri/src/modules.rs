@@ -207,6 +207,7 @@ pub fn list_modules() -> Vec<ModuleSpec> {
         splice_spec(),
         crate::multimin::multimin_spec(),
         crate::satheight::sw_height_spec(),
+        crate::lithology::midplot_spec(),
         crate::rocktyping::rocktyping_spec(),
         crate::rocktyping::lucia_rfn_spec(),
         crate::rocktyping::pittman_rx_spec(),
@@ -266,6 +267,7 @@ pub fn run_module(name: &str, ctx: &ModuleContext) -> Result<ModuleOutputs, Stri
         "sw_rtc" => Ok(crate::lrlc::sw_rtc(ctx)),
         "sw_imts" => Ok(crate::lrlc::sw_imts(ctx)),
         "sw_height" => Ok(crate::satheight::sw_height(ctx)),
+        "midplot" => Ok(crate::lithology::midplot(ctx)),
         "rocktyping" => Ok(crate::rocktyping::rocktyping(ctx)),
         "lucia_rfn" => Ok(crate::rocktyping::lucia_rfn_module(ctx)),
         "pittman_rx" => Ok(crate::rocktyping::pittman_rx(ctx)),
@@ -1345,7 +1347,7 @@ fn nphimat_spec() -> ModuleSpec {
 /// Piecewise-linear read of a digitized chart curve (strictly increasing in both
 /// coordinates). `inverse` swaps the axes — true porosity back to apparent
 /// limestone. Outside the tabulated span the end segment's slope is extended.
-fn chart_lerp(table: &[(f32, f32)], v: f64, inverse: bool) -> f64 {
+pub(crate) fn chart_lerp(table: &[(f32, f32)], v: f64, inverse: bool) -> f64 {
     let at = |i: usize| -> (f64, f64) {
         let (x, y) = table[i];
         if inverse { (y as f64, x as f64) } else { (x as f64, y as f64) }
@@ -1367,7 +1369,7 @@ fn chart_lerp(table: &[(f32, f32)], v: f64, inverse: bool) -> f64 {
 }
 
 /// The (sandstone, dolomite) chart tables for a tool choice.
-fn nphimat_tables(tool: &str, salt: bool) -> (&'static [(f32, f32)], &'static [(f32, f32)]) {
+pub(crate) fn nphimat_tables(tool: &str, salt: bool) -> (&'static [(f32, f32)], &'static [(f32, f32)]) {
     use crate::neutron_charts as nc;
     match tool {
         "NPHI" => (nc::CNL_NPHI_SS, nc::CNL_NPHI_DOL),

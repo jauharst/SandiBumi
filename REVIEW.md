@@ -4948,6 +4948,137 @@ Five asks from your VSH-panel screenshot (SandiMin deferred for later review).
       blank **Workspace** pane fills the rest (rather than the sidebar stretching); open any log
       view/plot and the blank pane disappears again.
 
+## Multi-well crossplot overlay (T-SHELL-16 increment 1, 2026-07-30)
+
+Crossplot only in this increment (histogram is next; Pickett needs a decision — its
+m/n/Rw are per-well parameters). Design: extra wells draw as a FADED CONTEXT LAYER
+behind the active well; everything interactive stays on the active well.
+
+- [ ] **Wells: Active button** in the crossplot toolbar (after Zone) — click it to open
+      the well-scope row: Active / Group / ★ Pinned / Selection / All / Custom…, the same
+      control as the batch dialogs. Default **Active** = today's single-well plot, unchanged.
+- [ ] **Pick a wider scope** (e.g. All, or a group): the other wells' points fade in
+      BEHIND the active well's cloud, one colour per well, with a **Wells legend** top-right
+      (active well first; long names truncate; >10 wells collapse to "+N more"). The legend
+      footer says "context is display-only".
+- [ ] **Context wells are display-only**: brushing (Shift+drag), the draggable parameter
+      handle, zone-parameter writes, core overlay, T-S endpoints, regression, tooltips and
+      the net polygon all still act on the ACTIVE well only — check the brush highlights
+      only active-well points and log views follow only its depths.
+- [ ] **Zone windows resolve per well by NAME**: with a zone (or a selected top) chosen,
+      each context well shows ITS OWN depths for that same-named zone/top — wells without
+      it are skipped and counted in the scope row ("N skipped"), never guessed from the
+      active well's depths.
+- [ ] **Point budget**: a huge scope decimates context wells to ~60k points total — the
+      scope row reports "~N pts (decimated)". The active well is never decimated.
+- [ ] **Axis auto-range covers the field**: with context wells on and auto ranges, a
+      neighbour whose cloud sits outside the active well's spread is still visible (not
+      clipped); manual ranges and mnemonic defaults (NPHI/RHOB…) behave as before.
+- [ ] **Scope survives a well switch**: set scope All, click another well in the Wells
+      pane — the rebuilt crossplot keeps scope All (and the new active well takes over the
+      interactive role). SVG/PDF/PNG export includes the context layer.
+
+## Multi-well histogram overlay (T-SHELL-16 increment 2, 2026-07-30)
+
+Same scope treatment as the crossplot, adapted to distributions: context wells draw
+as **stepped outline curves** behind the active well's bars, one colour per well.
+The comparability rule: **each context well is normalized to its own sample count**
+and scaled to the active axis — you compare distribution SHAPES, so a neighbour
+with 3× the samples never dwarfs the active well (this is the GR-normalization
+use case). Pickett is deliberately NOT scoped yet — your call pending (m/n/Rw are
+per-well parameters).
+
+- [ ] **Wells: Active button** in the histogram toolbar (after Zone) — same scope row
+      as the crossplot. Default **Active** = today's single-well histogram, unchanged.
+- [ ] **Wider scope**: context wells appear as stepped outlines behind the bars, with a
+      **Wells legend top-left** (active well first with a filled swatch, context wells
+      with line swatches matching how they render; footer "context: per-well shape ·
+      display-only"). Works in bars and line mode, count and Normalize-% mode.
+- [ ] **Shape, not size**: overlay a small zone of a big well — its outline peaks near
+      the active well's bars (same shape → same height), NOT 3× above them. In
+      Normalize-% mode the outline is that well's true per-well percentage.
+- [ ] **Pooled X range**: a context well whose distribution sits outside the active
+      well's P2–P98 (e.g. an unnormalized hot GR well) stretches the axis so its curve
+      is visible, not clipped. Single-well range behaviour unchanged.
+- [ ] **Stats stay active-well**: chips, P5/P50/P95/mean markers, user percentiles, box
+      plot, cumulative curve, picks A/B and the brushed sub-distribution all still read
+      the ACTIVE well only — context outlines never move a statistic.
+- [ ] **Same zone-by-name + skip rule** as the crossplot; scope row reports counts,
+      decimation and skips. Scope survives a well switch; SVG/PDF export includes the
+      outlines and legend.
+
+## Pickett v2 completion + multi-well overlay (T-SHELL-16 increment 3, 2026-07-30)
+
+The Pickett already had free M/N/Rw fields, Properties (axes, point size, Z-colour)
+and viewport-preserving N changes from an earlier pass. This increment adds the rest
+of the audit items plus the scope overlay. The multi-well decision, as agreed: the
+**overlay shows whether neighbours share the ACTIVE well's water line** — m, n and Rw
+are per-well parameters and never come from a context well.
+
+- [ ] **Wells: Active button** in the Pickett toolbar (after Zone) — same scope row as
+      the other plots. Default **Active** = today's single-well plot, unchanged.
+- [ ] **Wider scope**: context wells' clouds fade in behind the active well's, one
+      colour per well, Wells legend top-right, footer "context is display-only". The
+      water-line readout adds "line = ACTIVE well's parameters" whenever context is on.
+      A neighbour sharing the water line hugs the same Sw=1 edge; one with different Rw
+      sits visibly shifted — that's the point of the overlay.
+- [ ] **Water-line picks, M/N/Rw, brushing, tooltips, zone writes**: all still act on
+      the ACTIVE well only. Clicking two points fits M/Rw from the active cloud even
+      with context wells showing.
+- [ ] **Template bar** (★ Save template / recall / 🗑) — Pickett display settings
+      (axes, point size, Z-colour) now save under a name like Histogram/Crossplot.
+      Recalling a template with garbage values is safe (everything sanitized).
+- [ ] **New default RT axis 0.2–2000 ohmm** (audit fix — 0.1–1000 clipped
+      high-resistivity pay). Your saved axis ranges are untouched; only a fresh
+      panel/profile sees the new defaults.
+- [ ] **Sw lines span the visible window**: set a custom porosity range (e.g.
+      0.02–0.5) or zoom — the Sw = 1 / 0.5 / 0.25 lines run edge to edge instead of
+      stopping at the old fixed φ = 0.01–1 span.
+- [ ] **Scope survives a well switch**; SVG/PDF export includes the context clouds
+      and legend. Same zone-by-name + skip rule, budget and scope-row reporting as
+      the other two plots.
+
+## MID plot module — UMAA / RHOMAA (2026-07-30)
+
+Feeds the Lith-6 chart overlay that has been sitting in the chartbook library with
+nothing to plot on it. New **Lithology** category in the Petrophysics ribbon.
+
+- [ ] **Petrophysics → Lithology → Apparent Matrix (MID plot)** runs on a well with
+      RHOB + NPHI + PEF and writes four curves: **UMAA**, **RHOMAA**, **U** (volumetric
+      photoelectric factor) and **PHIA** (the apparent porosity it actually used —
+      exposed so the basis is never hidden).
+- [ ] **Crossplot X = UMAA, Y = RHOMAA** opens on the chart's own window (UMAA 0–16,
+      RHOMAA 2.2–3.1 with density increasing downward). Properties → Chart overlay now
+      lists **"Lith-6 Umaa-Rhomaa MID plot"** under *For these axes* — switch it on and
+      the quartz / calcite / dolomite triangle, the clay and anhydrite points and the
+      percentage lines land around your cloud.
+- [ ] **Read a known carbonate or a clean sand** and check the cloud sits where the
+      lithology says it should. Please push back if the placement disagrees with your
+      chartbook reading — the analytic apparent porosity is the one approximation here.
+- [ ] **The porosity basis is a visible choice** (OPT_PHIA in the run dialog), and the
+      default **CHART** now reads the density-neutron crossplot the way you would by hand
+      on Por-11 — it solves for the porosity at which both tools imply the same matrix,
+      interpolating across the chartbook's sandstone / limestone / dolomite curves. Pick
+      the curve family with **TOOL** / **SALINITY** (same choices as Neutron Matrix
+      Conversion). **NPHI must be in apparent-limestone units** — run Neutron Matrix
+      Conversion first if your log is recorded in sandstone or dolomite units.
+- [ ] **Compare CHART against XPLOT on a dolomite or mixed-carbonate interval**: XPLOT
+      (the analytic average commercial suites take, kept for comparison) leaves dolomite
+      about 0.06 g/cc light and 0.34 b/cm³ left of its chart point; CHART puts it on the
+      dolomite line. If your chartbook reading disagrees with CHART, that's the one I
+      most want to hear about.
+- [ ] **Anhydrite / pyrite intervals stay heavy** rather than dropping out (denser than
+      every matrix line, they clamp to the end of the search and plot in the chart's
+      high-RHOMAA corner). **Gas** pushes points low-left, exactly as on the printed
+      chart — the module does not "fix" gas, so the gas signature stays readable.
+- [ ] **Density-only porosity is deliberately absent** — it is algebraically degenerate
+      (it returns the assumed matrix density for every sample, a constant curve that
+      would still plot convincingly). There is a unit test stating the trap.
+- [ ] **Barite mud warning** is in the method note: PEF is unreadable there. Run with
+      **Mask = BADHOLE** on rugose intervals.
+- [ ] **Over-porous samples drop out** as blanks rather than as huge numbers (PHIA_MAX,
+      default 0.5, is an editable parameter — not a hidden constant).
+
 ---
 
 _Made in SandiBumi._ © 2026 SandiBumi. All rights reserved.

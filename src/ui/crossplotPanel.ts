@@ -28,8 +28,12 @@ import { AXIS_ALIASES, CHART_OVERLAYS, findChartOverlay, type ChartOverlayDef } 
 import {
   buildPlotTemplateBar,
   buildZoneSelect,
+  concatValues,
+  contextZoneWindow,
   CORE_OVERLAY_MAP,
   curveSelect,
+  describeContextOutcome,
+  fetchContextLayers,
   loadCurveNames,
   loadPlotProps,
   nearestDepthIndex,
@@ -39,6 +43,7 @@ import {
   type PlotContent,
 } from "./plotCommon";
 import { buildImageExportButtons } from "./plotExport";
+import { buildWellScope } from "./wellScope";
 import { renderPlotToSvg } from "./svgExport";
 import { renderPlotToPdf, type PlotPdf } from "./pdfExport";
 
@@ -422,6 +427,13 @@ function axisDefaults(curve: string): { min: number; max: number; invert: boolea
     case "SWE":
     case "SWT":
       return { min: 0, max: 1, invert: false };
+    // MID-plot axes (Lith-6): the window spans the chart's own mineral points, quartz
+    // (4.8, 2.65) to anhydrite (14.9, 2.98), and RHOMAA increases downward like RHOB so
+    // the triangle sits the way the printed chart draws it.
+    case "UMAA":
+      return { min: 0, max: 16, invert: false };
+    case "RHOMAA":
+      return { min: 2.2, max: 3.1, invert: true };
     default:
       return null;
   }
@@ -662,6 +674,22 @@ export function computeCrossplotColors(
   return { colors, categorical, zLo, zHi };
 }
 
+/** One extra well drawn behind the active well's cloud — display-only: no brushing,
+ *  picks, tooltips or regression ever read these points. Arrays are pre-decimated to
+ *  the panel's point budget before they get here. */
+export interface ContextWellLayer {
+  name: string;
+  xs: Float32Array;
+  ys: Float32Array;
+  color: string;
+}
+
+export interface CrossplotContext {
+  /** The active well's name, for the legend's first row. */
+  activeName: string;
+  layers: ContextWellLayer[];
+}
+
 export function drawCrossplot(
   canvas: HTMLCanvasElement,
   xName: string,
@@ -674,6 +702,7 @@ export function drawCrossplot(
   hoverIdx = -1,
   view: Viewport | null = null,
   precolors: CrossplotColors | null = null,
+  context: CrossplotContext | null = null,
 ): PlotCanvas | null {
   fitCanvasBackingStore(canvas);
   const auto = (values: Float32Array): { min: number; max: number } | null => {
@@ -711,8 +740,13 @@ export function drawCrossplot(
     return { min, max, invert };
   };
 
-  const xr = resolve(xName, xs, opts.xLog, opts.xMin, opts.xMax);
-  const yr = resolve(yName, ys, opts.yLog, opts.yMin, opts.yMax);
+  // With context wells the auto range (and the log-axis positive floor) must cover the
+  // whole field's spread, not just the active well — otherwise the overlay draws clipped.
+  const hasCtx = !!context && context.layers.length > 0;
+  const rangeXs = hasCtx ? concatValues(xs, context!.layers.map((l) => l.xs)) : xs;
+  const rangeYs = hasCtx ? concatValues(ys, context!.layers.map((l) => l.ys)) : ys;
+  const xr = resolve(xName, rangeXs, opts.xLog, opts.xMin, opts.xMax);
+  const yr = resolve(yName, rangeYs, opts.yLog, opts.yMin, opts.yMax);
   if (!xr || !yr) return null;
   // A zoom/pan viewport (if any) overrides the computed window, keeping axis inversion.
   if (view) {
@@ -739,10 +773,24 @@ export function drawCrossplot(
   const hasZ = zName !== "" && zs.length > 0;
   const { colors, categorical, zLo, zHi } =
     precolors ?? computeCrossplotColors(zName, zs, xs.length, opts.colormap, opts.zLog, opts.color);
+
+  // Context wells first, faded, so the active well's cloud always reads on top of them.
+  if (hasCtx) {
+    const { ctx } = plot;
+    ctx.save();
+    ctx.globalAlpha = 0.4;
+    for (const layer of context!.layers) {
+      plot.drawScatter(layer.xs, layer.ys, layer.color, Math.max(0.5, opts.pointSize));
+    }
+    ctx.restore();
+  }
   plot.drawScatter(xs, ys, colors, Math.max(0.5, opts.pointSize));
 
   if (opts.marginals) drawMarginals(plot, xs, ys, opts.bins, pointColor);
 
+  // Where the next top-right legend block may start (the well legend stacks under the
+  // facies legend when both are shown).
+  let legendBottom = plot.plotRect.y0 + 8;
   if (categorical) {
     // Discrete facies legend: one swatch per class actually present.
     const { ctx } = plot;
@@ -769,9 +817,59 @@ export function drawCrossplot(
       boxY += rowH;
     }
     ctx.restore();
+    legendBottom = boxY + 6;
   } else if (hasZ && colors && !Number.isNaN(zLo)) {
     // Z color-bar legend in the chosen colormap ("log" tag when log-scaled).
     drawColorbar(plot, { map: opts.colormap, lo: zLo, hi: zHi, label: zName, log: opts.zLog });
+  }
+
+  // Well legend for the multi-well overlay: the active well first, then the context
+  // wells in their layer colors. The footer states the interaction contract right on the
+  // plot — context wells are display-only, every gesture acts on the active well.
+  if (hasCtx) {
+    const { ctx } = plot;
+    const r = plot.plotRect;
+    const MAX_ROWS = 10;
+    const trunc = (s: string) => (s.length > 18 ? `${s.slice(0, 17)}…` : s);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(r.x0, r.y0, r.w, r.h);
+    ctx.clip();
+    const rowH = 15;
+    const boxW = 150;
+    const boxX = r.x0 + r.w - boxW - 8;
+    let boxY = legendBottom;
+    ctx.font = canvasFont(plot.theme, 10, 600);
+    ctx.fillStyle = plot.theme.text;
+    ctx.textAlign = "left";
+    ctx.fillText("Wells", boxX, boxY + 9);
+    boxY += rowH;
+    ctx.font = canvasFont(plot.theme, 10);
+    const row = (color: string | null, label: string) => {
+      if (color) {
+        ctx.fillStyle = color;
+        ctx.fillRect(boxX, boxY + 1, 11, 11);
+        ctx.strokeStyle = plot.theme.text;
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(boxX, boxY + 1, 11, 11);
+      }
+      ctx.fillStyle = plot.theme.text;
+      ctx.fillText(label, boxX + 16, boxY + 10);
+      boxY += rowH;
+    };
+    // The active row's swatch only means something when the cloud is one color; a
+    // Z-colored cloud gets a label instead of a misleading single swatch.
+    row(hasZ ? null : opts.color || plot.theme.accent, `${trunc(context!.activeName)} (active${hasZ ? `, by ${zName}` : ""})`);
+    const layers = context!.layers;
+    for (const layer of layers.slice(0, MAX_ROWS)) row(layer.color, trunc(layer.name));
+    if (layers.length > MAX_ROWS) {
+      ctx.fillStyle = plot.theme.text;
+      ctx.fillText(`+${layers.length - MAX_ROWS} more`, boxX + 16, boxY + 10);
+      boxY += rowH;
+    }
+    ctx.font = canvasFont(plot.theme, 9);
+    ctx.fillText("context is display-only", boxX, boxY + 9);
+    ctx.restore();
   }
 
   // User percentiles: dashed X (vertical) and Y (horizontal) reference lines.
@@ -931,6 +1029,42 @@ export async function buildCrossplotContent(
     zSel.value = wanted;
   }
 
+  // --- Multi-well scope: extra wells drawn as a faded context layer BEHIND the active
+  // well's cloud. Default "Active" keeps today's single-well behaviour exactly; the
+  // active well's path (fetch, brushing, picks, zones, core, T-S, regression, tooltips)
+  // is untouched — context wells are display-only by design, because a brushed depth
+  // only means something relative to ONE well.
+  const scope = await buildWellScope({
+    includeActive: true,
+    defaultMode: "active",
+    initial: initial?.wells,
+    onChange: () => {
+      updateScopeUi();
+      void reloadContext();
+    },
+  });
+  const scopeBtn = document.createElement("button");
+  scopeBtn.className = "plot-export-btn";
+  scopeBtn.title = "Overlay more wells as a context layer behind the active well's points";
+  const scopeRow = document.createElement("div");
+  scopeRow.style.display = "none";
+  const scopeStaticHint = document.createElement("p");
+  scopeStaticHint.className = "modal-hint";
+  scopeStaticHint.textContent =
+    "Context wells are display-only: brushing, parameter picks, zone writes, core and T-S overlays act on the active well only. " +
+    "Zone/top windows are resolved per well by NAME (a well without that zone or top is skipped).";
+  const scopeInfo = document.createElement("p");
+  scopeInfo.className = "modal-hint";
+  scopeRow.append(scope.el, scopeStaticHint, scopeInfo);
+  scopeBtn.addEventListener("click", () => {
+    scopeRow.style.display = scopeRow.style.display === "none" ? "" : "none";
+  });
+  const updateScopeUi = () => {
+    scopeBtn.textContent = `Wells: ${scope.describe()}`;
+    scopeInfo.textContent = ctxInfo;
+    scopeInfo.style.display = ctxInfo ? "" : "none";
+  };
+
   const persist = () => savePlotProps("crossplot", opts);
 
   const propsBtn = document.createElement("button");
@@ -945,6 +1079,7 @@ export async function buildCrossplotContent(
   selRow.appendChild(formRow("Y", ySel));
   selRow.appendChild(formRow("Color", zSel));
   selRow.appendChild(formRow("Zone", zoneSel.select));
+  selRow.appendChild(scopeBtn);
   selRow.appendChild(propsBtn);
   selRow.appendChild(
     buildPlotTemplateBar<CrossplotOptions>(
@@ -965,6 +1100,7 @@ export async function buildCrossplotContent(
   );
   selRow.appendChild(buildImageExportButtons(() => canvas, "Crossplot", setStatus, () => getSvg(), () => getPdf()));
   content.appendChild(selRow);
+  content.appendChild(scopeRow);
 
   const canvas = document.createElement("canvas");
   canvas.width = 720;
@@ -1101,7 +1237,20 @@ export async function buildCrossplotContent(
   // marker, brush highlight, cutoff shading, parameter handle) are drawn only in redraw, so the
   // SVG export omits them. `hi` = hover index (-1 for a still export).
   const drawStatic = (target: HTMLCanvasElement, hi: number): PlotCanvas | null => {
-    const p = drawCrossplot(target, xSel.value, ySel.value, zSel.value, xs, ys, zs, opts, hi, viewRef.current, zColors());
+    const p = drawCrossplot(
+      target,
+      xSel.value,
+      ySel.value,
+      zSel.value,
+      xs,
+      ys,
+      zs,
+      opts,
+      hi,
+      viewRef.current,
+      zColors(),
+      ctxLayers.length ? { activeName: well.well_name, layers: ctxLayers } : null,
+    );
     if (!p) return null;
     if (opts.showCore) {
       const coreX = coreByName.get(CORE_OVERLAY_MAP[xSel.value.toUpperCase()] ?? "");
@@ -1544,6 +1693,53 @@ export async function buildCrossplotContent(
     redraw();
   };
 
+  // --- Context-well data (multi-well overlay) -------------------------------
+  // Total point budget across ALL context wells: 2,000 wells × ~5,000 samples is 10M
+  // points — far past what canvas 2D (or the eye) can use. Each well gets an equal
+  // share and is stride-decimated down to it; the scope row reports the decimation.
+  const MAX_CONTEXT_POINTS = 60_000;
+  let ctxLayers: ContextWellLayer[] = [];
+  let ctxInfo = "";
+  let ctxGen = 0;
+
+  /** Fetches the scoped context wells' X/Y data through the shared plotCommon machinery
+   *  (per-well zone/top-by-name windows, point budget, concurrency, cancellation via the
+   *  generation token). Scope = just the active well → clears the overlay: byte-identical
+   *  single-well behaviour. */
+  const reloadContext = async () => {
+    const gen = ++ctxGen;
+    const ids = scope.getWellIds().filter((id) => id !== well.well_id);
+    if (ids.length === 0) {
+      const had = ctxLayers.length > 0;
+      ctxLayers = [];
+      ctxInfo = "";
+      updateScopeUi();
+      if (had) redraw();
+      return;
+    }
+    setStatus(`Crossplot: loading ${ids.length} context well${ids.length === 1 ? "" : "s"}…`);
+    const outcome = await fetchContextLayers({
+      ids,
+      names: scope.namesFor(ids),
+      curves: [xSel.value, ySel.value],
+      windowFor: (id) => contextZoneWindow(zoneSel, id),
+      budget: MAX_CONTEXT_POINTS,
+      isStale: () => gen !== ctxGen,
+    });
+    if (!outcome) return; // superseded by a newer call (or dispose)
+    ctxLayers = outcome.layers.map((l) => ({
+      name: l.name,
+      color: l.color,
+      xs: l.series.get(xSel.value.toUpperCase())!,
+      ys: l.series.get(ySel.value.toUpperCase())!,
+    }));
+    ctxInfo = describeContextOutcome(outcome);
+    updateScopeUi();
+    setStatus(`Crossplot ${ctxInfo.toLowerCase()}`);
+    redraw();
+  };
+  updateScopeUi();
+
   /** T-S triangle lives on VSH (0–1) vs PHIT axes; on any other pair (e.g. the default
    *  NPHI-RHOB) it lands entirely off-scale and looks like nothing happened. When it's
    *  switched on, auto-switch the axes to a VSH/porosity pair when the well has one.
@@ -1817,7 +2013,11 @@ export async function buildCrossplotContent(
   };
 
   for (const sel of [xSel, ySel, zSel, zoneSel.select]) {
-    sel.addEventListener("change", () => void reload());
+    sel.addEventListener("change", () => {
+      void reload();
+      // Context wells share the X/Y axes and the zone window; the Z curve is active-well only.
+      if (sel !== zSel) void reloadContext();
+    });
   }
 
   // --- Interactive handles: parameter point + Thomas-Stieber endpoints -----
@@ -1990,6 +2190,7 @@ export async function buildCrossplotContent(
       return;
     }
     void reload(true);
+    void reloadContext(); // a module run may have rewritten the context wells' curves too
   });
 
   // Synchronized hover: ring the sample nearest the depth under any log view's cursor.
@@ -2084,9 +2285,14 @@ export async function buildCrossplotContent(
 
   await reload();
   await reloadCore();
+  // Not awaited: a big scope (hundreds of wells) must not block the panel build — the
+  // active well's plot appears immediately and the context layer fades in when ready.
+  void reloadContext();
   return {
     el: content,
     dispose: () => {
+      ctxGen++; // cancel any in-flight context fetch
+      scope.dispose();
       unsubHover();
       unsubTheme();
       unsubData();
@@ -2099,7 +2305,7 @@ export async function buildCrossplotContent(
       if (rafId) cancelAnimationFrame(rafId);
       zoneSel.dispose();
     },
-    getState: () => ({ x: xSel.value, y: ySel.value, z: zSel.value, zone: zoneSel.select.value }),
+    getState: () => ({ x: xSel.value, y: ySel.value, z: zSel.value, zone: zoneSel.select.value, wells: scope.serialize() }),
     openProperties: openProps,
   };
 }

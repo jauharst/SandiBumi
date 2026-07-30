@@ -1,7 +1,8 @@
-import { deleteDocument, listCurveCatalog, listDocuments, listZones, saveDocument, setZoneParam, type WellSummary, type ZoneEntry } from "../ipc";
+import { deleteDocument, getCurveData, listCurveCatalog, listDocuments, listTops, listZones, saveDocument, setZoneParam, type WellSummary, type ZoneEntry } from "../ipc";
 import { appState, type TopInterval } from "../state";
 import { recordProcess } from "../processLog";
 import { formRow, openModal } from "./modal";
+import { FACIES_PALETTE } from "./plotCanvas";
 
 /** Shared pieces for the parameter-selection dialogs: curve/zone selectors and the
  *  "apply picked value to a zone parameter" row. */
@@ -304,8 +305,10 @@ export interface ZoneSelect {
   dispose: () => void;
 }
 
-/** The zone select's option value for the Wells & Tops pane's selected top interval. */
-const TOP_OPTION = "@top";
+/** The zone select's option value for the Wells & Tops pane's selected top interval.
+ *  Exported so panels can tell "windowed to a top interval" apart from a named zone
+ *  (the ZoneChoice's zoneName is the top's name in that case, which could collide). */
+export const TOP_OPTION = "@top";
 
 /** Zone dropdown: "All depth" plus the well's zones. Selecting a zone windows the data
  *  and targets that zone for parameter writes. When a top is selected in the Wells &
@@ -379,6 +382,143 @@ export async function buildZoneSelect(well: WellSummary): Promise<ZoneSelect> {
       : { zoneName: "*", depthMin: null, depthMax: null };
   };
   return { select, current, dispose: unsub };
+}
+
+// --- Multi-well plot context (shared by crossplot + histogram) ---------------
+// Extra wells drawn as a display-only layer behind the active well. The two
+// correctness-critical rules live HERE, once: (1) zone/top windows are resolved
+// per well BY NAME in that well's own depth frame — a zone sits at different
+// measured depths in every well, and reusing the active well's window would
+// slice arbitrary rock; (2) a total point budget with per-well stride decimation
+// keeps a 2,000-well scope drawable.
+
+/** Concatenates value arrays for pooled auto-ranging, so context wells aren't
+ *  clipped by a window fitted to the active well alone. */
+export function concatValues(head: Float32Array, rest: Float32Array[]): Float32Array {
+  let n = head.length;
+  for (const a of rest) n += a.length;
+  const out = new Float32Array(n);
+  out.set(head, 0);
+  let off = head.length;
+  for (const a of rest) {
+    out.set(a, off);
+    off += a.length;
+  }
+  return out;
+}
+
+/** The active zone choice resolved in ANOTHER well's own depth frame: the same-NAMED
+ *  zone (or top interval, Wells & Tops convention: this top down to the next, last →
+ *  TD) from that well's tables. null = this well doesn't carry the zone/top → skip. */
+export async function contextZoneWindow(
+  zoneSel: ZoneSelect,
+  wellId: string,
+): Promise<[number | null, number | null] | null> {
+  if (zoneSel.select.value === "*") return [null, null];
+  if (zoneSel.select.value === TOP_OPTION) {
+    const iv = appState.selectedInterval.get();
+    if (!iv) return null;
+    const tops = await listTops(wellId).catch(() => []);
+    const sorted = [...tops].sort((a, b) => a.depth - b.depth);
+    const i = sorted.findIndex((t) => t.top_name === iv.topName);
+    if (i < 0) return null;
+    return [sorted[i].depth, sorted[i + 1]?.depth ?? null];
+  }
+  const zones = await listZones(wellId).catch(() => []);
+  const z = zones.find((q) => q.zone_name === zoneSel.current().zoneName);
+  return z ? [z.top_depth, z.bottom_depth] : null;
+}
+
+/** One fetched context well: its requested curves, stride-decimated in step (paired
+ *  samples stay paired), keyed by upper-cased curve name. */
+export interface ContextLayerData {
+  name: string;
+  color: string;
+  series: Map<string, Float32Array>;
+}
+
+export interface ContextFetchOutcome {
+  layers: ContextLayerData[];
+  /** Decimated sample rows actually held, across all layers. */
+  shown: number;
+  decimated: boolean;
+  /** Wells dropped: no matching zone/top, no data for the curves, or a fetch error. */
+  skipped: number;
+}
+
+/** Fetches the context wells' curves, concurrency-limited and cancellable: `isStale()`
+ *  is checked after every await, and a stale call returns null without touching anything.
+ *  Every requested curve must be present in a well or that well is skipped — a layer with
+ *  X but not Y would draw a broken cloud. */
+export async function fetchContextLayers(args: {
+  ids: string[];
+  names: string[];
+  curves: string[];
+  windowFor: (wellId: string) => Promise<[number | null, number | null] | null>;
+  budget: number;
+  concurrency?: number;
+  isStale: () => boolean;
+}): Promise<ContextFetchOutcome | null> {
+  const { ids, names, curves, windowFor, budget, isStale } = args;
+  const quota = Math.max(1, Math.floor(budget / ids.length));
+  const layers: (ContextLayerData | null)[] = new Array(ids.length).fill(null);
+  let skipped = 0;
+  let shown = 0;
+  let decimated = false;
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < ids.length && !isStale()) {
+      const i = next++;
+      try {
+        const win = await windowFor(ids[i]);
+        if (isStale()) return;
+        if (!win) {
+          skipped++;
+          continue;
+        }
+        const series = await getCurveData(ids[i], curves, win[0], win[1]);
+        if (isStale()) return;
+        const byName = new Map(series.map((s) => [s.curve_name, s.value]));
+        const arrays = curves.map((c) => byName.get(c.toUpperCase()));
+        const n = arrays.reduce((m, a) => Math.min(m, a?.length ?? 0), Infinity);
+        if (arrays.some((a) => !a) || !Number.isFinite(n) || n === 0) {
+          skipped++;
+          continue;
+        }
+        const stride = Math.max(1, Math.ceil(n / quota));
+        const out = new Map<string, Float32Array>();
+        let m = n;
+        if (stride > 1) {
+          decimated = true;
+          m = Math.ceil(n / stride);
+          for (let c = 0; c < curves.length; c++) {
+            const src = arrays[c]!;
+            const dst = new Float32Array(m);
+            for (let k = 0, j = 0; k < n; k += stride, j++) dst[j] = src[k];
+            out.set(curves[c].toUpperCase(), dst);
+          }
+        } else {
+          for (let c = 0; c < curves.length; c++) out.set(curves[c].toUpperCase(), arrays[c]!.subarray(0, n));
+        }
+        layers[i] = { name: names[i], color: FACIES_PALETTE[i % FACIES_PALETTE.length], series: out };
+        shown += m;
+      } catch {
+        skipped++;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(args.concurrency ?? 8, ids.length) }, () => worker()));
+  if (isStale()) return null;
+  return { layers: layers.filter((l): l is ContextLayerData => l !== null), shown, decimated, skipped };
+}
+
+/** Human line for the scope row: "Context: 41 wells · ~58,200 pts (decimated) · 3 skipped …". */
+export function describeContextOutcome(o: ContextFetchOutcome): string {
+  return (
+    `Context: ${o.layers.length} well${o.layers.length === 1 ? "" : "s"} · ~${o.shown.toLocaleString()} pts` +
+    (o.decimated ? " (decimated)" : "") +
+    (o.skipped ? ` · ${o.skipped} skipped (no data or no matching zone/top)` : "")
+  );
 }
 
 /** One "pick → parameter" row: colored swatch, picked-value readout, editable target

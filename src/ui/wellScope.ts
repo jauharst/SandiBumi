@@ -14,7 +14,7 @@ import { appState } from "../state";
  *  `getWellIds()` re-reads live state at call time, so pinning/selecting more wells and then
  *  hitting Run just works. Counts update live while the dialog is open. */
 
-export type ScopeMode = "group" | "pinned" | "selection" | "all" | "custom";
+export type ScopeMode = "active" | "group" | "pinned" | "selection" | "all" | "custom";
 
 export interface WellScope {
   /** The self-contained control block — append it straight into the dialog (it is its own row). */
@@ -25,6 +25,10 @@ export interface WellScope {
   namesFor(ids: string[]): string[];
   /** How many wells are currently in scope. */
   count(): number;
+  /** Short label for a toolbar button ("Active", "All (142)", the group name…). */
+  describe(): string;
+  /** Round-trippable spec ("active", "group:<id>", "custom:<id,id>", …) for getState. */
+  serialize(): string;
   /** Detach live-state subscriptions. Call from the dialog's dispose(). */
   dispose(): void;
 }
@@ -34,6 +38,12 @@ export interface WellScopeOptions {
   onChange?: (ids: string[]) => void;
   /** Force a starting mode instead of the smart default. */
   defaultMode?: ScopeMode;
+  /** Offer an "Active" mode resolving to the globally selected well (plot scopes use it;
+   *  batch dialogs keep their multi-well modes only). */
+  includeActive?: boolean;
+  /** A spec previously returned by serialize() — restores mode/group/custom picks. Wins
+   *  over defaultMode when it parses. */
+  initial?: string;
 }
 
 export async function buildWellScope(opts: WellScopeOptions = {}): Promise<WellScope> {
@@ -59,7 +69,22 @@ export async function buildWellScope(opts: WellScopeOptions = {}): Promise<WellS
     return "all";
   };
   let mode: ScopeMode = opts.defaultMode ?? smartDefault();
+  // Restore a serialized spec ("active" / "all" / "pinned" / "selection" / "group:<id>" /
+  // "custom:<id,id>") — stale ids (deleted group, removed wells) fall through to the default.
+  if (opts.initial) {
+    const [head, rest] = [opts.initial.split(":", 1)[0], opts.initial.slice(opts.initial.indexOf(":") + 1)];
+    if (head === "group" && rest && groups.some((g) => g.group_id === rest)) {
+      mode = "group";
+      groupId = rest;
+    } else if (head === "custom") {
+      mode = "custom";
+      customIds = new Set(rest.split(",").filter((id) => wellById.has(id)));
+    } else if (["active", "all", "pinned", "selection"].includes(head)) {
+      mode = head as ScopeMode;
+    }
+  }
   if (mode === "group" && !hasGroups) mode = "all";
+  if (mode === "active" && !opts.includeActive) mode = "all";
 
   // --- DOM -----------------------------------------------------------------
   const el = document.createElement("div");
@@ -81,6 +106,7 @@ export async function buildWellScope(opts: WellScopeOptions = {}): Promise<WellS
   el.append(head, detail);
 
   const MODES: { key: ScopeMode; label: string; show: boolean }[] = [
+    { key: "active", label: "Active", show: !!opts.includeActive },
     { key: "group", label: "Group", show: hasGroups },
     { key: "pinned", label: "★ Pinned", show: true },
     { key: "selection", label: "Selection", show: true },
@@ -172,6 +198,10 @@ export async function buildWellScope(opts: WellScopeOptions = {}): Promise<WellS
   // --- Resolution ----------------------------------------------------------
   function resolveIds(): string[] {
     switch (mode) {
+      case "active": {
+        const w = appState.selectedWell.get();
+        return w && wellById.has(w.well_id) ? [w.well_id] : [];
+      }
       case "group": {
         const g = groups.find((x) => x.group_id === groupId);
         return g ? g.well_ids.filter((id) => wellById.has(id)) : [];
@@ -189,6 +219,8 @@ export async function buildWellScope(opts: WellScopeOptions = {}): Promise<WellS
   }
 
   function hintFor(m: ScopeMode, n: number): string {
+    if (m === "active")
+      return n ? "The active well only — follows the Wells pane selection." : "No well selected yet — click one in the Wells pane.";
     if (m === "pinned")
       return n ? "Running on your pinned wells — ★ toggle them in the Wells pane." : "No pinned wells yet — ★ some in the Wells pane, or pick another scope.";
     if (m === "selection")
@@ -257,6 +289,7 @@ export async function buildWellScope(opts: WellScopeOptions = {}): Promise<WellS
   const unsub: Array<() => void> = [];
   unsub.push(appState.pinnedWellIds.subscribe(() => { if (ready && mode === "pinned") emit(); }));
   unsub.push(appState.multiSelectedWellIds.subscribe(() => { if (ready && mode === "selection") emit(); }));
+  unsub.push(appState.selectedWell.subscribe(() => { if (ready && mode === "active") emit(); }));
 
   reflectMode();
   renderDetail();
@@ -268,6 +301,28 @@ export async function buildWellScope(opts: WellScopeOptions = {}): Promise<WellS
     getWellIds: resolveIds,
     namesFor: (ids) => ids.map((id) => wellById.get(id)?.well_name ?? id),
     count: () => resolveIds().length,
+    describe: () => {
+      const n = resolveIds().length;
+      switch (mode) {
+        case "active":
+          return "Active";
+        case "group":
+          return groups.find((g) => g.group_id === groupId)?.name ?? "Group";
+        case "pinned":
+          return `★ ${n}`;
+        case "selection":
+          return `Sel ${n}`;
+        case "custom":
+          return `${n} well${n === 1 ? "" : "s"}`;
+        default:
+          return `All (${n})`;
+      }
+    },
+    serialize: () => {
+      if (mode === "group") return groupId ? `group:${groupId}` : "all";
+      if (mode === "custom") return `custom:${[...customIds].join(",")}`;
+      return mode;
+    },
     dispose: () => unsub.forEach((u) => u()),
   };
 }

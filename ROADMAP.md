@@ -729,8 +729,33 @@ fixes (1 already fixed); #135 resolved the 4 held items per Jauhar (below). Comm
 ## B2. Interpretation-workflow open items (§4)
 
 _(field-review tier, was "P2"; the rest of the tier is done in [A8](#a8-field-review--trust--safety--interpretation-workflow-4).)_
-- [ ] **Pickett v2**: N together with M and Rw; free user input of line parameters (lines follow);
-      Z-value coloring by a chosen log with customizable gradient. (Tracked as Polish-4/#125 above.)
+- [x] **Pickett v2** — **COMPLETE 2026-07-30.** N with M and Rw, free line-parameter input, Z-colour
+      by a chosen log: all shipped as Polish-4/#125 above. The tail landed with the multi-well work:
+      template bar, RT default widened to 0.2–2000 (audit), `sanitizePickettProps`, Sw lines spanning
+      the visible φ window, and the T-SHELL-16 context overlay (line stays the ACTIVE well's).
+- [x] **UMAA / RHOMAA MID-plot module** — **SHIPPED 2026-07-30.** `src-tauri/src/lithology.rs`
+      (`midplot`), new **Lithology** ribbon category; writes UMAA, RHOMAA, U and PHIA, feeding the
+      already-digitized `lith6_mid` chart overlay. Physics: rho_e = (RHOB+0.1883)/1.0704, U = PEF·rho_e,
+      then the fluid stripped from both. RHOB is used AS LOGGED — verified against the chart's own
+      quartz point (2.6489 = the tool reading for quartz, not its true 2.654 density), which is what
+      makes the minerals register. Crossplot gained UMAA/RHOMAA axis defaults (0–16; 2.2–3.1 inverted).
+      Six unit tests pin it, incl. each mineral landing nearest its OWN chart point and an explicit
+      test that a density-only apparent porosity is **algebraically degenerate** (returns the assumed
+      matrix density for every sample) — that option is deliberately absent.
+- [x] **Chart-lookup DN crossplot porosity for the MID plot** — **SHIPPED 2026-07-30**, same day,
+      closing the approximation the module shipped with. `OPT_PHIA=CHART` is now the default and
+      reads the crossplot the way Por-11 is read by hand. The trick that makes it cheap: the two
+      unknowns (matrix, porosity) collapse to one, because at any trial porosity each tool implies
+      a matrix density on its own — density's rises with φ, the neutron's falls — so their
+      difference is strictly monotone with exactly one root. Bisection, ~20 halvings to 1e-6, no
+      derivatives, no initial guess, cannot diverge. `TOOL`/`SALINITY` pick the curve family
+      (reusing `nphimat`'s tables and `chart_lerp`, now `pub(crate)`); `RHO_MA_SS/LS/DOL` are the
+      three matrix lines, refused if a zone override crosses them out of order.
+      Round-trip tested and that is the real proof: build the two readings a known rock produces,
+      feed them back, and the solver returns that rock — φ to 1e-3 and RHOMAA onto its own matrix
+      line for all three matrices at 0/5/12/25/35 pu. The dolomite bias is gone (0.002 vs XPLOT's
+      0.06 g/cc). Off-family samples clamp instead of vanishing, so anhydrite still plots heavy and
+      the gas signature stays low-left. XPLOT is retained for comparison with commercial suites.
 - [ ] **Data prep**: **split & merge** of curves/intervals; **normalization with tops-referenced
       intervals** — reference top/bottom from a chosen tops set; missing marker → nearest stratigraphic
       marker (top → shallowest, bottom → deepest); percentiles extrapolated over the whole interval and
@@ -764,6 +789,31 @@ _(field-review tier, was "P2"; the rest of the tier is done in [A8](#a8-field-re
       unit; say so at the import dialog.
       Curve units (RHOB g/cc↔kg/m³, CALI in↔cm, DT us/ft↔us/m) are a later wave — Jauhar chose
       depth-first. Downstream: this is the interchange contract with **SegaraBumi**.
+- [ ] **Multi-well plots — crossplot SHIPPED 2026-07-30** (T-SHELL-16 increment 1): the
+      additive context-overlay design below, exactly as recorded — well-scope button in the
+      crossplot toolbar (Active default = old behaviour byte-identical), context wells fetched
+      per-well with zone/top windows resolved BY NAME in each well's own depth frame (missing →
+      skipped + counted), 60k-point total budget with stride decimation, per-well colours +
+      legend with the display-only contract stated on the plot, auto-range over the combined
+      cloud, `getState` round-trips the scope (`wells:` spec). `wellScope.ts` gained an
+      "Active" mode + `serialize()`/`describe()`; `drawScatter` accepts a uniform colour.
+      **Increment 2 (2026-07-30): histogram scope SHIPPED** — context wells as stepped
+      outlines behind the active bars, each normalized to its OWN sample count and scaled
+      to the active axis (shape comparison — a 3×-bigger well never dwarfs the active
+      one; in Normalize-% mode outlines are true per-well percentages), pooled X range,
+      legend top-left with the display-only contract. The context machinery (zone/top-by-
+      name window resolution, budgeted concurrent fetch, stride decimation) moved to
+      `plotCommon.ts` (`contextZoneWindow`/`fetchContextLayers`) and the crossplot now
+      shares it — one source of truth for the correctness-critical rules.
+      **Increment 3 (2026-07-30): Pickett SHIPPED** — decision taken: overlay context
+      clouds while the Sw lines / M/N/Rw stay the ACTIVE well's (stated on the plot:
+      "line = ACTIVE well's parameters") — the overlay's purpose is showing whether
+      neighbours share the active well's water line. Also completed the queued Pickett
+      v2 tail: template bar, audit's RT 0.2–2000 default, saved-props sanitizer
+      (`sanitizePickettProps`), Sw lines spanning the visible φ window instead of the
+      fixed 0.01–1. T-SHELL-16 is now CLOSED except: a per-well colour-stability rule
+      if Jauhar wants colours pinned across scope edits (cosmetic, on request).
+      Original design notes follow (kept for reference):
 - [ ] **Multi-well plots — DESIGNED, not yet built** (T-SHELL-16, 2026-07-29). Design settled
       during the units session; build it as its own increment rather than a tail-end change to
       `crossplotPanel.ts` (~2,100 lines, field-verified, and the most interaction-dense panel
