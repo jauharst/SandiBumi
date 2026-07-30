@@ -2145,6 +2145,23 @@ export async function startupProblem(): Promise<StartupProblem | null> {
   return invoke("startup_problem");
 }
 
+/** How the background startup open went. Field names are snake_case (serde struct). */
+export interface OpenOutcome {
+  /** Set only when the intended project could not be opened. */
+  problem: StartupProblem | null;
+  /** Seconds the open took — used to explain a long wait after the fact. */
+  elapsed_secs: number;
+  /** The project file actually live. */
+  path: string;
+}
+
+/** Resolves when the project database is open and installed. The window comes up before the
+ *  project does, so NOTHING may query the database until this resolves — until then the
+ *  connection is an empty in-memory placeholder. */
+export async function awaitProjectOpen(): Promise<OpenOutcome> {
+  return invoke("await_project_open");
+}
+
 export async function listRecentProjects(): Promise<RecentProject[]> {
   return invoke("list_recent_projects");
 }

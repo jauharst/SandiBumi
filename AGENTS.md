@@ -358,6 +358,24 @@ how a 15-minute one-time migration looked like a hang.** DuckDB files never shri
 DELETE (module re-runs bloated BLSO to ~4× its live size), so point users at Compact
 Project when a long-lived project drags.
 
+## Startup: the window exists before the database does (2026-07-30)
+
+`run()` builds the Tauri app on an **empty in-memory placeholder** connection; `setup()` spawns
+`open_startup_project` on a background thread (the recovery ladder — project → temp recovery file
+→ memory-only — lives there now). It publishes an `OpenOutcome` into `DbInit`
+(`Mutex<Option<_>>` + `Condvar`); the async `await_project_open` command waits on it via
+`spawn_blocking`. **The outcome is STORED, not just signalled** — a fast open publishes before the
+frontend asks, so a pure signal hangs every quick launch (test:
+`fast_open_published_before_the_wait`). **`main.ts` must await that gate before building any panel
+or issuing any other command** — until it resolves the live connection is the placeholder and
+every query truthfully returns nothing; that ordering IS the contract, there is no per-command
+"not ready" check. `src/bootOverlay.ts` covers the wait (400 ms delay so fast opens don't flash,
+elapsed clock, polls `boot_report`, hint after 20 s) and hands its drained notes back to `main.ts`
+to record once the history's database is open. Long-running commands are `async` +
+`tauri::async_runtime::spawn_blocking`; a **sync** `#[tauri::command]` runs on the main event-loop
+thread and freezes the window (and cannot call `spawn_blocking` at all — not a Tokio worker; use
+`std::thread`, as `run_workflow_chain` does).
+
 ## DuckDB WAL resilience
 
 `tauri dev` restarts `sandibumi.exe` on every Rust source change; an unclean kill

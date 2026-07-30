@@ -5593,3 +5593,85 @@ input[type="number"].num-editing:focus {
   color: var(--text-dim);
   font-size: var(--fs-sm);
 }
+
+/* ---------------------------------------------------------------------------
+   Boot overlay — covers the empty workspace while the project database opens.
+
+   The window is created BEFORE the project is opened (the open runs on a
+   background thread), so this is what the user looks at during a slow first
+   open instead of the nothing-at-all they used to get. Above every other
+   layer (modals are 100-500) and, unlike .modal-scrim, deliberately NOT
+   pointer-transparent: there is no database yet, so nothing behind it is
+   safe to click.
+   --------------------------------------------------------------------------- */
+.boot-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-app);
+}
+
+.boot-card {
+  min-width: 320px;
+  max-width: 68vw;
+  padding: 28px 34px;
+  text-align: center;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.18);
+}
+
+.boot-title {
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+}
+
+.boot-msg {
+  margin-top: 10px;
+  color: var(--text);
+}
+
+.boot-bar {
+  margin: 16px auto 0;
+  width: 240px;
+  height: 4px;
+  overflow: hidden;
+  background: var(--bg-panel-alt);
+  border-radius: 2px;
+}
+
+.boot-bar > span {
+  display: block;
+  width: 38%;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  animation: boot-slide 1.4s ease-in-out infinite;
+}
+
+@keyframes boot-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(363%); }
+}
+
+.boot-time {
+  margin-top: 10px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-sm);
+}
+
+.boot-hint {
+  margin-top: 12px;
+  max-width: 44ch;
+  margin-inline: auto;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}

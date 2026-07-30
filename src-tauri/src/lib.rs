@@ -86,6 +86,63 @@ pub struct StartupProblem {
 /// `None` on a normal launch. Read once by the frontend at boot.
 pub struct StartupState(pub Mutex<Option<StartupProblem>>);
 
+/// What the background startup open produced, published exactly once.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct OpenOutcome {
+    /// Set only when the intended project could NOT be opened (same payload the blocking
+    /// dialog already renders).
+    pub problem: Option<StartupProblem>,
+    /// Wall-clock seconds the open took. The UI uses it to explain a long wait afterwards
+    /// ("that took 14 minutes because it upgraded your project's storage").
+    pub elapsed_secs: u64,
+    /// The project file actually live at the end of it.
+    pub path: String,
+}
+
+/// Handshake for the startup open, which now runs on a background thread so the WINDOW can
+/// exist first (see `run`). The frontend awaits `await_project_open` and builds nothing until
+/// it resolves — that gate is what keeps any command from reading the empty placeholder
+/// database the window starts on.
+pub struct DbInit(pub Arc<(Mutex<Option<OpenOutcome>>, std::sync::Condvar)>);
+
+/// The published slot type behind `DbInit`.
+type OpenCell = (Mutex<Option<OpenOutcome>>, std::sync::Condvar);
+
+/// Publishes the outcome and wakes every waiter.
+fn store_outcome(cell: &OpenCell, outcome: OpenOutcome) {
+    let (lock, cv) = cell;
+    *lock.lock().unwrap() = Some(outcome);
+    cv.notify_all();
+}
+
+/// Blocks until the outcome has been published, then returns a copy.
+///
+/// The value is STORED, not merely signalled, which is what makes a fast launch work: the
+/// normal case is that the open finishes before the frontend ever asks, so the notify fires
+/// with nobody listening. A waiter arriving afterwards must find the answer sitting there
+/// rather than wait for a signal that already came and went — otherwise every quick launch
+/// would hang at the boot overlay forever. Pinned by `fast_open_published_before_the_wait`.
+fn wait_for_outcome(cell: &OpenCell) -> OpenOutcome {
+    let (lock, cv) = cell;
+    let mut slot = lock.lock().unwrap();
+    while slot.is_none() {
+        slot = cv.wait(slot).unwrap();
+    }
+    slot.clone().expect("loop exits only once published")
+}
+
+/// Blocks until the background open finishes, then reports how it went.
+///
+/// Async so the wait costs a blocking-pool thread rather than the event loop — the whole point
+/// is that the window stays alive and painting while a field-scale project opens.
+#[tauri::command]
+async fn await_project_open(init: tauri::State<'_, DbInit>) -> Result<OpenOutcome, String> {
+    let cell = init.0.clone();
+    tauri::async_runtime::spawn_blocking(move || wait_for_outcome(&cell))
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// What went wrong opening the project at launch, if anything. The frontend calls this on boot
 /// and, when it returns something, blocks the workspace behind an explanatory dialog.
 #[tauri::command]
@@ -1853,18 +1910,18 @@ fn cancel_workflow_chain(registry: tauri::State<chain::ChainRegistry>, job_id: S
     }
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    // The most recently opened project that still exists, else the legacy
-    // `project.duckdb` in the cwd — so existing installs open exactly as before.
-    let startup = project::startup_path();
-    // `tauri dev` restarts this binary on every source-file change, so a WAL replay
-    // failure (killed mid-write) is expected to happen occasionally during
-    // development — self-heal it rather than crash-looping until a human notices.
-    // Boot timing (stderr, visible in the `tauri dev` terminal). These three steps run BEFORE
-    // the window is created, so their sum IS the black-screen time on a large project. The logs
-    // pinpoint which one dominates the ~5-min open on the 540-well / ~2 GB file so the fix can
-    // target it precisely (DB open vs the standard-curves backfill vs the PK-drop check).
+/// Opens the startup project and installs it as the live connection. Runs on a background
+/// thread so the window exists first — see `run` for why that matters.
+///
+/// Everything here used to happen BEFORE `tauri::Builder`, which is what made a slow first
+/// open look like a dead application: on the 2.5 GB BLSO project the one-time storage
+/// migrations took ~15 minutes, and for all of it the user had double-clicked SandiBumi and
+/// gotten no window at all. The recovery ladder is unchanged (project → temp recovery file →
+/// memory-only), it just publishes its outcome instead of returning it.
+fn open_startup_project(handle: tauri::AppHandle, startup: String) {
+    // `tauri dev` restarts this binary on every source-file change, so a WAL replay failure
+    // (killed mid-write) happens occasionally during development — self-heal rather than
+    // crash-loop. The per-step timings inside `open_and_migrate` say which step dominates.
     let boot = std::time::Instant::now();
     let (conn, problem) = match project::open_and_migrate(&startup) {
         Ok(conn) => {
@@ -1872,10 +1929,9 @@ pub fn run() {
             (conn, None)
         }
         Err(message) => {
-            // Never abort here — see `StartupProblem`. Get far enough to put a window up and let
-            // the UI explain. The file that failed is left completely untouched, and it is
-            // deliberately NOT registered in the recents: a project that would not open should
-            // not be the first thing we try again at the next launch.
+            // Never abort — see `StartupProblem`. The file that failed is left completely
+            // untouched, and deliberately NOT registered in the recents: a project that would
+            // not open should not be the first thing we try again at the next launch.
             eprintln!("[boot] {message}");
             let stamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1898,37 +1954,150 @@ pub fn run() {
                 Err(second) => {
                     // Even the temp directory is unusable. Memory-only still beats a silent
                     // death: the user gets a window, can read why, and can open a different
-                    // project. The UI is told nothing will persist.
+                    // project. The UI is told nothing will persist. This keeps the placeholder
+                    // the window already booted on, so there is nothing to swap in.
                     eprintln!("[boot] recovery project also failed: {second}");
-                    // These two are the only remaining panics on the startup path, and neither
-                    // touches the filesystem: an in-memory open and a CREATE TABLE into it.
-                    let conn = Connection::open_in_memory()
-                        .expect("opening an in-memory DuckDB cannot fail");
-                    db::create_schema(&conn)
-                        .expect("creating the schema in a fresh in-memory DuckDB cannot fail");
-                    (
-                        conn,
-                        Some(StartupProblem {
-                            attempted_path: startup.clone(),
-                            message,
-                            recovered_to: String::new(),
-                            recovery_persists: false,
-                        }),
-                    )
+                    let problem = StartupProblem {
+                        attempted_path: startup.clone(),
+                        message,
+                        recovered_to: String::new(),
+                        recovery_persists: false,
+                    };
+                    publish_open_outcome(&handle, None, Some(problem), String::new(), boot);
+                    return;
                 }
             }
         }
     };
-    eprintln!("[boot] total pre-window DB init: {:?}", boot.elapsed());
+    eprintln!("[boot] total background DB init: {:?}", boot.elapsed());
 
-    // "Save As" copies whatever file the connection is actually on, so this has to follow the
-    // recovery rather than the intent — otherwise a recovered session would checkpoint the temp
-    // database and then copy the project that never opened.
-    let project_path = match &problem {
+    // "Save As" copies whatever file the connection is actually on, so this follows the
+    // recovery rather than the intent — otherwise a recovered session would copy the project
+    // that never opened.
+    let path = match &problem {
         Some(p) if p.recovery_persists => p.recovered_to.clone(),
         Some(_) => String::new(),
         None => project::absolute(&startup),
     };
+    publish_open_outcome(&handle, Some(conn), problem, path, boot);
+}
+
+/// Installs the freshly opened connection (if any) and wakes `await_project_open`. Ordering
+/// matters: the connection, project path and problem are all in place BEFORE the outcome is
+/// published, so a frontend that resolves and immediately queries can never race the swap.
+fn publish_open_outcome(
+    handle: &tauri::AppHandle,
+    conn: Option<Connection>,
+    problem: Option<StartupProblem>,
+    path: String,
+    boot: std::time::Instant,
+) {
+    use tauri::Manager as _;
+    if let Some(conn) = conn {
+        if let Some(db) = handle.try_state::<DbState>() {
+            *db.0.lock().unwrap() = conn;
+        }
+    }
+    if let Some(proj) = handle.try_state::<project::ProjectState>() {
+        *proj.0.lock().unwrap() = path.clone();
+    }
+    if let Some(state) = handle.try_state::<StartupState>() {
+        *state.0.lock().unwrap() = problem.clone();
+    }
+    if let Some(init) = handle.try_state::<DbInit>() {
+        store_outcome(
+            &init.0,
+            OpenOutcome { problem, elapsed_secs: boot.elapsed().as_secs(), path },
+        );
+    }
+}
+
+#[cfg(test)]
+mod startup_gate_tests {
+    use super::*;
+
+    fn cell() -> Arc<OpenCell> {
+        Arc::new((Mutex::new(None), std::sync::Condvar::new()))
+    }
+
+    fn outcome(path: &str) -> OpenOutcome {
+        OpenOutcome { problem: None, elapsed_secs: 3, path: path.to_string() }
+    }
+
+    /// THE launch-hang guard. On a normal (fast) launch the background open finishes before
+    /// the frontend calls `await_project_open` at all, so the wake-up fires with no waiter.
+    /// A waiter arriving afterwards must return IMMEDIATELY from the stored value. If this
+    /// ever regresses to a pure signal, every quick launch hangs on the boot overlay — with
+    /// the project perfectly healthy behind it.
+    #[test]
+    fn fast_open_published_before_the_wait() {
+        let c = cell();
+        store_outcome(&c, outcome("already-open.duckdb"));
+        let got = wait_for_outcome(&c);
+        assert_eq!(got.path, "already-open.duckdb");
+        // ...and it stays readable: the frontend may ask more than once.
+        assert_eq!(wait_for_outcome(&c).path, "already-open.duckdb");
+    }
+
+    /// The slow case: the waiter arrives first and must block until the open publishes,
+    /// then see the real answer (not a default).
+    #[test]
+    fn slow_open_wakes_a_waiter_already_blocked() {
+        let c = cell();
+        let writer = {
+            let c = c.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(120));
+                store_outcome(&c, outcome("field.duckdb"));
+            })
+        };
+        let started = std::time::Instant::now();
+        let got = wait_for_outcome(&c); // must actually block, not spin-return None
+        assert!(started.elapsed().as_millis() >= 100, "must wait for the open, not return early");
+        assert_eq!(got.path, "field.duckdb");
+        writer.join().unwrap();
+    }
+
+    /// A failed open still publishes — otherwise the boot overlay would sit there forever
+    /// instead of handing the frontend a problem to render.
+    #[test]
+    fn a_failed_open_still_releases_the_gate() {
+        let c = cell();
+        store_outcome(
+            &c,
+            OpenOutcome {
+                problem: Some(StartupProblem {
+                    attempted_path: "gone.duckdb".into(),
+                    message: "could not open".into(),
+                    recovered_to: String::new(),
+                    recovery_persists: false,
+                }),
+                elapsed_secs: 0,
+                path: String::new(),
+            },
+        );
+        let got = wait_for_outcome(&c);
+        assert!(got.problem.is_some(), "the frontend needs the problem to explain it");
+        assert!(!got.problem.unwrap().recovery_persists);
+    }
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    // The most recently opened project that still exists, else the legacy
+    // `project.duckdb` in the cwd — so existing installs open exactly as before.
+    let startup = project::startup_path();
+
+    // The window is built on an EMPTY IN-MEMORY database and the real project is opened on a
+    // background thread. This is what turns a slow first open from "the app didn't launch"
+    // into "the app is open and telling me what it's doing". Nothing reads this placeholder:
+    // the frontend awaits `await_project_open` before it builds a single panel, and until then
+    // issues no other command. Creating it cannot fail (no filesystem involved), which is why
+    // these are the only two expects left on the startup path.
+    let placeholder =
+        Connection::open_in_memory().expect("opening an in-memory DuckDB cannot fail");
+    db::create_schema(&placeholder)
+        .expect("creating the schema in a fresh in-memory DuckDB cannot fail");
 
     // No opener plugin: the app never hands a URL or path to the OS, and a granted-but-unused
     // capability is exactly what an enterprise security review asks about. If a future feature
@@ -1936,13 +2105,20 @@ pub fn run() {
     // together, and revisit the zero-network-egress claim in docs/PRD.md section 7.5.
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .manage(DbState(Arc::new(Mutex::new(conn))))
-        .manage(project::ProjectState(Mutex::new(project_path)))
-        .manage(StartupState(Mutex::new(problem)))
+        .manage(DbState(Arc::new(Mutex::new(placeholder))))
+        .manage(project::ProjectState(Mutex::new(String::new())))
+        .manage(StartupState(Mutex::new(None)))
+        .manage(DbInit(Arc::new((Mutex::new(None), std::sync::Condvar::new()))))
         .manage(chain::new_registry())
         .manage(jobs::new_registry())
+        .setup(move |app| {
+            let handle = app.handle().clone();
+            std::thread::spawn(move || open_startup_project(handle, startup));
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             startup_problem,
+            await_project_open,
             get_project_depth_unit,
             set_project_depth_unit,
             save_project_as,

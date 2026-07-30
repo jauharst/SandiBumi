@@ -53,7 +53,7 @@ headers below rather than as the primary structure.
 
 ### ◻ Open — do next  → [Part B](#-part-b--open-do-next)
 - **Polish tail** (§4b): ✅ all shipped — units #122, correlation #123, history-coverage #124, Pickett v2 #125, pay-summary provenance #126.
-- **Performance** (§4b): crossplot redraw memoize (#127) ✅, **batch curve reads (#130)** ✅ **persistent Python worker (#132)** ✅ and **raw-IPC ArrayBuffers (#131)** ✅ **shipped + committed 2026-07-21**; **async commands (#128)** ✅ **shipped 2026-07-30** (project open/switch, Save As, Compact, TVD rebuild and SQL query all off the event loop). Remaining: connection pool [**high-risk**] (#129), needs a live 100-well run to sign off; plus the new pre-window-startup item.
+- **Performance** (§4b): crossplot redraw memoize (#127) ✅, **batch curve reads (#130)** ✅ **persistent Python worker (#132)** ✅ and **raw-IPC ArrayBuffers (#131)** ✅ **shipped + committed 2026-07-21**; **async commands (#128)** ✅ **shipped 2026-07-30** (project open/switch, Save As, Compact, TVD rebuild and SQL query all off the event loop). **pre-window startup** ✅ **shipped 2026-07-30** (window first, project opens behind a boot overlay). Remaining: connection pool [**high-risk**] (#129), needs a live 100-well run to sign off.
 - **Reliability sliver**: modal Escape-key stacking — ✅ **shipped 2026-07-20** (Escape scoped to the top dialog; single-instance already prevented leaked handlers).
 - **Interpretation-workflow open** (§4): data-prep split/merge + tops-referenced normalization, highlight tool, typography check.
 - **Feature Wave B** (§4c): MC parameter **sensitivity/tornado** (13), ML comparison + leaderboard (3), fluid contacts in correlation (9), well-diagram track (16), rock typing + SHF fitting (8).
@@ -725,10 +725,19 @@ commands off the event loop), #130 (batch curve reads), #131 (raw-IPC ArrayBuffe
 DB connection semantics and **cannot be signed off without running `tauri dev` on 100+ real wells**
 (the human can't be replaced for perf benchmarking).
 
-- **New item (2026-07-30): startup opens the project before the window exists.** `run()` calls
-  `open_and_migrate` and only then builds the Tauri app, so a slow first open (one-time migrations
-  on a field-scale project — 15 min on BLSO) shows NO window at all. Needs a placeholder/`Option`
-  `DbState`, a "still opening" reply on every DB command, and a frontend gate. Independent of #129.
+- [x] **Startup opened the project before the window existed** — **done 2026-07-30.** `run()` now
+      builds the Tauri app on an EMPTY in-memory placeholder database and `setup()` spawns
+      `open_startup_project` on a background thread (the whole recovery ladder — project → temp
+      recovery file → memory-only — moved there unchanged). It publishes an `OpenOutcome` through
+      a `Mutex<Option<_>>` + `Condvar` (`DbInit`), which the new async `await_project_open`
+      command waits on off the event loop. **The value is STORED, not merely signalled** — on a
+      normal fast launch the open finishes before the frontend ever asks, so a pure signal would
+      hang every quick launch on the splash (pinned by `fast_open_published_before_the_wait`).
+      Frontend: `bootOverlay.ts` covers the wait (shown only after 400 ms so a fast open never
+      flashes it; elapsed timer; polls `boot_report` for live progress; a "this happens once"
+      hint after 20 s), and `main.ts` awaits the gate before building ANY panel — that ordering is
+      what keeps every command off the placeholder. Notes drained by the overlay are handed back
+      and written to the processing history once the database that stores it is open.
 - [x] **(#128)** ~~Long commands are synchronous Tauri commands~~ — **done 2026-07-30.** The three
       commands this item named were already fixed when it was written: `run_ml`/`run_multimin` run
       through `jobs::run_job` (async) and `run_workflow_chain` returns immediately after spawning an
@@ -741,10 +750,8 @@ DB connection semantics and **cannot be signed off without running `tauri dev` o
       `compact_project` (gigabyte engine copies), `materialize_tvd` (every selected well) and
       `run_query` (user-authored SQL = unbounded cost). Concurrency is unchanged where it matters:
       the DB `Mutex` still serializes, so nothing observes a half-swapped project.
-      **Still pre-window: the STARTUP open** — `run()` opens the project before the Tauri window
-      exists, so a first-open migration shows no window at all rather than a frozen one. Fixing that
-      needs a placeholder `DbState` + a "database not ready" contract on every command; tracked as
-      its own item, not folded in here.
+      The STARTUP open (pre-window) was the remaining gap and is **also done 2026-07-30** — see
+      the startup item below.
 - [ ] **(#129) [HIGH-RISK]** Rayon over wells is defeated by the single global `Mutex<Connection>` — every
       well locks the same conn. Split reads (read-only connection pool) from the single serialized writer;
       writes (computed_curves DELETE+append in `with_txn`) **must stay single-writer** to protect the

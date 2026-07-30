@@ -5382,10 +5382,32 @@ thread. (Chain/ML/SandiMin runs were already off-thread; this closes the rest.)
 - [ ] **Nothing changed in behaviour** — same results, same errors, same undo. This increment is
       purely *where* the work runs.
 
-**Still true, and not fixed here:** at **startup** the project opens *before* the window is
-created, so a first-open migration on a big project shows no window at all rather than a frozen
-one. That needs a different fix (a window that opens first and waits for the database) — logged in
-ROADMAP as its own item.
+**Startup itself is fixed in the next section.**
+
+---
+
+## 2026-07-30 — The window now opens before the project does
+
+The last and worst version of the same problem: SandiBumi opened your project *before* creating
+its window, so during those 15 minutes there was **nothing on screen at all** — you double-clicked
+and the machine appeared to ignore you. Now the window comes up immediately and the project opens
+behind it.
+
+- [ ] **Launch on BLSO:** a window appears within a second or two, showing a small
+      **"Opening project…"** card with a moving bar and a running clock. The app is visibly alive
+      and on screen the whole time. After ~20 seconds it adds a line explaining that a first open
+      after an update upgrades the project's storage, backs it up first, and happens only once.
+- [ ] **The card tracks what the backend is doing** — when the storage upgrade starts, its message
+      changes to name the backup file it just wrote.
+- [ ] **A normal (fast) launch shows no card at all** — open a small project; it should go
+      straight to the workspace with no splash flash.
+- [ ] **Afterwards**, the History panel and the status line record how long the open took and what
+      ran, so a slow launch has an explanation you can go back and read.
+- [ ] **Nothing appears before its data is ready** — no empty well list, no "0 wells" flash. The
+      workspace is not built until the project is genuinely open. **If you ever see an empty
+      Wells pane on a project that has wells, tell me — that would mean the gate leaked.**
+- [ ] **A broken project still explains itself:** the existing "could not open" dialog still
+      appears (now after the card, not instead of a window).
 
 ---
 
