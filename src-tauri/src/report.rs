@@ -51,7 +51,9 @@ pub struct ReportSpec {
     pub tables_only: bool,
 }
 
-fn default_methodology(spec: &ReportSpec) -> Vec<MethodRow> {
+/// `pub(crate)` because the Word twin (`office.rs`) must quote the SAME methodology table the
+/// PDF does — a client comparing the two documents is comparing one study, not two.
+pub(crate) fn default_methodology(spec: &ReportSpec) -> Vec<MethodRow> {
     let row = |p: &str, m: &str, r: &str| MethodRow {
         parameter: p.into(),
         method: m.into(),

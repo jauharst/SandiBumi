@@ -1,6 +1,8 @@
 import { open, save } from "@tauri-apps/plugin-dialog";
 import {
   exportReportBatch,
+  exportReportDocx,
+  exportReportDocxBatch,
   exportReportPdf,
   listDocuments,
   listLayouts,
@@ -185,14 +187,32 @@ export async function buildReportContent(
   pngBtn.className = "form-run-btn";
   pngBtn.textContent = "Save PNG (page)…";
   pngBtn.disabled = true;
+  // The Word twin needs no Render first: it carries no composite pages, only the tables, so
+  // there is nothing to preview that the pane is not already showing.
+  const docxBtn = document.createElement("button");
+  docxBtn.className = "form-run-btn";
+  docxBtn.textContent = "Save Word…";
+  docxBtn.title =
+    "Editable .docx twin: cover, methodology, zone parameters and pay summary. The composite log pages stay in the PDF — they are drawn at a true print scale, which a resized picture would silently break.";
   const batchBtn = document.createElement("button");
   batchBtn.className = "form-run-btn";
   batchBtn.textContent = `Batch (${scope.getWellIds().length} wells)…`;
+  const batchFmt = document.createElement("select");
+  batchFmt.className = "form-control";
+  batchFmt.title = "What the Batch button writes, one file per well";
+  for (const [value, label] of [["pdf", "as PDF"], ["docx", "as Word"]] as const) {
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = label;
+    batchFmt.appendChild(o);
+  }
   btnRow.appendChild(renderBtn);
   btnRow.appendChild(pdfBtn);
+  btnRow.appendChild(docxBtn);
   btnRow.appendChild(pngBtn);
   btnRow.appendChild(saveTplBtn);
   btnRow.appendChild(batchBtn);
+  btnRow.appendChild(batchFmt);
   content.appendChild(btnRow);
 
   const status = document.createElement("div");
@@ -341,6 +361,37 @@ export async function buildReportContent(
     }
   });
 
+  docxBtn.addEventListener("click", async () => {
+    const spec = buildSpec();
+    if (typeof spec === "string") {
+      status.textContent = spec;
+      return;
+    }
+    let dest: string | null;
+    try {
+      dest = await save({
+        defaultPath: `${well.well_name}_report.docx`,
+        filters: [{ name: "Word document", extensions: ["docx"] }],
+      });
+    } catch (err) {
+      status.textContent = `Save dialog unavailable: ${err}`;
+      return;
+    }
+    if (!dest) return;
+    docxBtn.disabled = true;
+    status.textContent = "Writing Word document…";
+    try {
+      const path = await exportReportDocx(spec, dest);
+      status.textContent = `Wrote ${path.split(/[\\/]/).pop()}`;
+      setStatus(`Report Word document exported for ${well.well_name}.`);
+      // No bumpDataVersion: unlike the PDF path this export writes nothing back to the project.
+    } catch (err) {
+      status.textContent = `Word export failed: ${err}`;
+    } finally {
+      docxBtn.disabled = false;
+    }
+  });
+
   // PNG of the CURRENT preview page, rasterized at ~150 dpi for slides.
   pngBtn.addEventListener("click", async () => {
     if (!result) return;
@@ -409,13 +460,18 @@ export async function buildReportContent(
       return;
     }
     if (!dir) return;
+    const asWord = batchFmt.value === "docx";
     batchBtn.disabled = true;
-    status.textContent = `Exporting ${wellIds.length} report(s)…`;
+    status.textContent = `Exporting ${wellIds.length} ${asWord ? "Word document" : "report"}(s)…`;
     try {
-      const paths = await exportReportBatch(spec, wellIds, dir);
-      status.textContent = `Wrote ${paths.length} report PDF(s) to ${dir}`;
+      const paths = asWord
+        ? await exportReportDocxBatch(spec, wellIds, dir)
+        : await exportReportBatch(spec, wellIds, dir);
+      status.textContent = `Wrote ${paths.length} report ${asWord ? "Word document" : "PDF"}(s) to ${dir}`;
       setStatus(`Batch report export: ${paths.length} well(s).`);
-      bumpDataVersion(); // batch reports write FLAG curves per well — refresh open views
+      // Only the PDF path writes FLAG curves per well; the Word path exports without touching
+      // the project, so there is nothing for open views to refresh.
+      if (!asWord) bumpDataVersion();
     } catch (err) {
       status.textContent = `Batch export: ${err}`;
     } finally {

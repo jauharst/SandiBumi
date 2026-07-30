@@ -469,6 +469,16 @@ export function officeSupport(): Promise<OfficeSupport> {
   return invoke<OfficeSupport>("office_support");
 }
 
+/** The EDITABLE Word twin of the report PDF — same title, author, methodology and cutoffs.
+ *  The PDF stays the default deliverable and keeps the composite log pages. */
+export function exportReportDocx(spec: ReportSpec, destPath: string): Promise<string> {
+  return invoke<string>("export_report_docx", { spec, destPath });
+}
+
+export function exportReportDocxBatch(spec: ReportSpec, wellIds: string[], destDir: string): Promise<string[]> {
+  return invoke<string[]>("export_report_docx_batch", { spec, wellIds, destDir });
+}
+
 /** Writes the study as a formatted multi-sheet .xlsx. Never persists FLAG curves — an export
  *  must not churn the project (see office.rs). */
 export function exportWorkbook(spec: WorkbookSpec, destPath: string): Promise<WorkbookResult> {

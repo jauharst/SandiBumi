@@ -393,6 +393,32 @@ interpreted are counted in their own column rather than dragging an average towa
 export runs `stats_only` -- saving a spreadsheet must never write FLAG curves or version a log
 set, the same reasoning the dashboard follows.
 
+Word twin + the stdin encoding rule (2026-07-31) - `office.rs` also writes the **editable
+.docx twin** of `report.rs`'s PDF (report pane -> **Save Word...**, and the Batch button's
+format select for one file per well). It carries the cover, the pane's editable methodology
+table, the zone parameters in the PDF's shape and the pay summary; **the composite log pages
+stay in the PDF on purpose** - they are drawn at a true print scale, and a picture pasted into
+a document stops being at that scale the moment anyone resizes it.
+
+A document `Block` reuses the workbook's `Sheet`/`Column`/`Cell` model, so **one table
+definition is rendered three ways** (PDF, workbook, Word) and cannot drift. The one deliberate
+divergence: `Cell::Blank` prints as a DASH in the Word document (`Block::Table.blank_text`) but
+stays an EMPTY cell in the workbook. Same decision, two correct renderings - Excel's arithmetic
+skips a blank, a document has no arithmetic and a reader's eye needs the mark the PDF prints.
+Like the workbook the Word export runs `stats_only`, so unlike the PDF path it writes nothing
+back to the project (the pane skips `bumpDataVersion` for it).
+
+**Every Python runner MUST read `sys.stdin.buffer`, never `sys.stdin`.** A piped child's TEXT
+stdin decodes with the Windows ANSI codepage (cp1252 here) while `serde_json` emits raw UTF-8,
+so any non-ASCII character arrives as mojibake - an en dash in a well name came out as three
+junk characters, and a Greek rho came out as a byte pair plus a lone surrogate. `json.loads`
+accepts BYTES and assumes UTF-8, which is what was actually sent. `ml.rs` and
+`python_engine.rs` always did this correctly; `images.rs` did NOT - a plate whose path held any
+non-ASCII character failed with a bare "No such file or directory" naming a filename nobody
+had - and is fixed here. Pinned by `a_word_document_keeps_non_ascii_text_intact` (ignored,
+needs python-docx). Same family as `parsers::read_text_file`: bytes must be interpreted, never
+assumed.
+
 UI language (2026-07-19) — `src/i18n.ts` translates visible DOM text (+ title/placeholder/
 aria-label/optgroup-label) to Bahasa Indonesia / Basa Sunda by exact-phrase dictionary
 lookup, live via MutationObserver. English is the source language: keep writing UI strings

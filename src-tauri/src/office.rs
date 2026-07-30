@@ -219,7 +219,12 @@ except Exception:
     sys.stderr.write("xlsxwriter-missing\n")
     sys.exit(2)
 
-req = json.loads(sys.stdin.read())
+# sys.stdin.buffer, never sys.stdin: a piped child's text stdin decodes with the Windows
+# ANSI codepage (cp1252 here), and serde_json emits raw UTF-8. A well named "Bekasap-1"
+# with an en dash, an Indonesian field name, or the middot in the cover line would arrive
+# mojibake in a client document. json.loads accepts bytes and assumes UTF-8, which is what
+# was actually sent. (ml.rs and python_engine.rs already read stdin this way.)
+req = json.loads(sys.stdin.buffer.read())
 wb = xlsxwriter.Workbook(req["dest"], {"constant_memory": False})
 
 NUMFMT = {
@@ -702,6 +707,413 @@ pub fn export_workbook(
 }
 
 // ---------------------------------------------------------------------------
+// The editable Word twin of report.rs's PDF
+// ---------------------------------------------------------------------------
+
+/// One element of a document. Deliberately built on the SAME [`Sheet`] the workbook uses:
+/// a table is defined once and rendered twice, so the workbook, the Word report and the PDF
+/// cannot quote three different versions of one number.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Block {
+    Cover {
+        title: String,
+        well: String,
+        field: String,
+        meta: String,
+        author: String,
+    },
+    Heading {
+        text: String,
+    },
+    Para {
+        text: String,
+    },
+    Table {
+        sheet: Sheet,
+        /// What an unmeasured cell reads as. **This is where the Word twin deliberately
+        /// diverges from the workbook**: a spreadsheet leaves the cell EMPTY because Excel's
+        /// own arithmetic skips a blank, but a document has no arithmetic — a reader's eye
+        /// needs a mark, so it prints the same "-" the PDF does. Same decision, two correct
+        /// renderings.
+        blank_text: String,
+    },
+    PageBreak,
+}
+
+const BLANK_MARK: &str = "-";
+
+/// Renders blocks with python-docx. As dumb as the xlsxwriter runner, and for the same reason.
+const DOCX_RUNNER: &str = r##"
+import json, sys
+
+try:
+    from docx import Document
+    from docx.shared import Pt, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.enum.table import WD_TABLE_ALIGNMENT
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+except Exception:
+    sys.stderr.write("docx-missing\n")
+    sys.exit(2)
+
+# sys.stdin.buffer, never sys.stdin: a piped child's text stdin decodes with the Windows
+# ANSI codepage (cp1252 here), and serde_json emits raw UTF-8. A well named "Bekasap-1"
+# with an en dash, an Indonesian field name, or the middot in the cover line would arrive
+# mojibake in a client document. json.loads accepts bytes and assumes UTF-8, which is what
+# was actually sent. (ml.rs and python_engine.rs already read stdin this way.)
+req = json.loads(sys.stdin.buffer.read())
+doc = Document()
+
+DECIMALS = {"int": 0, "num1": 1, "num2": 2, "num3": 3}
+
+def fmt(value, key, blank):
+    if value is None:
+        return blank
+    if isinstance(value, str):
+        return value
+    d = DECIMALS.get(key)
+    if d is None:
+        return str(value)
+    return "{0:,.{1}f}".format(value, d) if d else "{0:,.0f}".format(value)
+
+def shade(cell, hexcolor):
+    tcPr = cell._tc.get_or_add_tcPr()
+    el = OxmlElement("w:shd")
+    el.set(qn("w:val"), "clear")
+    el.set(qn("w:color"), "auto")
+    el.set(qn("w:fill"), hexcolor)
+    tcPr.append(el)
+
+def run(par, text, bold=False, size=None, color=None, italic=False):
+    r = par.add_run(text)
+    r.bold = bold
+    r.italic = italic
+    if size:
+        r.font.size = Pt(size)
+    if color:
+        r.font.color.rgb = RGBColor.from_string(color)
+    return r
+
+tables = 0
+for b in req["blocks"]:
+    kind = b["kind"]
+    if kind == "cover":
+        for _ in range(6):
+            doc.add_paragraph()
+        p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run(p, b["title"], bold=True, size=22)
+        p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run(p, b["well"], bold=True, size=16)
+        if b.get("field"):
+            p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run(p, b["field"], size=12, color="333333")
+        if b.get("meta"):
+            p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run(p, b["meta"], size=10, color="555555")
+        for _ in range(8):
+            doc.add_paragraph()
+        if b.get("author"):
+            p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run(p, b["author"], size=11, color="333333")
+        p = doc.add_paragraph(); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run(p, "Made in SandiBumi", size=9, color="777777")
+    elif kind == "heading":
+        doc.add_heading(b["text"], level=1)
+    elif kind == "para":
+        p = doc.add_paragraph()
+        run(p, b["text"], size=9, color="5A6572", italic=True)
+    elif kind == "page_break":
+        doc.add_page_break()
+    elif kind == "table":
+        sheet = b["sheet"]
+        blank = b.get("blank_text", "-")
+        if sheet.get("title"):
+            doc.add_heading(sheet["title"], level=1)
+        for n in sheet.get("notes") or []:
+            p = doc.add_paragraph()
+            run(p, n, size=8, color="5A6572", italic=True)
+        cols = sheet["columns"]
+        t = doc.add_table(rows=1, cols=len(cols))
+        t.style = "Table Grid"
+        t.alignment = WD_TABLE_ALIGNMENT.CENTER
+        for c, col in enumerate(cols):
+            cell = t.rows[0].cells[c]
+            cell.text = ""
+            run(cell.paragraphs[0], col["header"], bold=True, size=8)
+            shade(cell, "E8EEF6")
+        sh = sheet.get("shade")
+        for row in sheet["rows"]:
+            cells = t.add_row().cells
+            lit = bool(sh) and sh["col"] < len(row) and row[sh["col"]] == sh["equals"]
+            for c, v in enumerate(row):
+                if c >= len(cols):
+                    break
+                cells[c].text = ""
+                run(cells[c].paragraphs[0], fmt(v, cols[c]["fmt"], blank), size=8)
+                if lit:
+                    shade(cells[c], "FFF3CD")
+        tables += 1
+
+doc.save(req["dest"])
+print(json.dumps({"ok": True, "tables": tables, "blocks": len(req["blocks"])}))
+"##;
+
+#[derive(Deserialize)]
+struct DocxReply {
+    #[serde(default)]
+    tables: usize,
+}
+
+fn write_docx(blocks: &[Block], dest: &str) -> Result<usize, String> {
+    let python = find_python().ok_or_else(|| {
+        "no Python found - install Python 3.10+ with python-docx, or set ARSHILLA_PYTHON".to_string()
+    })?;
+    let mut cmd = Command::new(&python);
+    cmd.args(["-c", DOCX_RUNNER]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    hide_console(&mut cmd);
+    let mut child = cmd.spawn().map_err(|e| format!("failed to start python: {e}"))?;
+    let req = serde_json::json!({ "dest": dest, "blocks": blocks });
+    {
+        let stdin = child.stdin.as_mut().ok_or("python stdin closed")?;
+        stdin.write_all(req.to_string().as_bytes()).map_err(|e| e.to_string())?;
+        stdin.flush().map_err(|e| e.to_string())?;
+    }
+    drop(child.stdin.take());
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        let last = err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("document write failed");
+        return Err(if last.contains("docx-missing") {
+            "python-docx is not installed in the Python SandiBumi found (pip install python-docx)".to_string()
+        } else {
+            last.trim().to_string()
+        });
+    }
+    let reply: DocxReply =
+        serde_json::from_slice(&out.stdout).map_err(|e| format!("bad document reply: {e}"))?;
+    Ok(reply.tables)
+}
+
+fn table(sheet: Sheet) -> Block {
+    Block::Table { sheet, blank_text: BLANK_MARK.to_string() }
+}
+
+/// The zone-parameter table in the REPORT's shape (zone/top/bottom repeated only on the first
+/// parameter of each zone), not the workbook's flat one — this document is the twin of the
+/// PDF, so it must read like the PDF.
+fn report_zone_sheet(conn: &Connection, well_id: &str, unit: &str) -> Result<Sheet, String> {
+    let zones = db::list_zones(conn, well_id).map_err(|e| e.to_string())?;
+    let zparams = db::list_zone_params(conn, well_id).map_err(|e| e.to_string())?;
+    let mut sheet = Sheet::new(
+        "Zone Parameters",
+        "Zone Parameters",
+        vec![
+            Column::new("Zone", 18.0, CellFormat::Text),
+            Column::new(&format!("Top ({unit})"), 12.0, CellFormat::Num1),
+            Column::new(&format!("Bottom ({unit})"), 12.0, CellFormat::Num1),
+            Column::new("Parameter", 20.0, CellFormat::Text),
+            Column::new("Value", 14.0, CellFormat::Text),
+        ],
+    );
+    for z in &zones {
+        let params: Vec<&db::ZoneParamEntry> =
+            zparams.iter().filter(|p| p.zone_name == z.zone_name).collect();
+        // A zone with no parameters is still LISTED. Dropping it would make the document say the
+        // zone was not evaluated, when in truth it simply took the defaults.
+        if params.is_empty() {
+            sheet.rows.push(vec![
+                text(&z.zone_name),
+                num(z.top_depth),
+                num(z.bottom_depth),
+                Cell::Blank,
+                Cell::Blank,
+            ]);
+        }
+        for (i, p) in params.iter().enumerate() {
+            let value = p
+                .value_num
+                .map(|v| format!("{v}"))
+                .or_else(|| p.value_text.clone())
+                .map(text)
+                .unwrap_or(Cell::Blank);
+            sheet.rows.push(vec![
+                if i == 0 { text(&z.zone_name) } else { Cell::Blank },
+                if i == 0 { num(z.top_depth) } else { Cell::Blank },
+                if i == 0 { num(z.bottom_depth) } else { Cell::Blank },
+                text(&p.param_name),
+                value,
+            ]);
+        }
+    }
+    Ok(sheet)
+}
+
+/// Assembles the document. Pure enough to test: everything petrophysical is decided here and
+/// the runner only draws it.
+pub fn build_report_blocks(
+    db_lock: &Mutex<Connection>,
+    spec: &crate::report::ReportSpec,
+) -> Result<(Vec<Block>, String), String> {
+    let well_id = spec.composite.well_id.clone();
+
+    // `stats_only`: same rule as the workbook — exporting a document must not write FLAG curves
+    // or version a log set. (The PDF path persists them in place; that is its long-standing
+    // behaviour and is left alone, but a NEW export has no business changing the project.)
+    let pay_rows = run_pay_summary(
+        db_lock,
+        &PaySummaryRequest {
+            well_ids: vec![well_id.clone()],
+            vsh_max: spec.vsh_max,
+            phie_min: spec.phie_min,
+            swe_max: spec.swe_max,
+            perm_min: spec.perm_min,
+            skip_version: true,
+            stats_only: true,
+        },
+    )
+    .unwrap_or_default();
+
+    let conn = db_lock.lock().map_err(|e| e.to_string())?;
+    let header = crate::composite::fetch_header(&conn, &well_id)?;
+    let unit = units::project_depth_unit_or_default(&conn).label().to_string();
+    let zones = db::list_zones(&conn, &well_id).map_err(|e| e.to_string())?;
+
+    // The evaluated interval comes from the well's own zones rather than from a composite
+    // render: this document carries no log plots, so paginating one just to print a depth
+    // range would be minutes of work for one line of text.
+    let interval = match (zones.first(), zones.last()) {
+        (Some(a), Some(b)) => format!("Zoned interval: {:.1} - {:.1} {unit}", a.top_depth, b.bottom_depth),
+        _ => String::new(),
+    };
+    let mut meta = interval;
+    if let Some(td) = header.td {
+        if !meta.is_empty() {
+            meta.push_str("   ·   ");
+        }
+        meta.push_str(&format!("TD: {td:.1} {unit}"));
+    }
+    if let Some(kb) = header.kb {
+        if !meta.is_empty() {
+            meta.push_str("   ·   ");
+        }
+        meta.push_str(&format!("KB: {kb:.1} {unit}"));
+    }
+
+    let mut blocks = vec![
+        Block::Cover {
+            title: if spec.title.trim().is_empty() { "Petrophysical Evaluation".into() } else { spec.title.trim().into() },
+            well: header.name.clone(),
+            field: header.field.clone().map(|f| format!("Field: {f}")).unwrap_or_default(),
+            meta,
+            author: if spec.author.trim().is_empty() { String::new() } else { format!("Prepared by: {}", spec.author.trim()) },
+        },
+        Block::PageBreak,
+    ];
+
+    // 1 — methodology, from the pane's editable table or the shared default template.
+    let method_rows = if spec.methodology.is_empty() {
+        crate::report::default_methodology(spec)
+    } else {
+        spec.methodology.clone()
+    };
+    let mut m = Sheet::new(
+        "Methodology",
+        "Methodology",
+        vec![
+            Column::new("Parameter", 22.0, CellFormat::Text),
+            Column::new("Method", 34.0, CellFormat::Text),
+            Column::new("Remarks", 34.0, CellFormat::Text),
+        ],
+    );
+    for r in &method_rows {
+        m.rows.push(vec![text(&r.parameter), text(&r.method), text(&r.remarks)]);
+    }
+    blocks.push(table(m));
+
+    // 2 — zone parameters
+    let z = report_zone_sheet(&conn, &well_id, &unit)?;
+    if !z.rows.is_empty() {
+        blocks.push(Block::PageBreak);
+        blocks.push(table(z));
+    }
+    drop(conn);
+
+    // 3 — pay summary, the SAME sheet the workbook exports.
+    blocks.push(Block::PageBreak);
+    let mut p = pay_sheet(&pay_rows, &unit);
+    p.title = format!(
+        "Pay Summary  (VSH <= {:.2}, PHIE >= {:.2}, SWE <= {:.2}{})",
+        spec.vsh_max,
+        spec.phie_min,
+        spec.swe_max,
+        spec.perm_min.map(|v| format!(", PERM >= {v:.1} mD")).unwrap_or_default()
+    );
+    if pay_rows.is_empty() {
+        // Never a silent gap in a client document: say the section could not be supported.
+        blocks.push(Block::Heading { text: p.title.clone() });
+        blocks.push(Block::Para {
+            text: "No pay summary - this well has no curve data to classify.".into(),
+        });
+    } else {
+        blocks.push(table(p));
+    }
+
+    // 4 — why the log plots are not in here.
+    blocks.push(Block::Para {
+        text: "Composite log plots are issued as the PDF deliverable. They are drawn at a true \
+               print scale (1:200 / 1:500 / 1:1000), and a picture pasted into a document stops \
+               being at that scale the moment anyone resizes it."
+            .into(),
+    });
+
+    Ok((blocks, header.name))
+}
+
+/// Writes one well's editable Word report.
+pub fn export_report_docx(
+    db_lock: &Mutex<Connection>,
+    spec: &crate::report::ReportSpec,
+    dest: &str,
+) -> Result<String, String> {
+    let (blocks, _name) = build_report_blocks(db_lock, spec)?;
+    write_docx(&blocks, dest)?;
+    Ok(dest.to_string())
+}
+
+/// One `.docx` per well into `dest_dir`, named `<WELL>_report.docx`. Per-well failures are
+/// collected rather than aborting the batch — one uninterpreted well must not cost the other
+/// 539 their documents.
+pub fn export_report_docx_batch(
+    db_lock: &Mutex<Connection>,
+    spec: &crate::report::ReportSpec,
+    well_ids: &[String],
+    dest_dir: &str,
+) -> Result<(Vec<String>, Vec<String>), String> {
+    let mut written = Vec::new();
+    let mut errors = Vec::new();
+    for id in well_ids {
+        let mut one = spec.clone();
+        one.composite.well_id = id.clone();
+        match build_report_blocks(db_lock, &one) {
+            Ok((blocks, name)) => {
+                let safe: String =
+                    name.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect();
+                let path = std::path::Path::new(dest_dir).join(format!("{safe}_report.docx"));
+                let path_s = path.to_string_lossy().to_string();
+                match write_docx(&blocks, &path_s) {
+                    Ok(_) => written.push(path_s),
+                    Err(e) => errors.push(format!("{name}: {e}")),
+                }
+            }
+            Err(e) => errors.push(format!("{id}: {e}")),
+        }
+    }
+    Ok((written, errors))
+}
+
+// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -846,6 +1258,124 @@ mod tests {
         let bytes = std::fs::read(&dest).expect("file exists");
         assert!(bytes.len() > 2000, "a two-sheet workbook is not 2 kB: {}", bytes.len());
         assert_eq!(&bytes[..2], b"PK", "xlsx is a zip container");
+        let _ = std::fs::remove_file(&dest);
+    }
+
+    // --- The Word twin -----------------------------------------------------
+
+    fn zoned_db() -> (Connection, String) {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, id, "BLSO-01", Some("Balam South"), Some(1800.0), Some(12.0)).unwrap();
+        let well = id.to_string();
+        db::upsert_zone(&conn, &well, "MENGGALA", 1500.0, 1560.0).unwrap();
+        db::upsert_zone(&conn, &well, "BEKASAP", 1600.0, 1680.0).unwrap();
+        db::set_zone_param(&conn, &well, "MENGGALA", "RW", Some(0.35), None).unwrap();
+        db::set_zone_param(&conn, &well, "MENGGALA", "M", Some(1.8), None).unwrap();
+        (conn, well)
+    }
+
+    #[test]
+    fn a_zone_with_no_parameters_is_still_listed_in_the_report() {
+        // Dropping it would tell the client the zone was not evaluated, when in truth it simply
+        // took the defaults.
+        let (conn, well) = zoned_db();
+        let sheet = report_zone_sheet(&conn, &well, "m").unwrap();
+        let zones: Vec<&Cell> = sheet.rows.iter().map(|r| &r[0]).collect();
+        assert!(zones.contains(&&Cell::Text("BEKASAP".into())), "the parameterless zone is present");
+    }
+
+    #[test]
+    fn the_zone_column_repeats_only_on_a_zones_first_parameter() {
+        // The PDF's convention — this document is its twin, so it must read the same way.
+        let (conn, well) = zoned_db();
+        let sheet = report_zone_sheet(&conn, &well, "m").unwrap();
+        let menggala: Vec<&Vec<Cell>> =
+            sheet.rows.iter().filter(|r| r[3] == Cell::Text("M".into()) || r[3] == Cell::Text("RW".into())).collect();
+        assert_eq!(menggala.len(), 2, "two parameters on MENGGALA");
+        assert_eq!(menggala[0][0], Cell::Text("MENGGALA".into()), "named on the first row");
+        assert_eq!(menggala[0][1], Cell::Num(1500.0), "with its depths");
+        assert_eq!(menggala[1][0], Cell::Blank, "and not repeated on the second");
+    }
+
+    #[test]
+    fn a_document_prints_a_dash_where_the_workbook_leaves_the_cell_empty() {
+        // The SAME Sheet, rendered two ways on purpose: Excel's arithmetic skips an empty cell,
+        // so a blank is the honest value there; a document has no arithmetic, so a reader's eye
+        // needs the mark the PDF already prints.
+        let sheet = pay_sheet(&[row("A", "Z1", "PAY", 0.0, 0.0, 0)], "m");
+        assert_eq!(sheet.rows[0][6], Cell::Blank, "the sheet itself still carries a blank");
+        match table(sheet) {
+            Block::Table { blank_text, .. } => assert_eq!(blank_text, "-"),
+            _ => panic!("table() must build a Table block"),
+        }
+    }
+
+    #[test]
+    fn blocks_serialize_with_the_tag_the_runner_dispatches_on() {
+        let json = serde_json::to_string(&Block::PageBreak).unwrap();
+        assert_eq!(json, r#"{"kind":"page_break"}"#);
+        let json = serde_json::to_string(&Block::Heading { text: "Methodology".into() }).unwrap();
+        assert_eq!(json, r#"{"kind":"heading","text":"Methodology"}"#);
+    }
+
+    /// Real python-docx round-trip, INCLUDING non-ASCII text.
+    ///
+    /// `#[ignore]`d for the same reason as the workbook's: rule 7 says a missing package fails
+    /// its own button, so it must not be able to fail the build.
+    ///
+    /// The non-ASCII half is the regression guard. serde_json sends raw UTF-8; a piped child's
+    /// TEXT stdin decodes with the Windows ANSI codepage, so `sys.stdin.read()` turned an en
+    /// dash into two characters of noise inside a client document. The runners read
+    /// `sys.stdin.buffer` instead — this proves the bytes arrive intact all the way into the
+    /// saved file.
+    #[test]
+    #[ignore]
+    fn a_word_document_keeps_non_ascii_text_intact() {
+        let support = office_support();
+        assert!(support.docx, "this test needs python-docx: {support:?}");
+        let dest = std::env::temp_dir().join("sandibumi_office_report.docx");
+        let dest_s = dest.to_string_lossy().to_string();
+        // An en dash in the well name, a middot separator, and rho-ma spelled with the Greek
+        // letter: all three are things this app really writes.
+        let needle = "Bekasap\u{2013}1  \u{00b7}  \u{03c1}ma 2.65";
+        let rows = vec![row("A", "Z1", "PAY", 90.0, 0.2, 900), row("B", "Z1", "PAY", 0.0, 0.0, 0)];
+        let blocks = vec![
+            Block::Cover {
+                title: "Petrophysical Evaluation".into(),
+                well: needle.into(),
+                field: "Field: Balam South".into(),
+                meta: "TD: 1800.0 m".into(),
+                author: "Prepared by: Jauhar".into(),
+            },
+            Block::PageBreak,
+            table(pay_sheet(&rows, "m")),
+        ];
+        let tables = write_docx(&blocks, &dest_s).expect("document written");
+        assert_eq!(tables, 1);
+        let bytes = std::fs::read(&dest).expect("file exists");
+        assert!(bytes.len() > 5000, "a report docx is not 5 kB: {}", bytes.len());
+        assert_eq!(&bytes[..2], b"PK", "docx is a zip container");
+
+        // Read it back with python-docx and demand the exact string. `ensure_ascii` on the way
+        // back means the comparison itself cannot be fooled by another encoding hop.
+        let python = find_python().expect("python");
+        const READBACK: &str = r#"
+import json, sys
+from docx import Document
+doc = Document(sys.argv[1])
+sys.stdout.buffer.write(json.dumps([p.text for p in doc.paragraphs if p.text], ensure_ascii=True).encode("ascii"))
+"#;
+        let mut cmd = Command::new(&python);
+        cmd.args(["-c", READBACK, &dest_s]).stdout(Stdio::piped()).stderr(Stdio::piped());
+        hide_console(&mut cmd);
+        let out = cmd.output().expect("readback ran");
+        let paras: Vec<String> = serde_json::from_slice(&out.stdout).expect("readback json");
+        assert!(
+            paras.iter().any(|p| p == needle),
+            "the en dash / middot / rho did not survive the pipe: {paras:?}"
+        );
         let _ = std::fs::remove_file(&dest);
     }
 

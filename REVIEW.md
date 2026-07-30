@@ -7,6 +7,42 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-07-31 — The report as an editable Word document (+ an encoding bug fixed)
+
+Second of the office deliverables. The report pane now has **Save Word…** next to Save PDF…,
+and the **Batch** button has a format select beside it (`as PDF` / `as Word`) so a whole field
+can go out either way.
+
+- [ ] **Save Word on one well.** Open the Report pane, set your title/author/methodology as
+      usual, press **Save Word…**. Note you do NOT have to press Render first — the document
+      carries no log plots, so there is nothing to preview.
+- [ ] **It is genuinely editable.** Open the `.docx` and change the methodology wording, drop
+      in your client's letterhead, restyle the tables. That's the whole point of this format —
+      the PDF stays the deliverable that must not be altered.
+- [ ] **The tables match the PDF.** Cover, methodology, zone parameters (zone name and depths
+      printed once per zone, not repeated down every parameter row), pay summary with the
+      cutoffs in the heading. Export both for the same well and compare — they read from the
+      same numbers, so any disagreement is a bug.
+- [ ] **A zone with no parameters is still listed.** Dropping it would tell a client the zone
+      was not evaluated when it simply took the defaults.
+- [ ] **A dash, not a blank, in the document.** Where the workbook leaves an uninterpreted cell
+      empty, the Word document prints "-" like the PDF does. That difference is deliberate:
+      Excel's arithmetic skips an empty cell, a document has no arithmetic and your eye needs
+      the mark.
+- [ ] **No composite log pages in the Word file** — on purpose, and the document says so at the
+      end. A composite at 1:200 stops being at 1:200 the moment somebody drags its corner in
+      Word. If you want them in there anyway, tell me and I'll add a rasterized appendix.
+- [ ] **Nothing is written back.** Unlike the PDF path (which writes FLAG curves as it renders),
+      the Word export touches nothing in the project.
+- [ ] **Batch as Word.** Set the select to `as Word`, pick a folder, and check you get one
+      `<WELL>_report.docx` per well in scope.
+- [ ] **Names with special characters.** This one is a **bug fix worth testing**: import a
+      picture whose file path or folder contains a non-ASCII character (an en dash, `é`, or an
+      Indonesian folder name), and check it now imports. Before this, the import failed with
+      "No such file or directory" naming a filename you never had — text was being read from
+      the wrong character set on the way into Python. The same bug would have mangled a well
+      name in the Word report.
+
 ## 2026-07-31 — The study as an Excel workbook
 
 First of the office deliverables. Until now `export.rs` wrote LAS and everything else left as

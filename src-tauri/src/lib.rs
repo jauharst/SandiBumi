@@ -813,6 +813,44 @@ async fn office_support() -> Result<office::OfficeSupport, String> {
     tauri::async_runtime::spawn_blocking(office::office_support).await.map_err(|e| e.to_string())
 }
 
+/// The EDITABLE Word twin of the report PDF — same title, author, methodology, cutoffs and
+/// tables, so it can be adapted into a client's own template. The native PDF stays the default
+/// deliverable and keeps the composite log pages.
+#[tauri::command]
+async fn export_report_docx(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    spec: report::ReportSpec,
+    dest_path: String,
+) -> Result<String, String> {
+    let conn = db.0.clone();
+    jobs::run_simple_job(jobs_reg.inner().clone(), "Report", "export Word", move || {
+        office::export_report_docx(&conn, &spec, &dest_path)
+    })
+    .await
+}
+
+/// One `.docx` per well into `dest_dir`. Per-well failures are reported without aborting.
+#[tauri::command]
+async fn export_report_docx_batch(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    spec: report::ReportSpec,
+    well_ids: Vec<String>,
+    dest_dir: String,
+) -> Result<Vec<String>, String> {
+    let conn = db.0.clone();
+    let label = format!("{} Word report(s)", well_ids.len());
+    jobs::run_simple_job(jobs_reg.inner().clone(), "Report batch", label, move || {
+        let (written, errors) = office::export_report_docx_batch(&conn, &spec, &well_ids, &dest_dir)?;
+        if !errors.is_empty() {
+            return Err(format!("wrote {} file(s); failed: {}", written.len(), errors.join("; ")));
+        }
+        Ok(written)
+    })
+    .await
+}
+
 /// Writes the study as a formatted multi-sheet Excel workbook. Runs as a job: a field-scale
 /// pay summary is minutes of work, and the Processing monitor should be able to see it.
 #[tauri::command]
@@ -2484,6 +2522,8 @@ pub fn run() {
             export_report_batch,
             office_support,
             export_workbook,
+            export_report_docx,
+            export_report_docx_batch,
             save_png,
             save_plot_pdf,
             get_core_data

@@ -331,7 +331,11 @@ except Exception as e:
     sys.stderr.write("pillow-missing: %s\n" % e)
     sys.exit(3)
 Image.MAX_IMAGE_PIXELS = None
-req = json.loads(sys.stdin.readline())
+# sys.stdin.buffer, never sys.stdin: a piped child's text stdin decodes with the Windows ANSI
+# codepage, while serde_json sends raw UTF-8 — so a file path holding any non-ASCII character
+# arrived mangled and the picture failed to open for no visible reason. json.loads takes bytes
+# and assumes UTF-8, which is what was actually sent.
+req = json.loads(sys.stdin.buffer.readline())
 max_px = int(req.get("max_px", 2400))
 quality = int(req.get("quality", 85))
 meta = []

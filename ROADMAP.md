@@ -1004,9 +1004,28 @@ joblib (ML) → office four (deliverables) → opencv (digitizing).
         SVG, and the composite path produces vectors; `save_png` rasterizes in the FRONTEND from a
         canvas, so either the deck is driven from the frontend or the slides are built from data
         (matplotlib is installed) rather than from composite pages. Decide before building.
-      - [ ] `python-docx` → an EDITABLE report twin of `report.rs`'s PDF, so methodology text can be
-        adapted into a client template. **The native PDF stays the default path.** Reuses the
-        `ReportSpec` content assembly and the same `Sheet`-style dumb-runner split as the workbook.
+      - [x] **`python-docx` → SHIPPED 2026-07-31** — the EDITABLE `.docx` twin of `report.rs`'s
+        PDF: report pane ▸ **Save Word…**, plus a format select on the Batch button (`as PDF` /
+        `as Word`) driving `export_report_docx` / `export_report_docx_batch`. Same title, author,
+        editable methodology table, zone parameters *in the PDF's shape* (zone + depths printed
+        once per zone; a zone with no parameters is still listed, because dropping it would say
+        the zone was not evaluated) and pay summary. **The native PDF stays the default path**
+        and keeps the composite log pages — deliberately NOT in the Word file, because they are
+        drawn at a true print scale and a picture pasted into a document stops being at that
+        scale the moment anyone resizes it; the document says so rather than leaving a gap.
+        A `Block` reuses the workbook's `Sheet`/`Column`/`Cell`, so one table definition renders
+        three ways and cannot drift. One deliberate divergence: `Cell::Blank` prints as a dash
+        here but stays an empty cell in the workbook (Excel's arithmetic skips a blank; a
+        document has no arithmetic). Runs `stats_only`, so unlike the PDF path it writes nothing
+        back. Open follow-ups: a rasterized composite appendix if he wants the plots in there
+        after all, and a client `.docx` style template to load rather than Word's defaults.
+      - **Bug found and fixed on the way (2026-07-31)**: every Python runner must read
+        `sys.stdin.buffer`, never `sys.stdin` — a piped child's text stdin decodes with the
+        Windows ANSI codepage while `serde_json` sends raw UTF-8, so all non-ASCII arrived as
+        mojibake. `ml.rs`/`python_engine.rs` were already correct; **`images.rs` was not**, and a
+        plate whose path held any non-ASCII character failed with "No such file or directory"
+        naming a filename nobody had. Proven both ways against a real file and pinned by
+        `a_word_document_keeps_non_ascii_text_intact`.
 - [ ] **`joblib` model persistence** — a confirmed capability hole, not a guess: `MlRequest`
       carries `train_well_ids` and `apply_well_ids` in the SAME call, so the fitted model dies
       with the subprocess. There is currently no way to train on the cored wells and apply *that
