@@ -1078,6 +1078,19 @@ joblib (ML) → office four (deliverables) → opencv (digitizing).
       absent.
       *Open follow-up:* the editor note could carry a worked despike→smooth snippet, since
       Savitzky-Golay over an un-despiked curve fits the spike rather than the rock.
+- [x] **SHIPPED 2026-07-31 — RtC calibration from the user's own water zone** (closes the last
+      Tier-B item from the provenance sweep). `lrlc::run_rtc_fit` + Advance ▸ Calibrate RtC…
+      regresses A_CAP/B_QV/C0 from measured excess conductivity over a declared water-bearing
+      interval. The regression is `sw_rtc`'s own saturation equation inverted at Sw = 1, so the
+      fit and the run cannot drift apart. The fit REFUSES without a declared water zone: over
+      hydrocarbon the apparent excess is too small, the calibration under-corrects Rt and Sw
+      comes back too high, which erases pay. RSF is held fixed (not jointly identifiable), an
+      unfittable Qv term is reported as 0 rather than guessed, and every excluded sample is
+      counted by reason. `sw_rtc`'s description now states the shipped defaults are one field's.
+      *Open follow-ups:* a cross-plot of measured vs fitted excess in the dialog (the backend
+      already returns the points); writing the accepted coefficients into `zone_params` per zone
+      rather than copy-paste; and the same treatment for `sw_imts`'s S factor, which has the
+      identical "someone else's calibration" problem.
 - [ ] **`Pillow`** — already present, and enough for the *display* half of the image-track item
       above (read JPEG/PNG/TIFF, dimensions, downsample). No install needed.
 - [ ] **OpenCV** — NOT installed, and deliberately deferred to the **digitizing** phase of the

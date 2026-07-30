@@ -627,6 +627,36 @@ how a 15-minute one-time migration looked like a hang.** DuckDB files never shri
 DELETE (module re-runs bloated BLSO to ~4× its live size), so point users at Compact
 Project when a long-lived project drags.
 
+## RtC calibration (2026-07-31)
+
+`sw_rtc`'s coefficients are a REGRESSION, not a constant, and `lrlc::run_rtc_fit` (Advance ▸
+Calibrate RtC…, `rtcFitDialog.ts`) fits them to the user's own water leg. Four rules.
+
+**The regression is the algebraic inverse of `sw_rtc`'s own equation, never a re-derivation
+from the method note.** Set Sw = 1 in `Sw = [Rw·(1/Rt − Cex)/φt^M]^(1/N)` and the measured
+excess falls out as `1/Rt − φt^M/Rw`; dividing by `φt·RSF` gives a plain 3-parameter OLS in
+(CAPBW, Qv, 1). Deriving it this way means a future change to the saturation equation breaks
+the fit visibly instead of leaving a calibration that quietly no longer inverts it. `qv_at()`
+is shared by the module and the fit for the same reason.
+
+**A water zone must be DECLARED — the fit refuses without a depth range or a wet-flag curve.**
+There is no way to find a water zone without already knowing the saturation the calibration is
+for, so inferring it would beg the question. The stakes are asymmetric: hydrocarbon REMOVES
+conductivity, so pay samples make the apparent excess too small, the fitted model
+under-predicts excess, Rt is under-corrected and Sw comes back too HIGH — it erases pay rather
+than inventing it. A NaN wet flag is not wet.
+
+**The `Cex <= 0` rejection is a second line of defence, not a substitute, and the tests record
+exactly how it leaks**: it drops most obvious pay, but where the rock is most microporous the
+true excess is large enough to mask the hydrocarbon and the sample survives — the guard is
+weakest precisely where this method is used.
+
+**RSF is held fixed and is not fitted.** It multiplies the whole bracket, so (a, b, c, RSF) are
+not jointly identifiable; the returned coefficients belong to the RSF they were fitted with and
+the result says so. An unfittable term (constant Qv) is reported as 0 with a note, never
+guessed, and every excluded sample is counted and named. The dialog offers **Copy**, not
+auto-apply — a calibration is a judgement made after reading R² and the exclusions.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under

@@ -253,6 +253,9 @@ export class Ribbon {
     q<HTMLButtonElement>("#montecarlo-btn")?.addEventListener("click", () => workspace.openMonteCarlo());
     q<HTMLButtonElement>("#ml-btn")?.addEventListener("click", () => workspace.openMl());
     q<HTMLButtonElement>("#multimin-btn")?.addEventListener("click", () => workspace.openMultimin());
+    q<HTMLButtonElement>("#rtc-fit-btn")?.addEventListener("click", () => {
+      void import("./rtcFitDialog").then((m) => m.openRtcFitDialog());
+    });
     q<HTMLButtonElement>("#dashboard-btn")?.addEventListener("click", () => workspace.openDashboard());
     q<HTMLButtonElement>("#results-qc-btn")?.addEventListener("click", () => workspace.openResultsQc());
     q<HTMLButtonElement>("#map-btn")?.addEventListener("click", () => workspace.openMap());

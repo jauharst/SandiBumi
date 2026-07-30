@@ -5948,4 +5948,49 @@ your existing `ARSHILLA_PYTHON` still works.
 
 ---
 
+## RtC calibration from your own water zone (2026-07-31)
+
+**Advance ▸ Calibrate RtC…** This closes the last open item from the provenance sweep. `sw_rtc`
+always told you to "recalibrate per field from water-zone excess conductivity" and never gave
+you a way to do it — so in practice one study's coefficients ran on every field. Now you point
+it at a water sand and it gives you *your* A_CAP / B_QV / C0.
+
+**Try it on a well where you know the water leg:**
+
+- [ ] Click a water-bearing top in the Tops pane first — the dialog seeds the interval from it.
+- [ ] Set Rw / M to **the same values your `sw_rtc` run will use**. They define the clean
+      baseline the excess is measured against; a fit against a different Rw is a fit for
+      different rock. The dialog says so.
+- [ ] Fit, then read **R² and the "Not fitted" line before the coefficients.** If R² is low the
+      excess here is not explained by CAPBW and Qv, and the coefficients are not worth having.
+- [ ] **Copy**, then paste into the `sw_rtc` parameters. Deliberately not auto-applied — that
+      would skip the step that matters.
+- [ ] Compare SWE_RTC before and after on a known interval. This is the real test: does your
+      own calibration move Sw the way your core and tests say it should?
+
+**Three things to poke at deliberately:**
+
+- [ ] **It refuses without a water zone.** Clear both depth boxes and the flag curve, then Fit.
+      You should get a refusal explaining that fitting over pay hands the hydrocarbon's
+      resistivity to the clay term. That refusal is the most important behaviour here — over
+      hydrocarbon the fit reads Sw too HIGH, so a careless calibration *erases* pay rather than
+      inventing it.
+- [ ] **Nothing is dropped silently.** The "Not fitted" line counts every excluded sample by
+      reason — outside the interval, not flagged wet, incomplete inputs, or "no excess to
+      explain" (Rt reads above what clean water-filled rock can be, usually meaning Rw is wrong
+      for the interval or it is not actually wet). A calibration from 12 samples of a sand you
+      thought held 500 is a different statement.
+- [ ] **RSF is held fixed**, and the result says the coefficients are only valid for that RSF.
+      Change RSF afterwards and they are void — RSF multiplies the whole bracket, so it and the
+      three coefficients cannot be separated by this regression.
+
+**Worth knowing:** with no QV log and CEC = 0 the clay term cannot be fitted at all. It is
+reported as **0 with a note** rather than guessed, and the capillary term absorbs whatever
+constant clay conductivity is present.
+
+`sw_rtc`'s own description now says plainly that the shipped defaults are one field's, and
+points at this dialog.
+
+---
+
 _Made in SandiBumi._ © 2026 SandiBumi. All rights reserved.

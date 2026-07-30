@@ -2680,6 +2680,59 @@ export function exportLas(wellId: string, destPath: string): Promise<number> {
   return invoke<number>("export_las", { wellId, destPath });
 }
 
+/** One water-zone sample that entered the RtC calibration fit. */
+export interface RtcFitPoint {
+  well_id: string;
+  depth: number;
+  capbw: number;
+  qv: number;
+  /** Measured excess conductivity normalized by PHIT·RSF — the regression's y. */
+  y: number;
+  y_fit: number;
+}
+
+/** Fits A_CAP / B_QV / C0 to the user's OWN water leg. */
+export interface RtcFitRequest {
+  well_ids: string[];
+  rt_curve: string;
+  phit_curve: string;
+  capbw_curve: string;
+  qv_curve?: string;
+  cec?: number;
+  rhog?: number;
+  /** Must match the parameters the sw_rtc run will use — they define the clean baseline. */
+  rw: number;
+  m: number;
+  /** Held fixed; the fitted coefficients belong to this RSF only. */
+  rsf: number;
+  /** The water-bearing interval. At least one of these, or a wet-flag curve, is REQUIRED —
+   *  the fit assumes Sw = 1 and refuses to guess where that is true. */
+  depth_min?: number | null;
+  depth_max?: number | null;
+  wet_flag_curve?: string;
+}
+
+export interface RtcFitResult {
+  a_cap: number;
+  b_qv: number;
+  c0: number;
+  rsf_used: number;
+  r2: number;
+  rms: number;
+  n_points: number;
+  n_wells: number;
+  points: RtcFitPoint[];
+  /** (reason, count) for every candidate sample not fitted. */
+  excluded: [string, number][];
+  notes: string[];
+  error: string | null;
+}
+
+/** Fits the RtC excess-conductivity coefficients to the selected water-bearing interval. */
+export function runRtcFit(req: RtcFitRequest): Promise<RtcFitResult> {
+  return invoke<RtcFitResult>("run_rtc_fit", { req });
+}
+
 /** What the Python equation engine can offer, probed once per session. */
 export interface PythonStatus {
   /** Interpreter the engine will use; null when no Python with numpy was found. */

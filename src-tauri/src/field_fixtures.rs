@@ -24,7 +24,7 @@
 //! importer works on *that* file; a test that reads whatever the folder holds proves it works on
 //! a delivery — which is the claim actually being made.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// The environment variable naming the field-fixture root.
 pub const FIELD_FIXTURE_ENV: &str = "SANDIBUMI_FIELD_FIXTURES";
@@ -101,13 +101,4 @@ pub fn temp_db(name: &str) -> PathBuf {
     let p = std::env::temp_dir().join(format!("sandibumi_{name}.duckdb"));
     let _ = std::fs::remove_file(&p);
     p
-}
-
-/// True when `p` exists; prints the same skip reason otherwise.
-pub fn have(p: &Path, what: &str) -> bool {
-    if p.exists() {
-        return true;
-    }
-    eprintln!("SKIP {what}: {} is not on this machine", p.display());
-    false
 }

@@ -1621,6 +1621,21 @@ async fn run_cuddy_foil(
         .map_err(|e| e.to_string())
 }
 
+/// Fits the RtC excess-conductivity coefficients (A_CAP / B_QV / C0) to the user's OWN
+/// water-bearing interval, so `sw_rtc` stops running on a calibration from somebody else's
+/// field. Refuses unless a water zone is declared — see `lrlc::run_rtc_fit`. Off-thread;
+/// writes no curves.
+#[tauri::command]
+async fn run_rtc_fit(
+    db: tauri::State<'_, DbState>,
+    req: lrlc::RtcFitRequest,
+) -> Result<lrlc::RtcFitResult, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || lrlc::run_rtc_fit(&conn, &req))
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Height-domain SHF fit (Wave B item 8, increment 2): Brooks-Corey or Skelt-Harrison fitted to
 /// the log-derived Sw-vs-height cloud. Off-thread; writes no curves.
 #[tauri::command]
@@ -2536,6 +2551,7 @@ pub fn run() {
             run_ml_eval,
             run_cuddy_foil,
             run_shf_fit,
+            run_rtc_fit,
             run_thomeer_fit,
             run_hfu_cluster,
             run_lorenz,
