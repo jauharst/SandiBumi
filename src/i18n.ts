@@ -31,6 +31,15 @@ const ID: Record<string, string> = {
   "New Project…": "Proyek Baru…",
   Recent: "Terbaru",
   "No recent projects": "Belum ada proyek terbaru",
+  // Project tab — Session / Edit / Monitor groups (the old quick-access strip)
+  "Save Session…": "Simpan Sesi…",
+  "Open Session…": "Buka Sesi…",
+  Undo: "Batalkan",
+  Redo: "Ulangi",
+  History: "Riwayat",
+  Processing: "Pemrosesan",
+  Performance: "Kinerja",
+  Monitor: "Pemantau",
   // Workflow builder (List/Grid inspector)
   List: "Daftar",
   Grid: "Kisi",
@@ -195,6 +204,15 @@ const SU: Record<string, string> = {
   "New Project…": "Proyék Anyar…",
   Recent: "Panganyarna",
   "No recent projects": "Can aya proyék panganyarna",
+  // Project tab — Session / Edit / Monitor groups (the old quick-access strip)
+  "Save Session…": "Simpen Sési…",
+  "Open Session…": "Buka Sési…",
+  Undo: "Bolaykeun",
+  Redo: "Balikan deui",
+  History: "Riwayat",
+  Processing: "Prosés",
+  Performance: "Kinerja",
+  Monitor: "Pamantau",
   // Workflow builder (List/Grid inspector)
   List: "Daptar",
   Grid: "Kisi",
@@ -354,6 +372,17 @@ const JV: Record<string, string> = {
   "New Project…": "Proyèk Anyar…",
   Recent: "Pungkasan",
   "No recent projects": "Durung ana proyèk pungkasan",
+  // Project tab — Session / Edit / Monitor groups (the old quick-access strip)
+  // "Sési" (not "Sèsi") to match the existing `Session` caption key further down — the group
+  // caption and its buttons must not disagree on the spelling of the same word.
+  "Save Session…": "Simpen Sési…",
+  "Open Session…": "Bukak Sési…",
+  Undo: "Batalké",
+  Redo: "Balèni",
+  History: "Riwayat",
+  Processing: "Pangolahan",
+  Performance: "Kinerja",
+  Monitor: "Pamantau",
   List: "Dhaptar",
   Grid: "Kisi",
   "Set all": "Setel kabèh",

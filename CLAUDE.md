@@ -158,8 +158,20 @@ Global-filter semantics: the Wells pane filters to members and EVERY batch dialo
 well list in `filterByActiveGroup(...)` — when adding a new batch/run dialog, do the same so
 it respects the active group. Membership is explicit (manual); `rule_json` is reserved.
 
-Shell UX (2026-07-19) — The **quick access toolbar** (`.qat` in index.html, left of the
-ribbon tabs) holds Undo/Redo/Save-As/History; Save Project As is NOT a ribbon button anymore.
+Shell UX (2026-07-19, superseded 2026-07-30) — The icon-only **quick access toolbar**
+(`.qat`, left of the ribbon tabs) is GONE. Every one of its buttons is a LABELLED ribbon tool
+in the **Project** tab, grouped Project (Open / New / **Save Project As…** / Recent ▾) — note
+this reverses the old "Save Project As is NOT a ribbon button" rule — Session (Save Session… /
+Open Session…), Edit (Undo / Redo), Monitor (History / **Processing** / **Performance**, both
+moved out of the Petrophysics Batch group because they watch the whole application, not a
+petrophysics run) and Help. Ids are `#undo-btn`/`#redo-btn`/`#save-project-btn`/
+`#save-session-btn`/`#open-session-btn`/`#history-btn`/`#processing-btn`/`#health-btn`/
+`#help-btn`. The tabstrip is 24px tall and the ribbon body 80px — that height difference is
+the whole reason these could not carry captions before. **The unsaved-state dot is mirrored
+onto the Project TAB itself** (`.ribbon-tab-dirty`), not only onto Save Session…: the button
+now lives inside the tab, and a warning you only see after opening the tab that holds the fix
+is not a warning. Keep it a `::after` dot, never a text prefix — a tabstrip that reflows when
+work goes dirty shifts every other tab under the cursor.
 Undo state is broadcast via `undo.ts::onUndoChange` (with `redoDepth`/`nextUndoLabel`).
 **Processing history** is `processLog.ts`: call `recordProcess(kind, detail, well?)` after any
 meaningful op (imports, module runs, edits, exports, pins) — it persists to the `documents`
@@ -187,8 +199,8 @@ module: add its `name` to ADVANCED_MODULE_IDS + a META `[short, caption, iconPat
 are named workspace snapshots (distinct from Save Project As, which copies the whole .duckdb):
 `workspace.ts` `SessionSnapshot {version, layout: dock.toJSON(), well}` + `snapshotSession()`/
 `applySession()` (sets selectedWell BEFORE `dock.fromJSON` so recreated panels init on it),
-stored in `documents` doc_type `session`. QAT buttons `#qat-save-session`/`#qat-open-session`
-(right of Save) → ribbon `handleSaveSession`/`handleOpenSession`. dockview toJSON does NOT
+stored in `documents` doc_type `session`. Project ▸ Session buttons `#save-session-btn`/
+`#open-session-btn` → ribbon `handleSaveSession`/`handleOpenSession`. dockview toJSON does NOT
 serialize a log view's chosen Layout, so `snapshotSession` also captures `logViewLayouts`
 (panelId → Layout, from each view's `getLayout()`) and `applySession` reapplies them by id
 right after `dock.fromJSON` (which synchronously recreates the log-view panels, repopulating

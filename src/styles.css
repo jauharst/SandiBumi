@@ -284,8 +284,9 @@
       dockview panel drags, sash resizing and canvas panning instant: those
       move geometry, and geometry is not in this list.
 
-   Measured before this existed: .ribbon-tab, .ribbon-btn and .qat-btn all
-   reported transition-duration: 0s on the live DOM.
+   Measured before this existed: .ribbon-tab, .ribbon-btn and the old .qat-btn
+   (that strip is gone; its buttons are .ribbon-btn tools now) all reported
+   transition-duration: 0s on the live DOM.
    -------------------------------------------------------------------------- */
 
 :where(
@@ -481,6 +482,24 @@ textarea {
   font-weight: 600;
 }
 
+/* Unsaved-state dot mirrored onto the Project tab: Save Session… lives INSIDE that tab
+   now, so the warning has to be readable without opening it (see ribbon.ts). Kept to a
+   ::after dot rather than a text prefix so the tab never changes width — a tabstrip that
+   reflows when work becomes dirty would move every other tab under the cursor. */
+.ribbon-tab.ribbon-tab-dirty {
+  position: relative;
+}
+.ribbon-tab.ribbon-tab-dirty::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warn);
+}
+
 /* Fixed height so every tab's groups share the same bottom edge; positioning context for
    the overflow chevrons. */
 .ribbon-body {
@@ -500,6 +519,11 @@ textarea {
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
+  /* Deliberately NOT `scroll-behavior: smooth`. Measured in the WebView: smooth scrolling on
+     this element is a no-op by EITHER route — scrollBy({behavior:"smooth"}) and a scrollLeft
+     assignment under CSS smooth both leave scrollLeft at 0, while a plain assignment moves it
+     correctly. The chevrons therefore jump rather than glide (see ribbon.ts scrollActive).
+     A ribbon that jumps is fine; a ribbon that does not move is broken. */
 }
 .ribbon-panel::-webkit-scrollbar {
   height: 0;
@@ -4535,51 +4559,9 @@ textarea {
   color: var(--text-dim);
 }
 
-/* --------------------------------------------------------------------------
-   Quick access toolbar (undo / redo / save / history) — left of the ribbon tabs
-   -------------------------------------------------------------------------- */
-.qat {
-  display: inline-flex;
-  align-items: center;
-  gap: 1px;
-  margin-right: 8px;
-  padding-right: 8px;
-  border-right: 1px solid var(--border);
-}
-.qat-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 24px;
-  border: 1px solid transparent;
-  border-radius: var(--r-md);
-  background: transparent;
-  color: var(--text);
-  /* These are icon-only (fixed 26x24 with an SVG child), so this is hygiene
-     rather than a visible change: without it the button inherits the UA
-     default 13.33px while everything else in the same strip is 11-12px. */
-  font-size: var(--fs-sm);
-  cursor: pointer;
-}
-.qat-btn svg {
-  width: 16px;
-  height: 16px;
-}
-.qat-btn:hover:not(:disabled) {
-  background: var(--bg-hover);
-  border-color: var(--border-strong);
-}
-.qat-btn:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-.qat-sep {
-  width: 1px;
-  height: 16px;
-  margin: 0 3px;
-  background: var(--border);
-}
+/* The icon-only quick-access strip (.qat) that used to live left of the ribbon tabs was
+   removed on 2026-07-30 — its buttons are labelled .ribbon-btn tools in the Project tab.
+   Disabled styling for Undo/Redo now comes from .ribbon-btn:disabled below. */
 
 /* --------------------------------------------------------------------------
    Plot image export + template controls (histogram / crossplot / pickett / correlation)
@@ -5240,16 +5222,16 @@ input[type="number"].num-editing:focus {
   padding: 6px 8px;
   margin: 6px 0;
 }
-/* Unsaved-state dot on the QAT Save Session button (lit while any panel has state
-   not yet in a named save; the tab itself carries a ● prefix). */
-.qat-btn.qat-dirty {
+/* Unsaved-state dot on the Project ▸ Session ▸ Save Session… button (lit while any panel
+   has state not yet in a named save; the tab itself carries a ● prefix). */
+.ribbon-btn.ribbon-btn-dirty {
   position: relative;
 }
-.qat-btn.qat-dirty::after {
+.ribbon-btn.ribbon-btn-dirty::after {
   content: "";
   position: absolute;
-  top: 2px;
-  right: 2px;
+  top: 3px;
+  right: 3px;
   width: 7px;
   height: 7px;
   border-radius: 50%;

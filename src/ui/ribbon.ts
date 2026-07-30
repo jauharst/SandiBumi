@@ -117,9 +117,12 @@ export class Ribbon {
 
     const q = <T extends HTMLElement>(sel: string) => root.querySelector<T>(sel);
 
-    // --- Quick access toolbar (top-left, outside the ribbon tabs) ---
-    const undoBtn = q<HTMLButtonElement>("#qat-undo");
-    const redoBtn = q<HTMLButtonElement>("#qat-redo");
+    // --- Project ▸ Edit (Undo / Redo) ---
+    // These were the icon-only quick-access strip until 2026-07-30; they are labelled
+    // ribbon tools in the Project tab now. The keyboard shortcuts are unchanged and are
+    // still the fast path — the buttons exist so the action is discoverable and readable.
+    const undoBtn = q<HTMLButtonElement>("#undo-btn");
+    const redoBtn = q<HTMLButtonElement>("#redo-btn");
     undoBtn?.addEventListener("click", () => {
       void undo().then(
         (label) => setStatus(label ? `Undo: ${label}` : "Nothing to undo"),
@@ -145,7 +148,6 @@ export class Ribbon {
         redoBtn.title = l ? `Redo ${l} (Ctrl+Y)` : "Redo (Ctrl+Y)";
       }
     });
-    q<HTMLButtonElement>("#qat-save")?.addEventListener("click", () => void this.handleSaveProject());
     // Ctrl/Cmd+S quietly re-saves the current session (no dialog once it has a name); Escape
     // closes any open ribbon menu. Only intercept Ctrl+S when the target isn't a text field —
     // an editor/CodeMirror inside a pane keeps its own Save. (Ribbon is a singleton created
@@ -169,20 +171,34 @@ export class Ribbon {
         }
       }
     });
-    const saveSessionBtn = q<HTMLButtonElement>("#qat-save-session");
+    // --- Project ▸ Session ---
+    const saveSessionBtn = q<HTMLButtonElement>("#save-session-btn");
     saveSessionBtn?.addEventListener("click", () => this.handleSaveSession());
-    q<HTMLButtonElement>("#qat-open-session")?.addEventListener("click", () => void this.handleOpenSession());
-    q<HTMLButtonElement>("#qat-history")?.addEventListener("click", () => workspace.openHistory());
+    q<HTMLButtonElement>("#open-session-btn")?.addEventListener("click", () => void this.handleOpenSession());
+
+    // --- Project ▸ Monitor --- (History + Processing + Performance all watch the whole
+    // application rather than a petrophysics run, so they share one group.)
+    q<HTMLButtonElement>("#history-btn")?.addEventListener("click", () => workspace.openHistory());
+    q<HTMLButtonElement>("#processing-btn")?.addEventListener("click", () => workspace.openProcessing());
+    q<HTMLButtonElement>("#health-btn")?.addEventListener("click", () => workspace.openHealth());
     // Contextual Help (?): opens a guide for whichever panel is active — the future hook for
     // the illustrated HTML help library, keyed to the "current active panel".
-    q<HTMLButtonElement>("#qat-help")?.addEventListener("click", () => void workspace.openHelpForActivePanel());
+    q<HTMLButtonElement>("#help-btn")?.addEventListener("click", () => void workspace.openHelpForActivePanel());
     // Unsaved-state dot: lights while any panel/workspace state isn't in a named save yet.
+    // It is mirrored onto the PROJECT TAB as well, because Save Session… now lives inside
+    // that tab: a warning you only see after opening the tab that holds the fix is no
+    // warning at all. The tab dot is what keeps the signal visible from anywhere.
+    const projectTab = root.querySelector<HTMLElement>('.ribbon-tab[data-tab="project"]');
     if (saveSessionBtn) {
       const baseTitle = saveSessionBtn.title;
       subscribeDirty(() => {
         const dirty = anyDirty();
-        saveSessionBtn.classList.toggle("qat-dirty", dirty);
+        saveSessionBtn.classList.toggle("ribbon-btn-dirty", dirty);
         saveSessionBtn.title = dirty ? `${baseTitle} — unsaved changes` : baseTitle;
+        projectTab?.classList.toggle("ribbon-tab-dirty", dirty);
+        if (projectTab) {
+          projectTab.title = dirty ? "Unsaved changes — Project ▸ Session ▸ Save Session…" : "";
+        }
       });
     }
 
@@ -227,8 +243,6 @@ export class Ribbon {
     q<HTMLButtonElement>("#paysum-btn")?.addEventListener("click", () => workspace.openPaySummary());
     q<HTMLButtonElement>("#cutoff-sens-btn")?.addEventListener("click", () => workspace.openCutoff());
     q<HTMLButtonElement>("#workflow-btn")?.addEventListener("click", () => workspace.openWorkflow());
-    q<HTMLButtonElement>("#processing-btn")?.addEventListener("click", () => workspace.openProcessing());
-    q<HTMLButtonElement>("#health-btn")?.addEventListener("click", () => workspace.openHealth());
     // The Workflow Builder fires this when a chain starts so the universal Processing panel
     // pops open on its own — the user shouldn't have to hunt for progress. Ribbon is a
     // singleton created once in main.ts, so this window listener is registered exactly once.
@@ -469,7 +483,15 @@ export class Ribbon {
     const scrollActive = (dir: number): void => {
       const p = activePanel();
       if (!p) return;
-      p.scrollBy({ left: dir * Math.max(120, p.clientWidth * 0.7), behavior: "smooth" });
+      // Assign scrollLeft directly rather than scrollBy({behavior:"smooth"}): in the WebView
+      // ANY smooth scroll on this element is silently a no-op (measured — scrollBy smooth and
+      // a scrollLeft assignment under CSS `scroll-behavior: smooth` both leave scrollLeft at
+      // 0; a plain assignment moves it correctly). The chevrons used to appear and do nothing.
+      // Keep this unanimated — do not "restore" smooth scrolling here or in .ribbon-panel.
+      const max = p.scrollWidth - p.clientWidth;
+      const step = dir * Math.max(120, p.clientWidth * 0.7);
+      p.scrollLeft = Math.min(max, Math.max(0, p.scrollLeft + step));
+      update(); // scroll events are async; refresh the chevrons now so neither sticks
     };
     left.addEventListener("click", () => scrollActive(-1));
     right.addEventListener("click", () => scrollActive(1));

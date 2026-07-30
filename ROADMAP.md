@@ -894,12 +894,30 @@ which he has since clarified (also §B3).
       path was written, which was Jauhar's explicit instruction when accepting the point-data
       increment. Verified: a band drawn from the stored matrix reproduces the persisted
       MC_*_LOW/_HIGH curves to 1e-5.
-- [ ] **QAT tools in the Project ribbon** — **CLARIFIED 2026-07-30**, no longer ambiguous: "those
-      QAT buttons should become labelled tools, together with performance and processing button
-      moved from petrophysics tabs". So: the quick-access strip's buttons become *labelled* ribbon
-      tools, and the **Performance** and **Processing** buttons move out of the Petrophysics tab to
-      join them. Note this partly reverses the earlier decision recorded in CLAUDE.md ("Save Project
-      As is NOT a ribbon button anymore") — that line must be updated, not silently contradicted.
+- [x] **QAT tools in the Project ribbon** — **SHIPPED 2026-07-30.** The icon-only quick-access
+      strip is gone; its seven buttons are labelled tools in the **Project** tab, grouped Project
+      (Open / New / **Save Project As…** / Recent ▾), Session (Save Session… / Open Session…),
+      Edit (Undo / Redo), Monitor (History / **Processing** / **Performance**, both moved out of
+      the Petrophysics Batch group) and Help. CLAUDE.md/AGENTS.md updated — the "Save Project As
+      is NOT a ribbon button anymore" line is explicitly marked as reversed, not silently dropped.
+      Two things fell out of the move and were fixed in the same increment:
+      **(a)** the unsaved-state dot is now mirrored onto the **Project ribbon tab** as well as the
+      Save Session… button — the button moved *inside* a tab, and a warning you only see after
+      opening the tab that holds the fix is not a warning. It is a `::after` dot, never a text
+      prefix, so the tabstrip never reflows and shifts the other tabs under the cursor.
+      **(b)** the Office-style ribbon **overflow chevrons never worked** — latent since they were
+      written, and only reachable once a tab was wide enough to need them. Project (1471px of
+      groups) is the first, so it surfaced now. `scrollBy({behavior:"smooth"})` is a silent no-op
+      on `.ribbon-panel` in the WebView; so is a `scrollLeft` assignment under CSS
+      `scroll-behavior: smooth`. Only a plain assignment moves it. `scrollActive` now assigns
+      directly, clamped, and refreshes the chevrons synchronously. **Do not "restore" smooth
+      scrolling there** — it reverts the fix. Measured after: right → 211 (clamped to max), Help
+      scrolls into view, chevrons swap; left → 0.
+      Follow-up left open: at a 1280-wide window the Project tab is the only one that overflows.
+      That is what the chevrons are for and it is now genuinely usable, but if Jauhar works on a
+      1366 laptop and dislikes it, the cheapest fixes are merging Language into the Appearance
+      group and folding Help into Monitor (≈100px); anything more means restyling the ribbon
+      fields, which is a design change he should call.
 - [ ] **Images in their own track** — **CLARIFIED 2026-07-30**: "images in separate tracks, such
       petrography thin section, core photo, or any picture format that can be adjustable (later we
       should have capablites to digitize it as well)". So this is NOT part of the point-data track:

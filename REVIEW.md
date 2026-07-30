@@ -7,6 +7,54 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-07-30 — Quick-access buttons become labelled Project-tab tools
+
+Your ask: *"those QAT buttons should become labelled tools, together with performance and
+processing button moved from petrophysics tabs"*. Done — and the icon strip left of the ribbon
+tabs is **gone**, not duplicated.
+
+- [ ] **The icon strip is gone and nothing was lost.** Launch the app: there is no row of small
+      icons left of the **Project / Data / Petrophysics / …** tabs. Open **Project** — all seven
+      of those buttons are there with words under them:
+      **Project** — Open Project… / New Project… / **Save Project As…** / Recent ▾
+      **Session** — Save Session… / Open Session…
+      **Edit** — Undo / Redo
+      **Monitor** — History / **Processing** / **Performance**
+      **Appearance** — Theme · **Language** · **Help** — Help
+      (The tabstrip is 24px tall and the ribbon body is 80px — that height difference is the
+      whole reason these could not carry captions where they used to live.)
+- [ ] **Processing and Performance are no longer in Petrophysics.** Open **Petrophysics ▸ Batch**:
+      it now holds Workflow… / Monte Carlo… / Field Dashboard… only. Both moved buttons open the
+      same panels as before, from **Project ▸ Monitor**. They watch the whole application rather
+      than a petrophysics run, which is why they sit with History.
+- [ ] **Undo still reads what it will undo.** Make an undoable edit (add a top, edit a curve
+      value, shift core). On **Project ▸ Edit**, **Undo** enables and its tooltip names the action
+      — e.g. "Undo add top UAT_TOP (Ctrl+Z)"; after clicking, **Redo** enables with the matching
+      label. **Ctrl+Z / Ctrl+Y are unchanged and are still the fast path** — the buttons exist to
+      make the action readable, not to replace the shortcut.
+- [ ] **The unsaved warning is still visible from wherever you are.** This one needs a deliberate
+      look: Save Session… now lives *inside* the Project tab, so its red dot alone would only be
+      visible to someone who already went looking for it. Sit on the **Petrophysics** tab, edit a
+      log view (drag a track wider) — an **amber dot appears on the Project TAB itself** without
+      you switching to it (hover: "Unsaved changes — Project ▸ Session ▸ Save Session…"). The tab
+      must NOT change width when the dot appears. Save a session; both dots clear.
+- [ ] **The ribbon overflow arrows work now.** These have been broken since they were written and
+      nothing was ever wide enough to reveal it — Project is the first tab that is. If your window
+      is narrower than ~1470px you will see a **›** box at the right edge of the Project tab:
+      click it and the ribbon really scrolls (Help comes into view, a **‹** appears, the **›**
+      hides); click **‹** to come back. It jumps rather than glides — that is deliberate: smooth
+      scrolling is silently a no-op on this element, so an unanimated scroll that works beats a
+      pretty one that does not. **Tell me if the overflow bothers you** — on a 1366 laptop the
+      Project tab will always need one arrow-click to reach Help, and I can win back about 100px
+      by merging Language into Appearance and folding Help into Monitor.
+- [ ] **Bahasa / Basa Sunda / Basa Jawa cover the new labels.** Switch language on the Project
+      tab: Undo/Redo/History/Processing/Performance and the Session, Edit and Monitor captions all
+      translate, and switching back to English restores the exact original wording.
+- [ ] **`docs/manual_test_plan.md` was updated with this** — every step that said "QAT" or
+      "quick-access bar" now names the real ribbon path (T-SHELL-01/-05/-07/-10/-12/-13/-14 and
+      ~20 more). Since you are working through that plan, it should no longer send you looking
+      for buttons that moved.
+
 ## Round 99 — Depth units, increment 2: the Pc fix and the m/ft view toggle (2026-07-29)
 
 **1. The saturation-height error is fixed.** `pc = 0.433 psi/ft/SG · Δρ · h` is per FOOT of
@@ -4411,7 +4459,7 @@ group left of Appearance:
       behaves exactly as before).
 - [ ] Switching is refused while a workflow chain is running (try it: start a long
       chain, then Open Project — you should get a clear error, not a corrupted run).
-- [ ] Note: QAT **Save Project As** stays a backup copy (app keeps working on the
+- [ ] Note: **Project ▸ Project ▸ Save Project As…** stays a backup copy (app keeps working on the
       current file) — tell me if you'd rather it switch to the copy, IP-style.
 
 ## Wave A-2: compact import ribbon (2026-07-20 #16)
@@ -4590,7 +4638,8 @@ dev` restart** (config change). Look closely at ribbon/dialog text afterward —
       brings back the **active well** and each log view's **layout/track state** (before,
       only the pane arrangement survived).
 - [ ] **Unsaved markers**: edit a log view (track widths, properties, curve visibility)
-      → its tab shows **●** and the QAT Save-Session button gets a red dot. **Save
+      → its tab shows **●**, the **Project ribbon tab** gets an amber dot (visible without
+      leaving the tab you are on), and **Project ▸ Session ▸ Save Session…** gets a red dot. **Save
       Layout** clears that panel's ●; **Save Session** clears everything. The dot means
       "not in a named save yet" — the crash autosave protects you regardless.
 
