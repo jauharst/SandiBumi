@@ -537,6 +537,15 @@ check the Wells pane and the DB Inspector for a stray `SANDI-BAD-NULL`. Asserted
 
 **Notes:** Import core, scal does nothing when i didnt select any wells, but for tops its opened
 
+**Update 2026-07-30 — EXPLAINED, watch the status bar.** Core/SCAL without a well selected
+do refuse with a message — but it goes to the STATUS BAR (bottom left), which is easy to
+miss; nothing "does nothing" silently. Re-test watching the status bar: it should read
+`Select a well first (Wells & Tops panel)`. **Tops opening with no well selected is by
+design**: a tops file with a WELL column routes every row to its own well by name (your
+multi-well Petrel exports), so no selection is needed — a single-well file without that
+column falls back to the selected well and refuses only then. If you'd rather the guard were
+louder than a status-bar line (e.g. a dialog), say so and it becomes a small UX increment.
+
 ### T-IMP-06 — DLIS import: sentinels screened, re-import replaced-count, LAS-mnemonic collision
 
 **Tool/panel:** Import DLIS… (ribbon.ts `handleImportDlis`, src-tauri/src/dlis.rs)
