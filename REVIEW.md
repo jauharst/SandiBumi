@@ -5217,10 +5217,38 @@ any delimited text and shows each column's sniffed type (number/text/empty).
 - [ ] **Shift Core (T-IMP-09) is unblocked** — run it as written in the test plan; it still
       shifts the SELECTED well's plugs only.
 
-*Recorded follow-up (your "any text type / any data type" note):* columns beyond the four
-fixed core properties (LITH descriptions, So, Kv/Kh…) still import only via Import Aux —
-folding a core file's EXTRA columns into a per-well point-data store from the same wizard
-is the next natural increment. Say the word.
+---
+
+## 2026-07-30 — Core import: the EXTRA columns come in too ("any column, any data type")
+
+`core_data` holds four measurements (porosity, permeability, grain density, Sw). A real lab
+export is wider — lithology descriptions, So, Kv/Kh, sample IDs, tape names. Those columns
+now ride along from the SAME wizard: they land as **point data at the plug depths**, typed
+per cell (numbers as numbers, anything else as text), so a wide delivery imports whole in
+one pass instead of needing a second Import Aux run.
+
+- [ ] **Import Core… → `dataset for test/examples/core_rcal_multiwell.csv`** (the exemplar
+      now carries `SO_1`, `LITH` text and mixed `SAMPLE_ID`). Tick **Extra columns** → the
+      5 leftover columns appear with their type (`LITH (text)`, `TAPE_NAME (empty)`…).
+      Untick `TAPE_NAME`/`TOOL_STRING`, leave the rest, Import → the status line reports the
+      plugs AND "Plus N point-data value(s) from SO_1, LITH, SAMPLE_ID".
+- [ ] **Check the values landed as themselves:** Database Inspector → `aux_data`, dataset
+      `CORE` — `LITH` in value_text ("SANDSTONE"), `SO_1` in value_num, depth_base empty
+      (they are point samples), depths matching the plug depths.
+- [ ] **A column can't be stored twice:** with Extra columns on, re-point **Water saturation
+      (CSW)** at `SO_1` — it leaves the extras list immediately and `CSW_1` takes its place.
+      Columns you unticked stay unticked.
+- [ ] **Dataset name is yours:** change "Store them under dataset" to e.g. `CORE RCAL`;
+      re-importing the same file replaces that dataset for the well (same discipline as the
+      plugs themselves), it never doubles up.
+- [ ] **Real data (the point of it):** a BLSO core CSV's extra columns, or the Duri
+      `Core.csv` wide export — everything the four core slots don't claim is available
+      without a second import pass.
+
+**Note by design:** extras are stored **verbatim** — no percent→v/v or feet→metres
+conversion is applied to them (the depth they hang on IS converted). The wizard confirms
+what a column *is*; it does not reinterpret its values. If you want a specific extra
+treated as a real curve/measurement instead, tell me which and it becomes a mapped role.
 
 ---
 

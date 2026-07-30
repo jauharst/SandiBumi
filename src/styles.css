@@ -2086,6 +2086,31 @@ textarea {
   font-weight: 600;
 }
 
+/* Opt-in list of the core file's leftover columns (stored as point data). */
+.core-import-extras {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+  margin: 4px 0 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  max-height: 120px;
+  overflow: auto;
+}
+.core-import-extras label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.core-import-extras .form-hint {
+  flex-basis: 100%;
+  margin: 4px 0 0;
+}
+
 /* Section label inside a properties dialog (Crossplot/Histogram v2). */
 .props-section {
   font-size: var(--fs-xs);

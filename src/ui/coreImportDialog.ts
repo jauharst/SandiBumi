@@ -22,10 +22,16 @@ import { formRow, openModal } from "./modal";
  *  index per file, so a delivery of one-CSV-per-well (the BLSO shape) imports in one go
  *  even if some files order their columns differently. A file missing a mapped header
  *  reports and skips, never guesses.
+ *
+ *  EXTRA columns: a lab export is wider than core_data's four measurements (lithology
+ *  descriptions, So, Kv/Kh, sample ids, tape names). Whatever no role claims can be
+ *  carried as point data at the same plug depths — opt-in, listed by name, typed per
+ *  cell (numbers as numbers, everything else as text) and stored verbatim: the wizard
+ *  confirms what a column IS, it does not reinterpret its values.
  */
 
 interface RoleSpec {
-  key: keyof CoreMapping;
+  key: RoleKey;
   label: string;
   hint: string;
   required?: boolean;
@@ -40,10 +46,17 @@ const ROLES: RoleSpec[] = [
   { key: "csw", label: "Water saturation (CSW)", hint: "Percent is detected and converted to v/v." },
 ];
 
+/** The role keys the dialog maps one-to-one to a header (everything but `extras`). */
+type RoleKey = Exclude<keyof CoreMapping, "extras">;
+
 /** The dialog's confirmed choice: header NAME per role (re-resolved per file). */
 export interface CoreImportChoice {
-  headers: Partial<Record<keyof CoreMapping, string>>;
+  headers: Partial<Record<RoleKey, string>>;
   depthUnit: string | null; // "ft" | "m" | null = already the project unit
+  /** Extra columns to carry as point data, by header NAME (empty = none). */
+  extraHeaders: string[];
+  /** Dataset the extras land under ("CORE" by default). */
+  extrasDataset: string;
 }
 
 /** Resolves a by-name choice against one file's probed headers. Returns null (with a
@@ -62,13 +75,21 @@ export function mappingForFile(
     return { error: `no '${choice.headers.depth ?? "?"}' column in this file` };
   }
   const missing: string[] = [];
-  const opt = (key: keyof CoreMapping): number | null => {
+  const opt = (key: RoleKey): number | null => {
     const name = choice.headers[key];
     if (!name) return null;
     const i = idx(name);
     if (i === null) missing.push(name);
     return i;
   };
+  // Extras are best-effort per file: a delivery where only some files carry LITH still
+  // imports, the absent ones just report the column as not present.
+  const extras: number[] = [];
+  for (const name of choice.extraHeaders) {
+    const i = idx(name);
+    if (i === null) missing.push(name);
+    else extras.push(i);
+  }
   return {
     mapping: {
       well: opt("well"),
@@ -77,6 +98,7 @@ export function mappingForFile(
       cperm: opt("cperm"),
       cgd: opt("cgd"),
       csw: opt("csw"),
+      extras,
     },
     missing,
   };
@@ -85,6 +107,8 @@ export function mappingForFile(
 /** Aggregates per-file results into the status line + History entries. */
 function report(results: { path: string; res: CoreTableImportResult | null; skipped?: string }[], well: { well_name: string } | null): void {
   let rows = 0;
+  let extraRows = 0;
+  const extraItems = new Set<string>();
   let wells = new Set<string>();
   const problems: string[] = [];
   for (const { path, res, skipped } of results) {
@@ -99,6 +123,8 @@ function report(results: { path: string; res: CoreTableImportResult | null; skip
       continue;
     }
     rows += res.rows_imported;
+    extraRows += res.extra_rows;
+    for (const i of res.extra_items) extraItems.add(i);
     for (const o of res.outcomes) {
       if (o.imported > 0) wells.add(o.well_name);
       else if (o.problem) problems.push(`${o.well_name}: ${o.problem}`);
@@ -107,10 +133,17 @@ function report(results: { path: string; res: CoreTableImportResult | null; skip
     recordProcess("Import", `Imported ${res.rows_imported} core sample(s) into ${res.wells_imported} well(s) ← ${path}`);
   }
   const probNote = problems.length ? ` ${problems.length} issue(s): ${problems.slice(0, 3).join("; ")}${problems.length > 3 ? "; …" : ""}` : "";
+  const items = [...extraItems];
+  const extraNote = extraRows
+    ? ` Plus ${extraRows} point-data value(s) from ${items.slice(0, 4).join(", ")}${items.length > 4 ? ", …" : ""}.`
+    : "";
+  if (extraRows) {
+    recordProcess("Import", `Stored ${extraRows} core point-data value(s) from ${items.join(", ")}`, well?.well_name);
+  }
   if (rows === 0) {
     setStatus(`Core import: nothing imported.${probNote || " (no matching wells?)"}`);
   } else {
-    setStatus(`Imported ${rows} core sample(s) into ${wells.size} well(s).${probNote}`);
+    setStatus(`Imported ${rows} core sample(s) into ${wells.size} well(s).${extraNote}${probNote}`);
   }
   if (problems.length) {
     for (const p of problems) recordProcess("Import", `Core import issue — ${p}`, well?.well_name);
@@ -156,7 +189,7 @@ export async function openCoreImportWizard(
   wrap.appendChild(summary);
 
   // --- Role → header selects, seeded from the lead probe's guesses. ---
-  const selects = new Map<keyof CoreMapping, HTMLSelectElement>();
+  const selects = new Map<RoleKey, HTMLSelectElement>();
   const headerName = (i: number | null): string => (i === null ? "" : lead.headers[i] ?? "");
   for (const role of ROLES) {
     const sel = document.createElement("select");
@@ -222,6 +255,89 @@ export async function openCoreImportWizard(
   updateRouting();
   wrap.appendChild(routing);
 
+  // --- Extra columns → point data (opt-in). ---------------------------------
+  // core_data holds four measurements; a lab export carries more. Whatever no role
+  // claims can ride along at the same plug depths, stored verbatim and typed per cell.
+  const extrasToggle = document.createElement("input");
+  extrasToggle.type = "checkbox";
+  extrasToggle.className = "form-check";
+  const extrasCaption = document.createElement("span");
+  const extrasControl = document.createElement("label");
+  extrasControl.append(extrasToggle, extrasCaption);
+  wrap.appendChild(
+    formRow(
+      "Extra columns",
+      extrasControl,
+      "Columns no core measurement claims — lithology text, So, Kv/Kh, sample ids — stored as point data at the plug depths.",
+    ),
+  );
+
+  const datasetInput = document.createElement("input");
+  datasetInput.type = "text";
+  datasetInput.className = "form-control";
+  datasetInput.value = "CORE";
+  const datasetRow = formRow(
+    "Store them under dataset",
+    datasetInput,
+    "Re-importing replaces this dataset for the well — same discipline as the core plugs themselves.",
+  );
+
+  const extrasList = document.createElement("div");
+  extrasList.className = "core-import-extras";
+  wrap.append(extrasList, datasetRow);
+
+  /** Header names currently claimed by a role — never offered as extras. */
+  const claimed = (): Set<string> => {
+    const s = new Set<string>();
+    for (const role of ROLES) {
+      const v = selects.get(role.key)?.value;
+      if (v) s.add(v);
+    }
+    return s;
+  };
+  // Checked-state memory by header NAME, so re-rendering after a role change doesn't
+  // silently re-tick a column the user just unticked.
+  const checkedExtras = new Set<string>(lead.headers);
+  const renderExtras = () => {
+    const taken = claimed();
+    const free = lead.headers.filter((h) => !taken.has(h));
+    extrasCaption.textContent =
+      free.length === 0
+        ? "Every column is mapped to a core measurement — nothing extra to store."
+        : `Also store the other ${free.length} column(s) as point data at the plug depths`;
+    extrasToggle.disabled = free.length === 0;
+    const on = extrasToggle.checked && free.length > 0;
+    // style.display, not the hidden attribute: .form-row sets display, which would win.
+    extrasList.style.display = on ? "" : "none";
+    datasetRow.style.display = on ? "" : "none";
+    extrasList.replaceChildren();
+    if (!on) return;
+    for (const h of free) {
+      const kind = lead.column_kind[lead.headers.indexOf(h)] ?? "";
+      const label = document.createElement("label");
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.className = "form-check";
+      cb.checked = checkedExtras.has(h);
+      cb.addEventListener("change", () => {
+        if (cb.checked) checkedExtras.add(h);
+        else checkedExtras.delete(h);
+      });
+      const text = document.createElement("span");
+      text.textContent = kind && kind !== "number" ? `${h} (${kind})` : h;
+      label.append(cb, text);
+      extrasList.appendChild(label);
+    }
+    const note = document.createElement("p");
+    note.className = "form-hint";
+    note.textContent =
+      "Values are stored exactly as written — numbers as numbers, anything else as text. No unit or percent conversion is applied to these.";
+    extrasList.appendChild(note);
+  };
+  extrasToggle.addEventListener("change", renderExtras);
+  for (const role of ROLES) selects.get(role.key)?.addEventListener("change", renderExtras);
+  renderExtras();
+
   if (lead.percent_roles.length > 0) {
     const pct = document.createElement("p");
     pct.className = "form-hint";
@@ -268,9 +384,14 @@ export async function openCoreImportWizard(
   const close = openModal("Import Core — confirm mapping", wrap, 640);
   cancelBtn.addEventListener("click", () => close());
   okBtn.addEventListener("click", async () => {
+    const taken = claimed();
     const choice: CoreImportChoice = {
       headers: {},
       depthUnit: unitSel.value || null,
+      extraHeaders: extrasToggle.checked
+        ? lead.headers.filter((h) => !taken.has(h) && checkedExtras.has(h))
+        : [],
+      extrasDataset: datasetInput.value.trim() || "CORE",
     };
     for (const role of ROLES) {
       const v = selects.get(role.key)?.value ?? "";
@@ -300,7 +421,13 @@ export async function openCoreImportWizard(
         continue;
       }
       try {
-        const res = await importCoreTable(path, m.mapping, choice.depthUnit, fallbackWell?.well_id ?? null);
+        const res = await importCoreTable(
+          path,
+          m.mapping,
+          choice.depthUnit,
+          fallbackWell?.well_id ?? null,
+          choice.extraHeaders.length ? choice.extrasDataset : null,
+        );
         if (m.missing.length && !res.error) {
           res.outcomes.push({
             well_name: "(this file)",

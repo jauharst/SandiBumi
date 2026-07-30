@@ -199,12 +199,17 @@ def make_core_multiwell_csv() -> str:
     """ONE core file for the whole field, in the BLSO/PHR delivery shape: WN well-name
     column, a units row under the headers, suffixed mnemonics, porosity/Sw in percent.
     The import wizard (T-IMP-07) detects all of it and routes rows per well — no well
-    selection needed."""
+    selection needed.
+
+    It is deliberately WIDER than core_data's four measurements: SO_1 (numeric oil
+    saturation), LITH (free text) and SAMPLE_ID (mixed alphanumeric) exercise the wizard's
+    extra-column path, which stores them as point data typed per cell."""
     rng = Lcg(7005)
-    rows = ["TAPE_NAME,TOOL_STRING,WN,DEPTH,CPERM_1,CPOR_2,CSW_1,GDEN_1\n",
-            '"","","",M,MD,V/V,V/V,G/C3\n']
+    rows = ["TAPE_NAME,TOOL_STRING,WN,DEPTH,CPERM_1,CPOR_2,CSW_1,GDEN_1,SO_1,LITH,SAMPLE_ID\n",
+            '"","","",M,MD,V/V,V/V,G/C3,V/V,,\n']
     for well, shift in WELLS.items():
         d = TOPS["TOP_SAND_A"] + shift + 0.55
+        plug = 1
         while d < TOPS["TOP_SHALE_2"] + shift - 4.0:
             rhob = zone_blend(d, shift, ZONES["RHOB"])
             poro = (2.65 - rhob) / 1.65 + 0.02 * rng.gauss()
@@ -212,7 +217,13 @@ def make_core_multiwell_csv() -> str:
             gd = 2.65 + 0.012 * rng.gauss()
             in_gas = d < TOPS["TOP_SAND_B"] + shift
             sw = (32.0 if in_gas else 84.0) + 4.0 * rng.gauss()
-            rows.append(f'"","",{well},{d:.2f},{perm:.1f},{poro*100:.1f},{sw:.1f},{gd:.3f}\n')
+            so = max(0.0, 100.0 - sw - (18.0 if in_gas else 2.0))
+            lith = "SANDSTONE" if poro > 0.20 else ("SHALY SAND" if poro > 0.13 else "SILTY SHALE")
+            rows.append(
+                f'"","",{well},{d:.2f},{perm:.1f},{poro*100:.1f},{sw:.1f},{gd:.3f},'
+                f'{so:.1f},{lith},{well[-2:]}-P{plug:03d}\n'
+            )
+            plug += 1
             d += 2.4 + 0.8 * rng.next()
     return "".join(rows)
 

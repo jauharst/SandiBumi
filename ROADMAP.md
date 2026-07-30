@@ -650,11 +650,17 @@ Multimin Parameters.xlsx, extracted into `ref_kkt_onwj_wave_e.md` — client fil
       way. Unblocks T-IMP-09. Per Jauhar (2026-07-30): **BLSO is an exemplar, not the spec —
       importer must accept ANY delimited text with mixed column types (alpha/int/real/…);**
       delimiter sniffing + type detection are in, see the follow-up below.
-- [ ] **Core files' EXTRA columns → point-data store.** A core delivery carries more than the
-      four fixed properties (LITH text, So, Kv/Kh, Sample IDs). The wizard already sees and
-      types every column; the unmapped ones should be importable into `aux_data` (numeric or
-      text per cell) from the same dialog instead of needing a second Import Aux pass. This is
-      the remainder of Jauhar's "any column, any data type" requirement.
+- [x] **Core files' EXTRA columns → point-data store.** _(Done 2026-07-30)_ Completes Jauhar's
+      "any column, any data type" requirement. `CoreMapping.extras` (serde-default, so older
+      payloads still deserialize) carries the columns no core role claims;
+      `parse_core_table_mapped` returns them as RAW TEXT plus their header names
+      (`MappedCoreTable`), and `import_core_table(..., extras_dataset)` writes them to
+      `aux_data` at the same converted plug depths — typed PER CELL (`parse::<f32>` → value_num,
+      else value_text), blank cells skipped, riding the same depth-dedup as the plugs so they
+      stay aligned. Default dataset "CORE"; replace-on-reimport per (well, dataset). The wizard
+      shows the leftover columns with their sniffed type, opt-in, checked-state remembered by
+      header NAME across role changes (a column claimed by a role leaves the list). Values are
+      stored VERBATIM — no percent/unit conversion is applied to extras, and the dialog says so.
 - [ ] **(T-IMP-05) Silent import guards.** Core is now covered (the wizard opens without a
       selected well and refuses with a reason only when nothing can be routed). SCAL still
       status-bar-refuses without a well; Jauhar may want a louder guard — his call after the

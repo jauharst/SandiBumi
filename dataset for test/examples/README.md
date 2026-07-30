@@ -23,7 +23,7 @@ accepts your real file of the same shape. Regenerate after editing the recipe wi
 | 3 | `well_locations.csv` | Data → Import Data ▾ → **Import Well Locations…** | 3 wells post on the Field Map, UTM 50S (Mahakam-range coordinates). |
 | 4 | `deviation_SANDI-02.csv` | select SANDI-02 → Data → Import Data ▾ → **Import Deviation…** | Vertical to 300 m, builds to 25° by 800 m, holds. TVD < MD below the kickoff. |
 | 5 | `core_rcal_SANDI-01.csv` | select SANDI-01 → Data → Import Data ▾ → **Import Core…** | ~15 plugs across both sands at native (off-grid) depths. Import Core opens the **confirm-mapping wizard**: check the detected columns, unit and percent notes, then Import. Gas-zone plugs read Sw ≈ 0.32, water-zone ≈ 0.84. |
-| 5b | `core_rcal_multiwell.csv` | Data → Import Data ▾ → **Import Core…** (no well selection needed) | The WHOLE FIELD's core in one file, BLSO/PHR delivery shape: `WN` well-name column, a units row under the headers, suffixed mnemonics (`CPOR_2`), percent values. The wizard detects all of it and routes rows to SANDI-01/02/03 by name. |
+| 5b | `core_rcal_multiwell.csv` | Data → Import Data ▾ → **Import Core…** (no well selection needed) | The WHOLE FIELD's core in one file, BLSO/PHR delivery shape: `WN` well-name column, a units row under the headers, suffixed mnemonics (`CPOR_2`), percent values. The wizard detects all of it and routes rows to SANDI-01/02/03 by name. It is also **wider than the four core slots** — `SO_1` (number), `LITH` (text), `SAMPLE_ID` (mixed): tick **Extra columns** to store those as point data at the plug depths (dataset `CORE`, see below). |
 | 5c | `xrd_multiwell.txt` | Data → Import Data ▾ → **Import Aux…** → XRD | Tab-delimited TXT with a WELL column — rows route to all three wells in one import; the result box says where they went. |
 | 6 | `scal_pc_long_SANDI-01.csv` | select SANDI-01 → Data → Import Data ▾ → **Import SCAL…** | 3 plugs × 8 Pc points, flat lab shape. Plug context (sample/depth/perm/poro) appears only on each plug's first row — merged-cell style — and forward-fills. |
 | 7 | `scal_porous_plate_wide_SANDI-01.csv` | same menu | Corelab-style report: preamble lines, then a header row whose pressure columns ARE psi values (1…150), one row per plug, cells = brine sat %PV. |
@@ -63,11 +63,15 @@ The lists below are the aliases as implemented in `src-tauri/src/parsers.rs`.
   well**. Every scalar channel of every frame imports; frames get run numbers so a
   DLIS never silently overwrites same-named LAS curves. Requires the Python
   environment with `dlisio` installed.
-- **Core CSV** — needs a DEPTH/DEPT/MD column; recognized value columns: CPOR (or
+- **Core CSV/TXT** — needs a DEPTH/DEPT/MD column; recognized value columns: CPOR (or
   POROSITY/PORO/POR/CPHI…), CPERM (or PERM/KAIR/KL/KH/K…), CGD (or GRAIN_DENSITY/
-  RHOG), CSW (or SW). Percent values auto-convert when the column median says so.
-  Extra columns are ignored — a wide lab export like `Core.csv` (in the parent
-  folder) works as long as one depth + one recognized value column resolve.
+  RHOG), CSW (or SW). A WELL/WN/WELL NAME column routes rows per well. Percent values
+  auto-convert when the column median says so; the file's depth unit converts to the
+  project's. **Every other column** — lithology text, So, Kv/Kh, sample ids — can be
+  ticked in the wizard and stored as **point data** at the plug depths (dataset `CORE`
+  by default), typed per cell: numeric cells as numbers, everything else as text,
+  stored verbatim (no percent/unit conversion on extras). So a wide lab export like
+  `Core.csv` (in the parent folder) imports whole, in one pass.
 - **SCAL CSV** — three shapes auto-offered at import: long (PC + SW columns
   required), wide porous-plate (SAMPLE + numeric psi headers), centrifuge blocks.
 - **Tops CSV/TXT** — TOP/MARKER/FORMATION name column + DEPTH/MD column; WELL column

@@ -300,8 +300,15 @@ project unit, per-well replace + dedup). `coreImportDialog.ts` confirms the mapp
 BY HEADER NAME and re-resolves per file (multi-select, `.txt`/tab/semicolon sniffed).
 Aux imports route by a WELL column the same way. Jauhar's standing requirement: **BLSO is
 an exemplar, not the spec — imports must accept any delimited text with mixed column
-types**; remaining piece = core files' EXTRA columns into `aux_data` from the same wizard
-(ROADMAP import wave).
+types**. Completed by `CoreMapping.extras` (2026-07-30): columns no core role claims are
+carried into `aux_data` from the same wizard — `parse_core_table_mapped` returns them as
+RAW TEXT + header names (`MappedCoreTable`), `import_core_table(..., extras_dataset)`
+(default "CORE") writes them at the converted plug depths, typed PER CELL (numeric →
+value_num, else value_text), blank cells skipped, riding the plugs' depth-dedup so they
+stay aligned; replace-on-reimport per (well, dataset). **Extras are stored VERBATIM — no
+percent/unit conversion; do not add one silently.** `extras` is `#[serde(default)]`, so
+older IPC payloads still deserialize.
+
 
 ## DuckDB WAL resilience
 

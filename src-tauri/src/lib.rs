@@ -278,7 +278,8 @@ fn probe_core_table(path: String) -> Result<parsers::TableProbe, String> {
 /// Core import v2 commit half: imports one core table under the dialog-confirmed mapping.
 /// Rows route per well name (exactly-one-match rule; unmatched/ambiguous reported, never
 /// guessed) or all to `fallback_well_id`; depths convert from `depth_unit` to the
-/// project's declared unit. Per-well replace-on-reimport semantics.
+/// project's declared unit. Per-well replace-on-reimport semantics. Columns listed in
+/// `mapping.extras` are stored as point data under `extras_dataset` (default "CORE").
 #[tauri::command]
 fn import_core_table(
     db: tauri::State<DbState>,
@@ -286,9 +287,17 @@ fn import_core_table(
     mapping: parsers::CoreMapping,
     depth_unit: Option<String>,
     fallback_well_id: Option<String>,
+    extras_dataset: Option<String>,
 ) -> Result<ingest::CoreTableImportResult, String> {
     let conn = db.0.lock().unwrap();
-    Ok(ingest::import_core_table(&conn, &path, &mapping, depth_unit.as_deref(), fallback_well_id.as_deref()))
+    Ok(ingest::import_core_table(
+        &conn,
+        &path,
+        &mapping,
+        depth_unit.as_deref(),
+        fallback_well_id.as_deref(),
+        extras_dataset.as_deref(),
+    ))
 }
 
 /// Imports formation tops from a CSV/TXT file (P2). Files with a WELL column update

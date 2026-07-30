@@ -609,9 +609,18 @@ Try it on `dataset for test/examples/core_rcal_multiwell.csv` (whole field in on
 your real `03. Core Logs` folder (multi-select all 321), and the parent folder's Duri
 `Core.csv` (WELL NAME beside a numeric WELL column). **Per Jauhar's note: BLSO is only an
 exemplar, not the spec — the importer must take ANY delimited text with mixed column types
-(alpha/integer/real/…). Delimiter sniffing + per-column type detection are in; columns
-beyond the four fixed core properties still only import via Import Aux — extending core
-files' extra columns into a generic point-data store is the recorded follow-up.**
+(alpha/integer/real/…). Delimiter sniffing + per-column type detection are in.**
+
+**Update 2026-07-30 (b) — the EXTRA columns import too.** The requirement above is now
+complete. `core_data` has four measurement slots; everything else in the file (LITH text,
+So, Kv/Kh, sample IDs, tape names) can be carried from the same dialog as **point data at
+the plug depths**: tick "Extra columns", untick what you don't want, name the dataset
+(default `CORE`). Each cell is typed on its own — numeric cells become numbers, everything
+else stays text — so a column that mixes `12.5` with `below detection` survives intact.
+Values are stored VERBATIM (no percent or unit conversion is applied to extras; the depth
+they hang on IS converted). A column claimed by a core role can never also be an extra.
+Re-import replaces per (well, dataset), same discipline as the plugs. Check the result in
+DB Inspector → `aux_data`.
 
 ### T-IMP-08 — Core CSV with a duplicated plug depth imports (first kept), never aborts
 

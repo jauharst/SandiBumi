@@ -169,6 +169,17 @@ fn multiwell_core_and_aux_examples_import_end_to_end() {
     assert_eq!(probe.depth_unit_guess.as_deref(), Some("m"), "units row says M");
 
     // Commit under the probed mapping: every well receives its own plugs.
+    // Every column the four core measurements don't claim rides along as point data —
+    // the wide-lab-export case (LITH text beside numeric SO), confirmed in the wizard.
+    let claimed: Vec<usize> = [probe.well, probe.depth, probe.cpor, probe.cperm, probe.cgd, probe.csw]
+        .into_iter()
+        .flatten()
+        .collect();
+    let extras: Vec<usize> = (0..probe.headers.len()).filter(|i| !claimed.contains(i)).collect();
+    assert!(
+        extras.iter().any(|&i| probe.headers[i] == "LITH"),
+        "the exemplar carries a text column the core schema has no slot for"
+    );
     let mapping = parsers::CoreMapping {
         well: probe.well,
         depth: probe.depth.unwrap(),
@@ -176,8 +187,10 @@ fn multiwell_core_and_aux_examples_import_end_to_end() {
         cperm: probe.cperm,
         cgd: probe.cgd,
         csw: probe.csw,
+        extras,
     };
-    let res = crate::ingest::import_core_table(&conn, &core, &mapping, probe.depth_unit_guess.as_deref(), None);
+    let res =
+        crate::ingest::import_core_table(&conn, &core, &mapping, probe.depth_unit_guess.as_deref(), None, None);
     assert!(res.error.is_none(), "{:?}", res.error);
     assert_eq!(res.wells_imported, 3, "all three wells routed by name: {:?}", res.outcomes);
     for r in &results {
@@ -190,6 +203,12 @@ fn multiwell_core_and_aux_examples_import_end_to_end() {
             .unwrap();
         assert!(n > 5, "{}: {} core rows", r.well_name.as_deref().unwrap(), n);
     }
+    // The extra columns landed as point data under the default CORE dataset, typed per
+    // cell: SO_1 numeric, LITH text.
+    assert!(res.extra_rows > 0, "extra columns stored: {:?}", res.extra_items);
+    let aux = crate::db::list_aux_data(&conn, results[0].well_id.as_deref().unwrap(), Some("CORE")).unwrap();
+    assert!(aux.iter().any(|r| r.item == "LITH" && r.value_text.is_some()));
+    assert!(aux.iter().any(|r| r.item == "SO_1" && r.value_num.is_some()));
 
     // Tab-delimited multi-well XRD TXT routes through the aux importer.
     let aux = crate::ingest::import_aux_file(

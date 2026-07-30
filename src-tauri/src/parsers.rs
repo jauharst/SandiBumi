@@ -1836,6 +1836,12 @@ pub struct CoreMapping {
     pub cperm: Option<usize>,
     pub cgd: Option<usize>,
     pub csw: Option<usize>,
+    /// Columns to carry as EXTRA point data (lithology text, So, Kv/Kh, sample ids …).
+    /// `core_data` has a fixed four-measurement schema; a real lab export is wider than
+    /// that, so the leftovers land in the open-schema `aux_data` store at the same plug
+    /// depths — numeric cells as numbers, everything else as text.
+    #[serde(default)]
+    pub extras: Vec<usize>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -2013,16 +2019,29 @@ pub struct MappedCoreRow {
     pub cperm: f32,
     pub cgd: f32,
     pub csw: f32,
+    /// Raw cells of `mapping.extras`, in that order — blank cells are `None`. Kept as
+    /// TEXT on purpose: typing happens per cell at the write, so one column may hold
+    /// numbers on some plugs and a remark ("below detection") on others.
+    pub extras: Vec<Option<String>>,
+}
+
+/// One core table read under a confirmed mapping: the rows plus the header names of the
+/// extra columns (they become the `item` of each aux row, so they travel with the data).
+#[derive(Debug, Clone)]
+pub struct MappedCoreTable {
+    pub rows: Vec<MappedCoreRow>,
+    pub extra_names: Vec<String>,
 }
 
 /// Extracts core rows under the dialog-confirmed `mapping`. The units row (when present)
 /// is skipped by the same rule the probe used; rows whose depth cell doesn't parse are
-/// dropped; CPOR/CSW get the file-wide percent→fraction conversion. Depth-unit
-/// conversion is NOT done here — the importer owns it (it knows the project unit).
+/// dropped; CPOR/CSW get the file-wide percent→fraction conversion. Extra columns come
+/// back as raw text (typed per cell at the write). Depth-unit conversion is NOT done here
+/// — the importer owns it (it knows the project unit).
 pub fn parse_core_table_mapped<P: AsRef<Path>>(
     path: P,
     mapping: &CoreMapping,
-) -> ParseResult<Vec<MappedCoreRow>> {
+) -> ParseResult<MappedCoreTable> {
     let (headers, mut rows) = read_delimited(path)?;
     if mapping.depth >= headers.len() {
         return Err(ParseError::Las(format!(
@@ -2042,6 +2061,11 @@ pub fn parse_core_table_mapped<P: AsRef<Path>>(
             .and_then(|c| c.parse::<f32>().ok())
             .unwrap_or(f32::NAN)
     };
+    // Extra columns out of range for THIS file are dropped (multi-file imports confirm the
+    // mapping by header name, so a file that simply lacks a column must not abort).
+    let extras: Vec<usize> = mapping.extras.iter().copied().filter(|&c| c < headers.len()).collect();
+    let extra_names: Vec<String> = extras.iter().map(|&c| headers[c].clone()).collect();
+
     let mut out: Vec<MappedCoreRow> = Vec::new();
     for row in &rows {
         let depth = cell(row, Some(mapping.depth));
@@ -2060,6 +2084,10 @@ pub fn parse_core_table_mapped<P: AsRef<Path>>(
             cperm: cell(row, mapping.cperm),
             cgd: cell(row, mapping.cgd),
             csw: cell(row, mapping.csw),
+            extras: extras
+                .iter()
+                .map(|&c| row.get(c).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()))
+                .collect(),
         });
     }
     // File-wide percent→fraction on porosity and saturation (same heuristic and scope as
@@ -2073,7 +2101,7 @@ pub fn parse_core_table_mapped<P: AsRef<Path>>(
         r.cpor = p;
         r.csw = s;
     }
-    Ok(out)
+    Ok(MappedCoreTable { rows: out, extra_names })
 }
 
 #[cfg(test)]

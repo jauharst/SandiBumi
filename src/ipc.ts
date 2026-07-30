@@ -1684,6 +1684,8 @@ export interface CoreMapping {
   cperm: number | null;
   cgd: number | null;
   csw: number | null;
+  /** Columns beyond the four core measurements, stored as point data (aux_data). */
+  extras: number[];
 }
 
 export interface CoreWellOutcome {
@@ -1699,6 +1701,10 @@ export interface CoreTableImportResult {
   wells_imported: number;
   outcomes: CoreWellOutcome[];
   skipped_blank_well: number;
+  /** Point-data rows written from the file's extra columns, and which columns they
+   *  came from (empty when no extras were mapped). */
+  extra_rows: number;
+  extra_items: string[];
   error: string | null;
 }
 
@@ -1710,14 +1716,22 @@ export function probeCoreTable(path: string): Promise<TableProbe> {
 
 /** Commits one core table under the confirmed mapping: rows route per well name
  *  (unmatched/ambiguous reported, never guessed) or all to `fallbackWellId`; depths
- *  convert from `depthUnit` ("ft"/"m"; null = already project unit). */
+ *  convert from `depthUnit` ("ft"/"m"; null = already project unit). Columns in
+ *  `mapping.extras` land as point data under `extrasDataset` (null = "CORE"). */
 export function importCoreTable(
   path: string,
   mapping: CoreMapping,
   depthUnit: string | null,
   fallbackWellId: string | null,
+  extrasDataset: string | null = null,
 ): Promise<CoreTableImportResult> {
-  return invoke<CoreTableImportResult>("import_core_table", { path, mapping, depthUnit, fallbackWellId });
+  return invoke<CoreTableImportResult>("import_core_table", {
+    path,
+    mapping,
+    depthUnit,
+    fallbackWellId,
+    extrasDataset,
+  });
 }
 
 // --- P2 tops-style imports: tops CSV/TXT + petrography/XRD/perforation ------

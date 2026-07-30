@@ -551,6 +551,11 @@ pub struct CoreTableImportResult {
     /// Rows with a blank well cell in a well-routed file — skipped, never misrouted
     /// (same rule as multi-well tops import).
     pub skipped_blank_well: usize,
+    /// Aux point-data rows written from the file's EXTRA columns (0 when none were asked
+    /// for), and which columns they came from — reported so the dialog can say out loud
+    /// what landed beside the four core measurements.
+    pub extra_rows: usize,
+    pub extra_items: Vec<String>,
     pub error: Option<String>,
 }
 
@@ -564,12 +569,19 @@ pub struct CoreTableImportResult {
 /// the project unit) to the project's declared unit — a feet-plugged Rokan CSV landing
 /// raw in a metric project would overlay 3.28× off, silently. Per-well semantics stay
 /// replace-on-reimport (`insert_core_data`).
+///
+/// `mapping.extras` names columns beyond the four core measurements (lithology text,
+/// So, Kv/Kh, sample ids …): those land in `aux_data` under `extras_dataset` (default
+/// "CORE") at the same converted plug depths — numeric cells as numbers, everything else
+/// as text — so a wide lab export imports whole in one pass instead of needing a second
+/// Import Aux run. Replace-on-reimport per (well, dataset), matching the core discipline.
 pub fn import_core_table(
     conn: &Connection,
     path: &str,
     mapping: &parsers::CoreMapping,
     depth_unit: Option<&str>,
     fallback_well_id: Option<&str>,
+    extras_dataset: Option<&str>,
 ) -> CoreTableImportResult {
     let fail = |e: String| CoreTableImportResult {
         path: path.to_string(),
@@ -577,13 +589,21 @@ pub fn import_core_table(
         wells_imported: 0,
         outcomes: Vec::new(),
         skipped_blank_well: 0,
+        extra_rows: 0,
+        extra_items: Vec::new(),
         error: Some(e),
     };
 
-    let rows = match parsers::parse_core_table_mapped(path, mapping) {
+    let table = match parsers::parse_core_table_mapped(path, mapping) {
         Ok(r) => r,
         Err(e) => return fail(e.to_string()),
     };
+    let rows = table.rows;
+    let extra_names = table.extra_names;
+    let extras_dataset = extras_dataset
+        .map(|d| d.trim().to_uppercase())
+        .filter(|d| !d.is_empty())
+        .unwrap_or_else(|| "CORE".to_string());
     if rows.is_empty() {
         return fail("no rows with a parsable depth".into());
     }
@@ -611,6 +631,7 @@ pub fn import_core_table(
     let mut outcomes: Vec<CoreWellOutcome> = Vec::new();
     let mut rows_imported = 0usize;
     let mut wells_imported = 0usize;
+    let mut extra_rows = 0usize;
 
     let mut store = |well_id: &str, well_name: &str, list: &[&parsers::MappedCoreRow], outcomes: &mut Vec<CoreWellOutcome>| {
         let mut depth: Vec<f32> = list.iter().map(|r| r.depth).collect();
@@ -619,8 +640,10 @@ pub fn import_core_table(
         let mut cperm: Vec<f32> = list.iter().map(|r| r.cperm).collect();
         let mut cgd: Vec<f32> = list.iter().map(|r| r.cgd).collect();
         let mut csw: Vec<f32> = list.iter().map(|r| r.csw).collect();
+        let mut extras: Vec<&Vec<Option<String>>> = list.iter().map(|r| &r.extras).collect();
         // Depth-dedup per WELL (first kept), matching the legacy path — the core_data PK
         // is (well_id, depth), so one repeated plug depth would abort the well's insert.
+        // The extras ride along on the same surviving rows, so they stay depth-aligned.
         let (keep, report) = parsers::depth_keep_indices(&depth);
         if !report.is_clean() {
             let take = |src: &[f32]| -> Vec<f32> { keep.iter().map(|&i| src[i]).collect() };
@@ -629,17 +652,46 @@ pub fn import_core_table(
             cperm = take(&cperm);
             cgd = take(&cgd);
             csw = take(&csw);
+            extras = keep.iter().map(|&i| extras[i]).collect();
         }
         match db::insert_core_data(conn, well_id, &depth, &cpor, &cperm, &cgd, &csw) {
             Ok(()) => {
                 rows_imported += depth.len();
                 wells_imported += 1;
+                let mut problem = (!report.is_clean())
+                    .then(|| format!("{} duplicate depth row(s) dropped (first kept)", report.duplicate));
+                if !extra_names.is_empty() {
+                    let mut aux: Vec<db::AuxRow> = Vec::new();
+                    for (d, cells) in depth.iter().zip(&extras) {
+                        for (item, raw) in extra_names.iter().zip(cells.iter()) {
+                            let Some(raw) = raw else { continue };
+                            let num = raw.replace(',', ".").parse::<f32>().ok();
+                            aux.push(db::AuxRow {
+                                dataset: extras_dataset.clone(),
+                                depth_top: *d,
+                                depth_base: None,
+                                item: item.clone(),
+                                value_num: num,
+                                value_text: if num.is_some() { None } else { Some(raw.clone()) },
+                            });
+                        }
+                    }
+                    match db::insert_aux_data(conn, well_id, &extras_dataset, &aux) {
+                        Ok(()) => extra_rows += aux.len(),
+                        Err(e) => {
+                            let note = format!("extra columns not stored: {e}");
+                            problem = Some(match problem {
+                                Some(p) => format!("{p}; {note}"),
+                                None => note,
+                            });
+                        }
+                    }
+                }
                 outcomes.push(CoreWellOutcome {
                     well_name: well_name.to_string(),
                     rows: list.len(),
                     imported: depth.len(),
-                    problem: (!report.is_clean())
-                        .then(|| format!("{} duplicate depth row(s) dropped (first kept)", report.duplicate)),
+                    problem,
                 });
             }
             Err(e) => outcomes.push(CoreWellOutcome {
@@ -707,6 +759,8 @@ pub fn import_core_table(
         wells_imported,
         outcomes,
         skipped_blank_well,
+        extra_rows,
+        extra_items: if extra_rows > 0 { extra_names } else { Vec::new() },
         error: None,
     }
 }
@@ -1535,15 +1589,15 @@ mod tests {
         db::insert_well(&conn, Uuid::new_v4(), "DUP-C", None, None, None).unwrap();
         db::insert_well(&conn, Uuid::new_v4(), "DUP-C", None, None, None).unwrap();
 
-        let csv = "TAPE_NAME,TOOL_STRING,WN,DEPTH,CPERM_1,CPOR_2,CSO_1,CSW_1,GDEN_1\n\
-                   \"\",\"\",\"\",FEET,MD,V/V,V/V,V/V,G/C3\n\
-                   \"\",\"\",W-A,1000.0,120.0,24.5,15.0,55.0,2.66\n\
-                   \"\",\"\",W-A,1001.0,85.0,22.0,20.0,60.0,2.65\n\
-                   \"\",\"\",W-B,2000.0,10.0,18.0,5.0,80.0,2.68\n\
-                   \"\",\"\",W-B,2001.0,12.0,19.0,6.0,78.0,2.67\n\
-                   \"\",\"\",GHOST-9,3000.0,1.0,10.0,1.0,90.0,2.70\n\
-                   \"\",\"\",DUP-C,4000.0,2.0,11.0,2.0,88.0,2.69\n\
-                   \"\",\"\",,5000.0,3.0,12.0,3.0,85.0,2.71\n";
+        let csv = "TAPE_NAME,TOOL_STRING,WN,DEPTH,CPERM_1,CPOR_2,CSO_1,CSW_1,GDEN_1,LITH\n\
+                   \"\",\"\",\"\",FEET,MD,V/V,V/V,V/V,G/C3,\n\
+                   \"\",\"\",W-A,1000.0,120.0,24.5,15.0,55.0,2.66,SANDSTONE\n\
+                   \"\",\"\",W-A,1001.0,85.0,22.0,20.0,60.0,2.65,SHALY SAND\n\
+                   \"\",\"\",W-B,2000.0,10.0,18.0,5.0,80.0,2.68,SANDSTONE\n\
+                   \"\",\"\",W-B,2001.0,12.0,19.0,6.0,78.0,2.67,\n\
+                   \"\",\"\",GHOST-9,3000.0,1.0,10.0,1.0,90.0,2.70,SILTSTONE\n\
+                   \"\",\"\",DUP-C,4000.0,2.0,11.0,2.0,88.0,2.69,SANDSTONE\n\
+                   \"\",\"\",,5000.0,3.0,12.0,3.0,85.0,2.71,SANDSTONE\n";
         let path = std::env::temp_dir().join("sandibumi_core_v2_test.csv");
         std::fs::write(&path, csv).unwrap();
         let spath = path.to_str().unwrap();
@@ -1563,7 +1617,9 @@ mod tests {
         assert_eq!(probe.wells[0].name, "W-A");
         assert_eq!(probe.wells[0].rows, 2);
 
-        // --- Commit under the probed mapping, feet → metres. ---
+        // --- Commit under the probed mapping, feet → metres, extras as point data. ---
+        // CSO_1 (numeric) and LITH (text) are beyond core_data's fixed four measurements:
+        // they ride along into aux_data under the confirmed dataset name.
         let mapping = parsers::CoreMapping {
             well: probe.well,
             depth: probe.depth.unwrap(),
@@ -1571,8 +1627,9 @@ mod tests {
             cperm: probe.cperm,
             cgd: probe.cgd,
             csw: probe.csw,
+            extras: vec![6, 9],
         };
-        let res = import_core_table(&conn, spath, &mapping, Some("ft"), None);
+        let res = import_core_table(&conn, spath, &mapping, Some("ft"), None, Some("core"));
         assert!(res.error.is_none(), "{:?}", res.error);
         assert_eq!(res.wells_imported, 2, "W-A and W-B only");
         assert_eq!(res.rows_imported, 4);
@@ -1592,6 +1649,24 @@ mod tests {
             .unwrap();
         assert!((d - 304.8).abs() < 0.05, "feet converted to project metres, got {d}");
         assert!((p - 0.22).abs() < 1e-3, "percent porosity converted to v/v, got {p}");
+
+        // --- Extras: numeric and text, at the SAME converted plug depths, in aux_data. ---
+        assert_eq!(res.extra_rows, 7, "2 items x 4 plugs, minus W-B's blank LITH cell");
+        assert!(res.extra_items.iter().any(|i| i == "LITH"));
+        let aux = db::list_aux_data(&conn, &wa.to_string(), Some("CORE")).unwrap();
+        let cso = aux.iter().find(|r| r.item == "CSO_1" && (r.depth_top - 304.8).abs() < 0.05).unwrap();
+        assert_eq!(cso.value_num, Some(15.0), "numeric extra stored verbatim (no % conversion)");
+        assert!(cso.value_text.is_none());
+        let lith = aux.iter().find(|r| r.item == "LITH").unwrap();
+        assert_eq!(lith.value_text.as_deref(), Some("SANDSTONE"), "text extra stays text");
+        assert!(lith.value_num.is_none());
+        assert!(
+            aux.iter().all(|r| r.depth_base.is_none()),
+            "plug extras are POINT samples, not intervals"
+        );
+        // Blank cells are skipped, not stored as empty text: W-B's second plug has no LITH.
+        let aux_b = db::list_aux_data(&conn, &wb.to_string(), Some("CORE")).unwrap();
+        assert_eq!(aux_b.len(), 3, "2 x CSO_1 + 1 x LITH (the blank one skipped): {aux_b:?}");
 
         std::fs::remove_file(&path).ok();
     }
