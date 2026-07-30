@@ -591,7 +591,8 @@ pub struct CoreColumns {
 const CORE_DEPTH_ALIASES: [&str; 3] = ["DEPTH", "DEPT", "MD"];
 const CORE_CPOR_ALIASES: [&str; 7] = ["CPOR", "CORE_POR", "PHI_CORE", "CPHI", "POROSITY", "PORO", "POR"];
 const CORE_CPERM_ALIASES: [&str; 8] = ["CPERM", "CORE_PERM", "KAIR", "KL", "KH", "PERMEABILITY", "PERM", "K"];
-const CORE_CGD_ALIASES: [&str; 4] = ["CGD", "GRAIN_DENSITY", "GRAIN_DEN", "RHOG"];
+// GDEN: the BLSO/PHR core-log delivery header (`GDEN_1`, resolved via the `_` boundary rule).
+const CORE_CGD_ALIASES: [&str; 5] = ["CGD", "GRAIN_DENSITY", "GRAIN_DEN", "RHOG", "GDEN"];
 const CORE_CSW_ALIASES: [&str; 3] = ["CSW", "CORE_SW", "SW"];
 
 /// True when `header` is `alias` on its own or followed by a unit/qualifier
@@ -1168,6 +1169,28 @@ mod core_csv_tests {
         let cols = parse_core_csv(&path).unwrap();
         std::fs::remove_file(&path).ok();
         assert!((cols.cpor[0] - 0.225).abs() < 1e-6, "already-fractional porosity must not be rescaled");
+    }
+
+    /// The exact header shape of the BLSO/PHR Rokan core-log delivery
+    /// (`blso*_lapi2023_core.csv`): suffixed mnemonics (`CPOR_2`, `GDEN_1`) that resolve
+    /// via the `_` boundary rule, and a UNITS row as the first record — skipped because
+    /// its depth cell ("FEET") is not numeric, never imported as a phantom plug.
+    #[test]
+    fn core_csv_blso_delivery_header_resolves() {
+        let path = write_temp_csv(
+            "arshilla_core_blso_test.csv",
+            "TAPE_NAME,TOOL_STRING,WN,DEPTH,CPERM_1,CPOR_2,CSO_1,CSW_1,GDEN_1\n\
+             \"\",\"\",\"\",FEET,MD,V/V,V/V,V/V,G/C3\n\
+             \"\",\"\",BLSO00001,850.5,120.0,0.24,0.15,0.55,2.66\n\
+             \"\",\"\",BLSO00001,851.5,85.0,0.22,0.20,0.60,2.65\n",
+        );
+        let cols = parse_core_csv(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+        assert_eq!(cols.depth.len(), 2, "units row must be skipped, both plugs kept");
+        assert!((cols.cperm[0] - 120.0).abs() < 1e-3, "CPERM_1 resolves");
+        assert!((cols.cpor[0] - 0.24).abs() < 1e-6, "CPOR_2 resolves, fraction untouched");
+        assert!((cols.csw[1] - 0.60).abs() < 1e-6, "CSW_1 resolves");
+        assert!((cols.cgd[0] - 2.66).abs() < 1e-6, "GDEN_1 resolves to grain density");
     }
 
     #[test]

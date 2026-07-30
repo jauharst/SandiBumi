@@ -5125,4 +5125,31 @@ zone.** Nothing about how your existing runs resolve has moved.
 
 ---
 
+## 2026-07-30 — Example import datasets (`dataset for test/examples/`) + BLSO core header fix
+
+One folder with a working exemplar of EVERY import format, pooled where you asked:
+`dataset for test/examples/`. Three synthetic wells (SANDI-01/02/03) with shared,
+physically consistent geology — a gas sand and a water sand whose core, SCAL and log
+values all agree by construction. The `README.md` in that folder is the map: each file →
+exact ribbon menu → what the status bar should say → what each parser accepts (the full
+alias lists), so you can shape a confusing real delivery against the nearest analogue.
+These files are ALSO parsed by `cargo test` on every gate run (`example_data_test.rs`) —
+if a parser ever changes in a way that would break the published examples, the gate goes
+red. Regenerate with `py -3 tools/make_example_data.py` (deterministic).
+
+- [ ] Data → Import Logs ▾ → **Import LAS…** → multi-select the three `SANDI-*.las` →
+      3 wells, ~394 rows each; PEF/CALI appear in the Curve Catalog (set RAW); Bad-Hole QC
+      flags the deliberate 1-m washout gap mid-SAND-A.
+- [ ] Follow the README's numbered import order (tops → locations → deviation → core →
+      3 SCAL shapes → petrography/XRD/perforations). Every import should succeed with the
+      README's stated result — any deviation is a bug, tell me.
+- [ ] N/D crossover shows gas in SAND-A on any well; Archie in SAND-B gives Sw ≈ 1 —
+      the README's "known-good expected values" section is the eyeball checklist.
+- [ ] **Real-data fix:** your BLSO core-log delivery (`blso*_lapi2023_core.csv`,
+      `03. Core Logs`) now imports grain density — the `GDEN_1` header resolves (it
+      silently dropped before). CPERM_1/CPOR_2/CSW_1 already resolved; the FEET units row
+      is skipped safely. Re-import one BLSO core CSV and check CGD in the DB Inspector.
+
+---
+
 _Made in SandiBumi._ © 2026 SandiBumi. All rights reserved.

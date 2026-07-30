@@ -8,6 +8,8 @@ mod decimate;
 mod deviation;
 mod dlis;
 mod equations;
+#[cfg(test)]
+mod example_data_test;
 mod export;
 mod facies;
 mod facies_tie;

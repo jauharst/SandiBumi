@@ -1,0 +1,7 @@
+TOP,BASE,LITHOLOGY,GRAIN_SIZE,SORTING,CEMENT,VISIBLE_POROSITY
+1520.5,1523.0,Sandstone,Fine,Well,Quartz overgrowth,Intergranular good
+1523.0,1527.5,Sandstone,Fine to medium,Well,Minor calcite,Intergranular good
+1527.5,1531.0,Sandstone,Fine,Moderate,Calcite patchy,Intergranular reduced
+1535.2,1539.0,Sandstone,Very fine to fine,Moderate,Quartz + clay rims,Intergranular fair
+1539.0,1544.5,Sandstone,Very fine,Poor,Clay matrix,Micro-porosity dominant
+1550.3,1552.0,Claystone,,,,None visible

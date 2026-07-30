@@ -375,8 +375,8 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
    **Expected:** Step 2 (Pin ON): BOTH Log Views and any plots switch to well B; status **Pin ON — every view and plot follows the selected well** was shown when toggling. Step 3 (Pin OFF): status **Pin OFF — only the active panel follows; other views keep their wells**; only Log View 1 switches to C, Log View 2 stays on B; browsing panes (Tops, Inspector) still track the selection. Step 4: Log View 2 (the pane you clicked into last) takes C→A while Log View 1 keeps C; then with the pin back ON everything follows to B. "Active panel" means **the viewer you last clicked into** — clicking a well in the tree does not hand the role to the tree, so with the pin off exactly one viewer always follows. Do not confuse 📌 with the per-well **★** star — that is the pinned-favourites run scope, unrelated to following.
    **Result — T-SHELL-16:**
 
-- [ ] Pass
-- [x] Fail
+- [x] Pass
+- [ ] Fail
 - [ ] Blocked
 
 **Notes:** Pin off, never follow well even for active panel, and other visual pane such histo, xplot, etc (except log view) cant display multiple groups together, better have option for well selections like modules
@@ -395,8 +395,8 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
    **Expected:** Step 1: the custom app context menu appears (panel-specific items + window actions like Split right / Split down) — on a plot canvas that menu leads with **Properties…**, so the plot's own settings and the window actions are both one click away. Step 2: NO menu at all (native WebView menu suppressed — a stray "Refresh" there would wipe the workspace). Step 3: the native EDIT menu appears (undo/cut/copy/paste — no Refresh/Back). Step 4: **each** of F5 and Ctrl+R raises the same blocking confirm "Reload SandiBumi? The workspace re-opens from its last saved state…" with **Cancel** / red **Reload**; Escape and Cancel both dismiss without reloading; a second reload key pressed while the dialog is already up does NOT open a second dialog — it briefly pulses the open one, so the key is visibly acknowledged; mouse Back/Forward do nothing. Step 5: first click only arms the field (status tip "Number fields arm on click — double-click to edit", no caret); double-click enters edit with the value selected — a stray click+scroll can never change a parameter.
    **Result — T-SHELL-17:**
 
-- [ ] Pass
-- [x] Fail
+- [x] Pass
+- [ ] Fail
 - [ ] Blocked
 
 **Notes:** right click in xplot showed properties instead of option like in log view, ctrl+R does nothing, beside that good
@@ -441,7 +441,7 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
    **Expected:** Status shows `Importing 3 LAS file(s)...` then `Imported 3/3 well(s).` All 3 wells appear in the Wells pane without a manual refresh. History gains an `Import — Imported 3/3 LAS well(s)` entry. Curve Catalog lists every curve from each file (standard GR/RES_DEEP/NPHI/RHOB/DT/SP plus extras like PEF/CALI as RAW-set rows with the LAS file's units). Null values (−999.25 or the file's own `~W NULL` declaration — covers REVIEW.md §Chartbook overlay library + audit quick fixes, LAS NULL item) render as gaps in a Log View, not as spikes. GR should read ~10–120 gapi with shale/sand character intact.
    **Result — T-IMP-01:**
 
-- [ ] Pass
+- [x] Pass
 - [ ] Fail
 - [ ] Blocked
 
@@ -457,11 +457,11 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
    **Expected:** Import completes (`Imported 1/1 well(s). 1 well(s) had depth issues.` — the generic warning note), and History gains a per-well entry containing `a well named '<name>' already exists — imported as a separate record`. The Wells pane now shows two rows with the same name (merge is deliberately NOT automatic). Covers REVIEW.md §Round 4 — AUDIT safe-bucket ("LAS duplicate-name warning").
    **Result — T-IMP-02:**
 
-- [ ] Pass
+- [x] Pass
 - [ ] Fail
 - [ ] Blocked
 
-**Notes:**
+**Notes:** i need to state that for every curve set or any data set that imported together, it should have defined "set name", refer how geolog or IP managed this. So later user can trace which curve set he wanna use, even its duplicate. And it better be accessed either in well panes (each well can be expanded to see curve set and curve as well that it has), or in database.
 
 ### T-IMP-03 — Malformed LAS: duplicated depth section imports with a dropped-rows warning
 
@@ -476,9 +476,9 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 
 - [ ] Pass
 - [ ] Fail
-- [ ] Blocked
+- [x] Blocked
 
-**Notes:**
+**Notes:** i dont understand this part, where do u provide dup_depth.las?
 
 ### T-IMP-04 — Malformed LAS: all-null depth column and truncated last row → clean error, no orphan well
 
@@ -494,9 +494,9 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 
 - [ ] Pass
 - [ ] Fail
-- [ ] Blocked
+- [x] Blocked
 
-**Notes:**
+**Notes:** i dont understand this part, where do u provide null_depth.las?
 
 ### T-IMP-05 — No-well-selected guards and cancel mid-dialog leave no side-effects
 
@@ -511,10 +511,10 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
    **Result — T-IMP-05:**
 
 - [ ] Pass
-- [ ] Fail
+- [x] Fail
 - [ ] Blocked
 
-**Notes:**
+**Notes:** Import core, scal does nothing when i didnt select any wells, but for tops its opened
 
 ### T-IMP-06 — DLIS import: sentinels screened, re-import replaced-count, LAS-mnemonic collision
 
@@ -531,10 +531,10 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
    **Result — T-IMP-06:**
 
 - [ ] Pass
-- [ ] Fail
+- [x] Fail
 - [ ] Blocked
 
-**Notes:**
+**Notes:** dlis imported (processing history showed it) but well not showing, and duplicate logs should be also imported, we dont always know what inside, refer to T-IMP-02 to discuss how curve set or any data set managed.
 
 ### T-IMP-07 — Core CSV import: plugs off the log grid overlay at native depths
 
@@ -550,10 +550,10 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
    **Result — T-IMP-07:**
 
 - [ ] Pass
-- [ ] Fail
+- [x] Fail
 - [ ] Blocked
 
-**Notes:**
+**Notes:** Core imported, but it should detect well name of core imported from the data inside, and for other properties / point curve it should be confirmed first (what unit it is, is it float, alpha, real, etc type of data), and name of each properties / point curve should be confirmed as well in the beginning. Imagine managing hundred wells that have cores. And should be worket either it comes from 1 csv or multiple csv, or even .txt or tab delimited data
 
 ### T-IMP-08 — Core CSV with a duplicated plug depth imports (first kept), never aborts
 
@@ -567,10 +567,10 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
    **Result — T-IMP-08:**
 
 - [ ] Pass
-- [ ] Fail
+- [x] Fail
 - [ ] Blocked
 
-**Notes:**
+**Notes:** refer T-IMP-06 and T-IMP-02 about how duplicated data managed
 
 ### T-IMP-09 — Shift Core: constant core-to-log shift, undo, invalid input rejected
 
@@ -589,7 +589,7 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 - [ ] Fail
 - [ ] Blocked
 
-**Notes:**
+**Notes:** we should have resolve previous problem to do this
 
 ### T-IMP-10 — Tops CSV: multi-well WELL column, single-well file, unmatched + blank WELL cells
 
@@ -605,10 +605,10 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
    **Result — T-IMP-10:**
 
 - [ ] Pass
-- [ ] Fail
+- [x] Fail
 - [ ] Blocked
 
-**Notes:**
+**Notes:** same for core import, it should auto detect well names, either it comes from 1 csv or multiple csv
 
 ### T-IMP-11 — Aux data import: PERFORATION and XRD land per-well, replace on re-import
 
@@ -627,7 +627,7 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 - [ ] Fail
 - [ ] Blocked
 
-**Notes:**
+**Notes:** same for core import, it should auto detect well names, either it comes from 1 csv or multiple csv
 
 ### T-IMP-12 — Deviation survey import: TVD/TVDSS computed; duplicate-MD survives; TVD not yet consumable
 
@@ -648,7 +648,7 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 - [ ] Fail
 - [ ] Blocked
 
-**Notes:**
+**Notes:** refer T-IMP-02
 
 ### T-IMP-13 — Well locations import → wells post on the Field Map at UTM coordinates
 
