@@ -31,6 +31,7 @@ mod multimin;
 mod multimin2;
 mod netflag;
 mod neutron_charts;
+mod office;
 mod parsers;
 #[cfg(test)]
 mod pipeline_blso_test;
@@ -801,6 +802,30 @@ async fn export_report_batch(
             return Err(format!("wrote {} file(s); failed: {}", written.len(), errors.join("; ")));
         }
         Ok(written)
+    })
+    .await
+}
+
+/// Which office-document packages the discovered Python can import. Asked when the workbook
+/// dialog opens so a button that cannot work explains itself instead of failing at save time.
+#[tauri::command]
+async fn office_support() -> Result<office::OfficeSupport, String> {
+    tauri::async_runtime::spawn_blocking(office::office_support).await.map_err(|e| e.to_string())
+}
+
+/// Writes the study as a formatted multi-sheet Excel workbook. Runs as a job: a field-scale
+/// pay summary is minutes of work, and the Processing monitor should be able to see it.
+#[tauri::command]
+async fn export_workbook(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    spec: office::WorkbookSpec,
+    dest_path: String,
+) -> Result<office::WorkbookResult, String> {
+    let conn = db.0.clone();
+    let label = format!("{} well(s)", spec.well_ids.len());
+    jobs::run_simple_job(jobs_reg.inner().clone(), "Workbook", label, move || {
+        office::export_workbook(&conn, &spec, &dest_path)
     })
     .await
 }
@@ -2457,6 +2482,8 @@ pub fn run() {
             render_report,
             export_report_pdf,
             export_report_batch,
+            office_support,
+            export_workbook,
             save_png,
             save_plot_pdf,
             get_core_data

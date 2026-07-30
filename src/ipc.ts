@@ -430,6 +430,51 @@ export function exportReportBatch(spec: ReportSpec, wellIds: string[], destDir: 
   return invoke<string[]>("export_report_batch", { spec, wellIds, destDir });
 }
 
+// --- Office deliverables (office.rs, Python subprocess) ---------------------
+
+/** Which office-document packages the Python SandiBumi found can actually import. `python` is
+ *  the interpreter path, so a "not installed" message can name the environment to install into. */
+export interface OfficeSupport {
+  python: string | null;
+  xlsxwriter: boolean;
+  docx: boolean;
+  pptx: boolean;
+  openpyxl: boolean;
+}
+
+export interface WorkbookSpec {
+  well_ids: string[];
+  vsh_max: number;
+  phie_min: number;
+  swe_max: number;
+  perm_min?: number | null;
+  title?: string;
+  include_pay?: boolean;
+  include_field?: boolean;
+  include_zone_params?: boolean;
+}
+
+export interface WorkbookResult {
+  path: string;
+  sheets: number;
+  wells: number;
+  /** Wells that produced at least one interpreted zone row — the rest are named on the Summary
+   *  sheet rather than silently missing. */
+  wells_with_results: number;
+  pay_rows: number;
+  bytes: number;
+}
+
+export function officeSupport(): Promise<OfficeSupport> {
+  return invoke<OfficeSupport>("office_support");
+}
+
+/** Writes the study as a formatted multi-sheet .xlsx. Never persists FLAG curves — an export
+ *  must not churn the project (see office.rs). */
+export function exportWorkbook(spec: WorkbookSpec, destPath: string): Promise<WorkbookResult> {
+  return invoke<WorkbookResult>("export_workbook", { spec, destPath });
+}
+
 /** Writes a base64-encoded PNG (rasterized in the frontend) to a user-picked path. */
 export function savePng(destPath: string, dataBase64: string): Promise<string> {
   return invoke<string>("save_png", { destPath, dataBase64 });

@@ -7,6 +7,45 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-07-31 — The study as an Excel workbook
+
+First of the office deliverables. Until now `export.rs` wrote LAS and everything else left as
+a PDF, an SVG or a flat CSV — so the table an asset team actually works in was re-typed by
+hand. **Plot ▸ Deliverables ▸ Workbook…** writes it directly.
+
+- [ ] **Export a workbook.** Pick a scope (group / ★ pinned / selection / all), check the
+      cutoffs it opened with — they should be **the same numbers the pay summary and the report
+      use**, because all three read one saved default. Press Export, choose a filename, open it
+      in Excel.
+- [ ] **The numbers are numbers.** Click a Net or PHIE cell: the formula bar should show
+      `12.5` / `0.185`, not text. Sort, filter and pivot the Pay Summary sheet — if any of that
+      refuses to work, a column came through as text and I want to know.
+- [ ] **A blank is not a zero.** Find a well you have NOT interpreted yet (no VSH/PHIE/SWE).
+      Its net, N/G, PHIE, SWE and HPV cells must be **empty**, while Gross still shows a number
+      (geometry is known either way) and Samples shows 0. Select the Net column: Excel's status
+      bar average must ignore those rows. **This is the one thing I most want checked** — a 0.00
+      there would quietly drag down a field average.
+- [ ] **The Summary sheet is the audit trail.** It should name the cutoffs actually used, the
+      depth unit, the export time, and — if any well produced nothing — list those wells by name
+      under "Well without results". A well that contributed nothing must never just be missing.
+- [ ] **Two N/G columns on the Field Summary sheet.** `N/G (field)` is Σnet/Σgross (the
+      volumetric ratio for a resource number); `Mean N/G` is the average of the per-well values,
+      which is what the **Field Dashboard** shows. Compare a zone against the dashboard: Mean
+      N/G, PHIE and SWE should match it. If they do not, tell me — they read the same rows.
+- [ ] **Zones read shallow to deep**, not alphabetically, on the Field Summary sheet.
+- [ ] **PAY rows are tinted** on both table sheets, so the pay level stands out from SAND and
+      RESERVOIR — all three levels are exported, not just PAY.
+- [ ] **Nothing is written back.** Export a workbook, then check the Processing history and the
+      Wells pane: no new FLAG curves, no new log-set version. Saving a spreadsheet must not
+      count as an interpretation run.
+- [ ] **Zone Parameters sheet.** The interval parameters your interpretation used, one row each.
+      Zone `*` is the whole-well default. Check a well where you set a per-zone `RW` or `M`.
+- [ ] **Without xlsxwriter.** If Python or the package is missing, the dialog says so **before**
+      the save dialog and names the interpreter to `pip install` into. It should never fail
+      after you have already chosen a filename.
+- [ ] **Field scale.** Try it on a few hundred wells. It runs as a job, so the **Processing**
+      monitor should show it while it works.
+
 ## 2026-07-31 — Pictures in their own track (thin sections, core photos)
 
 Your ask: *"images in separate tracks, such petrography thin section, core photo, or any

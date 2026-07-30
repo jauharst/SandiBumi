@@ -975,15 +975,38 @@ stay the default. The one real cost is the install matrix for a client machine, 
 tiered in CONTRIBUTING.md: nothing required → numpy (equations) → dlisio (DLIS) → sklearn +
 joblib (ML) → office four (deliverables) → opencv (digitizing).
 
-- [ ] **Office deliverables** — the largest gap in the product. `export.rs` exports **LAS only**;
-      everything else leaves as a native PDF or a CSV, so a finished study still has to be
-      re-typed into Excel and PowerPoint by hand.
-      - `xlsxwriter` → pay summary / zone parameters / field dashboard as a formatted multi-sheet
-        workbook (number formats, frozen headers, net-pay shading) instead of flat CSV.
-      - `python-pptx` → an asset-team deck: composite plot per well (the PNG path already
-        exists via `save_png`), zone-summary and field-summary slides.
-      - `python-docx` → an EDITABLE report twin of `report.rs`'s PDF, so methodology text can be
-        adapted into a client template. **The native PDF stays the default path.**
+- **Office deliverables** — the largest gap in the product. `export.rs` exported **LAS only**;
+      everything else left as a native PDF or a CSV, so a finished study had to be re-typed into
+      Excel and PowerPoint by hand.
+      - [x] **`xlsxwriter` → SHIPPED 2026-07-31** — `src-tauri/src/office.rs` + `workbookDialog.ts`
+        (Plot ▸ Deliverables ▸ Workbook…). Four sheets: **Summary** (audit trail — cutoffs used,
+        depth unit, export stamp, and every well that produced *no* results named rather than
+        silently absent), **Pay Summary** (the same rows `report.rs` prints, so the workbook and
+        the client PDF cannot disagree), **Field Summary** (per-zone roll-up), **Zone Parameters**.
+        Formatted: number formats per column, frozen header, autofilter, PAY rows tinted.
+        Architecture: a shared Python-office spine — `office_support()` probes all four packages
+        in ONE subprocess so a dialog reports what is missing *before* the save dialog, and the
+        xlsxwriter runner is deliberately DUMB (typed `Cell`s in, a table out) so every
+        petrophysical decision stays in Rust. Rule 7 holds: the real round-trip test is
+        `#[ignore]`d precisely so the green gate can never depend on a Python package.
+        Three decisions worth not re-litigating: **numbers stay numbers** (a text column cannot be
+        pivoted, which is the only reason to want a workbook); **a blank is not a zero** — where
+        `n_classified == 0` the well was never interpreted, and an empty cell is the one value
+        Excel's own AVERAGE/COUNT skip, where a `0` would drag a field average down; and the
+        Field Summary carries **two N/G columns** (volumetric Σnet/Σgross *and* the mean of
+        per-well values that the dashboard plots) because quoting one as the other is a reserves
+        error. The export runs `stats_only` — saving a spreadsheet must never write FLAG curves.
+        Open follow-ups: a per-well curve-data sheet (LAS covers it today); whether he wants PHIE
+        displayed as a percent format rather than the v/v decimal that matches the PDF; and a
+        saved workbook "template" (which sheets, which cutoffs) like the plot templates.
+      - [ ] `python-pptx` → an asset-team deck: composite plot per well, zone-summary and
+        field-summary slides. **Blocked on rasterization**: python-pptx embeds PNG/EMF, not PDF or
+        SVG, and the composite path produces vectors; `save_png` rasterizes in the FRONTEND from a
+        canvas, so either the deck is driven from the frontend or the slides are built from data
+        (matplotlib is installed) rather than from composite pages. Decide before building.
+      - [ ] `python-docx` → an EDITABLE report twin of `report.rs`'s PDF, so methodology text can be
+        adapted into a client template. **The native PDF stays the default path.** Reuses the
+        `ReportSpec` content assembly and the same `Sheet`-style dumb-runner split as the workbook.
 - [ ] **`joblib` model persistence** — a confirmed capability hole, not a guess: `MlRequest`
       carries `train_well_ids` and `apply_well_ids` in the SAME call, so the fitted model dies
       with the subprocess. There is currently no way to train on the cored wells and apply *that

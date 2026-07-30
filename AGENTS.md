@@ -362,6 +362,37 @@ the PDF cannot embed prints a **named frame**, never a silent gap, so a delivera
 checked against the delivery list. Digitizing the plates (OpenCV) is a deliberately separate
 later phase; nothing here decodes pixels in Rust.
 
+Office deliverables (2026-07-31) — `office.rs` writes the study as a formatted multi-sheet
+**Excel workbook** (Plot ribbon -> Deliverables -> Workbook...), the first consumer of a shared
+Python-office spine. `office_support()` probes xlsxwriter/python-docx/python-pptx/openpyxl in ONE
+subprocess so a dialog can say what is missing *before* a save dialog appears, and name the
+interpreter to install into. **Rule 7 throughout**: the workbook is written by a subprocess, the
+native PDF/SVG/LAS paths stay the default, and a missing package fails only this button -- which
+is also why the real round-trip test is `#[ignore]`d, so the green gate can never depend on it.
+
+**The runner is deliberately dumb.** Every petrophysical decision is made in Rust and arrives as
+a `Sheet` of typed `Cell`s (`Num` / `Text` / `Blank`); the Python side only knows how to draw a
+table. So the workbook and `report.rs`'s PDF are two renderings of ONE decision rather than two
+implementations that can drift -- the Pay Summary sheet is deliberately the same rows, same
+flags, same conventions as the printed table.
+
+Two rules govern the numbers. **Numbers stay numbers**: a cell carries the value with a number
+*format*, never a preformatted string, because a text column cannot be pivoted or re-averaged,
+which is the only reason to want a workbook. **A blank is not a zero**: where `n_classified == 0`
+the well was never interpreted over that zone and net/N-G/HPV are 0 for want of an answer, not
+because the sand is wet -- the PDF prints "-", the workbook leaves the cell EMPTY, which is the
+one value Excel's own AVERAGE/COUNT skip. `Cell::Blank` serializes as JSON `null` and the runner
+SKIPS it; do not "helpfully" write 0 there. Gross is geometry and stays a number regardless.
+
+The **Field Summary** sheet carries TWO N/G columns on purpose, because they answer different
+questions and quoting one as the other is a reserves error: `N/G (field)` is sum(net)/sum(gross),
+the volumetric ratio, while `Mean N/G` is the average of the per-well values, which is what the
+Field Dashboard plots. PHIE and SWE are **net-weighted** (matching `dashboardPanel.ts`'s
+`weightedMean`), zones are ordered **shallow to deep by mean top**, and wells that were never
+interpreted are counted in their own column rather than dragging an average toward zero. The
+export runs `stats_only` -- saving a spreadsheet must never write FLAG curves or version a log
+set, the same reasoning the dashboard follows.
+
 UI language (2026-07-19) — `src/i18n.ts` translates visible DOM text (+ title/placeholder/
 aria-label/optgroup-label) to Bahasa Indonesia / Basa Sunda by exact-phrase dictionary
 lookup, live via MutationObserver. English is the source language: keep writing UI strings
