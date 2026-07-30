@@ -40,6 +40,7 @@ import type { SessionSnapshot, Workspace } from "./workspace";
 import { formRow, openModal } from "./modal";
 import { openImportSetDialog, suggestSetName } from "./importSetDialog";
 import { openCoreImportWizard } from "./coreImportDialog";
+import { openImageImportDialog } from "./imageImportDialog";
 import { openDataSetsDialog } from "./dataSetsDialog";
 
 interface RibbonMenuItem {
@@ -344,6 +345,11 @@ export class Ribbon {
           label: "Import Aux…",
           doc: "Import petrography, XRD or perforation data (tops-style CSV/TXT) for the selected well",
           onPick: () => this.handleImportAux(),
+        },
+        {
+          label: "Import Images…",
+          doc: "Import thin-section, core-photo or SEM pictures for the selected well — the depth in each file name is guessed and shown for confirmation before anything is stored",
+          onPick: () => void this.handleImportImages(),
         },
         {
           label: "Import Deviation…",
@@ -1188,6 +1194,29 @@ export class Ribbon {
     if (!paths || paths.length === 0) return;
 
     await openCoreImportWizard(paths, well, () => this.workspace.notifyDataChanged());
+  }
+
+  /** "Import Images…" — depth-registered pictures (thin sections, core photographs, SEM
+   *  plates) for the selected well. The wizard shows the depth guessed from each file name
+   *  and only writes once it is confirmed. */
+  private async handleImportImages(): Promise<void> {
+    const well = appState.selectedWell.get();
+    let paths: string[] | null;
+    try {
+      const selection = await open({
+        multiple: true,
+        filters: [
+          { name: "Images", extensions: ["jpg", "jpeg", "png", "tif", "tiff", "bmp", "gif", "webp"] },
+        ],
+      });
+      paths = Array.isArray(selection) ? selection : selection ? [selection] : null;
+    } catch (err) {
+      setStatus(`Import dialog unavailable: ${err}`);
+      return;
+    }
+    if (!paths || paths.length === 0) return;
+
+    await openImageImportDialog(paths, well, () => this.workspace.notifyDataChanged());
   }
 
   /** "Data Sets…" — every delivery on the selected well (core, SCAL, surveys, point data):

@@ -3,16 +3,20 @@ import {
   deleteCoreSet,
   deleteScalSet,
   deleteSurvey,
+  deleteImageSet,
   listAuxSets,
   listCoreSets,
+  listImageSets,
   listScalSets,
   listSurveys,
   setActiveAuxSet,
   setActiveCoreSet,
+  setActiveImageSet,
   setActiveScalSet,
   setActiveSurvey,
   type AuxSetInfo,
   type CoreSetInfo,
+  type ImageSetInfo,
   type ScalSetInfo,
   type SurveyInfo,
 } from "../ipc";
@@ -297,6 +301,33 @@ export function openDataSetsDialog(
   });
   wrap.appendChild(aux.root);
 
+  // Pictures: grouped by dataset like point data, and the only section that shows SIZE —
+  // a core photo run is the one delivery whose cost a user needs before deciding to keep it.
+  const images = buildSection<ImageSetInfo>({
+    title: "Images (thin sections, core photos …)",
+    empty: "No pictures imported for this well yet.",
+    nameOf: (r) => r.set_name,
+    isActive: (r) => r.active,
+    countLabel: (r) => `${r.images} picture(s), ${(r.bytes / 1048576).toFixed(1)} MB`,
+    sourceOf: (r) => r.source,
+    dateOf: (r) => r.imported_at,
+    groupOf: (r) => r.dataset,
+    load: () => listImageSets(well.well_id),
+    activate: async (name, group) => {
+      await setActiveImageSet(well.well_id, group ?? "", name);
+      setStatus(`${group}: image set ${name} is now active for ${well.well_name}.`);
+      recordProcess("Edit", `Active ${group} image set → ${name}`, well.well_name);
+      onChanged();
+    },
+    remove: async (name, group) => {
+      const n = await deleteImageSet(well.well_id, group ?? "", name);
+      setStatus(`Deleted ${group} image set ${name} (${n} picture(s)) from ${well.well_name}.`);
+      recordProcess("Edit", `Deleted ${group} image set ${name} (${n} pictures)`, well.well_name);
+      onChanged();
+    },
+  });
+  wrap.appendChild(images.root);
+
   const note = document.createElement("p");
   note.className = "form-hint";
   note.textContent =
@@ -309,4 +340,5 @@ export function openDataSetsDialog(
   void scal.refresh();
   void surveys.refresh();
   void aux.refresh();
+  void images.refresh();
 }

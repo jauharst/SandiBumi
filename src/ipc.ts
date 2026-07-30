@@ -296,19 +296,44 @@ export interface ArrayStyle {
   hist_bins?: number;
 }
 
+/** One picture series in an `image` track — thin sections, core photographs, SEM plates.
+ *
+ *  A picture has no value axis, so this shares nothing with a curve or a point series except
+ *  the depth column. What it shares is their honesty about depth: a plate is drawn where it
+ *  was sampled, and when two would overlap the second is skipped rather than nudged. */
+export interface ImageStyle {
+  /** Which image dataset ('THIN SECTION', 'CORE PHOTO' …); the ACTIVE delivery is drawn. */
+  dataset: string;
+  /** "anchor" (default) centres a fixed-size plate on its depth — the honest display for a
+   *  thin section, which has no thickness. "depth" stretches the picture across its
+   *  depth_top..depth_base interval, which a core photograph genuinely occupies. */
+  mode?: "anchor" | "depth";
+  /** Width as a fraction of the track (0.05..1, default 0.9). */
+  size?: number;
+  /** "contain" (default, whole picture visible) | "cover" (fill the box, crop the overhang).
+   *  There is no stretch option: a distorted thin section misstates grain shape. */
+  fit?: "contain" | "cover";
+  align?: "left" | "center" | "right";
+  label?: boolean;
+  border?: boolean;
+}
+
 export interface Track {
   title: string;
   width_weight: number;
   scale_type: ScaleType;
   /** "curves" (normal log track), "well_diagram" (casing/shoe/perforations), "point_data"
-   *  (measured samples — core plugs, XRD, CEC …), or "array_log" (a distribution at every
-   *  depth). Optional for backward compat with saved layouts; absent = "curves". */
-  kind?: "curves" | "well_diagram" | "point_data" | "array_log";
+   *  (measured samples — core plugs, XRD, CEC …), "array_log" (a distribution at every
+   *  depth) or "image" (depth-registered pictures). Optional for backward compat with saved
+   *  layouts; absent = "curves". */
+  kind?: "curves" | "well_diagram" | "point_data" | "array_log" | "image";
   curves: CurveStyle[];
   /** Drawn only when `kind: "point_data"`. Absent in every layout saved before point tracks. */
   points?: PointStyle[];
   /** Drawn only when `kind: "array_log"`. Absent in every layout saved before array tracks. */
   arrays?: ArrayStyle[];
+  /** Drawn only when `kind: "image"`. Absent in every layout saved before image tracks. */
+  images?: ImageStyle[];
 }
 
 export interface Layout {
@@ -2199,6 +2224,139 @@ export function decodeArrayLog(buf: ArrayBuffer): ArrayLog {
 export async function getArrayLog(wellId: string, setName: string | null, curveName: string): Promise<ArrayLog> {
   const buf = await invoke<ArrayBuffer>("get_array_log", { wellId, setName, curveName });
   return decodeArrayLog(buf);
+}
+
+// ---------------------------------------------------------------------------
+// Depth-registered images (thin sections, core photographs)
+// ---------------------------------------------------------------------------
+
+/** One picture's METADATA — never its pixels. A well carrying 300 core photographs has to
+ *  list in kilobytes, so the bytes are fetched one at a time by `getWellImage`. */
+export interface ImageInfo {
+  image_id: string;
+  dataset: string;
+  set_name: string;
+  depth_top: number;
+  /** null = a POINT sample: a thin section is cut from one plug and has no thickness. */
+  depth_base: number | null;
+  name: string;
+  caption: string | null;
+  mime: string;
+  width: number;
+  height: number;
+  src_width: number | null;
+  src_height: number | null;
+  source_path: string | null;
+  /** false = the viewer shows it but the PDF exporter cannot embed it (see images.rs). */
+  printable: boolean;
+  bytes: number;
+}
+
+export interface ImageSetInfo {
+  dataset: string;
+  set_name: string;
+  images: number;
+  active: boolean;
+  source: string | null;
+  imported_at: string | null;
+  bytes: number;
+}
+
+/** One selected file as the import wizard shows it, before anything is stored. */
+export interface ImageProbe {
+  path: string;
+  file_name: string;
+  name: string;
+  mime: string;
+  /** 0 when only Pillow can tell (TIFF, plain WebP). */
+  width: number;
+  height: number;
+  bytes: number;
+  depth_top: number | null;
+  depth_base: number | null;
+  error: string | null;
+}
+
+export interface ImageImportItem {
+  path: string;
+  name: string;
+  depth_top: number;
+  depth_base?: number | null;
+  caption?: string | null;
+}
+
+export interface ImageImportRequest {
+  well_id: string;
+  dataset: string;
+  set_name: string;
+  depth_unit?: string | null;
+  max_px?: number | null;
+  quality?: number | null;
+  items: ImageImportItem[];
+}
+
+export interface ImageImportResult {
+  dataset: string;
+  set_name: string;
+  imported: number;
+  skipped: string[];
+  bytes: number;
+  note: string | null;
+}
+
+export function probeImageFiles(paths: string[]): Promise<ImageProbe[]> {
+  return invoke<ImageProbe[]>("probe_image_files", { paths });
+}
+
+/** Is Pillow reachable? Decides whether the wizard offers TIFF and whether it warns that
+ *  pictures will print as labelled frames. */
+export function imageSupport(): Promise<boolean> {
+  return invoke<boolean>("image_support");
+}
+
+export function importWellImages(req: ImageImportRequest): Promise<ImageImportResult> {
+  return invoke<ImageImportResult>("import_well_images", { req });
+}
+
+export function listWellImages(wellId: string, dataset?: string | null): Promise<ImageInfo[]> {
+  return invoke<ImageInfo[]>("list_well_images", { wellId, dataset: dataset ?? null });
+}
+
+export function listImageDatasets(wellId: string): Promise<[string, number][]> {
+  return invoke<[string, number][]>("list_image_datasets", { wellId });
+}
+
+/** The pixels of one picture, as raw bytes (rule 3 — never a JSON array). Wrapped into a
+ *  Blob by the caller, which already knows the mime type from `listWellImages`. */
+export async function getWellImage(imageId: string): Promise<ArrayBuffer> {
+  return invoke<ArrayBuffer>("get_well_image", { imageId });
+}
+
+export function listImageSets(wellId: string): Promise<ImageSetInfo[]> {
+  return invoke<ImageSetInfo[]>("list_image_sets", { wellId });
+}
+
+export function setActiveImageSet(wellId: string, dataset: string, setName: string): Promise<void> {
+  return invoke("set_active_image_set", { wellId, dataset, setName });
+}
+
+export function deleteImageSet(wellId: string, dataset: string, setName: string): Promise<number> {
+  return invoke<number>("delete_image_set", { wellId, dataset, setName });
+}
+
+export function deleteWellImage(imageId: string): Promise<number> {
+  return invoke<number>("delete_well_image", { imageId });
+}
+
+/** Re-registers one picture: core-to-log alignment and labelling, for pictures. */
+export function updateWellImage(
+  imageId: string,
+  depthTop: number,
+  depthBase: number | null,
+  name: string,
+  caption: string | null,
+): Promise<number> {
+  return invoke<number>("update_well_image", { imageId, depthTop, depthBase, name, caption });
 }
 
 export function updateCoreSample(wellId: string, depth: number, column: string, value: number): Promise<void> {

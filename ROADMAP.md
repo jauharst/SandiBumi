@@ -8,6 +8,11 @@ fully superseded by this document.)
 
 ## How to read this
 
+> **Sequencing across both products** — which of these items to do *first*, and why, lives in
+> [`docs/FUTURE_PLAN.md`](docs/FUTURE_PLAN.md) (2026-07-31): the competitive scan vs
+> Geolog/Techlog/IP, the three positioning axes, the credibility floor, and the OSDU question.
+> That document sits above this one — it never overrides an item here, it orders them.
+
 **Three status buckets** — every item lives in exactly one:
 
 | | Bucket | Meaning |
@@ -918,12 +923,41 @@ which he has since clarified (also §B3).
       1366 laptop and dislikes it, the cheapest fixes are merging Language into the Appearance
       group and folding Help into Monitor (≈100px); anything more means restyling the ribbon
       fields, which is a design change he should call.
-- [ ] **Images in their own track** — **CLARIFIED 2026-07-30**: "images in separate tracks, such
-      petrography thin section, core photo, or any picture format that can be adjustable (later we
-      should have capablites to digitize it as well)". So this is NOT part of the point-data track:
-      it is its own `TrackKind`, depth-registered, with adjustable placement/scale, over any common
-      raster format. Needs a blob store. **Digitizing is a deliberate later phase** — see the
-      OpenCV note in §B3.
+- [x] **Images in their own track** — **SHIPPED 2026-07-31** (display half; digitizing stays a
+      later phase). His ask: "images in separate tracks, such petrography thin section, core photo,
+      or any picture format that can be adjustable (later we should have capablites to digitize it
+      as well)". `well_images` + `image_sets` are the blob store, on the universal delivery-set
+      rule (`db::ACTIVE_IMAGE_SET`); `TrackKind::Image` + `ImageStyle` render in
+      `logViewPanel.drawImageTracks` and `composite.rs draw_image_series`, with the geometry in
+      ONE place per side (`imageBox` / `image_box`) so screen and print agree.
+      Three decisions worth remembering, all petrophysical rather than cosmetic:
+      **(a)** `depth_base IS NULL` means a POINT sample — a thin section is cut from one plug and
+      has no thickness, so it is anchored at its depth instead of being stretched over a guessed
+      interval; a core photograph with a base depth spans it for real. That is what
+      `mode: anchor|depth` selects.
+      **(b)** Two plates that would overlap: the deeper one is **skipped and leaves a tick**, never
+      nudged — a plate moved to make room is a plate attributed to the wrong sand. Zooming in
+      brings it back. (Flagged in REVIEW in case he would rather they stacked.)
+      **(c)** Aspect ratio is never distorted — `fit` is contain or cover, and there is no stretch
+      option, because a squashed thin section misstates grain shape.
+      Storage: the stored blob is a **normalized display JPEG** (one Pillow subprocess for the
+      whole delivery, long edge 2400 px / q85 by default and adjustable in the wizard), with
+      `source_path` + the original's pixel size kept so the delivered file stays traceable. Without
+      Pillow the import still works for anything the WebView decodes, stored verbatim; TIFF needs
+      Pillow and says so by name. Import is probe → confirm → commit like the core wizard, with
+      `parse_depth_from_name` guessing a depth per file (a token needs a decimal point or ≥3
+      integer digits, so `BLSO-01` is never read as 1 m) and every guess editable before the write.
+      Print: `assemble_pdf_with_images` embeds JPEG bytes **untouched** as a `/DCTDecode` XObject —
+      object bodies became BYTES for it, and `assemble_pdf` is pinned byte-identical for the
+      no-image case. `report.rs` collects images too (it embeds composite pages verbatim). SVG
+      inlines base64 so a delivered file is self-contained, and a plate the PDF cannot embed prints
+      a **named frame**, never a silent gap.
+      **Digitizing remains the deliberate later phase** — see the OpenCV note in §B3; nothing here
+      decodes pixels in Rust.
+      Open follow-ups: whether the overlap rule should stack instead of skip; whether 2400 px is
+      too soft for his thin sections; and a picture is not yet re-registerable from the UI (the
+      `update_well_image` command exists and is tested, but no dialog calls it yet — a re-import
+      is currently how a depth gets corrected).
 
 ### B3 — Python capability audit (2026-07-30, at Jauhar's request)
 

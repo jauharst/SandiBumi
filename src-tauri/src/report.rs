@@ -492,7 +492,10 @@ pub fn render_report(db: &Mutex<Connection>, spec: &ReportSpec) -> Result<Compos
 pub fn render_report_pdf(db: &Mutex<Connection>, spec: &ReportSpec) -> Result<Vec<u8>, String> {
     let (pages, pw, ph, _) = report_pages(db, spec)?;
     let streams: Vec<String> = pages.iter().map(|ops| composite::pdf_content(ops, pw, ph)).collect();
-    Ok(composite::assemble_pdf(&streams, pw, ph))
+    // The report embeds the composite pages verbatim, so it inherits their image tracks —
+    // collect the XObjects here too or a report would reference plates it never wrote.
+    let op_pages: Vec<&[composite::DrawOp]> = pages.iter().map(|ops| ops.as_slice()).collect();
+    Ok(composite::assemble_pdf_with_images(&streams, pw, ph, &composite::collect_images(&op_pages)))
 }
 
 /// Batch export: one report PDF per well into `dest_dir`, named `<WELL>_report.pdf`.

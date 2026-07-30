@@ -7,6 +7,54 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-07-31 — Pictures in their own track (thin sections, core photos)
+
+Your ask: *"images in separate tracks, such petrography thin section, core photo, or any
+picture format that can be adjustable (later we should have capablites to digitize it as
+well)"*. Done for the DISPLAY half; digitizing is deliberately a later phase.
+
+- [ ] **Import a folder of thin sections.** **Data ▸ Import Data ▸ Import Images…** with a
+      well selected, pick several files. The wizard lists every file with its true pixel size
+      and **the depth it read from the file name** — nothing is stored until you press Import.
+      Check the guesses: `BLSO-01_1523.50.jpg` should read 1523.50, and a plain `BLSO-01.jpg`
+      should read NOTHING (an amber "required" box), because a two-digit well number must
+      never be mistaken for a depth. Fix any depth in the table before importing.
+- [ ] **A photographed interval.** A file named `..._1523.5-1524.0.jpg` should come in with
+      BOTH a depth and a base. You can also type a base by hand. Leave the base empty for a
+      thin section — a plug has no thickness, and the empty cell is what says so.
+- [ ] **Show them.** Right-click a log view ▸ **Layout Properties…**, add a track, set
+      **Track type = Images**, then **＋ Add image series** and pick your dataset. The plates
+      appear at their depths with a leader line to the track edge.
+- [ ] **Adjustable, as you asked.** In that same editor try: **Width of track** (how big the
+      plate is), **Align** left/centre/right, **Placement** — *Anchored at depth* (fixed size,
+      centred on the sample) vs *Scaled to interval* (the picture spans its own top-to-base,
+      only meaningful when it has a base depth), and for a scaled one **Fit** *Whole picture*
+      vs *Fill and crop*. Nothing ever squashes the picture out of shape — tell me if you
+      ever see a stretched plate.
+- [ ] **Overlapping plates.** Zoom out until two thin sections would collide. The deeper one
+      **disappears and leaves a short tick** at its true depth rather than sliding down to fit.
+      Zoom back in and it returns. That is deliberate — say if you would rather they stacked.
+- [ ] **Print it.** **Plot ▸ Composite…** with that layout — the plates must appear in the PDF
+      and in the SVG at the same place and size as on screen. Open the SVG somewhere else
+      (a browser) to confirm the pictures travel INSIDE the file, not as broken links.
+- [ ] **A second delivery does not double the plates.** Import the same folder again with the
+      same delivery name. It should land as `NAME_1`, become the live one, and the track must
+      show **one** set of plates, not two. **Data ▸ Tools ▸ Data Sets…** has a new **Images**
+      section — switch back to the first delivery and the track follows. The Wells pane ▸
+      twisty also lists **Images** per well; double-click switches the live one, and expanding
+      a delivery lists each plate with its depth and size.
+- [ ] **Project size is visible.** The Data Sets dialog and the tree both show MB per delivery
+      — the only store where the cost is worth showing. Stored pictures are capped at 2400 px
+      on the long edge by default; the wizard lets you raise it (or set 0 for full resolution)
+      if you need to zoom further, at the cost of a much larger project file. Tell me if 2400
+      is too soft for your thin sections.
+- [ ] **TIFF.** If your petrographer delivers TIFF, it needs Pillow (`pip install pillow`).
+      With Pillow present TIFF imports and displays normally. Without it, the wizard says so by
+      name rather than failing quietly, and a non-JPEG prints as a **labelled frame** in the
+      PDF so a deliverable can be checked against the delivery list.
+- [ ] **All three languages** translate the new labels (Import Images…, Images, Placement,
+      Align, Fit, Frame, Caption…); technical terms stay English as always.
+
 ## 2026-07-30 — Quick-access buttons become labelled Project-tab tools
 
 Your ask: *"those QAT buttons should become labelled tools, together with performance and

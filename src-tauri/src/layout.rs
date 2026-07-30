@@ -115,6 +115,72 @@ pub enum TrackKind {
     WellDiagram,
     PointData,
     ArrayLog,
+    Image,
+}
+
+/// One picture series drawn in an `image` track — a petrographic thin section, a core
+/// photograph, an SEM plate.
+///
+/// A picture has no value axis, so this shares nothing with `CurveStyle` or `PointStyle`
+/// beyond the depth column. What it does share is their honesty rule about depth: a plate
+/// is drawn where it was sampled, at the size the user asks for, and if two plates would
+/// overlap at the current depth scale the second is SKIPPED rather than nudged — a
+/// thin section moved 3 m to make room is a thin section attributed to the wrong sand.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageStyle {
+    /// Which image dataset ('THIN SECTION', 'CORE PHOTO', …). The ACTIVE delivery of that
+    /// dataset is what gets drawn, exactly as for core plugs and point data.
+    pub dataset: String,
+    /// "anchor" (default) draws a fixed-size plate centred on its depth — the honest display
+    /// for a thin section, which is cut from one plug and has no thickness. "depth" stretches
+    /// the picture across its depth_top..depth_base interval, which is what a core photograph
+    /// of a measured run actually occupies; an image with no base depth falls back to anchor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    /// Width as a fraction of the track (0.05..1.0, default 0.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<f32>,
+    /// "contain" (default) fits the whole picture inside its box, "cover" crops it to fill.
+    /// There is deliberately no "stretch": a distorted thin section misstates grain shape.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fit: Option<String>,
+    /// "left" | "center" (default) | "right" within the track.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub align: Option<String>,
+    /// Draw the picture's name beside it (default true).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<bool>,
+    /// Draw a hairline frame around each picture (default true) — a pale core photograph
+    /// otherwise bleeds into the track background.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub border: Option<bool>,
+}
+
+impl ImageStyle {
+    /// "anchor" unless the style explicitly asks for depth-scaled placement.
+    pub fn mode_kind(&self) -> &str {
+        match self.mode.as_deref() {
+            Some("depth") => "depth",
+            _ => "anchor",
+        }
+    }
+    /// Track-width fraction, clamped to something drawable.
+    pub fn width_frac(&self) -> f32 {
+        self.size.unwrap_or(0.9).clamp(0.05, 1.0)
+    }
+    pub fn fit_kind(&self) -> &str {
+        match self.fit.as_deref() {
+            Some("cover") => "cover",
+            _ => "contain",
+        }
+    }
+    pub fn align_kind(&self) -> &str {
+        match self.align.as_deref() {
+            Some("left") => "left",
+            Some("right") => "right",
+            _ => "center",
+        }
+    }
 }
 
 /// One array log drawn in an `array_log` track — a curve that holds a whole DISTRIBUTION at
@@ -270,6 +336,10 @@ pub struct Track {
     /// same back-compatibility reason as `points`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub arrays: Vec<ArrayStyle>,
+    /// Depth-registered pictures, drawn only when `kind = "image"`. Defaulted for the same
+    /// back-compatibility reason as `points`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<ImageStyle>,
 }
 
 /// A named, reusable track layout — SandiBumi's reusable track-layout registry.
@@ -291,6 +361,7 @@ pub fn standard_layout() -> Layout {
                 kind: TrackKind::Curves,
                 points: Vec::new(),
                 arrays: Vec::new(),
+                images: Vec::new(),
                 curves: vec![filled("GR", "#5f7350", 0.0, 150.0, "left", 0.25)],
             },
             Track {
@@ -300,6 +371,7 @@ pub fn standard_layout() -> Layout {
                 kind: TrackKind::Curves,
                 points: Vec::new(),
                 arrays: Vec::new(),
+                images: Vec::new(),
                 curves: vec![curve("RES_DEEP", "#a83e2c", 0.2, 2000.0)],
             },
             Track {
@@ -309,6 +381,7 @@ pub fn standard_layout() -> Layout {
                 kind: TrackKind::Curves,
                 points: Vec::new(),
                 arrays: Vec::new(),
+                images: Vec::new(),
                 curves: vec![
                     // NPHI runs right-to-left (porosity convention) via a reversed min/max.
                     // The two scales are the standard compatible pair (NPHI 0.45→-0.15 v/v
@@ -337,6 +410,7 @@ pub fn interpretation_layout() -> Layout {
                 kind: TrackKind::Curves,
                 points: Vec::new(),
                 arrays: Vec::new(),
+                images: Vec::new(),
                 curves: vec![filled("GR", "#5f7350", 0.0, 150.0, "left", 0.25)],
             },
             Track {
@@ -346,6 +420,7 @@ pub fn interpretation_layout() -> Layout {
                 kind: TrackKind::Curves,
                 points: Vec::new(),
                 arrays: Vec::new(),
+                images: Vec::new(),
                 curves: vec![curve("RES_DEEP", "#a83e2c", 0.2, 2000.0)],
             },
             Track {
@@ -355,6 +430,7 @@ pub fn interpretation_layout() -> Layout {
                 kind: TrackKind::Curves,
                 points: Vec::new(),
                 arrays: Vec::new(),
+                images: Vec::new(),
                 curves: vec![filled("VSH", "#8d6e63", 0.0, 1.0, "left", 0.3)],
             },
             Track {
@@ -364,6 +440,7 @@ pub fn interpretation_layout() -> Layout {
                 kind: TrackKind::Curves,
                 points: Vec::new(),
                 arrays: Vec::new(),
+                images: Vec::new(),
                 curves: vec![
                     // Porosity convention: decreasing to the right.
                     curve("PHIT", "#54a0ff", 0.5, 0.0),
@@ -377,6 +454,7 @@ pub fn interpretation_layout() -> Layout {
                 kind: TrackKind::Curves,
                 points: Vec::new(),
                 arrays: Vec::new(),
+                images: Vec::new(),
                 curves: vec![curve("SWE", "#00b8d4", 0.0, 1.0)],
             },
             Track {
@@ -386,6 +464,7 @@ pub fn interpretation_layout() -> Layout {
                 kind: TrackKind::Curves,
                 points: Vec::new(),
                 arrays: Vec::new(),
+                images: Vec::new(),
                 curves: vec![curve("PERM", "#b5651d", 0.01, 10000.0)],
             },
             Track {
@@ -395,6 +474,7 @@ pub fn interpretation_layout() -> Layout {
                 kind: TrackKind::Curves,
                 points: Vec::new(),
                 arrays: Vec::new(),
+                images: Vec::new(),
                 curves: vec![
                     filled("FLAG_PAY", "#5f7350", 0.0, 1.0, "left", 0.55),
                     filled("FLAG_RESERVOIR", "#c2ac81", 0.0, 1.0, "left", 0.35),
@@ -417,6 +497,7 @@ pub fn facies_layout() -> Layout {
                 kind: TrackKind::Curves,
                 points: Vec::new(),
                 arrays: Vec::new(),
+                images: Vec::new(),
                 curves: vec![filled("GR", "#5f7350", 0.0, 150.0, "left", 0.25)],
             },
             Track {
@@ -426,6 +507,7 @@ pub fn facies_layout() -> Layout {
                 kind: TrackKind::Curves,
                 points: Vec::new(),
                 arrays: Vec::new(),
+                images: Vec::new(),
                 curves: vec![curve("RES_DEEP", "#a83e2c", 0.2, 2000.0)],
             },
             Track {
@@ -435,6 +517,7 @@ pub fn facies_layout() -> Layout {
                 kind: TrackKind::Curves,
                 points: Vec::new(),
                 arrays: Vec::new(),
+                images: Vec::new(),
                 curves: vec![
                     // Same compatible-scaled crossover as the Standard Layout — the porosity
                     // track reads identically wherever it appears.
@@ -449,6 +532,7 @@ pub fn facies_layout() -> Layout {
                 kind: TrackKind::Curves,
                 points: Vec::new(),
                 arrays: Vec::new(),
+                images: Vec::new(),
                 curves: vec![block_curve("FACIES", 12.0)],
             },
         ],

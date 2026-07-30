@@ -11,6 +11,8 @@
 
 use crate::equations;
 use crate::layout::{Layout, ScaleType};
+use base64::engine::general_purpose::STANDARD as B64;
+use base64::Engine as _;
 use duckdb::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -96,8 +98,26 @@ pub(crate) enum Anchor {
     End,
 }
 
+/// One picture prepared for printing: the stored bytes plus what the two back-ends need to
+/// place them without decoding. `id` is dense across a whole render so the PDF can name each
+/// XObject `/Im{id}` and the resources dictionary can be built from the ops alone.
+pub(crate) struct PrintImage {
+    pub(crate) id: usize,
+    pub(crate) mime: String,
+    pub(crate) data: Vec<u8>,
+    pub(crate) px_w: u32,
+    pub(crate) px_h: u32,
+    /// JPEG colour components (1 grey / 3 RGB / 4 CMYK) — decides the PDF colour space.
+    pub(crate) components: u8,
+}
+
 pub(crate) enum DrawOp {
     Rect { x: f64, y: f64, w: f64, h: f64, fill: Option<String>, stroke: Option<String>, sw: f64 },
+    /// A raster placed in the given millimetre box. `cover = false` means the box IS the
+    /// picture (already fitted to its aspect ratio by the caller, so nothing is distorted);
+    /// `cover = true` means fill the box and crop the overhang, which both back-ends do by
+    /// clipping to the box rather than by squashing the image.
+    Image { x: f64, y: f64, w: f64, h: f64, img: std::sync::Arc<PrintImage>, cover: bool },
     Line { x1: f64, y1: f64, x2: f64, y2: f64, stroke: String, sw: f64 },
     /// Open polyline (a curve run).
     Poly { pts: Vec<(f64, f64)>, stroke: String, sw: f64 },
@@ -242,6 +262,42 @@ pub(crate) fn render_pages(conn: &Connection, spec: &CompositeSpec) -> Result<(V
         }
     }
 
+    // Depth-registered pictures for any image track, fetched once for the whole render and
+    // keyed by dataset. Read whole rather than page by page for the same reason as the array
+    // logs — and because a plate that straddles a page break must be placeable on both.
+    let mut images: HashMap<String, Vec<PrintEntry>> = HashMap::new();
+    let mut next_image_id = 0usize;
+    for track in spec.layout.tracks.iter().filter(|t| t.kind == crate::layout::TrackKind::Image) {
+        for st in &track.images {
+            let key = st.dataset.trim().to_uppercase();
+            if key.is_empty() || images.contains_key(&key) {
+                continue;
+            }
+            let rows = crate::db::read_images_for_print(conn, &spec.well_id, &key, top, bottom)
+                .unwrap_or_default();
+            let entries = rows
+                .into_iter()
+                .map(|(info, data)| {
+                    // The PDF exporter embeds JPEG bytes untouched (DCTDecode); anything else
+                    // is carried for the SVG path and prints as a labelled frame in the PDF.
+                    let printable = info.printable && info.mime == "image/jpeg";
+                    let components = crate::images::sniff(&data).map(|m| m.components).unwrap_or(3);
+                    let img = std::sync::Arc::new(PrintImage {
+                        id: next_image_id,
+                        mime: info.mime.clone(),
+                        px_w: info.width.max(1) as u32,
+                        px_h: info.height.max(1) as u32,
+                        components: if components == 0 { 3 } else { components },
+                        data,
+                    });
+                    next_image_id += 1;
+                    PrintEntry { info, img, printable }
+                })
+                .collect();
+            images.insert(key, entries);
+        }
+    }
+
     let (pw, ph) = spec.page_size.dims();
     let mm_per_m = 1000.0 / spec.scale as f64;
 
@@ -260,7 +316,7 @@ pub(crate) fn render_pages(conn: &Connection, spec: &CompositeSpec) -> Result<(V
         let d1 = (d0 + m_this).min(bottom);
         let ops = build_page(
             spec, &header, &depth, &columns, &tops, &zones, &completion, &perforations, &core, &aux,
-            &arrays, pw, ph, mm_per_m, first, d0 as f32, d1 as f32, idx,
+            &arrays, &images, pw, ph, mm_per_m, first, d0 as f32, d1 as f32, idx,
         );
         pages.push(PageOps { ops, top: d0 as f32, bot: d1 as f32, idx });
         d0 = d1;
@@ -289,7 +345,8 @@ pub fn render_composite(conn: &Connection, spec: &CompositeSpec) -> Result<Compo
 pub fn render_composite_pdf(conn: &Connection, spec: &CompositeSpec) -> Result<Vec<u8>, String> {
     let (pages, pw, ph, _) = render_pages(conn, spec)?;
     let streams: Vec<String> = pages.iter().map(|p| pdf_content(&p.ops, pw, ph)).collect();
-    Ok(assemble_pdf(&streams, pw, ph))
+    let op_pages: Vec<&[DrawOp]> = pages.iter().map(|p| p.ops.as_slice()).collect();
+    Ok(assemble_pdf_with_images(&streams, pw, ph, &collect_images(&op_pages)))
 }
 
 /// Writes the rendered pages to disk as SVG. A single page goes to `dest_path` as given;
@@ -336,6 +393,7 @@ fn build_page(
     core: &[(String, f32, f32)],
     aux: &[crate::db::AuxRow],
     arrays: &HashMap<String, Vec<crate::db::ArrayRow>>,
+    images: &HashMap<String, Vec<PrintEntry>>,
     pw: f64,
     ph: f64,
     mm_per_m: f64,
@@ -451,6 +509,12 @@ fn build_page(
                 draw_array_series(
                     &mut ops, a, track.scale_type, rows, tx0, tx1, page_top, page_bot, &y_of,
                 );
+            }
+        } else if track.kind == crate::layout::TrackKind::Image {
+            for st in &track.images {
+                let entries =
+                    images.get(&st.dataset.trim().to_uppercase()).map(Vec::as_slice).unwrap_or(&[]);
+                draw_image_series(&mut ops, st, entries, tx0, tx1, page_top, page_bot, &y_of);
             }
         } else if track.kind == crate::layout::TrackKind::PointData {
             for ps in &track.points {
@@ -909,6 +973,191 @@ fn point_samples(
     (d, v, t)
 }
 
+/// One picture as the print path carries it: its registration, its bytes, and whether the
+/// PDF back-end can embed it.
+pub(crate) struct PrintEntry {
+    pub(crate) info: crate::db::ImageInfo,
+    pub(crate) img: std::sync::Arc<PrintImage>,
+    pub(crate) printable: bool,
+}
+
+/// The millimetre box one picture occupies, computed identically here and in the viewer.
+struct ImageBox {
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    /// True when the box is the requested frame and the picture overfills it (fit = cover);
+    /// false when the box has already been fitted to the picture's own aspect ratio.
+    cover: bool,
+}
+
+/// Places one picture in a track.
+///
+/// Two placements, and the difference is petrophysical rather than cosmetic. **anchor**
+/// centres a fixed-size plate on its sample depth — a thin section is cut from one plug and
+/// has no thickness, so stretching it over a guessed interval would invent one. **depth**
+/// draws the picture across its own `depth_top..depth_base`, which is what a core photograph
+/// of a measured run genuinely occupies; without a base depth it falls back to anchor.
+///
+/// Aspect ratio is never distorted. `contain` fits the whole picture inside the box (so a
+/// deep interval in a narrow track simply leaves white space); `cover` fills the box and
+/// crops the overhang. There is deliberately no stretch option — a squashed thin section
+/// misstates grain shape, which is the one thing the plate is there to show.
+fn image_box(style: &crate::layout::ImageStyle, e: &PrintEntry, tx0: f64, tx1: f64, y_of: &dyn Fn(f32) -> f64) -> ImageBox {
+    let track_w = tx1 - tx0;
+    let box_w = track_w * style.width_frac() as f64;
+    let x = match style.align_kind() {
+        "left" => tx0,
+        "right" => tx1 - box_w,
+        _ => tx0 + (track_w - box_w) / 2.0,
+    };
+    let aspect = e.img.px_h as f64 / e.img.px_w.max(1) as f64;
+
+    let interval = e.info.depth_base.filter(|b| *b > e.info.depth_top);
+    if style.mode_kind() == "depth" {
+        if let Some(base) = interval {
+            let y0 = y_of(e.info.depth_top);
+            let y1 = y_of(base);
+            let box_h = (y1 - y0).max(0.3);
+            if style.fit_kind() == "cover" {
+                return ImageBox { x, y: y0, w: box_w, h: box_h, cover: true };
+            }
+            // contain: shrink the wider dimension until the whole picture fits, centred.
+            let (mut w, mut h) = (box_w, box_w * aspect);
+            if h > box_h {
+                h = box_h;
+                w = box_h / aspect.max(1e-6);
+            }
+            return ImageBox { x: x + (box_w - w) / 2.0, y: y0 + (box_h - h) / 2.0, w, h, cover: false };
+        }
+    }
+    // anchor: the picture's own aspect ratio sets the height, centred on the sample depth.
+    let h = box_w * aspect;
+    let yc = y_of(e.info.depth_base.map_or(e.info.depth_top, |b| (e.info.depth_top + b) / 2.0));
+    ImageBox { x, y: yc - h / 2.0, w: box_w, h, cover: false }
+}
+
+/// An `image` track's pictures in print. Mirrors `drawImageTracks` in
+/// `src/ui/logViewPanel.ts` — the two must agree, and both take their geometry from
+/// [`image_box`].
+#[allow(clippy::too_many_arguments)]
+fn draw_image_series(
+    ops: &mut Vec<DrawOp>,
+    style: &crate::layout::ImageStyle,
+    entries: &[PrintEntry],
+    tx0: f64,
+    tx1: f64,
+    page_top: f32,
+    page_bot: f32,
+    y_of: &dyn Fn(f32) -> f64,
+) {
+    let label = style.label.unwrap_or(true);
+    let border = style.border.unwrap_or(true);
+    let grid_top = y_of(page_top);
+    let grid_bot = y_of(page_bot);
+    // Where the previous plate ended, so an overlapping one can be SKIPPED rather than
+    // nudged: a thin section moved to make room is a thin section attributed to the wrong
+    // sand. Zooming in on screen (or printing at a larger scale) reveals the skipped ones.
+    let mut last_bottom = f64::NEG_INFINITY;
+
+    for e in entries {
+        let sample_depth = e.info.depth_base.map_or(e.info.depth_top, |b| (e.info.depth_top + b) / 2.0);
+        if e.info.depth_top > page_bot || e.info.depth_base.unwrap_or(e.info.depth_top) < page_top {
+            continue;
+        }
+        let b = image_box(style, e, tx0, tx1, y_of);
+        // A plate is either wholly on this page or it is not drawn on it: half a photograph
+        // clipped by a page break reads as a different picture.
+        if b.y < grid_top - 0.01 || b.y + b.h > grid_bot + 0.01 {
+            ops.push(DrawOp::Line {
+                x1: tx0,
+                y1: y_of(sample_depth),
+                x2: tx0 + (tx1 - tx0) * 0.15,
+                y2: y_of(sample_depth),
+                stroke: "#8a7f70".into(),
+                sw: 0.25,
+            });
+            continue;
+        }
+        if b.y < last_bottom + 0.4 {
+            ops.push(DrawOp::Line {
+                x1: tx0,
+                y1: y_of(sample_depth),
+                x2: tx0 + (tx1 - tx0) * 0.15,
+                y2: y_of(sample_depth),
+                stroke: "#8a7f70".into(),
+                sw: 0.25,
+            });
+            continue;
+        }
+        last_bottom = b.y + b.h;
+
+        if e.printable {
+            ops.push(DrawOp::Image {
+                x: b.x,
+                y: b.y,
+                w: b.w,
+                h: b.h,
+                img: e.img.clone(),
+                cover: b.cover,
+            });
+        } else {
+            // Never a silent gap: the frame states which plate is missing and why, so a
+            // client deliverable can be checked against the delivery list.
+            ops.push(DrawOp::Rect {
+                x: b.x,
+                y: b.y,
+                w: b.w,
+                h: b.h,
+                fill: Some("#f2efe9".into()),
+                stroke: Some("#b0413e".into()),
+                sw: 0.25,
+            });
+            ops.push(DrawOp::Text {
+                x: b.x + b.w / 2.0,
+                y: b.y + b.h / 2.0,
+                size: 2.2,
+                anchor: Anchor::Middle,
+                color: "#b0413e".into(),
+                bold: false,
+                s: format!("{} — not embeddable", e.info.name),
+            });
+        }
+        if border && e.printable {
+            ops.push(DrawOp::Rect {
+                x: b.x,
+                y: b.y,
+                w: b.w,
+                h: b.h,
+                fill: None,
+                stroke: Some("#5a5148".into()),
+                sw: 0.15,
+            });
+        }
+        // Depth leader: the plate is somewhere in the track, its depth is on the left edge.
+        ops.push(DrawOp::Line {
+            x1: tx0,
+            y1: y_of(sample_depth),
+            x2: b.x,
+            y2: y_of(sample_depth),
+            stroke: "#8a7f70".into(),
+            sw: 0.2,
+        });
+        if label && b.y - 1.0 > grid_top {
+            ops.push(DrawOp::Text {
+                x: b.x,
+                y: b.y - 0.8,
+                size: 2.2,
+                anchor: Anchor::Start,
+                color: "#4a4038".into(),
+                bold: false,
+                s: e.info.name.clone(),
+            });
+        }
+    }
+}
+
 /// A `point_data` track's series in print: measured samples rather than a continuous log.
 /// Four displays matching the viewer — points, box plot per depth bin, value-axis histogram
 /// per depth bin, and text labels. Statistics come from the shared `distribution` module, so
@@ -1336,7 +1585,7 @@ pub(crate) fn svg_page(ops: &[DrawOp], pw: f64, ph: f64) -> String {
     let mut s = String::with_capacity(16 * 1024);
     let _ = write!(
         s,
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="{pw}mm" height="{ph}mm" viewBox="0 0 {pw} {ph}" font-family="Helvetica, Arial, sans-serif">"##,
+        r##"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="{pw}mm" height="{ph}mm" viewBox="0 0 {pw} {ph}" font-family="Helvetica, Arial, sans-serif">"##,
     );
     let _ = write!(s, r##"<rect x="0" y="0" width="{pw}" height="{ph}" fill="#ffffff"/>"##);
     for op in ops {
@@ -1354,6 +1603,20 @@ pub(crate) fn svg_page(ops: &[DrawOp], pw: f64, ph: f64) -> String {
                     s,
                     r##"<line x1="{x1:.2}" y1="{y1:.2}" x2="{x2:.2}" y2="{y2:.2}" stroke="{}" stroke-width="{sw}"/>"##,
                     esc(stroke),
+                );
+            }
+            DrawOp::Image { x, y, w, h, img, cover } => {
+                // Self-contained: the pixels ride in the file as a data URI, so an SVG handed
+                // to a client opens with its plates intact rather than as broken links.
+                // `slice` is SVG's own cover — it fills the box and clips, no clip path
+                // needed; `none` is exact because the caller already fitted the box to the
+                // picture's aspect ratio.
+                let par = if *cover { "xMidYMid slice" } else { "none" };
+                let b64 = B64.encode(&img.data);
+                let _ = write!(
+                    s,
+                    r##"<image x="{x:.2}" y="{y:.2}" width="{w:.2}" height="{h:.2}" preserveAspectRatio="{par}" href="data:{0};base64,{b64}" xlink:href="data:{0};base64,{b64}"/>"##,
+                    esc(&img.mime),
                 );
             }
             DrawOp::Poly { pts, stroke, sw } => {
@@ -1477,6 +1740,28 @@ pub(crate) fn pdf_content(ops: &[DrawOp], _pw: f64, ph: f64) -> String {
                     ty(*y2),
                 );
             }
+            DrawOp::Image { x, y, w, h, img, cover } => {
+                // An image XObject is drawn into the UNIT square, so the `cm` matrix carries
+                // the whole placement: width, height, and the lower-left corner in points.
+                let (bx, by) = (tx(*x), ty(*y + *h));
+                let (bw, bh) = (w * PT_PER_MM, h * PT_PER_MM);
+                s.push_str("q\n");
+                let (dw, dh, dx, dy) = if *cover {
+                    // Clip to the box, then overscale the picture until it covers, centred —
+                    // the same crop SVG's `slice` produces, so the two exports agree.
+                    let _ = write!(s, "{bx:.2} {by:.2} {bw:.2} {bh:.2} re W n\n");
+                    let aspect = img.px_h as f64 / img.px_w.max(1) as f64;
+                    let (mut dw, mut dh) = (bw, bw * aspect);
+                    if dh < bh {
+                        dh = bh;
+                        dw = bh / aspect.max(1e-6);
+                    }
+                    (dw, dh, bx + (bw - dw) / 2.0, by + (bh - dh) / 2.0)
+                } else {
+                    (bw, bh, bx, by)
+                };
+                let _ = write!(s, "{dw:.2} 0 0 {dh:.2} {dx:.2} {dy:.2} cm\n/Im{} Do\nQ\n", img.id);
+            }
             DrawOp::Poly { pts, stroke, sw } => {
                 if pts.len() < 2 {
                     continue;
@@ -1522,61 +1807,132 @@ pub(crate) fn pdf_content(ops: &[DrawOp], _pw: f64, ph: f64) -> String {
     s
 }
 
+/// Gathers every distinct picture referenced by a render's pages, ordered by the id the
+/// content streams already wrote (`/Im{id}`), so the resources dictionary can be built from
+/// the draw-ops alone rather than threaded through every caller.
+pub(crate) fn collect_images(pages: &[&[DrawOp]]) -> Vec<std::sync::Arc<PrintImage>> {
+    let mut seen: HashMap<usize, std::sync::Arc<PrintImage>> = HashMap::new();
+    for ops in pages {
+        for op in ops.iter() {
+            if let DrawOp::Image { img, .. } = op {
+                seen.entry(img.id).or_insert_with(|| img.clone());
+            }
+        }
+    }
+    let mut out: Vec<_> = seen.into_values().collect();
+    out.sort_by_key(|i| i.id);
+    out
+}
+
 /// Assembles per-page content streams into a single multi-page PDF document.
 pub(crate) fn assemble_pdf(streams: &[String], pw: f64, ph: f64) -> Vec<u8> {
+    assemble_pdf_with_images(streams, pw, ph, &[])
+}
+
+/// As [`assemble_pdf`], plus image XObjects for any picture the pages draw.
+///
+/// The object bodies are BYTES rather than a String: a JPEG stream is not valid UTF-8, and
+/// re-encoding it (base64, hex) would inflate a photographed core by a third for nothing.
+/// JPEG bytes go in untouched under `/DCTDecode` — the PDF reader runs the same decoder the
+/// camera's file already expects, so nothing is recompressed and nothing is lost.
+pub(crate) fn assemble_pdf_with_images(
+    streams: &[String],
+    pw: f64,
+    ph: f64,
+    images: &[std::sync::Arc<PrintImage>],
+) -> Vec<u8> {
     let wp = pw * PT_PER_MM;
     let hp = ph * PT_PER_MM;
     let n = streams.len();
 
-    // Object ids: 1 catalog, 2 pages, 3 F1, 4 F2, then per page (content, page).
+    // Object ids: 1 catalog, 2 pages, 3 F1, 4 F2, then one per image, then per page
+    // (content, page). Images come before the pages so a page can reference them by id.
     let n_fixed = 4;
-    let mut objects: Vec<String> = Vec::new(); // body of each object, in id order
+    let mut objects: Vec<Vec<u8>> = Vec::new(); // body of each object, in id order
 
     // 1: Catalog
-    objects.push("<< /Type /Catalog /Pages 2 0 R >>".into());
+    objects.push(b"<< /Type /Catalog /Pages 2 0 R >>".to_vec());
 
     // 2: Pages (kids filled below)
+    let first_page_obj = n_fixed + images.len() + 1;
     let mut kids = String::new();
     for i in 0..n {
-        let page_id = n_fixed + 1 + 2 * i + 1; // content then page
+        let page_id = first_page_obj + 2 * i + 1; // content then page
         let _ = write!(kids, "{page_id} 0 R ");
     }
-    objects.push(format!("<< /Type /Pages /Kids [ {}] /Count {} >>", kids.trim_end(), n));
+    objects.push(format!("<< /Type /Pages /Kids [ {}] /Count {} >>", kids.trim_end(), n).into_bytes());
 
     // 3, 4: fonts
-    objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>".into());
-    objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>".into());
+    objects.push(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>".to_vec());
+    objects.push(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>".to_vec());
+
+    // Image XObjects, in id order, so object id = n_fixed + 1 + position.
+    let mut xobjects = String::new();
+    for (pos, img) in images.iter().enumerate() {
+        let obj_id = n_fixed + 1 + pos;
+        let _ = write!(xobjects, "/Im{} {obj_id} 0 R ", img.id);
+        // Adobe's CMYK JPEGs store inverted values; the Decode array puts them back. Grey
+        // and RGB need nothing. Anything not JPEG never reaches here (see draw_image_series).
+        let (space, decode) = match img.components {
+            1 => ("/DeviceGray", ""),
+            4 => ("/DeviceCMYK", " /Decode [1 0 1 0 1 0 1 0]"),
+            _ => ("/DeviceRGB", ""),
+        };
+        let head = format!(
+            "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace {space} \
+             /BitsPerComponent 8 /Filter /DCTDecode{decode} /Length {} >>\nstream\n",
+            img.px_w,
+            img.px_h,
+            img.data.len(),
+        );
+        let mut body = head.into_bytes();
+        body.extend_from_slice(&img.data);
+        body.extend_from_slice(b"\nendstream");
+        objects.push(body);
+    }
+    let resources = if xobjects.is_empty() {
+        "/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >>".to_string()
+    } else {
+        format!("/Resources << /Font << /F1 3 0 R /F2 4 0 R >> /XObject << {} >> >>", xobjects.trim_end())
+    };
 
     // Per page: content stream object then page object.
     for (i, stream) in streams.iter().enumerate() {
-        let content_id = n_fixed + 1 + 2 * i;
-        let page_id = content_id + 1;
-        objects.push(format!("<< /Length {} >>\nstream\n{stream}endstream", stream.len()));
-        objects.push(format!(
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {wp:.2} {hp:.2}] \
-             /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents {content_id} 0 R >>",
-        ));
-        let _ = page_id;
+        let content_id = first_page_obj + 2 * i;
+        objects.push(format!("<< /Length {} >>\nstream\n{stream}endstream", stream.len()).into_bytes());
+        objects.push(
+            format!(
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {wp:.2} {hp:.2}] \
+                 {resources} /Contents {content_id} 0 R >>",
+            )
+            .into_bytes(),
+        );
     }
 
     // Serialize with a cross-reference table.
-    let mut out = String::from("%PDF-1.7\n%\u{00e2}\u{00e3}\u{00cf}\u{00d3}\n");
+    let mut out: Vec<u8> = Vec::with_capacity(64 * 1024);
+    out.extend_from_slice("%PDF-1.7\n%\u{00e2}\u{00e3}\u{00cf}\u{00d3}\n".as_bytes());
     let mut offsets = vec![0usize; objects.len() + 1];
     for (i, body) in objects.iter().enumerate() {
         offsets[i + 1] = out.len();
-        out.push_str(&format!("{} 0 obj\n{body}\nendobj\n", i + 1));
+        out.extend_from_slice(format!("{} 0 obj\n", i + 1).as_bytes());
+        out.extend_from_slice(body);
+        out.extend_from_slice(b"\nendobj\n");
     }
     let xref_pos = out.len();
-    out.push_str(&format!("xref\n0 {}\n", objects.len() + 1));
-    out.push_str("0000000000 65535 f \n");
+    out.extend_from_slice(format!("xref\n0 {}\n", objects.len() + 1).as_bytes());
+    out.extend_from_slice(b"0000000000 65535 f \n");
     for i in 1..=objects.len() {
-        out.push_str(&format!("{:010} 00000 n \n", offsets[i]));
+        out.extend_from_slice(format!("{:010} 00000 n \n", offsets[i]).as_bytes());
     }
-    out.push_str(&format!(
-        "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF\n",
-        objects.len() + 1,
-    ));
-    out.into_bytes()
+    out.extend_from_slice(
+        format!(
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF\n",
+            objects.len() + 1,
+        )
+        .as_bytes(),
+    );
+    out
 }
 
 /// Wraps a single frontend-built content stream as a one-page PDF sized `w_pt`×`h_pt`.
@@ -1742,6 +2098,182 @@ mod tests {
 
     fn point_style(json: serde_json::Value) -> crate::layout::PointStyle {
         serde_json::from_value(json).unwrap()
+    }
+
+    // --- depth-registered images -------------------------------------------------------
+
+    fn image_style(json: serde_json::Value) -> crate::layout::ImageStyle {
+        serde_json::from_value(json).unwrap()
+    }
+
+    /// A picture 200 px wide by 100 px tall (aspect 0.5) at the given registration.
+    fn plate(id: usize, name: &str, top: f32, base: Option<f32>, printable: bool) -> PrintEntry {
+        PrintEntry {
+            info: crate::db::ImageInfo {
+                image_id: format!("id-{id}"),
+                dataset: "THIN SECTION".into(),
+                set_name: "RAW".into(),
+                depth_top: top,
+                depth_base: base,
+                name: name.into(),
+                caption: None,
+                mime: "image/jpeg".into(),
+                width: 200,
+                height: 100,
+                src_width: Some(4000),
+                src_height: Some(2000),
+                source_path: None,
+                printable,
+                bytes: 6,
+            },
+            img: std::sync::Arc::new(PrintImage {
+                id,
+                mime: "image/jpeg".into(),
+                data: vec![0xFF, 0xD8, 1, 2, 3, 0xD9],
+                px_w: 200,
+                px_h: 100,
+                components: 3,
+            }),
+            printable,
+        }
+    }
+
+    fn images(ops: &[DrawOp]) -> Vec<(f64, f64, f64, f64, bool)> {
+        ops.iter()
+            .filter_map(|o| match o {
+                DrawOp::Image { x, y, w, h, cover, .. } => Some((*x, *y, *w, *h, *cover)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_anchored_plate_keeps_its_aspect_ratio_and_centres_on_its_depth() {
+        // A thin section has no thickness, so its height comes from the picture, never from
+        // a guessed interval — and it sits ON its sample depth.
+        let st = image_style(serde_json::json!({ "dataset": "THIN SECTION", "size": 0.5 }));
+        let mut ops = Vec::new();
+        let y = |d: f32| d as f64;
+        draw_image_series(&mut ops, &st, &[plate(0, "TS-1", 1010.0, None, true)], 0.0, 40.0, 1000.0, 1020.0, &y);
+        let im = images(&ops);
+        assert_eq!(im.len(), 1);
+        let (x, y0, w, h, cover) = im[0];
+        assert!((w - 20.0).abs() < 1e-6, "half of a 40-wide track");
+        assert!((h - 10.0).abs() < 1e-6, "200x100 px is aspect 0.5, so 20 wide is 10 tall");
+        assert!((x - 10.0).abs() < 1e-6, "centred by default");
+        assert!((y0 + h / 2.0 - 1010.0).abs() < 1e-6, "centred on the sample depth");
+        assert!(!cover);
+    }
+
+    #[test]
+    fn a_depth_scaled_plate_fits_inside_its_own_interval() {
+        // A core photograph of a measured run DOES occupy its interval — but `contain` must
+        // never distort it to fill a box the interval makes the wrong shape.
+        let st = image_style(serde_json::json!({ "dataset": "THIN SECTION", "mode": "depth", "size": 1.0 }));
+        let mut ops = Vec::new();
+        let y = |d: f32| d as f64;
+        // 40 mm wide would want 20 mm of height, but the interval is only 4 m deep.
+        draw_image_series(
+            &mut ops, &st, &[plate(0, "CP-1", 1000.0, Some(1004.0), true)], 0.0, 40.0, 990.0, 1020.0, &y,
+        );
+        let (x, y0, w, h, cover) = images(&ops)[0];
+        assert!((h - 4.0).abs() < 1e-6, "height is capped by the interval");
+        assert!((w - 8.0).abs() < 1e-6, "width shrinks with it: aspect 0.5 is preserved");
+        assert!((x - 16.0).abs() < 1e-6, "the narrowed picture stays centred");
+        assert!((y0 - 1000.0).abs() < 1e-6);
+        assert!(!cover);
+    }
+
+    #[test]
+    fn fit_cover_hands_the_whole_interval_box_to_the_backend_to_crop() {
+        let st = image_style(
+            serde_json::json!({ "dataset": "THIN SECTION", "mode": "depth", "size": 1.0, "fit": "cover" }),
+        );
+        let mut ops = Vec::new();
+        let y = |d: f32| d as f64;
+        draw_image_series(
+            &mut ops, &st, &[plate(0, "CP-1", 1000.0, Some(1004.0), true)], 0.0, 40.0, 990.0, 1020.0, &y,
+        );
+        let (_, _, w, h, cover) = images(&ops)[0];
+        assert!(cover, "cover clips rather than shrinking");
+        assert!((w - 40.0).abs() < 1e-6 && (h - 4.0).abs() < 1e-6, "the box is the interval, full width");
+    }
+
+    #[test]
+    fn an_overlapping_plate_is_skipped_never_moved() {
+        // Two thin sections 0.5 m apart at a scale where each is 10 mm tall cannot both be
+        // drawn. Moving the second would attribute it to a depth it was not cut from, so it
+        // is dropped and only its depth tick remains.
+        let st = image_style(serde_json::json!({ "dataset": "THIN SECTION", "size": 0.5 }));
+        let mut ops = Vec::new();
+        let y = |d: f32| d as f64;
+        draw_image_series(
+            &mut ops,
+            &st,
+            &[plate(0, "TS-1", 1005.0, None, true), plate(1, "TS-2", 1005.5, None, true)],
+            0.0,
+            40.0,
+            1000.0,
+            1020.0,
+            &y,
+        );
+        let im = images(&ops);
+        assert_eq!(im.len(), 1, "the second plate is skipped, not nudged");
+        assert!((im[0].1 + im[0].3 / 2.0 - 1005.0).abs() < 1e-6, "the survivor keeps its true depth");
+    }
+
+    #[test]
+    fn a_plate_that_cannot_be_embedded_prints_a_named_frame_not_a_gap() {
+        let st = image_style(serde_json::json!({ "dataset": "THIN SECTION", "size": 0.5 }));
+        let mut ops = Vec::new();
+        let y = |d: f32| d as f64;
+        draw_image_series(&mut ops, &st, &[plate(0, "TS-PNG", 1010.0, None, false)], 0.0, 40.0, 1000.0, 1020.0, &y);
+        assert!(images(&ops).is_empty(), "nothing embeddable to draw");
+        let said = ops.iter().any(|o| matches!(o, DrawOp::Text { s, .. } if s.contains("TS-PNG")));
+        assert!(said, "a missing plate must name itself so a deliverable can be checked");
+    }
+
+    #[test]
+    fn the_pdf_embeds_the_jpeg_bytes_untouched_and_references_them() {
+        let st = image_style(serde_json::json!({ "dataset": "THIN SECTION", "size": 0.5 }));
+        let mut ops = Vec::new();
+        let y = |d: f32| d as f64;
+        draw_image_series(&mut ops, &st, &[plate(0, "TS-1", 1010.0, None, true)], 0.0, 40.0, 1000.0, 1020.0, &y);
+        let stream = pdf_content(&ops, 210.0, 297.0);
+        assert!(stream.contains("/Im0 Do"), "the content stream must reference the XObject");
+        let imgs = collect_images(&[ops.as_slice()]);
+        assert_eq!(imgs.len(), 1);
+        let pdf = assemble_pdf_with_images(&[stream], 210.0, 297.0, &imgs);
+        assert!(pdf.starts_with(b"%PDF-1.7"));
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.contains("/Subtype /Image"), "an image XObject is written");
+        assert!(text.contains("/Filter /DCTDecode"), "JPEG rides in as JPEG — never re-encoded");
+        assert!(text.contains("/XObject << /Im0 "), "and the page's resources name it");
+        // The exact delivered bytes must survive: a re-encode would quietly degrade a plate.
+        let needle = [0xFFu8, 0xD8, 1, 2, 3, 0xD9];
+        assert!(pdf.windows(needle.len()).any(|w| w == needle), "the JPEG bytes are stored verbatim");
+    }
+
+    #[test]
+    fn a_page_with_no_images_writes_the_same_pdf_it_always_did() {
+        // report.rs and the frontend's single-page path both go through the no-image route;
+        // adding XObjects must not change a plain composite by a byte.
+        let stream = "0.1 0.1 0.1 rg\n".to_string();
+        let old = assemble_pdf(&[stream.clone()], 210.0, 297.0);
+        let new = assemble_pdf_with_images(&[stream], 210.0, 297.0, &[]);
+        assert_eq!(old, new);
+        assert!(!String::from_utf8_lossy(&old).contains("/XObject"));
+    }
+
+    #[test]
+    fn an_svg_page_carries_its_plates_inline_so_a_delivered_file_is_self_contained() {
+        let st = image_style(serde_json::json!({ "dataset": "THIN SECTION", "size": 0.5 }));
+        let mut ops = Vec::new();
+        let y = |d: f32| d as f64;
+        draw_image_series(&mut ops, &st, &[plate(0, "TS-1", 1010.0, None, true)], 0.0, 40.0, 1000.0, 1020.0, &y);
+        let svg = svg_page(&ops, 210.0, 297.0);
+        assert!(svg.contains("data:image/jpeg;base64,"), "no external file references");
+        assert!(svg.contains(r#"preserveAspectRatio="none""#), "the box is already the right shape");
     }
 
     /// 20 core plugs over 10 m: φ climbing 0.10 → 0.29, plus one absurd plug.

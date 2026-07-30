@@ -23,6 +23,9 @@ export function openLayoutPropsDialog(
   /** Array-log curve names the loaded well carries (MC_PHIE_REAL, NMR T2 …), for the
    *  array-track picker. Optional for the same reason as `availablePoints`. */
   availableArrays: string[] = [],
+  /** Image datasets the loaded well carries (THIN SECTION, CORE PHOTO …), for the
+   *  image-track picker. Optional for the same reason as `availablePoints`. */
+  availableImages: string[] = [],
 ): void {
   const working: Layout = structuredClone(layout);
   let selected = 0;
@@ -74,6 +77,7 @@ export function openLayoutPropsDialog(
   suggestList("item", availablePoints.filter((p) => p.source === "aux").map((p) => p.item));
   suggestList("ds", availablePoints.flatMap((p) => (p.dataset ? [p.dataset] : [])));
   suggestList("array", availableArrays);
+  suggestList("imgds", availableImages);
 
   const iconBtn = (label: string, title: string, onClick: () => void): HTMLButtonElement => {
     const b = document.createElement("button");
@@ -246,6 +250,7 @@ export function openLayoutPropsDialog(
             ["curves", "Curves"],
             ["point_data", "Point data"],
             ["array_log", "Array log"],
+            ["image", "Images"],
             ["well_diagram", "Well diagram"],
           ],
           (v) => {
@@ -293,6 +298,12 @@ export function openLayoutPropsDialog(
     }
     if ((track.kind ?? "curves") === "array_log") {
       renderArraySection(track);
+      return;
+    }
+    // An image track draws depth-registered pictures — thin sections, core photographs —
+    // which have no value axis at all, so it too has its own style block.
+    if ((track.kind ?? "curves") === "image") {
+      renderImageSection(track);
       return;
     }
 
@@ -682,6 +693,106 @@ export function openLayoutPropsDialog(
         min: 0,
         max: 0.4,
       });
+      renderAll();
+    });
+    detail.appendChild(addBtn);
+  }
+
+  function renderImageSection(track: Track): void {
+    const sectionTitle = document.createElement("div");
+    sectionTitle.className = "lp-section-title";
+    sectionTitle.textContent = "Images";
+    detail.appendChild(sectionTitle);
+
+    const note = document.createElement("div");
+    note.className = "lp-note";
+    note.textContent =
+      availableImages.length > 0
+        ? "Depth-registered pictures — thin sections, core photographs, SEM plates. Anchored plates sit at their sample depth at a fixed size; depth-scaled ones span their own top-to-base interval. Where two would overlap the deeper one is skipped, never moved."
+        : "This well has no pictures yet. Import them with Data ▸ Import ▸ Images…";
+    detail.appendChild(note);
+
+    track.images ??= [];
+    track.images.forEach((im, ii) => {
+      const card = document.createElement("div");
+      card.className = "lp-point-card";
+      const grid = document.createElement("div");
+      grid.className = "lp-fieldgrid";
+      card.appendChild(grid);
+
+      const dsIn = textInput(im.dataset, (v) => {
+        im.dataset = v.trim().toUpperCase();
+        dsIn.value = im.dataset;
+      });
+      dsIn.setAttribute("list", `${datalist.id}-imgds`);
+      grid.appendChild(field("Dataset", dsIn));
+      grid.appendChild(
+        field(
+          "Placement",
+          selectInput(
+            im.mode ?? "anchor",
+            [["anchor", "Anchored at depth"], ["depth", "Scaled to interval"]],
+            (v) => {
+              im.mode = v;
+              renderDetail();
+            },
+          ),
+        ),
+      );
+      grid.appendChild(
+        field(
+          "Width of track",
+          numInput(im.size ?? 0.9, (v) => (im.size = Math.max(0.05, Math.min(1, v))), "0.05"),
+        ),
+      );
+      grid.appendChild(
+        field(
+          "Align",
+          selectInput(im.align ?? "center", [["left", "Left"], ["center", "Center"], ["right", "Right"]], (v) => {
+            im.align = v;
+          }),
+        ),
+      );
+      // Only a depth-scaled plate has a box its own aspect ratio does not already fill, so
+      // "fit" is meaningless for an anchored one.
+      if ((im.mode ?? "anchor") === "depth") {
+        grid.appendChild(
+          field(
+            "Fit",
+            selectInput(im.fit ?? "contain", [["contain", "Whole picture"], ["cover", "Fill and crop"]], (v) => {
+              im.fit = v;
+            }),
+          ),
+        );
+      }
+      const labelChk = document.createElement("input");
+      labelChk.type = "checkbox";
+      labelChk.checked = im.label !== false;
+      labelChk.title = "Draw the picture's name above it";
+      labelChk.addEventListener("change", () => (im.label = labelChk.checked));
+      grid.appendChild(field("Name label", labelChk));
+      const borderChk = document.createElement("input");
+      borderChk.type = "checkbox";
+      borderChk.checked = im.border !== false;
+      borderChk.title = "Hairline frame — a pale core photograph otherwise bleeds into the track";
+      borderChk.addEventListener("change", () => (im.border = borderChk.checked));
+      grid.appendChild(field("Frame", borderChk));
+
+      const del = iconBtn("✕", "Remove this image series", () => {
+        track.images?.splice(ii, 1);
+        renderAll();
+      });
+      del.className = "lp-iconbtn lp-point-del";
+      card.appendChild(del);
+      detail.appendChild(card);
+    });
+
+    const addBtn = document.createElement("button");
+    addBtn.className = "lp-btn";
+    addBtn.textContent = "＋ Add image series";
+    addBtn.addEventListener("click", () => {
+      track.images ??= [];
+      track.images.push({ dataset: availableImages[0] ?? "THIN SECTION" });
       renderAll();
     });
     detail.appendChild(addBtn);

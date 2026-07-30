@@ -3,12 +3,16 @@ import {
   getArrayLog,
   getCoreData,
   getTrackData,
+  getWellImage,
   listArrayCurves,
   listAuxData,
   listCurveCatalog,
+  listWellImages,
   type ArrayLog,
   type ArrayStyle,
   type AuxRow,
+  type ImageInfo,
+  type ImageStyle,
   type Layout,
   type PointStyle,
   type TrackCurveSeries,
@@ -31,6 +35,50 @@ import { renderDepthAxis, renderReadout, renderReportHeader, renderTrackHeaders 
 
 type HeaderMode = "full" | "compact" | "collapsed";
 type BorderStyle = { style: "solid" | "dashed" | "none"; width: number; color: string };
+
+/** How many decoded plates one viewer keeps. Small on purpose: this is a VIEW cache, and a
+ *  core photo run of 300 frames must not end up mirrored in memory. */
+const IMAGE_CACHE_MAX = 24;
+
+/** The box one picture occupies in a track, in canvas pixels.
+ *
+ *  Mirrors `image_box` in `src-tauri/src/composite.rs` — the screen and the print must place a
+ *  plate identically, or a composite would not be what the user checked on screen. `cover`
+ *  means the box is the requested frame and the picture overfills it; otherwise the box has
+ *  already been fitted to the picture's own aspect ratio, so nothing is ever distorted.
+ *
+ *  EXPORTED so that agreement can actually be checked: the Rust side's numbers are pinned by
+ *  its own unit tests, and this can be driven with the same inputs against the dev server
+ *  (see the browser-verification note in CLAUDE.md). Nothing else imports it. */
+export function imageBox(
+  style: ImageStyle,
+  info: ImageInfo,
+  left: number,
+  span: number,
+  yOf: (d: number) => number,
+): { x: number; y: number; w: number; h: number; cover: boolean } {
+  const boxW = span * Math.min(1, Math.max(0.05, style.size ?? 0.9));
+  const align = style.align ?? "center";
+  const x = align === "left" ? left : align === "right" ? left + span - boxW : left + (span - boxW) / 2;
+  const aspect = info.height / Math.max(1, info.width);
+  const interval = info.depth_base != null && info.depth_base > info.depth_top ? info.depth_base : null;
+
+  if ((style.mode ?? "anchor") === "depth" && interval != null) {
+    const y0 = yOf(info.depth_top);
+    const boxH = Math.max(2, yOf(interval) - y0);
+    if ((style.fit ?? "contain") === "cover") return { x, y: y0, w: boxW, h: boxH, cover: true };
+    let w = boxW;
+    let hh = boxW * aspect;
+    if (hh > boxH) {
+      hh = boxH;
+      w = boxH / Math.max(1e-6, aspect);
+    }
+    return { x: x + (boxW - w) / 2, y: y0 + (boxH - hh) / 2, w, h: hh, cover: false };
+  }
+  const h = boxW * aspect;
+  const yc = yOf(info.depth_base == null ? info.depth_top : (info.depth_top + info.depth_base) / 2);
+  return { x, y: yc - h / 2, w: boxW, h, cover: false };
+}
 
 /** One dockable log-layout viewer: its own WebGPU canvas + renderer, mini view toolbar
  *  (depth scale/zoom/track width/pin), track headers, depth axis, cursor readout,
@@ -63,6 +111,17 @@ export class LogViewPanel {
   private arrayLogs = new Map<string, ArrayLog>();
   /** Array curves available on the loaded well, for the properties dialog's picker. */
   private arrayCatalog: { set_name: string; curve_name: string }[] = [];
+  /** Picture METADATA for the loaded well — depth registration and pixel size, never the
+   *  pixels. A well can carry hundreds of core photographs, so the bytes are fetched one at
+   *  a time as plates scroll into view (see `imageBitmaps`). */
+  private imageMeta: ImageInfo[] = [];
+  /** Decoded plates, keyed by image_id, filled on demand and capped — the cache is a view
+   *  cache, not a copy of the delivery. */
+  private imageBitmaps = new Map<string, ImageBitmap>();
+  /** Ids currently being fetched, so a redraw storm cannot ask for the same plate twice. */
+  private imagePending = new Set<string>();
+  /** Image datasets on the loaded well, for the properties dialog's picker. */
+  private imageCatalog: { dataset: string; count: number }[] = [];
   /** Tops overlay + Petrel-style interactive editor (🏷 in the toolbar toggles editing). */
   private topsEditor!: TopsEditor;
   /** Colored highlight bands + interactive editor (🖍 in the toolbar toggles editing). */
@@ -627,6 +686,7 @@ export class LogViewPanel {
       this.auxRows = [];
     }
     await this.loadArrayLogs(well.well_id, gen);
+    await this.loadImageMeta(well.well_id, gen);
     this.drawCoreOverlay();
     if (gen !== this.loadGen || !this.renderer) return;
     await this.topsEditor.setWell(well.well_id);
@@ -661,6 +721,7 @@ export class LogViewPanel {
     this.drawWellDiagram(ctx, w, h);
     this.drawArrayTracks(ctx, w, h);
     this.drawPointTracks(ctx, w, h);
+    this.drawImageTracks(ctx, w, h);
     if (this.coreByName.size === 0) return;
 
     const [top, bottom] = this.renderer.getVisibleDepthRange();
@@ -786,6 +847,168 @@ export class LogViewPanel {
         if (log.depth.length > 0) this.arrayLogs.set(name, log);
       } catch {
         /* a missing array log leaves its track empty rather than failing the whole view */
+      }
+    }
+  }
+
+  /** Loads picture METADATA for the loaded well — every dataset, so the properties dialog can
+   *  offer a picker, but never the pixels. A well can carry hundreds of core photographs;
+   *  each one's bytes arrive only when a plate is actually on screen. */
+  private async loadImageMeta(wellId: string, gen: number): Promise<void> {
+    this.imageMeta = [];
+    this.imageCatalog = [];
+    for (const b of this.imageBitmaps.values()) b.close();
+    this.imageBitmaps.clear();
+    this.imagePending.clear();
+    try {
+      const meta = await listWellImages(wellId, null).catch(() => [] as ImageInfo[]);
+      if (gen !== this.loadGen) return;
+      this.imageMeta = meta;
+      const counts = new Map<string, number>();
+      for (const m of meta) counts.set(m.dataset, (counts.get(m.dataset) ?? 0) + 1);
+      this.imageCatalog = [...counts].map(([dataset, count]) => ({ dataset, count }));
+    } catch {
+      /* no backend, or no pictures — image tracks simply draw nothing */
+    }
+  }
+
+  /** Fetches and decodes one plate, then repaints. Guarded by `imagePending` so scrolling
+   *  cannot queue the same picture a hundred times, and capped so a long core photo run is
+   *  a view cache rather than a second copy of the delivery in memory. */
+  private requestImageBitmap(info: ImageInfo): void {
+    if (this.imageBitmaps.has(info.image_id) || this.imagePending.has(info.image_id)) return;
+    this.imagePending.add(info.image_id);
+    const gen = this.loadGen;
+    void (async () => {
+      try {
+        const buf = await getWellImage(info.image_id);
+        if (gen !== this.loadGen) return;
+        const bmp = await createImageBitmap(new Blob([buf], { type: info.mime }));
+        if (gen !== this.loadGen) {
+          bmp.close();
+          return;
+        }
+        if (this.imageBitmaps.size >= IMAGE_CACHE_MAX) {
+          // Oldest insertion first — Map preserves it, and a plate scrolled past is the
+          // least likely to be needed next.
+          const oldest = this.imageBitmaps.keys().next();
+          if (!oldest.done) {
+            this.imageBitmaps.get(oldest.value)?.close();
+            this.imageBitmaps.delete(oldest.value);
+          }
+        }
+        this.imageBitmaps.set(info.image_id, bmp);
+        this.drawCoreOverlay();
+      } catch {
+        /* a plate that will not decode draws as its labelled frame, never as a blank gap */
+      } finally {
+        this.imagePending.delete(info.image_id);
+      }
+    })();
+  }
+
+  /** Image tracks: depth-registered pictures — thin sections, core photographs, SEM plates.
+   *
+   *  Mirrors `draw_image_series` in `src-tauri/src/composite.rs`; the two must agree, and both
+   *  take their geometry from the same two rules. **anchor** centres a fixed-size plate on its
+   *  sample depth, because a thin section is cut from one plug and has no thickness; **depth**
+   *  stretches the picture over its own depth_top..depth_base, which a core photograph of a
+   *  measured run genuinely occupies. Aspect ratio is never distorted — a squashed thin
+   *  section misstates grain shape, which is the one thing the plate is there to show. */
+  private drawImageTracks(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    if (!this.renderer || !this.layout || this.imageMeta.length === 0) return;
+    const imageTracks = this.layout.tracks.filter((t) => (t.kind ?? "curves") === "image");
+    if (imageTracks.length === 0) return;
+    const [top, bottom] = this.renderer.getVisibleDepthRange();
+    if (bottom <= top) return;
+    const yOf = (d: number): number => ((d - top) / (bottom - top)) * h;
+    const theme = readTheme(this.root);
+
+    for (const range of this.renderer.getTrackRanges()) {
+      const track = imageTracks.find((t) => t.title === range.title);
+      if (!track?.images?.length) continue;
+      const left = range.leftFrac * w;
+      const span = (range.rightFrac - range.leftFrac) * w;
+
+      for (const style of track.images) {
+        const ds = style.dataset.trim().toUpperCase();
+        const entries = this.imageMeta.filter((m) => m.dataset.toUpperCase() === ds);
+        if (entries.length === 0) continue;
+        const label = style.label ?? true;
+        const border = style.border ?? true;
+        // Boxes are computed over EVERY plate in depth order, not just the visible ones, so
+        // which plate loses an overlap does not change as you scroll.
+        let lastBottom = -Infinity;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(left, 0, span, h);
+        ctx.clip();
+        for (const info of entries) {
+          const sampleDepth = info.depth_base == null ? info.depth_top : (info.depth_top + info.depth_base) / 2;
+          const box = imageBox(style, info, left, span, yOf);
+          if (box.y < lastBottom + 2) {
+            // Skipped, never nudged: a thin section moved to make room is a thin section
+            // attributed to the wrong sand. A tick keeps its true depth visible.
+            if (sampleDepth >= top && sampleDepth <= bottom) {
+              ctx.strokeStyle = theme.axis;
+              ctx.lineWidth = 1;
+              ctx.beginPath();
+              ctx.moveTo(left, yOf(sampleDepth));
+              ctx.lineTo(left + span * 0.15, yOf(sampleDepth));
+              ctx.stroke();
+            }
+            continue;
+          }
+          lastBottom = box.y + box.h;
+          if (box.y + box.h < 0 || box.y > h) continue; // off screen: nothing to draw
+
+          const bmp = this.imageBitmaps.get(info.image_id);
+          if (!bmp) {
+            this.requestImageBitmap(info);
+            ctx.strokeStyle = theme.axis;
+            ctx.lineWidth = 1;
+            ctx.setLineDash([3, 3]);
+            ctx.strokeRect(box.x, box.y, box.w, box.h);
+            ctx.setLineDash([]);
+          } else if (box.cover) {
+            // Fill the box and crop the overhang, centred — the same crop the SVG export's
+            // `slice` and the PDF export's clip produce.
+            const aspect = bmp.height / Math.max(1, bmp.width);
+            let dw = box.w;
+            let dh = box.w * aspect;
+            if (dh < box.h) {
+              dh = box.h;
+              dw = box.h / Math.max(1e-6, aspect);
+            }
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(box.x, box.y, box.w, box.h);
+            ctx.clip();
+            ctx.drawImage(bmp, box.x + (box.w - dw) / 2, box.y + (box.h - dh) / 2, dw, dh);
+            ctx.restore();
+          } else {
+            ctx.drawImage(bmp, box.x, box.y, box.w, box.h);
+          }
+          if (border) {
+            ctx.strokeStyle = theme.axis;
+            ctx.lineWidth = 1;
+            ctx.strokeRect(box.x, box.y, box.w, box.h);
+          }
+          // Depth leader: the plate sits somewhere in the track, its depth is on the edge.
+          ctx.strokeStyle = theme.axis;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(left, yOf(sampleDepth));
+          ctx.lineTo(box.x, yOf(sampleDepth));
+          ctx.stroke();
+          if (label && box.y > 12) {
+            ctx.fillStyle = theme.text;
+            ctx.font = canvasFont(theme, 10);
+            ctx.textBaseline = "alphabetic";
+            ctx.fillText(info.name, box.x, box.y - 3, box.w);
+          }
+        }
+        ctx.restore();
       }
     }
   }
@@ -1388,6 +1611,7 @@ export class LogViewPanel {
       },
       points,
       this.arrayCatalog.map((c) => c.curve_name),
+      this.imageCatalog.map((c) => c.dataset),
     );
   }
 
@@ -1470,6 +1694,10 @@ export class LogViewPanel {
     this.resizeObserver?.disconnect();
     this.topsEditor.dispose();
     this.highlightsOverlay.dispose();
+    // Decoded plates hold GPU-backed memory that garbage collection does not reclaim on its
+    // own; a closed panel must give them back.
+    for (const b of this.imageBitmaps.values()) b.close();
+    this.imageBitmaps.clear();
     this.renderer?.dispose();
     this.renderer = null;
   }

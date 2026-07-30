@@ -323,6 +323,54 @@ second palette to keep in sync), and out-of-range values are dropped by `histogr
 clamped. Spaghetti traces come from `distribution::even_indices`, spread evenly rather than
 the first N — the first N of an LHS design is a biased corner of the sampled space.
 
+Image tracks (2026-07-31) — `well_images` + `image_sets` are a real store for
+depth-registered PICTURES: petrographic thin sections, core photographs, SEM plates, FMI
+snapshots. Deliberately its own table rather than an `aux_data` item — an aux row carries one
+number or string, and putting megabytes in `value_text` would drop a blob into every
+point-data scan. It follows the universal delivery-set rule (`db::ACTIVE_IMAGE_SET`,
+correlated on `i.dataset`, so ONE delivery of each dataset is live); **this table carries a
+PRIMARY KEY, and that is the `array_logs` argument again, not a `computed_curves`
+inconsistency** — one index entry per PICTURE is free, and a duplicate row would print the
+same plate twice.
+
+`depth_base IS NULL` means a POINT sample and it is a petrophysical statement, not a missing
+field: a thin section is cut from one plug and has no thickness, so it is ANCHORED at its
+depth rather than stretched over a guessed interval. A core photograph delivered with a base
+depth spans it for real. That distinction is what `ImageStyle.mode` selects (`anchor` /
+`depth`), and where two plates would overlap at the current scale **the deeper one is SKIPPED,
+never nudged** — a plate moved to make room is a plate attributed to the wrong sand — leaving
+a depth tick, and zooming in reveals it. Aspect ratio is NEVER distorted: `fit` is
+`contain` or `cover` (crop), and there is deliberately no stretch, because a squashed thin
+section misstates grain shape, which is the one thing the plate is there to show.
+
+**`data` is a normalized DISPLAY copy, not the delivered original** — a capped JPEG produced
+by `images.rs` through ONE Pillow subprocess for the whole delivery (rule 7: subprocess,
+never embedded); `source_path` + `src_width`/`src_height` keep the original traceable. Long
+edge defaults to 2400 px at q85, adjustable in the wizard because it is the user's trade-off
+between project size and zoom, not a constant to hide. Without Pillow the import still works
+for anything the WebView decodes (stored verbatim) and only JPEG is `printable`; TIFF needs
+Pillow and says so by name. Import is **probe → confirm → commit** like the core wizard:
+`parse_depth_from_name` guesses a depth from each filename (a token qualifies only with a
+decimal point or ≥3 integer digits, so the `01` of `BLSO-01` is never read as 1 m; an
+adjacent increasing pair separated by one `-`/`_` becomes an interval) and every guess is
+shown in an editable table before anything is stored.
+
+`TrackKind::Image` + `Track.images: Vec<ImageStyle>` (both `#[serde(default)]`). Geometry
+lives in **`composite.rs image_box` and `logViewPanel.imageBox`, which must stay in
+agreement** — the print has to place a plate where the screen did. The viewer holds
+METADATA only (`list_well_images` never selects the blob) and fetches pixels per plate as
+they scroll into view, capped at `IMAGE_CACHE_MAX` bitmaps that are `close()`d on eviction
+and on dispose. **PDF export embeds the JPEG bytes UNTOUCHED** via a `/DCTDecode` image
+XObject — `assemble_pdf_with_images` builds object bodies as BYTES (a JPEG is not valid
+UTF-8, and base64/hex would inflate a photographed core by a third); `assemble_pdf` still
+delegates with an empty list and is pinned byte-identical by
+`a_page_with_no_images_writes_the_same_pdf_it_always_did`. `report.rs` must collect images
+too — it embeds the composite pages verbatim, so forgetting would reference plates it never
+wrote. SVG export inlines a base64 data URI so a delivered file is self-contained. A plate
+the PDF cannot embed prints a **named frame**, never a silent gap, so a deliverable can be
+checked against the delivery list. Digitizing the plates (OpenCV) is a deliberately separate
+later phase; nothing here decodes pixels in Rust.
+
 UI language (2026-07-19) — `src/i18n.ts` translates visible DOM text (+ title/placeholder/
 aria-label/optgroup-label) to Bahasa Indonesia / Basa Sunda by exact-phrase dictionary
 lookup, live via MutationObserver. English is the source language: keep writing UI strings
@@ -658,7 +706,7 @@ in petrophysics terms, not programming jargon. The working rhythm, on every mach
 - `src-tauri/` — Rust backend: DuckDB access, parsers, IPC commands, petrophysics engine.
 - `src/` — TypeScript frontend: WebGPU log canvas renderer, Tauri IPC calls.
 - `src-tauri/icons/` — app icon set + brand assets: `logo.png` (master), `logo-mark.svg`/`logo-mark.png` (square monogram), `logo-full.svg`/`logo-full.png` (full lockup). Frontend favicon/ribbon assets in `public/`.
-- `docs/` — method math + solver specs (SSC/SSPW, LRLC RtC/IMTS, workflow standards, the reference suite/IP multimin extraction), plus five reusable prompts, boundaries kept sharp (the table in `stewardship_prompt.md` is authoritative): `maintenance_scaling_prompt.md` (one increment — expand / debug / maintain), `engineering_review_prompt.md` (whole-app behaviour sweeps F1–F5), `qc_audit_prompt_template.md` (one tool end-to-end), `stewardship_prompt.md` (whole-repo structure + onboarding), `product_definition_prompt.md` (what the product IS — PRD, target architecture, v1.0 gate; licensed-product posture). Portable knowledge lives here, not in machine-local memory. Separate family, not in that table: the one-shot vendor-intelligence prompts (`sandibumi_maturation_prompt.md`, `techlog_ingest_prompt.md`, `sonar_ingest_adopt_prompt.md`).
+- `docs/` — method math + solver specs (SSC/SSPW, LRLC RtC/IMTS, workflow standards, the reference suite/IP multimin extraction), plus five reusable prompts, boundaries kept sharp (the table in `stewardship_prompt.md` is authoritative): `maintenance_scaling_prompt.md` (one increment — expand / debug / maintain), `engineering_review_prompt.md` (whole-app behaviour sweeps F1–F5), `qc_audit_prompt_template.md` (one tool end-to-end), `stewardship_prompt.md` (whole-repo structure + onboarding), `product_definition_prompt.md` (what the product IS — PRD, target architecture, v1.0 gate; licensed-product posture). Portable knowledge lives here, not in machine-local memory. Separate family, not in that table: the one-shot vendor-intelligence prompts (`sandibumi_maturation_prompt.md`, `techlog_ingest_prompt.md`, `sonar_ingest_adopt_prompt.md`). **`docs/FUTURE_PLAN.md` (2026-07-31) is the cross-product strategic layer above `ROADMAP.md`** — competitive scan vs Geolog/Techlog/IP, the three positioning axes, credibility floor, OSDU, and the tier sequencing across SandiBumi *and* SegaraBumi (`D:\XX. SegaraBumi`, P6 gate closed, its own PRD/ARCHITECTURE/SEGARA-CONTRACT).
 - `tools/chartdig/` — chartbook vector digitizer (generates `src/ui/chartOverlays.ts`).
 - `Prompt/` — original phase-by-phase spec (`Claude_Implementation_Guide.pdf`). **Gitignored** — local-only, won't exist on a fresh clone.
 

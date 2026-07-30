@@ -17,6 +17,7 @@ mod facies_tie;
 mod geo;
 mod health;
 mod hfu;
+mod images;
 mod ingest;
 mod jobs;
 mod layout;
@@ -513,6 +514,123 @@ fn list_aux_data(
 fn list_aux_datasets(db: tauri::State<DbState>, well_id: String) -> Result<Vec<(String, i64)>, String> {
     let conn = db.0.lock().unwrap();
     db::list_aux_datasets(&conn, &well_id).map_err(|e| e.to_string())
+}
+
+// --- Depth-registered images (thin sections, core photographs) ----------------------
+
+/// Reads the headers of the selected image files: what they are, their true pixel size, and
+/// the depth guessed from each filename. Read-only — nothing is stored until the wizard's
+/// commit, so a wrong guess is corrected on screen rather than in the database.
+#[tauri::command]
+async fn probe_image_files(paths: Vec<String>) -> Result<Vec<images::ImageProbe>, String> {
+    tauri::async_runtime::spawn_blocking(move || images::probe_image_files(&paths))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Is Pillow reachable? Decides whether the wizard offers TIFF and whether it warns that
+/// pictures will print as labelled frames.
+#[tauri::command]
+async fn image_support() -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(images::pillow_available).await.map_err(|e| e.to_string())
+}
+
+/// Commits a confirmed image delivery. Long-running (it shells out to Pillow and writes
+/// megabytes), so it is async + `spawn_blocking`: a sync command would freeze the window.
+#[tauri::command]
+async fn import_well_images(
+    db: tauri::State<'_, DbState>,
+    req: images::ImageImportRequest,
+) -> Result<images::ImageImportResult, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let c = conn.lock().unwrap();
+        images::import_images(&c, &req)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Picture METADATA for a well, from the ACTIVE delivery of each dataset. Never the pixels —
+/// a well with 300 core photographs must list in kilobytes.
+#[tauri::command]
+fn list_well_images(
+    db: tauri::State<DbState>,
+    well_id: String,
+    dataset: Option<String>,
+) -> Result<Vec<db::ImageInfo>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_well_images(&conn, &well_id, dataset.as_deref()).map_err(|e| e.to_string())
+}
+
+/// Which image datasets a well has, with the ACTIVE delivery's counts.
+#[tauri::command]
+fn list_image_datasets(db: tauri::State<DbState>, well_id: String) -> Result<Vec<(String, i64)>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_image_datasets(&conn, &well_id).map_err(|e| e.to_string())
+}
+
+/// The pixels of one picture, as raw bytes (rule 3 — never a JSON array). The frontend wraps
+/// them in a Blob of the returned mime type; the mime rides in a header the caller already
+/// has from `list_well_images`.
+#[tauri::command]
+fn get_well_image(db: tauri::State<DbState>, image_id: String) -> Result<tauri::ipc::Response, String> {
+    let conn = db.0.lock().unwrap();
+    let (_mime, data) = db::get_well_image(&conn, &image_id).map_err(|e| e.to_string())?;
+    Ok(tauri::ipc::Response::new(data))
+}
+
+/// Every image delivery of a well, for the set manager and the Wells tree.
+#[tauri::command]
+fn list_image_sets(db: tauri::State<DbState>, well_id: String) -> Result<Vec<db::ImageSetInfo>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_image_sets(&conn, &well_id).map_err(|e| e.to_string())
+}
+
+/// Makes one image delivery the live one for its dataset (others untouched).
+#[tauri::command]
+fn set_active_image_set(
+    db: tauri::State<DbState>,
+    well_id: String,
+    dataset: String,
+    set_name: String,
+) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    db::set_active_image_set(&conn, &well_id, &dataset, &set_name).map_err(|e| e.to_string())
+}
+
+/// Deletes one image delivery; the newest survivor of that dataset takes over.
+#[tauri::command]
+fn delete_image_set(
+    db: tauri::State<DbState>,
+    well_id: String,
+    dataset: String,
+    set_name: String,
+) -> Result<usize, String> {
+    let conn = db.0.lock().unwrap();
+    db::delete_image_set(&conn, &well_id, &dataset, &set_name).map_err(|e| e.to_string())
+}
+
+/// Deletes one picture.
+#[tauri::command]
+fn delete_well_image(db: tauri::State<DbState>, image_id: String) -> Result<usize, String> {
+    let conn = db.0.lock().unwrap();
+    db::delete_well_image(&conn, &image_id).map_err(|e| e.to_string())
+}
+
+/// Re-registers one picture: core-to-log alignment and labelling for pictures.
+#[tauri::command]
+fn update_well_image(
+    db: tauri::State<DbState>,
+    image_id: String,
+    depth_top: f32,
+    depth_base: Option<f32>,
+    name: String,
+    caption: Option<String>,
+) -> Result<usize, String> {
+    let conn = db.0.lock().unwrap();
+    db::update_well_image(&conn, &image_id, depth_top, depth_base, &name, caption.as_deref())
+        .map_err(|e| e.to_string())
 }
 
 /// Which array logs a well carries, for the layout dialog's picker and the object tree.
@@ -2310,6 +2428,17 @@ pub fn run() {
             import_aux_data,
             list_aux_data,
             list_aux_datasets,
+            probe_image_files,
+            image_support,
+            import_well_images,
+            list_well_images,
+            list_image_datasets,
+            get_well_image,
+            list_image_sets,
+            set_active_image_set,
+            delete_image_set,
+            delete_well_image,
+            update_well_image,
             list_array_curves,
             get_array_log,
             delete_array_log,

@@ -475,6 +475,60 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             PRIMARY KEY (well_id, dataset, set_name)
         );
 
+        -- Depth-registered PICTURES: petrographic thin sections, core photographs, SEM
+        -- plates, FMI snapshots — anything a lab delivers as a raster beside the plugs.
+        --
+        -- Deliberately its own store rather than an `aux_data` item, for the same reason a
+        -- point series is not a `CurveStyle`: an aux row carries ONE number or string, and
+        -- a picture is neither. Storing megabytes in `value_text` would also put a blob in
+        -- the middle of every point-data scan.
+        --
+        -- `depth_base IS NULL` means a POINT sample — a thin section is cut from one plug
+        -- and has no thickness, so it is anchored at its depth rather than stretched over a
+        -- guessed interval. A core photograph delivered with a base depth spans it for real.
+        --
+        -- `data` is the DISPLAY copy: a normalized JPEG (see `images.rs`), because the
+        -- viewer, the SVG export and the PDF exporter all need one decodable form and a
+        -- 6000x4000 camera original would bloat a field project for no visible gain at
+        -- track width. `source_path` records where the delivered file came from, and
+        -- `src_width`/`src_height` its true pixel size, so the original is always traceable.
+        --
+        -- PRIMARY KEY here costs one index entry per PICTURE, not per sample — the opposite
+        -- of the `computed_curves` case (see its comment) — while a duplicated row would
+        -- print the same plate twice. `image_id` is a UUID, so the key is unique by
+        -- construction and re-import replaces per set.
+        CREATE TABLE IF NOT EXISTS well_images (
+            well_id     UUID NOT NULL,
+            dataset     VARCHAR NOT NULL,   -- 'THIN SECTION' | 'CORE PHOTO' | custom
+            set_name    VARCHAR NOT NULL DEFAULT 'RAW',
+            image_id    UUID NOT NULL,
+            depth_top   FLOAT NOT NULL,
+            depth_base  FLOAT,              -- NULL = point sample (no thickness)
+            name        VARCHAR NOT NULL,   -- label drawn on the track
+            caption     VARCHAR,
+            mime        VARCHAR NOT NULL,   -- of `data` (the display copy)
+            width       INTEGER NOT NULL,   -- pixels of `data`
+            height      INTEGER NOT NULL,
+            src_width   INTEGER,            -- pixels of the delivered original
+            src_height  INTEGER,
+            source_path VARCHAR,
+            printable   INTEGER NOT NULL DEFAULT 1, -- 0 = viewer only, cannot embed in a PDF
+            data        BLOB NOT NULL,
+            PRIMARY KEY (well_id, dataset, set_name, image_id)
+        );
+
+        -- Registry of image deliveries, one row per (well, dataset, set) — the same
+        -- one-active-delivery rule as core, SCAL, surveys and point data.
+        CREATE TABLE IF NOT EXISTS image_sets (
+            well_id     UUID NOT NULL,
+            dataset     VARCHAR NOT NULL,
+            set_name    VARCHAR NOT NULL,
+            active      INTEGER NOT NULL DEFAULT 0,
+            source      VARCHAR,
+            imported_at TIMESTAMP NOT NULL DEFAULT now(),
+            PRIMARY KEY (well_id, dataset, set_name)
+        );
+
         -- Special core analysis: capillary-pressure measurements. Several Pc/Sw points
         -- per plug, so no primary key — re-import replaces per well (like core_data).
         CREATE TABLE IF NOT EXISTS scal_pc (
@@ -1529,6 +1583,381 @@ pub fn list_aux_datasets(conn: &Connection, well_id: &str) -> DbResult<Vec<(Stri
         out.push(r?);
     }
     Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// Depth-registered images (thin sections, core photographs) — see `well_images`
+// ---------------------------------------------------------------------------
+
+/// One picture's METADATA. Deliberately without the pixels: a catalog listing of a well
+/// that carries 300 core photographs must cost kilobytes, not a gigabyte, so every listing
+/// path uses this and the bytes are fetched one image at a time by `get_well_image`.
+#[derive(Debug, Clone, Serialize)]
+pub struct ImageInfo {
+    pub image_id: String,
+    pub dataset: String,
+    pub set_name: String,
+    pub depth_top: f32,
+    pub depth_base: Option<f32>,
+    pub name: String,
+    pub caption: Option<String>,
+    pub mime: String,
+    pub width: i32,
+    pub height: i32,
+    pub src_width: Option<i32>,
+    pub src_height: Option<i32>,
+    pub source_path: Option<String>,
+    /// False = the viewer can show it but the PDF exporter cannot embed it (see `images.rs`).
+    pub printable: bool,
+    /// Stored size of the display copy, bytes.
+    pub bytes: i64,
+}
+
+/// One picture on its way INTO the store (the import commit path).
+#[derive(Debug, Clone)]
+pub struct NewImage {
+    pub depth_top: f32,
+    pub depth_base: Option<f32>,
+    pub name: String,
+    pub caption: Option<String>,
+    pub mime: String,
+    pub width: i32,
+    pub height: i32,
+    pub src_width: Option<i32>,
+    pub src_height: Option<i32>,
+    pub source_path: Option<String>,
+    pub printable: bool,
+    pub data: Vec<u8>,
+}
+
+/// SQL fragment naming the ACTIVE image delivery of the dataset in the row being tested —
+/// the image twin of `ACTIVE_AUX_SET`, correlated on `i.dataset` so one query spans every
+/// dataset (thin sections, core photos, SEM …) and still sees one delivery of each. A
+/// reader that forgets it would show the same plate twice from two deliveries of the same
+/// core. Requires the `well_images` table to be aliased `i`.
+const ACTIVE_IMAGE_SET: &str = "COALESCE((SELECT s.set_name FROM image_sets s
+                                          WHERE s.well_id = i.well_id AND s.dataset = i.dataset
+                                          ORDER BY s.active DESC, s.imported_at DESC LIMIT 1), 'RAW')";
+
+/// One image delivery of a well, as the set manager and the Wells tree show it.
+#[derive(Debug, Clone, Serialize)]
+pub struct ImageSetInfo {
+    pub dataset: String,
+    pub set_name: String,
+    pub images: i64,
+    pub active: bool,
+    pub source: Option<String>,
+    pub imported_at: Option<String>,
+    /// Total stored bytes of the delivery — the one store where a user genuinely needs to
+    /// see the cost before deciding what to keep.
+    pub bytes: i64,
+}
+
+/// Every image delivery of a well, grouped by dataset (active first, then newest).
+pub fn list_image_sets(conn: &Connection, well_id: &str) -> DbResult<Vec<ImageSetInfo>> {
+    let mut stmt = conn.prepare(
+        "SELECT s.dataset, s.set_name, s.active, s.source, CAST(s.imported_at AS VARCHAR),
+                (SELECT COUNT(*) FROM well_images d
+                 WHERE d.well_id = s.well_id AND d.dataset = s.dataset AND d.set_name = s.set_name),
+                (SELECT COALESCE(SUM(octet_length(d.data)), 0) FROM well_images d
+                 WHERE d.well_id = s.well_id AND d.dataset = s.dataset AND d.set_name = s.set_name)
+         FROM image_sets s WHERE s.well_id = ?1
+         ORDER BY s.dataset, s.active DESC, s.imported_at DESC, s.set_name",
+    )?;
+    let rows = stmt.query_map(params![well_id], |r| {
+        Ok(ImageSetInfo {
+            dataset: r.get(0)?,
+            set_name: r.get(1)?,
+            active: r.get::<_, i32>(2)? != 0,
+            source: r.get(3)?,
+            imported_at: r.get(4)?,
+            images: r.get(5)?,
+            bytes: r.get(6)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
+/// The name a new image delivery will be stored under within its dataset — `desired`, else
+/// `desired_1`, `_2`, …; an import never overwrites an earlier delivery.
+pub fn resolve_image_set_name(conn: &Connection, well_id: &str, dataset: &str, desired: &str) -> DbResult<String> {
+    let base = {
+        let t = desired.trim().to_uppercase().replace(' ', "_");
+        if t.is_empty() { "RAW".to_string() } else { t }
+    };
+    let taken = |name: &str| -> DbResult<bool> {
+        let n: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM image_sets WHERE well_id = ?1 AND dataset = ?2 AND upper(set_name) = ?3",
+            params![well_id, dataset, name],
+            |r| r.get(0),
+        )?;
+        Ok(n > 0)
+    };
+    if !taken(&base)? {
+        return Ok(base);
+    }
+    for i in 1..1000 {
+        let cand = format!("{base}_{i}");
+        if !taken(&cand)? {
+            return Ok(cand);
+        }
+    }
+    Err(DbError::LengthMismatch(format!("too many {dataset} image sets named {base}")))
+}
+
+/// Makes one image delivery the live one for its dataset (other datasets are untouched).
+pub fn set_active_image_set(conn: &Connection, well_id: &str, dataset: &str, set_name: &str) -> DbResult<()> {
+    with_txn(conn, |conn| {
+        conn.execute(
+            "UPDATE image_sets SET active = 0 WHERE well_id = ?1 AND dataset = ?2",
+            params![well_id, dataset],
+        )?;
+        let n = conn.execute(
+            "UPDATE image_sets SET active = 1 WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
+            params![well_id, dataset, set_name],
+        )?;
+        if n == 0 {
+            return Err(DbError::LengthMismatch(format!("no {dataset} image set '{set_name}' on this well")));
+        }
+        Ok(())
+    })
+}
+
+/// Deletes one image delivery; the newest survivor of that dataset takes over.
+pub fn delete_image_set(conn: &Connection, well_id: &str, dataset: &str, set_name: &str) -> DbResult<usize> {
+    let removed = with_txn(conn, |conn| -> DbResult<usize> {
+        let n = conn.execute(
+            "DELETE FROM well_images WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
+            params![well_id, dataset, set_name],
+        )?;
+        conn.execute(
+            "DELETE FROM image_sets WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
+            params![well_id, dataset, set_name],
+        )?;
+        Ok(n)
+    })?;
+    let has_active: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM image_sets WHERE well_id = ?1 AND dataset = ?2 AND active = 1",
+        params![well_id, dataset],
+        |r| r.get(0),
+    )?;
+    if has_active == 0 {
+        let next: Option<String> = conn
+            .query_row(
+                "SELECT set_name FROM image_sets WHERE well_id = ?1 AND dataset = ?2
+                 ORDER BY imported_at DESC LIMIT 1",
+                params![well_id, dataset],
+                |r| r.get(0),
+            )
+            .ok();
+        if let Some(next) = next {
+            set_active_image_set(conn, well_id, dataset, &next)?;
+        }
+    }
+    Ok(removed)
+}
+
+/// Stores one image DELIVERY under `set_name`, replacing only that set's rows and making it
+/// the live one for its dataset. Earlier deliveries are untouched — callers pass a name from
+/// `resolve_image_set_name`.
+///
+/// Plain prepared INSERTs rather than an Appender: a delivery is tens of rows, not millions,
+/// and each row carries a multi-megabyte blob, so the per-row overhead the Appender saves is
+/// noise next to the bytes themselves.
+pub fn insert_well_images(
+    conn: &Connection,
+    well_id: &str,
+    dataset: &str,
+    set_name: &str,
+    source: Option<&str>,
+    images: &[NewImage],
+) -> DbResult<usize> {
+    with_txn(conn, |conn| {
+        conn.execute(
+            "DELETE FROM well_images WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
+            params![well_id, dataset, set_name],
+        )?;
+        let mut stmt = conn.prepare(
+            "INSERT INTO well_images (well_id, dataset, set_name, image_id, depth_top, depth_base,
+                                      name, caption, mime, width, height, src_width, src_height,
+                                      source_path, printable, data)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+        )?;
+        let mut n = 0usize;
+        for img in images {
+            let id = uuid::Uuid::new_v4().to_string();
+            stmt.execute(params![
+                well_id,
+                dataset,
+                set_name,
+                id,
+                img.depth_top,
+                img.depth_base,
+                img.name,
+                img.caption,
+                img.mime,
+                img.width,
+                img.height,
+                img.src_width,
+                img.src_height,
+                img.source_path,
+                if img.printable { 1i32 } else { 0i32 },
+                img.data,
+            ])?;
+            n += 1;
+        }
+        drop(stmt);
+        conn.execute(
+            "DELETE FROM image_sets WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
+            params![well_id, dataset, set_name],
+        )?;
+        conn.execute(
+            "UPDATE image_sets SET active = 0 WHERE well_id = ?1 AND dataset = ?2",
+            params![well_id, dataset],
+        )?;
+        conn.execute(
+            "INSERT INTO image_sets (well_id, dataset, set_name, active, source) VALUES (?1, ?2, ?3, 1, ?4)",
+            params![well_id, dataset, set_name, source],
+        )?;
+        Ok(n)
+    })
+}
+
+/// Metadata for a well's pictures, from the ACTIVE delivery of each dataset, ordered by
+/// depth. `dataset = None` spans every dataset. NEVER selects `data` — see [`ImageInfo`].
+pub fn list_well_images(conn: &Connection, well_id: &str, dataset: Option<&str>) -> DbResult<Vec<ImageInfo>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT CAST(i.image_id AS VARCHAR), i.dataset, i.set_name, i.depth_top, i.depth_base,
+                i.name, i.caption, i.mime, i.width, i.height, i.src_width, i.src_height,
+                i.source_path, i.printable, octet_length(i.data)
+         FROM well_images i
+         WHERE i.well_id = ?1 AND (?2 IS NULL OR i.dataset = ?2) AND i.set_name = {ACTIVE_IMAGE_SET}
+         ORDER BY i.dataset, i.depth_top, i.name"
+    ))?;
+    let rows = stmt.query_map(params![well_id, dataset], |r| {
+        Ok(ImageInfo {
+            image_id: r.get(0)?,
+            dataset: r.get(1)?,
+            set_name: r.get(2)?,
+            depth_top: r.get(3)?,
+            depth_base: r.get(4)?,
+            name: r.get(5)?,
+            caption: r.get(6)?,
+            mime: r.get(7)?,
+            width: r.get(8)?,
+            height: r.get(9)?,
+            src_width: r.get(10)?,
+            src_height: r.get(11)?,
+            source_path: r.get(12)?,
+            printable: r.get::<_, i32>(13)? != 0,
+            bytes: r.get(14)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
+/// Which image datasets a well has, with the ACTIVE delivery's counts — never the sum
+/// across deliveries.
+pub fn list_image_datasets(conn: &Connection, well_id: &str) -> DbResult<Vec<(String, i64)>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT i.dataset, COUNT(*) FROM well_images i
+         WHERE i.well_id = ?1 AND i.set_name = {ACTIVE_IMAGE_SET}
+         GROUP BY i.dataset ORDER BY i.dataset"
+    ))?;
+    let rows = stmt.query_map(params![well_id], |row| Ok((row.get(0)?, row.get(1)?)))?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
+/// The pixels of ONE picture, with its mime type. The only path that reads a blob.
+pub fn get_well_image(conn: &Connection, image_id: &str) -> DbResult<(String, Vec<u8>)> {
+    let row = conn.query_row(
+        "SELECT mime, data FROM well_images WHERE image_id = ?1",
+        params![image_id],
+        |r| Ok((r.get::<_, String>(0)?, r.get::<_, Vec<u8>>(1)?)),
+    )?;
+    Ok(row)
+}
+
+/// Every printable picture of one dataset in a depth window, pixels included — the composite
+/// exporter's read path. Non-printable rows come back too (with their bytes) so the exporter
+/// can draw a labelled placeholder rather than silently dropping a plate.
+pub fn read_images_for_print(
+    conn: &Connection,
+    well_id: &str,
+    dataset: &str,
+    depth_top: f32,
+    depth_bottom: f32,
+) -> DbResult<Vec<(ImageInfo, Vec<u8>)>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT CAST(i.image_id AS VARCHAR), i.dataset, i.set_name, i.depth_top, i.depth_base,
+                i.name, i.caption, i.mime, i.width, i.height, i.src_width, i.src_height,
+                i.source_path, i.printable, octet_length(i.data), i.data
+         FROM well_images i
+         WHERE i.well_id = ?1 AND i.dataset = ?2 AND i.set_name = {ACTIVE_IMAGE_SET}
+           AND COALESCE(i.depth_base, i.depth_top) >= ?3 AND i.depth_top <= ?4
+         ORDER BY i.depth_top, i.name"
+    ))?;
+    let rows = stmt.query_map(params![well_id, dataset, depth_top, depth_bottom], |r| {
+        Ok((
+            ImageInfo {
+                image_id: r.get(0)?,
+                dataset: r.get(1)?,
+                set_name: r.get(2)?,
+                depth_top: r.get(3)?,
+                depth_base: r.get(4)?,
+                name: r.get(5)?,
+                caption: r.get(6)?,
+                mime: r.get(7)?,
+                width: r.get(8)?,
+                height: r.get(9)?,
+                src_width: r.get(10)?,
+                src_height: r.get(11)?,
+                source_path: r.get(12)?,
+                printable: r.get::<_, i32>(13)? != 0,
+                bytes: r.get(14)?,
+            },
+            r.get::<_, Vec<u8>>(15)?,
+        ))
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
+/// Deletes one picture (the set manager's per-image remove).
+pub fn delete_well_image(conn: &Connection, image_id: &str) -> DbResult<usize> {
+    Ok(conn.execute("DELETE FROM well_images WHERE image_id = ?1", params![image_id])?)
+}
+
+/// Edits one picture's depth registration / labels — core-to-log alignment for pictures,
+/// the twin of `update_core_sample`. `depth_base = None` makes it a point sample again.
+pub fn update_well_image(
+    conn: &Connection,
+    image_id: &str,
+    depth_top: f32,
+    depth_base: Option<f32>,
+    name: &str,
+    caption: Option<&str>,
+) -> DbResult<usize> {
+    Ok(conn.execute(
+        "UPDATE well_images SET depth_top = ?2, depth_base = ?3, name = ?4, caption = ?5
+         WHERE image_id = ?1",
+        params![image_id, depth_top, depth_base, name, caption],
+    )?)
 }
 
 /// One capillary-pressure row as imported/fetched (see `scal_pc` table).
@@ -2940,6 +3369,113 @@ mod inspector_tests {
         assert_eq!(list_core_sets(&conn, &w).unwrap().len(), 1);
         let fresh = mem_db();
         migrate_point_data_sets(&fresh, None).unwrap();
+    }
+
+    fn a_plate(name: &str, top: f32, base: Option<f32>, bytes: &[u8]) -> NewImage {
+        NewImage {
+            depth_top: top,
+            depth_base: base,
+            name: name.into(),
+            caption: None,
+            mime: "image/jpeg".into(),
+            width: 800,
+            height: 600,
+            src_width: Some(4000),
+            src_height: Some(3000),
+            source_path: Some(format!("D:/plates/{name}.jpg")),
+            printable: true,
+            data: bytes.to_vec(),
+        }
+    }
+
+    /// Pictures follow the universal delivery-set rule: a second delivery lands BESIDE the
+    /// first and only one is live, so a re-shot core cannot double the plates on a track.
+    #[test]
+    fn a_second_image_delivery_lands_beside_the_first_and_only_one_is_live() {
+        let conn = mem_db();
+        let wid = Uuid::new_v4();
+        insert_well(&conn, wid, "BLSO-IMG", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        let first = resolve_image_set_name(&conn, &w, "THIN SECTION", "PETRO").unwrap();
+        assert_eq!(first, "PETRO");
+        insert_well_images(&conn, &w, "THIN SECTION", &first, Some("lab-2024"), &[
+            a_plate("TS-1", 1010.0, None, b"\xFF\xD8jpeg-one\xFF\xD9"),
+            a_plate("TS-2", 1020.0, None, b"\xFF\xD8jpeg-two\xFF\xD9"),
+        ])
+        .unwrap();
+
+        // Same name again must NOT overwrite — it suffixes, exactly as core and curve sets do.
+        let second = resolve_image_set_name(&conn, &w, "THIN SECTION", "PETRO").unwrap();
+        assert_eq!(second, "PETRO_1");
+        insert_well_images(&conn, &w, "THIN SECTION", &second, Some("lab-2026"), &[a_plate(
+            "TS-9", 1015.0, None, b"\xFF\xD8jpeg-nine\xFF\xD9",
+        )])
+        .unwrap();
+
+        // The newest delivery is live, and a reader sees ONE of them — never the union.
+        let live = list_well_images(&conn, &w, Some("THIN SECTION")).unwrap();
+        assert_eq!(live.len(), 1, "two deliveries must never both be drawn");
+        assert_eq!(live[0].name, "TS-9");
+
+        set_active_image_set(&conn, &w, "THIN SECTION", "PETRO").unwrap();
+        let live = list_well_images(&conn, &w, Some("THIN SECTION")).unwrap();
+        assert_eq!(live.len(), 2, "switching back restores the earlier delivery whole");
+        assert_eq!(live[0].name, "TS-1");
+
+        // A different dataset is activated independently.
+        insert_well_images(&conn, &w, "CORE PHOTO", "RAW", None, &[a_plate(
+            "CP-1", 1000.0, Some(1001.0), b"\xFF\xD8jpeg-core\xFF\xD9",
+        )])
+        .unwrap();
+        assert_eq!(list_well_images(&conn, &w, None).unwrap().len(), 3, "one delivery of EACH dataset");
+        let sets = list_image_sets(&conn, &w).unwrap();
+        assert_eq!(sets.len(), 3);
+        assert_eq!(list_image_datasets(&conn, &w).unwrap(), vec![("CORE PHOTO".into(), 1), ("THIN SECTION".into(), 2)]);
+    }
+
+    #[test]
+    fn a_listing_reports_the_stored_size_without_reading_the_pixels() {
+        // The whole reason `ImageInfo` has no `data`: a well of 300 core photographs must
+        // list in kilobytes. This pins that the size comes from the row, not from a blob the
+        // caller had to load.
+        let conn = mem_db();
+        let wid = Uuid::new_v4();
+        insert_well(&conn, wid, "BLSO-IMG2", None, None, None).unwrap();
+        let w = wid.to_string();
+        let bytes = b"\xFF\xD8_______________\xFF\xD9";
+        insert_well_images(&conn, &w, "CORE PHOTO", "RAW", None, &[a_plate("CP-1", 1000.0, Some(1001.0), bytes)])
+            .unwrap();
+
+        let info = &list_well_images(&conn, &w, None).unwrap()[0];
+        assert_eq!(info.bytes, bytes.len() as i64);
+        assert_eq!(info.depth_base, Some(1001.0));
+        assert_eq!(info.src_width, Some(4000), "the delivered original's size stays traceable");
+        // …and the pixels come back byte-identical when actually asked for.
+        let (mime, data) = get_well_image(&conn, &info.image_id).unwrap();
+        assert_eq!(mime, "image/jpeg");
+        assert_eq!(data, bytes.to_vec());
+
+        // The print reader is depth-windowed and set-filtered, and an interval plate counts
+        // as present when any part of it is on the page.
+        assert_eq!(read_images_for_print(&conn, &w, "CORE PHOTO", 1000.5, 1010.0).unwrap().len(), 1);
+        assert_eq!(read_images_for_print(&conn, &w, "CORE PHOTO", 1002.0, 1010.0).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn deleting_the_live_image_delivery_hands_over_to_the_next_newest() {
+        let conn = mem_db();
+        let wid = Uuid::new_v4();
+        insert_well(&conn, wid, "BLSO-IMG3", None, None, None).unwrap();
+        let w = wid.to_string();
+        insert_well_images(&conn, &w, "SEM", "RUN1", None, &[a_plate("A", 1000.0, None, b"\xFF\xD8a\xFF\xD9")]).unwrap();
+        insert_well_images(&conn, &w, "SEM", "RUN2", None, &[a_plate("B", 1001.0, None, b"\xFF\xD8b\xFF\xD9")]).unwrap();
+        assert_eq!(list_well_images(&conn, &w, None).unwrap()[0].name, "B");
+
+        assert_eq!(delete_image_set(&conn, &w, "SEM", "RUN2").unwrap(), 1);
+        let live = list_well_images(&conn, &w, None).unwrap();
+        assert_eq!(live.len(), 1, "the survivor takes over rather than leaving the track blank");
+        assert_eq!(live[0].name, "A");
     }
 
     /// R-B (RELEASE §3.2): when the destructive PK-drop migration actually fires against a
