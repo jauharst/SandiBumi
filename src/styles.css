@@ -1984,6 +1984,14 @@ textarea {
   text-align: center;
 }
 
+/* Shading swatches: one for edge fill, two side by side for crossover (left-of / right-of
+   the reference curve), so the cell widens only when crossover is actually chosen. */
+.lp-shade {
+  display: flex;
+  gap: 3px;
+  justify-content: center;
+}
+
 .lp-btn {
   font-family: inherit;
   font-size: var(--fs-md);

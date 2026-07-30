@@ -1,4 +1,4 @@
-import type { Layout, TrackCurveSeries } from "./ipc";
+import type { CurveStyle, Layout, Track, TrackCurveSeries } from "./ipc";
 import { faciesColor } from "./ui/plotCanvas";
 import { appState } from "./state";
 import { pxPerUnitAt1to1 } from "./units";
@@ -258,6 +258,20 @@ export class LogCanvasRenderer {
           geometry.hidden = previousHidden.get(geometry.curveName) ?? false;
           this.curves.push(geometry);
         }
+        // Crossover shading is its own geometry pair (one colour each side), because the
+        // fill pipeline binds a single colour uniform per draw. They carry this curve's
+        // name, so hiding the curve hides its shading with it.
+        if (curveStyle.fill === "curve") {
+          const reference = this.resolveCrossover(track, curveStyle);
+          if (reference) {
+            for (const g of this.buildCrossoverGeometries(
+              s, curveStyle, reference, track.scale_type, trackLeftNdc, trackRightNdc,
+            )) {
+              g.hidden = previousHidden.get(g.curveName) ?? false;
+              this.curves.push(g);
+            }
+          }
+        }
       }
     }
 
@@ -279,8 +293,10 @@ export class LogCanvasRenderer {
       color: string;
       min: number;
       max: number;
+      draw_style?: "line" | "step";
       // "blocks" never reaches here — loadLayout routes it to buildBlockGeometries.
-      fill?: "none" | "left" | "right" | "blocks";
+      // "curve" draws its line here and its shading in buildCrossoverGeometries.
+      fill?: "none" | "left" | "right" | "curve" | "blocks";
       fill_color?: string;
       fill_opacity?: number;
     },
@@ -305,6 +321,10 @@ export class LogCanvasRenderer {
       return trackLeftNdc + frac * (trackRightNdc - trackLeftNdc);
     };
 
+    // "step": the sample's value holds all the way down to the next sample before it jumps,
+    // so each interval draws two segments (a vertical hold, then a horizontal jump) instead
+    // of one diagonal. Same corner the composite exporter builds.
+    const step = style.draw_style === "step";
     for (let i = 0; i < n - 1; i++) {
       const v0 = series.value[i];
       const v1 = series.value[i + 1];
@@ -312,7 +332,12 @@ export class LogCanvasRenderer {
       // Y is the RAW depth value — the vertex shader converts it to a pixel/NDC position
       // dynamically from the current pan/zoom uniform, so this buffer never needs rebuilding
       // just because the user panned or changed the vertical scale.
-      positions.push(valueToNdcX(v0), series.depth[i], valueToNdcX(v1), series.depth[i + 1]);
+      const x0 = valueToNdcX(v0);
+      const x1 = valueToNdcX(v1);
+      const d0 = series.depth[i];
+      const d1 = series.depth[i + 1];
+      if (step) positions.push(x0, d0, x0, d1, x0, d1, x1, d1);
+      else positions.push(x0, d0, x1, d1);
     }
 
     if (positions.length === 0) return null;
@@ -348,7 +373,7 @@ export class LogCanvasRenderer {
 
     // Shading between the curve and a track edge: two triangles per sample segment,
     // in the same (NDC-x, raw-depth-y) space the line geometry uses.
-    if (style.fill && style.fill !== "none") {
+    if (style.fill === "left" || style.fill === "right") {
       const edgeNdc = style.fill === "left" ? trackLeftNdc : trackRightNdc;
       const fillPositions: number[] = [];
       for (let i = 0; i < n - 1; i++) {
@@ -356,7 +381,9 @@ export class LogCanvasRenderer {
         const v1 = series.value[i + 1];
         if (Number.isNaN(v0) || Number.isNaN(v1)) continue;
         const x0 = valueToNdcX(v0);
-        const x1 = valueToNdcX(v1);
+        // A stepped curve's shading is a rectangle per interval, not a wedge — the held
+        // value bounds it on both sides.
+        const x1 = step ? x0 : valueToNdcX(v1);
         const d0 = series.depth[i];
         const d1 = series.depth[i + 1];
         fillPositions.push(x0, d0, edgeNdc, d0, x1, d1, edgeNdc, d0, edgeNdc, d1, x1, d1);
@@ -460,6 +487,140 @@ export class LogCanvasRenderer {
       out.push({
         curveName: style.curve_name,
         // No line geometry for block curves — the line pass draws 0 vertices.
+        vertexBuffer: this.device.createBuffer({ size: 8, usage: GPUBufferUsage.VERTEX }),
+        vertexCount: 0,
+        hidden: false,
+        bindGroup,
+        fillVertexBuffer,
+        fillVertexCount: fillData.length / 2,
+        fillBindGroup: bindGroup,
+      });
+    }
+    return out;
+  }
+
+  /** Finds the reference curve for `fill: "curve"` shading. The reference must be another
+   *  curve in the SAME track, because its own min/max is what positions it — that
+   *  compatible scaling is the entire meaning of a neutron-density crossover. */
+  private resolveCrossover(
+    track: Track,
+    style: CurveStyle,
+  ): { series: TrackCurveSeries; min: number; max: number } | null {
+    const to = style.fill_to?.trim().toUpperCase();
+    if (!to) return null;
+    const refStyle = track.curves.find((c) => c.curve_name.trim().toUpperCase() === to);
+    if (!refStyle) return null;
+    const series = this.seriesByName.get(refStyle.curve_name) ?? this.seriesByName.get(to);
+    if (!series) return null;
+    return { series, min: refStyle.min, max: refStyle.max };
+  }
+
+  /** Crossover shading (fill: "curve"): the area between this curve and a reference curve,
+   *  coloured by which side this curve is on. Two fill-only geometries — one per side —
+   *  because the fill pipeline binds a single colour uniform per draw, the same split
+   *  buildBlockGeometries uses. Where the pair crosses inside a sample interval the quad is
+   *  split at the crossing so the colours meet exactly on the crossover. A NaN on either
+   *  curve leaves that interval unshaded; separation is never inferred across a gap. */
+  private buildCrossoverGeometries(
+    series: TrackCurveSeries,
+    style: CurveStyle,
+    reference: { series: TrackCurveSeries; min: number; max: number },
+    scaleType: "linear" | "log",
+    trackLeftNdc: number,
+    trackRightNdc: number,
+  ): CurveGeometry[] {
+    const toNdc = (v: number, min: number, max: number): number => {
+      let frac: number;
+      if (scaleType === "log") {
+        const logMin = Math.log10(Math.max(min, 1e-6));
+        const logMax = Math.log10(Math.max(max, 1e-6));
+        frac = (Math.log10(Math.max(v, 1e-6)) - logMin) / (logMax - logMin);
+      } else {
+        frac = (v - min) / (max - min);
+      }
+      frac = Math.max(0, Math.min(1, frac));
+      return trackLeftNdc + frac * (trackRightNdc - trackLeftNdc);
+    };
+
+    const sampleRef = makeSampler(reference.series);
+    const step = style.draw_style === "step";
+    const leftTris: number[] = [];
+    const rightTris: number[] = [];
+    const quad = (
+      bucket: number[],
+      xa0: number, xb0: number, d0: number,
+      xa1: number, xb1: number, d1: number,
+    ): void => {
+      bucket.push(xa0, d0, xb0, d0, xb1, d1, xa0, d0, xb1, d1, xa1, d1);
+    };
+
+    const n = Math.min(series.depth.length, series.value.length);
+    for (let i = 0; i < n - 1; i++) {
+      const d0 = series.depth[i];
+      const d1 = series.depth[i + 1];
+      const va0 = series.value[i];
+      const vb0 = sampleRef(d0);
+      if (Number.isNaN(va0) || Number.isNaN(vb0)) continue;
+      const a0 = toNdc(va0, style.min, style.max);
+      const b0 = toNdc(vb0, reference.min, reference.max);
+      let a1 = a0;
+      let b1 = b0;
+      if (!step) {
+        // A stepped curve holds its value across the interval, so both edges stay vertical
+        // and the pair can never cross inside one interval.
+        const va1 = series.value[i + 1];
+        const vb1 = sampleRef(d1);
+        if (Number.isNaN(va1) || Number.isNaN(vb1)) continue;
+        a1 = toNdc(va1, style.min, style.max);
+        b1 = toNdc(vb1, reference.min, reference.max);
+      }
+      const s0 = a0 - b0;
+      const s1 = a1 - b1;
+      if (s0 < 0 !== s1 < 0 && s0 !== s1) {
+        const t = s0 / (s0 - s1);
+        const dm = d0 + (d1 - d0) * t;
+        const xm = a0 + (a1 - a0) * t;
+        (s0 < 0 ? leftTris : rightTris).push(a0, d0, b0, d0, xm, dm);
+        (s1 < 0 ? leftTris : rightTris).push(xm, dm, b1, d1, a1, d1);
+      } else {
+        quad(s0 < 0 ? leftTris : rightTris, a0, b0, d0, a1, b1, d1);
+      }
+    }
+
+    const alpha = Math.max(0, Math.min(1, style.fill_opacity ?? 0.3));
+    const leftColor = style.fill_color ?? style.color;
+    const out: CurveGeometry[] = [];
+    for (const [tris, hex] of [
+      [leftTris, leftColor],
+      [rightTris, style.fill_color2 ?? leftColor],
+    ] as [number[], string][]) {
+      if (tris.length === 0) continue;
+      const fillData = new Float32Array(tris);
+      const fillVertexBuffer = this.device.createBuffer({
+        size: fillData.byteLength,
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+      });
+      this.device.queue.writeBuffer(fillVertexBuffer, 0, fillData);
+
+      const rgba = hexToRgba(hex);
+      rgba[3] = alpha;
+      const colorBuffer = this.device.createBuffer({
+        size: 16,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+      this.device.queue.writeBuffer(colorBuffer, 0, new Float32Array(rgba));
+
+      const bindGroup = this.device.createBindGroup({
+        layout: this.bindGroupLayout,
+        entries: [
+          { binding: 0, resource: { buffer: this.uniformBuffer } },
+          { binding: 1, resource: { buffer: colorBuffer } },
+        ],
+      });
+
+      out.push({
+        curveName: style.curve_name,
+        // Shading only — the curve's own line geometry is built separately.
         vertexBuffer: this.device.createBuffer({ size: 8, usage: GPUBufferUsage.VERTEX }),
         vertexCount: 0,
         hidden: false,
@@ -729,6 +890,30 @@ export class LogCanvasRenderer {
     pass.end();
     this.device.queue.submit([encoder.finish()]);
   }
+}
+
+/** Interpolates a series onto arbitrary depths for crossover shading. Two curves in one
+ *  track need not share a sampling — a 0.1 m image-derived curve and a 0.5 m wireline curve
+ *  routinely do not — so the reference is read at the styled curve's own depths. Returns NaN
+ *  outside the reference's depth range or across a NaN gap, so shading stops where the
+ *  reference genuinely stops rather than being extrapolated. The cursor walks forward and
+ *  only restarts when the caller sweeps backwards, keeping a full pass linear. */
+function makeSampler(series: TrackCurveSeries): (depth: number) => number {
+  const d = series.depth;
+  const v = series.value;
+  const n = Math.min(d.length, v.length);
+  let i = 0;
+  return (depth: number): number => {
+    if (n === 0 || depth < d[0] || depth > d[n - 1]) return NaN;
+    if (i > n - 2 || d[i] > depth) i = 0;
+    while (i < n - 2 && d[i + 1] < depth) i++;
+    const d0 = d[i];
+    const d1 = d[i + 1];
+    const v0 = v[i];
+    const v1 = v[i + 1];
+    if (Number.isNaN(v0) || Number.isNaN(v1)) return NaN;
+    return d1 === d0 ? v0 : v0 + ((v1 - v0) * (depth - d0)) / (d1 - d0);
+  };
 }
 
 function nearestValue(series: TrackCurveSeries, depth: number): number {

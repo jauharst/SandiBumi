@@ -253,8 +253,8 @@ export function openLayoutPropsDialog(
     const table = document.createElement("table");
     table.className = "lp-curvetable";
     table.innerHTML = `<thead><tr>
-      <th>Curve</th><th>Color</th><th>Min</th><th>Max</th>
-      <th>Fill</th><th>Fill color</th><th>Opacity</th><th></th>
+      <th>Curve</th><th>Style</th><th>Color</th><th>Min</th><th>Max</th>
+      <th>Fill</th><th>To curve</th><th>Shading</th><th>Opacity</th><th></th>
     </tr></thead>`;
     const tbody = document.createElement("tbody");
 
@@ -273,20 +273,83 @@ export function openLayoutPropsDialog(
       });
       nameInput.setAttribute("list", datalist.id);
       cell(nameInput);
+      cell(
+        selectInput(c.draw_style ?? "line", [["line", "Continuous"], ["step", "Blocky"]], (v) => {
+          c.draw_style = v;
+        }),
+      );
       cell(colorInput(c.color, (v) => (c.color = v)), "lp-tiny");
       cell(numInput(c.min, (v) => (c.min = v)), "lp-num");
       cell(numInput(c.max, (v) => (c.max = v)), "lp-num");
+      const isCrossover = c.fill === "curve";
       cell(
         selectInput(
           c.fill ?? "none",
-          [["none", "None"], ["left", "To left edge"], ["right", "To right edge"], ["blocks", "Facies blocks"]],
+          [
+            ["none", "None"],
+            ["left", "To left edge"],
+            ["right", "To right edge"],
+            ["curve", "Crossover to curve"],
+            ["blocks", "Facies blocks"],
+          ],
           (v) => {
             c.fill = v;
+            // Crossover needs a reference curve and a second colour, so the row's controls
+            // change shape — rebuild it rather than leaving dead inputs behind. Seed the two
+            // sides with the two curves' OWN colours: that reads immediately (each side is
+            // tinted toward whichever curve is out in front) and invents no convention the
+            // user has not chosen. Both sides sharing one colour would look like an edge
+            // fill and lose the whole point of the display.
+            if (v === "curve") {
+              const other = track.curves.find((o) => o !== c);
+              if (!c.fill_to) c.fill_to = other?.curve_name ?? "";
+              if (!c.fill_color) c.fill_color = c.color;
+              if (!c.fill_color2) c.fill_color2 = other?.color ?? c.color;
+            }
+            renderDetail();
           },
         ),
       );
-      cell(colorInput(c.fill_color ?? c.color, (v) => (c.fill_color = v)), "lp-tiny");
-      const opacity = numInput(c.fill_opacity ?? 0.25, (v) => (c.fill_opacity = Math.max(0, Math.min(1, v))), "0.05");
+      // Reference curve for crossover shading: another curve in THIS track, because it is
+      // positioned with its own min/max. Suggest only siblings, and say so when there are none.
+      const toInput = textInput(c.fill_to ?? "", (v) => {
+        c.fill_to = v.trim().toUpperCase();
+        toInput.value = c.fill_to;
+      });
+      toInput.disabled = !isCrossover;
+      const toWrap = document.createElement("div");
+      toWrap.appendChild(toInput);
+      if (isCrossover) {
+        const siblings = document.createElement("datalist");
+        siblings.id = `${datalist.id}-sib-${ci}`;
+        for (const o of track.curves) {
+          if (o === c) continue;
+          const opt = document.createElement("option");
+          opt.value = o.curve_name;
+          siblings.appendChild(opt);
+        }
+        toInput.setAttribute("list", siblings.id);
+        toInput.title = "Shade between this curve and another curve in the same track";
+        toWrap.appendChild(siblings);
+      }
+      cell(toWrap);
+      // One swatch for edge shading; two for crossover — left-of and right-of the reference.
+      const shade = document.createElement("div");
+      shade.className = "lp-shade";
+      shade.appendChild(colorInput(c.fill_color ?? c.color, (v) => (c.fill_color = v)));
+      if (isCrossover) {
+        const left = shade.firstElementChild as HTMLInputElement;
+        left.title = "Where this curve reads LEFT of the reference curve";
+        const right = colorInput(c.fill_color2 ?? c.fill_color ?? c.color, (v) => (c.fill_color2 = v));
+        right.title = "Where this curve reads RIGHT of the reference curve";
+        shade.appendChild(right);
+      }
+      cell(shade, "lp-tiny");
+      const opacity = numInput(
+        c.fill_opacity ?? (isCrossover ? 0.3 : 0.25),
+        (v) => (c.fill_opacity = Math.max(0, Math.min(1, v))),
+        "0.05",
+      );
       cell(opacity, "lp-num");
       cell(
         iconBtn("✕", "Remove this curve", () => {
@@ -330,7 +393,7 @@ export function openLayoutPropsDialog(
   wrapper.className = "lp-wrapper";
   wrapper.appendChild(content);
   wrapper.appendChild(foot);
-  const close = openModal(`Layout Properties — ${working.name}`, wrapper, 880);
+  const close = openModal(`Layout Properties — ${working.name}`, wrapper, 980);
 
   const footBtn = (label: string, primary: boolean, onClick: () => void): void => {
     const b = document.createElement("button");

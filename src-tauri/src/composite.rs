@@ -419,7 +419,17 @@ fn build_page(
             draw_vgrid(&mut ops, track, tx0, tx1, grid_top, grid_bot);
             for cs in &track.curves {
                 let Some(vals) = columns.get(&cs.curve_name.trim().to_uppercase()) else { continue };
-                draw_curve(&mut ops, cs, track.scale_type, vals, depth, tx0, tx1, page_top, page_bot, &y_of);
+                // Crossover shading needs the reference curve's samples AND its own min/max,
+                // taken from the same track — compatible scaling is the whole point.
+                let xover = cs.fill_to.as_deref().and_then(|to| {
+                    let key = to.trim().to_uppercase();
+                    let rs = track.curves.iter().find(|o| o.curve_name.trim().to_uppercase() == key)?;
+                    Some((columns.get(&key)?.as_slice(), rs.min, rs.max))
+                });
+                draw_curve(
+                    &mut ops, cs, track.scale_type, vals, depth, xover, tx0, tx1, page_top, page_bot,
+                    &y_of,
+                );
             }
         }
         draw_track_header(&mut ops, track, tx0, tx1, track_top, grid_top);
@@ -644,6 +654,7 @@ fn draw_curve(
     scale: ScaleType,
     vals: &[f32],
     depth: &[f32],
+    xover: Option<(&[f32], f32, f32)>,
     tx0: f64,
     tx1: f64,
     page_top: f32,
@@ -652,42 +663,69 @@ fn draw_curve(
 ) {
     let tw = tx1 - tx0;
     let x_at = |v: f32| value_frac(v, cs.min, cs.max, scale).map(|f| tx0 + f.clamp(0.0, 1.0) * tw);
+    // "step" holds each sample's value down to the next sample's depth, so a run gains a
+    // second point at the same x — the blocky display. Kept in sync with the viewer's
+    // LogCanvasRenderer, which builds the identical corner.
+    let step = cs.draw_style.as_deref() == Some("step");
+    let hold_to = |i: usize| -> Option<f64> {
+        let d = *depth.get(i + 1)?;
+        Some(y_of(d.clamp(page_top, page_bot)))
+    };
 
-    // Discrete class blocks (fill == "blocks"): full-track-width colored rectangles per
-    // contiguous same-class run — the print equivalent of the viewer's facies track.
-    if cs.fill.as_deref() == Some("blocks") {
-        draw_class_blocks(ops, cs, vals, depth, tx0, tx1, page_top, page_bot, y_of);
-        return;
-    }
-
-    // Edge fill: closed polygon between the curve run and the chosen track edge.
-    if let Some(side) = cs.fill.as_deref() {
-        let edge_x = if side == "right" { tx1 } else { tx0 };
-        let fill_color = cs.fill_color.clone().unwrap_or_else(|| cs.color.clone());
-        let opacity = cs.fill_opacity.unwrap_or(0.25) as f64;
-        let mut run: Vec<(f64, f64)> = Vec::new();
-        let flush = |ops: &mut Vec<DrawOp>, run: &mut Vec<(f64, f64)>| {
-            if run.len() >= 2 {
-                let mut pts = Vec::with_capacity(run.len() + 2);
-                pts.push((edge_x, run[0].1));
-                pts.extend_from_slice(run);
-                pts.push((edge_x, run.last().unwrap().1));
-                ops.push(DrawOp::Fill { pts, fill: fill_color.clone(), opacity });
-            }
-            run.clear();
-        };
-        for (i, &v) in vals.iter().enumerate() {
-            let d = depth[i];
-            if d < page_top || d > page_bot {
-                flush(ops, &mut run);
-                continue;
-            }
-            match x_at(v) {
-                Some(x) => run.push((x, y_of(d))),
-                None => flush(ops, &mut run),
+    match cs.fill.as_deref() {
+        // Discrete class blocks: full-track-width colored rectangles per contiguous
+        // same-class run — the print equivalent of the viewer's facies track.
+        Some("blocks") => {
+            draw_class_blocks(ops, cs, vals, depth, tx0, tx1, page_top, page_bot, y_of);
+            return;
+        }
+        // Crossover shading against another curve in the same track.
+        Some("curve") => {
+            if let Some(reference) = xover {
+                draw_crossover(
+                    ops, cs, scale, vals, depth, reference, tx0, tx1, page_top, page_bot, y_of,
+                );
             }
         }
-        flush(ops, &mut run);
+        // Edge fill: closed polygon between the curve run and the chosen track edge. Matched
+        // explicitly so a style saved with fill = "none" (what the properties dialog writes
+        // when you pick None) prints unshaded, exactly as the viewer draws it.
+        Some(side @ ("left" | "right")) => {
+            let edge_x = if side == "right" { tx1 } else { tx0 };
+            let fill_color = cs.fill_color.clone().unwrap_or_else(|| cs.color.clone());
+            let opacity = cs.fill_opacity.unwrap_or(0.25) as f64;
+            let mut run: Vec<(f64, f64)> = Vec::new();
+            let flush = |ops: &mut Vec<DrawOp>, run: &mut Vec<(f64, f64)>| {
+                if run.len() >= 2 {
+                    let mut pts = Vec::with_capacity(run.len() + 2);
+                    pts.push((edge_x, run[0].1));
+                    pts.extend_from_slice(run);
+                    pts.push((edge_x, run.last().unwrap().1));
+                    ops.push(DrawOp::Fill { pts, fill: fill_color.clone(), opacity });
+                }
+                run.clear();
+            };
+            for (i, &v) in vals.iter().enumerate() {
+                let d = depth[i];
+                if d < page_top || d > page_bot {
+                    flush(ops, &mut run);
+                    continue;
+                }
+                match x_at(v) {
+                    Some(x) => {
+                        run.push((x, y_of(d)));
+                        if step {
+                            if let Some(y) = hold_to(i) {
+                                run.push((x, y));
+                            }
+                        }
+                    }
+                    None => flush(ops, &mut run),
+                }
+            }
+            flush(ops, &mut run);
+        }
+        _ => {}
     }
 
     // Curve line: contiguous runs, breaking at NaN / off-page gaps.
@@ -705,11 +743,88 @@ fn draw_curve(
             continue;
         }
         match x_at(v) {
-            Some(x) => run.push((x, y_of(d))),
+            Some(x) => {
+                run.push((x, y_of(d)));
+                if step {
+                    if let Some(y) = hold_to(i) {
+                        run.push((x, y));
+                    }
+                }
+            }
             None => flush_line(ops, &mut run),
         }
     }
     flush_line(ops, &mut run);
+}
+
+/// `fill = "curve"`: shading between this curve and a reference curve in the same track —
+/// the neutron-density separation display. Each sample interval contributes one quad
+/// between the two curves; where the pair actually crosses INSIDE an interval the quad is
+/// split at the crossing point, so the two colours meet on the crossover instead of one
+/// bleeding a whole sample past it. A NaN on either curve simply leaves that interval
+/// unshaded — a crossover is never inferred across a gap.
+#[allow(clippy::too_many_arguments)]
+fn draw_crossover(
+    ops: &mut Vec<DrawOp>,
+    cs: &crate::layout::CurveStyle,
+    scale: ScaleType,
+    vals: &[f32],
+    depth: &[f32],
+    reference: (&[f32], f32, f32),
+    tx0: f64,
+    tx1: f64,
+    page_top: f32,
+    page_bot: f32,
+    y_of: &dyn Fn(f32) -> f64,
+) {
+    let (rvals, rmin, rmax) = reference;
+    let tw = tx1 - tx0;
+    let x_a = |v: f32| value_frac(v, cs.min, cs.max, scale).map(|f| tx0 + f.clamp(0.0, 1.0) * tw);
+    let x_b = |v: f32| value_frac(v, rmin, rmax, scale).map(|f| tx0 + f.clamp(0.0, 1.0) * tw);
+    let left = cs.fill_color.clone().unwrap_or_else(|| cs.color.clone());
+    let right = cs.fill_color2.clone().unwrap_or_else(|| left.clone());
+    let opacity = cs.fill_opacity.unwrap_or(0.3) as f64;
+    let step = cs.draw_style.as_deref() == Some("step");
+
+    let n = vals.len().min(depth.len()).min(rvals.len());
+    for i in 0..n.saturating_sub(1) {
+        let (d0, d1) = (depth[i], depth[i + 1]);
+        if d0 < page_top || d0 > page_bot || d1 < page_top || d1 > page_bot {
+            continue;
+        }
+        let (Some(a0), Some(b0)) = (x_a(vals[i]), x_b(rvals[i])) else { continue };
+        // A stepped curve holds its value across the interval, so both edges stay vertical
+        // and the pair can never cross inside one interval.
+        let (a1, b1) = if step {
+            (a0, b0)
+        } else {
+            let (Some(a1), Some(b1)) = (x_a(vals[i + 1]), x_b(rvals[i + 1])) else { continue };
+            (a1, b1)
+        };
+        let (y0, y1) = (y_of(d0), y_of(d1));
+        let (s0, s1) = (a0 - b0, a1 - b1);
+        let side = |s: f64| if s < 0.0 { left.clone() } else { right.clone() };
+        if (s0 < 0.0) != (s1 < 0.0) && s0 != s1 {
+            let t = s0 / (s0 - s1);
+            let (ym, xm) = (y0 + (y1 - y0) * t, a0 + (a1 - a0) * t);
+            ops.push(DrawOp::Fill {
+                pts: vec![(a0, y0), (b0, y0), (xm, ym)],
+                fill: side(s0),
+                opacity,
+            });
+            ops.push(DrawOp::Fill {
+                pts: vec![(xm, ym), (b1, y1), (a1, y1)],
+                fill: side(s1),
+                opacity,
+            });
+        } else {
+            ops.push(DrawOp::Fill {
+                pts: vec![(a0, y0), (b0, y0), (b1, y1), (a1, y1)],
+                fill: side(s0),
+                opacity,
+            });
+        }
+    }
 }
 
 /// Qualitative palette for discrete facies/cluster blocks.
@@ -1118,6 +1233,140 @@ mod tests {
 
     fn full_spec(w: String, scale: u32, page: PageSize) -> CompositeSpec {
         CompositeSpec { well_id: w, layout: standard_layout(), depth_top: None, depth_bottom: None, scale, page_size: page }
+    }
+
+    /// A minimal saved curve style — deliberately built from the JSON a PRE-crossover layout
+    /// would have stored, so these tests also prove the new display fields are optional.
+    fn saved_style(name: &str) -> crate::layout::CurveStyle {
+        serde_json::from_value(serde_json::json!({
+            "curve_name": name, "color": "#000000", "min": 0.0, "max": 1.0
+        }))
+        .unwrap()
+    }
+
+    /// Page coordinates come from f32 samples widened to f64, so they land a few ULPs off a
+    /// round number. Round to micro-millimetres — far finer than any printer — so these
+    /// geometry tests can compare exact expected corners.
+    fn round_pts(pts: &[(f64, f64)]) -> Vec<(f64, f64)> {
+        pts.iter().map(|(x, y)| ((x * 1e6).round() / 1e6, (y * 1e6).round() / 1e6)).collect()
+    }
+
+    fn fills(ops: &[DrawOp]) -> Vec<(String, Vec<(f64, f64)>)> {
+        ops.iter()
+            .filter_map(|o| match o {
+                DrawOp::Fill { pts, fill, .. } => Some((fill.clone(), round_pts(pts))),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn line_pts(ops: &[DrawOp]) -> Vec<(f64, f64)> {
+        ops.iter()
+            .find_map(|o| match o {
+                DrawOp::Poly { pts, .. } => Some(round_pts(pts)),
+                _ => None,
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn layouts_saved_before_crossover_still_load() {
+        let cs = saved_style("GR");
+        assert!(cs.draw_style.is_none() && cs.fill_to.is_none() && cs.fill_color2.is_none());
+    }
+
+    #[test]
+    fn blocky_style_holds_each_value_down_to_the_next_sample() {
+        let vals = [0.2f32, 0.8, 0.8];
+        let depth = [100.0f32, 101.0, 102.0];
+        let y = |d: f32| d as f64;
+
+        let mut ops = Vec::new();
+        let cs = saved_style("VSH");
+        draw_curve(&mut ops, &cs, ScaleType::Linear, &vals, &depth, None, 0.0, 10.0, 0.0, 1000.0, &y);
+        // Continuous: one diagonal per interval, so the value slides between sample centres.
+        assert_eq!(line_pts(&ops), vec![(2.0, 100.0), (8.0, 101.0), (8.0, 102.0)]);
+
+        let mut blocky = cs.clone();
+        blocky.draw_style = Some("step".into());
+        let mut ops = Vec::new();
+        draw_curve(&mut ops, &blocky, ScaleType::Linear, &vals, &depth, None, 0.0, 10.0, 0.0, 1000.0, &y);
+        // Blocky: 0.2 holds at x = 2 all the way to 101 before jumping to 0.8 — no gradient
+        // the data never measured.
+        let pts = line_pts(&ops);
+        assert_eq!(pts[0], (2.0, 100.0));
+        assert_eq!(pts[1], (2.0, 101.0));
+        assert_eq!(pts[2], (8.0, 101.0));
+    }
+
+    #[test]
+    fn crossover_shades_each_side_of_the_reference_in_its_own_colour() {
+        let mut cs = saved_style("NPHI");
+        cs.fill = Some("curve".into());
+        cs.fill_to = Some("RHOB".into());
+        cs.fill_color = Some("#111111".into()); // left of the reference
+        cs.fill_color2 = Some("#222222".into()); // right of it
+        // The styled curve starts left of the reference and ends right of it, crossing
+        // exactly midway through the interval.
+        let vals = [0.2f32, 0.8];
+        let refv = [0.8f32, 0.2];
+        let depth = [100.0f32, 102.0];
+        let mut ops = Vec::new();
+        let y = |d: f32| d as f64;
+        draw_curve(
+            &mut ops, &cs, ScaleType::Linear, &vals, &depth, Some((&refv, 0.0, 1.0)),
+            0.0, 10.0, 0.0, 1000.0, &y,
+        );
+        let f = fills(&ops);
+        assert_eq!(f.len(), 2, "a crossing interval splits into two shaded pieces");
+        assert_eq!(f[0].0, "#111111");
+        assert_eq!(f[1].0, "#222222");
+        // The pieces meet exactly on the crossover — mid-depth, mid-track — instead of one
+        // colour bleeding a whole sample past it.
+        assert_eq!(f[0].1.last().copied(), Some((5.0, 101.0)));
+        assert_eq!(f[1].1[0], (5.0, 101.0));
+    }
+
+    #[test]
+    fn crossover_without_its_reference_curve_shades_nothing_but_still_draws_the_line() {
+        let mut cs = saved_style("NPHI");
+        cs.fill = Some("curve".into());
+        cs.fill_to = Some("MISSING".into());
+        let mut ops = Vec::new();
+        let y = |d: f32| d as f64;
+        draw_curve(
+            &mut ops, &cs, ScaleType::Linear, &[0.2f32, 0.8], &[100.0f32, 101.0], None,
+            0.0, 10.0, 0.0, 1000.0, &y,
+        );
+        assert!(fills(&ops).is_empty());
+        assert_eq!(line_pts(&ops).len(), 2);
+    }
+
+    #[test]
+    fn a_style_saved_with_fill_none_prints_unshaded() {
+        // The properties dialog writes fill = "none" when you pick None. The exporter used to
+        // treat any non-"right" value as a left-edge fill, so the print disagreed with screen.
+        let mut cs = saved_style("GR");
+        cs.fill = Some("none".into());
+        let mut ops = Vec::new();
+        let y = |d: f32| d as f64;
+        draw_curve(
+            &mut ops, &cs, ScaleType::Linear, &[0.2f32, 0.8], &[100.0f32, 101.0], None,
+            0.0, 10.0, 0.0, 1000.0, &y,
+        );
+        assert!(fills(&ops).is_empty(), "None must print unshaded, as the viewer draws it");
+    }
+
+    #[test]
+    fn the_standard_layout_porosity_track_carries_the_neutron_density_crossover() {
+        let t = standard_layout().tracks.into_iter().find(|t| t.title == "NPHI / RHOB").unwrap();
+        let nphi = t.curves.iter().find(|c| c.curve_name == "NPHI").unwrap();
+        assert_eq!(nphi.fill.as_deref(), Some("curve"));
+        assert_eq!(nphi.fill_to.as_deref(), Some("RHOB"));
+        // Two distinct colours, or the separation carries no reading.
+        assert_ne!(nphi.fill_color, nphi.fill_color2);
+        // The reference must live in the SAME track — its own min/max is what positions it.
+        assert!(t.curves.iter().any(|c| c.curve_name == "RHOB"));
     }
 
     #[test]

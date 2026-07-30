@@ -5463,4 +5463,40 @@ with its own menu.
 
 ---
 
+## 2026-07-30 — Blocky curves and crossover shading
+
+Your two display asks: "option to display curves as continuous or blocky style", and "we also
+don't have shading to other logs". Both live in the same place — **Layout Properties → the
+curve table**, which gained a **Style** column and two new Fill choices.
+
+- [ ] **Blocky (step) curves.** Layout Properties → pick **Blocky** in the new Style column on
+      any curve. The value should now hold flat all the way down to the next sample and then
+      jump, instead of sliding diagonally between sample centres. Try it on something genuinely
+      piecewise-constant — a zone-constant parameter curve, a block-averaged or upscaled log,
+      VSH from a coarse pass. **The shading follows the step**: a blocky curve's edge fill is a
+      stack of rectangles, not a stack of wedges.
+- [ ] **Continuous is still the default** — every existing layout you have saved should open and
+      draw exactly as before. Nothing needs re-saving.
+- [ ] **Crossover shading.** Layout Properties → Fill → **Crossover to curve**. It auto-picks the
+      other curve in the same track as the reference and seeds the two swatches with the two
+      curves' own colours, so you can see the separation immediately. **Shading** now shows two
+      swatches: left one = where the styled curve reads LEFT of the reference, right one =
+      where it reads RIGHT.
+- [ ] **The reference must be in the SAME track.** That is deliberate, not a limitation: the
+      reference is positioned with **its own min/max**, and compatible scaling is the whole
+      meaning of a neutron-density crossover. Naming a curve from another track shades nothing.
+- [ ] **The built-in Standard Layout now ships the NPHI/RHOB crossover** (grey where NPHI reads
+      left of RHOB — shale / clay-bound water; yellow where it reads right — gas effect). The
+      Facies layout's porosity track matches. **Scales are unchanged** (NPHI 0.45→−0.15,
+      RHOB 1.95→2.95). Tell me if you would rather the built-ins stayed plain.
+- [ ] **Check it on a real gas sand** in BLSO or Duri: the colour should flip exactly where the
+      two curves cross, not a sample early or late.
+- [ ] **Print agrees with screen.** Plot ribbon → Composite… on a layout using both features —
+      the PDF/SVG must show the same blocky steps and the same two-colour crossover.
+- [ ] **Bug fixed in passing**: a curve whose Fill you had set to **None** used to print with a
+      left-edge shading in the Composite/report PDF even though the screen showed it clean. It
+      now prints unshaded. Worth a glance at any deliverable you generated before today.
+
+---
+
 _Made in SandiBumi._ © 2026 SandiBumi. All rights reserved.

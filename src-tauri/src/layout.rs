@@ -2,17 +2,36 @@ use serde::{Deserialize, Serialize};
 
 /// One curve's display style + scale within a track (curves in the same track can have
 /// independent min/max, e.g. an NPHI/RHOB porosity overlay). Optional fill fields shade
-/// the area between the curve and a track edge ("left" | "right"), Techlog-style.
+/// the area between the curve and a track edge ("left" | "right"), between the curve and
+/// another curve in the same track ("curve" — crossover), or draw a discrete class curve
+/// as full-width blocks ("blocks").
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CurveStyle {
     pub curve_name: String,
     pub color: String,
     pub min: f32,
     pub max: f32,
+    /// "line" (default) joins consecutive sample centres with a straight segment; "step"
+    /// holds each sample's value across its whole sampling interval and then jumps. Step is
+    /// the honest display for anything that is genuinely piecewise-constant — block-averaged
+    /// or upscaled logs, zone-constant parameter curves, coarse core-derived tracks — where a
+    /// diagonal join would draw a gradient the data never measured.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draw_style: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fill: Option<String>,
+    /// `fill = "curve"`: the reference curve to shade against. It must be another curve in
+    /// the SAME track, and it is positioned with ITS OWN min/max — that compatible-scaling
+    /// is exactly what makes a neutron-density crossover mean anything.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fill_to: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fill_color: Option<String>,
+    /// `fill = "curve"`: colour where this curve reads to the RIGHT of `fill_to`
+    /// (`fill_color` covers the left side). On a compatible-scaled NPHI/RHOB overlay with
+    /// NPHI carrying the style, right-of-RHOB is the gas-effect crossover.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fill_color2: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fill_opacity: Option<f32>,
 }
@@ -24,8 +43,11 @@ fn curve(name: &str, color: &str, min: f32, max: f32) -> CurveStyle {
         color: color.into(),
         min,
         max,
+        draw_style: None,
         fill: None,
+        fill_to: None,
         fill_color: None,
+        fill_color2: None,
         fill_opacity: None,
     }
 }
@@ -47,6 +69,28 @@ fn filled(name: &str, color: &str, min: f32, max: f32, fill: &str, opacity: f32)
         fill: Some(fill.into()),
         fill_color: Some(color.into()),
         fill_opacity: Some(opacity),
+        ..curve(name, color, min, max)
+    }
+}
+
+/// Crossover shading between this curve and another curve in the same track. `left` shades
+/// where this curve reads left of `to`, `right` where it reads right of it — the two-colour
+/// separation display every neutron-density overlay is read by.
+fn crossover(
+    name: &str,
+    color: &str,
+    min: f32,
+    max: f32,
+    to: &str,
+    left: &str,
+    right: &str,
+) -> CurveStyle {
+    CurveStyle {
+        fill: Some("curve".into()),
+        fill_to: Some(to.into()),
+        fill_color: Some(left.into()),
+        fill_color2: Some(right.into()),
+        fill_opacity: Some(0.35),
         ..curve(name, color, min, max)
     }
 }
@@ -113,7 +157,12 @@ pub fn standard_layout() -> Layout {
                 kind: TrackKind::Curves,
                 curves: vec![
                     // NPHI runs right-to-left (porosity convention) via a reversed min/max.
-                    curve("NPHI", "#3d6a9e", 0.45, -0.15),
+                    // The two scales are the standard compatible pair (NPHI 0.45→-0.15 v/v
+                    // against RHOB 1.95→2.95 g/cc), so the curves overlay in a clean
+                    // water-bearing sand and separate either way for a reason: NPHI left of
+                    // RHOB is shale/clay-bound water, NPHI right of RHOB is the gas effect.
+                    // Colours follow that reading, not the curve colours.
+                    crossover("NPHI", "#3d6a9e", 0.45, -0.15, "RHOB", "#9aa5ad", "#e8c33a"),
                     curve("RHOB", "#b5651d", 1.95, 2.95),
                 ],
             },
@@ -213,7 +262,9 @@ pub fn facies_layout() -> Layout {
                 scale_type: ScaleType::Linear,
                 kind: TrackKind::Curves,
                 curves: vec![
-                    curve("NPHI", "#3d6a9e", 0.45, -0.15),
+                    // Same compatible-scaled crossover as the Standard Layout — the porosity
+                    // track reads identically wherever it appears.
+                    crossover("NPHI", "#3d6a9e", 0.45, -0.15, "RHOB", "#9aa5ad", "#e8c33a"),
                     curve("RHOB", "#b5651d", 1.95, 2.95),
                 ],
             },

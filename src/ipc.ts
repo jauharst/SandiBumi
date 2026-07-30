@@ -217,10 +217,20 @@ export interface CurveStyle {
   color: string;
   min: number;
   max: number;
-  /** Edge shading, or "blocks" for discrete class curves (facies) rendered as
-   *  full-track-width colored intervals instead of a value line. */
-  fill?: "none" | "left" | "right" | "blocks";
+  /** "line" (default) joins consecutive sample centres; "step" holds each sample's value
+   *  across its whole sampling interval and then jumps — the blocky display for anything
+   *  genuinely piecewise-constant (block-averaged logs, zone-constant parameter curves). */
+  draw_style?: "line" | "step";
+  /** Edge shading, "curve" for crossover shading against `fill_to`, or "blocks" for discrete
+   *  class curves (facies) rendered as full-track-width colored intervals. */
+  fill?: "none" | "left" | "right" | "curve" | "blocks";
+  /** `fill: "curve"` — the reference curve to shade against. It must be another curve in the
+   *  SAME track, and it is positioned with ITS OWN min/max (compatible scaling). */
+  fill_to?: string;
   fill_color?: string;
+  /** `fill: "curve"` — colour where this curve reads to the RIGHT of `fill_to`;
+   *  `fill_color` covers the left side. */
+  fill_color2?: string;
   fill_opacity?: number;
 }
 

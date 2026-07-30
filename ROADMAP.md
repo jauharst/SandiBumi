@@ -852,6 +852,39 @@ fixes (1 already fixed); #135 resolved the 4 held items per Jauhar (below). Comm
 ## B2. Interpretation-workflow open items (§4)
 
 _(field-review tier, was "P2"; the rest of the tier is done in [A8](#a8-field-review--trust--safety--interpretation-workflow-4).)_
+
+### Log-view display queue (Jauhar, 2026-07-30 click-through)
+
+Five display gaps he raised in one pass. The first two shipped together; the rest are open.
+
+- [x] **Curve draw style — continuous vs blocky** — **SHIPPED 2026-07-30.** `CurveStyle.draw_style`
+      (`"line"` default / `"step"`), implemented in both renderers, exposed as a **Style** column in
+      Layout Properties. Step holds each sample's value down to the next sample's depth, so a
+      block-averaged or zone-constant curve stops drawing a gradient it never measured; the edge
+      shading follows the step (rectangles, not wedges).
+- [x] **Shading to another log (crossover)** — **SHIPPED 2026-07-30.** `fill: "curve"` + `fill_to` +
+      `fill_color2`. The reference must be a curve in the SAME track because it is positioned with
+      **its own min/max** — compatible scaling is the meaning of the display. Quads split at the
+      crossing point so the two colours meet exactly on it; the viewer interpolates the reference
+      onto the styled curve's depths (`makeSampler`) so the two curves need not share a sampling.
+      Built-in Standard + Facies layouts now ship the NPHI/RHOB crossover. Fixed in passing: the
+      composite exporter treated any `fill` string other than `"right"` as a left-edge fill, so a
+      style saved as `fill: "none"` printed shaded while the screen showed it clean.
+- [ ] **Array logs in the log view** — "for array log such PHIE from montecarlo with 1000x
+      iterations will have 1000 curves embedded as 1 phie array, we should also have …" (his message
+      was cut off). The `array_logs` table exists; nothing renders it. Needs a decision on what the
+      track shows — a P10/P50/P90 band, a spaghetti overlay, or a per-depth density heat map — plus
+      a writer, since `montecarlo.rs` deliberately keeps its realizations in memory and writes none.
+- [ ] **Point / text / image data as a track type** — "we dont have any option to show point data,
+      text data, or even image with its own style option to show it as histogram or box plot per x
+      range interval with its own adjustment as well such percentile showing, whisker, etc." Core
+      plugs currently draw as a fixed overlay only. Really 2–3 increments: (a) a point/text track
+      kind with its own style block, (b) per-depth-interval statistics — box plot / histogram,
+      selectable percentiles, whisker rule, (c) image (core photo / borehole image) display.
+- [ ] **QAT tools in the Project ribbon** — "it should be better if its shown as tools in Project
+      ribbon", against a screenshot of the quick-access strip (session save/open, history, help).
+      **Ambiguous — ask before touching.** Note this would partly reverse a deliberate earlier
+      decision recorded in CLAUDE.md ("Save Project As is NOT a ribbon button anymore").
 - [x] **Pickett v2** — **COMPLETE 2026-07-30.** N with M and Rw, free line-parameter input, Z-colour
       by a chosen log: all shipped as Polish-4/#125 above. The tail landed with the multi-well work:
       template bar, RT default widened to 0.2–2000 (audit), `sanitizePickettProps`, Sw lines spanning

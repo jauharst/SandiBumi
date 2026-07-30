@@ -227,6 +227,28 @@ sync**. Built-in "Facies" layout lives in `layout.rs`; min/max on a blocks curve
 ignored (header shows "class blocks" instead of editable scale). min/max decimation never
 averages, so decimated class values stay valid integers.
 
+Curve draw style + crossover shading (2026-07-30) — `CurveStyle` gained three optional
+fields, all `#[serde(default)]` so every pre-existing saved layout still loads:
+`draw_style: "line" | "step"` ("step" holds each sample's value down to the next sample's
+depth, then jumps — the honest display for block-averaged / zone-constant / coarse curves,
+where a diagonal would draw a gradient the data never measured), and `fill: "curve"` +
+`fill_to` + `fill_color2` for **crossover shading** between two curves in the SAME track.
+The reference curve is positioned with **its own min/max** — compatible scaling is the
+entire meaning of a neutron-density crossover, so `fill_to` naming a curve outside the
+track resolves to nothing and shades nothing. `fill_color` = where the styled curve reads
+LEFT of the reference, `fill_color2` = RIGHT. Both renderers implement all of it and must
+stay in agreement: `LogCanvasRenderer.buildCrossoverGeometries` (two fill-only geometries,
+one colour each, same split `buildBlockGeometries` uses because the fill pipeline binds one
+colour uniform per draw) and `composite.rs draw_crossover`. Where the pair crosses INSIDE a
+sample interval both split that quad at the crossing so the colours meet on the crossover.
+The two curves need not share a sampling — the viewer interpolates the reference onto the
+styled curve's depths via `makeSampler` (NaN outside its range or across a NaN gap;
+separation is never inferred across a gap), while the composite path already has one shared
+depth column. Built-in Standard and Facies layouts now ship the NPHI/RHOB crossover.
+Same-session fix: `composite.rs` used to treat ANY `fill` string other than "right" as a
+left-edge fill, so a style saved with `fill: "none"` printed shaded while the screen showed
+it clean — the match is explicit now (`left`/`right` only).
+
 UI language (2026-07-19) — `src/i18n.ts` translates visible DOM text (+ title/placeholder/
 aria-label/optgroup-label) to Bahasa Indonesia / Basa Sunda by exact-phrase dictionary
 lookup, live via MutationObserver. English is the source language: keep writing UI strings
