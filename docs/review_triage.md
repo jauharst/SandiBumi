@@ -235,7 +235,16 @@ can fail for reasons unrelated to the code is a gate people learn to ignore.
 **`[x]` here means an end-to-end test drives it against the real app. It is NOT your verification
 mark** — same rule as pile B.
 
-**Done (29 of 86)**
+**Done (30 of 86)**
+
+- [x] **T-AUX-03** — Well Header: a TD-only edit must not lose the surface coordinates ·
+      `wellheader.e2e.mjs`. A regression guard on a confirmed bug with an unusually quiet failure
+      mode: `appState.selectedWell` is a SNAPSHOT that is not re-broadcast on a data change, the
+      dialog writes every field unconditionally, so building it from that snapshot meant opening
+      the header to fix a TD and silently erasing the easting, northing and UTM zone. Nothing
+      downstream complains — the well just stops appearing on the map and the TVD work loses its
+      datum. The test asserts the REOPENED FORM already shows the stored coordinates, which catches
+      the bug one step before the damage, and then that a TD-only save leaves all three intact.
 
 - [x] **T-REP-07** — The methodology table persists as a `report_template` document ·
       `report.e2e.mjs`. Asserted on the STORED DOCUMENT and on a freshly REBUILT pane, not on the

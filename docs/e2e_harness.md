@@ -214,7 +214,7 @@ click listener the two are equivalent — but when the *gesture* is the thing un
 
 ## Current coverage
 
-Seventy-six tests across nineteen spec files. Specs share ONE app launch and one project (see the spec
+Seventy-seven tests across twenty spec files. Specs share ONE app launch and one project (see the spec
 grouping note in `wdio.conf.mjs`), so write each one to establish what it needs and to assert
 changes as before/after differences rather than as absolute state.
 
@@ -395,6 +395,18 @@ test pass would be an unsourced petrophysical number in the repo.
 | The Composite pane opens | The smoke claim |
 | The methodology table saves | As parsed ROWS keeping their pipe-separated fields |
 | A rebuilt pane reads it back | The read path, not the textarea's own memory |
+
+`wellheader.e2e.mjs` — the Well Header round trip (T-AUX-03):
+
+| Test | What it proves |
+|---|---|
+| A TD-only edit keeps the location | The reopened form shows stored values, and the save preserves them |
+
+### Do not name a variable `before` inside a `describe`
+
+It shadows mocha's own `before()` hook, so the hook call becomes `null(...)` and the whole file
+fails at LOAD time with "unable to load spec files quite likely because they rely on `browser`" —
+a message that points nowhere near the cause. Same for `after`.
 
 Test data is `dataset for test/examples/` (`SANDI-*`) only. Never a real client project, never a
 path from `SANDIBUMI_FIELD_FIXTURES`.

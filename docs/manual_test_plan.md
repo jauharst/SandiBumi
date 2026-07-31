@@ -4765,6 +4765,14 @@ This cluster sweeps the tools and behaviours the first drafting pass missed: the
 5. Open the **Processing History** pane (**Project ▸ Monitor ▸ History**): a new **Edit** entry "Updated well header" attributed to this well.
 6. Restore the original TD.
    **Expected:** TD/KB always prefilled; a partial edit never wipes coordinates; History records the edit; Field Map marker does not move. _(REVIEW.md ▸ "[ ] Well Header shows current TD / KB … the field shows it, not an empty box" and ▸ Field Map "[ ] Tools ▸ Well Header on a located well → Surface X/Y/zone show the imported values (not blank); change only TD and Save → the coordinates survive".)_
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** `wellheader.e2e.mjs` drives the exact
+   sequence that used to erase the location: save coordinates through the dialog, reopen it, change
+   ONLY the TD, save. It asserts the REOPENED FORM already shows the stored easting and northing -
+   which catches the bug one step before the damage, since a form built from the stale
+   `selectedWell` snapshot would show blanks and write them back - and then that all three
+   coordinate fields survive the TD-only save. **Not covered:** the TD/KB prefill values on a
+   freshly imported well.
+
    **Result — T-AUX-03:**
 
 - [ ] Pass
