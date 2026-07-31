@@ -1981,6 +1981,64 @@ it quietly pairs each section with its neighbour's plug and returns a confident 
 wrong rock. Core porosity is picked by DEFAULT where the well has it: a setting nobody thought to
 verify is exactly the one that ships.
 
+## A reference plate per cored interval (2026-07-31)
+
+`PoreSpec.reference_zones` (Pore Area ▸ **Per-interval references**) lets one run correct different
+depth ranges onto different plates. A delivery spanning two cored intervals is two different rocks,
+usually photographed on two different days, and one reference serves both only by accident: on the
+real delivery, giving each interval its own lifted rank agreement with core porosity in BOTH (0.19
+to 0.24 shallow, 0.49 to 0.53 deep). That is a refinement rather than a rescue — and the point is
+that it is now something the user can **measure** with **Check against** rather than be told. Six
+rules.
+
+**A plate no interval covers falls back to the delivery-wide reference, and where there is none it
+is REFUSED by name — never read as delivered.** This is the rule the whole design hangs off.
+`band_missed` only ever fires on a corrected plate, deliberately: with no reference there is no
+evidence the band finds epoxy anywhere in this delivery, so an empty answer could equally mean the
+band has never been tuned. Read one plate uncorrected inside a normalized run and it sits in the
+same stored delivery as corrected ones having silently lost that guard, with nothing downstream able
+to tell the two apart. Refusing keeps `normalized` a RUN-level fact, which is why nothing else in
+the measurement had to change.
+
+**Intervals may TOUCH but never cross.** `2000-2010` beside `2010-2020` is how anyone writes two
+adjacent cored sections and neither should have to be typed a millimetre short, so `contains` is
+inclusive at both ends and a shared depth goes to the interval listed FIRST. A genuine overlap is
+refused up front, before a single picture is decoded: inside one, which reference a section is
+corrected onto would come down to the order of a list nobody sees, so the same settings could give
+two answers with nothing on screen saying why. Exactly the rule `db::apply_core_run_shifts` enforces
+on core barrels, and for the same reason. A base above its top is refused as a typo rather than
+silently swapped.
+
+**Pass 1 harvests colours only; every plate is measured in pass 2.** The single-reference code used
+the reference plate's own first-pass result AS its stored result, which is correct when correcting
+onto itself is the identity. With several references a plate serving an interval it does not sit in
+would have kept an uncorrected number while its neighbours were corrected — silently. Measuring
+every plate in pass 2 costs one extra decode per reference and removes the case by construction. The
+harvest pass draws no preview: what the user tunes against has to be the CORRECTED picture the
+stored number came from. `run_batch` is the one copy of the pipe protocol, shared by both passes.
+
+**Every reference is scene-checked before any other plate is decoded, and one bad one condemns the
+run.** Everything in an interval is corrected onto its reference, so a reference that is itself
+mostly the colour called pore anchors that interval to the mistake — and agrees with itself
+everywhere afterwards. Refusing the whole run rather than just that interval is the conservative
+call: a partial result with one interval quietly missing is worse than a named refusal.
+
+**`PlatePore.reference_name` rides beside `cast_shift`, and the column appears only when more than
+one plate served.** A shift of 40 degrees means nothing until you know which plate it is 40 from;
+with a single reference the column would just repeat the picker on every row.
+
+**Fractions from different intervals are only as comparable as their two references are**, and the
+run says so in a note listing which plate served which span. Compare intervals on the agreement
+figure rather than by reading their medians against each other.
+
+Pinned by `reference_intervals_may_touch_but_never_cross`,
+`a_plate_takes_its_own_intervals_reference_then_the_delivery_wide_one` (both pure, both green on
+every gate run) and the round trip `each_interval_is_corrected_onto_its_own_reference` (ignored,
+needs Pillow). That fixture's two lamps are deliberately NOT a pure channel gain apart, which is the
+realistic case and the whole reason one reference stops serving a delivery: the deep sections are
+lost when dragged onto a shallow reference (shift > 100 degrees, band missed) and read their true
+quarter when corrected onto their own. Its orphan plate pins the refusal above.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under

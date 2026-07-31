@@ -1938,8 +1938,8 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       measurement (`PoreSpec.check_against` → `plugqc::score_against_plugs`) and keeps a table of
       every setting tried this session, so the spread below is visible while tuning rather than
       only in a study afterwards. Still open underneath it: nothing yet warns BEFORE a run that a
-      delivery's hue spread makes one reference hopeless, and there is no per-interval reference
-      (next item).
+      delivery's hue spread makes one reference hopeless — the per-interval reference below has
+      since shipped.
 - [x] **The measurement behind it, kept for the numbers.** Sweeping three references drawn from a
       cored interval's own plates, scored inside that interval against helium: shallow core 0.110 /
       0.237 / 0.203, deep core 0.297 / **0.530** / 0.152. That is a 3.5x spread in the deep core
@@ -1947,10 +1947,28 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       correcting at all (0.270). Quoting the best of a sweep is the same overfitting trap this
       delivery already taught, so the honest statement is the spread — which is why the dialog now
       shows every setting tried rather than announcing a winner.
-- [ ] **Per-interval references beat one reference for the delivery, modestly.** Giving each cored
-      interval its own reference: shallow 0.237 against 0.193 for a delivery-wide one, deep 0.530
-      against 0.494. So "measure them in groups" is real advice rather than a hedge — but it is a
-      refinement, not the missing piece.
+- [x] **Per-interval references beat one reference for the delivery, modestly** — **SHIPPED
+      2026-07-31.** `PoreSpec.reference_zones` + the Per-interval references editor in Pore Area:
+      each depth range names its own plate, overruling the delivery-wide one where it reaches. The
+      measurement that motivated it, giving each cored interval its own reference: shallow 0.237
+      against 0.193 for a delivery-wide one, deep 0.530 against 0.494. So "measure them in groups"
+      was real advice rather than a hedge — a refinement, not the missing piece, and now one
+      **Check against** settles on the well in hand rather than being taken on trust. Rules:
+      intervals may TOUCH but never cross (an overlap is refused up front, a shared depth goes to
+      the one listed first — the `apply_core_run_shifts` rule); a section no interval reaches falls
+      back to the delivery-wide plate and is REFUSED BY NAME where there is none, because
+      `band_missed` only fires on a corrected plate and an uncorrected one in the same saved
+      delivery would have silently lost that guard; every reference is scene-checked in a
+      colour-harvest pass before any other plate is decoded, and one bad reference condemns the run.
+      `PlatePore.reference_name` rides beside `cast_shift` and its column appears only when more
+      than one plate served. Pinned by `reference_intervals_may_touch_but_never_cross`,
+      `a_plate_takes_its_own_intervals_reference_then_the_delivery_wide_one` and the round trip
+      `each_interval_is_corrected_onto_its_own_reference`, whose two lamps are deliberately not a
+      pure channel gain apart — the deep sections are lost onto a shallow reference and read their
+      true quarter onto their own.
+- [ ] **Nothing yet warns BEFORE a run that no single reference can serve a delivery.** The hue
+      spread is reported afterwards; with per-interval references now available, the useful version
+      would be to propose where the interval boundaries should fall from the plates' own hues.
 - [ ] **The deep core has no point count and the colour rule reaches 0.49 there.** That is the one
       interval in this delivery where the tool is doing work nobody did by hand, and it is the
       natural place to ask Jauhar whether the numbers look like the rock.

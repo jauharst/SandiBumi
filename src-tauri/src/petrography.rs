@@ -38,6 +38,7 @@
 
 use duckdb::Connection;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::io::Write;
 use std::process::{Command, Stdio};
 
@@ -66,6 +67,54 @@ pub struct PoreColorBand {
 impl Default for PoreColorBand {
     fn default() -> Self {
         Self { hue_lo: 180.0, hue_hi: 260.0, sat_min: 0.15, val_min: 0.10 }
+    }
+}
+
+/// One depth interval, and the plate every section inside it is corrected onto.
+///
+/// A delivery that spans two cored intervals is two different rocks, usually photographed on two
+/// different days, and one reference plate serves both only by accident. Measured on a real
+/// delivery, giving each interval its own reference lifted rank agreement with core porosity in
+/// BOTH of them (0.19 to 0.24 in the shallow core, 0.49 to 0.53 in the deep one). That is a
+/// refinement rather than a rescue — and the point is that it is now something the user can
+/// MEASURE on their own rock rather than be told.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ReferenceZone {
+    /// Shallowest depth this reference serves. `None` reaches up to the top of the well.
+    #[serde(default)]
+    pub top: Option<f32>,
+    /// Deepest. `None` reaches down to total depth.
+    #[serde(default)]
+    pub base: Option<f32>,
+    pub image_id: String,
+}
+
+impl ReferenceZone {
+    /// Inclusive at BOTH ends, so `2000-2010` and `2010-2020` is how anyone writes two adjacent
+    /// intervals and neither has to be typed a millimetre short. A plate landing exactly on the
+    /// shared depth goes to whichever interval is listed first — the same rule the per-barrel core
+    /// shifts follow, and the reason a true overlap is refused rather than resolved that way.
+    fn contains(&self, d: f32) -> bool {
+        let below_top = match self.top {
+            Some(t) => d >= t,
+            None => true,
+        };
+        let above_base = match self.base {
+            Some(b) => d <= b,
+            None => true,
+        };
+        below_top && above_base
+    }
+}
+
+/// The interval, in words, for a message. `zone_span` rather than a raw pair because "2000 and
+/// below" and "2000 to 2010" are different statements and a dash cannot make that difference.
+fn zone_span(z: &ReferenceZone) -> String {
+    match (z.top, z.base) {
+        (Some(t), Some(b)) => format!("{t} to {b}"),
+        (Some(t), None) => format!("{t} and below"),
+        (None, Some(b)) => format!("{b} and above"),
+        (None, None) => "the whole well".to_string(),
     }
 }
 
@@ -125,6 +174,16 @@ pub struct PoreSpec {
     /// Naming a reference also turns on the empty-measurement refusal: see [`band_missed`].
     #[serde(default)]
     pub reference_image_id: Option<String>,
+    /// References for particular depth intervals, overruling the one above where they reach. Empty
+    /// is the delivery-wide behaviour and stays the default.
+    ///
+    /// A plate that no interval covers falls back to [`PoreSpec::reference_image_id`]; where that is
+    /// `None` too the plate is REFUSED by name rather than read as delivered. One stored set holding
+    /// both corrected and uncorrected fractions would be two measurements under one name, and
+    /// [`band_missed`] — which only ever fires on a corrected plate — would quietly switch off for
+    /// half of them.
+    #[serde(default)]
+    pub reference_zones: Vec<ReferenceZone>,
     /// Read the STAIN as well, giving a mineral area fraction per class. `None` means no stain is
     /// assumed — the default, and the only safe one: a stain assumed is a mineral fraction
     /// invented (`docs/plan_image_analysis.md` §2.1 A2).
@@ -156,6 +215,65 @@ pub struct PoreSpec {
 /// a reference plate on.
 fn storable(p: &PlatePore) -> bool {
     !p.scene_dominated && !p.band_missed
+}
+
+/// Refuses a set of intervals the run could not act on unambiguously, before any picture is decoded.
+///
+/// Intervals may TOUCH — `2000-2010` beside `2010-2020` is how anyone writes two adjacent cored
+/// sections, and neither should have to be typed a millimetre short. What is refused is a genuine
+/// OVERLAP: across one, which reference a plate is corrected onto would be decided by the order of a
+/// list nobody sees, so the same settings could give two answers and nothing on screen would say
+/// why. The same rule `db::apply_core_run_shifts` enforces on core barrels, for the same reason.
+fn check_zones(spec: &PoreSpec) -> Result<(), String> {
+    for z in &spec.reference_zones {
+        if z.image_id.trim().is_empty() {
+            return Err(format!("the interval covering {} has no reference plate", zone_span(z)));
+        }
+        // Refused, not silently swapped. A base above its top is a typo or a transposed column, and
+        // guessing which number was meant is how it survives into a deliverable.
+        if let (Some(t), Some(b)) = (z.top, z.base) {
+            if b < t {
+                return Err(format!(
+                    "an interval runs from {t} down to {b}, which is backwards - a base above its \
+                     top is a typo, and quietly swapping them would hide it"
+                ));
+            }
+        }
+    }
+    for (i, a) in spec.reference_zones.iter().enumerate() {
+        for b in spec.reference_zones.iter().skip(i + 1) {
+            let lo_a = a.top.unwrap_or(f32::NEG_INFINITY);
+            let hi_a = a.base.unwrap_or(f32::INFINITY);
+            let lo_b = b.top.unwrap_or(f32::NEG_INFINITY);
+            let hi_b = b.base.unwrap_or(f32::INFINITY);
+            // Strict on both sides, so a shared boundary depth is not an overlap.
+            if lo_a < hi_b && lo_b < hi_a {
+                return Err(format!(
+                    "two intervals overlap ({} and {}). Which reference a plate inside the overlap \
+                     is corrected onto would come down to the order of the list, which is not \
+                     something to leave to chance - intervals may touch at one depth, but not cross.",
+                    zone_span(a),
+                    zone_span(b)
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The plate a section at this depth is corrected onto: the first interval that covers it, else the
+/// delivery-wide reference. `None` means nothing was named for it.
+///
+/// A plate with no usable depth matches no interval (every comparison against NaN is false) and so
+/// falls through to the delivery-wide reference, which is the honest answer — nothing about it says
+/// which interval it belongs to.
+fn reference_for<'a>(spec: &'a PoreSpec, depth: f32) -> Option<&'a str> {
+    for z in &spec.reference_zones {
+        if z.contains(depth) {
+            return Some(z.image_id.as_str());
+        }
+    }
+    spec.reference_image_id.as_deref()
 }
 
 /// The plates that go into the agreement check, at the depths they will be paired on.
@@ -357,6 +475,10 @@ pub struct PlatePore {
     /// size of the correction that was applied. NaN when no reference was named. Diagnostic, never
     /// a threshold: it is what turns "the band found nothing here" into a reason.
     pub cast_shift: f32,
+    /// The plate this one was corrected onto, by name; empty when nothing was. Reported because with
+    /// more than one reference in play, a shift of 40 degrees means nothing until you know which
+    /// plate it is 40 degrees from.
+    pub reference_name: String,
     /// Set when the band, transferred onto this plate, claimed less than one resolvable pore. Only
     /// ever set on a normalized run — see [`band_missed`]. Kept out of the write like a
     /// scene-dominated plate, and for the mirror reason.
@@ -1813,8 +1935,67 @@ fn summarise_grains(g: &RunnerGrain, um_per_px: Option<f64>, wicksell: bool) -> 
     out
 }
 
+/// One subprocess: some plates in, their measurements out.
+///
+/// Factored out because the run makes two passes — one to harvest each reference plate's own matrix
+/// colour, one to measure every plate corrected onto the reference its depth assigns it — and two
+/// copies of the pipe protocol is two places for the header to drift.
+fn run_batch(
+    conn: &Connection,
+    python: &std::path::Path,
+    spec: &PoreSpec,
+    batch: &[crate::db::ImageInfo],
+    reference_rgb: Option<[f32; 3]>,
+    preview: bool,
+) -> Result<RunnerOut, String> {
+    let mut blobs = Vec::with_capacity(batch.len());
+    for info in batch {
+        let (_, bytes) =
+            crate::db::get_well_image(conn, &info.image_id).map_err(|e| e.to_string())?;
+        blobs.push(bytes);
+    }
+    let header = serde_json::json!({
+        "band": spec.band,
+        "geometry": spec.geometry,
+        "min_pore_px": spec.min_pore_px.max(1),
+        "grains": spec.grains,
+        "min_grain_px": spec.min_grain_px.max(1),
+        "grain_sep_px": spec.grain_sep_px.max(3),
+        "stain": spec.stain,
+        "reference_rgb": reference_rgb,
+        "ids": batch.iter().map(|i| i.image_id.clone()).collect::<Vec<_>>(),
+        "sizes": blobs.iter().map(|b| b.len()).collect::<Vec<_>>(),
+        // The colour-harvest pass draws nothing. What the user tunes against has to be the
+        // CORRECTED picture the stored number was taken from, and that is the second pass.
+        "preview": if preview { spec.preview_image_id.clone() } else { None },
+    });
+
+    let mut cmd = Command::new(python);
+    cmd.args(["-c", PORE_RUNNER]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    hide_console(&mut cmd);
+    let mut child = cmd.spawn().map_err(|e| format!("failed to start python: {e}"))?;
+    {
+        let stdin = child.stdin.as_mut().ok_or("failed to open python stdin")?;
+        stdin.write_all(header.to_string().as_bytes()).map_err(|e| e.to_string())?;
+        stdin.write_all(b"\n").map_err(|e| e.to_string())?;
+        for b in &blobs {
+            stdin.write_all(b).map_err(|e| e.to_string())?;
+        }
+    }
+    let output = child.wait_with_output().map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr);
+        let last = err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("pore run failed");
+        return Err(last.trim().to_string());
+    }
+    serde_json::from_slice(&output.stdout).map_err(|e| format!("bad pore result: {e}"))
+}
+
 /// Measures pore area on a well's live image delivery.
 pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, String> {
+    // Before a single picture is decoded: an overlap has no right answer, and finding that out after
+    // a 250-plate run would waste the run.
+    check_zones(spec)?;
     let python = find_python().ok_or("no Python interpreter found (see SANDIBUMI_PYTHON)")?;
 
     let all = crate::db::list_well_images(conn, &spec.well_id, Some(&spec.dataset))
@@ -1826,15 +2007,6 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
     let mut skipped: Vec<String> = Vec::new();
     let mut wanted = Vec::new();
     for info in &all {
-        let is_reference = spec.reference_image_id.as_deref() == Some(info.image_id.as_str());
-        if let Some(only) = &spec.only_image_id {
-            // The tuning preview measures ONE plate, but a normalized run still needs the
-            // reference plate's own colour to correct that plate onto, so the reference rides
-            // along even when it is not the one being tuned. It is dropped from the results below.
-            if &info.image_id != only && !is_reference {
-                continue;
-            }
-        }
         // The refusal is BY NAME and counted. A silent subset reads as a complete answer, which is
         // exactly how a half-measured delivery would end up in a report.
         if let Err(why) = epoxy_check(&info.prepared) {
@@ -1880,161 +2052,176 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
     let mut preview_width = 0;
     let mut preview_height = 0;
 
-    // The reference plate goes alone in the first batch. Its own matrix colour is what every later
-    // plate is corrected onto, so it has to be measured before any of them — one extra subprocess
-    // for one picture, and the reference pass is otherwise an ordinary pass (correcting a plate
-    // onto itself is the identity, so it needs no special case in the runner).
-    let mut batches: Vec<Vec<crate::db::ImageInfo>> = Vec::new();
-    match &spec.reference_image_id {
-        Some(id) => {
-            let Some(r) = wanted.iter().find(|i| &i.image_id == id).cloned() else {
-                return Err(
-                    "the reference plate is not among the plates this run can measure - it may be \
-                     the one whose impregnation or stain is undeclared"
-                        .to_string(),
-                );
-            };
-            batches.push(vec![r]);
-            let rest: Vec<_> = wanted.iter().filter(|i| &i.image_id != id).cloned().collect();
-            batches.extend(rest.chunks(CHUNK).map(<[_]>::to_vec));
+    // A run is normalized if ANY reference was named — a delivery-wide one, an interval one, or
+    // both. It stays a run-level fact rather than a per-plate one because of the refusal below: a
+    // plate no reference reaches is left out entirely, so no run ever mixes the two.
+    let normalized = spec.reference_image_id.is_some() || !spec.reference_zones.is_empty();
+
+    // Which plates this run will actually measure. A tuning preview measures one; a full run
+    // measures everything the delivery declared.
+    let targets: Vec<crate::db::ImageInfo> = match &spec.only_image_id {
+        Some(only) => wanted.iter().filter(|i| &i.image_id == only).cloned().collect(),
+        None => wanted.clone(),
+    };
+
+    // Each plate to the reference its DEPTH assigns it, falling back to the delivery-wide one.
+    let mut assigned: Vec<(crate::db::ImageInfo, Option<String>)> = Vec::new();
+    for info in targets {
+        match reference_for(spec, info.depth_top) {
+            Some(id) => assigned.push((info, Some(id.to_string()))),
+            // Refused by name, never read as delivered. One stored set holding both corrected and
+            // uncorrected fractions would be two measurements under one name, and `band_missed`
+            // would quietly switch off for the uncorrected half of them.
+            None if normalized => skipped.push(format!(
+                "{}: not measured - no reference plate covers {}. Widen an interval to reach it, or \
+                 name a reference plate for the rest of the delivery.",
+                info.name, info.depth_top
+            )),
+            None => assigned.push((info, None)),
         }
-        None => batches.extend(wanted.chunks(CHUNK).map(<[_]>::to_vec)),
     }
-    let normalized = spec.reference_image_id.is_some();
-    let mut reference_rgb: Option<[f32; 3]> = None;
-    let mut reference_hue = f32::NAN;
 
-    for batch in &batches {
-        let mut blobs = Vec::with_capacity(batch.len());
-        for info in batch {
-            let (_, bytes) =
-                crate::db::get_well_image(conn, &info.image_id).map_err(|e| e.to_string())?;
-            blobs.push(bytes);
+    // ---- pass 1: what colour is each reference plate's matrix ----------------
+    //
+    // Before any other plate is decoded, because every section in an interval is corrected onto its
+    // reference. Measured UNCORRECTED, which is exactly what a reference is: correcting a plate onto
+    // itself is the identity, so this needs no special case in the runner.
+    let mut needed: Vec<crate::db::ImageInfo> = Vec::new();
+    for (_, r) in &assigned {
+        let Some(id) = r else { continue };
+        if needed.iter().any(|i| &i.image_id == id) {
+            continue;
         }
-        let header = serde_json::json!({
-            "band": spec.band,
-            "geometry": spec.geometry,
-            "min_pore_px": spec.min_pore_px.max(1),
-            "grains": spec.grains,
-            "min_grain_px": spec.min_grain_px.max(1),
-            "grain_sep_px": spec.grain_sep_px.max(3),
-            "stain": spec.stain,
-            "reference_rgb": reference_rgb,
-            "ids": batch.iter().map(|i| i.image_id.clone()).collect::<Vec<_>>(),
-            "sizes": blobs.iter().map(|b| b.len()).collect::<Vec<_>>(),
-            "preview": spec.preview_image_id,
-        });
+        let Some(found) = wanted.iter().find(|i| &i.image_id == id).cloned() else {
+            let name =
+                all.iter().find(|i| &i.image_id == id).map_or(id.clone(), |i| i.name.clone());
+            return Err(format!(
+                "{name} cannot be a reference plate: it is not among the plates this run can \
+                 measure, so its impregnation or its stain is undeclared. Set it in Plate Details."
+            ));
+        };
+        needed.push(found);
+    }
 
-        let mut cmd = Command::new(&python);
-        cmd.args(["-c", PORE_RUNNER]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
-        hide_console(&mut cmd);
-        let mut child = cmd.spawn().map_err(|e| format!("failed to start python: {e}"))?;
-        {
-            let stdin = child.stdin.as_mut().ok_or("failed to open python stdin")?;
-            stdin.write_all(header.to_string().as_bytes()).map_err(|e| e.to_string())?;
-            stdin.write_all(b"\n").map_err(|e| e.to_string())?;
-            for b in &blobs {
-                stdin.write_all(b).map_err(|e| e.to_string())?;
-            }
-        }
-        let output = child.wait_with_output().map_err(|e| e.to_string())?;
-        if !output.status.success() {
-            let err = String::from_utf8_lossy(&output.stderr);
-            let last = err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("pore run failed");
-            return Err(last.trim().to_string());
-        }
-        let parsed: RunnerOut = serde_json::from_slice(&output.stdout)
-            .map_err(|e| format!("bad pore result: {e}"))?;
-        if let Some(p) = parsed.preview_png {
-            preview_png = Some(p);
-            preview_width = parsed.preview_w;
-            preview_height = parsed.preview_h;
-        }
+    let mut anchors: HashMap<String, ([f32; 3], f32)> = HashMap::new();
+    for batch in needed.chunks(CHUNK) {
+        let parsed = run_batch(conn, &python, spec, batch, None, false)?;
         for row in parsed.results {
             let Some(info) = batch.iter().find(|i| i.image_id == row.image_id) else { continue };
-            match (row.error, row.pore_fraction) {
-                (Some(e), _) => skipped.push(format!("{}: {}", info.name, e)),
-                (None, Some(f)) => {
-                    // Micrometres per pixel of THIS copy, from the plate's own field of view.
-                    // `None` where no scale was declared, and then no dimensional number is
-                    // reported at all — a diameter in pixels is not a diameter.
-                    let px_w = row.width.unwrap_or(info.width).max(1) as f64;
-                    let um_per_px = info.fov_um.map(|fov| fov as f64 / px_w);
-                    let geometry = row.geom.as_ref().map(|g| summarise(g, um_per_px));
-                    let grains =
-                        row.grain.as_ref().map(|g| summarise_grains(g, um_per_px, spec.wicksell));
-                    // A plate the band cannot discriminate on is still measured and previewed —
-                    // tuning the band is how the user fixes it — but it is kept out of the write.
-                    let scene_hue = row.scene_hue.unwrap_or(f32::NAN);
-                    let is_reference =
-                        spec.reference_image_id.as_deref() == Some(info.image_id.as_str());
-                    if is_reference {
-                        // Everything after this point is corrected onto this plate, so a reference
-                        // that is itself mostly the colour called pore would anchor the whole
-                        // delivery to the mistake — and silently, because every corrected plate
-                        // then inherits its median hue and the per-plate test agrees with itself.
-                        if scene_dominated(scene_hue, &spec.band) {
-                            return Err(format!(
-                                "{} cannot be the reference plate: its own median hue ({:.0} deg) \
-                                 is inside the pore band, so on this plate the band is matching \
-                                 the background. Tune the band here first, or choose a plate the \
-                                 band reads correctly.",
-                                info.name, scene_hue
-                            ));
-                        }
-                        reference_rgb = row.median_rgb;
-                        reference_hue = scene_hue;
-                        if reference_rgb.is_none() {
-                            return Err(format!(
-                                "{} gave no matrix colour, so nothing can be corrected onto it",
-                                info.name
-                            ));
-                        }
-                    }
-                    // On a normalized run every corrected plate carries the reference's median hue
-                    // by construction, so the plain scene test would only ever restate the
-                    // reference's — which was checked once, above. What replaces it is the case
-                    // the correction could not be applied to AT ALL: no matrix left to anchor on,
-                    // which means the band claimed the whole picture. That is precisely what the
-                    // scene test is for, so the same refusal and the same message serve it, and a
-                    // plate that would otherwise be read uncorrected and stored at nearly 1.0 is
-                    // caught. The other half of the pair is `band_missed`.
-                    let dominated = if normalized {
-                        row.median_rgb.is_none()
-                    } else {
-                        scene_dominated(scene_hue, &spec.band)
-                    };
-                    let cast_shift =
-                        if normalized { hue_delta(scene_hue, reference_hue) } else { f32::NAN };
-                    let missed = band_missed(f, row.pixels.unwrap_or(0), spec.min_pore_px, normalized);
-                    plates.push(PlatePore {
-                        image_id: info.image_id.clone(),
-                        name: info.name.clone(),
-                        depth_top: info.depth_top,
-                        depth_base: info.depth_base,
-                        pore_fraction: f,
-                        scene_hue,
-                        scene_dominated: dominated,
-                        cast_shift,
-                        band_missed: missed,
-                        pixels: row.pixels.unwrap_or(0),
-                        geometry,
-                        grains,
-                        stain: row.stain.map(|s| PlateStain {
-                            fractions: s.fractions,
-                            unclassified: s.unclassified,
-                        }),
-                    })
-                }
-                (None, None) => skipped.push(format!("{}: no result", info.name)),
+            if let Some(e) = row.error {
+                return Err(format!("{} cannot be a reference plate: {}", info.name, e));
             }
+            let hue = row.scene_hue.unwrap_or(f32::NAN);
+            // Everything in this interval is corrected onto this plate, so a reference that is
+            // itself mostly the colour called pore anchors the interval to the mistake — and
+            // silently, because every corrected plate then inherits its median hue and the per-plate
+            // test would only agree with itself.
+            if scene_dominated(hue, &spec.band) {
+                return Err(format!(
+                    "{} cannot be a reference plate: its own median hue ({:.0} deg) is inside the \
+                     pore band, so on this plate the band is matching the background. Tune the band \
+                     here first, or choose a plate the band reads correctly.",
+                    info.name, hue
+                ));
+            }
+            let Some(rgb) = row.median_rgb else {
+                return Err(format!(
+                    "{} gave no matrix colour, so nothing can be corrected onto it",
+                    info.name
+                ));
+            };
+            anchors.insert(info.image_id.clone(), (rgb, hue));
         }
     }
 
-    // The reference plate rode along so the tuned plate had something to be corrected onto; it was
-    // not what the user asked to see.
-    if let Some(only) = &spec.only_image_id {
-        plates.retain(|p| &p.image_id == only);
+    // ---- pass 2: measure every plate against its own reference ---------------
+    //
+    // Grouped by reference, because the correction travels in the header: one batch, one anchor.
+    let mut groups: Vec<(Option<String>, Vec<crate::db::ImageInfo>)> = Vec::new();
+    for (info, r) in assigned {
+        match groups.iter_mut().find(|(k, _)| k.as_deref() == r.as_deref()) {
+            Some((_, v)) => v.push(info),
+            None => groups.push((r, vec![info])),
+        }
+    }
+
+    for (rid, members) in &groups {
+        let anchor = rid.as_ref().and_then(|id| anchors.get(id).copied());
+        let ref_name = rid
+            .as_ref()
+            .and_then(|id| needed.iter().find(|i| &i.image_id == id))
+            .map_or(String::new(), |i| i.name.clone());
+        for batch in members.chunks(CHUNK) {
+            let parsed = run_batch(conn, &python, spec, batch, anchor.map(|(rgb, _)| rgb), true)?;
+            if let Some(p) = parsed.preview_png {
+                preview_png = Some(p);
+                preview_width = parsed.preview_w;
+                preview_height = parsed.preview_h;
+            }
+            for row in parsed.results {
+                let Some(info) = batch.iter().find(|i| i.image_id == row.image_id) else { continue };
+                match (row.error, row.pore_fraction) {
+                    (Some(e), _) => skipped.push(format!("{}: {}", info.name, e)),
+                    (None, Some(f)) => {
+                        // Micrometres per pixel of THIS copy, from the plate's own field of view.
+                        // `None` where no scale was declared, and then no dimensional number is
+                        // reported at all — a diameter in pixels is not a diameter.
+                        let px_w = row.width.unwrap_or(info.width).max(1) as f64;
+                        let um_per_px = info.fov_um.map(|fov| fov as f64 / px_w);
+                        let geometry = row.geom.as_ref().map(|g| summarise(g, um_per_px));
+                        let grains = row
+                            .grain
+                            .as_ref()
+                            .map(|g| summarise_grains(g, um_per_px, spec.wicksell));
+                        // A plate the band cannot discriminate on is still measured and previewed —
+                        // tuning the band is how the user fixes it — but it is kept out of the write.
+                        let scene_hue = row.scene_hue.unwrap_or(f32::NAN);
+                        // On a corrected plate the median hue is the reference's by construction, so
+                        // the plain scene test would only ever restate the reference's — which was
+                        // checked once, in pass 1. What replaces it is the case the correction could
+                        // not be applied to AT ALL: no matrix left to anchor on, which means the
+                        // band claimed the whole picture. That is precisely what the scene test is
+                        // for, so the same refusal and the same message serve it, and a plate that
+                        // would otherwise be read uncorrected and stored at nearly 1.0 is caught.
+                        // The other half of the pair is `band_missed`.
+                        let dominated = if anchor.is_some() {
+                            row.median_rgb.is_none()
+                        } else {
+                            scene_dominated(scene_hue, &spec.band)
+                        };
+                        // Against THIS plate's own reference. With more than one in play, a shift
+                        // measured from whichever reference happened to be last would be a number
+                        // about the wrong pair of photographs.
+                        let cast_shift = match anchor {
+                            Some((_, rh)) => hue_delta(scene_hue, rh),
+                            None => f32::NAN,
+                        };
+                        let missed =
+                            band_missed(f, row.pixels.unwrap_or(0), spec.min_pore_px, normalized);
+                        plates.push(PlatePore {
+                            image_id: info.image_id.clone(),
+                            name: info.name.clone(),
+                            depth_top: info.depth_top,
+                            depth_base: info.depth_base,
+                            pore_fraction: f,
+                            scene_hue,
+                            scene_dominated: dominated,
+                            cast_shift,
+                            reference_name: ref_name.clone(),
+                            band_missed: missed,
+                            pixels: row.pixels.unwrap_or(0),
+                            geometry,
+                            grains,
+                            stain: row.stain.map(|s| PlateStain {
+                                fractions: s.fractions,
+                                unclassified: s.unclassified,
+                            }),
+                        })
+                    }
+                    (None, None) => skipped.push(format!("{}: no result", info.name)),
+                }
+            }
+        }
     }
 
     plates.sort_by(|a, b| a.depth_top.total_cmp(&b.depth_top));
@@ -2174,12 +2361,35 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
                 format!(
                     "These plates were not photographed under one light: their median hue spans \
                      {:.0} degrees ({:.0} to {:.0}). One colour band cannot serve all of them - \
-                     name a reference plate so each is corrected onto it, or measure them in \
-                     groups.",
+                     name a reference plate so each is corrected onto it, and give a cored interval \
+                     its own reference where the light changed between them.",
                     hi - lo, lo, hi
                 )
             });
         }
+    }
+    // Said whenever more than one reference was in play, because from the table alone there is no
+    // way to tell which plate a given row was corrected onto - and that choice moves the answer more
+    // than the colour band does.
+    if !spec.reference_zones.is_empty() {
+        let name_of = |id: &str| {
+            all.iter().find(|i| i.image_id == id).map_or_else(|| id.to_string(), |i| i.name.clone())
+        };
+        let mut lines: Vec<String> = spec
+            .reference_zones
+            .iter()
+            .map(|z| format!("{} on {}", name_of(&z.image_id), zone_span(z)))
+            .collect();
+        if let Some(id) = &spec.reference_image_id {
+            lines.push(format!("{} everywhere else", name_of(id)));
+        }
+        notes.push(format!(
+            "Corrected onto more than one reference plate: {}. Each interval's sections were \
+             corrected onto its own plate, so fractions from different intervals are only as \
+             comparable as those two plates are. Compare intervals on the agreement figure rather \
+             than by reading their medians against each other.",
+            lines.join("; ")
+        ));
     }
     let missed = plates.iter().filter(|p| p.band_missed).count();
     if missed > 0 {
@@ -2339,6 +2549,7 @@ mod tests {
             scene_hue: 40.0,
             scene_dominated: false,
             cast_shift: f32::NAN,
+            reference_name: String::new(),
             band_missed: false,
             pixels: 1_000_000,
             geometry: None,
@@ -2472,6 +2683,7 @@ mod tests {
             dataset: "THIN SECTION".into(),
             band: PoreColorBand::default(),
             reference_image_id: None,
+            reference_zones: Vec::new(),
             preview_image_id: None,
             only_image_id: None,
             set_name: Some("TS".into()),
@@ -2557,6 +2769,7 @@ mod tests {
                 dataset: "THIN SECTION".into(),
                 band: PoreColorBand::default(),
                 reference_image_id: None,
+                reference_zones: Vec::new(),
                 preview_image_id: None,
                 only_image_id: None,
                 set_name: Some("TS".into()),
@@ -3059,6 +3272,7 @@ mod tests {
                 dataset: "THIN SECTION".into(),
                 band: PoreColorBand::default(),
                 reference_image_id: None,
+                reference_zones: Vec::new(),
                 preview_image_id: None,
                 only_image_id: None,
                 set_name: Some("TS".into()),
@@ -3267,6 +3481,7 @@ mod tests {
                 dataset: "THIN SECTION".into(),
                 band: PoreColorBand::default(),
                 reference_image_id: None,
+                reference_zones: Vec::new(),
                 preview_image_id: None,
                 only_image_id: None,
                 set_name: Some("TS".into()),
@@ -3489,11 +3704,12 @@ mod tests {
             ids.iter().find(|i| i.name == n).map(|i| i.image_id.clone()).expect("plate")
         };
 
-        let spec = |reference: Option<String>, set: Option<&str>| PoreSpec {
+        let spec = |reference: Option<String>, zones: Vec<ReferenceZone>, set: Option<&str>| PoreSpec {
             well_id: w.clone(),
             dataset: "THIN SECTION".into(),
             band: PoreColorBand::default(),
             reference_image_id: reference,
+            reference_zones: zones,
             preview_image_id: None,
             only_image_id: None,
             set_name: set.map(str::to_string),
@@ -3509,7 +3725,7 @@ mod tests {
         };
 
         // --- as the app behaved before: one absolute band over the whole delivery --------------
-        let plain = run_pore_area(&conn, &spec(None, None)).expect("uncorrected run");
+        let plain = run_pore_area(&conn, &spec(None, vec![], None)).expect("uncorrected run");
         let find = |r: &PoreResult, n: &str| r.plates.iter().find(|p| p.name == n).unwrap().clone();
         let (a_ref, a_cast) = (find(&plain, "REF"), find(&plain, "CAST"));
         assert!((a_ref.pore_fraction - 0.25).abs() < 0.01, "REF {}", a_ref.pore_fraction);
@@ -3524,7 +3740,7 @@ mod tests {
         assert!(a_cast.cast_shift.is_nan(), "no reference means no shift to report");
 
         // --- corrected onto the plate the band was tuned on --------------------------------
-        let fixed = run_pore_area(&conn, &spec(Some(id_of("REF")), Some("TS"))).expect("run");
+        let fixed = run_pore_area(&conn, &spec(Some(id_of("REF")), vec![], Some("TS"))).expect("run");
         let (b_ref, b_cast) = (find(&fixed, "REF"), find(&fixed, "CAST"));
         assert!((b_ref.pore_fraction - 0.25).abs() < 0.01, "the reference is unchanged by itself");
         assert!(
@@ -3553,8 +3769,8 @@ mod tests {
         // --- and a reference the band cannot read condemns the whole run -----------------------
         // Every plate is corrected onto it, so its median hue becomes the delivery's. A mistake
         // here would be inherited by all of them and would agree with itself everywhere.
-        let err = run_pore_area(&conn, &spec(Some(id_of("ALLBLUE")), None)).unwrap_err();
-        assert!(err.contains("cannot be the reference plate"), "{err}");
+        let err = run_pore_area(&conn, &spec(Some(id_of("ALLBLUE")), vec![], None)).unwrap_err();
+        assert!(err.contains("cannot be a reference plate"), "{err}");
     }
 
     /// Correcting a plate onto one shot under the SAME lamp must change nothing.
@@ -3633,6 +3849,7 @@ mod tests {
             dataset: "THIN SECTION".into(),
             band: PoreColorBand::default(),
             reference_image_id: reference,
+            reference_zones: Vec::new(),
             preview_image_id: None,
             only_image_id: None,
             set_name: None,
@@ -3670,6 +3887,199 @@ mod tests {
             "same lamp, so the correction must be the identity: {} became {}",
             rich0.pore_fraction,
             rich1.pore_fraction
+        );
+    }
+
+    /// A spec carrying nothing but the reference settings under test.
+    fn zoned(reference: Option<&str>, zones: Vec<ReferenceZone>) -> PoreSpec {
+        PoreSpec {
+            well_id: String::new(),
+            dataset: String::new(),
+            band: PoreColorBand::default(),
+            reference_image_id: reference.map(str::to_string),
+            reference_zones: zones,
+            preview_image_id: None,
+            only_image_id: None,
+            set_name: None,
+            geometry: false,
+            min_pore_px: MIN_PORE_PX,
+            grains: false,
+            min_grain_px: MIN_GRAIN_PX,
+            grain_sep_px: GRAIN_SEP_PX,
+            wicksell: false,
+            stain: None,
+            check_against: None,
+            check_depth_tol: 0.0,
+        }
+    }
+
+    fn zone(top: Option<f32>, base: Option<f32>, id: &str) -> ReferenceZone {
+        ReferenceZone { top, base, image_id: id.to_string() }
+    }
+
+    /// Two adjacent cored intervals are written `2000-2010` and `2010-2020`, so a shared boundary
+    /// depth has to be legal — neither should have to be typed a millimetre short. A genuine
+    /// crossing must not be: inside one, which reference a plate is corrected onto would come down
+    /// to the order of a list nobody can see.
+    #[test]
+    fn reference_intervals_may_touch_but_never_cross() {
+        let touching = zoned(
+            None,
+            vec![zone(Some(2000.0), Some(2010.0), "A"), zone(Some(2010.0), Some(2020.0), "B")],
+        );
+        assert!(check_zones(&touching).is_ok(), "adjacent intervals are how anyone writes two runs");
+        // And the shared depth is not left ambiguous: it goes to the one listed first, which is the
+        // rule the per-barrel core shifts already follow.
+        assert_eq!(reference_for(&touching, 2010.0), Some("A"));
+
+        let crossing = zoned(
+            None,
+            vec![zone(Some(2000.0), Some(2010.0), "A"), zone(Some(2005.0), Some(2020.0), "B")],
+        );
+        assert!(check_zones(&crossing).unwrap_err().contains("overlap"));
+
+        // An open-ended interval swallows every other one, which is still a crossing.
+        let open = zoned(None, vec![zone(None, None, "A"), zone(Some(2000.0), Some(2010.0), "B")]);
+        assert!(check_zones(&open).is_err(), "an interval covering everything crosses every other");
+
+        // A base above its top is a typo or a transposed column; swapping them silently hides it.
+        let backwards = zoned(None, vec![zone(Some(2010.0), Some(2000.0), "A")]);
+        assert!(check_zones(&backwards).unwrap_err().contains("backwards"));
+
+        // An interval with no plate chosen is refused rather than quietly reading as delivered.
+        assert!(check_zones(&zoned(None, vec![zone(Some(2000.0), None, "  ")])).is_err());
+    }
+
+    /// The assignment rule: the first interval that covers the depth, then the delivery-wide plate.
+    #[test]
+    fn a_plate_takes_its_own_intervals_reference_then_the_delivery_wide_one() {
+        let s = zoned(
+            Some("WIDE"),
+            vec![zone(None, Some(2000.0), "SHALLOW"), zone(Some(2500.0), None, "DEEP")],
+        );
+        assert_eq!(reference_for(&s, 1800.0), Some("SHALLOW"), "an open top reaches up");
+        assert_eq!(reference_for(&s, 2000.0), Some("SHALLOW"), "inclusive at the base");
+        assert_eq!(reference_for(&s, 2200.0), Some("WIDE"), "between the intervals: the fallback");
+        assert_eq!(reference_for(&s, 2500.0), Some("DEEP"), "inclusive at the top");
+        // A plate whose depth never arrived belongs to no interval, and saying so beats putting it
+        // in whichever one happens to be listed first.
+        assert_eq!(reference_for(&s, f32::NAN), Some("WIDE"));
+
+        // With no delivery-wide plate the gap between the intervals has no reference at all — which
+        // is what makes those plates REFUSED rather than read as delivered beside corrected ones.
+        // A stored set holding both would be two measurements under one name.
+        let no_fallback = zoned(None, s.reference_zones.clone());
+        assert_eq!(reference_for(&no_fallback, 2200.0), None);
+        assert_eq!(reference_for(&no_fallback, 1800.0), Some("SHALLOW"));
+    }
+
+    /// Two cored intervals photographed differently, each corrected onto its own reference — and a
+    /// section that belongs to neither.
+    ///
+    /// The two lamps here are deliberately NOT a pure channel gain apart, which is the realistic
+    /// case and the reason a single reference stops serving a whole delivery: the correction is
+    /// exact only for a true white-balance error, and it gets less exact the further a plate has to
+    /// move. So the deep sections read correctly when corrected onto a deep reference and are
+    /// refused when dragged onto the shallow one — which is the same failure the real delivery
+    /// showed, reproduced small.
+    ///
+    /// The orphan is the other half: a plate no interval reaches is refused BY NAME. Reading it as
+    /// delivered would put an uncorrected fraction in the same stored set as corrected ones, and
+    /// `band_missed` — which only fires on a corrected plate — would quietly switch off for it.
+    #[test]
+    #[ignore = "needs numpy and Pillow"]
+    fn each_interval_is_corrected_onto_its_own_reference() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, "SANDI-TS-4", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        // Lamp A: warm brown rock at hue 20, epoxy at 229.
+        const MATRIX_A: (u8, u8, u8) = (120, 80, 60);
+        const PORE_A: (u8, u8, u8) = (40, 60, 150);
+        // Lamp B: a green cast, rock at hue 141, epoxy still inside the band at 202.
+        const MATRIX_B: (u8, u8, u8) = (60, 130, 90);
+        const PORE_B: (u8, u8, u8) = (40, 100, 150);
+
+        let quarter = |a: (u8, u8, u8), b: (u8, u8, u8)| {
+            bmp(200, 200, move |x, y| if x < 100 && y < 100 { b } else { a })
+        };
+        let mk = |name: &str, depth: f32, data: Vec<u8>| crate::db::NewImage {
+            depth_top: depth,
+            name: name.into(),
+            mime: "image/bmp".into(),
+            width: 200,
+            height: 200,
+            data,
+            printable: true,
+            prepared: Some("blue_epoxy".into()),
+            ..Default::default()
+        };
+        crate::db::insert_well_images(
+            &conn,
+            &w,
+            "THIN SECTION",
+            "LAB",
+            None,
+            &[
+                mk("SHREF", 2000.0, quarter(MATRIX_A, PORE_A)),
+                mk("SHMEM", 2001.0, quarter(MATRIX_A, PORE_A)),
+                mk("ORPHAN", 2500.0, quarter(MATRIX_A, PORE_A)),
+                mk("DPREF", 3000.0, quarter(MATRIX_B, PORE_B)),
+                mk("DPMEM", 3001.0, quarter(MATRIX_B, PORE_B)),
+            ],
+        )
+        .unwrap();
+        let ids = crate::db::list_well_images(&conn, &w, Some("THIN SECTION")).unwrap();
+        let id_of = |n: &str| ids.iter().find(|i| i.name == n).map(|i| i.image_id.clone()).unwrap();
+
+        let mut s = zoned(None, Vec::new());
+        s.well_id = w.clone();
+        s.dataset = "THIN SECTION".into();
+
+        // --- one reference for the whole delivery: the deep interval is lost -------------------
+        let mut wide = s.clone();
+        wide.reference_image_id = Some(id_of("SHREF"));
+        let one = run_pore_area(&conn, &wide).expect("run");
+        let find = |r: &PoreResult, n: &str| {
+            r.plates.iter().find(|p| p.name == n).unwrap_or_else(|| panic!("{n}")).clone()
+        };
+        let deep_one = find(&one, "DPMEM");
+        assert!(
+            deep_one.cast_shift > 100.0,
+            "the deep sections had to move a long way to reach a shallow reference: {}",
+            deep_one.cast_shift
+        );
+        assert!(deep_one.band_missed, "and the band did not survive the trip: {}", deep_one.pore_fraction);
+
+        // --- an interval each: every section corrected onto its own lamp ------------------------
+        let mut split = s.clone();
+        split.reference_zones = vec![
+            zone(None, Some(2100.0), &id_of("SHREF")),
+            zone(Some(2900.0), None, &id_of("DPREF")),
+        ];
+        let two = run_pore_area(&conn, &split).expect("run");
+
+        for (name, reference) in [("SHREF", "SHREF"), ("SHMEM", "SHREF"), ("DPREF", "DPREF"), ("DPMEM", "DPREF")] {
+            let p = find(&two, name);
+            assert_eq!(p.reference_name, reference, "{name} was corrected onto the wrong plate");
+            assert!(p.cast_shift.abs() < 5.0, "{name} shift {}", p.cast_shift);
+            assert!(
+                (p.pore_fraction - 0.25).abs() < 0.02,
+                "{name} reads {} where the rock is a quarter pore",
+                p.pore_fraction
+            );
+            assert!(!p.band_missed, "{name} was measured");
+        }
+
+        // The orphan sits between the two intervals and no delivery-wide plate was named, so it is
+        // named in the refusals rather than being read as delivered.
+        assert!(two.plates.iter().all(|p| p.name != "ORPHAN"), "an uncovered plate is not measured");
+        assert!(
+            two.skipped.iter().any(|s| s.contains("ORPHAN") && s.contains("no reference plate covers")),
+            "{:?}",
+            two.skipped
         );
     }
 }
@@ -3802,6 +4212,7 @@ mod field_tests {
             dataset: "THIN SECTION".into(),
             band: PoreColorBand::default(),
             reference_image_id: None,
+            reference_zones: Vec::new(),
             preview_image_id: None,
             only_image_id: None,
             set_name: Some("TS".into()),

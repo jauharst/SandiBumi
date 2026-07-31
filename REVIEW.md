@@ -7082,3 +7082,45 @@ runs whether you save or not, so you can tune freely.
       worth knowing before it goes into a report.
 - [ ] On a well with no core, check the run still works and simply says there is nothing to check
       against.
+
+## Each cored interval can have its own reference plate (2026-07-31)
+
+Last session gave the reference plate a dial. This session gives it a second one, because the same
+numbers said one reference was not always enough: giving each of your cored intervals its own plate
+scored better than a single delivery-wide one in **both** of them (0.19 → 0.24 shallow, 0.49 → 0.53
+deep). That was measured before this existed, by running each interval as a separate job. Now it is
+one run — and Check against will tell you whether it helped on the well in front of you rather than
+you having to take my word for the two above.
+
+**Per-interval references** sits directly under Reference plate in Pore Area…. Press *+ Interval
+with its own reference*, type a depth range and pick the plate that range should be corrected onto.
+Leave either end blank for "from the top of the well" or "down to total depth" — that is how a cored
+interval at either end is actually described, and a blank is not a missing number.
+
+The plate table gains a **Reference** column whenever more than one plate served, beside the Shift
+column. A shift of 40° means nothing until you know which plate it is 40° from.
+
+**Intervals may touch but not cross.** `2000–2010` next to `2010–2020` is fine and the shared depth
+goes to whichever you listed first. A real overlap is refused before anything is measured, because
+inside it the reference a section got would come down to the order of the list — you would get two
+different answers from the same settings with nothing on screen saying why.
+
+**A section no interval reaches falls back to the Reference plate above.** If you have not set one,
+that section is refused **by name** rather than measured uncorrected. That is deliberate: the
+empty-answer guard only works on a corrected plate, so an uncorrected one sitting in the same saved
+delivery as corrected ones would have quietly lost it, and nothing downstream could tell them apart.
+
+**Fractions from two different intervals are only as comparable as their two reference plates are.**
+The run says so, and lists which plate served which range. Compare intervals on the agreement figure
+rather than by reading their medians against each other.
+
+- [ ] Set up two intervals matching your two cored sections, each with a mid-tone plate of its own,
+      and check the Reference column shows each section corrected onto its own interval's plate.
+- [ ] Compare that run against a single delivery-wide reference in the settings table, and see
+      whether the split earns its place on your rock the way it did on mine.
+- [ ] Leave a gap between the intervals with no Reference plate set, and check the sections in the
+      gap are named in Left out rather than quietly measured.
+- [ ] Type two overlapping intervals and check the run refuses with both ranges named, before it
+      measures anything.
+- [ ] Check that touching intervals (`…–2500` and `2500–…`) are accepted, and that a plate sitting
+      exactly on 2500 goes to the one listed first.

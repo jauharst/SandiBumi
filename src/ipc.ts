@@ -3295,6 +3295,15 @@ export interface PoreColorBand {
   val_min: number;
 }
 
+/** One depth interval and the plate every section inside it is corrected onto. */
+export interface ReferenceZone {
+  /** Shallowest depth this reference serves. Omit to reach up to the top of the well. */
+  top?: number | null;
+  /** Deepest. Omit to reach down to total depth. */
+  base?: number | null;
+  image_id: string;
+}
+
 export interface PoreSpec {
   well_id: string;
   dataset: string;
@@ -3308,6 +3317,15 @@ export interface PoreSpec {
    *  one light. Omit to read every plate exactly as delivered. Naming one also turns on the
    *  empty-measurement refusal — see `band_missed`. */
   reference_image_id?: string | null;
+  /** References for particular depth intervals, overruling `reference_image_id` where they reach.
+   *  Omit for the delivery-wide behaviour.
+   *
+   *  A delivery spanning two cored intervals is two different rocks, usually photographed on two
+   *  different days, and one reference serves both only by accident. A plate no interval covers
+   *  falls back to `reference_image_id`; where that is absent too the plate is REFUSED by name
+   *  rather than read as delivered — one stored set holding both corrected and uncorrected
+   *  fractions would be two measurements under one name. */
+  reference_zones?: ReferenceZone[];
   /** Store the results as point data under this delivery name. Omit to measure without writing:
    *  tuning must not leave a trail of half-judged answers in the project. */
   set_name?: string | null;
@@ -3463,6 +3481,10 @@ export interface PlatePore {
   /** How far this photograph's light sat from the reference plate's, in degrees of hue — the size
    *  of the correction applied. NaN when no reference was named. Diagnostic, never a threshold. */
   cast_shift: number;
+  /** The plate this one was corrected onto, by name; empty when nothing was. Reported because with
+   *  more than one reference in play, a shift of 40° means nothing until you know which plate it is
+   *  40° from. */
+  reference_name: string;
   /** True when the band, carried onto this plate, claimed less than one resolvable pore. Only ever
    *  set on a normalized run: near zero reads as a tight rock, so it is refused rather than stored,
    *  but only once a reference plate has established that the band finds epoxy somewhere. */

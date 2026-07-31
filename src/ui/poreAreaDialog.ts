@@ -9,6 +9,7 @@ import {
   type PlugChoice,
   type PlugSource,
   type PoreColorBand,
+  type ReferenceZone,
   type PoreResult,
   type StainBand,
   type StainClass,
@@ -98,27 +99,40 @@ export async function openPoreAreaDialog(): Promise<void> {
   const refSel = document.createElement("select");
   refSel.className = "form-control";
 
+  const plateOption = (p: ImageInfo): HTMLOptionElement => {
+    const o = document.createElement("option");
+    o.value = p.image_id;
+    // The preparation is shown in the picker because it decides whether the plate can be measured
+    // at all — finding that out only after pressing Measure wastes the run.
+    const prep = p.prepared === "blue_epoxy" ? "" : p.prepared === "plain" ? " — not impregnated" : " — preparation not stated";
+    o.textContent = `${p.name} @ ${p.depth_top}${prep}`;
+    o.disabled = p.prepared !== "blue_epoxy";
+    return o;
+  };
+
+  /** Refill a reference picker, keeping the current choice if this dataset still has that plate. */
+  const fillPlates = (sel: HTMLSelectElement, emptyLabel: string): void => {
+    const keep = sel.value;
+    sel.innerHTML = "";
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = emptyLabel;
+    sel.appendChild(none);
+    for (const p of plates) sel.appendChild(plateOption(p));
+    if (keep) sel.value = keep;
+  };
+
+  /** Every per-interval picker, so a dataset change refills them all. */
+  const zoneSelects: HTMLSelectElement[] = [];
+
   const loadPlates = async (): Promise<void> => {
     plates = await listWellImages(well.well_id, dsSel.value).catch(() => [] as ImageInfo[]);
     plateSel.innerHTML = "";
-    refSel.innerHTML = "";
-    const none = document.createElement("option");
-    none.value = "";
-    none.textContent = "— none: read every plate as delivered —";
-    refSel.appendChild(none);
-    for (const p of plates) {
-      const o = document.createElement("option");
-      o.value = p.image_id;
-      // The preparation is shown in the picker because it decides whether the plate can be
-      // measured at all — finding that out only after pressing Measure wastes the run.
-      const prep = p.prepared === "blue_epoxy" ? "" : p.prepared === "plain" ? " — not impregnated" : " — preparation not stated";
-      o.textContent = `${p.name} @ ${p.depth_top}${prep}`;
-      o.disabled = p.prepared !== "blue_epoxy";
-      plateSel.appendChild(o);
-      refSel.appendChild(o.cloneNode(true));
-    }
+    for (const p of plates) plateSel.appendChild(plateOption(p));
     const first = plates.find((p) => p.prepared === "blue_epoxy");
     if (first) plateSel.value = first.image_id;
+    fillPlates(refSel, "— none: read every plate as delivered —");
+    for (const s of zoneSelects) fillPlates(s, "— choose a plate —");
   };
   await loadPlates();
   wrap.appendChild(formRow("Tune on plate", plateSel, "The band is judged by eye on one plate, then applied to the delivery."));
@@ -133,6 +147,82 @@ export async function openPoreAreaDialog(): Promise<void> {
   );
   /** The reference, or nothing. Read at run time so changing the picker needs no rewiring. */
   const refId = (): string | undefined => refSel.value || undefined;
+
+  // ---- a reference per cored interval -------------------------------------
+  //
+  // A delivery spanning two cored intervals is two different rocks, usually photographed on two
+  // different days, and one reference plate serves both only by accident. Giving each interval its
+  // own lifted agreement with core porosity in BOTH on a real delivery — a refinement rather than a
+  // rescue, and now one the Check against figure below can settle instead of it being taken on
+  // trust.
+  const zoneBox = document.createElement("div");
+  const zoneRows: { row: HTMLElement; top: HTMLInputElement; base: HTMLInputElement; ref: HTMLSelectElement }[] = [];
+
+  const addZone = (): void => {
+    const row = document.createElement("div");
+    row.style.display = "flex";
+    row.style.gap = "6px";
+    row.style.alignItems = "center";
+    row.style.marginBottom = "3px";
+    const num = (ph: string): HTMLInputElement => {
+      const i = document.createElement("input");
+      i.className = "form-control";
+      i.type = "number";
+      i.step = "any";
+      i.placeholder = ph;
+      i.style.width = "8rem";
+      return i;
+    };
+    // A blank end is not a missing value — "from the top of the well" and "down to total depth" is
+    // how a cored interval at either end of the well is actually described.
+    const top = num("from (blank = top)");
+    const base = num("to (blank = TD)");
+    const ref = document.createElement("select");
+    ref.className = "form-control";
+    ref.style.flex = "1";
+    fillPlates(ref, "— choose a plate —");
+    zoneSelects.push(ref);
+    const del = document.createElement("button");
+    del.className = "btn";
+    del.textContent = "✕";
+    del.title = "Remove this interval";
+    del.addEventListener("click", () => {
+      const i = zoneRows.findIndex((z) => z.row === row);
+      if (i >= 0) zoneRows.splice(i, 1);
+      const j = zoneSelects.indexOf(ref);
+      if (j >= 0) zoneSelects.splice(j, 1);
+      row.remove();
+    });
+    row.append(top, base, ref, del);
+    zoneBox.appendChild(row);
+    zoneRows.push({ row, top, base, ref });
+  };
+
+  const addZoneBtn = document.createElement("button");
+  addZoneBtn.className = "btn";
+  addZoneBtn.textContent = "+ Interval with its own reference";
+  addZoneBtn.addEventListener("click", addZone);
+  const zoneWrap = document.createElement("div");
+  zoneWrap.append(zoneBox, addZoneBtn);
+  wrap.appendChild(
+    formRow(
+      "Per-interval references",
+      zoneWrap,
+      "Overrules the plate above inside a depth range. Intervals may touch but not cross — across " +
+        "an overlap, which reference a section got would come down to the order of this list. A " +
+        "section no interval reaches falls back to the plate above; with none set it is refused by " +
+        "name rather than measured uncorrected alongside corrected ones."
+    )
+  );
+
+  /** The declared intervals. A row with no plate chosen is sent as it stands, so the run refuses it
+   *  by name — silently ignoring a half-filled interval would look exactly like one that applied. */
+  const zoneList = (): ReferenceZone[] =>
+    zoneRows.map((z) => ({
+      top: z.top.value === "" ? null : Number(z.top.value),
+      base: z.base.value === "" ? null : Number(z.base.value),
+      image_id: z.ref.value,
+    }));
 
   // ---- the yardstick ------------------------------------------------------
   //
@@ -376,6 +466,7 @@ export async function openPoreAreaDialog(): Promise<void> {
         dataset: dsSel.value,
         band: band(),
         reference_image_id: refId(),
+        reference_zones: zoneList(),
         preview_image_id: id,
         only_image_id: id,
         // No set_name: tuning writes nothing.
@@ -428,7 +519,11 @@ export async function openPoreAreaDialog(): Promise<void> {
    *  comparison table below identifies what was actually changed between two runs. */
   const settingLabel = (): string => {
     const ref = refSel.value ? (refSel.selectedOptions[0]?.textContent ?? "?") : "none";
-    return `${ref} · band ${hueLo.value}–${hueHi.value}°`;
+    const n = zoneRows.length;
+    // The intervals are named by their count rather than listed: the row has to stay readable, and
+    // what changed between two runs is almost always how many intervals there were, not their ends.
+    const head = n ? `${n} interval${n > 1 ? "s" : ""}${refSel.value ? ` + ${ref}` : ""}` : ref;
+    return `${head} · band ${hueLo.value}–${hueHi.value}°`;
   };
 
   /** Every scored run this session. Kept here rather than persisted because it describes an
@@ -531,10 +626,14 @@ export async function openPoreAreaDialog(): Promise<void> {
     // Only on a normalized run — with no reference there is no shift to report, and an empty
     // column would read as "every plate matched" rather than "nothing was compared".
     const anyShift = res.plates.some((p) => Number.isFinite(p.cast_shift));
+    // Only once more than one plate served as a reference — with a single one the column would
+    // repeat the picker above on every row, and a shift is unambiguous anyway.
+    const anyRef = new Set(res.plates.map((p) => p.reference_name).filter(Boolean)).size > 1;
     const anyGrain = res.plates.some((p) => p.grains);
     const anyGrainSized = res.plates.some((p) => p.grains?.d50_app_um != null);
     const anyW = res.plates.some((p) => p.grains?.d50_w_um != null);
     const cols = ["Plate", "Depth", "Pore area"];
+    if (anyRef) cols.push("Reference");
     if (anyShift) cols.push("Shift");
     if (anyGeom) cols.push("Pores", "Aspect", "Roundness");
     if (anySized) cols.push("D10 µm", "D50 µm", "D90 µm");
@@ -580,6 +679,9 @@ export async function openPoreAreaDialog(): Promise<void> {
           `which. Not stored. Tune a band on this plate, or make it the reference.`;
         vals[2] += " ⚠";
       }
+      // Which plate this section was corrected onto, beside the size of that correction. With two
+      // references in play a shift of 40 degrees means nothing until you know what it is 40 from.
+      if (anyRef) vals.push(p.reference_name);
       // The size of the correction, beside the answer it produced. A plate that had to move a long
       // way is one to look at, and it is the only thing on the row that says so.
       if (anyShift) vals.push(Number.isFinite(p.cast_shift) ? `${p.cast_shift.toFixed(0)}°` : "");
@@ -667,6 +769,7 @@ export async function openPoreAreaDialog(): Promise<void> {
             dataset: dsSel.value,
             band: band(),
             reference_image_id: refId(),
+            reference_zones: zoneList(),
             geometry: geomChk.checked,
             min_pore_px: Number(minPx.value) || 20,
             grains: grainChk.checked,
@@ -701,6 +804,7 @@ export async function openPoreAreaDialog(): Promise<void> {
             dataset: dsSel.value,
             band: band(),
             reference_image_id: refId(),
+            reference_zones: zoneList(),
             geometry: geomChk.checked,
             min_pore_px: Number(minPx.value) || 20,
             grains: grainChk.checked,
