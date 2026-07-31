@@ -214,7 +214,7 @@ click listener the two are equivalent — but when the *gesture* is the thing un
 
 ## Current coverage
 
-Seventy-three tests across eighteen spec files. Specs share ONE app launch and one project (see the spec
+Seventy-six tests across nineteen spec files. Specs share ONE app launch and one project (see the spec
 grouping note in `wdio.conf.mjs`), so write each one to establish what it needs and to assert
 changes as before/after differences rather than as absolute state.
 
@@ -387,6 +387,14 @@ correct one if you only read the message.
 
 It never picks a cutoff — the invariants hold for any, and a VSH/PHIE/SWE value invented to make a
 test pass would be an unsourced petrophysical number in the repo.
+
+`report.e2e.mjs` — the report corner (T-REP-07, the opening half of T-REP-01):
+
+| Test | What it proves |
+|---|---|
+| The Composite pane opens | The smoke claim |
+| The methodology table saves | As parsed ROWS keeping their pipe-separated fields |
+| A rebuilt pane reads it back | The read path, not the textarea's own memory |
 
 Test data is `dataset for test/examples/` (`SANDI-*`) only. Never a real client project, never a
 path from `SANDIBUMI_FIELD_FIXTURES`.

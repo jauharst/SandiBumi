@@ -235,7 +235,14 @@ can fail for reasons unrelated to the code is a gate people learn to ignore.
 **`[x]` here means an end-to-end test drives it against the real app. It is NOT your verification
 mark** — same rule as pile B.
 
-**Done (28 of 86)**
+**Done (29 of 86)**
+
+- [x] **T-REP-07** — The methodology table persists as a `report_template` document ·
+      `report.e2e.mjs`. Asserted on the STORED DOCUMENT and on a freshly REBUILT pane, not on the
+      textarea still holding what was typed: the field is populated from the document at build
+      time, so only a rebuild tests the read path. The stored rows must keep their pipe-separated
+      FIELDS — storing each line verbatim would still round-trip through this pane and then render
+      as one column in the PDF, turning a methodology table into a list of sentences.
 
 - [x] **T-BATCH-07** — Cutoffs & Pay Summary: the table and **the row invariants the triage flagged
       as worth testing** · `paysummary.e2e.mjs`. Net ≤ Gross, N/G within 0..1, PAY-net ≤
@@ -422,6 +429,10 @@ mark** — same rule as pile B.
       a star that looks set and was never written gives a run scope that silently empties on the
       next launch. **Not covered:** the 📌 global well LOCK (a different control from the ★), the
       panel titles following the selection, and ★ persistence across a relaunch.
+
+- [ ] **T-REP-01** — Composite & Report panes open and follow the selected well. `report.e2e.mjs`
+      covers the opening half for both. **Not covered:** that they follow the selected well, and the
+      placeholder text.
 
 - [ ] **T-MLEQ-14** — ML negatives + the bad-hole Mask. `ml.e2e.mjs` covers step 1 (the
       no-input-curve refusal, plus that nothing was written) and step 3 — **which is where it found

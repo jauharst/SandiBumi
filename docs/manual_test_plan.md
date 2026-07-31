@@ -4275,6 +4275,10 @@ Shared preconditions for this cluster: app running via `npm run tauri dev`; a pr
 3. In Wells & Tops, select a well with full curves.
 4. Right-click inside an open Log View → click **Print / export layout…**.
    **Expected:** Both panes open as dockable panes (not popups). With no well: each shows "Select a well (Wells & Tops) — … will follow", tab titles plain "Composite Log" / "Report". After selecting a well: both panes fill in their forms and tab titles become "Composite Log — {well}" / "Report — {well}". Step 4 focuses the existing Composite pane (singleton, no duplicate). Covers REVIEW.md §All tools as dockview panes (2026-07-20 #24), unchecked items "Open the Zones / Composite / Report pane with no well selected" and "Docking sanity … 'Print / export layout…' opens the Composite pane".
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** `report.e2e.mjs` covers the opening
+   half - both panes open from the Plot ribbon and build their forms. **Not covered:** that they
+   follow the selected well, and the placeholder text.
+
    **Result — T-REP-01:**
 
 - [ ] Pass
@@ -4404,6 +4408,13 @@ Shared preconditions for this cluster: app running via `npm run tauri dev`; a pr
 5. Data tab → **SQL Query** → run: `SELECT doc_type, name, json FROM documents WHERE doc_type = 'report_template'`.
 6. Restart the app (`npm run tauri dev` again), reopen Report.
    **Expected:** Steps 4 and 6: the edited rows survive pane reopen AND app restart. Step 5: exactly one row, doc_type `report_template`, name `default`, json a serialized array of your {parameter, method, remarks} rows. Clearing the textarea and rendering falls back to the built-in default methodology.
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** `report.e2e.mjs` asserts the round
+   trip on the STORED DOCUMENT and on a freshly REBUILT pane - the methodology field is populated
+   from the document at build time, so only a rebuild tests the read path rather than the textarea
+   still holding what was typed into it. The stored rows must keep their pipe-separated FIELDS:
+   storing each line verbatim would still round-trip through this pane and then render as a single
+   column in the PDF, turning a methodology table into a list of sentences.
+
    **Result — T-REP-07:**
 
 - [ ] Pass

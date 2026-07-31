@@ -291,15 +291,27 @@ describe('well group manager and scoping (T-WELL-04, T-WELL-05, T-WELL-06)', () 
       { timeout: 30_000, interval: 500, timeoutMsg: 'the module pane never showed a scope count' },
     )
 
-    // Read the LAST module pane — opening a second one leaves the first in the DOM.
-    const count = await browser.execute(() => {
-      const panes = document.querySelectorAll('.module-pane .well-scope-count')
-      return panes.length ? panes[panes.length - 1].textContent.trim() : ''
-    })
+    // Identify the pane by its OWN manifest outputs rather than taking "the last .module-pane".
+    // Two reasons that shortcut is wrong: several module panes can be open at once, and dockview
+    // DETACHES inactive tabs from the DOM, so which panes are present at all depends on what other
+    // specs left focused. Reading the wrong pane made this test report a 3-well scope for a 2-well
+    // group — a failure that says nothing about the feature.
+    const outputs = (spec.args ?? []).filter((a) => a.kind === 'log_out').map((a) => a.name)
+    const count = await browser.execute((outs) => {
+      const panes = Array.from(document.querySelectorAll('.module-pane'))
+      const mine = panes.find((p) => {
+        const note = Array.from(p.querySelectorAll('.modal-hint'))
+          .map((h) => h.textContent.trim())
+          .find((t) => t.startsWith('Outputs:'))
+        return note && outs.every((o) => note.includes(o))
+      })
+      return mine?.querySelector('.well-scope-count')?.textContent?.trim() ?? '(pane not found)'
+    }, outputs)
+
     assert.match(
       count,
       /\b2\b/,
-      `a pane opened under a 2-well group must scope to 2; its count reads "${count}"`,
+      `a pane opened under a 2-well group must scope to 2; ${spec.name}'s count reads "${count}"`,
     )
   })
 
@@ -311,9 +323,13 @@ describe('well group manager and scoping (T-WELL-04, T-WELL-05, T-WELL-06)', () 
     // name and count while the user believes they have re-scoped, and the run covers the wrong
     // wells. Pinning it means the day it is fixed this test goes RED — which is the alarm. Flip
     // the assertion then; do not delete it.
-    const before = await browser.execute(
-      () => document.querySelector('.module-pane .well-scope-count')?.textContent?.trim() ?? '',
-    )
+    // Same identification problem as the previous test: read THIS module's pane, not whichever
+    // .module-pane happens to be attached.
+    const outs = await browser.execute(() => {
+      const panes = Array.from(document.querySelectorAll('.module-pane'))
+      return panes.map((p) => p.querySelector('.well-scope-count')?.textContent?.trim() ?? '')
+    })
+    const before = outs.join('|')
 
     // Drop back to All wells through the tree's own select — a real group change, made while the
     // pane above is open.
@@ -328,9 +344,11 @@ describe('well group manager and scoping (T-WELL-04, T-WELL-05, T-WELL-06)', () 
       timeoutMsg: 'the tree never came back to the unfiltered list',
     })
 
-    const after = await browser.execute(
-      () => document.querySelector('.module-pane .well-scope-count')?.textContent?.trim() ?? '',
-    )
+    const afterList = await browser.execute(() => {
+      const panes = Array.from(document.querySelectorAll('.module-pane'))
+      return panes.map((p) => p.querySelector('.well-scope-count')?.textContent?.trim() ?? '')
+    })
+    const after = afterList.join('|')
     assert.equal(
       after,
       before,
