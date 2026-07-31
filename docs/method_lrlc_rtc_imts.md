@@ -1,8 +1,8 @@
 # LRLC saturation methods — RtC excess-conductivity correction + IMTS model
 
-Source: `D:\01. Work\2025\36. LRLC - Pertamina Upstream Innovation\Draft Final Report_Study
-of LRLC caused by High Clay Volume (VCL) and Microporosity in Pertamina Fields compiled.docx`
-(PHE UI + LAPI ITB study). Jauhar's own research on low-resistivity/low-contrast pay.
+Source: the draft final report of Jauhar's LRLC study, *"Study of LRLC caused by High Clay
+Volume (VCL) and Microporosity"*, held in his own study archive (not in this repository).
+Jauhar's own research on low-resistivity/low-contrast pay.
 Ported into `lrlc.rs` (modules `sw_rtc`, `sw_imts`).
 
 ## RtC method (Resistivity correction by Clay & Capillary Water)

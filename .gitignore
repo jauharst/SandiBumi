@@ -41,6 +41,11 @@ dist-ssr
 .db-backups/
 Prompt/
 
+# Commercial strategy — pricing, partner structures, IP positions. Local-only by decision
+# (2026-07-31): it names a partner company and discusses IP risk, which is not shared-repo
+# material. Product strategy lives in the committed docs/FUTURE_PLAN.md instead.
+docs/commercial/
+
 # Machine-local Claude Code permission overrides
 .claude/settings.local.json
 *.corrupt-backup-*

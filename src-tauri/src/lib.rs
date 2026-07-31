@@ -6,14 +6,22 @@ mod curves;
 mod db;
 mod decimate;
 mod deviation;
+mod distribution;
 mod dlis;
 mod equations;
+#[cfg(test)]
+mod example_data_test;
 mod export;
+#[cfg(test)]
+mod field_fixtures;
 mod facies;
 mod facies_tie;
 mod geo;
 mod health;
 mod hfu;
+mod images;
+mod petrography;
+mod plugqc;
 mod ingest;
 mod jobs;
 mod layout;
@@ -27,10 +35,12 @@ mod multimin;
 mod multimin2;
 mod netflag;
 mod neutron_charts;
+mod office;
 mod parsers;
 #[cfg(test)]
-mod pipeline_blso_test;
+mod pipeline_field_test;
 mod project;
+mod registration;
 mod report;
 mod resultsqc;
 mod rocktyping;
@@ -84,6 +94,63 @@ pub struct StartupProblem {
 /// `None` on a normal launch. Read once by the frontend at boot.
 pub struct StartupState(pub Mutex<Option<StartupProblem>>);
 
+/// What the background startup open produced, published exactly once.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct OpenOutcome {
+    /// Set only when the intended project could NOT be opened (same payload the blocking
+    /// dialog already renders).
+    pub problem: Option<StartupProblem>,
+    /// Wall-clock seconds the open took. The UI uses it to explain a long wait afterwards
+    /// ("that took 14 minutes because it upgraded your project's storage").
+    pub elapsed_secs: u64,
+    /// The project file actually live at the end of it.
+    pub path: String,
+}
+
+/// Handshake for the startup open, which now runs on a background thread so the WINDOW can
+/// exist first (see `run`). The frontend awaits `await_project_open` and builds nothing until
+/// it resolves — that gate is what keeps any command from reading the empty placeholder
+/// database the window starts on.
+pub struct DbInit(pub Arc<(Mutex<Option<OpenOutcome>>, std::sync::Condvar)>);
+
+/// The published slot type behind `DbInit`.
+type OpenCell = (Mutex<Option<OpenOutcome>>, std::sync::Condvar);
+
+/// Publishes the outcome and wakes every waiter.
+fn store_outcome(cell: &OpenCell, outcome: OpenOutcome) {
+    let (lock, cv) = cell;
+    *lock.lock().unwrap() = Some(outcome);
+    cv.notify_all();
+}
+
+/// Blocks until the outcome has been published, then returns a copy.
+///
+/// The value is STORED, not merely signalled, which is what makes a fast launch work: the
+/// normal case is that the open finishes before the frontend ever asks, so the notify fires
+/// with nobody listening. A waiter arriving afterwards must find the answer sitting there
+/// rather than wait for a signal that already came and went — otherwise every quick launch
+/// would hang at the boot overlay forever. Pinned by `fast_open_published_before_the_wait`.
+fn wait_for_outcome(cell: &OpenCell) -> OpenOutcome {
+    let (lock, cv) = cell;
+    let mut slot = lock.lock().unwrap();
+    while slot.is_none() {
+        slot = cv.wait(slot).unwrap();
+    }
+    slot.clone().expect("loop exits only once published")
+}
+
+/// Blocks until the background open finishes, then reports how it went.
+///
+/// Async so the wait costs a blocking-pool thread rather than the event loop — the whole point
+/// is that the window stays alive and painting while a field-scale project opens.
+#[tauri::command]
+async fn await_project_open(init: tauri::State<'_, DbInit>) -> Result<OpenOutcome, String> {
+    let cell = init.0.clone();
+    tauri::async_runtime::spawn_blocking(move || wait_for_outcome(&cell))
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// What went wrong opening the project at launch, if anything. The frontend calls this on boot
 /// and, when it returns something, blocks the workspace behind an explanatory dialog.
 #[tauri::command]
@@ -91,21 +158,66 @@ fn startup_problem(state: tauri::State<StartupState>) -> Option<StartupProblem> 
     state.0.lock().unwrap().clone()
 }
 
-/// Checkpoints the DuckDB WAL and copies the project file to `dest_path` ("Save As").
-/// Deliberately a backup export: the app KEEPS working on the current file.
+/// Engine-copies the live project to `dest_path` ("Save As"). Deliberately a backup
+/// export: the app KEEPS working on the current file. The engine copy (rather than a
+/// file copy) writes only live rows, so a Save As is also a compaction — a field project
+/// bloated by months of module re-runs exports at its true data size.
+/// Async: copying a field-scale project is a multi-minute write, and on the event loop that
+/// is a frozen window (see `open_project`).
 #[tauri::command]
-fn save_project_as(
-    db: tauri::State<DbState>,
-    proj: tauri::State<project::ProjectState>,
+async fn save_project_as(
+    db: tauri::State<'_, DbState>,
+    proj: tauri::State<'_, project::ProjectState>,
     dest_path: String,
 ) -> Result<(), String> {
-    {
-        let conn = db.0.lock().unwrap();
-        conn.execute_batch("CHECKPOINT;").map_err(|e| e.to_string())?;
-    }
     let src = proj.0.lock().unwrap().clone();
-    std::fs::copy(&src, &dest_path).map_err(|e| e.to_string())?;
-    Ok(())
+    if src == dest_path {
+        return Err("That is the currently open file — Save As needs a different destination".to_string());
+    }
+    // The OS save dialog already confirmed an overwrite; a stale same-named file (and any
+    // WAL it left) must go first, or ATTACH would merge into it instead of replacing it.
+    if std::path::Path::new(&dest_path).exists() {
+        std::fs::remove_file(&dest_path).map_err(|e| format!("could not overwrite {dest_path}: {e}"))?;
+    }
+    let stale_wal = format!("{dest_path}.wal");
+    if std::path::Path::new(&stale_wal).exists() {
+        std::fs::remove_file(&stale_wal).map_err(|e| format!("could not overwrite {stale_wal}: {e}"))?;
+    }
+    let handle = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = handle.lock().unwrap();
+        db::engine_copy_to(&conn, &dest_path).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// "Compact Project": rewrites the open project in place, dropping the dead space left by
+/// module re-runs (see `project::compact_project`). Blocked while background jobs run —
+/// the connection swap must not race a chain mid-write.
+#[tauri::command]
+async fn compact_project(
+    db: tauri::State<'_, DbState>,
+    proj: tauri::State<'_, project::ProjectState>,
+    chains: tauri::State<'_, chain::ChainRegistry>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+) -> Result<project::CompactReport, String> {
+    if chain::any_active(&chains) || jobs::any_active(&jobs_reg) {
+        return Err("A background job is still running — wait for it to finish before compacting".to_string());
+    }
+    let path = proj.0.lock().unwrap().clone();
+    let owned = DbState(db.0.clone());
+    tauri::async_runtime::spawn_blocking(move || project::compact_project(&owned, &path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Drains the queued boot/maintenance notices (one-time migration backups, memory caps,
+/// compaction results) for the status line and process history. Each notice is returned
+/// exactly once.
+#[tauri::command]
+fn boot_report() -> Vec<String> {
+    db::take_boot_notes()
 }
 
 /// The recent-projects list (most recent first), for the Project ribbon dropdown.
@@ -114,9 +226,9 @@ fn list_recent_projects() -> Vec<project::RecentProject> {
     project::list_recents()
 }
 
-/// Name + path of the project currently open.
-#[tauri::command]
-fn current_project(proj: tauri::State<project::ProjectState>) -> project::RecentProject {
+/// Which project is open, as a `RecentProject`. Shared by the command and by the
+/// project-switch commands (which cannot call a `State`-taking command from an async body).
+fn project_info(proj: &project::ProjectState) -> project::RecentProject {
     let path = proj.0.lock().unwrap().clone();
     project::RecentProject {
         name: project::project_name(&path),
@@ -126,17 +238,31 @@ fn current_project(proj: tauri::State<project::ProjectState>) -> project::Recent
     }
 }
 
-/// Switches the live connection to an EXISTING project file ("IP style" open).
+/// Name + path of the project currently open.
 #[tauri::command]
-fn open_project(
-    db: tauri::State<DbState>,
-    proj: tauri::State<project::ProjectState>,
-    chains: tauri::State<chain::ChainRegistry>,
-    jobs_reg: tauri::State<jobs::JobRegistry>,
+fn current_project(proj: tauri::State<project::ProjectState>) -> project::RecentProject {
+    project_info(&proj)
+}
+
+/// Switches the live connection to an EXISTING project file ("IP style" open).
+///
+/// **Async on purpose.** A sync `#[tauri::command]` runs on the main event-loop thread, so
+/// opening a field-scale project — which may run one-time storage migrations, each backing
+/// up gigabytes first — froze the whole window for the duration (a real 2.5 GB project took
+/// ~15 minutes, during which Windows reports "not responding"). Off-thread, the window keeps
+/// painting and the status line's "this can take minutes" message is actually readable.
+/// Commands that touch the database still block on its mutex, which is correct: they must
+/// not see a half-swapped project.
+#[tauri::command]
+async fn open_project(
+    db: tauri::State<'_, DbState>,
+    proj: tauri::State<'_, project::ProjectState>,
+    chains: tauri::State<'_, chain::ChainRegistry>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
     path: String,
 ) -> Result<project::RecentProject, String> {
     if project::is_current(&proj, &path) {
-        return Ok(current_project(proj));
+        return Ok(project_info(&proj));
     }
     if chain::any_active(&chains) || jobs::any_active(&jobs_reg) {
         return Err("A background job is still running — wait for it to finish before switching projects".to_string());
@@ -144,18 +270,23 @@ fn open_project(
     if !std::path::Path::new(&path).exists() {
         return Err(format!("File not found: {path}"));
     }
-    let info = project::switch_project(&db, &path)?;
+    let owned = DbState(db.0.clone());
+    let info = tauri::async_runtime::spawn_blocking(move || project::switch_project(&owned, &path))
+        .await
+        .map_err(|e| e.to_string())??;
     *proj.0.lock().unwrap() = info.path.clone();
     Ok(info)
 }
 
 /// Creates a FRESH project file (full schema, no wells) and switches to it.
+/// Async for the same reason as `open_project`: the switch closes the OUTGOING project,
+/// whose checkpoint can be slow on a big one.
 #[tauri::command]
-fn new_project(
-    db: tauri::State<DbState>,
-    proj: tauri::State<project::ProjectState>,
-    chains: tauri::State<chain::ChainRegistry>,
-    jobs_reg: tauri::State<jobs::JobRegistry>,
+async fn new_project(
+    db: tauri::State<'_, DbState>,
+    proj: tauri::State<'_, project::ProjectState>,
+    chains: tauri::State<'_, chain::ChainRegistry>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
     path: String,
 ) -> Result<project::RecentProject, String> {
     if chain::any_active(&chains) || jobs::any_active(&jobs_reg) {
@@ -164,7 +295,10 @@ fn new_project(
     if std::path::Path::new(&path).exists() {
         return Err(format!("{path} already exists — use Open Project to open it"));
     }
-    let info = project::switch_project(&db, &path)?;
+    let owned = DbState(db.0.clone());
+    let info = tauri::async_runtime::spawn_blocking(move || project::switch_project(&owned, &path))
+        .await
+        .map_err(|e| e.to_string())??;
     *proj.0.lock().unwrap() = info.path.clone();
     Ok(info)
 }
@@ -225,7 +359,12 @@ async fn import_las_files(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
     paths: Vec<String>,
+    set_name: Option<String>,
+    attach: Option<bool>,
 ) -> Result<Vec<ingest::ImportResult>, String> {
+    // Import-sets options (T-IMP-02): one set name per batch; attach-by-name defaults ON
+    // when the frontend doesn't say otherwise (the dialog always sends it explicitly).
+    let opts = ingest::LasImportOptions { set_name, attach: attach.unwrap_or(true) };
     // One job item per file (label = basename) so the Processing panel shows "WELL_12.las ✓".
     let items: Vec<(String, String)> = paths
         .iter()
@@ -236,7 +375,7 @@ async fn import_las_files(
     let reg = jobs_reg.inner().clone();
     jobs::run_job(reg, "Import LAS", format!("{total} file(s)"), items, total, true, move |job| {
         let c = conn.lock().unwrap();
-        ingest::import_las_files(&c, &paths, Some(&job))
+        ingest::import_las_files_with(&c, &paths, Some(&job), &opts)
     })
     .await
 }
@@ -259,6 +398,42 @@ async fn import_core_csv(
     .await
 }
 
+/// Core import v2 (T-IMP-07), probe half: reads a core CSV/TXT (delimiter auto-detected)
+/// and reports headers, guessed roles (incl. a WELL/WN column), column types, sample rows,
+/// distinct wells, percent + depth-unit detection — everything the mapping dialog shows
+/// for CONFIRMATION. Writes nothing.
+#[tauri::command]
+fn probe_core_table(path: String) -> Result<parsers::TableProbe, String> {
+    parsers::probe_core_table(&path).map_err(|e| e.to_string())
+}
+
+/// Core import v2 commit half: imports one core table under the dialog-confirmed mapping.
+/// Rows route per well name (exactly-one-match rule; unmatched/ambiguous reported, never
+/// guessed) or all to `fallback_well_id`; depths convert from `depth_unit` to the
+/// project's declared unit. Per-well replace-on-reimport semantics. Columns listed in
+/// `mapping.extras` are stored as point data under `extras_dataset` (default "CORE").
+#[tauri::command]
+fn import_core_table(
+    db: tauri::State<DbState>,
+    path: String,
+    mapping: parsers::CoreMapping,
+    depth_unit: Option<String>,
+    fallback_well_id: Option<String>,
+    extras_dataset: Option<String>,
+    set_name: Option<String>,
+) -> Result<ingest::CoreTableImportResult, String> {
+    let conn = db.0.lock().unwrap();
+    Ok(ingest::import_core_table(
+        &conn,
+        &path,
+        &mapping,
+        depth_unit.as_deref(),
+        fallback_well_id.as_deref(),
+        extras_dataset.as_deref(),
+        set_name.as_deref(),
+    ))
+}
+
 /// Imports formation tops from a CSV/TXT file (P2). Files with a WELL column update
 /// every matching well; single-well files use `default_well_id` (the selected well).
 #[tauri::command]
@@ -277,8 +452,9 @@ async fn import_tops_csv(
     .await
 }
 
-/// Imports a tops-style dataset (PETROGRAPHY / XRD / PERFORATION / custom) for one well,
-/// replacing that well's previous rows of the same dataset (P2).
+/// Imports a tops-style point dataset (PETROGRAPHY / XRD / CEC / OIL SHOW / PERFORATION /
+/// custom) for one well as a NEW named delivery — `set_name` is auto-suffixed per well
+/// rather than overwriting an earlier one, and becomes that dataset's live set (P2/T-IMP-08).
 #[tauri::command]
 async fn import_aux_data(
     db: tauri::State<'_, DbState>,
@@ -286,14 +462,48 @@ async fn import_aux_data(
     well_id: String,
     dataset: String,
     path: String,
+    set_name: Option<String>,
+    follow_core: Option<bool>,
 ) -> Result<ingest::AuxImportResult, String> {
     let conn = db.0.clone();
     let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
+    let follow_core = follow_core.unwrap_or(false);
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import dataset", base, move || {
         let c = conn.lock().unwrap();
-        Ok(ingest::import_aux_file(&c, &well_id, &dataset, &path))
+        Ok(ingest::import_aux_file(&c, &well_id, &dataset, &path, set_name.as_deref(), follow_core))
     })
     .await
+}
+
+/// Every point-data delivery of a well (XRD, CEC, oil show, core extras …), grouped by
+/// dataset — for the set manager and the Wells tree.
+#[tauri::command]
+fn list_aux_sets(db: tauri::State<DbState>, well_id: String) -> Result<Vec<db::AuxSetInfo>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_aux_sets(&conn, &well_id).map_err(|e| e.to_string())
+}
+
+/// Makes one point-data delivery the live one for its dataset (others untouched).
+#[tauri::command]
+fn set_active_aux_set(
+    db: tauri::State<DbState>,
+    well_id: String,
+    dataset: String,
+    set_name: String,
+) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    db::set_active_aux_set(&conn, &well_id, &dataset, &set_name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_aux_set(
+    db: tauri::State<DbState>,
+    well_id: String,
+    dataset: String,
+    set_name: String,
+) -> Result<usize, String> {
+    let conn = db.0.lock().unwrap();
+    db::delete_aux_set(&conn, &well_id, &dataset, &set_name).map_err(|e| e.to_string())
 }
 
 /// One well's auxiliary dataset rows (all datasets when `dataset` is null).
@@ -312,6 +522,188 @@ fn list_aux_data(
 fn list_aux_datasets(db: tauri::State<DbState>, well_id: String) -> Result<Vec<(String, i64)>, String> {
     let conn = db.0.lock().unwrap();
     db::list_aux_datasets(&conn, &well_id).map_err(|e| e.to_string())
+}
+
+/// Every measurement name in the project's point data, so a dialog can offer what exists
+/// instead of asking the user to type a name and read an error. Project-wide by design — see
+/// `db::list_aux_item_catalog`.
+#[tauri::command]
+fn list_aux_item_catalog(db: tauri::State<DbState>) -> Result<Vec<db::AuxItemInfo>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_aux_item_catalog(&conn).map_err(|e| e.to_string())
+}
+
+// --- Depth-registered images (thin sections, core photographs) ----------------------
+
+/// Reads the headers of the selected image files: what they are, their true pixel size, and
+/// the depth guessed from each filename. Read-only — nothing is stored until the wizard's
+/// commit, so a wrong guess is corrected on screen rather than in the database.
+#[tauri::command]
+async fn probe_image_files(paths: Vec<String>) -> Result<Vec<images::ImageProbe>, String> {
+    tauri::async_runtime::spawn_blocking(move || images::probe_image_files(&paths))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Is Pillow reachable? Decides whether the wizard offers TIFF and whether it warns that
+/// pictures will print as labelled frames.
+#[tauri::command]
+async fn image_support() -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(images::pillow_available).await.map_err(|e| e.to_string())
+}
+
+/// Commits a confirmed image delivery. Long-running (it shells out to Pillow and writes
+/// megabytes), so it is async + `spawn_blocking`: a sync command would freeze the window.
+#[tauri::command]
+async fn import_well_images(
+    db: tauri::State<'_, DbState>,
+    req: images::ImageImportRequest,
+) -> Result<images::ImageImportResult, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let c = conn.lock().unwrap();
+        images::import_images(&c, &req)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Picture METADATA for a well, from the ACTIVE delivery of each dataset. Never the pixels —
+/// a well with 300 core photographs must list in kilobytes.
+#[tauri::command]
+fn list_well_images(
+    db: tauri::State<DbState>,
+    well_id: String,
+    dataset: Option<String>,
+) -> Result<Vec<db::ImageInfo>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_well_images(&conn, &well_id, dataset.as_deref()).map_err(|e| e.to_string())
+}
+
+/// Which image datasets a well has, with the ACTIVE delivery's counts.
+#[tauri::command]
+fn list_image_datasets(db: tauri::State<DbState>, well_id: String) -> Result<Vec<(String, i64)>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_image_datasets(&conn, &well_id).map_err(|e| e.to_string())
+}
+
+/// The pixels of one picture, as raw bytes (rule 3 — never a JSON array). The frontend wraps
+/// them in a Blob of the returned mime type; the mime rides in a header the caller already
+/// has from `list_well_images`.
+#[tauri::command]
+fn get_well_image(db: tauri::State<DbState>, image_id: String) -> Result<tauri::ipc::Response, String> {
+    let conn = db.0.lock().unwrap();
+    let (_mime, data) = db::get_well_image(&conn, &image_id).map_err(|e| e.to_string())?;
+    Ok(tauri::ipc::Response::new(data))
+}
+
+/// Every image delivery of a well, for the set manager and the Wells tree.
+#[tauri::command]
+fn list_image_sets(db: tauri::State<DbState>, well_id: String) -> Result<Vec<db::ImageSetInfo>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_image_sets(&conn, &well_id).map_err(|e| e.to_string())
+}
+
+/// Makes one image delivery the live one for its dataset (others untouched).
+#[tauri::command]
+fn set_active_image_set(
+    db: tauri::State<DbState>,
+    well_id: String,
+    dataset: String,
+    set_name: String,
+) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    db::set_active_image_set(&conn, &well_id, &dataset, &set_name).map_err(|e| e.to_string())
+}
+
+/// Deletes one image delivery; the newest survivor of that dataset takes over.
+#[tauri::command]
+fn delete_image_set(
+    db: tauri::State<DbState>,
+    well_id: String,
+    dataset: String,
+    set_name: String,
+) -> Result<usize, String> {
+    let conn = db.0.lock().unwrap();
+    db::delete_image_set(&conn, &well_id, &dataset, &set_name).map_err(|e| e.to_string())
+}
+
+/// Deletes one picture.
+#[tauri::command]
+fn delete_well_image(db: tauri::State<DbState>, image_id: String) -> Result<usize, String> {
+    let conn = db.0.lock().unwrap();
+    db::delete_well_image(&conn, &image_id).map_err(|e| e.to_string())
+}
+
+/// Re-registers one picture: core-to-log alignment and labelling for pictures.
+#[tauri::command]
+fn update_well_image(
+    db: tauri::State<DbState>,
+    image_id: String,
+    depth_top: f32,
+    depth_base: Option<f32>,
+    name: String,
+    caption: Option<String>,
+) -> Result<usize, String> {
+    let conn = db.0.lock().unwrap();
+    db::update_well_image(&conn, &image_id, depth_top, depth_base, &name, caption.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+/// Which array logs a well carries, for the layout dialog's picker and the object tree.
+#[tauri::command]
+fn list_array_curves(db: tauri::State<DbState>, well_id: String) -> Result<Vec<db::ArrayCurveInfo>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_array_curves(&conn, &well_id).map_err(|e| e.to_string())
+}
+
+/// Drops one array log. Array logs are the only output whose size scales with iteration count,
+/// so there has to be a way to reclaim one without deleting the study that produced it.
+#[tauri::command]
+fn delete_array_log(
+    db: tauri::State<DbState>,
+    well_id: String,
+    set_name: String,
+    curve_name: String,
+) -> Result<usize, String> {
+    let conn = db.0.lock().unwrap();
+    db::delete_array_log(&conn, &well_id, &set_name, &curve_name).map_err(|e| e.to_string())
+}
+
+/// Fetches one array log — a whole DISTRIBUTION at every depth — as a raw byte buffer.
+///
+/// Raw IPC rather than JSON is not an optimization here, it is the only workable path: a
+/// 2000-sample well with 256 realizations is half a million floats, which serde would encode
+/// as a JSON number array of roughly 4 MB for the frontend to `JSON.parse` on the main thread.
+///
+/// Layout, all little-endian, mirrored by `decodeArrayLog` in `src\ipc.ts`:
+///   [u32 depth_count][u32 width][f32 depth x depth_count][f32 values x depth_count*width]
+///
+/// The value block is ROW-MAJOR by depth and padded with NaN to a uniform `width`. Padding
+/// rather than a ragged encoding keeps the frontend able to index `row * width + r` directly,
+/// and NaN is already this project's only missing-value marker, so a padded cell is dropped by
+/// exactly the same code that drops a realization that failed to converge.
+#[tauri::command]
+fn get_array_log(
+    db: tauri::State<DbState>,
+    well_id: String,
+    set_name: Option<String>,
+    curve_name: String,
+) -> Result<tauri::ipc::Response, String> {
+    let conn = db.0.lock().unwrap();
+    let rows = db::read_array_log(&conn, &well_id, set_name.as_deref(), &curve_name).map_err(|e| e.to_string())?;
+    let width = rows.iter().map(|r| r.samples.len()).max().unwrap_or(0);
+    let mut packed: Vec<f32> = Vec::with_capacity(rows.len() * (width + 1));
+    packed.extend(rows.iter().map(|r| r.depth));
+    for r in &rows {
+        packed.extend_from_slice(&r.samples);
+        packed.extend(std::iter::repeat(f32::NAN).take(width - r.samples.len()));
+    }
+    let mut out = Vec::with_capacity(8 + packed.len() * 4);
+    out.extend_from_slice(&(rows.len() as u32).to_le_bytes());
+    out.extend_from_slice(&(width as u32).to_le_bytes());
+    out.extend_from_slice(bytemuck::cast_slice(&packed));
+    Ok(tauri::ipc::Response::new(out))
 }
 
 /// Fetches a well's core plug data as CPOR/CPERM/CGD/CSW series, for overlay onto
@@ -430,6 +822,85 @@ async fn export_report_batch(
     .await
 }
 
+/// Which office-document packages the discovered Python can import. Asked when the workbook
+/// dialog opens so a button that cannot work explains itself instead of failing at save time.
+#[tauri::command]
+async fn office_support() -> Result<office::OfficeSupport, String> {
+    tauri::async_runtime::spawn_blocking(office::office_support).await.map_err(|e| e.to_string())
+}
+
+/// The asset-team deck. Slides are built from the pay-summary DATA (matplotlib figures), not
+/// from composite pages — a log plot at 1:200 pasted into a slide stops being at 1:200.
+#[tauri::command]
+async fn export_deck(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    spec: office::DeckSpec,
+    dest_path: String,
+) -> Result<office::DeckResult, String> {
+    let conn = db.0.clone();
+    let label = format!("{} well(s)", spec.well_ids.len());
+    jobs::run_simple_job(jobs_reg.inner().clone(), "Deck", label, move || {
+        office::export_deck(&conn, &spec, &dest_path)
+    })
+    .await
+}
+
+/// The EDITABLE Word twin of the report PDF — same title, author, methodology, cutoffs and
+/// tables, so it can be adapted into a client's own template. The native PDF stays the default
+/// deliverable and keeps the composite log pages.
+#[tauri::command]
+async fn export_report_docx(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    spec: report::ReportSpec,
+    dest_path: String,
+) -> Result<String, String> {
+    let conn = db.0.clone();
+    jobs::run_simple_job(jobs_reg.inner().clone(), "Report", "export Word", move || {
+        office::export_report_docx(&conn, &spec, &dest_path)
+    })
+    .await
+}
+
+/// One `.docx` per well into `dest_dir`. Per-well failures are reported without aborting.
+#[tauri::command]
+async fn export_report_docx_batch(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    spec: report::ReportSpec,
+    well_ids: Vec<String>,
+    dest_dir: String,
+) -> Result<Vec<String>, String> {
+    let conn = db.0.clone();
+    let label = format!("{} Word report(s)", well_ids.len());
+    jobs::run_simple_job(jobs_reg.inner().clone(), "Report batch", label, move || {
+        let (written, errors) = office::export_report_docx_batch(&conn, &spec, &well_ids, &dest_dir)?;
+        if !errors.is_empty() {
+            return Err(format!("wrote {} file(s); failed: {}", written.len(), errors.join("; ")));
+        }
+        Ok(written)
+    })
+    .await
+}
+
+/// Writes the study as a formatted multi-sheet Excel workbook. Runs as a job: a field-scale
+/// pay summary is minutes of work, and the Processing monitor should be able to see it.
+#[tauri::command]
+async fn export_workbook(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    spec: office::WorkbookSpec,
+    dest_path: String,
+) -> Result<office::WorkbookResult, String> {
+    let conn = db.0.clone();
+    let label = format!("{} well(s)", spec.well_ids.len());
+    jobs::run_simple_job(jobs_reg.inner().clone(), "Workbook", label, move || {
+        office::export_workbook(&conn, &spec, &dest_path)
+    })
+    .await
+}
+
 /// Writes a base64-encoded PNG (rasterized by the frontend from a report/composite SVG
 /// page) to the user-picked `dest_path` — same whitelisted-write pattern as the PDF/SVG
 /// exports.
@@ -492,8 +963,8 @@ async fn import_scal_csv(
 
 /// Multi-file, multi-format SCAL Pc import (increment 2): flat/long CSVs, Corelab-style
 /// porous-plate wide tables, and per-plug centrifuge block files ("auto" sniffs each
-/// file). All files land in ONE combined replace-write of the well's `scal_pc` rows,
-/// with the Leverett-J fit over the pooled points.
+/// file). The selected files form ONE delivery, stored as the named SCAL set (auto-suffixed
+/// rather than overwriting an earlier report) with the Leverett-J fit over the pooled points.
 #[tauri::command]
 async fn import_scal_files(
     db: tauri::State<'_, DbState>,
@@ -503,8 +974,11 @@ async fn import_scal_files(
     format: String,
     system: String,
     ift_lab: f64,
+    set_name: Option<String>,
+    follow_core: Option<bool>,
 ) -> Result<ingest::ScalImportResult, String> {
     let conn = db.0.clone();
+    let follow_core = follow_core.unwrap_or(false);
     let detail = if paths.len() == 1 {
         paths[0].rsplit(['/', '\\']).next().unwrap_or(&paths[0]).to_string()
     } else {
@@ -512,16 +986,36 @@ async fn import_scal_files(
     };
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import SCAL", detail, move || {
         let c = conn.lock().unwrap();
-        Ok(ingest::import_scal_files(&c, &well_id, &paths, &format, &system, ift_lab))
+        Ok(ingest::import_scal_files(&c, &well_id, &paths, &format, &system, ift_lab, set_name.as_deref(), follow_core))
     })
     .await
 }
 
-/// Fetches a well's SCAL Pc/Sw points (for the saturation-height QC plot).
+/// Fetches a well's SCAL Pc/Sw points from its ACTIVE delivery (saturation-height QC plot).
 #[tauri::command]
 fn get_scal_pc(db: tauri::State<DbState>, well_id: String) -> Result<Vec<db::ScalPcRow>, String> {
     let conn = db.0.lock().unwrap();
     db::get_scal_pc(&conn, &well_id).map_err(|e| e.to_string())
+}
+
+/// A well's SCAL deliveries, for the set manager and the Wells tree.
+#[tauri::command]
+fn list_scal_sets(db: tauri::State<DbState>, well_id: String) -> Result<Vec<db::ScalSetInfo>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_scal_sets(&conn, &well_id).map_err(|e| e.to_string())
+}
+
+/// Makes one SCAL delivery live — Pc/Sw QC, Leverett-J and Thomeer fits all follow it.
+#[tauri::command]
+fn set_active_scal_set(db: tauri::State<DbState>, well_id: String, set_name: String) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    db::set_active_scal_set(&conn, &well_id, &set_name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_scal_set(db: tauri::State<DbState>, well_id: String, set_name: String) -> Result<usize, String> {
+    let conn = db.0.lock().unwrap();
+    db::delete_scal_set(&conn, &well_id, &set_name).map_err(|e| e.to_string())
 }
 
 /// Saves (or updates, by unique name) a user-authored equation and returns its id.
@@ -572,11 +1066,12 @@ async fn run_equation(
     .await
 }
 
-/// Reports which Python interpreter (with numpy) the equation engine will use, if any —
-/// shown in the Equation Editor so a missing install is obvious before a run.
+/// Reports which Python interpreter (with numpy) the equation engine will use, and whether
+/// the optional scipy is importable in it — shown in the Equation Editor so a missing install
+/// is obvious while writing the script, not after it is queued across ninety wells.
 #[tauri::command]
-fn python_status() -> Option<String> {
-    python_engine::find_python().map(|p| p.to_string_lossy().to_string())
+fn python_status() -> python_engine::PythonStatus {
+    python_engine::python_status()
 }
 
 /// Lists the curve catalog (standard + computed curves), auto-derived from the database.
@@ -658,6 +1153,22 @@ fn promote_generic_curve(db: tauri::State<DbState>, curve_id: String) -> Result<
     db::promote_generic_curve(&conn, &curve_id).map_err(|e| e.to_string())
 }
 
+/// Renames / re-units / re-families one imported curve, returning its PREVIOUS identity so
+/// the caller can push an undo. Metadata only — no sample is touched — but the mnemonic and
+/// family are what module inputs resolve by, so this repoints what modules read.
+#[tauri::command]
+fn update_curve_meta(
+    db: tauri::State<DbState>,
+    curve_id: String,
+    mnemonic: String,
+    unit: Option<String>,
+    family: Option<String>,
+) -> Result<db::CurveMetaEdit, String> {
+    let conn = db.0.lock().unwrap();
+    db::update_curve_meta_fields(&conn, &curve_id, &mnemonic, unit.as_deref(), family.as_deref())
+        .map_err(|e| e.to_string())
+}
+
 /// Phase 6: imports a deviation-survey CSV for one well, computing minimum-curvature
 /// TVD/TVDSS and storing it in `well_path`.
 #[tauri::command]
@@ -667,14 +1178,61 @@ async fn import_deviation_csv(
     well_id: String,
     path: String,
     datum_elevation: Option<f32>,
+    survey_name: Option<String>,
 ) -> Result<ingest::CoreImportResult, String> {
     let conn = db.0.clone();
     let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import deviation", base, move || {
         let c = conn.lock().unwrap();
-        Ok(ingest::import_deviation_csv(&c, &well_id, &path, datum_elevation))
+        Ok(ingest::import_deviation_csv(&c, &well_id, &path, datum_elevation, survey_name.as_deref()))
     })
     .await
+}
+
+/// One well's core deliveries and deviation surveys, for the set manager (T-IMP-08/-12).
+#[tauri::command]
+fn list_core_sets(db: tauri::State<DbState>, well_id: String) -> Result<Vec<db::CoreSetInfo>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_core_sets(&conn, &well_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn list_surveys(db: tauri::State<DbState>, well_id: String) -> Result<Vec<db::SurveyInfo>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_surveys(&conn, &well_id).map_err(|e| e.to_string())
+}
+
+/// Makes one core delivery the live one — every core reader (log overlay, φ-k clouds,
+/// SandiMin calibration, DB Inspector edits) follows it from here on.
+#[tauri::command]
+fn set_active_core_set(db: tauri::State<DbState>, well_id: String, set_name: String) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    db::set_active_core_set(&conn, &well_id, &set_name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_core_set(db: tauri::State<DbState>, well_id: String, set_name: String) -> Result<usize, String> {
+    let conn = db.0.lock().unwrap();
+    db::delete_core_set(&conn, &well_id, &set_name).map_err(|e| e.to_string())
+}
+
+/// Makes one survey the live one and RE-MATERIALIZES TVD/TVDSS from it — the stored
+/// curves must never keep the previous survey's geometry (they feed every height
+/// calculation). Returns the number of samples rewritten.
+#[tauri::command]
+fn set_active_survey(db: tauri::State<DbState>, well_id: String, survey_name: String) -> Result<usize, String> {
+    let conn = db.0.lock().unwrap();
+    db::set_active_survey(&conn, &well_id, &survey_name).map_err(|e| e.to_string())?;
+    ingest::materialize_tvd_curves(&conn, &well_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_survey(db: tauri::State<DbState>, well_id: String, survey_name: String) -> Result<usize, String> {
+    let conn = db.0.lock().unwrap();
+    let removed = db::delete_survey(&conn, &well_id, &survey_name).map_err(|e| e.to_string())?;
+    // Whatever survey took over (or none) now owns TVD/TVDSS.
+    let _ = ingest::materialize_tvd_curves(&conn, &well_id);
+    Ok(removed)
 }
 
 /// Phase 6: reads one well's deviation survey (with computed TVD/TVDSS) for TVD-aware views.
@@ -699,35 +1257,48 @@ struct TvdMaterialize {
 /// depth-mode can consume them by name. Deviation import already does this automatically;
 /// this command re-runs it (e.g. after importing logs later or editing the KB datum). Wells
 /// with no survey or no logs report `samples = 0`.
+/// Async: this runs over EVERY selected well, so at field scale it is a minutes-long write —
+/// on the event loop that would freeze the window (see `open_project`).
 #[tauri::command]
-fn materialize_tvd(db: tauri::State<DbState>, well_ids: Vec<String>) -> Result<Vec<TvdMaterialize>, String> {
-    let conn = db.0.lock().unwrap();
-    let mut out = Vec::with_capacity(well_ids.len());
-    for wid in &well_ids {
-        let well_name: String = conn
-            .query_row("SELECT well_name FROM wells WHERE well_id = ?1", [wid], |r| r.get(0))
-            .unwrap_or_else(|_| wid.clone());
-        let has_survey = !db::get_well_path(&conn, wid).map_err(|e| e.to_string())?.is_empty();
-        let samples = ingest::materialize_tvd_curves(&conn, wid).map_err(|e| e.to_string())?;
-        out.push(TvdMaterialize { well_id: wid.clone(), well_name, samples, has_survey });
-    }
-    Ok(out)
+async fn materialize_tvd(
+    db: tauri::State<'_, DbState>,
+    well_ids: Vec<String>,
+) -> Result<Vec<TvdMaterialize>, String> {
+    let handle = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = handle.lock().unwrap();
+        let mut out = Vec::with_capacity(well_ids.len());
+        for wid in &well_ids {
+            let well_name: String = conn
+                .query_row("SELECT well_name FROM wells WHERE well_id = ?1", [wid], |r| r.get(0))
+                .unwrap_or_else(|_| wid.clone());
+            let has_survey = !db::get_well_path(&conn, wid).map_err(|e| e.to_string())?.is_empty();
+            let samples = ingest::materialize_tvd_curves(&conn, wid).map_err(|e| e.to_string())?;
+            out.push(TvdMaterialize { well_id: wid.clone(), well_name, samples, has_survey });
+        }
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Phase 6: imports every scalar channel of a DLIS file into one existing well's generic
-/// curve store (via `dlisio` through the Python subprocess).
+/// curve store (via `dlisio` through the Python subprocess). `set_name` (import-sets):
+/// omitted/RAW = legacy replace-with-count semantics; anything else auto-suffixes per
+/// well so duplicates are kept.
 #[tauri::command]
 async fn import_dlis_file(
     db: tauri::State<'_, DbState>,
     jobs_reg: tauri::State<'_, jobs::JobRegistry>,
     well_id: String,
     path: String,
+    set_name: Option<String>,
 ) -> Result<dlis::DlisImportResult, String> {
     let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
     let conn = db.0.clone();
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import DLIS", base, move || {
         let c = conn.lock().unwrap();
-        Ok(dlis::import_dlis_file(&c, &well_id, &path))
+        Ok(dlis::import_dlis_file(&c, &well_id, &path, set_name.as_deref()))
     })
     .await
 }
@@ -992,6 +1563,52 @@ async fn run_ml(
     .await
 }
 
+/// Applies a SAVED model to wells it has never seen. Nothing is refitted — that is the point:
+/// a refit on different data is a different model.
+#[tauri::command]
+async fn apply_ml_model(
+    db: tauri::State<'_, DbState>,
+    jobs_reg: tauri::State<'_, jobs::JobRegistry>,
+    req: ml::MlApplyRequest,
+) -> Result<ml::MlResult, String> {
+    let items = {
+        let conn = db.0.lock().unwrap();
+        well_items(&conn, &req.apply_well_ids)
+    };
+    let total = req.apply_well_ids.len();
+    let conn = db.0.clone();
+    let reg = jobs_reg.inner().clone();
+    jobs::run_job(reg, "Machine learning", String::from("apply saved model"), items, total, true, move |job| {
+        ml::apply_ml_model(&conn, &req, Some(&job))
+    })
+    .await
+}
+
+/// Every saved model, newest first. Never carries the model bytes — a random forest is megabytes
+/// and the picker only needs the description.
+#[tauri::command]
+async fn list_ml_models(db: tauri::State<'_, DbState>) -> Result<Vec<db::MlModelInfo>, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let c = conn.lock().unwrap();
+        db::list_ml_models(&c).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn rename_ml_model(db: tauri::State<'_, DbState>, model_id: String, new_name: String) -> Result<String, String> {
+    let conn = db.0.lock().unwrap();
+    db::rename_ml_model(&conn, &model_id, &new_name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_ml_model(db: tauri::State<'_, DbState>, model_id: String) -> Result<(), String> {
+    let conn = db.0.lock().unwrap();
+    db::delete_ml_model(&conn, &model_id).map_err(|e| e.to_string())
+}
+
 /// Model-comparison leaderboard (Wave B item 3): blind-well GroupKFold CV over algorithm ×
 /// feature-subset combos, with permutation importance + confusion matrix. Evaluation only — it
 /// writes no curves. Off-thread so the fit/predict sweep doesn't freeze the IPC thread.
@@ -1016,6 +1633,35 @@ async fn run_cuddy_foil(
 ) -> Result<shf_fit::CuddyFoilResult, String> {
     let conn = db.0.clone();
     tauri::async_runtime::spawn_blocking(move || shf_fit::run_cuddy_foil(&conn, &req))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Fits the RtC excess-conductivity coefficients (A_CAP / B_QV / C0) to the user's OWN
+/// water-bearing interval, so `sw_rtc` stops running on a calibration from somebody else's
+/// field. Refuses unless a water zone is declared — see `lrlc::run_rtc_fit`. Off-thread;
+/// writes no curves.
+#[tauri::command]
+async fn run_rtc_fit(
+    db: tauri::State<'_, DbState>,
+    req: lrlc::RtcFitRequest,
+) -> Result<lrlc::RtcFitResult, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || lrlc::run_rtc_fit(&conn, &req))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Fits `sw_imts`'s CEC scaling factor S to the user's OWN laboratory CEC measurements, against
+/// the clay content of the very curves the run will use — see `lrlc::run_s_factor_fit`.
+/// Off-thread; writes no curves.
+#[tauri::command]
+async fn run_s_factor_fit(
+    db: tauri::State<'_, DbState>,
+    req: lrlc::SFactorFitRequest,
+) -> Result<lrlc::SFactorFitResult, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || lrlc::run_s_factor_fit(&conn, &req))
         .await
         .map_err(|e| e.to_string())
 }
@@ -1124,7 +1770,7 @@ fn multimin_fluid_calc(props: multimin2::FluidProps) -> multimin2::FluidCalc {
     multimin2::fluid_calc(&props)
 }
 
-/// Wet-clay → dry-clay endpoint conversion (KKT ONWJ xlsx workflow) for the
+/// Wet-clay → dry-clay endpoint conversion (wet/dry clay xlsx workflow) for the
 /// SandiMin dialog's converter panel.
 #[tauri::command]
 fn multimin_dry_clay(input: multimin2::WetClayInput) -> Result<multimin2::DryClayCalc, String> {
@@ -1265,6 +1911,37 @@ fn set_zone_param(
     db::set_zone_param(&conn, &well_id, &zone_name, &param_name, value_num, value_text.as_deref()).map_err(|e| e.to_string())
 }
 
+/// Every whole-well parameter override in the project, for the per-well parameter grid.
+#[tauri::command]
+fn list_well_param_overrides(db: tauri::State<DbState>) -> Result<Vec<db::WellParamOverride>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_well_param_overrides(&conn).map_err(|e| e.to_string())
+}
+
+/// Applies a batch of whole-well parameter overrides atomically; a null value clears one.
+/// The grid's fill/paste actions and their undo all come through here.
+#[tauri::command]
+fn set_well_param_overrides(
+    db: tauri::State<DbState>,
+    entries: Vec<(String, String, Option<f32>)>,
+) -> Result<usize, String> {
+    let mut conn = db.0.lock().unwrap();
+    db::set_well_param_overrides(&mut conn, &entries).map_err(|e| e.to_string())
+}
+
+/// Applies a batch of parameter overrides at one zone scope atomically (`*` = whole well).
+/// An accepted calibration comes through here, so every well it is written to gets the whole
+/// coefficient set or none of it.
+#[tauri::command]
+fn set_zone_param_batch(
+    db: tauri::State<DbState>,
+    zone_name: String,
+    entries: Vec<(String, String, Option<f32>)>,
+) -> Result<usize, String> {
+    let mut conn = db.0.lock().unwrap();
+    db::set_zone_param_batch(&mut conn, &zone_name, &entries).map_err(|e| e.to_string())
+}
+
 /// One page of a whitelisted table for the Database Inspector, every cell as VARCHAR.
 #[tauri::command]
 fn get_table_page(
@@ -1337,11 +2014,234 @@ fn update_core_sample(db: tauri::State<DbState>, well_id: String, depth: f32, co
     db::update_core_sample(&conn, &well_id, depth, &column, value)
 }
 
-/// Shifts every core plug of a well by `delta` metres (core-to-log alignment).
+/// Shifts a well's ACTIVE core delivery by `delta` (core-to-log alignment) — the plugs and the
+/// extras that rode in with them, together. Returns both counts so the caller can say so.
 #[tauri::command]
-fn shift_core_data(db: tauri::State<DbState>, well_id: String, delta: f32) -> Result<usize, String> {
+fn shift_core_data(
+    db: tauri::State<DbState>,
+    well_id: String,
+    delta: f32,
+    targets: Option<db::ShiftTargets>,
+    note: Option<db::RegistrationNote>,
+) -> Result<db::CoreShiftCounts, String> {
+    let mut conn = db.0.lock().unwrap();
+    // Nothing given = the extras that provably came in on this core. An explicit empty set means
+    // "plugs only", and must stay distinguishable from "not specified".
+    let targets = match targets {
+        Some(t) => t,
+        None => db::ShiftTargets::aux(
+            db::core_extra_datasets(&conn, &well_id)
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .map(|(d, _)| d)
+                .collect(),
+        ),
+    };
+    db::shift_core_depths(&mut conn, &well_id, delta, &targets, &note.unwrap_or_default())
+        .map_err(|e| e.to_string())
+}
+
+/// Applies per-barrel (or finer) corrections to a well's active core delivery. Refuses any set
+/// that would reorder the core, and changes nothing when it does.
+#[tauri::command]
+fn apply_core_run_shifts(
+    db: tauri::State<DbState>,
+    well_id: String,
+    runs: Vec<db::RunShift>,
+    targets: Option<db::ShiftTargets>,
+    note: Option<db::RegistrationNote>,
+) -> Result<db::CoreShiftCounts, String> {
+    let mut conn = db.0.lock().unwrap();
+    let targets = match targets {
+        Some(t) => t,
+        None => db::ShiftTargets::aux(
+            db::core_extra_datasets(&conn, &well_id)
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .map(|(d, _)| d)
+                .collect(),
+        ),
+    };
+    db::apply_core_run_shifts(&mut conn, &well_id, &runs, &targets, &note.unwrap_or_default())
+}
+
+/// A well's core depth history: every shift ever applied, why, and how well it agreed. An event
+/// log, so an undo appears as its own reversal rather than erasing what it reversed.
+#[tauri::command]
+fn list_core_registrations(
+    db: tauri::State<DbState>,
+    well_id: String,
+) -> Result<Vec<db::RegistrationEntry>, String> {
     let conn = db.0.lock().unwrap();
-    db::shift_core_depths(&conn, &well_id, delta).map_err(|e| e.to_string())
+    db::list_core_registrations(&conn, &well_id).map_err(|e| e.to_string())
+}
+
+/// Everything in a well that a core registration could carry with it, with whether each delivery
+/// was imported as sitting on the core depth scale.
+#[tauri::command]
+fn core_shift_candidates(db: tauri::State<DbState>, well_id: String) -> Result<Vec<db::ShiftCandidate>, String> {
+    let conn = db.0.lock().unwrap();
+    db::core_shift_candidates(&conn, &well_id).map_err(|e| e.to_string())
+}
+
+/// A well's core depth record: `(depth the lab wrote, depth it sits at now)` per plug.
+#[tauri::command]
+fn core_depth_pairs(db: tauri::State<DbState>, well_id: String) -> Result<Vec<(f32, f32)>, String> {
+    let conn = db.0.lock().unwrap();
+    db::core_depth_pairs(&conn, &well_id).map_err(|e| e.to_string())
+}
+
+/// Maps depths written by a laboratory onto where that rock now sits, using the core's own
+/// record. Returns one `(depth, extrapolated)` per input, so a caller can show which samples fell
+/// outside the cored interval and were therefore guessed rather than measured.
+#[tauri::command]
+fn map_core_depths(
+    db: tauri::State<DbState>,
+    well_id: String,
+    depths: Vec<f32>,
+) -> Result<Vec<(f32, bool)>, String> {
+    let conn = db.0.lock().unwrap();
+    let pairs = db::core_depth_pairs(&conn, &well_id).map_err(|e| e.to_string())?;
+    Ok(depths.into_iter().map(|d| db::map_core_depth(&pairs, d)).collect())
+}
+
+/// Moves a whole plate delivery by a constant depth (re-registering pictures).
+#[tauri::command]
+fn shift_well_images(
+    db: tauri::State<DbState>,
+    well_id: String,
+    dataset: Option<String>,
+    delta: f32,
+) -> Result<usize, String> {
+    let conn = db.0.lock().unwrap();
+    db::shift_well_images(&conn, &well_id, dataset.as_deref(), delta).map_err(|e| e.to_string())
+}
+
+/// Can the pore measurement run? Probed once so a dialog can say what is missing before a run,
+/// rather than failing at the end of one.
+#[tauri::command]
+async fn pore_support() -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(petrography::pore_support)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Pore area from blue-dyed epoxy, over a well's live image delivery. Refuses any plate not
+/// declared impregnated, by name — the measurement would otherwise succeed on it and return a
+/// porosity assembled from blue-ish grains.
+#[tauri::command]
+async fn run_pore_area(
+    db: tauri::State<'_, DbState>,
+    spec: petrography::PoreSpec,
+) -> Result<petrography::PoreResult, String> {
+    let conn = db.0.lock().unwrap();
+    petrography::run_pore_area(&conn, &spec)
+}
+
+/// Is scikit-learn reachable? Probed so the dialog can say what is missing before a run.
+#[tauri::command]
+async fn classify_support() -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(petrography::classify_support)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Trains a per-pixel mineral classifier on the user's own clicks and applies it to the delivery.
+#[tauri::command]
+async fn run_plate_classifier(
+    db: tauri::State<'_, DbState>,
+    spec: petrography::ClassifySpec,
+) -> Result<petrography::ClassifyResult, String> {
+    let conn = db.0.lock().unwrap();
+    petrography::run_plate_classifier(&conn, &spec)
+}
+
+/// The published stain schemes this build ships, as (name, classes). Mineral identifications are
+/// standard carbonate petrography; the colour bands are round starting points for visual tuning.
+#[tauri::command]
+fn stain_schemes() -> Vec<(String, Vec<petrography::StainClass>)> {
+    petrography::stain_scheme_names()
+        .into_iter()
+        .filter_map(|n| petrography::stain_scheme(&n).map(|c| (n, c)))
+        .collect()
+}
+
+/// What the two axis pickers of the plug QC pane can offer over the wells in scope.
+#[tauri::command]
+fn list_plug_choices(
+    db: tauri::State<DbState>,
+    well_ids: Vec<String>,
+) -> Result<Vec<plugqc::PlugChoice>, String> {
+    let conn = db.0.lock().unwrap();
+    plugqc::list_plug_choices(&conn, &well_ids)
+}
+
+/// Pairs two plug-scale measurements by depth across the scoped wells. Long enough on a field of
+/// cored wells to be worth keeping off the event loop.
+#[tauri::command]
+async fn run_plug_qc(
+    db: tauri::State<'_, DbState>,
+    req: plugqc::PlugQcRequest,
+) -> Result<plugqc::PlugQcResult, String> {
+    let conn = db.0.lock().unwrap();
+    plugqc::run_plug_qc(&conn, &req)
+}
+
+/// One plate's field of view and preparation. Every value is written as given, `null` included —
+/// a scale typed by mistake has to be clearable.
+#[tauri::command]
+fn set_image_details(
+    db: tauri::State<DbState>,
+    image_id: String,
+    fov_um: Option<f32>,
+    prepared: Option<String>,
+    stain: Option<String>,
+) -> Result<usize, String> {
+    let conn = db.0.lock().unwrap();
+    db::set_image_details(&conn, &image_id, fov_um, prepared.as_deref(), stain.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+/// The same three facts across a whole live image delivery, in one statement.
+#[tauri::command]
+fn set_image_delivery_details(
+    db: tauri::State<DbState>,
+    well_id: String,
+    dataset: String,
+    fov_um: Option<f32>,
+    prepared: Option<String>,
+    stain: Option<String>,
+) -> Result<usize, String> {
+    let conn = db.0.lock().unwrap();
+    db::set_image_delivery_details(&conn, &well_id, &dataset, fov_um, prepared.as_deref(), stain.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+/// Point datasets delivered as part of this well's active core table — what a depth shift
+/// should move along with the plugs.
+#[tauri::command]
+fn core_extra_datasets(db: tauri::State<DbState>, well_id: String) -> Result<Vec<(String, i64)>, String> {
+    let conn = db.0.lock().unwrap();
+    db::core_extra_datasets(&conn, &well_id).map_err(|e| e.to_string())
+}
+
+/// Everything in a well that could anchor a core-to-log registration.
+#[tauri::command]
+fn list_core_references(db: tauri::State<DbState>, well_id: String) -> Result<Vec<registration::CoreReference>, String> {
+    let conn = db.0.lock().unwrap();
+    registration::list_core_references(&conn, &well_id)
+}
+
+/// Proposes the depth shift that best aligns a well's core with a log. Writes nothing.
+#[tauri::command]
+async fn propose_registration(
+    db: tauri::State<'_, DbState>,
+    req: registration::RegistrationRequest,
+) -> Result<registration::RegistrationResult, String> {
+    let mx = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || registration::propose_registration(&mx, &req))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Interactive curve edit from the log view's right-click menu: wireline shift or an
@@ -1456,11 +2356,22 @@ fn sw_method_spread(
     resultsqc::sw_method_spread(&conn, &req)
 }
 
-/// Read-only SQL over the project database (full DuckDB SQL, SELECT-only).
+/// Read-only SQL over the project database (full DuckDB SQL, SELECT-only). Async: the user
+/// writes the query, so its cost is unbounded — a join over a field-scale `computed_curves`
+/// must not freeze the window (see `open_project`).
 #[tauri::command]
-fn run_query(db: tauri::State<DbState>, sql: String, limit: usize) -> Result<db::TablePage, String> {
-    let conn = db.0.lock().unwrap();
-    db::run_readonly_query(&conn, &sql, limit)
+async fn run_query(
+    db: tauri::State<'_, DbState>,
+    sql: String,
+    limit: usize,
+) -> Result<db::TablePage, String> {
+    let handle = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = handle.lock().unwrap();
+        db::run_readonly_query(&conn, &sql, limit)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Exports one well (standard + computed curves) as a LAS 2.0 file; returns row count.
@@ -1600,18 +2511,18 @@ fn cancel_workflow_chain(registry: tauri::State<chain::ChainRegistry>, job_id: S
     }
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    // The most recently opened project that still exists, else the legacy
-    // `project.duckdb` in the cwd — so existing installs open exactly as before.
-    let startup = project::startup_path();
-    // `tauri dev` restarts this binary on every source-file change, so a WAL replay
-    // failure (killed mid-write) is expected to happen occasionally during
-    // development — self-heal it rather than crash-looping until a human notices.
-    // Boot timing (stderr, visible in the `tauri dev` terminal). These three steps run BEFORE
-    // the window is created, so their sum IS the black-screen time on a large project. The logs
-    // pinpoint which one dominates the ~5-min open on the 540-well / ~2 GB file so the fix can
-    // target it precisely (DB open vs the standard-curves backfill vs the PK-drop check).
+/// Opens the startup project and installs it as the live connection. Runs on a background
+/// thread so the window exists first — see `run` for why that matters.
+///
+/// Everything here used to happen BEFORE `tauri::Builder`, which is what made a slow first
+/// open look like a dead application: on a 2.5 GB field project the one-time storage
+/// migrations took ~15 minutes, and for all of it the user had double-clicked SandiBumi and
+/// gotten no window at all. The recovery ladder is unchanged (project → temp recovery file →
+/// memory-only), it just publishes its outcome instead of returning it.
+fn open_startup_project(handle: tauri::AppHandle, startup: String) {
+    // `tauri dev` restarts this binary on every source-file change, so a WAL replay failure
+    // (killed mid-write) happens occasionally during development — self-heal rather than
+    // crash-loop. The per-step timings inside `open_and_migrate` say which step dominates.
     let boot = std::time::Instant::now();
     let (conn, problem) = match project::open_and_migrate(&startup) {
         Ok(conn) => {
@@ -1619,10 +2530,9 @@ pub fn run() {
             (conn, None)
         }
         Err(message) => {
-            // Never abort here — see `StartupProblem`. Get far enough to put a window up and let
-            // the UI explain. The file that failed is left completely untouched, and it is
-            // deliberately NOT registered in the recents: a project that would not open should
-            // not be the first thing we try again at the next launch.
+            // Never abort — see `StartupProblem`. The file that failed is left completely
+            // untouched, and deliberately NOT registered in the recents: a project that would
+            // not open should not be the first thing we try again at the next launch.
             eprintln!("[boot] {message}");
             let stamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1645,37 +2555,150 @@ pub fn run() {
                 Err(second) => {
                     // Even the temp directory is unusable. Memory-only still beats a silent
                     // death: the user gets a window, can read why, and can open a different
-                    // project. The UI is told nothing will persist.
+                    // project. The UI is told nothing will persist. This keeps the placeholder
+                    // the window already booted on, so there is nothing to swap in.
                     eprintln!("[boot] recovery project also failed: {second}");
-                    // These two are the only remaining panics on the startup path, and neither
-                    // touches the filesystem: an in-memory open and a CREATE TABLE into it.
-                    let conn = Connection::open_in_memory()
-                        .expect("opening an in-memory DuckDB cannot fail");
-                    db::create_schema(&conn)
-                        .expect("creating the schema in a fresh in-memory DuckDB cannot fail");
-                    (
-                        conn,
-                        Some(StartupProblem {
-                            attempted_path: startup.clone(),
-                            message,
-                            recovered_to: String::new(),
-                            recovery_persists: false,
-                        }),
-                    )
+                    let problem = StartupProblem {
+                        attempted_path: startup.clone(),
+                        message,
+                        recovered_to: String::new(),
+                        recovery_persists: false,
+                    };
+                    publish_open_outcome(&handle, None, Some(problem), String::new(), boot);
+                    return;
                 }
             }
         }
     };
-    eprintln!("[boot] total pre-window DB init: {:?}", boot.elapsed());
+    eprintln!("[boot] total background DB init: {:?}", boot.elapsed());
 
-    // "Save As" copies whatever file the connection is actually on, so this has to follow the
-    // recovery rather than the intent — otherwise a recovered session would checkpoint the temp
-    // database and then copy the project that never opened.
-    let project_path = match &problem {
+    // "Save As" copies whatever file the connection is actually on, so this follows the
+    // recovery rather than the intent — otherwise a recovered session would copy the project
+    // that never opened.
+    let path = match &problem {
         Some(p) if p.recovery_persists => p.recovered_to.clone(),
         Some(_) => String::new(),
         None => project::absolute(&startup),
     };
+    publish_open_outcome(&handle, Some(conn), problem, path, boot);
+}
+
+/// Installs the freshly opened connection (if any) and wakes `await_project_open`. Ordering
+/// matters: the connection, project path and problem are all in place BEFORE the outcome is
+/// published, so a frontend that resolves and immediately queries can never race the swap.
+fn publish_open_outcome(
+    handle: &tauri::AppHandle,
+    conn: Option<Connection>,
+    problem: Option<StartupProblem>,
+    path: String,
+    boot: std::time::Instant,
+) {
+    use tauri::Manager as _;
+    if let Some(conn) = conn {
+        if let Some(db) = handle.try_state::<DbState>() {
+            *db.0.lock().unwrap() = conn;
+        }
+    }
+    if let Some(proj) = handle.try_state::<project::ProjectState>() {
+        *proj.0.lock().unwrap() = path.clone();
+    }
+    if let Some(state) = handle.try_state::<StartupState>() {
+        *state.0.lock().unwrap() = problem.clone();
+    }
+    if let Some(init) = handle.try_state::<DbInit>() {
+        store_outcome(
+            &init.0,
+            OpenOutcome { problem, elapsed_secs: boot.elapsed().as_secs(), path },
+        );
+    }
+}
+
+#[cfg(test)]
+mod startup_gate_tests {
+    use super::*;
+
+    fn cell() -> Arc<OpenCell> {
+        Arc::new((Mutex::new(None), std::sync::Condvar::new()))
+    }
+
+    fn outcome(path: &str) -> OpenOutcome {
+        OpenOutcome { problem: None, elapsed_secs: 3, path: path.to_string() }
+    }
+
+    /// THE launch-hang guard. On a normal (fast) launch the background open finishes before
+    /// the frontend calls `await_project_open` at all, so the wake-up fires with no waiter.
+    /// A waiter arriving afterwards must return IMMEDIATELY from the stored value. If this
+    /// ever regresses to a pure signal, every quick launch hangs on the boot overlay — with
+    /// the project perfectly healthy behind it.
+    #[test]
+    fn fast_open_published_before_the_wait() {
+        let c = cell();
+        store_outcome(&c, outcome("already-open.duckdb"));
+        let got = wait_for_outcome(&c);
+        assert_eq!(got.path, "already-open.duckdb");
+        // ...and it stays readable: the frontend may ask more than once.
+        assert_eq!(wait_for_outcome(&c).path, "already-open.duckdb");
+    }
+
+    /// The slow case: the waiter arrives first and must block until the open publishes,
+    /// then see the real answer (not a default).
+    #[test]
+    fn slow_open_wakes_a_waiter_already_blocked() {
+        let c = cell();
+        let writer = {
+            let c = c.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(120));
+                store_outcome(&c, outcome("field.duckdb"));
+            })
+        };
+        let started = std::time::Instant::now();
+        let got = wait_for_outcome(&c); // must actually block, not spin-return None
+        assert!(started.elapsed().as_millis() >= 100, "must wait for the open, not return early");
+        assert_eq!(got.path, "field.duckdb");
+        writer.join().unwrap();
+    }
+
+    /// A failed open still publishes — otherwise the boot overlay would sit there forever
+    /// instead of handing the frontend a problem to render.
+    #[test]
+    fn a_failed_open_still_releases_the_gate() {
+        let c = cell();
+        store_outcome(
+            &c,
+            OpenOutcome {
+                problem: Some(StartupProblem {
+                    attempted_path: "gone.duckdb".into(),
+                    message: "could not open".into(),
+                    recovered_to: String::new(),
+                    recovery_persists: false,
+                }),
+                elapsed_secs: 0,
+                path: String::new(),
+            },
+        );
+        let got = wait_for_outcome(&c);
+        assert!(got.problem.is_some(), "the frontend needs the problem to explain it");
+        assert!(!got.problem.unwrap().recovery_persists);
+    }
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    // The most recently opened project that still exists, else the legacy
+    // `project.duckdb` in the cwd — so existing installs open exactly as before.
+    let startup = project::startup_path();
+
+    // The window is built on an EMPTY IN-MEMORY database and the real project is opened on a
+    // background thread. This is what turns a slow first open from "the app didn't launch"
+    // into "the app is open and telling me what it's doing". Nothing reads this placeholder:
+    // the frontend awaits `await_project_open` before it builds a single panel, and until then
+    // issues no other command. Creating it cannot fail (no filesystem involved), which is why
+    // these are the only two expects left on the startup path.
+    let placeholder =
+        Connection::open_in_memory().expect("opening an in-memory DuckDB cannot fail");
+    db::create_schema(&placeholder)
+        .expect("creating the schema in a fresh in-memory DuckDB cannot fail");
 
     // No opener plugin: the app never hands a URL or path to the OS, and a granted-but-unused
     // capability is exactly what an enterprise security review asks about. If a future feature
@@ -1683,16 +2706,25 @@ pub fn run() {
     // together, and revisit the zero-network-egress claim in docs/PRD.md section 7.5.
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .manage(DbState(Arc::new(Mutex::new(conn))))
-        .manage(project::ProjectState(Mutex::new(project_path)))
-        .manage(StartupState(Mutex::new(problem)))
+        .manage(DbState(Arc::new(Mutex::new(placeholder))))
+        .manage(project::ProjectState(Mutex::new(String::new())))
+        .manage(StartupState(Mutex::new(None)))
+        .manage(DbInit(Arc::new((Mutex::new(None), std::sync::Condvar::new()))))
         .manage(chain::new_registry())
         .manage(jobs::new_registry())
+        .setup(move |app| {
+            let handle = app.handle().clone();
+            std::thread::spawn(move || open_startup_project(handle, startup));
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             startup_problem,
+            await_project_open,
             get_project_depth_unit,
             set_project_depth_unit,
             save_project_as,
+            compact_project,
+            boot_report,
             list_recent_projects,
             current_project,
             open_project,
@@ -1712,7 +2744,14 @@ pub fn run() {
             get_generic_curve_samples,
             delete_generic_curve,
             promote_generic_curve,
+            update_curve_meta,
             import_deviation_csv,
+            list_core_sets,
+            list_surveys,
+            set_active_core_set,
+            delete_core_set,
+            set_active_survey,
+            delete_survey,
             get_well_path,
             materialize_tvd,
             import_dlis_file,
@@ -1749,12 +2788,33 @@ pub fn run() {
             zones_from_tops,
             list_zone_params,
             set_zone_param,
+            list_well_param_overrides,
+            set_well_param_overrides,
+            set_zone_param_batch,
             get_table_page,
             update_well_field,
             update_standard_sample,
             update_computed_sample,
             update_core_sample,
             shift_core_data,
+            core_extra_datasets,
+            core_shift_candidates,
+            shift_well_images,
+            apply_core_run_shifts,
+            list_core_registrations,
+            set_image_details,
+            set_image_delivery_details,
+            pore_support,
+            run_pore_area,
+            stain_schemes,
+            classify_support,
+            run_plate_classifier,
+            list_plug_choices,
+            run_plug_qc,
+            core_depth_pairs,
+            map_core_depths,
+            list_core_references,
+            propose_registration,
             edit_curve,
             restore_curve_values,
             upsert_top,
@@ -1769,9 +2829,15 @@ pub fn run() {
             export_las,
             python_status,
             run_ml,
+            apply_ml_model,
+            list_ml_models,
+            rename_ml_model,
+            delete_ml_model,
             run_ml_eval,
             run_cuddy_foil,
             run_shf_fit,
+            run_rtc_fit,
+            run_s_factor_fit,
             run_thomeer_fit,
             run_hfu_cluster,
             run_lorenz,
@@ -1789,21 +2855,49 @@ pub fn run() {
             cancel_job,
             health_snapshot,
             import_core_csv,
+            probe_core_table,
+            import_core_table,
             import_tops_csv,
             import_well_locations,
             wells_in_polygon,
             import_aux_data,
             list_aux_data,
             list_aux_datasets,
+            list_aux_item_catalog,
+            probe_image_files,
+            image_support,
+            import_well_images,
+            list_well_images,
+            list_image_datasets,
+            get_well_image,
+            list_image_sets,
+            set_active_image_set,
+            delete_image_set,
+            delete_well_image,
+            update_well_image,
+            list_array_curves,
+            get_array_log,
+            delete_array_log,
+            list_aux_sets,
+            set_active_aux_set,
+            delete_aux_set,
             import_scal_csv,
             import_scal_files,
             get_scal_pc,
+            list_scal_sets,
+            set_active_scal_set,
+            delete_scal_set,
             render_composite,
             export_composite_svg,
             export_composite_pdf,
             render_report,
             export_report_pdf,
             export_report_batch,
+            office_support,
+            export_workbook,
+            export_report_docx,
+            export_report_docx_batch,
+            export_deck,
             save_png,
             save_plot_pdf,
             get_core_data

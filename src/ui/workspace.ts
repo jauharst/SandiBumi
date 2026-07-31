@@ -16,6 +16,7 @@ import { listModules, type Layout, type ModuleSpec, type WellSummary } from "../
 import { recordProcess } from "../processLog";
 import { LogViewPanel } from "./logViewPanel";
 import { ObjectTree } from "./objectTree";
+import { openDataSetsDialog } from "./dataSetsDialog";
 import { TopsPanel } from "./topsPanel";
 import { InspectorPanel } from "./inspectorPanel";
 import { buildHistogramContent } from "./histogramPanel";
@@ -344,6 +345,7 @@ export class Workspace {
       ["Facies Tie-in (RT confusion)", () => this.openFaciesTie(group)],
       ["Unconventional (ΔlogR + Langmuir)", () => this.openUnconventional(group)],
       ["Results QC (Sw spread)", () => this.openResultsQc(group)],
+      ["Plug QC (core vs petrography)", () => this.openPlugQc(group)],
       ["SandiMin Solver", () => this.openMultimin(group)],
       "sep",
       ["Zones", () => this.openZones(group)],
@@ -512,6 +514,12 @@ export class Workspace {
           "dock-facies-tie",
           () => import("./faciesTieDialog").then((m) => m.buildFaciesTieContent(setStatus)),
           "facies tie-in",
+        );
+      case "plugQc":
+        return this.asyncPane(
+          "dock-plug-qc",
+          () => import("./plugQcPanel").then((m) => m.buildPlugQcContent(setStatus)),
+          "plug QC",
         );
       case "multimin":
         return this.asyncPane(
@@ -954,6 +962,13 @@ export class Workspace {
         appState.selectedWell.set(well);
         setStatus(`Selected well ${well.well_name}`);
       };
+      // Switching a core set / survey / point-data set from the tree changes what every
+      // panel reads, so it has to repaint like any other data change.
+      tree.onDataChanged = () => this.notifyDataChanged();
+      // Right-click routes from the tree into the panels that own the values.
+      tree.onOpenCurveCatalog = (mnemonic) => this.openCurveCatalog(mnemonic);
+      tree.onOpenDbInspector = () => this.openDbInspector();
+      tree.onManageDataSets = (well) => void openDataSetsDialog(well, () => this.notifyDataChanged());
       tree.selectedWellId = appState.selectedWell.get()?.well_id ?? null;
       void tree.refresh();
       const unsub = appState.dataVersion.subscribe(() => {
@@ -1028,7 +1043,11 @@ export class Workspace {
       inspector.getSelectedWellId = () => appState.selectedWell.get()?.well_id ?? null;
       const unsubData = appState.dataVersion.subscribe(() => void inspector.refreshCatalog());
       const unsubWell = appState.selectedWell.subscribe(() => void inspector.refreshCatalog());
+      // Published so "Open in Curve Catalog" (Wells-pane right-click) can land on the row it
+      // means, rather than dumping the user in an unfiltered catalog to hunt for it.
+      this.inspectorPanel = inspector;
       return () => {
+        if (this.inspectorPanel === inspector) this.inspectorPanel = null;
         unsubData();
         unsubWell();
         // The panel owns a CodeMirror EditorView whose window/document listeners only come off in
@@ -1263,6 +1282,17 @@ export class Workspace {
     this.openSingleton("inspector", "inspector", "Inspector", group);
   }
 
+  /** The live Inspector, when one is open — set by `createInspector`. */
+  private inspectorPanel: InspectorPanel | null = null;
+
+  /** Opens the Inspector on its Curve Catalog tab, filtered to `mnemonic`. Used by the
+   *  Wells-pane right-click so a curve can be inspected/edited where its values live.
+   *  The panel may have just been created, so the focus is applied on the next frame. */
+  openCurveCatalog(mnemonic?: string): void {
+    this.openInspector();
+    requestAnimationFrame(() => this.inspectorPanel?.focusCatalog(mnemonic ?? ""));
+  }
+
   openDbInspector(group?: DockviewGroupPanel): void {
     this.openSingleton("dbInspector", "dbInspector", "Database Inspector", group);
   }
@@ -1408,6 +1438,10 @@ export class Workspace {
 
   openFaciesTie(group?: DockviewGroupPanel): void {
     this.openSingleton("faciesTie", "faciesTie", "Facies Tie-in", group);
+  }
+
+  openPlugQc(group?: DockviewGroupPanel): void {
+    this.openSingleton("plugQc", "plugQc", "Plug QC (core vs petrography)", group);
   }
 
   openUnconventional(group?: DockviewGroupPanel): void {

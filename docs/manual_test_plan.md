@@ -91,7 +91,7 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
 1. Open `cmd.exe` and run the pinned dev command (MSVC 14.50 is broken on this machine):
    `cmd.exe /c "call \"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat\" -vcvars_ver=14.29 && set PATH=C:\Program Files\nodejs;%USERPROFILE%\.cargo\bin;%PATH% && cd /d \"D:\XX. SandiBumi\" && npm run tauri dev"`
 2. Wait for the Rust compile to finish and the desktop window to appear.
-   **Expected:** Window opens titled **SandiBumi — {project name}**. Ribbon shows tabs **Project / Data / Petrophysics / Advance / Plot / View** with **Petrophysics** active; quick-access toolbar (top-left) shows Undo, Redo (both greyed), Save, Save-Session, Open-Session, History (clock) and Help (?) icons. Status bar at the bottom reads **Ready**. Sidebar anchor panes **Wells**, **Tops**, **Processing**, **Performance** are present plus **Log View** and **Inspector**. No error dialogs. If the app panics on startup instead: check `src-tauri\` for `.corrupt-backup-*` files (WAL recovery already ran — note it, relaunch once).
+   **Expected:** Window opens titled **SandiBumi — {project name}**. Ribbon shows tabs **Project / Data / Petrophysics / Advance / Plot / View** with **Petrophysics** active; there is **no icon strip left of the tabs** (removed 2026-07-30). Click **Project**: its groups read **Project** (Open Project… / New Project… / Save Project As… / Recent ▾), **Session** (Save Session… / Open Session…), **Edit** (Undo / Redo, both greyed), **Monitor** (History / Processing / Performance), **Appearance**, **Language**, **Help** — every one a labelled button, no bare icons. Status bar at the bottom reads **Ready**. Sidebar anchor panes **Wells**, **Tops**, **Processing**, **Performance** are present plus **Log View** and **Inspector**. No error dialogs. If the app panics on startup instead: check `src-tauri\` for `.corrupt-backup-*` files (WAL recovery already ran — note it, relaunch once).
    **Result — T-SHELL-01:**
 
 - [x] Pass
@@ -165,7 +165,7 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
 1. Project tab → **New Project…** → in the native "New Project" dialog save as `uat-test.duckdb` (default suggested name is `new-project.duckdb`).
 2. Data tab → **Import Logs ▾ → Import LAS…** → import one LAS.
 3. Project tab → **Recent ▾** → switch back to the main project.
-   **Expected:** After step 1: status **Switching project…** then **Project: uat-test**; window title becomes **SandiBumi — uat-test**; the Project group caption shows **uat-test** (hover = full path); Wells pane shows **No wells ingested yet**; QAT Undo/Redo grey out (undo stacks cleared). After step 2 the well appears only here. After step 3 the main project's wells return and the imported test well is NOT in the list. History panel (QAT clock) has a **Project — Opened project …** entry in each project's own history. Covers REVIEW.md §Wave A-3 items 1 and 3.
+   **Expected:** After step 1: status **Switching project…** then **Project: uat-test**; window title becomes **SandiBumi — uat-test**; the Project group caption shows **uat-test** (hover = full path); Wells pane shows **No wells ingested yet**; **Project ▸ Edit ▸ Undo/Redo** grey out (undo stacks cleared). After step 2 the well appears only here. After step 3 the main project's wells return and the imported test well is NOT in the list. History panel (**Project ▸ Monitor ▸ History**) has a **Project — Opened project …** entry in each project's own history. Covers REVIEW.md §Wave A-3 items 1 and 3.
    **Result — T-SHELL-05:**
 
 - [x] Pass
@@ -193,17 +193,17 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
 
 **Notes:**
 
-### T-SHELL-07 — Save Project As (QAT) = backup copy
+### T-SHELL-07 — Save Project As = backup copy
 
-**Tool/panel:** quick-access toolbar Save button (`src/ui/ribbon.ts` handleSaveProject)
+**Tool/panel:** **Project ▸ Project ▸ Save Project As…** (`src/ui/ribbon.ts` handleSaveProject)
 **Preconditions:** main project open with wells.
 **Steps:**
 
-1. Hover the third QAT icon — tooltip must read **Save Project As…**.
+1. On the Project tab, find the button labelled **Save Project As…** in the **Project** group — hover it; the tooltip explains it writes a compacted copy to a new file.
 2. Click it; save as `backup-uat.duckdb` in the "Save Project As" dialog.
 3. Make a small change (e.g. pin a well ★, or add a top) and note it.
 4. Close and reopen the app.
-   **Expected:** Status **Project saved to {path}**; History entry **Project — Saved project to {path}**; the file exists on disk at the chosen path. The app KEEPS working on the original project (backup-copy semantics, not IP-style switch-to-copy): the step-3 change is in the original project on relaunch, and opening `backup-uat.duckdb` via Open Project shows the pre-change state. Covers REVIEW.md §Wave A-3 note item ("QAT Save Project As stays a backup copy").
+   **Expected:** Status **Project saved to {path}**; History entry **Project — Saved project to {path}**; the file exists on disk at the chosen path. The app KEEPS working on the original project (backup-copy semantics, not IP-style switch-to-copy): the step-3 change is in the original project on relaunch, and opening `backup-uat.duckdb` via Open Project shows the pre-change state. Covers REVIEW.md §Wave A-3 note item ("Save Project As stays a backup copy").
    **Result — T-SHELL-07:**
 
 - [x] Pass
@@ -249,14 +249,14 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
 
 ### T-SHELL-10 — Sessions: Save Session As / Open Session / delete
 
-**Tool/panel:** QAT session buttons (`src/ui/ribbon.ts` handleSaveSession/handleOpenSession, `src/ui/workspace.ts` snapshotSession)
+**Tool/panel:** **Project ▸ Session** group (`src/ui/ribbon.ts` handleSaveSession/handleOpenSession, `src/ui/workspace.ts` snapshotSession)
 **Preconditions:** distinctive workspace: 2 Log Views (one with a custom layout), a Histogram, well B active.
 **Steps:**
 
-1. Click the QAT **Save Session As…** button (tooltip: "…the current panes, wells & visualizations as a named workspace"). In the **Save Session As** dialog, clear the default name **My Session**, leave it EMPTY, press **Save** (negative).
+1. Click **Project ▸ Session ▸ Save Session…** (tooltip: "…the current panes, wells & visualizations as a named workspace"). In the **Save Session As** dialog, clear the default name **My Session**, leave it EMPTY, press **Save** (negative).
 2. Type `UAT Layout A`, click **Save**.
 3. Wreck the workspace: close the plots, switch to well A, View → **Reset Workspace**.
-4. Click QAT **Open Session…** → in the **Open Session** dialog click **UAT Layout A**.
+4. Click **Project ▸ Session ▸ Open Session…** → in the **Open Session** dialog click **UAT Layout A**.
 5. Reopen **Open Session** and click the row's **🗑** button.
    **Expected:** Step 1: nothing happens on empty name (dialog stays). Step 2: status **Session "UAT Layout A" saved**; History entry **Session — Saved session "UAT Layout A"**. Step 4: panes, arrangement and the **active well (B)** come back; Log Views restore their per-view layouts; plot panes reopen in place but their internal curve selections may reset (known limitation — not carried by the snapshot). Status **Opened session "UAT Layout A"**. Step 5: status **Deleted session "UAT Layout A"** and the list updates (empty list shows "No saved sessions yet. Use Save Session to create one."). Sessions live in the project DB — they do not appear in other projects.
    **Result — T-SHELL-10:**
@@ -287,15 +287,15 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
 
 ### T-SHELL-12 — Dirty-state ● indicators
 
-**Tool/panel:** panel tabs + QAT (`src/dirty.ts`, `src/ui/workspace.ts`)
-**Preconditions:** one Log View open on a well; a session has been saved (nothing currently dirty — QAT Save-Session button has no dot).
+**Tool/panel:** panel tabs + **Project ▸ Session** (`src/dirty.ts`, `src/ui/workspace.ts`)
+**Preconditions:** one Log View open on a well; a session has been saved (nothing currently dirty — the **Project** ribbon tab has no dot).
 **Steps:**
 
 1. Edit the Log View: drag a track wider, or toggle a curve via **Plot → Properties…**.
-2. Look at the Log View's tab and the QAT Save-Session button.
+2. Look at the Log View's tab and at the **Project** ribbon tab — WITHOUT switching to it. Then open Project and look at **Save Session…**.
 3. Plot tab → **Save Layout…**, save under a name.
-4. Rearrange the panes (drag a tab), then click QAT **Save Session As…** and save.
-   **Expected:** Step 2: the Log View tab shows **●** and the Save-Session button gets a red dot, its tooltip gains "— unsaved changes". Step 3: that panel's ● clears (layout is now in a named save) but the workspace-arrangement dot may remain if panes moved. Step 4: **everything** clears — no ● on any tab, no red dot. The dot means "not in a named save yet" only; the 10-s crash autosave runs regardless. Covers REVIEW.md §P1-b "Unsaved markers" (unchecked item).
+4. Rearrange the panes (drag a tab), then click **Project ▸ Session ▸ Save Session…** and save.
+   **Expected:** Step 2: the Log View tab shows **●**; the **Project ribbon tab** carries a small amber dot while you are still on another tab (hover it: "Unsaved changes — Project ▸ Session ▸ Save Session…"), and the **Save Session…** button itself has a red dot with "— unsaved changes" in its tooltip. The tab must NOT change width when the dot appears. Step 3: that panel's ● clears (layout is now in a named save) but the workspace-arrangement dot may remain if panes moved. Step 4: **everything** clears — no ● on any panel tab, no dot on the Project ribbon tab, no red dot on the button. The dot means "not in a named save yet" only; the 10-s crash autosave runs regardless. Covers REVIEW.md §P1-b "Unsaved markers" (unchecked item).
    **Result — T-SHELL-12:**
 
 - [x] Pass
@@ -304,16 +304,16 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
 
 **Notes:**
 
-### T-SHELL-13 — QAT Undo/Redo with live labels (+ History cross-check)
+### T-SHELL-13 — Undo/Redo with live labels (+ History cross-check)
 
-**Tool/panel:** QAT Undo/Redo (`src/undo.ts`, `src/ui/topsEditor.ts`)
+**Tool/panel:** **Project ▸ Edit ▸ Undo / Redo** (`src/undo.ts`, `src/ui/topsEditor.ts`)
 **Preconditions:** fresh launch (Undo/Redo greyed); a Log View open on a well.
 **Steps:**
 
-1. Confirm both QAT arrows are disabled and tooltips read plain **Undo (Ctrl+Z)** / **Redo (Ctrl+Y)**.
+1. On the **Project** tab, confirm both **Undo** and **Redo** in the **Edit** group are greyed and their tooltips read plain **Undo (Ctrl+Z)** / **Redo (Ctrl+Y)**.
 2. In the Log View's toolbar click **🏷** ("Edit tops: click to add…"), click at any depth, type name `UAT_TOP`, click **Add top**.
-3. Hover the QAT Undo arrow; click it.
-4. Hover the QAT Redo arrow; click it.
+3. Back on the Project tab, hover **Undo**; click it.
+4. Hover **Redo**; click it.
 5. Clean up: Undo once more (leave the project without `UAT_TOP`).
    **Expected:** After step 2: Undo enables, tooltip **Undo add top UAT_TOP (Ctrl+Z)**; History panel gains **Tops — {well}: Added top UAT_TOP at {depth}**. Step 3: status **Undo: add top UAT_TOP**; the top vanishes from the Log View AND the Tops pane; Redo enables with tooltip **Redo add top UAT_TOP (Ctrl+Y)**. Step 4: the top returns at the same depth. Ctrl+Z / Ctrl+Y do the same as the buttons.
    **Result — T-SHELL-13:**
@@ -330,7 +330,7 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
 **Preconditions:** a project on which several operations were just done (imports, session saves, top add — T-05…T-13 provide them).
 **Steps:**
 
-1. Click the QAT clock button ("Processing history — everything done in this project").
+1. Click **Project ▸ Monitor ▸ History** ("Processing history — everything done in this project").
 2. Read the list and the count in the toolbar.
 3. Click **⭳ Export…**, save as `processing-history.txt` (default name), open the file in Notepad.
 4. Restart the app; reopen the panel.
@@ -375,8 +375,8 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
    **Expected:** Step 2 (Pin ON): BOTH Log Views and any plots switch to well B; status **Pin ON — every view and plot follows the selected well** was shown when toggling. Step 3 (Pin OFF): status **Pin OFF — only the active panel follows; other views keep their wells**; only Log View 1 switches to C, Log View 2 stays on B; browsing panes (Tops, Inspector) still track the selection. Step 4: Log View 2 (the pane you clicked into last) takes C→A while Log View 1 keeps C; then with the pin back ON everything follows to B. "Active panel" means **the viewer you last clicked into** — clicking a well in the tree does not hand the role to the tree, so with the pin off exactly one viewer always follows. Do not confuse 📌 with the per-well **★** star — that is the pinned-favourites run scope, unrelated to following.
    **Result — T-SHELL-16:**
 
-- [ ] Pass
-- [x] Fail
+- [x] Pass
+- [ ] Fail
 - [ ] Blocked
 
 **Notes:** Pin off, never follow well even for active panel, and other visual pane such histo, xplot, etc (except log view) cant display multiple groups together, better have option for well selections like modules
@@ -395,8 +395,8 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
    **Expected:** Step 1: the custom app context menu appears (panel-specific items + window actions like Split right / Split down) — on a plot canvas that menu leads with **Properties…**, so the plot's own settings and the window actions are both one click away. Step 2: NO menu at all (native WebView menu suppressed — a stray "Refresh" there would wipe the workspace). Step 3: the native EDIT menu appears (undo/cut/copy/paste — no Refresh/Back). Step 4: **each** of F5 and Ctrl+R raises the same blocking confirm "Reload SandiBumi? The workspace re-opens from its last saved state…" with **Cancel** / red **Reload**; Escape and Cancel both dismiss without reloading; a second reload key pressed while the dialog is already up does NOT open a second dialog — it briefly pulses the open one, so the key is visibly acknowledged; mouse Back/Forward do nothing. Step 5: first click only arms the field (status tip "Number fields arm on click — double-click to edit", no caret); double-click enters edit with the value selected — a stray click+scroll can never change a parameter.
    **Result — T-SHELL-17:**
 
-- [ ] Pass
-- [x] Fail
+- [x] Pass
+- [ ] Fail
 - [ ] Blocked
 
 **Notes:** right click in xplot showed properties instead of option like in log view, ctrl+R does nothing, beside that good
@@ -411,7 +411,7 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
 2. Task Manager → end the **sandibumi.exe** task (this simulates a crash/power loss).
 3. Relaunch (T-SHELL-01 command). In the dialog choose **Restore autosaved workspace**.
 4. Repeat steps 1–2, relaunch, and this time choose **Start in Safe Mode**.
-5. Click QAT **Open Session…**.
+5. Click **Project ▸ Session ▸ Open Session…**.
    **Expected:** Step 3: BEFORE anything loads, a blocking dialog titled **"SandiBumi did not close properly last time."** offers **Start in Safe Mode** / **Restore autosaved workspace** (the latter focused). Restore brings back panes, arrangement, active well and log-view layouts as of ≤10 s before the kill; status **Workspace restored from the crash autosave**. Step 4: Safe Mode boots the clean default layout; status **Safe Mode — previous workspace kept as session "Recovered {date time}"**. Step 5: the **Recovered …** session is listed and opening it restores the pre-crash workspace — nothing silently lost. If the app instead panics on launch: look for `.corrupt-backup-*` in `src-tauri\` (DuckDB WAL recovery ran) — record as a note, relaunch again.
    **Result — T-SHELL-18:**
 
@@ -441,7 +441,7 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
    **Expected:** Status shows `Importing 3 LAS file(s)...` then `Imported 3/3 well(s).` All 3 wells appear in the Wells pane without a manual refresh. History gains an `Import — Imported 3/3 LAS well(s)` entry. Curve Catalog lists every curve from each file (standard GR/RES_DEEP/NPHI/RHOB/DT/SP plus extras like PEF/CALI as RAW-set rows with the LAS file's units). Null values (−999.25 or the file's own `~W NULL` declaration — covers REVIEW.md §Chartbook overlay library + audit quick fixes, LAS NULL item) render as gaps in a Log View, not as spikes. GR should read ~10–120 gapi with shale/sand character intact.
    **Result — T-IMP-01:**
 
-- [ ] Pass
+- [x] Pass
 - [ ] Fail
 - [ ] Blocked
 
@@ -457,11 +457,22 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
    **Expected:** Import completes (`Imported 1/1 well(s). 1 well(s) had depth issues.` — the generic warning note), and History gains a per-well entry containing `a well named '<name>' already exists — imported as a separate record`. The Wells pane now shows two rows with the same name (merge is deliberately NOT automatic). Covers REVIEW.md §Round 4 — AUDIT safe-bucket ("LAS duplicate-name warning").
    **Result — T-IMP-02:**
 
-- [ ] Pass
+- [x] Pass
 - [ ] Fail
 - [ ] Blocked
 
-**Notes:**
+**Notes:** i need to state that for every curve set or any data set that imported together, it should have defined "set name", refer how geolog or IP managed this. So later user can trace which curve set he wanna use, even its duplicate. And it better be accessed either in well panes (each well can be expanded to see curve set and curve as well that it has), or in database.
+
+**Update 2026-07-30 — BUILT (import sets).** Import LAS now opens a **curve set** dialog first:
+the set name is suggested from what the filenames share (`blso*_lapi2023_fprooh.las` → `FPROOH`),
+and **Attach to existing wells** (default ON) makes a re-delivery of a well already in the
+project land as a NEW SET on that one record instead of a duplicate well row. A set name
+already used on a well is auto-suffixed (`FPROOH` → `FPROOH_1`) — an import never overwrites
+an earlier delivery. The Wells pane row now has a **▸ twisty** that expands into
+well → sets → curves (the Geolog tree), lazily loaded per well. Curve resolution is unchanged
+for existing projects: **set RAW keeps absolute priority**, and only a mnemonic RAW does not
+carry is looked up in the attached sets. Re-test this case with `01. Final Log`'s RAW +
+FPROOH + MULTIMIN folders for the same well.
 
 ### T-IMP-03 — Malformed LAS: duplicated depth section imports with a dropped-rows warning
 
@@ -476,9 +487,15 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 
 - [ ] Pass
 - [ ] Fail
-- [ ] Blocked
+- [x] Blocked
 
-**Notes:**
+**Notes:** i dont understand this part, where do u provide dup_depth.las?
+
+**Update 2026-07-30 — FIXED.** Fair complaint: the step asked you to doctor a file yourself
+and never said so. The file now EXISTS: **`dataset for test/examples/bad_dup_depth.las`**
+(40 rows, of which rows 10–14 repeat row 9's depth). Import it and expect 35 rows plus a
+dropped-duplicates warning. A cargo test asserts exactly that, so the exemplar and the app
+can't drift apart.
 
 ### T-IMP-04 — Malformed LAS: all-null depth column and truncated last row → clean error, no orphan well
 
@@ -494,9 +511,13 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 
 - [ ] Pass
 - [ ] Fail
-- [ ] Blocked
+- [x] Blocked
 
-**Notes:**
+**Notes:** i dont understand this part, where do u provide null_depth.las?
+
+**Update 2026-07-30 — FIXED.** Same fix: **`dataset for test/examples/bad_null_depth.las`**
+(every depth cell is −999.25). Import it and expect a clean error with NO well row created —
+check the Wells pane and the DB Inspector for a stray `SANDI-BAD-NULL`. Asserted by cargo test.
 
 ### T-IMP-05 — No-well-selected guards and cancel mid-dialog leave no side-effects
 
@@ -511,10 +532,19 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
    **Result — T-IMP-05:**
 
 - [ ] Pass
-- [ ] Fail
+- [x] Fail
 - [ ] Blocked
 
-**Notes:**
+**Notes:** Import core, scal does nothing when i didnt select any wells, but for tops its opened
+
+**Update 2026-07-30 — EXPLAINED, watch the status bar.** Core/SCAL without a well selected
+do refuse with a message — but it goes to the STATUS BAR (bottom left), which is easy to
+miss; nothing "does nothing" silently. Re-test watching the status bar: it should read
+`Select a well first (Wells & Tops panel)`. **Tops opening with no well selected is by
+design**: a tops file with a WELL column routes every row to its own well by name (your
+multi-well Petrel exports), so no selection is needed — a single-well file without that
+column falls back to the selected well and refuses only then. If you'd rather the guard were
+louder than a status-bar line (e.g. a dialog), say so and it becomes a small UX increment.
 
 ### T-IMP-06 — DLIS import: sentinels screened, re-import replaced-count, LAS-mnemonic collision
 
@@ -531,10 +561,19 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
    **Result — T-IMP-06:**
 
 - [ ] Pass
-- [ ] Fail
+- [x] Fail
 - [ ] Blocked
 
-**Notes:**
+**Notes:** dlis imported (processing history showed it) but well not showing, and duplicate logs should be also imported, we dont always know what inside, refer to T-IMP-02 to discuss how curve set or any data set managed.
+
+**Update 2026-07-30 — PARTLY BUILT.** The duplicate half is done: Import DLIS now asks for a
+**set name** first. Give the second tape its own name and both are KEPT (auto-suffixed
+`WIRE` → `WIRE_1`); `replaced` can only be non-zero when you leave it as RAW, which preserves
+the old replace-by-(mnemonic, run) behaviour. Both sets are then visible under the well's
+▸ twisty in the Wells pane, so "we don't always know what's inside" is now inspectable after
+import rather than guessed before it. **Still open:** "well not showing" — retest with the
+set tree in place and tell me exactly what you see; if the well row itself is missing that is
+a separate bug from the curves, and I'll need the well name to chase it.
 
 ### T-IMP-07 — Core CSV import: plugs off the log grid overlay at native depths
 
@@ -550,10 +589,38 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
    **Result — T-IMP-07:**
 
 - [ ] Pass
-- [ ] Fail
+- [x] Fail
 - [ ] Blocked
 
-**Notes:**
+**Notes:** Core imported, but it should detect well name of core imported from the data inside, and for other properties / point curve it should be confirmed first (what unit it is, is it float, alpha, real, etc type of data), and name of each properties / point curve should be confirmed as well in the beginning. Imagine managing hundred wells that have cores. And should be worket either it comes from 1 csv or multiple csv, or even .txt or tab delimited data
+
+**Update 2026-07-30 — BUILT (core import v2 wizard).** Import Core is now probe → CONFIRM →
+commit. The dialog shows what was detected and lets you fix every piece before anything is
+written: the **well-name column** (WN / WELL NAME / WELL…, detected from the data — rows
+route to project wells by name, no well selection needed; a numeric pad-number column loses
+to a textual name column when both exist), the **depth column and its unit** (units row
+`FEET/M` and header suffixes like `MD (ft.)` are read; converted to the project unit — the
+silent 3.28× trap), the **property columns** (CPOR/CPERM/CGD/CSW with each column's sniffed
+type shown: number/text/empty), and **percent detection** ("CPOR reads as percent → divided
+to v/v"). Multi-select works (one CSV per well, the BLSO shape) — the mapping is confirmed
+once by header NAME and re-applied per file; `.txt`/tab/semicolon/whitespace delimiters are
+auto-sniffed. Unmatched and ambiguous well names are REPORTED and skipped, never guessed.
+Try it on `dataset for test/examples/core_rcal_multiwell.csv` (whole field in one file),
+your real `03. Core Logs` folder (multi-select all 321), and the parent folder's Duri
+`Core.csv` (WELL NAME beside a numeric WELL column). **Per Jauhar's note: BLSO is only an
+exemplar, not the spec — the importer must take ANY delimited text with mixed column types
+(alpha/integer/real/…). Delimiter sniffing + per-column type detection are in.**
+
+**Update 2026-07-30 (b) — the EXTRA columns import too.** The requirement above is now
+complete. `core_data` has four measurement slots; everything else in the file (LITH text,
+So, Kv/Kh, sample IDs, tape names) can be carried from the same dialog as **point data at
+the plug depths**: tick "Extra columns", untick what you don't want, name the dataset
+(default `CORE`). Each cell is typed on its own — numeric cells become numbers, everything
+else stays text — so a column that mixes `12.5` with `below detection` survives intact.
+Values are stored VERBATIM (no percent or unit conversion is applied to extras; the depth
+they hang on IS converted). A column claimed by a core role can never also be an extra.
+Re-import replaces per (well, dataset), same discipline as the plugs. Check the result in
+DB Inspector → `aux_data`.
 
 ### T-IMP-08 — Core CSV with a duplicated plug depth imports (first kept), never aborts
 
@@ -567,10 +634,40 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
    **Result — T-IMP-08:**
 
 - [ ] Pass
-- [ ] Fail
+- [x] Fail
 - [ ] Blocked
 
-**Notes:**
+**Notes:** refer T-IMP-06 and T-IMP-02 about how duplicated data managed
+
+**Update 2026-07-30 — REBUILT as core SETS (your note is the spec).** Duplicated data is
+now managed the way T-IMP-02 manages curves: **one delivery = one named core set**, and an
+import NEVER overwrites an earlier one. Import Core asks for a **Core set** name (suggested
+from the filename — `blso00025_lapi2023_rcal.csv` → `RCAL`); a well that already carries
+that name gets the new delivery suffixed (`RCAL` → `RCAL_1`), reported in the status line.
+The imported set becomes that well's **active** core.
+
+Unlike curve sets, core sets do NOT merge: two deliveries measure the same plugs, so
+**exactly one set is active per well** and every reader follows it — log overlay, φ-k
+crossplots, HFU, SandiMin core calibration, Shift Core, DB Inspector edits. Switch or delete
+deliveries in **Data → Tools ▾ → Data Sets…** (● marks the live one, with plug
+count, source file and import date).
+
+Duplicated depths WITHIN one delivery still drop first-kept — that is a broken row inside a
+single file, not a second delivery. Re-test both: (1) doctored CSV with a repeated depth →
+imports with the dropped-row note; (2) import the same real file twice → two sets, both
+kept, the newest live, and the plug count in any plot does NOT double.
+
+**Update 2026-07-30 (b) — the rule is UNIVERSAL, not core-only.** Per Jauhar: *any kind of
+point data should behave like core — XRD, CEC, oil show, etc.* Every `aux_data` dataset
+(petrography, XRD, CEC, oil show, perforations, core extras, any custom name) now versions
+the same way: **Import Aux… takes a Set name**, a re-delivery is auto-suffixed and becomes
+live, and **one set per (well, dataset)** is read — panel counts follow the active delivery,
+never the sum. Datasets are independent: switching XRD leaves CEC and oil show alone. Core
+EXTRAS are stored under the core set's own name, so a core switch carries them. **SCAL Pc
+follows the same rule** — the files selected together in one Import SCAL are one named
+delivery, and only the live one feeds Pc QC, the Leverett-J fit and Thomeer. Browse and
+switch everything from the **Wells pane ▸ twisty** (Core / SCAL / Surveys / Point data,
+● = live, double-click to switch) or **Data → Tools ▾ → Data Sets…** (four sections).
 
 ### T-IMP-09 — Shift Core: constant core-to-log shift, undo, invalid input rejected
 
@@ -589,7 +686,11 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 - [ ] Fail
 - [ ] Blocked
 
-**Notes:**
+**Notes:** we should have resolve previous problem to do this
+
+**Update 2026-07-30 — UNBLOCKED.** T-IMP-07 is resolved (core import v2 wizard), so this
+test can run as written. Note the shift is per WELL: after a multi-well core import,
+Shift Core still applies to the selected well's plugs only.
 
 ### T-IMP-10 — Tops CSV: multi-well WELL column, single-well file, unmatched + blank WELL cells
 
@@ -605,10 +706,14 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
    **Result — T-IMP-10:**
 
 - [ ] Pass
-- [ ] Fail
+- [x] Fail
 - [ ] Blocked
 
-**Notes:**
+**Notes:** same for core import, it should auto detect well names, either it comes from 1 csv or multiple csv
+
+**Update 2026-07-30 — DONE for core.** Core import now auto-detects the well-name column
+and routes rows exactly the way tops always did (this test's own routing rules), including
+multi-select of many files and .txt/tab delimiters. See the T-IMP-07 update.
 
 ### T-IMP-11 — Aux data import: PERFORATION and XRD land per-well, replace on re-import
 
@@ -627,7 +732,14 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 - [ ] Fail
 - [ ] Blocked
 
-**Notes:**
+**Notes:** same for core import, it should auto detect well names, either it comes from 1 csv or multiple csv
+
+**Update 2026-07-30 — BUILT (aux routing).** Import Aux now honors a WELL column: rows
+route to each named project well (unmatched/ambiguous names and blank cells reported,
+never guessed); a file without one binds to the selected well as before. The result box
+says where the rows went. Try `dataset for test/examples/xrd_multiwell.txt` (tab-delimited,
+3 wells in one file). Mixed value types per column (numbers AND text) were already stored
+correctly (value_num vs value_text per cell).
 
 ### T-IMP-12 — Deviation survey import: TVD/TVDSS computed; duplicate-MD survives; TVD not yet consumable
 
@@ -648,7 +760,18 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 - [ ] Fail
 - [ ] Blocked
 
-**Notes:**
+**Notes:** refer T-IMP-02
+
+**Update 2026-07-30 — surveys are VERSIONED too.** Same model as core sets: Import
+Deviation asks for a **Survey name** (default `SURVEY`, auto-suffixed if taken), a second
+import lands BESIDE the first instead of replacing it, and the new survey becomes active.
+Only the active survey is read anywhere, and **switching one immediately recomputes
+TVD/TVDSS from it** — a stale TVD would otherwise keep feeding every height calculation the
+geometry you just switched away from. Manage them in **Data → Tools ▾ → Core Sets &
+Surveys…**; the row shows station count, datum, source file and import date. Deleting the
+active survey hands over to the next newest and rebuilds TVD from it. Worth testing with a
+preliminary vs definitive survey on the same well: TVD at TD should visibly change when you
+switch, and change back.
 
 ### T-IMP-13 — Well locations import → wells post on the Field Map at UTM coordinates
 
@@ -749,7 +872,7 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 
 ### Cluster WELL — wells, groups, map, tops, zones
 
-Shared preconditions: SandiBumi running via `npm run tauri dev` on a project with at least 5 real wells imported (LAS with GR + RHOB + NPHI), formation tops present in at least 3 wells, and no pending edits. Tests 07–09 additionally need surface coordinates (**Data ▸ Import Data ▾ ▸ Import Well Locations…**, e.g. UTM 50S for Mahakam). Keep the **Processing History** pane (Petrophysics ▸ Processing, or right-click a pane ＋ ▸ Processing History) open throughout — several tests cross-check it.
+Shared preconditions: SandiBumi running via `npm run tauri dev` on a project with at least 5 real wells imported (LAS with GR + RHOB + NPHI), formation tops present in at least 3 wells, and no pending edits. Tests 07–09 additionally need surface coordinates (**Data ▸ Import Data ▾ ▸ Import Well Locations…**, e.g. UTM 50S for Mahakam). Keep the **Processing History** pane (**Project ▸ Monitor ▸ History**, or right-click a pane ＋ ▸ Processing History) open throughout — several tests cross-check it.
 
 ### T-WELL-01 — Object tree: click activates, 📌 pin mode drives the workspace
 
@@ -1094,7 +1217,7 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 
 ## PREP cluster — data conditioning & prep modules
 
-**Shared preconditions:** SandiBumi running via `npm run tauri dev`; a project open with at least 2 real Mahakam wells imported from LAS, together carrying GR, RHOB, NPHI, DT, CALI, DRHO, BS (or known bit size), RES_DEEP (RT), RXO, and TVDSS on at least one deviated well. All prep modules open from **Petrophysics tab ▸ "Data Prep" dropdown** (group caption "Data Cond & Prep"); each opens as a singleton dock pane with the auto-generated form (Wells scope row, parameter fields, "Mask (optional)", "Input cons", "Output cons" = INTERP, "Outputs: …" note, "Run" button). Per-well results appear in the **Processing** panel (Petrophysics ▸ Processing); the audit trail is **Processing History** (clock icon in the quick-access bar); curves and versions are in **Data ▸ Curve Catalog**. NOTE: the working tree contains uncommitted Round-4 fixes for several AUDIT-2026-07-21 findings — where a test verifies one, it is cited so a failure is logged against the known finding, not as new.
+**Shared preconditions:** SandiBumi running via `npm run tauri dev`; a project open with at least 2 real Mahakam wells imported from LAS, together carrying GR, RHOB, NPHI, DT, CALI, DRHO, BS (or known bit size), RES_DEEP (RT), RXO, and TVDSS on at least one deviated well. All prep modules open from **Petrophysics tab ▸ "Data Prep" dropdown** (group caption "Data Cond & Prep"); each opens as a singleton dock pane with the auto-generated form (Wells scope row, parameter fields, "Mask (optional)", "Input cons", "Output cons" = INTERP, "Outputs: …" note, "Run" button). Per-well results appear in the **Processing** panel (**Project ▸ Monitor ▸ Processing**); the audit trail is **Processing History** (**Project ▸ Monitor ▸ History**); curves and versions are in **Data ▸ Curve Catalog**. NOTE: the working tree contains uncommitted Round-4 fixes for several AUDIT-2026-07-21 findings — where a test verifies one, it is cited so a failure is logged against the known finding, not as new.
 
 ### T-PREP-01 — Module dialog machinery smoke: dropdown, pane form, "(none)" optional input
 
@@ -1106,7 +1229,7 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 2. Pick **Formation Temperature** — it opens as a dock pane (not a popup).
 3. Check the form top-to-bottom: a **Wells** scope row with mode buttons (Group if groups exist) / **★ Pinned** / **Selection** / **All** / **Custom…** and a live "N wells" count; OPT_FT dropdown; TSURF/TGRAD/BHT/TD_BHT numeric fields with units in brackets; **Mask (optional)** dropdown offering BADHOLE and COND_FLAG even before they exist; **Input cons** (default "(latest values)"); **Output cons** (default "INTERP"); the note "Outputs: FTEMP"; a **Run** button.
 4. Open **Data Prep ▸ Bad-Hole QC Flag**: its optional inputs (DRHO, CALI, BS) each offer a leading **"(none)"** entry in the dropdown even though curves of those names exist.
-5. Click **?** (Help) in the quick-access bar with the Formation Temperature pane focused — the method narration/formula for the module appears.
+5. Click **Project ▸ Help ▸ Help** with the Formation Temperature pane focused — the method narration/formula for the module appears.
    **Expected:** All 13 titles present; pane form matches the manifest exactly; "(none)" selectable on optional inputs (covers REVIEW.md §Round 4 "Blank '(none)' for optional inputs"); pane docks/undocks like any other (covers REVIEW.md §All tools as dockview panes #24).
    **Result — T-PREP-01:**
 
@@ -1436,7 +1559,7 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 
 1. In the Pre-Calculation pane set Wells scope = **All** (count shows "N wells"; hover the count to see the names). **Run**.
 2. The result line reads "Running precalc on N well(s)… see the Processing panel for progress" and the Processing panel fronts: verify one line per well with ✓/⚠/✗ state and the count chips.
-3. Open **Processing History** (clock icon, quick-access bar): the new entry reads "Ran Pre-Calculation (P / T / Rmf / Ct / Cxo) on N wells" — attributed to the wells actually run, not whichever well happens to be selected.
+3. Open **Processing History** (**Project ▸ Monitor ▸ History**): the new entry reads "Ran Pre-Calculation (P / T / Rmf / Ct / Cxo) on N wells" — attributed to the wells actually run, not whichever well happens to be selected.
 4. **Data ▸ Curve Catalog**: FTEMP/FPRESS/RMF/CT/CXO rows show cons/version/module ("precalc"); the "Constellations" section shows INTERP bumped to the next version with module · date, and hovering shows the params JSON (your SURF_TEMP/TEMP_GRAD etc.).
 5. The already-open log view showing FTEMP refreshes on its own (dataVersion) — no manual reload, viewport kept.
 6. With the module pane and Processing panel open, switch **Project tab ▸ Theme** to Dark, then Pertamina: both panes repaint immediately in the new palette (form fields, result text, per-well lines readable).
@@ -1460,7 +1583,7 @@ I have everything I need from the source. Here is the PETRO cluster.
 
 ## PETRO cluster — core petrophysics modules (ribbon **Petrophysics** tab, auto-generated module panes)
 
-Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a project open with at least one real well carrying **GR, RHOB, NPHI, DT, RES_DEEP** (Mahakam LAS import done); the **Petrophysics** ribbon tab is the active tab on startup. Module panes are opened from the category dropdown buttons (**VSH**, **Porosity**, **Saturation**, **Permeability**, **Thin Beds**); every pane has the same auto-generated layout: **Wells** scope row (Group / ★ Pinned / Selection / All / Custom…), input-curve dropdowns, parameters, **Mask (optional)**, **Input cons**, **Output cons** (default `INTERP`), an "Outputs: …" note, and a **Run** button. Verify outputs in the Curve Catalog (**Data ▸ Curve Catalog**, table columns Mnemonic / Unit / Family / Set / Source / Samples), the **Processing** panel (auto-opens on Run), and **Processing History** (clock icon in the quick-access bar). Tests 01–02 must run before 06–17 (VSH/PHIE/PHIT are chain inputs).
+Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a project open with at least one real well carrying **GR, RHOB, NPHI, DT, RES_DEEP** (Mahakam LAS import done); the **Petrophysics** ribbon tab is the active tab on startup. Module panes are opened from the category dropdown buttons (**VSH**, **Porosity**, **Saturation**, **Permeability**, **Thin Beds**); every pane has the same auto-generated layout: **Wells** scope row (Group / ★ Pinned / Selection / All / Custom…), input-curve dropdowns, parameters, **Mask (optional)**, **Input cons**, **Output cons** (default `INTERP`), an "Outputs: …" note, and a **Run** button. Verify outputs in the Curve Catalog (**Data ▸ Curve Catalog**, table columns Mnemonic / Unit / Family / Set / Source / Samples), the **Processing** panel (auto-opens on Run), and **Processing History** (**Project ▸ Monitor ▸ History**). Tests 01–02 must run before 06–17 (VSH/PHIE/PHIT are chain inputs).
 
 ### T-PETRO-01 — vsh_gr linear smoke run
 
@@ -1788,7 +1911,7 @@ Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a
 
 ### T-PETRO-19 — provenance, History attribution, live refresh, theme repaint
 
-**Tool/panel:** Curve Catalog (Data ▸ Curve Catalog), Processing History (quick-access clock icon), any module pane
+**Tool/panel:** Curve Catalog (Data ▸ Curve Catalog), Processing History (**Project ▸ Monitor ▸ History**), any module pane
 **Preconditions:** Multi-well group available; a log view and a histogram of VSH left open.
 **Steps:**
 
@@ -2592,7 +2715,7 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 2. Click a step's **⚙** to expand; confirm sw_indo's PHIE input resolves to the phi_dn output (module outputs are selectable as inputs even in a fresh project).
 3. In the **Wells** scope row pick **All** (or a Group covering ≥5 wells); leave **Input cons** = "(latest values)", **Output cons** = `INTERP`.
 4. Click **Run chain**.
-   **Expected:** The **Processing** panel pops open automatically (also reachable via Petrophysics ▸ Batch ▸ **Processing**). It shows a "Workflow" job with a live progress bar, "Running", the current well name, and per-well **✓** outcomes accumulating; the builder's status line reads "Step k/4: … — see Processing panel". App stays responsive throughout (covers REVIEW.md §"Workflow chain runs without freezing the app + live progress works" and §"Processing panel"). On finish: status "Done: 4 steps, N curves across M wells"; Processing job phase **Done** with all wells ✓. Domain check in a Log View: VSH in [0,1], high in shales, low in clean sand; PHIE in [0,~0.35], anti-correlated with VSH; SWE in [0,1], low in the known pay; PERM positive, spanning ~0.1–1000s mD in sands and near-zero in shales (Coates needs the earlier PHIE — all-NaN PERM means chaining failed). History (clock button, top-left QAT) shows "Workflow — Ran chain (4 step(s) × M well(s))".
+   **Expected:** The **Processing** panel pops open automatically (also reachable via **Project ▸ Monitor ▸ Processing**). It shows a "Workflow" job with a live progress bar, "Running", the current well name, and per-well **✓** outcomes accumulating; the builder's status line reads "Step k/4: … — see Processing panel". App stays responsive throughout (covers REVIEW.md §"Workflow chain runs without freezing the app + live progress works" and §"Processing panel"). On finish: status "Done: 4 steps, N curves across M wells"; Processing job phase **Done** with all wells ✓. Domain check in a Log View: VSH in [0,1], high in shales, low in clean sand; PHIE in [0,~0.35], anti-correlated with VSH; SWE in [0,1], low in the known pay; PERM positive, spanning ~0.1–1000s mD in sands and near-zero in shales (Coates needs the earlier PHIE — all-NaN PERM means chaining failed). History (**Project ▸ Monitor ▸ History**) shows "Workflow — Ran chain (4 step(s) × M well(s))".
    **Result — T-BATCH-02:**
 
 - [ ] Pass
@@ -2684,7 +2807,7 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 1. Petrophysics ▸ Reporting ▸ **Cutoffs & Summary…** → docked pane **Cutoffs & Pay Summary**.
 2. Set **VSH ≤** 0.5, **PHIE ≥** 0.1, **SWE ≤** 0.6, leave **PERM ≥ (optional)** blank ("(off)").
 3. Wells scope: pick ≥3 wells ▸ **Compute Summary**.
-4. Open **Inspector ▸ Curve Catalog**; then the History panel (QAT clock button ▸ **Processing History**).
+4. Open **Inspector ▸ Curve Catalog**; then the History panel (**Project ▸ Monitor ▸ History**).
 5. Re-run Compute Summary once.
    **Expected:** Table with columns Well | Zone | Flag | Top | Bottom | Gross | Net | N/G | Avg VSH | Avg PHIE | Avg SWE | HPV (m), rows for SAND/RESERVOIR/PAY per well-zone. Domain acceptance: **Net ≤ Gross** everywhere; N/G in [0,1]; per zone PAY-net ≤ RESERVOIR-net ≤ SAND-net; SAND rows' Avg VSH ≤ 0.5, RESERVOIR rows' Avg PHIE ≥ 0.1, PAY rows' Avg SWE ≤ 0.6; HPV ≤ Net × Avg PHIE. Status line "Pay summary: N rows; FLAG curves written". Cross-checks: Curve Catalog shows a **PAYFLAG** log set holding FLAG*SAND/FLAG_RESERVOIR/FLAG_PAY whose provenance records the cutoffs; the re-run makes it **version N+1** (covers REVIEW.md §"Pay-summary provenance — FLAG*\* versioned + cutoffs recorded"); a **"Pay Summary"** entry appears in Processing History listing the cutoffs and well count (covers REVIEW.md §Round 4 "Pay Summary → Processing History" — verifies the fixed audit finding "Compute Summary … never calls recordProcess"); an open Log View with a FLAG curve refreshes.
    **Result — T-BATCH-07:**
@@ -2928,7 +3051,7 @@ Everything verified against source. Composing the test plan now — this is my f
 
 ## MLEQ — ML, user equations & curve management
 
-**Shared preconditions:** project open with at least 3 wells imported carrying GR, RHOB, NPHI and DT (DT absent or blanked in one well for T-MLEQ-10); PHIT computed on at least 2 wells (any porosity module or SSC/SSPW run); Python 3.10+ with numpy + scikit-learn on PATH (or `ARSHILLA_PYTHON` set). Ribbon tabs referenced: **Data**, **Petrophysics**, **Advance**, **Project**. The Processing History pane opens from the clock icon in the quick-access toolbar ("Processing history") or right-click workspace background → **Processing History**.
+**Shared preconditions:** project open with at least 3 wells imported carrying GR, RHOB, NPHI and DT (DT absent or blanked in one well for T-MLEQ-10); PHIT computed on at least 2 wells (any porosity module or SSC/SSPW run); Python 3.10+ with numpy + scikit-learn on PATH (or `SANDIBUMI_PYTHON` set). Ribbon tabs referenced: **Data**, **Petrophysics**, **Advance**, **Project**. The Processing History pane opens from **Project ▸ Monitor ▸ History** or right-click workspace background → **Processing History**.
 
 ### T-MLEQ-01 — ML pane opens with the full form (smoke)
 
@@ -2956,7 +3079,7 @@ Everything verified against source. Composing the test plan now — this is my f
 1. Ribbon → **Data** tab → **Curve Catalog** button (Manage group).
 2. In the Inspector pane confirm two tabs: **Equation Editor** (active) and **Curve Catalog**.
 3. In Equation Editor set **Language** = "Python (numpy)". Read the note line at the top.
-   **Expected:** the note reads "Python (numpy): input curves are float32 arrays (NaN = missing) plus `depth`…" and, after a moment, appends **"(engine: \<path to python\>)"** — the live worker path. If it instead appends "⚠ No Python with numpy found — install Python 3.10+ & numpy, or set ARSHILLA_PYTHON", stop: Python-dependent tests (03, 05, 10–15) are **Blocked** until the environment is fixed.
+   **Expected:** the note reads "Python (numpy): input curves are float32 arrays (NaN = missing) plus `depth`…" and, after a moment, appends **"(engine: \<path to python\>)"** — the live worker path. If it instead appends "⚠ No Python with numpy found — install Python 3.10+ & numpy, or set SANDIBUMI_PYTHON", stop: Python-dependent tests (03, 05, 10–15) are **Blocked** until the environment is fixed.
    **Result — T-MLEQ-02:**
 
 - [ ] Pass
@@ -3270,7 +3393,7 @@ Everything verified against source. Composing the test plan now — this is my f
 
 # UAT Cluster: PLOT — Plots & Viewers
 
-Shared preconditions for the whole cluster: app running via `npm run tauri dev`; a project with **≥3 wells** imported (GR, RHOB, NPHI, RES_DEEP, DT); on at least one well the standard chain has been run so **VSH, PHIE, PHIT, SWE** exist; that well also has **tops**, **core data** (CPOR/CPERM), and a **FACIES/electrofacies curve**; at least one saved zone. Tests 01–09 use the Log View; 10–15 the parameter/multi-well plots; 16–20 are cross-cutting. Keep the **History** panel (QAT clock button) reachable throughout.
+Shared preconditions for the whole cluster: app running via `npm run tauri dev`; a project with **≥3 wells** imported (GR, RHOB, NPHI, RES_DEEP, DT); on at least one well the standard chain has been run so **VSH, PHIE, PHIT, SWE** exist; that well also has **tops**, **core data** (CPOR/CPERM), and a **FACIES/electrofacies curve**; at least one saved zone. Tests 01–09 use the Log View; 10–15 the parameter/multi-well plots; 16–20 are cross-cutting. Keep the **History** panel (**Project ▸ Monitor ▸ History**) reachable throughout.
 
 ### T-PLOT-01 — Open a Log View (smoke)
 
@@ -3338,12 +3461,12 @@ Shared preconditions for the whole cluster: app running via `npm run tauri dev`;
 
 1. Drag a track header's right-edge **resizer** — the track widens live.
 2. Drag a track header **title** onto another header — tracks reorder.
-3. Drag a **curve row** (e.g. GR) from one header onto another track's header — the curve MOVES; press QAT **Undo** (Ctrl+Z) — it moves back; redo (Ctrl+Y).
+3. Drag a **curve row** (e.g. GR) from one header onto another track's header — the curve MOVES; press **Project ▸ Edit ▸ Undo** (Ctrl+Z) — it moves back; redo (Ctrl+Y).
 4. Repeat the drag holding **Ctrl** — the curve is COPIED (stays in both tracks).
 5. Click a scale number (min or max) under a curve — an inline edit box appears; type a new value, Enter.
 6. Click a curve's color swatch or name — the curve toggles hidden/visible.
 7. Toolbar **▤** — headers cycle full → compact → titles-only; **▦** opens **Track borders** (set Dashed, width 2, **Apply**).
-   **Expected:** Every change repaints the canvas immediately; curve drawn against the new scale after the scale edit (e.g. GR 0–150 visibly stretches vs 0–200); curve-move is bit-exact undoable via QAT (status "Undo: move GR → …"); a curve dropped on a track already showing it is refused silently; pane tab shows the unsaved dot (●) after edits; borders redraw dashed between tracks.
+   **Expected:** Every change repaints the canvas immediately; curve drawn against the new scale after the scale edit (e.g. GR 0–150 visibly stretches vs 0–200); curve-move is bit-exact undoable from **Project ▸ Edit ▸ Undo** (status "Undo: move GR → …"); a curve dropped on a track already showing it is refused silently; pane tab shows the unsaved dot (●) after edits; borders redraw dashed between tracks.
    **Result — T-PLOT-04:**
 
 - [ ] Pass
@@ -3624,7 +3747,7 @@ Shared preconditions for the whole cluster: app running via `npm run tauri dev`;
 **Steps:**
 
 1. Right-click the GR track at a known depth → menu heading "Track _X_" → **Edit GR…**. Dialog "Edit GR — _well_".
-2. Operation **Wireline shift**, Shift (m) = 2 → **Apply**. Verify the curve moved 2 m deeper; QAT **Undo** → verify the readout values return exactly.
+2. Operation **Wireline shift**, Shift (m) = 2 → **Apply**. Verify the curve moved 2 m deeper; **Project ▸ Edit ▸ Undo** → verify the readout values return exactly.
 3. **Set constant**: Top/Bottom span ~5 m, Value = 75 → Apply → interval is flat at 75 → Undo → original values back bit-exact.
 4. **Blank (erase)** over an interval → gap appears (line pen lifts) → Undo.
 5. **Interpolate across** a spike → the spike bridges linearly between the interval edges → Undo.
@@ -4081,18 +4204,18 @@ This cluster sweeps the tools and behaviours the first drafting pass missed: the
 
 ---
 
-### T-AUX-02 — Help (?) tool: QAT button and right-click context help
+### T-AUX-02 — Help tool: ribbon button and right-click context help
 
-**Tool/panel:** Help tool (`src/ui/workspace.ts` `openHelpForPanel`, QAT `#qat-help` in index.html)
+**Tool/panel:** Help tool (`src/ui/workspace.ts` `openHelpForPanel`, `#help-btn` in index.html)
 **Preconditions:** Any project open.
 **Steps:**
 
-1. With no panel focused (fresh workspace, click the status bar), click the **?** button in the quick-access bar (tooltip "Help — a guide for the active panel"). Status bar should read "Click a panel first, then press Help (?) for its guide." if nothing is active.
-2. Open **Petrophysics ▸ VSH ▾ ▸ VSH from Gamma Ray**, click inside the pane, then click QAT **?**. A modal titled **Help — VSH from Gamma Ray** opens showing the module's method description (the VSH_GR = (GR − GR_MA)/(GR_SH − GR_MA) text) — as a petrophysicist, confirm the description states the actual equation and the Stieber/Larionov/Clavier options.
+1. With no panel focused (fresh workspace, click the status bar), click **Project ▸ Help ▸ Help** (tooltip "Help — a guide for the active panel"). Status bar should read "Click a panel first, then press Help (?) for its guide." if nothing is active.
+2. Open **Petrophysics ▸ VSH ▾ ▸ VSH from Gamma Ray**, click inside the pane, then click **Project ▸ Help ▸ Help**. A modal titled **Help — VSH from Gamma Ray** opens showing the module's method description (the VSH_GR = (GR − GR_MA)/(GR_SH − GR_MA) text) — as a petrophysicist, confirm the description states the actual equation and the Stieber/Larionov/Clavier options.
 3. Close it. Right-click empty space in the **Processing** panel → pick **Help for this panel…** from the context menu. A "Help — Processing" guide opens.
 4. Repeat the right-click help on a Log View and on the DB Inspector (its blurb must say "spreadsheet-style", not any vendor name).
 5. Confirm each help modal ends with the note "Illustrated help for each panel will open here in a later release."
-   **Expected:** QAT ? and the right-click **Help for this panel…** entry open the same contextual guide; module panes show the method doc, other panels a short blurb; no vendor trademarks appear. _(REVIEW.md ▸ "Help (?) tool" — unchecked "[ ] click the ? in the top quick-access bar (or right-click any panel → Help for this panel…)"; and ▸ trademark scrub "hover the DB Inspector ribbon button + open Help → reads 'spreadsheet-style'".)_
+   **Expected:** The Help button and the right-click **Help for this panel…** entry open the same contextual guide; module panes show the method doc, other panels a short blurb; no vendor trademarks appear. _(REVIEW.md ▸ "Help (?) tool" — unchecked "[ ] click Help (Project ▸ Help) (or right-click any panel → Help for this panel…)"; and ▸ trademark scrub "hover the DB Inspector ribbon button + open Help → reads 'spreadsheet-style'".)_
    **Result — T-AUX-02:**
 
 - [ ] Pass
@@ -4113,7 +4236,7 @@ This cluster sweeps the tools and behaviours the first drafting pass missed: the
 2. Verify the modal **Well Header — {well}** prefills: **Field**, **TD (m)**, **KB (m)** (hint "datum for TVDSS"), **Surface X** (hint "UTM easting"), **Surface Y**, **UTM zone** (e.g. 50S). None of TD/KB may open blank on a well that has them.
 3. Change ONLY **TD (m)** (e.g. +1 m), click **Save Header**.
 4. Status must read "Updated header for {well}." — reopen the dialog: TD shows the new value AND Surface X/Y/zone are unchanged (the stale-snapshot coordinate wipe was the confirmed bug).
-5. Open the **Processing History** pane (QAT clock button): a new **Edit** entry "Updated well header" attributed to this well.
+5. Open the **Processing History** pane (**Project ▸ Monitor ▸ History**): a new **Edit** entry "Updated well header" attributed to this well.
 6. Restore the original TD.
    **Expected:** TD/KB always prefilled; a partial edit never wipes coordinates; History records the edit; Field Map marker does not move. _(REVIEW.md ▸ "[ ] Well Header shows current TD / KB … the field shows it, not an empty box" and ▸ Field Map "[ ] Tools ▸ Well Header on a located well → Surface X/Y/zone show the imported values (not blank); change only TD and Save → the coordinates survive".)_
    **Result — T-AUX-03:**
@@ -4341,15 +4464,15 @@ This cluster sweeps the tools and behaviours the first drafting pass missed: the
 
 ### T-AUX-13 — Undo/redo depth: full walk down and up, redo invalidation
 
-**Tool/panel:** Global undo stack (`src/undo.ts`, QAT `#qat-undo`/`#qat-redo`) across tops editor, highlights, DB Inspector, curve edit
+**Tool/panel:** Global undo stack (`src/undo.ts`, `#undo-btn`/`#redo-btn`) across tops editor, highlights, DB Inspector, curve edit
 **Preconditions:** One well with tops, curves, and a log view open; DB Inspector openable.
 **Steps:**
 
 1. Perform 6 mixed undoable edits, noting each expected state: (a) 🏷 tops mode: click to ADD a top; (b) drag an existing top to MOVE it ~5 m; (c) 🖍: add a highlight band; (d) **Data ▸ DB Inspector**: double-click a curve-sample value cell, change it, commit; (e) right-click a curve in a log view track → **Edit {curve}…** → op **Set constant** over a 2 m interval; (f) rename a track title in **Layout Properties**.
-2. Hover QAT **Undo** — it is enabled. Press **Ctrl+Z** six times, ONE at a time; after each press verify the status-bar label names the correct action (reverse order f→a) and the on-screen state matches (track title back, curve values restored, cell restored, band gone, top back, added top gone).
-3. When the stack is empty the QAT Undo button disables.
+2. Hover **Project ▸ Edit ▸ Undo** — it is enabled. Press **Ctrl+Z** six times, ONE at a time; after each press verify the status-bar label names the correct action (reverse order f→a) and the on-screen state matches (track title back, curve values restored, cell restored, band gone, top back, added top gone).
+3. When the stack is empty the **Undo** button disables.
 4. Press **Ctrl+Y** six times — each redo replays in order a→f; verify final state equals post-step-1 state exactly.
-5. Undo twice (undoes f, e). Now make a NEW edit (add another highlight). Press **Ctrl+Y**: NOTHING may redo (redo stack cleared by the new edit; QAT Redo disabled).
+5. Undo twice (undoes f, e). Now make a NEW edit (add another highlight). Press **Ctrl+Y**: NOTHING may redo (redo stack cleared by the new edit; **Redo** disabled).
 6. Cleanup: undo the remaining edits.
    **Expected:** A 6-deep mixed stack walks down and up losslessly with correct labels; a new edit after partial undo invalidates redo (`pushUndo` clears the redo branch); stack cap is 100 so nothing rolls off here.
    **Known issue:** AUDIT-2026-07-21-full-qc.md (Curve edit / undo §2, CONFIRMED): "restore_curve_values (the undo path) has no staleness/version check — an old edit's Ctrl+Z can silently overwrite a curve that's been legitimately recomputed since, and the frontend never checks how many samples actually got restored." If you interleave a module recompute of the edited curve between step 1(e) and the undo walk, the step-2 undo of (e) may splice stale pre-run values into the fresh curve and still report success — do NOT interleave recomputes in this test's main path; optionally probe it and note the result.
@@ -4536,7 +4659,7 @@ All source reading done — I verified every label against `index.html`, `ribbon
 
 ## Cluster INT/PERF — End-to-end integration + performance/stress
 
-**Shared preconditions:** app launched with `npm run tauri dev` from `D:\XX. SandiBumi`. Two projects are used: a **fresh empty project** created in T-INT-01 (INT tests, 4+ real Mahakam LAS with GR, RHOB, NPHI, RES_DEEP, CALI, DRHO + a matching tops CSV), and the **big field project (100+/540 wells)** for all PERF tests. Keep the **Processing** pane and the **Processing History** panel (clock icon, quick-access bar) visible throughout — most cross-checks read them. INT tests build on each other in order; PERF tests are independent of INT. **For every PERF test, write the rough timing (seconds) in Notes — ROADMAP.md Performance tier #128–132 explicitly awaits these live measurements.**
+**Shared preconditions:** app launched with `npm run tauri dev` from `D:\XX. SandiBumi`. Two projects are used: a **fresh empty project** created in T-INT-01 (INT tests, 4+ real Mahakam LAS with GR, RHOB, NPHI, RES_DEEP, CALI, DRHO + a matching tops CSV), and the **big field project (100+/540 wells)** for all PERF tests. Keep the **Processing** pane and the **Processing History** panel (**Project ▸ Monitor ▸ History**) visible throughout — most cross-checks read them. INT tests build on each other in order; PERF tests are independent of INT. **For every PERF test, write the rough timing (seconds) in Notes — ROADMAP.md Performance tier #128–132 explicitly awaits these live measurements.**
 
 ### T-INT-01 — Fresh project + multi-LAS import (canonical workflow, step 1)
 
@@ -4751,7 +4874,7 @@ All source reading done — I verified every label against `index.html`, `ribbon
 
 1. Build a busy workspace on well 2: a Log View with a customized layout (Plot → Properties…), **Histogram**, **Crossplot** (X=NPHI Y=RHOB Color=GR), **Pickett**, and the **Zones…** pane; drag a couple of panes into a second window (**View → New Window**).
 2. Quick-access **Save Session As…** → name `UAT Busy` → **Save**.
-3. **View → Reset Workspace** (scramble), then quick-access **Open Session…** → `UAT Busy`.
+3. **View → Reset Workspace** (scramble), then **Project ▸ Session ▸ Open Session…** → `UAT Busy`.
 4. Close the app entirely (window ✕), relaunch `npm run tauri dev`, then **Open Session…** → `UAT Busy` again.
 5. **Project → Theme** → switch to Dark (then back).
    **Expected:** (3) and (4): every pane returns in its arrangement, the session's well (well 2) is active everywhere, the Log View's customized layout is back (not the default), and the plots reopen with their curve choices/zone and persisted plot properties; status "Opened session \"UAT Busy\""; History records the session save/open. (5) every canvas panel — log view, plots, correlation — repaints immediately in the new theme with no stale colors (themeVersion).
@@ -4934,7 +5057,7 @@ every dev-mode session to date has never exercised it.
    means the CSP blocked the app bundle itself (script-src): report which, don't work around it.
    **Realtime status (2026-07-29):** ✅ machine-verified by Claude — packaged debug exe driven
    over the WebView2 debug port with the PR's CSP applied: full UI rendered (12 ribbon tabs,
-   dockview, QAT), policy proven LIVE (deliberate probe violations quote it: remote fetch blocked
+   dockview, ribbon), policy proven LIVE (deliberate probe violations quote it: remote fetch blocked
    by connect-src, injected inline script refused by script-src), zero unexpected violations.
    Run it once yourself for the release build, but expect green.
    **Result — T-SHIP-01:**

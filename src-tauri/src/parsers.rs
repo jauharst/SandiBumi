@@ -1,7 +1,5 @@
 use rayon::prelude::*;
-use serde::Deserialize;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use thiserror::Error;
 
@@ -16,6 +14,65 @@ pub enum ParseError {
 }
 
 pub type ParseResult<T> = Result<T, ParseError>;
+
+/// cp1252's 0x80–0x9F block — the only place it differs from Latin-1, and the source of every
+/// byte that breaks a real delivery: smart quotes, en/em dashes, the bullet. Above 0x9F,
+/// cp1252 IS Latin-1 (byte value == Unicode code point), so no table is needed there.
+/// Undefined slots (0x81/0x8D/0x8F/0x90/0x9D) map to their control code points, as browsers do.
+const CP1252_HIGH: [char; 32] = [
+    '\u{20AC}', '\u{0081}', '\u{201A}', '\u{0192}', '\u{201E}', '\u{2026}', '\u{2020}', '\u{2021}',
+    '\u{02C6}', '\u{2030}', '\u{0160}', '\u{2039}', '\u{0152}', '\u{008D}', '\u{017D}', '\u{008F}',
+    '\u{0090}', '\u{2018}', '\u{2019}', '\u{201C}', '\u{201D}', '\u{2022}', '\u{2013}', '\u{2014}',
+    '\u{02DC}', '\u{2122}', '\u{0161}', '\u{203A}', '\u{0153}', '\u{009D}', '\u{017E}', '\u{0178}',
+];
+
+/// Decodes file bytes into text the way real-world deliveries actually arrive.
+///
+/// Field data is not reliably UTF-8. A CSV that passed through Excel, Word or an operator's
+/// reporting tool on a Windows machine carries **cp1252** bytes, and a single one of them used
+/// to fail an entire import with the unhelpful `io error: stream did not contain valid UTF-8`.
+/// The case that found this: a 330 KB field core table, pure ASCII apart from **two** 0x95
+/// bullets that begin a lithology description — 20,000 good rows rejected over two characters
+/// in a comment field.
+///
+/// Order matters: a BOM is authoritative, so it is honoured first (Excel's "Unicode text"
+/// export is UTF-16LE, which decoded as cp1252 would silently yield NUL-riddled nonsense
+/// rather than an error). Only when there is no BOM and the bytes are not valid UTF-8 do we
+/// fall back to cp1252 — which cannot itself fail, so an import is never refused over encoding
+/// again. Bytes are never rejected, only interpreted; the worst case is a mangled character
+/// inside a description, not a lost delivery.
+fn decode_text(bytes: &[u8]) -> String {
+    let utf16 = |chunks: &[u8], be: bool| -> String {
+        let units: Vec<u16> = chunks
+            .chunks_exact(2)
+            .map(|p| if be { u16::from_be_bytes([p[0], p[1]]) } else { u16::from_le_bytes([p[0], p[1]]) })
+            .collect();
+        String::from_utf16_lossy(&units)
+    };
+    match bytes {
+        [0xEF, 0xBB, 0xBF, rest @ ..] => String::from_utf8_lossy(rest).into_owned(),
+        [0xFF, 0xFE, rest @ ..] => utf16(rest, false),
+        [0xFE, 0xFF, rest @ ..] => utf16(rest, true),
+        _ => match std::str::from_utf8(bytes) {
+            Ok(s) => s.to_string(),
+            Err(_) => bytes
+                .iter()
+                .map(|&b| match b {
+                    0x80..=0x9F => CP1252_HIGH[(b - 0x80) as usize],
+                    _ => b as char, // ASCII and, above 0x9F, Latin-1 == Unicode
+                })
+                .collect(),
+        },
+    }
+}
+
+/// Reads a text/delimited file, decoding it per `decode_text`. **Every** text import must go
+/// through this rather than `read_to_string`/`BufReader<File>`, both of which reject a file
+/// outright on one stray byte. Files here are per-well or per-delivery (single-digit MB), so
+/// reading whole is the right trade for never refusing a real delivery.
+pub fn read_text_file<P: AsRef<Path>>(path: P) -> std::io::Result<String> {
+    Ok(decode_text(&std::fs::read(path)?))
+}
 
 /// A single deserialized row from a generic curve CSV export.
 #[derive(Debug, Clone, Deserialize)]
@@ -50,10 +107,10 @@ pub struct CurveColumns {
 /// Parses a generic curve CSV export into columnar arrays, mapping missing values to `f32::NAN`.
 #[allow(dead_code)] // generic-CSV importer, wired into the ribbon in a later increment
 pub fn parse_csv_export<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
-    let file = File::open(path)?;
+    let text = read_text_file(path)?;
     let mut rdr = csv::ReaderBuilder::new()
         .has_headers(true)
-        .from_reader(BufReader::new(file));
+        .from_reader(text.as_bytes());
 
     let mut cols = CurveColumns::default();
     for result in rdr.deserialize() {
@@ -127,8 +184,7 @@ fn resolve_curve_index(curve_names: &[String], aliases: &[&str]) -> Option<usize
 /// Streams a LAS 2.0 file line-by-line (never loads the whole file into RAM), reading the
 /// `~C` (Curve) block to map column indices and the `~A` (ASCII) block for the data rows.
 pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
-    let file = File::open(path)?;
-    let reader = BufReader::new(file);
+    let text = read_text_file(path)?;
 
     let mut section = LasSection::Header;
     let mut curve_names: Vec<String> = Vec::new();
@@ -153,8 +209,7 @@ pub fn parse_las_2<P: AsRef<Path>>(path: P) -> ParseResult<CurveColumns> {
     let mut token_buffer: Vec<f32> = Vec::new();
     let mut declared_null: Option<f32> = None;
 
-    for line in reader.lines() {
-        let line = line?;
+    for line in text.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
@@ -415,8 +470,7 @@ pub fn sanitize_las_frame(frame: &mut LasFrame) -> DepthSanitizeReport {
 /// column recognized as depth (by `DEPTH_ALIASES`, else column 0) becomes the shared
 /// index; every other column is returned as its own `RawLasCurve`.
 pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
-    let file = File::open(path)?;
-    let reader = BufReader::new(file);
+    let text = read_text_file(path)?;
 
     let mut section = LasSection::Header;
     let mut curve_names: Vec<String> = Vec::new();
@@ -428,8 +482,7 @@ pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
     let mut token_buffer: Vec<f32> = Vec::new();
     let mut declared_null: Option<f32> = None;
 
-    for line in reader.lines() {
-        let line = line?;
+    for line in text.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
@@ -538,12 +591,10 @@ pub fn parse_las_2_all<P: AsRef<Path>>(path: P) -> ParseResult<LasFrame> {
 /// back to the file's stem if the block is missing or the value is blank.
 pub fn extract_well_name<P: AsRef<Path>>(path: P) -> ParseResult<String> {
     let path = path.as_ref();
-    let file = File::open(path)?;
-    let reader = BufReader::new(file);
+    let text = read_text_file(path)?;
 
     let mut in_well_block = false;
-    for line in reader.lines() {
-        let line = line?;
+    for line in text.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
@@ -558,7 +609,7 @@ pub fn extract_well_name<P: AsRef<Path>>(path: P) -> ParseResult<String> {
             && matches!(upper.as_bytes().get(4), None | Some(b'.') | Some(b' ') | Some(b'\t'));
         if well_line {
             if let Some(colon_idx) = trimmed.rfind(':') {
-                // "WELL .        BALAM SOUTH-01   : WELL" — the value is everything
+                // "WELL .        SANDI SOUTH-01   : WELL" — the value is everything
                 // between the mnemonic(+unit) and the colon, NOT just the last token
                 // (multi-word well names must survive intact).
                 let after = trimmed[4..colon_idx].trim_start();
@@ -591,7 +642,8 @@ pub struct CoreColumns {
 const CORE_DEPTH_ALIASES: [&str; 3] = ["DEPTH", "DEPT", "MD"];
 const CORE_CPOR_ALIASES: [&str; 7] = ["CPOR", "CORE_POR", "PHI_CORE", "CPHI", "POROSITY", "PORO", "POR"];
 const CORE_CPERM_ALIASES: [&str; 8] = ["CPERM", "CORE_PERM", "KAIR", "KL", "KH", "PERMEABILITY", "PERM", "K"];
-const CORE_CGD_ALIASES: [&str; 4] = ["CGD", "GRAIN_DENSITY", "GRAIN_DEN", "RHOG"];
+// GDEN: a real core-log delivery header (`GDEN_1`, resolved via the `_` boundary rule).
+const CORE_CGD_ALIASES: [&str; 5] = ["CGD", "GRAIN_DENSITY", "GRAIN_DEN", "RHOG", "GDEN"];
 const CORE_CSW_ALIASES: [&str; 3] = ["CSW", "CORE_SW", "SW"];
 
 /// True when `header` is `alias` on its own or followed by a unit/qualifier
@@ -630,8 +682,8 @@ fn percent_to_fraction(vals: &mut [f32]) {
 /// don't line up with the log's standard depth grid are expected and fine: core data is
 /// stored and fetched independently, not aligned onto `standard_curves`.
 pub fn parse_core_csv<P: AsRef<Path>>(path: P) -> ParseResult<CoreColumns> {
-    let file = File::open(path)?;
-    let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(BufReader::new(file));
+    let text = read_text_file(path)?;
+    let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(text.as_bytes());
 
     let headers: Vec<String> =
         rdr.headers()?.iter().map(|h| h.trim().to_uppercase()).collect();
@@ -700,9 +752,9 @@ const SCAL_SW_ALIASES: [&str; 4] = ["SW", "SAT", "WATER_SATURATION", "SWI"];
 /// detected and divided down; porosity likewise.
 pub fn parse_scal_csv<P: AsRef<Path>>(path: P) -> ParseResult<Vec<ScalPcRecord>> {
     let delim = scal_delimiter(&path)?;
-    let file = File::open(&path)?;
+    let text = read_text_file(&path)?;
     let mut rdr =
-        csv::ReaderBuilder::new().delimiter(delim).has_headers(true).from_reader(BufReader::new(file));
+        csv::ReaderBuilder::new().delimiter(delim).has_headers(true).from_reader(text.as_bytes());
 
     let headers: Vec<String> = rdr.headers()?.iter().map(|h| h.trim().to_uppercase()).collect();
     let idx_pc = resolve_header_index(&headers, &SCAL_PC_ALIASES)
@@ -826,9 +878,8 @@ fn parse_f32_cell(s: &str) -> Option<f32> {
 /// writes ';' as the list separator. Decided from the first non-empty line only, so
 /// decimal commas inside data cells cannot outvote the real separator.
 fn scal_delimiter<P: AsRef<Path>>(path: P) -> ParseResult<u8> {
-    let file = File::open(&path)?;
-    for line in std::io::BufRead::lines(BufReader::new(file)) {
-        let line = line?;
+    let text = read_text_file(&path)?;
+    for line in text.lines() {
         if line.trim().is_empty() {
             continue;
         }
@@ -861,12 +912,12 @@ fn non_empty_cells(record: &csv::StringRecord) -> usize {
 /// are brine saturation in %PV. Unpivots to the long Pc/Sw records `scal_pc` stores.
 pub fn parse_scal_wide_csv<P: AsRef<Path>>(path: P) -> ParseResult<Vec<ScalPcRecord>> {
     let delim = scal_delimiter(&path)?;
-    let file = File::open(&path)?;
+    let text = read_text_file(&path)?;
     let mut rdr = csv::ReaderBuilder::new()
         .delimiter(delim)
         .has_headers(false)
         .flexible(true)
-        .from_reader(BufReader::new(file));
+        .from_reader(text.as_bytes());
 
     // Locate the header row: the first row with a recognizable SAMPLE column AND at least
     // three numeric-headed pressure columns (a real porous-plate table has ~12; requiring 3
@@ -959,12 +1010,12 @@ pub fn parse_scal_wide_csv<P: AsRef<Path>>(path: P) -> ParseResult<Vec<ScalPcRec
 /// holding a single plug (one block) is the same format.
 pub fn parse_scal_centrifuge_csv<P: AsRef<Path>>(path: P) -> ParseResult<Vec<ScalPcRecord>> {
     let delim = scal_delimiter(&path)?;
-    let file = File::open(&path)?;
+    let text = read_text_file(&path)?;
     let mut rdr = csv::ReaderBuilder::new()
         .delimiter(delim)
         .has_headers(false)
         .flexible(true)
-        .from_reader(BufReader::new(file));
+        .from_reader(text.as_bytes());
 
     let mut sample_no: Option<i32> = None;
     let mut depth: Option<f32> = None;
@@ -1059,12 +1110,12 @@ pub fn parse_scal_centrifuge_csv<P: AsRef<Path>>(path: P) -> ParseResult<Vec<Sca
 /// per-row SAMPLE/DEPTH columns.
 pub fn sniff_scal_format<P: AsRef<Path>>(path: P) -> ParseResult<&'static str> {
     let delim = scal_delimiter(&path)?;
-    let file = File::open(&path)?;
+    let text = read_text_file(&path)?;
     let mut rdr = csv::ReaderBuilder::new()
         .delimiter(delim)
         .has_headers(false)
         .flexible(true)
-        .from_reader(BufReader::new(file));
+        .from_reader(text.as_bytes());
 
     let mut armed = false; // saw a `SAMPLE, <id>` key-value line
     for (i, result) in rdr.records().enumerate() {
@@ -1127,6 +1178,7 @@ pub fn sniff_scal_format<P: AsRef<Path>>(path: P) -> ParseResult<&'static str> {
 #[cfg(test)]
 mod core_csv_tests {
     use super::*;
+    use std::fs::File;
     use std::io::Write;
 
     fn write_temp_csv(name: &str, body: &str) -> std::path::PathBuf {
@@ -1170,6 +1222,28 @@ mod core_csv_tests {
         assert!((cols.cpor[0] - 0.225).abs() < 1e-6, "already-fractional porosity must not be rescaled");
     }
 
+    /// The exact header shape of a real core-log delivery
+    /// (one-CSV-per-field core delivery): suffixed mnemonics (`CPOR_2`, `GDEN_1`) that resolve
+    /// via the `_` boundary rule, and a UNITS row as the first record — skipped because
+    /// its depth cell ("FEET") is not numeric, never imported as a phantom plug.
+    #[test]
+    fn core_csv_delivery_header_resolves() {
+        let path = write_temp_csv(
+            "sandibumi_core_delivery_test.csv",
+            "TAPE_NAME,TOOL_STRING,WN,DEPTH,CPERM_1,CPOR_2,CSO_1,CSW_1,GDEN_1\n\
+             \"\",\"\",\"\",FEET,MD,V/V,V/V,V/V,G/C3\n\
+             \"\",\"\",SANDI00001,850.5,120.0,0.24,0.15,0.55,2.66\n\
+             \"\",\"\",SANDI00001,851.5,85.0,0.22,0.20,0.60,2.65\n",
+        );
+        let cols = parse_core_csv(&path).unwrap();
+        std::fs::remove_file(&path).ok();
+        assert_eq!(cols.depth.len(), 2, "units row must be skipped, both plugs kept");
+        assert!((cols.cperm[0] - 120.0).abs() < 1e-3, "CPERM_1 resolves");
+        assert!((cols.cpor[0] - 0.24).abs() < 1e-6, "CPOR_2 resolves, fraction untouched");
+        assert!((cols.csw[1] - 0.60).abs() < 1e-6, "CSW_1 resolves");
+        assert!((cols.cgd[0] - 2.66).abs() < 1e-6, "GDEN_1 resolves to grain density");
+    }
+
     #[test]
     fn header_alias_boundaries() {
         assert!(header_matches("CPOR (%)", "CPOR"));
@@ -1182,6 +1256,7 @@ mod core_csv_tests {
 #[cfg(test)]
 mod scal_import_format_tests {
     use super::*;
+    use std::fs::File;
     use std::io::Write;
 
     fn write_temp_csv(name: &str, body: &str) -> std::path::PathBuf {
@@ -1443,8 +1518,8 @@ const DEV_AZI_ALIASES: [&str; 5] = ["AZI", "AZIM", "AZIMUTH", "HAZI", "AZM"];
 /// Parses a deviation-survey CSV (MD/INC/AZI columns, alias-tolerant, arbitrary order).
 /// Rows sort by MD ascending; a missing INC/AZI is treated as 0 (vertical/north).
 pub fn parse_deviation_csv<P: AsRef<Path>>(path: P) -> ParseResult<DeviationSurvey> {
-    let file = File::open(path)?;
-    let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(BufReader::new(file));
+    let text = read_text_file(path)?;
+    let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(text.as_bytes());
     let headers: Vec<String> = rdr.headers()?.iter().map(|h| h.trim().to_uppercase()).collect();
     let idx_md = resolve_header_index(&headers, &DEV_MD_ALIASES)
         .ok_or_else(|| ParseError::Las("deviation CSV has no recognizable MD column".into()))?;
@@ -1524,8 +1599,9 @@ pub struct TopsRecord {
     pub depth: f32,
 }
 
-const TOPS_WELL_ALIASES: [&str; 7] =
-    ["WELL", "WELLNAME", "WELL_NAME", "WELLBORE", "BOREHOLE", "UWI", "WELL_ID"];
+// WN: a real core-log delivery's well-name column.
+const TOPS_WELL_ALIASES: [&str; 8] =
+    ["WELL", "WELLNAME", "WELL_NAME", "WELLBORE", "BOREHOLE", "UWI", "WELL_ID", "WN"];
 const TOPS_NAME_ALIASES: [&str; 9] =
     ["TOP", "TOP_NAME", "TOPS", "MARKER", "SURFACE", "FORMATION", "HORIZON", "ZONE", "NAME"];
 const TOPS_DEPTH_ALIASES: [&str; 7] =
@@ -1536,7 +1612,7 @@ const TOPS_DEPTH_ALIASES: [&str; 7] =
 /// Quoted fields are honoured for the csv-crate delimiters; whitespace mode is a plain
 /// split (well names with spaces need a tab or comma file). Lines starting with '#' skip.
 fn read_delimited<P: AsRef<Path>>(path: P) -> ParseResult<(Vec<String>, Vec<Vec<String>>)> {
-    let text = std::fs::read_to_string(path)?;
+    let text = read_text_file(path)?;
     let lines: Vec<&str> = text
         .lines()
         .map(str::trim_end)
@@ -1725,14 +1801,19 @@ pub struct IntervalData {
     pub items: Vec<String>,
     /// (top, base, raw values parallel to `items`; None = empty cell).
     pub rows: Vec<(f32, Option<f32>, Vec<Option<String>>)>,
+    /// Parallel to `rows`: the WELL cell, when the file has a well column and the cell is
+    /// non-blank (T-IMP-11 — multi-well aux files route rows by name, like tops).
+    pub wells: Vec<Option<String>>,
+    pub has_well_column: bool,
 }
 
 const AUX_TOP_ALIASES: [&str; 7] = ["TOP", "DEPTH", "TOP_MD", "FROM", "TOP_DEPTH", "MD", "DEPT"];
 const AUX_BASE_ALIASES: [&str; 6] = ["BASE", "BOTTOM", "TO", "BASE_MD", "BOT", "BOTTOM_DEPTH"];
 
 /// Parses a tops-style dataset file (CSV/TXT, same delimiter detection as tops): needs a
-/// TOP/DEPTH column; BASE/BOTTOM makes rows intervals; a WELL column is ignored (the
-/// import dialog binds the file to one well). All remaining columns become items.
+/// TOP/DEPTH column; BASE/BOTTOM makes rows intervals; a WELL column is captured per
+/// row so the importer can route multi-well files by name (T-IMP-11) — it never becomes
+/// an item. All remaining columns become items.
 pub fn parse_interval_file<P: AsRef<Path>>(path: P) -> ParseResult<IntervalData> {
     let (headers, rows) = read_delimited(path)?;
     if headers.is_empty() {
@@ -1751,7 +1832,12 @@ pub fn parse_interval_file<P: AsRef<Path>>(path: P) -> ParseResult<IntervalData>
         return Err(ParseError::Las("file has no value columns besides depth".into()));
     }
 
-    let mut out = IntervalData { items, rows: Vec::new() };
+    let mut out = IntervalData {
+        items,
+        rows: Vec::new(),
+        wells: Vec::new(),
+        has_well_column: idx_well.is_some(),
+    };
     for row in rows {
         let top = row
             .get(idx_top)
@@ -1766,6 +1852,12 @@ pub fn parse_interval_file<P: AsRef<Path>>(path: P) -> ParseResult<IntervalData>
             .iter()
             .map(|&i| row.get(i).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()))
             .collect();
+        out.wells.push(
+            idx_well
+                .and_then(|i| row.get(i))
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
+        );
         out.rows.push((top, base, values));
     }
     if out.rows.is_empty() {
@@ -1774,9 +1866,396 @@ pub fn parse_interval_file<P: AsRef<Path>>(path: P) -> ParseResult<IntervalData>
     Ok(out)
 }
 
+// ---------------------------------------------------------------------------
+// Core import v2 (T-IMP-07): probe → confirm → commit.
+//
+// A real core delivery is a wide lab export — well name inside the data (WN /
+// WELL NAME), a units row under the headers, percent porosities, feet depths —
+// and the old single-well, comma-only path imported it half-blind. The wizard
+// flow: `probe_core_table` reads the file once and reports everything the
+// dialog needs to CONFIRM (headers, guessed roles, column types, sample rows,
+// distinct wells, percent + depth-unit detection); the user adjusts;
+// `parse_core_table_mapped` then extracts rows under the CONFIRMED mapping.
+// ---------------------------------------------------------------------------
+
+/// Confirmed column mapping for a core table: indices into the file's columns.
+/// Serialized both ways — the probe suggests one, the dialog returns one.
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+pub struct CoreMapping {
+    pub well: Option<usize>,
+    pub depth: usize,
+    pub cpor: Option<usize>,
+    pub cperm: Option<usize>,
+    pub cgd: Option<usize>,
+    pub csw: Option<usize>,
+    /// Columns to carry as EXTRA point data (lithology text, So, Kv/Kh, sample ids …).
+    /// `core_data` has a fixed four-measurement schema; a real lab export is wider than
+    /// that, so the leftovers land in the open-schema `aux_data` store at the same plug
+    /// depths — numeric cells as numbers, everything else as text.
+    #[serde(default)]
+    pub extras: Vec<usize>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct WellRowCount {
+    pub name: String,
+    pub rows: usize,
+}
+
+/// Everything the import dialog shows before anything is written.
+#[derive(Debug, Clone, Serialize)]
+pub struct TableProbe {
+    /// Upper-cased headers, file order.
+    pub headers: Vec<String>,
+    /// Data rows (units row, when detected, excluded).
+    pub n_rows: usize,
+    /// Guessed role → column index; None where no alias resolved. `depth` is a guess
+    /// here (Option) — the confirmed `CoreMapping` requires it.
+    pub well: Option<usize>,
+    pub depth: Option<usize>,
+    pub cpor: Option<usize>,
+    pub cperm: Option<usize>,
+    pub cgd: Option<usize>,
+    pub csw: Option<usize>,
+    /// "number" | "text" | "empty" per column, sniffed from up to 200 data rows.
+    pub column_kind: Vec<String>,
+    /// Up to 5 raw data rows for the dialog's preview grid.
+    pub sample_rows: Vec<Vec<String>>,
+    /// Distinct well-cell values with row counts (capped at 100), when a well column
+    /// was guessed. The dialog shows these so routing is confirmed, not assumed.
+    pub wells: Vec<WellRowCount>,
+    /// Roles ("CPOR"/"CSW") whose values read as percent (median > 1.5) — the import
+    /// will divide them to v/v, and the dialog says so out loud.
+    pub percent_roles: Vec<String>,
+    /// "ft" / "m" when the units row or the depth header names one, else None.
+    pub depth_unit_guess: Option<String>,
+    /// True when the first data row was a units row (non-numeric depth cell) — skipped.
+    pub units_row_skipped: bool,
+}
+
+/// Splits `s` into alphanumeric tokens and looks for a depth-unit word.
+fn unit_token_guess(s: &str) -> Option<&'static str> {
+    for tok in s.split(|c: char| !c.is_ascii_alphanumeric()) {
+        match tok.to_ascii_uppercase().as_str() {
+            "FT" | "FEET" | "FOOT" => return Some("ft"),
+            "M" | "METRE" | "METRES" | "METER" | "METERS" => return Some("m"),
+            _ => {}
+        }
+    }
+    None
+}
+
+/// True when the first data row is a UNITS row (delivery-style: `,,,FEET,MD,V/V,…`):
+/// the depth cell exists but does not parse as a number.
+fn is_units_row(row: &[String], depth_col: usize) -> bool {
+    row.get(depth_col)
+        .map(|c| c.trim())
+        .is_some_and(|c| !c.is_empty() && c.replace(',', ".").parse::<f32>().is_err())
+}
+
+/// Reads a core table (CSV/TXT, delimiter auto-detected) and reports everything the
+/// import dialog needs to confirm the mapping. Writes nothing.
+pub fn probe_core_table<P: AsRef<Path>>(path: P) -> ParseResult<TableProbe> {
+    let (headers, mut rows) = read_delimited(path)?;
+    if headers.is_empty() {
+        return Err(ParseError::Las("file is empty".into()));
+    }
+
+    let depth = resolve_header_index(&headers, &CORE_DEPTH_ALIASES);
+    // Well column: several headers can satisfy the aliases (some exports carry both a
+    // numeric WELL and a textual WELL NAME). Prefer the first candidate whose values are
+    // mostly NON-numeric — a well NAME routes rows; a bare pad number usually doesn't.
+    let well_candidates: Vec<usize> = (0..headers.len())
+        .filter(|&i| TOPS_WELL_ALIASES.iter().any(|a| header_matches(&headers[i], a)))
+        .collect();
+    let mostly_text = |col: usize| -> bool {
+        let mut num = 0usize;
+        let mut txt = 0usize;
+        for row in rows.iter().take(200) {
+            let Some(cell) = row.get(col).map(|c| c.trim()).filter(|c| !c.is_empty()) else { continue };
+            if cell.replace(',', ".").parse::<f32>().is_ok() { num += 1 } else { txt += 1 }
+        }
+        txt > num
+    };
+    let well = well_candidates
+        .iter()
+        .copied()
+        .find(|&c| mostly_text(c))
+        .or(well_candidates.first().copied());
+
+    let units_row = depth.is_some_and(|d| rows.first().is_some_and(|r| is_units_row(r, d)));
+    let units_cells = if units_row { Some(rows.remove(0)) } else { None };
+
+    // Depth unit: the units row's depth cell first, else the depth header itself.
+    let depth_unit_guess = depth.and_then(|d| {
+        units_cells
+            .as_ref()
+            .and_then(|u| u.get(d))
+            .and_then(|c| unit_token_guess(c))
+            .or_else(|| unit_token_guess(&headers[d]))
+            .map(str::to_string)
+    });
+
+    // Column kinds from up to 200 data rows.
+    let column_kind: Vec<String> = (0..headers.len())
+        .map(|col| {
+            let mut num = 0usize;
+            let mut txt = 0usize;
+            for row in rows.iter().take(200) {
+                let Some(cell) = row.get(col).map(|c| c.trim()).filter(|c| !c.is_empty()) else { continue };
+                if cell.replace(',', ".").parse::<f32>().is_ok() { num += 1 } else { txt += 1 }
+            }
+            if num == 0 && txt == 0 { "empty" } else if num >= txt { "number" } else { "text" }.to_string()
+        })
+        .collect();
+
+    // Distinct wells (row counts), file order, capped for the dialog.
+    let mut wells: Vec<WellRowCount> = Vec::new();
+    if let Some(w) = well {
+        for row in &rows {
+            let Some(name) = row.get(w).map(|c| c.trim()).filter(|c| !c.is_empty()) else { continue };
+            if let Some(e) = wells.iter_mut().find(|e| e.name == name) {
+                e.rows += 1;
+            } else if wells.len() < 100 {
+                wells.push(WellRowCount { name: name.to_string(), rows: 1 });
+            }
+        }
+    }
+
+    // Percent detection on the roles percent_to_fraction would touch.
+    let median_of = |col: Option<usize>| -> Option<f32> {
+        let mut vals: Vec<f32> = rows
+            .iter()
+            .filter_map(|r| col.and_then(|c| r.get(c)).and_then(|c| c.trim().replace(',', ".").parse::<f32>().ok()))
+            .filter(|v| v.is_finite())
+            .collect();
+        if vals.is_empty() { return None }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        Some(vals[vals.len() / 2])
+    };
+    let cpor = resolve_header_index(&headers, &CORE_CPOR_ALIASES);
+    let csw = resolve_header_index(&headers, &CORE_CSW_ALIASES);
+    let mut percent_roles = Vec::new();
+    if median_of(cpor).is_some_and(|m| m > 1.5) {
+        percent_roles.push("CPOR".to_string());
+    }
+    if median_of(csw).is_some_and(|m| m > 1.5) {
+        percent_roles.push("CSW".to_string());
+    }
+
+    Ok(TableProbe {
+        n_rows: rows.len(),
+        sample_rows: rows.iter().take(5).cloned().collect(),
+        well,
+        depth,
+        cpor,
+        cperm: resolve_header_index(&headers, &CORE_CPERM_ALIASES),
+        cgd: resolve_header_index(&headers, &CORE_CGD_ALIASES),
+        csw,
+        column_kind,
+        wells,
+        percent_roles,
+        depth_unit_guess,
+        units_row_skipped: units_row,
+        headers,
+    })
+}
+
+/// One core-table row under a confirmed mapping. `well` is the raw cell (None when the
+/// mapping has no well column or the cell is blank) — the importer routes/reports it.
+#[derive(Debug, Clone)]
+pub struct MappedCoreRow {
+    pub well: Option<String>,
+    pub depth: f32,
+    pub cpor: f32,
+    pub cperm: f32,
+    pub cgd: f32,
+    pub csw: f32,
+    /// Raw cells of `mapping.extras`, in that order — blank cells are `None`. Kept as
+    /// TEXT on purpose: typing happens per cell at the write, so one column may hold
+    /// numbers on some plugs and a remark ("below detection") on others.
+    pub extras: Vec<Option<String>>,
+}
+
+/// One core table read under a confirmed mapping: the rows plus the header names of the
+/// extra columns (they become the `item` of each aux row, so they travel with the data).
+#[derive(Debug, Clone)]
+pub struct MappedCoreTable {
+    pub rows: Vec<MappedCoreRow>,
+    pub extra_names: Vec<String>,
+}
+
+/// Extracts core rows under the dialog-confirmed `mapping`. The units row (when present)
+/// is skipped by the same rule the probe used; rows whose depth cell doesn't parse are
+/// dropped; CPOR/CSW get the file-wide percent→fraction conversion. Extra columns come
+/// back as raw text (typed per cell at the write). Depth-unit conversion is NOT done here
+/// — the importer owns it (it knows the project unit).
+pub fn parse_core_table_mapped<P: AsRef<Path>>(
+    path: P,
+    mapping: &CoreMapping,
+) -> ParseResult<MappedCoreTable> {
+    let (headers, mut rows) = read_delimited(path)?;
+    if mapping.depth >= headers.len() {
+        return Err(ParseError::Las(format!(
+            "depth column {} is out of range for this file ({} columns)",
+            mapping.depth,
+            headers.len()
+        )));
+    }
+    if rows.first().is_some_and(|r| is_units_row(r, mapping.depth)) {
+        rows.remove(0);
+    }
+
+    let cell = |row: &Vec<String>, col: Option<usize>| -> f32 {
+        col.and_then(|c| row.get(c))
+            .map(|c| c.trim().replace(',', "."))
+            .filter(|c| !c.is_empty())
+            .and_then(|c| c.parse::<f32>().ok())
+            .unwrap_or(f32::NAN)
+    };
+    // Extra columns out of range for THIS file are dropped (multi-file imports confirm the
+    // mapping by header name, so a file that simply lacks a column must not abort).
+    let extras: Vec<usize> = mapping.extras.iter().copied().filter(|&c| c < headers.len()).collect();
+    let extra_names: Vec<String> = extras.iter().map(|&c| headers[c].clone()).collect();
+
+    let mut out: Vec<MappedCoreRow> = Vec::new();
+    for row in &rows {
+        let depth = cell(row, Some(mapping.depth));
+        if !depth.is_finite() {
+            continue;
+        }
+        let well = mapping
+            .well
+            .and_then(|c| row.get(c))
+            .map(|c| c.trim().to_string())
+            .filter(|c| !c.is_empty());
+        out.push(MappedCoreRow {
+            well,
+            depth,
+            cpor: cell(row, mapping.cpor),
+            cperm: cell(row, mapping.cperm),
+            cgd: cell(row, mapping.cgd),
+            csw: cell(row, mapping.csw),
+            extras: extras
+                .iter()
+                .map(|&c| row.get(c).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()))
+                .collect(),
+        });
+    }
+    // File-wide percent→fraction on porosity and saturation (same heuristic and scope as
+    // the legacy parser: one decision per file, never per well, so a well whose few plugs
+    // all sit under 1.0 can't dodge a conversion the rest of the file clearly needs).
+    let mut cpor: Vec<f32> = out.iter().map(|r| r.cpor).collect();
+    let mut csw: Vec<f32> = out.iter().map(|r| r.csw).collect();
+    percent_to_fraction(&mut cpor);
+    percent_to_fraction(&mut csw);
+    for (r, (p, s)) in out.iter_mut().zip(cpor.into_iter().zip(csw)) {
+        r.cpor = p;
+        r.csw = s;
+    }
+    Ok(MappedCoreTable { rows: out, extra_names })
+}
+
+#[cfg(test)]
+mod encoding_tests {
+    use super::*;
+    use std::io::Write;
+
+    fn write_bytes(name: &str, body: &[u8]) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(name);
+        let mut f = std::fs::File::create(&path).unwrap();
+        f.write_all(body).unwrap();
+        path
+    }
+
+    /// The encoding regression, byte-for-byte. A 330 KB core table that was pure ASCII except for
+    /// TWO 0x95 bullets opening a lithology description was refused outright with
+    /// "io error: stream did not contain valid UTF-8" — 20,000 good plugs lost to two
+    /// characters in a comment field. cp1252 0x95 is "•", and the import must now simply read.
+    #[test]
+    fn cp1252_bullet_in_a_description_does_not_fail_the_import() {
+        let mut body: Vec<u8> = b"WELL,DEPTH,CPOR,CPERM,LITH\n".to_vec();
+        body.extend_from_slice(b"SANDI-1,661.0,0.266,0.415,");
+        body.push(0x95); // the byte that broke it
+        body.extend_from_slice(b" Sst gry f m gr fri wl srt\n");
+        let path = write_bytes("sandibumi_cp1252_core.csv", &body);
+
+        let probe = probe_core_table(&path).expect("a cp1252 byte must not fail the import");
+        assert_eq!(probe.headers.len(), 5, "every column still parses");
+        let text = read_text_file(&path).unwrap();
+        assert!(text.contains('\u{2022}'), "0x95 must decode to a real bullet, not a replacement char");
+        assert!(text.contains("Sst gry f m gr fri wl srt"), "the description survives intact");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// A BOM is authoritative and must win over the cp1252 fallback: Excel's "Unicode text"
+    /// export is UTF-16LE, and decoding those bytes as cp1252 would yield NUL-riddled nonsense
+    /// that parses as one giant column instead of erroring — a silently wrong import.
+    #[test]
+    fn boms_are_honoured_utf8_and_utf16() {
+        let mut u8bom: Vec<u8> = vec![0xEF, 0xBB, 0xBF];
+        u8bom.extend_from_slice("WELL,DEPTH\nSANDI-1,10.5\n".as_bytes());
+        let p1 = write_bytes("sandibumi_bom8.csv", &u8bom);
+        let t1 = read_text_file(&p1).unwrap();
+        assert!(t1.starts_with("WELL"), "the UTF-8 BOM must be stripped, not parsed as a header char");
+
+        let mut u16le: Vec<u8> = vec![0xFF, 0xFE];
+        for u in "WELL,DEPTH\nSANDI-1,10.5\n".encode_utf16() {
+            u16le.extend_from_slice(&u.to_le_bytes());
+        }
+        let p2 = write_bytes("sandibumi_bom16.csv", &u16le);
+        let t2 = read_text_file(&p2).unwrap();
+        assert!(t2.starts_with("WELL,DEPTH"), "UTF-16LE must decode as text, got {:?}", &t2[..t2.len().min(24)]);
+        assert!(!t2.contains('\u{0}'), "must not fall through to cp1252 and leave NULs");
+
+        let probe = probe_core_table(&p2).expect("a UTF-16 export must import");
+        assert_eq!(probe.headers.len(), 2);
+        let _ = std::fs::remove_file(&p1);
+        let _ = std::fs::remove_file(&p2);
+    }
+
+    /// Probe against the real core delivery that reported this bug — a 330 KB table, pure
+    /// ASCII apart from two 0x95 bullets in a lithology description, which the old reader
+    /// refused outright. Ignored, and skipped with a printed reason when no core folder is
+    /// configured (`SANDIBUMI_FIELD_FIXTURES/core/`). Run with:
+    ///   cargo test parsers::encoding_tests::probe_real_field_core -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn probe_real_field_core() {
+        let Some(path) = crate::field_fixtures::core_table() else {
+            crate::field_fixtures::skip("probe_real_field_core", 0, 1);
+            return;
+        };
+        let path = path.to_string_lossy().into_owned();
+        let p = probe_core_table(&path).expect("the real file must import");
+        eprintln!("headers ({}): {:?}", p.headers.len(), p.headers);
+        eprintln!("data rows: {}", p.n_rows);
+        eprintln!(
+            "roles  well={:?} depth={:?} cpor={:?} cperm={:?} cgd={:?} csw={:?}",
+            p.well, p.depth, p.cpor, p.cperm, p.cgd, p.csw
+        );
+        eprintln!("percent roles: {:?}  depth unit: {:?}", p.percent_roles, p.depth_unit_guess);
+        eprintln!("wells routed: {}", p.wells.len());
+        for w in p.wells.iter().take(8) {
+            eprintln!("   {:?}", w);
+        }
+    }
+
+    /// Plain UTF-8 (the common case) must be untouched by the fallback — including real
+    /// multi-byte characters, which cp1252 decoding would mangle into mojibake.
+    #[test]
+    fn valid_utf8_is_passed_through_unchanged() {
+        let body = "WELL,DEPTH,NOTE\nSANDI-1,10.5,µ-porosity 30°C – ok\n";
+        let path = write_bytes("sandibumi_utf8.csv", body.as_bytes());
+        assert_eq!(read_text_file(&path).unwrap(), body);
+        let _ = std::fs::remove_file(&path);
+    }
+}
+
 #[cfg(test)]
 mod tops_aux_tests {
     use super::*;
+    use std::fs::File;
     use std::io::Write;
 
     fn temp(name: &str, body: &str) -> std::path::PathBuf {
@@ -1790,14 +2269,14 @@ mod tops_aux_tests {
     fn tops_csv_multiwell_aliases() {
         let p = temp(
             "arshilla_tops_test.csv",
-            "# exported tops\nWell Name,Surface,MD\nBALAM-1,TOP_A,1000.5\nBALAM-1,TOP_B,1100.0\nBALAM-2,TOP_A,1010.0\n,BAD_ROW,\n",
+            "# exported tops\nWell Name,Surface,MD\nSANDI-1,TOP_A,1000.5\nSANDI-1,TOP_B,1100.0\nSANDI-2,TOP_A,1010.0\n,BAD_ROW,\n",
         );
         let (has_well, recs) = parse_tops_file(&p).unwrap();
         std::fs::remove_file(&p).ok();
         assert!(has_well, "multi-well file has a WELL column");
         assert_eq!(recs.len(), 3, "row without depth skipped");
-        assert_eq!(recs[0].well.as_deref(), Some("BALAM-1"));
-        assert_eq!(recs[2].well.as_deref(), Some("BALAM-2"));
+        assert_eq!(recs[0].well.as_deref(), Some("SANDI-1"));
+        assert_eq!(recs[2].well.as_deref(), Some("SANDI-2"));
         assert_eq!(recs[1].top_name, "TOP_B");
         assert!((recs[1].depth - 1100.0).abs() < 1e-3);
     }
@@ -1812,12 +2291,12 @@ mod tops_aux_tests {
         let p = temp(
             "arshilla_tops_nonfinite_test.csv",
             "Well Name,Surface,MD\n\
-             BALAM-1,TOP_A,1000.5\n\
-             BALAM-1,TOP_MISSING,NaN\n\
-             BALAM-1,TOP_NAN_LOWER,nan\n\
-             BALAM-1,TOP_INF,inf\n\
-             BALAM-1,TOP_OVERFLOW,1.0E+40\n\
-             BALAM-1,TOP_B,1100.0\n",
+             SANDI-1,TOP_A,1000.5\n\
+             SANDI-1,TOP_MISSING,NaN\n\
+             SANDI-1,TOP_NAN_LOWER,nan\n\
+             SANDI-1,TOP_INF,inf\n\
+             SANDI-1,TOP_OVERFLOW,1.0E+40\n\
+             SANDI-1,TOP_B,1100.0\n",
         );
         let (_, recs) = parse_tops_file(&p).unwrap();
         std::fs::remove_file(&p).ok();
@@ -1876,6 +2355,7 @@ mod tops_aux_tests {
 #[cfg(test)]
 mod las_depth_tests {
     use super::*;
+    use std::fs::File;
     use std::io::Write;
 
     fn temp(name: &str, body: &str) -> std::path::PathBuf {

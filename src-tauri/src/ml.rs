@@ -35,6 +35,8 @@ def fail(msg):
 header = json.loads(sys.stdin.buffer.readline().decode("utf-8"))
 task = header["task"]; algo = header["algorithm"]; p = header["params"] or {}
 d = header["d"]; n_train = header["n_train"]; has_y = header["has_target"]; n_apply = header["n_apply"]
+save_model = bool(header.get("save_model", False))
+feature_names = header.get("features") or []
 total = n_train * d + (n_train if has_y else 0) + n_apply * d
 raw = sys.stdin.buffer.read(4 * total)
 if len(raw) != 4 * total:
@@ -63,6 +65,7 @@ if bool(p.get("standardize", True)):
     Xs = scaler.transform(X) if n_train else X
     As = scaler.transform(A) if n_apply else A
 else:
+    scaler = None
     Xs, As = X, A
 
 def cv_score(model, scoring, key):
@@ -218,7 +221,88 @@ else:
     fail("unknown task '" + task + "'")
 
 metrics["n_apply"] = n_apply
-sys.stdout.buffer.write((json.dumps({"suffixes": [s for s, _ in outs], "metrics": metrics}) + "\n").encode("utf-8"))
+
+# A fitted model is an ARTIFACT, not a by-product of one run: dump it so the SAME model can be
+# applied to other wells later. The SCALER goes with it - refitting a StandardScaler on the apply
+# wells would be a different transform, and the predictions would be quietly wrong rather than
+# obviously broken. The feature NAMES go with it too, so the apply side can prove it is feeding
+# the columns the model was fitted on, in the order it was fitted on them.
+model_blob = b""
+sklearn_version = ""
+if save_model and supervised:
+    try:
+        import io as _io, joblib, sklearn as _sk
+        buf = _io.BytesIO()
+        joblib.dump({"scaler": scaler, "model": model, "features": feature_names,
+                     "task": task, "algorithm": algo}, buf, compress=3)
+        model_blob = buf.getvalue()
+        sklearn_version = _sk.__version__
+    except Exception as e:
+        # Never lose the RUN because the artifact could not be saved - the curves are already
+        # computed. Report it and let the caller say so.
+        metrics["model_save_error"] = str(e)
+
+sys.stdout.buffer.write((json.dumps({"suffixes": [s for s, _ in outs], "metrics": metrics,
+                                     "model_len": len(model_blob), "sklearn": sklearn_version}) + "\n").encode("utf-8"))
+for _, arr in outs:
+    sys.stdout.buffer.write(np.ascontiguousarray(arr, dtype=np.float32).tobytes())
+if model_blob:
+    sys.stdout.buffer.write(model_blob)
+"#;
+
+/// Applies an ALREADY FITTED model. It loads the artifact and predicts — it never fits, which
+/// is the whole point: a refit on different data is a different model.
+const ML_APPLY_RUNNER: &str = r#"
+import sys, json
+import numpy as np
+
+def fail(msg):
+    print(msg, file=sys.stderr)
+    sys.exit(2)
+
+header = json.loads(sys.stdin.buffer.readline().decode("utf-8"))
+d = header["d"]; n_apply = header["n_apply"]; model_len = header["model_len"]
+want = header.get("features") or []
+
+blob = sys.stdin.buffer.read(model_len)
+if len(blob) != model_len:
+    fail("truncated model stream")
+raw = sys.stdin.buffer.read(4 * n_apply * d)
+if len(raw) != 4 * n_apply * d:
+    fail("truncated input stream")
+A = np.frombuffer(raw, dtype=np.float32, count=n_apply * d).reshape(n_apply, d).astype(np.float64)
+
+try:
+    import io as _io, joblib
+    import sklearn  # noqa: F401
+except ImportError:
+    fail("scikit-learn and joblib are needed to apply a saved model - run: pip install scikit-learn joblib")
+try:
+    bundle = joblib.load(_io.BytesIO(blob))
+except Exception as e:
+    import sklearn as _sk
+    fail("could not load the saved model (this project's scikit-learn is " + _sk.__version__ + "): " + str(e))
+
+have = bundle.get("features") or []
+# The ordering contract, checked inside the artifact itself. Feeding a model trained on
+# [GR, RHOB, NPHI] a matrix ordered [GR, NPHI, RHOB] produces confident nonsense that nothing
+# downstream can catch, so it must be impossible rather than unlikely.
+if want and have and list(want) != list(have):
+    fail("this model was fitted on " + ", ".join(have) + " - refusing to apply it to " + ", ".join(want))
+if have and len(have) != d:
+    fail("this model expects " + str(len(have)) + " input curve(s), got " + str(d))
+
+scaler = bundle.get("scaler")
+model = bundle["model"]
+task = bundle.get("task", "regression")
+As = scaler.transform(A) if scaler is not None else A
+
+outs = [("", model.predict(As).astype(np.float32))]
+if task == "classification" and hasattr(model, "predict_proba"):
+    outs.append(("_PROB", np.max(model.predict_proba(As), axis=1).astype(np.float32)))
+
+sys.stdout.buffer.write((json.dumps({"suffixes": [s for s, _ in outs],
+                                     "metrics": {"n_apply": n_apply, "applied": True}}) + "\n").encode("utf-8"))
 for _, arr in outs:
     sys.stdout.buffer.write(np.ascontiguousarray(arr, dtype=np.float32).tobytes())
 "#;
@@ -241,6 +325,25 @@ pub struct MlRequest {
     pub train_well_ids: Vec<String>,
     pub apply_well_ids: Vec<String>,
     pub output_curve: String,
+    /// Keep the fitted model under this name so it can be applied to other wells later, instead
+    /// of dying with the subprocess. Supervised tasks only — clustering and reduction are fitted
+    /// on the wells they are applied to by construction, so there is no separate model to reuse.
+    #[serde(default)]
+    pub save_model_as: Option<String>,
+    #[serde(default)]
+    pub model_note: Option<String>,
+}
+
+/// Applying an already-fitted model. Deliberately NOT an `MlRequest`: there is no training
+/// well, no algorithm and no parameter here — those are properties of the saved model, and
+/// letting a caller restate them would invite them to differ.
+#[derive(Debug, Clone, Deserialize)]
+pub struct MlApplyRequest {
+    pub model_id: String,
+    pub apply_well_ids: Vec<String>,
+    pub output_curve: String,
+    #[serde(default)]
+    pub mask_curve: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -260,11 +363,24 @@ pub struct MlResult {
     /// Advisories that qualify a successful run — e.g. training wells that contributed no usable
     /// samples, so a 20-well selection was really fit on 3. Empty on a fully clean run.
     pub notes: Vec<String>,
+    /// Set when the fit was kept as a reusable artifact (`save_model_as`).
+    pub model_id: Option<String>,
+    /// The name it was actually stored under — an existing name is auto-suffixed rather than
+    /// overwritten, so this can differ from what was asked for.
+    pub model_name: Option<String>,
     pub error: Option<String>,
 }
 
 fn fail(msg: &str) -> MlResult {
-    MlResult { outputs: vec![], metrics: serde_json::Value::Null, wells: vec![], notes: vec![], error: Some(msg.to_string()) }
+    MlResult {
+        outputs: vec![],
+        metrics: serde_json::Value::Null,
+        wells: vec![],
+        notes: vec![],
+        model_id: None,
+        model_name: None,
+        error: Some(msg.to_string()),
+    }
 }
 
 /// Pools labelled training rows across the training wells and reports which wells contributed
@@ -353,7 +469,7 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
         }
     }
     let Some(python) = find_python() else {
-        return fail("no Python with numpy found - install Python 3.10+ with numpy + scikit-learn, or set ARSHILLA_PYTHON to its python.exe");
+        return fail("no Python with numpy found - install Python 3.10+ with numpy + scikit-learn, or set SANDIBUMI_PYTHON to its python.exe");
     };
 
     let d = features.len();
@@ -451,9 +567,29 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
         p.set_current(Some(format!("Training {} model on {} samples…", req.algorithm, n_train)));
     }
     let y_opt = if supervised { Some(y_train.as_slice()) } else { None };
-    match exec_ml(&python, &req.task, &req.algorithm, &req.params, d, &x_train, y_opt, &x_apply, n_apply) {
+    // Only a supervised fit is a reusable artifact; asking to save a clustering would promise
+    // something the design does not mean (see MlRequest::save_model_as).
+    let save_name = req
+        .save_model_as
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && supervised)
+        .map(str::to_string);
+    let save_features = save_name.as_ref().map(|_| features.as_slice());
+    match exec_ml_full(
+        &python,
+        &req.task,
+        &req.algorithm,
+        &req.params,
+        d,
+        &x_train,
+        y_opt,
+        &x_apply,
+        n_apply,
+        save_features,
+    ) {
         Err(e) => fail(&e),
-        Ok((metrics, outs)) => {
+        Ok((metrics, outs, model_blob, sklearn)) => {
             let out_names: Vec<String> = outs.iter().map(|(s, _)| format!("{base}{s}")).collect();
             let mut wells = Vec::new();
             let conn = db.lock().unwrap();
@@ -533,8 +669,295 @@ pub fn run_ml(db: &Mutex<Connection>, req: &MlRequest, progress: Option<&crate::
                 }
                 start += m;
             }
-            MlResult { outputs: out_names, metrics, wells, notes, error: None }
+
+            // Keep the fit as an artifact. This happens AFTER the curves are written and never
+            // fails the run: the predictions are already correct and on disk, so a storage
+            // problem here costs the reusable model, not the work.
+            let (mut model_id, mut model_name) = (None, None);
+            if let Some(name) = &save_name {
+                if model_blob.is_empty() {
+                    let why = metrics
+                        .get("model_save_error")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("the Python side returned no model (is joblib installed?)");
+                    notes.push(format!("the model was NOT saved: {why}"));
+                } else {
+                    let trained_on: Vec<String> = req
+                        .train_well_ids
+                        .iter()
+                        .filter(|id| !empty_train.contains(id))
+                        .map(|id| {
+                            conn.query_row(
+                                "SELECT well_name FROM wells WHERE well_id = ?1",
+                                duckdb::params![id],
+                                |r| r.get::<_, String>(0),
+                            )
+                            .unwrap_or_else(|_| id.clone())
+                        })
+                        .collect();
+                    match crate::db::insert_ml_model(
+                        &conn,
+                        name,
+                        &req.task,
+                        &req.algorithm,
+                        &features,
+                        target.as_deref(),
+                        &serde_json::to_string(&req.params).unwrap_or_default(),
+                        &serde_json::to_string(&metrics).unwrap_or_default(),
+                        &trained_on,
+                        n_train,
+                        req.params.get("standardize").and_then(|v| v.as_bool()).unwrap_or(true),
+                        (!sklearn.is_empty()).then_some(sklearn.as_str()),
+                        req.model_note.as_deref(),
+                        &model_blob,
+                    ) {
+                        Ok((id, stored)) => {
+                            if &stored != name {
+                                notes.push(format!(
+                                    "a model named '{name}' already exists, so this one was saved as '{stored}' - retraining makes a NEW model rather than replacing the one an existing curve was made with"
+                                ));
+                            }
+                            model_id = Some(id);
+                            model_name = Some(stored);
+                        }
+                        Err(e) => notes.push(format!("the curves were written but the model was NOT saved: {e}")),
+                    }
+                }
+            }
+            MlResult { outputs: out_names, metrics, wells, notes, model_id, model_name, error: None }
         }
+    }
+}
+
+/// Applies a saved model to wells it has never seen. Never fits anything.
+pub fn apply_ml_model(
+    db: &Mutex<Connection>,
+    req: &MlApplyRequest,
+    progress: Option<&crate::jobs::JobHandle>,
+) -> MlResult {
+    if req.apply_well_ids.is_empty() {
+        return fail("select at least one well to apply to");
+    }
+    let base = req.output_curve.trim().to_uppercase();
+    if base.is_empty() {
+        return fail("output curve name is empty");
+    }
+    let Some(python) = find_python() else {
+        return fail("no Python with numpy found - install Python 3.10+ with numpy + scikit-learn, or set SANDIBUMI_PYTHON to its python.exe");
+    };
+    let mask_curve = req.mask_curve.as_deref().map(|m| m.trim().to_uppercase()).filter(|m| !m.is_empty());
+
+    let (info, blob) = {
+        let conn = db.lock().unwrap();
+        match crate::db::get_ml_model(&conn, &req.model_id) {
+            Ok(v) => v,
+            Err(e) => return fail(&format!("saved model not found: {e}")),
+        }
+    };
+    // The model's OWN feature list drives the fetch. The caller never restates it, so it cannot
+    // reorder it — the ordering contract is enforced by construction here and re-checked inside
+    // the artifact by the runner.
+    let features = info.feature_curves.clone();
+    let d = features.len();
+    if d == 0 {
+        return fail("this saved model records no input curves");
+    }
+
+    let mut apply: Vec<ApplyWell> = Vec::new();
+    let mut x_apply: Vec<f32> = Vec::new();
+    {
+        let conn = db.lock().unwrap();
+        let mut fetch = features.clone();
+        if let Some(mk) = &mask_curve {
+            fetch.push(mk.clone());
+        }
+        for well_id in &req.apply_well_ids {
+            match fetch_curve_frame(&conn, well_id, &fetch) {
+                Ok((depth, cols)) => {
+                    // Name the curve that is missing. "missing input curve data" sends somebody
+                    // hunting through five mnemonics; the model knows exactly which it needs.
+                    let absent: Vec<&str> =
+                        features.iter().filter(|f| !cols.contains_key(*f)).map(String::as_str).collect();
+                    if !absent.is_empty() || depth.is_empty() {
+                        let msg = if depth.is_empty() {
+                            "this well has no curve data".to_string()
+                        } else {
+                            format!("missing input curve(s): {}", absent.join(", "))
+                        };
+                        apply.push(ApplyWell { well_id: well_id.clone(), depth, idx: vec![], error: Some(msg) });
+                        continue;
+                    }
+                    let fcols: Vec<&Vec<f32>> = features.iter().filter_map(|f| cols.get(f)).collect();
+                    let mcol = mask_curve.as_ref().and_then(|mk| cols.get(mk));
+                    let mut idx = Vec::new();
+                    for i in 0..depth.len() {
+                        if mcol.map_or(false, |m| m[i] == 1.0) {
+                            continue;
+                        }
+                        if fcols.iter().all(|c| c[i].is_finite()) {
+                            for c in &fcols {
+                                x_apply.push(c[i]);
+                            }
+                            idx.push(i);
+                        }
+                    }
+                    apply.push(ApplyWell { well_id: well_id.clone(), depth, idx, error: None });
+                }
+                Err(e) => apply.push(ApplyWell {
+                    well_id: well_id.clone(),
+                    depth: vec![],
+                    idx: vec![],
+                    error: Some(e.to_string()),
+                }),
+            }
+        }
+    }
+
+    let n_apply = x_apply.len() / d;
+    if n_apply == 0 {
+        return fail("no complete samples in the apply wells (every row is missing one of the model's input curves, or is masked)");
+    }
+    if let Some(p) = progress {
+        p.set_current(Some(format!("Applying '{}' to {n_apply} samples…", info.name)));
+    }
+
+    let header = serde_json::json!({
+        "d": d, "n_apply": n_apply, "model_len": blob.len(), "features": features,
+    });
+    let mut cmd = Command::new(&python);
+    cmd.args(["-c", ML_APPLY_RUNNER]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    hide_console(&mut cmd);
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => return fail(&format!("failed to start python: {e}")),
+    };
+    {
+        let Some(stdin) = child.stdin.as_mut() else { return fail("failed to open python stdin") };
+        let mut write = || -> std::io::Result<()> {
+            stdin.write_all(header.to_string().as_bytes())?;
+            stdin.write_all(b"\n")?;
+            stdin.write_all(&blob)?;
+            stdin.write_all(bytemuck::cast_slice(&x_apply))
+        };
+        if let Err(e) = write() {
+            return fail(&e.to_string());
+        }
+    }
+    let output = match child.wait_with_output() {
+        Ok(o) => o,
+        Err(e) => return fail(&e.to_string()),
+    };
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr);
+        let last = err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("applying the model failed");
+        return fail(last.trim());
+    }
+    let Some(nl) = output.stdout.iter().position(|&b| b == b'\n') else {
+        return fail("python returned no result header");
+    };
+    #[derive(Deserialize)]
+    struct OutHeader {
+        suffixes: Vec<String>,
+        metrics: serde_json::Value,
+    }
+    let hdr: OutHeader = match serde_json::from_slice(&output.stdout[..nl]) {
+        Ok(h) => h,
+        Err(e) => return fail(&format!("bad apply result header: {e}")),
+    };
+    let body = &output.stdout[nl + 1..];
+    if body.len() != hdr.suffixes.len() * n_apply * 4 {
+        return fail(&format!("python returned {} result bytes, expected {}", body.len(), hdr.suffixes.len() * n_apply * 4));
+    }
+    let mut outs: Vec<(String, Vec<f32>)> = Vec::with_capacity(hdr.suffixes.len());
+    for (i, s) in hdr.suffixes.iter().enumerate() {
+        let mut vals = vec![0f32; n_apply];
+        bytemuck::cast_slice_mut::<f32, u8>(&mut vals)
+            .copy_from_slice(&body[i * n_apply * 4..(i + 1) * n_apply * 4]);
+        outs.push((s.clone(), vals));
+    }
+
+    let out_names: Vec<String> = outs.iter().map(|(s, _)| format!("{base}{s}")).collect();
+    let mut wells = Vec::new();
+    let conn = db.lock().unwrap();
+    let mut start = 0usize;
+    if let Some(p) = progress {
+        p.set_current(Some("Writing predictions…".into()));
+    }
+    for aw in &apply {
+        if let Some(p) = progress {
+            p.start_item(&aw.well_id);
+        }
+        if let Some(e) = &aw.error {
+            if let Some(p) = progress {
+                p.finish_item(&aw.well_id, crate::jobs::ItemState::Failed, Some(e.clone()));
+            }
+            wells.push(MlWellResult { well_id: aw.well_id.clone(), rows_predicted: 0, error: Some(e.clone()) });
+            continue;
+        }
+        let m = aw.idx.len();
+        let mut curves: Vec<(String, Vec<f32>)> = Vec::with_capacity(outs.len());
+        for ((_, values), name) in outs.iter().zip(&out_names) {
+            let mut full = vec![f32::NAN; aw.depth.len()];
+            for (j, &i) in aw.idx.iter().enumerate() {
+                full[i] = values[start + j];
+            }
+            curves.push((name.clone(), full));
+        }
+        let refs: Vec<(&str, &[f32])> = curves.iter().map(|(n, v)| (n.as_str(), v.as_slice())).collect();
+        // Provenance names the MODEL, not just the algorithm: "which model produced this curve"
+        // is the question saving them was meant to answer.
+        let spec = crate::equations::LogSetSpec {
+            set_name: "ML".into(),
+            module: format!("ml:apply:{}", info.name),
+            params_json: serde_json::to_string(&serde_json::json!({
+                "model_id": info.model_id, "model_name": info.name,
+                "algorithm": info.algorithm, "trained_on": info.trained_on,
+            }))
+            .unwrap_or_default(),
+            inputs_json: serde_json::to_string(&features).unwrap_or_default(),
+        };
+        let versioned = crate::equations::create_log_set(&conn, &aw.well_id, &spec)
+            .and_then(|(set_id, _)| write_computed_curves_versioned(&conn, &aw.well_id, &aw.depth, &refs, &set_id));
+        match versioned {
+            Ok(()) => {
+                if let Some(p) = progress {
+                    let (st, msg) = if m == 0 {
+                        (crate::jobs::ItemState::Warned, Some("no complete samples in this well".to_string()))
+                    } else {
+                        (crate::jobs::ItemState::Ok, None)
+                    };
+                    p.finish_item(&aw.well_id, st, msg);
+                }
+                wells.push(MlWellResult {
+                    well_id: aw.well_id.clone(),
+                    rows_predicted: m,
+                    error: (m == 0).then(|| "no complete samples in this well".to_string()),
+                });
+            }
+            Err(e) => {
+                if let Some(p) = progress {
+                    p.finish_item(&aw.well_id, crate::jobs::ItemState::Failed, Some(e.to_string()));
+                }
+                wells.push(MlWellResult { well_id: aw.well_id.clone(), rows_predicted: 0, error: Some(e.to_string()) });
+            }
+        }
+        start += m;
+    }
+    let notes = vec![format!(
+        "applied the saved model '{}' ({} on {}), trained on {} well(s) - nothing was refitted",
+        info.name,
+        info.algorithm,
+        info.target_curve.clone().unwrap_or_else(|| "-".into()),
+        info.trained_on.len()
+    )];
+    MlResult {
+        outputs: out_names,
+        metrics: hdr.metrics,
+        wells,
+        notes,
+        model_id: Some(info.model_id),
+        model_name: Some(info.name),
+        error: None,
     }
 }
 
@@ -551,10 +974,32 @@ pub(crate) fn exec_ml(
     x_apply: &[f32],
     n_apply: usize,
 ) -> Result<(serde_json::Value, Vec<(String, Vec<f32>)>), String> {
+    exec_ml_full(python, task, algorithm, params, d, x_train, y_train, x_apply, n_apply, None)
+        .map(|(m, o, _, _)| (m, o))
+}
+
+/// As `exec_ml`, but when `save_features` is `Some(names)` the fitted scaler + estimator come
+/// back as a joblib blob (with the scikit-learn version that wrote it, so a later load failure
+/// can name the mismatch instead of being a mystery).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn exec_ml_full(
+    python: &PathBuf,
+    task: &str,
+    algorithm: &str,
+    params: &serde_json::Map<String, serde_json::Value>,
+    d: usize,
+    x_train: &[f32],
+    y_train: Option<&[f32]>,
+    x_apply: &[f32],
+    n_apply: usize,
+    save_features: Option<&[String]>,
+) -> Result<(serde_json::Value, Vec<(String, Vec<f32>)>, Vec<u8>, String), String> {
     let n_train = if d == 0 { 0 } else { x_train.len() / d };
     let header = serde_json::json!({
         "task": task, "algorithm": algorithm, "params": params,
         "d": d, "n_train": n_train, "has_target": y_train.is_some(), "n_apply": n_apply,
+        "save_model": save_features.is_some(),
+        "features": save_features.unwrap_or(&[]),
     });
 
     let mut cmd = Command::new(python);
@@ -583,13 +1028,21 @@ pub(crate) fn exec_ml(
     struct OutHeader {
         suffixes: Vec<String>,
         metrics: serde_json::Value,
+        #[serde(default)]
+        model_len: usize,
+        #[serde(default)]
+        sklearn: String,
     }
     let hdr: OutHeader =
         serde_json::from_slice(&output.stdout[..nl]).map_err(|e| format!("bad ML result header: {e}"))?;
     let body = &output.stdout[nl + 1..];
     let expect = hdr.suffixes.len() * n_apply * 4;
-    if body.len() != expect {
-        return Err(format!("python returned {} result bytes, expected {}", body.len(), expect));
+    if body.len() != expect + hdr.model_len {
+        return Err(format!(
+            "python returned {} result bytes, expected {}",
+            body.len(),
+            expect + hdr.model_len
+        ));
     }
     let mut outs = Vec::with_capacity(hdr.suffixes.len());
     for (i, s) in hdr.suffixes.iter().enumerate() {
@@ -597,7 +1050,7 @@ pub(crate) fn exec_ml(
         bytemuck::cast_slice_mut::<f32, u8>(&mut vals).copy_from_slice(&body[i * n_apply * 4..(i + 1) * n_apply * 4]);
         outs.push((s.clone(), vals));
     }
-    Ok((hdr.metrics, outs))
+    Ok((hdr.metrics, outs, body[expect..].to_vec(), hdr.sklearn))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1087,6 +1540,8 @@ mod tests {
             train_well_ids: train.to_vec(),
             apply_well_ids: apply.to_vec(),
             output_curve: "PRED".into(),
+            save_model_as: None,
+            model_note: None,
         }
     }
 
@@ -1208,6 +1663,165 @@ mod tests {
             "without a mask the well has complete samples, got {:?}",
             ctrl.error,
         );
+    }
+
+    // --- Saved models ------------------------------------------------------
+
+    /// Two wells with a clean linear relation: WELL A is cored (has the target), WELL B is not.
+    /// Returns (db, id_a, id_b).
+    fn two_well_db() -> (std::sync::Mutex<duckdb::Connection>, String, String) {
+        use crate::db;
+        use duckdb::Connection;
+        use uuid::Uuid;
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let n = 40usize;
+        let mk = |name: &str, with_target: bool| -> String {
+            let id = Uuid::new_v4();
+            db::insert_well(&conn, id, name, None, None, Some(0.0)).unwrap();
+            let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+            let gr: Vec<f32> = (0..n).map(|i| 20.0 + i as f32).collect();
+            let rhob: Vec<f32> = (0..n).map(|i| 2.0 + (i % 7) as f32 * 0.05).collect();
+            db::insert_standard_curves(
+                &conn, id, depths.clone(), gr.clone(), vec![f32::NAN; n], vec![f32::NAN; n],
+                rhob.clone(), vec![f32::NAN; n], vec![f32::NAN; n],
+            )
+            .unwrap();
+            if with_target {
+                // PHIT = 0.4 - 0.002*GR + 0.05*RHOB — recoverable exactly by a linear fit, so a
+                // correctly applied model must reproduce it and a wrongly-ordered one cannot.
+                let t: Vec<f32> =
+                    (0..n).map(|i| 0.4 - 0.002 * gr[i] + 0.05 * rhob[i]).collect();
+                crate::equations::write_computed_curve(&conn, &id.to_string(), &depths, "PHIT_CORE", &t).unwrap();
+            }
+            id.to_string()
+        };
+        let a = mk("CORED-1", true);
+        let b = mk("BLIND-1", false);
+        (std::sync::Mutex::new(conn), a, b)
+    }
+
+    #[test]
+    fn a_retrained_model_never_overwrites_the_one_a_delivered_curve_was_made_with() {
+        use crate::db;
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let feats = vec!["GR".to_string()];
+        let blob = vec![1u8, 2, 3];
+        let (_, first) = db::insert_ml_model(&conn, "PERM_RF", "regression", "rf", &feats, Some("PERM"),
+            "{}", "{}", &["A".into()], 100, true, Some("1.5.0"), None, &blob).unwrap();
+        let (_, second) = db::insert_ml_model(&conn, "PERM_RF", "regression", "rf", &feats, Some("PERM"),
+            "{}", "{}", &["A".into(), "B".into()], 200, true, Some("1.5.0"), None, &blob).unwrap();
+        assert_eq!(first, "PERM_RF");
+        assert_eq!(second, "PERM_RF_1", "a second fit is a NEW model, not a replacement");
+        assert_eq!(db::list_ml_models(&conn).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn listing_models_never_carries_their_bytes() {
+        use crate::db;
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let blob = vec![7u8; 4096];
+        let (id, _) = db::insert_ml_model(&conn, "M", "regression", "rf", &["GR".into()], Some("PERM"),
+            "{}", "{}", &["A".into()], 10, true, None, None, &blob).unwrap();
+        let listed = db::list_ml_models(&conn).unwrap();
+        assert_eq!(listed[0].bytes, 4096, "the size is reported so the picker can show it");
+        assert_eq!(listed[0].feature_curves, vec!["GR".to_string()]);
+        let (_, bytes) = db::get_ml_model(&conn, &id).unwrap();
+        assert_eq!(bytes.len(), 4096, "only the apply path fetches the model itself");
+    }
+
+    /// End to end: fit on the cored well SAVING the model, then apply that same model to a well
+    /// it has never seen — no refit — and check it reproduces the relation. Needs sklearn+joblib.
+    #[test]
+    #[ignore]
+    fn a_saved_model_applies_to_an_unseen_well_without_refitting() {
+        let (dbm, cored, blind) = two_well_db();
+        if find_python().is_none() {
+            eprintln!("skipping: no python+numpy");
+            return;
+        }
+        let mut req = mk_req("regression", &["GR", "RHOB"], Some("PHIT_CORE"), &[cored.clone()], &[cored.clone()]);
+        req.output_curve = "PHIT_ML".into();
+        req.save_model_as = Some("PHIT_FROM_CORE".into());
+        let fit = run_ml(&dbm, &req, None);
+        assert!(fit.error.is_none(), "fit failed: {:?}", fit.error);
+        let model_id = fit.model_id.clone().expect("the model was kept");
+        assert_eq!(fit.model_name.as_deref(), Some("PHIT_FROM_CORE"));
+
+        // The blind well has no target at all — only a saved model can give it one.
+        let applied = apply_ml_model(
+            &dbm,
+            &MlApplyRequest {
+                model_id,
+                apply_well_ids: vec![blind.clone()],
+                output_curve: "PHIT_ML".into(),
+                mask_curve: None,
+            },
+            None,
+        );
+        assert!(applied.error.is_none(), "apply failed: {:?}", applied.error);
+        assert_eq!(applied.wells.len(), 1);
+        assert!(applied.wells[0].error.is_none(), "{:?}", applied.wells[0].error);
+        assert_eq!(applied.wells[0].rows_predicted, 40);
+
+        // The prediction must reproduce the relation the model was fitted on.
+        let conn = dbm.lock().unwrap();
+        let (_, cols) = fetch_curve_frame(&conn, &blind, &["GR".into(), "RHOB".into(), "PHIT_ML".into()]).unwrap();
+        let gr = cols.get("GR").unwrap();
+        let rhob = cols.get("RHOB").unwrap();
+        let pred = cols.get("PHIT_ML").unwrap();
+        for i in 0..gr.len() {
+            let want = 0.4 - 0.002 * gr[i] + 0.05 * rhob[i];
+            assert!((pred[i] - want).abs() < 1e-3, "row {i}: predicted {} want {want}", pred[i]);
+        }
+    }
+
+    /// The ordering contract. A model fitted on [GR, RHOB] fed a matrix ordered [RHOB, GR] would
+    /// produce confident nonsense that nothing downstream can catch, so the artifact carries its
+    /// own feature list and REFUSES. This drives the runner directly, because the Rust side makes
+    /// the mistake impossible by construction — which is exactly why the runner must still check.
+    #[test]
+    #[ignore]
+    fn a_model_refuses_a_matrix_whose_columns_are_in_the_wrong_order() {
+        use std::io::Write as _;
+        let (dbm, cored, _blind) = two_well_db();
+        if find_python().is_none() {
+            eprintln!("skipping: no python+numpy");
+            return;
+        }
+        let mut req = mk_req("regression", &["GR", "RHOB"], Some("PHIT_CORE"), &[cored.clone()], &[cored.clone()]);
+        req.output_curve = "PHIT_ML".into();
+        req.save_model_as = Some("ORDER_GUARD".into());
+        let fit = run_ml(&dbm, &req, None);
+        let model_id = fit.model_id.clone().expect("model saved");
+        let (_, blob) = {
+            let conn = dbm.lock().unwrap();
+            crate::db::get_ml_model(&conn, &model_id).unwrap()
+        };
+
+        let python = find_python().unwrap();
+        let x: Vec<f32> = vec![30.0, 2.1, 40.0, 2.2];
+        let header = serde_json::json!({
+            "d": 2, "n_apply": 2, "model_len": blob.len(), "features": ["RHOB", "GR"],
+        });
+        let mut cmd = Command::new(&python);
+        cmd.args(["-c", ML_APPLY_RUNNER]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        hide_console(&mut cmd);
+        let mut child = cmd.spawn().unwrap();
+        {
+            let stdin = child.stdin.as_mut().unwrap();
+            stdin.write_all(header.to_string().as_bytes()).unwrap();
+            stdin.write_all(b"\n").unwrap();
+            stdin.write_all(&blob).unwrap();
+            stdin.write_all(bytemuck::cast_slice(&x)).unwrap();
+        }
+        let out = child.wait_with_output().unwrap();
+        assert!(!out.status.success(), "a reordered matrix must be refused, not predicted");
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(err.contains("fitted on"), "the refusal names the fitted order: {err}");
     }
 
     /// MASK excludes flagged rows from the FIT: a training well whose one flagged row carries a wild

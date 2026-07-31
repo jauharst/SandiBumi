@@ -16,7 +16,7 @@ import { PlotCanvas, attachResizeRedraw, canvasFont, faciesColor, fitCanvasBacki
 import { nearestDepthIndex } from "./plotCommon";
 import { buildWellScope } from "./wellScope";
 
-/** Cutoff sensitivity (ROADMAP Wave E item 21 — KKT ONWJ deck slides 84–87).
+/** Cutoff sensitivity (ROADMAP Wave E item 21).
  *  Two ways to pick VSH/PHIE/SWE pay cutoffs against DST-tested rock:
  *   • Sweep — plot a pay metric (net / HPV / N:G) against a swept cutoff, other two held
  *     fixed, so the elbow shows where loosening the cutoff stops adding real pay.

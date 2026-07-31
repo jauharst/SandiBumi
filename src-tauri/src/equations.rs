@@ -145,9 +145,15 @@ pub fn fetch_curve_data(
 /// `fetch_curve_frame`, this does NOT align onto the well's standard depth grid: core
 /// plug depths are sparse/irregular by nature, so overlay panels plot them at their own
 /// depths rather than resampling.
+/// Only the well's ACTIVE core set is plotted — two deliveries of the same plugs overlaid
+/// would read as twice the data (see `db::list_core_sets` / the set manager to switch).
 pub fn fetch_core_series(conn: &Connection, well_id: &str) -> duckdb::Result<Vec<TrackCurveSeries>> {
-    let mut stmt =
-        conn.prepare("SELECT depth, cpor, cperm, cgd, csw FROM core_data WHERE well_id = ?1 ORDER BY depth")?;
+    let mut stmt = conn.prepare(
+        "SELECT depth, cpor, cperm, cgd, csw FROM core_data
+         WHERE well_id = ?1 AND set_name = COALESCE((SELECT set_name FROM core_sets WHERE well_id = ?1
+                                                     ORDER BY active DESC, imported_at DESC LIMIT 1), 'RAW')
+         ORDER BY depth",
+    )?;
     let rows = stmt.query_map(params![well_id], |row| {
         Ok((
             row.get::<_, f32>(0)?,
@@ -422,10 +428,15 @@ fn fetch_computed_curve_aligned(
     Ok(depth_grid.iter().map(|d| by_depth.get(&d.to_bits()).copied().unwrap_or(f32::NAN)).collect())
 }
 
-/// Looks up a curve in the generic store (`curve_meta`/`curve_samples`, set RAW) by
-/// mnemonic-or-family and aligns its samples onto the depth grid. Exact mnemonic matches win
-/// over family matches. Among exact-mnemonic matches a user-PINNED curve wins, else the base
-/// run (lowest `run_no`, NULL first). `pinned` is scoped per (well, set, mnemonic) by
+/// Looks up a curve in the generic store (`curve_meta`/`curve_samples`) by
+/// mnemonic-or-family and aligns its samples onto the depth grid. Set RAW has ABSOLUTE
+/// priority — any RAW match (mnemonic or family) beats any match from another set, so
+/// every resolution that worked before import-sets landed is byte-identical. Only when
+/// RAW has no candidate at all does the search widen to the well's other sets (attached
+/// deliveries like FPROOH/MULTIMIN — T-IMP-02), ordered by set_name for determinism when
+/// two sets carry the same mnemonic. Within a set: exact mnemonic matches win over family
+/// matches; among exact-mnemonic matches a user-PINNED curve wins, else the base run
+/// (lowest `run_no`, NULL first). `pinned` is scoped per (well, set, mnemonic) by
 /// `db::promote_generic_curve`, so the tiebreak applies it ONLY when the request is that exact
 /// mnemonic (the `CASE WHEN upper(mnemonic)=?2` guard) — a family-name request must rank purely
 /// by run_no, or a pin placed on one member mnemonic would hijack a different member of the same
@@ -442,10 +453,12 @@ fn fetch_generic_curve_aligned(
     let curve_id: Option<String> = conn
         .query_row(
             "SELECT curve_id FROM curve_meta
-             WHERE well_id = ?1 AND set_name = 'RAW'
+             WHERE well_id = ?1
                AND (upper(mnemonic) = ?2 OR upper(family) = ?2)
-             ORDER BY (upper(mnemonic) = ?2) DESC,
+             ORDER BY (set_name = 'RAW') DESC,
+                      (upper(mnemonic) = ?2) DESC,
                       (CASE WHEN upper(mnemonic) = ?2 THEN COALESCE(pinned, 0) ELSE 0 END) DESC,
+                      set_name,
                       run_no NULLS FIRST,
                       curve_id
              LIMIT 1",

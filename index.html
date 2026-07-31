@@ -15,31 +15,10 @@
       <div id="ribbon">
         <div class="ribbon-tabstrip" role="tablist">
           <span class="ribbon-brand"><img class="ribbon-logo" src="/logo-mark.svg" alt="SandiBumi" width="20" height="20" />SandiBumi</span>
-          <div class="qat" role="toolbar" aria-label="Quick access">
-            <button id="qat-undo" class="qat-btn" title="Undo (Ctrl+Z)" disabled>
-              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 6 3.5 9.5 7 13M3.5 9.5H12a4.5 4.5 0 0 1 0 9h-1"/></svg>
-            </button>
-            <button id="qat-redo" class="qat-btn" title="Redo (Ctrl+Y)" disabled>
-              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13 6l3.5 3.5L13 13M16.5 9.5H8a4.5 4.5 0 0 0 0 9h1"/></svg>
-            </button>
-            <span class="qat-sep"></span>
-            <button id="qat-save" class="qat-btn" title="Save Project As…">
-              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M4 3h10l3 3v11H4V3Z"/><path d="M7 3v4h6V3M6 12h8v5H6v-5Z"/></svg>
-            </button>
-            <button id="qat-save-session" class="qat-btn" title="Save Session As… — the current panes, wells &amp; visualizations as a named workspace">
-              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="14" height="14" rx="1.5"/><path d="M9 3v14M3 9h6"/><path d="M12.5 9.5v3.5M11 11.5l1.5 1.5 1.5-1.5"/></svg>
-            </button>
-            <button id="qat-open-session" class="qat-btn" title="Open Session… — restore a saved workspace (panes, wells, visualizations)">
-              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6.5 8 6.5 9.5 8H17v8.5H3z"/><path d="M3 6.5V4h4l1.5 2"/></svg>
-            </button>
-            <span class="qat-sep"></span>
-            <button id="qat-history" class="qat-btn" title="Processing history — everything done in this project">
-              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M10 6v4l2.5 2"/></svg>
-            </button>
-            <button id="qat-help" class="qat-btn" title="Help — a guide for the active panel">
-              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M8.1 8a1.9 1.9 0 1 1 2.6 1.8c-.6.25-.9.6-.9 1.25v.4"/><path d="M10 14.2h.01"/></svg>
-            </button>
-          </div>
+          <!-- The old icon-only quick-access strip lived here. Every one of its buttons is now
+               a LABELLED tool in the Project tab (Project / Session / Edit / Monitor / Help
+               groups) — the tabstrip is 24px tall, so a caption never fit; the ribbon body is
+               80px, which is what makes "Save Session…" readable instead of a guessable glyph. -->
           <button class="ribbon-tab" data-tab="project">Project</button>
           <button class="ribbon-tab" data-tab="data">Data</button>
           <button class="ribbon-tab active" data-tab="petro">Petrophysics</button>
@@ -69,8 +48,77 @@
                   </svg>
                   <span class="ribbon-label">New Project…</span>
                 </button>
+                <button id="save-project-btn" class="ribbon-btn" title="Save Project As… — write a compacted copy of the whole project database to a new file">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+                    <path d="M4 3h10l3 3v11H4V3Z"/>
+                    <path d="M7 3v4h6V3M6 12h8v5H6v-5Z"/>
+                  </svg>
+                  <span class="ribbon-label">Save Project As…</span>
+                </button>
               </div>
               <span class="ribbon-group-caption" id="project-caption">Project</span>
+            </div>
+            <div class="ribbon-group">
+              <div class="ribbon-btn-row">
+                <button id="save-session-btn" class="ribbon-btn" title="Save Session As… — the current panes, wells &amp; visualizations as a named workspace">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="14" height="14" rx="1.5"/>
+                    <path d="M9 3v14M3 9h6"/>
+                    <path d="M12.5 9.5v3.5M11 11.5l1.5 1.5 1.5-1.5"/>
+                  </svg>
+                  <span class="ribbon-label">Save Session…</span>
+                </button>
+                <button id="open-session-btn" class="ribbon-btn" title="Open Session… — restore a saved workspace (panes, wells, visualizations)">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 6.5 8 6.5 9.5 8H17v8.5H3z"/>
+                    <path d="M3 6.5V4h4l1.5 2"/>
+                  </svg>
+                  <span class="ribbon-label">Open Session…</span>
+                </button>
+              </div>
+              <span class="ribbon-group-caption">Session</span>
+            </div>
+            <div class="ribbon-group">
+              <div class="ribbon-btn-row">
+                <button id="undo-btn" class="ribbon-btn" title="Undo (Ctrl+Z)" disabled>
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M7 6 3.5 9.5 7 13M3.5 9.5H12a4.5 4.5 0 0 1 0 9h-1"/>
+                  </svg>
+                  <span class="ribbon-label">Undo</span>
+                </button>
+                <button id="redo-btn" class="ribbon-btn" title="Redo (Ctrl+Y)" disabled>
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M13 6l3.5 3.5L13 13M16.5 9.5H8a4.5 4.5 0 0 0 0 9h1"/>
+                  </svg>
+                  <span class="ribbon-label">Redo</span>
+                </button>
+              </div>
+              <span class="ribbon-group-caption">Edit</span>
+            </div>
+            <div class="ribbon-group">
+              <div class="ribbon-btn-row">
+                <button id="history-btn" class="ribbon-btn" title="Processing history — everything done in this project">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="10" cy="10" r="7"/>
+                    <path d="M10 6v4l2.5 2"/>
+                  </svg>
+                  <span class="ribbon-label">History</span>
+                </button>
+                <button id="processing-btn" class="ribbon-btn" title="Processing — progress and cancellation for every running job">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M2 10h3l2-5 3 10 2-7 2 4h4" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <span class="ribbon-label">Processing</span>
+                </button>
+                <button id="health-btn" class="ribbon-btn" title="Performance monitor — CPU, memory, and USER/GDI handle gauges">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M3 4h5v3h4V4h5M3 16h5v-3h4v3h5" stroke-linecap="round" stroke-linejoin="round"/>
+                    <rect x="3" y="8.5" width="14" height="3" rx="1"/>
+                  </svg>
+                  <span class="ribbon-label">Performance</span>
+                </button>
+              </div>
+              <span class="ribbon-group-caption">Monitor</span>
             </div>
             <div class="ribbon-group">
               <label class="ribbon-field">Theme
@@ -102,6 +150,19 @@
                 </select>
               </label>
               <span class="ribbon-group-caption">Language</span>
+            </div>
+            <div class="ribbon-group">
+              <div class="ribbon-btn-row">
+                <button id="help-btn" class="ribbon-btn" title="Help — a guide for the active panel">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="10" cy="10" r="7"/>
+                    <path d="M8.1 8a1.9 1.9 0 1 1 2.6 1.8c-.6.25-.9.6-.9 1.25v.4"/>
+                    <path d="M10 14.2h.01"/>
+                  </svg>
+                  <span class="ribbon-label">Help</span>
+                </button>
+              </div>
+              <span class="ribbon-group-caption">Help</span>
             </div>
           </section>
 
@@ -196,19 +257,8 @@
                 </svg>
                 <span class="ribbon-label">Workflow…</span>
               </button>
-              <button id="processing-btn" class="ribbon-btn">
-                <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
-                  <path d="M2 10h3l2-5 3 10 2-7 2 4h4" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-                <span class="ribbon-label">Processing</span>
-              </button>
-              <button id="health-btn" class="ribbon-btn" title="Performance monitor — CPU, memory, and USER/GDI handle gauges">
-                <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
-                  <path d="M3 4h5v3h4V4h5M3 16h5v-3h4v3h5" stroke-linecap="round" stroke-linejoin="round"/>
-                  <rect x="3" y="8.5" width="14" height="3" rx="1"/>
-                </svg>
-                <span class="ribbon-label">Performance</span>
-              </button>
+              <!-- Processing and Performance moved to Project ▸ Monitor (they watch the whole
+                   application, not a petrophysics run) — see the Monitor group above. -->
               <button id="montecarlo-btn" class="ribbon-btn">
                 <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
                   <path d="M3 17V4M3 17h14" stroke-linecap="round"/>
@@ -261,6 +311,26 @@
               <span class="ribbon-group-caption">Mineral Solver</span>
             </div>
             <div class="ribbon-group">
+              <div class="ribbon-btn-row">
+                <button id="rtc-fit-btn" class="ribbon-btn" title="Fit the RtC excess-conductivity coefficients (A_CAP / B_QV / C0) to your own water-bearing interval, instead of running one study's calibration on every field">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 15.5h14M3 15.5 7 9l3.5 3.5L17 4.5"/>
+                    <circle cx="7" cy="9" r="1.2"/><circle cx="10.5" cy="12.5" r="1.2"/>
+                  </svg>
+                  <span class="ribbon-label">Calibrate RtC…</span>
+                </button>
+                <button id="sfactor-fit-btn" class="ribbon-btn" title="Fit the IMTS CEC scaling factor S to your own laboratory CEC measurements, against the clay content of the very curves the run will use">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 16.5h14M3 16.5V4"/>
+                    <path d="M4.5 14.5 16 5.5"/>
+                    <circle cx="6.5" cy="13" r="1.1"/><circle cx="10" cy="10.5" r="1.1"/><circle cx="13.5" cy="7.5" r="1.1"/>
+                  </svg>
+                  <span class="ribbon-label">Calibrate S…</span>
+                </button>
+              </div>
+              <span class="ribbon-group-caption">Calibration</span>
+            </div>
+            <div class="ribbon-group">
               <button id="ml-btn" class="ribbon-btn" title="Supervised prediction (regression / classification) and unsupervised clustering / dimensionality reduction via scikit-learn">
                 <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
                   <circle cx="4.5" cy="10" r="1.6"/>
@@ -271,6 +341,41 @@
                 <span class="ribbon-label">ML Models…</span>
               </button>
               <span class="ribbon-group-caption">Machine Learning</span>
+            </div>
+            <div class="ribbon-group">
+              <div class="ribbon-btn-row">
+              <button id="pore-area-btn" class="ribbon-btn" title="Pore area from blue-dyed epoxy on thin sections. Dimensionless, so it needs no scale — only plates declared as impregnated.">
+                <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <rect x="2.5" y="3.5" width="15" height="13" rx="1.5"/>
+                  <circle cx="7" cy="8" r="1.8" fill="currentColor" stroke="none"/>
+                  <circle cx="13" cy="7" r="1.2" fill="currentColor" stroke="none"/>
+                  <circle cx="10.5" cy="12.5" r="2.1" fill="currentColor" stroke="none"/>
+                  <circle cx="5.5" cy="13" r="1" fill="currentColor" stroke="none"/>
+                </svg>
+                <span class="ribbon-label">Pore Area…</span>
+              </button>
+              <button id="mineral-class-btn" class="ribbon-btn" title="Train a mineral classifier on your own point counts and apply it to the delivery. Needs scikit-learn. Nothing ships pre-trained — the lamp and the scanner are part of what it learns.">
+                <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <rect x="2.5" y="3.5" width="15" height="13" rx="1.5"/>
+                  <path d="M2.5 12 7 8l3.5 3L14 7.5l3.5 3.5"/>
+                  <circle cx="6.5" cy="6.5" r="1.1" fill="currentColor" stroke="none"/>
+                  <circle cx="12" cy="12.5" r="1.1" fill="currentColor" stroke="none"/>
+                </svg>
+                <span class="ribbon-label">Mineral Classifier…</span>
+              </button>
+              <button id="plug-qc-btn" class="ribbon-btn" title="Plot two measurements of the same plug against each other — a thin-section pore area against the plug's helium porosity, a pore diameter against the SCAL throat radii.">
+                <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M3 3v14h14" stroke-linecap="round"/>
+                  <path d="M4.5 15.5 16 4.5" stroke-dasharray="2.5 2"/>
+                  <circle cx="7" cy="13" r="1.3" fill="currentColor" stroke="none"/>
+                  <circle cx="10" cy="10.5" r="1.3" fill="currentColor" stroke="none"/>
+                  <circle cx="12.5" cy="9" r="1.3" fill="currentColor" stroke="none"/>
+                  <circle cx="14.5" cy="5.5" r="1.3" fill="currentColor" stroke="none"/>
+                </svg>
+                <span class="ribbon-label">Plug QC…</span>
+              </button>
+              </div>
+              <span class="ribbon-group-caption">Petrography</span>
             </div>
           </section>
 
@@ -378,6 +483,22 @@
                     <path d="M7.5 9h5M7.5 11.5h5M7.5 14h3" stroke-linecap="round"/>
                   </svg>
                   <span class="ribbon-label">Report…</span>
+                </button>
+                <button id="workbook-btn" class="ribbon-btn" title="Excel workbook: summary + pay summary + field roll-up + zone parameters as real numbers, ready to pivot (needs Python with xlsxwriter)">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <rect x="3" y="3.5" width="14" height="13" rx="0.8"/>
+                    <path d="M3 7.5h14M8 7.5v9M12.5 7.5v9" stroke-width="0.9"/>
+                    <path d="M3 12h14" stroke-width="0.9"/>
+                  </svg>
+                  <span class="ribbon-label">Workbook…</span>
+                </button>
+                <button id="deck-btn" class="ribbon-btn" title="Asset-team PowerPoint deck: field roll-up, net and HPV per zone, property distributions and a well ranking, drawn from the data (needs Python with python-pptx and matplotlib)">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <rect x="2.5" y="3" width="15" height="10" rx="0.8"/>
+                    <path d="M10 13v3M7 16.5h6" stroke-linecap="round"/>
+                    <path d="M5.5 10.5V8M8.5 10.5V6M11.5 10.5V7.5M14.5 10.5V5.5" stroke-linecap="round"/>
+                  </svg>
+                  <span class="ribbon-label">Deck…</span>
                 </button>
               </div>
               <span class="ribbon-group-caption">Deliverables</span>

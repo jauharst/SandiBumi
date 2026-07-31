@@ -1,9 +1,8 @@
 # SSC (Sand-Silt-Clay) + SSPW bound-water method — Jauhar's LQR Balam South workflow
 
-Source: `D:\01. Work\2023\10. LQR Balam South - PHR Rokan\10. Loglan\ssc_lqr_gap_edit_jau.lls`
-(+ `.info` defaults) and `SCRIPT LOGLAN ROKAN\porosity_sspw - Copy.lls` (spec only; exec body
-not on disk). His favourite study; PHR Rokan standard practice. Ported into `ssc.rs` /
-`modules.rs` (modules `ssc`, `sspw`).
+Source: Jauhar's Loglan `ssc_lqr_gap_edit_jau.lls` (+ its `.info` defaults) and
+`porosity_sspw.lls` (spec only; exec body not on disk), from his LQR study archive.
+Ported into `ssc.rs` / `modules.rs` (modules `ssc`, `sspw`).
 
 ## SSC model (Kuttan Malay Basin, GAP 2023 modification)
 

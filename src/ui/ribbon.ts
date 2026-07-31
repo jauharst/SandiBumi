@@ -2,7 +2,6 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import {
   exportLas,
   importAuxData,
-  importCoreCsv,
   importDeviationCsv,
   materializeTvd,
   importScalFiles,
@@ -11,6 +10,8 @@ import {
   importDlisFile,
   importLasFiles,
   currentProject,
+  bootReport,
+  compactProject,
   listRecentProjects,
   newProject,
   openProject,
@@ -36,7 +37,15 @@ import { recordProcess } from "../processLog";
 import { getTheme, setTheme, type ThemeChoice } from "../theme";
 import { getLocale, setLocale, type Locale } from "../i18n";
 import type { SessionSnapshot, Workspace } from "./workspace";
+import { buildFollowCoreRow } from "./followCore";
 import { formRow, openModal } from "./modal";
+import { openImportSetDialog, suggestSetName } from "./importSetDialog";
+import { openCoreImportWizard } from "./coreImportDialog";
+import { openImageImportDialog } from "./imageImportDialog";
+import { openDataSetsDialog } from "./dataSetsDialog";
+import { openWorkbookDialog } from "./workbookDialog";
+import { openDeckDialog } from "./deckDialog";
+import { requireWell } from "./needWell";
 
 interface RibbonMenuItem {
   label: string;
@@ -113,9 +122,12 @@ export class Ribbon {
 
     const q = <T extends HTMLElement>(sel: string) => root.querySelector<T>(sel);
 
-    // --- Quick access toolbar (top-left, outside the ribbon tabs) ---
-    const undoBtn = q<HTMLButtonElement>("#qat-undo");
-    const redoBtn = q<HTMLButtonElement>("#qat-redo");
+    // --- Project ▸ Edit (Undo / Redo) ---
+    // These were the icon-only quick-access strip until 2026-07-30; they are labelled
+    // ribbon tools in the Project tab now. The keyboard shortcuts are unchanged and are
+    // still the fast path — the buttons exist so the action is discoverable and readable.
+    const undoBtn = q<HTMLButtonElement>("#undo-btn");
+    const redoBtn = q<HTMLButtonElement>("#redo-btn");
     undoBtn?.addEventListener("click", () => {
       void undo().then(
         (label) => setStatus(label ? `Undo: ${label}` : "Nothing to undo"),
@@ -141,7 +153,6 @@ export class Ribbon {
         redoBtn.title = l ? `Redo ${l} (Ctrl+Y)` : "Redo (Ctrl+Y)";
       }
     });
-    q<HTMLButtonElement>("#qat-save")?.addEventListener("click", () => void this.handleSaveProject());
     // Ctrl/Cmd+S quietly re-saves the current session (no dialog once it has a name); Escape
     // closes any open ribbon menu. Only intercept Ctrl+S when the target isn't a text field —
     // an editor/CodeMirror inside a pane keeps its own Save. (Ribbon is a singleton created
@@ -165,20 +176,34 @@ export class Ribbon {
         }
       }
     });
-    const saveSessionBtn = q<HTMLButtonElement>("#qat-save-session");
+    // --- Project ▸ Session ---
+    const saveSessionBtn = q<HTMLButtonElement>("#save-session-btn");
     saveSessionBtn?.addEventListener("click", () => this.handleSaveSession());
-    q<HTMLButtonElement>("#qat-open-session")?.addEventListener("click", () => void this.handleOpenSession());
-    q<HTMLButtonElement>("#qat-history")?.addEventListener("click", () => workspace.openHistory());
+    q<HTMLButtonElement>("#open-session-btn")?.addEventListener("click", () => void this.handleOpenSession());
+
+    // --- Project ▸ Monitor --- (History + Processing + Performance all watch the whole
+    // application rather than a petrophysics run, so they share one group.)
+    q<HTMLButtonElement>("#history-btn")?.addEventListener("click", () => workspace.openHistory());
+    q<HTMLButtonElement>("#processing-btn")?.addEventListener("click", () => workspace.openProcessing());
+    q<HTMLButtonElement>("#health-btn")?.addEventListener("click", () => workspace.openHealth());
     // Contextual Help (?): opens a guide for whichever panel is active — the future hook for
     // the illustrated HTML help library, keyed to the "current active panel".
-    q<HTMLButtonElement>("#qat-help")?.addEventListener("click", () => void workspace.openHelpForActivePanel());
+    q<HTMLButtonElement>("#help-btn")?.addEventListener("click", () => void workspace.openHelpForActivePanel());
     // Unsaved-state dot: lights while any panel/workspace state isn't in a named save yet.
+    // It is mirrored onto the PROJECT TAB as well, because Save Session… now lives inside
+    // that tab: a warning you only see after opening the tab that holds the fix is no
+    // warning at all. The tab dot is what keeps the signal visible from anywhere.
+    const projectTab = root.querySelector<HTMLElement>('.ribbon-tab[data-tab="project"]');
     if (saveSessionBtn) {
       const baseTitle = saveSessionBtn.title;
       subscribeDirty(() => {
         const dirty = anyDirty();
-        saveSessionBtn.classList.toggle("qat-dirty", dirty);
+        saveSessionBtn.classList.toggle("ribbon-btn-dirty", dirty);
         saveSessionBtn.title = dirty ? `${baseTitle} — unsaved changes` : baseTitle;
+        projectTab?.classList.toggle("ribbon-tab-dirty", dirty);
+        if (projectTab) {
+          projectTab.title = dirty ? "Unsaved changes — Project ▸ Session ▸ Save Session…" : "";
+        }
       });
     }
 
@@ -223,15 +248,26 @@ export class Ribbon {
     q<HTMLButtonElement>("#paysum-btn")?.addEventListener("click", () => workspace.openPaySummary());
     q<HTMLButtonElement>("#cutoff-sens-btn")?.addEventListener("click", () => workspace.openCutoff());
     q<HTMLButtonElement>("#workflow-btn")?.addEventListener("click", () => workspace.openWorkflow());
-    q<HTMLButtonElement>("#processing-btn")?.addEventListener("click", () => workspace.openProcessing());
-    q<HTMLButtonElement>("#health-btn")?.addEventListener("click", () => workspace.openHealth());
     // The Workflow Builder fires this when a chain starts so the universal Processing panel
     // pops open on its own — the user shouldn't have to hunt for progress. Ribbon is a
     // singleton created once in main.ts, so this window listener is registered exactly once.
     window.addEventListener("sandibumi:open-processing", () => workspace.openProcessing());
     q<HTMLButtonElement>("#montecarlo-btn")?.addEventListener("click", () => workspace.openMonteCarlo());
     q<HTMLButtonElement>("#ml-btn")?.addEventListener("click", () => workspace.openMl());
+    q<HTMLButtonElement>("#pore-area-btn")?.addEventListener("click", () => {
+      void import("./poreAreaDialog").then((m) => m.openPoreAreaDialog());
+    });
+    q<HTMLButtonElement>("#mineral-class-btn")?.addEventListener("click", () => {
+      void import("./mineralClassDialog").then((m) => m.openMineralClassDialog());
+    });
+    q<HTMLButtonElement>("#plug-qc-btn")?.addEventListener("click", () => workspace.openPlugQc());
     q<HTMLButtonElement>("#multimin-btn")?.addEventListener("click", () => workspace.openMultimin());
+    q<HTMLButtonElement>("#rtc-fit-btn")?.addEventListener("click", () => {
+      void import("./rtcFitDialog").then((m) => m.openRtcFitDialog());
+    });
+    q<HTMLButtonElement>("#sfactor-fit-btn")?.addEventListener("click", () => {
+      void import("./sFactorFitDialog").then((m) => m.openSFactorFitDialog());
+    });
     q<HTMLButtonElement>("#dashboard-btn")?.addEventListener("click", () => workspace.openDashboard());
     q<HTMLButtonElement>("#results-qc-btn")?.addEventListener("click", () => workspace.openResultsQc());
     q<HTMLButtonElement>("#map-btn")?.addEventListener("click", () => workspace.openMap());
@@ -255,6 +291,8 @@ export class Ribbon {
     q<HTMLButtonElement>("#correlation-btn")?.addEventListener("click", () => workspace.openPlot("correlation"));
     q<HTMLButtonElement>("#composite-btn")?.addEventListener("click", () => workspace.openComposite());
     q<HTMLButtonElement>("#report-btn")?.addEventListener("click", () => workspace.openReport());
+    q<HTMLButtonElement>("#workbook-btn")?.addEventListener("click", () => void openWorkbookDialog());
+    q<HTMLButtonElement>("#deck-btn")?.addEventListener("click", () => void openDeckDialog());
     const layoutSelect = q<HTMLSelectElement>("#layout-select");
     if (layoutSelect) {
       layoutSelect.addEventListener("change", () => {
@@ -328,6 +366,11 @@ export class Ribbon {
           onPick: () => this.handleImportAux(),
         },
         {
+          label: "Import Images…",
+          doc: "Import thin-section, core-photo or SEM pictures for the selected well — the depth in each file name is guessed and shown for confirmation before anything is stored",
+          onPick: () => void this.handleImportImages(),
+        },
+        {
           label: "Import Deviation…",
           doc: "Import a deviation survey (MD/INC/AZI CSV) and compute TVD/TVDSS for the selected well",
           onPick: () => void this.handleImportDeviation(),
@@ -355,14 +398,38 @@ export class Ribbon {
           onPick: () => this.workspace.openAutoCorr(),
         },
         {
+          label: "Register Depth…",
+          doc: "Find the core-to-log depth shift by matching a core measurement against a log, with the correlogram to judge it by (proposes; you accept)",
+          onPick: () => {
+            void import("./depthRegDialog").then((m) => m.openDepthRegDialog());
+          },
+        },
+        {
+          label: "Plate Details…",
+          doc: "Re-register pictures already imported — shift a whole delivery, or correct one plate's depth, name or caption (undoable)",
+          onPick: () => {
+            void import("./plateDepthDialog").then((m) => m.openPlateDepthDialog());
+          },
+        },
+        {
           label: "Shift Core…",
-          doc: "Shift the selected well's core plugs by a constant depth (core-to-log alignment; undoable)",
+          doc: "Shift the selected well's core plugs by a constant depth you already know (core-to-log alignment; undoable)",
           onPick: () => this.handleShiftCore(),
+        },
+        {
+          label: "Data Sets…",
+          doc: "Every core, SCAL, survey and point-data delivery imported for the selected well — switch which one is active, or delete one",
+          onPick: () => this.handleDataSets(),
         },
         {
           label: "Well Header…",
           doc: "Edit the selected well's header (field, TD, KB datum)",
           onPick: () => void this.handleWellHeader(),
+        },
+        {
+          label: "Compact Project…",
+          doc: "Rewrite the project file keeping only live data — module re-runs leave dead space the file never returns (a field project can carry 4× its true size). The original file is kept beside it until you delete it",
+          onPick: () => void this.handleCompactProject(),
         },
       ],
     );
@@ -455,7 +522,15 @@ export class Ribbon {
     const scrollActive = (dir: number): void => {
       const p = activePanel();
       if (!p) return;
-      p.scrollBy({ left: dir * Math.max(120, p.clientWidth * 0.7), behavior: "smooth" });
+      // Assign scrollLeft directly rather than scrollBy({behavior:"smooth"}): in the WebView
+      // ANY smooth scroll on this element is silently a no-op (measured — scrollBy smooth and
+      // a scrollLeft assignment under CSS `scroll-behavior: smooth` both leave scrollLeft at
+      // 0; a plain assignment moves it correctly). The chevrons used to appear and do nothing.
+      // Keep this unanimated — do not "restore" smooth scrolling here or in .ribbon-panel.
+      const max = p.scrollWidth - p.clientWidth;
+      const step = dir * Math.max(120, p.clientWidth * 0.7);
+      p.scrollLeft = Math.min(max, Math.max(0, p.scrollLeft + step));
+      update(); // scroll events are async; refresh the chevrons now so neither sticks
     };
     left.addEventListener("click", () => scrollActive(-1));
     right.addEventListener("click", () => scrollActive(1));
@@ -784,7 +859,7 @@ export class Ribbon {
   /** Runs one of the project-switch commands, then resets everything that referenced
    *  the old database: selection, undo stacks, well groups, and every data-driven pane. */
   private async switchProject(action: () => Promise<RecentProject>): Promise<void> {
-    setStatus("Switching project…");
+    setStatus("Opening project… (a first open after an update can run one-time storage upgrades — a large project may take minutes)");
     let info: RecentProject;
     try {
       info = await action();
@@ -804,6 +879,15 @@ export class Ribbon {
     this.workspace.notifyDataChanged();
     recordProcess("Project", `Opened project ${info.name} (${info.path})`);
     setStatus(`Project: ${info.name}`);
+    // Anything noteworthy the open did (one-time migration backups, a slow open
+    // explained) goes into the history — and the status line, so it isn't silent.
+    void bootReport()
+      .then((notes) => {
+        for (const n of notes) recordProcess("Project", n);
+        const visible = notes.filter((n) => !n.startsWith("DuckDB memory"));
+        if (visible.length > 0) setStatus(visible[visible.length - 1]);
+      })
+      .catch(() => {});
   }
 
   /** Window title + Project group caption show which project is open. */
@@ -1026,11 +1110,8 @@ export class Ribbon {
 
   /** "Export LAS…" — writes the selected well (standard + computed curves) as LAS 2.0. */
   private async handleExport(): Promise<void> {
-    const well = appState.selectedWell.get();
-    if (!well) {
-      setStatus("Select a well first (Wells & Tops panel)");
-      return;
-    }
+    const well = requireWell("Export LAS");
+    if (!well) return;
     let dest: string | null;
     try {
       dest = await save({
@@ -1067,9 +1148,18 @@ export class Ribbon {
 
     if (!paths || paths.length === 0) return;
 
-    setStatus(`Importing ${paths.length} LAS file(s)...`);
+    // Which curve set does this delivery land under, and should same-named files attach to
+    // the wells already in the project? (T-IMP-02 — the Geolog/IP set model.)
+    const choice = await openImportSetDialog(paths);
+    if (!choice) {
+      setStatus("Import cancelled");
+      return;
+    }
+
+    const setLabel = choice.setName ? choice.setName.toUpperCase().replace(/\s+/g, "_") : "RAW";
+    setStatus(`Importing ${paths.length} LAS file(s) as set ${setLabel}...`);
     try {
-      const results = await importLasFiles(paths);
+      const results = await importLasFiles(paths, choice);
       // Partition on `well_id`, which is set only when a well row was actually committed.
       // `!r.error` used to stand in for "imported", but cancelling an import now returns an entry
       // with neither a well nor an error — so every cancelled file counted as imported, and
@@ -1077,6 +1167,17 @@ export class Ribbon {
       const imported = results.filter((r) => r.well_id);
       const failed = results.filter((r) => r.error);
       const cancelled = results.length - imported.length - failed.length;
+      // Files that landed on an EXISTING well as a new set rather than creating a record.
+      // Reported separately because "Imported 544 wells" would be a lie when 544 files
+      // attached to 544 wells that were already there — the count of NEW wells is what
+      // changed, and the attach count is what the user asked the dialog to do.
+      const attached = imported.filter((r) => r.attached_set);
+      const created = imported.length - attached.length;
+      const attachNote = attached.length
+        ? ` ${attached.length} attached to existing well(s) as set ${
+            [...new Set(attached.map((r) => r.attached_set))].join(", ")
+          }.`
+        : "";
       // Warnings belong to wells that DID import: "depth issues" was accurate when depth
       // sanitising was the only note, but it now also carries duplicate-name and failed
       // full-curve-load warnings, so name the count and let the per-well notes say what happened.
@@ -1084,10 +1185,14 @@ export class Ribbon {
       const warned = imported.filter((r) => r.warning);
       const warnNote = warned.length ? ` ${warned.length} well(s) imported with warnings.` : "";
       const cancelNote = cancelled > 0 ? ` ${cancelled} cancelled before import.` : "";
-      setStatus(`Imported ${imported.length}/${results.length} well(s).${warnNote}${cancelNote}`);
+      setStatus(
+        `Imported ${imported.length}/${results.length} file(s) as set ${setLabel}` +
+          ` — ${created} new well(s).${attachNote}${warnNote}${cancelNote}`,
+      );
       recordProcess(
         "Import",
-        `Imported ${imported.length}/${results.length} LAS well(s)` +
+        `Imported ${imported.length}/${results.length} LAS file(s) as set ${setLabel}: ` +
+          `${created} new well(s), ${attached.length} attached` +
           (cancelled > 0 ? ` — ${cancelled} cancelled` : ""),
       );
       for (const w of warned) {
@@ -1099,50 +1204,89 @@ export class Ribbon {
     }
   }
 
-  /** "Import Core…" — replaces the selected well's routine core analysis data
-   *  (CPOR/CPERM/CGD/CSW) from a CSV; overlaid onto the crossplot panel. */
+  /** "Import Core…" — core import v2 (T-IMP-07): probe → confirm-mapping wizard →
+   *  commit. Multi-file and multi-well: files with a WELL/WN column route rows by name
+   *  (no well needs to be selected); files without one land on the selected well. CSV
+   *  and TXT/tab-delimited both accepted. */
   private async handleImportCore(): Promise<void> {
     const well = appState.selectedWell.get();
-    if (!well) {
-      setStatus("Select a well first (Wells & Tops panel)");
-      return;
-    }
-    let path: string | null;
+    let paths: string[] | null;
     try {
       const selection = await open({
-        multiple: false,
-        filters: [{ name: "Core Data CSV", extensions: ["csv"] }],
+        multiple: true,
+        filters: [{ name: "Core data (CSV/TXT)", extensions: ["csv", "txt", "dat"] }],
       });
-      path = Array.isArray(selection) ? (selection[0] ?? null) : selection;
+      paths = Array.isArray(selection) ? selection : selection ? [selection] : null;
     } catch (err) {
       setStatus(`Import dialog unavailable: ${err}`);
       return;
     }
-    if (!path) return;
+    if (!paths || paths.length === 0) return;
 
-    setStatus(`Importing core data for ${well.well_name}...`);
+    await openCoreImportWizard(paths, well, () => this.workspace.notifyDataChanged());
+  }
+
+  /** "Import Images…" — depth-registered pictures (thin sections, core photographs, SEM
+   *  plates) for the selected well. The wizard shows the depth guessed from each file name
+   *  and only writes once it is confirmed. */
+  private async handleImportImages(): Promise<void> {
+    const well = appState.selectedWell.get();
+    let paths: string[] | null;
     try {
-      const result = await importCoreCsv(well.well_id, path);
-      if (result.error) {
-        setStatus(`Core import failed: ${result.error}`);
-      } else {
-        setStatus(`Imported ${result.rows} core sample(s) for ${well.well_name}.`);
-        recordProcess("Import", `Imported ${result.rows} core sample(s) ← ${path}`, well.well_name);
-        this.workspace.notifyDataChanged();
-      }
+      const selection = await open({
+        multiple: true,
+        filters: [
+          { name: "Images", extensions: ["jpg", "jpeg", "png", "tif", "tiff", "bmp", "gif", "webp"] },
+        ],
+      });
+      paths = Array.isArray(selection) ? selection : selection ? [selection] : null;
     } catch (err) {
-      setStatus(`Core import failed: ${err}`);
+      setStatus(`Import dialog unavailable: ${err}`);
+      return;
+    }
+    if (!paths || paths.length === 0) return;
+
+    await openImageImportDialog(paths, well, () => this.workspace.notifyDataChanged());
+  }
+
+  /** "Data Sets…" — every delivery on the selected well (core, SCAL, surveys, point data):
+   *  which one is live, switch, or delete (T-IMP-08 / T-IMP-12). */
+  private handleDataSets(): void {
+    const well = requireWell("Data Sets");
+    if (!well) return;
+    openDataSetsDialog(well, () => this.workspace.notifyDataChanged());
+  }
+
+  /** "Compact Project…" — rewrite the project file with only live rows. Asks first (the
+   *  app is briefly unresponsive while gigabytes rewrite), reports old → new size, and
+   *  names the parked original so the user can reclaim the disk once satisfied. */
+  private async handleCompactProject(): Promise<void> {
+    const ok = window.confirm(
+      "Compact this project?\n\n" +
+        "The project file is rewritten keeping only live data — re-running modules leaves dead space " +
+        "behind, and a long-lived field project can carry several times its true size. " +
+        "The app will be busy for a while on a large project.\n\n" +
+        "The original file is kept beside the project until you delete it yourself.",
+    );
+    if (!ok) return;
+    setStatus("Compacting project — this can take a few minutes on a large project…");
+    try {
+      const rep = await compactProject();
+      const mb = (b: number) => `${Math.round(b / 1048576).toLocaleString()} MB`;
+      const line = `Compacted: ${mb(rep.bytes_before)} → ${mb(rep.bytes_after)}. Original kept as ${rep.old_file} — delete it once you are happy.`;
+      setStatus(line);
+      recordProcess("Project", line);
+    } catch (err) {
+      setStatus(`Compact failed: ${err}`);
     }
   }
 
-  /** "Shift Core…" — constant core-to-log depth shift for the selected well's plugs.
+  /** "Shift Core…" — constant core-to-log depth shift for the ACTIVE core set's plugs
+   *  (other deliveries of the well keep their own depths).
    *  Exactly reversible, so it lands on the undo stack (Ctrl+Z shifts back). */
   private handleShiftCore(): void {
-    const well = appState.selectedWell.get();
-    if (!well) {
-      setStatus("Select a well first (Wells & Tops panel)");
-      return;
-    }
+    const well = requireWell("Shift Core");
+    if (!well) return;
     const content = document.createElement("div");
     const doc = document.createElement("p");
     doc.className = "modal-doc";
@@ -1162,10 +1306,21 @@ export class Ribbon {
     content.appendChild(apply);
 
     const close = openModal(`Shift Core — ${well.well_name}`, content, 420);
-    const doShift = async (delta: number): Promise<void> => {
-      const n = await shiftCoreData(well.well_id, delta);
-      setStatus(`Shifted ${n} core plug(s) of ${well.well_name} by ${delta > 0 ? "+" : ""}${delta} m`);
-      recordProcess("Edit", `Core shift ${delta > 0 ? "+" : ""}${delta} m (${n} plugs)`, well.well_name);
+    const doShift = async (delta: number, kind = "manual"): Promise<void> => {
+      // No dataset list = the point data delivered with this core rides along, so the plugs and
+      // the measurements made on them never part company.
+      //
+      // A typed shift goes into the depth record too, marked "manual": next year the question is
+      // "why is this core here?", and "somebody typed it" is a real answer — a blank is not.
+      const n = await shiftCoreData(well.well_id, delta, undefined, {
+        kind,
+        note: "typed in Shift Core",
+      });
+      const sign = delta > 0 ? "+" : "";
+      setStatus(
+        `Shifted ${n.plugs} core plug(s) and ${n.extras} point sample(s) of ${well.well_name} by ${sign}${delta} m`
+      );
+      recordProcess("Edit", `Core shift ${sign}${delta} m (${n.plugs} plugs, ${n.extras} point samples)`, well.well_name);
       this.workspace.notifyDataChanged();
     };
     apply.addEventListener("click", () => {
@@ -1178,7 +1333,7 @@ export class Ribbon {
         .then(() => {
           pushUndo({
             label: `core shift ${delta} m (${well.well_name})`,
-            undo: () => void doShift(-delta),
+            undo: () => void doShift(-delta, "undo"),
             redo: () => void doShift(delta),
           });
           close();
@@ -1189,13 +1344,13 @@ export class Ribbon {
   }
 
   /** "Import DLIS…" — loads every scalar channel from a DLIS file into the selected
-   *  well's generic curve store (RAW set), via dlisio through the Python subprocess. */
+   *  well's generic curve store, via dlisio through the Python subprocess. The set-name
+   *  prompt (T-IMP-06) means a second DLIS never silently replaces the first: you rarely
+   *  know what a vendor tape holds until it is in, so duplicates are KEPT under their own
+   *  set and compared afterwards. */
   private async handleImportDlis(): Promise<void> {
-    const well = appState.selectedWell.get();
-    if (!well) {
-      setStatus("Select a well first (Wells & Tops panel)");
-      return;
-    }
+    const well = requireWell("Import DLIS");
+    if (!well) return;
     let path: string | null;
     try {
       const selection = await open({
@@ -1209,17 +1364,28 @@ export class Ribbon {
     }
     if (!path) return;
 
-    setStatus(`Importing DLIS into ${well.well_name}… (dlisio may take a moment)`);
+    const setName = await this.askDlisSetName(path);
+    if (setName === null) {
+      setStatus("Import cancelled");
+      return;
+    }
+    const setLabel = setName ? setName.toUpperCase().replace(/\s+/g, "_") : "RAW";
+
+    setStatus(`Importing DLIS into ${well.well_name} as set ${setLabel}… (dlisio may take a moment)`);
     try {
-      const result = await importDlisFile(well.well_id, path);
+      const result = await importDlisFile(well.well_id, path, setName);
       if (result.error) {
         setStatus(`DLIS import failed: ${result.error}`);
       } else {
+        // `replaced` can only be non-zero in RAW: a named set was auto-suffixed to a free
+        // name, so nothing of the earlier import was touched.
         const replacedNote = result.replaced > 0 ? ` (replaced ${result.replaced} existing curve(s))` : "";
-        setStatus(`Imported ${result.curves_imported} curve(s), ${result.rows} samples into ${well.well_name}.${replacedNote}`);
+        setStatus(
+          `Imported ${result.curves_imported} curve(s), ${result.rows} samples into ${well.well_name} as set ${setLabel}.${replacedNote}`,
+        );
         recordProcess(
           "Import",
-          `Imported DLIS (${result.curves_imported} curves, ${result.rows} samples)${replacedNote} ← ${path}`,
+          `Imported DLIS as set ${setLabel} (${result.curves_imported} curves, ${result.rows} samples)${replacedNote} ← ${path}`,
           well.well_name,
         );
         this.workspace.notifyDataChanged();
@@ -1229,15 +1395,74 @@ export class Ribbon {
     }
   }
 
+  /** One-field set-name prompt for a DLIS import. Resolves with the typed name (may be
+   *  empty = RAW), or null when the user cancels. Deliberately lighter than the LAS
+   *  dialog: DLIS always targets the already-selected well, so there is nothing to attach. */
+  private askDlisSetName(path: string): Promise<string | null> {
+    return new Promise((resolve) => {
+      const wrap = document.createElement("div");
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "form-control";
+      input.value = suggestSetName([path]);
+      input.placeholder = "RAW";
+      input.spellcheck = false;
+      wrap.appendChild(
+        formRow("Set name", input, "Curves land under this name. Blank = RAW."),
+      );
+      const hint = document.createElement("p");
+      hint.className = "form-hint";
+      hint.textContent =
+        "A name already used on this well is auto-suffixed (WIRE → WIRE_1), so a second tape " +
+        "never overwrites the first — import it, then compare. Leaving this as RAW keeps the " +
+        "old behaviour, where same-mnemonic channels of the same run are replaced.";
+      wrap.appendChild(hint);
+
+      const actions = document.createElement("div");
+      actions.className = "form-actions";
+      const cancelBtn = document.createElement("button");
+      cancelBtn.className = "btn";
+      cancelBtn.textContent = "Cancel";
+      const okBtn = document.createElement("button");
+      okBtn.className = "btn btn-accent";
+      okBtn.textContent = "Import";
+      actions.append(cancelBtn, okBtn);
+      wrap.appendChild(actions);
+
+      let settled = false;
+      const finish = (v: string | null) => {
+        if (settled) return;
+        settled = true;
+        close();
+        resolve(v);
+      };
+      const close = openModal("Import DLIS — curve set", wrap, 520);
+      cancelBtn.addEventListener("click", () => finish(null));
+      okBtn.addEventListener("click", () => finish(input.value.trim()));
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") okBtn.click();
+      });
+      const root = document.querySelector<HTMLElement>("#modal-root");
+      if (root) {
+        const observer = new MutationObserver(() => {
+          if (!wrap.isConnected) {
+            observer.disconnect();
+            finish(null);
+          }
+        });
+        observer.observe(root, { childList: true });
+      }
+      input.focus();
+      input.select();
+    });
+  }
+
   /** "Import SCAL…" — replaces the well's capillary-pressure (Pc/Sw) points from one or
    *  more files (flat CSV, porous-plate wide table, or per-plug centrifuge blocks) and
    *  fits the Leverett J-function, reporting SWH_A/SWH_B for the sw_height module. */
   private async handleImportScal(): Promise<void> {
-    const well = appState.selectedWell.get();
-    if (!well) {
-      setStatus("Select a well first (Wells & Tops panel)");
-      return;
-    }
+    const well = requireWell("Import SCAL");
+    if (!well) return;
     let paths: string[];
     try {
       const selection = await open({
@@ -1305,6 +1530,23 @@ export class Ribbon {
       if (!v) iftInput.focus();
     });
     content.appendChild(formRow("Lab sigma·cosθ (dyn/cm)", iftInput, "Fluid system of the lab measurement"));
+    // The delivery these files form (T-IMP-08): a later report never overwrites an
+    // earlier one — it becomes a second SCAL set and goes live.
+    const setInput = document.createElement("input");
+    setInput.type = "text";
+    setInput.className = "form-control";
+    setInput.value = "SCAL";
+    content.appendChild(
+      formRow(
+        "SCAL set",
+        setInput,
+        "Names this delivery (the files selected together). A name already on the well is suffixed (SCAL → SCAL_1); the new set becomes live and drives Pc QC, J-fits and Thomeer.",
+      ),
+    );
+    // SCAL plugs ARE core plugs, so their depths are the core report's depths.
+    const scalFollowCore = buildFollowCoreRow("the plug depths", "scal");
+    content.appendChild(scalFollowCore.el);
+
     const apply = document.createElement("button");
     apply.className = "form-run-btn";
     apply.textContent = "Import & Fit";
@@ -1323,7 +1565,15 @@ export class Ribbon {
       apply.disabled = true;
       resultBox.textContent = `Importing SCAL data for ${well.well_name}…`;
       const fmt = fmtSel.value as "auto" | "long" | "porous_plate" | "centrifuge";
-      void importScalFiles(well.well_id, paths, fmt, sysSel.value, ift)
+      void importScalFiles(
+        well.well_id,
+        paths,
+        fmt,
+        sysSel.value,
+        ift,
+        setInput.value.trim() || "SCAL",
+        scalFollowCore.checked(),
+      )
         .then((result) => {
           if (result.error) {
             resultBox.textContent = `SCAL import failed: ${result.error}`;
@@ -1335,8 +1585,11 @@ export class Ribbon {
               `R² = ${result.fit.r2.toFixed(3)} (${result.fit.n_points} points). ` +
               `Enter these as SWH_A/SWH_B in SW — Saturation-Height.`
             : "Too few valid points to fit the J-function (need Pc, Sw, perm and poro on ≥ 3 rows).";
-          resultBox.textContent = `Imported ${result.rows} Pc point(s). ${fitText}`;
-          setStatus(`SCAL: ${result.rows} points imported for ${well.well_name}.`);
+          const setNote = result.set_name ? ` Set ${result.set_name}.` : "";
+          // The core-following note is the one thing here the user cannot check by eye.
+          const coreNote = result.note ? ` ${result.note}.` : "";
+          resultBox.textContent = `Imported ${result.rows} Pc point(s).${setNote}${coreNote} ${fitText}`;
+          setStatus(`SCAL: ${result.rows} points imported for ${well.well_name}.${setNote}`);
           this.workspace.notifyDataChanged();
         })
         .catch((err) => {
@@ -1388,18 +1641,17 @@ export class Ribbon {
   /** "Import Aux…" — petrography / XRD / perforation (tops-style CSV/TXT) for the
    *  selected well. Each import replaces the well's previous rows of that dataset. */
   private handleImportAux(): void {
-    const well = appState.selectedWell.get();
-    if (!well) {
-      setStatus("Select a well first (Wells & Tops panel)");
-      return;
-    }
+    const well = requireWell("Import Aux");
+    if (!well) return;
     const content = document.createElement("div");
     const doc = document.createElement("p");
     doc.className = "modal-doc";
     doc.textContent =
       "Tops-style data: a TOP/DEPTH column (plus optional BASE/TO for intervals); every other " +
       "column becomes an item — mineral percentages, textural values, perforation status. " +
-      "Re-importing a dataset replaces this well's previous rows of that dataset only.";
+      "A WELL column routes rows to each named well (multi-well files); without one, rows land " +
+      "on this well. Each import is a named DELIVERY: re-importing keeps the earlier one and " +
+      "makes the new one live, so nothing is ever overwritten.";
     content.appendChild(doc);
 
     const dsSelect = document.createElement("select");
@@ -1421,6 +1673,23 @@ export class Ribbon {
     dsSelect.addEventListener("change", () => {
       customRow.style.display = dsSelect.value === "Custom…" ? "" : "none";
     });
+
+    // The delivery name (T-IMP-08 applied to point data): a second XRD/CEC/oil-show
+    // delivery lands beside the first instead of replacing it.
+    const setInput = document.createElement("input");
+    setInput.className = "form-control";
+    setInput.type = "text";
+    setInput.value = "RAW";
+    content.appendChild(
+      formRow(
+        "Set",
+        setInput,
+        "Names this delivery. A name already used for this dataset on a well is suffixed (RAW → RAW_1) — an import never overwrites earlier rows. The new set becomes the live one; switch or delete in Tools → Data Sets…",
+      ),
+    );
+
+    const followCore = buildFollowCoreRow("the rows", "aux");
+    content.appendChild(followCore.el);
 
     const pick = document.createElement("button");
     pick.className = "form-run-btn";
@@ -1452,14 +1721,29 @@ export class Ribbon {
       pick.disabled = true;
       resultBox.textContent = `Importing ${dataset} for ${well.well_name}…`;
       try {
-        const result = await importAuxData(well.well_id, dataset, path);
+        const result = await importAuxData(
+          well.well_id,
+          dataset,
+          path,
+          setInput.value.trim() || "RAW",
+          followCore.checked(),
+        );
         if (result.error) {
           resultBox.textContent = `Import failed: ${result.error}`;
           return;
         }
-        resultBox.textContent = `Imported ${result.rows} value(s) across ${result.items.length} column(s): ${result.items.join(", ")}`;
-        setStatus(`${result.dataset}: ${result.rows} values imported for ${well.well_name}`);
-        recordProcess("Import", `Imported ${result.dataset} (${result.rows} values) ← ${path}`, well.well_name);
+        // Multi-well files route by their WELL column (T-IMP-11); say where rows went
+        // and surface the routing story (unmatched names, blank cells) instead of
+        // pretending everything landed on the selected well.
+        const where = result.wells_imported > 1 ? `${result.wells_imported} wells (by WELL column)` : well.well_name;
+        const notes = result.notes ? ` — ${result.notes}` : "";
+        // Name the set, and especially a suffix: it means that well already had a
+        // delivery under the requested name and BOTH are now kept.
+        const setNote = result.sets.length ? ` Set ${result.sets.join(", ")}.` : "";
+        resultBox.textContent =
+          `Imported ${result.rows} value(s) into ${where} across ${result.items.length} column(s): ${result.items.join(", ")}.${setNote}${notes}`;
+        setStatus(`${result.dataset}: ${result.rows} values imported into ${where}.${setNote}${notes}`);
+        recordProcess("Import", `Imported ${result.dataset} (${result.rows} values, ${result.wells_imported} well(s))${notes} ← ${path}`, well.well_name);
         this.workspace.notifyDataChanged();
       } catch (err) {
         resultBox.textContent = `Import failed: ${err}`;
@@ -1472,11 +1756,8 @@ export class Ribbon {
   /** "Import Deviation…" — loads an MD/INC/AZI survey CSV and computes minimum-curvature
    *  TVD/TVDSS for the selected well. Prompts for the datum (KB) elevation. */
   private async handleImportDeviation(): Promise<void> {
-    const well = appState.selectedWell.get();
-    if (!well) {
-      setStatus("Select a well first (Wells & Tops panel)");
-      return;
-    }
+    const well = requireWell("Import deviation survey");
+    if (!well) return;
     let path: string | null;
     try {
       const selection = await open({
@@ -1497,6 +1778,19 @@ export class Ribbon {
       "Computes TVD/TVDSS by the minimum-curvature method from the MD/INC/AZI survey. " +
       "Datum elevation (KB above mean sea level) sets TVDSS = datum − TVD; leave blank to use the well's KB.";
     content.appendChild(doc);
+    // T-IMP-12: the survey is VERSIONED. A definitive survey imported over a preliminary
+    // one lands beside it and takes over TVD/TVDSS; the old one stays switchable.
+    const nameInput = document.createElement("input");
+    nameInput.type = "text";
+    nameInput.className = "form-control";
+    nameInput.value = "SURVEY";
+    content.appendChild(
+      formRow(
+        "Survey name",
+        nameInput,
+        "Names this survey. A name already used on the well is suffixed (SURVEY → SURVEY_1) — an import never overwrites an earlier survey. The new survey becomes active and drives TVD/TVDSS.",
+      ),
+    );
     const datumInput = document.createElement("input");
     datumInput.type = "number";
     datumInput.step = "0.1";
@@ -1517,7 +1811,7 @@ export class Ribbon {
         return;
       }
       setStatus(`Importing deviation survey for ${well.well_name}…`);
-      void importDeviationCsv(well.well_id, path, datum)
+      void importDeviationCsv(well.well_id, path, datum, nameInput.value.trim() || "SURVEY")
         .then((result) => {
           if (result.error) {
             setStatus(`Deviation import failed: ${result.error}`);
@@ -1579,7 +1873,7 @@ export class Ribbon {
     const zoneSel = document.createElement("select");
     zoneSel.className = "form-control";
     // Indonesian acreage runs across UTM zones 46–54, mostly southern hemisphere
-    // (Mahakam 50S; ONWJ 48S/49S) with the north straddling the equator.
+    // (Mahakam 50S; Java Sea 48S/49S) with the north straddling the equator.
     for (const hemi of ["S", "N"]) {
       for (let z = 46; z <= 54; z++) {
         const o = document.createElement("option");
@@ -1640,11 +1934,8 @@ export class Ribbon {
 
   /** "Well Header…" — edits the selected well's field / TD / KB datum (Phase 6c). */
   private async handleWellHeader(): Promise<void> {
-    const selected = appState.selectedWell.get();
-    if (!selected) {
-      setStatus("Select a well first (Wells & Tops panel)");
-      return;
-    }
+    const selected = requireWell("Well header");
+    if (!selected) return;
     // `selectedWell` is a snapshot captured on tree-click and is NOT re-broadcast on a
     // dataVersion bump, so after an import (or a prior header save) it can carry stale
     // (often null) coordinates. Re-read the well from the DB so the X/Y/zone fields show

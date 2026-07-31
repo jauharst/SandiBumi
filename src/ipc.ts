@@ -105,10 +105,27 @@ export interface ImportResult {
   /** Non-fatal note for a successful import (e.g. rows dropped for a bad/duplicate depth). */
   warning: string | null;
   error: string | null;
+  /** Set the curves landed under when this file ATTACHED to an existing well instead of
+   *  creating a new record. null = a new well was created. */
+  attached_set: string | null;
 }
 
-export function importLasFiles(paths: string[]): Promise<ImportResult[]> {
-  return invoke<ImportResult[]>("import_las_files", { paths });
+/** Import-sets choices from the Import LAS dialog (T-IMP-02, the Geolog/IP set model). */
+export interface LasImportOptions {
+  /** Set name for every curve of this batch; auto-suffixed per well (`FPROOH` → `FPROOH_1`)
+   *  so a re-import never overwrites an earlier delivery. Empty/omitted → RAW. */
+  setName?: string | null;
+  /** Attach a file whose well name already exists to that well as a new set, instead of
+   *  creating a duplicate well record. Defaults to true backend-side. */
+  attach?: boolean;
+}
+
+export function importLasFiles(paths: string[], opts?: LasImportOptions): Promise<ImportResult[]> {
+  return invoke<ImportResult[]>("import_las_files", {
+    paths,
+    setName: opts?.setName ?? null,
+    attach: opts?.attach ?? null,
+  });
 }
 
 export interface TopEntry {
@@ -200,21 +217,123 @@ export interface CurveStyle {
   color: string;
   min: number;
   max: number;
-  /** Edge shading, or "blocks" for discrete class curves (facies) rendered as
-   *  full-track-width colored intervals instead of a value line. */
-  fill?: "none" | "left" | "right" | "blocks";
+  /** "line" (default) joins consecutive sample centres; "step" holds each sample's value
+   *  across its whole sampling interval and then jumps — the blocky display for anything
+   *  genuinely piecewise-constant (block-averaged logs, zone-constant parameter curves). */
+  draw_style?: "line" | "step";
+  /** Edge shading, "curve" for crossover shading against `fill_to`, or "blocks" for discrete
+   *  class curves (facies) rendered as full-track-width colored intervals. */
+  fill?: "none" | "left" | "right" | "curve" | "blocks";
+  /** `fill: "curve"` — the reference curve to shade against. It must be another curve in the
+   *  SAME track, and it is positioned with ITS OWN min/max (compatible scaling). */
+  fill_to?: string;
   fill_color?: string;
+  /** `fill: "curve"` — colour where this curve reads to the RIGHT of `fill_to`;
+   *  `fill_color` covers the left side. */
+  fill_color2?: string;
   fill_opacity?: number;
+}
+
+/** One measured-sample series drawn in a `point_data` track. Kept separate from CurveStyle
+ *  on purpose: a curve has a value at every depth, a point series has values only where
+ *  somebody sampled, and joining core plugs with a line would state a continuity the data
+ *  does not have. */
+export interface PointStyle {
+  /** "core" reads a plug property (CPOR, CPERM, CGD, CSW …) from the ACTIVE core set;
+   *  "aux" reads an item from a point dataset (XRD, CEC, oil show, core extras …). */
+  source: "core" | "aux";
+  /** For `source: "aux"`, which dataset. Ignored for core. */
+  dataset?: string;
+  /** The property (core) or item (aux) name within that source. */
+  item: string;
+  color: string;
+  min: number;
+  max: number;
+  /** "points" (default) | "box" | "histogram" | "text". */
+  display?: "points" | "box" | "histogram" | "text";
+  /** Depth-bin height for "box" / "histogram", in the project's depth unit. */
+  bin?: number;
+  /** Box edges as percentiles (defaults 25 / 75). */
+  box_lo?: number;
+  box_hi?: number;
+  /** "tukey" (default) | "percentile" | "minmax" — an interpretive choice, so it is stored
+   *  with the layout rather than assumed. */
+  whisker?: "tukey" | "percentile" | "minmax";
+  /** Tukey multiplier (default 1.5). */
+  whisker_k?: number;
+  /** Percentile pair when `whisker: "percentile"` (defaults 10 / 90). */
+  whisker_lo?: number;
+  whisker_hi?: number;
+  /** Bin count across the value axis for "histogram" (default 12). */
+  hist_bins?: number;
+  /** Draw the individual samples on top of a box/histogram glyph. */
+  show_samples?: boolean;
+}
+
+/** One array log — a curve holding a whole DISTRIBUTION at every depth (Monte Carlo
+ *  realizations, an NMR T2 distribution, a sonic waveform) rather than a single reading.
+ *
+ *  The three displays are three readings of the SAME stored matrix: with the realizations on
+ *  disk, moving P10 to P5 is a redraw, not a re-run of the study. */
+export interface ArrayStyle {
+  curve_name: string;
+  /** Which array set. Absent = whichever set holds the curve. */
+  set_name?: string;
+  color: string;
+  min: number;
+  max: number;
+  /** "band" (default) | "spaghetti" | "heatmap". */
+  display?: "band" | "spaghetti" | "heatmap";
+  /** Band edges as percentiles (defaults 10 / 90) — the adjustable part. */
+  band_lo?: number;
+  band_hi?: number;
+  /** Draw the P50 line inside the band (default true). */
+  show_median?: boolean;
+  fill_opacity?: number;
+  /** "spaghetti": how many realizations to draw (default 40). */
+  traces?: number;
+  /** "heatmap": bins across the value axis (default 32). */
+  hist_bins?: number;
+}
+
+/** One picture series in an `image` track — thin sections, core photographs, SEM plates.
+ *
+ *  A picture has no value axis, so this shares nothing with a curve or a point series except
+ *  the depth column. What it shares is their honesty about depth: a plate is drawn where it
+ *  was sampled, and when two would overlap the second is skipped rather than nudged. */
+export interface ImageStyle {
+  /** Which image dataset ('THIN SECTION', 'CORE PHOTO' …); the ACTIVE delivery is drawn. */
+  dataset: string;
+  /** "anchor" (default) centres a fixed-size plate on its depth — the honest display for a
+   *  thin section, which has no thickness. "depth" stretches the picture across its
+   *  depth_top..depth_base interval, which a core photograph genuinely occupies. */
+  mode?: "anchor" | "depth";
+  /** Width as a fraction of the track (0.05..1, default 0.9). */
+  size?: number;
+  /** "contain" (default, whole picture visible) | "cover" (fill the box, crop the overhang).
+   *  There is no stretch option: a distorted thin section misstates grain shape. */
+  fit?: "contain" | "cover";
+  align?: "left" | "center" | "right";
+  label?: boolean;
+  border?: boolean;
 }
 
 export interface Track {
   title: string;
   width_weight: number;
   scale_type: ScaleType;
-  /** "curves" (normal log track) or "well_diagram" (casing/shoe/perforations). Optional for
-   *  backward compat with saved layouts; absent = "curves". */
-  kind?: "curves" | "well_diagram";
+  /** "curves" (normal log track), "well_diagram" (casing/shoe/perforations), "point_data"
+   *  (measured samples — core plugs, XRD, CEC …), "array_log" (a distribution at every
+   *  depth) or "image" (depth-registered pictures). Optional for backward compat with saved
+   *  layouts; absent = "curves". */
+  kind?: "curves" | "well_diagram" | "point_data" | "array_log" | "image";
   curves: CurveStyle[];
+  /** Drawn only when `kind: "point_data"`. Absent in every layout saved before point tracks. */
+  points?: PointStyle[];
+  /** Drawn only when `kind: "array_log"`. Absent in every layout saved before array tracks. */
+  arrays?: ArrayStyle[];
+  /** Drawn only when `kind: "image"`. Absent in every layout saved before image tracks. */
+  images?: ImageStyle[];
 }
 
 export interface Layout {
@@ -309,6 +428,90 @@ export function exportReportPdf(spec: ReportSpec, destPath: string): Promise<str
 /** Batch export: one report PDF per well into destDir; returns the written paths. */
 export function exportReportBatch(spec: ReportSpec, wellIds: string[], destDir: string): Promise<string[]> {
   return invoke<string[]>("export_report_batch", { spec, wellIds, destDir });
+}
+
+// --- Office deliverables (office.rs, Python subprocess) ---------------------
+
+/** Which office-document packages the Python SandiBumi found can actually import. `python` is
+ *  the interpreter path, so a "not installed" message can name the environment to install into. */
+export interface OfficeSupport {
+  python: string | null;
+  xlsxwriter: boolean;
+  docx: boolean;
+  pptx: boolean;
+  openpyxl: boolean;
+  /** The deck needs BOTH pptx and matplotlib — python-pptx assembles the slides, matplotlib
+   *  draws the figures they carry. */
+  matplotlib: boolean;
+}
+
+export interface DeckSpec {
+  well_ids: string[];
+  vsh_max: number;
+  phie_min: number;
+  swe_max: number;
+  perm_min?: number | null;
+  title?: string;
+  author?: string;
+  /** Which cutoff level the deck summarises (default PAY). */
+  flag?: string;
+}
+
+export interface DeckResult {
+  path: string;
+  slides: number;
+  wells: number;
+  wells_with_results: number;
+  bytes: number;
+}
+
+/** Asset-team deck built from the pay-summary DATA (matplotlib figures), not from composite
+ *  pages — a log plot at 1:200 stops being at 1:200 once it is a picture on a slide. */
+export function exportDeck(spec: DeckSpec, destPath: string): Promise<DeckResult> {
+  return invoke<DeckResult>("export_deck", { spec, destPath });
+}
+
+export interface WorkbookSpec {
+  well_ids: string[];
+  vsh_max: number;
+  phie_min: number;
+  swe_max: number;
+  perm_min?: number | null;
+  title?: string;
+  include_pay?: boolean;
+  include_field?: boolean;
+  include_zone_params?: boolean;
+}
+
+export interface WorkbookResult {
+  path: string;
+  sheets: number;
+  wells: number;
+  /** Wells that produced at least one interpreted zone row — the rest are named on the Summary
+   *  sheet rather than silently missing. */
+  wells_with_results: number;
+  pay_rows: number;
+  bytes: number;
+}
+
+export function officeSupport(): Promise<OfficeSupport> {
+  return invoke<OfficeSupport>("office_support");
+}
+
+/** The EDITABLE Word twin of the report PDF — same title, author, methodology and cutoffs.
+ *  The PDF stays the default deliverable and keeps the composite log pages. */
+export function exportReportDocx(spec: ReportSpec, destPath: string): Promise<string> {
+  return invoke<string>("export_report_docx", { spec, destPath });
+}
+
+export function exportReportDocxBatch(spec: ReportSpec, wellIds: string[], destDir: string): Promise<string[]> {
+  return invoke<string[]>("export_report_docx_batch", { spec, wellIds, destDir });
+}
+
+/** Writes the study as a formatted multi-sheet .xlsx. Never persists FLAG curves — an export
+ *  must not churn the project (see office.rs). */
+export function exportWorkbook(spec: WorkbookSpec, destPath: string): Promise<WorkbookResult> {
+  return invoke<WorkbookResult>("export_workbook", { spec, destPath });
 }
 
 /** Writes a base64-encoded PNG (rasterized in the frontend) to a user-picked path. */
@@ -723,6 +926,12 @@ export interface McRequest {
   /** Persist per-sample uncertainty curves (MC_<KEY>_LOW/_P50/_HIGH/_BASE for each tracked
    *  output the chain produces) to a fresh version of the MONTECARLO log set per well. */
   persist?: boolean;
+  /** Also store the per-sample REALIZATION MATRIX as MC_<KEY>_REAL in `array_logs`, so a log
+   *  view can draw an adjustable band / spaghetti / heat map from one stored run. Requires
+   *  `persist`; off by default because it is the only output whose size scales with iterations. */
+  persist_realizations?: boolean;
+  /** How many realizations to store per depth (default 256, clamped 8..1024). */
+  realization_cap?: number;
 }
 
 /** Target rank correlation between two MC parameters (rho clamped to ±0.995 backend-side). */
@@ -863,6 +1072,10 @@ export interface MlRequest {
   train_well_ids: string[];
   apply_well_ids: string[];
   output_curve: string;
+  /** Keep the fitted model under this name so it can be applied to other wells later. Supervised
+   *  tasks only — clustering and reduction are fitted on the wells they are applied to. */
+  save_model_as?: string | null;
+  model_note?: string | null;
 }
 
 export interface MlWellResult {
@@ -879,6 +1092,11 @@ export interface MlResult {
   /** Advisories that qualify a successful run — e.g. training wells that contributed no usable
    *  samples, so the model was fit on fewer wells than were selected. Empty on a clean run. */
   notes: string[];
+  /** Set when the fit was kept as a reusable artifact. */
+  model_id: string | null;
+  /** The name it was actually stored under — an existing name is auto-suffixed, never
+   *  overwritten, so this can differ from what was asked for. */
+  model_name: string | null;
   error: string | null;
 }
 
@@ -887,6 +1105,53 @@ export interface MlResult {
  *  apply samples (field-wide, globally consistent cluster ids). */
 export function runMl(req: MlRequest): Promise<MlResult> {
   return invoke<MlResult>("run_ml", { req });
+}
+
+/** A saved, re-runnable model. `feature_curves` is ORDERED — the order is part of the apply
+ *  contract, not a display detail. */
+export interface MlModelInfo {
+  model_id: string;
+  name: string;
+  task: string;
+  algorithm: string;
+  feature_curves: string[];
+  target_curve: string | null;
+  params_json: string;
+  metrics_json: string;
+  /** Names of the wells that actually contributed samples. */
+  trained_on: string[];
+  n_train: number;
+  standardize: boolean;
+  sklearn_version: string | null;
+  note: string | null;
+  created_at: string;
+  bytes: number;
+}
+
+export interface MlApplyRequest {
+  model_id: string;
+  apply_well_ids: string[];
+  output_curve: string;
+  mask_curve?: string | null;
+}
+
+export function listMlModels(): Promise<MlModelInfo[]> {
+  return invoke<MlModelInfo[]>("list_ml_models");
+}
+
+/** Applies a saved model to wells it has never seen. Nothing is refitted — a refit on different
+ *  data is a different model. The model's own curve list drives the inputs, so the caller cannot
+ *  reorder them. */
+export function applyMlModel(req: MlApplyRequest): Promise<MlResult> {
+  return invoke<MlResult>("apply_ml_model", { req });
+}
+
+export function renameMlModel(modelId: string, newName: string): Promise<string> {
+  return invoke<string>("rename_ml_model", { modelId, newName });
+}
+
+export function deleteMlModel(modelId: string): Promise<void> {
+  return invoke<void>("delete_ml_model", { modelId });
 }
 
 /** Model-comparison leaderboard (Wave B item 3). */
@@ -1498,6 +1763,42 @@ export async function setZoneParam(
   return invoke("set_zone_param", { wellId, zoneName, paramName, valueNum, valueText });
 }
 
+/** A whole-well override of a module parameter: a `zone_params` row whose zone is `*`.
+ *  At run time it fills the whole curve before any named zone overrides it, so it sits
+ *  between the workflow step's value and the per-zone values. */
+export interface WellParamOverride {
+  well_id: string;
+  param_name: string;
+  value_num: number;
+}
+
+/** Every whole-well parameter override in the project (one query, not one per well). */
+export async function listWellParamOverrides(): Promise<WellParamOverride[]> {
+  return invoke<WellParamOverride[]>("list_well_param_overrides");
+}
+
+/** Applies a batch of whole-well overrides atomically; a null value clears one. Returns the
+ *  number of rows written or cleared. Used by the per-well grid's edits AND their undo, so a
+ *  fill-column sweep and its reversal are the same single transaction shape. */
+export async function setWellParamOverrides(
+  entries: [string, string, number | null][],
+): Promise<number> {
+  return invoke<number>("set_well_param_overrides", { entries });
+}
+
+/** Applies a batch of parameter overrides at ONE zone scope in ONE transaction — `"*"` for the
+ *  whole well, or a zone name. A null value clears that row rather than writing zero.
+ *
+ *  An accepted calibration comes through here, so every well it touches gets the whole
+ *  coefficient set or none of it: a half-applied saturation calibration would leave a field with
+ *  two different answers and nothing on the log to say where the boundary fell. */
+export async function setZoneParamBatch(
+  zoneName: string,
+  entries: [string, string, number | null][],
+): Promise<number> {
+  return invoke<number>("set_zone_param_batch", { zoneName, entries });
+}
+
 export interface PaySummaryRequest {
   well_ids: string[];
   vsh_max: number;
@@ -1608,6 +1909,98 @@ export function importCoreCsv(wellId: string, path: string): Promise<CoreImportR
   return invoke<CoreImportResult>("import_core_csv", { wellId, path });
 }
 
+// --- Core import v2 (T-IMP-07): probe → confirm mapping → commit -------------
+
+export interface WellRowCount {
+  name: string;
+  rows: number;
+}
+
+/** Everything the mapping dialog shows before anything is written. */
+export interface TableProbe {
+  headers: string[];
+  n_rows: number;
+  well: number | null;
+  depth: number | null;
+  cpor: number | null;
+  cperm: number | null;
+  cgd: number | null;
+  csw: number | null;
+  /** "number" | "text" | "empty" per column. */
+  column_kind: string[];
+  sample_rows: string[][];
+  wells: WellRowCount[];
+  /** Roles ("CPOR"/"CSW") whose values read as percent — divided to v/v on import. */
+  percent_roles: string[];
+  /** "ft" / "m" when the units row or depth header names one. */
+  depth_unit_guess: string | null;
+  units_row_skipped: boolean;
+}
+
+/** Dialog-confirmed column mapping (indices into the file's columns). */
+export interface CoreMapping {
+  well: number | null;
+  depth: number;
+  cpor: number | null;
+  cperm: number | null;
+  cgd: number | null;
+  csw: number | null;
+  /** Columns beyond the four core measurements, stored as point data (aux_data). */
+  extras: number[];
+}
+
+export interface CoreWellOutcome {
+  well_name: string;
+  rows: number;
+  imported: number;
+  /** The core SET the plugs landed in on this well (auto-suffixed if the name was taken). */
+  set_name: string | null;
+  problem: string | null;
+}
+
+export interface CoreTableImportResult {
+  path: string;
+  rows_imported: number;
+  wells_imported: number;
+  outcomes: CoreWellOutcome[];
+  skipped_blank_well: number;
+  /** Point-data rows written from the file's extra columns, and which columns they
+   *  came from (empty when no extras were mapped). */
+  extra_rows: number;
+  extra_items: string[];
+  error: string | null;
+}
+
+/** Reads a core CSV/TXT (delimiter auto-detected) and reports headers, guessed roles,
+ *  sample rows, distinct wells, percent + depth-unit detection. Writes nothing. */
+export function probeCoreTable(path: string): Promise<TableProbe> {
+  return invoke<TableProbe>("probe_core_table", { path });
+}
+
+/** Commits one core table under the confirmed mapping: rows route per well name
+ *  (unmatched/ambiguous reported, never guessed) or all to `fallbackWellId`; depths
+ *  convert from `depthUnit` ("ft"/"m"; null = already project unit). Columns in
+ *  `mapping.extras` land as point data under `extrasDataset` (null = "CORE"). `setName`
+ *  names the delivery: resolved per well, auto-suffixed rather than overwriting an earlier
+ *  one, and the new set becomes that well's active core. */
+export function importCoreTable(
+  path: string,
+  mapping: CoreMapping,
+  depthUnit: string | null,
+  fallbackWellId: string | null,
+  extrasDataset: string | null = null,
+  setName: string | null = null,
+): Promise<CoreTableImportResult> {
+  return invoke<CoreTableImportResult>("import_core_table", {
+    path,
+    mapping,
+    depthUnit,
+    fallbackWellId,
+    extrasDataset,
+    setName,
+  });
+}
+
 // --- P2 tops-style imports: tops CSV/TXT + petrography/XRD/perforation ------
 
 export interface TopsImportResult {
@@ -1629,7 +2022,37 @@ export interface AuxImportResult {
   dataset: string;
   rows: number;
   items: string[];
+  /** Wells that received rows (multi-well files route by their WELL column). */
+  wells_imported: number;
+  /** Routing story: unmatched/ambiguous names, blank-well rows skipped. */
+  notes: string | null;
+  /** Set name(s) the delivery landed in — several when some wells already carried that
+   *  name and theirs was suffixed. */
+  sets: string[];
   error: string | null;
+}
+
+/** One point-data delivery (T-IMP-08 applied to every dataset). Exactly one set per
+ *  (well, dataset) is active; readers and counts follow it. */
+export interface AuxSetInfo {
+  dataset: string;
+  set_name: string;
+  rows: number;
+  active: boolean;
+  source: string | null;
+  imported_at: string | null;
+}
+
+export function listAuxSets(wellId: string): Promise<AuxSetInfo[]> {
+  return invoke<AuxSetInfo[]>("list_aux_sets", { wellId });
+}
+
+export function setActiveAuxSet(wellId: string, dataset: string, setName: string): Promise<void> {
+  return invoke<void>("set_active_aux_set", { wellId, dataset, setName });
+}
+
+export function deleteAuxSet(wellId: string, dataset: string, setName: string): Promise<number> {
+  return invoke<number>("delete_aux_set", { wellId, dataset, setName });
 }
 
 export interface AuxRow {
@@ -1641,10 +2064,21 @@ export interface AuxRow {
   value_text: string | null;
 }
 
-/** Imports a tops-style dataset (PETROGRAPHY / XRD / PERFORATION / custom) for one
- *  well, replacing that well's previous rows of the same dataset. */
-export function importAuxData(wellId: string, dataset: string, path: string): Promise<AuxImportResult> {
-  return invoke<AuxImportResult>("import_aux_data", { wellId, dataset, path });
+/** Imports a tops-style point dataset (PETROGRAPHY / XRD / CEC / OIL SHOW / PERFORATION /
+ *  custom) as a NEW named delivery: `setName` is auto-suffixed per well rather than
+ *  overwriting an earlier one, and becomes that dataset's live set. */
+export function importAuxData(
+  wellId: string,
+  dataset: string,
+  path: string,
+  setName: string | null = null,
+  /** Treat the file's depths as the ones the original core report used, and place them through
+   *  the target well's core depth record. Off by default: a file written on the log's scale must
+   *  not be moved. The result's notes say what happened, including samples that fell outside the
+   *  cored interval and wells with no core to follow. */
+  followCore = false,
+): Promise<AuxImportResult> {
+  return invoke<AuxImportResult>("import_aux_data", { wellId, dataset, path, setName, followCore });
 }
 
 export function listAuxData(wellId: string, dataset: string | null): Promise<AuxRow[]> {
@@ -1666,7 +2100,33 @@ export interface ScalImportResult {
   path: string;
   rows: number;
   fit: LeverettFit | null;
+  /** The SCAL delivery these points landed in (auto-suffixed if the name was taken). */
+  set_name: string | null;
+  /** What following the core depth record did, when it was asked for. */
+  note: string | null;
   error: string | null;
+}
+
+/** One SCAL delivery of a well. Exactly one is active; Pc QC, Leverett-J and Thomeer
+ *  fits all read it. */
+export interface ScalSetInfo {
+  set_name: string;
+  rows: number;
+  active: boolean;
+  source: string | null;
+  imported_at: string | null;
+}
+
+export function listScalSets(wellId: string): Promise<ScalSetInfo[]> {
+  return invoke<ScalSetInfo[]>("list_scal_sets", { wellId });
+}
+
+export function setActiveScalSet(wellId: string, setName: string): Promise<void> {
+  return invoke<void>("set_active_scal_set", { wellId, setName });
+}
+
+export function deleteScalSet(wellId: string, setName: string): Promise<number> {
+  return invoke<number>("delete_scal_set", { wellId, setName });
 }
 
 export interface ScalPcRow {
@@ -1693,18 +2153,23 @@ export function importScalCsv(wellId: string, path: string, iftLab: number): Pro
  *  key-value blocks + Pc/Sw tables, or "auto" to sniff each file. */
 export type ScalFormat = "auto" | "long" | "porous_plate" | "centrifuge";
 
-/** Multi-file SCAL Pc import (e.g. a set of single-plug centrifuge exports): all files
- *  land in ONE combined replace-write of the well's scal_pc rows, with the Leverett-J
- *  fit over the pooled points. `system` labels every stored point with the lab fluid
- *  system ('air_brine', 'hg_air', 'oil_brine', ...) alongside the entered sigma·cosθ. */
+/** Multi-file SCAL Pc import (e.g. a set of single-plug centrifuge exports): the files
+ *  selected together form ONE delivery, stored as the named SCAL set (auto-suffixed rather
+ *  than overwriting an earlier report) and made live, with the Leverett-J fit over the
+ *  pooled points. `system` labels every stored point with the lab fluid system
+ *  ('air_brine', 'hg_air', 'oil_brine', ...) alongside the entered sigma·cosθ. */
 export function importScalFiles(
   wellId: string,
   paths: string[],
   format: ScalFormat,
   system: string,
   iftLab: number,
+  setName: string | null = null,
+  /** Treat the plug depths as the ones the original core report used, and place them through the
+   *  well's core depth record. SCAL plugs ARE core plugs, so they move with the core. */
+  followCore = false,
 ): Promise<ScalImportResult> {
-  return invoke<ScalImportResult>("import_scal_files", { wellId, paths, format, system, iftLab });
+  return invoke<ScalImportResult>("import_scal_files", { wellId, paths, format, system, iftLab, setName, followCore });
 }
 
 export interface ThomeerSampleFit {
@@ -1872,14 +2337,431 @@ export async function getCoreData(wellId: string): Promise<TrackCurveSeries[]> {
   return decodeCurveBuffer(buf);
 }
 
+// ---------------------------------------------------------------------------
+// Array logs: a whole distribution at every depth (Monte Carlo realizations,
+// NMR T2 distributions, waveforms) rather than one reading per depth.
+// ---------------------------------------------------------------------------
+
+export interface ArrayCurveInfo {
+  set_name: string;
+  curve_name: string;
+  /** Number of depths the array covers. */
+  depths: number;
+  /** Values per depth in the widest row (realizations, T2 bins, …). */
+  width: number;
+  depth_min: number;
+  depth_max: number;
+}
+
+/** One array log in memory: depths, and a row-major matrix `width` values wide.
+ *  A padded or failed slot is NaN, which every consumer already drops. */
+export interface ArrayLog {
+  depth: Float32Array;
+  values: Float32Array;
+  width: number;
+}
+
+export function listArrayCurves(wellId: string): Promise<ArrayCurveInfo[]> {
+  return invoke<ArrayCurveInfo[]>("list_array_curves", { wellId });
+}
+
+export function deleteArrayLog(wellId: string, setName: string, curveName: string): Promise<number> {
+  return invoke<number>("delete_array_log", { wellId, setName, curveName });
+}
+
+/** Decodes the raw array-log buffer. Mirrors the layout documented on `get_array_log` in
+ *  `src-tauri/src/lib.rs`: [u32 depth_count][u32 width][f32 depth × dc][f32 values × dc*width].
+ *
+ *  Copied out of the response rather than aliased: the two f32 blocks start at byte offset 8,
+ *  which is 4-byte aligned, but slicing keeps the whole IPC buffer alive for as long as either
+ *  view is held — a costly thing to leak for a matrix this size. */
+export function decodeArrayLog(buf: ArrayBuffer): ArrayLog {
+  const view = new DataView(buf);
+  const depthCount = view.getUint32(0, true);
+  const width = view.getUint32(4, true);
+  const depth = new Float32Array(buf.slice(8, 8 + depthCount * 4));
+  const values = new Float32Array(buf.slice(8 + depthCount * 4, 8 + depthCount * 4 + depthCount * width * 4));
+  return { depth, values, width };
+}
+
+export async function getArrayLog(wellId: string, setName: string | null, curveName: string): Promise<ArrayLog> {
+  const buf = await invoke<ArrayBuffer>("get_array_log", { wellId, setName, curveName });
+  return decodeArrayLog(buf);
+}
+
+// ---------------------------------------------------------------------------
+// Depth-registered images (thin sections, core photographs)
+// ---------------------------------------------------------------------------
+
+/** One picture's METADATA — never its pixels. A well carrying 300 core photographs has to
+ *  list in kilobytes, so the bytes are fetched one at a time by `getWellImage`. */
+export interface ImageInfo {
+  image_id: string;
+  dataset: string;
+  set_name: string;
+  depth_top: number;
+  /** null = a POINT sample: a thin section is cut from one plug and has no thickness. */
+  depth_base: number | null;
+  name: string;
+  caption: string | null;
+  mime: string;
+  width: number;
+  height: number;
+  src_width: number | null;
+  src_height: number | null;
+  source_path: string | null;
+  /** false = the viewer shows it but the PDF exporter cannot embed it (see images.rs). */
+  printable: boolean;
+  bytes: number;
+  /** Width of the WHOLE picture in micrometres. null = no scale was declared, and nothing
+   *  dimensional may run on this plate. um/px of any copy = fov_um / that copy pixel width. */
+  fov_um: number | null;
+  /** "" = unknown (refused, never assumed), "blue_epoxy", "plain". */
+  prepared: string;
+  /** As the laboratory report names it; "" = none or not stated. */
+  stain: string;
+}
+
+export interface ImageSetInfo {
+  dataset: string;
+  set_name: string;
+  images: number;
+  active: boolean;
+  source: string | null;
+  imported_at: string | null;
+  bytes: number;
+}
+
+/** One selected file as the import wizard shows it, before anything is stored. */
+export interface ImageProbe {
+  path: string;
+  file_name: string;
+  name: string;
+  mime: string;
+  /** 0 when only Pillow can tell (TIFF, plain WebP). */
+  width: number;
+  height: number;
+  bytes: number;
+  depth_top: number | null;
+  depth_base: number | null;
+  error: string | null;
+}
+
+export interface ImageImportItem {
+  path: string;
+  name: string;
+  depth_top: number;
+  depth_base?: number | null;
+  caption?: string | null;
+  /** Overrides the delivery value; absent falls back to it. Magnification genuinely varies
+   *  within one delivery, which is why this is per plate. */
+  fov_um?: number | null;
+}
+
+export interface ImageImportRequest {
+  well_id: string;
+  dataset: string;
+  set_name: string;
+  depth_unit?: string | null;
+  max_px?: number | null;
+  quality?: number | null;
+  /** Place the plate depths through the well's core depth record — a section is cut from a plug,
+   *  so when that plug is re-registered the plate belongs with it. */
+  follow_core?: boolean;
+  /** Delivery-level defaults. All absent by default, and absent is a real answer. */
+  fov_um?: number | null;
+  prepared?: string | null;
+  stain?: string | null;
+  items: ImageImportItem[];
+}
+
+/** One plate field of view and preparation. Every value is written as given, null included —
+ *  a scale typed by mistake has to be clearable. */
+export function setImageDetails(
+  imageId: string,
+  fovUm: number | null,
+  prepared: string | null,
+  stain: string | null,
+): Promise<number> {
+  return invoke<number>("set_image_details", { imageId, fovUm, prepared, stain });
+}
+
+/** The same three facts across a whole live delivery, in one statement. */
+export function setImageDeliveryDetails(
+  wellId: string,
+  dataset: string,
+  fovUm: number | null,
+  prepared: string | null,
+  stain: string | null,
+): Promise<number> {
+  return invoke<number>("set_image_delivery_details", { wellId, dataset, fovUm, prepared, stain });
+}
+
+export interface ImageImportResult {
+  dataset: string;
+  set_name: string;
+  imported: number;
+  skipped: string[];
+  bytes: number;
+  note: string | null;
+}
+
+export function probeImageFiles(paths: string[]): Promise<ImageProbe[]> {
+  return invoke<ImageProbe[]>("probe_image_files", { paths });
+}
+
+/** Is Pillow reachable? Decides whether the wizard offers TIFF and whether it warns that
+ *  pictures will print as labelled frames. */
+export function imageSupport(): Promise<boolean> {
+  return invoke<boolean>("image_support");
+}
+
+export function importWellImages(req: ImageImportRequest): Promise<ImageImportResult> {
+  return invoke<ImageImportResult>("import_well_images", { req });
+}
+
+export function listWellImages(wellId: string, dataset?: string | null): Promise<ImageInfo[]> {
+  return invoke<ImageInfo[]>("list_well_images", { wellId, dataset: dataset ?? null });
+}
+
+export function listImageDatasets(wellId: string): Promise<[string, number][]> {
+  return invoke<[string, number][]>("list_image_datasets", { wellId });
+}
+
+/** The pixels of one picture, as raw bytes (rule 3 — never a JSON array). Wrapped into a
+ *  Blob by the caller, which already knows the mime type from `listWellImages`. */
+export async function getWellImage(imageId: string): Promise<ArrayBuffer> {
+  return invoke<ArrayBuffer>("get_well_image", { imageId });
+}
+
+export function listImageSets(wellId: string): Promise<ImageSetInfo[]> {
+  return invoke<ImageSetInfo[]>("list_image_sets", { wellId });
+}
+
+export function setActiveImageSet(wellId: string, dataset: string, setName: string): Promise<void> {
+  return invoke("set_active_image_set", { wellId, dataset, setName });
+}
+
+export function deleteImageSet(wellId: string, dataset: string, setName: string): Promise<number> {
+  return invoke<number>("delete_image_set", { wellId, dataset, setName });
+}
+
+export function deleteWellImage(imageId: string): Promise<number> {
+  return invoke<number>("delete_well_image", { imageId });
+}
+
+/** Re-registers one picture: core-to-log alignment and labelling, for pictures. */
+export function updateWellImage(
+  imageId: string,
+  depthTop: number,
+  depthBase: number | null,
+  name: string,
+  caption: string | null,
+): Promise<number> {
+  return invoke<number>("update_well_image", { imageId, depthTop, depthBase, name, caption });
+}
+
+/** Moves a whole plate delivery by a constant depth. `dataset` null = every live plate in the
+ *  well. A plate with no base stays a POINT sample; an interval keeps its thickness. */
+export function shiftWellImages(wellId: string, dataset: string | null, delta: number): Promise<number> {
+  return invoke<number>("shift_well_images", { wellId, dataset, delta });
+}
+
 export function updateCoreSample(wellId: string, depth: number, column: string, value: number): Promise<void> {
   return invoke("update_core_sample", { wellId, depth, column, value });
 }
 
-/** Shifts every core plug of a well by `delta` metres (core-to-log alignment);
- *  returns the number of plugs moved. Exactly reversible with -delta. */
-export function shiftCoreData(wellId: string, delta: number): Promise<number> {
-  return invoke<number>("shift_core_data", { wellId, delta });
+export interface CoreShiftCounts {
+  plugs: number;
+  /** Point-data rows moved along with them. */
+  extras: number;
+  /** SCAL Pc rows moved. */
+  scal: number;
+  /** Pictures moved. */
+  plates: number;
+  /** The ranges that put this operation back, in the depths that exist AFTER it. Use these for
+   *  undo rather than negating your own deltas — barrels moved by different amounts can produce
+   *  overlapping ranges, and the first match wins. Empty for a whole-well shift. */
+  inverse: RunShift[];
+}
+
+/** Shifts a well's ACTIVE core delivery by `delta` (core-to-log alignment). The plugs and the
+ *  point measurements made ON those plugs move together — pass `datasets` to say which point
+ *  datasets ride along (omit for the ones delivered with this core, `[]` for plugs only).
+ *  Exactly reversible with -delta, which is what makes it undoable. */
+export function shiftCoreData(
+  wellId: string,
+  delta: number,
+  targets?: ShiftTargets,
+  note?: RegistrationNote,
+): Promise<CoreShiftCounts> {
+  return invoke<CoreShiftCounts>("shift_core_data", { wellId, delta, targets, note });
+}
+
+/** Why a shift is being applied. Travels WITH the shift rather than being logged afterwards: a
+ *  depth registration that committed without its reason is the state the record exists to
+ *  prevent, and the backend writes both in one transaction. */
+export interface RegistrationNote {
+  /** "proposed" (correlation-backed), "manual" (a typed amount), "undo". */
+  kind: string;
+  log_curve?: string;
+  reference?: string;
+  pairing?: string;
+  /** Agreement at the shift ACTUALLY applied — not the peak of the scan. */
+  correlation?: number | null;
+  n_pairs?: number | null;
+  note?: string;
+}
+
+/** One line of a core's depth history. */
+export interface RegistrationEntry {
+  set_name: string;
+  seq: number;
+  applied_at: string | null;
+  kind: string;
+  /** null for a whole-core shift: no range was declared. */
+  top: number | null;
+  base: number | null;
+  delta: number;
+  log_curve: string;
+  reference: string;
+  pairing: string;
+  correlation: number | null;
+  n_pairs: number | null;
+  note: string;
+}
+
+/** A well's core depth history, newest first. An event log — an undo shows up as its own
+ *  reversal rather than erasing the row it reversed. */
+export function listCoreRegistrations(wellId: string): Promise<RegistrationEntry[]> {
+  return invoke<RegistrationEntry[]>("list_core_registrations", { wellId });
+}
+
+/** One barrel's correction: everything currently between `top` and `base` moves by `delta`.
+ *  Ranges are CURRENT depths — what you read off the log view. */
+export interface RunShift {
+  top: number;
+  base: number;
+  delta: number;
+  /** Agreement at THIS range's own shift, for the depth record. Omit when the range was not
+   *  proposed against anything — absent means "not measured", never zero. */
+  correlation?: number | null;
+  n_pairs?: number | null;
+}
+
+/** Applies per-barrel (or finer) corrections to the active core delivery. Rejects — and changes
+ *  nothing for — any set that would put deeper rock above shallower rock. */
+export function applyCoreRunShifts(
+  wellId: string,
+  runs: RunShift[],
+  targets?: ShiftTargets,
+  note?: RegistrationNote,
+): Promise<CoreShiftCounts> {
+  return invoke<CoreShiftCounts>("apply_core_run_shifts", { wellId, runs, targets, note });
+}
+
+/** What a core registration should carry with it. Omit entirely to move the point data that
+ *  provably came in with the core table; pass an empty object for plugs only. */
+export interface ShiftTargets {
+  aux_datasets?: string[];
+  scal?: boolean;
+  image_datasets?: string[];
+}
+
+/** One delivery a core shift could carry. `on_core_depths` marks the ones imported as sitting on
+ *  the core depth scale — those are pre-ticked, the rest are offered but left alone. */
+export interface ShiftCandidate {
+  kind: "aux" | "scal" | "image";
+  dataset: string;
+  set_name: string;
+  rows: number;
+  on_core_depths: boolean;
+}
+
+export function coreShiftCandidates(wellId: string): Promise<ShiftCandidate[]> {
+  return invoke<ShiftCandidate[]>("core_shift_candidates", { wellId });
+}
+
+/** The well's core depth record: `[depth the lab wrote, depth it sits at now]` per plug. */
+export function coreDepthPairs(wellId: string): Promise<[number, number][]> {
+  return invoke<[number, number][]>("core_depth_pairs", { wellId });
+}
+
+/** Maps lab-written depths onto where that rock now sits. Each result is
+ *  `[depth, extrapolated]`; `extrapolated` marks samples outside the cored interval, where the
+ *  correction is held from the nearest end rather than measured. */
+export function mapCoreDepths(wellId: string, depths: number[]): Promise<[number, boolean][]> {
+  return invoke<[number, boolean][]>("map_core_depths", { wellId, depths });
+}
+
+/** Point datasets delivered as part of this well's active core table, with their row counts. */
+export function coreExtraDatasets(wellId: string): Promise<[string, number][]> {
+  return invoke<[string, number][]>("core_extra_datasets", { wellId });
+}
+
+// --- Core-to-log depth registration ---
+
+export interface CoreReference {
+  /** "core" = a plug-table column; "aux" = an item of a point dataset. */
+  kind: string;
+  dataset: string;
+  item: string;
+  label: string;
+  n: number;
+  /** Resolved family, "" when the name is not recognised. */
+  family: string;
+}
+
+export function listCoreReferences(wellId: string): Promise<CoreReference[]> {
+  return invoke<CoreReference[]>("list_core_references", { wellId });
+}
+
+export interface RegistrationRequest {
+  well_id: string;
+  log_curve: string;
+  ref_kind: string;
+  ref_dataset?: string;
+  ref_item: string;
+  depth_from?: number | null;
+  depth_to?: number | null;
+  search_range?: number;
+  step?: number;
+}
+
+export interface RegPoint {
+  depth: number;
+  value: number;
+}
+
+/** One rung of the correlogram: agreement if the core moved by `delta`. */
+export interface LagPoint {
+  delta: number;
+  r: number;
+  n: number;
+}
+
+export interface RegistrationResult {
+  core: RegPoint[];
+  log_depth: number[];
+  log_value: number[];
+  proposed_delta: number;
+  correlation: number;
+  current_r: number;
+  n_pairs: number;
+  like_for_like: boolean;
+  /** "direct" | "inverse". */
+  matched_on: string;
+  log_family: string;
+  ref_family: string;
+  reference_label: string;
+  scan: LagPoint[];
+  notes: string[];
+  error: string | null;
+}
+
+/** Proposes the shift that best aligns a well's core with a log. Writes nothing. */
+export function proposeRegistration(req: RegistrationRequest): Promise<RegistrationResult> {
+  return invoke<RegistrationResult>("propose_registration", { req });
 }
 
 // --- Interactive curve editing (P2-d: log-view right-click menu) ---
@@ -1914,7 +2796,8 @@ export function restoreCurveValues(wellId: string, curve: string, pointCount: nu
   return invoke<number>("restore_curve_values", { wellId, curve, pointCount, data });
 }
 
-/** Checkpoints the DuckDB project database and copies it to `destPath`. */
+/** Engine-copies the project database to `destPath` (live rows only, so the export is
+ *  also compacted). The app keeps working on the current file. */
 export async function saveProjectAs(destPath: string): Promise<void> {
   return invoke("save_project_as", { destPath });
 }
@@ -1950,6 +2833,23 @@ export async function startupProblem(): Promise<StartupProblem | null> {
   return invoke("startup_problem");
 }
 
+/** How the background startup open went. Field names are snake_case (serde struct). */
+export interface OpenOutcome {
+  /** Set only when the intended project could not be opened. */
+  problem: StartupProblem | null;
+  /** Seconds the open took — used to explain a long wait after the fact. */
+  elapsed_secs: number;
+  /** The project file actually live. */
+  path: string;
+}
+
+/** Resolves when the project database is open and installed. The window comes up before the
+ *  project does, so NOTHING may query the database until this resolves — until then the
+ *  connection is an empty in-memory placeholder. */
+export async function awaitProjectOpen(): Promise<OpenOutcome> {
+  return invoke("await_project_open");
+}
+
 export async function listRecentProjects(): Promise<RecentProject[]> {
   return invoke("list_recent_projects");
 }
@@ -1966,6 +2866,25 @@ export async function openProject(path: string): Promise<RecentProject> {
 /** Creates a fresh, empty project file and switches to it. */
 export async function newProject(path: string): Promise<RecentProject> {
   return invoke("new_project", { path });
+}
+
+/** Result of "Compact Project": sizes around the rewrite + where the original was parked. */
+export interface CompactReport {
+  bytes_before: number;
+  bytes_after: number;
+  old_file: string;
+}
+
+/** Rewrites the project file keeping only live rows (drops re-run dead space) and swaps it
+ *  in at the same path. The original is kept beside it as `.pre-compact-<ts>.duckdb`. */
+export async function compactProject(): Promise<CompactReport> {
+  return invoke("compact_project");
+}
+
+/** One-time boot/maintenance notices (migration backups, memory caps, compaction results).
+ *  Each notice is returned exactly once — record what comes back. */
+export async function bootReport(): Promise<string[]> {
+  return invoke("boot_report");
 }
 
 // ---------------------------------------------------------------------------
@@ -2016,9 +2935,149 @@ export function exportLas(wellId: string, destPath: string): Promise<number> {
   return invoke<number>("export_las", { wellId, destPath });
 }
 
-/** Path of the Python interpreter the equation engine will use (null = none found). */
-export function pythonStatus(): Promise<string | null> {
-  return invoke<string | null>("python_status");
+/** One water-zone sample that entered the RtC calibration fit. */
+export interface RtcFitPoint {
+  well_id: string;
+  depth: number;
+  capbw: number;
+  qv: number;
+  /** Measured excess conductivity normalized by PHIT·RSF — the regression's y. */
+  y: number;
+  y_fit: number;
+}
+
+/** Fits A_CAP / B_QV / C0 to the user's OWN water leg. */
+export interface RtcFitRequest {
+  well_ids: string[];
+  rt_curve: string;
+  phit_curve: string;
+  capbw_curve: string;
+  qv_curve?: string;
+  cec?: number;
+  rhog?: number;
+  /** Must match the parameters the sw_rtc run will use — they define the clean baseline. */
+  rw: number;
+  m: number;
+  /** Held fixed; the fitted coefficients belong to this RSF only. */
+  rsf: number;
+  /** The water-bearing interval. At least one of these, or a wet-flag curve, is REQUIRED —
+   *  the fit assumes Sw = 1 and refuses to guess where that is true. */
+  depth_min?: number | null;
+  depth_max?: number | null;
+  wet_flag_curve?: string;
+}
+
+export interface RtcFitResult {
+  a_cap: number;
+  b_qv: number;
+  c0: number;
+  rsf_used: number;
+  r2: number;
+  rms: number;
+  n_points: number;
+  n_wells: number;
+  /** Wells that actually contributed a sample. Reported separately from `points`, which is
+   *  decimated for display — "apply to the wells it was fitted from" must not read a sample. */
+  wells_fitted: string[];
+  points: RtcFitPoint[];
+  /** (reason, count) for every candidate sample not fitted. */
+  excluded: [string, number][];
+  notes: string[];
+  error: string | null;
+}
+
+/** Fits the RtC excess-conductivity coefficients to the selected water-bearing interval. */
+export function runRtcFit(req: RtcFitRequest): Promise<RtcFitResult> {
+  return invoke<RtcFitResult>("run_rtc_fit", { req });
+}
+
+/** One laboratory CEC plug paired with the clay content of the curves the run will use. */
+export interface SFactorPoint {
+  well_id: string;
+  depth: number;
+  /** Depth of the log sample it was paired with — so a suspicious pairing is visible. */
+  log_depth: number;
+  vkaol: number;
+  vill: number;
+  /** Theoretical bulk CEC from the clay model — the regression's x. */
+  cec_theo: number;
+  /** Measured laboratory CEC — the regression's y. */
+  cec_lab: number;
+  ratio: number;
+}
+
+/** Fits sw_imts's CEC scaling factor S to the user's OWN laboratory CEC measurements. */
+export interface SFactorFitRequest {
+  well_ids: string[];
+  /** Point dataset holding the lab CEC ("CEC", or "CORE" for a core-table extra column). */
+  cec_dataset: string;
+  cec_item: string;
+  /** The clay curves the sw_imts RUN will use — not the XRD table the lab CEC came from.
+   *  Calibrating against one clay estimate and running against another makes S wrong by the
+   *  ratio between them, and both look like clay volumes. */
+  vkaol_curve: string;
+  vill_curve?: string;
+  /** Held fixed; S multiplies these, so the fitted S belongs to them only. */
+  cec_kaol?: number;
+  cec_ill?: number;
+  /** How far a plug may sit from the nearest log sample and still be paired with it. */
+  depth_tol?: number;
+}
+
+export interface SFactorFitResult {
+  s_factor: number;
+  s_median_ratio: number;
+  ratio_p10: number;
+  ratio_p90: number;
+  r2: number;
+  rms: number;
+  n_points: number;
+  n_wells: number;
+  /** Wells that actually contributed a plug. See `RtcFitResult.wells_fitted`. */
+  wells_fitted: string[];
+  cec_kaol_used: number;
+  cec_ill_used: number;
+  points: SFactorPoint[];
+  excluded: [string, number][];
+  notes: string[];
+  error: string | null;
+}
+
+/** Fits the IMTS CEC scaling factor S to the selected wells' laboratory CEC measurements. */
+export function runSFactorFit(req: SFactorFitRequest): Promise<SFactorFitResult> {
+  return invoke<SFactorFitResult>("run_s_factor_fit", { req });
+}
+
+/** One measurement name inside a point dataset, with what is actually stored under it. */
+export interface AuxItemInfo {
+  dataset: string;
+  item: string;
+  /** Wells carrying it in their ACTIVE delivery. */
+  wells: number;
+  rows: number;
+  /** Rows whose value is a NUMBER — a descriptive item has none and cannot be fitted against. */
+  numeric_rows: number;
+}
+
+/** Every measurement name in the project's point data, from the ACTIVE delivery of each dataset.
+ *  Project-wide by design: one grouped scan beats N round trips or an IN-list long enough to hit
+ *  a binding limit. Lets a dialog offer what exists instead of asking for a typed name. */
+export function listAuxItemCatalog(): Promise<AuxItemInfo[]> {
+  return invoke<AuxItemInfo[]>("list_aux_item_catalog");
+}
+
+/** What the Python equation engine can offer, probed once per session. */
+export interface PythonStatus {
+  /** Interpreter the engine will use; null when no Python with numpy was found. */
+  path: string | null;
+  /** scipy version when importable in that interpreter; null when scipy is absent.
+   *  scipy is OPTIONAL — numpy alone is a fully working engine. */
+  scipy: string | null;
+}
+
+/** Interpreter + optional-package status for the equation engine. */
+export function pythonStatus(): Promise<PythonStatus> {
+  return invoke<PythonStatus>("python_status");
 }
 
 // ---------------------------------------------------------------------------
@@ -2056,6 +3115,26 @@ export function promoteGenericCurve(curveId: string): Promise<void> {
   return invoke<void>("promote_generic_curve", { curveId });
 }
 
+/** A curve's editable identity — returned by `updateCurveMeta` as it was BEFORE the edit,
+ *  which is exactly what an undo needs. */
+export interface CurveMetaEdit {
+  mnemonic: string;
+  unit: string | null;
+  family: string | null;
+}
+
+/** Renames / re-units / re-families one imported curve. Metadata only — no sample changes —
+ *  but modules resolve their inputs by mnemonic and family, so this repoints what they read.
+ *  Returns the previous values so the caller can push an undo. */
+export function updateCurveMeta(
+  curveId: string,
+  mnemonic: string,
+  unit: string | null,
+  family: string | null,
+): Promise<CurveMetaEdit> {
+  return invoke<CurveMetaEdit>("update_curve_meta", { curveId, mnemonic, unit, family });
+}
+
 export interface CurveSamplePoint {
   depth: number;
   value: number;
@@ -2074,9 +3153,61 @@ export interface WellPathStation {
 }
 
 /** Imports a deviation survey CSV (MD/INC/AZI) and computes minimum-curvature TVD/TVDSS.
- *  `datumElevation` (KB above MSL) is used for TVDSS; null falls back to the well's KB. */
-export function importDeviationCsv(wellId: string, path: string, datumElevation: number | null): Promise<CoreImportResult> {
-  return invoke<CoreImportResult>("import_deviation_csv", { wellId, path, datumElevation });
+ *  `datumElevation` (KB above MSL) is used for TVDSS; null falls back to the well's KB.
+ *  `surveyName` versions the survey — a second import lands BESIDE the first (auto-suffixed
+ *  if the name is taken) and becomes the active one, never overwriting it. */
+export function importDeviationCsv(
+  wellId: string,
+  path: string,
+  datumElevation: number | null,
+  surveyName: string | null = null,
+): Promise<CoreImportResult> {
+  return invoke<CoreImportResult>("import_deviation_csv", { wellId, path, datumElevation, surveyName });
+}
+
+/** One core delivery of a well (T-IMP-08). Exactly one is `active`; every core reader —
+ *  log overlay, φ-k clouds, SandiMin calibration, DB Inspector edits — follows it. */
+export interface CoreSetInfo {
+  set_name: string;
+  rows: number;
+  active: boolean;
+  source: string | null;
+  imported_at: string | null;
+}
+
+/** One deviation survey of a well (T-IMP-12). The active one drives TVD/TVDSS. */
+export interface SurveyInfo {
+  survey_name: string;
+  stations: number;
+  active: boolean;
+  source: string | null;
+  datum: number | null;
+  imported_at: string | null;
+}
+
+export function listCoreSets(wellId: string): Promise<CoreSetInfo[]> {
+  return invoke<CoreSetInfo[]>("list_core_sets", { wellId });
+}
+
+export function listSurveys(wellId: string): Promise<SurveyInfo[]> {
+  return invoke<SurveyInfo[]>("list_surveys", { wellId });
+}
+
+export function setActiveCoreSet(wellId: string, setName: string): Promise<void> {
+  return invoke<void>("set_active_core_set", { wellId, setName });
+}
+
+export function deleteCoreSet(wellId: string, setName: string): Promise<number> {
+  return invoke<number>("delete_core_set", { wellId, setName });
+}
+
+/** Activates a survey AND rebuilds TVD/TVDSS from it; returns the samples rewritten. */
+export function setActiveSurvey(wellId: string, surveyName: string): Promise<number> {
+  return invoke<number>("set_active_survey", { wellId, surveyName });
+}
+
+export function deleteSurvey(wellId: string, surveyName: string): Promise<number> {
+  return invoke<number>("delete_survey", { wellId, surveyName });
 }
 
 export function getWellPath(wellId: string): Promise<WellPathStation[]> {
@@ -2111,6 +3242,306 @@ export interface DlisImportResult {
 
 /** Imports every scalar channel of a DLIS file into the selected well's generic store
  *  (via dlisio through the Python subprocess). */
-export function importDlisFile(wellId: string, path: string): Promise<DlisImportResult> {
-  return invoke<DlisImportResult>("import_dlis_file", { wellId, path });
+export function importDlisFile(wellId: string, path: string, setName?: string | null): Promise<DlisImportResult> {
+  return invoke<DlisImportResult>("import_dlis_file", { wellId, path, setName: setName ?? null });
+}
+
+// --- Petrography: pore area from blue-dyed epoxy (plan_image_analysis A1) ---
+
+/** The colour rule, in HSV. Hue in degrees, saturation and value 0..1.
+ *  The backend's defaults are a plain blue band offered as a STARTING POINT for a visual tuning
+ *  task — not a calibration. Tune them against the preview, which is drawn by the same code that
+ *  does the measuring. */
+export interface PoreColorBand {
+  hue_lo: number;
+  hue_hi: number;
+  sat_min: number;
+  val_min: number;
+}
+
+export interface PoreSpec {
+  well_id: string;
+  dataset: string;
+  band?: PoreColorBand;
+  /** Draw the mask over this plate and send the picture back. */
+  preview_image_id?: string | null;
+  /** Measure only this plate — so moving a slider does not re-measure the whole delivery. */
+  only_image_id?: string | null;
+  /** Store the results as point data under this delivery name. Omit to measure without writing:
+   *  tuning must not leave a trail of half-judged answers in the project. */
+  set_name?: string | null;
+  /** Also measure each individual pore. Needs scipy. */
+  geometry?: boolean;
+  /** Smallest thing counted as a pore, in PIXELS — a statement about what the picture can
+   *  resolve, which has to mean the same thing on a plate carrying no scale. */
+  min_pore_px?: number;
+  /** Also outline each GRAIN and measure its size. Needs scipy, and inherits the blue-epoxy
+   *  refusal: the grain phase is whatever the pore rule did not claim. */
+  grains?: boolean;
+  /** Smallest thing counted as a grain, in PIXELS. */
+  min_grain_px?: number;
+  /** How far apart two grain centres must be before they count as two grains, in PIXELS. The knob
+   *  for over-segmentation — judged against the preview, not from the table. */
+  grain_sep_px?: number;
+  /** Also report the Wicksell-corrected sizes beside the apparent ones. Off by default; the two
+   *  are stored under DIFFERENT item names so neither can be mistaken for the other. */
+  wicksell?: boolean;
+  /** Read the stain too. Omit for no stain — a stain assumed is a mineral fraction invented. */
+  stain?: StainSpec | null;
+}
+
+/** An HSV window. Richer than PoreColorBand because a stain scheme has to be able to say
+ *  UNSTAINED — dolomite under alizarin red S is identified by staying colourless, which is a
+ *  saturation ceiling and cannot be written as a floor. */
+export interface StainBand {
+  hue_lo: number;
+  hue_hi: number;
+  sat_min: number;
+  sat_max: number;
+  val_min: number;
+  val_max: number;
+}
+
+export interface StainClass {
+  mineral: string;
+  band: StainBand;
+}
+
+export interface StainSpec {
+  /** Matched against each plate's OWN declared stain; a plate that disagrees is refused by name. */
+  stain: string;
+  /** Tested in order, first match wins — a pixel is one mineral. */
+  classes: StainClass[];
+}
+
+/** Mineral area fractions on one plate, as fractions of the WHOLE plate: pore + minerals +
+ *  unclassified is 1. */
+export interface PlateStain {
+  fractions: [string, number][];
+  /** Solid that fell in no band. The honesty number — a section where a third of the rock matched
+   *  nothing has not been given a mineralogy, whatever the other rows say. */
+  unclassified: number;
+}
+
+/** The published stain schemes this build ships, as [name, classes]. Mineral identifications are
+ *  standard carbonate petrography (Friedman 1959, Dickson 1966); the colour bands are round
+ *  starting points for visual tuning, like the epoxy band. */
+export function stainSchemes(): Promise<[string, StainClass[]][]> {
+  return invoke<[string, StainClass[]][]>("stain_schemes");
+}
+
+// ---------------------------------------------------------------------------
+// A3 — the trained mineral classifier
+// ---------------------------------------------------------------------------
+
+/** One point the user clicked, and what they called it. Position is a FRACTION of the picture,
+ *  never a pixel: the stored copy is resampled, so a pixel coordinate belongs to whichever copy it
+ *  was taken on and nothing in the number says which. */
+export interface PlateLabel {
+  image_id: string;
+  x: number;
+  y: number;
+  mineral: string;
+}
+
+export interface ClassifySpec {
+  well_id: string;
+  dataset: string;
+  labels: PlateLabel[];
+  patch_px?: number;
+  set_name?: string | null;
+  preview_image_id?: string | null;
+}
+
+export interface ClassPerf {
+  mineral: string;
+  /** Fraction of held-out clicks the model got right. **−1 means it could not be checked.** A low
+   *  recall means that mineral's fraction is noise. */
+  recall: number;
+  clicks: number;
+}
+
+export interface PlateClasses {
+  image_id: string;
+  name: string;
+  depth_top: number;
+  depth_base: number | null;
+  fractions: [string, number][];
+}
+
+export interface ClassifyResult {
+  plates: PlateClasses[];
+  /** Overall held-out accuracy, cross-validated BY CLICK. */
+  accuracy: number;
+  per_class: ClassPerf[];
+  skipped: string[];
+  preview_png: string | null;
+  preview_width: number;
+  preview_height: number;
+  written: [string, string] | null;
+  notes: string[];
+}
+
+/** Is scikit-learn reachable? Probed so the dialog can say what is missing before a run. */
+export function classifySupport(): Promise<boolean> {
+  return invoke<boolean>("classify_support");
+}
+
+/** Trains a per-pixel mineral classifier on the user's own clicks and applies it to the delivery.
+ *  There is no shipped model: quartz against feldspar in plane light is not a colour problem, and
+ *  a model trained on somebody else's sections under somebody else's lamp would produce numbers
+ *  with the shape of a modal analysis and none of the content. */
+export function runPlateClassifier(spec: ClassifySpec): Promise<ClassifyResult> {
+  return invoke<ClassifyResult>("run_plate_classifier", { spec });
+}
+
+export interface PlatePore {
+  image_id: string;
+  name: string;
+  depth_top: number;
+  depth_base: number | null;
+  /** Pore area as a fraction of the plate, v/v. */
+  pore_fraction: number;
+  pixels: number;
+  geometry?: PoreGeometry;
+  grains?: GrainStats;
+  stain?: PlateStain;
+}
+
+/** Size of the individual grains on one plate.
+ *
+ *  Everything dimensional here is APPARENT unless its name says `_w`. A random plane rarely cuts a
+ *  grain through its centre, so section diameters run small and section sorting runs worse than
+ *  the rock's — which is why the apparent and corrected numbers are stored under different item
+ *  names rather than one name and a flag. */
+export interface GrainStats {
+  n: number;
+  n_edge: number;
+  n_small: number;
+  aspect_p50: number;
+  /** Median fraction of a grain's outline that is a contact with another grain rather than open
+   *  pore. The honesty number: where the rock is cemented there is nothing in the picture to
+   *  separate two grains, and the boundary was placed rather than seen. */
+  contact_p50: number;
+  d10_app_um: number | null;
+  d50_app_um: number | null;
+  d90_app_um: number | null;
+  /** Folk & Ward inclusive graphic standard deviation, phi units. Needs a scale, like the
+   *  diameters — phi is a logarithm of millimetres. */
+  sort_app_phi: number | null;
+  d10_w_um: number | null;
+  d50_w_um: number | null;
+  d90_w_um: number | null;
+  sort_w_phi: number | null;
+  /** Saltykov classes that unfolded to a negative population and were clamped. Several of them
+   *  means the correction is unstable on that plate. */
+  w_clamped: number;
+}
+
+/** Shape and size of the individual pores on one plate. */
+export interface PoreGeometry {
+  /** Pores measured: big enough, and not cut by the frame. */
+  n: number;
+  /** Dropped for touching the plate edge — their true size is unknown, so including them would
+   *  bias the distribution small. */
+  n_edge: number;
+  /** Dropped as too small to be anything but speckle. */
+  n_small: number;
+  aspect_p50: number;
+  aspect_p90: number;
+  /** Median circularity, 4·pi·A/P². 1 is a circle. */
+  shape_p50: number;
+  /** Equivalent-circle diameter in MICROMETRES, area-weighted. null on a plate with no declared
+   *  scale — a diameter in pixels is not a diameter. */
+  d10_um: number | null;
+  d50_um: number | null;
+  d90_um: number | null;
+}
+
+export interface PoreResult {
+  plates: PlatePore[];
+  /** Plates left out and why, one entry each — never a silent subset. */
+  skipped: string[];
+  preview_png: string | null;
+  preview_width: number;
+  preview_height: number;
+  /** [dataset, delivery] written, when a set name was given. */
+  written: [string, string] | null;
+  notes: string[];
+}
+
+/** Is numpy + Pillow reachable? Probed once so the dialog can say what is missing before a run. */
+export function poreSupport(): Promise<boolean> {
+  return invoke<boolean>("pore_support");
+}
+
+/** Measures pore area on a well's live image delivery. Refuses any plate not declared as
+ *  blue-dyed epoxy, by name. */
+export function runPoreArea(spec: PoreSpec): Promise<PoreResult> {
+  return invoke<PoreResult>("run_pore_area", { spec });
+}
+
+// ---------------------------------------------------------------------------
+// Plug QC — two measurements of the same plug, plotted against each other
+// ---------------------------------------------------------------------------
+
+/** Where one axis of the comparison comes from. */
+export interface PlugSource {
+  /** "core" | "aux" | "scal_throat" */
+  kind: string;
+  /** aux only — the point dataset, whose ACTIVE delivery is read. */
+  dataset?: string;
+  /** core: CPOR/CPERM/CGD/CSW. aux: the measurement name. */
+  item?: string;
+  /** scal_throat only — the mercury saturation the radius is quoted at (0.35 = the r35 convention). */
+  saturation?: number;
+}
+
+export interface PlugChoice {
+  kind: string;
+  dataset: string;
+  item: string;
+  label: string;
+  n: number;
+  wells: number;
+}
+
+export interface PlugQcRequest {
+  well_ids: string[];
+  x: PlugSource;
+  y: PlugSource;
+  depth_tol: number;
+}
+
+export interface PlugQcPoint {
+  well_id: string;
+  x: number;
+  y: number;
+  x_depth: number;
+  y_depth: number;
+}
+
+export interface PlugQcResult {
+  points: PlugQcPoint[];
+  /** Pairs found — NOT points.length once the cloud is decimated for the wire. */
+  n_pairs: number;
+  n_wells: number;
+  pearson: number;
+  spearman: number;
+  x_label: string;
+  y_label: string;
+  x_median: number;
+  y_median: number;
+  excluded: [string, number][];
+  notes: string[];
+}
+
+/** What the two axis pickers can offer over the wells in scope. */
+export function listPlugChoices(wellIds: string[]): Promise<PlugChoice[]> {
+  return invoke<PlugChoice[]>("list_plug_choices", { wellIds });
+}
+
+/** Pairs two plug-scale measurements by depth across the scoped wells. */
+export function runPlugQc(req: PlugQcRequest): Promise<PlugQcResult> {
+  return invoke<PlugQcResult>("run_plug_qc", { req });
 }

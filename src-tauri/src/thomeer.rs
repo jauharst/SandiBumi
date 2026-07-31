@@ -372,7 +372,7 @@ mod tests {
             system: None,
             ift: None,
         });
-        crate::db::insert_scal_pc(&conn, &ids, &rows).unwrap();
+        crate::db::insert_scal_pc(&conn, &ids, "RAW", None, &rows).unwrap();
         // sanity: the new columns round-trip
         let n: i64 = conn
             .query_row("SELECT COUNT(*) FROM scal_pc WHERE system = 'hg_air' AND ift = 367.0", params![], |r| r.get(0))
@@ -433,7 +433,7 @@ mod tests {
                 ift: None,
             });
         }
-        crate::db::insert_scal_pc(&conn, &ids, &rows).unwrap();
+        crate::db::insert_scal_pc(&conn, &ids, "RAW", None, &rows).unwrap();
 
         let db = Mutex::new(conn);
         let res = run_thomeer_fit(&db, &ThomeerRequest { well_ids: vec![ids] });

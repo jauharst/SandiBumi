@@ -104,7 +104,7 @@ pub struct AutoCorrResult {
 
 /// Linear interpolation of `vals` (aligned with ascending `depth`) at `x`.
 /// NaN if outside the sampled range or if either bracketing sample is NaN.
-fn interp(depth: &[f32], vals: &[f32], x: f32) -> f32 {
+pub(crate) fn interp(depth: &[f32], vals: &[f32], x: f32) -> f32 {
     if depth.is_empty() || x < depth[0] || x > depth[depth.len() - 1] {
         return f32::NAN;
     }
@@ -128,7 +128,7 @@ fn interp(depth: &[f32], vals: &[f32], x: f32) -> f32 {
 
 /// Pearson correlation over index pairs where both series are finite.
 /// Returns (r, n_used).
-fn pearson(a: &[f32], b: &[f32]) -> (f32, usize) {
+pub(crate) fn pearson(a: &[f32], b: &[f32]) -> (f32, usize) {
     let mut xs = Vec::new();
     let mut ys = Vec::new();
     for (&x, &y) in a.iter().zip(b) {

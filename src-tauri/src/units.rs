@@ -14,7 +14,7 @@
 //! Why this exists (engineering review F2e, verified): the LAS index unit was parsed at
 //! `parsers.rs` and thrown away under `#[allow(dead_code)]`, and `curves.rs` FAMILIES has
 //! no DEPTH entry, so `convert_to_canonical` never touched the index. A foot-indexed
-//! Rokan/Caltex LAS therefore landed its raw foot numbers in the same column as a metric
+//! A foot-indexed Central Sumatra LAS therefore landed its raw foot numbers in the same column as a metric
 //! Mahakam well, and the mixing was reported as a clean import. Two places then produced
 //! WRONG NUMBERS rather than merely wrong labels:
 //!   * `satheight.rs` / `shf_fit.rs` compute `pc = 0.433 * dRho * (h * FT_PER_M)`, i.e.
@@ -80,7 +80,7 @@ impl DepthUnit {
     /// guessing wrong is exactly the silent 3.28x error this module exists to stop.
     pub fn parse(s: &str) -> Option<Self> {
         // LAS files write the index unit with no agreed spelling: M, m, METERS, METRES,
-        // MT, F, FT, FEET, and the prime mark all occur in real Rokan/Mahakam deliveries.
+        // MT, F, FT, FEET, and the prime mark all occur in real Indonesian deliveries.
         let t: String = s
             .trim()
             .trim_matches(|c: char| c == '.' || c == '"')

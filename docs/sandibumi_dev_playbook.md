@@ -15,7 +15,7 @@ extracted reference asset to the build prompt it feeds, and (3) the master decid
 - Read Part 0 (inputs + current state) and Part 0.5 (IP-cleanliness) once — they govern both tracks.
 - Follow **Part 0.1 (the master sequence)** for order-of-operations.
 - **DECIDE work** (Part I): run in one Claude Code session per stage; design documents only.
-- **BUILD work** (Part II): paste one prompt into a **fresh** Claude Code session inside `D:\XX. Arshilla`;
+- **BUILD work** (Part II): paste one prompt into a **fresh** Claude Code session inside the repo root (`D:\XX. SandiBumi` on the reference machine);
   ship in small verified increments. Each build prompt already embeds the architecture contract.
 
 ---
@@ -48,7 +48,7 @@ Model note: run all of this on Opus 4.8 (staged, human-in-the-loop is its streng
 
 ## Part 0 — INPUTS & CURRENT STATE (shared by both tracks)
 
-**Repo:** `D:\XX. Arshilla` — Tauri (Rust) + DuckDB + TypeScript/WebGPU. Compute is **Rust**;
+**Repo:** `D:\XX. SandiBumi` — Tauri (Rust) + DuckDB + TypeScript/WebGPU. Compute is **Rust**;
 TS is frontend only. Reliability-hardening stage; `ROADMAP.md` (Done / Open / Future; Phase /
 Severity / Wave) is the authoritative plan.
 
@@ -275,7 +275,7 @@ This is the universal build contract — for the nine enrichment prompts AND any
 brief. It is the "how to build in THIS repo" discipline the DECIDE layer relies on.
 
 ```
-You are enriching SandiBumi (D:\XX. Arshilla), a Tauri(Rust)+DuckDB+TypeScript/WebGPU petrophysics
+You are enriching SandiBumi (D:\XX. SandiBumi), a Tauri(Rust)+DuckDB+TypeScript/WebGPU petrophysics
 desktop app. Jauhar (the user) is a petrophysicist and beginner programmer — explain choices in
 petrophysics terms, not programming jargon. Read CLAUDE.md fully before touching code; the specs in
 docs/ WIN over any code or memory.

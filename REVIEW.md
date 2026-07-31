@@ -7,6 +7,238 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-07-31 — Trained models are kept, named and re-runnable
+
+Until now a model died with the run: you could not train on your cored wells and apply **that
+same model** to the rest of the field later, and a delivered curve could not say which model
+made it. Now it can.
+
+- [ ] **Train and keep.** Petrophysics ▸ ML Models…, pick a supervised task (say regression,
+      PHIT or PERM as the target), select your cored wells as training wells, and type a name in
+      **Save model as** (e.g. `PERM_FROM_CORE`). Run. The status line should end with
+      *"model saved as 'PERM_FROM_CORE'"* and it should appear in the **Saved models** list with
+      its algorithm, its input curves, how many samples and from how many wells, and its size.
+- [ ] **Apply it to wells it has never seen.** Change the well scope to the uncored wells, then
+      press **Apply to scope** on the saved model. Nothing is refitted — check the Processing
+      monitor says "apply saved model", not "training".
+- [ ] **The result is traceable.** The new curves' log set records `ml:apply:<model name>` with
+      the model id, so months later you can answer "which model produced this?".
+- [ ] **A missing input is named.** Apply a model to a well that lacks one of its input curves —
+      it should tell you **which curve by name**, not just "missing input curve data".
+- [ ] **Retraining does not overwrite.** Run again with the same name: it should save as
+      `..._1` and say so. A model an existing delivered curve was made with must never be
+      silently replaced.
+- [ ] **The scaler went with it.** If you trained with "Standardize" on, the applied curve should
+      look right on wells whose GR/RHOB ranges differ from the training wells. (This is the
+      subtle one — re-standardizing on the new wells would give a different, wrong answer.)
+- [ ] **Rename and Delete** work, and Delete asks first. Deleting a model does not remove curves
+      it already produced — but they can no longer be reproduced from it.
+- [ ] **Only supervised models are offered.** The "Save model as" field disappears for
+      clustering and reduction, because those are fitted on the very wells they are applied to.
+- [ ] **Project size.** A random forest can be a few MB. Check the size column; if your project
+      grows more than you like, Data ▸ Tools ▸ Compact Project still works.
+
+## 2026-07-31 — The field as an asset-team deck
+
+Last of the office deliverables. **Plot ▸ Deliverables ▸ Deck…** builds a PowerPoint from the
+data — you chose matplotlib figures over pasted composite pages, so that is what it does.
+
+- [ ] **Export a deck.** Pick a scope, a title, who is presenting, and the cutoff level
+      (**PAY** by default). Open it in PowerPoint. Seven-ish slides: title, scope and cutoffs,
+      field roll-up by zone, net + HPV per zone, N/G–PHIE–SWE distributions, well ranking, and
+      any well that produced nothing.
+- [ ] **The box plots should match the Field Dashboard.** They are the same statistics — the
+      app computes them and matplotlib only draws them, precisely so the two can't disagree.
+      Compare a zone's PHIE box against the dashboard. **If they differ, tell me.**
+- [ ] **Each box says how many wells are behind it** (`n=` under the label). A box from three
+      wells is not the same statement as one from ninety.
+- [ ] **A zone nobody interpreted gets no bar — not a zero bar.** It still gets its axis label
+      so you can see it exists. Check this on a zone you know is uninterpreted.
+- [ ] **The cutoff level is stated on the title slide.** A deck speaks about one level; SAND and
+      RESERVOIR stay in the workbook. Try switching to RESERVOIR and confirm the whole deck
+      follows.
+- [ ] **Long tables continue on more slides** ("1 of 3") rather than shrinking. If your field
+      has many zones, check the table is still readable from the back of a room.
+- [ ] **The well ranking says what it cut** ("Top 20 of 44 interpreted wells"). A silent top-N
+      would read as the whole field.
+- [ ] **The last slide names the wells that produced nothing.** That is the counterpart to
+      every average on the slides before it.
+- [ ] **Everything is editable** — real PowerPoint tables and text, and the charts are pictures
+      you can resize or replace.
+- [ ] **Without the packages.** If python-pptx or matplotlib is missing, the dialog names which
+      one before the save dialog. You have both.
+
+## 2026-07-31 — The report as an editable Word document (+ an encoding bug fixed)
+
+Second of the office deliverables. The report pane now has **Save Word…** next to Save PDF…,
+and the **Batch** button has a format select beside it (`as PDF` / `as Word`) so a whole field
+can go out either way.
+
+- [ ] **Save Word on one well.** Open the Report pane, set your title/author/methodology as
+      usual, press **Save Word…**. Note you do NOT have to press Render first — the document
+      carries no log plots, so there is nothing to preview.
+- [ ] **It is genuinely editable.** Open the `.docx` and change the methodology wording, drop
+      in your client's letterhead, restyle the tables. That's the whole point of this format —
+      the PDF stays the deliverable that must not be altered.
+- [ ] **The tables match the PDF.** Cover, methodology, zone parameters (zone name and depths
+      printed once per zone, not repeated down every parameter row), pay summary with the
+      cutoffs in the heading. Export both for the same well and compare — they read from the
+      same numbers, so any disagreement is a bug.
+- [ ] **A zone with no parameters is still listed.** Dropping it would tell a client the zone
+      was not evaluated when it simply took the defaults.
+- [ ] **A dash, not a blank, in the document.** Where the workbook leaves an uninterpreted cell
+      empty, the Word document prints "-" like the PDF does. That difference is deliberate:
+      Excel's arithmetic skips an empty cell, a document has no arithmetic and your eye needs
+      the mark.
+- [ ] **No composite log pages in the Word file** — on purpose, and the document says so at the
+      end. A composite at 1:200 stops being at 1:200 the moment somebody drags its corner in
+      Word. If you want them in there anyway, tell me and I'll add a rasterized appendix.
+- [ ] **Nothing is written back.** Unlike the PDF path (which writes FLAG curves as it renders),
+      the Word export touches nothing in the project.
+- [ ] **Batch as Word.** Set the select to `as Word`, pick a folder, and check you get one
+      `<WELL>_report.docx` per well in scope.
+- [ ] **Names with special characters.** This one is a **bug fix worth testing**: import a
+      picture whose file path or folder contains a non-ASCII character (an en dash, `é`, or an
+      Indonesian folder name), and check it now imports. Before this, the import failed with
+      "No such file or directory" naming a filename you never had — text was being read from
+      the wrong character set on the way into Python. The same bug would have mangled a well
+      name in the Word report.
+
+## 2026-07-31 — The study as an Excel workbook
+
+First of the office deliverables. Until now `export.rs` wrote LAS and everything else left as
+a PDF, an SVG or a flat CSV — so the table an asset team actually works in was re-typed by
+hand. **Plot ▸ Deliverables ▸ Workbook…** writes it directly.
+
+- [ ] **Export a workbook.** Pick a scope (group / ★ pinned / selection / all), check the
+      cutoffs it opened with — they should be **the same numbers the pay summary and the report
+      use**, because all three read one saved default. Press Export, choose a filename, open it
+      in Excel.
+- [ ] **The numbers are numbers.** Click a Net or PHIE cell: the formula bar should show
+      `12.5` / `0.185`, not text. Sort, filter and pivot the Pay Summary sheet — if any of that
+      refuses to work, a column came through as text and I want to know.
+- [ ] **A blank is not a zero.** Find a well you have NOT interpreted yet (no VSH/PHIE/SWE).
+      Its net, N/G, PHIE, SWE and HPV cells must be **empty**, while Gross still shows a number
+      (geometry is known either way) and Samples shows 0. Select the Net column: Excel's status
+      bar average must ignore those rows. **This is the one thing I most want checked** — a 0.00
+      there would quietly drag down a field average.
+- [ ] **The Summary sheet is the audit trail.** It should name the cutoffs actually used, the
+      depth unit, the export time, and — if any well produced nothing — list those wells by name
+      under "Well without results". A well that contributed nothing must never just be missing.
+- [ ] **Two N/G columns on the Field Summary sheet.** `N/G (field)` is Σnet/Σgross (the
+      volumetric ratio for a resource number); `Mean N/G` is the average of the per-well values,
+      which is what the **Field Dashboard** shows. Compare a zone against the dashboard: Mean
+      N/G, PHIE and SWE should match it. If they do not, tell me — they read the same rows.
+- [ ] **Zones read shallow to deep**, not alphabetically, on the Field Summary sheet.
+- [ ] **PAY rows are tinted** on both table sheets, so the pay level stands out from SAND and
+      RESERVOIR — all three levels are exported, not just PAY.
+- [ ] **Nothing is written back.** Export a workbook, then check the Processing history and the
+      Wells pane: no new FLAG curves, no new log-set version. Saving a spreadsheet must not
+      count as an interpretation run.
+- [ ] **Zone Parameters sheet.** The interval parameters your interpretation used, one row each.
+      Zone `*` is the whole-well default. Check a well where you set a per-zone `RW` or `M`.
+- [ ] **Without xlsxwriter.** If Python or the package is missing, the dialog says so **before**
+      the save dialog and names the interpreter to `pip install` into. It should never fail
+      after you have already chosen a filename.
+- [ ] **Field scale.** Try it on a few hundred wells. It runs as a job, so the **Processing**
+      monitor should show it while it works.
+
+## 2026-07-31 — Pictures in their own track (thin sections, core photos)
+
+Your ask: *"images in separate tracks, such petrography thin section, core photo, or any
+picture format that can be adjustable (later we should have capablites to digitize it as
+well)"*. Done for the DISPLAY half; digitizing is deliberately a later phase.
+
+- [ ] **Import a folder of thin sections.** **Data ▸ Import Data ▸ Import Images…** with a
+      well selected, pick several files. The wizard lists every file with its true pixel size
+      and **the depth it read from the file name** — nothing is stored until you press Import.
+      Check the guesses: `BLSO-01_1523.50.jpg` should read 1523.50, and a plain `BLSO-01.jpg`
+      should read NOTHING (an amber "required" box), because a two-digit well number must
+      never be mistaken for a depth. Fix any depth in the table before importing.
+- [ ] **A photographed interval.** A file named `..._1523.5-1524.0.jpg` should come in with
+      BOTH a depth and a base. You can also type a base by hand. Leave the base empty for a
+      thin section — a plug has no thickness, and the empty cell is what says so.
+- [ ] **Show them.** Right-click a log view ▸ **Layout Properties…**, add a track, set
+      **Track type = Images**, then **＋ Add image series** and pick your dataset. The plates
+      appear at their depths with a leader line to the track edge.
+- [ ] **Adjustable, as you asked.** In that same editor try: **Width of track** (how big the
+      plate is), **Align** left/centre/right, **Placement** — *Anchored at depth* (fixed size,
+      centred on the sample) vs *Scaled to interval* (the picture spans its own top-to-base,
+      only meaningful when it has a base depth), and for a scaled one **Fit** *Whole picture*
+      vs *Fill and crop*. Nothing ever squashes the picture out of shape — tell me if you
+      ever see a stretched plate.
+- [ ] **Overlapping plates.** Zoom out until two thin sections would collide. The deeper one
+      **disappears and leaves a short tick** at its true depth rather than sliding down to fit.
+      Zoom back in and it returns. That is deliberate — say if you would rather they stacked.
+- [ ] **Print it.** **Plot ▸ Composite…** with that layout — the plates must appear in the PDF
+      and in the SVG at the same place and size as on screen. Open the SVG somewhere else
+      (a browser) to confirm the pictures travel INSIDE the file, not as broken links.
+- [ ] **A second delivery does not double the plates.** Import the same folder again with the
+      same delivery name. It should land as `NAME_1`, become the live one, and the track must
+      show **one** set of plates, not two. **Data ▸ Tools ▸ Data Sets…** has a new **Images**
+      section — switch back to the first delivery and the track follows. The Wells pane ▸
+      twisty also lists **Images** per well; double-click switches the live one, and expanding
+      a delivery lists each plate with its depth and size.
+- [ ] **Project size is visible.** The Data Sets dialog and the tree both show MB per delivery
+      — the only store where the cost is worth showing. Stored pictures are capped at 2400 px
+      on the long edge by default; the wizard lets you raise it (or set 0 for full resolution)
+      if you need to zoom further, at the cost of a much larger project file. Tell me if 2400
+      is too soft for your thin sections.
+- [ ] **TIFF.** If your petrographer delivers TIFF, it needs Pillow (`pip install pillow`).
+      With Pillow present TIFF imports and displays normally. Without it, the wizard says so by
+      name rather than failing quietly, and a non-JPEG prints as a **labelled frame** in the
+      PDF so a deliverable can be checked against the delivery list.
+- [ ] **All three languages** translate the new labels (Import Images…, Images, Placement,
+      Align, Fit, Frame, Caption…); technical terms stay English as always.
+
+## 2026-07-30 — Quick-access buttons become labelled Project-tab tools
+
+Your ask: *"those QAT buttons should become labelled tools, together with performance and
+processing button moved from petrophysics tabs"*. Done — and the icon strip left of the ribbon
+tabs is **gone**, not duplicated.
+
+- [ ] **The icon strip is gone and nothing was lost.** Launch the app: there is no row of small
+      icons left of the **Project / Data / Petrophysics / …** tabs. Open **Project** — all seven
+      of those buttons are there with words under them:
+      **Project** — Open Project… / New Project… / **Save Project As…** / Recent ▾
+      **Session** — Save Session… / Open Session…
+      **Edit** — Undo / Redo
+      **Monitor** — History / **Processing** / **Performance**
+      **Appearance** — Theme · **Language** · **Help** — Help
+      (The tabstrip is 24px tall and the ribbon body is 80px — that height difference is the
+      whole reason these could not carry captions where they used to live.)
+- [ ] **Processing and Performance are no longer in Petrophysics.** Open **Petrophysics ▸ Batch**:
+      it now holds Workflow… / Monte Carlo… / Field Dashboard… only. Both moved buttons open the
+      same panels as before, from **Project ▸ Monitor**. They watch the whole application rather
+      than a petrophysics run, which is why they sit with History.
+- [ ] **Undo still reads what it will undo.** Make an undoable edit (add a top, edit a curve
+      value, shift core). On **Project ▸ Edit**, **Undo** enables and its tooltip names the action
+      — e.g. "Undo add top UAT_TOP (Ctrl+Z)"; after clicking, **Redo** enables with the matching
+      label. **Ctrl+Z / Ctrl+Y are unchanged and are still the fast path** — the buttons exist to
+      make the action readable, not to replace the shortcut.
+- [ ] **The unsaved warning is still visible from wherever you are.** This one needs a deliberate
+      look: Save Session… now lives *inside* the Project tab, so its red dot alone would only be
+      visible to someone who already went looking for it. Sit on the **Petrophysics** tab, edit a
+      log view (drag a track wider) — an **amber dot appears on the Project TAB itself** without
+      you switching to it (hover: "Unsaved changes — Project ▸ Session ▸ Save Session…"). The tab
+      must NOT change width when the dot appears. Save a session; both dots clear.
+- [ ] **The ribbon overflow arrows work now.** These have been broken since they were written and
+      nothing was ever wide enough to reveal it — Project is the first tab that is. If your window
+      is narrower than ~1470px you will see a **›** box at the right edge of the Project tab:
+      click it and the ribbon really scrolls (Help comes into view, a **‹** appears, the **›**
+      hides); click **‹** to come back. It jumps rather than glides — that is deliberate: smooth
+      scrolling is silently a no-op on this element, so an unanimated scroll that works beats a
+      pretty one that does not. **Tell me if the overflow bothers you** — on a 1366 laptop the
+      Project tab will always need one arrow-click to reach Help, and I can win back about 100px
+      by merging Language into Appearance and folding Help into Monitor.
+- [ ] **Bahasa / Basa Sunda / Basa Jawa cover the new labels.** Switch language on the Project
+      tab: Undo/Redo/History/Processing/Performance and the Session, Edit and Monitor captions all
+      translate, and switching back to English restores the exact original wording.
+- [ ] **`docs/manual_test_plan.md` was updated with this** — every step that said "QAT" or
+      "quick-access bar" now names the real ribbon path (T-SHELL-01/-05/-07/-10/-12/-13/-14 and
+      ~20 more). Since you are working through that plan, it should no longer send you looking
+      for buttons that moved.
+
 ## Round 99 — Depth units, increment 2: the Pc fix and the m/ft view toggle (2026-07-29)
 
 **1. The saturation-height error is fixed.** `pc = 0.433 psi/ft/SG · Δρ · h` is per FOOT of
@@ -4411,7 +4643,7 @@ group left of Appearance:
       behaves exactly as before).
 - [ ] Switching is refused while a workflow chain is running (try it: start a long
       chain, then Open Project — you should get a clear error, not a corrupted run).
-- [ ] Note: QAT **Save Project As** stays a backup copy (app keeps working on the
+- [ ] Note: **Project ▸ Project ▸ Save Project As…** stays a backup copy (app keeps working on the
       current file) — tell me if you'd rather it switch to the copy, IP-style.
 
 ## Wave A-2: compact import ribbon (2026-07-20 #16)
@@ -4590,7 +4822,8 @@ dev` restart** (config change). Look closely at ribbon/dialog text afterward —
       brings back the **active well** and each log view's **layout/track state** (before,
       only the pane arrangement survived).
 - [ ] **Unsaved markers**: edit a log view (track widths, properties, curve visibility)
-      → its tab shows **●** and the QAT Save-Session button gets a red dot. **Save
+      → its tab shows **●**, the **Project ribbon tab** gets an amber dot (visible without
+      leaving the tab you are on), and **Project ▸ Session ▸ Save Session…** gets a red dot. **Save
       Layout** clears that panel's ●; **Save Session** clears everything. The dot means
       "not in a named save yet" — the crash autosave protects you regardless.
 
@@ -5079,6 +5312,1342 @@ nothing to plot on it. New **Lithology** category in the Petrophysics ribbon.
 - [ ] **Over-porous samples drop out** as blanks rather than as huge numbers (PHIA_MAX,
       default 0.5, is an editable parameter — not a hidden constant).
 
+## Per-well parameter override table (Phase 9-2, 2026-07-30)
+
+The last open Phase 9 item. A workflow step carries one parameter set for every well,
+which breaks when a field needs a different Rw per fault block. The storage already
+allowed the fix (a `zone_params` row with zone `*` is a whole-well override, and runs
+already apply it) — what was missing was a way to reach it for more than one well at a
+time. **Resolution order is unchanged: step value → this whole-well override → named
+zone.** Nothing about how your existing runs resolve has moved.
+
+- [ ] **Petrophysics → Batch → Workflow…**, build or open a chain, then **Per-well
+      parameters…** next to Run. Rows are wells, columns are the numeric parameters the
+      chain's steps actually take.
+- [ ] **Grey = inherited, amber = overridden.** A fresh grid is all grey (every well
+      inherits the step value). Double-click a cell to give one well its own value — it
+      turns amber. The cell tooltip tells you which it is.
+- [ ] **Double-click to edit, not single-click** — same rule as every other numeric field
+      in the app, so a stray click near a parameter can't change it. Enter commits, Escape
+      cancels, blank clears the override.
+- [ ] **Typing the inherited value back clears the override** (cell returns to grey)
+      rather than storing a duplicate — the same only-store-differences rule the per-step
+      editors use.
+- [ ] **Columns marked ⚠ behave differently on purpose.** If two steps in the chain take
+      the same parameter with *different* step values (e.g. Archie RW 0.05, Indonesia RW
+      0.07), the header shows ⚠ and the column displays only the first step's number.
+      There, typing the displayed value **stores** it instead of clearing — because
+      clearing would leave the two steps disagreeing again, when what you meant was "this
+      value for every step in this well". Hover the header for the explanation.
+- [ ] **Out-of-range values are refused with a status-bar message, not clamped.** Try
+      entering RW = 25 (a v/v value typed as a percentage). This matters: the run itself
+      REJECTS an out-of-range override and fails the whole chain, so catching it here turns
+      a failed 2000-well run into a red cell.
+- [ ] **Set for all shown / Clear for all shown**: pick a column, type a value, and every
+      well currently listed takes it in one write. Narrow the list first with the **Wells**
+      scope (All / Group / ★ Pinned / Selection / Custom) and the **Filter** box — the
+      buttons act on exactly what you can see.
+- [ ] **One Ctrl+Z reverses a whole sweep.** Set a column across 50 wells, then undo once —
+      all 50 revert together, not one per press. Redo re-applies them.
+- [ ] **Copy as CSV** puts the shown grid on the clipboard so you can diff it against your
+      own well table in Excel. *(CSV import back is the obvious next step and is NOT built
+      yet — tell me if you want it, it's small now that the write path exists.)*
+- [ ] **Zone parameters still win.** Set a whole-well RW here and a different RW on one
+      zone (Zones panel) — the zone value should govern inside that zone and the grid value
+      everywhere else. This is the check that matters most.
+
+---
+
+## 2026-07-30 — Example import datasets (`dataset for test/examples/`) + BLSO core header fix
+
+One folder with a working exemplar of EVERY import format, pooled where you asked:
+`dataset for test/examples/`. Three synthetic wells (SANDI-01/02/03) with shared,
+physically consistent geology — a gas sand and a water sand whose core, SCAL and log
+values all agree by construction. The `README.md` in that folder is the map: each file →
+exact ribbon menu → what the status bar should say → what each parser accepts (the full
+alias lists), so you can shape a confusing real delivery against the nearest analogue.
+These files are ALSO parsed by `cargo test` on every gate run (`example_data_test.rs`) —
+if a parser ever changes in a way that would break the published examples, the gate goes
+red. Regenerate with `py -3 tools/make_example_data.py` (deterministic).
+
+- [ ] Data → Import Logs ▾ → **Import LAS…** → multi-select the three `SANDI-*.las` →
+      3 wells, ~394 rows each; PEF/CALI appear in the Curve Catalog (set RAW); Bad-Hole QC
+      flags the deliberate 1-m washout gap mid-SAND-A.
+- [ ] Follow the README's numbered import order (tops → locations → deviation → core →
+      3 SCAL shapes → petrography/XRD/perforations). Every import should succeed with the
+      README's stated result — any deviation is a bug, tell me.
+- [ ] N/D crossover shows gas in SAND-A on any well; Archie in SAND-B gives Sw ≈ 1 —
+      the README's "known-good expected values" section is the eyeball checklist.
+- [ ] **Real-data fix:** your BLSO core-log delivery (`blso*_lapi2023_core.csv`,
+      `03. Core Logs`) now imports grain density — the `GDEN_1` header resolves (it
+      silently dropped before). CPERM_1/CPOR_2/CSW_1 already resolved; the FEET units row
+      is skipped safely. Re-import one BLSO core CSV and check CGD in the DB Inspector.
+
+---
+
+## 2026-07-30 — Import sets: one well, many deliveries (T-IMP-02, -03, -04, -06)
+
+Your Geolog screenshots, built. A delivery folder is now a **set**: `01. Final Log`'s RAW,
+FPROOH, MULTIMIN, SSC and SSPW can all land on **one** well record instead of five
+same-named ones, and you can see which is which.
+
+- [ ] **Import LAS… now asks first.** A "Import LAS — curve set" dialog opens with the set
+      name already filled from what your filenames share: pick the FPROOH folder's files and
+      it suggests `FPROOH`; MULTIMIN suggests `MULTIMIN`. Verified against all five of your
+      BLSO folders. Blank = RAW.
+- [ ] **Attach to existing wells (default ON).** Import blso00025 from **RAW**, then again
+      from **FPROOH**, then **MULTIMIN** — you should end with **ONE** well carrying three
+      sets, not three wells. The status line says how many were new and how many attached.
+- [ ] **A set name is never overwritten.** Import the same FPROOH folder twice: the second
+      lands as `FPROOH_1` (Geolog's WIRE → WIRE_1 rule). Nothing from the first import moves.
+- [ ] **▸ twisty in the Wells pane** expands a well into its sets, and a set into its curves
+      (mnemonic + unit; hover for sample count, family, run number). Both FPROOH's PHIE and
+      MULTIMIN's PHIE are visible under their own sets — that was the whole ask.
+- [ ] **Existing projects behave EXACTLY as before.** This is the check that matters most:
+      **set RAW keeps absolute priority** in curve resolution. A module asking for PHIE still
+      gets RAW's PHIE when RAW has one; only a mnemonic RAW does *not* carry (e.g. `PHIFF`,
+      `VOL_QUARTZ`) is looked up in the attached sets. Re-run a module you have run before
+      and confirm the numbers are identical.
+- [ ] **Import DLIS… also asks for a set name.** Give a second tape its own name and both are
+      kept instead of the second replacing the first — your "we don't always know what's
+      inside" point. Leaving it as RAW keeps the old replace-and-count behaviour.
+- [ ] **The malformed exemplars you asked for now exist** (you wrote "where do u provide
+      dup_depth.las?"): `dataset for test/examples/bad_dup_depth.las` imports with a
+      dropped-duplicates warning and 35 rows; `bad_null_depth.las` fails cleanly and creates
+      no well row. Both are asserted by cargo test.
+
+*Not built, and worth saying plainly:* selecting files from **two different sets in one
+import** (e.g. an FPROOH and a MULTIMIN file together) finds no common name, falls back to
+RAW, and mixes them — one import batch is one set by design. Import per folder.
+
+---
+
+## 2026-07-30 — Core & aux import v2: the "hundred wells with cores" workflow (T-IMP-07/-09/-10/-11)
+
+Import Core is now **probe → confirm → commit**: nothing is written until you have seen and
+approved what the file means. Your note is the spec: well names come FROM THE DATA, every
+property column is confirmed first (name, type, unit, percent), and 1-or-many CSV **or
+TXT/tab-delimited** files work in one action. BLSO is just the exemplar — the reader takes
+any delimited text and shows each column's sniffed type (number/text/empty).
+
+- [ ] **Data → Import Core… with NO well selected** → pick
+      `dataset for test/examples/core_rcal_multiwell.csv` → the wizard shows: WN as the well
+      column, 3 wells with row counts, the units row detected and skipped, depth unit `m`,
+      CPOR/CSW flagged as percent, and a 5-row preview. Import → plugs land on all three
+      SANDI wells by name.
+- [ ] **Real data:** multi-select ALL 321 files in `03. Core Logs\BLSO_LAPI2023_CORE` in one
+      Import Core. The mapping is confirmed once (by header name) and applied per file;
+      depth unit should read `ft` from the units row and convert to the project unit.
+      Unmatched well names are listed by name, never guessed.
+- [ ] **The Duri trap:** import the parent folder's `Core.csv` — it has a numeric `WELL`
+      column (804) AND a textual `WELL NAME` (DURI00804). The wizard must pre-pick **WELL
+      NAME** (a pad number can't route rows); check the routing line before importing.
+- [ ] **Wrong mapping is refusable:** change Depth to a text column, or blank the well
+      column with no well selected — Import refuses with a reason, writes nothing.
+- [ ] **Import Aux… routes by WELL now:** pick `xrd_multiwell.txt` (tab-delimited) with any
+      well selected → rows land on all three wells; the result box names unmatched/blank
+      rows. A file with no WELL column still binds to the selected well as before.
+- [ ] **Shift Core (T-IMP-09) is unblocked** — run it as written in the test plan; it still
+      shifts the SELECTED well's plugs only.
+
+---
+
+## 2026-07-30 — Core import: the EXTRA columns come in too ("any column, any data type")
+
+`core_data` holds four measurements (porosity, permeability, grain density, Sw). A real lab
+export is wider — lithology descriptions, So, Kv/Kh, sample IDs, tape names. Those columns
+now ride along from the SAME wizard: they land as **point data at the plug depths**, typed
+per cell (numbers as numbers, anything else as text), so a wide delivery imports whole in
+one pass instead of needing a second Import Aux run.
+
+- [ ] **Import Core… → `dataset for test/examples/core_rcal_multiwell.csv`** (the exemplar
+      now carries `SO_1`, `LITH` text and mixed `SAMPLE_ID`). Tick **Extra columns** → the
+      5 leftover columns appear with their type (`LITH (text)`, `TAPE_NAME (empty)`…).
+      Untick `TAPE_NAME`/`TOOL_STRING`, leave the rest, Import → the status line reports the
+      plugs AND "Plus N point-data value(s) from SO_1, LITH, SAMPLE_ID".
+- [ ] **Check the values landed as themselves:** Database Inspector → `aux_data`, dataset
+      `CORE` — `LITH` in value_text ("SANDSTONE"), `SO_1` in value_num, depth_base empty
+      (they are point samples), depths matching the plug depths.
+- [ ] **A column can't be stored twice:** with Extra columns on, re-point **Water saturation
+      (CSW)** at `SO_1` — it leaves the extras list immediately and `CSW_1` takes its place.
+      Columns you unticked stay unticked.
+- [ ] **Dataset name is yours:** change "Store them under dataset" to e.g. `CORE RCAL`;
+      re-importing the same file replaces that dataset for the well (same discipline as the
+      plugs themselves), it never doubles up.
+- [ ] **Real data (the point of it):** a BLSO core CSV's extra columns, or the Duri
+      `Core.csv` wide export — everything the four core slots don't claim is available
+      without a second import pass.
+
+**Note by design:** extras are stored **verbatim** — no percent→v/v or feet→metres
+conversion is applied to them (the depth they hang on IS converted). The wizard confirms
+what a column *is*; it does not reinterpret its values. If you want a specific extra
+treated as a real curve/measurement instead, tell me which and it becomes a mapped role.
+
+---
+
+## 2026-07-30 — Core sets & survey versions: nothing overwrites anything (T-IMP-08 / T-IMP-12)
+
+You marked T-IMP-08 **Fail** with "refer T-IMP-02 about how duplicated data managed", and
+T-IMP-12 the same. That is now the rule for core and surveys as well: **one delivery = one
+named set, and an import never overwrites an earlier one.**
+
+One difference from curve sets, on purpose: curve sets are read TOGETHER (a set supplies
+mnemonics RAW lacks). Two core deliveries measure the SAME plugs, so reading both would
+double your φ-k cloud. Exactly **one core set and one survey are ACTIVE** per well, and
+everything reads that one — log overlay, crossplots, HFU, SandiMin calibration, Shift Core,
+DB Inspector edits, TVD/TVDSS.
+
+- [ ] **Import the same core file twice.** Import Core suggests a set name from the filename
+      (`blso00025_lapi2023_rcal.csv` → `RCAL`). Second import → status says
+      `Core set RCAL_1 — 1 well(s) already had a 'RCAL' set, so theirs was suffixed`. Both
+      deliveries are kept, the newest is live.
+- [ ] **The plug count does NOT double.** Open a φ-k crossplot or the core overlay after that
+      second import — same number of points as one delivery, not two.
+- [ ] **Data → Tools ▾ → Data Sets…** on that well: both sets listed with plug
+      count, source file and import date, ● on the live one. Click **Use** on the older one →
+      the plots repaint to that delivery. **Delete** asks first; deleting the live one hands
+      over to the next newest (never leaves plugs no panel can see).
+- [ ] **Surveys:** import a preliminary survey (`SURVEY`), then a definitive one
+      (`DEFINITIVE`). Both listed; TVD at TD reflects the definitive. Switch back with **Use**
+      → status says TVD/TVDSS was rebuilt, and TVD at TD changes back. This is the part worth
+      checking hardest on a real deviated well — a stale TVD would quietly feed every
+      height calculation.
+- [ ] **Your existing projects:** open one that already has core and/or a survey. It migrates
+      on launch (a backup copy is written beside the project first, per the release rule), the
+      old data appears as set/survey **RAW**, active, and **every number reads exactly as
+      before**. Check a φ-k plot and a TVD you know.
+- [ ] **Duplicated depth inside ONE file** still drops first-kept with the note — that is a
+      broken row in a single delivery, not a second delivery.
+
+---
+
+## 2026-07-30 — …and the same rule for EVERY point dataset, plus the tree
+
+Your note: *"not only core, any kind of point data should behave universally like core — we
+have a lot such xrd, cec, oil show, etc."* Right — those all live in one store, and until now
+a second delivery of any of them silently replaced the first. They now version exactly like
+core: **one delivery = one named set, one live per (well, dataset)**.
+
+- [ ] **Import Aux… now has a Set field** (default `RAW`). Import an XRD file twice → the
+      result box says `Set RAW_1`, both deliveries are kept, the newest is live, and the
+      panel counts show ONE delivery's values, not the sum.
+- [ ] **Datasets are independent.** With XRD switched to the older delivery, CEC / oil show /
+      perforation stay exactly as they were — activation is per dataset, not per well.
+- [ ] **Wells pane ▸ twisty** now shows, under each well: its curve sets (as before), then
+      **Core**, **Surveys** and **Point data** with ● on the live one.
+      **Double-click** a dimmed row (○) to make it live — panels repaint. Single click does
+      nothing on purpose, so a stray click in a long well list can't repoint your data.
+      Deleting stays in the manager dialog.
+- [ ] **Core extras follow their core set** — a core file's LITH/So/sample-id columns are
+      stored under the SAME set name as the plugs, so switching a well's core switches its
+      extras with it instead of leaving a mismatched pair.
+- [ ] **Old projects:** point data predating this is adopted as set `RAW`, active — your XRD
+      and petrography read exactly as before. (Unlike core, this needs no table rebuild.)
+
+---
+
+## 2026-07-30 — SCAL deliveries version too; the manager is now "Data Sets…"
+
+The last store that still overwrote on re-import. A capillary-pressure report is now a named
+delivery like everything else — **the files you select together in one Import SCAL are ONE
+set** — and only the live one feeds Pc QC, the Leverett-J fit and Thomeer.
+
+- [ ] **Import SCAL… has a SCAL set field** (default `SCAL`). Import a centrifuge set, then a
+      porous-plate report → status says `Set SCAL_1`, both are kept, the newest is live, and
+      the Pc QC plot shows ONE report's points.
+- [ ] **Switch back** in **Data → Tools ▾ → Data Sets…** (renamed — it now has four sections:
+      Core, SCAL, Deviation surveys, Point data) or by double-clicking the row in the Wells
+      tree → the Pc plot and any J-fit you re-run follow the other report.
+- [ ] **Old projects:** existing Pc points are adopted as set `SCAL`… actually `RAW`, active —
+      your saturation-height work reads exactly as before.
+
+That completes the sweep: **curves, core, SCAL, surveys and every point dataset now version
+the same way.** Nothing in the app silently overwrites a delivery on re-import any more.
+
+---
+
+## 2026-07-30 — Field-scale open hardening: memory cap, Compact Project, visible upgrades
+
+From your BLSO report (2.5 GB file, ~6 GB RAM, 15-minute open). The 15 minutes was the two
+one-time storage upgrades each backing up the whole project first — but the file itself was
+~75% dead space (632 MB of live data in a 2,487 MB file), the engine was allowed ~80% of the
+machine's RAM, and all of it happened silently. All three fixed:
+
+- [ ] **Second open of BLSO is fast.** The upgrades ran once; reopening the project should
+      take well under a minute now. If it is still slow, tell me — that would be a
+      different problem than the one fixed here.
+- [ ] **RAM stays civil.** With BLSO open, SandiBumi's memory should sit near 4 GB at the
+      very worst (the engine is capped at min(≈20% of RAM, 4 GB), spilling to disk beyond
+      that instead of taking the machine). Power users: set `SANDIBUMI_DB_MEMORY=8GB` in the
+      environment to raise it on a big field machine.
+- [ ] **Data → Tools ▾ → Compact Project…** on BLSO: after the confirm, the status line
+      should report roughly `2,487 MB → ~630 MB`, everything still opens and plots, and the
+      original file is parked beside the project as `.pre-compact-<ts>.duckdb` — delete it
+      yourself once satisfied. Every table's row count is verified before the swap; any
+      failure puts the original back untouched.
+- [ ] **Save Project As now compacts too** — it exports through the engine (live rows only),
+      so a Save As of a bloated project lands at its true size.
+- [ ] **Nothing silent any more:** opening a project that needs a one-time upgrade shows
+      "Opening project… (a first open after an update can run one-time storage upgrades…)"
+      while it works, and afterwards the status line + History panel say what ran, how long
+      it took, and where the backup went.
+
+---
+
+## 2026-07-30 — Audit backlog #128: long operations no longer freeze the window
+
+Follow-on from the open-hardening work. Anything that can run for minutes was still executing on
+the app's main event-loop thread, so while it worked the window itself was frozen — Windows shows
+"not responding", nothing repaints, no button responds. Six such operations now run on a worker
+thread. (Chain/ML/SandiMin runs were already off-thread; this closes the rest.)
+
+- [ ] **Open Project on BLSO** (or any large project): the window stays alive and repainting the
+      whole time, the status line's "this can take minutes" message is readable, and the app is not
+      greyed out / "not responding". This is the one worth checking first — it is the operation you
+      hit the 15 minutes on.
+- [ ] **Compact Project** and **Save Project As** on BLSO: same — the window stays responsive
+      while gigabytes are rewritten. Panels that need the database will pause until it finishes
+      (correct — they must not read a half-swapped project), but the window itself never freezes.
+- [ ] **Recompute TVD/TVDSS Curves** across many wells: window stays alive.
+- [ ] **SQL Query panel**: run a deliberately heavy query (e.g. a join over `computed_curves`
+      with no WHERE). It should be interruptible-feeling — the window stays responsive instead of
+      locking up until the query returns.
+- [ ] **Nothing changed in behaviour** — same results, same errors, same undo. This increment is
+      purely *where* the work runs.
+
+**Startup itself is fixed in the next section.**
+
+---
+
+## 2026-07-30 — The window now opens before the project does
+
+The last and worst version of the same problem: SandiBumi opened your project *before* creating
+its window, so during those 15 minutes there was **nothing on screen at all** — you double-clicked
+and the machine appeared to ignore you. Now the window comes up immediately and the project opens
+behind it.
+
+- [ ] **Launch on BLSO:** a window appears within a second or two, showing a small
+      **"Opening project…"** card with a moving bar and a running clock. The app is visibly alive
+      and on screen the whole time. After ~20 seconds it adds a line explaining that a first open
+      after an update upgrades the project's storage, backs it up first, and happens only once.
+- [ ] **The card tracks what the backend is doing** — when the storage upgrade starts, its message
+      changes to name the backup file it just wrote.
+- [ ] **A normal (fast) launch shows no card at all** — open a small project; it should go
+      straight to the workspace with no splash flash.
+- [ ] **Afterwards**, the History panel and the status line record how long the open took and what
+      ran, so a slow launch has an explanation you can go back and read.
+- [ ] **Nothing appears before its data is ready** — no empty well list, no "0 wells" flash. The
+      workspace is not built until the project is genuinely open. **If you ever see an empty
+      Wells pane on a project that has wells, tell me — that would mean the gate leaked.**
+- [ ] **A broken project still explains itself:** the existing "could not open" dialog still
+      appears (now after the card, not instead of a window).
+
+---
+
+## 2026-07-30 — Imports no longer refuse a file over its text encoding
+
+Your Duri core table failed with `Core import failed: io error: stream did not contain valid
+UTF-8`. The cause, found in the bytes: **330 KB of pure ASCII except two `0x95` bytes** — the
+Windows bullet "•" that opens a lithology description — and the whole delivery was refused over
+two characters in a comment field. Any file that has been near Excel or Word can carry those
+(smart quotes, en/em dashes, °, µ).
+
+Every text import now decodes tolerantly: a byte-order mark is honoured first (so Excel's
+"Unicode text" UTF-16 export works too), then UTF-8, and anything left falls back to Windows
+cp1252 — which cannot fail, so **an import is never refused over encoding again**. This covers
+core, LAS, tops, aux/point data, SCAL and deviation alike, not just the file that reported it.
+
+- [ ] **Import your Duri `Core.csv`** — it should now read 12 columns, **3,045 plugs across 15
+      wells** (DURI00513 … DURI01887), depth detected as **ft**, and CPOR/CPERM/CGD(GDEN)/CSW
+      mapped automatically. The DESC / LITH / CORE_NO / KV / CSO columns are offered as extra
+      point-data columns in the same wizard.
+- [ ] **The bullet survives as a bullet** in the description, not as a `?` or a black diamond —
+      check a DESC value in the Database Inspector after import.
+- [ ] **Nothing else changed**: re-import an ordinary UTF-8 or plain-ASCII file (BLSO core, a
+      LAS) and confirm identical results to before.
+
+---
+
+## 2026-07-30 — Wells pane: right-click on everything, and point data expands like curves
+
+Your two asks: expanded items should have a right-click menu (including a route into the Curve
+Catalog for editing), and non-curve data should behave like curves — expandable within a set,
+with its own menu.
+
+- [ ] **Right-click a curve** (under an expanded set) → Open in Curve Catalog · Edit name /
+      unit / family… · Make this curve win its name · Delete. "Open in Curve Catalog" should
+      land on the Inspector's Catalog tab **already filtered to that curve**, not on a list of
+      everything.
+- [ ] **Double-click a curve** opens the same edit dialog (single click stays inert on purpose —
+      these rows sit in the same list as wells, and a stray click must not move the workspace).
+- [ ] **Rename a curve and check it took**: `GRN_CS` → `GR` on your Duri well. Values must be
+      unchanged (same sample count in the Catalog), and a **GR-based module should now see it** —
+      that is the real reason to rename, not cosmetics. **Ctrl+Z undoes it.**
+- [ ] **Point data / core / SCAL / surveys now have a ▸ twisty** and expand:
+      - Core → the properties its plugs actually carry (`CPOR (61)`, `CPERM (61)`, …)
+      - Point data → its named items (`LITH (305)`, `CSO (61)` — your Duri core extras)
+      - SCAL → one row per plug with its Pc point count
+      - Surveys → station count, MD range, TVD at TD, max inclination
+      Only the **live** delivery expands; an inactive one says so rather than showing the
+      active one's contents (which would be a lie).
+- [ ] **Right-click a delivery** → show contents · make it the live one · Open Database
+      Inspector · Data Sets…. Deleting still lives only in Data Sets…, never a stray click.
+- [ ] **Right-click a well** → expand · Curve Catalog · Database Inspector · Data Sets… · pin.
+
+---
+
+## 2026-07-30 — Blocky curves and crossover shading
+
+Your two display asks: "option to display curves as continuous or blocky style", and "we also
+don't have shading to other logs". Both live in the same place — **Layout Properties → the
+curve table**, which gained a **Style** column and two new Fill choices.
+
+- [ ] **Blocky (step) curves.** Layout Properties → pick **Blocky** in the new Style column on
+      any curve. The value should now hold flat all the way down to the next sample and then
+      jump, instead of sliding diagonally between sample centres. Try it on something genuinely
+      piecewise-constant — a zone-constant parameter curve, a block-averaged or upscaled log,
+      VSH from a coarse pass. **The shading follows the step**: a blocky curve's edge fill is a
+      stack of rectangles, not a stack of wedges.
+- [ ] **Continuous is still the default** — every existing layout you have saved should open and
+      draw exactly as before. Nothing needs re-saving.
+- [ ] **Crossover shading.** Layout Properties → Fill → **Crossover to curve**. It auto-picks the
+      other curve in the same track as the reference and seeds the two swatches with the two
+      curves' own colours, so you can see the separation immediately. **Shading** now shows two
+      swatches: left one = where the styled curve reads LEFT of the reference, right one =
+      where it reads RIGHT.
+- [ ] **The reference must be in the SAME track.** That is deliberate, not a limitation: the
+      reference is positioned with **its own min/max**, and compatible scaling is the whole
+      meaning of a neutron-density crossover. Naming a curve from another track shades nothing.
+- [ ] **The built-in Standard Layout now ships the NPHI/RHOB crossover** (grey where NPHI reads
+      left of RHOB — shale / clay-bound water; yellow where it reads right — gas effect). The
+      Facies layout's porosity track matches. **Scales are unchanged** (NPHI 0.45→−0.15,
+      RHOB 1.95→2.95). Tell me if you would rather the built-ins stayed plain.
+- [ ] **Check it on a real gas sand** in BLSO or Duri: the colour should flip exactly where the
+      two curves cross, not a sample early or late.
+- [ ] **Print agrees with screen.** Plot ribbon → Composite… on a layout using both features —
+      the PDF/SVG must show the same blocky steps and the same two-colour crossover.
+- [ ] **Bug fixed in passing**: a curve whose Fill you had set to **None** used to print with a
+      left-edge shading in the Composite/report PDF even though the screen showed it clean. It
+      now prints unshaded. Worth a glance at any deliverable you generated before today.
+
+---
+
+## 2026-07-30 — Point-data tracks: core plugs, XRD, text, box plots and histograms
+
+Your ask: "we dont have any option to show point data, text data, or even image with its own
+style option to show it as histogram or box plot per x range interval with its own adjustment
+as well such percentile showing, whisker, etc." Images are still to come; everything else is
+here. Layout Properties → **Track type → Point data**.
+
+- [ ] **Add a point track**: Layout Properties → set Track type to **Point data** → **＋ Add
+      point series**. Source **Core plugs** lists your well's real plug properties
+      (CPOR/CPERM/CGD/CSW); source **Point dataset** lists your real datasets — for Duri that
+      is CORE with LITH, CSO, KV, and whatever else the wizard carried in as extras.
+- [ ] **Points** (default) draws one diamond per plug at its own depth and value. Unlike the
+      old core overlay this is a track of its own, so you can scale it how you like instead of
+      borrowing a curve's scale.
+- [ ] **Text** draws the sample's text at its depth — your `LITH` descriptions, oil show.
+      Labels are thinned so a densely described core stays readable rather than a black smear,
+      and truncated at the track edge instead of spilling into the neighbour.
+- [ ] **Box plot** summarises the plugs inside each depth bin: box edges, median, whiskers,
+      outliers. All adjustable per series — **Bin height** (blank = follow the zoom, a value =
+      a fixed depth interval that stays put at every scale), **Box low/high %**, **Whiskers**
+      (Tukey k×IQR / Percentiles / Full range), and **Show samples** to draw the individual
+      plugs as ticks above the box.
+- [ ] **The whisker rule is a real choice, so check both.** Tukey answers "which plugs are
+      unusual for this interval" and flags outliers individually; Percentiles answers "where
+      do 80% of the plugs lie" and flags nothing. Switch between them on a Duri interval with
+      a wild plug and confirm the picture changes the way you expect.
+- [ ] **Histogram** draws a value-axis histogram per depth bin, bars scaled to that bin's own
+      peak count so a thinly sampled interval is still readable next to a dense one.
+- [ ] **Nothing is clamped.** A plug outside the track's Min/Max is skipped, not pinned to the
+      edge — check by narrowing Max below your highest CPOR and confirming those plugs vanish
+      rather than stacking on the right-hand border.
+- [ ] **A blank cell is not a zero.** If your core table has an empty CGD column for some
+      plugs, those plugs must contribute nothing to a CGD track — not a cloud at 0 g/cc.
+- [ ] **Print agrees with screen**: Plot ribbon → Composite… on a layout with a point track.
+      Same boxes, same medians, same outliers, same labels.
+- [ ] **Existing layouts are untouched** — a saved layout with no point track opens exactly
+      as before.
+
+**Note on where this is heading** (your instruction): the box/percentile/whisker machinery is
+deliberately written to know nothing about core plugs. It takes a set of values and a depth
+bin. That is so **array logs — your 1000-realization Monte Carlo PHIE — reuse it unchanged**,
+because 1000 realizations at one depth is the same statistic as 40 plugs over an interval.
+When we do array logs, the display options you set here will already mean the same thing.
+
+---
+
+## 2026-07-30 — Array logs: adjustable band, spaghetti and density heat map
+
+This is the array-log increment the point-data note above was written for. The
+box/percentile machinery was reused **unchanged** — no second statistics path was created.
+
+**Producing one** (Petrophysics → Batch → Monte Carlo…):
+
+- [ ] **Options** now has **Store realizations (array log)**, greyed out until *Save
+      LOW/BASE/HIGH curves* is ticked (it rides the same pass over the kept runs, so on its
+      own it would silently do nothing).
+- [ ] Run with both ticked. The status line reports the saved curves, and the notes list
+      `stored MC_<KEY>_REAL — N depths x M realizations` per well.
+- [ ] Only outputs the chain **produces** get a matrix — an input curve it merely reads must
+      not come back as a fake zero-width band. (Same rule as the percentile curves.)
+- [ ] With more than 256 realizations kept, a note says the stored set is the first 256, so a
+      band drawn from it can differ slightly from the MC_*_LOW/_HIGH curves. **Nothing should
+      differ silently.**
+
+**Displaying it** (log view → ⚙ → **Track type → Array log** → **＋ Add array series**):
+
+- [ ] The **Array curve** box suggests what this well actually has (`MC_PHIE_REAL`, …). With
+      no array logs at all, the panel says so and points at the Monte Carlo option rather
+      than offering an empty picker.
+- [ ] **Uncertainty band** — shaded P-low to P-high with the P50 line through it.
+- [ ] **This is the adjustable part**: change *Band low %* from 10 to 5 (or to 40/60) and the
+      band redraws immediately from the same stored realizations. **No re-run.** That is the
+      whole reason the matrix is stored rather than just three curves.
+- [ ] *Median line* off leaves the shading alone; *Shading* sets the fill opacity.
+- [ ] **Spaghetti** — individual realizations. *Traces* sets how many. They are sampled
+      **evenly across the run**, not the first N: the first N of a Latin-hypercube design sit
+      in one corner of the sampled space and would understate the spread.
+- [ ] **Density heat map** — per-depth value histogram, darker where more realizations landed.
+      *Value bins* sets the resolution.
+
+**Data-honesty rules to try to break:**
+
+- [ ] **A gap stays a gap.** At a depth where too few realizations converged, the band
+      **splits** rather than shading straight through. Shading across it would claim an
+      uncertainty range for a depth the study gave no answer for.
+- [ ] **A failed realization breaks its own trace** in spaghetti instead of being bridged to
+      the next depth — the bridge would draw a path that realization never took.
+- [ ] **Off-scale heat-map values are dropped, not clamped.** Narrow the track min/max until
+      part of the distribution falls outside: those samples contribute **no** cell rather than
+      a false dark column at the track edge.
+- [ ] Band and spaghetti, being continuous readings, **clip at the track edge** like any log
+      curve — deliberately different from a core plug, which is skipped.
+
+**Print + back-compat:**
+
+- [ ] **Print agrees with screen**: Plot ribbon → Composite… on a layout with an array track.
+      Same band, same gaps, same traces, same heat map.
+- [ ] **Existing layouts are untouched** — a saved layout with no array track opens exactly as
+      before, and an older project migrates without a backup pause (the old `array_logs` stub
+      never held a row, so there is nothing to protect).
+
+**Worth knowing:** a stored matrix is the only Monte Carlo output whose size scales with
+iterations (~2 MB per curve per well at the 256 default). If a project starts to drag, the
+matrices can be dropped without touching the study that produced them, and Data → Tools ▾ →
+Compact Project reclaims the space.
+
+---
+
+## Provenance & exposure sweep — Tier A + B applied (2026-07-31)
+
+`docs/provenance_sweep_prompt.md` run end to end: 24 findings, **11 Tier A + 2 Tier B applied**,
+6 Tier C and 5 Tier D routed and untouched. Full register with `file:line` in the gitignored
+`docs/commercial/PROVENANCE_SWEEP.local.md`; questions for counsel in `LAWYER_PACKET.local.md`.
+
+**Two behaviour changes — check these first, they are the only things that alter what you see:**
+
+- [ ] **GR Normalization defaults changed.** Petrophysics → Prep → GR Normalization now opens
+      with `GR_LOW_REF = 20`, `GR_HIGH_REF = 120` gAPI (was 53.68 / 133.93). The old pair was one
+      field's regional calibration from 562 wells — somebody else's field standard, shipping to
+      every user, and silently wrong anywhere else. The new pair is the app's own generic
+      clean/clay endpoints (`vsh_gr`'s GR_MA / GR_SH). **The doc string now tells you to set your
+      own field reference** — read it and confirm it says what you would tell a junior.
+      *Your real pair is preserved in `docs/commercial/`. Re-runs of old wells will differ; that
+      is expected — enter your own reference to reproduce a previous study.*
+- [ ] **Python environment variable renamed** to `SANDIBUMI_PYTHON`. Every message that used to
+      say `ARSHILLA_PYTHON` — DLIS import, ML, image import, Workbook, Word, Deck, the equation
+      editor — now says the new name. **Your existing `ARSHILLA_PYTHON` still works** and is read
+      silently; nothing to change on your machine. Confirm by opening Plot → Deliverables →
+      Workbook… and reading the message if Python is missing.
+
+**Client material out of the tree:**
+
+- [ ] The 20 hard-coded delivery paths in the `#[ignore]`d field tests are gone. They now read
+      **`SANDIBUMI_FIELD_FIXTURES`** — point it at a folder with `las/` and `core/` subfolders
+      and the tests use whatever is in it. Verified both ways: unset, all five skip with a
+      printed reason; set at the example wells, the core probe resolved 11 headers / 30 rows /
+      3 wells and the full chain ran to a pay summary.
+- [ ] `dataset for test/Core.csv` — real core plugs from one client well, referenced by no code —
+      is **still in the tree**. Removing it is one command; it is left for you because git history
+      keeps it either way and that is your decision, not a fix. Same for the tracked
+      `Prompt/*.pdf`, which `CLAUDE.md` wrongly claimed was gitignored (now corrected).
+- [ ] `Review.txt` / `Review 2.txt` moved to `docs/commercial/` and untracked (superseded by this
+      file; one named two client assets).
+
+**Licences — new file:**
+
+- [ ] `THIRD-PARTY-LICENSES.md` now exists: 289 crates, 154 npm packages, **zero undeclared**,
+      six weak-copyleft (MPL-family, all transitive, none modified — they permit shipping a closed
+      binary). Generated by `node tools/gen-third-party-licenses.mjs`; re-run after any dependency
+      change. There is still **no project `LICENSE` file** — that is your text to write.
+
+**One judgement call worth your eye:**
+
+- [ ] `multimin2.rs` cited `docs/multimin_geolog_spec.md` for the incoherence statistic — **a file
+      that does not exist**. I replaced it with the primary source I believe is correct: Mayer &
+      Sibbit, SPE 9341, *GLOBAL, a new approach to computer-processed log interpretation* (1980).
+      Confirm that citation before it is quoted to anyone; it is the one provenance claim in this
+      batch I chose rather than found.
+
+**Left alone on purpose** (Tier C/D — do not read these as missed): the four client-branded
+themes, the tooltips naming which vendor tables seeded a default, the study citation in `lrlc.rs`,
+the RtC regression coefficients (no neutral default exists — that is a petrophysics decision and
+it is yours), the 2.9 MB of vendor research extractions, and git history.
+
+---
+
+## scipy in the equation engine (2026-07-31)
+
+Petrophysics → Database Inspector → **Equation Editor**, language **Python (numpy)**. When scipy
+is installed in the interpreter SandiBumi picked, your scripts can now use `signal`,
+`interpolate`, `optimize`, `stats` and `ndimage` directly — no import line needed. numpy is still
+the only requirement; nothing changes if you never touch scipy.
+
+**The note tells you before you write, not after you run:**
+
+- [ ] Open the Equation Editor with language **Python (numpy)**. The grey note under the tab now
+      ends with the interpreter path **and** `· scipy 1.18.0`. If scipy were missing it would say
+      `· no scipy — install it for signal/interpolate/optimize/stats` — a note, not a warning,
+      because the engine is fully usable without it.
+
+**Four things worth trying on a real well** (inputs `GR`, output as named):
+
+- [ ] **Despike** — output `GR_DS`:
+      `gr_ds = signal.medfilt(gr, 5)`
+      A 5-sample median. Casing collars and washout spikes go; the bed boundaries stay put,
+      which a mean filter would smear.
+- [ ] **Smooth** — output `GR_SM`:
+      `gr_sm = signal.savgol_filter(gr, 11, 2)`
+      Savitzky-Golay preserves peak height and shape far better than a running mean.
+      **Despike first.** A polynomial fit over an un-despiked curve fits the spike rather than
+      the rock — try it both ways on a washed-out interval and you will see it immediately.
+- [ ] **Fit your own φ-k** — inputs `PHIE, PERM`, output `PERM_FIT`:
+      ```
+      import numpy as np
+      ok = np.isfinite(phie) & np.isfinite(perm) & (phie > 0) & (perm > 0)
+      def model(x, a, b): return a * np.power(x, b)
+      p, _ = optimize.curve_fit(model, phie[ok], perm[ok], p0=[1.0, 3.0], maxfev=20000)
+      perm_fit = model(phie, *p)
+      ```
+      Mask the invalid samples yourself — `curve_fit` has no NaN handling and will simply fail.
+- [ ] **Resample / fill** — `interpolate.interp1d(depth[ok], curve[ok], bounds_error=False)`.
+
+**Two rules you may want to test deliberately:**
+
+- [ ] **A curve wins a name collision.** If a well ever has a curve called `STATS`, your script
+      gets *your curve*, not `scipy.stats`. Your data never yields to a library name.
+- [ ] **A missing scipy names the fix.** On a machine without scipy, a script using `signal`
+      fails with the interpreter path and the exact `pip install` command — not
+      `NameError: name 'signal' is not defined`. Worth checking on a colleague's machine, since
+      that is the whole point of the message.
+
+**Also renamed here:** the interpreter override is `SANDIBUMI_PYTHON` (see the previous entry);
+your existing `ARSHILLA_PYTHON` still works.
+
+---
+
+## RtC calibration from your own water zone (2026-07-31)
+
+**Advance ▸ Calibrate RtC…** This closes the last open item from the provenance sweep. `sw_rtc`
+always told you to "recalibrate per field from water-zone excess conductivity" and never gave
+you a way to do it — so in practice one study's coefficients ran on every field. Now you point
+it at a water sand and it gives you *your* A_CAP / B_QV / C0.
+
+**Try it on a well where you know the water leg:**
+
+- [ ] Click a water-bearing top in the Tops pane first — the dialog seeds the interval from it.
+- [ ] Set Rw / M to **the same values your `sw_rtc` run will use**. They define the clean
+      baseline the excess is measured against; a fit against a different Rw is a fit for
+      different rock. The dialog says so.
+- [ ] Fit, then read **R² and the "Not fitted" line before the coefficients.** If R² is low the
+      excess here is not explained by CAPBW and Qv, and the coefficients are not worth having.
+- [ ] **Copy**, then paste into the `sw_rtc` parameters. Deliberately not auto-applied — that
+      would skip the step that matters.
+- [ ] Compare SWE_RTC before and after on a known interval. This is the real test: does your
+      own calibration move Sw the way your core and tests say it should?
+
+**Three things to poke at deliberately:**
+
+- [ ] **It refuses without a water zone.** Clear both depth boxes and the flag curve, then Fit.
+      You should get a refusal explaining that fitting over pay hands the hydrocarbon's
+      resistivity to the clay term. That refusal is the most important behaviour here — over
+      hydrocarbon the fit reads Sw too HIGH, so a careless calibration *erases* pay rather than
+      inventing it.
+- [ ] **Nothing is dropped silently.** The "Not fitted" line counts every excluded sample by
+      reason — outside the interval, not flagged wet, incomplete inputs, or "no excess to
+      explain" (Rt reads above what clean water-filled rock can be, usually meaning Rw is wrong
+      for the interval or it is not actually wet). A calibration from 12 samples of a sand you
+      thought held 500 is a different statement.
+- [ ] **RSF is held fixed**, and the result says the coefficients are only valid for that RSF.
+      Change RSF afterwards and they are void — RSF multiplies the whole bracket, so it and the
+      three coefficients cannot be separated by this regression.
+
+**Worth knowing:** with no QV log and CEC = 0 the clay term cannot be fitted at all. It is
+reported as **0 with a note** rather than guessed, and the capillary term absorbs whatever
+constant clay conductivity is present.
+
+---
+
+## IMTS S-factor calibration from your own lab CEC (2026-07-31)
+
+**Advance ▸ Calibrate S…** Same story as RtC, one module along. `sw_imts` defines S as a
+measurement — your lab CEC divided by the CEC the clay model predicts — and the app shipped
+**0.5**, which was never measured in any rock. S multiplies the whole clay-charge term, so a
+wrong S scales Qv_eff straight through to SwT with nothing on the log to show for it.
+
+**Try it on a well with a CEC suite:**
+
+- [ ] Point it at the dataset and item holding your lab CEC. Get the item name wrong on purpose
+      — it should tell you **which items are actually there**, not just "no data".
+- [ ] **Name the clay curves your `sw_imts` run will use** (VDCL / VILL by default), not the XRD
+      table the CEC came from. This is the trap: calibrate against one estimate of clay and run
+      against another and S is wrong by the difference — invisibly, because both are clay
+      volumes.
+- [ ] Fit, then **Copy** — it copies S together with CEC_KAOL and CEC_ILL, because S multiplies
+      those constants and the three are one setting.
+- [ ] Run `sw_imts` with your S and compare SWT_IMTS against the shipped 0.5. On clay-rich rock
+      the difference should be substantial; that gap is what the placeholder was costing you.
+
+**Read these before the number:**
+
+- [ ] **Plug ratios P10 → P90.** This is the real check, not R². If the plugs' own ratios span
+      more than a factor of two, no single S describes them and it says so. Either S genuinely
+      drifts with clay content, or the lean plugs are noisy — a small measured CEC divided by a
+      small modelled clay volume is a noisy ratio either way.
+- [ ] **The "Not fitted" line.** A plug further than the depth tolerance from any log sample is
+      **dropped, not snapped** to the nearest one. If most of your plugs land there, the core is
+      not depth-shifted to the log. Worth knowing: a shift that happens to be a whole number of
+      log samples is invisible to this check — the log grid cannot see it — so the tolerance is
+      not a substitute for shifting against core gamma.
+- [ ] **Plugs where the clay model says no clay** are excluded rather than divided by zero. If a
+      plug there has real measured CEC, that is evidence against your clay curves, not a data
+      point.
+- [ ] **S above 1** gets flagged. The method expects lab CEC *below* the XRD-theoretical value,
+      so above 1 your clay model is under-calling exchange capacity — most often a mineral it
+      does not carry. Smectite is 80-150 meq/100g against illite's 25, so a few percent of it is
+      enough. That S then only suits rock with the same smectite fraction as your cored plugs.
+
+**Also fixed here:** both calibration dialogs used to open with a blank, greyed-out Fit button
+until you touched the well scope. They now label themselves on open.
+
+---
+
+## Calibration QC scatter, on both fits (2026-07-31)
+
+Both calibration dialogs now draw the fit, not just report it. A calibration comes down to two or
+three numbers, and **R² tells you how much scatter there is but not what kind** — curvature, one
+well sitting off the trend, a cluster of plugs dragging the line. Those only show in the picture.
+
+- [ ] **Calibrate RtC…** now plots **measured against fitted** excess conductivity with a dashed
+      1:1 line. On a good fit the cloud straddles the line evenly. A bow above or below it at one
+      end means CAPBW and Qv are not linear over that interval — worth knowing before you accept
+      the coefficients.
+- [ ] **Calibrate S…** plots **lab CEC against modelled CEC** with the fitted line through the
+      origin. Deliberately the regression itself rather than measured-vs-fitted, because only this
+      version puts clay content on the x axis: a curved cloud is S drifting with clay, a fan
+      opening toward the origin is noise on the lean plugs, and a cluster off the line is one core
+      suite. That turns the "plug ratios P10 → P90" number into something you can name.
+- [ ] **Points are coloured by well**, with a legend underneath. On a field-wide calibration this
+      is the question the table cannot answer: is one well pulling it?
+- [ ] **Hover a point** — it names the well, the depth, and the values. On the S plot it shows the
+      plug depth *and* the log depth it was paired with, so a bad pairing is visible.
+- [ ] **⧉ Copy / ⭳ Image / ⎙ Print** on each plot, the same buttons as every other plot.
+
+**Two things to check deliberately:**
+
+- [ ] **The 1:1 line should sit at 45°** on the RtC plot regardless of how wide the scatter is.
+      Both axes are forced to the same range on purpose — scale them independently and the aspect
+      ratio alone can make a clean fit look biased.
+- [ ] **The S plot should always show zero** on both axes even if your plugs are all clay-rich.
+      Through-the-origin is the model's claim, and cropping to the data would hide whether your
+      cloud actually heads for zero — which is the one thing that would disprove it.
+
+
+---
+
+## Accepting a calibration writes it, instead of you retyping it (2026-07-31)
+
+Both fit dialogs now have an **Apply** row under the Copy button. It writes the coefficients as
+parameter overrides, so the next `sw_rtc` / `sw_imts` run and every workflow chain picks them up
+without anyone remembering to. Copy is still there — Apply is the shortcut, not a replacement.
+
+- [ ] Fit, then **Apply** with the default scope. It writes to **the wells the fit actually
+      used**, which is not the same as the wells you scoped. Hover the dropdown — it names them.
+- [ ] Check the second option: **"all N well(s) in scope (+k never calibrated)"**. That is the
+      fit-here-apply-there move, and it should say plainly how many wells are getting a
+      calibration they contributed nothing to. Hover it and it names those too.
+- [ ] **Ctrl+Z.** One undo reverses the whole sweep. A parameter that had no override before goes
+      back to having **no override** — not to zero. If a well already had its own value, that
+      value comes back.
+- [ ] Leave the zone box **blank** for a whole-well override. That is usually what a saturation
+      calibration wants: you calibrate in one interval and apply everywhere. Type a zone name to
+      narrow it — it only bites in wells that carry a zone of that name.
+- [ ] Open the **per-well parameter grid** afterwards (Petrophysics) and confirm the values are
+      there as overrides on exactly the wells you expected.
+
+**The one thing to notice:** Apply writes **RSF along with A_CAP / B_QV / C0**, and **CEC_KAOL /
+CEC_ILL along with S_FACTOR**. That is not tidiness. In both fits the constant and the
+coefficients are not separable — the constant multiplies the whole term — so coefficients applied
+without their constant are a calibration for different rock, and nothing downstream would catch
+it. They go in one batch or not at all.
+
+
+---
+
+## Calibrate S… now offers your data instead of asking you to type it (2026-07-31)
+
+The CEC dataset and item boxes were free text, so the most likely first mistake — getting the
+item name wrong — could only be discovered by running the fit. They are now dropdowns built from
+what your project actually holds.
+
+- [ ] Open **Advance ▸ Calibrate S…**. The dataset list should show every point dataset with its
+      item count, defaulting to CEC (or CORE if you have no CEC dataset).
+- [ ] Switch datasets. The item list follows, and each item shows **how many rows and how many
+      wells** carry it — so an item present in 2 of your 12 wells says so before you fit it.
+- [ ] **A text-only item is greyed out**, marked "no numeric values". A lithology description
+      cannot set a scaling factor, and this is the honest way to say so: it stays visible, so you
+      can see it is there and see why it is not a choice.
+- [ ] If a whole dataset has nothing numeric in it you get "(nothing numeric in this dataset)"
+      rather than an empty box.
+- [ ] On a project with no point data at all it falls back to typing, and says plainly that there
+      is nothing to pick from yet.
+
+**Worth knowing:** the list is built from the **ACTIVE delivery** of each dataset, like every
+other point-data reader. Switch a well's CEC set in Data → Data Sets… and the picker follows —
+a superseded delivery is not offered as a choice.
+
+
+
+`sw_rtc`'s own description now says plainly that the shipped defaults are one field's, and
+points at this dialog.
+
 ---
 
 _Made in SandiBumi._ © 2026 SandiBumi. All rights reserved.
+
+---
+
+## Register core depth against a log (2026-07-31)
+
+Data ▸ Tools ▾ ▸ **Register Depth…**. Core arrives on the driller's tally and the log on the
+wireline's; until now the only tool for the difference was typing a number into Shift Core, which
+meant already knowing the answer.
+
+- [ ] Select a cored well, open **Register Depth…**. The **Core reference** list should show every
+      plug column and every point-data measurement with enough samples to correlate — and default
+      to a **core gamma** if you have one, since that is the strongest reference there is.
+- [ ] The note under the reference should say whether the pairing is **like-for-like** (core gamma
+      against GR: the same quantity) or a **proxy** (core porosity against GR: different quantities
+      that co-vary inversely). Switch the reference and the log curve and watch it change.
+- [ ] **Propose a shift.** Check the proposed shift, the correlation, and — importantly — **where
+      it sits now**, which tells you whether the proposal improved anything at all.
+- [ ] The left plot draws the log with the core **hollow where it sits now and solid where it would
+      sit**. The right plot is the **correlogram**: correlation against every candidate shift.
+- [ ] **Read the correlogram before accepting.** One sharp peak = the shift is well determined.
+      Several near-equal peaks = the section repeats and the maximum is close to a coin toss. The
+      dialog counts rival peaks within 5% and says so, but the picture is the real answer.
+- [ ] Type a different shift in **Shift to apply** — both plots follow immediately. The proposal is
+      a suggestion, never applied on its own.
+- [ ] Before applying, check the list of **point datasets that ride along**. A measurement made on
+      a plug must move with that plug or it ends up registered against rock it was never taken
+      from. Untick anything that is on the wireline scale rather than the core's.
+- [ ] Apply, then **Ctrl+Z**. The status line reports plugs AND point samples moved; the undo puts
+      every one of them back.
+
+**Worth knowing:** on a proxy pairing the shift is chosen on the STRENGTH of the relationship, not
+its sign — a core porosity should come back with a strongly NEGATIVE correlation, and the dialog
+says "inverse" when it does. On a like-for-like pairing a negative correlation is never accepted:
+two gamma measurements that run opposite are not aligned, they are wrong, and the proposal you get
+in that case deliberately disagrees with the porosity answer so that the disagreement is visible.
+
+**Also changed:** the old **Shift Core…** now moves the core's point data with the plugs too, and
+its status line says how many of each.
+
+---
+
+## Plate depths — fixing a picture's depth without re-importing (2026-07-31)
+
+Data ▸ Tools ▾ ▸ **Plate Depths…**. Until now a thin section imported at the wrong depth could only
+be corrected by deleting the whole delivery and importing it again.
+
+- [ ] Select a well with pictures and open **Plate Depths…**. The dataset box lists each kind with
+      its plate count; the table shows the LIVE delivery, sorted by depth.
+- [ ] Each plate shows **point** or **interval**. A thin section is a point — cut from one plug,
+      with no thickness — and a core photograph with a base depth is an interval.
+- [ ] **Shift every plate by** a constant, with a dataset selected. This is the normal repair: a
+      delivery read off one mis-registered tally is wrong by one number. Check the status line for
+      how many moved, then **Ctrl+Z**.
+- [ ] Correct one plate: edit its top, name or caption and press **Save**. Also undoable.
+- [ ] **Leave a base blank and it stays a point sample** — a shift moves it without inventing a
+      thickness. Type a base and it becomes an interval (a deliberate claim); clear it again and it
+      goes back to a point.
+- [ ] Type a base ABOVE the top and press Save. It should be **refused with a message naming the
+      plate**, not silently swapped — a reversed pair is a typo worth seeing.
+
+**Worth knowing:** the table only ever shows the ACTIVE delivery of each dataset, like every other
+reader in the app. A superseded delivery is untouched by a shift — switch which one is live in
+Data Sets… first.
+
+**Still open (your call):** whether thin sections should move automatically when you re-register the
+core they were cut from. You said yes but tentatively, so nothing does that yet — the shift above is
+deliberate and visible. Say the word and it becomes automatic.
+
+---
+
+## One shift per barrel, and the core remembers it (2026-07-31)
+
+Data ▸ Tools ▾ ▸ **Register Depth…**, the new table at the bottom.
+
+- [ ] Open it on a cored well. Below the single-shift tools there is now **One shift per barrel**.
+      A note tells you whether this core has already been moved, and by how much — so a second
+      pass is never applied on top of a forgotten first one.
+- [ ] Fill a range (top, base) for the first barrel and press **Propose**. It runs the same match
+      as before but only over that range, fills in the shift, and draws that barrel's own
+      correlogram. **Add a barrel** for the next one.
+- [ ] If pieces moved inside a barrel, just split it: two shorter ranges, a different shift each.
+- [ ] **Apply all barrels**, then **Ctrl+Z**. Every plug should return exactly where it started.
+- [ ] Try shifts that would cross — push an upper barrel down past the one below it. It should
+      **refuse, name the two plugs that would cross, and change nothing**. Deeper rock must never
+      end up above shallower rock.
+- [ ] Try two ranges that overlap. Also refused: a plug can only belong to one barrel. Ranges that
+      just touch (2000–2010 and 2010–2020) are fine.
+
+**The part worth testing on real data:** import an XRD or CEC table AFTER you have shifted the core,
+still at the depths the lab wrote. The core now remembers where it started, so those samples can be
+placed where that rock actually is — including where one barrel moved further than its neighbour,
+because the correction is interpolated between plugs rather than applied as one number.
+
+Outside the cored interval there is nothing to go on, so the correction is held from the nearest
+end and those samples are marked as extrapolated rather than quietly placed.
+
+**Note on older projects:** a project made before today gets the new record filled in as "no shift
+yet". Any shifting you did before this exists is not recoverable, so the core is treated as
+delivered where it currently sits. From here on it is tracked.
+
+---
+
+## New data can follow the shifted core (2026-07-31)
+
+Data ▸ **Import Aux…** has a new tick-box: **"These depths came from the core report"**.
+
+This is the payoff for the depth record. A lab sends XRD or CEC written at the depths from the
+original core report. If you have since registered that core against the log, those depths are out
+by however far the core moved — and the samples would be attributed to the wrong rock.
+
+- [ ] Register a well's core first (Tools ▸ Register Depth…), ideally with two barrels moved by
+      **different** amounts so the test is a real one.
+- [ ] Import an XRD or CEC file written at the ORIGINAL core depths with the box **ticked**. Each
+      sample should land on the rock it was measured from — including across the barrel boundary,
+      where the correction is worked out between plugs rather than applied as one number.
+- [ ] Import the same file with the box **off** and compare. The depths stay exactly as written.
+      That is the right behaviour for a file already on the log's depth scale.
+- [ ] Check the message after the import. It should say the samples were **placed from the core
+      depth record**, and count any that fell **outside the cored interval** — those have nothing
+      to go on, so they keep the nearest correction and are reported rather than placed quietly.
+- [ ] Tick the box on a well with no core. It should import the depths as written and say **"no
+      core to follow"** rather than looking like it mapped something.
+- [ ] Tick it on a well whose core has never been shifted. It should say so — the box worked, there
+      was simply nothing to correct.
+
+**Deliberately off by default.** Nothing in a delimited text file reliably says which depth scale
+it uses, so this is your declaration, not a guess the app makes.
+
+**Not yet offered for SCAL or image imports** — both also arrive at lab-written depths. Say the
+word and they get the same tick-box.
+
+---
+
+## SCAL and pictures can follow the core too (2026-07-31)
+
+The same tick-box — **"These depths came from the core report"** — is now on **Import SCAL…** and
+the **image import wizard**, not just Import Aux…
+
+- [ ] Register a well's core first, ideally with two barrels moved by different amounts.
+- [ ] Import a SCAL file whose plug depths came from the core report, box **ticked**. The points
+      should land on the rock they were cut from, and the message should say **"placed from the
+      core depth record"**.
+- [ ] Import the same file with the box **off**. Depths stay exactly as written.
+- [ ] Import thin sections whose filenames or table carry the core report's depths, box ticked.
+      Each plate should move to where its plug now sits.
+- [ ] Check a **core photograph** with a base depth. It should move, and **keep the thickness it
+      was logged with** — a 1 m photo stays 1 m, it does not stretch or flip.
+- [ ] Check a **thin section** with no base. It should move and **stay a point sample** — a section
+      is cut from one plug and never gains a thickness from being moved.
+- [ ] Tick the box on a well with no core, for either import. It should use the depths as written
+      and say **"no core to follow"**.
+
+**Worth knowing:** SCAL rows that carry no depth at all are left alone, and the message says so
+rather than pretending it placed them.
+
+**Still not automatic:** a delivery already sitting in the project does not move when you re-register
+the core afterwards. That is the last piece of your tentative "yes" on pictures following plugs, and
+it waits for you to firm it up.
+
+---
+
+## Data already in the project follows a later re-registration (2026-07-31)
+
+The last piece. Until now, re-registering a core moved the plugs and their extras — but the XRD you
+imported last month, the SCAL points and the thin sections stayed where they were.
+
+- [ ] Open **Tools ▸ Register Depth…** on a well that already has XRD/CEC, SCAL and pictures. Below
+      the plots there is now a list of **everything that can move with the core**.
+- [ ] Deliveries you imported with **"these depths came from the core report"** ticked are
+      **pre-ticked** here. Anything else is listed but left unticked, marked *"not marked as
+      core-depth data"* — a perforation record is on the driller's scale and must not be dragged
+      along.
+- [ ] Apply a shift. The status line should count **plugs, point samples, Pc points and pictures**
+      separately, so you can see everything moved.
+- [ ] **Ctrl+Z.** All four should come back together.
+- [ ] The same list drives the **per-barrel** Apply — untick something, apply barrels, and it stays
+      put.
+- [ ] Untick everything and apply: only the plugs move. That is a legitimate choice, not an error.
+
+**Note on older data:** anything imported before today is marked *not* core-depth, because the app
+genuinely does not know. It is still listed and you can tick it by hand — but the default leaves it
+alone rather than moving data on a guess.
+
+**Worth a real test:** register a core, then check that a thin section you imported months ago has
+moved with its plug and still lines up in the log view.
+
+---
+
+## The core carries its own depth history (2026-07-31)
+
+The last piece of the depth work. Next year, "why is this core at this depth?" has an answer in the
+project rather than in somebody's memory.
+
+- [ ] Open **Tools ▸ Register Depth…** on a well whose core has never been shifted. At the bottom:
+      *"This core has never been shifted. Its plugs are at the depths the laboratory delivered."*
+- [ ] Propose a shift and apply it. Reopen the dialog — there is now a line giving the date, the
+      delivery, the amount, what it was matched against, and the correlation.
+- [ ] **Overrule a proposal**: propose, then type a different amount before applying. The recorded
+      correlation should be the one at the amount you APPLIED, not the peak of the scan.
+- [ ] **Ctrl+Z**, then reopen. The undo appears as its own line rather than the original vanishing —
+      a core you registered, disagreed with and put back is not the same as one you never touched.
+- [ ] Apply **per-barrel** shifts where one barrel was proposed and another typed by hand. Each gets
+      its own line with its own interval, and the hand-typed one shows a BLANK correlation, not 0.00.
+- [ ] A plain **Shift Core…** (Data ▸ Core) also lands in the history, marked *typed by hand*.
+
+**Worth a real test:** register a core today, come back to the well next week, and check the history
+tells you what you did and how well it matched — without opening a notebook.
+
+---
+
+## Plate scale and preparation (2026-07-31)
+
+The groundwork for measuring anything on a thin section. Your answer was "sometimes" on both the
+scale and the epoxy, so both are things you tell the app rather than things it works out.
+
+- [ ] **Data ▸ Import ▸ Images…** now asks for a **field of view width in mm**, an **impregnation**
+      choice and a **stain**. Leave them all blank — the import should work exactly as before.
+- [ ] Set a field of view for the delivery, then override **one plate** in the new **FOV mm** column
+      of the confirm table. That plate keeps its own value; the rest take the delivery's.
+- [ ] **Data ▸ Tools ▾ ▸ Plate Details…** (this is the old Plate Depths… — same dialog, renamed
+      because it now holds more than depth). Depths work as before.
+- [ ] Hover a plate's **FOV mm** cell. A calibrated plate shows what that works out to in µm/px on
+      the stored copy; an uncalibrated one says grain and pore size cannot be measured on it.
+- [ ] **Apply to whole delivery** with "All datasets" selected should refuse — a core photograph
+      must not inherit the thin sections' magnification. Pick one dataset and it applies.
+- [ ] **Ctrl+Z** after that. Plates that had different values before should get their own back, not
+      one shared value.
+- [ ] **Clear** a plate's field of view (empty the box, Save). It should go back to having no scale.
+      A wrongly typed scale you cannot remove is worse than one never entered.
+
+**Why "unknown" is a real setting:** left unknown, the pore measurement will refuse the plate. If it
+assumed "not impregnated" it would still return a porosity — built out of blue-ish grains and edge
+artefact — and that number would plot against your core helium porosity looking perfectly sensible.
+
+**Worth a real test:** import a delivery where some sections state a scale and some do not, and
+check the ones without simply come in blank rather than picking up a neighbour's number.
+
+---
+
+## Pore area from blue epoxy (2026-07-31)
+
+The first real number off a thin section. It needs numpy and Pillow in the app's Python — the dialog
+says so up front if they are missing, and nothing else in the app is affected.
+
+- [ ] **Petrophysics ▸ Petrography ▸ Pore Area…** on a well with thin sections.
+- [ ] The **Tune on plate** list should grey out any plate you have not declared as blue epoxy, and
+      say why — *not stated* or *not impregnated*. Set it in Plate Details… and it becomes selectable.
+- [ ] The preview shows your plate with the counted pixels in **red**, and the percentage under it.
+      That red area IS what gets measured — it is drawn by the same code, not a separate guess.
+- [ ] Move **Hue from / Hue to / Saturation / Brightness** and watch the red change. Tighten
+      saturation until stain and grain edges drop out. The starting numbers are a plain blue band,
+      not a calibration — they are there so there is something to look at on the first click.
+- [ ] **Measure every declared plate** — a table of plate, depth and pore area, plus a warning naming
+      every plate left out and why.
+- [ ] **Save as point data.** Lands under **PETROGRAPHY / VPORE_TS** at each plate's depth. Check it
+      in the Wells pane tree, and put it in a point-data track beside your core porosity.
+- [ ] Nothing should be written until you press Save — moving the sliders must leave the project alone.
+
+**On reading the result:** where this disagrees with core helium porosity, the disagreement is
+information, not a bug. Microporosity below what the section resolves, plucked grains, epoxy that did
+not penetrate. Two honest measurements of different things.
+
+**Not done on purpose:** no despeckling. Cleaning up a mask needs a brush size in pixels, and pixels
+mean a different physical size on every plate — including the ones with no scale at all. The speckle
+stays visible so you can judge it.
+
+**Worth a real test:** run it on a delivery you have point-counted by hand and see how close it lands.
+
+---
+
+## Measuring a plate's own scale bar (2026-07-31)
+
+For plates that print a scale bar instead of stating the field of view. This is what makes grain
+size and pore size possible at all.
+
+- [ ] **Data ▸ Tools ▾ ▸ Plate Details…**, then the **⇹** button in a plate's FOV column.
+- [ ] Switch to **Actual size** and scroll to the bar. This is worth doing — one pixel out on a
+      100-pixel bar is 1%, and looking closer is the only cure.
+- [ ] Drag from one end of the bar to the other. A red line with end caps shows exactly where you
+      landed, and the readout gives the bar as a percentage of the plate.
+- [ ] Type what the bar reads (500 µm, 1 mm, whatever is printed) and the field of view appears,
+      with the µm/px it works out to.
+- [ ] **Use this scale** fills the FOV box in the table. Press the row's **Save** to keep it — the
+      measuring does not write anything by itself.
+- [ ] Tick **Apply to every plate of this delivery** before accepting if they were all shot at the
+      same magnification. Each plate keeps its own impregnation and stain — only the scale changes.
+- [ ] **Ctrl+Z** after that undoes the whole delivery.
+- [ ] Press **Esc** in the middle of measuring. Nothing should be written or left half-done.
+
+**Why it does not care about zoom:** the bar is measured as a *share of the picture*, not in pixels.
+If the bar is a quarter of the plate's width and reads 500 µm, the plate is 2 mm across — and that
+stays true whether you are looking at it fit-to-window or at full size, and whether the stored copy
+was shrunk on import or not.
+
+**Worth a real test:** measure the same bar twice, once fitted and once at actual size, and check you
+get the same answer to within your own hand.
+
+---
+
+## Pore geometry (2026-07-31)
+
+The shape and size of the individual pores, not just how much of the plate they cover. Needs scipy
+as well as numpy and Pillow.
+
+- [ ] **Petrophysics ▸ Petrography ▸ Pore Area…**, tune the colour band as before, then tick
+      **Also measure each pore's shape and size**.
+- [ ] **Measure every declared plate.** The table gains **Pores**, **Aspect** and **Roundness** —
+      and, for plates that carry a scale, **D10 / D50 / D90 in µm**.
+- [ ] A plate with no scale should show its shape numbers and leave the µm columns **blank** — not
+      zero, not a pixel figure wearing a micron label.
+- [ ] **Save as point data**: PORE_N, PORE_ASPECT, PORE_SHAPE at every plate, plus PORE_D10/D50/D90
+      only where a scale existed. Check the Wells pane tree.
+- [ ] Raise **Smallest pore (pixels)** and watch the pore count drop. That number is in pixels on
+      purpose — it says what your picture can resolve, not how big a pore is in the rock.
+
+**How to read the numbers.** Roundness is 4πA/P²: 1.00 is a circle, lower is more ragged. Aspect is
+the long axis over the short axis of the equivalent ellipse: 1.00 is round, higher is elongated. D50
+is the pore diameter that splits the pore AREA in half — area-weighted on purpose, because that is
+what a capillary-pressure curve fills. A count-weighted median would be dominated by the smallest
+specks your scan can see.
+
+**Two things it deliberately throws away.** Pores touching the edge of the plate are excluded (their
+real size is unknown, and keeping them would drag the distribution small), and blobs below the
+minimum are dropped as speckle. Both are counted so you can see how many.
+
+**Worth a real test:** compare D50 against the pore throat radii from your SCAL Pc curves on the same
+plugs. They measure different things — bodies against throats — so they should NOT match, but they
+should move together, and where they do not is worth a look.
+
+---
+
+## Plug QC — the petrography numbers meet an independent measurement (2026-07-31)
+
+The check the last three items were building toward. Everything Part 2 measures is a number nothing
+else in the app could test; this pairs it with the core.
+
+- [ ] **Petrophysics ▸ Petrography ▸ Plug QC…** (also in the workspace ＋ menu, "Plug QC (core vs
+      petrography)"). It opens on **CPOR against VPORE_TS** if the well has both — the section
+      against the plug it was cut from, which is the question the pane exists for.
+- [ ] **Compare.** Check the table: pairs, Pearson r, Spearman ρ, and the median of each axis.
+- [ ] **Read the medians first.** A 0.19 beside an 18.2 means one delivery is a fraction and the
+      other is percent — nothing here converts a unit, so this is where you would see it.
+- [ ] Turn the **reference line** to **1:1** for this pair. Porosity against porosity is the same
+      quantity twice, so the line means something and the axes go square. Points below it are
+      sections reading leaner than the plug.
+- [ ] **Now the harder one:** X = **SCAL — pore-throat radius**, Y = **PORE_D50**. A **Mercury
+      saturation** box appears; 35% is the Winland r35 convention. Leave the reference line at
+      **None**.
+- [ ] Tick **Log X** and **Log Y**. Both quantities run over decades, so this is the honest picture.
+      Watch **Spearman stay exactly the same** while Pearson moves — that is the point of showing
+      both, and it is why Spearman is the one to quote.
+- [ ] **Read the exclusions line.** It names why each sample was left out: no partner within the
+      tolerance, no depth, no recorded interfacial tension, a Pc curve that never reached 35%.
+- [ ] **Hover a point.** It names the well and depth, and says either "same depth" or how far apart
+      the two deliveries were paired across.
+
+**What the numbers mean.** Pearson asks whether the cloud is a straight line. Spearman asks only
+whether the two move together, and does not care about the shape or the axis scale. For a pore
+BODY against a pore THROAT you want Spearman: bodies are always larger than the throats that drain
+them, so they must never fall on one line, but a rock with bigger bodies had better have bigger
+throats. A high Spearman with a poor Pearson is the healthy answer there. On porosity against
+porosity it is the other way round — there you want Pearson near 1 and the cloud on the 1:1 line.
+
+**On the depth tolerance.** The default 0.15 is one standard 6-inch sample. If almost nothing pairs,
+do NOT widen it — a core off by a whole sample interval will happily pair with its neighbour and
+look fine. Register the core first (**Data ▸ Tools ▾ ▸ Register Depth…**); the pane's own note says
+so when it finds nothing.
+
+**The throat radius.** Washburn, r = 2σcosθ/Pc, using the σcosθ your laboratory recorded on that
+delivery — a plug with none is excluded by name rather than converted with an assumed mercury
+system. Pc is interpolated in log Pc, and a curve that stopped before 35% mercury is excluded rather
+than extrapolated.
+
+**Worth a real test:** run it on a well where you already trust the core. If VPORE_TS sits
+systematically below CPOR, that is the Delesse relation meeting a real section — under-counted thin
+epoxy, or a plate that is not representative of the plug. Either way the size of the gap is a number
+you now have.
+
+---
+
+## Grain size — apparent, with Wicksell as a tick (2026-07-31)
+
+Your D3 answer, shipped. Family B completes Part 2 of the image plan. Needs scipy, like the pore
+geometry.
+
+- [ ] **Petrophysics ▸ Petrography ▸ Pore Area…**, tune the colour band as usual, then tick
+      **Also outline each grain and measure its size**. Two more fields appear —
+      **Smallest grain (pixels)** and **Grain separation (pixels)** — plus the Wicksell tick.
+- [ ] **Look at the preview before the table.** The grains are drawn as yellow outlines over the
+      same picture. This is the one thing you cannot judge from a number: a section chopped into
+      fifty slivers and one sensibly split into twelve grains produce equally plausible tables.
+- [ ] **Drag Grain separation up and down** and watch the outlines. Small = more, thinner grains;
+      large = fewer, fatter ones. Stop where it matches what you see down the microscope.
+- [ ] **Measure.** The table gains **Grains** and **Contact**, and on plates with a scale
+      **GD50 app µm** and **Sort app φ**.
+- [ ] Tick **Also report Wicksell-corrected sizes** and measure again. Two more columns,
+      **GD50 W µm** and **Sort W φ**.
+- [ ] A plate with no scale should show **Grains** and **Contact** and leave every µm and φ column
+      **blank** — phi is a logarithm of millimetres, so sorting needs a scale as much as a diameter
+      does.
+- [ ] **Save as point data** and check the Wells tree: GRAIN_N, GRAIN_ASPECT, GRAIN_CONTACT, then
+      GRAIN_D10/D50/D90_APP and GRAIN_SORT_APP, and the _W set if you asked for it. **There is no
+      plain GRAIN_D50** — that is deliberate.
+
+**Contact is the number to read first.** It is the fraction of a grain's outline that touches
+another grain rather than open pore. Where your sand is loose it will be near zero and the outlines
+are real. Where it is cemented or has quartz overgrowths there is no pore between the grains for
+the picture to see, and the algorithm places a boundary at the narrowest point anyway. Above 0.7
+the run tells you so, and those sizes are a description of the fabric rather than a grain-size
+analysis. No correction fixes that — Wicksell corrects for the sectioning, not for outlines that
+were never visible.
+
+**Sorting is Folk & Ward in phi**, the same measure your core descriptions use: under 0.35 is very
+well sorted, 0.35–0.50 well sorted, 0.50–0.71 moderately well sorted, and so on. Phi runs backwards
+from millimetres — bigger phi is finer rock.
+
+**What Wicksell actually changes, and it is not what you would expect.** A random cut through a
+grain rarely goes through its centre, so sections look small and badly sorted. But the size effect
+is smaller than the textbooks make it sound: about 13% on the median, and because the diameters here
+are area-weighted (which on a section is the same as weighing, like a sieve) most of even that is
+already absorbed. The real damage is to **sorting** — a perfectly sorted rock reads about 0.19 phi
+from its sections alone. So use the correction when the sorting number is what you are quoting, and
+do not expect it to move D50 much.
+
+**Worth a real test:** compare GRAIN_D50_APP against a sieve or laser grain-size analysis on the
+same plugs, in **Plug QC**. Both are volume-weighted, so they should be directly comparable — and
+where they are not, Contact will usually tell you why.
+
+---
+
+## Stained carbonate — mineral fractions from a declared stain (2026-07-31)
+
+Family A2. Needs no scipy — it is a colour rule like the pore band, so it runs on every plate
+including the uncalibrated ones.
+
+- [ ] **Plate Details…** first: each stained plate needs its **Stain** field filled in with what
+      your laboratory actually applied. A plate with the field blank is refused by name, and one
+      whose stain does not match the scheme is refused too, naming both.
+- [ ] **Pore Area…**, tick **Also read the stain**. Pick the scheme. Two ship: **Alizarin red S**
+      (calcite stains, dolomite does not — Friedman 1959) and **Alizarin red S + potassium
+      ferricyanide** (the combined stain, which also separates the ferroan phases — Dickson 1966).
+- [ ] The class list below it is **editable**. The mineral identifications are published; the
+      colours are not — what a stained calcite photographs as depends on your dye batch, your lamp
+      and your scanner. Tune the hue ranges against the preview.
+- [ ] **Measure.** The table gains one column per mineral plus **Unclassified**. Check that every
+      row sums with the pore area to 100%.
+- [ ] **Read Unclassified first.** It is the rock that fell in no band. If it is large the mineral
+      columns are a partial answer, and the run says so above 25%.
+- [ ] **Save** and check the Wells tree: MIN_CALCITE, MIN_DOLOMITE, MIN_FERROAN_CALCITE,
+      MIN_FERROAN_DOLOMITE, MIN_UNCLASS.
+
+**The one trap, and it will bite you if your sections are both impregnated and stained.** Blue-dyed
+epoxy is blue. Under Dickson's combined stain, ferroan dolomite is turquoise. They are the same
+colour to a hue rule, and the pore rule runs first — so ferroan dolomite gets counted as porosity.
+
+On a test plate built as exact quarters, the default epoxy band (180–260°) returned **pore 50% and
+ferroan dolomite 0%**. Porosity doubled, a mineral erased, and both numbers entirely believable.
+Narrowing the epoxy band to 210–260° returned **pore 25% and ferroan dolomite 25%**, which is the
+truth.
+
+The run detects the overlap and names the affected mineral in the notes. It does **not** fix it —
+which of the two bands to narrow is your judgement, looking at your plate. If you see that note,
+tune before you trust either number.
+
+**Worth a real test:** compare MIN_CALCITE + MIN_DOLOMITE against your XRD on the same plugs, in
+**Plug QC**. XRD is by weight and a section is by area, but the two should track — and where they
+do not, Unclassified usually explains it.
+
+---
+
+## Mineral classifier — trained on your own point counts (2026-07-31)
+
+Family A3, the last one. Quartz against feldspar in plane light is not a colour problem, so this is
+a classifier you train. Needs scikit-learn as well as scipy.
+
+- [ ] **Petrophysics ▸ Petrography ▸ Mineral Classifier…**
+- [ ] Type a mineral name and **Add mineral**. Repeat for each one you want to separate.
+- [ ] **Click on the plate** to label what is under the pointer — the same act as point counting.
+      The chip for each mineral shows its running count. **Undo last label** takes one back.
+- [ ] Switch plates and keep labelling. Labels from every plate in the delivery train one model.
+- [ ] **Save labels.** They persist with the project, so you can come back and add more.
+- [ ] **Train and apply.** Read the per-mineral table FIRST, then the fractions.
+- [ ] **Train, apply and save** writes CLS_QUARTZ, CLS_FELDSPAR … to the PETROGRAPHY dataset. Check
+      the Wells tree.
+
+**Read the recall column before anything else.** It is the fraction of held-out clicks the model got
+right for that mineral, and a row below 0.70 is coloured. **A low recall means that mineral's
+percentage is noise** — the model cannot see it, and no amount of confident decimal places changes
+that. The overall accuracy can be 90% while one mineral is at 0.4, which is why the table is per
+class.
+
+**The check is honest by construction.** The model is scored on clicks it has never seen — and
+grouped by click, so the pixels around a click can never be split between training and testing.
+That is the difference between an accuracy you can trust on a new plate and one that just measures
+how well the model memorised your clicks.
+
+**What it can and cannot do.** It sees colour and local texture. Cloudy altered feldspar against
+clear quartz at the same colour is exactly the case it handles — tested, and it separated them
+perfectly. Two minerals that genuinely look identical in your images it will NOT separate, and it
+tells you so: labelling one uniform material as two minerals gave a held-out accuracy of 41%, near
+chance, with both classes flagged.
+
+**Nothing is pre-trained, and the model does not travel.** It learned your lamp, your white balance
+and your scanner along with your minerals. A differently photographed delivery needs its own labels.
+
+**On the item names.** These are `CLS_` and the stain results are `MIN_`. That is deliberate — a
+fraction from a published stain identification and one from your own classifier are different
+claims, and a report has to be able to say which it quoted.
+
+**Worth a real test:** label a section you have already point counted by hand, then compare the
+fractions against your own count. That is the only calibration that means anything here.
+
+---
+
+## A click that needs a well now says so (2026-07-31)
+
+ROADMAP T-IMP-05. Small, but it is the kind of thing that wastes ten minutes and looks like a bug.
+
+- [ ] With **no well selected**, click each of: Export LAS, Import DLIS, Import SCAL, Import
+      deviation, Import Aux, Import pictures, Data Sets, Shift Core, Well header.
+- [ ] Each should open a small dialog naming that action and saying no well is selected, with what
+      to do about it. Previously the only sign was one line in the status bar.
+- [ ] **OK** closes it. Select a well and the same click should go straight through with no dialog.
+
+Nothing changed about what the actions do — only about how they refuse.

@@ -229,6 +229,22 @@ pub struct McRequest {
     /// Samples with too few finite realizations stay NaN. Off by default.
     #[serde(default)]
     pub persist: bool,
+    /// Also store the per-sample REALIZATION MATRIX itself into `array_logs` as
+    /// `MC_<KEY>_REAL`, so the log view can draw an adjustable band, a spaghetti overlay or a
+    /// density heat map from one stored run — the percentiles become a display setting you
+    /// change instead of a reason to re-run the study. Requires `persist` (it rides the same
+    /// pass over the kept realizations). Off by default: this is the only output here whose
+    /// size scales with iteration count.
+    #[serde(default)]
+    pub persist_realizations: bool,
+    /// How many realizations `persist_realizations` stores per depth (default 256, clamped to
+    /// 8..=1024). The full kept set can reach 1024, which at ~2000 samples is ~8 MB per curve
+    /// per well — 3 GB across a 100-well field, the exact kind of growth that produced the
+    /// 2.5 GB field report. 256 draws put P10/P90 within a hair of the full set at a quarter
+    /// the size; when the cap bites, the run says so rather than letting the band quietly
+    /// disagree with the persisted MC_*_LOW/_HIGH curves.
+    #[serde(default)]
+    pub realization_cap: Option<u32>,
 }
 
 /// Low / median / high percentile (at the request's `low_pctl` / 0.50 / `high_pctl`) plus mean/sd
@@ -1605,7 +1621,10 @@ pub fn run_monte_carlo(
             let centrals: Vec<f64> = req.mc_params.iter().map(|p| p.dist.central()).collect();
             let base_pool = run_realization(&plans, &raw_pool, &depth, &req.mc_params, &spans, &centrals, n, &step_err);
             let kept = per_real.iter().filter(|m| m.2.is_some()).count();
+            let real_cap = req.realization_cap.unwrap_or(256).clamp(8, 1024) as usize;
             let mut out: Vec<(String, Vec<f32>)> = Vec::new();
+            // (curve name, depths, per-depth realization vectors) for the array store.
+            let mut arrays: Vec<(String, Vec<f32>, Vec<Vec<f32>>)> = Vec::new();
             for (t, key) in TRACKED.iter().enumerate() {
                 if !produced.contains(*key) {
                     continue;
@@ -1615,9 +1634,24 @@ pub fn run_monte_carlo(
                 let mut mid_c = vec![f32::NAN; n];
                 let mut hi_c = vec![f32::NAN; n];
                 let mut buf: Vec<f32> = Vec::with_capacity(snaps.len());
+                let cap = real_cap.min(snaps.len());
+                let mut arr_depths: Vec<f32> = Vec::new();
+                let mut arr_vals: Vec<Vec<f32>> = Vec::new();
                 for i in 0..n {
                     buf.clear();
                     buf.extend(snaps.iter().map(|s| s[i]).filter(|v| v.is_finite()));
+                    if req.persist_realizations {
+                        // REALIZATION ORDER, NaNs included: index r must mean the same
+                        // realization at every depth or a spaghetti trace is not a trace. The
+                        // sorted `buf` above is for percentiles only and must not be stored.
+                        // The >= 8 floor matches the percentile curves', so a stored depth and
+                        // the MC_*_LOW/_HIGH curves are never present at different depths.
+                        let col: Vec<f32> = snaps.iter().take(cap).map(|s| s[i]).collect();
+                        if col.iter().filter(|v| v.is_finite()).count() >= 8 {
+                            arr_depths.push(depth[i]);
+                            arr_vals.push(col);
+                        }
+                    }
                     if buf.len() < 8 {
                         continue;
                     }
@@ -1641,6 +1675,9 @@ pub fn run_monte_carlo(
                     None => notes.push(format!(
                         "{well_name}: MC_{key}_BASE skipped — the all-median base run produced no finite {key}"
                     )),
+                }
+                if !arr_depths.is_empty() {
+                    arrays.push((format!("MC_{key}_REAL"), arr_depths, arr_vals));
                 }
             }
             if out.is_empty() {
@@ -1703,6 +1740,31 @@ pub fn run_monte_carlo(
                             if !persisted.contains(k) {
                                 persisted.push(k.clone());
                             }
+                        }
+                        // Realization matrices go to `array_logs`, NOT to the versioned archive
+                        // that holds the curves. That is deliberate: the archive exists so a
+                        // re-run is non-destructive, and keeping every version of a matrix this
+                        // size would balloon the project file. The matrix is the WORKING data a
+                        // display reads and is replaced by its own re-run; the percentile CURVES
+                        // it produced are what stay versioned and restorable.
+                        for (name, ds, vals) in &arrays {
+                            match db::write_array_log(&conn, well_id, "MONTECARLO", name, ds, vals) {
+                                Ok(rows) => {
+                                    notes.push(format!(
+                                        "{well_name}: stored {name} — {rows} depths x {} realizations",
+                                        vals.first().map_or(0, Vec::len)
+                                    ));
+                                    if !persisted.contains(name) {
+                                        persisted.push(name.clone());
+                                    }
+                                }
+                                Err(e) => notes.push(format!("{well_name}: {name} not stored — {e}")),
+                            }
+                        }
+                        if !arrays.is_empty() && kept > real_cap {
+                            notes.push(format!(
+                                "{well_name}: realizations stored are the first {real_cap} of {kept}, so a band drawn from them can differ slightly from MC_*_LOW/_HIGH"
+                            ));
                         }
                     }
                     Err(e) => {
@@ -1806,6 +1868,8 @@ mod tests {
             converge: false,
             converge_tol: 0.005,
             persist: false,
+            persist_realizations: false,
+            realization_cap: None,
         }
     }
 
@@ -2183,6 +2247,46 @@ mod tests {
             "chain inputs must not be persisted: {:?}",
             res.persisted
         );
+    }
+
+    #[test]
+    fn persist_realizations_stores_a_matrix_that_reproduces_the_percentile_curves() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let well = seed_well(&conn);
+        seed_computed(&conn, &well, "PHIE", 0.2);
+        seed_computed(&conn, &well, "VSH", 0.1);
+        let dbm = Mutex::new(conn);
+        let mc = vec![McParam { param: "A".into(), dist: Distribution::Normal { mean: 1.0, sd: 0.15 }, zone: None }];
+        let mut req = base_request(&well, mc, 64, 42);
+        req.steps = vec![step("sw_indo")];
+        req.persist = true;
+        req.persist_realizations = true;
+        let res = run_monte_carlo(&dbm, &req, None);
+        assert!(res.errors.is_empty(), "unexpected errors: {:?}", res.errors);
+        assert!(res.persisted.iter().any(|c| c == "MC_SWE_REAL"), "persisted: {:?}", res.persisted);
+
+        let conn = dbm.lock().unwrap();
+        let rows = db::read_array_log(&conn, &well, Some("MONTECARLO"), "MC_SWE_REAL").unwrap();
+        assert!(!rows.is_empty(), "the matrix must reach the store");
+        assert!(rows.iter().all(|r| r.samples.len() == 64), "every depth keeps every realization slot");
+
+        // The stored matrix must reproduce the curves written beside it: below the storage cap
+        // they are the same realizations, so a band drawn from the matrix and the persisted
+        // MC_SWE_LOW/_HIGH curves are the SAME numbers, not merely similar ones.
+        let curves = equations::fetch_curve_frame(
+            &conn,
+            &well,
+            &["MC_SWE_LOW".into(), "MC_SWE_P50".into(), "MC_SWE_HIGH".into()],
+        )
+        .unwrap();
+        let (depth, cols) = (curves.0, curves.1);
+        let idx = depth.iter().position(|d| (*d - rows[0].depth).abs() < 1e-4).expect("stored depth is a curve depth");
+        let (lo, med, hi) = crate::distribution::band(&rows[0].samples, 10.0, 90.0).unwrap();
+        for (name, want) in [("MC_SWE_LOW", lo), ("MC_SWE_P50", med), ("MC_SWE_HIGH", hi)] {
+            let got = cols.get(name).and_then(|c| c.get(idx).copied()).unwrap();
+            assert!((got - want).abs() < 1e-5, "{name}: curve {got} vs matrix {want}");
+        }
     }
 
     #[test]

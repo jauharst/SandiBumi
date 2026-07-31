@@ -493,14 +493,23 @@ export async function buildMonteCarloContent(
   const tornChk = checkbox("Tornado sweep (P10 / P90)", true);
   const convChk = checkbox("Convergence check", false);
   const persistChk = checkbox("Save LOW/BASE/HIGH curves", false);
+  const realChk = checkbox("Store realizations (array log)", false);
   const sensBox = document.createElement("div");
   sensBox.className = "mc-sens-opts";
-  sensBox.append(sensChk.el, tornChk.el, convChk.el, persistChk.el);
+  sensBox.append(sensChk.el, tornChk.el, convChk.el, persistChk.el, realChk.el);
+  // Storing realizations rides the same pass over the kept runs as the percentile curves, so
+  // it needs them switched on; ticking it alone would silently do nothing.
+  const syncReal = (): void => {
+    realChk.el.querySelector("input")?.toggleAttribute("disabled", !persistChk.checked());
+    realChk.el.style.opacity = persistChk.checked() ? "" : "0.5";
+  };
+  persistChk.el.addEventListener("change", syncReal);
+  syncReal();
   content.appendChild(
     formRow(
       "Options",
       sensBox,
-      "Spearman ranks each parameter's pull; the tornado sweeps each to its P10/P90 with the rest at medians. Convergence tracks the running percentiles per batch (Random sampling stops early once stationary). Saving curves writes MC_*_LOW/_P50/_HIGH/_BASE to a fresh version of the MONTECARLO log set.",
+      "Spearman ranks each parameter's pull; the tornado sweeps each to its P10/P90 with the rest at medians. Convergence tracks the running percentiles per batch (Random sampling stops early once stationary). Saving curves writes MC_*_LOW/_P50/_HIGH/_BASE to a fresh version of the MONTECARLO log set. Storing realizations additionally keeps the run's realization matrix as MC_*_REAL, so a log view can draw an adjustable band, spaghetti or a density heat map from it without re-running the study.",
     ),
   );
 
@@ -566,6 +575,7 @@ export async function buildMonteCarloContent(
       correlations,
       converge: convChk.checked(),
       persist: persistChk.checked(),
+      persist_realizations: persistChk.checked() && realChk.checked(),
     };
     runBtn.disabled = true;
     statusLine.textContent = `Running ${req.iterations.toLocaleString()} realizations × ${wellIds.length} well(s)…`;

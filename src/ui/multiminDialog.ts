@@ -32,7 +32,7 @@ import { attachResizeRedraw, canvasFont, faciesColor, readTheme } from "./plotCa
  *    minerals + unflushed fluids, POROSITY (ΣX = ΣU), BNDWAT (bound water tied to clay
  *    CEC), WATER MUD (Sxo ≥ Sw for WBM), and hard box bounds per component.
  *
- *  - Wet→dry clay converter (KKT ONWJ workflow): wet-clay picks + dry density →
+ *  - Wet→dry clay converter (xlsx workflow): wet-clay picks + dry density →
  *    dry endpoints + CEC equivalent so BNDWAT solves v_bw = φ_clay/(1−φ_clay)·v_dryclay.
  *  - Fluid autofill: zone-averaged FTEMP_F / RMF from the precalc module's curves.
  *
@@ -645,7 +645,7 @@ export async function buildMultiminContent(
   fluidPanel.appendChild(fluidHint);
   fluidPanel.appendChild(fluidBox);
 
-  // --- Wet clay → dry clay converter (KKT ONWJ xlsx workflow) ---------------
+  // --- Wet clay → dry clay converter (xlsx workflow) ---------------
   // Pick wet-clay readings in a shale interval, assume a dry-clay density, and
   // the backend derives the dry endpoints + the CEC that makes the BNDWAT
   // constraint solve bound water as v_bw = φ_clay/(1−φ_clay) · v_dryclay.

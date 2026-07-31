@@ -284,8 +284,9 @@
       dockview panel drags, sash resizing and canvas panning instant: those
       move geometry, and geometry is not in this list.
 
-   Measured before this existed: .ribbon-tab, .ribbon-btn and .qat-btn all
-   reported transition-duration: 0s on the live DOM.
+   Measured before this existed: .ribbon-tab, .ribbon-btn and the old .qat-btn
+   (that strip is gone; its buttons are .ribbon-btn tools now) all reported
+   transition-duration: 0s on the live DOM.
    -------------------------------------------------------------------------- */
 
 :where(
@@ -481,6 +482,24 @@ textarea {
   font-weight: 600;
 }
 
+/* Unsaved-state dot mirrored onto the Project tab: Save Session… lives INSIDE that tab
+   now, so the warning has to be readable without opening it (see ribbon.ts). Kept to a
+   ::after dot rather than a text prefix so the tab never changes width — a tabstrip that
+   reflows when work becomes dirty would move every other tab under the cursor. */
+.ribbon-tab.ribbon-tab-dirty {
+  position: relative;
+}
+.ribbon-tab.ribbon-tab-dirty::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warn);
+}
+
 /* Fixed height so every tab's groups share the same bottom edge; positioning context for
    the overflow chevrons. */
 .ribbon-body {
@@ -500,6 +519,11 @@ textarea {
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
+  /* Deliberately NOT `scroll-behavior: smooth`. Measured in the WebView: smooth scrolling on
+     this element is a no-op by EITHER route — scrollBy({behavior:"smooth"}) and a scrollLeft
+     assignment under CSS smooth both leave scrollLeft at 0, while a plain assignment moves it
+     correctly. The chevrons therefore jump rather than glide (see ribbon.ts scrollActive).
+     A ribbon that jumps is fine; a ribbon that does not move is broken. */
 }
 .ribbon-panel::-webkit-scrollbar {
   height: 0;
@@ -1316,6 +1340,108 @@ textarea {
   opacity: 1;
 }
 
+/* ▸/▾ twisty on a well or set row — expands the curve-set subtree (T-IMP-02). Sized like
+   the ★ so labels line up whether or not a row has one. */
+.tree-twisty {
+  flex: none;
+  width: 12px;
+  text-align: center;
+  font-size: var(--fs-sm);
+  line-height: 1;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+.tree-twisty:hover {
+  color: var(--accent);
+}
+
+/* Curve sets and their curves, indented under the owning well. */
+.tree-set {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 22px;
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.tree-set-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.tree-curve {
+  padding-left: 46px;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  cursor: default;
+}
+.tree-curve:hover {
+  color: var(--text);
+}
+.tree-set-loading,
+.tree-set-empty {
+  padding-left: 22px;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  font-style: italic;
+  cursor: default;
+}
+
+/* Non-curve deliveries under a well: core sets, surveys, point data. One of each kind is
+   live (●), so these rows carry a state mark instead of a twisty. */
+.tree-set-kind {
+  padding-left: 22px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  cursor: default;
+}
+.tree-dataset {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 34px;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  cursor: default;
+}
+.tree-dataset-active {
+  color: var(--text);
+}
+.tree-dataset-active .tree-set-label {
+  font-weight: 600;
+}
+/* ●/○ live-delivery mark. Distinct from .tree-twisty: a delivery row carries BOTH — the
+   twisty opens its contents, this says whether it is the one every panel reads — so this
+   one is deliberately not clickable (double-click the row, or use the right-click menu). */
+.tree-dataset-mark {
+  flex: none;
+  width: 10px;
+  text-align: center;
+  font-size: var(--fs-xs);
+  line-height: 1;
+  cursor: default;
+  user-select: none;
+}
+.tree-dataset-active .tree-dataset-mark {
+  color: var(--accent);
+}
+/* Contents of an expanded delivery (core properties, XRD items, Pc samples, survey shape) —
+   one level deeper than the delivery row, matching .tree-curve under a curve set. */
+.tree-data-item {
+  padding-left: 58px;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  cursor: default;
+}
+.tree-data-item:hover {
+  color: var(--text);
+}
+
 /* The well / top interval currently driving every plot and log view. */
 .tree-selected,
 .top-selected {
@@ -1882,6 +2008,39 @@ textarea {
   text-align: center;
 }
 
+/* Point-data track editor: one card per measured-sample series. A card rather than a table
+   row because a point series carries far more style than a curve, and only some of it
+   applies to any one display kind. */
+.lp-point-card {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 8px 30px 8px 8px;
+  margin-bottom: 8px;
+  background: var(--bg-app);
+}
+
+.lp-point-del {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
+
+.lp-note {
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  margin: 2px 0 8px;
+  line-height: 1.4;
+}
+
+/* Shading swatches: one for edge fill, two side by side for crossover (left-of / right-of
+   the reference curve), so the cell widens only when crossover is actually chosen. */
+.lp-shade {
+  display: flex;
+  gap: 3px;
+  justify-content: center;
+}
+
 .lp-btn {
   font-family: inherit;
   font-size: var(--fs-md);
@@ -1995,6 +2154,13 @@ textarea {
   margin-bottom: 7px;
 }
 
+/* A `display` rule beats the `hidden` attribute, so every one of them needs its own escape hatch
+   or a row that hides itself stays on screen — the ribbon panels and menus were bitten by exactly
+   this twice. Used by the plug QC pane, whose mercury-saturation row only applies to one source. */
+.form-row[hidden] {
+  display: none;
+}
+
 .form-label {
   flex: 0 0 180px;
   font-size: var(--fs-sm);
@@ -2006,6 +2172,102 @@ textarea {
   font-size: var(--fs-xs);
   color: var(--text-dim);
   margin: -3px 0 7px;
+}
+
+/* Core import wizard: the sample-rows preview grid. Wide lab exports overflow the
+   dialog, so the TABLE scrolls inside its own box — never the dialog body. */
+.core-import-preview {
+  max-height: 140px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin: 8px 0;
+}
+.core-import-preview table {
+  border-collapse: collapse;
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+.core-import-preview th,
+.core-import-preview td {
+  padding: 2px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  color: var(--text-dim);
+}
+.core-import-preview th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Opt-in list of the core file's leftover columns (stored as point data). */
+.core-import-extras {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+  margin: 4px 0 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  max-height: 120px;
+  overflow: auto;
+}
+.core-import-extras label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.core-import-extras .form-hint {
+  flex-basis: 100%;
+  margin: 4px 0 0;
+}
+
+/* Core sets & surveys manager: one row per delivery, active row highlighted. */
+.set-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--fs-sm);
+  margin-bottom: 6px;
+}
+.set-table th,
+.set-table td {
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.set-table th {
+  font-weight: 600;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+.set-table tr.set-active td {
+  color: var(--text);
+  font-weight: 600;
+}
+.set-table td:last-child {
+  text-align: right;
+}
+/* Dataset sub-header inside the point-data section (XRD, CEC, …). */
+.set-table td.set-group {
+  padding-top: 7px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  border-bottom: none;
+  text-align: left;
+}
+.set-table td .btn {
+  padding: 1px 8px;
+  margin-left: 4px;
 }
 
 /* Section label inside a properties dialog (Crossplot/Histogram v2). */
@@ -3553,6 +3815,44 @@ textarea {
   max-height: 180px;
   overflow-y: auto;
 }
+/* Saved ML models: a scrolling list of artifacts, each with its own actions. */
+.mc-section {
+  margin: 14px 0 4px;
+}
+.mc-section > h4 {
+  margin: 0 0 6px;
+  font-size: var(--fs-md);
+}
+.mc-saved-list {
+  border: 1px solid var(--border, #d8d2c4);
+  border-radius: var(--r-md);
+  max-height: 190px;
+  overflow-y: auto;
+}
+.mc-saved-list:empty {
+  display: none;
+}
+.mc-saved-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border, #d8d2c4);
+}
+.mc-saved-row:last-child {
+  border-bottom: none;
+}
+.mc-saved-desc {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mc-saved-row button {
+  flex: 0 0 auto;
+}
 .mc-param-row {
   display: flex;
   align-items: center;
@@ -4053,6 +4353,50 @@ textarea {
   flex: 1;
   margin-bottom: 0;
 }
+/* Well legend under a calibration QC scatter (fitScatter.ts). Wraps rather than scrolls: on a
+   field-wide fit the names are secondary to the colours on the canvas. */
+.fit-scatter-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 10px;
+  margin-top: 4px;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+.fit-scatter-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.fit-scatter-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex: none;
+}
+/* "Apply to…" row under an accepted calibration (calibrationApply.ts). */
+.calib-apply {
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.calib-apply-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.calib-apply-row select {
+  flex: 2 1 0;
+  min-width: 0;
+}
+.calib-apply-row input {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.calib-apply-row .btn {
+  flex: none;
+}
 .mc-gear {
   flex: none;
   border: 1px solid var(--border);
@@ -4125,6 +4469,75 @@ textarea {
    Well scope selector — the shared "which wells" control used by every batch
    dialog in place of a per-well checklist (workable at 2000 wells).
    -------------------------------------------------------------------------- */
+/* --- Per-well parameter grid (wellParamsDialog) -------------------------- */
+.wellparams-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+.wellparams-scroll {
+  max-height: 46vh;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.wellparams-grid {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12px;
+}
+.wellparams-grid th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-panel-alt);
+  border-bottom: 1px solid var(--border);
+  padding: 5px 8px;
+  text-align: right;
+  white-space: nowrap;
+}
+.wellparams-grid th.wellparams-wellcol,
+.wellparams-grid td.wellparams-wellcol {
+  text-align: left;
+  position: sticky;
+  left: 0;
+  background: var(--bg-panel);
+  z-index: 1;
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wellparams-grid th.wellparams-wellcol {
+  z-index: 2;
+  background: var(--bg-panel-alt);
+}
+.wellparams-grid td {
+  border-bottom: 1px solid var(--border);
+  padding: 3px 8px;
+  text-align: right;
+  white-space: nowrap;
+}
+.wellparams-grid tr:hover td {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.08));
+}
+/* Amber = this well carries its own value; grey = inherited from the step. Same amber the
+   per-step editors use for a stored override, so "edited" reads the same across the app. */
+.wellparams-override {
+  color: var(--warn, #b5651d);
+  font-weight: 600;
+}
+.wellparams-inherited {
+  opacity: 0.55;
+}
+.wellparams-input {
+  width: 88px;
+  text-align: right;
+  padding: 1px 4px;
+}
+
 .well-scope {
   margin: 8px 0 12px;
   padding: 8px;
@@ -4235,51 +4648,9 @@ textarea {
   color: var(--text-dim);
 }
 
-/* --------------------------------------------------------------------------
-   Quick access toolbar (undo / redo / save / history) — left of the ribbon tabs
-   -------------------------------------------------------------------------- */
-.qat {
-  display: inline-flex;
-  align-items: center;
-  gap: 1px;
-  margin-right: 8px;
-  padding-right: 8px;
-  border-right: 1px solid var(--border);
-}
-.qat-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 24px;
-  border: 1px solid transparent;
-  border-radius: var(--r-md);
-  background: transparent;
-  color: var(--text);
-  /* These are icon-only (fixed 26x24 with an SVG child), so this is hygiene
-     rather than a visible change: without it the button inherits the UA
-     default 13.33px while everything else in the same strip is 11-12px. */
-  font-size: var(--fs-sm);
-  cursor: pointer;
-}
-.qat-btn svg {
-  width: 16px;
-  height: 16px;
-}
-.qat-btn:hover:not(:disabled) {
-  background: var(--bg-hover);
-  border-color: var(--border-strong);
-}
-.qat-btn:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-.qat-sep {
-  width: 1px;
-  height: 16px;
-  margin: 0 3px;
-  background: var(--border);
-}
+/* The icon-only quick-access strip (.qat) that used to live left of the ribbon tabs was
+   removed on 2026-07-30 — its buttons are labelled .ribbon-btn tools in the Project tab.
+   Disabled styling for Undo/Redo now comes from .ribbon-btn:disabled below. */
 
 /* --------------------------------------------------------------------------
    Plot image export + template controls (histogram / crossplot / pickett / correlation)
@@ -4940,16 +5311,16 @@ input[type="number"].num-editing:focus {
   padding: 6px 8px;
   margin: 6px 0;
 }
-/* Unsaved-state dot on the QAT Save Session button (lit while any panel has state
-   not yet in a named save; the tab itself carries a ● prefix). */
-.qat-btn.qat-dirty {
+/* Unsaved-state dot on the Project ▸ Session ▸ Save Session… button (lit while any panel
+   has state not yet in a named save; the tab itself carries a ● prefix). */
+.ribbon-btn.ribbon-btn-dirty {
   position: relative;
 }
-.qat-btn.qat-dirty::after {
+.ribbon-btn.ribbon-btn-dirty::after {
   content: "";
   position: absolute;
-  top: 2px;
-  right: 2px;
+  top: 3px;
+  right: 3px;
   width: 7px;
   height: 7px;
   border-radius: 50%;
@@ -5351,4 +5722,86 @@ input[type="number"].num-editing:focus {
   margin-top: 2px;
   color: var(--text-dim);
   font-size: var(--fs-sm);
+}
+
+/* ---------------------------------------------------------------------------
+   Boot overlay — covers the empty workspace while the project database opens.
+
+   The window is created BEFORE the project is opened (the open runs on a
+   background thread), so this is what the user looks at during a slow first
+   open instead of the nothing-at-all they used to get. Above every other
+   layer (modals are 100-500) and, unlike .modal-scrim, deliberately NOT
+   pointer-transparent: there is no database yet, so nothing behind it is
+   safe to click.
+   --------------------------------------------------------------------------- */
+.boot-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-app);
+}
+
+.boot-card {
+  min-width: 320px;
+  max-width: 68vw;
+  padding: 28px 34px;
+  text-align: center;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.18);
+}
+
+.boot-title {
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+}
+
+.boot-msg {
+  margin-top: 10px;
+  color: var(--text);
+}
+
+.boot-bar {
+  margin: 16px auto 0;
+  width: 240px;
+  height: 4px;
+  overflow: hidden;
+  background: var(--bg-panel-alt);
+  border-radius: 2px;
+}
+
+.boot-bar > span {
+  display: block;
+  width: 38%;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  animation: boot-slide 1.4s ease-in-out infinite;
+}
+
+@keyframes boot-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(363%); }
+}
+
+.boot-time {
+  margin-top: 10px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-sm);
+}
+
+.boot-hint {
+  margin-top: 12px;
+  max-width: 44ch;
+  margin-inline: auto;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
 }

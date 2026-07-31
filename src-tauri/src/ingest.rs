@@ -14,15 +14,77 @@ pub struct ImportResult {
     /// Non-fatal note for a successful import, e.g. rows dropped for a bad/duplicate depth.
     pub warning: Option<String>,
     pub error: Option<String>,
+    /// Set name the curves landed under when this file ATTACHED to an existing well
+    /// (import-sets mode) instead of creating a new record. None = a well was created.
+    pub attached_set: Option<String>,
+}
+
+/// Options for a LAS import batch (the Import LAS dialog's choices).
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct LasImportOptions {
+    /// Set name for every curve of this batch in the generic store (one delivery = one
+    /// set). None/empty → "RAW". Auto-suffixed PER WELL (`FPROOH` taken → `FPROOH_1`,
+    /// Geolog-style) so a re-import can never overwrite an earlier delivery.
+    pub set_name: Option<String>,
+    /// When true (the dialog default), a file whose well name matches exactly one
+    /// existing well ATTACHES its curves to that well as a new set instead of creating
+    /// a duplicate well record. False = always create records (the legacy behavior).
+    pub attach: bool,
+}
+
+/// Normalizes a user/derived set name to the store's convention: trimmed, upper-cased,
+/// spaces collapsed to `_`; empty → RAW.
+pub fn canonical_set_name(raw: Option<&str>) -> String {
+    let s = raw.unwrap_or("").trim().to_uppercase().replace(' ', "_");
+    if s.is_empty() { "RAW".to_string() } else { s }
+}
+
+/// Returns `desired` if this well has no curves under it yet, else the first free
+/// `desired_1`, `desired_2`, … — the Geolog re-import convention (WIRE, WIRE_1, …):
+/// an import NEVER overwrites an existing set of the same name.
+pub fn resolve_set_name(conn: &Connection, well_id: &str, desired: &str) -> String {
+    let taken = |name: &str| -> bool {
+        conn.query_row(
+            "SELECT 1 FROM curve_meta WHERE well_id = ?1 AND set_name = ?2 LIMIT 1",
+            params![well_id, name],
+            |_| Ok(()),
+        )
+        .is_ok()
+    };
+    if !taken(desired) {
+        return desired.to_string();
+    }
+    for i in 1.. {
+        let candidate = format!("{desired}_{i}");
+        if !taken(&candidate) {
+            return candidate;
+        }
+    }
+    unreachable!()
 }
 
 /// Parses every given LAS file concurrently via `rayon` (CPU-bound), then inserts each
 /// well and its curves into DuckDB sequentially — the connection is behind a single lock,
 /// so only the parsing step benefits from parallelism, which is also the expensive part.
+/// Legacy entry point (no set naming, always create well records) — kept for the test
+/// suite's many import call sites; production goes through `import_las_files_with`.
+#[cfg(test)]
 pub fn import_las_files(
     conn: &Connection,
     paths: &[String],
     progress: Option<&crate::jobs::JobHandle>,
+) -> Vec<ImportResult> {
+    import_las_files_with(conn, paths, progress, &LasImportOptions::default())
+}
+
+/// Import-sets-aware batch import (Phase 9-3 / T-IMP-02): every curve of the batch lands
+/// under one named set; files whose well name matches an existing well attach instead of
+/// duplicating (when `opts.attach`).
+pub fn import_las_files_with(
+    conn: &Connection,
+    paths: &[String],
+    progress: Option<&crate::jobs::JobHandle>,
+    opts: &LasImportOptions,
 ) -> Vec<ImportResult> {
     let parsed: Vec<(String, Result<(String, CurveColumns), ParseError>)> = paths
         .par_iter()
@@ -55,6 +117,7 @@ pub fn import_las_files(
                     rows: 0,
                     warning: Some("cancelled before import".into()),
                     error: None,
+                    attached_set: None,
                 };
             }
             if let Some(p) = progress {
@@ -63,8 +126,8 @@ pub fn import_las_files(
                 p.start_item(&path);
             }
             let out = match result {
-                Ok((well_name, columns)) => insert_parsed_well(conn, path.clone(), well_name, columns),
-                Err(e) => ImportResult { path: path.clone(), well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()) },
+                Ok((well_name, columns)) => insert_parsed_well(conn, path.clone(), well_name, columns, opts),
+                Err(e) => ImportResult { path: path.clone(), well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None },
             };
             if let Some(p) = progress {
                 let (state, msg) = if out.error.is_some() {
@@ -81,12 +144,18 @@ pub fn import_las_files(
         .collect()
 }
 
-fn insert_parsed_well(conn: &Connection, path: String, well_name: String, mut columns: CurveColumns) -> ImportResult {
+fn insert_parsed_well(
+    conn: &Connection,
+    path: String,
+    well_name: String,
+    mut columns: CurveColumns,
+    opts: &LasImportOptions,
+) -> ImportResult {
     let well_id = Uuid::new_v4();
 
     // Reconcile the file's depth index with the project's declared unit BEFORE anything
     // else touches the depths. A project holds exactly one depth unit (units.rs); a
-    // foot-indexed Rokan LAS landing its raw numbers in a metric project used to be
+    // foot-indexed LAS landing its raw numbers in a metric project used to be
     // reported as a clean import while every cross-well comparison silently put 8,000
     // against 2,438 for the same formation.
     let declared = crate::units::project_depth_unit(conn).ok().flatten();
@@ -119,6 +188,7 @@ fn insert_parsed_well(conn: &Connection, path: String, well_name: String, mut co
                 "no importable rows: {} had missing depth, {} duplicated an earlier depth",
                 report.nonfinite, report.duplicate
             )),
+            attached_set: None,
         };
     }
 
@@ -140,19 +210,41 @@ fn insert_parsed_well(conn: &Connection, path: String, well_name: String, mut co
     if non_monotonic {
         notes.push("depth index is non-monotonic — column 0 may not be the true depth curve".to_string());
     }
-    // A well of the same (normalized) name already exists. LAS import still creates a SEPARATE
-    // record here — reuse/merge is a deliberate action that needs a user confirmation flow, not
-    // an automatic side effect — but warn so a corrected re-delivery (or the same file picked
-    // twice) doesn't silently fragment a well's curves across two disconnected records.
+    // Wells of the same (normalized) name already in the project. With `opts.attach` (the
+    // dialog default) and exactly ONE match, this file's curves ATTACH to that well as a
+    // new named set — the Geolog/IP set model (T-IMP-02): a re-delivery lands beside the
+    // earlier one instead of fragmenting the well across duplicate records. Ambiguous
+    // (several same-named records, from pre-set-era imports) or attach-off falls back to
+    // the legacy separate-record behavior, with a warning either way.
     let name_norm = well_name.trim().to_uppercase();
-    let dup_exists = conn
-        .query_row(
-            "SELECT 1 FROM wells WHERE upper(trim(well_name)) = ?1 LIMIT 1",
-            params![name_norm],
-            |_| Ok(()),
-        )
-        .is_ok();
-    if dup_exists {
+    let matches: Vec<String> = {
+        let mut stmt = match conn
+            .prepare("SELECT well_id FROM wells WHERE upper(trim(well_name)) = ?1 ORDER BY well_id")
+        {
+            Ok(s) => s,
+            Err(e) => {
+                return ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None }
+            }
+        };
+        match stmt
+            .query_map(params![name_norm], |r| r.get::<_, String>(0))
+            .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+        {
+            Ok(v) => v,
+            Err(e) => {
+                return ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None }
+            }
+        }
+    };
+    if opts.attach && matches.len() == 1 {
+        return attach_curves_to_existing_well(conn, path, well_name, &matches[0], opts, notes);
+    }
+    if matches.len() > 1 {
+        notes.push(format!(
+            "{} wells named '{well_name}' already exist — ambiguous, imported as a separate record (merge or delete the duplicates first)",
+            matches.len()
+        ));
+    } else if matches.len() == 1 {
         notes.push(format!(
             "a well named '{well_name}' already exists — imported as a separate record"
         ));
@@ -195,11 +287,13 @@ fn insert_parsed_well(conn: &Connection, path: String, well_name: String, mut co
                 }
             }
             // Phase 6: additionally load *every* curve from the file into the generic
-            // store (set RAW), so PEF/CALI/multiple-runs — anything beyond the fixed 6 —
-            // is available even though the legacy `standard_curves` path above still feeds
-            // the current UI. A failure here must not fail the whole import (the standard
-            // curves are already in), so it's logged, not propagated.
-            if let Err(e) = import_all_curves_into_generic_store(conn, &well_id.to_string(), &path) {
+            // store (under the batch's set name, default RAW), so PEF/CALI/multiple-runs —
+            // anything beyond the fixed 6 — is available even though the legacy
+            // `standard_curves` path above still feeds the current UI. A failure here must
+            // not fail the whole import (the standard curves are already in), so it's
+            // logged, not propagated.
+            let set = resolve_set_name(conn, &well_id.to_string(), &canonical_set_name(opts.set_name.as_deref()));
+            if let Err(e) = import_all_curves_into_generic_store(conn, &well_id.to_string(), &path, &set) {
                 eprintln!("warning: generic-store import for {well_name} failed (standard curves still imported): {e}");
                 // stderr alone is invisible in a release build, so the import used to report a
                 // clean success while every curve beyond the fixed six — PEF, CALI, DTS, a second
@@ -210,17 +304,57 @@ fn insert_parsed_well(conn: &Connection, path: String, well_name: String, mut co
                 ));
             }
             let warning = (!notes.is_empty()).then(|| notes.join("; "));
-            ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), rows, warning, error: None }
+            ImportResult { path, well_id: Some(well_id.to_string()), well_name: Some(well_name), rows, warning, error: None, attached_set: None }
         }
-        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()) },
+        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None },
+    }
+}
+
+/// The attach half of the import-sets model: writes every curve of `path` into an
+/// EXISTING well's generic store under the batch's set name (auto-suffixed per well so
+/// nothing is ever overwritten), touching neither the well row nor `standard_curves` —
+/// the first delivery's six keep driving the legacy log-view path. The generic-store
+/// loader applies the same depth-unit reconciliation as the create path.
+fn attach_curves_to_existing_well(
+    conn: &Connection,
+    path: String,
+    well_name: String,
+    well_id: &str,
+    opts: &LasImportOptions,
+    notes: Vec<String>,
+) -> ImportResult {
+    let set = resolve_set_name(conn, well_id, &canonical_set_name(opts.set_name.as_deref()));
+    match import_all_curves_into_generic_store(conn, well_id, &path, &set) {
+        // A normal attach is a SUCCESS, not a warning — `attached_set` carries the story
+        // and the frontend reports it separately. Only genuine notes (unit reconciliation,
+        // dropped rows) reach `warning`.
+        Ok((_curves, rows)) => {
+            ImportResult {
+                path,
+                well_id: Some(well_id.to_string()),
+                well_name: Some(well_name),
+                rows,
+                warning: (!notes.is_empty()).then(|| notes.join("; ")),
+                error: None,
+                attached_set: Some(set),
+            }
+        }
+        // Attaching IS the import here (no well/standard-curve write happened), so a
+        // loader failure is a real per-file error, not a note.
+        Err(e) => ImportResult { path, well_id: None, well_name: None, rows: 0, warning: None, error: Some(e.to_string()), attached_set: None },
     }
 }
 
 /// Re-reads a LAS file keeping all curves and writes each into `curve_meta`/`curve_samples`
-/// as set RAW, tagging family (via the mnemonic dictionary) and normalizing units where a
-/// conversion is known. The unit stored is the canonical one when converted, else the
-/// file's original unit.
-pub fn import_all_curves_into_generic_store(conn: &Connection, well_id: &str, path: &str) -> db::DbResult<()> {
+/// under `set_name`, tagging family (via the mnemonic dictionary) and normalizing units
+/// where a conversion is known. The unit stored is the canonical one when converted, else
+/// the file's original unit. Returns `(curves_written, rows)`.
+pub fn import_all_curves_into_generic_store(
+    conn: &Connection,
+    well_id: &str,
+    path: &str,
+    set_name: &str,
+) -> db::DbResult<(usize, usize)> {
     let mut frame = match parsers::parse_las_2_all(path) {
         Ok(f) => f,
         Err(e) => return Err(db::DbError::LengthMismatch(format!("parse_las_2_all: {e}"))),
@@ -239,9 +373,10 @@ pub fn import_all_curves_into_generic_store(conn: &Connection, well_id: &str, pa
     // standard path, so both stores hold the same rows for the same file).
     parsers::sanitize_las_frame(&mut frame);
     if frame.depth.is_empty() {
-        return Ok(());
+        return Ok((0, 0));
     }
 
+    let mut curves_written = 0usize;
     for raw in &frame.curves {
         let mut values = raw.values.clone();
         // Align to the depth column length (defensive: malformed files can short a column).
@@ -257,20 +392,27 @@ pub fn import_all_curves_into_generic_store(conn: &Connection, well_id: &str, pa
             }
         }
         let curve_id =
-            db::upsert_curve_meta(conn, well_id, "RAW", &raw.mnemonic, unit.as_deref(), family, Some("LAS import"), None)?;
+            db::upsert_curve_meta(conn, well_id, set_name, &raw.mnemonic, unit.as_deref(), family, Some("LAS import"), None)?;
         db::insert_curve_samples(conn, &curve_id, &frame.depth, &values)?;
+        curves_written += 1;
     }
-    Ok(())
+    Ok((curves_written, frame.depth.len()))
 }
 
 /// Parses a deviation-survey CSV (columns MD/INC/AZI, alias-tolerant) and stores the
 /// computed minimum-curvature TVD/TVDSS in `well_path` for one well. `datum_elevation`
 /// (KB above MSL) is used for TVDSS; if omitted, the well's `kb` is used, else 0.
+///
+/// `survey_name` (T-IMP-12) versions the survey: a definitive survey imported over a
+/// preliminary one becomes a SECOND survey (auto-suffixed if the name is taken), not a
+/// replacement, and the new one becomes active — so the TVD/TVDSS materialized below is
+/// the geometry the user just delivered, while the old survey stays switchable.
 pub fn import_deviation_csv(
     conn: &Connection,
     well_id: &str,
     path: &str,
     datum_elevation: Option<f32>,
+    survey_name: Option<&str>,
 ) -> CoreImportResult {
     let exists: bool = conn
         .query_row("SELECT 1 FROM wells WHERE well_id = ?1", params![well_id], |_| Ok(true))
@@ -295,7 +437,15 @@ pub fn import_deviation_csv(
     });
     let stations = crate::deviation::minimum_curvature(&survey.md, &survey.inc, &survey.azi, datum);
     let rows = stations.len();
-    match db::insert_well_path(conn, well_id, &stations) {
+    let desired = survey_name
+        .map(|s| s.trim().to_uppercase().replace(' ', "_"))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "SURVEY".to_string());
+    let name = match db::resolve_survey_name(conn, well_id, &desired) {
+        Ok(n) => n,
+        Err(e) => return CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()) },
+    };
+    match db::insert_well_path(conn, well_id, &name, Some(path), Some(datum), &stations) {
         Ok(()) => {
             // Materialize TVD/TVDSS onto the log grid so height modules (sw_height, the SHF
             // fits, the TVDSS correlation view) can fetch them by name. Best-effort: the
@@ -371,8 +521,10 @@ pub struct CoreImportResult {
     pub error: Option<String>,
 }
 
-/// Parses a routine-core-analysis CSV and replaces the given well's core plug data.
-/// Unlike LAS import, this attaches to an existing well rather than creating one.
+/// Parses a routine-core-analysis CSV into a NEW core set on the given well (legacy
+/// single-well path, kept for the tests and any caller that has no wizard). The set is
+/// named CORE, auto-suffixed if that name is taken — an import never overwrites an earlier
+/// delivery. Unlike LAS import, this attaches to an existing well rather than creating one.
 pub fn import_core_csv(conn: &Connection, well_id: &str, path: &str) -> CoreImportResult {
     let exists: bool = conn
         .query_row("SELECT 1 FROM wells WHERE well_id = ?1", params![well_id], |_| Ok(true))
@@ -386,9 +538,296 @@ pub fn import_core_csv(conn: &Connection, well_id: &str, path: &str) -> CoreImpo
         Err(e) => return CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()) },
     };
     let rows = columns.depth.len();
-    match db::insert_core_data(conn, well_id, &columns.depth, &columns.cpor, &columns.cperm, &columns.cgd, &columns.csw) {
+    let set = match db::resolve_core_set_name(conn, well_id, "CORE") {
+        Ok(s) => s,
+        Err(e) => return CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()) },
+    };
+    match db::insert_core_data(
+        conn,
+        well_id,
+        &set,
+        Some(path),
+        &columns.depth,
+        &columns.cpor,
+        &columns.cperm,
+        &columns.cgd,
+        &columns.csw,
+    ) {
         Ok(()) => CoreImportResult { path: path.to_string(), rows, error: None },
         Err(e) => CoreImportResult { path: path.to_string(), rows: 0, error: Some(e.to_string()) },
+    }
+}
+
+/// Per-well outcome of a multi-well core table import (T-IMP-07).
+#[derive(Debug, Clone, Serialize)]
+pub struct CoreWellOutcome {
+    /// The well name as written in the FILE (or the fallback well's name when the file
+    /// has no well column).
+    pub well_name: String,
+    /// Rows carried for this name in the file.
+    pub rows: usize,
+    /// Rows actually stored (post depth-dedup); 0 when the name didn't import.
+    pub imported: usize,
+    /// The core SET the plugs landed in on THIS well — the requested name, or an
+    /// auto-suffixed one when that well already carried a delivery of that name
+    /// (T-IMP-08: an import never overwrites an earlier core delivery).
+    pub set_name: Option<String>,
+    /// None = imported cleanly; Some = why this name's rows were skipped.
+    pub problem: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CoreTableImportResult {
+    pub path: String,
+    pub rows_imported: usize,
+    pub wells_imported: usize,
+    pub outcomes: Vec<CoreWellOutcome>,
+    /// Rows with a blank well cell in a well-routed file — skipped, never misrouted
+    /// (same rule as multi-well tops import).
+    pub skipped_blank_well: usize,
+    /// Aux point-data rows written from the file's EXTRA columns (0 when none were asked
+    /// for), and which columns they came from — reported so the dialog can say out loud
+    /// what landed beside the four core measurements.
+    pub extra_rows: usize,
+    pub extra_items: Vec<String>,
+    pub error: Option<String>,
+}
+
+/// Imports one core table under a dialog-confirmed mapping (probe → confirm → commit).
+///
+/// Routing: with a well column mapped, rows go to the project well matching their cell's
+/// normalized name — exactly one match imports; zero or several report and skip (the
+/// same rules LAS attach uses, so pre-set-era duplicate records can't be guessed at).
+/// Without a well column, everything goes to `fallback_well_id` (the selected well).
+/// Depths convert from `depth_unit` (the dialog's confirmed file unit; None = already
+/// the project unit) to the project's declared unit — a feet-plugged core CSV landing
+/// raw in a metric project would overlay 3.28× off, silently. Per-well semantics stay
+/// replace-on-reimport (`insert_core_data`).
+///
+/// `mapping.extras` names columns beyond the four core measurements (lithology text,
+/// So, Kv/Kh, sample ids …): those land in `aux_data` under `extras_dataset` (default
+/// "CORE") at the same converted plug depths — numeric cells as numbers, everything else
+/// as text — so a wide lab export imports whole in one pass instead of needing a second
+/// Import Aux run. Replace-on-reimport per (well, dataset), matching the core discipline.
+///
+/// `set_name` (T-IMP-08) names the DELIVERY. It is resolved PER WELL, so a name already
+/// used on one well is suffixed there (`RCAL` → `RCAL_1`) while other wells still get the
+/// plain name — the plugs of an earlier delivery are never overwritten, and the newly
+/// imported set becomes the well's active one.
+pub fn import_core_table(
+    conn: &Connection,
+    path: &str,
+    mapping: &parsers::CoreMapping,
+    depth_unit: Option<&str>,
+    fallback_well_id: Option<&str>,
+    extras_dataset: Option<&str>,
+    set_name: Option<&str>,
+) -> CoreTableImportResult {
+    let fail = |e: String| CoreTableImportResult {
+        path: path.to_string(),
+        rows_imported: 0,
+        wells_imported: 0,
+        outcomes: Vec::new(),
+        skipped_blank_well: 0,
+        extra_rows: 0,
+        extra_items: Vec::new(),
+        error: Some(e),
+    };
+
+    let table = match parsers::parse_core_table_mapped(path, mapping) {
+        Ok(r) => r,
+        Err(e) => return fail(e.to_string()),
+    };
+    let rows = table.rows;
+    let extra_names = table.extra_names;
+    let extras_dataset = extras_dataset
+        .map(|d| d.trim().to_uppercase())
+        .filter(|d| !d.is_empty())
+        .unwrap_or_else(|| "CORE".to_string());
+    let desired_set = set_name
+        .map(|s| s.trim().to_uppercase().replace(' ', "_"))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "CORE".to_string());
+    if rows.is_empty() {
+        return fail("no rows with a parsable depth".into());
+    }
+
+    // Group rows by their routing target, keeping file order within each group.
+    let mut skipped_blank_well = 0usize;
+    let mut groups: Vec<(String, Vec<&parsers::MappedCoreRow>)> = Vec::new();
+    let mut fallback_rows: Vec<&parsers::MappedCoreRow> = Vec::new();
+    for r in &rows {
+        match (&r.well, mapping.well) {
+            (Some(name), Some(_)) => match groups.iter_mut().find(|(n, _)| n == name) {
+                Some((_, list)) => list.push(r),
+                None => groups.push((name.clone(), vec![r])),
+            },
+            // A blank cell in a well-routed file: skipping is the only safe answer —
+            // guessing "probably the previous row's well" would misroute lab padding rows.
+            (None, Some(_)) => skipped_blank_well += 1,
+            _ => fallback_rows.push(r),
+        }
+    }
+
+    let project_unit = crate::units::project_depth_unit_or_default(conn);
+    let file_unit = depth_unit.and_then(crate::units::DepthUnit::parse).unwrap_or(project_unit);
+
+    let mut outcomes: Vec<CoreWellOutcome> = Vec::new();
+    let mut rows_imported = 0usize;
+    let mut wells_imported = 0usize;
+    let mut extra_rows = 0usize;
+
+    let mut store = |well_id: &str, well_name: &str, list: &[&parsers::MappedCoreRow], outcomes: &mut Vec<CoreWellOutcome>| {
+        let mut depth: Vec<f32> = list.iter().map(|r| r.depth).collect();
+        crate::units::convert_depths(&mut depth, file_unit, project_unit);
+        let mut cpor: Vec<f32> = list.iter().map(|r| r.cpor).collect();
+        let mut cperm: Vec<f32> = list.iter().map(|r| r.cperm).collect();
+        let mut cgd: Vec<f32> = list.iter().map(|r| r.cgd).collect();
+        let mut csw: Vec<f32> = list.iter().map(|r| r.csw).collect();
+        let mut extras: Vec<&Vec<Option<String>>> = list.iter().map(|r| &r.extras).collect();
+        // Depth-dedup per WELL (first kept), matching the legacy path — the core_data PK
+        // is (well_id, depth), so one repeated plug depth would abort the well's insert.
+        // The extras ride along on the same surviving rows, so they stay depth-aligned.
+        let (keep, report) = parsers::depth_keep_indices(&depth);
+        if !report.is_clean() {
+            let take = |src: &[f32]| -> Vec<f32> { keep.iter().map(|&i| src[i]).collect() };
+            depth = take(&depth);
+            cpor = take(&cpor);
+            cperm = take(&cperm);
+            cgd = take(&cgd);
+            csw = take(&csw);
+            extras = keep.iter().map(|&i| extras[i]).collect();
+        }
+        // Resolved PER WELL: the same delivery name may be free on one well and already
+        // used on another, and neither well's earlier plugs may be overwritten.
+        let set = match db::resolve_core_set_name(conn, well_id, &desired_set) {
+            Ok(s) => s,
+            Err(e) => {
+                outcomes.push(CoreWellOutcome {
+                    well_name: well_name.to_string(),
+                    rows: list.len(),
+                    imported: 0,
+                    set_name: None,
+                    problem: Some(e.to_string()),
+                });
+                return;
+            }
+        };
+        match db::insert_core_data(conn, well_id, &set, Some(path), &depth, &cpor, &cperm, &cgd, &csw) {
+            Ok(()) => {
+                rows_imported += depth.len();
+                wells_imported += 1;
+                let mut problem = (!report.is_clean())
+                    .then(|| format!("{} duplicate depth row(s) dropped (first kept)", report.duplicate));
+                if !extra_names.is_empty() {
+                    let mut aux: Vec<db::AuxRow> = Vec::new();
+                    for (d, cells) in depth.iter().zip(&extras) {
+                        for (item, raw) in extra_names.iter().zip(cells.iter()) {
+                            let Some(raw) = raw else { continue };
+                            let num = raw.replace(',', ".").parse::<f32>().ok();
+                            aux.push(db::AuxRow {
+                                dataset: extras_dataset.clone(),
+                                depth_top: *d,
+                                depth_base: None,
+                                item: item.clone(),
+                                value_num: num,
+                                value_text: if num.is_some() { None } else { Some(raw.clone()) },
+                            });
+                        }
+                    }
+                    // The extras ARE part of this core delivery, so they carry the same set
+                    // name — switching the well's core set switches its extras with it
+                    // instead of leaving a mismatched pair behind.
+                    match db::insert_aux_data(conn, well_id, &extras_dataset, &set, Some(path), &aux) {
+                        Ok(()) => extra_rows += aux.len(),
+                        Err(e) => {
+                            let note = format!("extra columns not stored: {e}");
+                            problem = Some(match problem {
+                                Some(p) => format!("{p}; {note}"),
+                                None => note,
+                            });
+                        }
+                    }
+                }
+                outcomes.push(CoreWellOutcome {
+                    well_name: well_name.to_string(),
+                    rows: list.len(),
+                    imported: depth.len(),
+                    set_name: Some(set.clone()),
+                    problem,
+                });
+            }
+            Err(e) => outcomes.push(CoreWellOutcome {
+                well_name: well_name.to_string(),
+                rows: list.len(),
+                imported: 0,
+                set_name: None,
+                problem: Some(e.to_string()),
+            }),
+        }
+    };
+
+    for (name, list) in &groups {
+        // Normalized-name match against the project, LAS-attach rules: 1 → import,
+        // 0 / many → report and skip.
+        let norm = name.trim().to_uppercase();
+        let ids: Vec<String> = {
+            let mut stmt = match conn
+                .prepare("SELECT well_id FROM wells WHERE upper(trim(well_name)) = ?1 ORDER BY well_id")
+            {
+                Ok(s) => s,
+                Err(e) => return fail(e.to_string()),
+            };
+            match stmt
+                .query_map(params![norm], |r| r.get::<_, String>(0))
+                .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+            {
+                Ok(v) => v,
+                Err(e) => return fail(e.to_string()),
+            }
+        };
+        match ids.len() {
+            1 => store(&ids[0], name, list, &mut outcomes),
+            0 => outcomes.push(CoreWellOutcome {
+                well_name: name.clone(),
+                rows: list.len(),
+                imported: 0,
+                set_name: None,
+                problem: Some("no well of this name in the project".into()),
+            }),
+            n => outcomes.push(CoreWellOutcome {
+                well_name: name.clone(),
+                rows: list.len(),
+                imported: 0,
+                set_name: None,
+                problem: Some(format!("{n} wells share this name — ambiguous, merge or delete duplicates first")),
+            }),
+        }
+    }
+
+    if !fallback_rows.is_empty() {
+        match fallback_well_id {
+            Some(wid) => {
+                let name: String = conn
+                    .query_row("SELECT well_name FROM wells WHERE well_id = ?1", params![wid], |r| r.get(0))
+                    .unwrap_or_else(|_| wid.to_string());
+                store(wid, &name, &fallback_rows, &mut outcomes);
+            }
+            None => {
+                return fail("file has no well column and no well is selected — select a well or map a WELL column".into())
+            }
+        }
+    }
+
+    CoreTableImportResult {
+        path: path.to_string(),
+        rows_imported,
+        wells_imported,
+        outcomes,
+        skipped_blank_well,
+        extra_rows,
+        extra_items: if extra_rows > 0 { extra_names } else { Vec::new() },
+        error: None,
     }
 }
 
@@ -400,6 +839,11 @@ pub struct ScalImportResult {
     /// reported straight back to the import dialog so the user can carry SWH_A/SWH_B
     /// into the sw_height module.
     pub fit: Option<crate::satheight::LeverettFit>,
+    /// The SCAL set these points landed in (auto-suffixed when the name was taken).
+    pub set_name: Option<String>,
+    /// What following the core depth record did, when it was asked for.
+    #[serde(default)]
+    pub note: Option<String>,
     pub error: Option<String>,
 }
 
@@ -407,18 +851,20 @@ pub struct ScalImportResult {
 /// rows, and fits the Leverett-J function (Sw = A·J^B) over the points at `ift_lab`
 /// (sigma·cosθ of the lab fluid system, dyn/cm — e.g. 72 air-brine, 367 air-mercury).
 pub fn import_scal_csv(conn: &Connection, well_id: &str, path: &str, ift_lab: f64) -> ScalImportResult {
-    import_scal_files(conn, well_id, &[path.to_string()], "long", "", ift_lab)
+    import_scal_files(conn, well_id, &[path.to_string()], "long", "", ift_lab, None, false)
 }
 
 /// Multi-file, multi-format SCAL Pc import. Each file is parsed with `format` — "long"
 /// (flat Pc/Sw CSV), "porous_plate" (Corelab-style wide table: pressure columns × plug
 /// rows), "centrifuge" (per-plug key-value blocks + Pc/Sw tables), or "auto" to sniff
-/// each file — so a set of single-plug centrifuge exports imports in one shot. The
-/// combined records REPLACE the well's `scal_pc` rows (same discipline as re-import),
-/// then the Leverett-J function is fitted over all points at `ift_lab`. `system` labels
-/// every stored point with the lab fluid system ('air_brine', 'hg_air', ...; "" = not
-/// recorded) alongside `ift_lab`, so later standardization (Thomeer, J-from-SCAL) knows
-/// which system each point was measured in.
+/// each file — so a set of single-plug centrifuge exports imports in one shot. The files
+/// selected together form ONE delivery: their combined records land in the SCAL set
+/// `set_name` (auto-suffixed if the well already carries that name, so a later report never
+/// overwrites an earlier one), which becomes the well's live SCAL data, and the Leverett-J
+/// function is fitted over all of them at `ift_lab`. `system` labels every stored point with
+/// the lab fluid system ('air_brine', 'hg_air', ...; "" = not recorded) alongside `ift_lab`,
+/// so later standardization (Thomeer, J-from-SCAL) knows which system each point was
+/// measured in.
 pub fn import_scal_files(
     conn: &Connection,
     well_id: &str,
@@ -426,9 +872,18 @@ pub fn import_scal_files(
     format: &str,
     system: &str,
     ift_lab: f64,
+    set_name: Option<&str>,
+    follow_core: bool,
 ) -> ScalImportResult {
     let joined = paths.join("; ");
-    let fail = |error: String| ScalImportResult { path: joined.clone(), rows: 0, fit: None, error: Some(error) };
+    let fail = |error: String| ScalImportResult {
+        path: joined.clone(),
+        rows: 0,
+        fit: None,
+        set_name: None,
+        note: None,
+        error: Some(error),
+    };
 
     let exists: bool = conn
         .query_row("SELECT 1 FROM wells WHERE well_id = ?1", params![well_id], |_| Ok(true))
@@ -471,12 +926,32 @@ pub fn import_scal_files(
         );
     }
 
+    // SCAL plugs are core plugs, so their depths are the core report's depths and move with the
+    // core. A record with no depth at all is left alone — there is nothing to correct.
+    let core_pairs: Vec<(f32, f32)> = if follow_core {
+        db::core_depth_pairs(conn, well_id).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let mut outside_core = 0usize;
+    let mut mapped_any = 0usize;
+
     let sys: Option<String> = if system.trim().is_empty() { None } else { Some(system.trim().to_string()) };
     let rows: Vec<db::ScalPcRow> = records
         .iter()
         .map(|r| db::ScalPcRow {
             sample_no: r.sample_no,
-            depth: r.depth,
+            depth: match r.depth {
+                Some(d) if !core_pairs.is_empty() && d.is_finite() => {
+                    let (m, ex) = db::map_core_depth(&core_pairs, d);
+                    if ex {
+                        outside_core += 1;
+                    }
+                    mapped_any += 1;
+                    Some(m)
+                }
+                other => other,
+            },
             perm: r.perm,
             poro: r.poro,
             pc: r.pc,
@@ -485,8 +960,19 @@ pub fn import_scal_files(
             ift: Some(ift_lab as f32),
         })
         .collect();
-    if let Err(e) = db::insert_scal_pc(conn, well_id, &rows) {
+    let desired = set_name
+        .map(|s| s.trim().to_uppercase().replace(' ', "_"))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "SCAL".to_string());
+    let set = match db::resolve_scal_set_name(conn, well_id, &desired) {
+        Ok(s) => s,
+        Err(e) => return fail(e.to_string()),
+    };
+    if let Err(e) = db::insert_scal_pc(conn, well_id, &set, Some(&joined), &rows) {
         return fail(e.to_string());
+    }
+    if follow_core {
+        let _ = db::mark_scal_set_on_core(conn, well_id, &set);
     }
 
     let points: Vec<crate::satheight::ScalPoint> = records
@@ -494,7 +980,23 @@ pub fn import_scal_files(
         .map(|r| crate::satheight::ScalPoint { pc: r.pc, sw: r.sw, perm: r.perm, poro: r.poro })
         .collect();
     let fit = crate::satheight::fit_leverett_j(&points, ift_lab);
-    ScalImportResult { path: joined, rows: rows.len(), fit, error: None }
+    let note = if !follow_core {
+        None
+    } else if core_pairs.is_empty() {
+        Some("no core to follow, depths used as written".into())
+    } else if core_pairs.iter().all(|(o, d)| (o - d).abs() <= 1e-4) {
+        Some("core has not been shifted, so depths are unchanged".into())
+    } else if mapped_any == 0 {
+        Some("these points carry no depth, so there was nothing to place".into())
+    } else if outside_core > 0 {
+        Some(format!(
+            "placed from the core depth record; {outside_core} point(s) fell outside the cored \
+             interval and were placed by holding the nearest correction"
+        ))
+    } else {
+        Some("placed from the core depth record".into())
+    };
+    ScalImportResult { path: joined, rows: rows.len(), fit, set_name: Some(set), note, error: None }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -724,60 +1226,273 @@ pub struct AuxImportResult {
     pub rows: usize,
     /// Value columns found in the file (QUARTZ, STATUS, …).
     pub items: Vec<String>,
+    /// Wells that received rows (1 for a single-well file).
+    pub wells_imported: usize,
+    /// The set name(s) the delivery actually landed in — more than one when some wells
+    /// already carried that name and theirs was suffixed.
+    pub sets: Vec<String>,
+    /// Routing story for a multi-well file: unmatched/ambiguous names, blank-well rows.
+    pub notes: Option<String>,
     pub error: Option<String>,
 }
 
-/// Imports a tops-style dataset (petrography / XRD / perforations) for one well,
-/// replacing that well's previous rows of the same dataset. Numeric cells land in
-/// value_num, everything else in value_text.
-pub fn import_aux_file(conn: &Connection, well_id: &str, dataset: &str, path: &str) -> AuxImportResult {
+/// Imports a tops-style dataset (petrography / XRD / perforations), replacing each
+/// receiving well's previous rows of the same dataset. Numeric cells land in value_num,
+/// everything else in value_text.
+///
+/// Routing (T-IMP-11, same rules as tops/core): a file WITH a well column routes every
+/// row by its cell's normalized name — exactly-one-match imports, unmatched/ambiguous
+/// names are reported and skipped, blank cells are skipped (never misrouted). A file
+/// WITHOUT a well column binds wholly to `well_id` (the selected well).
+///
+/// `set_name` versions the DELIVERY within the dataset, exactly as core sets do: a second
+/// XRD (or CEC, oil show, …) delivery lands beside the first, auto-suffixed per well, and
+/// becomes the live one for that dataset. Nothing is ever overwritten.
+/// The well's core depth record, or an empty slice when the caller did not ask to follow it — or
+/// asked but the well has no core. **Not following is never silent**: a user who ticked the box
+/// and got raw depths would have no way to tell, and the samples would be wrong by exactly the
+/// amount the core was corrected by.
+fn core_record(
+    conn: &Connection,
+    well_id: &str,
+    follow_core: bool,
+    label: &str,
+    notes: &mut Vec<String>,
+) -> Vec<(f32, f32)> {
+    if !follow_core {
+        return Vec::new();
+    }
+    match db::core_depth_pairs(conn, well_id) {
+        Ok(p) if p.is_empty() => {
+            notes.push(format!("{label}: no core to follow, depths used as written"));
+            Vec::new()
+        }
+        Ok(p) => p,
+        Err(e) => {
+            notes.push(format!("{label}: could not read the core depth record ({e}), depths used as written"));
+            Vec::new()
+        }
+    }
+}
+
+/// Says what the mapping did. A core that has never been shifted maps every depth to itself, and
+/// saying so beats silence — it tells the user the box worked and simply had nothing to correct.
+fn note_mapping(notes: &mut Vec<String>, label: &str, pairs: &[(f32, f32)], rows: usize, outside: usize) {
+    if pairs.is_empty() || rows == 0 {
+        return;
+    }
+    let shifted = pairs.iter().any(|(o, d)| (o - d).abs() > 1e-4);
+    if !shifted {
+        notes.push(format!("{label}: core has not been shifted, so depths are unchanged"));
+        return;
+    }
+    if outside > 0 {
+        notes.push(format!(
+            "{label}: placed from the core depth record; {outside} sample(s) fell outside the cored \
+             interval and were placed by holding the nearest correction"
+        ));
+    } else {
+        notes.push(format!("{label}: placed from the core depth record"));
+    }
+}
+
+pub fn import_aux_file(
+    conn: &Connection,
+    well_id: &str,
+    dataset: &str,
+    path: &str,
+    set_name: Option<&str>,
+    follow_core: bool,
+) -> AuxImportResult {
     let fail = |e: String| AuxImportResult {
         path: path.to_string(),
         dataset: dataset.to_string(),
         rows: 0,
         items: vec![],
+        wells_imported: 0,
+        sets: vec![],
+        notes: None,
         error: Some(e),
     };
-    let exists: bool = conn
-        .query_row("SELECT 1 FROM wells WHERE well_id = ?1", params![well_id], |_| Ok(true))
-        .unwrap_or(false);
-    if !exists {
-        return fail(format!("unknown well '{well_id}'"));
-    }
     let dataset = dataset.trim().to_uppercase();
     if dataset.is_empty() {
         return fail("dataset name is empty".into());
     }
+    let desired_set = set_name
+        .map(|s| s.trim().to_uppercase().replace(' ', "_"))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "RAW".to_string());
 
     let data = match parsers::parse_interval_file(path) {
         Ok(d) => d,
         Err(e) => return fail(e.to_string()),
     };
-    let mut rows: Vec<db::AuxRow> = Vec::new();
-    for (top, base, values) in &data.rows {
-        for (item, raw) in data.items.iter().zip(values) {
-            let Some(raw) = raw else { continue };
-            let num = raw.replace(',', ".").parse::<f32>().ok();
-            rows.push(db::AuxRow {
-                dataset: dataset.clone(),
-                depth_top: *top,
-                depth_base: *base,
-                item: item.clone(),
-                value_num: num,
-                value_text: if num.is_some() { None } else { Some(raw.clone()) },
-            });
+
+    // One AuxRow batch per routing target. `None` key = the selected-well fallback
+    // (only used when the file has no well column).
+    //
+    // `follow_core` places the file's depths through the target well's core depth record: a
+    // laboratory writes the depths from the original core report, and if that core has since been
+    // registered against the log those depths are stale by however far the core moved. The record
+    // is per WELL, so the mapping is resolved inside this closure rather than once for the file.
+    //
+    // An interval is placed by its TOP and its base takes the same offset — the same rule the
+    // barrel shifts use. Mapping the two ends independently could invert a thin sample where the
+    // correction changes steeply across a barrel boundary, and a sample that measured 20 cm of
+    // rock still measured 20 cm of rock.
+    let to_aux_rows = |idx: &[usize], pairs: &[(f32, f32)], outside: &mut usize| -> Vec<db::AuxRow> {
+        let mut rows: Vec<db::AuxRow> = Vec::new();
+        for &i in idx {
+            let (raw_top, raw_base, values) = &data.rows[i];
+            let (top, base) = if pairs.is_empty() {
+                (*raw_top, *raw_base)
+            } else {
+                let (mapped, ex) = db::map_core_depth(pairs, *raw_top);
+                if ex {
+                    *outside += 1;
+                }
+                let offset = mapped - *raw_top;
+                (mapped, raw_base.map(|b| b + offset))
+            };
+            let (top, base) = (&top, &base);
+            for (item, raw) in data.items.iter().zip(values) {
+                let Some(raw) = raw else { continue };
+                let num = raw.replace(',', ".").parse::<f32>().ok();
+                rows.push(db::AuxRow {
+                    dataset: dataset.clone(),
+                    depth_top: *top,
+                    depth_base: *base,
+                    item: item.clone(),
+                    value_num: num,
+                    value_text: if num.is_some() { None } else { Some(raw.clone()) },
+                });
+            }
+        }
+        rows
+    };
+
+    let mut notes: Vec<String> = Vec::new();
+    let mut rows_written = 0usize;
+    let mut wells_imported = 0usize;
+    let mut sets_used: std::collections::BTreeSet<String> = Default::default();
+
+    if data.has_well_column {
+        // Group row indices by well cell, keeping file order.
+        let mut groups: Vec<(String, Vec<usize>)> = Vec::new();
+        let mut blank = 0usize;
+        for (i, w) in data.wells.iter().enumerate() {
+            match w {
+                Some(name) => match groups.iter_mut().find(|(n, _)| n == name) {
+                    Some((_, list)) => list.push(i),
+                    None => groups.push((name.clone(), vec![i])),
+                },
+                None => blank += 1,
+            }
+        }
+        if blank > 0 {
+            notes.push(format!("{blank} row(s) with a blank well cell skipped"));
+        }
+        let mut unmatched: Vec<String> = Vec::new();
+        for (name, idx) in &groups {
+            let norm = name.trim().to_uppercase();
+            let ids: Vec<String> = {
+                let mut stmt = match conn
+                    .prepare("SELECT well_id FROM wells WHERE upper(trim(well_name)) = ?1 ORDER BY well_id")
+                {
+                    Ok(s) => s,
+                    Err(e) => return fail(e.to_string()),
+                };
+                match stmt
+                    .query_map(params![norm], |r| r.get::<_, String>(0))
+                    .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+                {
+                    Ok(v) => v,
+                    Err(e) => return fail(e.to_string()),
+                }
+            };
+            match ids.len() {
+                1 => {
+                    let pairs = core_record(conn, &ids[0], follow_core, name, &mut notes);
+                    let mut outside = 0usize;
+                    let rows = to_aux_rows(idx, &pairs, &mut outside);
+                    note_mapping(&mut notes, name, &pairs, rows.len(), outside);
+                    // Per well, like core sets: a name free on one well may be taken on another.
+                    let set = match db::resolve_aux_set_name(conn, &ids[0], &dataset, &desired_set) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            notes.push(format!("{name}: {e}"));
+                            continue;
+                        }
+                    };
+                    match db::insert_aux_data(conn, &ids[0], &dataset, &set, Some(path), &rows) {
+                        Ok(()) => {
+                            rows_written += rows.len();
+                            wells_imported += 1;
+                            // Record the depth basis, so a later core registration knows whether
+                            // this delivery should move with the core.
+                            if follow_core {
+                                let _ = db::mark_aux_set_on_core(conn, &ids[0], &dataset, &set);
+                            }
+                            sets_used.insert(set);
+                        }
+                        Err(e) => notes.push(format!("{name}: {e}")),
+                    }
+                }
+                0 => unmatched.push(name.clone()),
+                n => notes.push(format!("{name}: {n} wells share this name — ambiguous, skipped")),
+            }
+        }
+        if !unmatched.is_empty() {
+            notes.push(format!(
+                "{} name(s) not in the project, skipped: {}",
+                unmatched.len(),
+                unmatched.join(", ")
+            ));
+        }
+        if wells_imported == 0 {
+            return fail(format!(
+                "no rows imported — none of the file's well names matched the project ({})",
+                notes.join("; ")
+            ));
+        }
+    } else {
+        let exists: bool = conn
+            .query_row("SELECT 1 FROM wells WHERE well_id = ?1", params![well_id], |_| Ok(true))
+            .unwrap_or(false);
+        if !exists {
+            return fail(format!("unknown well '{well_id}'"));
+        }
+        let idx: Vec<usize> = (0..data.rows.len()).collect();
+        let pairs = core_record(conn, well_id, follow_core, "this well", &mut notes);
+        let mut outside = 0usize;
+        let rows = to_aux_rows(&idx, &pairs, &mut outside);
+        note_mapping(&mut notes, "this well", &pairs, rows.len(), outside);
+        let set = match db::resolve_aux_set_name(conn, well_id, &dataset, &desired_set) {
+            Ok(s) => s,
+            Err(e) => return fail(e.to_string()),
+        };
+        match db::insert_aux_data(conn, well_id, &dataset, &set, Some(path), &rows) {
+            Ok(()) => {
+                rows_written = rows.len();
+                wells_imported = 1;
+                if follow_core {
+                    let _ = db::mark_aux_set_on_core(conn, well_id, &dataset, &set);
+                }
+                sets_used.insert(set);
+            }
+            Err(e) => return fail(e.to_string()),
         }
     }
-    let n = rows.len();
-    match db::insert_aux_data(conn, well_id, &dataset, &rows) {
-        Ok(()) => AuxImportResult {
-            path: path.to_string(),
-            dataset,
-            rows: n,
-            items: data.items,
-            error: None,
-        },
-        Err(e) => fail(e.to_string()),
+
+    AuxImportResult {
+        path: path.to_string(),
+        dataset,
+        rows: rows_written,
+        items: data.items,
+        wells_imported,
+        sets: sets_used.into_iter().collect(),
+        notes: (!notes.is_empty()).then(|| notes.join("; ")),
+        error: None,
     }
 }
 
@@ -786,12 +1501,14 @@ mod tests {
     use super::*;
     use std::io::Write;
 
+    /// Core import round-trip + the SET discipline (T-IMP-08): a second delivery never
+    /// overwrites the first, exactly one set is live, and every reader follows it.
     #[test]
     fn core_import_roundtrip_and_replace() {
-        let conn = Connection::open_in_memory().unwrap();
+        let mut conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
         let well_id = Uuid::new_v4();
-        db::insert_well(&conn, well_id, "BALAM-1", None, None, None).unwrap();
+        db::insert_well(&conn, well_id, "SANDI-1", None, None, None).unwrap();
         let ids = well_id.to_string();
 
         let path = std::env::temp_dir().join("arshilla_core_roundtrip.csv");
@@ -814,30 +1531,63 @@ mod tests {
         assert_eq!(n, 2);
         assert!((cpor0 - 0.18).abs() < 1e-6, "percent porosity must land as v/v, got {cpor0}");
 
-        // Re-import replaces rather than duplicates.
+        // Re-import KEEPS the first delivery and lands beside it as a second SET
+        // (T-IMP-08): the old behaviour silently overwrote plugs the lab had sent once.
         let again = import_core_csv(&conn, &ids, csv);
         assert!(again.error.is_none());
-        let n: i64 = conn
-            .query_row("SELECT COUNT(*) FROM core_data WHERE well_id = ?1", params![ids], |r| r.get(0))
-            .unwrap();
-        assert_eq!(n, 2, "re-import must replace, not append");
+        let sets = db::list_core_sets(&conn, &ids).unwrap();
+        assert_eq!(sets.len(), 2, "second delivery is a second set: {sets:?}");
+        assert_eq!(sets[0].set_name, "CORE_1", "the newest import is active and listed first");
+        assert!(sets[0].active);
+        assert!(sets.iter().all(|s| s.rows == 2));
+        // …but a READER still sees one delivery's worth of plugs, never both merged.
+        assert_eq!(db::get_core_plugs(&conn, &ids).unwrap().len(), 2, "readers see the ACTIVE set only");
+
+        // Switching back makes the first delivery live again.
+        db::set_active_core_set(&conn, &ids, "CORE").unwrap();
+        assert_eq!(db::get_core_plugs(&conn, &ids).unwrap().len(), 2);
+        assert!(db::list_core_sets(&conn, &ids).unwrap().iter().filter(|s| s.active).count() == 1);
 
         // Unknown well is rejected cleanly.
         let bad = import_core_csv(&conn, "no-such-well", csv);
         assert!(bad.error.is_some());
 
-        // Core-to-log shift moves every plug by the same delta and reverses exactly.
-        let shifted = db::shift_core_depths(&conn, &ids, 2.5).unwrap();
-        assert_eq!(shifted, 2);
+        // Core-to-log shift moves the ACTIVE set's plugs by the same delta and reverses
+        // exactly; the other delivery keeps its own depths.
+        let shifted = db::shift_core_depths(&mut conn, &ids, 2.5, &Default::default(), &Default::default()).unwrap();
+        assert_eq!(shifted.plugs, 2);
         let min_depth: f32 = conn
-            .query_row("SELECT MIN(depth) FROM core_data WHERE well_id = ?1", params![ids], |r| r.get(0))
+            .query_row(
+                "SELECT MIN(depth) FROM core_data WHERE well_id = ?1 AND set_name = 'CORE'",
+                params![ids],
+                |r| r.get(0),
+            )
             .unwrap();
         assert!((min_depth - 2003.5).abs() < 1e-4);
-        db::shift_core_depths(&conn, &ids, -2.5).unwrap();
+        let untouched: f32 = conn
+            .query_row(
+                "SELECT MIN(depth) FROM core_data WHERE well_id = ?1 AND set_name = 'CORE_1'",
+                params![ids],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!((untouched - 2001.0).abs() < 1e-4, "the inactive delivery must not move");
+        db::shift_core_depths(&mut conn, &ids, -2.5, &Default::default(), &Default::default()).unwrap();
         let min_depth: f32 = conn
-            .query_row("SELECT MIN(depth) FROM core_data WHERE well_id = ?1", params![ids], |r| r.get(0))
+            .query_row(
+                "SELECT MIN(depth) FROM core_data WHERE well_id = ?1 AND set_name = 'CORE'",
+                params![ids],
+                |r| r.get(0),
+            )
             .unwrap();
         assert!((min_depth - 2001.0).abs() < 1e-4);
+
+        // Deleting the live set hands over to the survivor — never leaves plugs unreadable.
+        db::delete_core_set(&conn, &ids, "CORE").unwrap();
+        let sets = db::list_core_sets(&conn, &ids).unwrap();
+        assert_eq!(sets.len(), 1);
+        assert!(sets[0].active && sets[0].set_name == "CORE_1");
+        assert_eq!(db::get_core_plugs(&conn, &ids).unwrap().len(), 2);
         std::fs::remove_file(&path).ok();
     }
 
@@ -860,7 +1610,7 @@ mod tests {
         };
 
         // First import: a fresh well, no duplicate warning.
-        let r1 = insert_parsed_well(&conn, "a.las".into(), "DUP-1".into(), cols());
+        let r1 = insert_parsed_well(&conn, "a.las".into(), "DUP-1".into(), cols(), &LasImportOptions::default());
         assert!(r1.error.is_none(), "{:?}", r1.error);
         assert!(
             r1.warning.as_deref().map_or(true, |w| !w.contains("already exists")),
@@ -870,7 +1620,7 @@ mod tests {
 
         // Second import of the SAME well name (normalized: lower-case + trailing space): a
         // separate record, but a duplicate warning.
-        let r2 = insert_parsed_well(&conn, "b.las".into(), "dup-1  ".into(), cols());
+        let r2 = insert_parsed_well(&conn, "b.las".into(), "dup-1  ".into(), cols(), &LasImportOptions::default());
         assert!(r2.error.is_none(), "{:?}", r2.error);
         assert!(
             r2.warning.as_deref().unwrap_or("").contains("already exists"),
@@ -908,7 +1658,7 @@ mod tests {
         let path = std::env::temp_dir().join(format!("arshilla_pef_test_{ids}.las"));
         std::fs::write(&path, las).unwrap();
 
-        import_all_curves_into_generic_store(&conn, &ids, path.to_str().unwrap()).unwrap();
+        import_all_curves_into_generic_store(&conn, &ids, path.to_str().unwrap(), "RAW").unwrap();
         std::fs::remove_file(&path).ok();
 
         let catalog = db::list_generic_curve_catalog(&conn, &ids).unwrap();
@@ -933,7 +1683,7 @@ mod tests {
         // Deviation survey → TVD/TVDSS.
         let dev = std::env::temp_dir().join(format!("arshilla_dev_test_{ids}.csv"));
         std::fs::write(&dev, "MD,INC,AZI\n0,0,0\n1000,0,0\n2000,60,45\n").unwrap();
-        let res = import_deviation_csv(&conn, &ids, dev.to_str().unwrap(), Some(25.0));
+        let res = import_deviation_csv(&conn, &ids, dev.to_str().unwrap(), Some(25.0), None);
         std::fs::remove_file(&dev).ok();
         assert!(res.error.is_none(), "{:?}", res.error);
         assert_eq!(res.rows, 3);
@@ -964,7 +1714,7 @@ mod tests {
         // Vertical to 1000, build to 60° by 2000, hold to 3000.
         let dev = std::env::temp_dir().join(format!("arshilla_devmat_{ids}.csv"));
         std::fs::write(&dev, "MD,INC,AZI\n0,0,0\n1000,0,0\n2000,60,45\n3000,60,45\n").unwrap();
-        let res = import_deviation_csv(&conn, &ids, dev.to_str().unwrap(), Some(25.0));
+        let res = import_deviation_csv(&conn, &ids, dev.to_str().unwrap(), Some(25.0), None);
         std::fs::remove_file(&dev).ok();
         assert!(res.error.is_none(), "{:?}", res.error);
 
@@ -981,6 +1731,58 @@ mod tests {
         for (t, ss) in tvd.iter().zip(tvdss.iter()) {
             assert!((ss - (25.0 - t)).abs() < 1e-1, "TVDSS = 25 - TVD: {ss} vs {}", 25.0 - t);
         }
+    }
+
+    /// Survey versioning (T-IMP-12): a second survey lands beside the first instead of
+    /// replacing it, the newest drives TVD, and switching back RE-materializes the older
+    /// geometry — a stale TVD would silently poison every height calculation.
+    #[test]
+    fn deviation_import_versions_surveys_and_switching_rebuilds_tvd() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, "DEV-VER-1", None, None, None).unwrap();
+        let ids = wid.to_string();
+        let depth = vec![0.0f32, 1000.0, 2000.0, 3000.0];
+        let f = vec![1.0f32; depth.len()];
+        crate::db::insert_standard_curves(
+            &conn, wid, depth.clone(), vec![50.0f32; depth.len()],
+            f.clone(), f.clone(), f.clone(), f.clone(), f,
+        )
+        .unwrap();
+
+        let write = |name: &str, body: &str| -> String {
+            let p = std::env::temp_dir().join(format!("arshilla_devver_{name}_{ids}.csv"));
+            std::fs::write(&p, body).unwrap();
+            p.to_string_lossy().into_owned()
+        };
+        // Preliminary: vertical all the way. Definitive: builds to 60°.
+        let prelim = write("prelim", "MD,INC,AZI\n0,0,0\n1000,0,0\n2000,0,0\n3000,0,0\n");
+        let defin = write("defin", "MD,INC,AZI\n0,0,0\n1000,0,0\n2000,60,45\n3000,60,45\n");
+
+        assert!(import_deviation_csv(&conn, &ids, &prelim, Some(25.0), Some("PRELIM")).error.is_none());
+        assert!(import_deviation_csv(&conn, &ids, &defin, Some(25.0), Some("DEFINITIVE")).error.is_none());
+
+        let surveys = db::list_surveys(&conn, &ids).unwrap();
+        assert_eq!(surveys.len(), 2, "the preliminary survey survives: {surveys:?}");
+        assert_eq!(surveys[0].survey_name, "DEFINITIVE", "newest import is active");
+        assert!(surveys[0].active && !surveys[1].active);
+        assert_eq!(surveys.iter().map(|s| s.stations).sum::<i64>(), 8);
+
+        // Readers see ONE survey, and it is the definitive (deviated) one.
+        let path = db::get_well_path(&conn, &ids).unwrap();
+        assert_eq!(path.len(), 4, "never both surveys merged");
+        assert!(path[3].tvd < 2900.0, "definitive geometry is deviated: {}", path[3].tvd);
+
+        // Switch back: TVD must be rebuilt from the preliminary (vertical) survey.
+        db::set_active_survey(&conn, &ids, "PRELIM").unwrap();
+        materialize_tvd_curves(&conn, &ids).unwrap();
+        let (_g, cols) = crate::equations::fetch_curve_frame(&conn, &ids, &["TVD".to_string()]).unwrap();
+        let last = *cols["TVD"].last().unwrap();
+        assert!((last - 3000.0).abs() < 1e-1, "vertical survey → TVD == MD, got {last}");
+
+        std::fs::remove_file(&prelim).ok();
+        std::fs::remove_file(&defin).ok();
     }
 
     #[test]
@@ -1034,7 +1836,7 @@ mod tests {
         // Import a deviated survey (would compute a very DIFFERENT TVDSS = 25 − TVD).
         let dev = std::env::temp_dir().join(format!("arshilla_devmat3_{ids}.csv"));
         std::fs::write(&dev, "MD,INC,AZI\n0,0,0\n1000,0,0\n2000,60,45\n3000,60,45\n").unwrap();
-        let res = import_deviation_csv(&conn, &ids, dev.to_str().unwrap(), Some(25.0));
+        let res = import_deviation_csv(&conn, &ids, dev.to_str().unwrap(), Some(25.0), None);
         std::fs::remove_file(&dev).ok();
         assert!(res.error.is_none(), "{:?}", res.error);
 
@@ -1101,6 +1903,206 @@ mod tests {
         let catalog = db::list_generic_curve_catalog(&conn, &ids).unwrap();
         let pef = catalog.iter().find(|c| c.mnemonic == "PEF").expect("PEF must reach the generic store");
         assert_eq!(pef.n_samples, 2, "generic PEF deduped to 2 rows, not aborted");
+    }
+
+    /// Core import v2 (T-IMP-07): a real delivery shape end-to-end — WN well column,
+    /// units row, feet depths, percent porosity, an unmatched name, an ambiguous name,
+    /// and a blank well cell. Probe must SEE all of it; commit must route, convert, and
+    /// report without guessing.
+    #[test]
+    fn core_table_probe_and_multiwell_import() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        // Metric project (declared explicitly, as a LAS import would have).
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Metres).unwrap();
+        let wa = Uuid::new_v4();
+        let wb = Uuid::new_v4();
+        db::insert_well(&conn, wa, "W-A", None, None, None).unwrap();
+        db::insert_well(&conn, wb, "W-B", None, None, None).unwrap();
+        // Two records sharing a name → ambiguous, must never be guessed at.
+        db::insert_well(&conn, Uuid::new_v4(), "DUP-C", None, None, None).unwrap();
+        db::insert_well(&conn, Uuid::new_v4(), "DUP-C", None, None, None).unwrap();
+
+        let csv = "TAPE_NAME,TOOL_STRING,WN,DEPTH,CPERM_1,CPOR_2,CSO_1,CSW_1,GDEN_1,LITH\n\
+                   \"\",\"\",\"\",FEET,MD,V/V,V/V,V/V,G/C3,\n\
+                   \"\",\"\",W-A,1000.0,120.0,24.5,15.0,55.0,2.66,SANDSTONE\n\
+                   \"\",\"\",W-A,1001.0,85.0,22.0,20.0,60.0,2.65,SHALY SAND\n\
+                   \"\",\"\",W-B,2000.0,10.0,18.0,5.0,80.0,2.68,SANDSTONE\n\
+                   \"\",\"\",W-B,2001.0,12.0,19.0,6.0,78.0,2.67,\n\
+                   \"\",\"\",GHOST-9,3000.0,1.0,10.0,1.0,90.0,2.70,SILTSTONE\n\
+                   \"\",\"\",DUP-C,4000.0,2.0,11.0,2.0,88.0,2.69,SANDSTONE\n\
+                   \"\",\"\",,5000.0,3.0,12.0,3.0,85.0,2.71,SANDSTONE\n";
+        let path = std::env::temp_dir().join("sandibumi_core_v2_test.csv");
+        std::fs::write(&path, csv).unwrap();
+        let spath = path.to_str().unwrap();
+
+        // --- Probe: everything the dialog shows must be detected. ---
+        let probe = parsers::probe_core_table(&path).unwrap();
+        assert_eq!(probe.well, Some(2), "WN resolves as the well column");
+        assert_eq!(probe.depth, Some(3));
+        assert_eq!(probe.cperm, Some(4), "CPERM_1 resolves");
+        assert_eq!(probe.cpor, Some(5), "CPOR_2 resolves");
+        assert_eq!(probe.cgd, Some(8), "GDEN_1 resolves");
+        assert!(probe.units_row_skipped, "the FEET/MD/V-V row is a units row, not a plug");
+        assert_eq!(probe.depth_unit_guess.as_deref(), Some("ft"), "unit read from the units row");
+        assert_eq!(probe.n_rows, 7, "7 data rows (units row excluded)");
+        assert!(probe.percent_roles.iter().any(|r| r == "CPOR"), "24.5/22/18/19 read as percent");
+        assert_eq!(probe.wells.len(), 4, "W-A, W-B, GHOST-9, DUP-C (blank cell not a well)");
+        assert_eq!(probe.wells[0].name, "W-A");
+        assert_eq!(probe.wells[0].rows, 2);
+
+        // --- Commit under the probed mapping, feet → metres, extras as point data. ---
+        // CSO_1 (numeric) and LITH (text) are beyond core_data's fixed four measurements:
+        // they ride along into aux_data under the confirmed dataset name.
+        let mapping = parsers::CoreMapping {
+            well: probe.well,
+            depth: probe.depth.unwrap(),
+            cpor: probe.cpor,
+            cperm: probe.cperm,
+            cgd: probe.cgd,
+            csw: probe.csw,
+            extras: vec![6, 9],
+        };
+        let res = import_core_table(&conn, spath, &mapping, Some("ft"), None, Some("core"), None);
+        assert!(res.error.is_none(), "{:?}", res.error);
+        assert_eq!(res.wells_imported, 2, "W-A and W-B only");
+        assert_eq!(res.rows_imported, 4);
+        assert_eq!(res.skipped_blank_well, 1, "the blank-well row is skipped, never misrouted");
+        let ghost = res.outcomes.iter().find(|o| o.well_name == "GHOST-9").unwrap();
+        assert!(ghost.problem.as_deref().unwrap_or("").contains("no well"), "unmatched reported");
+        let dup = res.outcomes.iter().find(|o| o.well_name == "DUP-C").unwrap();
+        assert!(dup.problem.as_deref().unwrap_or("").contains("ambiguous"), "ambiguous reported");
+
+        // Depths landed in METRES (1000 ft = 304.8 m) and porosity in v/v.
+        let (d, p): (f32, f32) = conn
+            .query_row(
+                "SELECT min(depth), min(cpor) FROM core_data WHERE well_id = ?1",
+                params![wa.to_string()],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert!((d - 304.8).abs() < 0.05, "feet converted to project metres, got {d}");
+        assert!((p - 0.22).abs() < 1e-3, "percent porosity converted to v/v, got {p}");
+
+        // --- Extras: numeric and text, at the SAME converted plug depths, in aux_data. ---
+        assert_eq!(res.extra_rows, 7, "2 items x 4 plugs, minus W-B's blank LITH cell");
+        assert!(res.extra_items.iter().any(|i| i == "LITH"));
+        let aux = db::list_aux_data(&conn, &wa.to_string(), Some("CORE")).unwrap();
+        let cso = aux.iter().find(|r| r.item == "CSO_1" && (r.depth_top - 304.8).abs() < 0.05).unwrap();
+        assert_eq!(cso.value_num, Some(15.0), "numeric extra stored verbatim (no % conversion)");
+        assert!(cso.value_text.is_none());
+        let lith = aux.iter().find(|r| r.item == "LITH").unwrap();
+        assert_eq!(lith.value_text.as_deref(), Some("SANDSTONE"), "text extra stays text");
+        assert!(lith.value_num.is_none());
+        assert!(
+            aux.iter().all(|r| r.depth_base.is_none()),
+            "plug extras are POINT samples, not intervals"
+        );
+        // Blank cells are skipped, not stored as empty text: W-B's second plug has no LITH.
+        let aux_b = db::list_aux_data(&conn, &wb.to_string(), Some("CORE")).unwrap();
+        assert_eq!(aux_b.len(), 3, "2 x CSO_1 + 1 x LITH (the blank one skipped): {aux_b:?}");
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// Aux import v2 (T-IMP-11): a WELL-columned petrography file routes rows by name;
+    /// unmatched names and blank cells are reported, and a file with no well column
+    /// still binds wholly to the selected well.
+    #[test]
+    fn aux_import_routes_by_well_column() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wa = Uuid::new_v4();
+        let wb = Uuid::new_v4();
+        db::insert_well(&conn, wa, "W-A", None, None, None).unwrap();
+        db::insert_well(&conn, wb, "W-B", None, None, None).unwrap();
+
+        let csv = "WELL,TOP,BASE,LITHOLOGY,QUARTZ\n\
+                   W-A,1000.0,1002.0,Sandstone,72.1\n\
+                   W-B,2000.0,2001.5,Claystone,38.0\n\
+                   NOPE-1,3000.0,3001.0,Limestone,5.0\n\
+                   ,4000.0,4001.0,Coal,1.0\n";
+        let path = std::env::temp_dir().join("sandibumi_aux_v2_test.csv");
+        std::fs::write(&path, csv).unwrap();
+
+        let res = import_aux_file(&conn, &wa.to_string(), "PETROGRAPHY", path.to_str().unwrap(), None, false);
+        assert!(res.error.is_none(), "{:?}", res.error);
+        assert_eq!(res.wells_imported, 2, "W-A and W-B routed by the WELL column");
+        let notes = res.notes.as_deref().unwrap_or("");
+        assert!(notes.contains("NOPE-1"), "unmatched name reported: {notes}");
+        assert!(notes.contains("blank well cell"), "blank-cell skip reported: {notes}");
+        // W-B's rows must have gone to W-B, NOT the selected fallback well.
+        let n_b: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM aux_data WHERE well_id = ?1 AND dataset = 'PETROGRAPHY'",
+                params![wb.to_string()],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(n_b > 0, "W-B received its own rows");
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// Import sets (T-IMP-02): a second delivery of the SAME well attaches as a named set
+    /// on the ONE existing record instead of creating a duplicate; a third lands beside it
+    /// auto-suffixed; and the resolver reaches attached-set curves while RAW keeps
+    /// absolute priority for anything it already carries.
+    #[test]
+    fn import_sets_attach_suffix_and_resolution() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+
+        // Delivery 1 (RAW): the field print — GR 55 everywhere.
+        let raw_las = "~Version\nVERS. 2.0 :\n~Well\nWELL. SETW-1 :\n\
+                       ~Curve\nDEPT .M : depth\nGR .GAPI : gamma\nPEF .B/E : pe\n\
+                       ~ASCII\n1000.0 55.0 5.1\n1000.5 55.0 5.2\n1001.0 55.0 5.0\n";
+        // Delivery 2 (FPROOH): same well, a reprocessed GR (99 — must NOT shadow RAW's)
+        // plus a curve RAW does not have (PHIFF — must resolve from here).
+        let fp_las = "~Version\nVERS. 2.0 :\n~Well\nWELL. SETW-1 :\n\
+                      ~Curve\nDEPT .M : depth\nGR .GAPI : gamma\nPHIFF .V/V : free fluid\n\
+                      ~ASCII\n1000.0 99.0 0.21\n1000.5 99.0 0.22\n1001.0 99.0 0.23\n";
+        let p1 = std::env::temp_dir().join("sandibumi_set_raw_test.las");
+        let p2 = std::env::temp_dir().join("sandibumi_set_fprooh_test.las");
+        std::fs::write(&p1, raw_las).unwrap();
+        std::fs::write(&p2, fp_las).unwrap();
+        let attach = |set: &str| LasImportOptions { set_name: Some(set.into()), attach: true };
+
+        // 1. First import creates the well (attach on, but nothing to attach to).
+        let r1 = &import_las_files_with(&conn, &[p1.to_str().unwrap().into()], None, &attach("RAW"))[0];
+        assert!(r1.error.is_none(), "{:?}", r1.error);
+        assert!(r1.attached_set.is_none(), "a fresh well is created, not attached");
+        let well_id = r1.well_id.clone().unwrap();
+
+        // 2. Second delivery ATTACHES to that record as set FPROOH — still ONE well.
+        let r2 = &import_las_files_with(&conn, &[p2.to_str().unwrap().into()], None, &attach("FPROOH"))[0];
+        assert!(r2.error.is_none(), "{:?}", r2.error);
+        assert_eq!(r2.attached_set.as_deref(), Some("FPROOH"));
+        assert_eq!(r2.well_id.as_deref(), Some(well_id.as_str()), "attached to the SAME record");
+        let n_wells: i64 = conn.query_row("SELECT COUNT(*) FROM wells", [], |r| r.get(0)).unwrap();
+        assert_eq!(n_wells, 1, "no duplicate well record");
+
+        // 3. Re-importing the same delivery auto-suffixes (Geolog WIRE → WIRE_1), never overwrites.
+        let r3 = &import_las_files_with(&conn, &[p2.to_str().unwrap().into()], None, &attach("FPROOH"))[0];
+        assert_eq!(r3.attached_set.as_deref(), Some("FPROOH_1"));
+        let catalog = db::list_generic_curve_catalog(&conn, &well_id).unwrap();
+        let mut sets: Vec<&str> = catalog.iter().map(|c| c.set_name.as_str()).collect();
+        sets.sort();
+        sets.dedup();
+        assert_eq!(sets, vec!["FPROOH", "FPROOH_1", "RAW"]);
+
+        // 4. Resolution: RAW keeps absolute priority (GR = 55, not FPROOH's 99), and a
+        //    mnemonic RAW lacks (PHIFF) resolves from the attached set.
+        let (_grid, cols) =
+            crate::equations::fetch_curve_frame(&conn, &well_id, &["GR".into(), "PHIFF".into()]).unwrap();
+        assert!(cols["GR"].iter().all(|&v| (v - 55.0).abs() < 1e-3), "RAW GR must win: {:?}", cols["GR"]);
+        assert!(
+            cols["PHIFF"].iter().zip([0.21f32, 0.22, 0.23]).all(|(&v, e)| (v - e).abs() < 1e-3),
+            "PHIFF must resolve from the attached FPROOH set: {:?}",
+            cols["PHIFF"]
+        );
+
+        std::fs::remove_file(&p1).ok();
+        std::fs::remove_file(&p2).ok();
     }
 
     /// #118 follow-up: a file whose (unrecognized) index column is entirely the null sentinel
@@ -1301,7 +2303,7 @@ mod tests {
         std::fs::write(&p2, cf("S-16A", 2701.8)).unwrap();
         let paths = vec![p1.to_str().unwrap().to_string(), p2.to_str().unwrap().to_string()];
 
-        let res = import_scal_files(&conn, &ids, &paths, "auto", "air_brine", 72.0);
+        let res = import_scal_files(&conn, &ids, &paths, "auto", "air_brine", 72.0, None, false);
         assert!(res.error.is_none(), "{:?}", res.error);
         assert_eq!(res.rows, 8, "both plugs land in one combined import");
         assert!(res.fit.is_some(), "J-fit solves over the pooled points");
@@ -1313,15 +2315,25 @@ mod tests {
             "fluid system + IFT stored on every point"
         );
 
-        // A porous-plate re-import replaces the centrifuge set (write discipline).
+        // A porous-plate re-import is a SECOND delivery: the centrifuge report is kept,
+        // the new one goes live, and a reader still sees exactly one delivery's points.
         let wide = "Sample,Depth (m),Perm (mD),Poro (%),1,2,4,8\n4,2001.5,150.0,22.5,98.5,95.2,88.1,79.4\n";
         let p3 = std::env::temp_dir().join(format!("sandibumi_scal_pp_{ids}.csv"));
         std::fs::write(&p3, wide).unwrap();
         let res2 =
-            import_scal_files(&conn, &ids, &[p3.to_str().unwrap().to_string()], "porous_plate", "air_brine", 72.0);
+            import_scal_files(&conn, &ids, &[p3.to_str().unwrap().to_string()], "porous_plate", "air_brine", 72.0, None, false);
         assert!(res2.error.is_none(), "{:?}", res2.error);
         assert_eq!(res2.rows, 4);
-        assert_eq!(db::get_scal_pc(&conn, &ids).unwrap().len(), 4, "replace, not append");
+        assert_eq!(res2.set_name.as_deref(), Some("SCAL_1"), "auto-suffixed, first report kept");
+        assert_eq!(db::get_scal_pc(&conn, &ids).unwrap().len(), 4, "one delivery read, never both merged");
+        let scal_sets = db::list_scal_sets(&conn, &ids).unwrap();
+        assert_eq!(scal_sets.len(), 2, "both reports on the well: {scal_sets:?}");
+        assert!(scal_sets[0].active && scal_sets[0].set_name == "SCAL_1" && scal_sets[0].rows == 4);
+        assert!(!scal_sets[1].active && scal_sets[1].rows == 8, "the centrifuge report is intact");
+        // Switching back restores the centrifuge points wholesale.
+        db::set_active_scal_set(&conn, &ids, "SCAL").unwrap();
+        assert_eq!(db::get_scal_pc(&conn, &ids).unwrap().len(), 8);
+        db::set_active_scal_set(&conn, &ids, "SCAL_1").unwrap();
 
         // One bad file fails the whole import and names the file.
         let res3 = import_scal_files(
@@ -1331,6 +2343,8 @@ mod tests {
             "auto",
             "air_brine",
             72.0,
+            None,
+            false,
         );
         assert!(res3.error.as_deref().is_some_and(|e| e.contains("nope.csv")));
         assert_eq!(db::get_scal_pc(&conn, &ids).unwrap().len(), 4, "failed import leaves prior rows intact");
@@ -1352,14 +2366,14 @@ mod tests {
 
         let good = std::env::temp_dir().join(format!("sandibumi_scal_good_{ids}.csv"));
         std::fs::write(&good, "PC,SW\n5,0.55\n10,0.45\n20,0.35\n").unwrap();
-        let res = import_scal_files(&conn, &ids, &[good.to_str().unwrap().to_string()], "long", "hg_air", 367.0);
+        let res = import_scal_files(&conn, &ids, &[good.to_str().unwrap().to_string()], "long", "hg_air", 367.0, None, false);
         assert!(res.error.is_none(), "{:?}", res.error);
         assert_eq!(db::get_scal_pc(&conn, &ids).unwrap().len(), 3);
 
         // Header-only export (e.g. a filtered/template sheet) → error, data intact.
         let empty = std::env::temp_dir().join(format!("sandibumi_scal_empty_{ids}.csv"));
         std::fs::write(&empty, "PC,SW\n").unwrap();
-        let res2 = import_scal_files(&conn, &ids, &[empty.to_str().unwrap().to_string()], "auto", "hg_air", 367.0);
+        let res2 = import_scal_files(&conn, &ids, &[empty.to_str().unwrap().to_string()], "auto", "hg_air", 367.0, None, false);
         assert!(res2.error.as_deref().is_some_and(|e| e.contains("untouched")), "{:?}", res2.error);
         assert_eq!(db::get_scal_pc(&conn, &ids).unwrap().len(), 3, "existing points survive");
 
@@ -1376,14 +2390,14 @@ mod tests {
         db::create_schema(&conn).unwrap();
         let w1 = Uuid::new_v4();
         let w2 = Uuid::new_v4();
-        db::insert_well(&conn, w1, "BALAM-1", None, None, None).unwrap();
-        db::insert_well(&conn, w2, "BALAM-2", None, None, None).unwrap();
+        db::insert_well(&conn, w1, "SANDI-1", None, None, None).unwrap();
+        db::insert_well(&conn, w2, "SANDI-2", None, None, None).unwrap();
         let id1 = w1.to_string();
 
         let path = std::env::temp_dir().join("arshilla_tops_import.csv");
         std::fs::write(
             &path,
-            "WELL,TOP,MD\nbalam-1,TOP_A,1000.0\nBALAM-1,TOP_B,1100.0\nBALAM-2,TOP_A,1010.0\nGHOST-9,TOP_A,900.0\n",
+            "WELL,TOP,MD\nsandi-1,TOP_A,1000.0\nSANDI-1,TOP_B,1100.0\nSANDI-2,TOP_A,1010.0\nGHOST-9,TOP_A,900.0\n",
         )
         .unwrap();
         let res = import_tops_file(&conn, None, path.to_str().unwrap());
@@ -1394,7 +2408,7 @@ mod tests {
 
         // Give TOP_A a color, then re-import a new depth: depth moves, color survives.
         db::upsert_top(&conn, &id1, "TOP_A", 1000.0, Some("#ff0000")).unwrap();
-        std::fs::write(&path, "WELL,TOP,MD\nBALAM-1,TOP_A,1005.0\n").unwrap();
+        std::fs::write(&path, "WELL,TOP,MD\nSANDI-1,TOP_A,1005.0\n").unwrap();
         let res2 = import_tops_file(&conn, None, path.to_str().unwrap());
         assert!(res2.error.is_none());
         let tops = db::list_tops(&conn, &id1).unwrap();
@@ -1413,8 +2427,8 @@ mod tests {
     }
 
     /// P2 aux import: XRD point data (numeric + text cells) and perforation intervals
-    /// land in aux_data long format; re-import replaces per (well, dataset); datasets
-    /// are independent.
+    /// land in aux_data long format; datasets are independent; and every dataset follows
+    /// the SET discipline (a re-delivery is kept beside the first, one is live).
     #[test]
     fn aux_import_xrd_and_perforation() {
         let conn = Connection::open_in_memory().unwrap();
@@ -1425,7 +2439,7 @@ mod tests {
 
         let xrd = std::env::temp_dir().join("arshilla_aux_xrd.csv");
         std::fs::write(&xrd, "Depth,Quartz,Illite,Remarks\n2000.0,45.2,12.1,clean\n2001.0,40.0,,silty\n").unwrap();
-        let res = import_aux_file(&conn, &ids, "xrd", xrd.to_str().unwrap());
+        let res = import_aux_file(&conn, &ids, "xrd", xrd.to_str().unwrap(), None, false);
         assert!(res.error.is_none(), "{:?}", res.error);
         assert_eq!(res.dataset, "XRD", "dataset name normalized upper");
         assert_eq!(res.rows, 5, "empty cell is skipped, text cell kept");
@@ -1442,7 +2456,7 @@ mod tests {
         // Perforation intervals in a second dataset; both coexist.
         let perf = std::env::temp_dir().join("arshilla_aux_perf.csv");
         std::fs::write(&perf, "FROM,TO,STATUS\n2050.0,2055.0,OPEN\n2100.0,2104.0,SQUEEZED\n").unwrap();
-        let res2 = import_aux_file(&conn, &ids, "PERFORATION", perf.to_str().unwrap());
+        let res2 = import_aux_file(&conn, &ids, "PERFORATION", perf.to_str().unwrap(), None, false);
         assert!(res2.error.is_none());
         assert_eq!(res2.rows, 2);
         let perfs = db::list_aux_data(&conn, &ids, Some("PERFORATION")).unwrap();
@@ -1451,46 +2465,189 @@ mod tests {
         let sets = db::list_aux_datasets(&conn, &ids).unwrap();
         assert_eq!(sets, vec![("PERFORATION".to_string(), 2i64), ("XRD".to_string(), 5i64)]);
 
-        // Re-import of XRD replaces only XRD.
+        // A SECOND XRD delivery: kept beside the first (never overwritten), live, and
+        // counted alone — the whole point of the set model applied to point data.
         std::fs::write(&xrd, "Depth,Quartz\n2000.0,50.0\n").unwrap();
-        let res3 = import_aux_file(&conn, &ids, "XRD", xrd.to_str().unwrap());
+        let res3 = import_aux_file(&conn, &ids, "XRD", xrd.to_str().unwrap(), None, false);
         assert!(res3.error.is_none());
-        let sets = db::list_aux_datasets(&conn, &ids).unwrap();
-        assert_eq!(sets, vec![("PERFORATION".to_string(), 2i64), ("XRD".to_string(), 1i64)]);
+        assert_eq!(res3.sets, vec!["RAW_1".to_string()], "auto-suffixed, not overwritten");
+        let counts = db::list_aux_datasets(&conn, &ids).unwrap();
+        assert_eq!(
+            counts,
+            vec![("PERFORATION".to_string(), 2i64), ("XRD".to_string(), 1i64)],
+            "counts follow the ACTIVE delivery — never the sum of both"
+        );
+        let aux_sets = db::list_aux_sets(&conn, &ids).unwrap();
+        let xrd_sets: Vec<_> = aux_sets.iter().filter(|s| s.dataset == "XRD").collect();
+        assert_eq!(xrd_sets.len(), 2, "both XRD deliveries kept: {aux_sets:?}");
+        assert!(xrd_sets[0].active && xrd_sets[0].set_name == "RAW_1");
+        assert!(!xrd_sets[1].active && xrd_sets[1].rows == 5, "the first delivery is intact");
+        // Perforation is a different dataset and is untouched by the XRD switch.
+        assert!(aux_sets.iter().any(|s| s.dataset == "PERFORATION" && s.active && s.rows == 2));
+
+        // Switching back restores the first delivery's rows, wholesale.
+        db::set_active_aux_set(&conn, &ids, "XRD", "RAW").unwrap();
+        assert_eq!(db::list_aux_data(&conn, &ids, Some("XRD")).unwrap().len(), 5);
+        // Deleting the live delivery hands over to the survivor.
+        db::delete_aux_set(&conn, &ids, "XRD", "RAW").unwrap();
+        let rows = db::list_aux_data(&conn, &ids, Some("XRD")).unwrap();
+        assert_eq!(rows.len(), 1, "the remaining delivery became live: {rows:?}");
         std::fs::remove_file(&xrd).ok();
         std::fs::remove_file(&perf).ok();
 
         // Unknown well errors cleanly.
-        let bad = import_aux_file(&conn, "nope", "XRD", "x.csv");
+        let bad = import_aux_file(&conn, "nope", "XRD", "x.csv", None, false);
         assert!(bad.error.is_some());
     }
 
-    /// Ad-hoc verification against real field LAS files. Ignored by default since it
-    /// depends on absolute paths that only exist on this machine; run explicitly with
+    /// SCAL plugs ARE core plugs, so their depths are the core report's depths and must be able to
+    /// follow the same correction.
+    #[test]
+    fn scal_points_can_follow_the_core_they_were_cut_from() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        db::insert_well(&conn, wid, "SANDI-SCAL-FOLLOW", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        let d: Vec<f32> = (0..20).map(|i| 2000.0 + i as f32).collect();
+        let v = vec![0.2f32; 20];
+        let nan = vec![f32::NAN; 20];
+        db::insert_core_data(&conn, &w, "RAW", None, &d, &v, &nan, &nan, &nan).unwrap();
+        db::apply_core_run_shifts(&mut conn, &w, &[db::RunShift { top: 2000.0, base: 2019.0, delta: 2.0, ..Default::default() }], &Default::default(), &Default::default())
+            .unwrap();
+
+        let path = std::env::temp_dir().join("sandi_scal_follow.csv");
+        std::fs::write(
+            &path,
+            "SAMPLE,DEPTH,PERM,PORO,PC,SW\n1,2005,100,0.20,1,1.0\n1,2005,100,0.20,10,0.5\n\
+             2,2010,50,0.18,1,1.0\n2,2010,50,0.18,10,0.6\n",
+        )
+        .unwrap();
+        let p = path.to_str().unwrap().to_string();
+
+        let res = import_scal_files(&conn, &w, &[p.clone()], "long", "air_brine", 72.0, Some("FOLLOWED"), true);
+        assert!(res.error.is_none(), "{:?}", res.error);
+        let rows = db::get_scal_pc(&conn, &w).unwrap();
+        let depths: Vec<f32> = {
+            let mut d: Vec<f32> = rows.iter().filter_map(|r| r.depth).collect();
+            d.sort_by(f32::total_cmp);
+            d.dedup_by(|a, b| (*a - *b).abs() < 1e-3);
+            d
+        };
+        assert_eq!(depths.len(), 2, "{depths:?}");
+        assert!((depths[0] - 2007.0).abs() < 1e-3, "2005 + 2 m: {depths:?}");
+        assert!((depths[1] - 2012.0).abs() < 1e-3, "2010 + 2 m: {depths:?}");
+        assert_eq!(res.note.as_deref(), Some("placed from the core depth record"));
+
+        // Off, the depths stay exactly as the file wrote them.
+        let plain = import_scal_files(&conn, &w, &[p], "long", "air_brine", 72.0, Some("ASWRITTEN"), false);
+        assert!(plain.error.is_none(), "{:?}", plain.error);
+        assert!(plain.note.is_none(), "nothing to report when the box was not ticked");
+        let rows = db::get_scal_pc(&conn, &w).unwrap();
+        assert!(
+            rows.iter().any(|r| r.depth.is_some_and(|d| (d - 2005.0).abs() < 1e-3)),
+            "unmapped import keeps the delivered depth"
+        );
+        std::fs::remove_file(&path).ok();
+    }
+
+    /// The whole point of keeping the core's as-delivered depths: a laboratory sends XRD months
+    /// after the core was registered, still written at the depths from the original core report,
+    /// and those samples land on the rock they were measured from.
+    #[test]
+    fn a_late_delivery_can_follow_the_core_it_was_measured_on() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        db::insert_well(&conn, wid, "SANDI-LATE", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        // Plugs 2000–2019 as delivered, then registered: upper half +1, lower half +3.
+        let d: Vec<f32> = (0..20).map(|i| 2000.0 + i as f32).collect();
+        let v = vec![0.2f32; 20];
+        let nan = vec![f32::NAN; 20];
+        db::insert_core_data(&conn, &w, "RAW", None, &d, &v, &nan, &nan, &nan).unwrap();
+        db::apply_core_run_shifts(
+            &mut conn,
+            &w,
+            &[
+                db::RunShift { top: 2000.0, base: 2009.0, delta: 1.0, ..Default::default() },
+                db::RunShift { top: 2010.0, base: 2019.0, delta: 3.0, ..Default::default() },
+            ],
+            &db::ShiftTargets::default(),
+            &Default::default(),
+        )
+        .unwrap();
+
+        let dir = std::env::temp_dir();
+        let xrd = dir.join("sandi_late_xrd.csv");
+        // Written at the ORIGINAL depths, as the lab would have them.
+        std::fs::write(&xrd, "DEPTH,KAOLINITE,ILLITE\n2005,0.10,0.20\n2015,0.30,0.40\n1990,0.05,0.06\n").unwrap();
+        let path = xrd.to_str().unwrap();
+
+        // Off: the samples land where the file says, which is now the wrong rock.
+        let plain = import_aux_file(&conn, &w, "XRD", path, Some("ASWRITTEN"), false);
+        assert!(plain.error.is_none(), "{:?}", plain.error);
+        let rows = db::list_aux_data(&conn, &w, Some("XRD")).unwrap();
+        assert!(
+            rows.iter().any(|r| (r.depth_top - 2005.0).abs() < 1e-3),
+            "unmapped import keeps the delivered depth"
+        );
+
+        // On: each sample follows the barrel it was cut from.
+        let followed = import_aux_file(&conn, &w, "XRD", path, Some("FOLLOWED"), true);
+        assert!(followed.error.is_none(), "{:?}", followed.error);
+        let rows = db::list_aux_data(&conn, &w, Some("XRD")).unwrap();
+        let depths: Vec<f32> = {
+            let mut d: Vec<f32> = rows.iter().map(|r| r.depth_top).collect();
+            d.sort_by(f32::total_cmp);
+            d.dedup_by(|a, b| (*a - *b).abs() < 1e-3);
+            d
+        };
+        assert!(
+            depths.iter().any(|&x| (x - 2006.0).abs() < 1e-3),
+            "2005 was in the barrel that moved 1 m: {depths:?}"
+        );
+        assert!(
+            depths.iter().any(|&x| (x - 2018.0).abs() < 1e-3),
+            "2015 was in the barrel that moved 3 m: {depths:?}"
+        );
+        assert!(
+            depths.iter().any(|&x| (x - 1991.0).abs() < 1e-3),
+            "1990 is above the core, so it holds the nearest correction: {depths:?}"
+        );
+        let notes = followed.notes.unwrap_or_default();
+        assert!(
+            notes.contains("outside the cored interval"),
+            "the sample above the core must be reported as a guess, not placed silently: {notes}"
+        );
+
+        // A well with no core says so rather than pretending it mapped anything.
+        let w2 = uuid::Uuid::new_v4();
+        db::insert_well(&conn, w2, "SANDI-NOCORE", None, None, None).unwrap();
+        let none = import_aux_file(&conn, &w2.to_string(), "XRD", path, None, true);
+        assert!(none.error.is_none(), "{:?}", none.error);
+        assert!(
+            none.notes.unwrap_or_default().contains("no core to follow"),
+            "asking to follow a core that is not there must be said out loud"
+        );
+        std::fs::remove_file(&xrd).ok();
+    }
+
+    /// Ad-hoc verification against a real field delivery — whatever LAS files sit in the
+    /// configured fixture folder (`SANDIBUMI_FIELD_FIXTURES/las/`). Ignored by default and
+    /// skipped with a printed reason when no folder is configured; run explicitly with
     /// `cargo test --release -- --ignored --nocapture test_import_real_field_files`.
     #[test]
     #[ignore]
     fn test_import_real_field_files() {
-        let paths: Vec<String> = vec![
-            r"D:\01. Work\00. Guidebook\02. Guidebook Geolog\Loglan\mina01060d1_study_minas_itb2022_final.las",
-            r"D:\01. Work\2023\10. LQR Balam South - PHR Rokan\13. Delivery Data\01. Final Log\BLSO_LAPI2023_FPROOH\blso00008_lapi2023_fprooh.las",
-            r"D:\01. Work\2023\10. LQR Balam South - PHR Rokan\13. Delivery Data\01. Final Log\BLSO_LAPI2023_FPROOH\blso00009_lapi2023_fprooh.las",
-            r"D:\01. Work\2023\10. LQR Balam South - PHR Rokan\13. Delivery Data\01. Final Log\BLSO_LAPI2023_FPROOH\blso00010_lapi2023_fprooh.las",
-            r"D:\01. Work\2023\10. LQR Balam South - PHR Rokan\13. Delivery Data\01. Final Log\BLSO_LAPI2023_FPROOH\blso00011_lapi2023_fprooh.las",
-            r"D:\01. Work\2023\10. LQR Balam South - PHR Rokan\13. Delivery Data\01. Final Log\BLSO_LAPI2023_FPROOH\blso00012_lapi2023_fprooh.las",
-            r"D:\01. Work\2023\10. LQR Balam South - PHR Rokan\13. Delivery Data\01. Final Log\BLSO_LAPI2023_FPROOH\blso00001_lapi2023_fprooh.las",
-            r"D:\01. Work\2023\10. LQR Balam South - PHR Rokan\13. Delivery Data\01. Final Log\BLSO_LAPI2023_FPROOH\blso00002_lapi2023_fprooh.las",
-            r"D:\01. Work\2023\10. LQR Balam South - PHR Rokan\13. Delivery Data\01. Final Log\BLSO_LAPI2023_FPROOH\blso00004_lapi2023_fprooh.las",
-            r"D:\01. Work\2023\10. LQR Balam South - PHR Rokan\13. Delivery Data\01. Final Log\BLSO_LAPI2023_FPROOH\blso00005_lapi2023_fprooh.las",
-            r"D:\01. Work\2023\10. LQR Balam South - PHR Rokan\13. Delivery Data\01. Final Log\BLSO_LAPI2023_FPROOH\blso00006_lapi2023_fprooh.las",
-            r"D:\01. Work\2023\10. LQR Balam South - PHR Rokan\13. Delivery Data\01. Final Log\BLSO_LAPI2023_FPROOH\blso00007_lapi2023_fprooh.las",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
+        let paths = crate::field_fixtures::las_files(12);
+        if crate::field_fixtures::skip("test_import_real_field_files", paths.len(), 1) {
+            return;
+        }
 
-        let db_path = std::env::temp_dir().join("arshilla_import_test.duckdb");
-        let _ = std::fs::remove_file(&db_path);
+        let db_path = crate::field_fixtures::temp_db("import_test");
         let conn = db::init_db(db_path.to_str().unwrap()).expect("init_db failed");
 
         let results = import_las_files(&conn, &paths, None);

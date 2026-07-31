@@ -11,6 +11,8 @@
 
 use crate::equations;
 use crate::layout::{Layout, ScaleType};
+use base64::engine::general_purpose::STANDARD as B64;
+use base64::Engine as _;
 use duckdb::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -96,8 +98,26 @@ pub(crate) enum Anchor {
     End,
 }
 
+/// One picture prepared for printing: the stored bytes plus what the two back-ends need to
+/// place them without decoding. `id` is dense across a whole render so the PDF can name each
+/// XObject `/Im{id}` and the resources dictionary can be built from the ops alone.
+pub(crate) struct PrintImage {
+    pub(crate) id: usize,
+    pub(crate) mime: String,
+    pub(crate) data: Vec<u8>,
+    pub(crate) px_w: u32,
+    pub(crate) px_h: u32,
+    /// JPEG colour components (1 grey / 3 RGB / 4 CMYK) — decides the PDF colour space.
+    pub(crate) components: u8,
+}
+
 pub(crate) enum DrawOp {
     Rect { x: f64, y: f64, w: f64, h: f64, fill: Option<String>, stroke: Option<String>, sw: f64 },
+    /// A raster placed in the given millimetre box. `cover = false` means the box IS the
+    /// picture (already fitted to its aspect ratio by the caller, so nothing is distorted);
+    /// `cover = true` means fill the box and crop the overhang, which both back-ends do by
+    /// clipping to the box rather than by squashing the image.
+    Image { x: f64, y: f64, w: f64, h: f64, img: std::sync::Arc<PrintImage>, cover: bool },
     Line { x1: f64, y1: f64, x2: f64, y2: f64, stroke: String, sw: f64 },
     /// Open polyline (a curve run).
     Poly { pts: Vec<(f64, f64)>, stroke: String, sw: f64 },
@@ -212,6 +232,71 @@ pub(crate) fn render_pages(conn: &Connection, spec: &CompositeSpec) -> Result<(V
     } else {
         Vec::new()
     };
+    // Point-data tracks (if any) draw measured samples. Fetched once for the whole render;
+    // both readers are active-set filtered, so this is one delivery of each.
+    let has_points = spec.layout.tracks.iter().any(|t| t.kind == crate::layout::TrackKind::PointData);
+    let core: Vec<(String, f32, f32)> = if has_points {
+        crate::db::get_core_point_series(conn, &spec.well_id).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let aux = if has_points {
+        crate::db::list_aux_data(conn, &spec.well_id, None).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    // Array logs (a distribution at every depth) for any array track, fetched once for the whole
+    // render and keyed by upper-cased curve name. Read whole rather than page by page: a page
+    // boundary must not change which realizations a band was computed from.
+    let mut arrays: HashMap<String, Vec<crate::db::ArrayRow>> = HashMap::new();
+    for track in spec.layout.tracks.iter().filter(|t| t.kind == crate::layout::TrackKind::ArrayLog) {
+        for a in &track.arrays {
+            let key = a.curve_name.trim().to_uppercase();
+            if key.is_empty() || arrays.contains_key(&key) {
+                continue;
+            }
+            let rows = crate::db::read_array_log(conn, &spec.well_id, a.set_name.as_deref(), &key)
+                .unwrap_or_default();
+            arrays.insert(key, rows);
+        }
+    }
+
+    // Depth-registered pictures for any image track, fetched once for the whole render and
+    // keyed by dataset. Read whole rather than page by page for the same reason as the array
+    // logs — and because a plate that straddles a page break must be placeable on both.
+    let mut images: HashMap<String, Vec<PrintEntry>> = HashMap::new();
+    let mut next_image_id = 0usize;
+    for track in spec.layout.tracks.iter().filter(|t| t.kind == crate::layout::TrackKind::Image) {
+        for st in &track.images {
+            let key = st.dataset.trim().to_uppercase();
+            if key.is_empty() || images.contains_key(&key) {
+                continue;
+            }
+            let rows = crate::db::read_images_for_print(conn, &spec.well_id, &key, top, bottom)
+                .unwrap_or_default();
+            let entries = rows
+                .into_iter()
+                .map(|(info, data)| {
+                    // The PDF exporter embeds JPEG bytes untouched (DCTDecode); anything else
+                    // is carried for the SVG path and prints as a labelled frame in the PDF.
+                    let printable = info.printable && info.mime == "image/jpeg";
+                    let components = crate::images::sniff(&data).map(|m| m.components).unwrap_or(3);
+                    let img = std::sync::Arc::new(PrintImage {
+                        id: next_image_id,
+                        mime: info.mime.clone(),
+                        px_w: info.width.max(1) as u32,
+                        px_h: info.height.max(1) as u32,
+                        components: if components == 0 { 3 } else { components },
+                        data,
+                    });
+                    next_image_id += 1;
+                    PrintEntry { info, img, printable }
+                })
+                .collect();
+            images.insert(key, entries);
+        }
+    }
 
     let (pw, ph) = spec.page_size.dims();
     let mm_per_m = 1000.0 / spec.scale as f64;
@@ -230,8 +315,8 @@ pub(crate) fn render_pages(conn: &Connection, spec: &CompositeSpec) -> Result<(V
         let m_this = if first { m_per_page_first } else { m_per_page_run };
         let d1 = (d0 + m_this).min(bottom);
         let ops = build_page(
-            spec, &header, &depth, &columns, &tops, &zones, &completion, &perforations, pw, ph, mm_per_m, first,
-            d0 as f32, d1 as f32, idx,
+            spec, &header, &depth, &columns, &tops, &zones, &completion, &perforations, &core, &aux,
+            &arrays, &images, pw, ph, mm_per_m, first, d0 as f32, d1 as f32, idx,
         );
         pages.push(PageOps { ops, top: d0 as f32, bot: d1 as f32, idx });
         d0 = d1;
@@ -260,7 +345,8 @@ pub fn render_composite(conn: &Connection, spec: &CompositeSpec) -> Result<Compo
 pub fn render_composite_pdf(conn: &Connection, spec: &CompositeSpec) -> Result<Vec<u8>, String> {
     let (pages, pw, ph, _) = render_pages(conn, spec)?;
     let streams: Vec<String> = pages.iter().map(|p| pdf_content(&p.ops, pw, ph)).collect();
-    Ok(assemble_pdf(&streams, pw, ph))
+    let op_pages: Vec<&[DrawOp]> = pages.iter().map(|p| p.ops.as_slice()).collect();
+    Ok(assemble_pdf_with_images(&streams, pw, ph, &collect_images(&op_pages)))
 }
 
 /// Writes the rendered pages to disk as SVG. A single page goes to `dest_path` as given;
@@ -304,6 +390,10 @@ fn build_page(
     zones: &[crate::db::ZoneEntry],
     completion: &[crate::db::AuxRow],
     perforations: &[crate::db::AuxRow],
+    core: &[(String, f32, f32)],
+    aux: &[crate::db::AuxRow],
+    arrays: &HashMap<String, Vec<crate::db::ArrayRow>>,
+    images: &HashMap<String, Vec<PrintEntry>>,
     pw: f64,
     ph: f64,
     mm_per_m: f64,
@@ -413,13 +503,42 @@ fn build_page(
             stroke: Some("#333333".into()),
             sw: 0.2,
         });
-        if track.kind == crate::layout::TrackKind::WellDiagram {
+        if track.kind == crate::layout::TrackKind::ArrayLog {
+            for a in &track.arrays {
+                let rows = arrays.get(&a.curve_name.trim().to_uppercase()).map(Vec::as_slice).unwrap_or(&[]);
+                draw_array_series(
+                    &mut ops, a, track.scale_type, rows, tx0, tx1, page_top, page_bot, &y_of,
+                );
+            }
+        } else if track.kind == crate::layout::TrackKind::Image {
+            for st in &track.images {
+                let entries =
+                    images.get(&st.dataset.trim().to_uppercase()).map(Vec::as_slice).unwrap_or(&[]);
+                draw_image_series(&mut ops, st, entries, tx0, tx1, page_top, page_bot, &y_of);
+            }
+        } else if track.kind == crate::layout::TrackKind::PointData {
+            for ps in &track.points {
+                draw_point_series(
+                    &mut ops, ps, track.scale_type, core, aux, tx0, tx1, page_top, page_bot, &y_of,
+                );
+            }
+        } else if track.kind == crate::layout::TrackKind::WellDiagram {
             draw_well_diagram(&mut ops, completion, perforations, tx0, tx1, page_top, page_bot, &y_of);
         } else {
             draw_vgrid(&mut ops, track, tx0, tx1, grid_top, grid_bot);
             for cs in &track.curves {
                 let Some(vals) = columns.get(&cs.curve_name.trim().to_uppercase()) else { continue };
-                draw_curve(&mut ops, cs, track.scale_type, vals, depth, tx0, tx1, page_top, page_bot, &y_of);
+                // Crossover shading needs the reference curve's samples AND its own min/max,
+                // taken from the same track — compatible scaling is the whole point.
+                let xover = cs.fill_to.as_deref().and_then(|to| {
+                    let key = to.trim().to_uppercase();
+                    let rs = track.curves.iter().find(|o| o.curve_name.trim().to_uppercase() == key)?;
+                    Some((columns.get(&key)?.as_slice(), rs.min, rs.max))
+                });
+                draw_curve(
+                    &mut ops, cs, track.scale_type, vals, depth, xover, tx0, tx1, page_top, page_bot,
+                    &y_of,
+                );
             }
         }
         draw_track_header(&mut ops, track, tx0, tx1, track_top, grid_top);
@@ -644,6 +763,7 @@ fn draw_curve(
     scale: ScaleType,
     vals: &[f32],
     depth: &[f32],
+    xover: Option<(&[f32], f32, f32)>,
     tx0: f64,
     tx1: f64,
     page_top: f32,
@@ -652,42 +772,69 @@ fn draw_curve(
 ) {
     let tw = tx1 - tx0;
     let x_at = |v: f32| value_frac(v, cs.min, cs.max, scale).map(|f| tx0 + f.clamp(0.0, 1.0) * tw);
+    // "step" holds each sample's value down to the next sample's depth, so a run gains a
+    // second point at the same x — the blocky display. Kept in sync with the viewer's
+    // LogCanvasRenderer, which builds the identical corner.
+    let step = cs.draw_style.as_deref() == Some("step");
+    let hold_to = |i: usize| -> Option<f64> {
+        let d = *depth.get(i + 1)?;
+        Some(y_of(d.clamp(page_top, page_bot)))
+    };
 
-    // Discrete class blocks (fill == "blocks"): full-track-width colored rectangles per
-    // contiguous same-class run — the print equivalent of the viewer's facies track.
-    if cs.fill.as_deref() == Some("blocks") {
-        draw_class_blocks(ops, cs, vals, depth, tx0, tx1, page_top, page_bot, y_of);
-        return;
-    }
-
-    // Edge fill: closed polygon between the curve run and the chosen track edge.
-    if let Some(side) = cs.fill.as_deref() {
-        let edge_x = if side == "right" { tx1 } else { tx0 };
-        let fill_color = cs.fill_color.clone().unwrap_or_else(|| cs.color.clone());
-        let opacity = cs.fill_opacity.unwrap_or(0.25) as f64;
-        let mut run: Vec<(f64, f64)> = Vec::new();
-        let flush = |ops: &mut Vec<DrawOp>, run: &mut Vec<(f64, f64)>| {
-            if run.len() >= 2 {
-                let mut pts = Vec::with_capacity(run.len() + 2);
-                pts.push((edge_x, run[0].1));
-                pts.extend_from_slice(run);
-                pts.push((edge_x, run.last().unwrap().1));
-                ops.push(DrawOp::Fill { pts, fill: fill_color.clone(), opacity });
-            }
-            run.clear();
-        };
-        for (i, &v) in vals.iter().enumerate() {
-            let d = depth[i];
-            if d < page_top || d > page_bot {
-                flush(ops, &mut run);
-                continue;
-            }
-            match x_at(v) {
-                Some(x) => run.push((x, y_of(d))),
-                None => flush(ops, &mut run),
+    match cs.fill.as_deref() {
+        // Discrete class blocks: full-track-width colored rectangles per contiguous
+        // same-class run — the print equivalent of the viewer's facies track.
+        Some("blocks") => {
+            draw_class_blocks(ops, cs, vals, depth, tx0, tx1, page_top, page_bot, y_of);
+            return;
+        }
+        // Crossover shading against another curve in the same track.
+        Some("curve") => {
+            if let Some(reference) = xover {
+                draw_crossover(
+                    ops, cs, scale, vals, depth, reference, tx0, tx1, page_top, page_bot, y_of,
+                );
             }
         }
-        flush(ops, &mut run);
+        // Edge fill: closed polygon between the curve run and the chosen track edge. Matched
+        // explicitly so a style saved with fill = "none" (what the properties dialog writes
+        // when you pick None) prints unshaded, exactly as the viewer draws it.
+        Some(side @ ("left" | "right")) => {
+            let edge_x = if side == "right" { tx1 } else { tx0 };
+            let fill_color = cs.fill_color.clone().unwrap_or_else(|| cs.color.clone());
+            let opacity = cs.fill_opacity.unwrap_or(0.25) as f64;
+            let mut run: Vec<(f64, f64)> = Vec::new();
+            let flush = |ops: &mut Vec<DrawOp>, run: &mut Vec<(f64, f64)>| {
+                if run.len() >= 2 {
+                    let mut pts = Vec::with_capacity(run.len() + 2);
+                    pts.push((edge_x, run[0].1));
+                    pts.extend_from_slice(run);
+                    pts.push((edge_x, run.last().unwrap().1));
+                    ops.push(DrawOp::Fill { pts, fill: fill_color.clone(), opacity });
+                }
+                run.clear();
+            };
+            for (i, &v) in vals.iter().enumerate() {
+                let d = depth[i];
+                if d < page_top || d > page_bot {
+                    flush(ops, &mut run);
+                    continue;
+                }
+                match x_at(v) {
+                    Some(x) => {
+                        run.push((x, y_of(d)));
+                        if step {
+                            if let Some(y) = hold_to(i) {
+                                run.push((x, y));
+                            }
+                        }
+                    }
+                    None => flush(ops, &mut run),
+                }
+            }
+            flush(ops, &mut run);
+        }
+        _ => {}
     }
 
     // Curve line: contiguous runs, breaking at NaN / off-page gaps.
@@ -705,11 +852,611 @@ fn draw_curve(
             continue;
         }
         match x_at(v) {
-            Some(x) => run.push((x, y_of(d))),
+            Some(x) => {
+                run.push((x, y_of(d)));
+                if step {
+                    if let Some(y) = hold_to(i) {
+                        run.push((x, y));
+                    }
+                }
+            }
             None => flush_line(ops, &mut run),
         }
     }
     flush_line(ops, &mut run);
+}
+
+/// `fill = "curve"`: shading between this curve and a reference curve in the same track —
+/// the neutron-density separation display. Each sample interval contributes one quad
+/// between the two curves; where the pair actually crosses INSIDE an interval the quad is
+/// split at the crossing point, so the two colours meet on the crossover instead of one
+/// bleeding a whole sample past it. A NaN on either curve simply leaves that interval
+/// unshaded — a crossover is never inferred across a gap.
+#[allow(clippy::too_many_arguments)]
+fn draw_crossover(
+    ops: &mut Vec<DrawOp>,
+    cs: &crate::layout::CurveStyle,
+    scale: ScaleType,
+    vals: &[f32],
+    depth: &[f32],
+    reference: (&[f32], f32, f32),
+    tx0: f64,
+    tx1: f64,
+    page_top: f32,
+    page_bot: f32,
+    y_of: &dyn Fn(f32) -> f64,
+) {
+    let (rvals, rmin, rmax) = reference;
+    let tw = tx1 - tx0;
+    let x_a = |v: f32| value_frac(v, cs.min, cs.max, scale).map(|f| tx0 + f.clamp(0.0, 1.0) * tw);
+    let x_b = |v: f32| value_frac(v, rmin, rmax, scale).map(|f| tx0 + f.clamp(0.0, 1.0) * tw);
+    let left = cs.fill_color.clone().unwrap_or_else(|| cs.color.clone());
+    let right = cs.fill_color2.clone().unwrap_or_else(|| left.clone());
+    let opacity = cs.fill_opacity.unwrap_or(0.3) as f64;
+    let step = cs.draw_style.as_deref() == Some("step");
+
+    let n = vals.len().min(depth.len()).min(rvals.len());
+    for i in 0..n.saturating_sub(1) {
+        let (d0, d1) = (depth[i], depth[i + 1]);
+        if d0 < page_top || d0 > page_bot || d1 < page_top || d1 > page_bot {
+            continue;
+        }
+        let (Some(a0), Some(b0)) = (x_a(vals[i]), x_b(rvals[i])) else { continue };
+        // A stepped curve holds its value across the interval, so both edges stay vertical
+        // and the pair can never cross inside one interval.
+        let (a1, b1) = if step {
+            (a0, b0)
+        } else {
+            let (Some(a1), Some(b1)) = (x_a(vals[i + 1]), x_b(rvals[i + 1])) else { continue };
+            (a1, b1)
+        };
+        let (y0, y1) = (y_of(d0), y_of(d1));
+        let (s0, s1) = (a0 - b0, a1 - b1);
+        let side = |s: f64| if s < 0.0 { left.clone() } else { right.clone() };
+        if (s0 < 0.0) != (s1 < 0.0) && s0 != s1 {
+            let t = s0 / (s0 - s1);
+            let (ym, xm) = (y0 + (y1 - y0) * t, a0 + (a1 - a0) * t);
+            ops.push(DrawOp::Fill {
+                pts: vec![(a0, y0), (b0, y0), (xm, ym)],
+                fill: side(s0),
+                opacity,
+            });
+            ops.push(DrawOp::Fill {
+                pts: vec![(xm, ym), (b1, y1), (a1, y1)],
+                fill: side(s1),
+                opacity,
+            });
+        } else {
+            ops.push(DrawOp::Fill {
+                pts: vec![(a0, y0), (b0, y0), (b1, y1), (a1, y1)],
+                fill: side(s0),
+                opacity,
+            });
+        }
+    }
+}
+
+/// Gathers one point series' samples for the print path. Core reads the ACTIVE core set's
+/// plug property; aux reads one item of one point dataset. An interval sample (depth_base
+/// present) is anchored at its middle, where the measurement actually applies. Mirrors
+/// `logViewPanel.pointSamples` — keep the two gathering the same rows.
+fn point_samples(
+    ps: &crate::layout::PointStyle,
+    core: &[(String, f32, f32)],
+    aux: &[crate::db::AuxRow],
+) -> (Vec<f32>, Vec<f32>, Vec<String>) {
+    let item = ps.item.trim().to_uppercase();
+    let (mut d, mut v, mut t) = (Vec::new(), Vec::new(), Vec::new());
+    if ps.source == "core" {
+        for (name, depth, value) in core {
+            if name.as_str() != item {
+                continue;
+            }
+            d.push(*depth);
+            v.push(*value);
+            t.push(String::new());
+        }
+        return (d, v, t);
+    }
+    let dataset = ps.dataset.as_deref().map(|s| s.trim().to_uppercase());
+    for r in aux {
+        if dataset.as_deref().is_some_and(|ds| r.dataset.to_uppercase() != ds) {
+            continue;
+        }
+        if r.item.to_uppercase() != item {
+            continue;
+        }
+        d.push(r.depth_base.map_or(r.depth_top, |b| (r.depth_top + b) / 2.0));
+        v.push(r.value_num.unwrap_or(f32::NAN));
+        t.push(r.value_text.clone().unwrap_or_default());
+    }
+    (d, v, t)
+}
+
+/// One picture as the print path carries it: its registration, its bytes, and whether the
+/// PDF back-end can embed it.
+pub(crate) struct PrintEntry {
+    pub(crate) info: crate::db::ImageInfo,
+    pub(crate) img: std::sync::Arc<PrintImage>,
+    pub(crate) printable: bool,
+}
+
+/// The millimetre box one picture occupies, computed identically here and in the viewer.
+struct ImageBox {
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    /// True when the box is the requested frame and the picture overfills it (fit = cover);
+    /// false when the box has already been fitted to the picture's own aspect ratio.
+    cover: bool,
+}
+
+/// Places one picture in a track.
+///
+/// Two placements, and the difference is petrophysical rather than cosmetic. **anchor**
+/// centres a fixed-size plate on its sample depth — a thin section is cut from one plug and
+/// has no thickness, so stretching it over a guessed interval would invent one. **depth**
+/// draws the picture across its own `depth_top..depth_base`, which is what a core photograph
+/// of a measured run genuinely occupies; without a base depth it falls back to anchor.
+///
+/// Aspect ratio is never distorted. `contain` fits the whole picture inside the box (so a
+/// deep interval in a narrow track simply leaves white space); `cover` fills the box and
+/// crops the overhang. There is deliberately no stretch option — a squashed thin section
+/// misstates grain shape, which is the one thing the plate is there to show.
+fn image_box(style: &crate::layout::ImageStyle, e: &PrintEntry, tx0: f64, tx1: f64, y_of: &dyn Fn(f32) -> f64) -> ImageBox {
+    let track_w = tx1 - tx0;
+    let box_w = track_w * style.width_frac() as f64;
+    let x = match style.align_kind() {
+        "left" => tx0,
+        "right" => tx1 - box_w,
+        _ => tx0 + (track_w - box_w) / 2.0,
+    };
+    let aspect = e.img.px_h as f64 / e.img.px_w.max(1) as f64;
+
+    let interval = e.info.depth_base.filter(|b| *b > e.info.depth_top);
+    if style.mode_kind() == "depth" {
+        if let Some(base) = interval {
+            let y0 = y_of(e.info.depth_top);
+            let y1 = y_of(base);
+            let box_h = (y1 - y0).max(0.3);
+            if style.fit_kind() == "cover" {
+                return ImageBox { x, y: y0, w: box_w, h: box_h, cover: true };
+            }
+            // contain: shrink the wider dimension until the whole picture fits, centred.
+            let (mut w, mut h) = (box_w, box_w * aspect);
+            if h > box_h {
+                h = box_h;
+                w = box_h / aspect.max(1e-6);
+            }
+            return ImageBox { x: x + (box_w - w) / 2.0, y: y0 + (box_h - h) / 2.0, w, h, cover: false };
+        }
+    }
+    // anchor: the picture's own aspect ratio sets the height, centred on the sample depth.
+    let h = box_w * aspect;
+    let yc = y_of(e.info.depth_base.map_or(e.info.depth_top, |b| (e.info.depth_top + b) / 2.0));
+    ImageBox { x, y: yc - h / 2.0, w: box_w, h, cover: false }
+}
+
+/// An `image` track's pictures in print. Mirrors `drawImageTracks` in
+/// `src/ui/logViewPanel.ts` — the two must agree, and both take their geometry from
+/// [`image_box`].
+#[allow(clippy::too_many_arguments)]
+fn draw_image_series(
+    ops: &mut Vec<DrawOp>,
+    style: &crate::layout::ImageStyle,
+    entries: &[PrintEntry],
+    tx0: f64,
+    tx1: f64,
+    page_top: f32,
+    page_bot: f32,
+    y_of: &dyn Fn(f32) -> f64,
+) {
+    let label = style.label.unwrap_or(true);
+    let border = style.border.unwrap_or(true);
+    let grid_top = y_of(page_top);
+    let grid_bot = y_of(page_bot);
+    // Where the previous plate ended, so an overlapping one can be SKIPPED rather than
+    // nudged: a thin section moved to make room is a thin section attributed to the wrong
+    // sand. Zooming in on screen (or printing at a larger scale) reveals the skipped ones.
+    let mut last_bottom = f64::NEG_INFINITY;
+
+    for e in entries {
+        let sample_depth = e.info.depth_base.map_or(e.info.depth_top, |b| (e.info.depth_top + b) / 2.0);
+        if e.info.depth_top > page_bot || e.info.depth_base.unwrap_or(e.info.depth_top) < page_top {
+            continue;
+        }
+        let b = image_box(style, e, tx0, tx1, y_of);
+        // A plate is either wholly on this page or it is not drawn on it: half a photograph
+        // clipped by a page break reads as a different picture.
+        if b.y < grid_top - 0.01 || b.y + b.h > grid_bot + 0.01 {
+            ops.push(DrawOp::Line {
+                x1: tx0,
+                y1: y_of(sample_depth),
+                x2: tx0 + (tx1 - tx0) * 0.15,
+                y2: y_of(sample_depth),
+                stroke: "#8a7f70".into(),
+                sw: 0.25,
+            });
+            continue;
+        }
+        if b.y < last_bottom + 0.4 {
+            ops.push(DrawOp::Line {
+                x1: tx0,
+                y1: y_of(sample_depth),
+                x2: tx0 + (tx1 - tx0) * 0.15,
+                y2: y_of(sample_depth),
+                stroke: "#8a7f70".into(),
+                sw: 0.25,
+            });
+            continue;
+        }
+        last_bottom = b.y + b.h;
+
+        if e.printable {
+            ops.push(DrawOp::Image {
+                x: b.x,
+                y: b.y,
+                w: b.w,
+                h: b.h,
+                img: e.img.clone(),
+                cover: b.cover,
+            });
+        } else {
+            // Never a silent gap: the frame states which plate is missing and why, so a
+            // client deliverable can be checked against the delivery list.
+            ops.push(DrawOp::Rect {
+                x: b.x,
+                y: b.y,
+                w: b.w,
+                h: b.h,
+                fill: Some("#f2efe9".into()),
+                stroke: Some("#b0413e".into()),
+                sw: 0.25,
+            });
+            ops.push(DrawOp::Text {
+                x: b.x + b.w / 2.0,
+                y: b.y + b.h / 2.0,
+                size: 2.2,
+                anchor: Anchor::Middle,
+                color: "#b0413e".into(),
+                bold: false,
+                s: format!("{} — not embeddable", e.info.name),
+            });
+        }
+        if border && e.printable {
+            ops.push(DrawOp::Rect {
+                x: b.x,
+                y: b.y,
+                w: b.w,
+                h: b.h,
+                fill: None,
+                stroke: Some("#5a5148".into()),
+                sw: 0.15,
+            });
+        }
+        // Depth leader: the plate is somewhere in the track, its depth is on the left edge.
+        ops.push(DrawOp::Line {
+            x1: tx0,
+            y1: y_of(sample_depth),
+            x2: b.x,
+            y2: y_of(sample_depth),
+            stroke: "#8a7f70".into(),
+            sw: 0.2,
+        });
+        if label && b.y - 1.0 > grid_top {
+            ops.push(DrawOp::Text {
+                x: b.x,
+                y: b.y - 0.8,
+                size: 2.2,
+                anchor: Anchor::Start,
+                color: "#4a4038".into(),
+                bold: false,
+                s: e.info.name.clone(),
+            });
+        }
+    }
+}
+
+/// A `point_data` track's series in print: measured samples rather than a continuous log.
+/// Four displays matching the viewer — points, box plot per depth bin, value-axis histogram
+/// per depth bin, and text labels. Statistics come from the shared `distribution` module, so
+/// the printed box is the same box the screen drew.
+#[allow(clippy::too_many_arguments)]
+fn draw_point_series(
+    ops: &mut Vec<DrawOp>,
+    ps: &crate::layout::PointStyle,
+    scale: ScaleType,
+    core: &[(String, f32, f32)],
+    aux: &[crate::db::AuxRow],
+    tx0: f64,
+    tx1: f64,
+    page_top: f32,
+    page_bot: f32,
+    y_of: &dyn Fn(f32) -> f64,
+) {
+    use crate::distribution::{bin_by_depth, box_stats, histogram};
+    let (depth, value, text) = point_samples(ps, core, aux);
+    if depth.is_empty() {
+        return;
+    }
+    let tw = tx1 - tx0;
+    // None (not a clamped edge) for anything off-scale — a clamped sample would print at a
+    // value it never had.
+    let x_at = |v: f32| {
+        value_frac(v, ps.min, ps.max, scale).and_then(|f| (0.0..=1.0).contains(&f).then(|| tx0 + f * tw))
+    };
+
+    match ps.display.as_deref().unwrap_or("points") {
+        "text" => {
+            let mut last_y = f64::NEG_INFINITY;
+            for i in 0..depth.len().min(text.len()) {
+                let d = depth[i];
+                if d < page_top || d > page_bot || text[i].is_empty() {
+                    continue;
+                }
+                let y = y_of(d);
+                // One label per 3 mm, or a densely described core prints as a black smear.
+                if y - last_y < 3.0 {
+                    continue;
+                }
+                last_y = y;
+                ops.push(DrawOp::Text {
+                    x: tx0 + 0.8,
+                    y: y + 0.8,
+                    size: 2.2,
+                    anchor: Anchor::Start,
+                    color: "#333333".into(),
+                    bold: false,
+                    s: text[i].chars().take(28).collect(),
+                });
+            }
+        }
+        "box" | "histogram" => {
+            let bin = ps.bin.filter(|b| *b > 0.0).unwrap_or((page_bot - page_top) / 20.0);
+            let is_hist = ps.display.as_deref() == Some("histogram");
+            for (b_top, b_base, vals) in bin_by_depth(&depth, &value, bin) {
+                if b_base < page_top || b_top > page_bot {
+                    continue;
+                }
+                let (y0, y1) = (y_of(b_top.max(page_top)), y_of(b_base.min(page_bot)));
+                let h = y1 - y0;
+                if h <= 0.0 {
+                    continue;
+                }
+                let mid = (y0 + y1) / 2.0;
+                if is_hist {
+                    let counts = histogram(&vals, ps.min, ps.max, ps.hist_bins.unwrap_or(12) as usize);
+                    let peak = counts.iter().copied().max().unwrap_or(0);
+                    if peak == 0 {
+                        continue;
+                    }
+                    let bar_w = tw / counts.len() as f64;
+                    for (i, c) in counts.iter().enumerate() {
+                        if *c == 0 {
+                            continue;
+                        }
+                        let bar_h = (*c as f64 / peak as f64) * h;
+                        ops.push(DrawOp::Rect {
+                            x: tx0 + i as f64 * bar_w,
+                            y: y1 - bar_h,
+                            w: bar_w * 0.92,
+                            h: bar_h,
+                            fill: Some(ps.color.clone()),
+                            stroke: None,
+                            sw: 0.0,
+                        });
+                    }
+                    continue;
+                }
+                let (blo, bhi) = ps.box_edges();
+                let Some(st) = box_stats(&vals, blo, bhi, ps.whisker_rule()) else { continue };
+                let box_h = (h * 0.6).clamp(1.0, 4.0);
+                if let (Some(wl), Some(wh)) = (x_at(st.whisker_lo), x_at(st.whisker_hi)) {
+                    ops.push(DrawOp::Line { x1: wl, y1: mid, x2: wh, y2: mid, stroke: "#555555".into(), sw: 0.2 });
+                    for x in [wl, wh] {
+                        ops.push(DrawOp::Line {
+                            x1: x, y1: mid - box_h / 3.0, x2: x, y2: mid + box_h / 3.0,
+                            stroke: "#555555".into(), sw: 0.2,
+                        });
+                    }
+                }
+                if let (Some(lo), Some(hi)) = (x_at(st.lo), x_at(st.hi)) {
+                    ops.push(DrawOp::Fill {
+                        pts: vec![
+                            (lo.min(hi), mid - box_h / 2.0), (lo.max(hi), mid - box_h / 2.0),
+                            (lo.max(hi), mid + box_h / 2.0), (lo.min(hi), mid + box_h / 2.0),
+                        ],
+                        fill: ps.color.clone(),
+                        opacity: 0.5,
+                    });
+                    ops.push(DrawOp::Rect {
+                        x: lo.min(hi), y: mid - box_h / 2.0, w: (hi - lo).abs(), h: box_h,
+                        fill: None, stroke: Some(ps.color.clone()), sw: 0.15,
+                    });
+                }
+                if let Some(m) = x_at(st.med) {
+                    ops.push(DrawOp::Line {
+                        x1: m, y1: mid - box_h / 2.0, x2: m, y2: mid + box_h / 2.0,
+                        stroke: ps.color.clone(), sw: 0.4,
+                    });
+                }
+                // Outliers are the whole reason to prefer Tukey — print every one.
+                for o in &st.outliers {
+                    if let Some(x) = x_at(*o) {
+                        ops.push(DrawOp::Rect {
+                            x: x - 0.25, y: mid - 0.25, w: 0.5, h: 0.5,
+                            fill: Some(ps.color.clone()), stroke: None, sw: 0.0,
+                        });
+                    }
+                }
+            }
+        }
+        _ => {
+            for i in 0..depth.len().min(value.len()) {
+                let d = depth[i];
+                if d < page_top || d > page_bot {
+                    continue;
+                }
+                let Some(x) = x_at(value[i]) else { continue };
+                let y = y_of(d);
+                // A small diamond, matching the viewer's glyph.
+                ops.push(DrawOp::Fill {
+                    pts: vec![(x, y - 0.7), (x + 0.7, y), (x, y + 0.7), (x - 0.7, y)],
+                    fill: ps.color.clone(),
+                    opacity: 1.0,
+                });
+            }
+        }
+    }
+}
+
+/// Draws one array log — a whole distribution at every depth — as a band, a spaghetti overlay
+/// or a density heat map. Mirrors `drawArrayTracks` in `src/ui/logViewPanel.ts`; the two must
+/// stay in agreement, and both take their statistics from `crate::distribution` so a band and
+/// a point-track box plot answer the same question the same way.
+#[allow(clippy::too_many_arguments)]
+fn draw_array_series(
+    ops: &mut Vec<DrawOp>,
+    as_: &crate::layout::ArrayStyle,
+    scale: ScaleType,
+    rows: &[crate::db::ArrayRow],
+    tx0: f64,
+    tx1: f64,
+    page_top: f32,
+    page_bot: f32,
+    y_of: &dyn Fn(f32) -> f64,
+) {
+    use crate::distribution::{band, even_indices, histogram};
+    let tw = tx1 - tx0;
+    // CLAMPED at the track edge, like `draw_curve` and unlike `draw_point_series`. The rule is
+    // about what the data is, not about tidiness: a discrete plug drawn at a value it never had
+    // is a lie, whereas a continuous reading running past the scale is the ordinary log-display
+    // convention and clipping it is what every log viewer does.
+    let x_at = |v: f32| value_frac(v, as_.min, as_.max, scale).map(|f| tx0 + f.clamp(0.0, 1.0) * tw);
+    let visible: Vec<&crate::db::ArrayRow> =
+        rows.iter().filter(|r| r.depth >= page_top && r.depth <= page_bot).collect();
+    if visible.is_empty() {
+        return;
+    }
+    let color = as_.color.clone();
+
+    match as_.display_kind() {
+        "spaghetti" => {
+            let width = visible.iter().map(|r| r.samples.len()).max().unwrap_or(0);
+            for r_idx in even_indices(width, as_.traces.unwrap_or(40) as usize) {
+                let mut run: Vec<(f64, f64)> = Vec::new();
+                for row in &visible {
+                    match row.samples.get(r_idx).copied().and_then(x_at) {
+                        Some(x) => run.push((x, y_of(row.depth))),
+                        // A realization that produced nothing here BREAKS its own trace. Bridging
+                        // the gap would draw a path down the well that this realization never took.
+                        None => {
+                            if run.len() > 1 {
+                                ops.push(DrawOp::Poly {
+                                    pts: std::mem::take(&mut run),
+                                    stroke: color.clone(),
+                                    sw: 0.08,
+                                });
+                            } else {
+                                run.clear();
+                            }
+                        }
+                    }
+                }
+                if run.len() > 1 {
+                    ops.push(DrawOp::Poly { pts: run, stroke: color.clone(), sw: 0.08 });
+                }
+            }
+        }
+        "heatmap" => {
+            let bins = as_.hist_bins.unwrap_or(32).max(1) as usize;
+            let bw = tw / bins as f64;
+            for (i, row) in visible.iter().enumerate() {
+                // `histogram` DROPS out-of-range values rather than clamping them, which is right
+                // here for the same reason it is right on a point track: a heat-map cell is a
+                // count AT a value, and a clamped sample would invent a count the data never had.
+                let counts = histogram(&row.samples, as_.min, as_.max, bins);
+                let peak = counts.iter().copied().max().unwrap_or(0);
+                if peak == 0 {
+                    continue;
+                }
+                // Cell extent = half-way to each neighbour, so the column tiles seamlessly at
+                // whatever depth sampling the array happens to have been stored at.
+                let yc = y_of(row.depth);
+                let y_prev = i.checked_sub(1).map(|j| y_of(visible[j].depth));
+                let y_next = visible.get(i + 1).map(|n| y_of(n.depth));
+                let top = match y_prev {
+                    Some(p) => (p + yc) / 2.0,
+                    None => yc - y_next.map_or(0.5, |n| (n - yc) / 2.0),
+                };
+                let bot = match y_next {
+                    Some(n) => (n + yc) / 2.0,
+                    None => yc + y_prev.map_or(0.5, |p| (yc - p) / 2.0),
+                };
+                if bot <= top {
+                    continue;
+                }
+                for (b, c) in counts.iter().enumerate() {
+                    if *c == 0 {
+                        continue;
+                    }
+                    // Opacity is normalised to THIS depth's peak, matching the point track's
+                    // per-bin histogram scaling: it reads the shape of the distribution at each
+                    // depth rather than letting one high-count interval flatten the rest.
+                    ops.push(DrawOp::Fill {
+                        pts: vec![
+                            (tx0 + b as f64 * bw, top),
+                            (tx0 + (b + 1) as f64 * bw, top),
+                            (tx0 + (b + 1) as f64 * bw, bot),
+                            (tx0 + b as f64 * bw, bot),
+                        ],
+                        fill: color.clone(),
+                        opacity: *c as f64 / peak as f64,
+                    });
+                }
+            }
+        }
+        // "band"
+        _ => {
+            let (lo_p, hi_p) = as_.band_edges();
+            let opacity = as_.fill_opacity.unwrap_or(0.3) as f64;
+            // Runs of consecutive summarisable depths. A depth with nothing finite is a GAP, so
+            // the shading stops there instead of spanning an interval the study said nothing about.
+            let mut runs: Vec<Vec<(f64, f64, f64, f64)>> = Vec::new(); // (y, x_lo, x_mid, x_hi)
+            let mut run: Vec<(f64, f64, f64, f64)> = Vec::new();
+            for row in &visible {
+                let point = band(&row.samples, lo_p, hi_p)
+                    .and_then(|(lo, med, hi)| Some((x_at(lo)?, x_at(med)?, x_at(hi)?)));
+                match point {
+                    Some((xl, xm, xh)) => run.push((y_of(row.depth), xl, xm, xh)),
+                    None => {
+                        if run.len() > 1 {
+                            runs.push(std::mem::take(&mut run));
+                        } else {
+                            run.clear();
+                        }
+                    }
+                }
+            }
+            if run.len() > 1 {
+                runs.push(run);
+            }
+            for r in &runs {
+                // Down the high edge, back up the low edge — one closed polygon per run.
+                let mut pts: Vec<(f64, f64)> = r.iter().map(|(y, _, _, xh)| (*xh, *y)).collect();
+                pts.extend(r.iter().rev().map(|(y, xl, _, _)| (*xl, *y)));
+                ops.push(DrawOp::Fill { pts, fill: color.clone(), opacity });
+                if as_.show_median.unwrap_or(true) {
+                    ops.push(DrawOp::Poly {
+                        pts: r.iter().map(|(y, _, xm, _)| (*xm, *y)).collect(),
+                        stroke: color.clone(),
+                        sw: 0.25,
+                    });
+                }
+            }
+        }
+    }
 }
 
 /// Qualitative palette for discrete facies/cluster blocks.
@@ -838,7 +1585,7 @@ pub(crate) fn svg_page(ops: &[DrawOp], pw: f64, ph: f64) -> String {
     let mut s = String::with_capacity(16 * 1024);
     let _ = write!(
         s,
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="{pw}mm" height="{ph}mm" viewBox="0 0 {pw} {ph}" font-family="Helvetica, Arial, sans-serif">"##,
+        r##"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="{pw}mm" height="{ph}mm" viewBox="0 0 {pw} {ph}" font-family="Helvetica, Arial, sans-serif">"##,
     );
     let _ = write!(s, r##"<rect x="0" y="0" width="{pw}" height="{ph}" fill="#ffffff"/>"##);
     for op in ops {
@@ -856,6 +1603,20 @@ pub(crate) fn svg_page(ops: &[DrawOp], pw: f64, ph: f64) -> String {
                     s,
                     r##"<line x1="{x1:.2}" y1="{y1:.2}" x2="{x2:.2}" y2="{y2:.2}" stroke="{}" stroke-width="{sw}"/>"##,
                     esc(stroke),
+                );
+            }
+            DrawOp::Image { x, y, w, h, img, cover } => {
+                // Self-contained: the pixels ride in the file as a data URI, so an SVG handed
+                // to a client opens with its plates intact rather than as broken links.
+                // `slice` is SVG's own cover — it fills the box and clips, no clip path
+                // needed; `none` is exact because the caller already fitted the box to the
+                // picture's aspect ratio.
+                let par = if *cover { "xMidYMid slice" } else { "none" };
+                let b64 = B64.encode(&img.data);
+                let _ = write!(
+                    s,
+                    r##"<image x="{x:.2}" y="{y:.2}" width="{w:.2}" height="{h:.2}" preserveAspectRatio="{par}" href="data:{0};base64,{b64}" xlink:href="data:{0};base64,{b64}"/>"##,
+                    esc(&img.mime),
                 );
             }
             DrawOp::Poly { pts, stroke, sw } => {
@@ -979,6 +1740,28 @@ pub(crate) fn pdf_content(ops: &[DrawOp], _pw: f64, ph: f64) -> String {
                     ty(*y2),
                 );
             }
+            DrawOp::Image { x, y, w, h, img, cover } => {
+                // An image XObject is drawn into the UNIT square, so the `cm` matrix carries
+                // the whole placement: width, height, and the lower-left corner in points.
+                let (bx, by) = (tx(*x), ty(*y + *h));
+                let (bw, bh) = (w * PT_PER_MM, h * PT_PER_MM);
+                s.push_str("q\n");
+                let (dw, dh, dx, dy) = if *cover {
+                    // Clip to the box, then overscale the picture until it covers, centred —
+                    // the same crop SVG's `slice` produces, so the two exports agree.
+                    let _ = write!(s, "{bx:.2} {by:.2} {bw:.2} {bh:.2} re W n\n");
+                    let aspect = img.px_h as f64 / img.px_w.max(1) as f64;
+                    let (mut dw, mut dh) = (bw, bw * aspect);
+                    if dh < bh {
+                        dh = bh;
+                        dw = bh / aspect.max(1e-6);
+                    }
+                    (dw, dh, bx + (bw - dw) / 2.0, by + (bh - dh) / 2.0)
+                } else {
+                    (bw, bh, bx, by)
+                };
+                let _ = write!(s, "{dw:.2} 0 0 {dh:.2} {dx:.2} {dy:.2} cm\n/Im{} Do\nQ\n", img.id);
+            }
             DrawOp::Poly { pts, stroke, sw } => {
                 if pts.len() < 2 {
                     continue;
@@ -1024,61 +1807,132 @@ pub(crate) fn pdf_content(ops: &[DrawOp], _pw: f64, ph: f64) -> String {
     s
 }
 
+/// Gathers every distinct picture referenced by a render's pages, ordered by the id the
+/// content streams already wrote (`/Im{id}`), so the resources dictionary can be built from
+/// the draw-ops alone rather than threaded through every caller.
+pub(crate) fn collect_images(pages: &[&[DrawOp]]) -> Vec<std::sync::Arc<PrintImage>> {
+    let mut seen: HashMap<usize, std::sync::Arc<PrintImage>> = HashMap::new();
+    for ops in pages {
+        for op in ops.iter() {
+            if let DrawOp::Image { img, .. } = op {
+                seen.entry(img.id).or_insert_with(|| img.clone());
+            }
+        }
+    }
+    let mut out: Vec<_> = seen.into_values().collect();
+    out.sort_by_key(|i| i.id);
+    out
+}
+
 /// Assembles per-page content streams into a single multi-page PDF document.
 pub(crate) fn assemble_pdf(streams: &[String], pw: f64, ph: f64) -> Vec<u8> {
+    assemble_pdf_with_images(streams, pw, ph, &[])
+}
+
+/// As [`assemble_pdf`], plus image XObjects for any picture the pages draw.
+///
+/// The object bodies are BYTES rather than a String: a JPEG stream is not valid UTF-8, and
+/// re-encoding it (base64, hex) would inflate a photographed core by a third for nothing.
+/// JPEG bytes go in untouched under `/DCTDecode` — the PDF reader runs the same decoder the
+/// camera's file already expects, so nothing is recompressed and nothing is lost.
+pub(crate) fn assemble_pdf_with_images(
+    streams: &[String],
+    pw: f64,
+    ph: f64,
+    images: &[std::sync::Arc<PrintImage>],
+) -> Vec<u8> {
     let wp = pw * PT_PER_MM;
     let hp = ph * PT_PER_MM;
     let n = streams.len();
 
-    // Object ids: 1 catalog, 2 pages, 3 F1, 4 F2, then per page (content, page).
+    // Object ids: 1 catalog, 2 pages, 3 F1, 4 F2, then one per image, then per page
+    // (content, page). Images come before the pages so a page can reference them by id.
     let n_fixed = 4;
-    let mut objects: Vec<String> = Vec::new(); // body of each object, in id order
+    let mut objects: Vec<Vec<u8>> = Vec::new(); // body of each object, in id order
 
     // 1: Catalog
-    objects.push("<< /Type /Catalog /Pages 2 0 R >>".into());
+    objects.push(b"<< /Type /Catalog /Pages 2 0 R >>".to_vec());
 
     // 2: Pages (kids filled below)
+    let first_page_obj = n_fixed + images.len() + 1;
     let mut kids = String::new();
     for i in 0..n {
-        let page_id = n_fixed + 1 + 2 * i + 1; // content then page
+        let page_id = first_page_obj + 2 * i + 1; // content then page
         let _ = write!(kids, "{page_id} 0 R ");
     }
-    objects.push(format!("<< /Type /Pages /Kids [ {}] /Count {} >>", kids.trim_end(), n));
+    objects.push(format!("<< /Type /Pages /Kids [ {}] /Count {} >>", kids.trim_end(), n).into_bytes());
 
     // 3, 4: fonts
-    objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>".into());
-    objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>".into());
+    objects.push(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>".to_vec());
+    objects.push(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>".to_vec());
+
+    // Image XObjects, in id order, so object id = n_fixed + 1 + position.
+    let mut xobjects = String::new();
+    for (pos, img) in images.iter().enumerate() {
+        let obj_id = n_fixed + 1 + pos;
+        let _ = write!(xobjects, "/Im{} {obj_id} 0 R ", img.id);
+        // Adobe's CMYK JPEGs store inverted values; the Decode array puts them back. Grey
+        // and RGB need nothing. Anything not JPEG never reaches here (see draw_image_series).
+        let (space, decode) = match img.components {
+            1 => ("/DeviceGray", ""),
+            4 => ("/DeviceCMYK", " /Decode [1 0 1 0 1 0 1 0]"),
+            _ => ("/DeviceRGB", ""),
+        };
+        let head = format!(
+            "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace {space} \
+             /BitsPerComponent 8 /Filter /DCTDecode{decode} /Length {} >>\nstream\n",
+            img.px_w,
+            img.px_h,
+            img.data.len(),
+        );
+        let mut body = head.into_bytes();
+        body.extend_from_slice(&img.data);
+        body.extend_from_slice(b"\nendstream");
+        objects.push(body);
+    }
+    let resources = if xobjects.is_empty() {
+        "/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >>".to_string()
+    } else {
+        format!("/Resources << /Font << /F1 3 0 R /F2 4 0 R >> /XObject << {} >> >>", xobjects.trim_end())
+    };
 
     // Per page: content stream object then page object.
     for (i, stream) in streams.iter().enumerate() {
-        let content_id = n_fixed + 1 + 2 * i;
-        let page_id = content_id + 1;
-        objects.push(format!("<< /Length {} >>\nstream\n{stream}endstream", stream.len()));
-        objects.push(format!(
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {wp:.2} {hp:.2}] \
-             /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents {content_id} 0 R >>",
-        ));
-        let _ = page_id;
+        let content_id = first_page_obj + 2 * i;
+        objects.push(format!("<< /Length {} >>\nstream\n{stream}endstream", stream.len()).into_bytes());
+        objects.push(
+            format!(
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {wp:.2} {hp:.2}] \
+                 {resources} /Contents {content_id} 0 R >>",
+            )
+            .into_bytes(),
+        );
     }
 
     // Serialize with a cross-reference table.
-    let mut out = String::from("%PDF-1.7\n%\u{00e2}\u{00e3}\u{00cf}\u{00d3}\n");
+    let mut out: Vec<u8> = Vec::with_capacity(64 * 1024);
+    out.extend_from_slice("%PDF-1.7\n%\u{00e2}\u{00e3}\u{00cf}\u{00d3}\n".as_bytes());
     let mut offsets = vec![0usize; objects.len() + 1];
     for (i, body) in objects.iter().enumerate() {
         offsets[i + 1] = out.len();
-        out.push_str(&format!("{} 0 obj\n{body}\nendobj\n", i + 1));
+        out.extend_from_slice(format!("{} 0 obj\n", i + 1).as_bytes());
+        out.extend_from_slice(body);
+        out.extend_from_slice(b"\nendobj\n");
     }
     let xref_pos = out.len();
-    out.push_str(&format!("xref\n0 {}\n", objects.len() + 1));
-    out.push_str("0000000000 65535 f \n");
+    out.extend_from_slice(format!("xref\n0 {}\n", objects.len() + 1).as_bytes());
+    out.extend_from_slice(b"0000000000 65535 f \n");
     for i in 1..=objects.len() {
-        out.push_str(&format!("{:010} 00000 n \n", offsets[i]));
+        out.extend_from_slice(format!("{:010} 00000 n \n", offsets[i]).as_bytes());
     }
-    out.push_str(&format!(
-        "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF\n",
-        objects.len() + 1,
-    ));
-    out.into_bytes()
+    out.extend_from_slice(
+        format!(
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF\n",
+            objects.len() + 1,
+        )
+        .as_bytes(),
+    );
+    out
 }
 
 /// Wraps a single frontend-built content stream as a one-page PDF sized `w_pt`×`h_pt`.
@@ -1102,7 +1956,7 @@ mod tests {
     fn seed_well(conn: &Connection) -> String {
         db::create_schema(conn).unwrap();
         let wid = Uuid::new_v4();
-        db::insert_well(conn, wid, "BLSO-COMPOSITE", Some("Balam South"), Some(1800.0), Some(25.0)).unwrap();
+        db::insert_well(conn, wid, "SANDI-COMPOSITE", Some("Sandi Field"), Some(1800.0), Some(25.0)).unwrap();
         let w = wid.to_string();
         let n = 400;
         let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
@@ -1120,19 +1974,609 @@ mod tests {
         CompositeSpec { well_id: w, layout: standard_layout(), depth_top: None, depth_bottom: None, scale, page_size: page }
     }
 
+    /// A minimal saved curve style — deliberately built from the JSON a PRE-crossover layout
+    /// would have stored, so these tests also prove the new display fields are optional.
+    fn saved_style(name: &str) -> crate::layout::CurveStyle {
+        serde_json::from_value(serde_json::json!({
+            "curve_name": name, "color": "#000000", "min": 0.0, "max": 1.0
+        }))
+        .unwrap()
+    }
+
+    /// Page coordinates come from f32 samples widened to f64, so they land a few ULPs off a
+    /// round number. Round to micro-millimetres — far finer than any printer — so these
+    /// geometry tests can compare exact expected corners.
+    fn round_pts(pts: &[(f64, f64)]) -> Vec<(f64, f64)> {
+        pts.iter().map(|(x, y)| ((x * 1e6).round() / 1e6, (y * 1e6).round() / 1e6)).collect()
+    }
+
+    fn fills(ops: &[DrawOp]) -> Vec<(String, Vec<(f64, f64)>)> {
+        ops.iter()
+            .filter_map(|o| match o {
+                DrawOp::Fill { pts, fill, .. } => Some((fill.clone(), round_pts(pts))),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn line_pts(ops: &[DrawOp]) -> Vec<(f64, f64)> {
+        ops.iter()
+            .find_map(|o| match o {
+                DrawOp::Poly { pts, .. } => Some(round_pts(pts)),
+                _ => None,
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn layouts_saved_before_crossover_still_load() {
+        let cs = saved_style("GR");
+        assert!(cs.draw_style.is_none() && cs.fill_to.is_none() && cs.fill_color2.is_none());
+    }
+
+    #[test]
+    fn blocky_style_holds_each_value_down_to_the_next_sample() {
+        let vals = [0.2f32, 0.8, 0.8];
+        let depth = [100.0f32, 101.0, 102.0];
+        let y = |d: f32| d as f64;
+
+        let mut ops = Vec::new();
+        let cs = saved_style("VSH");
+        draw_curve(&mut ops, &cs, ScaleType::Linear, &vals, &depth, None, 0.0, 10.0, 0.0, 1000.0, &y);
+        // Continuous: one diagonal per interval, so the value slides between sample centres.
+        assert_eq!(line_pts(&ops), vec![(2.0, 100.0), (8.0, 101.0), (8.0, 102.0)]);
+
+        let mut blocky = cs.clone();
+        blocky.draw_style = Some("step".into());
+        let mut ops = Vec::new();
+        draw_curve(&mut ops, &blocky, ScaleType::Linear, &vals, &depth, None, 0.0, 10.0, 0.0, 1000.0, &y);
+        // Blocky: 0.2 holds at x = 2 all the way to 101 before jumping to 0.8 — no gradient
+        // the data never measured.
+        let pts = line_pts(&ops);
+        assert_eq!(pts[0], (2.0, 100.0));
+        assert_eq!(pts[1], (2.0, 101.0));
+        assert_eq!(pts[2], (8.0, 101.0));
+    }
+
+    #[test]
+    fn crossover_shades_each_side_of_the_reference_in_its_own_colour() {
+        let mut cs = saved_style("NPHI");
+        cs.fill = Some("curve".into());
+        cs.fill_to = Some("RHOB".into());
+        cs.fill_color = Some("#111111".into()); // left of the reference
+        cs.fill_color2 = Some("#222222".into()); // right of it
+        // The styled curve starts left of the reference and ends right of it, crossing
+        // exactly midway through the interval.
+        let vals = [0.2f32, 0.8];
+        let refv = [0.8f32, 0.2];
+        let depth = [100.0f32, 102.0];
+        let mut ops = Vec::new();
+        let y = |d: f32| d as f64;
+        draw_curve(
+            &mut ops, &cs, ScaleType::Linear, &vals, &depth, Some((&refv, 0.0, 1.0)),
+            0.0, 10.0, 0.0, 1000.0, &y,
+        );
+        let f = fills(&ops);
+        assert_eq!(f.len(), 2, "a crossing interval splits into two shaded pieces");
+        assert_eq!(f[0].0, "#111111");
+        assert_eq!(f[1].0, "#222222");
+        // The pieces meet exactly on the crossover — mid-depth, mid-track — instead of one
+        // colour bleeding a whole sample past it.
+        assert_eq!(f[0].1.last().copied(), Some((5.0, 101.0)));
+        assert_eq!(f[1].1[0], (5.0, 101.0));
+    }
+
+    #[test]
+    fn crossover_without_its_reference_curve_shades_nothing_but_still_draws_the_line() {
+        let mut cs = saved_style("NPHI");
+        cs.fill = Some("curve".into());
+        cs.fill_to = Some("MISSING".into());
+        let mut ops = Vec::new();
+        let y = |d: f32| d as f64;
+        draw_curve(
+            &mut ops, &cs, ScaleType::Linear, &[0.2f32, 0.8], &[100.0f32, 101.0], None,
+            0.0, 10.0, 0.0, 1000.0, &y,
+        );
+        assert!(fills(&ops).is_empty());
+        assert_eq!(line_pts(&ops).len(), 2);
+    }
+
+    #[test]
+    fn a_style_saved_with_fill_none_prints_unshaded() {
+        // The properties dialog writes fill = "none" when you pick None. The exporter used to
+        // treat any non-"right" value as a left-edge fill, so the print disagreed with screen.
+        let mut cs = saved_style("GR");
+        cs.fill = Some("none".into());
+        let mut ops = Vec::new();
+        let y = |d: f32| d as f64;
+        draw_curve(
+            &mut ops, &cs, ScaleType::Linear, &[0.2f32, 0.8], &[100.0f32, 101.0], None,
+            0.0, 10.0, 0.0, 1000.0, &y,
+        );
+        assert!(fills(&ops).is_empty(), "None must print unshaded, as the viewer draws it");
+    }
+
+    fn point_style(json: serde_json::Value) -> crate::layout::PointStyle {
+        serde_json::from_value(json).unwrap()
+    }
+
+    // --- depth-registered images -------------------------------------------------------
+
+    fn image_style(json: serde_json::Value) -> crate::layout::ImageStyle {
+        serde_json::from_value(json).unwrap()
+    }
+
+    /// A picture 200 px wide by 100 px tall (aspect 0.5) at the given registration.
+    fn plate(id: usize, name: &str, top: f32, base: Option<f32>, printable: bool) -> PrintEntry {
+        PrintEntry {
+            info: crate::db::ImageInfo {
+                image_id: format!("id-{id}"),
+                dataset: "THIN SECTION".into(),
+                set_name: "RAW".into(),
+                depth_top: top,
+                depth_base: base,
+                name: name.into(),
+                caption: None,
+                mime: "image/jpeg".into(),
+                width: 200,
+                height: 100,
+                src_width: Some(4000),
+                src_height: Some(2000),
+                source_path: None,
+                printable,
+                bytes: 6,
+                ..Default::default()
+            },
+            img: std::sync::Arc::new(PrintImage {
+                id,
+                mime: "image/jpeg".into(),
+                data: vec![0xFF, 0xD8, 1, 2, 3, 0xD9],
+                px_w: 200,
+                px_h: 100,
+                components: 3,
+            }),
+            printable,
+        }
+    }
+
+    fn images(ops: &[DrawOp]) -> Vec<(f64, f64, f64, f64, bool)> {
+        ops.iter()
+            .filter_map(|o| match o {
+                DrawOp::Image { x, y, w, h, cover, .. } => Some((*x, *y, *w, *h, *cover)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_anchored_plate_keeps_its_aspect_ratio_and_centres_on_its_depth() {
+        // A thin section has no thickness, so its height comes from the picture, never from
+        // a guessed interval — and it sits ON its sample depth.
+        let st = image_style(serde_json::json!({ "dataset": "THIN SECTION", "size": 0.5 }));
+        let mut ops = Vec::new();
+        let y = |d: f32| d as f64;
+        draw_image_series(&mut ops, &st, &[plate(0, "TS-1", 1010.0, None, true)], 0.0, 40.0, 1000.0, 1020.0, &y);
+        let im = images(&ops);
+        assert_eq!(im.len(), 1);
+        let (x, y0, w, h, cover) = im[0];
+        assert!((w - 20.0).abs() < 1e-6, "half of a 40-wide track");
+        assert!((h - 10.0).abs() < 1e-6, "200x100 px is aspect 0.5, so 20 wide is 10 tall");
+        assert!((x - 10.0).abs() < 1e-6, "centred by default");
+        assert!((y0 + h / 2.0 - 1010.0).abs() < 1e-6, "centred on the sample depth");
+        assert!(!cover);
+    }
+
+    #[test]
+    fn a_depth_scaled_plate_fits_inside_its_own_interval() {
+        // A core photograph of a measured run DOES occupy its interval — but `contain` must
+        // never distort it to fill a box the interval makes the wrong shape.
+        let st = image_style(serde_json::json!({ "dataset": "THIN SECTION", "mode": "depth", "size": 1.0 }));
+        let mut ops = Vec::new();
+        let y = |d: f32| d as f64;
+        // 40 mm wide would want 20 mm of height, but the interval is only 4 m deep.
+        draw_image_series(
+            &mut ops, &st, &[plate(0, "CP-1", 1000.0, Some(1004.0), true)], 0.0, 40.0, 990.0, 1020.0, &y,
+        );
+        let (x, y0, w, h, cover) = images(&ops)[0];
+        assert!((h - 4.0).abs() < 1e-6, "height is capped by the interval");
+        assert!((w - 8.0).abs() < 1e-6, "width shrinks with it: aspect 0.5 is preserved");
+        assert!((x - 16.0).abs() < 1e-6, "the narrowed picture stays centred");
+        assert!((y0 - 1000.0).abs() < 1e-6);
+        assert!(!cover);
+    }
+
+    #[test]
+    fn fit_cover_hands_the_whole_interval_box_to_the_backend_to_crop() {
+        let st = image_style(
+            serde_json::json!({ "dataset": "THIN SECTION", "mode": "depth", "size": 1.0, "fit": "cover" }),
+        );
+        let mut ops = Vec::new();
+        let y = |d: f32| d as f64;
+        draw_image_series(
+            &mut ops, &st, &[plate(0, "CP-1", 1000.0, Some(1004.0), true)], 0.0, 40.0, 990.0, 1020.0, &y,
+        );
+        let (_, _, w, h, cover) = images(&ops)[0];
+        assert!(cover, "cover clips rather than shrinking");
+        assert!((w - 40.0).abs() < 1e-6 && (h - 4.0).abs() < 1e-6, "the box is the interval, full width");
+    }
+
+    #[test]
+    fn an_overlapping_plate_is_skipped_never_moved() {
+        // Two thin sections 0.5 m apart at a scale where each is 10 mm tall cannot both be
+        // drawn. Moving the second would attribute it to a depth it was not cut from, so it
+        // is dropped and only its depth tick remains.
+        let st = image_style(serde_json::json!({ "dataset": "THIN SECTION", "size": 0.5 }));
+        let mut ops = Vec::new();
+        let y = |d: f32| d as f64;
+        draw_image_series(
+            &mut ops,
+            &st,
+            &[plate(0, "TS-1", 1005.0, None, true), plate(1, "TS-2", 1005.5, None, true)],
+            0.0,
+            40.0,
+            1000.0,
+            1020.0,
+            &y,
+        );
+        let im = images(&ops);
+        assert_eq!(im.len(), 1, "the second plate is skipped, not nudged");
+        assert!((im[0].1 + im[0].3 / 2.0 - 1005.0).abs() < 1e-6, "the survivor keeps its true depth");
+    }
+
+    #[test]
+    fn a_plate_that_cannot_be_embedded_prints_a_named_frame_not_a_gap() {
+        let st = image_style(serde_json::json!({ "dataset": "THIN SECTION", "size": 0.5 }));
+        let mut ops = Vec::new();
+        let y = |d: f32| d as f64;
+        draw_image_series(&mut ops, &st, &[plate(0, "TS-PNG", 1010.0, None, false)], 0.0, 40.0, 1000.0, 1020.0, &y);
+        assert!(images(&ops).is_empty(), "nothing embeddable to draw");
+        let said = ops.iter().any(|o| matches!(o, DrawOp::Text { s, .. } if s.contains("TS-PNG")));
+        assert!(said, "a missing plate must name itself so a deliverable can be checked");
+    }
+
+    #[test]
+    fn the_pdf_embeds_the_jpeg_bytes_untouched_and_references_them() {
+        let st = image_style(serde_json::json!({ "dataset": "THIN SECTION", "size": 0.5 }));
+        let mut ops = Vec::new();
+        let y = |d: f32| d as f64;
+        draw_image_series(&mut ops, &st, &[plate(0, "TS-1", 1010.0, None, true)], 0.0, 40.0, 1000.0, 1020.0, &y);
+        let stream = pdf_content(&ops, 210.0, 297.0);
+        assert!(stream.contains("/Im0 Do"), "the content stream must reference the XObject");
+        let imgs = collect_images(&[ops.as_slice()]);
+        assert_eq!(imgs.len(), 1);
+        let pdf = assemble_pdf_with_images(&[stream], 210.0, 297.0, &imgs);
+        assert!(pdf.starts_with(b"%PDF-1.7"));
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.contains("/Subtype /Image"), "an image XObject is written");
+        assert!(text.contains("/Filter /DCTDecode"), "JPEG rides in as JPEG — never re-encoded");
+        assert!(text.contains("/XObject << /Im0 "), "and the page's resources name it");
+        // The exact delivered bytes must survive: a re-encode would quietly degrade a plate.
+        let needle = [0xFFu8, 0xD8, 1, 2, 3, 0xD9];
+        assert!(pdf.windows(needle.len()).any(|w| w == needle), "the JPEG bytes are stored verbatim");
+    }
+
+    #[test]
+    fn a_page_with_no_images_writes_the_same_pdf_it_always_did() {
+        // report.rs and the frontend's single-page path both go through the no-image route;
+        // adding XObjects must not change a plain composite by a byte.
+        let stream = "0.1 0.1 0.1 rg\n".to_string();
+        let old = assemble_pdf(&[stream.clone()], 210.0, 297.0);
+        let new = assemble_pdf_with_images(&[stream], 210.0, 297.0, &[]);
+        assert_eq!(old, new);
+        assert!(!String::from_utf8_lossy(&old).contains("/XObject"));
+    }
+
+    #[test]
+    fn an_svg_page_carries_its_plates_inline_so_a_delivered_file_is_self_contained() {
+        let st = image_style(serde_json::json!({ "dataset": "THIN SECTION", "size": 0.5 }));
+        let mut ops = Vec::new();
+        let y = |d: f32| d as f64;
+        draw_image_series(&mut ops, &st, &[plate(0, "TS-1", 1010.0, None, true)], 0.0, 40.0, 1000.0, 1020.0, &y);
+        let svg = svg_page(&ops, 210.0, 297.0);
+        assert!(svg.contains("data:image/jpeg;base64,"), "no external file references");
+        assert!(svg.contains(r#"preserveAspectRatio="none""#), "the box is already the right shape");
+    }
+
+    /// 20 core plugs over 10 m: φ climbing 0.10 → 0.29, plus one absurd plug.
+    fn plugs() -> (Vec<f32>, Vec<f32>) {
+        let d: Vec<f32> = (0..20).map(|i| 1000.0 + i as f32 * 0.5).collect();
+        let mut v: Vec<f32> = (0..20).map(|i| 0.10 + i as f32 * 0.01).collect();
+        v[3] = 0.95; // a plug no sandstone ever had — must survive as an outlier, not vanish
+        (d, v)
+    }
+
+    #[test]
+    fn a_point_series_prints_one_box_per_depth_bin() {
+        let (d, v) = plugs();
+        let core: Vec<(String, f32, f32)> =
+            d.iter().zip(&v).map(|(d, v)| ("CPOR".to_string(), *d, *v)).collect();
+        let ps = point_style(serde_json::json!({
+            "source": "core", "item": "CPOR", "color": "#5f7350",
+            "min": 0.0, "max": 1.0, "display": "box", "bin": 5.0
+        }));
+        let mut ops = Vec::new();
+        let y = |x: f32| x as f64;
+        draw_point_series(
+            &mut ops, &ps, ScaleType::Linear, &core, &[], 0.0, 10.0, 990.0, 1020.0, &y,
+        );
+        // Plugs span 1000.0–1009.5, so a 5 m bin gives exactly two bins, each with a filled
+        // box, a median rule and a whisker spine.
+        let boxes = fills(&ops).len();
+        assert_eq!(boxes, 2, "one box body per populated depth bin");
+        assert!(ops.iter().filter(|o| matches!(o, DrawOp::Line { .. })).count() >= 6);
+        // The 0.95 plug is beyond the Tukey fence, so it prints as its own mark rather than
+        // stretching the box that summarises the real plugs.
+        assert!(ops.iter().any(|o| matches!(o, DrawOp::Rect { w, .. } if (*w - 0.5).abs() < 1e-9)));
+    }
+
+    #[test]
+    fn point_samples_off_the_track_scale_are_skipped_not_clamped() {
+        let core = vec![
+            ("CPOR".to_string(), 1000.0f32, 0.20f32),
+            ("CPOR".to_string(), 1001.0, 5.0), // far off a 0–1 porosity axis
+        ];
+        let ps = point_style(serde_json::json!({
+            "source": "core", "item": "CPOR", "color": "#000000", "min": 0.0, "max": 1.0
+        }));
+        let mut ops = Vec::new();
+        let y = |x: f32| x as f64;
+        draw_point_series(&mut ops, &ps, ScaleType::Linear, &core, &[], 0.0, 10.0, 990.0, 1020.0, &y);
+        assert_eq!(fills(&ops).len(), 1, "the off-scale plug must not print at the track edge");
+    }
+
+    #[test]
+    fn a_text_point_series_prints_its_labels_from_an_aux_dataset() {
+        let aux = vec![
+            crate::db::AuxRow {
+                dataset: "CORE".into(), depth_top: 1000.0, depth_base: Some(1002.0),
+                item: "LITH".into(), value_num: None, value_text: Some("Sandstone, fine".into()),
+            },
+            crate::db::AuxRow {
+                dataset: "CORE".into(), depth_top: 1010.0, depth_base: None,
+                item: "LITH".into(), value_num: None, value_text: Some("Shale".into()),
+            },
+        ];
+        let ps = point_style(serde_json::json!({
+            "source": "aux", "dataset": "CORE", "item": "LITH", "color": "#000000",
+            "min": 0.0, "max": 1.0, "display": "text"
+        }));
+        let mut ops = Vec::new();
+        let y = |x: f32| x as f64;
+        draw_point_series(&mut ops, &ps, ScaleType::Linear, &[], &aux, 0.0, 20.0, 990.0, 1020.0, &y);
+        let texts: Vec<(f64, String)> = ops
+            .iter()
+            .filter_map(|o| match o {
+                DrawOp::Text { y, s, .. } => Some((*y, s.clone())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(texts.len(), 2);
+        assert_eq!(texts[0].1, "Sandstone, fine");
+        // An interval sample is anchored at its MIDDLE (1000–1002 → 1001), where the
+        // description actually applies, not at its top.
+        assert!((texts[0].0 - 1001.8).abs() < 0.01);
+    }
+
+    fn array_style(json: serde_json::Value) -> crate::layout::ArrayStyle {
+        serde_json::from_value(json).unwrap()
+    }
+
+    /// 5 depths x 11 realizations, centred on phi = 0.15 and widening downwards. With 11
+    /// evenly-spaced values the percentiles land exactly on samples: P10 = centre - 0.8*spread,
+    /// P50 = centre, P90 = centre + 0.8*spread — so the band geometry is checkable by hand.
+    fn realizations() -> Vec<crate::db::ArrayRow> {
+        (0..5)
+            .map(|i| {
+                let spread = 0.02 * (i as f32 + 1.0);
+                crate::db::ArrayRow {
+                    depth: 1000.0 + i as f32,
+                    samples: (0..=10).map(|k| 0.15 - spread + 2.0 * spread * (k as f32 / 10.0)).collect(),
+                }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_array_band_prints_one_polygon_down_the_high_edge_and_back_up_the_low() {
+        let rows = realizations();
+        let a = array_style(serde_json::json!({
+            "curve_name": "MC_PHIE_REAL", "color": "#4e79a7", "min": 0.0, "max": 1.0
+        }));
+        let mut ops = Vec::new();
+        let y = |x: f32| x as f64;
+        draw_array_series(&mut ops, &a, ScaleType::Linear, &rows, 0.0, 100.0, 990.0, 1010.0, &y);
+
+        let f = fills(&ops);
+        assert_eq!(f.len(), 1, "one closed polygon for one unbroken run");
+        assert_eq!(f[0].1.len(), 10, "5 depths down the high edge, 5 back up the low");
+        // Top depth: spread 0.02, so P90 = 0.166 -> x 16.6 and P10 = 0.134 -> x 13.4.
+        assert!((f[0].1[0].0 - 16.6).abs() < 1e-3, "high edge {:?}", f[0].1[0]);
+        assert_eq!(f[0].1[0].1, 1000.0);
+        assert!((f[0].1[9].0 - 13.4).abs() < 1e-3, "low edge closes the polygon {:?}", f[0].1[9]);
+        // P50 is the median line, at the centre regardless of how wide the band gets.
+        let med = line_pts(&ops);
+        assert_eq!(med.len(), 5);
+        assert!(med.iter().all(|(x, _)| (x - 15.0).abs() < 1e-3), "median: {med:?}");
+    }
+
+    #[test]
+    fn the_median_line_can_be_switched_off_without_losing_the_band() {
+        let a = array_style(serde_json::json!({
+            "curve_name": "MC_PHIE_REAL", "color": "#4e79a7", "min": 0.0, "max": 1.0,
+            "show_median": false
+        }));
+        let mut ops = Vec::new();
+        let y = |x: f32| x as f64;
+        draw_array_series(&mut ops, &a, ScaleType::Linear, &realizations(), 0.0, 100.0, 990.0, 1010.0, &y);
+        assert_eq!(fills(&ops).len(), 1);
+        assert!(!ops.iter().any(|o| matches!(o, DrawOp::Poly { .. })));
+    }
+
+    #[test]
+    fn a_depth_where_nothing_converged_breaks_the_band_instead_of_spanning_it() {
+        let mut rows = realizations();
+        rows[2].samples = vec![f32::NAN; 11]; // every realization failed at this depth
+        let a = array_style(serde_json::json!({
+            "curve_name": "MC_PHIE_REAL", "color": "#4e79a7", "min": 0.0, "max": 1.0
+        }));
+        let mut ops = Vec::new();
+        let y = |x: f32| x as f64;
+        draw_array_series(&mut ops, &a, ScaleType::Linear, &rows, 0.0, 100.0, 990.0, 1010.0, &y);
+        // Two polygons with a hole between them — shading straight through would claim an
+        // uncertainty range at a depth the study produced no answer for.
+        let f = fills(&ops);
+        assert_eq!(f.len(), 2, "the gap must split the shading");
+        assert!(f.iter().all(|(_, pts)| pts.len() == 4), "two depths each: {f:?}");
+    }
+
+    #[test]
+    fn spaghetti_draws_the_asked_for_number_of_traces_and_breaks_them_at_failures() {
+        let rows = realizations();
+        let a = array_style(serde_json::json!({
+            "curve_name": "MC_PHIE_REAL", "color": "#4e79a7", "min": 0.0, "max": 1.0,
+            "display": "spaghetti", "traces": 3
+        }));
+        let mut ops = Vec::new();
+        let y = |x: f32| x as f64;
+        draw_array_series(&mut ops, &a, ScaleType::Linear, &rows, 0.0, 100.0, 990.0, 1010.0, &y);
+        let polys: Vec<usize> = ops
+            .iter()
+            .filter_map(|o| match o {
+                DrawOp::Poly { pts, .. } => Some(pts.len()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(polys, vec![5, 5, 5], "three traces, each spanning all five depths");
+
+        // Realization 5 fails at one depth: its own trace splits, the other two are untouched.
+        let mut broken = realizations();
+        broken[2].samples[5] = f32::NAN;
+        let mut ops2 = Vec::new();
+        draw_array_series(&mut ops2, &a, ScaleType::Linear, &broken, 0.0, 100.0, 990.0, 1010.0, &y);
+        let mut lens: Vec<usize> = ops2
+            .iter()
+            .filter_map(|o| match o {
+                DrawOp::Poly { pts, .. } => Some(pts.len()),
+                _ => None,
+            })
+            .collect();
+        lens.sort_unstable();
+        assert_eq!(lens, vec![2, 2, 5, 5], "the failed trace becomes two runs, not one bridged line");
+    }
+
+    #[test]
+    fn heatmap_cells_off_the_track_scale_are_dropped_not_clamped() {
+        let rows: Vec<crate::db::ArrayRow> = (0..5)
+            .map(|i| crate::db::ArrayRow {
+                depth: 1000.0 + i as f32,
+                // The middle depth sits far off the 0..1 track: it must contribute NO cell
+                // rather than a false column of density at the track edge.
+                samples: vec![if i == 2 { 5.0 } else { 0.5 }; 11],
+            })
+            .collect();
+        let a = array_style(serde_json::json!({
+            "curve_name": "MC_PHIE_REAL", "color": "#4e79a7", "min": 0.0, "max": 1.0,
+            "display": "heatmap", "hist_bins": 4
+        }));
+        let mut ops = Vec::new();
+        let y = |x: f32| x as f64;
+        draw_array_series(&mut ops, &a, ScaleType::Linear, &rows, 0.0, 100.0, 990.0, 1010.0, &y);
+        let f = fills(&ops);
+        assert_eq!(f.len(), 4, "one occupied cell at each of the four in-range depths");
+        // All 11 realizations land in the third of four bins (0.5 -> bin 2), spanning x 50..75.
+        assert!(f.iter().all(|(_, pts)| (pts[0].0 - 50.0).abs() < 1e-6 && (pts[1].0 - 75.0).abs() < 1e-6));
+        assert!(
+            ops.iter().all(|o| matches!(o, DrawOp::Fill { opacity, .. } if (*opacity - 1.0).abs() < 1e-9)),
+            "a single occupied bin is this depth's peak, so it draws at full opacity"
+        );
+    }
+
+    #[test]
+    fn an_array_log_round_trips_through_the_store_with_its_realization_order_intact() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        db::insert_well(&conn, wid, "ARRAYS", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        let depths: Vec<f32> = vec![1000.0, 1000.5, 1001.0];
+        let vals: Vec<Vec<f32>> = vec![
+            vec![0.1, 0.2, f32::NAN],
+            vec![0.15, 0.25, 0.35],
+            vec![], // nothing survived here
+        ];
+        let n = db::write_array_log(&conn, &w, "MONTECARLO", "MC_PHIE_REAL", &depths, &vals).unwrap();
+        assert_eq!(n, 2, "the empty depth is skipped, not stored as a zero-width distribution");
+
+        let back = db::read_array_log(&conn, &w, Some("MONTECARLO"), "mc_phie_real").unwrap();
+        assert_eq!(back.len(), 2);
+        assert_eq!(back[0].depth, 1000.0);
+        assert_eq!(back[0].samples[0], 0.1);
+        assert_eq!(back[0].samples[1], 0.2);
+        assert!(back[0].samples[2].is_nan(), "a failed realization keeps its SLOT so index r stays stable");
+        assert_eq!(back[1].samples, vec![0.15, 0.25, 0.35]);
+
+        // A re-run replaces its own output rather than unioning two runs' realizations.
+        db::write_array_log(&conn, &w, "MONTECARLO", "MC_PHIE_REAL", &[1000.0], &[vec![0.9, 0.8]]).unwrap();
+        let after = db::read_array_log(&conn, &w, None, "MC_PHIE_REAL").unwrap();
+        assert_eq!(after.len(), 1);
+        assert_eq!(after[0].samples, vec![0.9, 0.8]);
+
+        let cat = db::list_array_curves(&conn, &w).unwrap();
+        assert_eq!(cat.len(), 1);
+        assert_eq!((cat[0].set_name.as_str(), cat[0].curve_name.as_str()), ("MONTECARLO", "MC_PHIE_REAL"));
+        assert_eq!((cat[0].depths, cat[0].width), (1, 2));
+
+        assert_eq!(db::delete_array_log(&conn, &w, "MONTECARLO", "MC_PHIE_REAL").unwrap(), 1);
+        assert!(db::list_array_curves(&conn, &w).unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_core_point_reader_drops_empty_cells_instead_of_reading_them_as_zero() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        db::insert_well(&conn, wid, "POINTS", None, None, None).unwrap();
+        let w = wid.to_string();
+        conn.execute_batch(&format!(
+            "INSERT INTO core_data (well_id, set_name, depth, cpor, cperm, cgd, csw) VALUES
+               ('{w}', 'RAW', 1000.0, 0.21, 150.0, NULL, NULL),
+               ('{w}', 'RAW', 1000.5, 0.19, NULL, 2.65, NULL);"
+        ))
+        .unwrap();
+        let rows = db::get_core_point_series(&conn, &w).unwrap();
+        let names: Vec<&str> = rows.iter().map(|(n, _, _)| n.as_str()).collect();
+        assert_eq!(names, vec!["CPOR", "CPERM", "CPOR", "CGD"]);
+        // A blank grain-density column must contribute no plug at all — a 0.0 g/cc plug
+        // would land at the left edge of a density track and read as real data.
+        assert!(!rows.iter().any(|(_, _, v)| *v == 0.0));
+    }
+
+    #[test]
+    fn the_standard_layout_porosity_track_carries_the_neutron_density_crossover() {
+        let t = standard_layout().tracks.into_iter().find(|t| t.title == "NPHI / RHOB").unwrap();
+        let nphi = t.curves.iter().find(|c| c.curve_name == "NPHI").unwrap();
+        assert_eq!(nphi.fill.as_deref(), Some("curve"));
+        assert_eq!(nphi.fill_to.as_deref(), Some("RHOB"));
+        // Two distinct colours, or the separation carries no reading.
+        assert_ne!(nphi.fill_color, nphi.fill_color2);
+        // The reference must live in the SAME track — its own min/max is what positions it.
+        assert!(t.curves.iter().any(|c| c.curve_name == "RHOB"));
+    }
+
     #[test]
     fn composite_paginates_and_renders_structure() {
         let conn = Connection::open_in_memory().unwrap();
         let w = seed_well(&conn);
         let res = render_composite(&conn, &full_spec(w, 500, PageSize::A4)).unwrap();
         assert!(res.pages.len() >= 2, "expected multi-page, got {}", res.pages.len());
-        assert_eq!(res.well_name, "BLSO-COMPOSITE");
+        assert_eq!(res.well_name, "SANDI-COMPOSITE");
 
         let p0 = &res.pages[0].svg;
         assert!(p0.starts_with("<svg"));
         assert!(p0.contains("width=\"210mm\""));
-        assert!(p0.contains("BLSO-COMPOSITE"));
-        assert!(p0.contains("Balam South"));
+        assert!(p0.contains("SANDI-COMPOSITE"));
+        assert!(p0.contains("Sandi Field"));
         assert!(p0.contains("1:500"));
         assert!(p0.contains("Top Reservoir"));
         assert!(p0.contains("RES_DEEP"));
@@ -1217,11 +2661,11 @@ mod tests {
         spec.depth_top = Some(1040.0);
         spec.depth_bottom = Some(1120.0);
         let res = render_composite(&conn, &spec).unwrap();
-        let svg_out = std::env::var("ARSHILLA_SVG_OUT")
+        let svg_out = std::env::var("SANDIBUMI_SVG_OUT")
             .unwrap_or_else(|_| std::env::temp_dir().join("arshilla_composite_p0.svg").to_string_lossy().into());
         std::fs::write(&svg_out, &res.pages[0].svg).unwrap();
         let pdf = render_composite_pdf(&conn, &spec).unwrap();
-        let pdf_out = std::env::var("ARSHILLA_PDF_OUT")
+        let pdf_out = std::env::var("SANDIBUMI_PDF_OUT")
             .unwrap_or_else(|_| std::env::temp_dir().join("arshilla_composite.pdf").to_string_lossy().into());
         std::fs::write(&pdf_out, &pdf).unwrap();
         println!("wrote {svg_out} and {pdf_out}");

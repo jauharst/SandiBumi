@@ -852,7 +852,7 @@ fn ftemp_grad(ctx: &ModuleContext) -> ModuleOutputs {
 
 // ---------------------------------------------------------------------------
 // PRECALC — reservoir-condition pre-calculation: FTEMP, FPRESS, RMF, CT, CXO
-// (KKT ONWJ workflow, ROADMAP §4c item 17)
+// (ROADMAP §4c item 17)
 // ---------------------------------------------------------------------------
 
 fn precalc_spec() -> ModuleSpec {
@@ -864,7 +864,7 @@ fn precalc_spec() -> ModuleSpec {
               formation temperature = SURF_TEMP + TEMP_GRAD*TVDSS and FPRESS = PSURF + \
               PGRAD*TVDSS, both linear in true vertical depth. Gradients — and the TREND \
               fit below — are per depth unit of the TVDSS curve: enter per-metre values \
-              (and a metric refit) for metric wells; the shipped defaults are the ONWJ \
+              (and a metric refit) for metric wells; the shipped defaults are one study's \
               feet-based fits. SURF_TEMP / TEMP_GRAD / RMF_TEMP are entered in OPT_TU \
               units, but the FTEMP curve is always written in degC (the unit every \
               downstream module assumes); FTEMP_F is the same trend in degF for SandiMin \
@@ -886,7 +886,7 @@ fn precalc_spec() -> ModuleSpec {
             opt("OPT_RMF", "RMF source", "ARPS", &["ARPS", "TREND"]),
             param("RMF_MEAS", "Rmf measured at surface (ARPS)", "ohmm", 0.2, 0.001, 20.0),
             param("RMF_TEMP", "Rmf measurement temperature (ARPS)", "degF|degC", 75.0, -50.0, 150.0),
-            param("RMF_A", "RMF trend intercept (TREND, ONWJ ft-based fit)", "ohmm", 0.517, 0.0, 5.0),
+            param("RMF_A", "RMF trend intercept (TREND, ft-based fit)", "ohmm", 0.517, 0.0, 5.0),
             param(
                 "RMF_B",
                 "RMF trend slope on log10(TVDSS) (TREND — fit must use the TVDSS curve's depth unit)",
@@ -1414,7 +1414,7 @@ fn nphimat(ctx: &ModuleContext) -> ModuleOutputs {
 }
 
 // ---------------------------------------------------------------------------
-// GASCORR — iterated gas correction of bulk density (KKT ONWJ deck slide 65,
+// GASCORR — iterated gas correction of bulk density (iterated-loop method, see below;
 // ROADMAP §4c item 19)
 // ---------------------------------------------------------------------------
 
@@ -1448,7 +1448,7 @@ fn gascorr_spec() -> ModuleSpec {
         name: "gascorr".into(),
         title: "Gas Correction (density, iterated)".into(),
         category: "Prep".into(),
-        doc: "Removes the gas effect from RHOB (KKT ONWJ slide-65 loop): density porosity \
+        doc: "Removes the gas effect from RHOB (iterated density-neutron loop): density porosity \
               and Archie SWT are solved from the current density, then RHOB_GC = RHOB + \
               PHIT*(1-SWT)*(RHO_FL - GASDEN) replaces the gas volume with liquid, iterated \
               until PHIT moves less than 1e-4 (max 20 passes; non-converging samples stay \
@@ -2400,7 +2400,7 @@ fn splice(ctx: &ModuleContext) -> ModuleOutputs {
 }
 
 // ---------------------------------------------------------------------------
-// GR_NORMALIZE — two-point percentile gamma-ray normalization (BLSO/Rokan standard)
+// GR_NORMALIZE — two-point percentile gamma-ray normalization
 // ---------------------------------------------------------------------------
 
 /// Linear-interpolated percentile (0–100) of the finite values in `vals`.
@@ -2424,17 +2424,24 @@ fn gr_normalize_spec() -> ModuleSpec {
         title: "GR Normalization (Two-Point Percentile)".into(),
         category: "Prep".into(),
         doc: "GRN = (GR − Plow_well)·(Phigh_ref − Plow_ref)/(Phigh_well − Plow_well) + Plow_ref. \
-              The well percentiles are computed from this run's GR samples (mask the run to the \
-              reference interval to reproduce the field standard), the reference percentiles are \
-              parameters. Defaults are the Rokan regional calibration from 562 wells: P3 = 53.68, \
-              P97 = 133.93 gAPI. QC across wells with a GRN histogram overlay — the P3/P97 of \
-              every normalized well should coincide."
+              The well percentiles are computed from this run's GR samples (mask the run to a \
+              common reference interval so every well is measured over comparable rock); the \
+              reference percentiles are parameters. \
+              SET YOUR OWN FIELD REFERENCE PAIR — that is the entire point of the module. The \
+              defaults are the generic clean-sand and clay GR endpoints this app uses elsewhere \
+              (20 / 120 gAPI, matching vsh_gr's GR_MA / GR_SH), NOT a calibration for any \
+              particular field: they give a sane, self-consistent starting frame, not field \
+              truth. A reference pair from one basin is the wrong reference in another. \
+              Derive yours from the field's own multi-well GR distribution, or from a reference \
+              well everyone agrees on, then use the SAME pair for every well in the study. QC \
+              across wells with a GRN histogram overlay — the P3/P97 of every normalized well \
+              should coincide."
             .into(),
         args: vec![
             param("P_LOW", "Low percentile", "%", 3.0, 0.0, 50.0),
             param("P_HIGH", "High percentile", "%", 97.0, 50.0, 100.0),
-            param("GR_LOW_REF", "Reference GR at low percentile", "gapi", 53.68, 0.0, 1000.0),
-            param("GR_HIGH_REF", "Reference GR at high percentile", "gapi", 133.93, 0.0, 1000.0),
+            param("GR_LOW_REF", "Reference GR at low percentile", "gapi", 20.0, 0.0, 1000.0),
+            param("GR_HIGH_REF", "Reference GR at high percentile", "gapi", 120.0, 0.0, 1000.0),
             log_in("GR", "Gamma ray log", "gapi", "GR", true),
             log_out("GRN", "Normalized gamma ray", "gapi"),
         ],
@@ -2695,7 +2702,7 @@ mod tests {
 
     #[test]
     fn precalc_kk_fits_and_conductivities() {
-        // KKT ONWJ example fits: FTEMP = 77 + 0.0260292*TVDSS [degF],
+        // Example fits from one study: FTEMP = 77 + 0.0260292*TVDSS [degF],
         // FPRESS = 44.2823 + 0.539812*TVDSS [psi], TVDSS in ft.
         let ctx = ctx_with(
             2,
@@ -4022,6 +4029,39 @@ mod tests {
         );
         let out = gascorr(&ctx).unwrap();
         assert!(out["RHOB_GC"][0].is_nan() && out["PHIT_GC"][0].is_nan());
+    }
+
+    /// The shipped reference pair must stay GENERIC. Until 2026-07-31 it was one operator's
+    /// regional calibration (53.68 / 133.93 gAPI from 562 of their wells) — a number that
+    /// could only have come from somebody's field, shipping to every user as though it were
+    /// a constant. It is also silently wrong anywhere else: normalized GR always *looks*
+    /// right, so a user who accepts a foreign reference gets a plausible curve and no warning.
+    /// This pins the defaults to the app's own generic clean/clay endpoints and will fail if
+    /// a field calibration is ever pasted back in.
+    #[test]
+    fn gr_normalize_reference_defaults_are_generic_not_a_field_calibration() {
+        let spec = gr_normalize_spec();
+        let default_of = |name: &str| -> f64 {
+            spec.args
+                .iter()
+                .find(|a| a.name == name)
+                .unwrap_or_else(|| panic!("{name} missing from the manifest"))
+                .default
+                .parse()
+                .expect("numeric default")
+        };
+        let (lo, hi) = (default_of("GR_LOW_REF"), default_of("GR_HIGH_REF"));
+        // vsh_gr's GR_MA / GR_SH — the generic clean-sand and clay endpoints used elsewhere
+        // in this app, so a well normalized on the defaults then run through VSH(GR) on ITS
+        // defaults spans roughly 0..1 rather than landing somewhere arbitrary.
+        assert_eq!(lo, 20.0, "low reference must be the generic clean-sand endpoint");
+        assert_eq!(hi, 120.0, "high reference must be the generic clay endpoint");
+        assert!(lo < hi, "reference pair must be ordered");
+        // Round numbers are the tell: a two-decimal reference is a regression result from
+        // real wells, not a generic endpoint.
+        for (name, v) in [("GR_LOW_REF", lo), ("GR_HIGH_REF", hi)] {
+            assert_eq!(v.fract(), 0.0, "{name} = {v} looks like a field-fitted value");
+        }
     }
 
     #[test]

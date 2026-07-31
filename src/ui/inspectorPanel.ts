@@ -24,6 +24,7 @@ import {
   type EquationRunResult,
   type GenericCurveCatalogEntry,
   type LogSetEntry,
+  type PythonStatus,
 } from "../ipc";
 import { escapeAttr, escapeHtml } from "./safeDom";
 
@@ -41,7 +42,9 @@ const BLANK_EQUATION: EquationDef = {
 const LANGUAGE_NOTES: Record<string, string> = {
   python:
     "Python (numpy): input curves are float32 arrays (NaN = missing) plus `depth`; " +
-    "assign the output curve name, e.g.  vsh = np.clip((gr - 20) / 120, 0, 1)",
+    "assign the output curve name, e.g.  vsh = np.clip((gr - 20) / 120, 0, 1). " +
+    "If scipy is installed, `signal`, `interpolate`, `optimize`, `stats` and `ndimage` are " +
+    "also bound — e.g.  grs = signal.savgol_filter(gr, 11, 2)",
   rhai: "Rhai (legacy): evaluated once per depth sample; the expression's value is the output. Any NaN input yields NaN.",
 };
 
@@ -65,8 +68,8 @@ export class InspectorPanel {
    *  otherwise create a brand-new EditorView — and its window/document listeners — AFTER the panel
    *  is gone, which is the very leak dispose() exists to prevent. */
   private disposed = false;
-  /** Path of the Python the backend found; null = none; undefined = not asked yet. */
-  private pythonPath: string | null | undefined = undefined;
+  /** Interpreter + optional-package status from the backend; undefined = not asked yet. */
+  private pythonInfo: PythonStatus | undefined = undefined;
   /** Last-loaded generic-store catalog for the selected well, kept so the filter box can
    *  re-render without refetching. */
   private genericEntries: GenericCurveCatalogEntry[] = [];
@@ -76,8 +79,11 @@ export class InspectorPanel {
   private catalogFilter = "";
   private catalogSortKey = "name";
   private catalogSortAsc = true;
+  /** Kept so `focusCatalog` can drive the tab buttons from outside. */
+  private root: HTMLElement;
 
   constructor(root: HTMLElement) {
+    this.root = root;
     const tabButtons = Array.from(root.querySelectorAll<HTMLButtonElement>(".tab-btn"));
     const tabContents = new Map<string, HTMLElement>(
       Array.from(root.querySelectorAll<HTMLElement>(".tab-content")).map((el) => [
@@ -129,6 +135,19 @@ export class InspectorPanel {
       this.equations = [];
     }
     this.renderEquationEditor();
+  }
+
+  /** Switches to the Curve Catalog tab and filters it to `filter` (a mnemonic, usually).
+   *  Entry point for the Wells-pane right-click — landing on the row the user meant beats
+   *  opening an unfiltered catalog of every curve in the well. */
+  public focusCatalog(filter: string): void {
+    this.catalogFilter = filter;
+    for (const b of this.root.querySelectorAll<HTMLButtonElement>(".tab-btn")) {
+      b.classList.toggle("active", b.dataset.tab === "catalog");
+    }
+    this.equationTab.hidden = true;
+    this.catalogTab.hidden = false;
+    void this.refreshCatalog();
   }
 
   public async refreshCatalog(): Promise<void> {
@@ -276,19 +295,25 @@ export class InspectorPanel {
   }
 
   private async showPythonStatus(): Promise<void> {
-    if (this.pythonPath === undefined) {
+    if (this.pythonInfo === undefined) {
       try {
-        this.pythonPath = await pythonStatus();
+        this.pythonInfo = await pythonStatus();
       } catch {
         return; // no backend (browser preview) — say nothing
       }
     }
     const note = this.equationTab.querySelector<HTMLElement>("#eq-lang-note");
     if (!note) return;
+    if (this.pythonInfo.path === null) {
+      note.textContent += "  ⚠ No Python with numpy found — install Python 3.10+ & numpy, or set SANDIBUMI_PYTHON.";
+      return;
+    }
+    // scipy is optional, so its absence is a NOTE, not a warning — the engine is fully usable
+    // without it. Say so while the script is being written rather than after it is queued.
     note.textContent +=
-      this.pythonPath === null
-        ? "  ⚠ No Python with numpy found — install Python 3.10+ & numpy, or set ARSHILLA_PYTHON."
-        : `  (engine: ${this.pythonPath})`;
+      this.pythonInfo.scipy === null
+        ? `  (engine: ${this.pythonInfo.path} · no scipy — install it for signal/interpolate/optimize/stats)`
+        : `  (engine: ${this.pythonInfo.path} · scipy ${this.pythonInfo.scipy})`;
   }
 
   private readFormIntoCurrent(): void {

@@ -8,7 +8,9 @@ import {
   readAutosave,
   showCrashRecoveryDialog,
 } from "./autosave";
-import { saveDocument, startupProblem } from "./ipc";
+import { awaitProjectOpen, bootReport, saveDocument } from "./ipc";
+import { recordProcess } from "./processLog";
+import { showBootOverlay } from "./bootOverlay";
 import { showStartupProblemDialog } from "./startupNotice";
 import { applyStoredTheme } from "./theme";
 import { Ribbon } from "./ui/ribbon";
@@ -39,6 +41,10 @@ window.addEventListener("DOMContentLoaded", () => {
   const autosave = readAutosave();
   markSessionRunning();
 
+  /** Notices the boot overlay drained while the database was still opening. They can only be
+   *  written to the processing history (which lives IN the project) once it is open. */
+  let pendingBootNotes: string[] = [];
+
   const boot = (mode: "normal" | "restore-autosave" | "safe") => {
     const workspace = new Workspace(dockRoot);
     new Ribbon(ribbonEl, workspace);
@@ -47,8 +53,24 @@ window.addEventListener("DOMContentLoaded", () => {
     // panels open on the metre default and re-render when it lands, which is correct for
     // a metric project and a one-frame correction for a foot one.
     void syncDepthUnits();
-    // Restore the project's processing history (async; the History panel updates when it lands).
-    void loadProcessLog();
+    // Restore the project's processing history, then append anything noteworthy the
+    // backend did while opening (one-time migration backups, the memory cap, a slow open
+    // explained) — invisible in a built exe otherwise. The last notice also lands in the
+    // status line so a "why did that take 15 minutes" has an answer on screen, not just
+    // in the History panel. Sequenced after the load so the notes append to, rather than
+    // race, the restored history.
+    void loadProcessLog().then(() =>
+      bootReport()
+        .then((late) => {
+          // What the overlay already drained, plus anything queued since.
+          const notes = [...pendingBootNotes, ...late];
+          pendingBootNotes = [];
+          for (const n of notes) recordProcess("Project", n);
+          const visible = notes.filter((n) => !n.startsWith("DuckDB memory"));
+          if (visible.length > 0) setStatus(visible[visible.length - 1]);
+        })
+        .catch(() => {}),
+    );
 
     if (mode === "restore-autosave" && autosave) {
       workspace.applySession(autosave);
@@ -80,14 +102,28 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   };
 
-  // Did the project itself open? This is asked first and answered before anything is built:
-  // if the project did not open, which workspace layout to restore is a secondary question, and
-  // showing an empty well list before explaining why would read as "my project is gone".
-  // The command only clones an Option behind a mutex; if it fails outright we are no worse off
-  // than before it existed, so boot normally.
-  void startupProblem()
+  // THE GATE. The window now exists before the project database does — the backend opens it on
+  // a background thread — so nothing may be built and no command may be issued until this
+  // resolves; until then the live connection is an empty in-memory placeholder and every query
+  // would truthfully answer "no wells". The overlay covers the wait and reports what the
+  // backend is doing (a first open after an update runs one-time storage upgrades).
+  //
+  // The answer also carries whether the project opened AT ALL: if it did not, which workspace
+  // layout to restore is a secondary question, and showing an empty well list before explaining
+  // why would read as "my project is gone".
+  const overlay = showBootOverlay();
+  void awaitProjectOpen()
     .catch(() => null)
-    .then((problem) => {
+    .then((outcome) => {
+      overlay.finish();
+      pendingBootNotes = overlay.notes;
+      // A long open, explained after the fact rather than left as a mystery.
+      if (outcome && outcome.elapsed_secs >= 10) {
+        pendingBootNotes.push(
+          `Opening this project took ${outcome.elapsed_secs}s (one-time storage upgrades run on the first open after an update)`,
+        );
+      }
+      const problem = outcome?.problem ?? null;
       if (problem) showStartupProblemDialog(problem, bootWithWorkspaceChoice);
       else bootWithWorkspaceChoice();
     });

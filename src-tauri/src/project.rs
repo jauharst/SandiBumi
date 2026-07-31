@@ -145,7 +145,8 @@ pub fn startup_path() -> String {
 /// they say whether the DB open, the standard-curves backfill or the PK-drop check dominates.
 /// They live here rather than at the call site so switching projects is measured too.
 pub fn open_and_migrate(path: &str) -> Result<duckdb::Connection, String> {
-    let t = std::time::Instant::now();
+    let t0 = std::time::Instant::now();
+    let t = t0;
     let conn = db::init_db_resilient(path).map_err(|e| format!("could not open {path}: {e}"))?;
     eprintln!("[boot] init_db_resilient: {:?}  ({path})", t.elapsed());
 
@@ -158,7 +159,150 @@ pub fn open_and_migrate(path: &str) -> Result<duckdb::Connection, String> {
     db::migrate_drop_computed_curves_pk(&conn, Some(path))
         .map_err(|e| format!("computed-curves migration failed: {e}"))?;
     eprintln!("[boot] migrate_drop_computed_curves_pk: {:?}", t.elapsed());
+
+    let t = std::time::Instant::now();
+    db::migrate_point_data_sets(&conn, Some(path))
+        .map_err(|e| format!("point-data set migration failed: {e}"))?;
+    eprintln!("[boot] migrate_point_data_sets: {:?}", t.elapsed());
+
+    let t = std::time::Instant::now();
+    db::migrate_array_logs_store(&conn).map_err(|e| format!("array-log migration failed: {e}"))?;
+    eprintln!("[boot] migrate_array_logs_store: {:?}", t.elapsed());
+
+    // Must run AFTER migrate_point_data_sets, which rebuilds core_data for its primary key —
+    // a column added before that rebuild would be dropped by it.
+    let t = std::time::Instant::now();
+    db::migrate_core_depth_orig(&conn).map_err(|e| format!("core depth-record migration failed: {e}"))?;
+    eprintln!("[boot] migrate_core_depth_orig: {:?}", t.elapsed());
+
+    let t = std::time::Instant::now();
+    db::migrate_delivery_depth_basis(&conn)
+        .map_err(|e| format!("delivery depth-basis migration failed: {e}"))?;
+    eprintln!("[boot] migrate_delivery_depth_basis: {:?}", t.elapsed());
+
+    let t = std::time::Instant::now();
+    db::migrate_plate_scale_and_prep(&conn)
+        .map_err(|e| format!("plate scale migration failed: {e}"))?;
+    eprintln!("[boot] migrate_plate_scale_and_prep: {:?}", t.elapsed());
+
+    // A long open is almost always the one-time storage upgrades above (each backs up the
+    // whole project first). Tell the user so — from their chair a silent 15-minute open on
+    // a field-scale file is indistinguishable from a hang.
+    let total = t0.elapsed();
+    if total.as_secs() >= 10 {
+        db::boot_note(format!(
+            "Opening this project took {}s — one-time storage upgrades ran (the project was backed up first); the next open will be fast",
+            total.as_secs()
+        ));
+    }
     Ok(conn)
+}
+
+/// Result of "Compact Project": file sizes around the rewrite, plus where the original
+/// (bloated) file was parked so the user can delete it once satisfied.
+#[derive(Debug, Clone, Serialize)]
+pub struct CompactReport {
+    pub bytes_before: u64,
+    pub bytes_after: u64,
+    /// The pre-compaction original, kept beside the project as `<name>.pre-compact-<ts>.duckdb`.
+    pub old_file: String,
+}
+
+/// Row-count comparison between the live database and the freshly written copy, over
+/// EVERY table the live project holds (enumerated from the catalog, so a new store can
+/// never silently fall outside the check). Cheap: DuckDB answers `count(*)` from table
+/// metadata, not a scan.
+fn verify_copy_counts(live: &duckdb::Connection, copy_path: &str) -> Result<(), String> {
+    let copy = duckdb::Connection::open(copy_path).map_err(|e| format!("could not reopen the copy: {e}"))?;
+    let tables: Vec<String> = {
+        let mut stmt = live
+            .prepare(
+                "SELECT table_name FROM duckdb_tables()
+                 WHERE database_name = current_database() AND NOT internal
+                 ORDER BY table_name",
+            )
+            .map_err(|e| e.to_string())?;
+        stmt.query_map([], |r| r.get::<_, String>(0))
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect()
+    };
+    for t in &tables {
+        let q = format!("SELECT count(*) FROM \"{}\"", t.replace('"', "\"\""));
+        let a: i64 = live.query_row(&q, [], |r| r.get(0)).map_err(|e| e.to_string())?;
+        let b: i64 = copy.query_row(&q, [], |r| r.get(0)).map_err(|e| e.to_string())?;
+        if a != b {
+            return Err(format!("copy verification failed: {t} has {b} rows in the copy but {a} in the project"));
+        }
+    }
+    Ok(())
+}
+
+/// Rewrites the open project into a fresh file containing only live rows, then swaps it in
+/// at the SAME path. Months of module re-runs (each a DELETE + append) leave dead space the
+/// engine never returns to the file — one field project measured ~75% dead (2.5 GB file,
+/// ~0.6 GB live) — and a bloated file drags every scan. The original is verified against the
+/// copy (row counts), then parked beside the project as `.pre-compact-<ts>.duckdb`, never
+/// deleted by us; on ANY failure the original is put back and the report says so.
+pub fn compact_project(db: &DbState, path: &str) -> Result<CompactReport, String> {
+    let bytes_before = std::fs::metadata(path).map_err(|e| format!("could not stat {path}: {e}"))?.len();
+    let stem = path.strip_suffix(".duckdb").unwrap_or(path);
+    let ts = now_secs();
+    let tmp = format!("{stem}.compact-tmp-{ts}.duckdb");
+    let old = format!("{stem}.pre-compact-{ts}.duckdb");
+
+    // The mutex is held for the whole operation: every IPC command locks it per call, so
+    // nothing can observe the placeholder connection mid-swap.
+    let mut guard = db.0.lock().unwrap();
+    db::engine_copy_to(&guard, &tmp).map_err(|e| format!("compact copy failed: {e}"))?;
+    if let Err(e) = verify_copy_counts(&guard, &tmp) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+
+    // Release the file handle so the swap can rename it: park a throwaway in-memory DB in
+    // the state. Dropping the old connection closes gracefully (checkpoint + WAL removal).
+    let placeholder = duckdb::Connection::open_in_memory().map_err(|e| e.to_string())?;
+    drop(std::mem::replace(&mut *guard, placeholder));
+
+    if let Err(e) = std::fs::rename(path, &old) {
+        let _ = std::fs::remove_file(&tmp);
+        *guard = open_and_migrate(path)?;
+        return Err(format!("compact aborted (could not move the old file): {e} — the project is unchanged"));
+    }
+    // A leftover WAL belongs to the ORIGINAL file — it must follow it, or the compacted
+    // file at this path would adopt and replay a foreign WAL on open.
+    let wal = format!("{path}.wal");
+    if Path::new(&wal).exists() {
+        let _ = std::fs::rename(&wal, format!("{old}.wal"));
+    }
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        let _ = std::fs::rename(format!("{old}.wal"), &wal);
+        let _ = std::fs::rename(&old, path);
+        *guard = open_and_migrate(path)?;
+        return Err(format!("compact aborted (could not move the compacted file into place): {e} — the project is unchanged"));
+    }
+
+    match open_and_migrate(path) {
+        Ok(conn) => *guard = conn,
+        Err(e) => {
+            // The compacted copy verified on counts but failed to open — put everything back.
+            let _ = std::fs::rename(path, &tmp);
+            let _ = std::fs::rename(&old, path);
+            let _ = std::fs::rename(format!("{old}.wal"), &wal);
+            *guard = open_and_migrate(path)
+                .map_err(|e2| format!("compact failed ({e}) and reopening the original also failed: {e2} — the original file is intact at {path}; restart SandiBumi"))?;
+            return Err(format!("compact aborted (the compacted copy failed to open: {e}); the project is unchanged"));
+        }
+    }
+    let bytes_after = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    db::boot_note(format!(
+        "Compacted project: {:.0} MB → {:.0} MB; the original is kept as {} — delete it once you are happy with the result",
+        bytes_before as f64 / 1_048_576.0,
+        bytes_after as f64 / 1_048_576.0,
+        old
+    ));
+    Ok(CompactReport { bytes_before, bytes_after, old_file: old })
 }
 
 /// Opens (or, for a fresh file, creates) the DuckDB at `path`, runs the launch
@@ -286,6 +430,68 @@ mod tests {
 
         std::env::remove_var("SANDIBUMI_CONFIG_DIR");
         // Windows can't delete an open DuckDB; state still holds A — drop first.
+        drop(state);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// "Compact Project" must (1) actually shrink a file bloated the way the field bloats
+    /// it — module outputs appended then deleted on every re-run — (2) keep every LIVE row
+    /// through the swap, (3) park the original beside the project rather than deleting it,
+    /// and (4) leave the swapped-in connection writable at the SAME path. Loss here would
+    /// be silent (a compacted project opens fine with rows missing), hence the belt of
+    /// row-count assertions through the live state.
+    #[test]
+    fn compact_project_shrinks_in_place_and_keeps_the_original() {
+        let tmp = std::env::temp_dir().join(format!("sandibumi-compact-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let p = tmp.join("field.duckdb");
+        let path = p.to_str().unwrap().to_string();
+
+        let conn = db::init_db_resilient(&path).unwrap();
+        conn.execute_batch(
+            "INSERT INTO wells (well_id, well_name, field_name, td, kb)
+                 VALUES (gen_random_uuid(), 'W1', NULL, NULL, NULL);
+             -- A re-run's lifecycle: a big output written, deleted, rewritten smaller.
+             INSERT INTO computed_curves (well_id, depth, curve_name, value)
+                 SELECT (SELECT well_id FROM wells), 1000.0 + i * 0.1, 'PHIE', 0.2
+                 FROM range(500000) t(i);
+             DELETE FROM computed_curves;
+             INSERT INTO computed_curves (well_id, depth, curve_name, value)
+                 SELECT (SELECT well_id FROM wells), 1000.0 + i * 0.5, 'PHIE', 0.21
+                 FROM range(1000) t(i);
+             CHECKPOINT;",
+        )
+        .unwrap();
+        let state = DbState(std::sync::Arc::new(Mutex::new(conn)));
+
+        let rep = compact_project(&state, &path).expect("compact must succeed");
+        assert!(
+            std::path::Path::new(&rep.old_file).exists(),
+            "the original must be parked beside the project, not deleted: {}",
+            rep.old_file
+        );
+        assert!(
+            rep.bytes_after < rep.bytes_before,
+            "500k dead rows must not survive the rewrite: {} -> {} bytes",
+            rep.bytes_before,
+            rep.bytes_after
+        );
+        {
+            let conn = state.0.lock().unwrap();
+            let rows: i64 =
+                conn.query_row("SELECT count(*) FROM computed_curves", [], |r| r.get(0)).unwrap();
+            assert_eq!(rows, 1000, "every live row crosses the swap");
+            let wells: i64 = conn.query_row("SELECT count(*) FROM wells", [], |r| r.get(0)).unwrap();
+            assert_eq!(wells, 1);
+            // The swapped-in connection is the file at `path`, live and writable.
+            conn.execute(
+                "INSERT INTO computed_curves (well_id, depth, curve_name, value)
+                     SELECT well_id, 999.0, 'TEST', 1.0 FROM wells",
+                [],
+            )
+            .unwrap();
+        }
         drop(state);
         let _ = std::fs::remove_dir_all(&tmp);
     }

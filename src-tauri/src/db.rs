@@ -13,6 +13,10 @@ pub enum DbError {
     Io(#[from] std::io::Error),
     #[error("{0}")]
     FormatTooNew(String),
+    /// A caller-supplied value the database refuses (e.g. a blank curve name). Carries a
+    /// message written for the user, not a diagnostic.
+    #[error("{0}")]
+    Invalid(String),
 }
 
 pub type DbResult<T> = Result<T, DbError>;
@@ -31,9 +35,74 @@ pub const FORMAT_VERSION: i64 = 1;
 /// untouched, not first edited into a hybrid of two formats.
 pub fn init_db(path: &str) -> DbResult<Connection> {
     let conn = Connection::open(path)?;
+    tune_connection(&conn);
     check_and_stamp_format(&conn)?;
     create_schema(&conn)?;
     Ok(conn)
+}
+
+/// Caps DuckDB's memory appetite. The engine's factory default allows itself ~80% of the
+/// machine's RAM, which it will happily fill during a large scan, migration backup or
+/// COPY FROM DATABASE — on a 2.5 GB field project that showed up as ~6 GB of the user's
+/// 8 GB machine. A desktop app sharing the machine gets a QUARTER of that default
+/// (≈20% of RAM), clamped to [1 GiB, 4 GiB]; anything bigger spills to DuckDB's on-disk
+/// temp space (enabled by default for file-backed databases). `SANDIBUMI_DB_MEMORY`
+/// overrides the cap verbatim (e.g. "8GB") for power users on big field machines.
+///
+/// Never fatal: a database that opens with the default limit is strictly better than one
+/// that refuses to open over a tuning pragma, so every failure here just logs.
+fn tune_connection(conn: &Connection) {
+    let limit = match std::env::var("SANDIBUMI_DB_MEMORY") {
+        Ok(v) if !v.trim().is_empty() => v.trim().to_string(),
+        _ => {
+            // The default limit is 80% of physical RAM, so it doubles as a RAM probe:
+            // default/4 ≈ 20% of the machine, without any OS-specific API.
+            let default_bytes = conn
+                .query_row("SELECT current_setting('memory_limit')", [], |r| r.get::<_, String>(0))
+                .ok()
+                .and_then(|s| parse_mem_bytes(&s));
+            const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
+            let capped = (default_bytes.unwrap_or(8.0 * GIB) / 4.0).clamp(GIB, 4.0 * GIB);
+            format!("{}MiB", (capped / (1024.0 * 1024.0)).round() as u64)
+        }
+    };
+    if let Err(e) = conn.execute_batch(&format!("SET memory_limit='{}'", limit.replace('\'', ""))) {
+        boot_note(format!("memory cap '{limit}' not applied ({e}); running with the engine default"));
+    } else {
+        boot_note(format!("DuckDB memory capped at {limit}"));
+    }
+}
+
+/// Parses DuckDB's human-readable memory sizes ("6.4 GiB", "512.0 MiB") into bytes.
+fn parse_mem_bytes(s: &str) -> Option<f64> {
+    let mut parts = s.split_whitespace();
+    let num: f64 = parts.next()?.parse().ok()?;
+    let mult = match parts.next()? {
+        "B" => 1.0,
+        "KiB" | "KB" => 1024.0,
+        "MiB" | "MB" => 1024.0 * 1024.0,
+        "GiB" | "GB" => 1024.0 * 1024.0 * 1024.0,
+        "TiB" | "TB" => 1024.0f64.powi(4),
+        _ => return None,
+    };
+    Some(num * mult)
+}
+
+/// Boot/maintenance notices the USER should see (one-time migration backups, memory caps,
+/// compaction results). `eprintln!` alone is invisible in a built exe
+/// (`windows_subsystem = "windows"` has no console), which is exactly how a 15-minute
+/// one-time migration ended up looking like a hang — so noteworthy events are queued here
+/// and the frontend drains them into the status line / process history via `boot_report`.
+static BOOT_NOTES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+pub fn boot_note(msg: String) {
+    eprintln!("[boot] {msg}");
+    BOOT_NOTES.lock().unwrap().push(msg);
+}
+
+/// Drains the queued notices (each is returned exactly once).
+pub fn take_boot_notes() -> Vec<String> {
+    std::mem::take(&mut *BOOT_NOTES.lock().unwrap())
 }
 
 /// RELEASE.md §3.1 (requirement R-A). Three cases:
@@ -142,7 +211,7 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
         -- Surface location for the Field Map (Wave E item 22). Easting/northing are stored
         -- as DOUBLE (UTM metres reach ~10,000,000 in the southern hemisphere — beyond FLOAT's
         -- ~1 m precision at that magnitude). `utm_zone` is the metre grid's zone label (e.g.
-        -- "50S" for the Mahakam Delta, "48S"/"49S" for ONWJ) so multi-zone fields can be
+        -- "50S" for the Mahakam Delta, "48S"/"49S" for the Java Sea) so multi-zone fields can be
         -- distinguished; coordinates are plotted in their raw easting/northing. Added via
         -- ALTER so existing databases converge on the same shape.
         -- The unit every depth stored for this well is in. Equal to the project's declared
@@ -186,11 +255,27 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             PRIMARY KEY (well_id, depth)
         );
 
+        -- Array logs: one row per (well, set, curve, depth) holding a WHOLE VECTOR of values
+        -- at that depth — Monte Carlo realizations, NMR T2 distributions, sonic waveforms.
+        --
+        -- `samples` is a BLOB of little-endian f32 (bytemuck), NOT a DuckDB FLOAT[] list.
+        -- Rule 1 allows either; the blob wins here because it is exactly 4 bytes per value with
+        -- no text round-trip, and because rule 3 already requires arrays to reach the frontend
+        -- as bytemuck bytes cast to a Float32Array — so the stored bytes ARE the wire format
+        -- and the read path never re-encodes.
+        --
+        -- Unlike `computed_curves` this table DOES carry a primary key, and that is not an
+        -- inconsistency: the ART index that dominated computed_curves costs one entry per
+        -- SAMPLE, whereas here one row holds a thousand samples, so the same index is ~1000x
+        -- cheaper per value — while the protection matters far more. A duplicated depth row
+        -- would silently double a realization count and bias every percentile drawn from it.
         CREATE TABLE IF NOT EXISTS array_logs (
-            well_id             UUID NOT NULL,
-            depth               FLOAT NOT NULL,
-            nmr_t2_distribution FLOAT[],
-            PRIMARY KEY (well_id, depth)
+            well_id     UUID NOT NULL,
+            set_name    VARCHAR NOT NULL DEFAULT 'RAW',
+            curve_name  VARCHAR NOT NULL,
+            depth       FLOAT NOT NULL,
+            samples     BLOB NOT NULL,
+            PRIMARY KEY (well_id, set_name, curve_name, depth)
         );
 
         -- Long/tall store for module + equation outputs: one row per (well, depth, curve),
@@ -320,20 +405,88 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
         -- Core plug measurements (routine core analysis), sparse/irregular depths that do
         -- NOT align with the standard_curves depth grid — kept in its own table rather
         -- than computed_curves so overlay panels can fetch it at its own resolution.
+        -- `set_name` versions the delivery (T-IMP-08): a well can hold RCAL, a SCAL plug
+        -- set and a corrected re-delivery side by side, and an import NEVER overwrites an
+        -- earlier one (names auto-suffix, as curve sets do). Unlike curve sets, core sets
+        -- do NOT union: two deliveries measure the SAME plugs, so exactly one set is
+        -- ACTIVE per well and every reader sees only that one (`core_sets.active`).
+        -- `depth` is where the rock IS (after registration); `depth_orig` is where the lab
+        -- wrote it. Keeping both is what lets a later delivery follow: an XRD table arrives
+        -- months afterwards at the SAME depths the core report used, and without the original
+        -- there is no way to know how far those depths have since moved. It also means a
+        -- registration is never lost — depth_orig is written once at import and never shifted.
+        -- MUST stay the LAST column: the Appender is positional, and a migrated database gets
+        -- it appended, so fresh and migrated schemas have to agree.
         CREATE TABLE IF NOT EXISTS core_data (
             well_id     UUID NOT NULL,
+            set_name    VARCHAR NOT NULL DEFAULT 'RAW',
             depth       FLOAT NOT NULL,
             cpor        FLOAT, -- core porosity, v/v
             cperm       FLOAT, -- core permeability, mD
             cgd         FLOAT, -- core grain density, g/cc
             csw         FLOAT, -- core water saturation, v/v
-            PRIMARY KEY (well_id, depth)
+            depth_orig  FLOAT, -- as delivered; NULL only in a project older than this column
+            PRIMARY KEY (well_id, set_name, depth)
         );
 
-        -- Tops-style auxiliary datasets (petrography, XRD, perforations, …): sparse
-        -- point or interval samples in long format. One row per (depth, item); values
-        -- may be numeric (mineral %, grain size) or text (status, lithology remarks).
-        -- Import replaces per (well, dataset) — same discipline as core_data.
+        -- Registry of a well's core deliveries: which exist, where they came from, and
+        -- which one is live. Exactly 0 or 1 active per well, enforced in code (same
+        -- discipline as `well_groups.active`).
+        CREATE TABLE IF NOT EXISTS core_sets (
+            well_id     UUID NOT NULL,
+            set_name    VARCHAR NOT NULL,
+            active      INTEGER NOT NULL DEFAULT 0,
+            source      VARCHAR,           -- file the delivery came from
+            imported_at TIMESTAMP NOT NULL DEFAULT now(),
+            PRIMARY KEY (well_id, set_name)
+        );
+
+        -- Why a core sits where it does. One row per range moved, written in the SAME
+        -- transaction as the move (see `shift_core_depths` / `apply_core_run_shifts`), so a
+        -- shift can never commit without its reason.
+        --
+        -- This is an EVENT LOG, not a state table: an undo appends its own reversal rather
+        -- than deleting the row it reverses. Deleting would make the record agree with the
+        -- current depths at the cost of the only question it exists to answer — a core that
+        -- was registered, judged wrong and put back is not the same as a core nobody ever
+        -- touched, and the second reading is what a re-run would otherwise conclude.
+        --
+        -- `top`/`base` are NULL for a whole-core shift, which is a statement rather than a
+        -- missing field: no range was declared, the correction applied everywhere.
+        --
+        -- `seq` counts within (well, set) rather than keying on the timestamp, because two
+        -- applies can land in the same microsecond and a primary-key collision there would
+        -- fail the SHIFT, not just its record.
+        CREATE TABLE IF NOT EXISTS core_registrations (
+            well_id     UUID NOT NULL,
+            set_name    VARCHAR NOT NULL,   -- the delivery that moved, as it was then
+            seq         INTEGER NOT NULL,
+            applied_at  TIMESTAMP NOT NULL DEFAULT now(),
+            kind        VARCHAR NOT NULL,   -- 'proposed' | 'manual' | 'undo'
+            top         FLOAT,              -- NULL = the whole core
+            base        FLOAT,
+            delta       FLOAT NOT NULL,
+            log_curve   VARCHAR,            -- what it was matched against
+            reference   VARCHAR,            -- the core measurement used
+            pairing     VARCHAR,            -- 'like-for-like' | 'proxy (direct)' | 'proxy (inverse)'
+            correlation FLOAT,              -- agreement AT THE APPLIED SHIFT, not at the peak
+            n_pairs     INTEGER,
+            note        VARCHAR,
+            PRIMARY KEY (well_id, set_name, seq)
+        );
+
+        -- Tops-style auxiliary datasets (petrography, XRD, CEC, oil show, perforations,
+        -- core extras, …): sparse point or interval samples in long format. One row per
+        -- (depth, item); values may be numeric (mineral %, grain size) or text (status,
+        -- lithology remarks).
+        --
+        -- `set_name` versions the DELIVERY, exactly as core sets and curve sets do: a
+        -- second XRD or CEC delivery lands beside the first instead of replacing it, and
+        -- exactly ONE set per (well, dataset) is ACTIVE — two deliveries describe the same
+        -- samples, so reading both would double every count (`aux_sets.active`).
+        -- set_name is LAST on purpose: the Appender writes positionally, and databases
+        -- migrated by ALTER get the column appended, so fresh and migrated schemas must
+        -- agree on the order.
         CREATE TABLE IF NOT EXISTS aux_data (
             well_id    UUID NOT NULL,
             dataset    VARCHAR NOT NULL,  -- 'PETROGRAPHY' | 'XRD' | 'PERFORATION' | custom
@@ -341,7 +494,143 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             depth_base FLOAT,             -- NULL = point sample
             item       VARCHAR NOT NULL,  -- source column (QUARTZ, STATUS, …)
             value_num  FLOAT,
-            value_text VARCHAR
+            value_text VARCHAR,
+            set_name   VARCHAR NOT NULL DEFAULT 'RAW'
+        );
+        -- Pre-set-era projects converge on the same shape (additive, no rebuild needed —
+        -- aux_data has no PRIMARY KEY). DuckDB refuses ADD COLUMN with a constraint, so the
+        -- added column is plain and back-filled here; on a migrated database it is nullable
+        -- where a fresh one has NOT NULL, which changes nothing for readers or the Appender
+        -- (position and type match, and every writer passes a value).
+        -- `migrate_point_data_sets` then registers those rows in `aux_sets`.
+        ALTER TABLE aux_data ADD COLUMN IF NOT EXISTS set_name VARCHAR;
+        UPDATE aux_data SET set_name = 'RAW' WHERE set_name IS NULL;
+
+        -- Registry of point-data deliveries, one row per (well, dataset, set).
+        CREATE TABLE IF NOT EXISTS aux_sets (
+            well_id     UUID NOT NULL,
+            dataset     VARCHAR NOT NULL,
+            set_name    VARCHAR NOT NULL,
+            active      INTEGER NOT NULL DEFAULT 0,
+            source      VARCHAR,
+            imported_at TIMESTAMP NOT NULL DEFAULT now(),
+            -- 1 = this delivery sits on the CORE's depth scale, so a later core registration
+            -- must carry it along. Recorded at import from the user's own declaration; without
+            -- it the app could not tell a core-depth delivery from a log-depth one, and moving
+            -- the wrong one is silent.
+            on_core_depths INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (well_id, dataset, set_name)
+        );
+
+        -- Depth-registered PICTURES: petrographic thin sections, core photographs, SEM
+        -- plates, FMI snapshots — anything a lab delivers as a raster beside the plugs.
+        --
+        -- Deliberately its own store rather than an `aux_data` item, for the same reason a
+        -- point series is not a `CurveStyle`: an aux row carries ONE number or string, and
+        -- a picture is neither. Storing megabytes in `value_text` would also put a blob in
+        -- the middle of every point-data scan.
+        --
+        -- `depth_base IS NULL` means a POINT sample — a thin section is cut from one plug
+        -- and has no thickness, so it is anchored at its depth rather than stretched over a
+        -- guessed interval. A core photograph delivered with a base depth spans it for real.
+        --
+        -- `data` is the DISPLAY copy: a normalized JPEG (see `images.rs`), because the
+        -- viewer, the SVG export and the PDF exporter all need one decodable form and a
+        -- 6000x4000 camera original would bloat a field project for no visible gain at
+        -- track width. `source_path` records where the delivered file came from, and
+        -- `src_width`/`src_height` its true pixel size, so the original is always traceable.
+        --
+        -- PRIMARY KEY here costs one index entry per PICTURE, not per sample — the opposite
+        -- of the `computed_curves` case (see its comment) — while a duplicated row would
+        -- print the same plate twice. `image_id` is a UUID, so the key is unique by
+        -- construction and re-import replaces per set.
+        CREATE TABLE IF NOT EXISTS well_images (
+            well_id     UUID NOT NULL,
+            dataset     VARCHAR NOT NULL,   -- 'THIN SECTION' | 'CORE PHOTO' | custom
+            set_name    VARCHAR NOT NULL DEFAULT 'RAW',
+            image_id    UUID NOT NULL,
+            depth_top   FLOAT NOT NULL,
+            depth_base  FLOAT,              -- NULL = point sample (no thickness)
+            name        VARCHAR NOT NULL,   -- label drawn on the track
+            caption     VARCHAR,
+            mime        VARCHAR NOT NULL,   -- of `data` (the display copy)
+            width       INTEGER NOT NULL,   -- pixels of `data`
+            height      INTEGER NOT NULL,
+            src_width   INTEGER,            -- pixels of the delivered original
+            src_height  INTEGER,
+            source_path VARCHAR,
+            printable   INTEGER NOT NULL DEFAULT 1, -- 0 = viewer only, cannot embed in a PDF
+            data        BLOB NOT NULL,
+            -- How big the rock is, and how the section was prepared. Both are DECLARED and both
+            -- default to absent, because a delivery holds plates of both kinds (Jauhar,
+            -- 2026-07-31: "sometimes yes, sometimes not" for the scale, "sometimes stained and
+            -- epoxy, sometimes not" for the preparation).
+            --
+            -- `fov_um` is the WIDTH OF THE WHOLE PICTURE in micrometres, not a um/px ratio,
+            -- because the stored copy is resampled to a long-edge cap: a ratio would silently
+            -- belong to whichever copy it was measured on, while a field of view survives any
+            -- resampling. um/px of any copy is fov_um / that copy's pixel width. NULL means no
+            -- scale was declared, and nothing dimensional may run on such a plate — reporting
+            -- pixels under a micron label is the same class of error as a wrong `m`.
+            --
+            -- `prepared` and `stain` are INDEPENDENT: a section can be impregnated, stained,
+            -- both or neither. NULL/'' on `prepared` is UNKNOWN, not "plain" — a blue-epoxy
+            -- pore rule run over an unimpregnated section returns a porosity built from
+            -- blue-ish feldspar and edge artefact, so unknown must be refused rather than
+            -- assumed either way. The stain protocol comes from the laboratory report, so it is
+            -- free text rather than a vocabulary invented here.
+            fov_um      FLOAT,
+            prepared    VARCHAR,   -- '' / NULL = unknown | 'blue_epoxy' | 'plain'
+            stain       VARCHAR,   -- as the lab report names it; NULL = none or not stated
+            PRIMARY KEY (well_id, dataset, set_name, image_id)
+        );
+
+        -- Registry of image deliveries, one row per (well, dataset, set) — the same
+        -- one-active-delivery rule as core, SCAL, surveys and point data.
+        CREATE TABLE IF NOT EXISTS image_sets (
+            well_id     UUID NOT NULL,
+            dataset     VARCHAR NOT NULL,
+            set_name    VARCHAR NOT NULL,
+            active      INTEGER NOT NULL DEFAULT 0,
+            source      VARCHAR,
+            imported_at TIMESTAMP NOT NULL DEFAULT now(),
+            on_core_depths INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (well_id, dataset, set_name)
+        );
+
+        -- Trained machine-learning models, kept as ARTIFACTS rather than dying with the run.
+        --
+        -- Until now a run carried its training wells and its apply wells in one call, so the
+        -- fitted model was thrown away: there was no way to train on the cored wells and apply
+        -- THAT SAME model to the rest of the field later. A refit on different data is a
+        -- different model, and "which model produced this PERM curve?" had no answer.
+        --
+        -- `data` is a joblib dump of BOTH the scaler and the estimator. The scaler must travel
+        -- with the model — refitting a StandardScaler on the apply wells would be a different
+        -- transform, and the predictions would be quietly wrong rather than obviously broken.
+        -- `feature_curves` is an ORDERED JSON array and is the contract: applying the model
+        -- resolves exactly those curves in exactly that order, and fails a well by name when one
+        -- is missing rather than substituting or reordering.
+        --
+        -- PRIMARY KEY here is the `well_images` argument, not a `computed_curves` inconsistency:
+        -- one index entry per MODEL is free, and a duplicate would make a cited model ambiguous.
+        CREATE TABLE IF NOT EXISTS ml_models (
+            model_id        UUID NOT NULL,
+            name            VARCHAR NOT NULL,
+            task            VARCHAR NOT NULL,
+            algorithm       VARCHAR NOT NULL,
+            feature_curves  VARCHAR NOT NULL,   -- JSON array, ORDER IS PART OF THE CONTRACT
+            target_curve    VARCHAR,
+            params_json     VARCHAR NOT NULL,
+            metrics_json    VARCHAR NOT NULL,
+            trained_on      VARCHAR NOT NULL,   -- JSON array of well names (provenance)
+            n_train         INTEGER NOT NULL,
+            standardize     INTEGER NOT NULL,
+            sklearn_version VARCHAR,
+            note            VARCHAR,
+            created_at      TIMESTAMP NOT NULL DEFAULT now(),
+            data            BLOB NOT NULL,
+            PRIMARY KEY (model_id)
         );
 
         -- Special core analysis: capillary-pressure measurements. Several Pc/Sw points
@@ -362,6 +651,22 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
         -- existing databases converge on the same shape; NULL = imported before this.
         ALTER TABLE scal_pc ADD COLUMN IF NOT EXISTS system VARCHAR;
         ALTER TABLE scal_pc ADD COLUMN IF NOT EXISTS ift FLOAT;
+        -- …and the delivery it came in, like every other point store: a second SCAL
+        -- report lands beside the first, one set per well is ACTIVE. Added by ALTER (no
+        -- PK to rebuild) and back-filled; the column is LAST because the Appender writes
+        -- positionally. `migrate_point_data_sets` registers pre-set-era rows.
+        ALTER TABLE scal_pc ADD COLUMN IF NOT EXISTS set_name VARCHAR;
+        UPDATE scal_pc SET set_name = 'RAW' WHERE set_name IS NULL;
+
+        CREATE TABLE IF NOT EXISTS scal_sets (
+            well_id     UUID NOT NULL,
+            set_name    VARCHAR NOT NULL,
+            active      INTEGER NOT NULL DEFAULT 0,
+            source      VARCHAR,
+            imported_at TIMESTAMP NOT NULL DEFAULT now(),
+            on_core_depths INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (well_id, set_name)
+        );
 
         -- Named user documents (saved layouts, plot property sets, ...), stored as JSON.
         CREATE TABLE IF NOT EXISTS documents (
@@ -403,14 +708,29 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
 
         -- Deviation survey + computed TVD/TVDSS (minimum curvature), one row per
         -- station. `well_path` is empty for vertical wells (MD == TVD assumed).
+        -- `survey_name` versions the survey the same way core sets version plugs
+        -- (T-IMP-12): a definitive survey can sit beside the preliminary one it replaced,
+        -- and re-import never silently overwrites. Exactly one survey is ACTIVE per well;
+        -- it is the one that drives TVD/TVDSS everywhere (`well_surveys.active`).
         CREATE TABLE IF NOT EXISTS well_path (
             well_id     UUID NOT NULL,
+            survey_name VARCHAR NOT NULL DEFAULT 'RAW',
             md          FLOAT NOT NULL,
             inc         FLOAT NOT NULL,   -- inclination, degrees
             azi         FLOAT NOT NULL,   -- azimuth, degrees
             tvd         FLOAT,            -- computed, minimum curvature
             tvdss       FLOAT,            -- tvd - kb (or well.kb if datum omitted)
-            PRIMARY KEY (well_id, md)
+            PRIMARY KEY (well_id, survey_name, md)
+        );
+
+        CREATE TABLE IF NOT EXISTS well_surveys (
+            well_id     UUID NOT NULL,
+            survey_name VARCHAR NOT NULL,
+            active      INTEGER NOT NULL DEFAULT 0,
+            source      VARCHAR,
+            datum       FLOAT,             -- KB/datum elevation the TVDSS was computed at
+            imported_at TIMESTAMP NOT NULL DEFAULT now(),
+            PRIMARY KEY (well_id, survey_name)
         );
 
         -- Well groups: user-defined named sets of wells so a large field (2000+ wells) can
@@ -549,15 +869,32 @@ fn backup_before_destructive_migration(conn: &Connection, path: &str) -> DbResul
             .unwrap_or(0);
         backup = format!("{stem}.pre-{FORMAT_VERSION}-backup-{ts}.duckdb");
     }
+    engine_copy_to(conn, &backup)?;
+    Ok(backup)
+}
+
+/// Engine copy of the CURRENT database to a fresh file at `dest` (`ATTACH` +
+/// `COPY FROM DATABASE`). Two properties matter to every caller:
+///
+/// - it reads the engine's own live state (WAL included), so no CHECKPOINT is needed and
+///   no filesystem sharing violation is possible (unlike `std::fs::copy` of an open DB);
+/// - it writes ONLY live rows, so the copy is **compacted**: none of the dead space that
+///   months of DELETE+append module re-runs leave in the source file (DuckDB reuses freed
+///   pages internally but never shrinks the file) comes along. This is what makes it the
+///   engine of both the migration backups and "Compact Project" / "Save As".
+///
+/// `dest` must not exist — attaching an existing file would open it as a live database
+/// and merge into it instead of producing a clean copy.
+pub fn engine_copy_to(conn: &Connection, dest: &str) -> DbResult<()> {
     let src: String = conn.query_row("SELECT current_database()", [], |r| r.get(0))?;
     conn.execute_batch(&format!(
-        "ATTACH '{}' AS rb_backup;
-         COPY FROM DATABASE \"{}\" TO rb_backup;
-         DETACH rb_backup;",
-        backup.replace('\'', "''"),
+        "ATTACH '{}' AS rb_copy_target;
+         COPY FROM DATABASE \"{}\" TO rb_copy_target;
+         DETACH rb_copy_target;",
+        dest.replace('\'', "''"),
         src.replace('"', "\"\""),
     ))?;
-    Ok(backup)
+    Ok(())
 }
 
 /// One-time migration that drops the legacy 3-column PRIMARY KEY from `computed_curves`.
@@ -587,7 +924,7 @@ pub fn migrate_drop_computed_curves_pk(conn: &Connection, path: Option<&str>) ->
     }
     if let Some(path) = path {
         let backup = backup_before_destructive_migration(conn, path)?;
-        eprintln!("[boot] destructive migration (computed_curves PK drop) ahead: project backed up to {backup}");
+        boot_note(format!("One-time storage upgrade (write-speed index removal): project backed up first to {backup}"));
     }
     // Rebuild PK-less, preserving every row, atomically.
     conn.execute_batch(
@@ -603,6 +940,360 @@ pub fn migrate_drop_computed_curves_pk(conn: &Connection, path: Option<&str>) ->
          ALTER TABLE computed_curves_new RENAME TO computed_curves;
          COMMIT;",
     )?;
+    Ok(())
+}
+
+/// One-time migration replacing the never-used `array_logs` stub with the real array store.
+///
+/// The original shape was `(well_id, depth, nmr_t2_distribution FLOAT[])`, declared in the
+/// very first schema as a placeholder for a later phase. **No code path ever wrote a single
+/// row to it** — `dlis.rs` skips array channels with a comment pointing here, and nothing
+/// else mentions the table — so dropping it loses nothing, and this deliberately does NOT
+/// take a backup: there is no data to protect and a field-scale project should not pay a
+/// whole-file copy for an empty table.
+///
+/// Detection is by column name rather than by row count, so the migration is idempotent and
+/// a database already carrying the new shape short-circuits on the first query.
+pub fn migrate_array_logs_store(conn: &Connection) -> DbResult<()> {
+    let old_shape: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM duckdb_columns()
+         WHERE table_name = 'array_logs' AND column_name = 'nmr_t2_distribution'",
+        [],
+        |r| r.get(0),
+    )?;
+    if old_shape == 0 {
+        return Ok(());
+    }
+    conn.execute_batch(
+        "DROP TABLE IF EXISTS array_logs;
+         CREATE TABLE array_logs (
+            well_id     UUID NOT NULL,
+            set_name    VARCHAR NOT NULL DEFAULT 'RAW',
+            curve_name  VARCHAR NOT NULL,
+            depth       FLOAT NOT NULL,
+            samples     BLOB NOT NULL,
+            PRIMARY KEY (well_id, set_name, curve_name, depth)
+         );",
+    )?;
+    Ok(())
+}
+
+/// One depth of an array log: the depth, and every value the array holds there.
+#[derive(Debug, Clone)]
+pub struct ArrayRow {
+    pub depth: f32,
+    pub samples: Vec<f32>,
+}
+
+/// One array curve present on a well, for catalogs and pickers.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ArrayCurveInfo {
+    pub set_name: String,
+    pub curve_name: String,
+    /// Number of depths the array covers.
+    pub depths: i64,
+    /// Values per depth in the WIDEST row — realization counts are uniform in practice, but
+    /// a ragged array (an NMR tool that changed bin count mid-run) must not be misreported.
+    pub width: i64,
+    pub depth_min: f32,
+    pub depth_max: f32,
+}
+
+/// Encodes a value vector as the stored blob: explicit little-endian f32, 4 bytes per value.
+/// Explicit rather than `bytemuck::cast_slice` (which is native-endian) so the on-disk format
+/// is a stated contract, not a property of whichever machine wrote the file.
+fn encode_samples(values: &[f32]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(values.len() * 4);
+    for v in values {
+        out.extend_from_slice(&v.to_le_bytes());
+    }
+    out
+}
+
+/// Decodes a stored blob back to values. A trailing partial value (impossible unless the file
+/// was truncated) is DROPPED rather than read as garbage.
+fn decode_samples(bytes: &[u8]) -> Vec<f32> {
+    bytes
+        .chunks_exact(4)
+        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect()
+}
+
+/// Replaces one array curve on one well, wholesale.
+///
+/// The write discipline mirrors `write_computed_curves_batch`: DELETE the (well, set, curve)
+/// rows first, then insert fresh ones — a re-run replaces its own output and never unions two
+/// runs' realizations into one distribution. `depths` and `samples` must be the same length;
+/// a depth whose vector is EMPTY is skipped rather than stored, so "no realizations survived
+/// here" reads back as an absent depth instead of a zero-width distribution.
+pub fn write_array_log(
+    conn: &Connection,
+    well_id: &str,
+    set_name: &str,
+    curve_name: &str,
+    depths: &[f32],
+    samples: &[Vec<f32>],
+) -> DbResult<usize> {
+    if depths.len() != samples.len() {
+        return Err(DbError::LengthMismatch(format!(
+            "array log {curve_name}: {} depths against {} value vectors",
+            depths.len(),
+            samples.len()
+        )));
+    }
+    conn.execute(
+        "DELETE FROM array_logs WHERE well_id = ? AND set_name = ? AND upper(curve_name) = upper(?)",
+        duckdb::params![well_id, set_name, curve_name],
+    )?;
+    let mut stmt = conn.prepare(
+        "INSERT INTO array_logs (well_id, set_name, curve_name, depth, samples) VALUES (?, ?, ?, ?, ?)",
+    )?;
+    let mut written = 0usize;
+    for (d, vals) in depths.iter().zip(samples) {
+        if vals.is_empty() || !d.is_finite() {
+            continue;
+        }
+        stmt.execute(duckdb::params![well_id, set_name, curve_name, d, encode_samples(vals)])?;
+        written += 1;
+    }
+    Ok(written)
+}
+
+/// Reads one array curve, ordered by depth. `set_name` of `None` takes whichever set holds the
+/// curve, preferring the alphabetically first — array logs are produced outputs, so a well
+/// normally carries exactly one set per curve name.
+pub fn read_array_log(
+    conn: &Connection,
+    well_id: &str,
+    set_name: Option<&str>,
+    curve_name: &str,
+) -> DbResult<Vec<ArrayRow>> {
+    let sql = match set_name {
+        Some(_) => {
+            "SELECT depth, samples FROM array_logs
+             WHERE well_id = ? AND upper(curve_name) = upper(?) AND set_name = ?
+             ORDER BY depth"
+        }
+        None => {
+            "SELECT depth, samples FROM array_logs
+             WHERE well_id = ? AND upper(curve_name) = upper(?)
+               AND set_name = (SELECT min(set_name) FROM array_logs
+                               WHERE well_id = ? AND upper(curve_name) = upper(?))
+             ORDER BY depth"
+        }
+    };
+    let mut stmt = conn.prepare(sql)?;
+    let map = |r: &duckdb::Row| -> duckdb::Result<ArrayRow> {
+        let depth: f32 = r.get(0)?;
+        let bytes: Vec<u8> = r.get(1)?;
+        Ok(ArrayRow { depth, samples: decode_samples(&bytes) })
+    };
+    let rows = match set_name {
+        Some(set) => stmt.query_map(duckdb::params![well_id, curve_name, set], map)?.collect::<duckdb::Result<Vec<_>>>()?,
+        None => stmt
+            .query_map(duckdb::params![well_id, curve_name, well_id, curve_name], map)?
+            .collect::<duckdb::Result<Vec<_>>>()?,
+    };
+    Ok(rows)
+}
+
+/// Every array curve on a well, for the layout dialog's picker and the object tree.
+pub fn list_array_curves(conn: &Connection, well_id: &str) -> DbResult<Vec<ArrayCurveInfo>> {
+    let mut stmt = conn.prepare(
+        "SELECT set_name, curve_name, COUNT(*), max(octet_length(samples)) / 4, min(depth), max(depth)
+         FROM array_logs WHERE well_id = ?
+         GROUP BY set_name, curve_name ORDER BY set_name, curve_name",
+    )?;
+    let rows = stmt
+        .query_map([well_id], |r| {
+            Ok(ArrayCurveInfo {
+                set_name: r.get(0)?,
+                curve_name: r.get(1)?,
+                depths: r.get(2)?,
+                width: r.get(3)?,
+                depth_min: r.get(4)?,
+                depth_max: r.get(5)?,
+            })
+        })?
+        .collect::<duckdb::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
+/// Deletes one array curve from a well (the Data Sets dialog's remove action).
+pub fn delete_array_log(conn: &Connection, well_id: &str, set_name: &str, curve_name: &str) -> DbResult<usize> {
+    let n = conn.execute(
+        "DELETE FROM array_logs WHERE well_id = ? AND set_name = ? AND upper(curve_name) = upper(?)",
+        duckdb::params![well_id, set_name, curve_name],
+    )?;
+    Ok(n)
+}
+
+/// One-time migration that brings every DELIVERY-shaped store onto the set model: a
+/// `set_name` on `core_data` and `aux_data`, a `survey_name` on `well_path`
+/// (T-IMP-08 / T-IMP-12), so a well can hold several core deliveries, several surveys and
+/// several point-data deliveries (XRD, CEC, oil show …) instead of each import replacing
+/// the last.
+///
+/// `core_data` and `well_path` carry a PRIMARY KEY that must gain a column, which DuckDB
+/// cannot alter in place, so those two are rebuilt; `aux_data` has no PK, so `create_schema`
+/// simply ALTERs the column in and this only registers the rows. Existing rows become the
+/// set/survey named **RAW**, registered ACTIVE — a migrated project reads exactly the
+/// numbers it read before. Idempotent: the column list is consulted first, and the aux
+/// registration only fills gaps, so this is a no-op on freshly created databases and on
+/// every launch after the first.
+///
+/// Destructive (a table rebuild), so it follows the RELEASE §3.2 rule: when it is actually
+/// going to run, `path` is backed up first and a failed backup ABORTS the migration.
+/// `path: None` is for in-memory test databases only.
+/// Adds `core_data.depth_orig` (as-delivered depth) to a project that predates it.
+///
+/// Non-destructive: one ADD COLUMN and one back-fill, no table rebuild, so unlike
+/// `migrate_point_data_sets` it needs no backup. The back-fill sets `depth_orig = depth`, which
+/// says the honest thing about an old project — **whatever shifts were applied before this column
+/// existed are not recoverable**, so the core is treated as if it had been delivered where it now
+/// sits. New data imported against it will follow from here on, just not backwards.
+///
+/// Idempotent via `duckdb_columns()`; a no-op on a freshly created database and on every launch
+/// after the first.
+pub fn migrate_core_depth_orig(conn: &Connection) -> DbResult<()> {
+    let has: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM duckdb_columns()
+         WHERE table_name = 'core_data' AND column_name = 'depth_orig'",
+        [],
+        |r| r.get(0),
+    )?;
+    if has == 0 {
+        conn.execute_batch("ALTER TABLE core_data ADD COLUMN depth_orig FLOAT;")?;
+    }
+    // Runs regardless: a row could have been written by an older code path after the column
+    // was added (and NULL there would silently break the map).
+    conn.execute_batch("UPDATE core_data SET depth_orig = depth WHERE depth_orig IS NULL;")?;
+    Ok(())
+}
+
+/// Adds `on_core_depths` to the point-data, SCAL and image delivery registries.
+///
+/// Non-destructive (ADD COLUMN only, no rebuild, no backup needed) and idempotent. Existing
+/// deliveries get **0** — "not known to be on core depths" — which is the safe answer: a later
+/// core registration will leave them alone rather than moving data that may already be on the
+/// log's scale. The user can still tick them by hand; the flag only chooses the default.
+pub fn migrate_delivery_depth_basis(conn: &Connection) -> DbResult<()> {
+    for table in ["aux_sets", "scal_sets", "image_sets"] {
+        let has: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM duckdb_columns()
+             WHERE table_name = ?1 AND column_name = 'on_core_depths'",
+            params![table],
+            |r| r.get(0),
+        )?;
+        if has == 0 {
+            conn.execute_batch(&format!(
+                "ALTER TABLE {table} ADD COLUMN on_core_depths INTEGER NOT NULL DEFAULT 0;"
+            ))?;
+        }
+    }
+    Ok(())
+}
+
+/// Adds the plate's scale and preparation columns. ADD COLUMN only — no rebuild, no backup —
+/// and existing plates get NULL, which is the honest answer: nothing in a stored JPEG says how
+/// wide the field of view was or whether the section was impregnated, so an older delivery is
+/// UNKNOWN rather than assumed calibrated or assumed plain.
+pub fn migrate_plate_scale_and_prep(conn: &Connection) -> DbResult<()> {
+    for (col, ty) in [("fov_um", "FLOAT"), ("prepared", "VARCHAR"), ("stain", "VARCHAR")] {
+        let has: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM duckdb_columns()
+             WHERE table_name = 'well_images' AND column_name = ?1",
+            params![col],
+            |r| r.get(0),
+        )?;
+        if has == 0 {
+            conn.execute_batch(&format!("ALTER TABLE well_images ADD COLUMN {col} {ty};"))?;
+        }
+    }
+    Ok(())
+}
+
+pub fn migrate_point_data_sets(conn: &Connection, path: Option<&str>) -> DbResult<()> {
+    let has_set: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM duckdb_columns()
+         WHERE table_name = 'core_data' AND column_name = 'set_name'",
+        [],
+        |r| r.get(0),
+    )?;
+    let has_survey: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM duckdb_columns()
+         WHERE table_name = 'well_path' AND column_name = 'survey_name'",
+        [],
+        |r| r.get(0),
+    )?;
+    // Point-data rows predating the registry: adopt them as RAW/active so readers (which
+    // filter on the active set) can still see them. Cheap, gap-filling and idempotent, so
+    // it runs before the early return — a project may have been rebuilt already while a
+    // later aux import path was still writing unregistered rows.
+    conn.execute_batch(
+        "UPDATE aux_data SET set_name = 'RAW' WHERE set_name IS NULL;
+         INSERT INTO aux_sets (well_id, dataset, set_name, active)
+         SELECT DISTINCT a.well_id, a.dataset, a.set_name, 1 FROM aux_data a
+         WHERE NOT EXISTS (SELECT 1 FROM aux_sets s
+                           WHERE s.well_id = a.well_id AND s.dataset = a.dataset);
+         UPDATE scal_pc SET set_name = 'RAW' WHERE set_name IS NULL;
+         INSERT INTO scal_sets (well_id, set_name, active)
+         SELECT DISTINCT p.well_id, p.set_name, 1 FROM scal_pc p
+         WHERE NOT EXISTS (SELECT 1 FROM scal_sets s WHERE s.well_id = p.well_id);",
+    )?;
+
+    if has_set > 0 && has_survey > 0 {
+        return Ok(());
+    }
+    if let Some(path) = path {
+        let backup = backup_before_destructive_migration(conn, path)?;
+        boot_note(format!("One-time storage upgrade (delivery sets for core/surveys): project backed up first to {backup}"));
+    }
+
+    if has_set == 0 {
+        conn.execute_batch(
+            "BEGIN;
+             CREATE TABLE core_data_new (
+                 well_id     UUID NOT NULL,
+                 set_name    VARCHAR NOT NULL DEFAULT 'RAW',
+                 depth       FLOAT NOT NULL,
+                 cpor        FLOAT,
+                 cperm       FLOAT,
+                 cgd         FLOAT,
+                 csw         FLOAT,
+                 PRIMARY KEY (well_id, set_name, depth)
+             );
+             INSERT INTO core_data_new
+                 SELECT well_id, 'RAW', depth, cpor, cperm, cgd, csw FROM core_data;
+             DROP TABLE core_data;
+             ALTER TABLE core_data_new RENAME TO core_data;
+             INSERT INTO core_sets (well_id, set_name, active, source)
+                 SELECT DISTINCT well_id, 'RAW', 1, NULL FROM core_data;
+             COMMIT;",
+        )?;
+    }
+    if has_survey == 0 {
+        conn.execute_batch(
+            "BEGIN;
+             CREATE TABLE well_path_new (
+                 well_id     UUID NOT NULL,
+                 survey_name VARCHAR NOT NULL DEFAULT 'RAW',
+                 md          FLOAT NOT NULL,
+                 inc         FLOAT NOT NULL,
+                 azi         FLOAT NOT NULL,
+                 tvd         FLOAT,
+                 tvdss       FLOAT,
+                 PRIMARY KEY (well_id, survey_name, md)
+             );
+             INSERT INTO well_path_new
+                 SELECT well_id, 'RAW', md, inc, azi, tvd, tvdss FROM well_path;
+             DROP TABLE well_path;
+             ALTER TABLE well_path_new RENAME TO well_path;
+             INSERT INTO well_surveys (well_id, survey_name, active, source)
+                 SELECT DISTINCT well_id, 'RAW', 1, NULL FROM well_path;
+             COMMIT;",
+        )?;
+    }
     Ok(())
 }
 
@@ -679,11 +1370,137 @@ where
     }
 }
 
-/// Bulk-inserts core plug data for one well, replacing any prior rows for that well
-/// (re-import overwrites rather than duplicating).
+/// SQL fragment naming a well's ACTIVE core set: the flagged one, else the most recently
+/// imported, else 'RAW'. Every core reader filters on this — a missed filter would union
+/// two deliveries of the same plugs and silently double the φ–k cloud. `?1` is the well id
+/// (bound once; the placeholder is reused, as `list_aux_data` already does with `?2`).
+const ACTIVE_CORE_SET: &str = "COALESCE((SELECT set_name FROM core_sets WHERE well_id = ?1
+                                         ORDER BY active DESC, imported_at DESC LIMIT 1), 'RAW')";
+
+/// Same, for deviation surveys.
+const ACTIVE_SURVEY: &str = "COALESCE((SELECT survey_name FROM well_surveys WHERE well_id = ?1
+                                       ORDER BY active DESC, imported_at DESC LIMIT 1), 'RAW')";
+
+/// One core delivery of one well, as the set manager shows it.
+#[derive(Debug, Clone, Serialize)]
+pub struct CoreSetInfo {
+    pub set_name: String,
+    pub rows: i64,
+    pub active: bool,
+    pub source: Option<String>,
+    pub imported_at: Option<String>,
+}
+
+/// A well's core sets, active first then newest, with plug counts.
+pub fn list_core_sets(conn: &Connection, well_id: &str) -> DbResult<Vec<CoreSetInfo>> {
+    let mut stmt = conn.prepare(
+        "SELECT s.set_name, s.active, s.source, CAST(s.imported_at AS VARCHAR),
+                (SELECT COUNT(*) FROM core_data d WHERE d.well_id = s.well_id AND d.set_name = s.set_name)
+         FROM core_sets s WHERE s.well_id = ?1
+         ORDER BY s.active DESC, s.imported_at DESC, s.set_name",
+    )?;
+    let rows = stmt.query_map(params![well_id], |r| {
+        Ok(CoreSetInfo {
+            set_name: r.get(0)?,
+            active: r.get::<_, i32>(1)? != 0,
+            source: r.get(2)?,
+            imported_at: r.get(3)?,
+            rows: r.get(4)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
+/// The name a new core delivery will actually be stored under: `desired` when the well
+/// does not have it yet, else `desired_1`, `_2`, … — an import NEVER overwrites an earlier
+/// delivery (identical rule to `ingest::resolve_set_name` for curves).
+pub fn resolve_core_set_name(conn: &Connection, well_id: &str, desired: &str) -> DbResult<String> {
+    let base = {
+        let t = desired.trim().to_uppercase().replace(' ', "_");
+        if t.is_empty() { "CORE".to_string() } else { t }
+    };
+    let taken = |name: &str| -> DbResult<bool> {
+        let n: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM core_sets WHERE well_id = ?1 AND upper(set_name) = ?2",
+            params![well_id, name],
+            |r| r.get(0),
+        )?;
+        Ok(n > 0)
+    };
+    if !taken(&base)? {
+        return Ok(base);
+    }
+    for i in 1..1000 {
+        let cand = format!("{base}_{i}");
+        if !taken(&cand)? {
+            return Ok(cand);
+        }
+    }
+    Err(DbError::LengthMismatch(format!("too many core sets named {base}")))
+}
+
+/// Makes one core set the well's live one (0 or 1 active per well).
+pub fn set_active_core_set(conn: &Connection, well_id: &str, set_name: &str) -> DbResult<()> {
+    with_txn(conn, |conn| {
+        conn.execute("UPDATE core_sets SET active = 0 WHERE well_id = ?1", params![well_id])?;
+        let n = conn.execute(
+            "UPDATE core_sets SET active = 1 WHERE well_id = ?1 AND set_name = ?2",
+            params![well_id, set_name],
+        )?;
+        if n == 0 {
+            return Err(DbError::LengthMismatch(format!("no core set '{set_name}' on this well")));
+        }
+        Ok(())
+    })
+}
+
+/// Deletes one core delivery outright. If it was the active one, the newest survivor takes
+/// over — a well is never left with plugs no reader can see.
+pub fn delete_core_set(conn: &Connection, well_id: &str, set_name: &str) -> DbResult<usize> {
+    let removed = with_txn(conn, |conn| -> DbResult<usize> {
+        let n = conn.execute(
+            "DELETE FROM core_data WHERE well_id = ?1 AND set_name = ?2",
+            params![well_id, set_name],
+        )?;
+        conn.execute(
+            "DELETE FROM core_sets WHERE well_id = ?1 AND set_name = ?2",
+            params![well_id, set_name],
+        )?;
+        Ok(n)
+    })?;
+    let has_active: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM core_sets WHERE well_id = ?1 AND active = 1",
+        params![well_id],
+        |r| r.get(0),
+    )?;
+    if has_active == 0 {
+        let next: Option<String> = conn
+            .query_row(
+                "SELECT set_name FROM core_sets WHERE well_id = ?1 ORDER BY imported_at DESC LIMIT 1",
+                params![well_id],
+                |r| r.get(0),
+            )
+            .ok();
+        if let Some(next) = next {
+            set_active_core_set(conn, well_id, &next)?;
+        }
+    }
+    Ok(removed)
+}
+
+/// Bulk-inserts one core DELIVERY for a well under `set_name`, replacing only that set's
+/// rows (re-importing the same set name overwrites it; a NEW name leaves earlier deliveries
+/// untouched — callers pass a name from `resolve_core_set_name`). The stored set becomes the
+/// well's active one: it is what the user just imported and expects to see.
 pub fn insert_core_data(
     conn: &Connection,
     well_id: &str,
+    set_name: &str,
+    source: Option<&str>,
     depths: &[f32],
     cpor: &[f32],
     cperm: &[f32],
@@ -695,12 +1512,35 @@ pub fn insert_core_data(
         return Err(DbError::LengthMismatch(format!("expected all core columns to have length {n}")));
     }
     with_txn(conn, |conn| {
-        conn.execute("DELETE FROM core_data WHERE well_id = ?1", params![well_id])?;
+        conn.execute(
+            "DELETE FROM core_data WHERE well_id = ?1 AND set_name = ?2",
+            params![well_id, set_name],
+        )?;
         let mut appender: Appender = conn.appender("core_data")?;
         for i in 0..n {
-            appender.append_row(params![well_id, depths[i], cpor[i], cperm[i], cgd[i], csw[i]])?;
+            // depth_orig starts equal to depth and is never shifted afterwards — it is the
+            // record of where this delivery said the rock was.
+            appender.append_row(params![
+                well_id,
+                set_name,
+                depths[i],
+                cpor[i],
+                cperm[i],
+                cgd[i],
+                csw[i],
+                depths[i]
+            ])?;
         }
         appender.flush()?;
+        conn.execute(
+            "DELETE FROM core_sets WHERE well_id = ?1 AND set_name = ?2",
+            params![well_id, set_name],
+        )?;
+        conn.execute("UPDATE core_sets SET active = 0 WHERE well_id = ?1", params![well_id])?;
+        conn.execute(
+            "INSERT INTO core_sets (well_id, set_name, active, source) VALUES (?1, ?2, 1, ?3)",
+            params![well_id, set_name, source],
+        )?;
         Ok(())
     })
 }
@@ -716,12 +1556,147 @@ pub struct AuxRow {
     pub value_text: Option<String>,
 }
 
-/// Replaces one well's rows of ONE dataset (petrography / XRD / perforation import).
-pub fn insert_aux_data(conn: &Connection, well_id: &str, dataset: &str, rows: &[AuxRow]) -> DbResult<()> {
+/// SQL fragment naming the ACTIVE set of the point dataset in the row being tested — the
+/// aux twin of `ACTIVE_CORE_SET`, correlated on `a.dataset` so one query can span every
+/// dataset (XRD, CEC, oil show, core extras …) and still see one delivery of each. Every
+/// aux reader uses it; a reader that forgets would union two deliveries of the same samples
+/// and double every count silently. Requires the aux_data table to be aliased `a`.
+const ACTIVE_AUX_SET: &str = "COALESCE((SELECT s.set_name FROM aux_sets s
+                                        WHERE s.well_id = a.well_id AND s.dataset = a.dataset
+                                        ORDER BY s.active DESC, s.imported_at DESC LIMIT 1), 'RAW')";
+
+/// One point-data delivery, as the set manager and the Wells tree show it.
+#[derive(Debug, Clone, Serialize)]
+pub struct AuxSetInfo {
+    pub dataset: String,
+    pub set_name: String,
+    pub rows: i64,
+    pub active: bool,
+    pub source: Option<String>,
+    pub imported_at: Option<String>,
+}
+
+/// Every point-data delivery of a well, grouped by dataset (active first, then newest).
+pub fn list_aux_sets(conn: &Connection, well_id: &str) -> DbResult<Vec<AuxSetInfo>> {
+    let mut stmt = conn.prepare(
+        "SELECT s.dataset, s.set_name, s.active, s.source, CAST(s.imported_at AS VARCHAR),
+                (SELECT COUNT(*) FROM aux_data d
+                 WHERE d.well_id = s.well_id AND d.dataset = s.dataset AND d.set_name = s.set_name)
+         FROM aux_sets s WHERE s.well_id = ?1
+         ORDER BY s.dataset, s.active DESC, s.imported_at DESC, s.set_name",
+    )?;
+    let rows = stmt.query_map(params![well_id], |r| {
+        Ok(AuxSetInfo {
+            dataset: r.get(0)?,
+            set_name: r.get(1)?,
+            active: r.get::<_, i32>(2)? != 0,
+            source: r.get(3)?,
+            imported_at: r.get(4)?,
+            rows: r.get(5)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
+/// The name a new point-data delivery will be stored under within its dataset — `desired`,
+/// else `desired_1`, `_2`, …; an import never overwrites an earlier delivery.
+pub fn resolve_aux_set_name(conn: &Connection, well_id: &str, dataset: &str, desired: &str) -> DbResult<String> {
+    let base = {
+        let t = desired.trim().to_uppercase().replace(' ', "_");
+        if t.is_empty() { "RAW".to_string() } else { t }
+    };
+    let taken = |name: &str| -> DbResult<bool> {
+        let n: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM aux_sets WHERE well_id = ?1 AND dataset = ?2 AND upper(set_name) = ?3",
+            params![well_id, dataset, name],
+            |r| r.get(0),
+        )?;
+        Ok(n > 0)
+    };
+    if !taken(&base)? {
+        return Ok(base);
+    }
+    for i in 1..1000 {
+        let cand = format!("{base}_{i}");
+        if !taken(&cand)? {
+            return Ok(cand);
+        }
+    }
+    Err(DbError::LengthMismatch(format!("too many {dataset} sets named {base}")))
+}
+
+/// Makes one delivery the live one for its dataset (other datasets are untouched).
+pub fn set_active_aux_set(conn: &Connection, well_id: &str, dataset: &str, set_name: &str) -> DbResult<()> {
     with_txn(conn, |conn| {
         conn.execute(
-            "DELETE FROM aux_data WHERE well_id = ?1 AND dataset = ?2",
+            "UPDATE aux_sets SET active = 0 WHERE well_id = ?1 AND dataset = ?2",
             params![well_id, dataset],
+        )?;
+        let n = conn.execute(
+            "UPDATE aux_sets SET active = 1 WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
+            params![well_id, dataset, set_name],
+        )?;
+        if n == 0 {
+            return Err(DbError::LengthMismatch(format!("no {dataset} set '{set_name}' on this well")));
+        }
+        Ok(())
+    })
+}
+
+/// Deletes one point-data delivery; the newest survivor of that dataset takes over.
+pub fn delete_aux_set(conn: &Connection, well_id: &str, dataset: &str, set_name: &str) -> DbResult<usize> {
+    let removed = with_txn(conn, |conn| -> DbResult<usize> {
+        let n = conn.execute(
+            "DELETE FROM aux_data WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
+            params![well_id, dataset, set_name],
+        )?;
+        conn.execute(
+            "DELETE FROM aux_sets WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
+            params![well_id, dataset, set_name],
+        )?;
+        Ok(n)
+    })?;
+    let has_active: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM aux_sets WHERE well_id = ?1 AND dataset = ?2 AND active = 1",
+        params![well_id, dataset],
+        |r| r.get(0),
+    )?;
+    if has_active == 0 {
+        let next: Option<String> = conn
+            .query_row(
+                "SELECT set_name FROM aux_sets WHERE well_id = ?1 AND dataset = ?2
+                 ORDER BY imported_at DESC LIMIT 1",
+                params![well_id, dataset],
+                |r| r.get(0),
+            )
+            .ok();
+        if let Some(next) = next {
+            set_active_aux_set(conn, well_id, dataset, &next)?;
+        }
+    }
+    Ok(removed)
+}
+
+/// Stores one point-data DELIVERY (petrography / XRD / CEC / oil show / perforation / core
+/// extras …) under `set_name`, replacing only that set's rows and making it the live one for
+/// its dataset. Earlier deliveries of the same dataset are untouched — callers pass a name
+/// from `resolve_aux_set_name`.
+pub fn insert_aux_data(
+    conn: &Connection,
+    well_id: &str,
+    dataset: &str,
+    set_name: &str,
+    source: Option<&str>,
+    rows: &[AuxRow],
+) -> DbResult<()> {
+    with_txn(conn, |conn| {
+        conn.execute(
+            "DELETE FROM aux_data WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
+            params![well_id, dataset, set_name],
         )?;
         let mut appender: Appender = conn.appender("aux_data")?;
         for r in rows {
@@ -732,22 +1707,35 @@ pub fn insert_aux_data(conn: &Connection, well_id: &str, dataset: &str, rows: &[
                 r.depth_base,
                 r.item,
                 r.value_num,
-                r.value_text
+                r.value_text,
+                set_name
             ])?;
         }
         appender.flush()?;
+        conn.execute(
+            "DELETE FROM aux_sets WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
+            params![well_id, dataset, set_name],
+        )?;
+        conn.execute(
+            "UPDATE aux_sets SET active = 0 WHERE well_id = ?1 AND dataset = ?2",
+            params![well_id, dataset],
+        )?;
+        conn.execute(
+            "INSERT INTO aux_sets (well_id, dataset, set_name, active, source) VALUES (?1, ?2, ?3, 1, ?4)",
+            params![well_id, dataset, set_name, source],
+        )?;
         Ok(())
     })
 }
 
-/// One well's auxiliary rows, all datasets or one, ordered by depth then item.
+/// One well's auxiliary rows from the ACTIVE set of each dataset, ordered by depth then item.
 pub fn list_aux_data(conn: &Connection, well_id: &str, dataset: Option<&str>) -> DbResult<Vec<AuxRow>> {
-    let mut stmt = conn.prepare(
-        "SELECT dataset, depth_top, depth_base, item, value_num, value_text
-         FROM aux_data
-         WHERE well_id = ?1 AND (?2 IS NULL OR dataset = ?2)
-         ORDER BY dataset, depth_top, item",
-    )?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT a.dataset, a.depth_top, a.depth_base, a.item, a.value_num, a.value_text
+         FROM aux_data a
+         WHERE a.well_id = ?1 AND (?2 IS NULL OR a.dataset = ?2) AND a.set_name = {ACTIVE_AUX_SET}
+         ORDER BY a.dataset, a.depth_top, a.item"
+    ))?;
     let rows = stmt.query_map(params![well_id, dataset], |row| {
         Ok(AuxRow {
             dataset: row.get(0)?,
@@ -765,17 +1753,705 @@ pub fn list_aux_data(conn: &Connection, well_id: &str, dataset: Option<&str>) ->
     Ok(out)
 }
 
-/// Which auxiliary datasets a well has, with row counts (for panels/dialogs).
+/// Which auxiliary datasets a well has, with the ACTIVE delivery's row counts (for
+/// panels/dialogs) — never the sum across deliveries.
 pub fn list_aux_datasets(conn: &Connection, well_id: &str) -> DbResult<Vec<(String, i64)>> {
-    let mut stmt = conn.prepare(
-        "SELECT dataset, COUNT(*) FROM aux_data WHERE well_id = ?1 GROUP BY dataset ORDER BY dataset",
-    )?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT a.dataset, COUNT(*) FROM aux_data a
+         WHERE a.well_id = ?1 AND a.set_name = {ACTIVE_AUX_SET}
+         GROUP BY a.dataset ORDER BY a.dataset"
+    ))?;
     let rows = stmt.query_map(params![well_id], |row| Ok((row.get(0)?, row.get(1)?)))?;
     let mut out = Vec::new();
     for r in rows {
         out.push(r?);
     }
     Ok(out)
+}
+
+/// One measurement name inside a point dataset, with what is actually stored under it.
+#[derive(Debug, Clone, Serialize)]
+pub struct AuxItemInfo {
+    pub dataset: String,
+    pub item: String,
+    /// Wells carrying it in their ACTIVE delivery.
+    pub wells: i64,
+    pub rows: i64,
+    /// Rows whose value is a NUMBER. A dialog that needs a measurement to compute with — the
+    /// S-factor calibration wants lab CEC — must be able to tell a numeric item from a
+    /// descriptive one, because a lithology description cannot set a scaling factor and
+    /// offering it as a choice invites a run that fails for reasons the user cannot see.
+    pub numeric_rows: i64,
+}
+
+/// Every measurement name in the project's point data, from the ACTIVE delivery of each dataset.
+///
+/// Deliberately unfiltered by well, for the same reason [`list_well_param_overrides`] is: one
+/// scan of a grouped aggregate beats either N round trips or an `IN (...)` list long enough to
+/// hit a binding limit on a 2000-well project. The result is a project-wide catalogue of what a
+/// dataset/item box could name, which is the question a picker actually asks — a run's own
+/// exclusion counts still report what the chosen wells turned out to hold.
+pub fn list_aux_item_catalog(conn: &Connection) -> DbResult<Vec<AuxItemInfo>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT a.dataset, a.item, COUNT(DISTINCT a.well_id), COUNT(*), COUNT(a.value_num)
+         FROM aux_data a WHERE a.set_name = {ACTIVE_AUX_SET}
+         GROUP BY a.dataset, a.item ORDER BY a.dataset, a.item"
+    ))?;
+    let rows = stmt.query_map([], |row| {
+        Ok(AuxItemInfo {
+            dataset: row.get(0)?,
+            item: row.get(1)?,
+            wells: row.get(2)?,
+            rows: row.get(3)?,
+            numeric_rows: row.get(4)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// Depth-registered images (thin sections, core photographs) — see `well_images`
+// ---------------------------------------------------------------------------
+
+/// One picture's METADATA. Deliberately without the pixels: a catalog listing of a well
+/// that carries 300 core photographs must cost kilobytes, not a gigabyte, so every listing
+/// path uses this and the bytes are fetched one image at a time by `get_well_image`.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct ImageInfo {
+    pub image_id: String,
+    pub dataset: String,
+    pub set_name: String,
+    pub depth_top: f32,
+    pub depth_base: Option<f32>,
+    pub name: String,
+    pub caption: Option<String>,
+    pub mime: String,
+    pub width: i32,
+    pub height: i32,
+    pub src_width: Option<i32>,
+    pub src_height: Option<i32>,
+    pub source_path: Option<String>,
+    /// False = the viewer can show it but the PDF exporter cannot embed it (see `images.rs`).
+    pub printable: bool,
+    /// Stored size of the display copy, bytes.
+    pub bytes: i64,
+    /// Width of the WHOLE picture in micrometres. None = no scale declared, and nothing
+    /// dimensional may run on this plate.
+    pub fov_um: Option<f32>,
+    /// '' = unknown (refused by anything that needs to know), 'blue_epoxy', 'plain'.
+    pub prepared: String,
+    /// As the laboratory report names it; empty = none or not stated.
+    pub stain: String,
+}
+
+/// One picture on its way INTO the store (the import commit path).
+#[derive(Debug, Clone, Default)]
+pub struct NewImage {
+    pub depth_top: f32,
+    pub depth_base: Option<f32>,
+    pub name: String,
+    pub caption: Option<String>,
+    pub mime: String,
+    pub width: i32,
+    pub height: i32,
+    pub src_width: Option<i32>,
+    pub src_height: Option<i32>,
+    pub source_path: Option<String>,
+    pub printable: bool,
+    pub data: Vec<u8>,
+    pub fov_um: Option<f32>,
+    pub prepared: Option<String>,
+    pub stain: Option<String>,
+}
+
+/// SQL fragment naming the ACTIVE image delivery of the dataset in the row being tested —
+/// the image twin of `ACTIVE_AUX_SET`, correlated on `i.dataset` so one query spans every
+/// dataset (thin sections, core photos, SEM …) and still sees one delivery of each. A
+/// reader that forgets it would show the same plate twice from two deliveries of the same
+/// core. Requires the `well_images` table to be aliased `i`.
+const ACTIVE_IMAGE_SET: &str = "COALESCE((SELECT s.set_name FROM image_sets s
+                                          WHERE s.well_id = i.well_id AND s.dataset = i.dataset
+                                          ORDER BY s.active DESC, s.imported_at DESC LIMIT 1), 'RAW')";
+
+/// One image delivery of a well, as the set manager and the Wells tree show it.
+#[derive(Debug, Clone, Serialize)]
+pub struct ImageSetInfo {
+    pub dataset: String,
+    pub set_name: String,
+    pub images: i64,
+    pub active: bool,
+    pub source: Option<String>,
+    pub imported_at: Option<String>,
+    /// Total stored bytes of the delivery — the one store where a user genuinely needs to
+    /// see the cost before deciding what to keep.
+    pub bytes: i64,
+}
+
+/// Every image delivery of a well, grouped by dataset (active first, then newest).
+pub fn list_image_sets(conn: &Connection, well_id: &str) -> DbResult<Vec<ImageSetInfo>> {
+    let mut stmt = conn.prepare(
+        "SELECT s.dataset, s.set_name, s.active, s.source, CAST(s.imported_at AS VARCHAR),
+                (SELECT COUNT(*) FROM well_images d
+                 WHERE d.well_id = s.well_id AND d.dataset = s.dataset AND d.set_name = s.set_name),
+                (SELECT COALESCE(SUM(octet_length(d.data)), 0) FROM well_images d
+                 WHERE d.well_id = s.well_id AND d.dataset = s.dataset AND d.set_name = s.set_name)
+         FROM image_sets s WHERE s.well_id = ?1
+         ORDER BY s.dataset, s.active DESC, s.imported_at DESC, s.set_name",
+    )?;
+    let rows = stmt.query_map(params![well_id], |r| {
+        Ok(ImageSetInfo {
+            dataset: r.get(0)?,
+            set_name: r.get(1)?,
+            active: r.get::<_, i32>(2)? != 0,
+            source: r.get(3)?,
+            imported_at: r.get(4)?,
+            images: r.get(5)?,
+            bytes: r.get(6)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
+/// The name a new image delivery will be stored under within its dataset — `desired`, else
+/// `desired_1`, `_2`, …; an import never overwrites an earlier delivery.
+pub fn resolve_image_set_name(conn: &Connection, well_id: &str, dataset: &str, desired: &str) -> DbResult<String> {
+    let base = {
+        let t = desired.trim().to_uppercase().replace(' ', "_");
+        if t.is_empty() { "RAW".to_string() } else { t }
+    };
+    let taken = |name: &str| -> DbResult<bool> {
+        let n: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM image_sets WHERE well_id = ?1 AND dataset = ?2 AND upper(set_name) = ?3",
+            params![well_id, dataset, name],
+            |r| r.get(0),
+        )?;
+        Ok(n > 0)
+    };
+    if !taken(&base)? {
+        return Ok(base);
+    }
+    for i in 1..1000 {
+        let cand = format!("{base}_{i}");
+        if !taken(&cand)? {
+            return Ok(cand);
+        }
+    }
+    Err(DbError::LengthMismatch(format!("too many {dataset} image sets named {base}")))
+}
+
+/// Makes one image delivery the live one for its dataset (other datasets are untouched).
+pub fn set_active_image_set(conn: &Connection, well_id: &str, dataset: &str, set_name: &str) -> DbResult<()> {
+    with_txn(conn, |conn| {
+        conn.execute(
+            "UPDATE image_sets SET active = 0 WHERE well_id = ?1 AND dataset = ?2",
+            params![well_id, dataset],
+        )?;
+        let n = conn.execute(
+            "UPDATE image_sets SET active = 1 WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
+            params![well_id, dataset, set_name],
+        )?;
+        if n == 0 {
+            return Err(DbError::LengthMismatch(format!("no {dataset} image set '{set_name}' on this well")));
+        }
+        Ok(())
+    })
+}
+
+/// Deletes one image delivery; the newest survivor of that dataset takes over.
+pub fn delete_image_set(conn: &Connection, well_id: &str, dataset: &str, set_name: &str) -> DbResult<usize> {
+    let removed = with_txn(conn, |conn| -> DbResult<usize> {
+        let n = conn.execute(
+            "DELETE FROM well_images WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
+            params![well_id, dataset, set_name],
+        )?;
+        conn.execute(
+            "DELETE FROM image_sets WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
+            params![well_id, dataset, set_name],
+        )?;
+        Ok(n)
+    })?;
+    let has_active: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM image_sets WHERE well_id = ?1 AND dataset = ?2 AND active = 1",
+        params![well_id, dataset],
+        |r| r.get(0),
+    )?;
+    if has_active == 0 {
+        let next: Option<String> = conn
+            .query_row(
+                "SELECT set_name FROM image_sets WHERE well_id = ?1 AND dataset = ?2
+                 ORDER BY imported_at DESC LIMIT 1",
+                params![well_id, dataset],
+                |r| r.get(0),
+            )
+            .ok();
+        if let Some(next) = next {
+            set_active_image_set(conn, well_id, dataset, &next)?;
+        }
+    }
+    Ok(removed)
+}
+
+/// Stores one image DELIVERY under `set_name`, replacing only that set's rows and making it
+/// the live one for its dataset. Earlier deliveries are untouched — callers pass a name from
+/// `resolve_image_set_name`.
+///
+/// Plain prepared INSERTs rather than an Appender: a delivery is tens of rows, not millions,
+/// and each row carries a multi-megabyte blob, so the per-row overhead the Appender saves is
+/// noise next to the bytes themselves.
+pub fn insert_well_images(
+    conn: &Connection,
+    well_id: &str,
+    dataset: &str,
+    set_name: &str,
+    source: Option<&str>,
+    images: &[NewImage],
+) -> DbResult<usize> {
+    with_txn(conn, |conn| {
+        conn.execute(
+            "DELETE FROM well_images WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
+            params![well_id, dataset, set_name],
+        )?;
+        let mut stmt = conn.prepare(
+            "INSERT INTO well_images (well_id, dataset, set_name, image_id, depth_top, depth_base,
+                                      name, caption, mime, width, height, src_width, src_height,
+                                      source_path, printable, data, fov_um, prepared, stain)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+        )?;
+        let mut n = 0usize;
+        for img in images {
+            let id = uuid::Uuid::new_v4().to_string();
+            stmt.execute(params![
+                well_id,
+                dataset,
+                set_name,
+                id,
+                img.depth_top,
+                img.depth_base,
+                img.name,
+                img.caption,
+                img.mime,
+                img.width,
+                img.height,
+                img.src_width,
+                img.src_height,
+                img.source_path,
+                if img.printable { 1i32 } else { 0i32 },
+                img.data,
+                img.fov_um,
+                img.prepared,
+                img.stain,
+            ])?;
+            n += 1;
+        }
+        drop(stmt);
+        conn.execute(
+            "DELETE FROM image_sets WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
+            params![well_id, dataset, set_name],
+        )?;
+        conn.execute(
+            "UPDATE image_sets SET active = 0 WHERE well_id = ?1 AND dataset = ?2",
+            params![well_id, dataset],
+        )?;
+        conn.execute(
+            "INSERT INTO image_sets (well_id, dataset, set_name, active, source) VALUES (?1, ?2, ?3, 1, ?4)",
+            params![well_id, dataset, set_name, source],
+        )?;
+        Ok(n)
+    })
+}
+
+/// Metadata for a well's pictures, from the ACTIVE delivery of each dataset, ordered by
+/// depth. `dataset = None` spans every dataset. NEVER selects `data` — see [`ImageInfo`].
+pub fn list_well_images(conn: &Connection, well_id: &str, dataset: Option<&str>) -> DbResult<Vec<ImageInfo>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT CAST(i.image_id AS VARCHAR), i.dataset, i.set_name, i.depth_top, i.depth_base,
+                i.name, i.caption, i.mime, i.width, i.height, i.src_width, i.src_height,
+                i.source_path, i.printable, octet_length(i.data),
+                i.fov_um, COALESCE(i.prepared, ''), COALESCE(i.stain, '')
+         FROM well_images i
+         WHERE i.well_id = ?1 AND (?2 IS NULL OR i.dataset = ?2) AND i.set_name = {ACTIVE_IMAGE_SET}
+         ORDER BY i.dataset, i.depth_top, i.name"
+    ))?;
+    let rows = stmt.query_map(params![well_id, dataset], |r| {
+        Ok(ImageInfo {
+            image_id: r.get(0)?,
+            dataset: r.get(1)?,
+            set_name: r.get(2)?,
+            depth_top: r.get(3)?,
+            depth_base: r.get(4)?,
+            name: r.get(5)?,
+            caption: r.get(6)?,
+            mime: r.get(7)?,
+            width: r.get(8)?,
+            height: r.get(9)?,
+            src_width: r.get(10)?,
+            src_height: r.get(11)?,
+            source_path: r.get(12)?,
+            printable: r.get::<_, i32>(13)? != 0,
+            bytes: r.get(14)?,
+            fov_um: r.get(15)?,
+            prepared: r.get(16)?,
+            stain: r.get(17)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
+/// Which image datasets a well has, with the ACTIVE delivery's counts — never the sum
+/// across deliveries.
+pub fn list_image_datasets(conn: &Connection, well_id: &str) -> DbResult<Vec<(String, i64)>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT i.dataset, COUNT(*) FROM well_images i
+         WHERE i.well_id = ?1 AND i.set_name = {ACTIVE_IMAGE_SET}
+         GROUP BY i.dataset ORDER BY i.dataset"
+    ))?;
+    let rows = stmt.query_map(params![well_id], |row| Ok((row.get(0)?, row.get(1)?)))?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
+/// The pixels of ONE picture, with its mime type. The only path that reads a blob.
+pub fn get_well_image(conn: &Connection, image_id: &str) -> DbResult<(String, Vec<u8>)> {
+    let row = conn.query_row(
+        "SELECT mime, data FROM well_images WHERE image_id = ?1",
+        params![image_id],
+        |r| Ok((r.get::<_, String>(0)?, r.get::<_, Vec<u8>>(1)?)),
+    )?;
+    Ok(row)
+}
+
+/// Every printable picture of one dataset in a depth window, pixels included — the composite
+/// exporter's read path. Non-printable rows come back too (with their bytes) so the exporter
+/// can draw a labelled placeholder rather than silently dropping a plate.
+pub fn read_images_for_print(
+    conn: &Connection,
+    well_id: &str,
+    dataset: &str,
+    depth_top: f32,
+    depth_bottom: f32,
+) -> DbResult<Vec<(ImageInfo, Vec<u8>)>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT CAST(i.image_id AS VARCHAR), i.dataset, i.set_name, i.depth_top, i.depth_base,
+                i.name, i.caption, i.mime, i.width, i.height, i.src_width, i.src_height,
+                i.source_path, i.printable, octet_length(i.data),
+                i.fov_um, COALESCE(i.prepared, ''), COALESCE(i.stain, ''), i.data
+         FROM well_images i
+         WHERE i.well_id = ?1 AND i.dataset = ?2 AND i.set_name = {ACTIVE_IMAGE_SET}
+           AND COALESCE(i.depth_base, i.depth_top) >= ?3 AND i.depth_top <= ?4
+         ORDER BY i.depth_top, i.name"
+    ))?;
+    let rows = stmt.query_map(params![well_id, dataset, depth_top, depth_bottom], |r| {
+        Ok((
+            ImageInfo {
+                image_id: r.get(0)?,
+                dataset: r.get(1)?,
+                set_name: r.get(2)?,
+                depth_top: r.get(3)?,
+                depth_base: r.get(4)?,
+                name: r.get(5)?,
+                caption: r.get(6)?,
+                mime: r.get(7)?,
+                width: r.get(8)?,
+                height: r.get(9)?,
+                src_width: r.get(10)?,
+                src_height: r.get(11)?,
+                source_path: r.get(12)?,
+                printable: r.get::<_, i32>(13)? != 0,
+                bytes: r.get(14)?,
+                fov_um: r.get(15)?,
+                prepared: r.get(16)?,
+                stain: r.get(17)?,
+            },
+            r.get::<_, Vec<u8>>(18)?,
+        ))
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
+/// Deletes one picture (the set manager's per-image remove).
+pub fn delete_well_image(conn: &Connection, image_id: &str) -> DbResult<usize> {
+    Ok(conn.execute("DELETE FROM well_images WHERE image_id = ?1", params![image_id])?)
+}
+
+/// Edits one picture's depth registration / labels — core-to-log alignment for pictures,
+/// the twin of `update_core_sample`. `depth_base = None` makes it a point sample again.
+pub fn update_well_image(
+    conn: &Connection,
+    image_id: &str,
+    depth_top: f32,
+    depth_base: Option<f32>,
+    name: &str,
+    caption: Option<&str>,
+) -> DbResult<usize> {
+    Ok(conn.execute(
+        "UPDATE well_images SET depth_top = ?2, depth_base = ?3, name = ?4, caption = ?5
+         WHERE image_id = ?1",
+        params![image_id, depth_top, depth_base, name, caption],
+    )?)
+}
+
+/// How big the rock in one plate is, and how the section was prepared.
+///
+/// Separate from [`update_well_image`] because they are different facts with different lifetimes:
+/// a depth is corrected by registering the core, while a field of view is a property of the
+/// microscope that took the picture and does not change when the core moves.
+///
+/// Every argument is written as given, `None` included — clearing a wrongly-typed scale has to be
+/// possible, and a scale that cannot be cleared is worse than one that was never entered.
+pub fn set_image_details(
+    conn: &Connection,
+    image_id: &str,
+    fov_um: Option<f32>,
+    prepared: Option<&str>,
+    stain: Option<&str>,
+) -> DbResult<usize> {
+    Ok(conn.execute(
+        "UPDATE well_images SET fov_um = ?2, prepared = ?3, stain = ?4 WHERE image_id = ?1",
+        params![image_id, fov_um, prepared, stain],
+    )?)
+}
+
+/// The same three facts across a whole live delivery, in one statement.
+///
+/// A delivery is usually uniform — one microscope, one preparation run — and correcting it plate
+/// by plate would be hundreds of IPC round trips to apply one decision, the same argument
+/// [`shift_well_images`] is built on. Per-plate editing stays available for the delivery that is
+/// genuinely mixed, which is the case that made these fields per-plate rather than per-set.
+pub fn set_image_delivery_details(
+    conn: &Connection,
+    well_id: &str,
+    dataset: &str,
+    fov_um: Option<f32>,
+    prepared: Option<&str>,
+    stain: Option<&str>,
+) -> DbResult<usize> {
+    Ok(conn.execute(
+        &format!(
+            "UPDATE well_images AS i SET fov_um = ?3, prepared = ?4, stain = ?5
+             WHERE i.well_id = ?1 AND i.dataset = ?2 AND i.set_name = {ACTIVE_IMAGE_SET}"
+        ),
+        params![well_id, dataset, fov_um, prepared, stain],
+    )?)
+}
+
+/// Moves every picture of one dataset's ACTIVE delivery (or of every dataset, when `dataset` is
+/// None) by a constant depth — the plate equivalent of `shift_core_depths`, for a delivery whose
+/// depths were all read off the same mis-registered tally.
+///
+/// One statement rather than N round trips: a core-photograph delivery is routinely hundreds of
+/// plates, and `update_well_image` per plate would be hundreds of IPC calls to apply one decision.
+///
+/// `depth_base + delta` is NULL-safe in SQL, which is the point: **a plate with no base is a POINT
+/// sample and must stay one.** A thin section is cut from a plug and has no thickness (see the
+/// `well_images` note); a shift may move it but must never give it one.
+pub fn shift_well_images(
+    conn: &Connection,
+    well_id: &str,
+    dataset: Option<&str>,
+    delta: f32,
+) -> DbResult<usize> {
+    Ok(conn.execute(
+        &format!(
+            "UPDATE well_images AS i SET depth_top = i.depth_top + ?2, depth_base = i.depth_base + ?2
+             WHERE i.well_id = ?1 AND (?3 IS NULL OR i.dataset = ?3) AND i.set_name = {ACTIVE_IMAGE_SET}"
+        ),
+        params![well_id, delta, dataset],
+    )?)
+}
+
+// ---------------------------------------------------------------------------
+// Trained ML models
+// ---------------------------------------------------------------------------
+
+/// A saved model's record WITHOUT its bytes. Listing every model must stay cheap — a random
+/// forest is megabytes, and the picker only ever needs the description.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MlModelInfo {
+    pub model_id: String,
+    pub name: String,
+    pub task: String,
+    pub algorithm: String,
+    /// ORDERED — the order is part of the apply contract, not a display detail.
+    pub feature_curves: Vec<String>,
+    pub target_curve: Option<String>,
+    pub params_json: String,
+    pub metrics_json: String,
+    pub trained_on: Vec<String>,
+    pub n_train: i64,
+    pub standardize: bool,
+    pub sklearn_version: Option<String>,
+    pub note: Option<String>,
+    pub created_at: String,
+    pub bytes: i64,
+}
+
+fn json_names(s: &str) -> Vec<String> {
+    serde_json::from_str::<Vec<String>>(s).unwrap_or_default()
+}
+
+/// A model must be citable, so its name must be unique. Same rule as a delivery set: an
+/// existing name is auto-suffixed rather than overwritten — retraining produces a NEW model,
+/// and silently replacing the one a delivered curve was made with would destroy its provenance.
+pub fn resolve_model_name(conn: &Connection, desired: &str) -> DbResult<String> {
+    let base = desired.trim();
+    let base = if base.is_empty() { "MODEL" } else { base };
+    let taken: Vec<String> = {
+        let mut stmt = conn.prepare("SELECT name FROM ml_models")?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        rows.collect::<Result<Vec<_>, _>>()?
+    };
+    if !taken.iter().any(|t| t.eq_ignore_ascii_case(base)) {
+        return Ok(base.to_string());
+    }
+    for i in 1..10_000 {
+        let candidate = format!("{base}_{i}");
+        if !taken.iter().any(|t| t.eq_ignore_ascii_case(&candidate)) {
+            return Ok(candidate);
+        }
+    }
+    Ok(format!("{base}_{}", Uuid::new_v4()))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn insert_ml_model(
+    conn: &Connection,
+    name: &str,
+    task: &str,
+    algorithm: &str,
+    feature_curves: &[String],
+    target_curve: Option<&str>,
+    params_json: &str,
+    metrics_json: &str,
+    trained_on: &[String],
+    n_train: usize,
+    standardize: bool,
+    sklearn_version: Option<&str>,
+    note: Option<&str>,
+    data: &[u8],
+) -> DbResult<(String, String)> {
+    let name = resolve_model_name(conn, name)?;
+    let id = Uuid::new_v4().to_string();
+    conn.execute(
+        "INSERT INTO ml_models (model_id, name, task, algorithm, feature_curves, target_curve,
+                                params_json, metrics_json, trained_on, n_train, standardize,
+                                sklearn_version, note, data)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        params![
+            id,
+            name,
+            task,
+            algorithm,
+            serde_json::to_string(feature_curves).unwrap_or_else(|_| "[]".into()),
+            target_curve,
+            params_json,
+            metrics_json,
+            serde_json::to_string(trained_on).unwrap_or_else(|_| "[]".into()),
+            n_train as i64,
+            i32::from(standardize),
+            sklearn_version,
+            note,
+            data,
+        ],
+    )?;
+    Ok((id, name))
+}
+
+/// Every saved model, newest first. Never selects `data`.
+pub fn list_ml_models(conn: &Connection) -> DbResult<Vec<MlModelInfo>> {
+    let mut stmt = conn.prepare(
+        "SELECT model_id, name, task, algorithm, feature_curves, target_curve, params_json,
+                metrics_json, trained_on, n_train, standardize, sklearn_version, note,
+                strftime(created_at, '%Y-%m-%d %H:%M'), octet_length(data)
+         FROM ml_models ORDER BY created_at DESC, name",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok(MlModelInfo {
+            model_id: r.get(0)?,
+            name: r.get(1)?,
+            task: r.get(2)?,
+            algorithm: r.get(3)?,
+            feature_curves: json_names(&r.get::<_, String>(4)?),
+            target_curve: r.get(5)?,
+            params_json: r.get(6)?,
+            metrics_json: r.get(7)?,
+            trained_on: json_names(&r.get::<_, String>(8)?),
+            n_train: r.get(9)?,
+            standardize: r.get::<_, i32>(10)? != 0,
+            sklearn_version: r.get(11)?,
+            note: r.get(12)?,
+            created_at: r.get(13)?,
+            bytes: r.get(14)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
+/// The record AND its bytes — only the apply path asks for this.
+pub fn get_ml_model(conn: &Connection, model_id: &str) -> DbResult<(MlModelInfo, Vec<u8>)> {
+    let info = conn.query_row(
+        "SELECT model_id, name, task, algorithm, feature_curves, target_curve, params_json,
+                metrics_json, trained_on, n_train, standardize, sklearn_version, note,
+                strftime(created_at, '%Y-%m-%d %H:%M'), octet_length(data), data
+         FROM ml_models WHERE model_id = ?1",
+        params![model_id],
+        |r| {
+            Ok((
+                MlModelInfo {
+                    model_id: r.get(0)?,
+                    name: r.get(1)?,
+                    task: r.get(2)?,
+                    algorithm: r.get(3)?,
+                    feature_curves: json_names(&r.get::<_, String>(4)?),
+                    target_curve: r.get(5)?,
+                    params_json: r.get(6)?,
+                    metrics_json: r.get(7)?,
+                    trained_on: json_names(&r.get::<_, String>(8)?),
+                    n_train: r.get(9)?,
+                    standardize: r.get::<_, i32>(10)? != 0,
+                    sklearn_version: r.get(11)?,
+                    note: r.get(12)?,
+                    created_at: r.get(13)?,
+                    bytes: r.get(14)?,
+                },
+                r.get::<_, Vec<u8>>(15)?,
+            ))
+        },
+    )?;
+    Ok(info)
+}
+
+pub fn rename_ml_model(conn: &Connection, model_id: &str, new_name: &str) -> DbResult<String> {
+    let name = resolve_model_name(conn, new_name)?;
+    conn.execute("UPDATE ml_models SET name = ?2 WHERE model_id = ?1", params![model_id, name])?;
+    Ok(name)
+}
+
+pub fn delete_ml_model(conn: &Connection, model_id: &str) -> DbResult<()> {
+    conn.execute("DELETE FROM ml_models WHERE model_id = ?1", params![model_id])?;
+    Ok(())
 }
 
 /// One capillary-pressure row as imported/fetched (see `scal_pc` table).
@@ -793,26 +2469,160 @@ pub struct ScalPcRow {
     pub ift: Option<f32>,
 }
 
-/// Bulk-inserts SCAL capillary-pressure rows for one well, replacing any prior rows
-/// (re-import overwrites, like `insert_core_data`).
-pub fn insert_scal_pc(conn: &Connection, well_id: &str, rows: &[ScalPcRow]) -> DbResult<()> {
-    with_txn(conn, |conn| {
-        conn.execute("DELETE FROM scal_pc WHERE well_id = ?1", params![well_id])?;
-        let mut appender: Appender = conn.appender("scal_pc")?;
-        for r in rows {
-            appender
-                .append_row(params![well_id, r.sample_no, r.depth, r.perm, r.poro, r.pc, r.sw, r.system, r.ift])?;
+/// SQL fragment naming a well's ACTIVE SCAL delivery — the last of the four point stores
+/// to follow the set model. Two Pc reports describe the same plugs, so reading both would
+/// double every Pc curve and skew a Leverett-J or Thomeer fit.
+const ACTIVE_SCAL_SET: &str = "COALESCE((SELECT set_name FROM scal_sets WHERE well_id = ?1
+                                         ORDER BY active DESC, imported_at DESC LIMIT 1), 'RAW')";
+
+/// One SCAL delivery of one well, as the set manager and the Wells tree show it.
+#[derive(Debug, Clone, Serialize)]
+pub struct ScalSetInfo {
+    pub set_name: String,
+    pub rows: i64,
+    pub active: bool,
+    pub source: Option<String>,
+    pub imported_at: Option<String>,
+}
+
+/// A well's SCAL deliveries, active first then newest, with point counts.
+pub fn list_scal_sets(conn: &Connection, well_id: &str) -> DbResult<Vec<ScalSetInfo>> {
+    let mut stmt = conn.prepare(
+        "SELECT s.set_name, s.active, s.source, CAST(s.imported_at AS VARCHAR),
+                (SELECT COUNT(*) FROM scal_pc d WHERE d.well_id = s.well_id AND d.set_name = s.set_name)
+         FROM scal_sets s WHERE s.well_id = ?1
+         ORDER BY s.active DESC, s.imported_at DESC, s.set_name",
+    )?;
+    let rows = stmt.query_map(params![well_id], |r| {
+        Ok(ScalSetInfo {
+            set_name: r.get(0)?,
+            active: r.get::<_, i32>(1)? != 0,
+            source: r.get(2)?,
+            imported_at: r.get(3)?,
+            rows: r.get(4)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
+/// The name a new SCAL delivery will be stored under — `desired`, else `desired_1`, … .
+pub fn resolve_scal_set_name(conn: &Connection, well_id: &str, desired: &str) -> DbResult<String> {
+    let base = {
+        let t = desired.trim().to_uppercase().replace(' ', "_");
+        if t.is_empty() { "SCAL".to_string() } else { t }
+    };
+    let taken = |name: &str| -> DbResult<bool> {
+        let n: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM scal_sets WHERE well_id = ?1 AND upper(set_name) = ?2",
+            params![well_id, name],
+            |r| r.get(0),
+        )?;
+        Ok(n > 0)
+    };
+    if !taken(&base)? {
+        return Ok(base);
+    }
+    for i in 1..1000 {
+        let cand = format!("{base}_{i}");
+        if !taken(&cand)? {
+            return Ok(cand);
         }
-        appender.flush()?;
+    }
+    Err(DbError::LengthMismatch(format!("too many SCAL sets named {base}")))
+}
+
+/// Makes one SCAL delivery the well's live one.
+pub fn set_active_scal_set(conn: &Connection, well_id: &str, set_name: &str) -> DbResult<()> {
+    with_txn(conn, |conn| {
+        conn.execute("UPDATE scal_sets SET active = 0 WHERE well_id = ?1", params![well_id])?;
+        let n = conn.execute(
+            "UPDATE scal_sets SET active = 1 WHERE well_id = ?1 AND set_name = ?2",
+            params![well_id, set_name],
+        )?;
+        if n == 0 {
+            return Err(DbError::LengthMismatch(format!("no SCAL set '{set_name}' on this well")));
+        }
         Ok(())
     })
 }
 
-pub fn get_scal_pc(conn: &Connection, well_id: &str) -> DbResult<Vec<ScalPcRow>> {
-    let mut stmt = conn.prepare(
-        "SELECT sample_no, depth, perm, poro, pc, sw, system, ift FROM scal_pc
-         WHERE well_id = ?1 ORDER BY sample_no NULLS FIRST, pc",
+/// Deletes one SCAL delivery; the newest survivor takes over.
+pub fn delete_scal_set(conn: &Connection, well_id: &str, set_name: &str) -> DbResult<usize> {
+    let removed = with_txn(conn, |conn| -> DbResult<usize> {
+        let n = conn.execute(
+            "DELETE FROM scal_pc WHERE well_id = ?1 AND set_name = ?2",
+            params![well_id, set_name],
+        )?;
+        conn.execute(
+            "DELETE FROM scal_sets WHERE well_id = ?1 AND set_name = ?2",
+            params![well_id, set_name],
+        )?;
+        Ok(n)
+    })?;
+    let has_active: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM scal_sets WHERE well_id = ?1 AND active = 1",
+        params![well_id],
+        |r| r.get(0),
     )?;
+    if has_active == 0 {
+        let next: Option<String> = conn
+            .query_row(
+                "SELECT set_name FROM scal_sets WHERE well_id = ?1 ORDER BY imported_at DESC LIMIT 1",
+                params![well_id],
+                |r| r.get(0),
+            )
+            .ok();
+        if let Some(next) = next {
+            set_active_scal_set(conn, well_id, &next)?;
+        }
+    }
+    Ok(removed)
+}
+
+/// Bulk-inserts one SCAL DELIVERY for a well under `set_name`, replacing only that set's
+/// points and making it the live one. Earlier reports are untouched.
+pub fn insert_scal_pc(
+    conn: &Connection,
+    well_id: &str,
+    set_name: &str,
+    source: Option<&str>,
+    rows: &[ScalPcRow],
+) -> DbResult<()> {
+    with_txn(conn, |conn| {
+        conn.execute(
+            "DELETE FROM scal_pc WHERE well_id = ?1 AND set_name = ?2",
+            params![well_id, set_name],
+        )?;
+        let mut appender: Appender = conn.appender("scal_pc")?;
+        for r in rows {
+            appender.append_row(params![
+                well_id, r.sample_no, r.depth, r.perm, r.poro, r.pc, r.sw, r.system, r.ift, set_name
+            ])?;
+        }
+        appender.flush()?;
+        conn.execute(
+            "DELETE FROM scal_sets WHERE well_id = ?1 AND set_name = ?2",
+            params![well_id, set_name],
+        )?;
+        conn.execute("UPDATE scal_sets SET active = 0 WHERE well_id = ?1", params![well_id])?;
+        conn.execute(
+            "INSERT INTO scal_sets (well_id, set_name, active, source) VALUES (?1, ?2, 1, ?3)",
+            params![well_id, set_name, source],
+        )?;
+        Ok(())
+    })
+}
+
+/// One well's capillary-pressure points, from the ACTIVE SCAL delivery.
+pub fn get_scal_pc(conn: &Connection, well_id: &str) -> DbResult<Vec<ScalPcRow>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT sample_no, depth, perm, poro, pc, sw, system, ift FROM scal_pc
+         WHERE well_id = ?1 AND set_name = {ACTIVE_SCAL_SET} ORDER BY sample_no NULLS FIRST, pc"
+    ))?;
     let rows = stmt.query_map(params![well_id], |row| {
         Ok(ScalPcRow {
             sample_no: row.get(0)?,
@@ -837,12 +2647,13 @@ pub struct CorePlugRow {
     pub cperm: f32,
 }
 
-/// One well's core plugs (depth ascending) with porosity/permeability only. NULL φ or k
-/// become NaN so the caller can skip them.
+/// One well's core plugs (depth ascending) with porosity/permeability only, from the
+/// ACTIVE core set. NULL φ or k become NaN so the caller can skip them.
 pub fn get_core_plugs(conn: &Connection, well_id: &str) -> DbResult<Vec<CorePlugRow>> {
-    let mut stmt = conn.prepare(
-        "SELECT depth, cpor, cperm FROM core_data WHERE well_id = ?1 ORDER BY depth",
-    )?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT depth, cpor, cperm FROM core_data
+         WHERE well_id = ?1 AND set_name = {ACTIVE_CORE_SET} ORDER BY depth"
+    ))?;
     let rows = stmt.query_map(params![well_id], |row| {
         Ok(CorePlugRow {
             depth: row.get(0)?,
@@ -863,10 +2674,43 @@ pub struct CoreQcRow {
     pub cgd: f32,
 }
 
-/// One well's core plugs (depth ascending) with porosity + grain density only. NULL φ or ρg
-/// become NaN so the caller can skip them.
+/// One well's core plugs as `(property, depth, value)` triples from the ACTIVE core set —
+/// the reader for point-data tracks, which take any plug property by name rather than the
+/// fixed pairs the φ–k and φ–ρg readers return. NULL cells are dropped, not turned into
+/// zeros, so an unfilled column contributes no samples instead of a false cloud at 0.
+pub fn get_core_point_series(conn: &Connection, well_id: &str) -> DbResult<Vec<(String, f32, f32)>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT depth, cpor, cperm, cgd, csw FROM core_data
+         WHERE well_id = ?1 AND set_name = {ACTIVE_CORE_SET} ORDER BY depth"
+    ))?;
+    let rows = stmt.query_map(params![well_id], |r| {
+        Ok((
+            r.get::<_, f32>(0)?,
+            r.get::<_, Option<f32>>(1)?,
+            r.get::<_, Option<f32>>(2)?,
+            r.get::<_, Option<f32>>(3)?,
+            r.get::<_, Option<f32>>(4)?,
+        ))
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (depth, cpor, cperm, cgd, csw) = row?;
+        for (name, v) in [("CPOR", cpor), ("CPERM", cperm), ("CGD", cgd), ("CSW", csw)] {
+            if let Some(v) = v.filter(|v| v.is_finite()) {
+                out.push((name.to_string(), depth, v));
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// One well's core plugs (depth ascending) with porosity + grain density only, from the
+/// ACTIVE core set. NULL φ or ρg become NaN so the caller can skip them.
 pub fn get_core_por_gd(conn: &Connection, well_id: &str) -> DbResult<Vec<CoreQcRow>> {
-    let mut stmt = conn.prepare("SELECT depth, cpor, cgd FROM core_data WHERE well_id = ?1 ORDER BY depth")?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT depth, cpor, cgd FROM core_data
+         WHERE well_id = ?1 AND set_name = {ACTIVE_CORE_SET} ORDER BY depth"
+    ))?;
     let rows = stmt.query_map(params![well_id], |row| {
         Ok(CoreQcRow {
             depth: row.get(0)?,
@@ -1314,7 +3158,10 @@ const TABLE_SPECS: &[(&str, &[&str], bool, &str)] = &[
     ("tops", &["top_name", "depth", "color"], true, "depth"),
     ("zones", &["zone_name", "top_depth", "bottom_depth"], true, "top_depth"),
     ("zone_params", &["zone_name", "param_name", "value_num", "value_text"], true, "zone_name, param_name"),
-    ("core_data", &["depth", "cpor", "cperm", "cgd", "csw"], true, "depth"),
+    // set_name is listed (read-only, like every non-editable column) so a well carrying
+    // several core deliveries can be told apart in the grid; edits still target the
+    // ACTIVE set only (see `update_core_sample`).
+    ("core_data", &["set_name", "depth", "cpor", "cperm", "cgd", "csw"], true, "set_name, depth"),
     ("aux_data", &["dataset", "depth_top", "depth_base", "item", "value_num", "value_text"], true, "dataset, depth_top, item"),
 ];
 
@@ -1451,6 +3298,137 @@ fn value_ref_to_string(value: duckdb::types::ValueRef) -> Option<String> {
 }
 
 #[cfg(test)]
+mod well_param_override_tests {
+    use super::*;
+
+    fn db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        conn
+    }
+
+    /// `zone_params.well_id` is a UUID column, so a well id has to be a real UUID string —
+    /// a readable stand-in like "W1" fails the conversion rather than inserting.
+    fn well() -> String {
+        Uuid::new_v4().to_string()
+    }
+
+    /// The grid's whole contract in one pass: a batch upserts, re-running it updates in place
+    /// rather than duplicating, and a `None` clears a well back to the step value.
+    #[test]
+    fn batch_upserts_updates_and_clears() {
+        let mut conn = db();
+        let (w1, w2) = (well(), well());
+        let n = set_well_param_overrides(
+            &mut conn,
+            &[
+                (w1.clone(), "RW".into(), Some(0.08)),
+                (w2.clone(), "RW".into(), Some(0.12)),
+                (w1.clone(), "RHO_MA".into(), Some(2.68)),
+            ],
+        )
+        .unwrap();
+        assert_eq!(n, 3);
+        assert_eq!(list_well_param_overrides(&conn).unwrap().len(), 3);
+
+        // Same key again updates in place — the grid re-sends a well's value on every edit.
+        set_well_param_overrides(&mut conn, &[(w1.clone(), "RW".into(), Some(0.09))]).unwrap();
+        let rows = list_well_param_overrides(&conn).unwrap();
+        assert_eq!(rows.len(), 3, "an upsert must not add a second row for the same well+param");
+        let rw1 = rows.iter().find(|r| r.well_id == w1 && r.param_name == "RW").unwrap();
+        assert!((rw1.value_num - 0.09).abs() < 1e-6);
+
+        // Clearing removes the row so the step value takes over again.
+        set_well_param_overrides(&mut conn, &[(w1.clone(), "RW".into(), None)]).unwrap();
+        let rows = list_well_param_overrides(&conn).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert!(!rows.iter().any(|r| r.well_id == w1 && r.param_name == "RW"));
+    }
+
+    /// The grid writes whole-well rows (`zone_name = '*'`) and must never surface, or collide
+    /// with, a per-zone value — those still override it per zone at run time.
+    #[test]
+    fn per_zone_values_are_untouched_and_unlisted() {
+        let mut conn = db();
+        let w1 = well();
+        set_zone_param(&conn, &w1, "SAND_A", "RW", Some(0.05), None).unwrap();
+        set_well_param_overrides(&mut conn, &[(w1.clone(), "RW".into(), Some(0.10))]).unwrap();
+
+        let listed = list_well_param_overrides(&conn).unwrap();
+        assert_eq!(listed.len(), 1, "only the whole-well row belongs in the grid");
+        assert_eq!(listed[0].param_name, "RW");
+        assert!((listed[0].value_num - 0.10).abs() < 1e-6);
+
+        // The zone row is still there, with its own value.
+        let zone_rows = list_zone_params(&conn, &w1).unwrap();
+        let sand = zone_rows.iter().find(|z| z.zone_name == "SAND_A").unwrap();
+        assert!((sand.value_num.unwrap() - 0.05).abs() < 1e-6);
+    }
+
+    /// A text-valued override is not a number the grid can edit, so it must stay invisible
+    /// there rather than render as a blank cell inviting a numeric overwrite.
+    #[test]
+    fn text_valued_overrides_are_not_listed() {
+        let mut conn = db();
+        let w1 = well();
+        set_zone_param(&conn, &w1, "*", "OPT_NOTE", None, Some("checked")).unwrap();
+        set_well_param_overrides(&mut conn, &[(w1, "RW".into(), Some(0.07))]).unwrap();
+        let rows = list_well_param_overrides(&conn).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].param_name, "RW");
+    }
+
+    /// An accepted calibration writes its whole coefficient set at a NAMED zone, and that must
+    /// not disturb the whole-well scope — the two are different statements about the same well,
+    /// and at run time the zone value wins inside the zone while `*` covers everything else.
+    #[test]
+    fn a_named_zone_batch_leaves_the_whole_well_scope_alone() {
+        let mut conn = db();
+        let w1 = well();
+        set_well_param_overrides(&mut conn, &[(w1.clone(), "RSF".into(), Some(2.25))]).unwrap();
+        set_zone_param_batch(
+            &mut conn,
+            "SAND_A",
+            &[
+                (w1.clone(), "A_CAP".into(), Some(0.4512)),
+                (w1.clone(), "B_QV".into(), Some(0.005731)),
+                (w1.clone(), "RSF".into(), Some(3.0)),
+            ],
+        )
+        .unwrap();
+
+        let rows = list_zone_params(&conn, &w1).unwrap();
+        let at = |zone: &str, param: &str| {
+            rows.iter()
+                .find(|z| z.zone_name == zone && z.param_name == param)
+                .and_then(|z| z.value_num)
+        };
+        assert!((at("SAND_A", "A_CAP").unwrap() - 0.4512).abs() < 1e-6);
+        assert!((at("SAND_A", "RSF").unwrap() - 3.0).abs() < 1e-6);
+        // The whole-well RSF is a separate row and keeps its own value.
+        assert!((at("*", "RSF").unwrap() - 2.25).abs() < 1e-6);
+        assert_eq!(list_well_param_overrides(&conn).unwrap().len(), 1);
+    }
+
+    /// Undo of an accepted calibration replays the PREVIOUS values through the same call, and a
+    /// `None` there must clear the row rather than write a zero — a parameter silently pinned to
+    /// zero is a wrong answer that keeps computing.
+    #[test]
+    fn a_none_in_a_zone_batch_clears_the_row_instead_of_writing_zero() {
+        let mut conn = db();
+        let w1 = well();
+        set_zone_param_batch(&mut conn, "SAND_A", &[(w1.clone(), "A_CAP".into(), Some(0.45))]).unwrap();
+        set_zone_param_batch(&mut conn, "SAND_A", &[(w1.clone(), "A_CAP".into(), None)]).unwrap();
+
+        let rows = list_zone_params(&conn, &w1).unwrap();
+        assert!(
+            !rows.iter().any(|z| z.zone_name == "SAND_A" && z.param_name == "A_CAP"),
+            "clearing must remove the row, not zero it: {rows:?}"
+        );
+    }
+}
+
+#[cfg(test)]
 mod inspector_tests {
     use super::*;
 
@@ -1479,6 +3457,26 @@ mod inspector_tests {
         assert!(by.starts_with("SandiBumi "), "written_by should name the app: {by}");
         drop(conn);
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// Every file-backed open must cap DuckDB's memory appetite: the engine default (~80%
+    /// of RAM) is what let a 2.5 GB field project eat ~6 GB of an 8 GB machine. The cap is
+    /// default/4 clamped to [1 GiB, 4 GiB], so whatever this machine's RAM, the applied
+    /// setting must land inside that clamp.
+    #[test]
+    fn init_db_caps_the_engine_memory_limit() {
+        let path = tmp_db("memcap");
+        let conn = init_db(&path).unwrap();
+        let lim: String = conn
+            .query_row("SELECT current_setting('memory_limit')", [], |r| r.get(0))
+            .unwrap();
+        let bytes = parse_mem_bytes(&lim).unwrap_or_else(|| panic!("unparsable limit: {lim}"));
+        const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
+        assert!(bytes <= 4.0 * GIB * 1.01, "cap must be at most 4 GiB, got {lim}");
+        assert!(bytes >= 0.9 * GIB, "cap must be at least ~1 GiB, got {lim}");
+        drop(conn);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{path}.wal"));
     }
 
     #[test]
@@ -1615,6 +3613,49 @@ mod inspector_tests {
         assert_eq!(pef_id, pef_id2);
     }
 
+    /// Editing a curve's identity from the Wells pane: metadata changes, SAMPLES DO NOT, and
+    /// the previous identity comes back so the edit can be undone. The rename is the point —
+    /// a delivery whose mnemonic is GRN_CS is invisible to a module asking for GR until it is
+    /// renamed — so this also pins the normalization (trim + upper-case) that makes the
+    /// renamed curve resolvable, and the blank-name refusal that would otherwise orphan it.
+    #[test]
+    fn curve_meta_edit_renames_without_touching_samples_and_is_reversible() {
+        let conn = mem_db();
+        let w = Uuid::new_v4();
+        insert_well(&conn, w, "W", None, None, None).unwrap();
+        let ids = w.to_string();
+        let id = upsert_curve_meta(&conn, &ids, "FPROOH", "GRN_CS", Some("GAPI"), Some("GR"), None, None).unwrap();
+        insert_curve_samples(&conn, &id, &[1000.0, 1000.5], &[42.0, 43.0]).unwrap();
+
+        let before = update_curve_meta_fields(&conn, &id, "  gr  ", Some("gAPI"), Some("gr")).unwrap();
+        assert_eq!(before.mnemonic, "GRN_CS", "the caller needs the OLD name to offer an undo");
+        assert_eq!(before.unit.as_deref(), Some("GAPI"));
+
+        let after = list_generic_curve_catalog(&conn, &ids).unwrap();
+        let c = after.iter().find(|c| c.curve_id == id).expect("the curve survives a rename");
+        assert_eq!(c.mnemonic, "GR", "trimmed and upper-cased, the way imports store mnemonics");
+        assert_eq!(c.family.as_deref(), Some("GR"), "family upper-cased too");
+        assert_eq!(c.n_samples, 2, "a rename is metadata only — no sample may be lost");
+        assert_eq!(get_curve_samples(&conn, &id).unwrap()[0].value, 42.0, "values untouched");
+
+        // Undo restores the previous identity exactly.
+        update_curve_meta_fields(&conn, &id, &before.mnemonic, before.unit.as_deref(), before.family.as_deref())
+            .unwrap();
+        let back = list_generic_curve_catalog(&conn, &ids).unwrap();
+        let c = back.iter().find(|c| c.curve_id == id).unwrap();
+        assert_eq!(c.mnemonic, "GRN_CS");
+        assert_eq!(c.unit.as_deref(), Some("GAPI"));
+
+        // A blank unit means "no unit", stored as NULL rather than an empty string, so the
+        // catalog has one representation of absent.
+        update_curve_meta_fields(&conn, &id, "GRN_CS", Some("   "), None).unwrap();
+        let c = list_generic_curve_catalog(&conn, &ids).unwrap().into_iter().find(|c| c.curve_id == id).unwrap();
+        assert!(c.unit.is_none(), "blank unit must be NULL, got {:?}", c.unit);
+
+        // A curve may never be left nameless — resolution is by name, so a blank would orphan it.
+        assert!(update_curve_meta_fields(&conn, &id, "   ", None, None).is_err());
+    }
+
     /// Launch-perf fix: the migration records each processed well in `curve_migration_done` so it
     /// is never re-scanned on later opens (the ~20 s-per-launch cost on 540 wells), while a well
     /// imported AFTER a migration still gets backfilled on the next run.
@@ -1662,11 +3703,11 @@ mod inspector_tests {
     #[test]
     fn readonly_query_selects_and_rejects() {
         let conn = mem_db();
-        insert_well(&conn, Uuid::new_v4(), "BALAM-1", Some("Balam"), None, None).unwrap();
+        insert_well(&conn, Uuid::new_v4(), "SANDI-1", Some("Sandi"), None, None).unwrap();
         let page = run_readonly_query(&conn, "SELECT well_name, field_name FROM wells", 100).unwrap();
         assert_eq!(page.columns, vec!["well_name", "field_name"]);
         assert_eq!(page.rows.len(), 1);
-        assert_eq!(page.rows[0][0].as_deref(), Some("BALAM-1"));
+        assert_eq!(page.rows[0][0].as_deref(), Some("SANDI-1"));
 
         assert!(run_readonly_query(&conn, "DELETE FROM wells", 100).is_err());
         assert!(run_readonly_query(&conn, "SELECT 1; DROP TABLE wells", 100).is_err());
@@ -1773,6 +3814,797 @@ mod inspector_tests {
         assert_eq!(pk_count(&fresh, "computed_curves"), 0);
         migrate_drop_computed_curves_pk(&fresh, None).unwrap();
         assert_eq!(pk_count(&fresh, "computed_curves"), 0);
+    }
+
+    /// A pre-set-era project (core_data / well_path without the set columns) must come
+    /// forward reading EXACTLY the numbers it read before: every plug and station becomes
+    /// the RAW set/survey, registered active, and the readers return them unchanged.
+    /// Idempotent — a second run is a no-op, and a fresh database never migrates at all.
+    #[test]
+    fn point_data_set_migration_preserves_every_row_and_is_idempotent() {
+        let conn = Connection::open_in_memory().unwrap();
+        // A LEGACY shape: no set_name / survey_name anywhere.
+        conn.execute_batch(
+            "CREATE TABLE core_data (
+                 well_id UUID NOT NULL, depth FLOAT NOT NULL,
+                 cpor FLOAT, cperm FLOAT, cgd FLOAT, csw FLOAT,
+                 PRIMARY KEY (well_id, depth));
+             CREATE TABLE well_path (
+                 well_id UUID NOT NULL, md FLOAT NOT NULL, inc FLOAT NOT NULL, azi FLOAT NOT NULL,
+                 tvd FLOAT, tvdss FLOAT,
+                 PRIMARY KEY (well_id, md));
+             CREATE TABLE core_sets (
+                 well_id UUID NOT NULL, set_name VARCHAR NOT NULL, active INTEGER NOT NULL DEFAULT 0,
+                 source VARCHAR, imported_at TIMESTAMP NOT NULL DEFAULT now(),
+                 PRIMARY KEY (well_id, set_name));
+             CREATE TABLE well_surveys (
+                 well_id UUID NOT NULL, survey_name VARCHAR NOT NULL, active INTEGER NOT NULL DEFAULT 0,
+                 source VARCHAR, datum FLOAT, imported_at TIMESTAMP NOT NULL DEFAULT now(),
+                 PRIMARY KEY (well_id, survey_name));",
+        )
+        .unwrap();
+        // Legacy point data too: no set_name column at all, the pre-registry shape.
+        conn.execute_batch(
+            "CREATE TABLE aux_data (
+                 well_id UUID NOT NULL, dataset VARCHAR NOT NULL, depth_top FLOAT NOT NULL,
+                 depth_base FLOAT, item VARCHAR NOT NULL, value_num FLOAT, value_text VARCHAR);
+             ALTER TABLE aux_data ADD COLUMN IF NOT EXISTS set_name VARCHAR;
+             CREATE TABLE aux_sets (
+                 well_id UUID NOT NULL, dataset VARCHAR NOT NULL, set_name VARCHAR NOT NULL,
+                 active INTEGER NOT NULL DEFAULT 0, source VARCHAR,
+                 imported_at TIMESTAMP NOT NULL DEFAULT now(),
+                 PRIMARY KEY (well_id, dataset, set_name));
+             CREATE TABLE scal_pc (
+                 well_id UUID NOT NULL, sample_no INTEGER, depth FLOAT, perm FLOAT, poro FLOAT,
+                 pc FLOAT NOT NULL, sw FLOAT NOT NULL, system VARCHAR, ift FLOAT);
+             ALTER TABLE scal_pc ADD COLUMN IF NOT EXISTS set_name VARCHAR;
+             CREATE TABLE scal_sets (
+                 well_id UUID NOT NULL, set_name VARCHAR NOT NULL, active INTEGER NOT NULL DEFAULT 0,
+                 source VARCHAR, imported_at TIMESTAMP NOT NULL DEFAULT now(),
+                 PRIMARY KEY (well_id, set_name));",
+        )
+        .unwrap();
+        let w = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO aux_data (well_id, dataset, depth_top, item, value_num) VALUES (?1, 'XRD', 2000.0, 'QUARTZ', 45.2)",
+            params![w],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO scal_pc (well_id, sample_no, pc, sw) VALUES (?1, 1, 10.0, 0.42)",
+            params![w],
+        )
+        .unwrap();
+        conn.execute("INSERT INTO core_data VALUES (?1, 2001.0, 0.22, 150.0, 2.65, 0.35)", params![w]).unwrap();
+        conn.execute("INSERT INTO core_data VALUES (?1, 2002.0, 0.18, 20.0, 2.66, 0.42)", params![w]).unwrap();
+        conn.execute("INSERT INTO well_path VALUES (?1, 0.0, 0.0, 0.0, 0.0, 25.0)", params![w]).unwrap();
+        conn.execute("INSERT INTO well_path VALUES (?1, 1000.0, 0.0, 0.0, 1000.0, -975.0)", params![w]).unwrap();
+
+        migrate_point_data_sets(&conn, None).unwrap();
+
+        // Same numbers, now readable through the set-aware readers.
+        let plugs = get_core_plugs(&conn, &w).unwrap();
+        assert_eq!(plugs.len(), 2, "no plug lost or duplicated by the rebuild");
+        assert!((plugs[0].cpor - 0.22).abs() < 1e-6 && (plugs[1].cperm - 20.0).abs() < 1e-3);
+        let path = get_well_path(&conn, &w).unwrap();
+        assert_eq!(path.len(), 2);
+        assert!((path[1].tvdss - (-975.0)).abs() < 1e-3);
+
+        // Registered as RAW and ACTIVE, so the manager shows something real.
+        let sets = list_core_sets(&conn, &w).unwrap();
+        assert_eq!(sets.len(), 1);
+        assert!(sets[0].active && sets[0].set_name == "RAW" && sets[0].rows == 2);
+        let surveys = list_surveys(&conn, &w).unwrap();
+        assert!(surveys.len() == 1 && surveys[0].active && surveys[0].stations == 2);
+        // Legacy point data is adopted as RAW/active, so the set-filtered readers see it.
+        let aux = list_aux_data(&conn, &w, Some("XRD")).unwrap();
+        assert_eq!(aux.len(), 1, "unregistered aux rows must stay readable after migration");
+        let aux_sets = list_aux_sets(&conn, &w).unwrap();
+        assert!(aux_sets.len() == 1 && aux_sets[0].active && aux_sets[0].dataset == "XRD");
+        // …and the same for SCAL, the fourth point store.
+        assert_eq!(get_scal_pc(&conn, &w).unwrap().len(), 1, "legacy Pc points stay readable");
+        let scal_sets = list_scal_sets(&conn, &w).unwrap();
+        assert!(scal_sets.len() == 1 && scal_sets[0].active && scal_sets[0].set_name == "RAW");
+
+        // Idempotent, and a no-op on a database that was created with the current schema.
+        migrate_point_data_sets(&conn, None).unwrap();
+        assert_eq!(get_core_plugs(&conn, &w).unwrap().len(), 2);
+        assert_eq!(list_core_sets(&conn, &w).unwrap().len(), 1);
+        let fresh = mem_db();
+        migrate_point_data_sets(&fresh, None).unwrap();
+    }
+
+    /// The item picker's catalogue. Two contracts: it follows the ACTIVE delivery like every
+    /// other point-data reader (a superseded CEC suite must not appear as a choice), and it
+    /// separates NUMERIC items from descriptive ones — a lithology description cannot set a
+    /// scaling factor, and offering it would produce a run that fails for invisible reasons.
+    #[test]
+    fn the_aux_item_catalog_follows_the_active_delivery_and_flags_text_only_items() {
+        let conn = mem_db();
+        let wid = Uuid::new_v4();
+        insert_well(&conn, wid, "SANDI-CAT", None, None, Some(0.0)).unwrap();
+        let w = wid.to_string();
+        let row = |item: &str, num: Option<f32>, text: Option<&str>| AuxRow {
+            dataset: "CEC".into(),
+            depth_top: 1000.0,
+            depth_base: None,
+            item: item.into(),
+            value_num: num,
+            value_text: text.map(str::to_string),
+        };
+        // First delivery, then a second one that supersedes it with a DIFFERENT item name.
+        insert_aux_data(&conn, &w, "CEC", "RAW", None, &[row("CEC_OLD", Some(4.0), None)]).unwrap();
+        insert_aux_data(
+            &conn,
+            &w,
+            "CEC",
+            "LAB2024",
+            None,
+            &[
+                row("CEC", Some(4.2), None),
+                row("CEC", Some(5.1), None),
+                row("METHOD", None, Some("ammonium acetate")),
+            ],
+        )
+        .unwrap();
+
+        let cat = list_aux_item_catalog(&conn).unwrap();
+        let names: Vec<&str> = cat.iter().map(|c| c.item.as_str()).collect();
+        assert!(!names.contains(&"CEC_OLD"), "a superseded delivery is not a choice: {names:?}");
+
+        let cec = cat.iter().find(|c| c.item == "CEC").expect("CEC listed");
+        assert_eq!((cec.rows, cec.numeric_rows, cec.wells), (2, 2, 1));
+
+        let method = cat.iter().find(|c| c.item == "METHOD").expect("METHOD listed");
+        assert_eq!(method.numeric_rows, 0, "a descriptive item carries no number to fit");
+        assert_eq!(method.rows, 1);
+    }
+
+    /// A core depth shift must move the measurements that were made ON those plugs, or the
+    /// porosity registers against the log while the core gamma that justified the shift does not.
+    /// The separately-delivered dataset must NOT move just because its set is also called RAW.
+    #[test]
+    fn a_core_shift_carries_the_plug_extras_and_leaves_other_deliveries_alone() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        insert_well(&conn, wid, "SANDI-SHIFT", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        let d = [2000.0f32, 2001.0, 2002.0];
+        let nan = [f32::NAN; 3];
+        insert_core_data(&conn, &w, "RAW", None, &d, &[0.2, 0.21, 0.19], &nan, &nan, &nan).unwrap();
+
+        // Extras of THIS core delivery: written under the core set's own name (see ingest.rs).
+        let extra = |item: &str, depth: f32, base: Option<f32>| AuxRow {
+            dataset: "CORE".into(),
+            depth_top: depth,
+            depth_base: base,
+            item: item.into(),
+            value_num: Some(55.0),
+            value_text: None,
+        };
+        insert_aux_data(
+            &conn,
+            &w,
+            "CORE",
+            "RAW",
+            None,
+            &[extra("CORE_GR", 2000.0, None), extra("KVKH", 2001.0, Some(2001.5))],
+        )
+        .unwrap();
+        // A separate delivery whose set is ALSO called RAW — the collision the naive rule hits.
+        insert_aux_data(&conn, &w, "XRD", "RAW", None, &[extra("KAOLINITE", 2000.0, None)]).unwrap();
+
+        let auto = core_extra_datasets(&conn, &w).unwrap();
+        assert_eq!(
+            auto,
+            vec![("CORE".to_string(), 2), ("XRD".to_string(), 1)],
+            "both share the core set's name, so both are OFFERED — the user decides"
+        );
+
+        let moved = shift_core_depths(&mut conn, &w, 2.5, &ShiftTargets::aux(vec!["CORE".to_string()]), &Default::default()).unwrap();
+        assert_eq!((moved.plugs, moved.extras), (3, 2));
+
+        let plug: f32 = conn
+            .query_row("SELECT MIN(depth) FROM core_data WHERE well_id = ?1", params![w], |r| r.get(0))
+            .unwrap();
+        assert!((plug - 2002.5).abs() < 1e-4, "plugs moved");
+
+        let gr: f32 = conn
+            .query_row(
+                "SELECT depth_top FROM aux_data WHERE well_id = ?1 AND item = 'CORE_GR'",
+                params![w],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!((gr - 2002.5).abs() < 1e-4, "the core gamma moved WITH its plugs");
+
+        let (top, base): (f32, f32) = conn
+            .query_row(
+                "SELECT depth_top, depth_base FROM aux_data WHERE well_id = ?1 AND item = 'KVKH'",
+                params![w],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert!((top - 2003.5).abs() < 1e-4 && (base - 2004.0).abs() < 1e-4, "an interval keeps its thickness");
+
+        let xrd: f32 = conn
+            .query_row(
+                "SELECT depth_top FROM aux_data WHERE well_id = ?1 AND item = 'KAOLINITE'",
+                params![w],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!((xrd - 2000.0).abs() < 1e-4, "a dataset not named in the call must not move");
+
+        // Exactly reversible, which is what makes it undoable.
+        shift_core_depths(&mut conn, &w, -2.5, &ShiftTargets::aux(vec!["CORE".to_string()]), &Default::default()).unwrap();
+        let back: f32 = conn
+            .query_row(
+                "SELECT depth_top FROM aux_data WHERE well_id = ?1 AND item = 'CORE_GR'",
+                params![w],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!((back - 2000.0).abs() < 1e-4);
+    }
+
+    fn a_plate(name: &str, top: f32, base: Option<f32>, bytes: &[u8]) -> NewImage {
+        NewImage {
+            depth_top: top,
+            depth_base: base,
+            name: name.into(),
+            caption: None,
+            mime: "image/jpeg".into(),
+            width: 800,
+            height: 600,
+            src_width: Some(4000),
+            src_height: Some(3000),
+            source_path: Some(format!("D:/plates/{name}.jpg")),
+            printable: true,
+            data: bytes.to_vec(),
+            ..Default::default()
+        }
+    }
+
+    /// Pictures follow the universal delivery-set rule: a second delivery lands BESIDE the
+    /// first and only one is live, so a re-shot core cannot double the plates on a track.
+    #[test]
+    fn a_second_image_delivery_lands_beside_the_first_and_only_one_is_live() {
+        let conn = mem_db();
+        let wid = Uuid::new_v4();
+        insert_well(&conn, wid, "SANDI-IMG", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        let first = resolve_image_set_name(&conn, &w, "THIN SECTION", "PETRO").unwrap();
+        assert_eq!(first, "PETRO");
+        insert_well_images(&conn, &w, "THIN SECTION", &first, Some("lab-2024"), &[
+            a_plate("TS-1", 1010.0, None, b"\xFF\xD8jpeg-one\xFF\xD9"),
+            a_plate("TS-2", 1020.0, None, b"\xFF\xD8jpeg-two\xFF\xD9"),
+        ])
+        .unwrap();
+
+        // Same name again must NOT overwrite — it suffixes, exactly as core and curve sets do.
+        let second = resolve_image_set_name(&conn, &w, "THIN SECTION", "PETRO").unwrap();
+        assert_eq!(second, "PETRO_1");
+        insert_well_images(&conn, &w, "THIN SECTION", &second, Some("lab-2026"), &[a_plate(
+            "TS-9", 1015.0, None, b"\xFF\xD8jpeg-nine\xFF\xD9",
+        )])
+        .unwrap();
+
+        // The newest delivery is live, and a reader sees ONE of them — never the union.
+        let live = list_well_images(&conn, &w, Some("THIN SECTION")).unwrap();
+        assert_eq!(live.len(), 1, "two deliveries must never both be drawn");
+        assert_eq!(live[0].name, "TS-9");
+
+        set_active_image_set(&conn, &w, "THIN SECTION", "PETRO").unwrap();
+        let live = list_well_images(&conn, &w, Some("THIN SECTION")).unwrap();
+        assert_eq!(live.len(), 2, "switching back restores the earlier delivery whole");
+        assert_eq!(live[0].name, "TS-1");
+
+        // A different dataset is activated independently.
+        insert_well_images(&conn, &w, "CORE PHOTO", "RAW", None, &[a_plate(
+            "CP-1", 1000.0, Some(1001.0), b"\xFF\xD8jpeg-core\xFF\xD9",
+        )])
+        .unwrap();
+        assert_eq!(list_well_images(&conn, &w, None).unwrap().len(), 3, "one delivery of EACH dataset");
+        let sets = list_image_sets(&conn, &w).unwrap();
+        assert_eq!(sets.len(), 3);
+        assert_eq!(list_image_datasets(&conn, &w).unwrap(), vec![("CORE PHOTO".into(), 1), ("THIN SECTION".into(), 2)]);
+    }
+
+    #[test]
+    fn a_listing_reports_the_stored_size_without_reading_the_pixels() {
+        // The whole reason `ImageInfo` has no `data`: a well of 300 core photographs must
+        // list in kilobytes. This pins that the size comes from the row, not from a blob the
+        // caller had to load.
+        let conn = mem_db();
+        let wid = Uuid::new_v4();
+        insert_well(&conn, wid, "SANDI-IMG2", None, None, None).unwrap();
+        let w = wid.to_string();
+        let bytes = b"\xFF\xD8_______________\xFF\xD9";
+        insert_well_images(&conn, &w, "CORE PHOTO", "RAW", None, &[a_plate("CP-1", 1000.0, Some(1001.0), bytes)])
+            .unwrap();
+
+        let info = &list_well_images(&conn, &w, None).unwrap()[0];
+        assert_eq!(info.bytes, bytes.len() as i64);
+        assert_eq!(info.depth_base, Some(1001.0));
+        assert_eq!(info.src_width, Some(4000), "the delivered original's size stays traceable");
+        // …and the pixels come back byte-identical when actually asked for.
+        let (mime, data) = get_well_image(&conn, &info.image_id).unwrap();
+        assert_eq!(mime, "image/jpeg");
+        assert_eq!(data, bytes.to_vec());
+
+        // The print reader is depth-windowed and set-filtered, and an interval plate counts
+        // as present when any part of it is on the page.
+        assert_eq!(read_images_for_print(&conn, &w, "CORE PHOTO", 1000.5, 1010.0).unwrap().len(), 1);
+        assert_eq!(read_images_for_print(&conn, &w, "CORE PHOTO", 1002.0, 1010.0).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn deleting_the_live_image_delivery_hands_over_to_the_next_newest() {
+        let conn = mem_db();
+        let wid = Uuid::new_v4();
+        insert_well(&conn, wid, "SANDI-IMG3", None, None, None).unwrap();
+        let w = wid.to_string();
+        insert_well_images(&conn, &w, "SEM", "RUN1", None, &[a_plate("A", 1000.0, None, b"\xFF\xD8a\xFF\xD9")]).unwrap();
+        insert_well_images(&conn, &w, "SEM", "RUN2", None, &[a_plate("B", 1001.0, None, b"\xFF\xD8b\xFF\xD9")]).unwrap();
+        assert_eq!(list_well_images(&conn, &w, None).unwrap()[0].name, "B");
+
+        assert_eq!(delete_image_set(&conn, &w, "SEM", "RUN2").unwrap(), 1);
+        let live = list_well_images(&conn, &w, None).unwrap();
+        assert_eq!(live.len(), 1, "the survivor takes over rather than leaving the track blank");
+        assert_eq!(live[0].name, "A");
+    }
+
+    /// Sets up a well with plugs every metre from `top`, all at their delivered depths.
+    fn cored_well(conn: &Connection, top: f32, n: usize) -> String {
+        let wid = Uuid::new_v4();
+        insert_well(conn, wid, "SANDI-RUN", None, None, None).unwrap();
+        let w = wid.to_string();
+        let d: Vec<f32> = (0..n).map(|i| top + i as f32).collect();
+        let v: Vec<f32> = (0..n).map(|i| 0.20 + 0.001 * i as f32).collect();
+        let nan = vec![f32::NAN; n];
+        insert_core_data(conn, &w, "RAW", None, &d, &v, &nan, &nan, &nan).unwrap();
+        w
+    }
+
+    /// "Why is this core at this depth?" has to have an answer next year, and the answer has to
+    /// be written by the same transaction that moved it — a shift that commits without its reason
+    /// is the state the record exists to prevent.
+    #[test]
+    fn a_shift_records_why_the_core_moved() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let w = cored_well(&conn, 2000.0, 20);
+
+        let note = RegistrationNote {
+            kind: "proposed".into(),
+            log_curve: "GR".into(),
+            reference: "CORE_GR".into(),
+            pairing: "like-for-like".into(),
+            correlation: Some(0.87),
+            n_pairs: Some(18),
+            note: String::new(),
+        };
+        shift_core_depths(&mut conn, &w, 2.0, &Default::default(), &note).unwrap();
+
+        let log = list_core_registrations(&conn, &w).unwrap();
+        assert_eq!(log.len(), 1);
+        let e = &log[0];
+        assert_eq!(e.set_name, "RAW", "the delivery that moved is named, not resolved later");
+        assert!((e.delta - 2.0).abs() < 1e-6);
+        assert_eq!(e.log_curve, "GR");
+        assert_eq!(e.reference, "CORE_GR");
+        assert_eq!(e.pairing, "like-for-like");
+        assert!((e.correlation.unwrap() - 0.87).abs() < 1e-6);
+        assert_eq!(e.n_pairs, Some(18));
+        // A whole-core shift declared no range, and that is a statement rather than a gap.
+        assert!(e.top.is_none() && e.base.is_none(), "no range was declared");
+    }
+
+    /// The record is an EVENT LOG. A core that was registered, judged wrong and put back is not
+    /// the same as a core nobody ever touched — and deleting the reversed row is exactly what
+    /// would make those two read alike.
+    #[test]
+    fn an_undo_appends_a_reversal_instead_of_erasing_the_record() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let w = cored_well(&conn, 2000.0, 20);
+
+        shift_core_depths(&mut conn, &w, 2.0, &Default::default(), &RegistrationNote {
+            kind: "proposed".into(),
+            reference: "CORE_GR".into(),
+            ..Default::default()
+        })
+        .unwrap();
+        shift_core_depths(&mut conn, &w, -2.0, &Default::default(), &RegistrationNote {
+            kind: "undo".into(),
+            ..Default::default()
+        })
+        .unwrap();
+
+        let log = list_core_registrations(&conn, &w).unwrap();
+        assert_eq!(log.len(), 2, "the reversal is appended, not swapped for the row it reverses");
+        // Newest first: the undo, then what it undid.
+        assert_eq!(log[0].kind, "undo");
+        assert!((log[0].delta + 2.0).abs() < 1e-6);
+        assert_eq!(log[1].kind, "proposed");
+        assert_eq!(log[1].reference, "CORE_GR");
+        assert!(log[0].seq > log[1].seq, "seq orders the history within a delivery");
+
+        // And the core really is back where it started, so the log is the ONLY thing that still
+        // remembers it moved.
+        let pairs = core_depth_pairs(&conn, &w).unwrap();
+        assert!(pairs.iter().all(|(orig, now)| (orig - now).abs() < 1e-3));
+    }
+
+    /// Two barrels corrected by different amounts is the case the record has to preserve —
+    /// collapsing it to one line would describe a shift that was never applied.
+    #[test]
+    fn each_barrel_gets_its_own_line_in_the_record() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let w = cored_well(&conn, 2000.0, 20);
+
+        apply_core_run_shifts(
+            &mut conn,
+            &w,
+            &[
+                RunShift { top: 2000.0, base: 2009.0, delta: 1.0, correlation: Some(0.91), n_pairs: Some(9) },
+                RunShift { top: 2010.0, base: 2019.0, delta: 3.0, correlation: Some(0.62), n_pairs: Some(8) },
+            ],
+            &Default::default(),
+            &RegistrationNote { kind: "proposed".into(), log_curve: "GR".into(), ..Default::default() },
+        )
+        .unwrap();
+
+        let mut log = list_core_registrations(&conn, &w).unwrap();
+        assert_eq!(log.len(), 2);
+        log.sort_by(|a, b| a.seq.cmp(&b.seq));
+        assert_eq!((log[0].top, log[0].base), (Some(2000.0), Some(2009.0)));
+        assert!((log[0].delta - 1.0).abs() < 1e-6);
+        assert_eq!((log[1].top, log[1].base), (Some(2010.0), Some(2019.0)));
+        assert!((log[1].delta - 3.0).abs() < 1e-6);
+        assert!(log.iter().all(|e| e.log_curve == "GR"), "one apply, one reason");
+        // Each barrel was proposed on its own correlogram, so the confidence is per range. One
+        // number for the apply would file the well-matched barrel's r against the doubtful one.
+        assert!((log[0].correlation.unwrap() - 0.91).abs() < 1e-6);
+        assert!((log[1].correlation.unwrap() - 0.62).abs() < 1e-6);
+        assert_eq!((log[0].n_pairs, log[1].n_pairs), (Some(9), Some(8)));
+    }
+
+    /// A well with no core has no depth history. A row saying nothing happened is noise in the
+    /// one place that has to stay readable.
+    #[test]
+    fn a_shift_that_moved_nothing_writes_no_record() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        insert_well(&conn, wid, "SANDI-DRY", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        let n = shift_core_depths(&mut conn, &w, 2.0, &Default::default(), &Default::default()).unwrap();
+        assert_eq!(n.plugs, 0);
+        assert!(list_core_registrations(&conn, &w).unwrap().is_empty());
+    }
+
+    /// Each barrel carries its own tally error, so the shifts differ down the hole — and the
+    /// delivered depth is kept untouched so a later delivery can still be placed.
+    #[test]
+    fn each_barrel_can_be_shifted_by_its_own_amount() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let w = cored_well(&conn, 2000.0, 30); // 2000 .. 2029
+
+        let runs = [
+            RunShift { top: 2000.0, base: 2009.0, delta: 1.0, ..Default::default() },
+            RunShift { top: 2010.0, base: 2019.0, delta: 2.0, ..Default::default() },
+            RunShift { top: 2020.0, base: 2029.0, delta: 3.5, ..Default::default() },
+        ];
+        let n = apply_core_run_shifts(&mut conn, &w, &runs, &Default::default(), &Default::default()).unwrap();
+        assert_eq!(n.plugs, 30);
+
+        let pairs = core_depth_pairs(&conn, &w).unwrap();
+        let at = |orig: f32| pairs.iter().find(|p| (p.0 - orig).abs() < 1e-4).unwrap().1;
+        assert!((at(2000.0) - 2001.0).abs() < 1e-3, "first barrel moved 1");
+        assert!((at(2015.0) - 2017.0).abs() < 1e-3, "second barrel moved 2");
+        assert!((at(2029.0) - 2032.5).abs() < 1e-3, "third barrel moved 3.5");
+        assert_eq!(pairs.len(), 30, "the delivered depths are all still recorded");
+    }
+
+    /// The rule that cannot be relaxed: no set of shifts may put deeper rock above shallower rock.
+    #[test]
+    fn a_shift_that_would_reorder_the_core_is_refused_and_changes_nothing() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let w = cored_well(&conn, 2000.0, 10); // 2000 .. 2009
+
+        // Push the upper barrel 6 m down and leave the lower one — they would cross.
+        let runs = [RunShift { top: 2000.0, base: 2004.0, delta: 6.0, ..Default::default() }];
+        let err = apply_core_run_shifts(&mut conn, &w, &runs, &Default::default(), &Default::default()).unwrap_err();
+        assert!(err.contains("reorders the core"), "{err}");
+
+        let pairs = core_depth_pairs(&conn, &w).unwrap();
+        assert!(
+            pairs.iter().all(|(o, d)| (o - d).abs() < 1e-4),
+            "a refused shift must leave every plug exactly where it was"
+        );
+    }
+
+    /// Undoing per-barrel shifts must put every plug back exactly.
+    ///
+    /// The obvious inverse — negate each delta and shift the user's own ranges — is wrong, and
+    /// quietly. Barrels that never overlapped can land on ranges that DO once each moves by a
+    /// different amount, and the first matching range wins, so some plugs come back by their
+    /// neighbour's correction. This is the case that caught it.
+    #[test]
+    fn undoing_per_barrel_shifts_returns_every_plug_to_where_it_started() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let w = cored_well(&conn, 2000.0, 60); // 2000 .. 2059
+
+        // Declared ranges reach past the plugs they hold — exactly how a user types a barrel —
+        // and the upper barrel moves 0.5 m FURTHER than the lower one. That is legal (the plugs
+        // stay 0.5 m apart at the join, having been 1 m apart) yet it makes the naive inverse
+        // ranges overlap by 0.4 m, right where the lower barrel's first plug lands.
+        let runs = [
+            RunShift { top: 1995.0, base: 2029.5, delta: 2.0, ..Default::default() },
+            RunShift { top: 2029.6, base: 2065.0, delta: 1.5, ..Default::default() },
+        ];
+        let before = core_depth_pairs(&conn, &w).unwrap();
+        let res = apply_core_run_shifts(&mut conn, &w, &runs, &Default::default(), &Default::default()).unwrap();
+        assert_eq!(res.plugs, 60);
+
+        // The naive inverse — the caller's own ranges, shifted, deltas negated — DOES overlap.
+        // Proving that here is the point: it is what makes the computed inverse necessary.
+        let naive: Vec<(f32, f32)> =
+            runs.iter().map(|r| (r.top + r.delta, r.base + r.delta)).collect();
+        assert!(
+            naive[1].0 <= naive[0].1,
+            "this test is pointless unless the naive inverse really overlaps: {naive:?}"
+        );
+
+        // The computed inverse meets at a single point instead of overlapping across 0.4 m. That
+        // point is the midpoint of two distinct plug depths, so it is strictly between them and no
+        // plug can sit on it — which is what matters. The exact round trip below is the real proof.
+        assert_eq!(res.inverse.len(), 2);
+        assert!(
+            res.inverse[1].top >= res.inverse[0].base,
+            "the computed inverse must not overlap, got {:?}",
+            res.inverse
+        );
+        let overlap = res.inverse[0].base - res.inverse[1].top;
+        assert!(overlap <= 0.0, "overlap of {overlap} would make an undo ambiguous");
+
+        apply_core_run_shifts(&mut conn, &w, &res.inverse, &Default::default(), &Default::default()).unwrap();
+        let after = core_depth_pairs(&conn, &w).unwrap();
+        assert_eq!(before.len(), after.len());
+        for (b, a) in before.iter().zip(&after) {
+            assert!(
+                (b.0 - a.0).abs() < 1e-3 && (b.1 - a.1).abs() < 1e-3,
+                "plug {b:?} came back as {a:?}"
+            );
+        }
+    }
+
+    /// Re-registering a core months later must carry the deliveries that sit on ITS depth scale —
+    /// the XRD, the SCAL plugs, the thin sections — and must leave alone anything that does not.
+    #[test]
+    fn a_later_registration_carries_the_deliveries_that_sit_on_core_depths() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let w = cored_well(&conn, 2000.0, 20); // 2000 .. 2019
+        let jpg = b"\xFF\xD8x\xFF\xD9";
+
+        let aux_row = |ds: &str, item: &str, d: f32| AuxRow {
+            dataset: ds.into(),
+            depth_top: d,
+            depth_base: None,
+            item: item.into(),
+            value_num: Some(1.0),
+            value_text: None,
+        };
+        // On core depths (declared at import) …
+        insert_aux_data(&conn, &w, "XRD", "LAB", None, &[aux_row("XRD", "KAOLINITE", 2005.0)]).unwrap();
+        mark_aux_set_on_core(&conn, &w, "XRD", "LAB").unwrap();
+        // … and NOT (a perforation record is on the driller's/log scale).
+        insert_aux_data(&conn, &w, "PERFORATION", "RAW", None, &[aux_row("PERFORATION", "SHOTS", 2005.0)]).unwrap();
+
+        insert_scal_pc(
+            &conn,
+            &w,
+            "SCAL",
+            None,
+            &[ScalPcRow {
+                sample_no: Some(1),
+                depth: Some(2005.0),
+                perm: 100.0,
+                poro: 0.2,
+                pc: 1.0,
+                sw: 1.0,
+                system: None,
+                ift: Some(72.0),
+            }],
+        )
+        .unwrap();
+        mark_scal_set_on_core(&conn, &w, "SCAL").unwrap();
+
+        insert_well_images(&conn, &w, "THIN SECTION", "LAB", None, &[a_plate("TS-1", 2005.0, None, jpg)]).unwrap();
+        mark_image_set_on_core(&conn, &w, "THIN SECTION", "LAB").unwrap();
+
+        // What the dialog would show, and how it would pre-tick.
+        let cands = core_shift_candidates(&conn, &w).unwrap();
+        let on: Vec<&str> = cands.iter().filter(|c| c.on_core_depths).map(|c| c.kind.as_str()).collect();
+        assert_eq!(on.len(), 3, "XRD, SCAL and the sections are on core depths: {cands:?}");
+        assert!(
+            cands.iter().any(|c| c.dataset == "PERFORATION" && !c.on_core_depths),
+            "a log-depth delivery is offered but NOT pre-ticked: {cands:?}"
+        );
+
+        let targets = ShiftTargets {
+            aux_datasets: vec!["XRD".into()],
+            scal: true,
+            image_datasets: vec!["THIN SECTION".into()],
+        };
+        let n = apply_core_run_shifts(&mut conn, &w, &[RunShift { top: 2000.0, base: 2019.0, delta: 3.0, ..Default::default() }], &targets, &Default::default())
+            .unwrap();
+        assert_eq!((n.plugs, n.extras, n.scal, n.plates), (20, 1, 1, 1));
+
+        let at = |sql: &str| -> f32 { conn.query_row(sql, params![w], |r| r.get(0)).unwrap() };
+        assert!(
+            (at("SELECT depth_top FROM aux_data WHERE well_id = ?1 AND item = 'KAOLINITE'") - 2008.0).abs() < 1e-3,
+            "the XRD moved with the core"
+        );
+        assert!(
+            (at("SELECT depth FROM scal_pc WHERE well_id = ?1") - 2008.0).abs() < 1e-3,
+            "the SCAL plug moved with the core"
+        );
+        assert!(
+            (at("SELECT depth_top FROM well_images WHERE well_id = ?1") - 2008.0).abs() < 1e-3,
+            "the thin section moved with its plug"
+        );
+        assert!(
+            (at("SELECT depth_top FROM aux_data WHERE well_id = ?1 AND item = 'SHOTS'") - 2005.0).abs() < 1e-3,
+            "a delivery on the LOG's scale must not be dragged along"
+        );
+    }
+
+    /// Two barrels cannot claim the same rock — with overlapping ranges "which barrel was this
+    /// plug in?" stops having an answer.
+    #[test]
+    fn overlapping_barrel_ranges_are_refused() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let w = cored_well(&conn, 2000.0, 20);
+        let runs = [
+            RunShift { top: 2000.0, base: 2010.0, delta: 0.5, ..Default::default() },
+            RunShift { top: 2008.0, base: 2019.0, delta: 0.5, ..Default::default() },
+        ];
+        let err = apply_core_run_shifts(&mut conn, &w, &runs, &Default::default(), &Default::default()).unwrap_err();
+        assert!(err.contains("overlap"), "{err}");
+
+        // Adjacent barrels written the natural way — sharing one depth — are NOT an overlap.
+        let touching = [
+            RunShift { top: 2000.0, base: 2010.0, delta: 0.5, ..Default::default() },
+            RunShift { top: 2010.0, base: 2019.0, delta: 0.5, ..Default::default() },
+        ];
+        assert!(apply_core_run_shifts(&mut conn, &w, &touching, &Default::default(), &Default::default()).is_ok());
+    }
+
+    /// The payoff Jauhar asked for: a laboratory sends XRD months later at the depths the core
+    /// report used, and it lands where that rock now is — including where a barrel moved by a
+    /// different amount than its neighbour.
+    #[test]
+    fn a_later_delivery_follows_the_core_that_was_already_shifted() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let w = cored_well(&conn, 2000.0, 30);
+        let runs = [
+            RunShift { top: 2000.0, base: 2009.0, delta: 1.0, ..Default::default() },
+            RunShift { top: 2010.0, base: 2029.0, delta: 3.0, ..Default::default() },
+        ];
+        apply_core_run_shifts(&mut conn, &w, &runs, &Default::default(), &Default::default()).unwrap();
+        let pairs = core_depth_pairs(&conn, &w).unwrap();
+
+        // A sample on a plug lands exactly on that plug.
+        let (d, ex) = map_core_depth(&pairs, 2005.0);
+        assert!((d - 2006.0).abs() < 1e-3, "got {d}");
+        assert!(!ex);
+        let (d, ex) = map_core_depth(&pairs, 2025.0);
+        assert!((d - 2028.0).abs() < 1e-3, "got {d}");
+        assert!(!ex);
+
+        // Between plugs the correction is interpolated — pieces move inside a barrel, so the
+        // offset really does vary along the core.
+        let (d, _) = map_core_depth(&pairs, 2009.5);
+        assert!((d - 2011.5).abs() < 1e-3, "half way between a 1 m and a 3 m shift: got {d}");
+
+        // Outside the cored interval there is no evidence, so the end correction is held AND the
+        // caller is told it was extrapolated rather than measured.
+        let (d, ex) = map_core_depth(&pairs, 1990.0);
+        assert!((d - 1991.0).abs() < 1e-3);
+        assert!(ex, "above the core is a guess and must say so");
+        let (_, ex) = map_core_depth(&pairs, 2100.0);
+        assert!(ex, "below the core is a guess and must say so");
+    }
+
+    /// An un-shifted core maps every depth to itself — the feature costs nothing until used.
+    #[test]
+    fn an_unregistered_core_maps_every_depth_to_itself() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let w = cored_well(&conn, 2000.0, 10);
+        let pairs = core_depth_pairs(&conn, &w).unwrap();
+        for probe in [1999.0, 2000.0, 2004.5, 2009.0, 2050.0] {
+            let (d, _) = map_core_depth(&pairs, probe);
+            assert!((d - probe).abs() < 1e-4, "{probe} moved to {d}");
+        }
+        assert_eq!(map_core_depth(&[], 1234.0), (1234.0, false), "no core at all is a no-op");
+    }
+
+    /// A whole-well shift and a per-barrel shift must agree about the record they leave behind,
+    /// or the two routes would disagree about where a later delivery goes.
+    #[test]
+    fn a_plain_shift_leaves_the_same_record_a_run_shift_does() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let w = cored_well(&conn, 2000.0, 10);
+        shift_core_depths(&mut conn, &w, 2.5, &Default::default(), &Default::default()).unwrap();
+        let pairs = core_depth_pairs(&conn, &w).unwrap();
+        assert!(pairs.iter().all(|(o, d)| (d - o - 2.5).abs() < 1e-3));
+        let (d, ex) = map_core_depth(&pairs, 2003.0);
+        assert!((d - 2005.5).abs() < 1e-3 && !ex, "got {d}");
+    }
+
+    /// Re-registering a plate delivery: the shift follows the ACTIVE set like every other reader,
+    /// leaves other datasets alone, and — the part that matters petrophysically — never gives a
+    /// point sample a thickness it does not have.
+    #[test]
+    fn shifting_plates_moves_the_live_delivery_and_keeps_a_point_a_point() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        insert_well(&conn, wid, "SANDI-IMG4", None, None, None).unwrap();
+        let w = wid.to_string();
+        let jpg = b"\xFF\xD8x\xFF\xD9";
+
+        // A thin section (point) and a core photograph (real interval), plus a superseded set.
+        insert_well_images(&conn, &w, "THIN SECTION", "LAB", None, &[a_plate("TS-1", 1000.0, None, jpg)]).unwrap();
+        insert_well_images(&conn, &w, "CORE PHOTO", "RAW", None, &[a_plate("CP-1", 1000.0, Some(1001.0), jpg)])
+            .unwrap();
+        insert_well_images(&conn, &w, "THIN SECTION", "OLD", None, &[a_plate("TS-OLD", 900.0, None, jpg)]).unwrap();
+        set_active_image_set(&conn, &w, "THIN SECTION", "LAB").unwrap();
+
+        assert_eq!(shift_well_images(&conn, &w, Some("THIN SECTION"), 2.5).unwrap(), 1);
+        let live = list_well_images(&conn, &w, None).unwrap();
+        let ts = live.iter().find(|i| i.name == "TS-1").unwrap();
+        assert!((ts.depth_top - 1002.5).abs() < 1e-4);
+        assert!(ts.depth_base.is_none(), "a section is cut from one plug and gains no thickness from a shift");
+        let cp = live.iter().find(|i| i.name == "CP-1").unwrap();
+        assert!((cp.depth_top - 1000.0).abs() < 1e-4, "another dataset must not move");
+
+        // The superseded delivery stays where it was — it is not what anyone is looking at.
+        let old: f32 = conn
+            .query_row(
+                "SELECT depth_top FROM well_images WHERE well_id = ?1 AND set_name = 'OLD'",
+                params![w],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!((old - 900.0).abs() < 1e-4);
+
+        // No dataset given = every live plate in the well, and exactly reversible.
+        assert_eq!(shift_well_images(&conn, &w, None, -2.5).unwrap(), 2);
+        let live = list_well_images(&conn, &w, None).unwrap();
+        assert!((live.iter().find(|i| i.name == "TS-1").unwrap().depth_top - 1000.0).abs() < 1e-4);
+        let cp = live.iter().find(|i| i.name == "CP-1").unwrap();
+        assert!((cp.depth_top - 997.5).abs() < 1e-4);
+        assert!(
+            (cp.depth_base.unwrap() - 998.5).abs() < 1e-4,
+            "an interval keeps its thickness through a shift"
+        );
     }
 
     /// R-B (RELEASE §3.2): when the destructive PK-drop migration actually fires against a
@@ -2185,17 +5017,682 @@ pub fn update_standard_sample(conn: &Connection, well_id: &str, depth: f32, colu
     Ok(())
 }
 
-/// Applies a constant depth shift to every core plug of one well (core-to-log
-/// alignment). Exactly reversible with -delta, so the frontend makes it undoable.
-pub fn shift_core_depths(conn: &Connection, well_id: &str, delta: f32) -> DbResult<usize> {
-    let n = conn.execute(
-        "UPDATE core_data SET depth = depth + ?1 WHERE well_id = ?2",
-        params![delta, well_id],
-    )?;
-    Ok(n)
+/// What a core depth shift moved. Reported in two parts because the second one is easy to
+/// forget and impossible to see afterwards — see [`shift_core_depths`].
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct CoreShiftCounts {
+    /// Rows moved in `core_data`.
+    pub plugs: usize,
+    /// Rows moved in `aux_data` — the extras that rode in on those same plugs.
+    pub extras: usize,
+    /// SCAL Pc rows moved.
+    pub scal: usize,
+    /// Pictures moved.
+    pub plates: usize,
+    /// The ranges that put this operation back, in the depths that exist AFTER it. Empty for a
+    /// whole-well shift, whose inverse is simply the negated delta.
+    ///
+    /// Computed here rather than by the caller because it needs the plug positions. Negating the
+    /// deltas and shifting the caller's own ranges LOOKS right and is not: two barrels moved by
+    /// different amounts can end up with overlapping ranges even though the barrels themselves
+    /// never overlap, and the first matching range wins — so an undo would quietly move some
+    /// plugs by their neighbour's correction.
+    pub inverse: Vec<RunShift>,
 }
 
-/// Edits one core-plug sample value (NaN = missing).
+/// Why a shift was applied, as the caller knows it at the moment of applying.
+///
+/// Passed to the shift functions rather than written afterwards by a separate call: a depth
+/// registration that committed without its reason is precisely the state this exists to prevent,
+/// and "the frontend will remember to log it" is not a guarantee anything can check later.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct RegistrationNote {
+    /// `"proposed"` (a correlation-backed registration), `"manual"` (a typed amount), `"undo"`.
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub log_curve: String,
+    #[serde(default)]
+    pub reference: String,
+    #[serde(default)]
+    pub pairing: String,
+    /// Agreement **at the shift actually applied** — not the peak of the scan. The user is free
+    /// to overrule the proposal, and recording the peak would then describe an alignment nobody
+    /// chose.
+    #[serde(default)]
+    pub correlation: Option<f32>,
+    #[serde(default)]
+    pub n_pairs: Option<i64>,
+    #[serde(default)]
+    pub note: String,
+}
+
+impl Default for RegistrationNote {
+    /// A shift with nothing said about it is a manual one. Recording is the default behaviour:
+    /// there is no "do not record" value, because the whole point is that it cannot be skipped.
+    fn default() -> Self {
+        Self {
+            kind: "manual".into(),
+            log_curve: String::new(),
+            reference: String::new(),
+            pairing: String::new(),
+            correlation: None,
+            n_pairs: None,
+            note: String::new(),
+        }
+    }
+}
+
+/// One line of a core's depth history, newest first.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RegistrationEntry {
+    pub set_name: String,
+    pub seq: i32,
+    pub applied_at: Option<String>,
+    pub kind: String,
+    /// `None` for a whole-core shift — no range was declared.
+    pub top: Option<f32>,
+    pub base: Option<f32>,
+    pub delta: f32,
+    pub log_curve: String,
+    pub reference: String,
+    pub pairing: String,
+    pub correlation: Option<f32>,
+    pub n_pairs: Option<i64>,
+    pub note: String,
+}
+
+/// One moved range together with the evidence for it. The agreement is per RANGE, not per apply:
+/// each barrel is proposed against its own correlogram, so one number for the whole operation
+/// would attribute one barrel's confidence to another's shift.
+struct RegRow {
+    top: Option<f32>,
+    base: Option<f32>,
+    delta: f32,
+    correlation: Option<f32>,
+    n_pairs: Option<i64>,
+}
+
+/// Appends one row per moved range. Takes a `&Connection` so it can be handed the open
+/// transaction: the record and the move commit together or neither does.
+fn write_registration(
+    conn: &Connection,
+    well_id: &str,
+    ranges: &[RegRow],
+    note: &RegistrationNote,
+) -> DbResult<()> {
+    if ranges.is_empty() {
+        return Ok(());
+    }
+    // The set that is live NOW is the one being moved, and it is stored rather than resolved at
+    // read time: switching the active delivery later must not rewrite what this one has been
+    // through.
+    let set_name: String =
+        conn.query_row(&format!("SELECT {ACTIVE_CORE_SET}"), params![well_id], |r| r.get(0))?;
+    let mut seq: i32 = conn.query_row(
+        "SELECT COALESCE(MAX(seq), -1) + 1 FROM core_registrations WHERE well_id = ?1 AND set_name = ?2",
+        params![well_id, &set_name],
+        |r| r.get(0),
+    )?;
+    for r in ranges {
+        let (top, base, delta) = (r.top, r.base, r.delta);
+        conn.execute(
+            "INSERT INTO core_registrations
+               (well_id, set_name, seq, kind, top, base, delta, log_curve, reference, pairing,
+                correlation, n_pairs, note)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            params![
+                well_id,
+                &set_name,
+                seq,
+                &note.kind,
+                top,
+                base,
+                delta,
+                &note.log_curve,
+                &note.reference,
+                &note.pairing,
+                r.correlation.or(note.correlation),
+                r.n_pairs.or(note.n_pairs),
+                &note.note
+            ],
+        )?;
+        seq += 1;
+    }
+    Ok(())
+}
+
+/// A core's depth history across every delivery it has, newest first.
+pub fn list_core_registrations(conn: &Connection, well_id: &str) -> DbResult<Vec<RegistrationEntry>> {
+    let mut stmt = conn.prepare(
+        "SELECT set_name, seq, CAST(applied_at AS VARCHAR), kind, top, base, delta,
+                COALESCE(log_curve, ''), COALESCE(reference, ''), COALESCE(pairing, ''),
+                correlation, n_pairs, COALESCE(note, '')
+         FROM core_registrations WHERE well_id = ?1
+         ORDER BY applied_at DESC, seq DESC",
+    )?;
+    let rows = stmt.query_map(params![well_id], |r| {
+        Ok(RegistrationEntry {
+            set_name: r.get(0)?,
+            seq: r.get(1)?,
+            applied_at: r.get(2)?,
+            kind: r.get(3)?,
+            top: r.get(4)?,
+            base: r.get(5)?,
+            delta: r.get(6)?,
+            log_curve: r.get(7)?,
+            reference: r.get(8)?,
+            pairing: r.get(9)?,
+            correlation: r.get(10)?,
+            n_pairs: r.get(11)?,
+            note: r.get(12)?,
+        })
+    })?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+/// Applies a constant depth shift to the ACTIVE core set (core-to-log alignment).
+/// Exactly reversible with -delta, so the frontend makes it undoable. Other deliveries of
+/// the same well keep their own depths — a shift belongs to the set it was judged on.
+///
+/// **The plugs and their extras move TOGETHER, in one transaction.** A core table's extra
+/// columns (core gamma, lithology description, Kv/Kh, sample ids …) are stored in `aux_data`
+/// under the core delivery's OWN set name, at the plug depths they were measured at — see
+/// `ingest::parse_core_table_mapped`. Moving `core_data` alone would leave every one of them
+/// behind, silently decoupling a measurement from the plug it was made on: the porosity would
+/// register against the log and the core gamma that JUSTIFIED the shift would not, so a second
+/// pass would compute a fresh non-zero shift from the same core. Nothing downstream can detect
+/// that, which is exactly why it is done here rather than left to each caller.
+///
+/// `datasets` names the point datasets that move along. It is NOT inferred from the set name
+/// alone: a separately-imported XRD delivery is also called `RAW` by default, so matching on the
+/// name would sweep up data that was never part of this core. [`core_extra_datasets`] returns the
+/// ones that provably were, and the caller shows the list before applying — because whether an
+/// XRD or CEC suite belongs to these plugs is a core-handling judgement, not something to guess.
+pub fn shift_core_depths(
+    conn: &mut Connection,
+    well_id: &str,
+    delta: f32,
+    targets: &ShiftTargets,
+    note: &RegistrationNote,
+) -> DbResult<CoreShiftCounts> {
+    let datasets = &targets.aux_datasets;
+    let tx = conn.transaction()?;
+    let plugs = tx.execute(
+        &format!("UPDATE core_data SET depth = depth + ?2 WHERE well_id = ?1 AND set_name = {ACTIVE_CORE_SET}"),
+        params![well_id, delta],
+    )?;
+    let mut scal = 0usize;
+    if targets.scal {
+        scal = tx.execute(
+            &format!(
+                "UPDATE scal_pc AS p SET depth = p.depth + ?2
+                 WHERE p.well_id = ?1 AND p.depth IS NOT NULL AND p.set_name = {ACTIVE_SCAL_SET}"
+            ),
+            params![well_id, delta],
+        )?;
+    }
+    let mut plates = 0usize;
+    for dataset in &targets.image_datasets {
+        plates += tx.execute(
+            &format!(
+                "UPDATE well_images AS i SET depth_top = i.depth_top + ?2, depth_base = i.depth_base + ?2
+                 WHERE i.well_id = ?1 AND i.dataset = ?3 AND i.set_name = {ACTIVE_IMAGE_SET}"
+            ),
+            params![well_id, delta, dataset],
+        )?;
+    }
+    let mut extras = 0usize;
+    for dataset in datasets {
+        // `depth_base + delta` is NULL-safe in SQL: a point sample stays a point sample.
+        // `a` is the alias ACTIVE_AUX_SET correlates on, so only the LIVE delivery moves.
+        extras += tx.execute(
+            &format!(
+                "UPDATE aux_data AS a SET depth_top = a.depth_top + ?2, depth_base = a.depth_base + ?2
+                 WHERE a.well_id = ?1 AND a.dataset = ?3 AND a.set_name = {ACTIVE_AUX_SET}"
+            ),
+            params![well_id, delta, dataset],
+        )?;
+    }
+    // Only if something actually moved: a well with no core has no depth history to write, and a
+    // row saying "nothing was registered" is noise in the one place that must stay readable.
+    if plugs > 0 {
+        let row = RegRow { top: None, base: None, delta, correlation: None, n_pairs: None };
+        write_registration(&tx, well_id, &[row], note)?;
+    }
+    tx.commit()?;
+    Ok(CoreShiftCounts { plugs, extras, scal, plates, inverse: Vec::new() })
+}
+
+/// Records that a delivery sits on the CORE's depth scale, so a later core registration carries it
+/// along. Called after an import the user declared as core-depth; harmless when the set does not
+/// exist yet, which keeps the import paths free of ordering rules.
+pub fn mark_aux_set_on_core(conn: &Connection, well_id: &str, dataset: &str, set_name: &str) -> DbResult<()> {
+    conn.execute(
+        "UPDATE aux_sets SET on_core_depths = 1 WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
+        params![well_id, dataset, set_name],
+    )?;
+    Ok(())
+}
+
+pub fn mark_scal_set_on_core(conn: &Connection, well_id: &str, set_name: &str) -> DbResult<()> {
+    conn.execute(
+        "UPDATE scal_sets SET on_core_depths = 1 WHERE well_id = ?1 AND set_name = ?2",
+        params![well_id, set_name],
+    )?;
+    Ok(())
+}
+
+pub fn mark_image_set_on_core(conn: &Connection, well_id: &str, dataset: &str, set_name: &str) -> DbResult<()> {
+    conn.execute(
+        "UPDATE image_sets SET on_core_depths = 1 WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
+        params![well_id, dataset, set_name],
+    )?;
+    Ok(())
+}
+
+/// One thing that could ride along with a core depth shift.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ShiftCandidate {
+    /// `"aux"`, `"scal"` or `"image"`.
+    pub kind: String,
+    /// Dataset name; empty for SCAL, which has only one live delivery per well.
+    pub dataset: String,
+    pub set_name: String,
+    pub rows: i64,
+    /// True when this delivery was imported as being on the core's depth scale. The dialog
+    /// pre-ticks these and leaves the rest alone — moving a log-depth delivery would be wrong,
+    /// and nothing downstream could tell.
+    pub on_core_depths: bool,
+}
+
+/// Everything in a well that a core registration could carry with it: the point datasets, the live
+/// SCAL delivery and each live image delivery.
+///
+/// Reported with `on_core_depths` rather than filtered by it, because the flag is only known for
+/// deliveries imported since it existed — an older project would otherwise show nothing and look
+/// as though there were nothing to move.
+pub fn core_shift_candidates(conn: &Connection, well_id: &str) -> DbResult<Vec<ShiftCandidate>> {
+    let mut out: Vec<ShiftCandidate> = Vec::new();
+
+    let mut stmt = conn.prepare(&format!(
+        "SELECT a.dataset, a.set_name, COUNT(*),
+                COALESCE((SELECT s.on_core_depths FROM aux_sets s
+                          WHERE s.well_id = ?1 AND s.dataset = a.dataset AND s.set_name = a.set_name), 0)
+         FROM aux_data a
+         WHERE a.well_id = ?1 AND a.set_name = {ACTIVE_AUX_SET}
+         GROUP BY a.dataset, a.set_name ORDER BY a.dataset"
+    ))?;
+    for row in stmt.query_map(params![well_id], |r| {
+        Ok(ShiftCandidate {
+            kind: "aux".into(),
+            dataset: r.get(0)?,
+            set_name: r.get(1)?,
+            rows: r.get(2)?,
+            on_core_depths: r.get::<_, i64>(3)? != 0,
+        })
+    })? {
+        out.push(row?);
+    }
+
+    let mut stmt = conn.prepare(&format!(
+        "SELECT p.set_name, COUNT(*),
+                COALESCE((SELECT s.on_core_depths FROM scal_sets s
+                          WHERE s.well_id = ?1 AND s.set_name = p.set_name), 0)
+         FROM scal_pc p
+         WHERE p.well_id = ?1 AND p.set_name = {ACTIVE_SCAL_SET}
+         GROUP BY p.set_name"
+    ))?;
+    for row in stmt.query_map(params![well_id], |r| {
+        Ok(ShiftCandidate {
+            kind: "scal".into(),
+            dataset: String::new(),
+            set_name: r.get(0)?,
+            rows: r.get(1)?,
+            on_core_depths: r.get::<_, i64>(2)? != 0,
+        })
+    })? {
+        out.push(row?);
+    }
+
+    let mut stmt = conn.prepare(&format!(
+        "SELECT i.dataset, i.set_name, COUNT(*),
+                COALESCE((SELECT s.on_core_depths FROM image_sets s
+                          WHERE s.well_id = ?1 AND s.dataset = i.dataset AND s.set_name = i.set_name), 0)
+         FROM well_images i
+         WHERE i.well_id = ?1 AND i.set_name = {ACTIVE_IMAGE_SET}
+         GROUP BY i.dataset, i.set_name ORDER BY i.dataset"
+    ))?;
+    for row in stmt.query_map(params![well_id], |r| {
+        Ok(ShiftCandidate {
+            kind: "image".into(),
+            dataset: r.get(0)?,
+            set_name: r.get(1)?,
+            rows: r.get(2)?,
+            on_core_depths: r.get::<_, i64>(3)? != 0,
+        })
+    })? {
+        out.push(row?);
+    }
+    Ok(out)
+}
+
+/// What a core shift should carry with it, as the caller chose it.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct ShiftTargets {
+    /// Point datasets (by dataset name; the ACTIVE delivery of each moves).
+    #[serde(default)]
+    pub aux_datasets: Vec<String>,
+    /// Move the live SCAL delivery's plug depths.
+    #[serde(default)]
+    pub scal: bool,
+    /// Image datasets (by dataset name; the ACTIVE delivery of each moves).
+    #[serde(default)]
+    pub image_datasets: Vec<String>,
+}
+
+impl ShiftTargets {
+    pub fn aux(datasets: Vec<String>) -> Self {
+        Self { aux_datasets: datasets, ..Default::default() }
+    }
+}
+
+/// One barrel's (or one piece's) correction: everything currently between `top` and `base` moves
+/// by `delta`. Ranges are in CURRENT depths — what you read off the log view — because that is
+/// what the user is looking at when they draw the interval.
+#[derive(Debug, Clone, Copy, Default, serde::Deserialize, serde::Serialize)]
+pub struct RunShift {
+    pub top: f32,
+    pub base: f32,
+    pub delta: f32,
+    /// Agreement at THIS range's own shift, for the depth record. `#[serde(default)]` so an older
+    /// payload — and the computed inverse, which was never proposed against anything — still
+    /// deserializes. Absent means "not measured", never zero.
+    #[serde(default)]
+    pub correlation: Option<f32>,
+    #[serde(default)]
+    pub n_pairs: Option<i64>,
+}
+
+/// Builds the `CASE` that maps an old depth to a new one. Written as ONE set-wise UPDATE rather
+/// than a row per plug, because the primary key contains `depth`: shifting 1000→1001 row by row
+/// collides with the plug already at 1001, even when the finished result is perfectly valid.
+/// `cond` is the column the range is tested against, `target` the one that moves. They differ for
+/// an interval sample: it is placed by its TOP (so a barrel boundary cannot split one sample into
+/// two different shifts) while its base moves by the same amount, keeping the logged thickness.
+/// Every value is finite by the time this is called, so the formatted literals are always valid SQL.
+fn run_shift_case_on(runs: &[RunShift], cond: &str, target: &str) -> String {
+    let mut sql = String::from("CASE ");
+    for r in runs {
+        sql.push_str(&format!(
+            "WHEN {cond} >= {:?} AND {cond} <= {:?} THEN {target} + {:?} ",
+            r.top, r.base, r.delta
+        ));
+    }
+    sql.push_str(&format!("ELSE {target} END"));
+    sql
+}
+
+fn run_shift_case(runs: &[RunShift], column: &str) -> String {
+    run_shift_case_on(runs, column, column)
+}
+
+/// Applies a per-barrel (or finer) set of corrections to the ACTIVE core delivery.
+///
+/// Core comes up a barrel at a time and each barrel carries its own tally error, so one number for
+/// a whole well is right in the middle of the cored interval and wrong at both ends. Pieces can
+/// also move INSIDE a barrel between the core face and the lab bench, which is why the ranges here
+/// are free intervals rather than a fixed barrel length.
+///
+/// **Refuses anything that would reorder the core.** Two barrels shifted into each other's depths
+/// would put deeper rock above shallower rock, and no downstream reader could tell. The check is
+/// done in Rust on the finished depths, not approximated by a smoothness constraint, and names the
+/// two plugs that would cross.
+///
+/// `depth_orig` is deliberately untouched: the record of where the delivery said the rock was is
+/// what lets a later import follow ([`core_depth_pairs`]).
+pub fn apply_core_run_shifts(
+    conn: &mut Connection,
+    well_id: &str,
+    runs: &[RunShift],
+    targets: &ShiftTargets,
+    note: &RegistrationNote,
+) -> Result<CoreShiftCounts, String> {
+    let datasets = &targets.aux_datasets;
+    if runs.is_empty() {
+        return Ok(CoreShiftCounts::default());
+    }
+    for r in runs {
+        if !(r.top.is_finite() && r.base.is_finite() && r.delta.is_finite()) {
+            return Err("a shift range or amount is not a number".into());
+        }
+        if r.base < r.top {
+            return Err(format!("range {} to {} is upside down", r.top, r.base));
+        }
+    }
+
+    // Dry-run on the plug depths first. Nothing is written unless the result is still in order.
+    let plugs: Vec<f32> = {
+        let mut stmt = conn
+            .prepare(&format!(
+                "SELECT depth FROM core_data WHERE well_id = ?1 AND set_name = {ACTIVE_CORE_SET} ORDER BY depth"
+            ))
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![well_id], |r| r.get::<_, f32>(0))
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+    };
+    // Two barrels may not claim the same rock — across a real overlap the first match silently
+    // wins, and which barrel a plug belonged to stops being answerable.
+    //
+    // Ranges that TOUCH at a single depth are allowed: `2000–2010` and `2010–2020` is the natural
+    // way to write two adjacent barrels, and the shared depth goes to the first range listed. The
+    // computed inverse below relies on this, since its boundaries sit exactly halfway between two
+    // plugs — a point no plug can occupy.
+    let mut sorted: Vec<&RunShift> = runs.iter().collect();
+    sorted.sort_by(|a, b| a.top.total_cmp(&b.top));
+    for pair in sorted.windows(2) {
+        if pair[1].top < pair[0].base {
+            return Err(format!(
+                "the ranges {}–{} and {}–{} overlap; a plug can only belong to one barrel",
+                pair[0].top, pair[0].base, pair[1].top, pair[1].base
+            ));
+        }
+    }
+
+    let run_for = |d: f32| -> Option<usize> { runs.iter().position(|r| d >= r.top && d <= r.base) };
+    let delta_for = |d: f32| -> f32 { run_for(d).map(|i| runs[i].delta).unwrap_or(0.0) };
+    let moved: Vec<f32> = plugs.iter().map(|&d| d + delta_for(d)).collect();
+    for i in 1..moved.len() {
+        if moved[i] <= moved[i - 1] {
+            return Err(format!(
+                "these shifts would put the plug from {} at {} and the one from {} at {} — that \
+                 reorders the core, so nothing was changed",
+                plugs[i - 1],
+                moved[i - 1],
+                plugs[i],
+                moved[i]
+            ));
+        }
+    }
+
+    // Where each run's plugs ended up. Runs that moved nothing are dropped: they have no inverse
+    // because they did nothing.
+    let mut spans: Vec<(usize, f32, f32)> = Vec::new();
+    for (idx, &old) in plugs.iter().enumerate() {
+        if let Some(ri) = run_for(old) {
+            let new = moved[idx];
+            match spans.iter_mut().find(|(r, _, _)| *r == ri) {
+                Some(s) => {
+                    s.1 = s.1.min(new);
+                    s.2 = s.2.max(new);
+                }
+                None => spans.push((ri, new, new)),
+            }
+        }
+    }
+    spans.sort_by(|a, b| a.1.total_cmp(&b.1));
+    // Boundaries sit halfway between one run's deepest plug and the next run's shallowest, so
+    // every plug a run moved is inside its own inverse range, no plug is inside two, and a point
+    // sample that sits in the gap between barrels still rides back with the barrel above it.
+    let inverse: Vec<RunShift> = spans
+        .iter()
+        .enumerate()
+        .map(|(i, &(ri, lo, hi))| {
+            let top = if i == 0 {
+                lo - 0.5
+            } else {
+                0.5 * (spans[i - 1].2 + lo)
+            };
+            let base = if i + 1 == spans.len() {
+                hi + 0.5
+            } else {
+                0.5 * (hi + spans[i + 1].1)
+            };
+            RunShift { top, base, delta: -runs[ri].delta, ..Default::default() }
+        })
+        .collect();
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let case = run_shift_case(runs, "depth");
+    let plugs_moved = tx
+        .execute(
+            &format!(
+                "UPDATE core_data SET depth = {case}
+                 WHERE well_id = ?1 AND set_name = {ACTIVE_CORE_SET}"
+            ),
+            params![well_id],
+        )
+        .map_err(|e| e.to_string())?;
+
+    let mut scal = 0usize;
+    if targets.scal {
+        // A Pc point with no depth is left alone: there is nothing to correct, and NULL + delta
+        // would stay NULL anyway — the filter is there so the count reports what really moved.
+        scal = tx
+            .execute(
+                &format!(
+                    "UPDATE scal_pc AS p SET depth = {}
+                     WHERE p.well_id = ?1 AND p.depth IS NOT NULL AND p.set_name = {ACTIVE_SCAL_SET}",
+                    run_shift_case(runs, "p.depth")
+                ),
+                params![well_id],
+            )
+            .map_err(|e| e.to_string())?;
+    }
+    let mut plates = 0usize;
+    for dataset in &targets.image_datasets {
+        plates += tx
+            .execute(
+                &format!(
+                    "UPDATE well_images AS i SET depth_top = {}, depth_base = {}
+                     WHERE i.well_id = ?1 AND i.dataset = ?2 AND i.set_name = {ACTIVE_IMAGE_SET}",
+                    run_shift_case(runs, "i.depth_top"),
+                    run_shift_case_on(runs, "i.depth_top", "i.depth_base")
+                ),
+                params![well_id, dataset],
+            )
+            .map_err(|e| e.to_string())?;
+    }
+
+    let mut extras = 0usize;
+    let top_case = run_shift_case(runs, "a.depth_top");
+    let base_case = run_shift_case_on(runs, "a.depth_top", "a.depth_base");
+    for dataset in datasets {
+        extras += tx
+            .execute(
+                &format!(
+                    "UPDATE aux_data AS a SET depth_top = {top_case}, depth_base = {base_case}
+                     WHERE a.well_id = ?1 AND a.dataset = ?2 AND a.set_name = {ACTIVE_AUX_SET}"
+                ),
+                params![well_id, dataset],
+            )
+            .map_err(|e| e.to_string())?;
+    }
+    if plugs_moved > 0 {
+        // One line per barrel, in the ranges the user drew — not one line for the whole apply.
+        // Two barrels corrected by different amounts is exactly the case the record has to
+        // preserve; collapsing it to an average would describe a shift that was never applied.
+        let ranges: Vec<RegRow> = runs
+            .iter()
+            .map(|r| RegRow {
+                top: Some(r.top),
+                base: Some(r.base),
+                delta: r.delta,
+                correlation: r.correlation,
+                n_pairs: r.n_pairs,
+            })
+            .collect();
+        write_registration(&tx, well_id, &ranges, note).map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(CoreShiftCounts { plugs: plugs_moved, extras, scal, plates, inverse })
+}
+
+/// Every plug of the ACTIVE core delivery as `(where the lab said it was, where it is now)`,
+/// ordered by the delivered depth. This IS the well's core depth record, kept in the core itself
+/// rather than in a side table of shift history — it survives per-barrel shifts, single-plug
+/// nudges and re-registrations without any bookkeeping, and it cannot drift out of sync with the
+/// data it describes.
+pub fn core_depth_pairs(conn: &Connection, well_id: &str) -> DbResult<Vec<(f32, f32)>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT COALESCE(depth_orig, depth), depth FROM core_data
+         WHERE well_id = ?1 AND set_name = {ACTIVE_CORE_SET} ORDER BY 1"
+    ))?;
+    let rows = stmt.query_map(params![well_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+/// Where a depth written by the lab now sits, given the core's own record.
+///
+/// Returns `(mapped depth, extrapolated)`. Between plugs the correction is interpolated, which is
+/// the right behaviour when pieces moved inside a barrel: the offset genuinely varies along the
+/// core, and a single number for the whole delivery would be wrong everywhere except one point.
+///
+/// **Outside the cored interval the nearest end's correction is held and `extrapolated` is true.**
+/// There is no evidence out there — the core is what recorded the movement — so the caller must
+/// show which samples were guessed rather than measured, instead of quietly placing them.
+pub fn map_core_depth(pairs: &[(f32, f32)], delivered: f32) -> (f32, bool) {
+    if pairs.is_empty() || !delivered.is_finite() {
+        return (delivered, false);
+    }
+    let offset_at = |i: usize| pairs[i].1 - pairs[i].0;
+    if delivered <= pairs[0].0 {
+        let ex = delivered < pairs[0].0;
+        return (delivered + offset_at(0), ex);
+    }
+    let last = pairs.len() - 1;
+    if delivered >= pairs[last].0 {
+        let ex = delivered > pairs[last].0;
+        return (delivered + offset_at(last), ex);
+    }
+    let i = pairs.partition_point(|p| p.0 < delivered);
+    let (d0, d1) = (pairs[i - 1].0, pairs[i].0);
+    let (o0, o1) = (offset_at(i - 1), offset_at(i));
+    let t = if d1 > d0 { (delivered - d0) / (d1 - d0) } else { 0.0 };
+    (delivered + o0 + (o1 - o0) * t, false)
+}
+
+/// The point datasets that were delivered as part of the well's ACTIVE core table — those whose
+/// own live delivery carries the core set's name, which is how `ingest::import_core_table` writes
+/// the extra columns (core gamma, lithology, Kv/Kh …) so that switching a well's core switches
+/// its extras with it.
+///
+/// This is the honest default for [`shift_core_depths`]: certain where it can be, and everything
+/// else left for the user to add deliberately.
+pub fn core_extra_datasets(conn: &Connection, well_id: &str) -> DbResult<Vec<(String, i64)>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT a.dataset, COUNT(*) FROM aux_data a
+         WHERE a.well_id = ?1 AND a.set_name = {ACTIVE_AUX_SET}
+           AND a.set_name = {ACTIVE_CORE_SET}
+         GROUP BY a.dataset ORDER BY a.dataset"
+    ))?;
+    let rows = stmt.query_map(params![well_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+/// Edits one core-plug sample value (NaN = missing) in the ACTIVE core set.
 pub fn update_core_sample(conn: &Connection, well_id: &str, depth: f32, column: &str, value: f32) -> Result<(), String> {
     const EDITABLE: &[&str] = &["cpor", "cperm", "cgd", "csw"];
     if !EDITABLE.contains(&column) {
@@ -2203,8 +5700,11 @@ pub fn update_core_sample(conn: &Connection, well_id: &str, depth: f32, column: 
     }
     let n = conn
         .execute(
-            &format!("UPDATE core_data SET {column} = ?1 WHERE well_id = ?2 AND depth = ?3"),
-            params![value, well_id, depth],
+            &format!(
+                "UPDATE core_data SET {column} = ?3 WHERE well_id = ?1 AND depth = ?2
+                 AND set_name = {ACTIVE_CORE_SET}"
+            ),
+            params![well_id, depth, value],
         )
         .map_err(|e| e.to_string())?;
     if n == 0 {
@@ -2347,6 +5847,53 @@ pub fn promote_generic_curve(conn: &Connection, curve_id: &str) -> DbResult<()> 
     })
 }
 
+/// One generic curve's editable identity — what `update_curve_meta_fields` returns so the
+/// caller can offer an undo without a second query.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CurveMetaEdit {
+    pub mnemonic: String,
+    pub unit: Option<String>,
+    pub family: Option<String>,
+}
+
+/// Renames / re-units / re-families one imported curve, returning its PREVIOUS identity so
+/// the edit can be pushed onto the undo stack (rule 8 — data edits are undoable).
+///
+/// This is metadata only: not one sample is touched, so it is exactly reversible. It matters
+/// more than cosmetics though — the mnemonic and family are what `fetch_generic_curve_aligned`
+/// resolves module inputs by, so renaming a curve REPOINTS what modules read. Blank names are
+/// refused for that reason; the mnemonic is upper-cased and trimmed to match how imports store
+/// them (resolution is case-insensitive, but a mixed-case catalog reads as a mess). An empty
+/// unit/family string is stored as NULL rather than "", so "no unit" has one representation.
+pub fn update_curve_meta_fields(
+    conn: &Connection,
+    curve_id: &str,
+    mnemonic: &str,
+    unit: Option<&str>,
+    family: Option<&str>,
+) -> DbResult<CurveMetaEdit> {
+    let mnemonic = mnemonic.trim().to_uppercase();
+    if mnemonic.is_empty() {
+        return Err(DbError::Invalid("a curve must keep a name".into()));
+    }
+    let blank_to_none = |s: Option<&str>| s.map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+    let unit = blank_to_none(unit);
+    let family = blank_to_none(family).map(|f| f.to_uppercase());
+
+    with_txn(conn, |conn| {
+        let before: CurveMetaEdit = conn.query_row(
+            "SELECT mnemonic, unit, family FROM curve_meta WHERE curve_id = ?1",
+            params![curve_id],
+            |r| Ok(CurveMetaEdit { mnemonic: r.get(0)?, unit: r.get(1)?, family: r.get(2)? }),
+        )?;
+        conn.execute(
+            "UPDATE curve_meta SET mnemonic = ?2, unit = ?3, family = ?4 WHERE curve_id = ?1",
+            params![curve_id, mnemonic, unit, family],
+        )?;
+        Ok(before)
+    })
+}
+
 /// Registers (or reuses, if the (well, set, mnemonic, run_no) already exists) one curve
 /// in the generic store and returns its curve_id.
 pub fn upsert_curve_meta(
@@ -2433,23 +5980,161 @@ pub struct WellPathStation {
     pub tvdss: f32,
 }
 
-/// Replaces the deviation survey (with computed TVD/TVDSS) for one well.
-pub fn insert_well_path(conn: &Connection, well_id: &str, stations: &[crate::deviation::Station]) -> DbResult<()> {
-    with_txn(conn, |conn| {
-        conn.execute("DELETE FROM well_path WHERE well_id = ?1", params![well_id])?;
-        let mut appender: Appender = conn.appender("well_path")?;
-        for s in stations {
-            appender.append_row(params![well_id, s.md, s.inc, s.azi, s.tvd, s.tvdss])?;
+/// One deviation survey of one well, as the set manager shows it.
+#[derive(Debug, Clone, Serialize)]
+pub struct SurveyInfo {
+    pub survey_name: String,
+    pub stations: i64,
+    pub active: bool,
+    pub source: Option<String>,
+    pub datum: Option<f32>,
+    pub imported_at: Option<String>,
+}
+
+/// A well's surveys, active first then newest, with station counts.
+pub fn list_surveys(conn: &Connection, well_id: &str) -> DbResult<Vec<SurveyInfo>> {
+    let mut stmt = conn.prepare(
+        "SELECT s.survey_name, s.active, s.source, s.datum, CAST(s.imported_at AS VARCHAR),
+                (SELECT COUNT(*) FROM well_path p WHERE p.well_id = s.well_id AND p.survey_name = s.survey_name)
+         FROM well_surveys s WHERE s.well_id = ?1
+         ORDER BY s.active DESC, s.imported_at DESC, s.survey_name",
+    )?;
+    let rows = stmt.query_map(params![well_id], |r| {
+        Ok(SurveyInfo {
+            survey_name: r.get(0)?,
+            active: r.get::<_, i32>(1)? != 0,
+            source: r.get(2)?,
+            datum: r.get(3)?,
+            imported_at: r.get(4)?,
+            stations: r.get(5)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
+/// The name a new survey will be stored under — `desired`, else `desired_1`, `_2`, …
+/// (never overwrites an earlier survey; same rule as core sets and curve sets).
+pub fn resolve_survey_name(conn: &Connection, well_id: &str, desired: &str) -> DbResult<String> {
+    let base = {
+        let t = desired.trim().to_uppercase().replace(' ', "_");
+        if t.is_empty() { "SURVEY".to_string() } else { t }
+    };
+    let taken = |name: &str| -> DbResult<bool> {
+        let n: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM well_surveys WHERE well_id = ?1 AND upper(survey_name) = ?2",
+            params![well_id, name],
+            |r| r.get(0),
+        )?;
+        Ok(n > 0)
+    };
+    if !taken(&base)? {
+        return Ok(base);
+    }
+    for i in 1..1000 {
+        let cand = format!("{base}_{i}");
+        if !taken(&cand)? {
+            return Ok(cand);
         }
-        appender.flush()?;
+    }
+    Err(DbError::LengthMismatch(format!("too many surveys named {base}")))
+}
+
+/// Makes one survey the well's live one. The caller must re-materialize TVD/TVDSS
+/// afterwards (`ingest::materialize_tvd_curves`) — the stored curves follow the active
+/// survey, and leaving them stale would silently keep the old geometry in every height
+/// calculation.
+pub fn set_active_survey(conn: &Connection, well_id: &str, survey_name: &str) -> DbResult<()> {
+    with_txn(conn, |conn| {
+        conn.execute("UPDATE well_surveys SET active = 0 WHERE well_id = ?1", params![well_id])?;
+        let n = conn.execute(
+            "UPDATE well_surveys SET active = 1 WHERE well_id = ?1 AND survey_name = ?2",
+            params![well_id, survey_name],
+        )?;
+        if n == 0 {
+            return Err(DbError::LengthMismatch(format!("no survey '{survey_name}' on this well")));
+        }
         Ok(())
     })
 }
 
-/// Reads one well's deviation survey (ordered by MD) for TVD-aware display.
+/// Deletes one survey; the newest survivor becomes active so a well is never left with
+/// stations no reader can see.
+pub fn delete_survey(conn: &Connection, well_id: &str, survey_name: &str) -> DbResult<usize> {
+    let removed = with_txn(conn, |conn| -> DbResult<usize> {
+        let n = conn.execute(
+            "DELETE FROM well_path WHERE well_id = ?1 AND survey_name = ?2",
+            params![well_id, survey_name],
+        )?;
+        conn.execute(
+            "DELETE FROM well_surveys WHERE well_id = ?1 AND survey_name = ?2",
+            params![well_id, survey_name],
+        )?;
+        Ok(n)
+    })?;
+    let has_active: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM well_surveys WHERE well_id = ?1 AND active = 1",
+        params![well_id],
+        |r| r.get(0),
+    )?;
+    if has_active == 0 {
+        let next: Option<String> = conn
+            .query_row(
+                "SELECT survey_name FROM well_surveys WHERE well_id = ?1 ORDER BY imported_at DESC LIMIT 1",
+                params![well_id],
+                |r| r.get(0),
+            )
+            .ok();
+        if let Some(next) = next {
+            set_active_survey(conn, well_id, &next)?;
+        }
+    }
+    Ok(removed)
+}
+
+/// Stores one deviation survey (with computed TVD/TVDSS) under `survey_name`, replacing
+/// only that survey's stations and making it the well's active one. Earlier surveys of the
+/// same well are untouched.
+pub fn insert_well_path(
+    conn: &Connection,
+    well_id: &str,
+    survey_name: &str,
+    source: Option<&str>,
+    datum: Option<f32>,
+    stations: &[crate::deviation::Station],
+) -> DbResult<()> {
+    with_txn(conn, |conn| {
+        conn.execute(
+            "DELETE FROM well_path WHERE well_id = ?1 AND survey_name = ?2",
+            params![well_id, survey_name],
+        )?;
+        let mut appender: Appender = conn.appender("well_path")?;
+        for s in stations {
+            appender.append_row(params![well_id, survey_name, s.md, s.inc, s.azi, s.tvd, s.tvdss])?;
+        }
+        appender.flush()?;
+        conn.execute(
+            "DELETE FROM well_surveys WHERE well_id = ?1 AND survey_name = ?2",
+            params![well_id, survey_name],
+        )?;
+        conn.execute("UPDATE well_surveys SET active = 0 WHERE well_id = ?1", params![well_id])?;
+        conn.execute(
+            "INSERT INTO well_surveys (well_id, survey_name, active, source, datum) VALUES (?1, ?2, 1, ?3, ?4)",
+            params![well_id, survey_name, source, datum],
+        )?;
+        Ok(())
+    })
+}
+
+/// Reads one well's ACTIVE deviation survey (ordered by MD) for TVD-aware display.
 pub fn get_well_path(conn: &Connection, well_id: &str) -> DbResult<Vec<WellPathStation>> {
-    let mut stmt =
-        conn.prepare("SELECT md, inc, azi, tvd, tvdss FROM well_path WHERE well_id = ?1 ORDER BY md")?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT md, inc, azi, tvd, tvdss FROM well_path
+         WHERE well_id = ?1 AND survey_name = {ACTIVE_SURVEY} ORDER BY md"
+    ))?;
     let rows = stmt.query_map(params![well_id], |row| {
         Ok(WellPathStation {
             md: row.get(0)?,
@@ -2487,4 +6172,87 @@ pub fn set_zone_param(
         params![well_id, zone_name, param_name, value_num, value_text],
     )?;
     Ok(())
+}
+
+/// One well's whole-well override of a module parameter — a `zone_params` row whose zone is
+/// `*`. At run time `workflow::resolve_param_arrays` fills the whole curve with it before any
+/// named zone overrides it, so it sits between the step's value and the per-zone values.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WellParamOverride {
+    pub well_id: String,
+    pub param_name: String,
+    pub value_num: f32,
+}
+
+/// Every whole-well parameter override in the project, for the per-well parameter grid.
+///
+/// Deliberately unfiltered by well: the grid shows hundreds to thousands of rows, and one
+/// scan of a table holding a handful of rows per well beats either N round trips or an
+/// `IN (...)` list long enough to hit a binding limit. Text-valued overrides are skipped —
+/// the grid edits numeric module parameters, and silently rendering a text override as an
+/// empty cell would invite overwriting it with a number.
+pub fn list_well_param_overrides(conn: &Connection) -> DbResult<Vec<WellParamOverride>> {
+    let mut stmt = conn.prepare(
+        "SELECT well_id, param_name, value_num FROM zone_params
+         WHERE zone_name = '*' AND value_num IS NOT NULL
+         ORDER BY well_id, param_name",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok(WellParamOverride { well_id: r.get(0)?, param_name: r.get(1)?, value_num: r.get(2)? })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
+/// Applies a batch of parameter overrides at ONE zone scope in ONE transaction: a `Some` value
+/// upserts, a `None` clears that well's override so the step (or manifest) value takes over
+/// again. `zone_name` is `*` for the whole-well scope or a named zone. Returns how many rows
+/// were written or cleared.
+///
+/// Atomic on purpose, and that reason is the same in both callers. The parameter grid's
+/// fill-column and paste actions touch every well at once; a calibration accepted from
+/// Advance ▸ Calibrate… writes its coefficients to every well it was fitted from. A
+/// half-applied sweep would leave a field carrying two different parameter sets with no record
+/// of where the boundary fell — which for a saturation calibration means two different answers
+/// in one study and nothing on the log to say so.
+pub fn set_zone_param_batch(
+    conn: &mut Connection,
+    zone_name: &str,
+    entries: &[(String, String, Option<f32>)],
+) -> DbResult<usize> {
+    let tx = conn.transaction()?;
+    let mut n = 0usize;
+    for (well_id, param_name, value) in entries {
+        match value {
+            Some(v) => {
+                tx.execute(
+                    "INSERT INTO zone_params (well_id, zone_name, param_name, value_num, value_text)
+                     VALUES (?1, ?2, ?3, ?4, NULL)
+                     ON CONFLICT (well_id, zone_name, param_name)
+                     DO UPDATE SET value_num = excluded.value_num, value_text = NULL",
+                    params![well_id, zone_name, param_name, v],
+                )?;
+            }
+            None => {
+                tx.execute(
+                    "DELETE FROM zone_params WHERE well_id = ?1 AND zone_name = ?2 AND param_name = ?3",
+                    params![well_id, zone_name, param_name],
+                )?;
+            }
+        }
+        n += 1;
+    }
+    tx.commit()?;
+    Ok(n)
+}
+
+/// Whole-well scope of [`set_zone_param_batch`] — the parameter grid's own call.
+pub fn set_well_param_overrides(
+    conn: &mut Connection,
+    entries: &[(String, String, Option<f32>)],
+) -> DbResult<usize> {
+    set_zone_param_batch(conn, "*", entries)
 }

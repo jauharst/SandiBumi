@@ -8,6 +8,11 @@ fully superseded by this document.)
 
 ## How to read this
 
+> **Sequencing across both products** — which of these items to do *first*, and why, lives in
+> [`docs/FUTURE_PLAN.md`](docs/FUTURE_PLAN.md) (2026-07-31): the competitive scan vs
+> Geolog/Techlog/IP, the three positioning axes, the credibility floor, and the OSDU question.
+> That document sits above this one — it never overrides an item here, it orders them.
+
 **Three status buckets** — every item lives in exactly one:
 
 | | Bucket | Meaning |
@@ -53,7 +58,7 @@ headers below rather than as the primary structure.
 
 ### ◻ Open — do next  → [Part B](#-part-b--open-do-next)
 - **Polish tail** (§4b): ✅ all shipped — units #122, correlation #123, history-coverage #124, Pickett v2 #125, pay-summary provenance #126.
-- **Performance** (§4b): crossplot redraw memoize (#127) ✅, **batch curve reads (#130)** ✅ **persistent Python worker (#132)** ✅ and **raw-IPC ArrayBuffers (#131)** ✅ **shipped + committed 2026-07-21**. Remaining: async commands (#128) and connection pool [**high-risk**] (#129) both need a live 100-well run to sign off.
+- **Performance** (§4b): crossplot redraw memoize (#127) ✅, **batch curve reads (#130)** ✅ **persistent Python worker (#132)** ✅ and **raw-IPC ArrayBuffers (#131)** ✅ **shipped + committed 2026-07-21**; **async commands (#128)** ✅ **shipped 2026-07-30** (project open/switch, Save As, Compact, TVD rebuild and SQL query all off the event loop). **pre-window startup** ✅ **shipped 2026-07-30** (window first, project opens behind a boot overlay). Remaining: connection pool [**high-risk**] (#129), needs a live 100-well run to sign off.
 - **Reliability sliver**: modal Escape-key stacking — ✅ **shipped 2026-07-20** (Escape scoped to the top dialog; single-instance already prevented leaked handlers).
 - **Interpretation-workflow open** (§4): data-prep split/merge + tops-referenced normalization, highlight tool, typography check.
 - **Feature Wave B** (§4c): MC parameter **sensitivity/tornado** (13), ML comparison + leaderboard (3), fluid contacts in correlation (9), well-diagram track (16), rock typing + SHF fitting (8).
@@ -97,7 +102,7 @@ deliberate deviations from the original plan where reality disagreed with the pl
   **subprocess** (`python_engine.rs`), not embedded via PyO3. Reason: PyO3 links
   `python312.dll` at load time, and this machine's PATH resolves to a bare Python 3.8 with
   no numpy, which would have made the app fail to launch. The subprocess approach with
-  explicit discovery order (`ARSHILLA_PYTHON` → `%LOCALAPPDATA%\Programs\Python\Python31x`
+  explicit discovery order (`SANDIBUMI_PYTHON` → `%LOCALAPPDATA%\Programs\Python\Python31x`
   → PATH) is documented in `CLAUDE.md` rule 7 and is the standing constraint for any future
   Python integration (including Phase 6's DLIS import via `dlisio` and Phase 10's
   scikit-learn facies work — both use the same subprocess mechanism, not PyO3).
@@ -360,8 +365,20 @@ auto-memory (`method-ssc-sspw-lqr`, `method-lrlc-imts-rtc`, `method-workflow-sta
 - **Per-step parameter editing** ✅ (2026-07-18, inc. 2): each step has an expandable ⚙ editor
   (manifest-driven) — input selectors, options, validated params, universal bad-hole Mask. Only
   non-default values are stored on the step; `zone_params` still override per zone at run time.
-  Override-count badge + Reset. Persists in the `workflow` document. **Remaining**: per-well parameter
-  override table (→ [Part B](#b4-carried-forward-deferrals-from-the-build-arc)).
+  Override-count badge + Reset. Persists in the `workflow` document.
+- **Per-well parameter override table** ✅ (2026-07-30, Phase 9-2 closed): `wellParamsDialog.ts`,
+  opened from the Workflow Builder's run bar. Rows = wells, columns = the numeric params the chain's
+  steps take. No new resolution machinery — a cell writes the `zone_params` whole-well row (`zone_name
+  = '*'`) that `resolve_param_arrays` already applies, so the order stays step → whole-well → named
+  zone. Columns are keyed by param NAME, not by step, because the storage is: one RW override applies
+  to every step taking RW, and a column per step would imply an independence that does not exist.
+  Backend `list_well_param_overrides` (one scan, no per-well round trips) + `set_well_param_overrides`
+  (one transaction — fill-column and its undo are the same atomic shape). Cells are text until
+  double-clicked (the app-wide click-to-arm rule, and what keeps thousands of rows cheap); amber =
+  overridden, grey = inherited; typing the inherited value clears the override; out-of-range values
+  are REFUSED, mirroring `resolve_param_arrays`, so a percent-typed fraction becomes a red cell rather
+  than a failed 2,000-well run. A column sweep is one undo entry. Copy-as-CSV out; **CSV import back
+  is the obvious follow-up and is not built**.
 - **Monte Carlo uncertainty (PT06)** ✅ (2026-07-18, inc. 3): `montecarlo.rs` — put
   normal/uniform/triangular distributions on any model parameter, run N seeded realizations of a chain,
   get P10/P50/P90 net pay / NTG / avg PHIE / avg SWE / HPV **per zone** + an HPV histogram. Runs
@@ -606,6 +623,97 @@ Multimin Parameters.xlsx, extracted into `ref_kkt_onwj_wave_e.md` — client fil
       fetch_curve_frame falls back to computed/generic (APS wells no longer all-NaN); workflow-builder
       log_in dropdowns offer every module's log_out; SNP no longer mislabeled as APS.)_
 
+**Import data-management wave (from Jauhar's manual-test-plan T-IMP notes, 2026-07-30):**
+- [x] **Example import datasets as executable fixtures.** _(Done 2026-07-30)_ `dataset for
+      test/examples/` — one exemplar per accepted format (3 synthetic wells with coupled
+      geology, core RCAL, 3 SCAL shapes, tops, deviation, locations, petrography, XRD,
+      perforations) + 2 deliberately malformed LAS closing T-IMP-03/-04 ("where do u provide
+      dup_depth.las?"). Generated by `tools/make_example_data.py`; parsed by
+      `example_data_test.rs` on every gate run so examples can't drift from the parsers.
+      Also fixed: `GDEN` core alias — the BLSO delivery's `GDEN_1` silently dropped grain density.
+- [x] **(T-IMP-02) Import sets — one well, many deliveries.** _(Done 2026-07-30)_ The
+      Geolog/IP set model. `LasImportOptions{set_name, attach}` + `canonical_set_name` /
+      `resolve_set_name` (auto-suffix `FPROOH` → `FPROOH_1`, never overwrite);
+      `attach_curves_to_existing_well` writes only the generic store, so an attached delivery
+      never disturbs the first one's `standard_curves`. Ambiguous (>1 same-named well) falls
+      back to a separate record WITH a warning. `importSetDialog.ts` suggests the set name from
+      the filenames' common non-leading token (verified against all five BLSO folders);
+      `objectTree.ts` grew a lazy well → sets → curves twisty. DLIS import takes a set name too
+      (T-IMP-06 duplicates). **Resolution compatibility: set RAW keeps ABSOLUTE priority** in
+      `fetch_generic_curve_aligned`, so every existing project resolves byte-identically and
+      only mnemonics RAW lacks reach the attached sets.
+- [x] **(T-IMP-07/-10/-11) Core & aux import v2 — auto-detect well names.** _(Done 2026-07-30)_
+      Import Core is probe → confirm → commit: `parsers::probe_core_table` (role guesses incl.
+      a WELL/WN column with prefer-textual-over-numeric candidate choice, per-column type
+      sniff, sample rows, distinct wells, percent + depth-unit detection from units row /
+      header suffix) + `ingest::import_core_table` (routes rows per normalized well name —
+      exactly-one-match rule, unmatched/ambiguous reported never guessed; blank cells skipped;
+      feet↔metres conversion to the project unit; per-well replace + depth dedup).
+      `coreImportDialog.ts` wizard confirms the mapping ONCE by header name and re-resolves it
+      per file (multi-select of e.g. all 321 BLSO core CSVs); `.txt`/tab/semicolon sniffed by
+      `read_delimited`. Aux imports (`import_aux_file`) now route by a WELL column the same
+      way. Unblocks T-IMP-09. Per Jauhar (2026-07-30): **BLSO is an exemplar, not the spec —
+      importer must accept ANY delimited text with mixed column types (alpha/int/real/…);**
+      delimiter sniffing + type detection are in, see the follow-up below.
+- [x] **Core files' EXTRA columns → point-data store.** _(Done 2026-07-30)_ Completes Jauhar's
+      "any column, any data type" requirement. `CoreMapping.extras` (serde-default, so older
+      payloads still deserialize) carries the columns no core role claims;
+      `parse_core_table_mapped` returns them as RAW TEXT plus their header names
+      (`MappedCoreTable`), and `import_core_table(..., extras_dataset)` writes them to
+      `aux_data` at the same converted plug depths — typed PER CELL (`parse::<f32>` → value_num,
+      else value_text), blank cells skipped, riding the same depth-dedup as the plugs so they
+      stay aligned. Default dataset "CORE"; replace-on-reimport per (well, dataset). The wizard
+      shows the leftover columns with their sniffed type, opt-in, checked-state remembered by
+      header NAME across role changes (a column claimed by a role leaves the list). Values are
+      stored VERBATIM — no percent/unit conversion is applied to extras, and the dialog says so.
+- [x] **(T-IMP-05) Silent import guards** — **done 2026-07-31.** Core was already covered. Every
+      remaining action that needs a selected well refused only in the STATUS BAR: the user picked
+      "Import SCAL…", expected a file dialog, and got nothing, with the reason in a corner nobody
+      was looking at. "Nothing happened" is indistinguishable from a broken button, and the usual
+      next move is to click it again. `src/ui/needWell.ts` `requireWell(action)` is now the one
+      refusal — a named modal that says which action, why, and what to do — used by Export LAS,
+      Import DLIS, Import SCAL, Import deviation, Import Aux, Import pictures, Data Sets, Shift
+      Core and Well header. The status line still receives the message; it just is not the only
+      place it appears. One helper rather than nine copies, the `followCore.ts` argument.
+- [x] **(T-IMP-08/-12) Duplicate/versioning for core + deviation data.** _(Done 2026-07-30)_
+      Core plugs and surveys now follow the set model, with a deliberately DIFFERENT resolution
+      rule from curves: two curve sets can both be read (a set supplies mnemonics RAW lacks),
+      but two core deliveries measure the SAME plugs, so **exactly one core set and one survey
+      are ACTIVE per well** and every reader follows it (`db::ACTIVE_CORE_SET` /
+      `ACTIVE_SURVEY`, one shared SQL fragment so no reader can silently union two deliveries
+      and double a φ-k cloud). Schema: `core_data.set_name` + `core_sets` registry,
+      `well_path.survey_name` + `well_surveys` registry (active/source/datum/imported_at);
+      `db::migrate_point_data_sets` rebuilds pre-set-era projects (existing rows become
+      RAW, active — same numbers as before), idempotent, backed up per RELEASE §3.2. Imports
+      take a name (Core wizard suggests it from the filename, deviation dialog defaults
+      SURVEY), auto-suffix per well rather than overwriting, and the new set/survey goes live;
+      the status line names the set and says which wells were suffixed. `set_active_survey`
+      re-materializes TVD/TVDSS so stored curves never keep the previous geometry. UI =
+      `dataSetsDialog.ts` (Data → Tools ▾ → Data Sets…): both lists, ● active, Use /
+      Delete, delete-the-active hands over to the newest survivor. Shift Core and DB Inspector
+      cell edits target the ACTIVE set only.
+- [x] **Delivery sets are UNIVERSAL — every point dataset, not just core.** _(Done 2026-07-30,
+      Jauhar: "not only core, any kind of point data should behave universally like core — xrd,
+      cec, oil show, etc.")_ `aux_data` gained `set_name` (+ `aux_sets` registry keyed
+      (well, dataset, set)), so a second XRD / CEC / oil-show / petrography / perforation
+      delivery lands beside the first and one set per (well, dataset) is live —
+      `db::ACTIVE_AUX_SET` correlates on `a.dataset`, so a single query spans every dataset and
+      still returns one delivery of each (`list_aux_datasets` counts the active set, never the
+      sum). `aux_data` has no PK, so migration is an ALTER + back-fill + registration rather than
+      a rebuild; the column is LAST because the Appender is positional. Import Aux takes a Set
+      name; core EXTRAS are written under the core set's own name so a core switch carries them.
+      The Wells-pane ▸ tree now lists **Core / Surveys / Point data** under each well with ● on
+      the live one and double-click to switch (single click inert; delete stays in the dialog),
+      and the manager dialog has a third section grouped by dataset.
+- [x] **SCAL Pc deliveries too — the last store that replaced wholesale.** _(Done 2026-07-30)_
+      `scal_pc.set_name` (+ `scal_sets` registry, `db::ACTIVE_SCAL_SET`): the files selected in
+      one Import SCAL are ONE delivery, named and auto-suffixed rather than overwriting the
+      previous report, and `get_scal_pc` — hence Pc QC, the Leverett-J fit and Thomeer — reads
+      only the live one. Migration is an ALTER + back-fill + registration (no PK). The manager
+      dialog is now **Data Sets…** with four sections (core / SCAL / surveys / point data) and
+      the tree gained a SCAL kind. Every delivery-shaped store in the app now versions the same
+      way; nothing left that silently overwrites on re-import.
+
 Cross-cutting notes: (11) Balam South testing is the per-increment verification standard, not a separate
 item. New suites must land as panes (Wave A first), use the 15-var theme contract, manifest-driven
 dialogs where they fit, and expose outputs to Python/SQL per §5.
@@ -621,14 +729,39 @@ The actionable backlog. Roughly ordered: safe frontend wins first, then Performa
 ## B1. Hardening backlog (§4b)
 
 **Performance (was "P2") — speed at field scale (100+ wells)** — all 6 mapped by a read-only
-investigation wave (file:line + risk). **4 of 6 shipped: #127 (crossplot memoize), #130 (batch curve
-reads), #131 (raw-IPC ArrayBuffers), #132 (persistent Python worker).** Tasks #127–132. The remaining connection-semantics items are architecturally invasive —
-they change DB connection semantics and **cannot be signed off without running `tauri dev` on 100+
-real wells** (the human can't be replaced for perf benchmarking).
-- [ ] **(#128)** Long commands are synchronous Tauri commands — `run_workflow_chain`/`run_ml`/`run_multimin`
-      are sync `fn` on the IPC thread, so a chain run blocks IPC for minutes and Cancel can't fire until it
-      finishes. Move to async + spawn_blocking + progress events. Interacts with the pool item below (the
-      global `Mutex<Connection>` still serializes spawn_blocking on the lock).
+investigation wave (file:line + risk). **5 of 6 shipped: #127 (crossplot memoize), #128 (long
+commands off the event loop), #130 (batch curve reads), #131 (raw-IPC ArrayBuffers), #132
+(persistent Python worker).** Tasks #127–132. Only **#129 (connection pool)** remains — it changes
+DB connection semantics and **cannot be signed off without running `tauri dev` on 100+ real wells**
+(the human can't be replaced for perf benchmarking).
+
+- [x] **Startup opened the project before the window existed** — **done 2026-07-30.** `run()` now
+      builds the Tauri app on an EMPTY in-memory placeholder database and `setup()` spawns
+      `open_startup_project` on a background thread (the whole recovery ladder — project → temp
+      recovery file → memory-only — moved there unchanged). It publishes an `OpenOutcome` through
+      a `Mutex<Option<_>>` + `Condvar` (`DbInit`), which the new async `await_project_open`
+      command waits on off the event loop. **The value is STORED, not merely signalled** — on a
+      normal fast launch the open finishes before the frontend ever asks, so a pure signal would
+      hang every quick launch on the splash (pinned by `fast_open_published_before_the_wait`).
+      Frontend: `bootOverlay.ts` covers the wait (shown only after 400 ms so a fast open never
+      flashes it; elapsed timer; polls `boot_report` for live progress; a "this happens once"
+      hint after 20 s), and `main.ts` awaits the gate before building ANY panel — that ordering is
+      what keeps every command off the placeholder. Notes drained by the overlay are handed back
+      and written to the processing history once the database that stores it is open.
+- [x] **(#128)** ~~Long commands are synchronous Tauri commands~~ — **done 2026-07-30.** The three
+      commands this item named were already fixed when it was written: `run_ml`/`run_multimin` run
+      through `jobs::run_job` (async) and `run_workflow_chain` returns immediately after spawning an
+      OS thread (a plain `std::thread`, NOT `spawn_blocking` — a sync command is not on a Tokio
+      worker, so `spawn_blocking` panics there; see the comment at its definition). A re-audit of
+      **every** sync `#[tauri::command]` found the class of bug alive in the project-lifecycle and
+      whole-field commands instead, all now `async` + `tauri::async_runtime::spawn_blocking`:
+      `open_project`, `new_project` (a field-scale open runs one-time migrations — ~15 min on the
+      2.5 GB BLSO project, the entire time with the window frozen), `save_project_as` +
+      `compact_project` (gigabyte engine copies), `materialize_tvd` (every selected well) and
+      `run_query` (user-authored SQL = unbounded cost). Concurrency is unchanged where it matters:
+      the DB `Mutex` still serializes, so nothing observes a half-swapped project.
+      The STARTUP open (pre-window) was the remaining gap and is **also done 2026-07-30** — see
+      the startup item below.
 - [ ] **(#129) [HIGH-RISK]** Rayon over wells is defeated by the single global `Mutex<Connection>` — every
       well locks the same conn. Split reads (read-only connection pool) from the single serialized writer;
       writes (computed_curves DELETE+append in `with_txn`) **must stay single-writer** to protect the
@@ -729,6 +862,298 @@ fixes (1 already fixed); #135 resolved the 4 held items per Jauhar (below). Comm
 ## B2. Interpretation-workflow open items (§4)
 
 _(field-review tier, was "P2"; the rest of the tier is done in [A8](#a8-field-review--trust--safety--interpretation-workflow-4).)_
+
+### Log-view display queue (Jauhar, 2026-07-30 click-through)
+
+Five display gaps he raised in one pass. Four have shipped; two follow-ups remain — **images in
+their own track** (with digitizing later — see §B3) and the ambiguous **QAT-in-ribbon** item,
+which he has since clarified (also §B3).
+
+- [x] **Curve draw style — continuous vs blocky** — **SHIPPED 2026-07-30.** `CurveStyle.draw_style`
+      (`"line"` default / `"step"`), implemented in both renderers, exposed as a **Style** column in
+      Layout Properties. Step holds each sample's value down to the next sample's depth, so a
+      block-averaged or zone-constant curve stops drawing a gradient it never measured; the edge
+      shading follows the step (rectangles, not wedges).
+- [x] **Shading to another log (crossover)** — **SHIPPED 2026-07-30.** `fill: "curve"` + `fill_to` +
+      `fill_color2`. The reference must be a curve in the SAME track because it is positioned with
+      **its own min/max** — compatible scaling is the meaning of the display. Quads split at the
+      crossing point so the two colours meet exactly on it; the viewer interpolates the reference
+      onto the styled curve's depths (`makeSampler`) so the two curves need not share a sampling.
+      Built-in Standard + Facies layouts now ship the NPHI/RHOB crossover. Fixed in passing: the
+      composite exporter treated any `fill` string other than `"right"` as a left-edge fill, so a
+      style saved as `fill: "none"` printed shaded while the screen showed it clean.
+- [x] **Point / text data as a track type** — **SHIPPED 2026-07-30** (increments a + b together).
+      `TrackKind::PointData` + `Track.points: Vec<PointStyle>`; sources = core plug properties
+      (ACTIVE core set, NULL cells dropped not read as 0) and aux point-dataset items; displays =
+      points / text / box plot / histogram, with per-series depth bin, box percentiles, whisker
+      rule (Tukey k·IQR / percentile pair / full range) and show-samples. Both renderers:
+      `logViewPanel.drawPointTracks` and `composite.rs draw_point_series`. Off-scale samples are
+      skipped, never clamped. **Increment (c) — image display (core photo / borehole image) —
+      remains open** and needs a blob store, so it is genuinely separate.
+- [x] **Array logs in the log view** — **SHIPPED 2026-07-30.** His answer to the open question was
+      "adjustable band, and all of those in ur mention", so all three displays landed over ONE
+      stored matrix: `band` (adjustable low/high percentiles + optional P50 line), `spaghetti`,
+      `heatmap`. That single-matrix choice is what makes the band genuinely *adjustable* —
+      persisting three percentile curves instead would have made changing P10→P5 a re-run.
+      `array_logs` became a real store (BLOB of little-endian f32, PK'd, `migrate_array_logs_store`
+      drops the never-written stub); `montecarlo.rs` gained `persist_realizations` +
+      `realization_cap` (default 256 — the full 1024 would be ~3 GB across a field);
+      `TrackKind::ArrayLog` + `ArrayStyle` render in `logViewPanel.drawArrayTracks` and
+      `composite.rs draw_array_series`. **The statistics were reused unchanged** —
+      `distribution.rs`/`.ts` gained only `band` and `even_indices`, both source-agnostic; no second
+      path was written, which was Jauhar's explicit instruction when accepting the point-data
+      increment. Verified: a band drawn from the stored matrix reproduces the persisted
+      MC_*_LOW/_HIGH curves to 1e-5.
+- [x] **QAT tools in the Project ribbon** — **SHIPPED 2026-07-30.** The icon-only quick-access
+      strip is gone; its seven buttons are labelled tools in the **Project** tab, grouped Project
+      (Open / New / **Save Project As…** / Recent ▾), Session (Save Session… / Open Session…),
+      Edit (Undo / Redo), Monitor (History / **Processing** / **Performance**, both moved out of
+      the Petrophysics Batch group) and Help. CLAUDE.md/AGENTS.md updated — the "Save Project As
+      is NOT a ribbon button anymore" line is explicitly marked as reversed, not silently dropped.
+      Two things fell out of the move and were fixed in the same increment:
+      **(a)** the unsaved-state dot is now mirrored onto the **Project ribbon tab** as well as the
+      Save Session… button — the button moved *inside* a tab, and a warning you only see after
+      opening the tab that holds the fix is not a warning. It is a `::after` dot, never a text
+      prefix, so the tabstrip never reflows and shifts the other tabs under the cursor.
+      **(b)** the Office-style ribbon **overflow chevrons never worked** — latent since they were
+      written, and only reachable once a tab was wide enough to need them. Project (1471px of
+      groups) is the first, so it surfaced now. `scrollBy({behavior:"smooth"})` is a silent no-op
+      on `.ribbon-panel` in the WebView; so is a `scrollLeft` assignment under CSS
+      `scroll-behavior: smooth`. Only a plain assignment moves it. `scrollActive` now assigns
+      directly, clamped, and refreshes the chevrons synchronously. **Do not "restore" smooth
+      scrolling there** — it reverts the fix. Measured after: right → 211 (clamped to max), Help
+      scrolls into view, chevrons swap; left → 0.
+      Follow-up left open: at a 1280-wide window the Project tab is the only one that overflows.
+      That is what the chevrons are for and it is now genuinely usable, but if Jauhar works on a
+      1366 laptop and dislikes it, the cheapest fixes are merging Language into the Appearance
+      group and folding Help into Monitor (≈100px); anything more means restyling the ribbon
+      fields, which is a design change he should call.
+- [x] **Images in their own track** — **SHIPPED 2026-07-31** (display half; digitizing stays a
+      later phase). His ask: "images in separate tracks, such petrography thin section, core photo,
+      or any picture format that can be adjustable (later we should have capablites to digitize it
+      as well)". `well_images` + `image_sets` are the blob store, on the universal delivery-set
+      rule (`db::ACTIVE_IMAGE_SET`); `TrackKind::Image` + `ImageStyle` render in
+      `logViewPanel.drawImageTracks` and `composite.rs draw_image_series`, with the geometry in
+      ONE place per side (`imageBox` / `image_box`) so screen and print agree.
+      Three decisions worth remembering, all petrophysical rather than cosmetic:
+      **(a)** `depth_base IS NULL` means a POINT sample — a thin section is cut from one plug and
+      has no thickness, so it is anchored at its depth instead of being stretched over a guessed
+      interval; a core photograph with a base depth spans it for real. That is what
+      `mode: anchor|depth` selects.
+      **(b)** Two plates that would overlap: the deeper one is **skipped and leaves a tick**, never
+      nudged — a plate moved to make room is a plate attributed to the wrong sand. Zooming in
+      brings it back. (Flagged in REVIEW in case he would rather they stacked.)
+      **(c)** Aspect ratio is never distorted — `fit` is contain or cover, and there is no stretch
+      option, because a squashed thin section misstates grain shape.
+      Storage: the stored blob is a **normalized display JPEG** (one Pillow subprocess for the
+      whole delivery, long edge 2400 px / q85 by default and adjustable in the wizard), with
+      `source_path` + the original's pixel size kept so the delivered file stays traceable. Without
+      Pillow the import still works for anything the WebView decodes, stored verbatim; TIFF needs
+      Pillow and says so by name. Import is probe → confirm → commit like the core wizard, with
+      `parse_depth_from_name` guessing a depth per file (a token needs a decimal point or ≥3
+      integer digits, so `BLSO-01` is never read as 1 m) and every guess editable before the write.
+      Print: `assemble_pdf_with_images` embeds JPEG bytes **untouched** as a `/DCTDecode` XObject —
+      object bodies became BYTES for it, and `assemble_pdf` is pinned byte-identical for the
+      no-image case. `report.rs` collects images too (it embeds composite pages verbatim). SVG
+      inlines base64 so a delivered file is self-contained, and a plate the PDF cannot embed prints
+      a **named frame**, never a silent gap.
+      **Digitizing remains the deliberate later phase** — see the OpenCV note in §B3; nothing here
+      decodes pixels in Rust.
+      Open follow-ups: whether the overlap rule should stack instead of skip; whether 2400 px is
+      too soft for his thin sections; and a picture is not yet re-registerable from the UI (the
+      `update_well_image` command exists and is tested, but no dialog calls it yet — a re-import
+      is currently how a depth gets corrected).
+
+### B3 — Python capability audit (2026-07-30, at Jauhar's request)
+
+He asked which of a list of Python packages could empower the existing tools, aiming at ML and
+office-document output. Verified against the interpreter SandiBumi actually discovers
+(`%LOCALAPPDATA%\Programs\Python\Python312`), not against the list in the abstract.
+
+**Already installed there** (so these cost no install): `numpy`, `scipy`, `pandas`, `sklearn`,
+`joblib`, `python-docx`, `python-pptx`, `openpyxl`, `xlsxwriter`, `matplotlib`, `Pillow`,
+`dlisio`. **Not installed**: `cv2`, `onnxruntime`, `jax`, `tensorflow`, `mediapipe`.
+
+Everything below rides the existing subprocess mechanism, so **rule 7 holds throughout: a
+missing package fails only its own button, never the app**, and the native PDF/SVG/LAS paths
+stay the default. The one real cost is the install matrix for a client machine, which should be
+tiered in CONTRIBUTING.md: nothing required → numpy (equations) → dlisio (DLIS) → sklearn +
+joblib (ML) → office four (deliverables) → opencv (digitizing).
+
+- **Office deliverables** — the largest gap in the product. `export.rs` exported **LAS only**;
+      everything else left as a native PDF or a CSV, so a finished study had to be re-typed into
+      Excel and PowerPoint by hand.
+      - [x] **`xlsxwriter` → SHIPPED 2026-07-31** — `src-tauri/src/office.rs` + `workbookDialog.ts`
+        (Plot ▸ Deliverables ▸ Workbook…). Four sheets: **Summary** (audit trail — cutoffs used,
+        depth unit, export stamp, and every well that produced *no* results named rather than
+        silently absent), **Pay Summary** (the same rows `report.rs` prints, so the workbook and
+        the client PDF cannot disagree), **Field Summary** (per-zone roll-up), **Zone Parameters**.
+        Formatted: number formats per column, frozen header, autofilter, PAY rows tinted.
+        Architecture: a shared Python-office spine — `office_support()` probes all four packages
+        in ONE subprocess so a dialog reports what is missing *before* the save dialog, and the
+        xlsxwriter runner is deliberately DUMB (typed `Cell`s in, a table out) so every
+        petrophysical decision stays in Rust. Rule 7 holds: the real round-trip test is
+        `#[ignore]`d precisely so the green gate can never depend on a Python package.
+        Three decisions worth not re-litigating: **numbers stay numbers** (a text column cannot be
+        pivoted, which is the only reason to want a workbook); **a blank is not a zero** — where
+        `n_classified == 0` the well was never interpreted, and an empty cell is the one value
+        Excel's own AVERAGE/COUNT skip, where a `0` would drag a field average down; and the
+        Field Summary carries **two N/G columns** (volumetric Σnet/Σgross *and* the mean of
+        per-well values that the dashboard plots) because quoting one as the other is a reserves
+        error. The export runs `stats_only` — saving a spreadsheet must never write FLAG curves.
+        Open follow-ups: a per-well curve-data sheet (LAS covers it today); whether he wants PHIE
+        displayed as a percent format rather than the v/v decimal that matches the PDF; and a
+        saved workbook "template" (which sheets, which cutoffs) like the plot templates.
+      - [x] **`python-pptx` → SHIPPED 2026-07-31** — asset-team deck (Plot ▸ Deliverables ▸
+        **Deck…**, `deckDialog.ts` → `export_deck`). The rasterization question was put to Jauhar
+        and he chose **matplotlib figures from the data** over pasted composite pages — the right
+        call: python-pptx embeds PNG/EMF, not vectors, so a composite at 1:200 would become a
+        picture that stops being at 1:200 the moment anyone resizes it.
+        Slides: title, scope-and-cutoffs, field roll-up by zone (the workbook's `field_sheet` — a
+        FOURTH rendering of one table definition), net + HPV per zone, N/G / PHIE / SWE
+        distributions, well ranking by HPV, and a closing slide naming every well that produced
+        nothing. `DeckSpec.flag` picks ONE cutoff level (default PAY) and the title slide says
+        which. 16:9; one subprocess for every figure and the deck.
+        Rules not to re-litigate: **box statistics come from `distribution.rs` and are passed in
+        matplotlib's `ax.bxp` vocabulary**, never `ax.boxplot(raw)` — otherwise matplotlib's own
+        percentile convention would make the deck disagree with the Field Dashboard for the same
+        wells, and `BoxSpec.n` rides along because a box from three wells is not the statement a
+        box from ninety is; **a `None` in a `Series` is a gap, not a zero** (axis label, no bar);
+        long tables paginate (`DECK_ROWS_PER_SLIDE`) and the ranking cap (`DECK_RANK_WELLS`) is
+        stated in the slide note, because a silent top-N reads as the whole field.
+        Open follow-ups: a per-well slide set (needs the frontend rasterization route after all),
+        a client `.pptx` template to build onto instead of python-pptx's default, and whether he
+        wants a zone-by-zone map slide once the map panel can export.
+      - [x] **`python-docx` → SHIPPED 2026-07-31** — the EDITABLE `.docx` twin of `report.rs`'s
+        PDF: report pane ▸ **Save Word…**, plus a format select on the Batch button (`as PDF` /
+        `as Word`) driving `export_report_docx` / `export_report_docx_batch`. Same title, author,
+        editable methodology table, zone parameters *in the PDF's shape* (zone + depths printed
+        once per zone; a zone with no parameters is still listed, because dropping it would say
+        the zone was not evaluated) and pay summary. **The native PDF stays the default path**
+        and keeps the composite log pages — deliberately NOT in the Word file, because they are
+        drawn at a true print scale and a picture pasted into a document stops being at that
+        scale the moment anyone resizes it; the document says so rather than leaving a gap.
+        A `Block` reuses the workbook's `Sheet`/`Column`/`Cell`, so one table definition renders
+        three ways and cannot drift. One deliberate divergence: `Cell::Blank` prints as a dash
+        here but stays an empty cell in the workbook (Excel's arithmetic skips a blank; a
+        document has no arithmetic). Runs `stats_only`, so unlike the PDF path it writes nothing
+        back. Open follow-ups: a rasterized composite appendix if he wants the plots in there
+        after all, and a client `.docx` style template to load rather than Word's defaults.
+      - **Bug found and fixed on the way (2026-07-31)**: every Python runner must read
+        `sys.stdin.buffer`, never `sys.stdin` — a piped child's text stdin decodes with the
+        Windows ANSI codepage while `serde_json` sends raw UTF-8, so all non-ASCII arrived as
+        mojibake. `ml.rs`/`python_engine.rs` were already correct; **`images.rs` was not**, and a
+        plate whose path held any non-ASCII character failed with "No such file or directory"
+        naming a filename nobody had. Proven both ways against a real file and pinned by
+        `a_word_document_keeps_non_ascii_text_intact`.
+- [x] **`joblib` model persistence → SHIPPED 2026-07-31** — `ml_models` (a joblib dump plus the
+      full description) + `MlRequest.save_model_as` + `apply_ml_model` / `list_ml_models` /
+      `rename_ml_model` / `delete_ml_model`, with "Save model as" and a **Saved models** list in
+      `mlDialog.ts`. Picked up by `create_schema` on every open, so no migration.
+      Contracts not to weaken: **the scaler is dumped WITH the estimator** (refitting a
+      StandardScaler on the apply wells is a different transform, and the predictions would be
+      quietly wrong rather than obviously broken); **feature ORDER is part of the contract** —
+      the artifact carries its own feature list, the apply path drives the fetch from it so a
+      caller cannot reorder it, and the runner re-checks inside the artifact and refuses rather
+      than predicting; **retraining auto-suffixes rather than overwriting**, because the model an
+      existing delivered curve was made with must stay reproducible; **saving happens after the
+      curves are written** so a storage failure costs the artifact, not the run. Supervised only —
+      clustering/reduction are fitted on the wells they are applied to by construction.
+      Open follow-ups: exporting/importing a model file so it can move between projects, and
+      showing a model's metrics in the saved list rather than only in its tooltip.
+- [ ] ~~**`joblib` model persistence**~~ — a confirmed capability hole, not a guess: `MlRequest`
+      carries `train_well_ids` and `apply_well_ids` in the SAME call, so the fitted model dies
+      with the subprocess. There is currently no way to train on the cored wells and apply *that
+      same model* later — a refit on different data is a different model. Persisting makes a
+      trained model a named, citable, re-runnable artifact (fits the delivery-set pattern).
+      Small; ride it along with the next ML touch.
+- [x] **SHIPPED 2026-07-31 — `scipy` in the equation engine.** The worker binds `scipy` plus
+      `signal`, `interpolate`, `optimize`, `stats` and `ndimage` into the script namespace, so
+      `signal.medfilt` (despike), `signal.savgol_filter`, `interpolate.interp1d` and
+      `optimize.curve_fit` are one line in a user equation. **numpy remains the only
+      requirement**: with scipy absent each name is a stub whose first use raises a message
+      naming the interpreter and the exact pip command, rather than a bare `NameError` that says
+      nothing about what to install or into which of three Pythons. `python_status()` now returns
+      `{path, scipy}` and the Equation Editor states it while the script is being written, the
+      same "probe before the dialog" discipline `office.rs` uses. **A curve mnemonic always
+      shadows a scipy name** — a well logged with a curve called STATS must not silently receive
+      `scipy.stats`. Boundary held: this is for the user's equations; core petrophysics stays in
+      Rust. Verified end to end through the real runner (medfilt removed a 300 gAPI spike;
+      `curve_fit` recovered a φ-k power law to <2%) and both branches are tested — installed and
+      absent.
+      *Open follow-up:* the editor note could carry a worked despike→smooth snippet, since
+      Savitzky-Golay over an un-despiked curve fits the spike rather than the rock.
+- [x] **SHIPPED 2026-07-31 — RtC calibration from the user's own water zone** (closes the last
+      Tier-B item from the provenance sweep). `lrlc::run_rtc_fit` + Advance ▸ Calibrate RtC…
+      regresses A_CAP/B_QV/C0 from measured excess conductivity over a declared water-bearing
+      interval. The regression is `sw_rtc`'s own saturation equation inverted at Sw = 1, so the
+      fit and the run cannot drift apart. The fit REFUSES without a declared water zone: over
+      hydrocarbon the apparent excess is too small, the calibration under-corrects Rt and Sw
+      comes back too high, which erases pay. RSF is held fixed (not jointly identifiable), an
+      unfittable Qv term is reported as 0 rather than guessed, and every excluded sample is
+      counted by reason. `sw_rtc`'s description now states the shipped defaults are one field's.
+      (Both follow-ups shipped 2026-07-31 — the measured-vs-fitted cross-plot and the
+      write-into-`zone_params` apply step; see below.)
+- [x] **SHIPPED 2026-07-31 — IMTS S-factor calibration from the user's own lab CEC.**
+      `lrlc::run_s_factor_fit` + Advance ▸ Calibrate S… fits `sw_imts`'s CEC scaling factor from
+      laboratory CEC point data against the clay content of the very curves the run will use.
+      Same discipline as RtC: the regression is the module's own clay-charge line inverted, via
+      the shared `cec_theo_at`, so a fitted S provably makes `sw_imts` reproduce the measured
+      CEC. Through the origin (S is a scaling factor, an intercept would be a different claim)
+      and clay-weighted rather than a mean of ratios. The drift detector is the P10-P90 SPREAD of
+      the per-plug ratios, not the median-vs-fit gap — two central values cannot diverge far
+      enough to catch real drift. S > 1 is flagged as a probable unmodelled mineral (smectite at
+      80-150 meq/100g against illite's 25), never clamped. A plug outside the depth tolerance is
+      dropped, not snapped. `sw_imts`'s description now says the shipped 0.5 was never measured
+      anywhere. Also fixed: both fit dialogs opened with a blank run button, because
+      `buildWellScope` does not fire `onChange` during construction.
+      (Both follow-ups shipped 2026-07-31 - the QC scatter and the dataset/item picker.)
+- [x] **SHIPPED 2026-07-31 - calibration QC scatter on both fits** (`fitScatter.ts`, shared).
+      RtC plots measured vs fitted excess with a dashed 1:1 line; the S fit plots the regression
+      itself, lab vs modelled CEC, with the fitted line through the origin - only that version
+      puts clay content on the x axis, which is what turns the P10-P90 spread into a shape with a
+      name. Points coloured by WELL with a legend, hover naming well/depth, and the standard
+      Copy/Image/Print buttons. Two geometry rules make it one shared module: a measured-vs-fitted
+      plot forces both axes to the SAME range so the 1:1 line is at 45 degrees, and a
+      through-the-origin plot forces the origin onto the page. Two bugs found by building it: the
+      first paint must NOT be deferred to requestAnimationFrame (it does not fire in a
+      non-compositing window, and attachResizeRedraw schedules through rAF too, so there is no
+      fallback), and the canvas context must be scaled by the dpr fitCanvasBackingStore returns.
+- [x] **SHIPPED 2026-07-31 - accepting a calibration writes it** (`calibrationApply.ts`, shared).
+      An Apply row under Copy writes the coefficients as `zone_params` overrides through the new
+      atomic `db::set_zone_param_batch(conn, zone_name, entries)`; `set_well_param_overrides` is
+      now just its `*` scope, so the parameter grid and an accepted calibration share one
+      transactional path. Default scope is `wells_fitted` - a new field on both fit results,
+      deliberately NOT derived from the decimated display points - because a scoped well that
+      contributed nothing was never calibrated; the wider sweep is offered and names the
+      uncalibrated wells. The held-fixed constants (RSF; CEC_KAOL/CEC_ILL) are written in the
+      SAME batch, since they are not jointly identifiable with the coefficients. One transaction,
+      one undo, and undo restores "no override" rather than zero.
+- [x] **SHIPPED 2026-07-31 - the S dialog picks the CEC measurement from the project.**
+      `db::list_aux_item_catalog` returns every point-data measurement name from the ACTIVE
+      delivery of each dataset, with row / well / NUMERIC-row counts, and the dialog turns it into
+      two dependent selects. Project-wide and unfiltered by well for the `list_well_param_overrides`
+      reason (one grouped scan, no IN-list binding limit). A text-only item is shown GREYED with
+      "no numeric values" rather than hidden - a lithology description cannot set a scaling
+      factor, and saying so beats a run that fails invisibly. A dataset with nothing numeric gets
+      an explicit placeholder; a project with no point data falls back to typed names with a
+      VISIBLE warning, since `formRow` hints are tooltips.
+- [ ] **`Pillow`** — already present, and enough for the *display* half of the image-track item
+      above (read JPEG/PNG/TIFF, dimensions, downsample). No install needed.
+- [ ] **OpenCV** — NOT installed, and deliberately deferred to the **digitizing** phase of the
+      image track, where it is the actual engine: thin-section modal analysis by colour
+      segmentation (point counting without the point counter), core-photo depth registration and
+      lithology banding, borehole-image processing. **Scoped 2026-07-31 into
+      `docs/plan_image_analysis.md`** (C2 item 8) — note that core-to-log *depth registration* turns
+      out NOT to need OpenCV at all: `tops.rs` already carries the best-lag and monotone-warp engine,
+      it has simply never been pointed at core.
+
+**Rejected, with reasons** (so this is not re-litigated): `pandas` — DuckDB already is the
+columnar frame, and routing through pandas copies data out of the store just to copy it back
+(fine inside a runner script, wrong as architecture). `jax` / `tensorflow` / `onnxruntime` —
+sklearn's `MLPRegressor` covers the neural-net case for logs; a ~200 MB deep-learning runtime to
+unlock the deferred autoencoder is a bad trade. `mediapipe` — face/pose perception, irrelevant.
+
 - [x] **Pickett v2** — **COMPLETE 2026-07-30.** N with M and Rw, free line-parameter input, Z-colour
       by a chosen log: all shipped as Polish-4/#125 above. The tail landed with the multi-well work:
       template bar, RT default widened to 0.2–2000 (audit), `sanitizePickettProps`, Sw lines spanning
@@ -884,11 +1309,17 @@ Small-to-medium open bits left behind by shipped phases (each linked from its ph
 - **Log-view read path from the generic store** (Phase 6): rewire `get_track_data` so PEF/CALI are
   drawable in a track; curve-set selector in the layout picker; optional TVD depth scale in log/correlation
   (plumbing already built, dead-code-tagged).
-- **Per-well parameter override table** in the Workflow Builder (Phase 9-2).
+- ~~**Per-well parameter override table** in the Workflow Builder (Phase 9-2).~~ **DONE 2026-07-30** —
+  see Phase 9-2 above. Follow-up left open: CSV **import** back into the grid (export exists).
 - **Monte Carlo** (Phase 9-3): per-zone parameter distributions (currently well-wide); persisted
   P10/P50/P90 *curves*. *(Plus the §4 New-capability "print LOW/BASE/HIGH curves" item in [C5](#c5-new-capability-misc-4).)*
 - **Full-field responsiveness** (Phase 9-5): lazy catalog loading, decimation cache, keep the UI responsive
   during full-field runs, 2000-well synthetic stress fixture (100-well is the current proof).
+  **Shipped 2026-07-30 (from the BLSO 2.5 GB / 6 GB RAM / 15-min-open field report):** DuckDB
+  memory cap on every open (default/4 clamped [1,4] GiB, `SANDIBUMI_DB_MEMORY` overrides),
+  **Compact Project** (engine rewrite in place, all-table row-count verification, original parked
+  as `.pre-compact-<ts>`), Save As now engine-copies (compacted export), and boot/migration
+  notices surface in the status line + History (`boot_report`) instead of an invisible stderr.
 - **Missing-curve synthesis** (Phase 10): per-field regressors for DT/NPHI where absent, with holdout-well
   R² report.
 - **Auto-picks** (Phase 10): per-zone GR_MA/GR_SH percentile suggestions, change-point auto-zonation,
@@ -952,6 +1383,229 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       white-balance, CLAHE/denoise/sharpen, depth registration + stitched strip pyramid, core-to-log shift
       (photo-proxy-log cross-correlation vs GR), WL/UV pairs, log-view strip track. Absorbs the §4
       New-capability "core image input" stub. → `ref_image_core.md`.
+- [ ] **(8) Depth registration, then plate digitizing** — scoped 2026-07-31 at Jauhar's direction
+      ("all of those, it should be depth registered first, then the quantification or qualitative
+      analysis"). **The plan is `docs/plan_image_analysis.md`**; it supersedes the loose OpenCV note
+      in §B3 and overlaps (7) on the registration half. Two tiers: **Part 1** core-to-log depth
+      registration (a pane, a proposed best-lag reusing `tops.rs`'s existing `best_shift`/`warp_refine`
+      rather than a new algorithm, per-core-run piecewise shift, plates following their plugs, and the
+      still-uncalled `update_well_image`), then **Part 2** digitizing (modal analysis by colour, pore
+      geometry, grain size) through an OpenCV **subprocess**, storing results in `aux_data` and
+      `array_logs` so nothing new is needed downstream. Registration is first because nothing in the
+      repo can check a depth: the S-fit's own test records that a whole-sample shift is invisible to
+      any depth-tolerance check. Four open decisions are listed in the plan's §4; only **D1** (does he
+      receive core gamma?) blocks the first increment.
+
+- [x] **Core-to-log depth registration (Part 1, increments 1a+1b)** — **SHIPPED 2026-07-31.**
+      `registration.rs` + `depthRegDialog.ts` (Data ▸ Tools ▾ ▸ Register Depth…). Answers D1
+      ("not always, sometimes"): a delivered core gamma against GR is **like-for-like** and the
+      search maximises signed r; a core porosity against GR is a **proxy**, co-varies inversely,
+      and the search maximises |r| and reports the sign. Pinned from both sides — a signed score
+      fails the proxy test, |r| everywhere fails the like-for-like test. Reuses `tops.rs`'s
+      `interp`/`pearson` rather than a second implementation; the whole **correlogram** comes back
+      so a comb of near-equal peaks is visible rather than reduced to one confident number, and
+      nothing is applied without the user accepting it. A pair-count floor (75% of the
+      best-populated shift) stops the core sliding off the log's end and winning on six lucky
+      plugs. Also fixed here: **`db::shift_core_depths` now moves the plugs and the point data
+      measured ON them in one transaction** (`CoreShiftCounts`), because core extras live in
+      `aux_data` under the core set's own name and were being left behind — the core gamma that
+      justified a shift did not move with the porosity it was judged against. Which datasets ride
+      along is offered (`db::core_extra_datasets`), never inferred from the set name alone.
+
+- [x] **Plate depth editing (Part 1, increment 1e)** — **SHIPPED 2026-07-31.** `plateDepthDialog.ts`
+      (Data ▸ Tools ▾ ▸ Plate Depths…) is the missing caller for `update_well_image`, closing the
+      follow-up left open when the image track shipped — a plate at the wrong depth previously
+      needed a delete-and-re-import. Adds `db::shift_well_images` for the whole-delivery case (ONE
+      statement following `ACTIVE_IMAGE_SET`; per-plate calls would be hundreds of IPC round trips
+      for a core-photograph delivery). **A blank base stays a POINT sample** through both paths —
+      `depth_base + delta` is NULL-safe, so a shift never gives a thin section a thickness — and a
+      base above the top is refused rather than swapped. Per-plate edits and bulk shifts are both
+      undoable. **D2 answered tentatively** ("yes, but its tentative"): plates riding
+      `shift_core_depths` automatically is increment 1d and is deliberately NOT wired yet, because a
+      picture that moves without being asked is the same class of error as a core extra that fails
+      to move at all.
+
+- [x] **Per-barrel shifts + the core depth record (Part 1, increment 1c)** — **SHIPPED 2026-07-31.**
+      From Jauhar: core comes up in barrels, pieces can shift inside a barrel too, and **the core
+      set must record the shift so later deliveries follow it**. `db::RunShift` +
+      `apply_core_run_shifts` (free intervals, so a moved piece is just a shorter range) with the
+      barrel table in `depthRegDialog.ts`, each row proposing its own shift through the existing
+      `registration.rs` engine. New `core_data.depth_orig` (migration
+      `db::migrate_core_depth_orig`, non-destructive, must run after `migrate_point_data_sets`)
+      never moves, so `core_depth_pairs` + `map_core_depth` place a later XRD/CEC delivery written
+      at the lab's depths onto where that rock now sits — interpolated between plugs (the offset
+      really does vary when pieces moved), held and FLAGGED outside the cored interval. Two rules
+      enforced in a dry run before any write: no shift may reorder the core, and two ranges may not
+      overlap (touching is fine). **The inverse for undo is computed by the backend**
+      (`CoreShiftCounts.inverse`) — a browser check caught that negating the caller's own ranges
+      produces overlapping inverse ranges when barrels move by different amounts, which would undo
+      some plugs by their neighbour's correction. Remaining on this thread: wiring the map into the
+      import wizards so it is offered rather than available (Part 1 follow-up).
+
+- [x] **A late delivery follows the core (Part 1, increment 1c follow-up)** — **SHIPPED 2026-07-31.**
+      `ingest::import_aux_file(..., follow_core)` + the "These depths came from the core report"
+      tick-box in Data ▸ Import Aux…. Turns the depth record from something the app *can* do into
+      something it *offers*: XRD/CEC/petrography written at the original core depths is placed
+      through `db::core_depth_pairs`, per WELL (a multi-well file routes by its WELL column and each
+      well has its own record). Off by default — nothing in a delimited text file says which depth
+      scale it uses, so this is the user's declaration, like the RtC fit's water zone. An interval
+      is placed by its top with the base taking the same offset (mapping the ends independently
+      could invert a thin sample at a barrel boundary). Reported rather than assumed: samples
+      outside the cored interval, a core that was never shifted, and a well with no core to follow.
+      Pinned by `a_late_delivery_can_follow_the_core_it_was_measured_on`. **Not yet offered for SCAL
+      or image imports**, which also arrive at lab-written depths.
+
+- [x] **SCAL and image imports follow the core too (Part 1)** — **SHIPPED 2026-07-31.** Extends the
+      point-data tick-box to `ingest::import_scal_files(..., follow_core)` and
+      `images::ImageImportRequest.follow_core` (`#[serde(default)]`). All three sources are measured
+      ON core and carry the core report's depths. One shared control, `src/ui/followCore.ts` — the
+      same decision in three dialogs, and three copies would drift. SCAL rows with no depth are left
+      alone and said so; a plate's top is mapped with the base taking the SAME offset, so a core
+      photograph keeps its logged thickness and a section with no base stays a point sample.
+      `ScalImportResult` gained `note`. Test note: the image round-trip needed a genuinely decodable
+      `REAL_JPEG_HEX` (159 bytes) — the existing `tiny_jpeg()` stub is header-only and Pillow refuses
+      it. **Still not automatic**: a delivery already in the project does not move when the core is
+      re-registered afterwards — that is increment 1d, waiting on Jauhar firming up D2.
+
+- [x] **Mineral classifier (Part 2, family A3 — Tier 3)** — **SHIPPED 2026-07-31**. A supervised
+      per-pixel classifier trained on the user's OWN clicks; **nothing ships pre-trained**, because
+      a model fitted under somebody else's lamp gives numbers with the shape of a modal analysis and
+      none of the content. Clicking is the method — it is point counting, producing training data
+      instead of a tally. **The labels are the artefact, not the model**: they persist as a
+      `platelabels` document and the seeded forest is refitted from them, so the answer stays
+      readable and reproducible (deliberately unlike `ml_models`). **CV groups by CLICK**, since a
+      click's neighbouring pixels are near-identical and splitting them across a fold reports an
+      accuracy nobody can reproduce. **Recall is per class and the weak ones are named** — an
+      overall 0.9 sits comfortably on a mineral the model cannot see. One class and under-3-click
+      classes are refused before the subprocess starts. Features are colour + local texture, with
+      hue entering as sin/cos because it is circular. Measured: two halves of identical mean colour
+      differing only in texture gave accuracy 1.000 and fractions 0.504/0.496; the control — one
+      uniform material labelled as two minerals — fell to **0.410**, near chance, and was named as
+      unreliable. Items are `CLS_<MINERAL>`, never `MIN_`.
+- [x] **Stained carbonate (Part 2, family A2)** — **SHIPPED 2026-07-31**. Mineral area fractions
+      from a DECLARED stain, in the same run and off the same pore mask, so pore + minerals +
+      unclassified = 1 (measured exactly 1.000). **A plate whose own stain does not match the
+      scheme is refused by name, and undeclared is refused too** — reading the wrong scheme returns
+      fractions that are wrong and entirely plausible, and the evidence for "this is alizarin red"
+      is the red about to be measured. Identifications are published (Friedman 1959, Dickson 1966);
+      the colour bands are round starting points and editable, the same split as the epoxy band.
+      `StainBand` carries a saturation CEILING because "unstained dolomite" is the absence of
+      colour. `MIN_UNCLASS` written every run — the honesty number. **The blue-epoxy / turquoise
+      ferroan-dolomite collision is real and measured**: with the default epoxy band the synthetic
+      plate returned pore 0.500 and ferroan dolomite 0.000; narrowed, 0.250 and 0.250.
+      `epoxy_collides` names the affected minerals and never resolves it automatically.
+- [x] **Grain size (Part 2, family B — D3 closed)** — **SHIPPED 2026-07-31**. Jauhar's answer
+      ("apply wicksell correction is optional") shipped as apparent-by-default with the correction
+      as a tick, and implemented as **different item names** rather than one name and a flag:
+      `GRAIN_D50_APP` vs `GRAIN_D50_W`, with no bare `GRAIN_D50` anywhere. The split is a
+      **nearest-centre partition** of the solid phase, not `watershed_ift` — that was tried and
+      measured, giving one grain 47792 px and the other 9 on a welded pair the new code splits
+      23957/23844. Confined to one connected blob at a time, or a pixel can be nearer a centre
+      across open pore and one label lands in two places. **`GRAIN_CONTACT` rides with every run**:
+      where the rock is cemented there is no pore for the picture to see and the boundary was
+      placed rather than observed, so above 0.7 the notes say to read those sizes as rock fabric.
+      Sorting is **Folk & Ward (1957)** in phi; everything is area-weighted, which on a section IS
+      volume weighting (`n·D³`), so apparent, corrected and a sieve are all comparable. Wicksell is
+      **Saltykov derived from the chord geometry, not a transcribed coefficient table**, twelve
+      log classes with class 0 reaching zero so nothing is lost to a bin edge, negative classes
+      clamped and counted. Measured finding recorded in the tests: the correction earns its place
+      on SORTING, not on D50 — area weighting already absorbs most of the median bias.
+- [x] **Plug QC — the petrography numbers meet an independent measurement** — **SHIPPED
+      2026-07-31**. `plugqc.rs` + `plugQcPanel.ts` (Petrophysics ▸ Petrography ▸ Plug QC…) pair two
+      measurements of the SAME plug: a routine-core column, any numeric point-data item (where every
+      petrography output lands), or a pore-throat radius read off that plug's own Pc curve. **A
+      sample with no partner inside the depth tolerance is dropped and counted, never snapped** (the
+      S-fit rule — a core off by a whole sample interval is invisible to any tolerance check), and
+      **a measurement is used ONCE** so two nearby sections cannot both claim one plug and tighten
+      the correlation for free. **Pearson AND Spearman**, because bodies-against-throats should move
+      together without falling on a line — and Spearman survives a log axis, so the number never
+      disagrees with the picture. Throat radius is Washburn with the lab's own σcosθ from
+      `scal_pc.ift` (no ift → excluded by name, as `thomeer.rs` does), Pc interpolated in **log Pc**,
+      a saturation outside the measured range **never extrapolated**, default 35% = the
+      Kolodzie/Winland r35 convention already in `rocktyping.rs`. Medians of both axes reported so a
+      percent-versus-fraction delivery is visible rather than silently ruining a 1:1 comparison.
+      `fitScatter.ts` gained a `{kind:"none"}` line and log axes; `.form-row[hidden]` added to
+      styles.css.
+- [x] **Pore geometry (Part 2, family C)** — **SHIPPED 2026-07-31**. Per-pore shape and size beside
+      the area fraction, from the SAME mask in the same pass so the two can never describe different
+      pictures. Outputs `PORE_N` / `PORE_ASPECT` / `PORE_SHAPE` for every plate and
+      `PORE_D10/D50/D90` in µm only where a scale exists — no NaN placeholder, which would read as
+      a measurement that failed rather than one never possible. **Four-connectivity** (a corner
+      contact is a throat of zero width, not one pore). **Crofton perimeter, not a boundary-pixel
+      count** — a staircase overestimates a diagonal edge by up to √2 and biases circularity
+      systematically low; measured 630.1 against a true 628.3 on a disc, worst case ~5% low on an
+      axis-aligned rectangle, both pinned by test. **Aspect from second moments** with the +1/12
+      discrete correction, exact on a disc and on a 5:1 bar. Edge-touching pores excluded and
+      counted; speckle below a PIXEL threshold dropped and counted. **Diameters area-weighted**,
+      because capillary pressure fills volume. Runner returns per-pore arrays; every statistic is
+      computed in Rust. Needs scipy for the labelling only, so it is opt-in and its absence never
+      touches the area fraction.
+- [x] **Scale bar calibration (Part 2, the scale gate opened)** — **SHIPPED 2026-07-31**.
+      `src/ui/scaleBarDialog.ts`, the ⇹ button on each Plate Details… row: drag along the plate's
+      own printed scale bar, type what it reads, get a field of view. **The measurement is a pure
+      ratio** — the bar as a FRACTION of the picture's width — so it is invariant to display zoom
+      and to the stored copy's resampling, and comes out already in the form the store wants
+      (verified: the same drag at 848 px and at 400 px displayed width both returned 2000 µm).
+      No snapping, because a 5° error is 0.4%; Actual size is the mode that matters, because
+      hitting the bar's ends is what decides the accuracy. It only FILLS the box — the row's Save
+      still writes it. The optional apply-to-delivery goes row by row so each plate keeps its own
+      preparation and stain. This opens the gate for the dimensional families (B grain size, the
+      sized parts of C).
+- [x] **Pore area from blue-dyed epoxy (Part 2, family A1)** — **SHIPPED 2026-07-31**.
+      `petrography.rs` + `poreAreaDialog.ts`, Petrophysics ▸ Petrography ▸ Pore Area…. The first
+      measurement off a plate and deliberately the dimensionless one, so it runs on every plate
+      rather than only the calibrated ones. **A plate must be declared impregnated and an
+      undeclared one is refused BY NAME** (`epoxy_check`) — the rule the whole feature rests on,
+      because a blue rule on an unimpregnated section returns a plausible porosity instead of
+      failing, and impregnation cannot be read off the pixels without begging the question. The
+      colour band is the user's, tuned visually; **the preview overlay comes from the same runner
+      that does the measuring**, so the two can never drift. **No morphological cleaning** — a
+      structuring element is a size in pixels and a plate may carry no scale, so nothing is
+      smoothed and the speckle stays visible. Results are POINT DATA (`PETROGRAPHY` / `VPORE_TS`)
+      at each plate's depth, never a curve; measuring and saving are separate buttons so tuning
+      writes nothing. numpy + Pillow in one subprocess per 16 plates (rule 7), with the real
+      round-trip test `#[ignore]`d so the gate never depends on an optional package.
+      Next in Part 2: A2 stained carbonate (needs the lab's stain protocol), then C pore geometry.
+- [x] **Plate scale and preparation (Part 2, increment 2.0 — D4 answered)** — **SHIPPED
+      2026-07-31**. Jauhar answered "sometimes" on both the scale and the epoxy, so one delivery
+      holds plates of both kinds: `well_images` gained `fov_um` / `prepared` / `stain` PER PLATE,
+      all declared, all defaulting to absent (`db::migrate_plate_scale_and_prep`, ADD COLUMN only).
+      **Scale is a field of view WIDTH, not um/px** — the stored copy is resampled, so a ratio
+      belongs to whichever copy it was measured on while a field of view survives resampling; um/px
+      is derived per copy. **Unknown preparation is refused, never assumed**: a blue-epoxy rule over
+      an unimpregnated section returns a plausible porosity rather than failing, and detecting
+      impregnation from the pixels is circular. Delivery-level values fill the blanks, the per-plate
+      **FOV mm** column overrules them. `src/ui/plateDetails.ts` is the one shared control;
+      `db::set_image_details` / `set_image_delivery_details` write one plate or a whole live
+      delivery, with `None` written as given so a wrong entry is clearable. Data ▸ Tools ▾ ▸
+      **Plate Details…** (renamed from Plate Depths…). Next: A1, pore area from blue epoxy.
+- [x] **The core carries its own depth history (Part 1, increment 1f — COMPLETES PART 1)** —
+      **SHIPPED 2026-07-31**. `core_registrations` holds one row per moved range, written inside
+      the SAME transaction as the move: `shift_core_depths` and `apply_core_run_shifts` take a
+      `RegistrationNote`, and there is no "do not record" value. **An event log, not a state
+      table** — an undo appends its own reversal rather than erasing the row it reverses, because
+      a core that was registered, judged wrong and put back is not the same as one nobody touched.
+      The stored correlation is the one at the shift ACTUALLY applied (`correlationAt` reads the
+      applied delta off the scan), and it is **per range**, so `RunShift` gained
+      `correlation`/`n_pairs` — each barrel is judged on its own correlogram, and a range typed by
+      hand records a blank rather than a zero. History shown at the foot of Register Depth…
+      D4 also closed this session ("sometimes" for both scale and epoxy/stain, so both become
+      declared per-plate properties defaulting to absent — `docs/plan_image_analysis.md` §4.1).
+      **Part 1 of `docs/plan_image_analysis.md` is complete.**
+- [x] **Already-imported deliveries follow a later re-registration (Part 1, increment 1d)** —
+      **SHIPPED 2026-07-31**, on Jauhar's firm yes (D2 closed). `ShiftTargets` on
+      `db::shift_core_depths` / `db::apply_core_run_shifts` carries the chosen point datasets, the
+      live SCAL delivery and each chosen image delivery with the plugs in one transaction;
+      `CoreShiftCounts` reports plugs / extras / scal / plates. **Which deliveries belong to the
+      core is recorded, not guessed**: `aux_sets`/`scal_sets`/`image_sets` gained `on_core_depths`,
+      written from the import tick-box (`db::migrate_delivery_depth_basis`, ADD COLUMN only,
+      existing rows get 0 = leave alone). `db::core_shift_candidates` lists every live delivery WITH
+      its flag rather than filtering, so an older project does not look empty; the dialog pre-ticks
+      the flagged ones and marks the rest "not marked as core-depth data". The tick-boxes sit at
+      dialog level so the single-shift and per-barrel Apply share them — they were briefly inside
+      the result block, which made the barrel path ignore them, caught in the browser rather than by
+      the compiler. Part 1 of `docs/plan_image_analysis.md` is now complete except 1f (recording why
+      the core sits where it does).
 
 ## C3. Trust & reproducibility — Phase 11 (§3)
 

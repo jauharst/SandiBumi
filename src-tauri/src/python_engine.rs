@@ -5,8 +5,19 @@
 //! Python runs as a SUBPROCESS rather than an embedded interpreter: the app binary has
 //! no link-time Python dependency, so a missing/foreign Python can never stop SandiBumi
 //! from launching — a run just fails with a clear message. Discovery order:
-//! `ARSHILLA_PYTHON` env var, then recent py.org per-user installs, then PATH; the first
-//! interpreter that can `import numpy` wins (cached for the session).
+//! `SANDIBUMI_PYTHON` env var, then the legacy `ARSHILLA_PYTHON` (the app's former name —
+//! honoured silently so nobody's existing setup breaks, but never named in a message), then
+//! recent py.org per-user installs, then PATH; the first interpreter that can `import numpy`
+//! wins (cached for the session).
+//!
+//! **scipy is optional (2026-07-31).** The worker binds `scipy` plus `signal`, `interpolate`,
+//! `optimize`, `stats` and `ndimage` directly into the script namespace, so despiking
+//! (`signal.medfilt`), Savitzky-Golay smoothing (`signal.savgol_filter`), resampling
+//! (`interpolate.interp1d`) and curve fitting (`optimize.curve_fit`) are one line in a user
+//! equation. **numpy stays the only requirement** — with scipy absent, each name is a stub whose
+//! first use raises a message naming the interpreter and the exact pip command, instead of a bare
+//! `NameError` that says nothing about what to install or where. Core petrophysics stays in Rust;
+//! this is for the user's own equations.
 //!
 //! **Persistent worker (perf):** rather than spawn a fresh `python.exe` per well (which
 //! re-imports numpy every time — the dominant cost of a field-scale equation run), one
@@ -25,8 +36,16 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 
+/// The environment variable naming the interpreter to use. Every message the user ever sees
+/// names THIS one.
+pub const PYTHON_ENV: &str = "SANDIBUMI_PYTHON";
+/// The pre-rename name, still honoured so an existing setup keeps working. Deliberately never
+/// mentioned in a message: telling a customer to set a variable named after a product that no
+/// longer exists is how the old name outlives the rename.
+pub const PYTHON_ENV_LEGACY: &str = "ARSHILLA_PYTHON";
+
 const NO_PYTHON: &str =
-    "no Python with numpy found — install Python 3.10+ with numpy, or set ARSHILLA_PYTHON to its python.exe";
+    "no Python with numpy found — install Python 3.10+ with numpy, or set SANDIBUMI_PYTHON to its python.exe";
 
 /// Persistent request/response loop: read a JSON header line + raw f32 arrays, exec the
 /// user script with numpy bound (fresh namespace each request), and reply with a
@@ -37,6 +56,52 @@ const NO_PYTHON: &str =
 const RUNNER_LOOP: &str = r#"
 import sys, json
 import numpy as np
+
+# scipy is OPTIONAL and must stay that way. numpy is the engine (an equation language without
+# arrays is nothing); scipy is a bonus, so an interpreter with only numpy behaves exactly as it
+# did before this existed. Submodules are imported EXPLICITLY: `import scipy` alone does not
+# bind scipy.signal, so a script writing `signal.savgol_filter(...)` after a bare scipy import
+# fails with an AttributeError that says nothing useful.
+SCIPY_SUBMODULES = ("signal", "interpolate", "optimize", "stats", "ndimage")
+
+class _MissingScipy:
+    """Stands in for a scipy submodule when scipy is absent.
+
+    Without this a script using `signal.medfilt` dies on `NameError: name 'signal' is not
+    defined`, which tells the user nothing about what to install or into WHICH interpreter —
+    and SandiBumi picks its own interpreter, so "install scipy" is genuinely ambiguous on a
+    machine with three Pythons. Naming sys.executable is the whole point.
+    """
+    __slots__ = ("_name",)
+
+    def __init__(self, name):
+        self._name = name
+
+    def __getattr__(self, attr):
+        raise RuntimeError(
+            "scipy is not installed in the interpreter this app is using ("
+            + sys.executable
+            + ") - run:  \"" + sys.executable + "\" -m pip install scipy   "
+            + "(needed for " + self._name + "." + str(attr) + ")"
+        )
+
+    def __call__(self, *a, **k):
+        raise RuntimeError(
+            "scipy is not installed in the interpreter this app is using ("
+            + sys.executable + ") - run:  \"" + sys.executable + "\" -m pip install scipy"
+        )
+
+SCIPY_NS = {}
+try:
+    import scipy as _scipy
+    SCIPY_NS["scipy"] = _scipy
+except Exception:
+    SCIPY_NS["scipy"] = _MissingScipy("scipy")
+for _m in SCIPY_SUBMODULES:
+    try:
+        SCIPY_NS[_m] = __import__("scipy." + _m, fromlist=[_m])
+    except Exception:
+        SCIPY_NS[_m] = _MissingScipy(_m)
 
 stdin = sys.stdin.buffer
 stdout = sys.stdout.buffer
@@ -73,7 +138,11 @@ while True:
     payload = read_exact(4 * n * len(names))
     if payload is None:
         break  # EOF mid-request
+    # scipy names go in FIRST so a curve mnemonic always wins the collision. A well whose log
+    # is called STATS must shadow scipy.stats, not the other way round — the user's data is
+    # never the thing that yields.
     ns = {"np": np, "numpy": np}
+    ns.update(SCIPY_NS)
     for i, name in enumerate(names):
         ns[name] = np.frombuffer(payload, dtype=np.float32, count=n, offset=4 * n * i).copy()
     # When the output name collides with an input (or "depth") it is ALREADY bound here, so a
@@ -110,8 +179,16 @@ pub fn find_python() -> Option<PathBuf> {
     FOUND
         .get_or_init(|| {
             let mut candidates: Vec<PathBuf> = Vec::new();
-            if let Ok(p) = std::env::var("ARSHILLA_PYTHON") {
-                candidates.push(PathBuf::from(p));
+            // Current name first, then the pre-rename one. A user who set ARSHILLA_PYTHON
+            // years ago keeps working without being told to change anything; a user reading
+            // an error message today is only ever told the current name.
+            for var in [PYTHON_ENV, PYTHON_ENV_LEGACY] {
+                if let Ok(p) = std::env::var(var) {
+                    let p = p.trim();
+                    if !p.is_empty() {
+                        candidates.push(PathBuf::from(p));
+                    }
+                }
             }
             if let Ok(local) = std::env::var("LOCALAPPDATA") {
                 for ver in ["Python313", "Python312", "Python311", "Python310"] {
@@ -130,6 +207,53 @@ fn has_numpy(python: &PathBuf) -> bool {
     cmd.args(["-c", "import numpy"]).stdout(Stdio::null()).stderr(Stdio::null());
     hide_console(&mut cmd);
     cmd.status().map(|s| s.success()).unwrap_or(false)
+}
+
+/// What the equation engine can actually offer, probed once per session.
+///
+/// Probed UP FRONT rather than discovered when a script fails, for the same reason
+/// `office.rs` probes its packages before opening a save dialog: a user should learn that
+/// `optimize.curve_fit` is unavailable while writing the equation, not after queuing it across
+/// ninety wells.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PythonStatus {
+    /// Interpreter the engine will use; `None` when no Python with numpy was found.
+    pub path: Option<String>,
+    /// scipy's version string when it is importable in that interpreter.
+    pub scipy: Option<String>,
+}
+
+/// The scipy version in `python`, if any. One extra subprocess, cached for the session.
+fn scipy_version(python: &PathBuf) -> Option<String> {
+    let mut cmd = Command::new(python);
+    cmd.args(["-c", "import scipy; print(scipy.__version__)"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    hide_console(&mut cmd);
+    let out = cmd.output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if v.is_empty() {
+        None
+    } else {
+        Some(v)
+    }
+}
+
+/// Interpreter + optional-package status, cached for the session.
+pub fn python_status() -> PythonStatus {
+    static STATUS: OnceLock<PythonStatus> = OnceLock::new();
+    STATUS
+        .get_or_init(|| match find_python() {
+            None => PythonStatus { path: None, scipy: None },
+            Some(p) => PythonStatus {
+                scipy: scipy_version(&p),
+                path: Some(p.to_string_lossy().to_string()),
+            },
+        })
+        .clone()
 }
 
 /// Keeps per-run python subprocesses from flashing console windows on Windows.
@@ -363,8 +487,100 @@ pub fn run_python_equation(
 }
 
 #[cfg(test)]
+mod env_name_tests {
+    use super::*;
+
+    /// A customer who has no Python is told what to set. Until 2026-07-31 they were told to
+    /// set `ARSHILLA_PYTHON` — a variable named after this app's PREVIOUS name — in ten
+    /// separate messages across DLIS import, ML, images and all three office exports. That is
+    /// an instruction to configure a product that does not exist.
+    ///
+    /// The rule this pins: discovery still ACCEPTS the old name (nobody's setup breaks), but
+    /// no message ever NAMES it.
+    #[test]
+    fn no_user_facing_message_names_the_pre_rename_variable() {
+        assert!(
+            NO_PYTHON.contains(PYTHON_ENV),
+            "the message must name the current variable: {NO_PYTHON}"
+        );
+        assert!(
+            !NO_PYTHON.contains(PYTHON_ENV_LEGACY),
+            "the message must not name the pre-rename variable: {NO_PYTHON}"
+        );
+        assert_ne!(PYTHON_ENV, PYTHON_ENV_LEGACY);
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Runs one script on the worker against a 5-sample ramp and returns the output.
+    /// Used by the scipy tests below.
+    fn run_script(script: &str, output: &str) -> Result<Vec<f32>, String> {
+        let depth: Vec<f32> = vec![1000.0, 1000.5, 1001.0, 1001.5, 1002.0];
+        let gr: Vec<f32> = vec![20.0, 90.0, 25.0, 30.0, 35.0]; // one spike, for the despike test
+        let names = vec!["depth".to_string(), "gr".to_string()];
+        exec_script(script, &names, &[&depth, &gr], depth.len(), output)
+    }
+
+    /// scipy is bound into the script namespace when it is installed, and its absence is
+    /// reported in a way a user can act on.
+    ///
+    /// The engine's ONE hard requirement is numpy; scipy is a bonus. So this test adapts to the
+    /// machine rather than being `#[ignore]`d — on a box with scipy it proves the real call
+    /// works, on a box without it proves the failure message names the interpreter and the pip
+    /// command. Both are green, and the green gate never depends on an optional package.
+    #[test]
+    fn scipy_is_available_when_installed_and_names_the_fix_when_not() {
+        let Some(python) = find_python() else {
+            eprintln!("SKIP scipy test: no python with numpy on this machine");
+            return;
+        };
+        let status = python_status();
+        assert_eq!(status.path.as_deref(), Some(python.to_string_lossy().as_ref()));
+
+        // Savitzky-Golay over 5 samples: a real scipy.signal call, not an import check.
+        let out = run_script("grs = signal.savgol_filter(gr, 5, 2)", "grs");
+
+        match status.scipy {
+            Some(ref v) => {
+                assert!(!v.is_empty(), "a reported scipy version must not be blank");
+                let vals = out.unwrap_or_else(|e| panic!("scipy {v} is installed but the call failed: {e}"));
+                assert_eq!(vals.len(), 5);
+                assert!(vals.iter().all(|x| x.is_finite()), "smoothed GR must be finite: {vals:?}");
+                // The point of smoothing: the 90 gAPI spike is pulled down toward its neighbours.
+                assert!(vals[1] < 90.0, "the spike must be reduced, got {}", vals[1]);
+            }
+            None => {
+                let e = out.expect_err("without scipy the script cannot succeed");
+                let lower = e.to_lowercase();
+                assert!(lower.contains("scipy"), "the error must name scipy: {e}");
+                assert!(lower.contains("pip install"), "the error must give the fix: {e}");
+                assert!(
+                    e.contains(&python.to_string_lossy().to_string()),
+                    "the error must name WHICH interpreter to install into: {e}"
+                );
+            }
+        }
+    }
+
+    /// A curve mnemonic must win a name collision with a scipy submodule. A well logged with a
+    /// curve called STATS is unusual but legal, and silently handing the script scipy.stats
+    /// instead of the user's data would produce a confident wrong answer rather than an error.
+    #[test]
+    fn a_curve_named_like_a_scipy_module_shadows_it() {
+        if find_python().is_none() {
+            eprintln!("SKIP collision test: no python with numpy on this machine");
+            return;
+        }
+        let depth: Vec<f32> = vec![1000.0, 1000.5, 1001.0];
+        let stats: Vec<f32> = vec![1.0, 2.0, 3.0];
+        let names = vec!["depth".to_string(), "stats".to_string()];
+        let out = exec_script("doubled = stats * 2.0", &names, &[&depth, &stats], 3, "doubled")
+            .expect("the curve must shadow scipy.stats");
+        assert_eq!(out, vec![2.0f32, 4.0, 6.0]);
+    }
 
     /// Every terminal branch must report its per-well state to the job. `finish_item` is the sole
     /// incrementer of `done`, so a branch that stays silent leaves the Processing panel at 0% with
