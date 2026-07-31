@@ -253,6 +253,9 @@ export class Ribbon {
     window.addEventListener("sandibumi:open-processing", () => workspace.openProcessing());
     q<HTMLButtonElement>("#montecarlo-btn")?.addEventListener("click", () => workspace.openMonteCarlo());
     q<HTMLButtonElement>("#ml-btn")?.addEventListener("click", () => workspace.openMl());
+    q<HTMLButtonElement>("#pore-area-btn")?.addEventListener("click", () => {
+      void import("./poreAreaDialog").then((m) => m.openPoreAreaDialog());
+    });
     q<HTMLButtonElement>("#multimin-btn")?.addEventListener("click", () => workspace.openMultimin());
     q<HTMLButtonElement>("#rtc-fit-btn")?.addEventListener("click", () => {
       void import("./rtcFitDialog").then((m) => m.openRtcFitDialog());

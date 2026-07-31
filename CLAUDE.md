@@ -1079,6 +1079,56 @@ uniformity that was not there.
 
 Data ▸ Tools ▾ ▸ **Plate Details…** (renamed from Plate Depths…, same dialog).
 
+## Pore area from blue-dyed epoxy (2026-07-31 — Part 2 A1)
+
+`petrography.rs` (Petrophysics ▸ Petrography ▸ **Pore Area…**, `poreAreaDialog.ts`) is the first
+measurement taken off a plate, and deliberately the **dimensionless** one: an area fraction needs no
+micrometres per pixel, so it runs on every plate rather than only the calibrated ones. The
+deliverable is an area fraction per plate, which estimates volume fraction by the Delesse relation.
+
+**A plate must be DECLARED impregnated, and an undeclared one is refused BY NAME.** This is the
+whole reason `well_images.prepared` exists (`petrography::epoxy_check`, deliberately split out and
+public so a test can pin it without Pillow). A blue rule run over an unimpregnated section does not
+fail — it returns a porosity assembled from blue-ish feldspar, stain bleed and edge artefact, and
+that number then plots against core helium porosity looking entirely reasonable. Nor can the app
+work it out from the pixels: the evidence for "this is blue epoxy" is the blue it was about to
+measure, which is the same circle as reading a water zone off the saturation being calibrated. The
+plate picker greys out and explains each unqualified plate BEFORE a run rather than after.
+
+**The colour band is the user's, not the app's.** `PoreColorBand::default()` is a plain blue band in
+round numbers, offered as the starting point for a VISUAL tuning task, and pinned as generic by
+`the_default_colour_band_is_generic_not_a_calibration` (same discipline as `gr_normalize`'s
+reference percentiles — a two-decimal threshold would be somebody's regression result).
+
+**The preview comes from the SAME code as the measurement.** Redrawing the mask in the frontend
+would put the segmentation in two languages and the two would drift — the standing `composite.rs`
+versus log-view-renderer warning. So the Python runner returns the overlay PNG, and what the user
+tunes against is literally what gets measured. Tuning re-measures ONE plate (`only_image_id`) and a
+stale in-flight answer is dropped by sequence number rather than being allowed to overwrite a newer
+one.
+
+**No morphological cleaning.** Opening or closing a mask needs a structuring element measured in
+PIXELS, which is a size — and a plate may carry no scale at all, so that size could not be stated in
+microns for every plate. Rather than pick a pixel count meaning a different physical distance on
+every plate, nothing is smoothed and the speckle stays visible in the preview where it can be
+judged. This is the scale gate applied consistently, not an omission.
+
+**Results are POINT DATA, not a curve** — `aux_data`, dataset `PETROGRAPHY`, item `VPORE_TS`, at
+each plate's depth. A thin section measures the one plug it was cut from; a line between two of them
+would claim rock nobody looked at, the same argument that made point data a track kind rather than a
+`CurveStyle`. Its own dataset rather than the image delivery's name, so re-running the measurement
+never looks like a second delivery of pictures. **Measuring and saving are separate**: tuning a
+threshold means running it many times, and `set_name` is what turns a run into a write.
+
+Rule 7 throughout: numpy + Pillow in ONE subprocess per batch of `CHUNK` (16) plates — a
+core-photograph delivery is hundreds of plates at ~1 MB each and one batch would be a gigabyte in
+flight. `pore_support()` probes before a run so the dialog can name what is missing. The runner
+reads `sys.stdin.buffer`, never `sys.stdin`. The real round-trip test
+`a_quarter_blue_plate_measures_a_quarter` is `#[ignore]`d so the green gate never depends on an
+optional package; it builds a plate that is exactly a quarter blue plus a pale violet patch that a
+hue test alone would count — **it is the saturation floor that rejects that patch**, which is why the
+floor exists.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under

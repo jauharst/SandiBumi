@@ -3245,3 +3245,62 @@ export interface DlisImportResult {
 export function importDlisFile(wellId: string, path: string, setName?: string | null): Promise<DlisImportResult> {
   return invoke<DlisImportResult>("import_dlis_file", { wellId, path, setName: setName ?? null });
 }
+
+// --- Petrography: pore area from blue-dyed epoxy (plan_image_analysis A1) ---
+
+/** The colour rule, in HSV. Hue in degrees, saturation and value 0..1.
+ *  The backend's defaults are a plain blue band offered as a STARTING POINT for a visual tuning
+ *  task — not a calibration. Tune them against the preview, which is drawn by the same code that
+ *  does the measuring. */
+export interface PoreColorBand {
+  hue_lo: number;
+  hue_hi: number;
+  sat_min: number;
+  val_min: number;
+}
+
+export interface PoreSpec {
+  well_id: string;
+  dataset: string;
+  band?: PoreColorBand;
+  /** Draw the mask over this plate and send the picture back. */
+  preview_image_id?: string | null;
+  /** Measure only this plate — so moving a slider does not re-measure the whole delivery. */
+  only_image_id?: string | null;
+  /** Store the results as point data under this delivery name. Omit to measure without writing:
+   *  tuning must not leave a trail of half-judged answers in the project. */
+  set_name?: string | null;
+}
+
+export interface PlatePore {
+  image_id: string;
+  name: string;
+  depth_top: number;
+  depth_base: number | null;
+  /** Pore area as a fraction of the plate, v/v. */
+  pore_fraction: number;
+  pixels: number;
+}
+
+export interface PoreResult {
+  plates: PlatePore[];
+  /** Plates left out and why, one entry each — never a silent subset. */
+  skipped: string[];
+  preview_png: string | null;
+  preview_width: number;
+  preview_height: number;
+  /** [dataset, delivery] written, when a set name was given. */
+  written: [string, string] | null;
+  notes: string[];
+}
+
+/** Is numpy + Pillow reachable? Probed once so the dialog can say what is missing before a run. */
+export function poreSupport(): Promise<boolean> {
+  return invoke<boolean>("pore_support");
+}
+
+/** Measures pore area on a well's live image delivery. Refuses any plate not declared as
+ *  blue-dyed epoxy, by name. */
+export function runPoreArea(spec: PoreSpec): Promise<PoreResult> {
+  return invoke<PoreResult>("run_pore_area", { spec });
+}

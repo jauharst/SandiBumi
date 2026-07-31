@@ -6362,3 +6362,34 @@ artefact — and that number would plot against your core helium porosity lookin
 
 **Worth a real test:** import a delivery where some sections state a scale and some do not, and
 check the ones without simply come in blank rather than picking up a neighbour's number.
+
+---
+
+## Pore area from blue epoxy (2026-07-31)
+
+The first real number off a thin section. It needs numpy and Pillow in the app's Python — the dialog
+says so up front if they are missing, and nothing else in the app is affected.
+
+- [ ] **Petrophysics ▸ Petrography ▸ Pore Area…** on a well with thin sections.
+- [ ] The **Tune on plate** list should grey out any plate you have not declared as blue epoxy, and
+      say why — *not stated* or *not impregnated*. Set it in Plate Details… and it becomes selectable.
+- [ ] The preview shows your plate with the counted pixels in **red**, and the percentage under it.
+      That red area IS what gets measured — it is drawn by the same code, not a separate guess.
+- [ ] Move **Hue from / Hue to / Saturation / Brightness** and watch the red change. Tighten
+      saturation until stain and grain edges drop out. The starting numbers are a plain blue band,
+      not a calibration — they are there so there is something to look at on the first click.
+- [ ] **Measure every declared plate** — a table of plate, depth and pore area, plus a warning naming
+      every plate left out and why.
+- [ ] **Save as point data.** Lands under **PETROGRAPHY / VPORE_TS** at each plate's depth. Check it
+      in the Wells pane tree, and put it in a point-data track beside your core porosity.
+- [ ] Nothing should be written until you press Save — moving the sliders must leave the project alone.
+
+**On reading the result:** where this disagrees with core helium porosity, the disagreement is
+information, not a bug. Microporosity below what the section resolves, plucked grains, epoxy that did
+not penetrate. Two honest measurements of different things.
+
+**Not done on purpose:** no despeckling. Cleaning up a mask needs a brush size in pixels, and pixels
+mean a different physical size on every plate — including the ones with no scale at all. The speckle
+stays visible so you can judge it.
+
+**Worth a real test:** run it on a delivery you have point-counted by hand and see how close it lands.

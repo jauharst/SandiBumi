@@ -20,6 +20,7 @@ mod geo;
 mod health;
 mod hfu;
 mod images;
+mod petrography;
 mod ingest;
 mod jobs;
 mod layout;
@@ -2115,6 +2116,27 @@ fn shift_well_images(
     db::shift_well_images(&conn, &well_id, dataset.as_deref(), delta).map_err(|e| e.to_string())
 }
 
+/// Can the pore measurement run? Probed once so a dialog can say what is missing before a run,
+/// rather than failing at the end of one.
+#[tauri::command]
+async fn pore_support() -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(petrography::pore_support)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Pore area from blue-dyed epoxy, over a well's live image delivery. Refuses any plate not
+/// declared impregnated, by name — the measurement would otherwise succeed on it and return a
+/// porosity assembled from blue-ish grains.
+#[tauri::command]
+async fn run_pore_area(
+    db: tauri::State<'_, DbState>,
+    spec: petrography::PoreSpec,
+) -> Result<petrography::PoreResult, String> {
+    let conn = db.0.lock().unwrap();
+    petrography::run_pore_area(&conn, &spec)
+}
+
 /// One plate's field of view and preparation. Every value is written as given, `null` included —
 /// a scale typed by mistake has to be clearable.
 #[tauri::command]
@@ -2732,6 +2754,8 @@ pub fn run() {
             list_core_registrations,
             set_image_details,
             set_image_delivery_details,
+            pore_support,
+            run_pore_area,
             core_depth_pairs,
             map_core_depths,
             list_core_references,

@@ -1462,6 +1462,21 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       it. **Still not automatic**: a delivery already in the project does not move when the core is
       re-registered afterwards — that is increment 1d, waiting on Jauhar firming up D2.
 
+- [x] **Pore area from blue-dyed epoxy (Part 2, family A1)** — **SHIPPED 2026-07-31**.
+      `petrography.rs` + `poreAreaDialog.ts`, Petrophysics ▸ Petrography ▸ Pore Area…. The first
+      measurement off a plate and deliberately the dimensionless one, so it runs on every plate
+      rather than only the calibrated ones. **A plate must be declared impregnated and an
+      undeclared one is refused BY NAME** (`epoxy_check`) — the rule the whole feature rests on,
+      because a blue rule on an unimpregnated section returns a plausible porosity instead of
+      failing, and impregnation cannot be read off the pixels without begging the question. The
+      colour band is the user's, tuned visually; **the preview overlay comes from the same runner
+      that does the measuring**, so the two can never drift. **No morphological cleaning** — a
+      structuring element is a size in pixels and a plate may carry no scale, so nothing is
+      smoothed and the speckle stays visible. Results are POINT DATA (`PETROGRAPHY` / `VPORE_TS`)
+      at each plate's depth, never a curve; measuring and saving are separate buttons so tuning
+      writes nothing. numpy + Pillow in one subprocess per 16 plates (rule 7), with the real
+      round-trip test `#[ignore]`d so the gate never depends on an optional package.
+      Next in Part 2: A2 stained carbonate (needs the lab's stain protocol), then C pore geometry.
 - [x] **Plate scale and preparation (Part 2, increment 2.0 — D4 answered)** — **SHIPPED
       2026-07-31**. Jauhar answered "sometimes" on both the scale and the epoxy, so one delivery
       holds plates of both kinds: `well_images` gained `fov_um` / `prepared` / `stain` PER PLATE,
