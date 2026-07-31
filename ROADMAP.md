@@ -1450,6 +1450,18 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       Pinned by `a_late_delivery_can_follow_the_core_it_was_measured_on`. **Not yet offered for SCAL
       or image imports**, which also arrive at lab-written depths.
 
+- [x] **SCAL and image imports follow the core too (Part 1)** — **SHIPPED 2026-07-31.** Extends the
+      point-data tick-box to `ingest::import_scal_files(..., follow_core)` and
+      `images::ImageImportRequest.follow_core` (`#[serde(default)]`). All three sources are measured
+      ON core and carry the core report's depths. One shared control, `src/ui/followCore.ts` — the
+      same decision in three dialogs, and three copies would drift. SCAL rows with no depth are left
+      alone and said so; a plate's top is mapped with the base taking the SAME offset, so a core
+      photograph keeps its logged thickness and a section with no base stays a point sample.
+      `ScalImportResult` gained `note`. Test note: the image round-trip needed a genuinely decodable
+      `REAL_JPEG_HEX` (159 bytes) — the existing `tiny_jpeg()` stub is header-only and Pillow refuses
+      it. **Still not automatic**: a delivery already in the project does not move when the core is
+      re-registered afterwards — that is increment 1d, waiting on Jauhar firming up D2.
+
 ## C3. Trust & reproducibility — Phase 11 (§3)
 
 - **Audit trail & lineage**: every module/equation run and data edit logged (`runs` table: params, inputs,

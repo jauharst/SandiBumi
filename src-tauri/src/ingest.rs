@@ -841,6 +841,9 @@ pub struct ScalImportResult {
     pub fit: Option<crate::satheight::LeverettFit>,
     /// The SCAL set these points landed in (auto-suffixed when the name was taken).
     pub set_name: Option<String>,
+    /// What following the core depth record did, when it was asked for.
+    #[serde(default)]
+    pub note: Option<String>,
     pub error: Option<String>,
 }
 
@@ -848,7 +851,7 @@ pub struct ScalImportResult {
 /// rows, and fits the Leverett-J function (Sw = A·J^B) over the points at `ift_lab`
 /// (sigma·cosθ of the lab fluid system, dyn/cm — e.g. 72 air-brine, 367 air-mercury).
 pub fn import_scal_csv(conn: &Connection, well_id: &str, path: &str, ift_lab: f64) -> ScalImportResult {
-    import_scal_files(conn, well_id, &[path.to_string()], "long", "", ift_lab, None)
+    import_scal_files(conn, well_id, &[path.to_string()], "long", "", ift_lab, None, false)
 }
 
 /// Multi-file, multi-format SCAL Pc import. Each file is parsed with `format` — "long"
@@ -870,6 +873,7 @@ pub fn import_scal_files(
     system: &str,
     ift_lab: f64,
     set_name: Option<&str>,
+    follow_core: bool,
 ) -> ScalImportResult {
     let joined = paths.join("; ");
     let fail = |error: String| ScalImportResult {
@@ -877,6 +881,7 @@ pub fn import_scal_files(
         rows: 0,
         fit: None,
         set_name: None,
+        note: None,
         error: Some(error),
     };
 
@@ -921,12 +926,32 @@ pub fn import_scal_files(
         );
     }
 
+    // SCAL plugs are core plugs, so their depths are the core report's depths and move with the
+    // core. A record with no depth at all is left alone — there is nothing to correct.
+    let core_pairs: Vec<(f32, f32)> = if follow_core {
+        db::core_depth_pairs(conn, well_id).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let mut outside_core = 0usize;
+    let mut mapped_any = 0usize;
+
     let sys: Option<String> = if system.trim().is_empty() { None } else { Some(system.trim().to_string()) };
     let rows: Vec<db::ScalPcRow> = records
         .iter()
         .map(|r| db::ScalPcRow {
             sample_no: r.sample_no,
-            depth: r.depth,
+            depth: match r.depth {
+                Some(d) if !core_pairs.is_empty() && d.is_finite() => {
+                    let (m, ex) = db::map_core_depth(&core_pairs, d);
+                    if ex {
+                        outside_core += 1;
+                    }
+                    mapped_any += 1;
+                    Some(m)
+                }
+                other => other,
+            },
             perm: r.perm,
             poro: r.poro,
             pc: r.pc,
@@ -952,7 +977,23 @@ pub fn import_scal_files(
         .map(|r| crate::satheight::ScalPoint { pc: r.pc, sw: r.sw, perm: r.perm, poro: r.poro })
         .collect();
     let fit = crate::satheight::fit_leverett_j(&points, ift_lab);
-    ScalImportResult { path: joined, rows: rows.len(), fit, set_name: Some(set), error: None }
+    let note = if !follow_core {
+        None
+    } else if core_pairs.is_empty() {
+        Some("no core to follow, depths used as written".into())
+    } else if core_pairs.iter().all(|(o, d)| (o - d).abs() <= 1e-4) {
+        Some("core has not been shifted, so depths are unchanged".into())
+    } else if mapped_any == 0 {
+        Some("these points carry no depth, so there was nothing to place".into())
+    } else if outside_core > 0 {
+        Some(format!(
+            "placed from the core depth record; {outside_core} point(s) fell outside the cored \
+             interval and were placed by holding the nearest correction"
+        ))
+    } else {
+        Some("placed from the core depth record".into())
+    };
+    ScalImportResult { path: joined, rows: rows.len(), fit, set_name: Some(set), note, error: None }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -2251,7 +2292,7 @@ mod tests {
         std::fs::write(&p2, cf("S-16A", 2701.8)).unwrap();
         let paths = vec![p1.to_str().unwrap().to_string(), p2.to_str().unwrap().to_string()];
 
-        let res = import_scal_files(&conn, &ids, &paths, "auto", "air_brine", 72.0, None);
+        let res = import_scal_files(&conn, &ids, &paths, "auto", "air_brine", 72.0, None, false);
         assert!(res.error.is_none(), "{:?}", res.error);
         assert_eq!(res.rows, 8, "both plugs land in one combined import");
         assert!(res.fit.is_some(), "J-fit solves over the pooled points");
@@ -2269,7 +2310,7 @@ mod tests {
         let p3 = std::env::temp_dir().join(format!("sandibumi_scal_pp_{ids}.csv"));
         std::fs::write(&p3, wide).unwrap();
         let res2 =
-            import_scal_files(&conn, &ids, &[p3.to_str().unwrap().to_string()], "porous_plate", "air_brine", 72.0, None);
+            import_scal_files(&conn, &ids, &[p3.to_str().unwrap().to_string()], "porous_plate", "air_brine", 72.0, None, false);
         assert!(res2.error.is_none(), "{:?}", res2.error);
         assert_eq!(res2.rows, 4);
         assert_eq!(res2.set_name.as_deref(), Some("SCAL_1"), "auto-suffixed, first report kept");
@@ -2292,6 +2333,7 @@ mod tests {
             "air_brine",
             72.0,
             None,
+            false,
         );
         assert!(res3.error.as_deref().is_some_and(|e| e.contains("nope.csv")));
         assert_eq!(db::get_scal_pc(&conn, &ids).unwrap().len(), 4, "failed import leaves prior rows intact");
@@ -2313,14 +2355,14 @@ mod tests {
 
         let good = std::env::temp_dir().join(format!("sandibumi_scal_good_{ids}.csv"));
         std::fs::write(&good, "PC,SW\n5,0.55\n10,0.45\n20,0.35\n").unwrap();
-        let res = import_scal_files(&conn, &ids, &[good.to_str().unwrap().to_string()], "long", "hg_air", 367.0, None);
+        let res = import_scal_files(&conn, &ids, &[good.to_str().unwrap().to_string()], "long", "hg_air", 367.0, None, false);
         assert!(res.error.is_none(), "{:?}", res.error);
         assert_eq!(db::get_scal_pc(&conn, &ids).unwrap().len(), 3);
 
         // Header-only export (e.g. a filtered/template sheet) → error, data intact.
         let empty = std::env::temp_dir().join(format!("sandibumi_scal_empty_{ids}.csv"));
         std::fs::write(&empty, "PC,SW\n").unwrap();
-        let res2 = import_scal_files(&conn, &ids, &[empty.to_str().unwrap().to_string()], "auto", "hg_air", 367.0, None);
+        let res2 = import_scal_files(&conn, &ids, &[empty.to_str().unwrap().to_string()], "auto", "hg_air", 367.0, None, false);
         assert!(res2.error.as_deref().is_some_and(|e| e.contains("untouched")), "{:?}", res2.error);
         assert_eq!(db::get_scal_pc(&conn, &ids).unwrap().len(), 3, "existing points survive");
 
@@ -2445,6 +2487,58 @@ mod tests {
         // Unknown well errors cleanly.
         let bad = import_aux_file(&conn, "nope", "XRD", "x.csv", None, false);
         assert!(bad.error.is_some());
+    }
+
+    /// SCAL plugs ARE core plugs, so their depths are the core report's depths and must be able to
+    /// follow the same correction.
+    #[test]
+    fn scal_points_can_follow_the_core_they_were_cut_from() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        db::insert_well(&conn, wid, "SANDI-SCAL-FOLLOW", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        let d: Vec<f32> = (0..20).map(|i| 2000.0 + i as f32).collect();
+        let v = vec![0.2f32; 20];
+        let nan = vec![f32::NAN; 20];
+        db::insert_core_data(&conn, &w, "RAW", None, &d, &v, &nan, &nan, &nan).unwrap();
+        db::apply_core_run_shifts(&mut conn, &w, &[db::RunShift { top: 2000.0, base: 2019.0, delta: 2.0 }], &[])
+            .unwrap();
+
+        let path = std::env::temp_dir().join("sandi_scal_follow.csv");
+        std::fs::write(
+            &path,
+            "SAMPLE,DEPTH,PERM,PORO,PC,SW\n1,2005,100,0.20,1,1.0\n1,2005,100,0.20,10,0.5\n\
+             2,2010,50,0.18,1,1.0\n2,2010,50,0.18,10,0.6\n",
+        )
+        .unwrap();
+        let p = path.to_str().unwrap().to_string();
+
+        let res = import_scal_files(&conn, &w, &[p.clone()], "long", "air_brine", 72.0, Some("FOLLOWED"), true);
+        assert!(res.error.is_none(), "{:?}", res.error);
+        let rows = db::get_scal_pc(&conn, &w).unwrap();
+        let depths: Vec<f32> = {
+            let mut d: Vec<f32> = rows.iter().filter_map(|r| r.depth).collect();
+            d.sort_by(f32::total_cmp);
+            d.dedup_by(|a, b| (*a - *b).abs() < 1e-3);
+            d
+        };
+        assert_eq!(depths.len(), 2, "{depths:?}");
+        assert!((depths[0] - 2007.0).abs() < 1e-3, "2005 + 2 m: {depths:?}");
+        assert!((depths[1] - 2012.0).abs() < 1e-3, "2010 + 2 m: {depths:?}");
+        assert_eq!(res.note.as_deref(), Some("placed from the core depth record"));
+
+        // Off, the depths stay exactly as the file wrote them.
+        let plain = import_scal_files(&conn, &w, &[p], "long", "air_brine", 72.0, Some("ASWRITTEN"), false);
+        assert!(plain.error.is_none(), "{:?}", plain.error);
+        assert!(plain.note.is_none(), "nothing to report when the box was not ticked");
+        let rows = db::get_scal_pc(&conn, &w).unwrap();
+        assert!(
+            rows.iter().any(|r| r.depth.is_some_and(|d| (d - 2005.0).abs() < 1e-3)),
+            "unmapped import keeps the delivered depth"
+        );
+        std::fs::remove_file(&path).ok();
     }
 
     /// The whole point of keeping the core's as-delivered depths: a laboratory sends XRD months

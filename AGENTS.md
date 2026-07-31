@@ -923,6 +923,39 @@ barrels by different amounts and checks a sample from each lands on its own barr
 Not yet wired the same way: SCAL and image imports. Both take lab-written depths and both would
 benefit; neither is offered yet.
 
+**Following the core is now offered everywhere lab depths arrive (2026-07-31)** — the tick-box
+added for point data extends to **SCAL** (`ingest::import_scal_files(..., follow_core)`) and
+**plates** (`images::ImageImportRequest.follow_core`, `#[serde(default)]` so an older payload still
+deserializes). All three are measured ON core and all three carry the depths the core report used.
+
+`src/ui/followCore.ts` is the one control, shared by the three dialogs — it is the same decision,
+and three copies of a checkbox is three places for the wording to drift.
+
+SCAL plugs ARE core plugs, so their depths map directly; a record with **no depth is left alone**
+because there is nothing to correct, and that case gets its own note rather than being folded into
+"placed". For plates the top is mapped and **the base takes the same offset**, so a core photograph
+keeps the thickness it was logged with — the same rule the barrel shifts and the point-data import
+use, and for the same reason: mapping the two ends independently could invert a thin plate where
+the correction changes steeply at a barrel boundary. A section with no base stays a point sample.
+
+`ScalImportResult` gained `note` for this; `ImageImportResult.note` already existed and now carries
+it alongside the unit-conversion and Pillow messages. Pinned by
+`ingest::tests::scal_points_can_follow_the_core_they_were_cut_from`,
+`images::tests::plates_can_follow_the_core_they_were_cut_from` (which checks the photograph keeps
+its 1 m while the section stays a point) and
+`images::tests::following_a_core_that_is_not_there_says_so`.
+
+**The image tests needed a real JPEG.** `tiny_jpeg()` in `images::tests` is a header-only stub —
+correct for exercising `sniff`, and Pillow refuses it, so anything going through `import_images`
+fails on it. `REAL_JPEG_HEX` is a genuinely decodable 159-byte 2x2 greyscale JPEG, which works on
+BOTH paths: Pillow decodes it, and the no-Pillow fallback stores a JPEG verbatim. Do not swap it
+back for the stub.
+
+**D2 is now answerable by doing rather than deciding.** Jauhar's tentative "yes" on plates
+following plugs is served by the explicit tick-box at import; wiring plates into
+`shift_core_depths` so an ALREADY-imported delivery moves automatically is still increment 1d and
+still waits on a firm answer.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under

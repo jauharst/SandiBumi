@@ -9,6 +9,7 @@ import {
 import { appState, setStatus } from "../state";
 import { recordProcess } from "../processLog";
 import { formRow, openModal } from "./modal";
+import { buildFollowCoreRow } from "./followCore";
 import { suggestSetName } from "./importSetDialog";
 
 /** Image import wizard: probe → CONFIRM → commit, the same shape as the core-table wizard
@@ -97,6 +98,11 @@ export async function openImageImportDialog(
       "Names this delivery. A name already used on this well is auto-suffixed — an import never overwrites an earlier one.",
     ),
   );
+
+  // A thin section is cut from a plug, so when that plug is re-registered the plate belongs with
+  // it — but only the user knows whether these depths are the core report's or the log's.
+  const followCore = buildFollowCoreRow("the plate depths", "images");
+  wrap.appendChild(followCore.el);
 
   const unitSel = document.createElement("select");
   unitSel.className = "form-control";
@@ -270,6 +276,7 @@ export async function openImageImportDialog(
         depth_unit: unitSel.value,
         max_px: Number(maxPxInput.value) || 0,
         quality: 85,
+        follow_core: followCore.checked(),
         items,
       });
       const mb = (res.bytes / 1048576).toFixed(1);

@@ -6256,3 +6256,31 @@ it uses, so this is your declaration, not a guess the app makes.
 
 **Not yet offered for SCAL or image imports** — both also arrive at lab-written depths. Say the
 word and they get the same tick-box.
+
+---
+
+## SCAL and pictures can follow the core too (2026-07-31)
+
+The same tick-box — **"These depths came from the core report"** — is now on **Import SCAL…** and
+the **image import wizard**, not just Import Aux…
+
+- [ ] Register a well's core first, ideally with two barrels moved by different amounts.
+- [ ] Import a SCAL file whose plug depths came from the core report, box **ticked**. The points
+      should land on the rock they were cut from, and the message should say **"placed from the
+      core depth record"**.
+- [ ] Import the same file with the box **off**. Depths stay exactly as written.
+- [ ] Import thin sections whose filenames or table carry the core report's depths, box ticked.
+      Each plate should move to where its plug now sits.
+- [ ] Check a **core photograph** with a base depth. It should move, and **keep the thickness it
+      was logged with** — a 1 m photo stays 1 m, it does not stretch or flip.
+- [ ] Check a **thin section** with no base. It should move and **stay a point sample** — a section
+      is cut from one plug and never gains a thickness from being moved.
+- [ ] Tick the box on a well with no core, for either import. It should use the depths as written
+      and say **"no core to follow"**.
+
+**Worth knowing:** SCAL rows that carry no depth at all are left alone, and the message says so
+rather than pretending it placed them.
+
+**Still not automatic:** a delivery already sitting in the project does not move when you re-register
+the core afterwards. That is the last piece of your tentative "yes" on pictures following plugs, and
+it waits for you to firm it up.

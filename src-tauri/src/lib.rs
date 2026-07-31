@@ -973,8 +973,10 @@ async fn import_scal_files(
     system: String,
     ift_lab: f64,
     set_name: Option<String>,
+    follow_core: Option<bool>,
 ) -> Result<ingest::ScalImportResult, String> {
     let conn = db.0.clone();
+    let follow_core = follow_core.unwrap_or(false);
     let detail = if paths.len() == 1 {
         paths[0].rsplit(['/', '\\']).next().unwrap_or(&paths[0]).to_string()
     } else {
@@ -982,7 +984,7 @@ async fn import_scal_files(
     };
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import SCAL", detail, move || {
         let c = conn.lock().unwrap();
-        Ok(ingest::import_scal_files(&c, &well_id, &paths, &format, &system, ift_lab, set_name.as_deref()))
+        Ok(ingest::import_scal_files(&c, &well_id, &paths, &format, &system, ift_lab, set_name.as_deref(), follow_core))
     })
     .await
 }

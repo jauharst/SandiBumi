@@ -37,6 +37,7 @@ import { recordProcess } from "../processLog";
 import { getTheme, setTheme, type ThemeChoice } from "../theme";
 import { getLocale, setLocale, type Locale } from "../i18n";
 import type { SessionSnapshot, Workspace } from "./workspace";
+import { buildFollowCoreRow } from "./followCore";
 import { formRow, openModal } from "./modal";
 import { openImportSetDialog, suggestSetName } from "./importSetDialog";
 import { openCoreImportWizard } from "./coreImportDialog";
@@ -1543,6 +1544,10 @@ export class Ribbon {
         "Names this delivery (the files selected together). A name already on the well is suffixed (SCAL → SCAL_1); the new set becomes live and drives Pc QC, J-fits and Thomeer.",
       ),
     );
+    // SCAL plugs ARE core plugs, so their depths are the core report's depths.
+    const scalFollowCore = buildFollowCoreRow("the plug depths", "scal");
+    content.appendChild(scalFollowCore.el);
+
     const apply = document.createElement("button");
     apply.className = "form-run-btn";
     apply.textContent = "Import & Fit";
@@ -1561,7 +1566,15 @@ export class Ribbon {
       apply.disabled = true;
       resultBox.textContent = `Importing SCAL data for ${well.well_name}…`;
       const fmt = fmtSel.value as "auto" | "long" | "porous_plate" | "centrifuge";
-      void importScalFiles(well.well_id, paths, fmt, sysSel.value, ift, setInput.value.trim() || "SCAL")
+      void importScalFiles(
+        well.well_id,
+        paths,
+        fmt,
+        sysSel.value,
+        ift,
+        setInput.value.trim() || "SCAL",
+        scalFollowCore.checked(),
+      )
         .then((result) => {
           if (result.error) {
             resultBox.textContent = `SCAL import failed: ${result.error}`;
@@ -1574,7 +1587,9 @@ export class Ribbon {
               `Enter these as SWH_A/SWH_B in SW — Saturation-Height.`
             : "Too few valid points to fit the J-function (need Pc, Sw, perm and poro on ≥ 3 rows).";
           const setNote = result.set_name ? ` Set ${result.set_name}.` : "";
-          resultBox.textContent = `Imported ${result.rows} Pc point(s).${setNote} ${fitText}`;
+          // The core-following note is the one thing here the user cannot check by eye.
+          const coreNote = result.note ? ` ${result.note}.` : "";
+          resultBox.textContent = `Imported ${result.rows} Pc point(s).${setNote}${coreNote} ${fitText}`;
           setStatus(`SCAL: ${result.rows} points imported for ${well.well_name}.${setNote}`);
           this.workspace.notifyDataChanged();
         })
@@ -1677,36 +1692,8 @@ export class Ribbon {
       ),
     );
 
-    // A laboratory writes the depths from the original core report. If that core has since been
-    // registered against the log, those depths are stale by exactly however far the core moved —
-    // and the samples would be attributed to rock they were never measured on. Off by default,
-    // because a file written on the log's own scale must not be moved.
-    const followCore = document.createElement("input");
-    followCore.type = "checkbox";
-    followCore.id = "aux-follow-core";
-    const followLabel = document.createElement("label");
-    followLabel.htmlFor = followCore.id;
-    followLabel.textContent = " These depths came from the core report";
-    const followRow = document.createElement("div");
-    followRow.appendChild(followCore);
-    followRow.appendChild(followLabel);
-    content.appendChild(
-      formRow(
-        "Follow the core",
-        followRow,
-        "Tick if the file uses the depths the core was delivered at. Each sample is then placed where that rock now sits, using the core's own record — including where one barrel moved further than another. Leave it off for a file already on the log's depth scale.",
-      ),
-    );
-    const followNote = document.createElement("div");
-    followNote.className = "eq-note";
-    followNote.style.display = "none";
-    followNote.textContent =
-      "Samples above or below the cored interval have nothing to go on — they keep the nearest " +
-      "correction and are reported as such rather than being placed silently.";
-    content.appendChild(followNote);
-    followCore.addEventListener("change", () => {
-      followNote.style.display = followCore.checked ? "" : "none";
-    });
+    const followCore = buildFollowCoreRow("the rows", "aux");
+    content.appendChild(followCore.el);
 
     const pick = document.createElement("button");
     pick.className = "form-run-btn";
@@ -1743,7 +1730,7 @@ export class Ribbon {
           dataset,
           path,
           setInput.value.trim() || "RAW",
-          followCore.checked,
+          followCore.checked(),
         );
         if (result.error) {
           resultBox.textContent = `Import failed: ${result.error}`;

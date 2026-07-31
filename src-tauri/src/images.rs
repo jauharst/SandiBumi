@@ -554,6 +554,10 @@ pub struct ImageImportRequest {
     pub max_px: Option<u32>,
     #[serde(default)]
     pub quality: Option<u8>,
+    /// Treat the plates' depths as the ones the original core report used, and place them through
+    /// the well's core depth record. `#[serde(default)]`, so an older payload still deserializes.
+    #[serde(default)]
+    pub follow_core: bool,
     pub items: Vec<ImageImportItem>,
 }
 
@@ -593,6 +597,30 @@ pub fn import_images(conn: &Connection, req: &ImageImportRequest) -> Result<Imag
     let entered_unit = req.depth_unit.as_deref().and_then(DepthUnit::from_code).unwrap_or(project_unit);
     let convert = |d: f32| -> f32 { units::convert_depth(d as f64, entered_unit, project_unit) as f32 };
 
+    // A thin section is cut from a plug, so its depth is the core's depth — and if that core has
+    // been registered against the log since the lab wrote its report, the plate is out by however
+    // far the plug moved. Resolved AFTER the unit conversion, because the record is in the
+    // project's own depth unit.
+    let core_pairs: Vec<(f32, f32)> = if req.follow_core {
+        match crate::db::core_depth_pairs(conn, &req.well_id) {
+            Ok(p) => p,
+            Err(_) => Vec::new(),
+        }
+    } else {
+        Vec::new()
+    };
+    let mut outside_core = 0usize;
+    let place = |d: f32, outside: &mut usize| -> f32 {
+        if core_pairs.is_empty() {
+            return d;
+        }
+        let (mapped, ex) = crate::db::map_core_depth(&core_pairs, d);
+        if ex {
+            *outside += 1;
+        }
+        mapped
+    };
+
     let paths: Vec<String> = req.items.iter().map(|i| i.path.clone()).collect();
     let prepared = prepare_images(&paths, req.max_px.unwrap_or(DEFAULT_MAX_PX), req.quality.unwrap_or(DEFAULT_QUALITY));
 
@@ -611,8 +639,13 @@ pub fn import_images(conn: &Connection, req: &ImageImportRequest) -> Result<Imag
         }
         // A base ABOVE the top is a typo, not an interval; storing it would draw a picture
         // upside down over a negative thickness. Fall back to a point sample and say so.
+        // The top is placed through the core record and the base takes the SAME offset, so a core
+        // photograph keeps the thickness it was logged with. Mapping the two ends independently
+        // could invert a thin plate where the correction changes steeply at a barrel boundary.
+        let top = place(convert(item.depth_top), &mut outside_core);
+        let offset = top - convert(item.depth_top);
         let base = match item.depth_base {
-            Some(b) if b.is_finite() && b > item.depth_top => Some(convert(b)),
+            Some(b) if b.is_finite() && b > item.depth_top => Some(convert(b) + offset),
             Some(b) if b.is_finite() => {
                 skipped.push(format!(
                     "{}: base {b} is not below top {} - stored as a point sample",
@@ -625,7 +658,7 @@ pub fn import_images(conn: &Connection, req: &ImageImportRequest) -> Result<Imag
         bytes += prep.data.len() as i64;
         any_unprintable |= !prep.printable;
         rows.push(crate::db::NewImage {
-            depth_top: convert(item.depth_top),
+            depth_top: top,
             depth_base: base,
             name: item.name.clone(),
             caption: item.caption.clone().filter(|c| !c.trim().is_empty()),
@@ -653,6 +686,22 @@ pub fn import_images(conn: &Connection, req: &ImageImportRequest) -> Result<Imag
     }
     if any_unprintable {
         notes.push("some images print as a labelled frame until Pillow is installed".into());
+    }
+    // Asking to follow a core and getting raw depths must never be silent — the plates would be
+    // out by exactly the correction the user believed had been applied.
+    if req.follow_core {
+        if core_pairs.is_empty() {
+            notes.push("no core to follow, depths used as written".into());
+        } else if core_pairs.iter().all(|(o, d)| (o - d).abs() <= 1e-4) {
+            notes.push("core has not been shifted, so depths are unchanged".into());
+        } else if outside_core > 0 {
+            notes.push(format!(
+                "placed from the core depth record; {outside_core} plate(s) fell outside the cored \
+                 interval and were placed by holding the nearest correction"
+            ));
+        } else {
+            notes.push("placed from the core depth record".into());
+        }
     }
     Ok(ImageImportResult {
         dataset,
@@ -741,5 +790,131 @@ mod tests {
         assert_eq!(p.len(), 1);
         assert!(p[0].error.is_some(), "a missing file must be reported, not dropped");
         assert_eq!(p[0].name, "plate");
+    }
+
+    /// A genuinely decodable 2x2 greyscale JPEG (Pillow, quality 25, optimized — 159 bytes).
+    ///
+    /// `tiny_jpeg()` above is a header-only stub: enough for `sniff` to read a size from, and
+    /// deliberately so, but Pillow refuses it. The import path really does decode pixels, so a
+    /// test that goes through it needs a real file — and this one works on BOTH paths, since a
+    /// JPEG is also what the no-Pillow fallback stores verbatim.
+    const REAL_JPEG_HEX: &str = concat!(
+        "FFD8FFE000104A46494600010100000100010000FFDB0043002016181C1814201C1A1C24222026305034302C2C306246",
+        "4A3A5074667A787266706E8090B89C8088AE8A6E70A0DAA2AEBEC4CED0CE7C9AE2F2E0C8F0B8CACEC6FFC0000B080002",
+        "000201011100FFC40014000100000000000000000000000000000000FFC4001410010000000000000000000000000000",
+        "0000FFDA0008010100003F003FFFD9",
+    );
+
+    fn real_jpeg() -> Vec<u8> {
+        (0..REAL_JPEG_HEX.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&REAL_JPEG_HEX[i..i + 2], 16).unwrap())
+            .collect()
+    }
+
+    /// A thin section is cut from a plug, so when that plug is re-registered the plate belongs
+    /// with it. This is D2 answered as a deliberate choice rather than an automatic link.
+    #[test]
+    fn plates_can_follow_the_core_they_were_cut_from() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, "SANDI-PLATE-FOLLOW", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        let d: Vec<f32> = (0..20).map(|i| 2000.0 + i as f32).collect();
+        let v = vec![0.2f32; 20];
+        let nan = vec![f32::NAN; 20];
+        crate::db::insert_core_data(&conn, &w, "RAW", None, &d, &v, &nan, &nan, &nan).unwrap();
+        crate::db::apply_core_run_shifts(
+            &mut conn,
+            &w,
+            &[crate::db::RunShift { top: 2000.0, base: 2019.0, delta: 2.0 }],
+            &[],
+        )
+        .unwrap();
+
+        // Two real files: a point-sample section and an interval core photograph.
+        let dir = std::env::temp_dir();
+        let ts = dir.join("sandi_ts_follow.jpg");
+        let cp = dir.join("sandi_cp_follow.jpg");
+        std::fs::write(&ts, real_jpeg()).unwrap();
+        std::fs::write(&cp, real_jpeg()).unwrap();
+
+        let req = ImageImportRequest {
+            well_id: w.clone(),
+            dataset: "THIN SECTION".into(),
+            set_name: "LAB".into(),
+            depth_unit: None,
+            max_px: None,
+            quality: None,
+            follow_core: true,
+            items: vec![
+                ImageImportItem {
+                    path: ts.to_string_lossy().into_owned(),
+                    name: "TS-1".into(),
+                    depth_top: 2005.0,
+                    depth_base: None,
+                    caption: None,
+                },
+                ImageImportItem {
+                    path: cp.to_string_lossy().into_owned(),
+                    name: "CP-1".into(),
+                    depth_top: 2010.0,
+                    depth_base: Some(2011.0),
+                    caption: None,
+                },
+            ],
+        };
+        let res = import_images(&conn, &req).expect("import");
+        assert_eq!(res.imported, 2, "{:?}", res.skipped);
+        assert_eq!(res.note.as_deref(), Some("placed from the core depth record"));
+
+        let live = crate::db::list_well_images(&conn, &w, None).unwrap();
+        let plate = |n: &str| live.iter().find(|i| i.name == n).unwrap();
+        assert!((plate("TS-1").depth_top - 2007.0).abs() < 1e-3, "2005 + 2 m");
+        assert!(plate("TS-1").depth_base.is_none(), "a section stays a point sample");
+        assert!((plate("CP-1").depth_top - 2012.0).abs() < 1e-3, "2010 + 2 m");
+        assert!(
+            (plate("CP-1").depth_base.unwrap() - 2013.0).abs() < 1e-3,
+            "the photograph keeps the 1 m it was logged with"
+        );
+
+        std::fs::remove_file(&ts).ok();
+        std::fs::remove_file(&cp).ok();
+    }
+
+    /// Asking to follow a core that is not there must be said out loud — otherwise the plates are
+    /// out by exactly the correction the user believed had been applied.
+    #[test]
+    fn following_a_core_that_is_not_there_says_so() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, "SANDI-PLATE-NOCORE", None, None, None).unwrap();
+
+        let p = std::env::temp_dir().join("sandi_plate_nocore.jpg");
+        std::fs::write(&p, real_jpeg()).unwrap();
+        let req = ImageImportRequest {
+            well_id: wid.to_string(),
+            dataset: "THIN SECTION".into(),
+            set_name: "LAB".into(),
+            depth_unit: None,
+            max_px: None,
+            quality: None,
+            follow_core: true,
+            items: vec![ImageImportItem {
+                path: p.to_string_lossy().into_owned(),
+                name: "TS-1".into(),
+                depth_top: 2005.0,
+                depth_base: None,
+                caption: None,
+            }],
+        };
+        let res = import_images(&conn, &req).expect("import");
+        assert_eq!(res.note.as_deref(), Some("no core to follow, depths used as written"));
+        let live = crate::db::list_well_images(&conn, &wid.to_string(), None).unwrap();
+        assert!((live[0].depth_top - 2005.0).abs() < 1e-3, "depth used as written");
+        std::fs::remove_file(&p).ok();
     }
 }

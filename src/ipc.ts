@@ -2102,6 +2102,8 @@ export interface ScalImportResult {
   fit: LeverettFit | null;
   /** The SCAL delivery these points landed in (auto-suffixed if the name was taken). */
   set_name: string | null;
+  /** What following the core depth record did, when it was asked for. */
+  note: string | null;
   error: string | null;
 }
 
@@ -2163,8 +2165,11 @@ export function importScalFiles(
   system: string,
   iftLab: number,
   setName: string | null = null,
+  /** Treat the plug depths as the ones the original core report used, and place them through the
+   *  well's core depth record. SCAL plugs ARE core plugs, so they move with the core. */
+  followCore = false,
 ): Promise<ScalImportResult> {
-  return invoke<ScalImportResult>("import_scal_files", { wellId, paths, format, system, iftLab, setName });
+  return invoke<ScalImportResult>("import_scal_files", { wellId, paths, format, system, iftLab, setName, followCore });
 }
 
 export interface ThomeerSampleFit {
@@ -2450,6 +2455,9 @@ export interface ImageImportRequest {
   depth_unit?: string | null;
   max_px?: number | null;
   quality?: number | null;
+  /** Place the plate depths through the well's core depth record — a section is cut from a plug,
+   *  so when that plug is re-registered the plate belongs with it. */
+  follow_core?: boolean;
   items: ImageImportItem[];
 }
 
