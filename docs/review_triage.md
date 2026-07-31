@@ -235,7 +235,21 @@ can fail for reasons unrelated to the code is a gate people learn to ignore.
 **`[x]` here means an end-to-end test drives it against the real app. It is NOT your verification
 mark** — same rule as pile B.
 
-**Done (23 of 86)**
+**Done (25 of 86)**
+
+- [x] **T-MLEQ-02** — The Inspector names the Python engine it found · `equations.e2e.mjs`. The
+      note is checked against `python_status`'s own answer, so it cannot drift into naming an
+      interpreter the run would not use. It also pins the distinction that is easy to lose in a
+      refactor: **missing scipy is a NOTE, missing Python is a WARNING** — scipy is optional and the
+      engine is fully usable without it, so calling its absence a warning would send the user
+      installing something they may not need. The no-Python branch must name numpy AND
+      `SANDIBUMI_PYTHON`, the only fix when discovery fails.
+- [x] **T-MLEQ-05** — Equation negatives · steps 2–3 were already pinned in Rust
+      (`python_reports_script_errors`, `worker_survives_a_script_error`,
+      `equation_all_nan_output_reports_error`); step 1's "Save the equation before running it" is
+      now `equations.e2e.mjs`. Frontend-only by construction: `run_equation` takes an id and there
+      is no id to pass, so without the guard the run would fail deeper with a message about a
+      missing id, which tells the user nothing. Also checks the refusal writes nothing.
 
 - [x] **T-SHELL-13** — Undo/Redo with live labels · `undo.e2e.mjs`, driven through a real Database
       Inspector cell edit (the cheapest genuinely undoable action). The claim is not that the

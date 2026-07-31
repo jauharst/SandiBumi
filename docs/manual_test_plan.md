@@ -3465,6 +3465,13 @@ Everything verified against source. Composing the test plan now — this is my f
 2. In the Inspector pane confirm two tabs: **Equation Editor** (active) and **Curve Catalog**.
 3. In Equation Editor set **Language** = "Python (numpy)". Read the note line at the top.
    **Expected:** the note reads "Python (numpy): input curves are float32 arrays (NaN = missing) plus `depth`…" and, after a moment, appends **"(engine: \<path to python\>)"** — the live worker path. If it instead appends "⚠ No Python with numpy found — install Python 3.10+ & numpy, or set SANDIBUMI_PYTHON", stop: Python-dependent tests (03, 05, 10–15) are **Blocked** until the environment is fixed.
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** `equations.e2e.mjs` checks the note
+   against `python_status`'s own answer, so it cannot drift into naming an interpreter the run would
+   not use. It pins the distinction that is easy to lose in a refactor: **missing scipy is a NOTE,
+   missing Python is a WARNING** - scipy is optional and the engine is fully usable without it, so
+   calling its absence a warning would send you installing something you may not need. The
+   no-Python branch must name numpy AND `SANDIBUMI_PYTHON`.
+
    **Result — T-MLEQ-02:**
 
 - [ ] Pass
@@ -3522,6 +3529,14 @@ Everything verified against source. Composing the test plan now — this is my f
 3. Fix the script but set **Input curves** = `PHIT_NOPE` (a curve that doesn't exist), **Save**, **Run**.
    **Expected:** (1) status "Save the equation before running it." — no run. (2) a readable per-well error naming the Python failure (status turns error-styled, "Errors: \<well\>: …") — the app does not crash and the worker stays alive (a following valid run still works). (3) an **error**, not a green success: the run must not report rows written for an input that resolves to nothing.
    **Known issue:** audit finding "An equation with an unresolvable input or output curve name 'succeeds' silently as all-NaN, indistinguishable from a legitimate result" (Equations engine §3). A Round-4 uncommitted fix ("All-NaN module runs report honestly… Same guard on Rhai + Python equations") claims step 3 now errors — if you still get a clean success with an all-NaN output, mark Fail and log it as this known finding, not a new one.
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** step 1 here, steps 2-3 already pinned
+   in Rust. `equations.e2e.mjs` fills the form without saving and presses Run: the refusal is
+   frontend-only by construction, since `run_equation` takes an id and there is no id to pass, so
+   without the guard the run would fail deeper with a message about a missing id that tells you
+   nothing about what to do. It also checks the refusal writes nothing. Note for anyone extending
+   this: the editor's messages go to its OWN `#eq-status` beside the buttons, not to the window
+   status bar - which is the right place for a refusal about the form you are looking at.
+
    **Result — T-MLEQ-05:**
 
 - [ ] Pass

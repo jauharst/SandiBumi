@@ -214,7 +214,7 @@ click listener the two are equivalent — but when the *gesture* is the thing un
 
 ## Current coverage
 
-Sixty-two tests across fourteen spec files. Specs share ONE app launch and one project (see the spec
+Sixty-four tests across fifteen spec files. Specs share ONE app launch and one project (see the spec
 grouping note in `wdio.conf.mjs`), so write each one to establish what it needs and to assert
 changes as before/after differences rather than as absolute state.
 
@@ -353,6 +353,13 @@ correct one if you only read the message.
 | Undo restores the VALUE | Not merely the button state |
 | Redo reapplies it | The full round trip |
 | A data edit is not "unsaved work" | The dirty dot means named-save freshness, nothing else |
+
+`equations.e2e.mjs` — the equation editor (T-MLEQ-02, T-MLEQ-05 step 1):
+
+| Test | What it proves |
+|---|---|
+| The engine note matches `python_status` | Missing scipy is a note; missing Python is a warning |
+| An unsaved equation will not run | And the refusal writes nothing |
 
 Test data is `dataset for test/examples/` (`SANDI-*`) only. Never a real client project, never a
 path from `SANDIBUMI_FIELD_FIXTURES`.
