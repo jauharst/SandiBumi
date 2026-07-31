@@ -1608,10 +1608,18 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       interactive dip picking (5 modes → true dip), dip datasets + classification, auto-dip, stereonet/rose/
       walkout/cumulative plots, structural dip removal, fracture counting w/ Terzaghi, aperture
       (Luthi-Souhaite), image porosity + binarization + sand count. → `ref_image_core.md`.
-- [ ] **(7) Core photo digitization.** Non-destructive recipe model: crop/deskew/perspective, color-card +
-      white-balance, CLAHE/denoise/sharpen, depth registration + stitched strip pyramid, core-to-log shift
-      (photo-proxy-log cross-correlation vs GR), WL/UV pairs, log-view strip track. Absorbs the §4
-      New-capability "core image input" stub. → `ref_image_core.md`.
+- [ ] **(7) Core photo digitization** — **STARTED 2026-07-31**, `coreimage.rs` +
+      `coreConditionDialog.ts` (Data ▸ Tools ▾ ▸ Condition Core Photos…).
+      **Shipped**: the non-destructive recipe model (crop / deskew / colour-card white balance /
+      tone), baked into `data` with the import kept in `source_data` + `source_meta` so a restore
+      returns the photograph AND its shape; and `extract_core_log`, the proxy trace
+      (`CPHOTO_DARK` / `_RED` / `_TEX`) with a signed agreement against a real curve, which is the
+      photo-proxy-log half of the core-to-log shift. Every control is the picture itself — thumbnail
+      strip, drag-to-crop, click-a-grey, gradient-tracked sliders (Jauhar, 2026-07-31: "geologist see
+      image not text"). **Still open**: perspective correction, CLAHE/denoise/sharpen, the stitched
+      multi-box strip pyramid, WL/UV pairs, a log-view strip track, and feeding the trace into
+      `registration.rs` to PROPOSE a shift (it is already a curve, so that composes). Absorbs the
+      §4 New-capability "core image input" stub. → `ref_image_core.md`.
 - [ ] **(8) Depth registration, then plate digitizing** — scoped 2026-07-31 at Jauhar's direction
       ("all of those, it should be depth registered first, then the quantification or qualitative
       analysis"). **The plan is `docs/plan_image_analysis.md`**; it supersedes the loose OpenCV note

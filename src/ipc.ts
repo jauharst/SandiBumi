@@ -2673,6 +2673,68 @@ export async function applyCoreLook(
   return invoke<BakeResult>("apply_core_look", { wellId, dataset, look });
 }
 
+/** Curve-name prefix for every measure read off a core photograph.
+ *
+ *  Deliberately NOT `VSH`. A photograph's darkness co-varies with shale in most clastic sections,
+ *  which is not the same statement as being a shale volume — the same dark band is organic mudstone
+ *  in one core, oil stain in another. A curve called VSH is read by every module downstream as a
+ *  shale volume, and an uncalibrated one under that name is a wrong answer that computes and plots.
+ *  The same reason `GRAIN_D50_APP` is not `GRAIN_D50`. */
+export const CORE_LOG_PREFIX = "CPHOTO";
+
+export interface CoreLogSpec {
+  well_id: string;
+  dataset: string;
+  /** Which way depth runs across the conditioned picture: "x" along the width, "y" down it. */
+  axis?: "x" | "y";
+  /** The picture is laid out deepest-first. */
+  reverse?: boolean;
+  /** Rows of core in one photograph, split into equal lanes and read in order. An APPROXIMATION —
+   *  a real box has unequal rows and gaps — so the default is 1 and nobody gets it without asking. */
+  lanes?: number;
+  /** Depth step of the output curve, in the project's depth unit. */
+  step?: number;
+  /** Report how each measure tracks this curve, usually GR. It is the only thing that says whether
+   *  the trace is about the rock. */
+  compare_curve?: string | null;
+  /** Write the curves. Omit to measure without writing, so a lay-out can be tried first. */
+  write?: boolean;
+}
+
+export interface CoreLogCurve {
+  name: string;
+  n: number;
+  p10: number;
+  p50: number;
+  p90: number;
+  /** SIGNED agreement with the compared curve. Darkness and GR should both rise into shale, so a
+   *  strongly negative value on DARK is a finding rather than a weak result — most often the depth
+   *  axis is the other way round. NaN when nothing was compared. */
+  correlation: number;
+  pairs: number;
+  /** Evenly spread down the interval for drawing — never the first N, which would be the top of
+   *  the core rather than the core. */
+  preview: number[];
+}
+
+export interface CoreLogResult {
+  photographs: number;
+  samples: number;
+  depth_min: number;
+  depth_max: number;
+  curves: CoreLogCurve[];
+  preview_depth: number[];
+  written: string[];
+  skipped: string[];
+  notes: string[];
+}
+
+/** Reads the proxy measures off a well's live core-photograph delivery, and optionally writes them
+ *  as curves. Reads the CONDITIONED pictures, so a darkness is comparable across boxes. */
+export async function extractCoreLog(spec: CoreLogSpec): Promise<CoreLogResult> {
+  return invoke<CoreLogResult>("extract_core_log", { spec });
+}
+
 /** The conditioning recipe of every picture in a dataset's live delivery, as (image_id, json).
  *  Empty string where a picture is exactly as imported. Never reads a blob. */
 export async function listImageRecipes(

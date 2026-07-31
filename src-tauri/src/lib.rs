@@ -2235,6 +2235,17 @@ async fn bake_core_images(
     coreimage::bake_core_images(&conn, &items)
 }
 
+/// Reads the proxy measures off a well's live core-photograph delivery, and (optionally) writes
+/// them as curves. Long enough on a full core to be worth keeping off the event loop.
+#[tauri::command]
+async fn extract_core_log(
+    db: tauri::State<'_, DbState>,
+    spec: coreimage::CoreLogSpec,
+) -> Result<coreimage::CoreLogResult, String> {
+    let conn = db.0.lock().unwrap();
+    coreimage::extract_core_log(&conn, &spec)
+}
+
 /// Copies one photograph's look across a whole live delivery, keeping each picture's own framing.
 #[tauri::command]
 async fn apply_core_look(
@@ -2879,6 +2890,7 @@ pub fn run() {
             preview_core_image,
             bake_core_images,
             apply_core_look,
+            extract_core_log,
             list_image_recipes,
             set_image_delivery_details,
             pore_support,

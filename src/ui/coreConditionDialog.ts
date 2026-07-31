@@ -2,6 +2,7 @@ import {
   applyCoreLook,
   bakeCoreImages,
   coreImageSupport,
+  extractCoreLog,
   getWellImage,
   listImageDatasets,
   listImageRecipes,
@@ -9,9 +10,11 @@ import {
   previewCoreImage,
   type CoreRecipe,
   type CorePreview,
+  type CoreLogResult,
   type CropBox,
   type ImageInfo,
 } from "../ipc";
+import { loadCurveNames } from "./plotCommon";
 import { appState, bumpDataVersion, setStatus } from "../state";
 import { recordProcess } from "../processLog";
 import { pushUndo } from "../undo";
@@ -635,6 +638,258 @@ export async function openCoreConditionDialog(): Promise<void> {
     syncControls();
     void runBake("reset core photo", () => bakeCoreImages([{ image_id: current, recipe: {} }]));
   });
+
+  // ---- reading a log off the photographs ----------------------------------
+  //
+  // The second half of what a core photograph is for. A conditioned box is a picture of the rock at
+  // a known depth, and averaging its pixels down the core gives a continuous trace that can sit in a
+  // log track beside GR.
+  //
+  // Everything here is chosen by looking at the photograph rather than by typing: which way the
+  // depth runs, how many rows of core are in the frame, and then a drawn trace to judge.
+  const logBox = document.createElement("div");
+  logBox.style.borderTop = "1px solid var(--border)";
+  logBox.style.marginTop = "10px";
+  logBox.style.paddingTop = "8px";
+  wrap.appendChild(logBox);
+
+  const logTitle = document.createElement("div");
+  logTitle.className = "eq-note";
+  logTitle.textContent =
+    "Read a trace off these photographs \u2014 darkness, redness and texture down the core. They are " +
+    "IMAGE measures, not petrophysical properties: darkness follows shale in most clastic sections " +
+    "without being a shale volume, which is why nothing here is called VSH.";
+  logBox.appendChild(logTitle);
+
+  /** A row of buttons behaving as one choice. More legible than a dropdown for three or four
+   *  options, and it shows every option at once \u2014 which is what you want when the answer is read
+   *  off the picture above rather than remembered. */
+  const segmented = (
+    options: { value: string; label: string; title: string }[],
+    initial: string,
+    onPick: (v: string) => void
+  ): { el: HTMLElement; get: () => string } => {
+    const row = document.createElement("div");
+    row.style.display = "flex";
+    row.style.gap = "2px";
+    let value = initial;
+    const btns: HTMLButtonElement[] = [];
+    const paint = (): void => {
+      for (const b of btns) b.classList.toggle("btn-accent", b.dataset.value === value);
+    };
+    for (const o of options) {
+      const b = document.createElement("button");
+      b.className = "btn";
+      b.textContent = o.label;
+      b.title = o.title;
+      b.dataset.value = o.value;
+      b.addEventListener("click", () => {
+        value = o.value;
+        paint();
+        onPick(value);
+      });
+      btns.push(b);
+      row.appendChild(b);
+    }
+    paint();
+    return { el: row, get: () => value };
+  };
+
+  const axisPick = segmented(
+    [
+      { value: "x", label: "\u2192 across", title: "Depth runs along the width of the picture \u2014 a core box laid out left to right." },
+      { value: "y", label: "\u2193 down", title: "Depth runs down the picture \u2014 a single vertical strip." },
+    ],
+    "x",
+    () => {}
+  );
+  logBox.appendChild(formRow("Depth runs", axisPick.el, "Read it off the photograph above."));
+
+  const revChk = document.createElement("input");
+  revChk.type = "checkbox";
+  const revLabel = document.createElement("label");
+  revLabel.appendChild(revChk);
+  revLabel.appendChild(document.createTextNode(" Deepest end first (the box is the other way round)"));
+  revLabel.style.display = "block";
+  logBox.appendChild(revLabel);
+
+  const lanePick = segmented(
+    [1, 2, 3, 4, 5, 6].map((n) => ({
+      value: String(n),
+      label: String(n),
+      title:
+        n === 1
+          ? "One run of core in the frame."
+          : `${n} rows of core, read top to bottom. Equal lanes are an approximation \u2014 a real box has unequal rows and gaps \u2014 so for a careful job crop to one row and run this per row.`,
+    })),
+    "1",
+    () => {}
+  );
+  logBox.appendChild(formRow("Rows of core", lanePick.el, "How many runs of core are laid out in one photograph."));
+
+  const cmpSel = document.createElement("select");
+  cmpSel.className = "form-control";
+  {
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = "\u2014 none: do not check \u2014";
+    cmpSel.appendChild(none);
+    const names = await loadCurveNames().catch(() => [] as string[]);
+    for (const n of names) {
+      const o = document.createElement("option");
+      o.value = n;
+      o.textContent = n;
+      cmpSel.appendChild(o);
+    }
+    // GR by default where the well has it: a trace nobody thought to check is exactly the one that
+    // ships, and darkness against GR is the check this measure exists to pass.
+    if (names.includes("GR")) cmpSel.value = "GR";
+  }
+  logBox.appendChild(
+    formRow(
+      "Check against",
+      cmpSel,
+      "Reports how each measure tracks a real log over the same interval. It is the only thing that " +
+        "says whether the trace is about the rock \u2014 and a strongly NEGATIVE darkness usually means " +
+        "the depth axis is the other way round."
+    )
+  );
+
+  const readBtn = document.createElement("button");
+  readBtn.className = "btn btn-accent";
+  readBtn.textContent = "Read the trace";
+  const writeBtn = document.createElement("button");
+  writeBtn.className = "btn";
+  writeBtn.textContent = "Save as curves";
+  writeBtn.disabled = true;
+  const readRow = document.createElement("div");
+  readRow.style.display = "flex";
+  readRow.style.gap = "8px";
+  readRow.style.margin = "6px 0";
+  readRow.append(readBtn, writeBtn);
+  logBox.appendChild(readRow);
+
+  const trace = document.createElement("canvas");
+  trace.style.width = "100%";
+  trace.style.height = "220px";
+  trace.style.background = "var(--bg-panel-alt)";
+  trace.style.borderRadius = "var(--r-sm)";
+  trace.hidden = true;
+  logBox.appendChild(trace);
+
+  const logNote = document.createElement("div");
+  logNote.className = "eq-note";
+  logBox.appendChild(logNote);
+
+  /** Draws the measures as three tracks down depth, the way they will look in a log view.
+   *
+   *  A table of percentiles cannot say whether a trace has bedding in it, and bedding is the whole
+   *  question. Each track is scaled to its OWN range \u2014 darkness, redness and texture are three
+   *  different quantities and one shared axis would flatten two of them to a line. */
+  const drawTrace = (res: CoreLogResult): void => {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = Math.max(1, Math.round(trace.clientWidth * dpr));
+    const h = Math.max(1, Math.round(220 * dpr));
+    if (trace.width !== w || trace.height !== h) {
+      trace.width = w;
+      trace.height = h;
+    }
+    const ctx = trace.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, w, h);
+    const d = res.preview_depth;
+    if (d.length < 2) return;
+    const pad = 18 * dpr;
+    const cols = res.curves.length;
+    const cw = (w - pad * (cols + 1)) / cols;
+    const dmin = d[0];
+    const dmax = d[d.length - 1];
+    const colours = ["#5a5a5a", "#a83e2c", "#5f7350"];
+    ctx.font = `${11 * dpr}px sans-serif`;
+    ctx.textBaseline = "top";
+    for (let k = 0; k < cols; k++) {
+      const cv = res.curves[k];
+      const x0 = pad + k * (cw + pad);
+      const fin = cv.preview.filter((v) => Number.isFinite(v));
+      if (!fin.length) continue;
+      let lo = Math.min(...fin);
+      let hi = Math.max(...fin);
+      if (hi - lo < 1e-9) {
+        lo -= 0.5;
+        hi += 0.5;
+      }
+      ctx.strokeStyle = "rgba(128,128,128,0.35)";
+      ctx.strokeRect(x0, pad, cw, h - pad * 1.6);
+      ctx.fillStyle = "var(--text)";
+      ctx.fillStyle = colours[k % colours.length];
+      ctx.fillText(cv.name.replace("CPHOTO_", ""), x0, 2 * dpr);
+      ctx.beginPath();
+      for (let i = 0; i < cv.preview.length; i++) {
+        const v = cv.preview[i];
+        if (!Number.isFinite(v)) continue;
+        const x = x0 + ((v - lo) / (hi - lo)) * cw;
+        const y = pad + ((d[i] - dmin) / Math.max(1e-9, dmax - dmin)) * (h - pad * 1.6);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = colours[k % colours.length];
+      ctx.lineWidth = 1 * dpr;
+      ctx.stroke();
+    }
+    ctx.fillStyle = "rgba(128,128,128,0.9)";
+    ctx.fillText(`${dmin.toFixed(1)}`, 2 * dpr, pad);
+    ctx.fillText(`${dmax.toFixed(1)}`, 2 * dpr, h - pad);
+  };
+
+  const describeRun = (res: CoreLogResult): string => {
+    const bits = res.curves.map((c) =>
+      Number.isFinite(c.correlation)
+        ? `${c.name.replace("CPHOTO_", "")} ${c.correlation >= 0 ? "+" : ""}${c.correlation.toFixed(2)}`
+        : `${c.name.replace("CPHOTO_", "")} \u2014`
+    );
+    const head =
+      `${res.samples} sample(s) from ${res.photographs} photograph(s), ` +
+      `${res.depth_min.toFixed(1)} to ${res.depth_max.toFixed(1)}.`;
+    const agree = cmpSel.value ? ` Against ${cmpSel.value}: ${bits.join(", ")}.` : "";
+    return head + agree + (res.notes.length ? " " + res.notes.join(" ") : "") +
+      (res.skipped.length ? ` Left out: ${res.skipped.join("; ")}` : "");
+  };
+
+  const buildSpec = (write: boolean) => ({
+    well_id: well.well_id,
+    dataset: dsSel.value,
+    axis: axisPick.get() as "x" | "y",
+    reverse: revChk.checked,
+    lanes: Number(lanePick.get()) || 1,
+    compare_curve: cmpSel.value || null,
+    write,
+  });
+
+  const runRead = async (write: boolean): Promise<void> => {
+    readBtn.disabled = true;
+    writeBtn.disabled = true;
+    logNote.textContent = write ? "Saving\u2026" : "Reading\u2026";
+    try {
+      const res = await extractCoreLog(buildSpec(write));
+      trace.hidden = false;
+      drawTrace(res);
+      logNote.textContent =
+        (write ? `Saved ${res.written.join(", ")}. ` : "") + describeRun(res);
+      if (write) {
+        setStatus(`Read ${res.written.length} curve(s) off ${dsSel.value}`);
+        recordProcess("Edit", `Core photo log on ${dsSel.value}: ${res.written.join(", ")}`, well.well_name);
+        bumpDataVersion();
+      }
+      writeBtn.disabled = false;
+    } catch (e) {
+      logNote.textContent = String(e);
+    } finally {
+      readBtn.disabled = false;
+    }
+  };
+
+  readBtn.addEventListener("click", () => void runRead(false));
+  writeBtn.addEventListener("click", () => void runRead(true));
 
   // ---- loading ------------------------------------------------------------
   const select = (id: string): void => {

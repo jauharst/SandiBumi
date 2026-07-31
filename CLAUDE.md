@@ -2039,6 +2039,118 @@ realistic case and the whole reason one reference stops serving a delivery: the 
 lost when dragged onto a shallow reference (shift > 100 degrees, band missed) and read their true
 quarter when corrected onto their own. Its orphan plate pins the refusal above.
 
+## Core slab photographs: conditioning, and a trace read off them (2026-07-31)
+
+`coreimage.rs` + `coreConditionDialog.ts` (Data ▸ Tools ▾ ▸ **Condition Core Photos…**) are ROADMAP
+C2 item (7)'s first two halves. A core photograph arrives as somebody's snapshot — the box a degree
+off square on the bench, the tray and the tape in frame, and whatever colour the core shed's lights
+had that afternoon. None of that is the rock and all of it goes into a report.
+
+**The controls are the picture wherever they can be** (Jauhar, 2026-07-31: "geologist see image not
+text"). The delivery is a strip of thumbnails rather than a list of filenames, the crop is a drag on
+the image rather than four numbers, the white balance is a click on a grey patch rather than three
+gains, the depth lay-out is a row of buttons showing every option at once, and each slider's TRACK
+carries the gradient it moves along — blue to amber, green to magenta, grey to vivid. The readout
+beside a slider is there to be read back, not typed into.
+
+### The conditioning
+
+**Non-destructive, and `well_images` enforces it rather than claiming it.** `recipe` holds the
+settings, `source_data` the un-conditioned display copy — written ONCE, by a `COALESCE` inside the
+UPDATE rather than a read-then-write, so two applies in flight cannot let the second file the
+first's output as the original. Every later edit re-renders FROM it: editing a recipe must never
+stack a second correction on the first, because a brightness raised twice by eye is a photograph
+nobody can get back to.
+
+**`source_meta` (`WxH;mime`) is the third column and it is not decoration.** A crop changes the
+picture's shape, so a restore that left the baked dimensions behind would have every renderer draw
+the whole photograph into the cropped one's box, at the wrong aspect ratio — the one thing this app
+never does to a picture. Pinned by `conditioning_keeps_the_import_and_a_restore_puts_back_its_shape`.
+
+**The result is BAKED into `data`, not applied when the picture is drawn.** The PDF exporter embeds
+those bytes untouched through a `/DCTDecode` XObject, so a render-time recipe would print the
+unconditioned photograph while the screen showed the corrected one — silently, and only on the
+deliverable. Baking also leaves the log view, the composite and the PDF nothing to disagree about.
+A recipe that changes nothing RESTORES rather than re-encoding: a second JPEG pass to record a
+decision to leave the pixels alone is pure loss.
+
+**Everything geometric is a FRACTION of the picture.** A crop in pixels belongs to whichever copy it
+was dragged on, and the stored copy is already capped at a long edge — the `fov_um` and scale-bar
+argument again. It is also what makes the preview trustworthy: the proxy the user drags on and the
+full-size bake apply the identical recipe, checked by shape in
+`a_picked_grey_a_crop_and_a_way_back`. A second crop COMPOSES with the first, because it was drawn
+on the already-cropped picture.
+
+**The picked white balance is normalised so the LARGEST gain is 1** — it can only darken, and no
+channel is pushed past white and clipped, which would distort the hue of exactly the brightest
+pixels. The patch is a MEDIAN, not a mean: a speck of dust or a highlight on the tray is one pixel
+from the grey that was actually clicked. Same rule the thin-section colour correction follows.
+
+**"Apply this light to the whole run" copies the colour half only**, and the merge is done in Rust
+(`CoreRecipe::with_look`) so what "the look" means is one rule rather than one per caller. A
+core-shed run is shot under one light in one afternoon, so the colour genuinely belongs to the
+delivery — but the box sits differently on the bench in every frame, so the crop and the deskew do
+not. Same reasoning as `set_image_delivery_details` refusing "All datasets".
+
+**The preview comes from the backend.** Re-implementing the pipeline in canvas would drag faster and
+would put one correction in two languages — the standing `composite.rs`-versus-renderer warning.
+What is tuned is literally what gets baked, at a smaller size. Slider moves are coalesced and stale
+answers dropped by sequence number.
+
+The dialog distinguishes THREE states, not two: as imported / applied / edited-and-not-yet-written.
+"Conditioned" and "conditioned in the project" are different facts and the second is the one that
+reaches a report — the status line read "not yet applied" the moment after Apply until this was
+fixed. The filmstrip dot follows the PROJECT, never what is being tried on screen.
+
+### The trace
+
+`extract_core_log` reads three measures down the core and can write them as curves:
+`CPHOTO_DARK` (1 − Rec. 709 luma), `CPHOTO_RED` (normalised (R−G)/(R+G), so an uneven lamp cancels
+in the ratio) and `CPHOTO_TEX` (spread across the core within each slab — lamination and
+conglomerate scatter, a clean massive sand does not).
+
+**The prefix is `CPHOTO` and it will never be `VSH`.** Darkness co-varies with shale in most clastic
+sections, which is not the same statement as being a shale volume: the same dark band is
+organic-rich mudstone in one core, oil stain in another, a wet patch in a third. A curve called VSH
+is read by every module downstream AS a shale volume, and an uncalibrated one under that name is a
+wrong answer that computes and plots. Turning it into one is a calibration the user makes against
+their own GR. Same argument that keeps `GRAIN_D50_APP` apart from `GRAIN_D50`.
+
+**It reads the CONDITIONED picture**, which is why the conditioning came first: a darkness compared
+across boxes shot under two different lamps is a comparison of the lamps.
+
+**The agreement with a real log is SIGNED, and that is the point.** Darkness and GR should both rise
+into shale, so a strongly negative `CPHOTO_DARK` is a finding rather than a weak result — most often
+the depth axis is the other way round, occasionally the dark bands are oil stain. Below −0.3 the run
+says so by name and suggests Deepest first. Pinned from both sides by
+`the_trace_runs_the_way_the_picture_is_laid_out`, which requires the forward reading above +0.95 and
+the reversed one below −0.95: a test that only checked "strong" would pass on the upside-down trace.
+
+**A photograph with no `depth_base` is refused by name.** It is a point sample anchored at one depth
+and covers no interval, so there is no axis to read along; stretching it over a guessed thickness
+would invent every sample in it. **The depth range is taken to span the picture end to end**, which
+makes the conditioning crop also the statement of where the core is in the frame — crop the tray and
+the tape away, or they are read as rock.
+
+**Lanes are an approximation and say so.** A four-row core box is split into equal lanes read in
+order; a real box has unequal rows and gaps between them. Default is 1, so nobody gets the
+approximation without asking, and the note points at cropping to one row for a careful job.
+
+Samples sit at the MIDDLE of the slab they averaged, so a trace read at 2 cm is not shifted a
+centimetre shallow against the log it is compared with. Photographs are sorted into depth order
+before anything is written — a delivery arrives in whatever order it is stored in, and a
+non-monotonic curve is a sawtooth to every reader downstream. Reading and writing are separate
+buttons, the `set_name` rule again.
+
+Rule 7 throughout: numpy + Pillow in ONE subprocess per batch of 8 (photographs are large), both
+runners read `sys.stdin.buffer`, and `core_image_support()` probes before anything opens. The real
+round trips are `#[ignore]`d so the green gate never depends on an optional package.
+
+**Not yet built, and deliberately named**: perspective correction, CLAHE/denoise/sharpen, the
+stitched multi-box depth strip, WL/UV pairs, and a log-view strip track. Cross-correlating the
+photograph trace against GR to PROPOSE a depth shift is `registration.rs`'s job and would compose
+with it — the trace is already a curve.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under

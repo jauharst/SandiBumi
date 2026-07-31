@@ -7124,3 +7124,73 @@ rather than by reading their medians against each other.
       measures anything.
 - [ ] Check that touching intervals (`…–2500` and `2500–…`) are accepted, and that a plate sitting
       exactly on 2500 goes to the one listed first.
+
+## Core slab photographs: clean them up, then read a trace off them (2026-07-31)
+
+Two new things under Data ▸ Tools ▾ ▸ **Condition Core Photos…**, and they are meant to be used in
+that order.
+
+### Cleaning the photograph
+
+Everything is done by looking at the picture rather than typing numbers at it:
+
+- The delivery is a **strip of thumbnails** across the top. Click one to work on it. A green dot
+  marks the ones already conditioned **in the project** — not the one you are fiddling with now.
+- **Crop** by dragging a rectangle on the photograph. Drag again inside it to crop further.
+- **Pick a grey**, then click the colour card, the grey tray or a white label. Everything shifts so
+  that patch reads neutral, and the swatch beside the button shows what you clicked.
+- **Straighten, Brightness, Contrast, Colour, Warmth, Green/magenta** are sliders whose track shows
+  the gradient they move along — you can see which way amber is before you touch it.
+- **Hold to compare** shows the photograph as delivered for as long as you hold the button.
+- The **histogram** under the picture is the exposure check: a wall at either end is detail that is
+  now pure black or pure white and cannot come back.
+
+**Nothing is destroyed.** The photograph as imported is kept the first time you apply, everything
+afterwards is re-rendered from it, and **Reset this photo** puts it back byte for byte — including
+its shape, so a cropped picture goes back to its full frame rather than being stretched into the
+cropped one's box.
+
+**Apply this light to the whole run** copies the colour half only. Every picture keeps its own
+straightening and crop, because the box sits differently on the bench in every frame.
+
+### Reading a trace off it
+
+Below the sliders, **Read the trace** averages the pixels down the core and draws three tracks:
+
+- **DARK** — how dark the rock is. Follows shale in most clastic sections.
+- **RED** — redness, which picks up oxidation, red beds and some oil staining.
+- **TEX** — how much the colour varies across the core, which is a lamination and heterogeneity
+  measure.
+
+Tell it **which way depth runs** (across the picture or down it), whether the box was photographed
+**deepest-end-first**, and **how many rows of core** are in the frame. Then **Save as curves** writes
+them as `CPHOTO_DARK`, `CPHOTO_RED` and `CPHOTO_TEX`.
+
+**They are not called VSH, and they never will be.** Darkness follows shale without being a shale
+volume — the same dark band is organic mudstone in one core and oil stain in another. Anything named
+VSH is read by every module in the app as a shale volume, so an uncalibrated one under that name
+would be a wrong answer that computes and plots. Calibrate it against your own GR first.
+
+**Check against does exactly that**, and it defaults to GR. It reports a SIGNED number: darkness and
+gamma should both rise into shale, so a strongly NEGATIVE darkness is a finding rather than a weak
+result — usually the depth axis is the other way round. The run says so when it sees it.
+
+Two things worth knowing. **Crop to exactly the core before reading a trace** — the picture's top
+and base depths are taken to span the frame end to end, so a tray or a tape left in the crop is read
+as rock. And **equal rows are an approximation**: a real box has unequal rows and gaps, so for a
+careful job crop to one row and run it per row.
+
+- [ ] Open it on a well with core photographs and check the thumbnail strip fills in as you scroll,
+      and that clicking one loads that picture.
+- [ ] Pick a grey on a colour card or a grey tray and see whether the cast comes out the way you
+      would have corrected it by hand.
+- [ ] Crop a box down to just the core, apply, and check the picture in a log-view image track and
+      in a printed composite — they should both show the cropped, corrected version.
+- [ ] Press Reset this photo and check it comes back exactly as delivered, at its full size.
+- [ ] Apply this light to the whole run on a run shot in one session, and check each box keeps its
+      own crop.
+- [ ] Read a trace off a box with GR as the check. Does DARK agree with your gamma? If it comes back
+      strongly negative, try Deepest end first and see whether it flips.
+- [ ] On a four-row core box, compare 4 rows in one go against cropping to one row at a time — is
+      the equal-lane approximation good enough on your boxes?
+- [ ] Save the curves and put CPHOTO_DARK in a log track beside GR.
