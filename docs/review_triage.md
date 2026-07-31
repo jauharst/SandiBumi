@@ -22,6 +22,42 @@ claim that test makes is pinned by arithmetic on synthetic data. Pile C does not
 automated"; it means automatable, and 64 of the 147 carry a blocker that has to be solved first.
 Pile D is the number that matters: **37 tests, about one in seven, genuinely need you.**
 
+## Progress — what has actually been retired
+
+**Updated 2026-07-31.** This is the section to check. Everything below is written, passing in
+`tools\check.ps1`, and committed — so these manual tests no longer need your evening.
+
+| Pile | Done | Remaining |
+|---|---|---|
+| **B** — a Rust test now checks it | **6** | 39 |
+| **C** — a machine now drives it | **5** | 81 unblocked (+61 blocked) |
+
+### Pile B — retired so far
+
+| Manual test | Now checked by | Where |
+|---|---|---|
+| T-REP-18 | `readonly_query_refuses_every_write_shape_including_a_cte_prefix` | `db.rs` |
+| T-SHIP-03 | `a_missing_curve_fails_by_name_rather_than_computing_on_another` | `lorenz.rs` |
+| T-IMP-15 | `export_writes_missing_as_null_and_carries_mixed_case_computed_curves` | `export.rs` |
+| T-IMP-16 | `an_exported_las_reimports_with_the_same_values` | `export.rs` |
+| T-INT-03 | `zones_from_tops_are_contiguous_and_absent_tops_make_no_zones` (+ the inverted-zone guard) | `db.rs` |
+| T-INT-11 | `a_restored_log_set_version_feeds_the_next_module_run` | `workflow.rs` |
+
+All three items flagged as **silent-wrongness class** (T-REP-18, T-SHIP-03, T-INT-11) are closed.
+
+### Pile C — covered by the end-to-end harness
+
+`npm run test:e2e` (see `docs/e2e_harness.md`) drives the built app: a sandboxed project, a real
+LAS import, a real `vsh_gr` run with the curves read back, a real LAS export, and a frontend-boot
+check. Optional; never part of the green gate.
+
+### Where else to look
+
+- **`git log`** — every increment's commit says what it pinned and why.
+- **`tools\check.ps1`** — the count in `test result: ok. N passed` is the whole suite.
+- **`tools\testplan-tally.ps1`** — still scores only YOUR marks in the manual plan, deliberately.
+  Nothing automated ever ticks a box there.
+
 ## Two rules this document follows
 
 **It does not touch your marks.** `REVIEW.md` and `manual_test_plan.md` are unchanged. A `[x]`

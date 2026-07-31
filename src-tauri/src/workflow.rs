@@ -1850,6 +1850,113 @@ mod tests {
         }
     }
 
+    /// Restoring an earlier log-set version must change what the NEXT module run computes.
+    ///
+    /// `db::log_set_versioning_never_overwrites` proves the restore itself: the archive keeps
+    /// both generations and the current store goes back to version 1's values. What it does not
+    /// prove is that anything downstream then READS those values — and that is the whole point
+    /// of being able to restore. A restore that quietly left modules computing on version 2
+    /// would be the worst possible outcome: the catalog, the version history and the curve on
+    /// screen would all say version 1, while every number derived from it came from the run you
+    /// deliberately rolled back.
+    ///
+    /// phi_den is the downstream module here because it takes VSH as an input curve, so its
+    /// PHIE moves whenever VSH does. The control is that the two PHIE results must DIFFER —
+    /// without it, a phi_den that ignored VSH entirely would satisfy every other assertion.
+    #[test]
+    fn a_restored_log_set_version_feeds_the_next_module_run() {
+        use crate::equations::{
+            create_log_set, restore_log_set, write_computed_curves_versioned, LogSetSpec,
+        };
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, id, "SANDI-VER", None, None, None).unwrap();
+        let w = id.to_string();
+
+        // RHOB is phi_den's other input; hold it constant so VSH is the only thing that moves.
+        let n = 3usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            &conn,
+            id,
+            depth.clone(),
+            vec![60.0; n],
+            nan.clone(),
+            nan.clone(),
+            vec![2.35f32; n],
+            nan.clone(),
+            nan,
+        )
+        .unwrap();
+
+        let spec = LogSetSpec {
+            set_name: "INTERP".into(),
+            module: "vsh_gr".into(),
+            params_json: "{}".into(),
+            inputs_json: "[\"GR\"]".into(),
+        };
+
+        // Version 1: a clean sand. Version 2: very shaly. Same curve, same well.
+        let (set1, v1) = create_log_set(&conn, &w, &spec).unwrap();
+        write_computed_curves_versioned(&conn, &w, &depth, &[("VSH", &[0.10f32, 0.10, 0.10])], &set1)
+            .unwrap();
+        let (set2, v2) = create_log_set(&conn, &w, &spec).unwrap();
+        write_computed_curves_versioned(&conn, &w, &depth, &[("VSH", &[0.80f32, 0.80, 0.80])], &set2)
+            .unwrap();
+        assert_eq!((v1, v2), (1, 2));
+
+        let dbm = Mutex::new(conn);
+        let req = RunModuleRequest {
+            module: "phi_den".into(),
+            well_ids: vec![w.clone()],
+            log_inputs: HashMap::new(),
+            params: HashMap::new(),
+            opts: HashMap::new(),
+            output_set: None,
+            input_set: None,
+        };
+        let phie_at = |d: f32| -> f32 {
+            let c = dbm.lock().unwrap();
+            c.query_row(
+                "SELECT value FROM computed_curves
+                 WHERE well_id = ?1 AND curve_name = 'PHIE' AND depth = ?2",
+                duckdb::params![w, d],
+                |r| r.get(0),
+            )
+            .expect("phi_den must have written PHIE")
+        };
+
+        // Run against the CURRENT version (2, the shaly one).
+        let r = run_workflow_module_into(&dbm, &req, None, None, None);
+        assert!(r[0].error.is_none(), "phi_den on v2: {:?}", r[0].error);
+        let phie_v2 = phie_at(1000.0);
+
+        // Roll back to version 1 and run again. Nothing else changed.
+        {
+            let c = dbm.lock().unwrap();
+            restore_log_set(&c, &set1).unwrap();
+        }
+        let r = run_workflow_module_into(&dbm, &req, None, None, None);
+        assert!(r[0].error.is_none(), "phi_den on restored v1: {:?}", r[0].error);
+        let phie_v1 = phie_at(1000.0);
+
+        assert!(
+            (phie_v1 - phie_v2).abs() > 1e-4,
+            "the restore changed nothing downstream: PHIE was {phie_v2} on v2 and {phie_v1} after \
+             restoring v1. Either the module is not reading the restored VSH, or it is not \
+             reading VSH at all"
+        );
+        // Direction, not just difference: less shale leaves more effective porosity, because
+        // phi_den subtracts the shale term VSH*(RHO_MA - RHO_SH)/(RHO_MA - RHO_FL).
+        assert!(
+            phie_v1 > phie_v2,
+            "restoring the cleaner VSH must RAISE PHIE (got {phie_v1} vs {phie_v2})"
+        );
+    }
+
     /// Cancel responsiveness: with the chain cancel flag already set, run_workflow_module_into
     /// skips every well (no fetch/compute/write) and returns clean no-ops — so a Cancel drains a
     /// running step's remaining wells in ~a well or two instead of grinding through all of them.
