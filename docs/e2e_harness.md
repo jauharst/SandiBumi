@@ -214,7 +214,7 @@ click listener the two are equivalent — but when the *gesture* is the thing un
 
 ## Current coverage
 
-Forty-seven tests across ten spec files. Specs share ONE app launch and one project (see the spec
+Fifty-two tests across eleven spec files. Specs share ONE app launch and one project (see the spec
 grouping note in `wdio.conf.mjs`), so write each one to establish what it needs and to assert
 changes as before/after differences rather than as absolute state.
 
@@ -318,6 +318,16 @@ correct one if you only read the message.
 | A newly opened pane inherits the scope | Uses a module no other spec opens — panes are singletons |
 | An already-open pane does NOT re-scope | Pinned as the known open bug; goes red when fixed |
 | Delete | The group goes, the wells stay |
+
+`workflow.e2e.mjs` — the chain builder (T-BATCH-01, T-BATCH-04, T-BATCH-06 save refusals):
+
+| Test | What it proves |
+|---|---|
+| The step picker is clean | Grouped by category, and the retired multimin is absent |
+| Both save refusals | Unnamed and stepless — and neither leaves a document behind |
+| A two-step chain saves | The stored JSON carries the steps in the order they were added |
+| It reloads in order | Cleared, reloaded, re-saved, compared as JSON |
+| Delete | Gone from the store |
 
 Test data is `dataset for test/examples/` (`SANDI-*`) only. Never a real client project, never a
 path from `SANDIBUMI_FIELD_FIXTURES`.

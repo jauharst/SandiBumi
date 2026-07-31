@@ -235,7 +235,19 @@ can fail for reasons unrelated to the code is a gate people learn to ignore.
 **`[x]` here means an end-to-end test drives it against the real app. It is NOT your verification
 mark** — same rule as pile B.
 
-**Done (18 of 86)**
+**Done (20 of 86)**
+
+- [x] **T-BATCH-01** — Workflow Builder smoke, step picker clean · `workflow.e2e.mjs`. The picker
+      is grouped by category and offers the catalog; the retired `multimin` is absent under both its
+      id and its old display name. A chain built today that quietly wired it up would be refused at
+      RUN time by `modules::retired_module` — after the user had arranged the whole recipe.
+- [x] **T-BATCH-04** — Save, reload and delete the chain as a `workflow` document · same spec. The
+      round trip is asserted on the STORED JSON, not on the dialog looking right: two steps in a
+      deliberate order, cleared from the builder, reloaded, re-saved, and the ordered step list
+      compared. **Order is the whole content of a chain** — VSH before porosity, porosity before
+      saturation — so a round trip that kept the set and lost the sequence would run a different
+      recipe and look identical in the list. Both save refusals also check that NO document is left
+      behind; a half-saved chain is worse than none.
 
 - [x] **T-WELL-04** — Well Groups manager: create, membership, rename, delete · `wellgroupmanager
       .e2e.mjs`. The rename test asserts the group ID SURVIVES: a rename that quietly created a new
@@ -345,6 +357,11 @@ mark** — same rule as pile B.
       next launch. **Not covered:** the 📌 global well LOCK (a different control from the ★), the
       panel titles following the selection, and ★ persistence across a relaunch.
 
+- [ ] **T-BATCH-06** — Workflow negatives. `workflow.e2e.mjs` covers the two SAVE refusals (no
+      name, no steps), both frontend-only — `save_document` would store either quite happily — and
+      checks neither leaves a document behind. **Not covered:** the empty-scope refusal on a run,
+      and the Processing panel's per-well ⚠/✗ list for one broken well.
+
 - [ ] **T-PETRO-03** — vsh_gr invalid parameters. `moduledialog.e2e.mjs` covers step 1's range
       refusal — the same guard, reached through vsh_gr's own pane — including that the message
       NAMES the parameter and its bounds, since a bare "invalid input" is true and useless on a
@@ -357,12 +374,14 @@ mark** — same rule as pile B.
       every time is one people stop using, and the unsaved-state dot then stops meaning anything.
       **Not covered:** Escape closing ribbon menus.
 
-- [ ] **T-RT-16** — Legacy Multimin filtered from the step picker. `shell.e2e.mjs` covers **step 5
-      only** (the ribbon cross-check), and covers it well: the retirement rests on two independent
+- [ ] **T-RT-16** — Legacy Multimin filtered from the step picker. Now covered at BOTH ends:
+      `workflow.e2e.mjs` covers steps 1–3 (the Workflow Builder's own picker offers no `multimin`,
+      under either name) and `shell.e2e.mjs` covers step 5 (the ribbon cross-check), and covers it
+      well: the retirement rests on two independent
       mechanisms — membership of `ADVANCED_MODULE_IDS`, which filters it out of the Petrophysics
       dropdowns, and a META caption outside `groupOrder`, which keeps it out of the Advance tab —
       so breaking either one puts the button back somewhere, and the test sweeps the whole ribbon.
-      Steps 1–4 (the Workflow Builder's own picker) are untouched.
+      **Only step 4 is left** — that SandiMin is not offered as a chain step either.
 
 ### Where else to look
 

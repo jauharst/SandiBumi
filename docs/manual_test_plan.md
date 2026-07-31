@@ -3000,6 +3000,12 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 3. Click **Workflow…** again — no second pane; the existing one is focused (covers REVIEW.md §"Pane layout + MC/workflow polish" run-dialogs-are-singleton-panes item).
 4. Open the **Add module** dropdown; scroll every category group (VSH, Porosity, Saturation, Permeability, …).
    **Expected:** Steps area shows "No steps yet — add modules above." Module picker lists modules grouped by category with full titles. **No "Multimin" entry appears anywhere in the picker** — the legacy solver is filtered out (use SandiMin from the Advance tab); covers REVIEW.md §Round 4 "the deprecated legacy `multimin` module is filtered out of the Workflow step picker". SandiMin itself is also absent from the picker (by design — it is not chainable yet).
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** `workflow.e2e.mjs` opens the builder
+   from its ribbon button and asserts the step picker is grouped by category, offers the catalog,
+   and contains NO retired `multimin` under either its id or its old display name. A chain built
+   today that quietly wired it up would be refused at RUN time by `modules::retired_module` - after
+   the user had arranged the whole recipe.
+
    **Result — T-BATCH-01:**
 
 - [ ] Pass
@@ -3058,6 +3064,13 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 4. Toggle **List | Grid**; in Grid, confirm the edited parameter shows in its column; use the **Set all** row to write a shared parameter across steps (covers REVIEW.md §"Wave A-4: workflow grid inspector" save/reload item).
 5. **Delete** removes it from the dropdown (re-save it afterwards — T-BATCH-16 needs it).
    **Expected:** Load restores all 4 steps with the edited parameter intact; status `Loaded workflow "UAT_CHAIN4" (4 steps)`; Grid and List views show identical steps; Delete confirms via status line.
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** `workflow.e2e.mjs` does the full
+   round trip and asserts it on the STORED JSON rather than on the dialog looking right: two steps
+   added in a deliberate order, cleared from the builder, reloaded, re-saved, and the ordered step
+   list compared. **Order is the whole content of a chain** - VSH before porosity, porosity before
+   saturation - so a round trip that kept the set and lost the sequence would run a different recipe
+   and look identical in the saved list.
+
    **Result — T-BATCH-04:**
 
 - [ ] Pass
@@ -3093,6 +3106,13 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 2. Add one step; set Wells scope to **Selection** with nothing selected ▸ **Run chain** → "No wells in scope — pick a group, pin/select wells, or choose All".
 3. Scope **All** (including the GR-less well) ▸ run the 4-step chain.
    **Expected:** Steps 1–2 refuse to start, no job appears in the Processing panel. Step 3: the GR-less well shows **⚠/✗** in the Processing panel's notable-wells list with an advice line (e.g. "Check these wells have the input curves (Curve Catalog)…"), while every other well completes ✓ — one bad well must not kill the batch. Completion status counts the warnings ("— n well/step warnings").
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** the two SAVE refusals only.
+   `workflow.e2e.mjs` checks the unnamed and the stepless cases - both frontend-only, since
+   `save_document` would store either quite happily - and that NEITHER leaves a document behind, a
+   half-saved chain being worse than none. The order matters and the test respects it: the name is
+   checked first, so the no-steps message is only reachable once a name is typed. **Not covered:**
+   the empty-scope refusal on a run, and the per-well breakdown for one broken well.
+
    **Result — T-BATCH-06:**
 
 - [ ] Pass
