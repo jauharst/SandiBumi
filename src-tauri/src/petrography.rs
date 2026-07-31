@@ -290,6 +290,13 @@ pub struct PlatePore {
     pub depth_base: Option<f32>,
     /// Pore area as a fraction of the plate, v/v.
     pub pore_fraction: f32,
+    /// The plate's OWN median hue in degrees — what colour this picture mostly is.
+    pub scene_hue: f32,
+    /// Set when that median hue falls inside the declared pore band, which means the band is
+    /// describing the scene rather than the pores. The fraction above is still reported so the
+    /// band can be tuned against it, but the plate is left out of the write. See
+    /// [`scene_dominated`].
+    pub scene_dominated: bool,
     /// Pixels examined — the whole plate, since nothing is masked out.
     pub pixels: i64,
     /// Shape and size of the individual pores, when geometry was asked for.
@@ -416,8 +423,12 @@ def mask_of(img):
     # Where the pixel is grey the hue is undefined; `hsv_of` leaves it at 0 and the saturation
     # floor is what actually rejects it, so an undefined hue never counts as blue.
     h, s, v = hsv_of(img)
-    return in_band(h, s, v, float(band["hue_lo"]), float(band["hue_hi"]),
-                   float(band["sat_min"]), 1.0, float(band["val_min"]), 1.0)
+    m = in_band(h, s, v, float(band["hue_lo"]), float(band["hue_hi"]),
+                float(band["sat_min"]), 1.0, float(band["val_min"]), 1.0)
+    # The plate's OWN median hue rides back with the mask. Rock is mostly rock, so on a plate
+    # the band is reading correctly the typical pixel is a grain and its hue sits OUTSIDE the
+    # pore band. When it sits inside, the band is describing the scene - see `scene_dominated`.
+    return m, float(np.median(h))
 
 def hsv_of(img):
     """Hue in degrees, saturation and value 0..1 — the one conversion, used by every rule here."""
@@ -677,7 +688,7 @@ for i, blob in enumerate(blobs):
     except Exception as e:
         out["results"].append({"image_id": ids[i], "error": "cannot decode: %s" % e})
         continue
-    m = mask_of(img)
+    m, scene_hue = mask_of(img)
     total = int(m.size)
     hits = int(np.count_nonzero(m))
     row = {
@@ -685,6 +696,7 @@ for i, blob in enumerate(blobs):
         "pore_fraction": (hits / total) if total else 0.0,
         "pixels": total,
         "width": int(img.width),
+        "scene_hue": scene_hue,
     }
     if header.get("geometry"):
         # Same mask, so the fraction and the pore shapes can never describe different pictures.
@@ -1049,6 +1061,10 @@ struct RunnerRow {
     pixels: Option<i64>,
     #[serde(default)]
     width: Option<i32>,
+    /// The plate's own median hue. `#[serde(default)]` like its siblings, so a row from an older
+    /// runner still deserializes — it simply cannot be checked.
+    #[serde(default)]
+    scene_hue: Option<f32>,
     #[serde(default)]
     geom: Option<RunnerGeom>,
     #[serde(default)]
@@ -1254,6 +1270,42 @@ pub fn epoxy_check(prepared: &str) -> Result<(), &'static str> {
         "" => Err("preparation not stated - a blue rule on an unimpregnated section returns a porosity anyway"),
         "plain" => Err("not impregnated"),
         _ => Err("preparation is not blue-dyed epoxy"),
+    }
+}
+
+/// Whether the colour band is describing the SCENE rather than the pores.
+///
+/// `epoxy_check` catches the plate nobody impregnated. It cannot catch the other half of the
+/// problem, which only showed up on a real delivery: a plate that IS impregnated, photographed
+/// under a light the band was never tuned for, where the rule swallows the matrix and returns a
+/// porosity anyway. Across 134 photomicrographs of one carbonate delivery — one laboratory, one
+/// well, one report — the median hue of the picture ran from 26 to 310 degrees, and 52 plates had
+/// their whole scene sitting inside the default blue band. Those plates measured up to 0.97 v/v.
+///
+/// **The test is the plate's own median hue, not a cap on the answer.** A cap would be arbitrary:
+/// one field of view crossing a large vug genuinely can be mostly pore. But rock is mostly rock,
+/// so on a plate the band is reading correctly the TYPICAL pixel is a grain and its hue falls
+/// OUTSIDE the pore band. When the median pixel is pore-coloured, the band has stopped
+/// discriminating. On that delivery this flagged every one of the 28 plates reading above 0.5 v/v,
+/// and the highest an unflagged plate reached was 0.387 — a plausible carbonate. Pinned by
+/// `a_plate_whose_own_median_hue_is_pore_coloured_is_not_measured`.
+///
+/// The fraction is still MEASURED and previewed, because tuning the band is exactly how the user
+/// fixes this and they cannot tune against a number they are not shown. What is refused is the
+/// WRITE: a 0.97 stored at a real depth would go on to plot against helium porosity, and its
+/// wrongness would be silent.
+pub fn scene_dominated(median_hue: f32, band: &PoreColorBand) -> bool {
+    if !median_hue.is_finite() {
+        return false;
+    }
+    let h = median_hue.rem_euclid(360.0);
+    if band.hue_lo <= band.hue_hi {
+        h >= band.hue_lo && h <= band.hue_hi
+    } else {
+        // A band written across 0 degrees is two arcs, not an empty range — same reading the
+        // runner's `in_band` gives it, and the two must agree or the guard would fire on the
+        // wrong plates.
+        h >= band.hue_lo || h <= band.hue_hi
     }
 }
 
@@ -1696,12 +1748,18 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
                     let geometry = row.geom.as_ref().map(|g| summarise(g, um_per_px));
                     let grains =
                         row.grain.as_ref().map(|g| summarise_grains(g, um_per_px, spec.wicksell));
+                    // A plate the band cannot discriminate on is still measured and previewed —
+                    // tuning the band is how the user fixes it — but it is kept out of the write.
+                    let scene_hue = row.scene_hue.unwrap_or(f32::NAN);
+                    let dominated = scene_dominated(scene_hue, &spec.band);
                     plates.push(PlatePore {
                         image_id: info.image_id.clone(),
                         name: info.name.clone(),
                         depth_top: info.depth_top,
                         depth_base: info.depth_base,
                         pore_fraction: f,
+                        scene_hue,
+                        scene_dominated: dominated,
                         pixels: row.pixels.unwrap_or(0),
                         geometry,
                         grains,
@@ -1725,6 +1783,18 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
         // line drawn between two of them would claim rock nobody looked at.
         let mut rows: Vec<crate::db::AuxRow> = Vec::new();
         for p in &plates {
+            // Nothing from a scene-dominated plate is stored — not the fraction, not the pore
+            // shapes, not the minerals. They all come off the same mask, so if the mask is the
+            // background then every number derived from it is about the background.
+            if p.scene_dominated {
+                skipped.push(format!(
+                    "{}: not stored - the picture's own median hue ({:.0} deg) is inside the pore \
+                     band, so the band is matching the background rather than the pores. Tune the \
+                     band on this plate, or exclude it.",
+                    p.name, p.scene_hue
+                ));
+                continue;
+            }
             let mut put = |item: &str, v: f32| {
                 rows.push(crate::db::AuxRow {
                     dataset: PORE_DATASET.to_string(),
@@ -1791,6 +1861,36 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
     }
     if !skipped.is_empty() {
         notes.push(format!("{} plate(s) left out - see the list", skipped.len()));
+    }
+    // Said whether or not a set was named, because it is the answer to "why is my porosity 97%"
+    // and the user meets that question while tuning, long before they save anything.
+    let dominated = plates.iter().filter(|p| p.scene_dominated).count();
+    if dominated > 0 {
+        notes.push(format!(
+            "{} of {} plate(s) are mostly the colour you called pore - their own median hue falls \
+             inside the band, so the rule is matching the background and the fraction is not a \
+             porosity. Tune the band against one of them on the preview. A delivery photographed \
+             under more than one light needs more than one band.",
+            dominated,
+            plates.len()
+        ));
+    }
+    // The spread itself, because it is the thing that decides whether ONE band can serve the whole
+    // delivery. On a real carbonate delivery this ran to 283 degrees across 141 plates.
+    let hues: Vec<f32> = plates.iter().map(|p| p.scene_hue).filter(|h| h.is_finite()).collect();
+    if hues.len() >= 2 {
+        let lo = hues.iter().cloned().fold(f32::INFINITY, f32::min);
+        let hi = hues.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        if hi - lo > 60.0 {
+            notes.push(format!(
+                "These plates were not photographed under one light: their median hue spans {:.0} \
+                 degrees ({:.0} to {:.0}). One colour band cannot serve all of them - measure them \
+                 in groups.",
+                hi - lo,
+                lo,
+                hi
+            ));
+        }
     }
     notes.push(
         "Area fraction estimates volume fraction by the Delesse relation. Where it disagrees with \
@@ -1884,6 +1984,38 @@ mod tests {
         assert!(epoxy_check("").is_err(), "unknown must never be treated as impregnated");
         assert!(epoxy_check("plain").is_err());
         assert!(epoxy_check("something else").is_err());
+    }
+
+    /// The other half of the impregnation problem, and the one a real delivery found.
+    ///
+    /// `epoxy_check` refuses the plate nobody impregnated. It says nothing about a plate that WAS
+    /// impregnated but photographed under a light the band was never tuned for — there the rule
+    /// swallows the matrix and returns a porosity that looks entirely reasonable. The numbers here
+    /// are the ones measured on a real carbonate delivery: one blue-cast plate whose whole scene
+    /// sat at 221 degrees read 0.97 v/v, while a green-cast plate from the same core at 149
+    /// degrees read 0.06.
+    #[test]
+    fn a_plate_whose_own_median_hue_is_pore_coloured_is_not_measured() {
+        let band = PoreColorBand::default();
+        assert!(scene_dominated(221.0, &band), "a blue-cast plate is the band, not the pores");
+        assert!(!scene_dominated(149.0, &band), "a green-cast plate still has grains to see");
+        assert!(!scene_dominated(41.0, &band), "a warm-cast plate is nowhere near the band");
+        // A plate that produced no hue at all cannot be judged, and an unjudgeable plate must not
+        // be refused on a guess — it is the same discipline as an absent scale.
+        assert!(!scene_dominated(f32::NAN, &band));
+    }
+
+    /// The guard has to read a wrap-around band the same way the runner's `in_band` does, or it
+    /// would fire on exactly the wrong plates: a band written 340..20 is two arcs across red, and
+    /// reading it as an empty range would silently disable the check for anyone using one.
+    #[test]
+    fn the_scene_check_reads_a_wrapped_band_the_way_the_runner_does() {
+        let wrapped = PoreColorBand { hue_lo: 340.0, hue_hi: 20.0, ..PoreColorBand::default() };
+        assert!(scene_dominated(350.0, &wrapped));
+        assert!(scene_dominated(10.0, &wrapped));
+        assert!(!scene_dominated(180.0, &wrapped), "the middle of the wheel is outside both arcs");
+        // Degrees are periodic; a hue arriving as 370 is 10.
+        assert!(scene_dominated(370.0, &wrapped));
     }
 
     /// The colour band ships as a generic starting point for a visual tuning task, never as a
@@ -1983,6 +2115,85 @@ mod tests {
         assert_eq!(rows[0].item, PORE_ITEM);
         assert!((rows[0].value_num.unwrap() - 0.25).abs() < 1e-4);
         assert!((rows[0].depth_top - 2000.0).abs() < 1e-4);
+    }
+
+    /// The failure a real delivery found, end to end: a plate photographed under a light that puts
+    /// the WHOLE scene inside the pore band is measured and shown, but nothing off it is stored.
+    ///
+    /// Both plates here are declared `blue_epoxy`, so `epoxy_check` passes them both — which is the
+    /// point. The first is a normal section, a quarter blue on grey. The second is the same rock
+    /// under a blue cast: every pixel is some shade of blue, so the rule returns a porosity near 1
+    /// and it looks like an answer. On the real carbonate delivery 52 of 134 plates were this.
+    #[test]
+    #[ignore = "runs the real Python runner; needs numpy and Pillow"]
+    fn a_blue_cast_plate_is_shown_but_never_stored() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, "SANDI-TS", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        // Every pixel blue, only the shade differs — the matrix is dark blue, the pores bright.
+        let cast = bmp(200, 200, |x, _y| if x < 40 { (60, 120, 235) } else { (20, 40, 90) });
+        let mk = |name: &str, depth: f32, data: Vec<u8>| crate::db::NewImage {
+            depth_top: depth,
+            name: name.into(),
+            mime: "image/bmp".into(),
+            width: 200,
+            height: 200,
+            data,
+            printable: true,
+            prepared: Some("blue_epoxy".into()),
+            ..Default::default()
+        };
+        crate::db::insert_well_images(
+            &conn,
+            &w,
+            "THIN SECTION",
+            "LAB",
+            None,
+            &[mk("NORMAL", 2000.0, synthetic_plate()), mk("CAST", 2001.0, cast)],
+        )
+        .unwrap();
+
+        let res = run_pore_area(
+            &conn,
+            &PoreSpec {
+                well_id: w.clone(),
+                dataset: "THIN SECTION".into(),
+                band: PoreColorBand::default(),
+                preview_image_id: None,
+                only_image_id: None,
+                set_name: Some("TS".into()),
+                geometry: false,
+                min_pore_px: MIN_PORE_PX,
+                grains: false,
+                min_grain_px: MIN_GRAIN_PX,
+                grain_sep_px: GRAIN_SEP_PX,
+                wicksell: false,
+                stain: None,
+            },
+        )
+        .expect("pore run");
+
+        let plate = |n: &str| res.plates.iter().find(|p| p.name == n).expect(n);
+        // BOTH are measured and returned: the number is what the band gets tuned against, and a
+        // plate the user cannot see is a plate they cannot fix.
+        assert_eq!(res.plates.len(), 2);
+        assert!(!plate("NORMAL").scene_dominated, "a quarter-blue plate is a normal section");
+        assert!(plate("CAST").scene_dominated, "an all-blue plate is the band, not the pores");
+        assert!(
+            plate("CAST").pore_fraction > 0.5,
+            "the point is that it returns a big plausible number: {}",
+            plate("CAST").pore_fraction
+        );
+
+        // Only the normal plate reaches the store. This is the assertion that matters: a 0.9 at a
+        // real depth would go on to plot against helium porosity and nothing downstream could tell.
+        let rows = crate::db::list_aux_data(&conn, &w, Some(PORE_DATASET)).unwrap();
+        assert_eq!(rows.len(), 1, "one storable plate");
+        assert!((rows[0].depth_top - 2000.0).abs() < 1e-4, "the normal plate's depth");
+        assert!(res.skipped.iter().any(|s| s.starts_with("CAST") && s.contains("median hue")));
     }
 
     /// 200x200: a quarter pure blue epoxy, the rest grey, plus a pale violet square whose hue is
@@ -2616,17 +2827,23 @@ mod tests {
             }
             (32, 64, 192) // blue epoxy
         };
+        // GRAINS DOMINATE BOTH PLATES, and that is not cosmetic. These used to be small discs
+        // floating in epoxy — 87% pore, which is a mount rather than a rock, and `scene_dominated`
+        // rightly refuses to store anything measured off it. A fixture that could not exist is a
+        // fixture that cannot catch the bug the real delivery found.
         let loose = bmp(200, 200, |x, y| {
-            grain(x, y, &[(60.0, 60.0, 20.0), (140.0, 60.0, 20.0), (60.0, 140.0, 20.0), (140.0, 140.0, 20.0)])
+            grain(x, y, &[(52.0, 52.0, 45.0), (148.0, 52.0, 45.0), (52.0, 148.0, 45.0), (148.0, 148.0, 45.0)])
         });
-        let welded = bmp(200, 200, |x, y| grain(x, y, &[(80.0, 100.0, 30.0), (120.0, 100.0, 30.0)]));
+        // Same neck-to-radius ratio as before (1.48), so the separation problem is unchanged; only
+        // the frame is cropped to the grains, the way a real field of view is.
+        let welded = bmp(200, 110, |x, y| grain(x, y, &[(65.0, 55.0, 52.0), (135.0, 55.0, 52.0)]));
 
-        let mk = |name: &str, depth: f32, data: Vec<u8>| crate::db::NewImage {
+        let mk = |name: &str, depth: f32, data: Vec<u8>, height: i32| crate::db::NewImage {
             depth_top: depth,
             name: name.into(),
             mime: "image/bmp".into(),
             width: 200,
-            height: 200,
+            height,
             data,
             printable: true,
             prepared: Some("blue_epoxy".into()),
@@ -2639,7 +2856,7 @@ mod tests {
             "THIN SECTION",
             "LAB",
             None,
-            &[mk("LOOSE", 2000.0, loose), mk("WELDED", 2001.0, welded)],
+            &[mk("LOOSE", 2000.0, loose, 200), mk("WELDED", 2001.0, welded, 110)],
         )
         .unwrap();
 
@@ -2667,9 +2884,9 @@ mod tests {
         let l = plate("LOOSE").grains.as_ref().expect("loose grains");
         assert_eq!(l.n, 4, "four separated discs are four grains");
         assert!(l.contact_p50 < 0.02, "open pore all round: contact {}", l.contact_p50);
-        // Radius 20 px at 10 µm/px is a 400 µm grain.
+        // Radius 45 px at 10 µm/px (2000 µm across 200 px) is a 900 µm grain.
         let d50 = l.d50_app_um.expect("a declared scale gives a diameter");
-        assert!((d50 - 400.0).abs() < 12.0, "apparent D50 {d50} against a true 400");
+        assert!((d50 - 900.0).abs() < 25.0, "apparent D50 {d50} against a true 900");
         assert!((l.aspect_p50 - 1.0).abs() < 0.03, "a disc is round: {}", l.aspect_p50);
 
         let we = plate("WELDED").grains.as_ref().expect("welded grains");

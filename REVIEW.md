@@ -6651,3 +6651,102 @@ ROADMAP T-IMP-05. Small, but it is the kind of thing that wastes ten minutes and
 - [ ] **OK** closes it. Select a well and the same click should go straight through with no dialog.
 
 Nothing changed about what the actions do — only about how they refuse.
+
+---
+
+## Run on a real petrography delivery — and what it changed (2026-07-31)
+
+I ran the pore-area rule over a real carbonate thin-section delivery: 134 photomicrographs, one
+laboratory, one well, one report. Three things came out of it, and one of them changed the code.
+
+**Before you click anything, the part that has no fix yet.** Your plates arrive inside an Excel
+workbook — one worksheet per plate, with the well, the depth in feet, the plug number and the
+magnification typed into cells, and the pictures pasted on top. Import pictures… takes a folder of
+files, so it cannot read a single one of them. I had to lift them out of the workbook by hand
+before anything here could see them. That is the real first barrier, and it is the next thing worth
+building.
+
+- [ ] Confirm that is how your petrography usually arrives, or whether some laboratories send you
+      loose JPEGs with the depth in the filename.
+
+**What changed.** The app already refuses a plate nobody declared impregnated. It had nothing to
+say about a plate that WAS impregnated but photographed under a different light — and that is most
+of a real delivery. Across those 134 plates the overall colour ran from orange through green to
+violet. On one blue-cast plate the rule returned **97% porosity**. On a green-cast plate from the
+same core it returned 6%. Twenty-eight plates came back above 50% porosity. None of them failed;
+all of them would have been saved at a real depth.
+
+The new rule is: **if the picture is mostly the colour you called pore, it is not a porosity.** Rock
+is mostly rock, so on a plate the band is reading correctly the typical pixel is a grain. When the
+typical pixel is pore-coloured, the band is matching the background.
+
+- [ ] Run **Pore Area…** on a delivery where the plates were not all photographed alike. Plates the
+      rule cannot read should appear in the table in orange with a ⚠ on the percentage.
+- [ ] Hover one. The tooltip should name that plate's own median hue and say the band is matching
+      the background.
+- [ ] The number is still shown — that is deliberate, it is what you tune the band against — but
+      **Save** should not store those plates. Check the point data afterwards: only the readable
+      plates should be there.
+- [ ] The notes should say how many plates were affected, and — when the delivery was shot under
+      more than one light — that its colours span too wide a range for one band, so it should be
+      measured in groups.
+- [ ] Tune the band on one flagged plate using the preview until the mask sits on the pores. The
+      warning should clear and that plate should become storable.
+
+On my run this took what would have been stored from a 0–97% spread down to 0–39%, median 12%. That
+is a believable carbonate.
+
+**What is still refused, correctly.** Your delivery states `5x` and `10x`, not a field of view in
+micrometres — and magnification alone cannot be converted without the camera and tube factors. So
+every size in microns stays blank on these plates. Some sheets carry a scale bar as a separate
+little graphic beside the picture; Calibrate (⇹) can only use a bar that is inside the picture
+itself.
+
+- [ ] Check whether your plates ever have the scale bar burned into the photograph rather than
+      pasted next to it. That decides whether ⇹ is usable on your deliveries at all.
+
+**Still open, and I did not guess at it.** A delivery can mix thin sections with SEM plates in one
+folder. A colour rule run over a grey SEM image returns **0.0%** — which looks like a perfectly
+reasonable answer for a tight rock, and is the mirror of the 97% case. The obvious test did not
+separate them on this data, so I shipped nothing rather than a threshold I could not defend.
+
+---
+
+## Import plates straight from a petrography workbook (2026-07-31)
+
+This is the barrier the last run hit. Your plates live inside the workbook, one worksheet per plate,
+with the depth typed in a cell — so **Import pictures…** now reads the workbook itself.
+
+- [ ] **Data ▸ Import pictures…** with a well selected. The file dialog should now offer
+      *Plates and petrography workbooks* and let you pick a `.xlsx` directly.
+- [ ] Pick one of your petrography photo-sheet books. The wizard should open with every plate
+      already listed and **the depth filled in from the sheet** — not guessed from a filename.
+- [ ] The depth unit should already be set to what the sheets say (ft on the ones I tested), not to
+      your display unit.
+- [ ] Read the note block above the table. It should list what was left out and why: decorations
+      dropped per sheet, sheets that state two magnifications, sheets whose header has no depth.
+- [ ] Check a few rows against the workbook itself. Panel A and panel B of one sheet are two
+      separate plates at the same depth — that is deliberate, only you can say which is plane light
+      and which is crossed nicols.
+- [ ] Import, then open the well's picture track. The plates should sit at the depths the report
+      gives them.
+
+On the two books I tested this gave **152 plates, every one with a depth**.
+
+**The old `.xls` is refused.** You'll get a message naming the file and telling you to Save As
+`.xlsx` in Excel first. That's 107 of the 165 petrography workbooks on this machine, so it will come
+up. The reason: the pictures can be pulled out of an `.xls`, but working out which *worksheet* each
+one came from — and the worksheet is where the depth is — needs a lot more work, and guessing it
+would hang a plate off the wrong sand.
+
+- [ ] Try selecting an `.xls` and confirm the message says what to do rather than doing nothing.
+- [ ] Save one as `.xlsx` and confirm it then imports normally.
+
+**Tell me if the Save As route is too tedious** and I'll scope reading `.xls` properly.
+
+**Magnification is carried but not used.** Your sheets say `5x`, `10x`, `2.5x`. That can't become a
+field of view without your microscope's camera and tube factors, so sizes in microns stay blank
+until you enter a real scale. The wizard says so rather than staying silent about it.
+
+- [ ] Confirm you'd want a per-delivery "camera width and tube factor" setting that turns
+      magnification into a scale automatically — or whether you'd rather always measure a bar.

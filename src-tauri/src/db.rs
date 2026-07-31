@@ -3713,6 +3713,75 @@ mod inspector_tests {
         assert!(run_readonly_query(&conn, "SELECT 1; DROP TABLE wells", 100).is_err());
     }
 
+    /// The SQL panel is the one place a user types raw SQL, and rule 6 says it is read-only.
+    /// `readonly_query_selects_and_rejects` proves a bare `DELETE` and a `;`-smuggled `DROP`
+    /// are refused; it does NOT cover the other write verbs, nor the shape that actually gets
+    /// past the prefix check.
+    ///
+    /// That shape is a CTE prefix. The guard admits anything starting `with`, so
+    /// `WITH x AS (SELECT 1) DELETE FROM wells` clears both checks — no leading write verb, no
+    /// semicolon. What stops it is the SUBQUERY WRAP: the statement is executed as
+    /// `SELECT * FROM (<user sql>) __sandibumi_q`, and a DELETE is not a valid subquery, so it
+    /// dies in the parser. **The wrap is a security boundary, not just a LIMIT mechanism** —
+    /// anyone tempted to run the user's SQL directly and apply the cap another way must know
+    /// that it is the only thing refusing this statement.
+    ///
+    /// A legitimate CTE must still work, or the guard would have been "fixed" by banning `with`.
+    #[test]
+    fn readonly_query_refuses_every_write_shape_including_a_cte_prefix() {
+        let conn = mem_db();
+        insert_well(&conn, Uuid::new_v4(), "SANDI-1", Some("Sandi"), None, None).unwrap();
+        let count = |c: &Connection| -> i64 {
+            c.query_row("SELECT COUNT(*) FROM wells", [], |r| r.get(0)).unwrap()
+        };
+        assert_eq!(count(&conn), 1);
+
+        // Every write verb on its own, plus mixed case — the check lowercases, so a shouty
+        // DROP must fare no better than a quiet one.
+        for sql in [
+            "UPDATE wells SET well_name = 'X'",
+            "INSERT INTO wells (well_id, well_name) VALUES ('x', 'X')",
+            "DROP TABLE wells",
+            "ALTER TABLE wells ADD COLUMN zzz INTEGER",
+            "CREATE TABLE zzz (a INTEGER)",
+            "TRUNCATE wells",
+            "DeLeTe FROM wells",
+            // A leading comment must not disguise a write as a query.
+            "/* select */ DELETE FROM wells",
+            "-- select\nDELETE FROM wells",
+        ] {
+            assert!(
+                run_readonly_query(&conn, sql, 100).is_err(),
+                "must be refused: {sql}"
+            );
+        }
+
+        // The CTE-prefixed write: passes the prefix check and carries no semicolon.
+        for sql in [
+            "WITH x AS (SELECT 1) DELETE FROM wells",
+            "WITH x AS (SELECT 1) UPDATE wells SET well_name = 'X'",
+            "WITH x AS (SELECT 1) INSERT INTO wells (well_id, well_name) VALUES ('x', 'X')",
+        ] {
+            assert!(
+                run_readonly_query(&conn, sql, 100).is_err(),
+                "CTE-prefixed write must be refused: {sql}"
+            );
+        }
+
+        // Nothing above may have touched the data, whatever route it was refused by.
+        assert_eq!(count(&conn), 1, "no refused statement may modify the project");
+
+        // A real CTE is the point of allowing `with` at all and must still run.
+        let page = run_readonly_query(
+            &conn,
+            "WITH w AS (SELECT well_name FROM wells) SELECT well_name FROM w",
+            100,
+        )
+        .expect("a legitimate CTE query must still be allowed");
+        assert_eq!(page.rows.len(), 1);
+        assert_eq!(page.rows[0][0].as_deref(), Some("SANDI-1"));
+    }
+
     /// The SQL console must not report a LIMIT-capped count as the true total. A result larger
     /// than the cap comes back flagged `truncated`; one at or under the cap is complete. The
     /// exactly-at-the-cap case is the one a naive `rows.len() == limit` heuristic gets wrong —

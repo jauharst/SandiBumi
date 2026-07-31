@@ -2510,6 +2510,42 @@ export function probeImageFiles(paths: string[]): Promise<ImageProbe[]> {
   return invoke<ImageProbe[]>("probe_image_files", { paths });
 }
 
+/** One plate lifted out of a petrography workbook. */
+export interface WorkbookPlate {
+  /** A temporary file the normal importer then reads — one import path, not two. */
+  path: string;
+  name: string;
+  sheet: string;
+  /** A, B, C… in the order the pictures were anchored on the sheet. */
+  panel: string;
+  width: number;
+  height: number;
+  /** From the sheet's own header CELL, never from a file name. `null` when the sheet stated none. */
+  depth_top: number | null;
+  depth_base: number | null;
+  /** 'ft' or 'm', as the sheet wrote it. */
+  unit: string | null;
+  /** As stated on the sheet ('10x'). Never converted to a scale — that needs the camera and tube. */
+  magnification: string | null;
+  bytes: number;
+}
+
+export interface WorkbookProbe {
+  plates: WorkbookPlate[];
+  /** The one depth unit, when every sheet that stated one agreed; null means ask. */
+  depth_unit: string | null;
+  notes: string[];
+}
+
+/** Lifts the plates out of petrography workbooks so the import wizard can take them.
+ *
+ *  A petrography delivery arrives as a workbook with one worksheet per plate — the well, the depth
+ *  and the magnification typed into cells, the pictures anchored on top — which a file picker
+ *  cannot read at all. Only `.xlsx`/`.xlsm`; the old `.xls` is refused by name with the fix. */
+export function probePlateWorkbooks(paths: string[]): Promise<WorkbookProbe> {
+  return invoke<WorkbookProbe>("probe_plate_workbooks", { paths });
+}
+
 /** Is Pillow reachable? Decides whether the wizard offers TIFF and whether it warns that
  *  pictures will print as labelled frames. */
 export function imageSupport(): Promise<boolean> {
@@ -3402,6 +3438,12 @@ export interface PlatePore {
   depth_base: number | null;
   /** Pore area as a fraction of the plate, v/v. */
   pore_fraction: number;
+  /** The plate's own median hue in degrees — what colour this picture mostly is. */
+  scene_hue: number;
+  /** True when that median hue falls inside the declared pore band, so the band is matching the
+   *  background rather than the pores. The fraction is still shown — tuning the band is how it
+   *  gets fixed — but the plate is left out of the write. */
+  scene_dominated: boolean;
   pixels: number;
   geometry?: PoreGeometry;
   grains?: GrainStats;

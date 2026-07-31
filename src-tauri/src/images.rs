@@ -22,7 +22,7 @@
 //! gap. TIFF and anything else needs Pillow, and says so by name.
 
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use duckdb::Connection;
@@ -412,6 +412,377 @@ pub fn pillow_available() -> bool {
     matches!(cmd.status(), Ok(s) if s.success())
 }
 
+// ---------------------------------------------------------------------------
+// Plates delivered inside a workbook
+// ---------------------------------------------------------------------------
+
+/// One plate lifted out of a petrography workbook, as the wizard will show it.
+#[derive(Debug, Clone, Serialize)]
+pub struct WorkbookPlate {
+    /// Where it was written on the way out — a temporary file the normal importer then reads, so
+    /// there is ONE import path rather than two that can drift apart.
+    pub path: String,
+    pub name: String,
+    pub sheet: String,
+    /// A, B, C… in the order the pictures were anchored on the sheet.
+    pub panel: String,
+    pub width: u32,
+    pub height: u32,
+    /// From the sheet's own header CELL, never from a file name. `None` when the header states no
+    /// depth — which is reported rather than filled in.
+    pub depth_top: Option<f32>,
+    pub depth_base: Option<f32>,
+    /// 'ft' or 'm', as the sheet wrote it.
+    pub unit: Option<String>,
+    /// As stated on the sheet ('10x'). Deliberately NOT turned into a scale: see [`WorkbookProbe`].
+    pub magnification: Option<String>,
+    pub bytes: u64,
+}
+
+/// What a set of workbooks turned out to hold.
+#[derive(Debug, Clone, Serialize)]
+pub struct WorkbookProbe {
+    pub plates: Vec<WorkbookPlate>,
+    /// The one depth unit, when every sheet that stated one agreed. `None` when they disagreed or
+    /// none said — and then the wizard must ask rather than assume, because a foot read as a metre
+    /// puts a plate three times too deep.
+    pub depth_unit: Option<String>,
+    /// Everything left out and why, one line each — never a silent subset.
+    pub notes: Vec<String>,
+}
+
+/// Pictures smaller than this on their long edge are DECORATIONS, not plates.
+///
+/// Round, and in PIXELS for the `min_pore_px` reason: it states what a picture has to be to be a
+/// plate, where a byte count would say more about the JPEG quality than about the picture. A
+/// workbook carries scale-bar graphics, logos and letterheads anchored beside the photomicrographs;
+/// on a real delivery these ran 117x59 and 207x79 against plates of 1920x1080.
+pub const MIN_PLATE_PX: u32 = 400;
+
+/// Rows of the header block searched for a depth. A laboratory writes the well and depth at the
+/// top of the sheet; searching further down invites a stray number.
+pub const WORKBOOK_HEADER_ROWS: u32 = 14;
+
+const WORKBOOK_RUNNER: &str = r#"
+import sys, json, os, re, io
+
+try:
+    import openpyxl
+    from PIL import Image
+except Exception as e:
+    sys.stderr.write("needs openpyxl and Pillow (pip install openpyxl pillow): %s\n" % e)
+    sys.exit(1)
+
+# stdin.buffer, never stdin: a piped child's TEXT stdin decodes with the Windows ANSI codepage
+# while serde_json emits UTF-8, so a workbook path with any non-ASCII character arrives as
+# mojibake and fails with a "no such file" naming a path nobody has.
+req = json.loads(sys.stdin.buffer.readline().decode("utf-8"))
+out_dir = req["out_dir"]
+os.makedirs(out_dir, exist_ok=True)
+
+# A DEPTH IS A NUMBER WITH A UNIT ON IT. Never a bare number: the same header block carries the
+# plate number and the plug number, and on this delivery the depth cell reads "4633.50 FT/ 108" -
+# taking the bare number would be a coin toss between a depth and a plug. Absent means absent.
+DEPTH = re.compile(r"([0-9]+(?:\.[0-9]+)?)\s*(FEET|FEE?T|FT|METRES?|METERS?|M)\b", re.I)
+# A range in one cell: "4626.00 - 4641.00 FT".
+RANGE = re.compile(
+    r"([0-9]+(?:\.[0-9]+)?)\s*[-–]\s*([0-9]+(?:\.[0-9]+)?)\s*(FEET|FEE?T|FT|METRES?|METERS?|M)\b",
+    re.I,
+)
+MAG = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*[xX]\s*$")
+
+FT = ("FT", "FEET", "FEE T")
+
+
+def unit_of(tok):
+    t = tok.upper().rstrip(".")
+    return "ft" if t.startswith("F") else "m"
+
+
+def scan(ws, max_rows):
+    """Depth, unit and magnification from one plate sheet.
+
+    The depth is read from the HEADER block only - that is where a lab writes it, and widening the
+    search invites a stray number further down the sheet. The magnification is looked for over the
+    WHOLE sheet, because it is captioned under each panel rather than in the header."""
+    depth = base = unit = None
+    for row in ws.iter_rows(min_row=1, max_row=max_rows):
+        for c in row:
+            if c.value is None:
+                continue
+            t = str(c.value)
+            m = RANGE.search(t)
+            if m:
+                depth, base, unit = float(m.group(1)), float(m.group(2)), unit_of(m.group(3))
+                break
+            m = DEPTH.search(t)
+            if m:
+                depth, unit = float(m.group(1)), unit_of(m.group(2))
+                break
+        if depth is not None:
+            break
+    mags = set()
+    for row in ws.iter_rows():
+        for c in row:
+            if isinstance(c.value, str):
+                m = MAG.match(c.value)
+                if m:
+                    mags.add(m.group(1) + "x")
+    # ONE stated magnification belongs to every plate on the sheet. Two or more and none is
+    # attached: a sheet showing the same field at 5x and again at 10x cannot say which picture is
+    # which without guessing from where the caption sits, and a magnification on the wrong plate is
+    # worse than none.
+    mag = next(iter(mags)) if len(mags) == 1 else None
+    return depth, base, unit, mag, sorted(mags)
+
+
+rows = []
+notes = []
+for path in req["paths"]:
+    stem = os.path.splitext(os.path.basename(path))[0]
+    try:
+        wb = openpyxl.load_workbook(path)
+    except Exception as e:
+        notes.append("%s: cannot be read (%s)" % (os.path.basename(path), e))
+        continue
+    units = set()
+    mags = set()
+    n_sheets = 0
+    for sname in wb.sheetnames:
+        ws = wb[sname]
+        imgs = list(getattr(ws, "_images", []))
+        if not imgs:
+            continue
+        n_sheets += 1
+        depth, base, unit, mag, sheet_mags = scan(ws, req.get("header_rows", 14))
+        if unit:
+            units.add(unit)
+        mags.update(sheet_mags)
+        if len(sheet_mags) > 1:
+            notes.append("sheet %s: states %s - no magnification attached, it cannot be told which "
+                         "picture is which" % (sname, " and ".join(sheet_mags)))
+        # Panel order within a sheet is the order the pictures were anchored, which is the order
+        # they are read here. A plate photographed in plane light and again under crossed nicols
+        # is TWO pictures of ONE depth - they are kept as separate plates rather than merged,
+        # because only the user can say which is which.
+        kept = 0
+        dropped = 0
+        for im in imgs:
+            try:
+                blob = im._data()
+            except Exception:
+                continue
+            if blob is None:
+                continue
+            # A workbook holds DECORATIONS as well as plates: scale-bar graphics, logos, north
+            # arrows, the laboratory's letterhead. The floor is in PIXELS rather than bytes because
+            # it states what a picture has to be to be a plate - a byte count says more about the
+            # JPEG quality than about the picture. Every drop is COUNTED and reported.
+            w = h = 0
+            try:
+                probe = Image.open(io.BytesIO(blob))
+                w, h = probe.size          # header only; nothing is decoded here
+            except Exception:
+                pass
+            if max(w, h) < req.get("min_px", 400):
+                dropped += 1
+                continue
+            ext = "png" if blob[:4] == b"\x89PNG" else ("emf" if blob[:4] == b"\x01\x00\x00\x00" else "jpg")
+            panel = chr(ord("A") + kept)
+            safe = re.sub(r"[^A-Za-z0-9._-]+", "_", "%s_%s_%s" % (stem, sname, panel))
+            fp = os.path.join(out_dir, safe + "." + ext)
+            with open(fp, "wb") as fh:
+                fh.write(blob)
+            rows.append({
+                "path": fp,
+                "width": w,
+                "height": h,
+                "sheet": sname,
+                "panel": panel,
+                "name": "%s %s" % (sname, panel),
+                "depth_top": depth,
+                "depth_base": base,
+                "unit": unit,
+                "magnification": mag,
+                "bytes": len(blob),
+            })
+            kept += 1
+        if kept == 0:
+            notes.append("sheet %s: %d picture(s), none big enough to be a plate" % (sname, dropped))
+        elif dropped:
+            notes.append("sheet %s: %d decoration(s) dropped" % (sname, dropped))
+        if depth is None:
+            notes.append("sheet %s: no depth in the header - a bare number is not read as one" % sname)
+    if n_sheets == 0:
+        notes.append("%s: no worksheet carries a picture" % os.path.basename(path))
+    if len(units) > 1:
+        notes.append("%s: sheets state more than one depth unit (%s)" % (
+            os.path.basename(path), ", ".join(sorted(units))))
+    if mags:
+        notes.append("%s: magnification stated as %s - that is not a field of view, so nothing "
+                     "dimensional can run until a scale is entered" % (
+                         os.path.basename(path), ", ".join(sorted(mags))))
+
+sys.stdout.write(json.dumps({"rows": rows, "notes": notes}))
+"#;
+
+/// Lifts every plate out of one or more petrography workbooks into `out_dir`.
+///
+/// **A petrography delivery does not arrive as a folder of pictures.** It arrives as a workbook
+/// with one WORKSHEET per plate: the well, the depth, the plug number and the magnification typed
+/// into cells, and the photomicrographs anchored on top. `probe_image_files` takes a list of files
+/// and can read none of it, which is the actual first barrier between this suite and a client's
+/// rock.
+///
+/// **This is an EXTRACTOR, not a second importer.** It turns a workbook into plate files plus a
+/// depth table and hands them to `import_images`, so normalization, the Pillow cap, the delivery
+/// set model, `follow_core`, `fov_um` and `prepared` all apply unchanged. Two importers would
+/// eventually disagree about one of those; an extractor plus one importer cannot.
+///
+/// **The depth comes from the CELL, never from the file name.** `parse_depth_from_name` exists for
+/// a folder of loose files and has to guess; here the laboratory wrote the depth down, and a guess
+/// beside a stated fact is a bug waiting to happen. It is also read only where a UNIT follows it,
+/// because the same header carries the plate number and the plug number — on a real delivery the
+/// cell reads `4633.50 FT/ 108`, and taking the bare number would be a coin toss.
+///
+/// **A magnification is not a field of view and is never converted into one.** Turning `10x` into
+/// micrometres needs the camera sensor width and the tube factor, both properties of the
+/// laboratory's microscope rather than of the plate. It is carried through as text so the user can
+/// see what the sheet claimed, and everything dimensional stays refused until a real scale is
+/// entered.
+pub fn probe_plate_workbooks(paths: &[String], out_dir: &Path) -> Result<WorkbookProbe, String> {
+    // The old .xls is refused BY NAME with the fix, rather than half-read. Its pictures can be
+    // recovered by scanning, but tying each one back to its worksheet — and therefore to its
+    // depth — needs a full BIFF parser, and a guessed depth association is exactly what this
+    // module refuses to produce.
+    let mut notes: Vec<String> = Vec::new();
+    let usable: Vec<String> = paths
+        .iter()
+        .filter(|p| {
+            let ok = Path::new(p)
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case("xlsx") || e.eq_ignore_ascii_case("xlsm"));
+            if !ok {
+                notes.push(format!(
+                    "{}: only the newer .xlsx workbook can be read. Open it in Excel and Save As \
+                     .xlsx, then import that — the depths live in cells, and reading them out of \
+                     the old format without the worksheet they belong to would mean guessing.",
+                    Path::new(p).file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| (*p).clone())
+                ));
+            }
+            ok
+        })
+        .cloned()
+        .collect();
+    if usable.is_empty() {
+        return Ok(WorkbookProbe { plates: Vec::new(), depth_unit: None, notes });
+    }
+
+    std::fs::create_dir_all(out_dir).map_err(|e| format!("cannot write to {}: {e}", out_dir.display()))?;
+    let python = find_python().ok_or_else(|| {
+        "no Python with openpyxl was found - set SANDIBUMI_PYTHON to an interpreter that has it"
+            .to_string()
+    })?;
+
+    let header = serde_json::json!({
+        "paths": usable,
+        "out_dir": out_dir.to_string_lossy(),
+        "header_rows": WORKBOOK_HEADER_ROWS,
+        "min_px": MIN_PLATE_PX,
+    });
+
+    let mut cmd = Command::new(python);
+    cmd.args(["-c", WORKBOOK_RUNNER])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    hide_console(&mut cmd);
+    let mut child = cmd.spawn().map_err(|e| format!("failed to start python: {e}"))?;
+    {
+        use std::io::Write as _;
+        let mut si = child.stdin.take().ok_or("no stdin")?;
+        si.write_all(header.to_string().as_bytes()).map_err(|e| e.to_string())?;
+        si.write_all(b"\n").map_err(|e| e.to_string())?;
+    }
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        return Err(err.lines().last().unwrap_or("workbook read failed").trim().to_string());
+    }
+
+    #[derive(Deserialize)]
+    struct Raw {
+        rows: Vec<WorkbookRow>,
+        notes: Vec<String>,
+    }
+    #[derive(Deserialize)]
+    struct WorkbookRow {
+        path: String,
+        name: String,
+        sheet: String,
+        panel: String,
+        #[serde(default)]
+        width: u32,
+        #[serde(default)]
+        height: u32,
+        #[serde(default)]
+        depth_top: Option<f32>,
+        #[serde(default)]
+        depth_base: Option<f32>,
+        #[serde(default)]
+        unit: Option<String>,
+        #[serde(default)]
+        magnification: Option<String>,
+        #[serde(default)]
+        bytes: u64,
+    }
+
+    let raw: Raw = serde_json::from_slice(&out.stdout)
+        .map_err(|e| format!("bad workbook result: {e}"))?;
+    notes.extend(raw.notes);
+
+    // ONE unit for the delivery, and only when every sheet that stated one agreed. A mixed
+    // workbook returns None so the wizard has to ask: a foot silently read as a metre puts a
+    // plate more than three times too deep, and nothing on the log would look wrong.
+    let units: std::collections::BTreeSet<String> =
+        raw.rows.iter().filter_map(|r| r.unit.clone()).collect();
+    let depth_unit = if units.len() == 1 { units.into_iter().next() } else { None };
+
+    let plates: Vec<WorkbookPlate> = raw
+        .rows
+        .into_iter()
+        .map(|r| WorkbookPlate {
+            path: r.path,
+            name: r.name,
+            sheet: r.sheet,
+            panel: r.panel,
+            width: r.width,
+            height: r.height,
+            depth_top: r.depth_top,
+            depth_base: r.depth_base,
+            unit: r.unit,
+            magnification: r.magnification,
+            bytes: r.bytes,
+        })
+        .collect();
+
+    let undated = plates.iter().filter(|p| p.depth_top.is_none()).count();
+    if undated > 0 {
+        notes.push(format!(
+            "{undated} plate(s) have no depth - their sheet states none, and a bare number there is \
+             the plate or plug number as often as a depth. Type them in before importing, or leave \
+             them out."
+        ));
+    }
+    Ok(WorkbookProbe { plates, depth_unit, notes })
+}
+
+/// A fresh temporary folder for one workbook extraction.
+pub fn workbook_scratch_dir() -> PathBuf {
+    std::env::temp_dir().join(format!("sandibumi_plates_{}", uuid::Uuid::new_v4()))
+}
+
 /// Normalizes a whole delivery in one subprocess, falling back to verbatim storage when
 /// Pillow is not available.
 ///
@@ -755,6 +1126,73 @@ fn db_resolve_set(conn: &Connection, well_id: &str, dataset: &str, desired: &str
 }
 
 #[cfg(test)]
+mod workbook_tests {
+    use super::*;
+
+    /// The old `.xls` is refused BY NAME with the fix, rather than half-read.
+    ///
+    /// Its pictures can be recovered by scanning the file for JPEG blobs — I checked, and a real
+    /// 166 MB delivery yields 52 of them. What cannot be recovered without a full BIFF parser is
+    /// which WORKSHEET each picture sat on, and the worksheet is where the depth is. A plate hung
+    /// off the wrong sand is a wrong conclusion, so a guessed association is worse than no import.
+    /// Runs without Python: the filter is applied before any subprocess is started.
+    #[test]
+    fn the_old_workbook_format_is_refused_by_name_with_the_fix() {
+        let dir = std::env::temp_dir().join("sandibumi_wb_refuse_test");
+        let probe = probe_plate_workbooks(&["C:/x/PETROGRAPHY PLATES.xls".to_string()], &dir)
+            .expect("a refusal is a result, not an error");
+        assert!(probe.plates.is_empty());
+        assert_eq!(probe.notes.len(), 1);
+        let note = &probe.notes[0];
+        assert!(note.contains("PETROGRAPHY PLATES.xls"), "named: {note}");
+        assert!(note.contains("Save As"), "the fix is stated: {note}");
+        // Nothing was created, because nothing was read.
+        assert!(!dir.exists(), "a refusal must not leave a scratch folder behind");
+    }
+
+    /// The newer formats are accepted. Kept beside the refusal so nobody "tidies" the filter into
+    /// rejecting `.xlsm`, which is the same package with macros in it.
+    #[test]
+    fn the_newer_workbook_formats_are_accepted() {
+        for ext in ["xlsx", "XLSX", "xlsm"] {
+            let p = format!("C:/nope/does_not_exist.{ext}");
+            let dir = std::env::temp_dir().join(format!("sandibumi_wb_accept_{ext}"));
+            // It gets past the extension filter and fails later (no such file / no python), which
+            // is the point: it was not turned away for its name.
+            let r = probe_plate_workbooks(&[p], &dir);
+            let refused_for_its_name = matches!(&r, Ok(pr) if pr.notes.iter().any(|n| n.contains("Save As")));
+            assert!(!refused_for_its_name, "{ext} must not be refused as an old workbook");
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+
+    /// **A depth is a number with a unit on it.** The header block of a plate sheet also carries
+    /// the plate number and the plug number — on a real delivery the cell reads `4633.50 FT/ 108`
+    /// — so reading a bare number would be a coin toss between a depth and a plug. Pinned against
+    /// the runner source because that rule lives in the regex.
+    #[test]
+    fn the_workbook_reader_only_takes_a_depth_that_carries_a_unit() {
+        let src = WORKBOOK_RUNNER;
+        assert!(src.contains("FEET|FEE?T|FT|METRES?|METERS?|M"), "the unit is part of the match");
+        // The magnification is text and must never become a scale: converting 10x to micrometres
+        // needs the camera sensor width and the tube factor, neither of which a delivery states.
+        assert!(!src.contains("fov_um"), "a magnification must never be turned into a field of view");
+        // stdin.buffer, never stdin - the standing rule for every runner in this repo.
+        assert!(src.contains("sys.stdin.buffer"), "a piped child's text stdin is cp1252 here");
+    }
+
+    /// The decoration floor is in PIXELS and round — the `min_pore_px` argument. A workbook carries
+    /// scale-bar graphics and letterheads anchored beside the plates; on a real delivery those ran
+    /// 117x59 and 207x79 against plates of 1920x1080.
+    #[test]
+    fn the_plate_size_floor_is_round_and_in_pixels() {
+        assert_eq!(MIN_PLATE_PX % 100, 0, "a round number, not somebody's tuned threshold");
+        assert!(MIN_PLATE_PX >= 200 && MIN_PLATE_PX <= 800);
+        assert!(WORKBOOK_HEADER_ROWS >= 5 && WORKBOOK_HEADER_ROWS <= 40);
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -1062,5 +1500,63 @@ mod tests {
         let live = crate::db::list_well_images(&conn, &wid.to_string(), None).unwrap();
         assert!((live[0].depth_top - 2005.0).abs() < 1e-3, "depth used as written");
         std::fs::remove_file(&p).ok();
+    }
+}
+
+#[cfg(test)]
+mod workbook_field_tests {
+    use super::*;
+
+    /// The real thing: lift the plates out of a delivered petrography workbook.
+    ///
+    /// Runs only when `SANDIBUMI_FIELD_FIXTURES` names a folder with a `workbooks/` subfolder of
+    /// real `.xlsx` deliveries, and SKIPS with a printed reason otherwise — a fresh clone has no
+    /// field data and must still go green. Synthetic workbooks cannot reproduce what a real one
+    /// does: the decorations anchored beside the plates, the sheets that state two magnifications,
+    /// the sheet whose header omits the depth.
+    #[test]
+    #[ignore = "needs a real petrography workbook; set SANDIBUMI_FIELD_FIXTURES"]
+    fn plates_come_out_of_a_real_petrography_workbook() {
+        let Some(root) = crate::field_fixtures::root() else {
+            eprintln!("SKIP: set SANDIBUMI_FIELD_FIXTURES to a folder with a workbooks/ subfolder");
+            return;
+        };
+        let dir = root.join("workbooks");
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            eprintln!("SKIP: {} does not exist", dir.display());
+            return;
+        };
+        let books: Vec<String> = rd
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("xlsx")))
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+        if books.is_empty() {
+            eprintln!("SKIP: no .xlsx in {}", dir.display());
+            return;
+        }
+
+        let out = std::env::temp_dir().join("sandibumi_wb_field_test");
+        let _ = std::fs::remove_dir_all(&out);
+        let probe = probe_plate_workbooks(&books, &out).expect("workbook read");
+
+        assert!(!probe.plates.is_empty(), "a petrography workbook holds plates");
+        // Every plate is a real file on disk that the ORDINARY importer can then read - that is
+        // the whole design: an extractor feeding one import path, not a second importer.
+        for p in &probe.plates {
+            assert!(Path::new(&p.path).is_file(), "{} was not written", p.path);
+            assert!(p.width >= MIN_PLATE_PX || p.height >= MIN_PLATE_PX, "a decoration got through");
+        }
+        // The depth comes from the cell. A delivery whose sheets state depths should have them.
+        let dated = probe.plates.iter().filter(|p| p.depth_top.is_some()).count();
+        assert!(dated > 0, "no plate carried a depth from its sheet");
+        eprintln!(
+            "{} plate(s) from {} workbook(s); {dated} with a depth; unit {:?}; {} note(s)",
+            probe.plates.len(),
+            books.len(),
+            probe.depth_unit,
+            probe.notes.len()
+        );
+        let _ = std::fs::remove_dir_all(&out);
     }
 }

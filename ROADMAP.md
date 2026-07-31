@@ -1607,6 +1607,57 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       the compiler. Part 1 of `docs/plan_image_analysis.md` is now complete except 1f (recording why
       the core sits where it does).
 
+- [x] **Run the petrography suite on a real delivery** — **SHIPPED 2026-07-31**. 134 real
+      photomicrographs, one carbonate delivery. Three findings. (1) **The plates arrive inside an
+      Excel workbook**, one worksheet per plate with well/depth/plug/magnification in cells and the
+      pictures anchored on top; `images.rs` takes files and can read none of it — see the open item
+      below. (2) The delivery states a MAGNIFICATION (`5x`/`10x`), not a field of view, so `fov_um`
+      cannot be filled from it and everything dimensional stays correctly refused; some sheets carry
+      a scale bar as a SEPARATE graphic beside the plate, which `scaleBarDialog.ts` cannot use.
+      (3) The one that changed the code: `epoxy_check` was only half the guard. Median hue across
+      the delivery ran 26–310 degrees; a blue-cast plate read **0.97 v/v**, a green-cast plate from
+      the same core 0.06, and 28 plates came back above 0.5. `petrography::scene_dominated` refuses
+      the WRITE (never the measurement — tuning needs the number) when the plate's own median hue
+      falls inside the pore band. Caught every plate above 0.5; highest unflagged was 0.387. Stored
+      range went 0.000–0.972 (median 0.231) → 0.000–0.387 (median 0.115). Flagged rows render in
+      `var(--warn)` with the reason on hover; the run also reports the delivery's hue spread when it
+      exceeds 60 degrees. The synthetic welded-grain fixture was 87% pore — a mount, not a rock —
+      and is now grain-dominated.
+
+### Open, from that run
+
+- [x] **Import plates from a petrography workbook** — **SHIPPED 2026-07-31**.
+      `images::probe_plate_workbooks` + `WORKBOOK_RUNNER`, wired into the existing Import pictures…
+      wizard, which now accepts `.xlsx` directly. **An EXTRACTOR, not a second importer**: it writes
+      the plates to a temp folder and hands them plus a depth table to `import_images`, so
+      normalization, the Pillow cap, the set model, `follow_core`, `fov_um` and `prepared` all apply
+      unchanged. **The depth comes from the sheet's own CELL and overrules any filename guess**, and
+      only where a UNIT follows it — the header also carries the plate and plug numbers
+      (`4633.50 FT/ 108`), so a bare number is a coin toss. The unit is the sheets' own and only
+      when they all agreed; otherwise the wizard must ask. **A magnification is never converted into
+      a field of view** (needs the camera sensor width and tube factor, which no delivery states);
+      a sheet stating two attaches none. `MIN_PLATE_PX` (400, round, in pixels) drops the
+      decorations anchored beside the plates — scale bars and letterheads at 117x59 and 207x79
+      against plates of 1920x1080 — counted per sheet, never silently. **The old `.xls` is refused
+      BY NAME with the fix** (Save As `.xlsx`), and it is the majority format here: its pictures can
+      be scanned out, but the worksheet each belongs to — and the worksheet is where the depth is —
+      needs a full BIFF parser, and a guessed association hangs a plate off the wrong sand. Real
+      round trip `workbook_field_tests::plates_come_out_of_a_real_petrography_workbook`
+      (`SANDIBUMI_FIELD_FIXTURES` + `workbooks/`, skips with a printed reason when unset): measured
+      **152 plates from 2 real deliveries, every one with a depth, unit ft, 33 notes**.
+- [ ] **Read the old `.xls` directly**, if the Save As step proves too tedious in practice —
+      107 of the 165 petrography workbooks on the reference machine are that format. Needs a BIFF8
+      Escher/OBJ walk to tie each embedded picture to its worksheet. **Ask before building**: the
+      Save As route is five seconds per file and provably correct.
+- [ ] **Magnification → field of view** would need a per-delivery camera sensor width and tube
+      factor. Both are properties of the laboratory's microscope, not of the plate, so they are a
+      declaration — ask whether that beats measuring a scale bar.
+- [ ] **A colour rule over a greyscale SEM plate returns 0.000** — the mirror of the 0.97 case, and
+      more dangerous because it looks like a tight rock rather than an absurdity. A delivery mixes
+      thin sections, SEM plates and scale graphics in one folder. The obvious test (saturation) did
+      NOT separate them on the real data (p99 saturation ≥ 0.34 on every plate, including the ones
+      that are grey with a coloured annotation), so nothing shipped rather than a guessed threshold.
+
 ## C3. Trust & reproducibility — Phase 11 (§3)
 
 - **Audit trail & lineage**: every module/equation run and data edit logged (`runs` table: params, inputs,

@@ -1236,6 +1236,14 @@ export class Ribbon {
       const selection = await open({
         multiple: true,
         filters: [
+          // A petrography delivery usually arrives as a WORKBOOK, one worksheet per plate, rather
+          // than as loose files — so it is offered first. .xls is listed on purpose: selecting one
+          // gets a named refusal with the fix rather than a picker that ignores it.
+          {
+            name: "Plates and petrography workbooks",
+            extensions: ["xlsx", "xlsm", "xls", "jpg", "jpeg", "png", "tif", "tiff", "bmp", "gif", "webp"],
+          },
+          { name: "Petrography workbook", extensions: ["xlsx", "xlsm", "xls"] },
           { name: "Images", extensions: ["jpg", "jpeg", "png", "tif", "tiff", "bmp", "gif", "webp"] },
         ],
       });
