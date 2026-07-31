@@ -1391,6 +1391,22 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       any depth-tolerance check. Four open decisions are listed in the plan's §4; only **D1** (does he
       receive core gamma?) blocks the first increment.
 
+- [x] **Core-to-log depth registration (Part 1, increments 1a+1b)** — **SHIPPED 2026-07-31.**
+      `registration.rs` + `depthRegDialog.ts` (Data ▸ Tools ▾ ▸ Register Depth…). Answers D1
+      ("not always, sometimes"): a delivered core gamma against GR is **like-for-like** and the
+      search maximises signed r; a core porosity against GR is a **proxy**, co-varies inversely,
+      and the search maximises |r| and reports the sign. Pinned from both sides — a signed score
+      fails the proxy test, |r| everywhere fails the like-for-like test. Reuses `tops.rs`'s
+      `interp`/`pearson` rather than a second implementation; the whole **correlogram** comes back
+      so a comb of near-equal peaks is visible rather than reduced to one confident number, and
+      nothing is applied without the user accepting it. A pair-count floor (75% of the
+      best-populated shift) stops the core sliding off the log's end and winning on six lucky
+      plugs. Also fixed here: **`db::shift_core_depths` now moves the plugs and the point data
+      measured ON them in one transaction** (`CoreShiftCounts`), because core extras live in
+      `aux_data` under the core set's own name and were being left behind — the core gamma that
+      justified a shift did not move with the porosity it was judged against. Which datasets ride
+      along is offered (`db::core_extra_datasets`), never inferred from the set name alone.
+
 ## C3. Trust & reproducibility — Phase 11 (§3)
 
 - **Audit trail & lineage**: every module/equation run and data edit logged (`runs` table: params, inputs,

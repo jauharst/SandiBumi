@@ -49,7 +49,10 @@ tested, and already enforces the constraint that matters (the warp cannot reorde
 
 ### 1.1 Increments
 
-**1a — the registration pane.** Not a dialog: this is a task you look at for a while. Two depth
+**1a — the registration workspace.** _(Shipped 2026-07-31 as a **dialog**, `depthRegDialog.ts`, not
+a docked pane. Dialogs here are already non-blocking and pointer-transparent, so the log view stays
+visible and usable beside it — the pane form buys only docking and session persistence, and can be
+promoted later without touching the engine.)_ Two depth
 tracks side by side, wireline reference on the left, core measurement on the right, a draggable
 shift with a live Pearson readout and the sample count behind it. Apply writes through
 `shift_core_depths` on the **active** core set, and is undoable.
@@ -206,7 +209,7 @@ draws and counts.
 
 | # | Decision | Blocks |
 |---|---|---|
-| **D1** | **Do your deliveries include core gamma?** If yes, 1a is a like-for-like match and is straightforward. If not, registration has to key on core φ vs a log porosity, which is a weaker comparison and changes how the pane presents its correlation. | **1a — the first increment.** |
+| ~~**D1**~~ | **ANSWERED 2026-07-31 — "not always, sometimes."** Which is the demanding case: the tool must handle both and must never present them as equivalent. Shipped in `registration.rs` as the like-for-like / proxy split, with the search rule differing between them (signed r vs \|r\|) and the result naming which applied. | ~~1a~~ — done |
 | **D2** | **When core is re-registered, should thin sections and SEM plates at those depths move with it?** My reading is yes for sections (cut from the plug) and no for core photographs (registered by their own marks) — but this is a core-handling question, not a software one. | 1d |
 | **D3** | **Grain size: apparent, or Wicksell-corrected?** I would default to *apparent, labelled apparent*, and offer the correction as an explicit option, so a corrected number never leaves the app without saying so. | Family B |
 | **D4** | **How do your sections carry their scale** — a bar burned into the image, a stated magnification, a µm/px column in the lab spreadsheet, or nothing? And **are they blue-epoxy impregnated**, and stained? | Families B and C; A1 needs the epoxy answer. |
@@ -218,9 +221,9 @@ Only **D1** blocks the first increment. D2–D4 can be answered while Part 1 is 
 ## 5. Sequencing
 
 ```
-Part 1   1e  plate depth editing            small, closes a shipped follow-up
-         1a  registration pane              needs D1
-         1b  proposed best-lag              reuses tops.rs
+Part 1   1a  registration + proposal        SHIPPED 2026-07-31 (registration.rs)
+         1b  proposed best-lag              SHIPPED with it
+         1e  plate depth editing            small, closes a shipped follow-up
          1c  per-run piecewise shift
          1d  plates follow plugs            needs D2
          1f  registration recorded

@@ -3721,6 +3721,96 @@ mod inspector_tests {
         assert_eq!(method.rows, 1);
     }
 
+    /// A core depth shift must move the measurements that were made ON those plugs, or the
+    /// porosity registers against the log while the core gamma that justified the shift does not.
+    /// The separately-delivered dataset must NOT move just because its set is also called RAW.
+    #[test]
+    fn a_core_shift_carries_the_plug_extras_and_leaves_other_deliveries_alone() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        insert_well(&conn, wid, "SANDI-SHIFT", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        let d = [2000.0f32, 2001.0, 2002.0];
+        let nan = [f32::NAN; 3];
+        insert_core_data(&conn, &w, "RAW", None, &d, &[0.2, 0.21, 0.19], &nan, &nan, &nan).unwrap();
+
+        // Extras of THIS core delivery: written under the core set's own name (see ingest.rs).
+        let extra = |item: &str, depth: f32, base: Option<f32>| AuxRow {
+            dataset: "CORE".into(),
+            depth_top: depth,
+            depth_base: base,
+            item: item.into(),
+            value_num: Some(55.0),
+            value_text: None,
+        };
+        insert_aux_data(
+            &conn,
+            &w,
+            "CORE",
+            "RAW",
+            None,
+            &[extra("CORE_GR", 2000.0, None), extra("KVKH", 2001.0, Some(2001.5))],
+        )
+        .unwrap();
+        // A separate delivery whose set is ALSO called RAW — the collision the naive rule hits.
+        insert_aux_data(&conn, &w, "XRD", "RAW", None, &[extra("KAOLINITE", 2000.0, None)]).unwrap();
+
+        let auto = core_extra_datasets(&conn, &w).unwrap();
+        assert_eq!(
+            auto,
+            vec![("CORE".to_string(), 2), ("XRD".to_string(), 1)],
+            "both share the core set's name, so both are OFFERED — the user decides"
+        );
+
+        let moved = shift_core_depths(&mut conn, &w, 2.5, &["CORE".to_string()]).unwrap();
+        assert_eq!((moved.plugs, moved.extras), (3, 2));
+
+        let plug: f32 = conn
+            .query_row("SELECT MIN(depth) FROM core_data WHERE well_id = ?1", params![w], |r| r.get(0))
+            .unwrap();
+        assert!((plug - 2002.5).abs() < 1e-4, "plugs moved");
+
+        let gr: f32 = conn
+            .query_row(
+                "SELECT depth_top FROM aux_data WHERE well_id = ?1 AND item = 'CORE_GR'",
+                params![w],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!((gr - 2002.5).abs() < 1e-4, "the core gamma moved WITH its plugs");
+
+        let (top, base): (f32, f32) = conn
+            .query_row(
+                "SELECT depth_top, depth_base FROM aux_data WHERE well_id = ?1 AND item = 'KVKH'",
+                params![w],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert!((top - 2003.5).abs() < 1e-4 && (base - 2004.0).abs() < 1e-4, "an interval keeps its thickness");
+
+        let xrd: f32 = conn
+            .query_row(
+                "SELECT depth_top FROM aux_data WHERE well_id = ?1 AND item = 'KAOLINITE'",
+                params![w],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!((xrd - 2000.0).abs() < 1e-4, "a dataset not named in the call must not move");
+
+        // Exactly reversible, which is what makes it undoable.
+        shift_core_depths(&mut conn, &w, -2.5, &["CORE".to_string()]).unwrap();
+        let back: f32 = conn
+            .query_row(
+                "SELECT depth_top FROM aux_data WHERE well_id = ?1 AND item = 'CORE_GR'",
+                params![w],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!((back - 2000.0).abs() < 1e-4);
+    }
+
     fn a_plate(name: &str, top: f32, base: Option<f32>, bytes: &[u8]) -> NewImage {
         NewImage {
             depth_top: top,
@@ -4238,15 +4328,77 @@ pub fn update_standard_sample(conn: &Connection, well_id: &str, depth: f32, colu
     Ok(())
 }
 
-/// Applies a constant depth shift to the ACTIVE core set's plugs (core-to-log alignment).
+/// What a core depth shift moved. Reported in two parts because the second one is easy to
+/// forget and impossible to see afterwards — see [`shift_core_depths`].
+#[derive(Debug, Clone, Copy, Default, serde::Serialize)]
+pub struct CoreShiftCounts {
+    /// Rows moved in `core_data`.
+    pub plugs: usize,
+    /// Rows moved in `aux_data` — the extras that rode in on those same plugs.
+    pub extras: usize,
+}
+
+/// Applies a constant depth shift to the ACTIVE core set (core-to-log alignment).
 /// Exactly reversible with -delta, so the frontend makes it undoable. Other deliveries of
 /// the same well keep their own depths — a shift belongs to the set it was judged on.
-pub fn shift_core_depths(conn: &Connection, well_id: &str, delta: f32) -> DbResult<usize> {
-    let n = conn.execute(
+///
+/// **The plugs and their extras move TOGETHER, in one transaction.** A core table's extra
+/// columns (core gamma, lithology description, Kv/Kh, sample ids …) are stored in `aux_data`
+/// under the core delivery's OWN set name, at the plug depths they were measured at — see
+/// `ingest::parse_core_table_mapped`. Moving `core_data` alone would leave every one of them
+/// behind, silently decoupling a measurement from the plug it was made on: the porosity would
+/// register against the log and the core gamma that JUSTIFIED the shift would not, so a second
+/// pass would compute a fresh non-zero shift from the same core. Nothing downstream can detect
+/// that, which is exactly why it is done here rather than left to each caller.
+///
+/// `datasets` names the point datasets that move along. It is NOT inferred from the set name
+/// alone: a separately-imported XRD delivery is also called `RAW` by default, so matching on the
+/// name would sweep up data that was never part of this core. [`core_extra_datasets`] returns the
+/// ones that provably were, and the caller shows the list before applying — because whether an
+/// XRD or CEC suite belongs to these plugs is a core-handling judgement, not something to guess.
+pub fn shift_core_depths(
+    conn: &mut Connection,
+    well_id: &str,
+    delta: f32,
+    datasets: &[String],
+) -> DbResult<CoreShiftCounts> {
+    let tx = conn.transaction()?;
+    let plugs = tx.execute(
         &format!("UPDATE core_data SET depth = depth + ?2 WHERE well_id = ?1 AND set_name = {ACTIVE_CORE_SET}"),
         params![well_id, delta],
     )?;
-    Ok(n)
+    let mut extras = 0usize;
+    for dataset in datasets {
+        // `depth_base + delta` is NULL-safe in SQL: a point sample stays a point sample.
+        // `a` is the alias ACTIVE_AUX_SET correlates on, so only the LIVE delivery moves.
+        extras += tx.execute(
+            &format!(
+                "UPDATE aux_data AS a SET depth_top = a.depth_top + ?2, depth_base = a.depth_base + ?2
+                 WHERE a.well_id = ?1 AND a.dataset = ?3 AND a.set_name = {ACTIVE_AUX_SET}"
+            ),
+            params![well_id, delta, dataset],
+        )?;
+    }
+    tx.commit()?;
+    Ok(CoreShiftCounts { plugs, extras })
+}
+
+/// The point datasets that were delivered as part of the well's ACTIVE core table — those whose
+/// own live delivery carries the core set's name, which is how `ingest::import_core_table` writes
+/// the extra columns (core gamma, lithology, Kv/Kh …) so that switching a well's core switches
+/// its extras with it.
+///
+/// This is the honest default for [`shift_core_depths`]: certain where it can be, and everything
+/// else left for the user to add deliberately.
+pub fn core_extra_datasets(conn: &Connection, well_id: &str) -> DbResult<Vec<(String, i64)>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT a.dataset, COUNT(*) FROM aux_data a
+         WHERE a.well_id = ?1 AND a.set_name = {ACTIVE_AUX_SET}
+           AND a.set_name = {ACTIVE_CORE_SET}
+         GROUP BY a.dataset ORDER BY a.dataset"
+    ))?;
+    let rows = stmt.query_map(params![well_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
 /// Edits one core-plug sample value (NaN = missing) in the ACTIVE core set.

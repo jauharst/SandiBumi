@@ -389,8 +389,15 @@ export class Ribbon {
           onPick: () => this.workspace.openAutoCorr(),
         },
         {
+          label: "Register Depth…",
+          doc: "Find the core-to-log depth shift by matching a core measurement against a log, with the correlogram to judge it by (proposes; you accept)",
+          onPick: () => {
+            void import("./depthRegDialog").then((m) => m.openDepthRegDialog());
+          },
+        },
+        {
           label: "Shift Core…",
-          doc: "Shift the selected well's core plugs by a constant depth (core-to-log alignment; undoable)",
+          doc: "Shift the selected well's core plugs by a constant depth you already know (core-to-log alignment; undoable)",
           onPick: () => this.handleShiftCore(),
         },
         {
@@ -1293,9 +1300,14 @@ export class Ribbon {
 
     const close = openModal(`Shift Core — ${well.well_name}`, content, 420);
     const doShift = async (delta: number): Promise<void> => {
+      // No dataset list = the point data delivered with this core rides along, so the plugs and
+      // the measurements made on them never part company.
       const n = await shiftCoreData(well.well_id, delta);
-      setStatus(`Shifted ${n} core plug(s) of ${well.well_name} by ${delta > 0 ? "+" : ""}${delta} m`);
-      recordProcess("Edit", `Core shift ${delta > 0 ? "+" : ""}${delta} m (${n} plugs)`, well.well_name);
+      const sign = delta > 0 ? "+" : "";
+      setStatus(
+        `Shifted ${n.plugs} core plug(s) and ${n.extras} point sample(s) of ${well.well_name} by ${sign}${delta} m`
+      );
+      recordProcess("Edit", `Core shift ${sign}${delta} m (${n.plugs} plugs, ${n.extras} point samples)`, well.well_name);
       this.workspace.notifyDataChanged();
     };
     apply.addEventListener("click", () => {

@@ -2516,10 +2516,88 @@ export function updateCoreSample(wellId: string, depth: number, column: string, 
   return invoke("update_core_sample", { wellId, depth, column, value });
 }
 
-/** Shifts every core plug of a well by `delta` metres (core-to-log alignment);
- *  returns the number of plugs moved. Exactly reversible with -delta. */
-export function shiftCoreData(wellId: string, delta: number): Promise<number> {
-  return invoke<number>("shift_core_data", { wellId, delta });
+export interface CoreShiftCounts {
+  plugs: number;
+  /** Point-data rows moved along with them. */
+  extras: number;
+}
+
+/** Shifts a well's ACTIVE core delivery by `delta` (core-to-log alignment). The plugs and the
+ *  point measurements made ON those plugs move together — pass `datasets` to say which point
+ *  datasets ride along (omit for the ones delivered with this core, `[]` for plugs only).
+ *  Exactly reversible with -delta, which is what makes it undoable. */
+export function shiftCoreData(wellId: string, delta: number, datasets?: string[]): Promise<CoreShiftCounts> {
+  return invoke<CoreShiftCounts>("shift_core_data", { wellId, delta, datasets });
+}
+
+/** Point datasets delivered as part of this well's active core table, with their row counts. */
+export function coreExtraDatasets(wellId: string): Promise<[string, number][]> {
+  return invoke<[string, number][]>("core_extra_datasets", { wellId });
+}
+
+// --- Core-to-log depth registration ---
+
+export interface CoreReference {
+  /** "core" = a plug-table column; "aux" = an item of a point dataset. */
+  kind: string;
+  dataset: string;
+  item: string;
+  label: string;
+  n: number;
+  /** Resolved family, "" when the name is not recognised. */
+  family: string;
+}
+
+export function listCoreReferences(wellId: string): Promise<CoreReference[]> {
+  return invoke<CoreReference[]>("list_core_references", { wellId });
+}
+
+export interface RegistrationRequest {
+  well_id: string;
+  log_curve: string;
+  ref_kind: string;
+  ref_dataset?: string;
+  ref_item: string;
+  depth_from?: number | null;
+  depth_to?: number | null;
+  search_range?: number;
+  step?: number;
+}
+
+export interface RegPoint {
+  depth: number;
+  value: number;
+}
+
+/** One rung of the correlogram: agreement if the core moved by `delta`. */
+export interface LagPoint {
+  delta: number;
+  r: number;
+  n: number;
+}
+
+export interface RegistrationResult {
+  core: RegPoint[];
+  log_depth: number[];
+  log_value: number[];
+  proposed_delta: number;
+  correlation: number;
+  current_r: number;
+  n_pairs: number;
+  like_for_like: boolean;
+  /** "direct" | "inverse". */
+  matched_on: string;
+  log_family: string;
+  ref_family: string;
+  reference_label: string;
+  scan: LagPoint[];
+  notes: string[];
+  error: string | null;
+}
+
+/** Proposes the shift that best aligns a well's core with a log. Writes nothing. */
+export function proposeRegistration(req: RegistrationRequest): Promise<RegistrationResult> {
+  return invoke<RegistrationResult>("propose_registration", { req });
 }
 
 // --- Interactive curve editing (P2-d: log-view right-click menu) ---

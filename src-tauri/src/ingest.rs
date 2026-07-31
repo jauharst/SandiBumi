@@ -1377,7 +1377,7 @@ mod tests {
     /// overwrites the first, exactly one set is live, and every reader follows it.
     #[test]
     fn core_import_roundtrip_and_replace() {
-        let conn = Connection::open_in_memory().unwrap();
+        let mut conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
         let well_id = Uuid::new_v4();
         db::insert_well(&conn, well_id, "SANDI-1", None, None, None).unwrap();
@@ -1426,8 +1426,8 @@ mod tests {
 
         // Core-to-log shift moves the ACTIVE set's plugs by the same delta and reverses
         // exactly; the other delivery keeps its own depths.
-        let shifted = db::shift_core_depths(&conn, &ids, 2.5).unwrap();
-        assert_eq!(shifted, 2);
+        let shifted = db::shift_core_depths(&mut conn, &ids, 2.5, &[]).unwrap();
+        assert_eq!(shifted.plugs, 2);
         let min_depth: f32 = conn
             .query_row(
                 "SELECT MIN(depth) FROM core_data WHERE well_id = ?1 AND set_name = 'CORE'",
@@ -1444,7 +1444,7 @@ mod tests {
             )
             .unwrap();
         assert!((untouched - 2001.0).abs() < 1e-4, "the inactive delivery must not move");
-        db::shift_core_depths(&conn, &ids, -2.5).unwrap();
+        db::shift_core_depths(&mut conn, &ids, -2.5, &[]).unwrap();
         let min_depth: f32 = conn
             .query_row(
                 "SELECT MIN(depth) FROM core_data WHERE well_id = ?1 AND set_name = 'CORE'",

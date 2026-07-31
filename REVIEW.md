@@ -6126,3 +6126,41 @@ points at this dialog.
 ---
 
 _Made in SandiBumi._ © 2026 SandiBumi. All rights reserved.
+
+---
+
+## Register core depth against a log (2026-07-31)
+
+Data ▸ Tools ▾ ▸ **Register Depth…**. Core arrives on the driller's tally and the log on the
+wireline's; until now the only tool for the difference was typing a number into Shift Core, which
+meant already knowing the answer.
+
+- [ ] Select a cored well, open **Register Depth…**. The **Core reference** list should show every
+      plug column and every point-data measurement with enough samples to correlate — and default
+      to a **core gamma** if you have one, since that is the strongest reference there is.
+- [ ] The note under the reference should say whether the pairing is **like-for-like** (core gamma
+      against GR: the same quantity) or a **proxy** (core porosity against GR: different quantities
+      that co-vary inversely). Switch the reference and the log curve and watch it change.
+- [ ] **Propose a shift.** Check the proposed shift, the correlation, and — importantly — **where
+      it sits now**, which tells you whether the proposal improved anything at all.
+- [ ] The left plot draws the log with the core **hollow where it sits now and solid where it would
+      sit**. The right plot is the **correlogram**: correlation against every candidate shift.
+- [ ] **Read the correlogram before accepting.** One sharp peak = the shift is well determined.
+      Several near-equal peaks = the section repeats and the maximum is close to a coin toss. The
+      dialog counts rival peaks within 5% and says so, but the picture is the real answer.
+- [ ] Type a different shift in **Shift to apply** — both plots follow immediately. The proposal is
+      a suggestion, never applied on its own.
+- [ ] Before applying, check the list of **point datasets that ride along**. A measurement made on
+      a plug must move with that plug or it ends up registered against rock it was never taken
+      from. Untick anything that is on the wireline scale rather than the core's.
+- [ ] Apply, then **Ctrl+Z**. The status line reports plugs AND point samples moved; the undo puts
+      every one of them back.
+
+**Worth knowing:** on a proxy pairing the shift is chosen on the STRENGTH of the relationship, not
+its sign — a core porosity should come back with a strongly NEGATIVE correlation, and the dialog
+says "inverse" when it does. On a like-for-like pairing a negative correlation is never accepted:
+two gamma measurements that run opposite are not aligned, they are wrong, and the proposal you get
+in that case deliberately disagrees with the porosity answer so that the disagreement is visible.
+
+**Also changed:** the old **Shift Core…** now moves the core's point data with the plugs too, and
+its status line says how many of each.

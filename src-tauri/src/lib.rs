@@ -38,6 +38,7 @@ mod parsers;
 #[cfg(test)]
 mod pipeline_field_test;
 mod project;
+mod registration;
 mod report;
 mod resultsqc;
 mod rocktyping;
@@ -2007,11 +2008,54 @@ fn update_core_sample(db: tauri::State<DbState>, well_id: String, depth: f32, co
     db::update_core_sample(&conn, &well_id, depth, &column, value)
 }
 
-/// Shifts every core plug of a well by `delta` metres (core-to-log alignment).
+/// Shifts a well's ACTIVE core delivery by `delta` (core-to-log alignment) — the plugs and the
+/// extras that rode in with them, together. Returns both counts so the caller can say so.
 #[tauri::command]
-fn shift_core_data(db: tauri::State<DbState>, well_id: String, delta: f32) -> Result<usize, String> {
+fn shift_core_data(
+    db: tauri::State<DbState>,
+    well_id: String,
+    delta: f32,
+    datasets: Option<Vec<String>>,
+) -> Result<db::CoreShiftCounts, String> {
+    let mut conn = db.0.lock().unwrap();
+    // No list given = the extras that provably came in on this core. An explicit empty list
+    // means "plugs only", and must stay distinguishable from "not specified".
+    let datasets = match datasets {
+        Some(d) => d,
+        None => db::core_extra_datasets(&conn, &well_id)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|(d, _)| d)
+            .collect(),
+    };
+    db::shift_core_depths(&mut conn, &well_id, delta, &datasets).map_err(|e| e.to_string())
+}
+
+/// Point datasets delivered as part of this well's active core table — what a depth shift
+/// should move along with the plugs.
+#[tauri::command]
+fn core_extra_datasets(db: tauri::State<DbState>, well_id: String) -> Result<Vec<(String, i64)>, String> {
     let conn = db.0.lock().unwrap();
-    db::shift_core_depths(&conn, &well_id, delta).map_err(|e| e.to_string())
+    db::core_extra_datasets(&conn, &well_id).map_err(|e| e.to_string())
+}
+
+/// Everything in a well that could anchor a core-to-log registration.
+#[tauri::command]
+fn list_core_references(db: tauri::State<DbState>, well_id: String) -> Result<Vec<registration::CoreReference>, String> {
+    let conn = db.0.lock().unwrap();
+    registration::list_core_references(&conn, &well_id)
+}
+
+/// Proposes the depth shift that best aligns a well's core with a log. Writes nothing.
+#[tauri::command]
+async fn propose_registration(
+    db: tauri::State<'_, DbState>,
+    req: registration::RegistrationRequest,
+) -> Result<registration::RegistrationResult, String> {
+    let mx = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || registration::propose_registration(&mx, &req))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Interactive curve edit from the log view's right-click menu: wireline shift or an
@@ -2567,6 +2611,9 @@ pub fn run() {
             update_computed_sample,
             update_core_sample,
             shift_core_data,
+            core_extra_datasets,
+            list_core_references,
+            propose_registration,
             edit_curve,
             restore_curve_values,
             upsert_top,

@@ -773,6 +773,65 @@ a caller that relies on it opens with a blank, disabled button — `rtcFitDialog
 fixed here.
 
 
+## Core-to-log depth registration (2026-07-31)
+
+`registration.rs` (Data ▸ Tools ▾ ▸ **Register Depth…**, `depthRegDialog.ts`) proposes the constant
+shift that puts a well's core back on the log's depth scale. Until now the only tool was a number
+typed into Shift Core — you had to already know the answer. Five rules.
+
+**It is not a new algorithm.** Matching a core profile against a wireline log is the problem
+`tops.rs` already solves to propagate a marker between wells, so this borrows its two primitives
+(`tops::interp`, `tops::pearson`, both promoted to `pub(crate)`) instead of growing a second
+implementation. `best_shift`/`warp_refine` are the same family and are what a later per-core-run
+piecewise shift should reuse.
+
+**The reference's STRENGTH is reported, because core gamma is only sometimes delivered** (Jauhar,
+2026-07-31: "not always, sometimes"). A delivered core gamma against the wireline GR is
+**like-for-like** — the same physical quantity, which must agree in sign as well as shape. A core
+porosity against GR is a **proxy**: different quantities that co-vary, and *inversely*, because the
+shaly intervals that raise GR are the ones that lose porosity. So the search rule is
+**like-for-like → maximise r; proxy → maximise |r| and report which sign won**, and the result says
+which it did. A coefficient of −0.82 means "well aligned" in one case and "something is wrong" in
+the other; a number that reads the same in both is a number that misleads. Pinned from BOTH sides
+by `a_porosity_proxy_registers_on_the_inverse_relationship` (fails on a signed score) and
+`a_like_for_like_pairing_never_accepts_an_inverted_alignment` (fails on |r| everywhere) — either
+test alone would let the lazier implementation through.
+
+Family resolution goes through `registration::reference_family`: `curves::family_for` first, then a
+LOCAL `CORE_FAMILIES` table for POR/PERM/GD/SW. Those are deliberately not added to
+`curves::FAMILIES` — that table drives curve resolution for the whole project, and widening it to
+settle a labelling question here would change how every module finds its inputs. `bare_mnemonic`
+strips CORE/PLUG/LAB tokens so `CORE_GR` and `GR` are the same measurement. An unrecognised name is
+a **proxy, never a guessed match**.
+
+**The whole correlogram is returned, not just its peak.** One sharp peak means the shift is
+determined; a comb of near-equal peaks means the section repeats and the maximum is a coin toss —
+the same number, completely different situations. The dialog draws r against shift on a fixed −1..1
+axis (cropping to the data's own range makes a weak peak look decisive) and counts rival peaks
+within 5% into a note. **Nothing is applied automatically**: the proposal populates an editable
+field and the user accepts.
+
+**A candidate shift must keep `MIN_PAIR_FRACTION` (0.75) of the best-populated shift's pairs**, and
+at least `MIN_PAIRS` (8) outright. Without that floor, sliding the core off the end of the log is a
+legitimate way to win — the few plugs still overlapping can correlate almost perfectly by chance,
+and the scan would return a large shift with a beautiful coefficient computed from almost no data.
+The log is interpolated onto the plug depths rather than the core resampled onto the log: core is
+sparse and irregular, and resampling it would invent samples between plugs that then vote.
+
+**A depth shift moves the plugs and the measurements made ON those plugs, together, in one
+transaction.** `db::shift_core_depths` gained an `aux_data` pass and returns `CoreShiftCounts
+{plugs, extras}`. Core extras (core gamma, lithology, Kv/Kh) live in `aux_data` under the core
+delivery's OWN set name, so moving `core_data` alone silently decoupled every one of them: the
+porosity would register against the log while the core gamma that JUSTIFIED the shift would not, and
+a second pass would compute a fresh non-zero shift from the same core. Nothing downstream can detect
+that. **Which datasets ride along is NOT inferred from the set name alone** — a separately imported
+XRD delivery is also called RAW by default — so `db::core_extra_datasets` returns the candidates and
+the dialog lists them with checkboxes before applying. Whether an XRD or CEC suite belongs to these
+plugs is a core-handling judgement, not something to guess. Pinned by
+`a_core_shift_carries_the_plug_extras_and_leaves_other_deliveries_alone`, which also checks that an
+interval sample keeps its thickness (`depth_base + delta` is NULL-safe, so a point stays a point)
+and that the whole thing reverses exactly, which is what makes it undoable.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under
