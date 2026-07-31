@@ -235,7 +235,14 @@ can fail for reasons unrelated to the code is a gate people learn to ignore.
 **`[x]` here means an end-to-end test drives it against the real app. It is NOT your verification
 mark** — same rule as pile B.
 
-**Done (11 of 86)**
+**Done (12 of 86)**
+
+- [x] **T-SHELL-10** — Sessions: save, list, delete · `sessions.e2e.mjs`. The snapshot is asserted
+      FIELD BY FIELD rather than "it is valid JSON": a snapshot that lost `layout` still parses,
+      still restores without error, and simply rebuilds nothing — the workspace comes back empty
+      and it looks like the save never worked. `well` must be PRESENT even when null, since its
+      absence is how a session silently stops restoring the well it was taken on. Also checks the
+      dialog CLOSES on success — one that stays open reads as a save that did not happen.
 
 - [x] **T-MLEQ-16** — Curve Catalog: rows, live search, header sorting · `catalog.e2e.mjs`. The
       rows come from the backend and are pinned there; what is checked is the three things that
@@ -314,6 +321,12 @@ mark** — same rule as pile B.
       NAMES the parameter and its bounds, since a bare "invalid input" is true and useless on a
       form with several numeric fields. **Not covered:** step 2, the `GR_MA >= GR_SH` guard
       reaching the all-NaN honest-report path. That one is a cheap pile-B test on its own.
+
+- [ ] **T-SHELL-11** — Quiet Ctrl+S re-save + Escape closes ribbon menus. `sessions.e2e.mjs`
+      covers the Ctrl+S half: once the session has a name, Ctrl+S must write it again WITHOUT
+      putting a dialog in the way, and must name it in the status line. A save that re-prompts
+      every time is one people stop using, and the unsaved-state dot then stops meaning anything.
+      **Not covered:** Escape closing ribbon menus.
 
 - [ ] **T-RT-16** — Legacy Multimin filtered from the step picker. `shell.e2e.mjs` covers **step 5
       only** (the ribbon cross-check), and covers it well: the retirement rests on two independent

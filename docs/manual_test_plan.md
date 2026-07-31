@@ -312,6 +312,15 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
 4. Click **Project ▸ Session ▸ Open Session…** → in the **Open Session** dialog click **UAT Layout A**.
 5. Reopen **Open Session** and click the row's **🗑** button.
    **Expected:** Step 1: nothing happens on empty name (dialog stays). Step 2: status **Session "UAT Layout A" saved**; History entry **Session — Saved session "UAT Layout A"**. Step 4: panes, arrangement and the **active well (B)** come back; Log Views restore their per-view layouts; plot panes reopen in place but their internal curve selections may reset (known limitation — not carried by the snapshot). Status **Opened session "UAT Layout A"**. Step 5: status **Deleted session "UAT Layout A"** and the list updates (empty list shows "No saved sessions yet. Use Save Session to create one."). Sessions live in the project DB — they do not appear in other projects.
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** `sessions.e2e.mjs` covers save, the
+   stored snapshot's shape, the Open Session listing, and delete. The snapshot is asserted field by
+   field rather than merely parsing: one that lost `layout` still parses, still restores without
+   error, and rebuilds nothing - the workspace comes back empty and it reads as a save that never
+   worked. `well` must be present even when null, since its absence is how a session silently stops
+   restoring the well it was taken on. **Not covered:** actually APPLYING a session (restoring a
+   workspace mid-run would tear down the panes the other specs are driving), and the log-view
+   Layout reattachment that `applySession` does by id.
+
    **Result — T-SHELL-10:**
 
 - [x] Pass
@@ -330,6 +339,12 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
 2. Click into any text input (e.g. SQL Query editor or a dialog name field) and press **Ctrl+S** again.
 3. Open **Recent ▾** on the Project tab; press **Escape**.
    **Expected:** Step 1: status **Session "…" saved** with NO dialog (quiet in-place re-save of the last-named session) and the unsaved dot on the Save-Session button clears. Step 2: the app-level save does NOT fire while typing in an input/CodeMirror (editors keep their own Ctrl+S). Step 3: the ribbon menu closes; nothing else (no dialog dismissed). Covers REVIEW.md §"Held-item resolutions" (Quiet Ctrl+S save + Escape closes ribbon menus).
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** the Ctrl+S half only.
+   `sessions.e2e.mjs` checks that once the session has a name, Ctrl+S re-saves it QUIETLY - no
+   dialog reopens - and that the status line names the session it wrote. A save that re-prompts
+   every time is one people stop using, and the unsaved-state dot then stops meaning anything.
+   **Not covered:** Escape closing ribbon menus.
+
    **Result — T-SHELL-11:**
 
 - [x] Pass

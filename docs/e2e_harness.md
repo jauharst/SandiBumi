@@ -188,7 +188,7 @@ click listener the two are equivalent — but when the *gesture* is the thing un
 
 ## Current coverage
 
-Thirty-two tests across seven spec files. Specs share ONE app launch and one project (see the spec
+Thirty-seven tests across eight spec files. Specs share ONE app launch and one project (see the spec
 grouping note in `wdio.conf.mjs`), so write each one to establish what it needs and to assert
 changes as before/after differences rather than as absolute state.
 
@@ -262,6 +262,16 @@ correct one if you only read the message.
 | Rows list raw and computed curves | Including the set/version marker, the visible half of the write discipline |
 | Search narrows the table | Every surviving row matches, and clearing restores all of them |
 | A sortable header reorders | The second click reverses the first exactly |
+
+`sessions.e2e.mjs` — named workspace snapshots (T-SHELL-10, the Ctrl+S half of T-SHELL-11):
+
+| Test | What it proves |
+|---|---|
+| Save under a name | Written to the `documents` store, and the dialog closes itself |
+| The snapshot's shape | `version`, `layout` and `well` all present — checked field by field |
+| Listed in Open Session | The dialog can find what was saved |
+| Ctrl+S re-saves quietly | No dialog reopens; the status line names the session |
+| Delete | Gone from the store |
 
 Test data is `dataset for test/examples/` (`SANDI-*`) only. Never a real client project, never a
 path from `SANDIBUMI_FIELD_FIXTURES`.
