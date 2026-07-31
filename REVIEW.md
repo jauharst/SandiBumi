@@ -7,6 +7,33 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-07-31 — A machine can now drive the real app end to end (optional)
+
+`npm run test:e2e` starts the **built** `sandibumi.exe` and drives it through Tauri's WebDriver
+route: a real LAS import, a real module run, a real export, against a real DuckDB file. Five
+tests, all passing. It is **optional and never part of the green gate** — `tools\check.ps1` stays
+green on a machine with none of it installed. Setup and the reasoning are in
+`docs/e2e_harness.md`.
+
+- [ ] **Run it.** `npm run test:e2e`. Expect five green ticks in about 30 seconds. First run on a
+      new machine needs `cargo install tauri-driver --locked` through the vcvars pin; msedgedriver
+      downloads itself.
+- [ ] **It did not touch your project.** This is the one that matters. While it runs, the app opens
+      a throwaway project in your temp folder — check the first line it prints (`e2e sandbox: …`).
+      Your `src-tauri/project.duckdb` must be untouched: same size, same timestamp. The harness
+      asks the running app which project it opened and aborts before any test if the answer is not
+      inside that sandbox.
+- [ ] **It refuses to run while SandiBumi is open.** Start the app, then run it — it should stop
+      immediately and say so, rather than risk confusing your session with a leftover process.
+- [ ] **Nothing was force-killed.** After a run there should be no new `.corrupt-backup-*` file in
+      `src-tauri/`. The harness checks this itself and fails the run if one appears, keeping the
+      sandbox as evidence.
+- [ ] **What it cannot do.** It cannot tell you a plot looks right — the log views are a WebGPU
+      canvas, and WebDriver sees a rectangle. There are deliberately no pixel assertions. If you
+      ever see one added, that is a bug.
+- [ ] **After changing the frontend, rebuild before believing it.** The built binary embeds the
+      frontend from build time, so a UI test can pass or fail against markup older than your repo.
+
 ## 2026-07-31 — Trained models are kept, named and re-runnable
 
 Until now a model died with the run: you could not train on your cored wells and apply **that
