@@ -188,7 +188,7 @@ click listener the two are equivalent — but when the *gesture* is the thing un
 
 ## Current coverage
 
-Twenty-one tests across four spec files. Specs share ONE app launch and one project (see the spec
+Twenty-six tests across five spec files. Specs share ONE app launch and one project (see the spec
 grouping note in `wdio.conf.mjs`), so write each one to establish what it needs and to assert
 changes as before/after differences rather than as absolute state.
 
@@ -231,6 +231,16 @@ changes as before/after differences rather than as absolute state.
 | ⇄ inverts within the visible wells | Selection and inverse partition the visible list exactly |
 | Plain click clears | The scope a user thinks they dismissed is really gone |
 | ★ pins a well | The pin reached the project, read back via `list_pinned_wells` |
+
+`zones.e2e.mjs` — the Zones pane (T-WELL-15 steps 2–5):
+
+| Test | What it proves |
+|---|---|
+| Add a zone | Stored against the well and shown in the pane at the entered depths |
+| Re-add under the same name | UPDATES in place; exactly one row, never a duplicate |
+| `bottom <= top` is refused | A dialog-only guard — the backend has none — asserted on stored state |
+| Zones stay on their own well | No leak to a neighbour that nobody edited |
+| Delete from the pane | Gone from the project and from the table |
 
 Test data is `dataset for test/examples/` (`SANDI-*`) only. Never a real client project, never a
 path from `SANDIBUMI_FIELD_FIXTURES`.

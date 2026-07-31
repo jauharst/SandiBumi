@@ -1268,6 +1268,16 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 5. Switch to another well and back.
 6. (Cross-check) In a Log View use **🖍** to paint a band, double-click it, choose **Convert to zone** — check it lands in this pane.
    **Expected:** (1) Status "Built N zone(s) from tops for <well>"; table lists one zone per consecutive top pair with correct top/bottom depths; History gains a **Zone** entry. (2) Nothing is added — the row is silently rejected (note: no error message today; record what you see). (3) Zone appears; the re-add UPDATES the same row to 2050–2150 rather than duplicating. (4) Row removed; History "Deleted zone UAT_TEST". (5) Pane follows the well — each well keeps its own zone list. (6) Converted band appears as a zone (covers REVIEW.md §Highlight tool item (e)). Covers REVIEW.md §Polish — Processing history (zone add/edit/delete).
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** `zones.e2e.mjs` drives the real pane
+   for steps 2, 3, 4 and the isolation half of 5: add, re-add updating IN PLACE rather than
+   duplicating, the silent refusal, per-well isolation, and delete. Two are frontend-only claims
+   that no Rust test could pin — `db::upsert_zone` has NO validation and would store an inverted
+   zone quite happily, so `bottom <= top` is refused solely by `zonesDialog.ts`. The refusal being
+   silent is why the assertion is on stored state: every zone must come back byte-identical, since
+   an inverted write would keep the same name and row count while swapping the interval underneath
+   it. The zero-thickness case (`bottom == top`) is checked too. **Not covered:** step 1 (From
+   Tops), the History entries throughout, and step 6 (Convert to zone from a highlight).
+
    **Result — T-WELL-15:**
 
 - [ ] Pass

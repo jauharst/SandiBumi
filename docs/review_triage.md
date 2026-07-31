@@ -235,7 +235,15 @@ can fail for reasons unrelated to the code is a gate people learn to ignore.
 **`[x]` here means an end-to-end test drives it against the real app. It is NOT your verification
 mark** — same rule as pile B.
 
-**Done (7 of 86)**
+**Done (8 of 86)**
+
+- [x] **T-WELL-15** — Zones pane: add/update/delete, invalid input, per-well isolation ·
+      `zones.e2e.mjs` (steps 2–5; From Tops, the History entries and Convert-to-zone are not
+      covered). Two of these are FRONTEND-ONLY contracts that no Rust test could pin:
+      `db::upsert_zone` has no validation whatsoever and would store an inverted zone, so
+      `bottom <= top` is refused by the dialog alone. The refusal being silent is why the
+      assertion compares every stored zone byte-for-byte rather than looking for a message — an
+      inverted write keeps the name and the row count and swaps only the interval.
 
 - [x] **T-WELL-02** — Multi-select: Ctrl-click, Shift-click range, ⇄ invert, plain-click clear ·
       `wells.e2e.mjs`. All four gestures against the real pane, plus the two things a naive version
