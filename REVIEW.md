@@ -6065,6 +6065,35 @@ well sitting off the trend, a cluster of plugs dragging the line. Those only sho
       cloud actually heads for zero — which is the one thing that would disprove it.
 
 
+---
+
+## Accepting a calibration writes it, instead of you retyping it (2026-07-31)
+
+Both fit dialogs now have an **Apply** row under the Copy button. It writes the coefficients as
+parameter overrides, so the next `sw_rtc` / `sw_imts` run and every workflow chain picks them up
+without anyone remembering to. Copy is still there — Apply is the shortcut, not a replacement.
+
+- [ ] Fit, then **Apply** with the default scope. It writes to **the wells the fit actually
+      used**, which is not the same as the wells you scoped. Hover the dropdown — it names them.
+- [ ] Check the second option: **"all N well(s) in scope (+k never calibrated)"**. That is the
+      fit-here-apply-there move, and it should say plainly how many wells are getting a
+      calibration they contributed nothing to. Hover it and it names those too.
+- [ ] **Ctrl+Z.** One undo reverses the whole sweep. A parameter that had no override before goes
+      back to having **no override** — not to zero. If a well already had its own value, that
+      value comes back.
+- [ ] Leave the zone box **blank** for a whole-well override. That is usually what a saturation
+      calibration wants: you calibrate in one interval and apply everywhere. Type a zone name to
+      narrow it — it only bites in wells that carry a zone of that name.
+- [ ] Open the **per-well parameter grid** afterwards (Petrophysics) and confirm the values are
+      there as overrides on exactly the wells you expected.
+
+**The one thing to notice:** Apply writes **RSF along with A_CAP / B_QV / C0**, and **CEC_KAOL /
+CEC_ILL along with S_FACTOR**. That is not tidiness. In both fits the constant and the
+coefficients are not separable — the constant multiplies the whole term — so coefficients applied
+without their constant are a calibration for different rock, and nothing downstream would catch
+it. They go in one batch or not at all.
+
+
 
 `sw_rtc`'s own description now says plainly that the shipped defaults are one field's, and
 points at this dialog.

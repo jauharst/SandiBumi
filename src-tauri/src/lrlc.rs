@@ -397,6 +397,11 @@ pub struct RtcFitResult {
     pub rms: f64,
     pub n_points: usize,
     pub n_wells: usize,
+    /// The wells that actually contributed a sample, in id form. Reported SEPARATELY from
+    /// `points` on purpose: `points` is decimated for the UI, so a well can vanish from it
+    /// entirely, and "apply this calibration to the wells it was fitted from" must never be
+    /// derived from a display sample.
+    pub wells_fitted: Vec<String>,
     pub points: Vec<RtcFitPoint>,
     /// (reason, count) for every candidate sample not fitted — never drop one silently.
     pub excluded: Vec<(String, usize)>,
@@ -414,6 +419,7 @@ fn rtc_err(msg: &str) -> RtcFitResult {
         rms: f64::NAN,
         n_points: 0,
         n_wells: 0,
+        wells_fitted: vec![],
         points: vec![],
         excluded: vec![],
         notes: vec![],
@@ -734,6 +740,7 @@ pub fn run_rtc_fit(db: &Mutex<Connection>, req: &RtcFitRequest) -> RtcFitResult 
         rms,
         n_points,
         n_wells,
+        wells_fitted: wells_used.into_iter().collect(),
         points: pts,
         excluded,
         notes,
@@ -853,6 +860,8 @@ pub struct SFactorFitResult {
     pub rms: f64,
     pub n_points: usize,
     pub n_wells: usize,
+    /// The wells that actually contributed a plug. See `RtcFitResult::wells_fitted`.
+    pub wells_fitted: Vec<String>,
     /// Echoed back: S is only valid for these constants.
     pub cec_kaol_used: f64,
     pub cec_ill_used: f64,
@@ -872,6 +881,7 @@ fn s_err(msg: &str) -> SFactorFitResult {
         rms: f64::NAN,
         n_points: 0,
         n_wells: 0,
+        wells_fitted: vec![],
         cec_kaol_used: f64::NAN,
         cec_ill_used: f64::NAN,
         points: vec![],
@@ -1167,6 +1177,7 @@ pub fn run_s_factor_fit(db_mx: &Mutex<Connection>, req: &SFactorFitRequest) -> S
         rms,
         n_points,
         n_wells,
+        wells_fitted: wells_used.into_iter().collect(),
         cec_kaol_used: req.cec_kaol,
         cec_ill_used: req.cec_ill,
         points: pts,
@@ -1669,6 +1680,34 @@ mod tests {
         );
     }
 
+    /// "Apply this calibration to the wells it was fitted from" has to mean the wells that
+    /// actually contributed. A scoped well that gave nothing was never calibrated, and writing
+    /// coefficients to it extends the claim past the data — so it must not appear in the list
+    /// the apply step reads.
+    #[test]
+    fn a_scoped_well_that_contributed_nothing_is_not_in_the_fitted_list() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let (rw, m, rsf) = (1.0, 2.0, 2.25);
+        let good = synth_well(&conn, "WET-1", (0.45, 0.0057, -0.0071), rw, m, rsf, 80, |_| 1.0);
+        let empty = uuid::Uuid::new_v4().to_string();
+        let db = Mutex::new(conn);
+
+        let mut req = fit_req(vec![good.clone(), empty.clone()], rw, m, rsf);
+        req.depth_min = Some(0.0);
+        let r = run_rtc_fit(&db, &req);
+
+        assert!(r.error.is_none(), "{:?}", r.error);
+        assert_eq!(r.wells_fitted, vec![good], "only the contributing well");
+        assert!(!r.wells_fitted.contains(&empty));
+        assert_eq!(r.n_wells, r.wells_fitted.len());
+        assert!(
+            r.notes.iter().any(|n| n.contains("contributed no water-zone samples")),
+            "{:?}",
+            r.notes
+        );
+    }
+
     // -----------------------------------------------------------------------
     // S-factor calibration
     // -----------------------------------------------------------------------
@@ -1715,6 +1754,11 @@ mod tests {
         )
         .unwrap();
 
+        // `n_plugs == 0` means a well with logs and NO CEC delivery — the ordinary case in a
+        // field study, and the one the fitted-well list has to exclude.
+        if n_plugs == 0 {
+            return wid.to_string();
+        }
         // Plugs sit on every (n_samples / n_plugs)-th log sample, offset by `plug_offset`.
         let step = (n_samples / n_plugs).max(1);
         let rows: Vec<db::AuxRow> = (0..n_plugs)
@@ -1985,5 +2029,24 @@ mod tests {
             "{:?}",
             half.notes
         );
+    }
+
+    /// The S fit's own version of the fitted-well contract, and the reason it is reported
+    /// separately from `points`: the display points are decimated, so they are not a safe
+    /// source for "which wells does this calibration belong to".
+    #[test]
+    fn the_s_fit_names_only_the_wells_that_gave_a_plug() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let cored = synth_cec_well(&conn, "CEC-9", 0.42, 120, 30, 0.0, spread_clay, |_, _| 1.0);
+        // A well with logs but no CEC delivery — the ordinary case in a field study.
+        let uncored = synth_cec_well(&conn, "CEC-10", 0.42, 120, 0, 0.0, spread_clay, |_, _| 1.0);
+        let db = Mutex::new(conn);
+
+        let r = run_s_factor_fit(&db, &s_req(vec![cored.clone(), uncored.clone()]));
+        assert!(r.error.is_none(), "{:?}", r.error);
+        assert_eq!(r.wells_fitted, vec![cored], "only the cored well is calibrated");
+        assert!(!r.wells_fitted.contains(&uncored));
+        assert_eq!(r.n_wells, 1);
     }
 }

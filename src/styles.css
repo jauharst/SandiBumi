@@ -4367,6 +4367,29 @@ textarea {
   border-radius: 2px;
   flex: none;
 }
+/* "Apply to…" row under an accepted calibration (calibrationApply.ts). */
+.calib-apply {
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.calib-apply-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.calib-apply-row select {
+  flex: 2 1 0;
+  min-width: 0;
+}
+.calib-apply-row input {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.calib-apply-row .btn {
+  flex: none;
+}
 .mc-gear {
   flex: none;
   border: 1px solid var(--border);

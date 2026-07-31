@@ -4,6 +4,7 @@ import { recordProcess } from "../processLog";
 import { formRow, openModal } from "./modal";
 import { buildWellScope } from "./wellScope";
 import { buildFitScatter, type FitScatter } from "./fitScatter";
+import { buildCalibrationApply } from "./calibrationApply";
 
 /** RtC calibration (Advance ▸ Calibrate RtC…).
  *
@@ -247,6 +248,24 @@ export async function openRtcFitDialog(): Promise<void> {
         .then(() => setStatus("RtC coefficients copied — paste them into the sw_rtc parameters"));
     });
     out.appendChild(copy);
+
+    // …or write them straight into `zone_params`, which is where a per-well parameter already
+    // belongs, so the next sw_rtc run and every workflow chain picks them up. RSF rides along
+    // because the coefficients are only valid for the RSF they were fitted with.
+    out.appendChild(
+      buildCalibrationApply({
+        label: "RtC calibration",
+        fittedWells: r.wells_fitted,
+        scopedWells: scope.getWellIds(),
+        wellName,
+        params: [
+          { name: "A_CAP", value: r.a_cap },
+          { name: "B_QV", value: r.b_qv },
+          { name: "C0", value: r.c0 },
+          { name: "RSF", value: r.rsf_used },
+        ],
+      })
+    );
   };
 
   runBtn.addEventListener("click", () => {

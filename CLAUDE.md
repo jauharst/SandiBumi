@@ -725,7 +725,33 @@ exposes `redraw()` and each caller invokes it right after inserting the element.
 equally load-bearing: the canvas context is scaled by the `dpr` that `fitCanvasBackingStore`
 returns, or a HiDPI screen draws the whole plot at half scale in the corner.
 
-Both fit dialogs offer **Copy**, not auto-apply. Both also paint their own run-button label:
+**Accepting a calibration** — `calibrationApply.ts`, shared by both fit dialogs, writes the
+coefficients as `zone_params` overrides through the new atomic `db::set_zone_param_batch(conn,
+zone_name, entries)`. `set_well_param_overrides` is now just its `"*"` scope, so the parameter
+grid and an accepted calibration take the same transactional path. Four rules.
+
+**The default scope is `wells_fitted`, a field on both results and NOT derived from `points`** —
+the display points are decimated, so a well can vanish from them entirely, and a scoped well that
+contributed nothing was never calibrated. Applying to the wider scope is offered (fit-here-apply-
+there is the point of a field calibration) but it is a choice, it names the uncalibrated wells,
+and the option is hidden when it would be identical to the default.
+
+**The held-fixed constants are written in the same batch or not at all.** RtC writes RSF with
+A_CAP/B_QV/C0, the S fit writes CEC_KAOL/CEC_ILL with S_FACTOR. In both cases the constant and the
+coefficients are not jointly identifiable, so writing one without the other yields a calibration
+that is silently for different rock.
+
+**One transaction, one undo.** A half-applied saturation calibration would leave a field carrying
+two answers with nothing on the log to say where the boundary fell.
+
+**Undo restores "no override", not zero.** The previous values are read first — from
+`list_well_param_overrides` for `*` (one project-wide query) or `list_zone_params` for a named
+zone — and a `None` in the batch DELETEs the row. A parameter silently pinned to zero is a wrong
+answer that keeps computing. Pinned by
+`a_none_in_a_zone_batch_clears_the_row_instead_of_writing_zero` and
+`a_named_zone_batch_leaves_the_whole_well_scope_alone`.
+
+Both fit dialogs offer **Copy** as well as Apply. Both also paint their own run-button label:
 `buildWellScope` deliberately does not fire `onChange` during construction (`wellScope.ts`), so
 a caller that relies on it opens with a blank, disabled button — `rtcFitDialog.ts` did, and is
 fixed here.

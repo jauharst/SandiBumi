@@ -1786,6 +1786,19 @@ export async function setWellParamOverrides(
   return invoke<number>("set_well_param_overrides", { entries });
 }
 
+/** Applies a batch of parameter overrides at ONE zone scope in ONE transaction — `"*"` for the
+ *  whole well, or a zone name. A null value clears that row rather than writing zero.
+ *
+ *  An accepted calibration comes through here, so every well it touches gets the whole
+ *  coefficient set or none of it: a half-applied saturation calibration would leave a field with
+ *  two different answers and nothing on the log to say where the boundary fell. */
+export async function setZoneParamBatch(
+  zoneName: string,
+  entries: [string, string, number | null][],
+): Promise<number> {
+  return invoke<number>("set_zone_param_batch", { zoneName, entries });
+}
+
 export interface PaySummaryRequest {
   well_ids: string[];
   vsh_max: number;
@@ -2721,6 +2734,9 @@ export interface RtcFitResult {
   rms: number;
   n_points: number;
   n_wells: number;
+  /** Wells that actually contributed a sample. Reported separately from `points`, which is
+   *  decimated for display — "apply to the wells it was fitted from" must not read a sample. */
+  wells_fitted: string[];
   points: RtcFitPoint[];
   /** (reason, count) for every candidate sample not fitted. */
   excluded: [string, number][];
@@ -2775,6 +2791,8 @@ export interface SFactorFitResult {
   rms: number;
   n_points: number;
   n_wells: number;
+  /** Wells that actually contributed a plug. See `RtcFitResult.wells_fitted`. */
+  wells_fitted: string[];
   cec_kaol_used: number;
   cec_ill_used: number;
   points: SFactorPoint[];

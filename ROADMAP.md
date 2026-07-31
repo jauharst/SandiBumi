@@ -1087,8 +1087,8 @@ joblib (ML) → office four (deliverables) → opencv (digitizing).
       comes back too high, which erases pay. RSF is held fixed (not jointly identifiable), an
       unfittable Qv term is reported as 0 rather than guessed, and every excluded sample is
       counted by reason. `sw_rtc`'s description now states the shipped defaults are one field's.
-      *Open follow-up:* writing the accepted coefficients into `zone_params` per zone rather
-      than copy-paste. (The measured-vs-fitted cross-plot shipped 2026-07-31 — see below.)
+      (Both follow-ups shipped 2026-07-31 — the measured-vs-fitted cross-plot and the
+      write-into-`zone_params` apply step; see below.)
 - [x] **SHIPPED 2026-07-31 — IMTS S-factor calibration from the user's own lab CEC.**
       `lrlc::run_s_factor_fit` + Advance ▸ Calibrate S… fits `sw_imts`'s CEC scaling factor from
       laboratory CEC point data against the clay content of the very curves the run will use.
@@ -1115,6 +1115,16 @@ joblib (ML) → office four (deliverables) → opencv (digitizing).
       first paint must NOT be deferred to requestAnimationFrame (it does not fire in a
       non-compositing window, and attachResizeRedraw schedules through rAF too, so there is no
       fallback), and the canvas context must be scaled by the dpr fitCanvasBackingStore returns.
+- [x] **SHIPPED 2026-07-31 - accepting a calibration writes it** (`calibrationApply.ts`, shared).
+      An Apply row under Copy writes the coefficients as `zone_params` overrides through the new
+      atomic `db::set_zone_param_batch(conn, zone_name, entries)`; `set_well_param_overrides` is
+      now just its `*` scope, so the parameter grid and an accepted calibration share one
+      transactional path. Default scope is `wells_fitted` - a new field on both fit results,
+      deliberately NOT derived from the decimated display points - because a scoped well that
+      contributed nothing was never calibrated; the wider sweep is offered and names the
+      uncalibrated wells. The held-fixed constants (RSF; CEC_KAOL/CEC_ILL) are written in the
+      SAME batch, since they are not jointly identifiable with the coefficients. One transaction,
+      one undo, and undo restores "no override" rather than zero.
 - [ ] **`Pillow`** — already present, and enough for the *display* half of the image-track item
       above (read JPEG/PNG/TIFF, dimensions, downsample). No install needed.
 - [ ] **OpenCV** — NOT installed, and deliberately deferred to the **digitizing** phase of the

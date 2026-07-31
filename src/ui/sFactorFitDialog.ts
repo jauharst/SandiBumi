@@ -4,6 +4,7 @@ import { recordProcess } from "../processLog";
 import { formRow, openModal } from "./modal";
 import { buildWellScope } from "./wellScope";
 import { buildFitScatter, type FitScatter } from "./fitScatter";
+import { buildCalibrationApply } from "./calibrationApply";
 
 /** IMTS S-factor calibration (Advance ▸ Calibrate S…).
  *
@@ -222,6 +223,22 @@ export async function openSFactorFitDialog(): Promise<void> {
         .then(() => setStatus("S factor copied — paste it into the sw_imts parameters"));
     });
     out.appendChild(copy);
+
+    // …or write it into `zone_params` directly. The CEC constants ride along: S multiplies them,
+    // so the three are one setting and applying S alone would pair it with different rock.
+    out.appendChild(
+      buildCalibrationApply({
+        label: "IMTS S calibration",
+        fittedWells: r.wells_fitted,
+        scopedWells: scope.getWellIds(),
+        wellName,
+        params: [
+          { name: "S_FACTOR", value: r.s_factor },
+          { name: "CEC_KAOL", value: r.cec_kaol_used },
+          { name: "CEC_ILL", value: r.cec_ill_used },
+        ],
+      })
+    );
   };
 
   runBtn.addEventListener("click", () => {

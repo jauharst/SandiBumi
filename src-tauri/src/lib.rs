@@ -1913,6 +1913,19 @@ fn set_well_param_overrides(
     db::set_well_param_overrides(&mut conn, &entries).map_err(|e| e.to_string())
 }
 
+/// Applies a batch of parameter overrides at one zone scope atomically (`*` = whole well).
+/// An accepted calibration comes through here, so every well it is written to gets the whole
+/// coefficient set or none of it.
+#[tauri::command]
+fn set_zone_param_batch(
+    db: tauri::State<DbState>,
+    zone_name: String,
+    entries: Vec<(String, String, Option<f32>)>,
+) -> Result<usize, String> {
+    let mut conn = db.0.lock().unwrap();
+    db::set_zone_param_batch(&mut conn, &zone_name, &entries).map_err(|e| e.to_string())
+}
+
 /// One page of a whitelisted table for the Database Inspector, every cell as VARCHAR.
 #[tauri::command]
 fn get_table_page(
@@ -2538,6 +2551,7 @@ pub fn run() {
             set_zone_param,
             list_well_param_overrides,
             set_well_param_overrides,
+            set_zone_param_batch,
             get_table_page,
             update_well_field,
             update_standard_sample,

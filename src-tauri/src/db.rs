@@ -3094,6 +3094,55 @@ mod well_param_override_tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].param_name, "RW");
     }
+
+    /// An accepted calibration writes its whole coefficient set at a NAMED zone, and that must
+    /// not disturb the whole-well scope — the two are different statements about the same well,
+    /// and at run time the zone value wins inside the zone while `*` covers everything else.
+    #[test]
+    fn a_named_zone_batch_leaves_the_whole_well_scope_alone() {
+        let mut conn = db();
+        let w1 = well();
+        set_well_param_overrides(&mut conn, &[(w1.clone(), "RSF".into(), Some(2.25))]).unwrap();
+        set_zone_param_batch(
+            &mut conn,
+            "SAND_A",
+            &[
+                (w1.clone(), "A_CAP".into(), Some(0.4512)),
+                (w1.clone(), "B_QV".into(), Some(0.005731)),
+                (w1.clone(), "RSF".into(), Some(3.0)),
+            ],
+        )
+        .unwrap();
+
+        let rows = list_zone_params(&conn, &w1).unwrap();
+        let at = |zone: &str, param: &str| {
+            rows.iter()
+                .find(|z| z.zone_name == zone && z.param_name == param)
+                .and_then(|z| z.value_num)
+        };
+        assert!((at("SAND_A", "A_CAP").unwrap() - 0.4512).abs() < 1e-6);
+        assert!((at("SAND_A", "RSF").unwrap() - 3.0).abs() < 1e-6);
+        // The whole-well RSF is a separate row and keeps its own value.
+        assert!((at("*", "RSF").unwrap() - 2.25).abs() < 1e-6);
+        assert_eq!(list_well_param_overrides(&conn).unwrap().len(), 1);
+    }
+
+    /// Undo of an accepted calibration replays the PREVIOUS values through the same call, and a
+    /// `None` there must clear the row rather than write a zero — a parameter silently pinned to
+    /// zero is a wrong answer that keeps computing.
+    #[test]
+    fn a_none_in_a_zone_batch_clears_the_row_instead_of_writing_zero() {
+        let mut conn = db();
+        let w1 = well();
+        set_zone_param_batch(&mut conn, "SAND_A", &[(w1.clone(), "A_CAP".into(), Some(0.45))]).unwrap();
+        set_zone_param_batch(&mut conn, "SAND_A", &[(w1.clone(), "A_CAP".into(), None)]).unwrap();
+
+        let rows = list_zone_params(&conn, &w1).unwrap();
+        assert!(
+            !rows.iter().any(|z| z.zone_name == "SAND_A" && z.param_name == "A_CAP"),
+            "clearing must remove the row, not zero it: {rows:?}"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -4625,15 +4674,20 @@ pub fn list_well_param_overrides(conn: &Connection) -> DbResult<Vec<WellParamOve
     Ok(out)
 }
 
-/// Applies a batch of whole-well parameter overrides in ONE transaction: a `Some` value
+/// Applies a batch of parameter overrides at ONE zone scope in ONE transaction: a `Some` value
 /// upserts, a `None` clears that well's override so the step (or manifest) value takes over
-/// again. Returns how many rows were written or cleared.
+/// again. `zone_name` is `*` for the whole-well scope or a named zone. Returns how many rows
+/// were written or cleared.
 ///
-/// Atomic on purpose. The grid's fill-column and paste actions touch every well at once, and
-/// undo replays the previous values the same way — a half-applied sweep would leave a field
-/// with two different parameter sets and no record of where the boundary fell.
-pub fn set_well_param_overrides(
+/// Atomic on purpose, and that reason is the same in both callers. The parameter grid's
+/// fill-column and paste actions touch every well at once; a calibration accepted from
+/// Advance ▸ Calibrate… writes its coefficients to every well it was fitted from. A
+/// half-applied sweep would leave a field carrying two different parameter sets with no record
+/// of where the boundary fell — which for a saturation calibration means two different answers
+/// in one study and nothing on the log to say so.
+pub fn set_zone_param_batch(
     conn: &mut Connection,
+    zone_name: &str,
     entries: &[(String, String, Option<f32>)],
 ) -> DbResult<usize> {
     let tx = conn.transaction()?;
@@ -4643,16 +4697,16 @@ pub fn set_well_param_overrides(
             Some(v) => {
                 tx.execute(
                     "INSERT INTO zone_params (well_id, zone_name, param_name, value_num, value_text)
-                     VALUES (?1, '*', ?2, ?3, NULL)
+                     VALUES (?1, ?2, ?3, ?4, NULL)
                      ON CONFLICT (well_id, zone_name, param_name)
                      DO UPDATE SET value_num = excluded.value_num, value_text = NULL",
-                    params![well_id, param_name, v],
+                    params![well_id, zone_name, param_name, v],
                 )?;
             }
             None => {
                 tx.execute(
-                    "DELETE FROM zone_params WHERE well_id = ?1 AND zone_name = '*' AND param_name = ?2",
-                    params![well_id, param_name],
+                    "DELETE FROM zone_params WHERE well_id = ?1 AND zone_name = ?2 AND param_name = ?3",
+                    params![well_id, zone_name, param_name],
                 )?;
             }
         }
@@ -4660,4 +4714,12 @@ pub fn set_well_param_overrides(
     }
     tx.commit()?;
     Ok(n)
+}
+
+/// Whole-well scope of [`set_zone_param_batch`] — the parameter grid's own call.
+pub fn set_well_param_overrides(
+    conn: &mut Connection,
+    entries: &[(String, String, Option<f32>)],
+) -> DbResult<usize> {
+    set_zone_param_batch(conn, "*", entries)
 }
