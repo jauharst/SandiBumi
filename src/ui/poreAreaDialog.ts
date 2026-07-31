@@ -119,6 +119,18 @@ export async function openPoreAreaDialog(): Promise<void> {
   const satMin = mk("Saturation at least", 0.15, 0.01, "Rejects greys and near-whites, whose hue is meaningless. Raise it to drop pale, washed-out blue.");
   const valMin = mk("Brightness at least", 0.1, 0.01, "Rejects near-black — cracks, plucked holes and the shadow at a plate edge.");
 
+  // Pore geometry is opt-in: it needs scipy, and the area fraction must keep working where scipy
+  // is not installed.
+  const geomChk = document.createElement("input");
+  geomChk.type = "checkbox";
+  const geomLabel = document.createElement("label");
+  geomLabel.appendChild(geomChk);
+  geomLabel.appendChild(document.createTextNode(" Also measure each pore's shape and size (needs scipy)"));
+  geomLabel.style.display = "block";
+  wrap.appendChild(geomLabel);
+
+  const minPx = mk("Smallest pore (pixels)", 20, 1, "Below this a blob is speckle. In PIXELS on purpose — it is what the picture can resolve, not a size in the rock, and it must mean the same on a plate with no scale.");
+
   const band = (): PoreColorBand => ({
     hue_lo: Number(hueLo.value),
     hue_hi: Number(hueHi.value),
@@ -206,7 +218,14 @@ export async function openPoreAreaDialog(): Promise<void> {
     const table = document.createElement("table");
     table.className = "data-table";
     const head = document.createElement("tr");
-    for (const h of ["Plate", "Depth", "Pore area"]) {
+    // The dimensional columns appear only when something was calibrated — an empty µm column on
+    // an uncalibrated delivery invites reading the pixel numbers as microns.
+    const anyGeom = res.plates.some((p) => p.geometry);
+    const anySized = res.plates.some((p) => p.geometry?.d50_um != null);
+    const cols = ["Plate", "Depth", "Pore area"];
+    if (anyGeom) cols.push("Pores", "Aspect", "Roundness");
+    if (anySized) cols.push("D10 µm", "D50 µm", "D90 µm");
+    for (const h of cols) {
       const th = document.createElement("th");
       th.textContent = h;
       head.appendChild(th);
@@ -214,7 +233,21 @@ export async function openPoreAreaDialog(): Promise<void> {
     table.appendChild(head);
     for (const p of res.plates) {
       const tr = document.createElement("tr");
-      for (const v of [p.name, String(p.depth_top), `${(p.pore_fraction * 100).toFixed(1)}%`]) {
+      const g = p.geometry;
+      const vals = [p.name, String(p.depth_top), `${(p.pore_fraction * 100).toFixed(1)}%`];
+      if (anyGeom) {
+        vals.push(
+          g ? String(g.n) : "",
+          g ? g.aspect_p50.toFixed(2) : "",
+          g ? g.shape_p50.toFixed(2) : ""
+        );
+      }
+      if (anySized) {
+        // A blank, never a zero and never a pixel figure: this plate stated no scale.
+        const um = (v: number | null | undefined): string => (v == null ? "" : v.toFixed(0));
+        vals.push(um(g?.d10_um), um(g?.d50_um), um(g?.d90_um));
+      }
+      for (const v of vals) {
         const td = document.createElement("td");
         td.textContent = v;
         tr.appendChild(td);
@@ -266,6 +299,8 @@ export async function openPoreAreaDialog(): Promise<void> {
             well_id: well.well_id,
             dataset: dsSel.value,
             band: band(),
+            geometry: geomChk.checked,
+            min_pore_px: Number(minPx.value) || 20,
             set_name: setIn.value || "TS",
           });
           const [ds, name] = saved.written ?? ["PETROGRAPHY", setIn.value];
@@ -287,7 +322,13 @@ export async function openPoreAreaDialog(): Promise<void> {
       runBtn.textContent = "Measuring…";
       try {
         render(
-          await runPoreArea({ well_id: well.well_id, dataset: dsSel.value, band: band() })
+          await runPoreArea({
+            well_id: well.well_id,
+            dataset: dsSel.value,
+            band: band(),
+            geometry: geomChk.checked,
+            min_pore_px: Number(minPx.value) || 20,
+          })
         );
       } catch (e) {
         out.innerHTML = "";

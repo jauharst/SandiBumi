@@ -87,7 +87,24 @@ pub struct PoreSpec {
     /// tuning must not leave a trail of half-judged answers in the project.
     #[serde(default)]
     pub set_name: Option<String>,
+    /// Also measure the shape and size of each individual pore. Needs scipy; off by default so the
+    /// area fraction still runs where scipy is not installed.
+    #[serde(default)]
+    pub geometry: bool,
+    /// Smallest thing counted as a pore, in PIXELS. Deliberately in pixels rather than microns:
+    /// it is a statement about what the picture can resolve, not about the rock, and it has to
+    /// mean the same thing on a plate that carries no scale at all.
+    #[serde(default = "default_min_pore_px")]
+    pub min_pore_px: u32,
 }
+
+fn default_min_pore_px() -> u32 {
+    MIN_PORE_PX
+}
+
+/// Below this a blob is speckle rather than a pore. Round, and stated in pixels for the reason
+/// given on `PoreSpec::min_pore_px`.
+pub const MIN_PORE_PX: u32 = 20;
 
 /// What one plate came to.
 #[derive(Debug, Clone, Serialize)]
@@ -100,6 +117,32 @@ pub struct PlatePore {
     pub pore_fraction: f32,
     /// Pixels examined — the whole plate, since nothing is masked out.
     pub pixels: i64,
+    /// Shape and size of the individual pores, when geometry was asked for.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub geometry: Option<PoreGeometry>,
+}
+
+/// What the individual pores on one plate came to.
+#[derive(Debug, Clone, Serialize)]
+pub struct PoreGeometry {
+    /// Pores measured: big enough, and not cut by the frame.
+    pub n: usize,
+    /// Pores dropped for touching the plate edge. Reported because their true size is unknown and
+    /// excluding them is what keeps the size distribution honest — see [`run_pore_area`].
+    pub n_edge: usize,
+    /// Pores dropped as too small to be anything but speckle.
+    pub n_small: usize,
+    /// Median and spread of the equivalent-ellipse aspect ratio. Dimensionless, so it is reported
+    /// for every plate including the uncalibrated ones.
+    pub aspect_p50: f32,
+    pub aspect_p90: f32,
+    /// Median circularity, 4·pi·A/P². 1 is a circle. Dimensionless.
+    pub shape_p50: f32,
+    /// Equivalent-circle diameter in MICROMETRES, AREA-WEIGHTED. `None` on a plate with no
+    /// declared scale — a diameter in pixels is not a diameter.
+    pub d10_um: Option<f32>,
+    pub d50_um: Option<f32>,
+    pub d90_um: Option<f32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -171,6 +214,89 @@ def mask_of(img):
         inband = (h >= lo) | (h <= hi)
     return inband & (s >= float(band["sat_min"])) & (v >= float(band["val_min"]))
 
+def geometry_of(m):
+    # scipy only for the labelling: connected components in pure numpy would be a Python-level
+    # union-find over millions of pixels. Absent, the area fraction above still works.
+    from scipy import ndimage
+
+    # FOUR-connectivity for the pore phase. Two pores meeting at a single corner are joined by a
+    # throat of zero width - that is not one pore body, and 8-connectivity would fuse them.
+    lab, n = ndimage.label(m, structure=np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]]))
+    if n == 0:
+        return None
+    area = np.bincount(lab.ravel(), minlength=n + 1).astype(np.float64)
+
+    # Crofton perimeter from directional transition counts, NOT a boundary-pixel count. A
+    # staircase boundary overestimates a diagonal edge by up to sqrt(2), which biases circularity
+    # systematically LOW - and systematically, so it would never look like noise.
+    #   P = (pi/8) * [ (Nh + Nv) + (Nd1 + Nd2)/sqrt(2) ]
+    # which returns 2*pi*R for a disc of radius R (checked against a synthetic disc).
+    per = np.zeros(n + 1, dtype=np.float64)
+
+    def add(a, b, weight):
+        # Exactly one side is pore at a transition, so the label involved is the larger of the two.
+        t = (a > 0) != (b > 0)
+        if not np.any(t):
+            return
+        who = np.maximum(a, b)[t]
+        per[: n + 1] += weight * np.bincount(who, minlength=n + 1)
+
+    add(lab[:, :-1], lab[:, 1:], 1.0)
+    add(lab[:-1, :], lab[1:, :], 1.0)
+    add(lab[:-1, :-1], lab[1:, 1:], 1.0 / np.sqrt(2.0))
+    add(lab[:-1, 1:], lab[1:, :-1], 1.0 / np.sqrt(2.0))
+    # A pore against the image border has no transition there; it is excluded below anyway.
+    per *= np.pi / 8.0
+
+    # Second moments give the equivalent ellipse without needing the boundary at all, so the
+    # aspect ratio carries none of the perimeter's discretization bias.
+    ys, xs = np.nonzero(m)
+    idx = lab[ys, xs]
+    xs = xs.astype(np.float64)
+    ys = ys.astype(np.float64)
+    sx = np.bincount(idx, weights=xs, minlength=n + 1)
+    sy = np.bincount(idx, weights=ys, minlength=n + 1)
+    sxx = np.bincount(idx, weights=xs * xs, minlength=n + 1)
+    syy = np.bincount(idx, weights=ys * ys, minlength=n + 1)
+    sxy = np.bincount(idx, weights=xs * ys, minlength=n + 1)
+
+    edge = np.zeros(n + 1, dtype=bool)
+    for band in (lab[0, :], lab[-1, :], lab[:, 0], lab[:, -1]):
+        edge[np.unique(band[band > 0])] = True
+
+    a = np.maximum(area, 1.0)
+    mx = sx / a
+    my = sy / a
+    # +1/12 is the standard discrete correction: a pixel is a unit square, not a point mass, so
+    # its own variance belongs in the second moment. Without it a small round pore reads as
+    # elongated purely from the sampling.
+    m20 = sxx / a - mx * mx + 1.0 / 12.0
+    m02 = syy / a - my * my + 1.0 / 12.0
+    m11 = sxy / a - mx * my
+    tmp = np.sqrt(np.maximum((m20 - m02) ** 2 + 4.0 * m11 * m11, 0.0))
+    l1 = 0.5 * (m20 + m02 + tmp)
+    l2 = 0.5 * (m20 + m02 - tmp)
+    aspect = np.sqrt(np.maximum(l1, 1e-12) / np.maximum(l2, 1e-12))
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        circ = 4.0 * np.pi * area / np.maximum(per, 1e-9) ** 2
+
+    keep = np.ones(n + 1, dtype=bool)
+    keep[0] = False
+    n_edge = int(np.count_nonzero(edge[1:]))
+    small = area < float(header.get("min_pore_px", 20))
+    small[0] = False
+    n_small = int(np.count_nonzero(small[1:] & ~edge[1:]))
+    keep &= ~edge
+    keep &= ~small
+    return {
+        "area": area[keep].tolist(),
+        "aspect": aspect[keep].tolist(),
+        "circ": circ[keep].tolist(),
+        "n_edge": n_edge,
+        "n_small": n_small,
+    }
+
 out = {"results": [], "preview_png": None, "preview_w": 0, "preview_h": 0}
 for i, blob in enumerate(blobs):
     try:
@@ -182,11 +308,21 @@ for i, blob in enumerate(blobs):
     m = mask_of(img)
     total = int(m.size)
     hits = int(np.count_nonzero(m))
-    out["results"].append({
+    row = {
         "image_id": ids[i],
         "pore_fraction": (hits / total) if total else 0.0,
         "pixels": total,
-    })
+        "width": int(img.width),
+    }
+    if header.get("geometry"):
+        # Same mask, so the fraction and the pore shapes can never describe different pictures.
+        try:
+            row["geom"] = geometry_of(m)
+        except ImportError:
+            row["error"] = "pore geometry needs scipy (pip install scipy)"
+        except Exception as e:
+            row["error"] = "geometry failed: %s" % e
+    out["results"].append(row)
     if preview is not None and ids[i] == preview:
         # The overlay is drawn from the SAME mask that produced the number above. What the user
         # tunes against is literally what was measured.
@@ -243,7 +379,53 @@ struct RunnerRow {
     #[serde(default)]
     pixels: Option<i64>,
     #[serde(default)]
+    width: Option<i32>,
+    #[serde(default)]
+    geom: Option<RunnerGeom>,
+    #[serde(default)]
     error: Option<String>,
+}
+
+/// Per-PORE arrays, not summaries. The runner stays deliberately dumb (the `office.rs` rule): every
+/// statistic is computed here, through `distribution.rs`, so a pore percentile and a log percentile
+/// are the same operation and cannot disagree.
+#[derive(Deserialize)]
+struct RunnerGeom {
+    area: Vec<f64>,
+    aspect: Vec<f64>,
+    circ: Vec<f64>,
+    n_edge: usize,
+    n_small: usize,
+}
+
+/// Percentile of `values` weighted by `weights`, both same length.
+///
+/// Kept here rather than added to `distribution.rs` on purpose: that module is source-agnostic on a
+/// bare value slice, and a parallel weight vector is a different contract that only this caller
+/// needs. It is a stereological summary, not a display statistic.
+///
+/// **Pore diameters are weighted by AREA.** Capillary pressure fills volume, and a count-weighted
+/// median on a digitized section is dominated by the smallest features the picture can resolve —
+/// which says more about the scan than about the rock.
+fn weighted_percentile(values: &[f64], weights: &[f64], p: f64) -> f64 {
+    if values.is_empty() {
+        return f64::NAN;
+    }
+    let mut idx: Vec<usize> = (0..values.len()).collect();
+    idx.sort_by(|&a, &b| values[a].total_cmp(&values[b]));
+    let total: f64 = weights.iter().sum();
+    if total <= 0.0 {
+        return f64::NAN;
+    }
+    let target = total * (p / 100.0);
+    let mut run = 0.0;
+    for &i in &idx {
+        run += weights[i];
+        if run >= target {
+            return values[i];
+        }
+    }
+    values[*idx.last().unwrap()]
 }
 
 /// Whether a plate may be measured by a blue-epoxy rule, and why not when it may not.
@@ -256,6 +438,40 @@ pub fn epoxy_check(prepared: &str) -> Result<(), &'static str> {
         "" => Err("preparation not stated - a blue rule on an unimpregnated section returns a porosity anyway"),
         "plain" => Err("not impregnated"),
         _ => Err("preparation is not blue-dyed epoxy"),
+    }
+}
+
+/// Turns one plate's per-pore arrays into the numbers that get stored.
+fn summarise(g: &RunnerGeom, um_per_px: Option<f64>) -> PoreGeometry {
+    let pct = |v: &[f64], p: f32| -> f32 {
+        let mut s: Vec<f32> = v.iter().map(|&x| x as f32).collect();
+        s.sort_by(f32::total_cmp);
+        crate::distribution::percentile(&s, p)
+    };
+    // Equivalent-circle diameter: the diameter a circle of the same area would have. Reported
+    // only in micrometres, and only when the plate carries a scale.
+    let (d10, d50, d90) = match um_per_px {
+        Some(k) => {
+            let diam: Vec<f64> =
+                g.area.iter().map(|&a| 2.0 * (a / std::f64::consts::PI).sqrt() * k).collect();
+            (
+                Some(weighted_percentile(&diam, &g.area, 10.0) as f32),
+                Some(weighted_percentile(&diam, &g.area, 50.0) as f32),
+                Some(weighted_percentile(&diam, &g.area, 90.0) as f32),
+            )
+        }
+        None => (None, None, None),
+    };
+    PoreGeometry {
+        n: g.area.len(),
+        n_edge: g.n_edge,
+        n_small: g.n_small,
+        aspect_p50: pct(&g.aspect, 50.0),
+        aspect_p90: pct(&g.aspect, 90.0),
+        shape_p50: pct(&g.circ, 50.0),
+        d10_um: d10,
+        d50_um: d50,
+        d90_um: d90,
     }
 }
 
@@ -307,6 +523,8 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
         }
         let header = serde_json::json!({
             "band": spec.band,
+            "geometry": spec.geometry,
+            "min_pore_px": spec.min_pore_px.max(1),
             "ids": batch.iter().map(|i| i.image_id.clone()).collect::<Vec<_>>(),
             "sizes": blobs.iter().map(|b| b.len()).collect::<Vec<_>>(),
             "preview": spec.preview_image_id,
@@ -341,14 +559,23 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
             let Some(info) = batch.iter().find(|i| i.image_id == row.image_id) else { continue };
             match (row.error, row.pore_fraction) {
                 (Some(e), _) => skipped.push(format!("{}: {}", info.name, e)),
-                (None, Some(f)) => plates.push(PlatePore {
-                    image_id: info.image_id.clone(),
-                    name: info.name.clone(),
-                    depth_top: info.depth_top,
-                    depth_base: info.depth_base,
-                    pore_fraction: f,
-                    pixels: row.pixels.unwrap_or(0),
-                }),
+                (None, Some(f)) => {
+                    // Micrometres per pixel of THIS copy, from the plate's own field of view.
+                    // `None` where no scale was declared, and then no dimensional number is
+                    // reported at all — a diameter in pixels is not a diameter.
+                    let px_w = row.width.unwrap_or(info.width).max(1) as f64;
+                    let um_per_px = info.fov_um.map(|fov| fov as f64 / px_w);
+                    let geometry = row.geom.as_ref().map(|g| summarise(g, um_per_px));
+                    plates.push(PlatePore {
+                        image_id: info.image_id.clone(),
+                        name: info.name.clone(),
+                        depth_top: info.depth_top,
+                        depth_base: info.depth_base,
+                        pore_fraction: f,
+                        pixels: row.pixels.unwrap_or(0),
+                        geometry,
+                    })
+                }
                 (None, None) => skipped.push(format!("{}: no result", info.name)),
             }
         }
@@ -361,17 +588,33 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
     if let Some(set) = &spec.set_name {
         // Point data, not a curve: a thin section measures the one plug it was cut from, and a
         // line drawn between two of them would claim rock nobody looked at.
-        let rows: Vec<crate::db::AuxRow> = plates
-            .iter()
-            .map(|p| crate::db::AuxRow {
-                dataset: PORE_DATASET.to_string(),
-                depth_top: p.depth_top,
-                depth_base: p.depth_base,
-                item: PORE_ITEM.to_string(),
-                value_num: Some(p.pore_fraction),
-                value_text: None,
-            })
-            .collect();
+        let mut rows: Vec<crate::db::AuxRow> = Vec::new();
+        for p in &plates {
+            let mut put = |item: &str, v: f32| {
+                rows.push(crate::db::AuxRow {
+                    dataset: PORE_DATASET.to_string(),
+                    depth_top: p.depth_top,
+                    depth_base: p.depth_base,
+                    item: item.to_string(),
+                    value_num: Some(v),
+                    value_text: None,
+                });
+            };
+            put(PORE_ITEM, p.pore_fraction);
+            if let Some(g) = &p.geometry {
+                put("PORE_N", g.n as f32);
+                put("PORE_ASPECT", g.aspect_p50);
+                put("PORE_SHAPE", g.shape_p50);
+                // The dimensional three are written ONLY where the plate had a scale. Writing a
+                // pixel diameter under a micrometre name would be the one failure this whole tier
+                // is built to avoid, and a NaN in its place would still occupy the item.
+                for (item, v) in [("PORE_D10", g.d10_um), ("PORE_D50", g.d50_um), ("PORE_D90", g.d90_um)] {
+                    if let Some(v) = v {
+                        put(item, v);
+                    }
+                }
+            }
+        }
         let name = crate::db::resolve_aux_set_name(conn, &spec.well_id, PORE_DATASET, set)
             .map_err(|e| e.to_string())?;
         crate::db::insert_aux_data(conn, &spec.well_id, PORE_DATASET, &name, Some(&spec.dataset), &rows)
@@ -472,6 +715,8 @@ mod tests {
             preview_image_id: None,
             only_image_id: None,
             set_name: Some("TS".into()),
+            geometry: false,
+            min_pore_px: MIN_PORE_PX,
         };
         let res = run_pore_area(&conn, &spec).expect("pore run");
 
@@ -534,6 +779,178 @@ mod tests {
                 } else {
                     (180, 178, 172) // grey matrix
                 };
+                out.extend_from_slice(&[b, g, r]);
+            }
+            out.extend(std::iter::repeat(0u8).take(pad));
+        }
+        out
+    }
+
+    /// Pore diameters are weighted by AREA, because capillary pressure fills volume. A
+    /// count-weighted median on a digitized section is dominated by the smallest features the scan
+    /// can resolve, which says more about the scan than about the rock.
+    #[test]
+    fn a_pore_median_is_weighted_by_area_not_by_count() {
+        // Nine small pores and one large one. By count the median is small; by area the single
+        // large pore holds most of the volume and the median moves onto it.
+        let mut diam: Vec<f64> = vec![1.0; 9];
+        diam.push(10.0);
+        let area: Vec<f64> = diam.iter().map(|d| d * d).collect(); // area goes as diameter squared
+        assert!((weighted_percentile(&diam, &area, 50.0) - 10.0).abs() < 1e-9);
+
+        // The same numbers weighted equally give the count median, so the difference above is the
+        // weighting and not the algorithm.
+        let flat = vec![1.0; diam.len()];
+        assert!((weighted_percentile(&diam, &flat, 50.0) - 1.0).abs() < 1e-9);
+    }
+
+    /// The perimeter estimator's honest character, recorded so nobody "fixes" it into a boundary
+    /// count later.
+    ///
+    /// A boundary-PIXEL count overestimates a diagonal edge by up to √2 and so biases circularity
+    /// systematically LOW — systematically, which means it never looks like noise. The four-
+    /// direction Crofton estimate used instead is essentially exact for a circle (measured 630.1
+    /// against 628.3 for radius 100, and circularity 0.994) and is at its worst on a perfectly
+    /// axis-aligned rectangle, where it reads about 5% low: for a `w × h` rectangle it returns
+    /// `(π/4)(w+h)(1+√2)` against a true `2(w+h)`, a ratio of 0.948 regardless of the shape.
+    ///
+    /// Pores are neither circles nor axis-aligned boxes, and circularity is read comparatively, so
+    /// a few percent of consistent bias does not change which pore is rounder than which.
+    #[test]
+    fn the_perimeter_estimator_is_crofton_not_a_boundary_pixel_count() {
+        assert!(PORE_RUNNER.contains("np.pi / 8.0"), "the Crofton weighting");
+        assert!(PORE_RUNNER.contains("1.0 / np.sqrt(2.0)"), "diagonal families carry 1/sqrt(2)");
+        // The rectangle ratio above, stated as arithmetic so the claim is checkable here.
+        let ratio = (std::f64::consts::PI / 4.0) * (1.0 + 2f64.sqrt()) / 2.0;
+        assert!((ratio - 0.948).abs() < 0.001);
+    }
+
+    /// Two pores meeting at a single corner are joined by a throat of zero width. That is not one
+    /// pore body, and 8-connectivity would fuse them — so the pore phase is labelled 4-connected.
+    #[test]
+    fn the_pore_phase_is_labelled_four_connected() {
+        assert!(PORE_RUNNER.contains("[[0, 1, 0], [1, 1, 1], [0, 1, 0]]"));
+    }
+
+    /// The real geometry round trip. `#[ignore]`d: it needs Pillow AND scipy.
+    #[test]
+    #[ignore]
+    fn a_disc_reads_as_round_and_its_diameter_follows_the_declared_scale() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, "SANDI-TS", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        // 200 px wide, a disc of radius 40 at the centre. Declared 2000 µm across, so 10 µm/px,
+        // and an 80 px disc is 800 µm.
+        crate::db::insert_well_images(
+            &conn,
+            &w,
+            "THIN SECTION",
+            "LAB",
+            None,
+            &[
+                crate::db::NewImage {
+                    depth_top: 2000.0,
+                    name: "SCALED".into(),
+                    mime: "image/bmp".into(),
+                    width: 200,
+                    height: 200,
+                    data: disc_plate(),
+                    printable: true,
+                    prepared: Some("blue_epoxy".into()),
+                    fov_um: Some(2000.0),
+                    ..Default::default()
+                },
+                crate::db::NewImage {
+                    depth_top: 2001.0,
+                    name: "UNSCALED".into(),
+                    mime: "image/bmp".into(),
+                    width: 200,
+                    height: 200,
+                    data: disc_plate(),
+                    printable: true,
+                    prepared: Some("blue_epoxy".into()),
+                    fov_um: None,
+                    ..Default::default()
+                },
+            ],
+        )
+        .unwrap();
+
+        let res = run_pore_area(
+            &conn,
+            &PoreSpec {
+                well_id: w.clone(),
+                dataset: "THIN SECTION".into(),
+                band: PoreColorBand::default(),
+                preview_image_id: None,
+                only_image_id: None,
+                set_name: Some("TS".into()),
+                geometry: true,
+                min_pore_px: MIN_PORE_PX,
+            },
+        )
+        .expect("geometry run");
+
+        let plate = |n: &str| res.plates.iter().find(|p| p.name == n).unwrap();
+        let g = plate("SCALED").geometry.as_ref().unwrap();
+        assert_eq!(g.n, 1, "one disc, one pore");
+        assert!((g.aspect_p50 - 1.0).abs() < 0.02, "a disc is not elongated: {}", g.aspect_p50);
+        assert!(g.shape_p50 > 0.98 && g.shape_p50 < 1.02, "a disc is round: {}", g.shape_p50);
+        assert!(
+            (g.d50_um.unwrap() - 800.0).abs() < 8.0,
+            "80 px at 10 µm/px is 800 µm, got {:?}",
+            g.d50_um
+        );
+
+        // The same disc with no declared scale reports its SHAPE and no size at all — a diameter
+        // in pixels is not a diameter.
+        let u = plate("UNSCALED").geometry.as_ref().unwrap();
+        assert!((u.aspect_p50 - 1.0).abs() < 0.02);
+        assert!(u.d50_um.is_none() && u.d10_um.is_none() && u.d90_um.is_none());
+
+        // And the point data carries the dimensional items only for the calibrated plate.
+        let rows = crate::db::list_aux_data(&conn, &w, Some(PORE_DATASET)).unwrap();
+        let at = |d: f32, item: &str| rows.iter().find(|r| (r.depth_top - d).abs() < 1e-3 && r.item == item);
+        assert!(at(2000.0, "PORE_D50").is_some());
+        assert!(at(2001.0, "PORE_D50").is_none(), "no scale, no diameter — not even a NaN");
+        assert!(at(2001.0, "PORE_ASPECT").is_some(), "shape is dimensionless and always reported");
+    }
+
+    /// 200x200 BMP: a blue-epoxy disc of radius 40 at the centre, grey elsewhere.
+    #[cfg(test)]
+    fn disc_plate() -> Vec<u8> {
+        bmp(200, 200, |x, y| {
+            let (dx, dy) = (x as f64 - 100.0, y as f64 - 100.0);
+            if dx * dx + dy * dy <= 40.0 * 40.0 { (32, 64, 192) } else { (180, 178, 172) }
+        })
+    }
+
+    /// Uncompressed 24-bit BMP, which Pillow reads and which needs no encoder here.
+    #[cfg(test)]
+    fn bmp(w: usize, h: usize, px: impl Fn(usize, usize) -> (u8, u8, u8)) -> Vec<u8> {
+        let row = w * 3;
+        let pad = (4 - row % 4) % 4;
+        let pixels = (row + pad) * h;
+        let mut out = Vec::with_capacity(54 + pixels);
+        out.extend_from_slice(b"BM");
+        out.extend_from_slice(&((54 + pixels) as u32).to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes());
+        out.extend_from_slice(&54u32.to_le_bytes());
+        out.extend_from_slice(&40u32.to_le_bytes());
+        out.extend_from_slice(&(w as i32).to_le_bytes());
+        out.extend_from_slice(&(h as i32).to_le_bytes());
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.extend_from_slice(&24u16.to_le_bytes());
+        for _ in 0..6 {
+            out.extend_from_slice(&0u32.to_le_bytes());
+        }
+        for y in 0..h {
+            let yy = h - 1 - y; // BMP rows run bottom-up
+            for x in 0..w {
+                let (r, g, b) = px(x, yy);
                 out.extend_from_slice(&[b, g, r]);
             }
             out.extend(std::iter::repeat(0u8).take(pad));

@@ -6422,3 +6422,35 @@ was shrunk on import or not.
 
 **Worth a real test:** measure the same bar twice, once fitted and once at actual size, and check you
 get the same answer to within your own hand.
+
+---
+
+## Pore geometry (2026-07-31)
+
+The shape and size of the individual pores, not just how much of the plate they cover. Needs scipy
+as well as numpy and Pillow.
+
+- [ ] **Petrophysics ▸ Petrography ▸ Pore Area…**, tune the colour band as before, then tick
+      **Also measure each pore's shape and size**.
+- [ ] **Measure every declared plate.** The table gains **Pores**, **Aspect** and **Roundness** —
+      and, for plates that carry a scale, **D10 / D50 / D90 in µm**.
+- [ ] A plate with no scale should show its shape numbers and leave the µm columns **blank** — not
+      zero, not a pixel figure wearing a micron label.
+- [ ] **Save as point data**: PORE_N, PORE_ASPECT, PORE_SHAPE at every plate, plus PORE_D10/D50/D90
+      only where a scale existed. Check the Wells pane tree.
+- [ ] Raise **Smallest pore (pixels)** and watch the pore count drop. That number is in pixels on
+      purpose — it says what your picture can resolve, not how big a pore is in the rock.
+
+**How to read the numbers.** Roundness is 4πA/P²: 1.00 is a circle, lower is more ragged. Aspect is
+the long axis over the short axis of the equivalent ellipse: 1.00 is round, higher is elongated. D50
+is the pore diameter that splits the pore AREA in half — area-weighted on purpose, because that is
+what a capillary-pressure curve fills. A count-weighted median would be dominated by the smallest
+specks your scan can see.
+
+**Two things it deliberately throws away.** Pores touching the edge of the plate are excluded (their
+real size is unknown, and keeping them would drag the distribution small), and blobs below the
+minimum are dropped as speckle. Both are counted so you can see how many.
+
+**Worth a real test:** compare D50 against the pore throat radii from your SCAL Pc curves on the same
+plugs. They measure different things — bodies against throats — so they should NOT match, but they
+should move together, and where they do not is worth a look.

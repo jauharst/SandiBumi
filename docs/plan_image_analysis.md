@@ -277,7 +277,7 @@ Part 1   1a  registration + proposal        SHIPPED 2026-07-31 (registration.rs)
 Part 2   2.0 scale + preparation per plate  SHIPPED 2026-07-31 (declared, no default)
          A1  pore by blue epoxy             SHIPPED 2026-07-31 (petrography.rs)
          A2  stained carbonate              needs the lab's stain protocol
-         C   pore geometry                  highest cross-check value
+         C   pore geometry                  SHIPPED 2026-07-31 (petrography.rs)
          B   grain size                     needs the scale gate + D3
 
 Tier 3   A3  trained mineral classifier     needs his own point counts as labels

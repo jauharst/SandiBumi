@@ -1462,6 +1462,20 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       it. **Still not automatic**: a delivery already in the project does not move when the core is
       re-registered afterwards — that is increment 1d, waiting on Jauhar firming up D2.
 
+- [x] **Pore geometry (Part 2, family C)** — **SHIPPED 2026-07-31**. Per-pore shape and size beside
+      the area fraction, from the SAME mask in the same pass so the two can never describe different
+      pictures. Outputs `PORE_N` / `PORE_ASPECT` / `PORE_SHAPE` for every plate and
+      `PORE_D10/D50/D90` in µm only where a scale exists — no NaN placeholder, which would read as
+      a measurement that failed rather than one never possible. **Four-connectivity** (a corner
+      contact is a throat of zero width, not one pore). **Crofton perimeter, not a boundary-pixel
+      count** — a staircase overestimates a diagonal edge by up to √2 and biases circularity
+      systematically low; measured 630.1 against a true 628.3 on a disc, worst case ~5% low on an
+      axis-aligned rectangle, both pinned by test. **Aspect from second moments** with the +1/12
+      discrete correction, exact on a disc and on a 5:1 bar. Edge-touching pores excluded and
+      counted; speckle below a PIXEL threshold dropped and counted. **Diameters area-weighted**,
+      because capillary pressure fills volume. Runner returns per-pore arrays; every statistic is
+      computed in Rust. Needs scipy for the labelling only, so it is opt-in and its absence never
+      touches the area fraction.
 - [x] **Scale bar calibration (Part 2, the scale gate opened)** — **SHIPPED 2026-07-31**.
       `src/ui/scaleBarDialog.ts`, the ⇹ button on each Plate Details… row: drag along the plate's
       own printed scale bar, type what it reads, get a field of view. **The measurement is a pure

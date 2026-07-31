@@ -3270,6 +3270,11 @@ export interface PoreSpec {
   /** Store the results as point data under this delivery name. Omit to measure without writing:
    *  tuning must not leave a trail of half-judged answers in the project. */
   set_name?: string | null;
+  /** Also measure each individual pore. Needs scipy. */
+  geometry?: boolean;
+  /** Smallest thing counted as a pore, in PIXELS — a statement about what the picture can
+   *  resolve, which has to mean the same thing on a plate carrying no scale. */
+  min_pore_px?: number;
 }
 
 export interface PlatePore {
@@ -3280,6 +3285,27 @@ export interface PlatePore {
   /** Pore area as a fraction of the plate, v/v. */
   pore_fraction: number;
   pixels: number;
+  geometry?: PoreGeometry;
+}
+
+/** Shape and size of the individual pores on one plate. */
+export interface PoreGeometry {
+  /** Pores measured: big enough, and not cut by the frame. */
+  n: number;
+  /** Dropped for touching the plate edge — their true size is unknown, so including them would
+   *  bias the distribution small. */
+  n_edge: number;
+  /** Dropped as too small to be anything but speckle. */
+  n_small: number;
+  aspect_p50: number;
+  aspect_p90: number;
+  /** Median circularity, 4·pi·A/P². 1 is a circle. */
+  shape_p50: number;
+  /** Equivalent-circle diameter in MICROMETRES, area-weighted. null on a plate with no declared
+   *  scale — a diameter in pixels is not a diameter. */
+  d10_um: number | null;
+  d50_um: number | null;
+  d90_um: number | null;
 }
 
 export interface PoreResult {

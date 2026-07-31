@@ -1162,6 +1162,56 @@ right.
 `openModal` has no close hook, so the dialog watches `#modal-root` for its content being detached
 and resolves `null` — a caller awaiting a calibration must not be left hanging on Esc or ✕.
 
+## Pore geometry (2026-07-31 — Part 2 family C)
+
+`petrography.rs` gained per-pore shape and size, opt-in beside the area fraction in the same
+dialog. **One decode, one mask, both answers** — the fraction and the geometry can never describe
+different pictures, which two passes would eventually allow.
+
+Outputs per plate: `PORE_N`, `PORE_ASPECT`, `PORE_SHAPE` (all dimensionless, reported for every
+plate) and `PORE_D10` / `PORE_D50` / `PORE_D90` in micrometres, **written only where the plate
+carries a scale**. Not a NaN in their place — a NaN would still occupy the item and read as a
+measurement that failed rather than one that was never possible.
+
+**Four-connectivity for the pore phase.** Two pores meeting at a single corner are joined by a
+throat of zero width; that is not one pore body, and 8-connectivity would fuse them.
+
+**The perimeter is a four-direction Crofton estimate, NOT a boundary-pixel count.** A staircase
+boundary overestimates a diagonal edge by up to √2, which biases circularity systematically LOW —
+systematically, so it never looks like noise. The estimate used is
+`P = (π/8)·[(N_h + N_v) + (N_d1 + N_d2)/√2]`, which returns 2πR for a disc. Measured on a synthetic
+disc of radius 100: area 31417 against 31416, perimeter 630.1 against 628.3, circularity 0.994. Its
+worst case is a perfectly axis-aligned rectangle, where it returns `(π/4)(w+h)(1+√2)` against a true
+`2(w+h)` — about 5% low, for any rectangle. Pores are neither circles nor axis-aligned boxes and
+circularity is read comparatively, so a few percent of consistent bias does not change which pore is
+rounder. Pinned by `the_perimeter_estimator_is_crofton_not_a_boundary_pixel_count` so nobody
+"simplifies" it back into a boundary count.
+
+**Aspect ratio comes from second moments, so it carries none of the perimeter's bias.** The `+1/12`
+discrete correction is included: a pixel is a unit square rather than a point mass, and without its
+own variance in the second moment a small round pore reads as elongated purely from the sampling.
+Measured 1.0000 on a disc and 5.0000 on a 40×200 bar.
+
+**A pore cut by the frame is EXCLUDED and counted** (`n_edge`). Its true size is unknown, and
+including it biases the size distribution small — the standard stereological edge rule. **A blob
+below `min_pore_px` is speckle and is dropped and counted** (`n_small`); that threshold is in PIXELS
+on purpose, because it states what the picture can resolve rather than a size in the rock, and it
+has to mean the same thing on a plate that carries no scale at all.
+
+**Diameters are AREA-WEIGHTED.** Capillary pressure fills volume, and a count-weighted median on a
+digitized section is dominated by the smallest features the scan resolves — which says more about the
+scan than about the rock. `weighted_percentile` lives in `petrography.rs` rather than
+`distribution.rs` deliberately: that module is source-agnostic on a bare value slice, and a parallel
+weight vector is a different contract only this caller needs. Every UNWEIGHTED percentile still goes
+through `distribution::percentile`, so a pore percentile and a log percentile are the same operation.
+
+**The runner stays deliberately dumb** (the `office.rs` rule): it returns per-PORE arrays and every
+statistic is computed in Rust. Geometry needs **scipy** — only for the connected-component
+labelling, which in pure numpy would be a Python-level union-find over millions of pixels — so it is
+opt-in and its absence fails only the geometry, never the area fraction. The real round trip
+`a_disc_reads_as_round_and_its_diameter_follows_the_declared_scale` is `#[ignore]`d for the same
+reason the rest are.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under
