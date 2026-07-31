@@ -3713,6 +3713,122 @@ mod inspector_tests {
         assert!(run_readonly_query(&conn, "SELECT 1; DROP TABLE wells", 100).is_err());
     }
 
+    /// `zones_from_tops` had no test at all, and it is what turns a tops delivery into the zone
+    /// intervals every module's per-zone parameters resolve against. Four claims.
+    ///
+    /// **Zones are contiguous top-down**: each zone's base is the NEXT top's depth. A gap would
+    /// leave rock belonging to no zone, so a cutoff or an override would silently skip it.
+    ///
+    /// **The last zone runs to TD**, taken from the deepest logged sample — otherwise the
+    /// deepest interval, often the reservoir, would have no bottom at all.
+    ///
+    /// **A well with no tops yields NO zones** — not one phantom zone spanning the well, and not
+    /// a panic. A phantom would quietly become "the whole well is one zone" in every summary.
+    ///
+    /// **It REBUILDS rather than appends.** Re-running after a tops edit must not leave the old
+    /// intervals behind beside the new ones; two overlapping zones would make "which zone is this
+    /// sample in?" unanswerable.
+    #[test]
+    fn zones_from_tops_are_contiguous_and_absent_tops_make_no_zones() {
+        let conn = mem_db();
+        let id = Uuid::new_v4();
+        insert_well(&conn, id, "SANDI-Z", None, None, None).unwrap();
+        let well = id.to_string();
+
+        // No tops yet — and this must not invent one.
+        assert!(
+            zones_from_tops(&conn, &well).unwrap().is_empty(),
+            "a well with no tops must produce no zones at all"
+        );
+
+        // Logged interval 2000..2050, so TD for the last zone is 2050.
+        let n = 101usize;
+        let depth: Vec<f32> = (0..n).map(|i| 2000.0 + i as f32 * 0.5).collect();
+        let nan = vec![f32::NAN; n];
+        insert_standard_curves(
+            &conn,
+            id,
+            depth,
+            vec![50.0; n],
+            nan.clone(),
+            nan.clone(),
+            nan.clone(),
+            nan.clone(),
+            nan,
+        )
+        .unwrap();
+
+        upsert_top(&conn, &well, "A", 2005.0, None).unwrap();
+        upsert_top(&conn, &well, "B", 2020.0, None).unwrap();
+        upsert_top(&conn, &well, "C", 2035.0, None).unwrap();
+
+        let zones = zones_from_tops(&conn, &well).unwrap();
+        assert_eq!(zones.len(), 3);
+        assert_eq!(zones[0].zone_name, "A");
+        assert_eq!(zones[0].top_depth, 2005.0);
+        assert_eq!(zones[0].bottom_depth, 2020.0, "a zone's base is the next top");
+        assert_eq!(zones[1].bottom_depth, 2035.0);
+        assert_eq!(zones[2].bottom_depth, 2050.0, "the last zone runs to TD");
+
+        // Contiguous: no rock between two zones belongs to neither.
+        for pair in zones.windows(2) {
+            assert_eq!(
+                pair[0].bottom_depth, pair[1].top_depth,
+                "zones must meet exactly, leaving no unassigned interval"
+            );
+        }
+
+        // Rebuild, don't append: move a top and drop one, then re-run.
+        upsert_top(&conn, &well, "B", 2025.0, None).unwrap();
+        conn.execute("DELETE FROM tops WHERE well_id = ?1 AND top_name = 'C'", params![&well])
+            .unwrap();
+        let rebuilt = zones_from_tops(&conn, &well).unwrap();
+        assert_eq!(rebuilt.len(), 2, "the removed top must not leave its zone behind");
+        assert_eq!(rebuilt[0].bottom_depth, 2025.0, "the moved top must move its neighbour's base");
+        assert_eq!(rebuilt[1].bottom_depth, 2050.0);
+
+        let stored = list_zones(&conn, &well).unwrap();
+        assert_eq!(stored.len(), 2, "the zones TABLE must be rebuilt, not accumulated");
+    }
+
+    /// A top deeper than anything logged must not produce an INVERTED zone. `max_depth.max(top)`
+    /// is what prevents it, and a base above its own top would make every thickness negative —
+    /// net pay would come out negative and sum against the other zones.
+    #[test]
+    fn a_top_below_the_logged_interval_never_makes_an_inverted_zone() {
+        let conn = mem_db();
+        let id = Uuid::new_v4();
+        insert_well(&conn, id, "SANDI-ZD", None, None, None).unwrap();
+        let well = id.to_string();
+
+        let n = 11usize;
+        let depth: Vec<f32> = (0..n).map(|i| 2000.0 + i as f32).collect();
+        let nan = vec![f32::NAN; n];
+        insert_standard_curves(
+            &conn,
+            id,
+            depth,
+            vec![50.0; n],
+            nan.clone(),
+            nan.clone(),
+            nan.clone(),
+            nan.clone(),
+            nan,
+        )
+        .unwrap();
+
+        // Logged to 2010; this top is below every sample.
+        upsert_top(&conn, &well, "DEEP", 2099.0, None).unwrap();
+        let zones = zones_from_tops(&conn, &well).unwrap();
+        assert_eq!(zones.len(), 1);
+        assert!(
+            zones[0].bottom_depth >= zones[0].top_depth,
+            "a zone's base must never sit above its own top (got {} above {})",
+            zones[0].bottom_depth,
+            zones[0].top_depth,
+        );
+    }
+
     /// The SQL panel is the one place a user types raw SQL, and rule 6 says it is read-only.
     /// `readonly_query_selects_and_rejects` proves a bare `DELETE` and a `;`-smuggled `DROP`
     /// are refused; it does NOT cover the other write verbs, nor the shape that actually gets
