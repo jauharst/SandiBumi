@@ -2246,6 +2246,17 @@ async fn extract_core_log(
     coreimage::extract_core_log(&conn, &spec)
 }
 
+/// Cuts a core-photograph delivery into rows and stacks each box into one depth-registered strip.
+/// Decodes and re-encodes every picture in the delivery, so it stays off the event loop.
+#[tauri::command]
+async fn build_core_strips(
+    db: tauri::State<'_, DbState>,
+    spec: coreimage::StripSpec,
+) -> Result<coreimage::StripResult, String> {
+    let conn = db.0.lock().unwrap();
+    coreimage::build_core_strips(&conn, &spec)
+}
+
 /// Copies one photograph's look across a whole live delivery, keeping each picture's own framing.
 #[tauri::command]
 async fn apply_core_look(
@@ -2891,6 +2902,7 @@ pub fn run() {
             bake_core_images,
             apply_core_look,
             extract_core_log,
+            build_core_strips,
             list_image_recipes,
             set_image_delivery_details,
             pore_support,

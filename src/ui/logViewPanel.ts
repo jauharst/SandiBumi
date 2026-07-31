@@ -67,6 +67,9 @@ export function imageBox(
     const y0 = yOf(info.depth_top);
     const boxH = Math.max(2, yOf(interval) - y0);
     if ((style.fit ?? "contain") === "cover") return { x, y: y0, w: boxW, h: boxH, cover: true };
+    // "stretch": the box IS the picture. Only honest for a depth strip, whose vertical axis is
+    // depth and whose width is the track — neither of them the picture's own. See ImageStyle.fit.
+    if (style.fit === "stretch") return { x, y: y0, w: boxW, h: boxH, cover: false };
     let w = boxW;
     let hh = boxW * aspect;
     if (hh > boxH) {

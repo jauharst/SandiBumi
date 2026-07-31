@@ -7252,3 +7252,37 @@ equalised and plain boxes.
       say so, that would mean the filter is wrong.
 - [ ] Check a preview against the applied result: a denoise or sharpen judged on screen should look
       the same once saved, not weaker.
+
+## The core photograph beside the logs (2026-08-01)
+
+**Condition Core Photos… ▸ Build depth strips**, then open a log view and choose the new **Core**
+layout.
+
+Build depth strips takes each box, cuts it into its rows of core, turns each row so it runs
+downwards, and stacks them into one tall picture covering that box's own depth interval. It uses the
+same **Depth runs / Rows of core / Deepest end first** settings as Read the trace, sitting right
+above it — get those right once and both the picture and the curve are right.
+
+The strips land in a new picture dataset called **CORE STRIP**. Building again replaces the last
+one, so you can try 4 rows, look at it, try 2, and not end up with a pile of half-built deliveries.
+
+The built-in **Core** layout shows GR, the strip, CPHOTO_DARK and the neutron-density crossover
+side by side. You can also add the strip to any layout of your own: add an Image track, set its
+dataset to CORE STRIP, mode to Depth and Fit to **Fill the track**.
+
+Two things worth knowing. **Crop to exactly the core first** — the strip is stretched over the
+box's depth interval end to end, so a tray or a tape left in the crop is drawn as rock. And
+**gaps stay gaps**: each box keeps its own interval, so a break between two core runs shows as a
+break rather than being closed up.
+
+- [ ] Build strips off a real core-photograph delivery and open the Core layout. Does the core run
+      the right way down the page?
+- [ ] Check a box you know — is row 2 below row 1, and does each row start where the last one
+      finished?
+- [ ] Scroll to a break between two core runs. Is the gap still there?
+- [ ] Print a composite with the Core layout. Does the printed strip match what the screen showed?
+- [ ] Try Deepest end first on a box that was photographed the other way up, rebuild, and check the
+      strip flips the whole box rather than just each row.
+- [ ] Rebuild with a different row count and confirm the old strips are replaced, not added to.
+- [ ] Put the strip beside GR and see whether the dark bands line up with the gamma peaks. If they
+      are shifted by a constant, that is a core depth shift — Data ▸ Tools ▾ ▸ Register Depth…

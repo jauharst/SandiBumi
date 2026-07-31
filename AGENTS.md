@@ -2203,6 +2203,67 @@ preview the user judges them on and the full-size bake take the same thing out o
 stay in pixels; here it states a size on the core and must not). Both are capped, because a median
 filter costs the square of its radius and nothing past a 9x9 removes speckle any better.
 
+## The core, running down the page beside the log (2026-08-01)
+
+`coreimage::build_core_strips` (Condition Core Photos… ▸ **Build depth strips**) cuts every box of a
+delivery into its rows and stacks them into ONE tall picture per box, core running down it, at the
+box's own depth interval. The built-in **Core** layout puts that beside GR, `CPHOTO_DARK` and the
+porosity crossover. Six rules.
+
+**The lay-out is baked into a picture, not applied while drawing, and that is the whole design.** A
+core box has the core running across the frame in several rows; a log track has depth running down
+it. Turning one into the other is a rotation and a re-stacking — and doing it at draw time would
+mean writing that geometry THREE times, in the WebGPU log view, the SVG export and the PDF export,
+with nothing to stop the three drifting apart. That is the standing `composite.rs`-versus-renderer
+warning, and this is the version of it that does not need a warning: a strip is an ordinary
+depth-registered image, so every renderer already knows how to draw one and what the screen shows is
+what prints. It also needed no new `DrawOp`.
+
+It is inspectable for the same reason. A strip appears in the Wells pane, in Plate Details and in a
+composite like any other delivery, so a lay-out that came out wrong can be SEEN rather than deduced
+from the shape of a curve.
+
+**The strip and the trace lay a box out from ONE statement of how it is laid out**, so they cannot
+disagree about which row is shallowest or which way a row runs. `reverse` is a 180-degree rotation
+of the frame; then each row of core is rotated 90 degrees CLOCKWISE so its shallow end is at the
+top, and the rows are stacked in order. Clockwise because the core runs left to right in the box, so
+its left end has to end up at the top — and `np.rot90(a, -1)` rather than a bare transpose, which is
+a reflection about the diagonal and would mirror every sedimentary structure across the core.
+Verified on a marked fixture: the mark on row 1's shallow end at that row's own top edge lands at
+the strip's top RIGHT. Pinned by `a_strip_reads_the_same_way_the_trace_does`, which reads a trace
+off the strip as a plain single-lane picture and requires it to match the trace read off the box it
+came from — a strip with its rows stacked in the wrong order would still look like a perfectly good
+core photograph in a log track, and nothing but this comparison would catch it.
+
+**Rebuilding REPLACES.** A strip is derived, not delivered: pressing Build again with a different
+lane count is the same re-run a module makes, not a second delivery of pictures. So unlike an import
+it writes one fixed set name rather than auto-suffixing, and tuning a lane count leaves no trail of
+`STRIP_1`, `STRIP_2` behind. Writing the strips over the photographs they were built from is refused
+by name.
+
+**`ImageStyle.fit` gains "stretch", and it is the one case the never-stretch-a-plate rule does not
+cover.** A thin section is never stretched because its delivered shape is the truth and a squashed
+plate misstates grain shape. A depth strip is the opposite: its vertical axis IS depth, set by the
+print scale, and its width IS the track — neither of them the picture's own, so there is no true
+aspect ratio to preserve. Without it `contain` leaves a strip as a hairline down the middle of the
+track and `cover` shows a couple of per cent of it blown up; both are what the existing rules give,
+and both are useless. Reserve it for pictures whose two axes are both imposed from outside.
+
+**`CPHOTO_DARK` sits BESIDE gamma in the built-in layout, never on top of it.** Overlaying the two
+needs a shared scale and there isn't one — darkness is dimensionless, gamma is API units — so a
+common axis would be a picture of a calibration nobody has done. Side by side the eye does the
+comparison, and the trace's own signed correlation puts a number on it.
+
+**Each box keeps its own depth interval, so a gap between two runs stays a gap.** Stitching the
+whole cored interval into one picture would have to invent depths across the gaps, and boxes that
+overlap would have to be reconciled — neither is something a display should decide. Storage follows
+the same reasoning as everything else here: across-core pixels are capped at `STRIP_MAX_W`, because
+a strip is drawn a few centimetres wide and past that the extra columns are storage rather than
+detail, with the height following proportionally so nothing is distorted.
+
+Still open on the core-photo road: WL/UV pairs, and feeding the trace into `registration.rs` to
+PROPOSE a core-to-log shift (it is already a curve, so that composes).
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under

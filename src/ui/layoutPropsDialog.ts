@@ -759,9 +759,21 @@ export function openLayoutPropsDialog(
         grid.appendChild(
           field(
             "Fit",
-            selectInput(im.fit ?? "contain", [["contain", "Whole picture"], ["cover", "Fill and crop"]], (v) => {
-              im.fit = v;
-            }),
+            // "Fill the track" is for a depth STRIP, whose height is the depth scale and whose
+            // width is the track — neither of them the picture's own, so there is no true shape to
+            // preserve. Never for a thin section: a squashed plate misstates grain shape, which is
+            // the one thing it is there to show.
+            selectInput(
+              im.fit ?? "contain",
+              [
+                ["contain", "Whole picture"],
+                ["cover", "Fill and crop"],
+                ["stretch", "Fill the track (depth strips)"],
+              ],
+              (v) => {
+                im.fit = v;
+              },
+            ),
           ),
         );
       }

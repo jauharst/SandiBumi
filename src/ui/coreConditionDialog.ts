@@ -1,6 +1,7 @@
 import {
   applyCoreLook,
   bakeCoreImages,
+  buildCoreStrips,
   coreImageSupport,
   extractCoreLog,
   getWellImage,
@@ -942,11 +943,22 @@ export async function openCoreConditionDialog(): Promise<void> {
   writeBtn.className = "btn";
   writeBtn.textContent = "Save as curves";
   writeBtn.disabled = true;
+  // The strip uses the SAME lay-out as the trace, which is why it lives beside it rather than in a
+  // dialog of its own: one statement of how the box is laid out, two things read off it.
+  const stripBtn = document.createElement("button");
+  stripBtn.className = "btn";
+  stripBtn.textContent = "Build depth strips";
+  stripBtn.title =
+    "Cuts every box into its rows and stacks them into one tall picture per box, with the core " +
+    "running down it. Put an image track on CORE STRIP in depth mode to see it beside the logs. " +
+    "Building again replaces the last one.";
+
   const readRow = document.createElement("div");
   readRow.style.display = "flex";
   readRow.style.gap = "8px";
   readRow.style.margin = "6px 0";
-  readRow.append(readBtn, writeBtn);
+  readRow.style.flexWrap = "wrap";
+  readRow.append(readBtn, writeBtn, stripBtn);
   logBox.appendChild(readRow);
 
   const trace = document.createElement("canvas");
@@ -1070,6 +1082,35 @@ export async function openCoreConditionDialog(): Promise<void> {
 
   readBtn.addEventListener("click", () => void runRead(false));
   writeBtn.addEventListener("click", () => void runRead(true));
+
+  stripBtn.addEventListener("click", () => {
+    void (async () => {
+      stripBtn.disabled = true;
+      logNote.textContent = "Building…";
+      try {
+        const res = await buildCoreStrips({
+          well_id: well.well_id,
+          dataset: dsSel.value,
+          axis: axisPick.get() as "x" | "y",
+          reverse: revChk.checked,
+          lanes: Number(lanePick.get()) || 1,
+        });
+        logNote.textContent =
+          `${res.built} strip(s) in ${res.dataset}. ` +
+          res.notes.join(" ") +
+          (res.skipped.length ? ` Left out: ${res.skipped.join("; ")}` : "");
+        setStatus(`${res.built} depth strip(s) built in ${res.dataset}`);
+        recordProcess("Edit", `Depth strips from ${dsSel.value} into ${res.dataset}`, well.well_name);
+        // A new picture delivery: the Wells pane, the layout editor's dataset list and any open log
+        // view all need to hear about it.
+        bumpDataVersion();
+      } catch (e) {
+        logNote.textContent = String(e);
+      } finally {
+        stripBtn.disabled = false;
+      }
+    })();
+  });
 
   // ---- loading ------------------------------------------------------------
   const select = (id: string): void => {

@@ -312,7 +312,11 @@ export interface ImageStyle {
   size?: number;
   /** "contain" (default, whole picture visible) | "cover" (fill the box, crop the overhang).
    *  There is no stretch option: a distorted thin section misstates grain shape. */
-  fit?: "contain" | "cover";
+  /** "contain" fits the whole picture in its box, "cover" crops it to fill, "stretch" fills it
+   *  exactly. "stretch" is for depth STRIPS only — a picture whose height is the depth scale and
+   *  whose width is the track has no shape of its own to preserve. A thin section is never
+   *  stretched: its delivered shape is the truth. */
+  fit?: "contain" | "cover" | "stretch";
   align?: "left" | "center" | "right";
   label?: boolean;
   border?: boolean;
@@ -2748,6 +2752,42 @@ export interface CoreLogResult {
  *  as curves. Reads the CONDITIONED pictures, so a darkness is comparable across boxes. */
 export async function extractCoreLog(spec: CoreLogSpec): Promise<CoreLogResult> {
   return invoke<CoreLogResult>("extract_core_log", { spec });
+}
+
+/** Where depth strips are written unless the caller names another dataset. */
+export const CORE_STRIP_DATASET = "CORE STRIP";
+
+/** How a box is laid out — the SAME vocabulary the trace uses, because the strip and the trace read
+ *  the box the same way and are built from one statement of that lay-out. */
+export interface StripSpec {
+  well_id: string;
+  /** The photographs to cut up: the live delivery of this dataset. */
+  dataset: string;
+  /** "x" — the core runs across the frame; "y" — down it. */
+  axis?: "x" | "y";
+  lanes?: number;
+  reverse?: boolean;
+  /** Where the strips land. Defaults to CORE STRIP; may not be the source dataset. */
+  target?: string | null;
+}
+
+export interface StripResult {
+  dataset: string;
+  set_name: string;
+  built: number;
+  skipped: string[];
+  notes: string[];
+}
+
+/** Cuts each box of a delivery into its rows and stacks them into ONE tall depth-registered picture
+ *  per box, so an ordinary image track in depth mode shows the core running beside the logs.
+ *
+ *  The lay-out happens here rather than at draw time: doing it while drawing would mean writing the
+ *  same rotation and re-stacking three times — the log view, the SVG export and the PDF export —
+ *  with nothing to stop the three drifting apart. Rebuilding REPLACES: a strip is derived, not
+ *  delivered. */
+export async function buildCoreStrips(spec: StripSpec): Promise<StripResult> {
+  return invoke<StripResult>("build_core_strips", { spec });
 }
 
 /** The conditioning recipe of every picture in a dataset's live delivery, as (image_id, json).

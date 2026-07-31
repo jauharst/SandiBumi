@@ -802,7 +802,291 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
     Ok(res)
 }
 
+/// The dataset depth strips are written to, unless the caller names another.
+pub const STRIP_DATASET: &str = "CORE STRIP";
+/// One set name, rebuilt in place. A strip is DERIVED, not delivered: pressing Build again with a
+/// different lane count is the same re-run a module makes, not a second delivery of pictures — so
+/// unlike an import it replaces rather than auto-suffixing.
+pub const STRIP_SET: &str = "STRIP";
+/// Across-core pixels kept in a strip. A strip is drawn a few centimetres wide in a log track, so
+/// past this the extra columns are storage rather than detail; the height follows proportionally so
+/// nothing is distorted.
+const STRIP_MAX_W: u32 = 600;
+/// And a ceiling on the whole thing, for a box photographed at very high resolution.
+const STRIP_MAX_H: u32 = 12000;
+
+/// How a box is laid out, plus where to put the result.
+#[derive(Debug, Clone, Deserialize)]
+pub struct StripSpec {
+    pub well_id: String,
+    /// The photographs to cut up — the live delivery of this dataset.
+    pub dataset: String,
+    /// "x" (the core runs across the frame) or "y" (down it) — the trace's vocabulary.
+    #[serde(default = "default_axis")]
+    pub axis: String,
+    #[serde(default = "default_lanes")]
+    pub lanes: u32,
+    #[serde(default)]
+    pub reverse: bool,
+    /// Where the strips land. Defaults to [`STRIP_DATASET`].
+    #[serde(default)]
+    pub target: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct StripResult {
+    pub dataset: String,
+    pub set_name: String,
+    pub built: usize,
+    pub skipped: Vec<String>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct StripRow {
+    image_id: String,
+    #[serde(default)]
+    jpeg: Option<String>,
+    #[serde(default)]
+    width: i32,
+    #[serde(default)]
+    height: i32,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct StripOut {
+    #[serde(default)]
+    results: Vec<StripRow>,
+}
+
+/// Cuts every photograph of a delivery into its rows of core and stacks them into ONE tall picture
+/// per box, with the core running DOWN it and its own depth interval unchanged.
+///
+/// **The lay-out is done once, here, rather than at draw time.** A core box has the core running
+/// across the frame in several rows; a log track has depth running down it. Turning one into the
+/// other is a rotation and a re-stacking, and doing it while drawing would mean writing that
+/// geometry three times — the WebGPU view, the SVG export and the PDF export — with nothing to stop
+/// the three drifting apart. Baked into a picture instead, the strip is an ordinary depth-registered
+/// image: every renderer already knows how to draw one, and what the screen shows is what prints.
+///
+/// It is also inspectable. A strip appears in the Wells pane, in Plate Details and in the composite
+/// like any other delivery, so a lay-out that came out wrong can be SEEN rather than deduced from a
+/// curve.
+///
+/// **The lay-out is the trace's**, stated in picture terms: `reverse` is a 180-degree rotation of
+/// the frame, then each row of core is rotated 90 degrees clockwise so its shallow end is at the
+/// top, and the rows are stacked in order. Pinned against the trace by
+/// `a_strip_reads_the_same_way_the_trace_does`, which reads a trace off the strip and requires it
+/// to match the trace read off the box it came from.
+pub fn build_core_strips(conn: &Connection, spec: &StripSpec) -> Result<StripResult, String> {
+    let python = find_python().ok_or("no Python interpreter found (see SANDIBUMI_PYTHON)")?;
+    let target = spec
+        .target
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(STRIP_DATASET)
+        .to_uppercase();
+    if target == spec.dataset.trim().to_uppercase() {
+        return Err(
+            "the strips would be written over the photographs they are built from - choose a \
+             different dataset"
+                .to_string(),
+        );
+    }
+
+    let all = crate::db::list_well_images(conn, &spec.well_id, Some(&spec.dataset))
+        .map_err(|e| e.to_string())?;
+    if all.is_empty() {
+        return Err(format!("no pictures in {} for this well", spec.dataset));
+    }
+
+    let mut res = StripResult { dataset: target.clone(), set_name: STRIP_SET.to_string(), ..Default::default() };
+    let mut wanted = Vec::new();
+    for info in &all {
+        match info.depth_base.filter(|b| b.is_finite() && *b > info.depth_top) {
+            Some(_) => wanted.push(info.clone()),
+            None => res.skipped.push(format!(
+                "{}: no base depth, so it covers no interval - a strip is a picture of an interval \
+                 of core, and there is nothing to stretch it over. Give it a base in Plate Details.",
+                info.name
+            )),
+        }
+    }
+    if wanted.is_empty() {
+        return Err(
+            "no photograph in this delivery covers a depth interval - set a base depth in Plate \
+             Details, or these are point samples rather than core runs"
+                .to_string(),
+        );
+    }
+
+    let lanes = spec.lanes.max(1);
+    let mut built: Vec<crate::db::NewImage> = Vec::new();
+    for batch in wanted.chunks(CHUNK) {
+        let mut blobs = Vec::with_capacity(batch.len());
+        for info in batch {
+            // The CONDITIONED copy, for the trace's reason: a strip assembled from boxes shot under
+            // two different lamps is a picture of the lamps.
+            let (_, bytes) = crate::db::get_well_image(conn, &info.image_id).map_err(|e| e.to_string())?;
+            blobs.push(bytes);
+        }
+        let header = serde_json::json!({
+            "axis": if spec.axis.eq_ignore_ascii_case("y") { "y" } else { "x" },
+            "reverse": spec.reverse,
+            "lanes": lanes,
+            "max_w": STRIP_MAX_W,
+            "max_h": STRIP_MAX_H,
+            "quality": BAKE_QUALITY,
+            "ids": batch.iter().map(|i| i.image_id.clone()).collect::<Vec<_>>(),
+            "sizes": blobs.iter().map(|b| b.len()).collect::<Vec<_>>(),
+        });
+        let out: StripOut = {
+            let mut cmd = Command::new(&python);
+            cmd.args(["-c", STRIP_RUNNER]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+            hide_console(&mut cmd);
+            let mut child = cmd.spawn().map_err(|e| format!("failed to start python: {e}"))?;
+            {
+                let stdin = child.stdin.as_mut().ok_or("failed to open python stdin")?;
+                stdin.write_all(header.to_string().as_bytes()).map_err(|e| e.to_string())?;
+                stdin.write_all(b"\n").map_err(|e| e.to_string())?;
+                for b in &blobs {
+                    stdin.write_all(b).map_err(|e| e.to_string())?;
+                }
+            }
+            let output = child.wait_with_output().map_err(|e| e.to_string())?;
+            if !output.status.success() {
+                let err = String::from_utf8_lossy(&output.stderr);
+                let last = err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("strip build failed");
+                return Err(last.trim().to_string());
+            }
+            serde_json::from_slice(&output.stdout).map_err(|e| format!("bad strip result: {e}"))?
+        };
+        for row in out.results {
+            let Some(info) = batch.iter().find(|i| i.image_id == row.image_id) else { continue };
+            if let Some(e) = row.error {
+                res.skipped.push(format!("{}: {}", info.name, e));
+                continue;
+            }
+            let Some(b64) = row.jpeg else {
+                res.skipped.push(format!("{}: nothing came back", info.name));
+                continue;
+            };
+            let data = decode_b64(&b64)?;
+            built.push(crate::db::NewImage {
+                depth_top: info.depth_top,
+                depth_base: info.depth_base,
+                name: info.name.clone(),
+                mime: "image/jpeg".into(),
+                width: row.width,
+                height: row.height,
+                data,
+                printable: true,
+                ..Default::default()
+            });
+        }
+    }
+    if built.is_empty() {
+        return Err("no strip could be built".to_string());
+    }
+
+    // Rebuild in place — see STRIP_SET. Nothing else in the project points at the old rows, and a
+    // pile of STRIP_1, STRIP_2 sets from tuning a lane count is clutter, not provenance.
+    let _ = crate::db::delete_image_set(conn, &spec.well_id, &target, STRIP_SET);
+    res.built = crate::db::insert_well_images(
+        conn,
+        &spec.well_id,
+        &target,
+        STRIP_SET,
+        Some(&format!("built from {}", spec.dataset)),
+        &built,
+    )
+    .map_err(|e| e.to_string())?;
+    crate::db::set_active_image_set(conn, &spec.well_id, &target, STRIP_SET).map_err(|e| e.to_string())?;
+
+    res.notes.push(format!(
+        "Add an image track on {target} in depth mode to see it beside the logs. The strips keep \
+         each box's own depth interval, so a gap between two runs stays a gap."
+    ));
+    if lanes > 1 {
+        res.notes.push(format!(
+            "Cut into {lanes} equal rows. A real core box has unequal rows and gaps between them, \
+             so a strip built this way stretches slightly where a row is short - crop to one row \
+             at a time in Condition Core Photos for a careful job."
+        ));
+    }
+    Ok(res)
+}
+
 /// numpy + Pillow again, and `sys.stdin.buffer` again.
+const STRIP_RUNNER: &str = r#"
+import sys, io, json, base64
+import numpy as np
+from PIL import Image
+
+hdr = json.loads(sys.stdin.buffer.readline())
+blobs = [sys.stdin.buffer.read(n) for n in hdr["sizes"]]
+axis = hdr.get("axis", "x")
+lanes = max(1, int(hdr.get("lanes") or 1))
+reverse = bool(hdr.get("reverse"))
+max_w = int(hdr.get("max_w") or 600)
+max_h = int(hdr.get("max_h") or 12000)
+quality = int(hdr.get("quality") or 92)
+
+def lay_out(a):
+    """The core, running DOWN the returned picture, in reading order.
+
+    The trace's lay-out stated in picture terms. `reverse` first, because photographed deepest end
+    first is a 180-degree rotation of the whole frame - which reverses the ROW order as well as each
+    row's direction. Then, for a box whose core runs ACROSS the frame, each row is rotated 90
+    degrees CLOCKWISE so its shallow end is at the top, and the rows are stacked in order.
+
+    Clockwise and not anti-clockwise: the core runs left to right in the box, so its left end has to
+    end up at the top. np.rot90 with k=-1 rather than a bare transpose, which is a reflection about
+    the diagonal and would mirror every sedimentary structure across the core.
+    """
+    if reverse:
+        a = a[::-1, ::-1]
+    if axis == "x":
+        edge = a.shape[0] // lanes
+        parts = [np.rot90(a[k * edge:(k + 1) * edge], -1) for k in range(lanes)]
+    else:
+        edge = a.shape[1] // lanes
+        parts = [a[:, k * edge:(k + 1) * edge] for k in range(lanes)]
+    parts = [p for p in parts if p.shape[0] > 0 and p.shape[1] > 0]
+    if not parts:
+        raise ValueError("nothing left after cutting it into %d rows" % lanes)
+    return np.concatenate(parts, axis=0) if len(parts) > 1 else parts[0]
+
+results = []
+for i, ident in enumerate(hdr["ids"]):
+    row = {"image_id": ident}
+    try:
+        im = Image.open(io.BytesIO(blobs[i]))
+        im.load()
+        s = lay_out(np.asarray(im.convert("RGB")))
+        out = Image.fromarray(s, "RGB")
+        w, h = out.size
+        # Width first, height following it, so nothing is distorted; then a ceiling on the whole
+        # picture for a box shot at very high resolution.
+        scale = min(1.0, max_w / float(w))
+        if h * scale > max_h:
+            scale = max_h / float(h)
+        if scale < 1.0:
+            out = out.resize((max(1, int(round(w * scale))), max(1, int(round(h * scale)))), Image.LANCZOS)
+        buf = io.BytesIO()
+        out.save(buf, format="JPEG", quality=quality, subsampling=0)
+        row["jpeg"] = base64.b64encode(buf.getvalue()).decode("ascii")
+        row["width"], row["height"] = out.size
+    except Exception as exc:
+        row["error"] = str(exc)
+    results.append(row)
+
+sys.stdout.write(json.dumps({"results": results}))
+"#;
+
 const SCAN_RUNNER: &str = r#"
 import sys, io, json
 import numpy as np
@@ -1685,6 +1969,152 @@ mod tests {
                  backwards, not each row flipped in place.\n  forward  {fwd:?}\n  reversed {back:?}"
             );
         }
+    }
+
+    /// A strip lays a box out exactly the way the trace reads it.
+    ///
+    /// This is the point of building strips in Python rather than in three renderers: the picture a
+    /// geologist looks at and the curve a module consumes come from ONE statement of how the box is
+    /// laid out, so they cannot disagree about which row is shallowest or which way a row runs.
+    ///
+    /// The check is direct rather than structural. A trace is read off the four-row box the normal
+    /// way, then off the STRIP built from it as a plain single-lane picture with the core running
+    /// down — and the two must be the same curve. A strip whose rows were stacked in the wrong
+    /// order, or whose rows ran the wrong way, would still look like a perfectly good core
+    /// photograph in a log track; nothing but this comparison would catch it.
+    ///
+    /// It also pins the depth interval: a strip covers the same rock its box did, so a run with a
+    /// gap between two boxes keeps the gap rather than closing it.
+    #[test]
+    #[ignore = "needs numpy and Pillow"]
+    fn a_strip_reads_the_same_way_the_trace_does() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, "SANDI-CP-6", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        // Four rows of core, each darkening along its own length, and each row starting darker than
+        // the last finished — so the whole box is one steady ramp once it is read in order. A
+        // fixture with flat rows would pass with the rows in any order.
+        let box_photo = bmp(400, 200, |x, y| {
+            let row = (y * 4 / 200).min(3) as f32;
+            let along = x as f32 / 400.0;
+            let v = (235.0 - (row + along) * 38.0).clamp(0.0, 255.0) as u8;
+            (v, v, v)
+        });
+        crate::db::insert_well_images(
+            &conn,
+            &w,
+            "CORE PHOTO",
+            "RUN1",
+            None,
+            &[crate::db::NewImage {
+                depth_top: 1000.0,
+                depth_base: Some(1004.0),
+                name: "BOX-1".into(),
+                mime: "image/bmp".into(),
+                width: 400,
+                height: 200,
+                data: box_photo,
+                printable: true,
+                ..Default::default()
+            }],
+        )
+        .unwrap();
+
+        let strip = build_core_strips(
+            &conn,
+            &StripSpec {
+                well_id: w.clone(),
+                dataset: "CORE PHOTO".into(),
+                axis: "x".into(),
+                lanes: 4,
+                reverse: false,
+                target: None,
+            },
+        )
+        .expect("build");
+        assert_eq!(strip.built, 1, "{:?}", strip.skipped);
+        assert_eq!(strip.dataset, STRIP_DATASET);
+
+        let made = crate::db::list_well_images(&conn, &w, Some(STRIP_DATASET)).unwrap();
+        assert_eq!(made.len(), 1);
+        assert_eq!((made[0].depth_top, made[0].depth_base), (1000.0, Some(1004.0)), "same rock");
+        assert!(
+            made[0].height > made[0].width * 4,
+            "four one-metre rows stacked is a tall thin picture, not a box: {}x{}",
+            made[0].width,
+            made[0].height
+        );
+
+        let read = |dataset: &str, axis: &str, lanes: u32| -> Vec<f32> {
+            let res = extract_core_log(
+                &conn,
+                &CoreLogSpec {
+                    well_id: w.clone(),
+                    dataset: dataset.into(),
+                    axis: axis.into(),
+                    reverse: false,
+                    lanes,
+                    step: 0.1,
+                    compare_curve: None,
+                    write: false,
+                },
+            )
+            .expect("read");
+            res.curves.iter().find(|c| c.name.ends_with("_DARK")).unwrap().preview.clone()
+        };
+
+        let from_box = read("CORE PHOTO", "x", 4);
+        let from_strip = read(STRIP_DATASET, "y", 1);
+        assert_eq!(from_box.len(), from_strip.len());
+        assert!(from_box.len() >= 20, "forty samples over four metres: {}", from_box.len());
+        assert!(
+            from_box[from_box.len() - 1] - from_box[0] > 0.4,
+            "the box has to darken measurably down it, or any order would pass: {from_box:?}"
+        );
+        // JPEG and a resample stand between the two, so this is a tolerance rather than equality —
+        // but a row out of order or running backwards would be out by whole tenths.
+        for (i, (a, b)) in from_box.iter().zip(from_strip.iter()).enumerate() {
+            assert!(
+                (a - b).abs() < 0.05,
+                "sample {i}: the strip and the trace must lay the box out the same way.\n  \
+                 box   {from_box:?}\n  strip {from_strip:?}"
+            );
+        }
+
+        // Rebuilding replaces rather than piling up a second delivery — a strip is derived, not
+        // delivered, so tuning the lane count must not leave a trail of sets behind.
+        let again = build_core_strips(
+            &conn,
+            &StripSpec {
+                well_id: w.clone(),
+                dataset: "CORE PHOTO".into(),
+                axis: "x".into(),
+                lanes: 2,
+                reverse: false,
+                target: None,
+            },
+        )
+        .expect("rebuild");
+        assert_eq!(again.set_name, STRIP_SET);
+        assert_eq!(crate::db::list_well_images(&conn, &w, Some(STRIP_DATASET)).unwrap().len(), 1);
+
+        // And it refuses to write over the photographs it reads.
+        let err = build_core_strips(
+            &conn,
+            &StripSpec {
+                well_id: w.clone(),
+                dataset: "CORE PHOTO".into(),
+                axis: "x".into(),
+                lanes: 4,
+                reverse: false,
+                target: Some("core photo".into()),
+            },
+        )
+        .unwrap_err();
+        assert!(err.contains("written over"), "{err}");
     }
 
     /// Sampling follows the photograph's OWN depth span, and is bounded at both ends.

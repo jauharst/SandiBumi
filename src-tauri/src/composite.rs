@@ -1023,6 +1023,12 @@ fn image_box(style: &crate::layout::ImageStyle, e: &PrintEntry, tx0: f64, tx1: f
             if style.fit_kind() == "cover" {
                 return ImageBox { x, y: y0, w: box_w, h: box_h, cover: true };
             }
+            if style.fit_kind() == "stretch" {
+                // The box IS the picture: `cover: false` makes every back-end draw the image
+                // exactly into it. See `ImageStyle::fit` for why this is honest here and nowhere
+                // else — a depth strip has no aspect ratio of its own to preserve.
+                return ImageBox { x, y: y0, w: box_w, h: box_h, cover: false };
+            }
             // contain: shrink the wider dimension until the whole picture fits, centred.
             let (mut w, mut h) = (box_w, box_w * aspect);
             if h > box_h {
