@@ -2907,6 +2907,119 @@ mod tests {
         assert!(grad[4].is_nan() && bht[4].is_nan(), "a missing depth must not produce a temperature");
     }
 
+    /// T-PREP-16 steps 1, 2 and 4: the two combine rules that make a synthetic log usable, and
+    /// the refusal when there is not enough rock to learn from. (Step 3, the masked-washout case,
+    /// lives in `workflow.rs` — the re-blanking happens in the runner, not here.)
+    ///
+    /// A straight line between the predictor and the target is deliberate. KNN cannot be checked
+    /// against a closed form, so the fixture is chosen to make the right answer knowable: a
+    /// prediction that lands near the line is following the data, and one that does not is not.
+    ///
+    /// **FILL_MISSING must return the RAW value bit for bit where the log exists**, not the
+    /// prediction. A synthetic that quietly overwrote good measurements with its own smoothed
+    /// version would look better than the real log — smoother, no noise, no spikes — which is
+    /// exactly why it would never be questioned.
+    ///
+    /// **MAX_RAW is a one-sided rule and the asymmetry is the physics**: a washed-out hole reads
+    /// density LOW because the tool sees mud, never high, so where the prediction exceeds the
+    /// measurement the measurement is the suspect one — and where the measurement is higher it
+    /// stands, whatever the model thinks. A symmetric rule would let the model erase real tight
+    /// streaks, which are exactly the thin beds a synthetic log is worst at reproducing.
+    ///
+    /// **Under ten training samples writes nothing at all.** A five-point KNN fitted on nine
+    /// points is not a model of the formation, it is a model of nine points — and it would
+    /// return confident, plausible numbers across the whole well with no sign of how little it
+    /// was built from.
+    #[test]
+    fn a_synthetic_log_fills_gaps_keeps_raw_and_repairs_only_downward() {
+        // GR 20..115 by 5; DT = 50 + GR. One predictor is enough to make the relation checkable.
+        let gr: Vec<f32> = (0..20).map(|i| 20.0 + i as f32 * 5.0).collect();
+        let dt_true: Vec<f32> = gr.iter().map(|g| 50.0 + g).collect();
+        let opts = [("OPT_COMBINE", "FILL_MISSING"), ("__IN_TARGET", "DT")];
+
+        // A gap in the middle, so the neighbours straddle it rather than only sitting to one side.
+        let mut dt = dt_true.clone();
+        dt[9] = f32::NAN;
+        dt[10] = f32::NAN;
+        let out = log_predict(&ctx_with(
+            20,
+            &[("TARGET", dt.clone()), ("P1", gr.clone())],
+            &[("K", 5.0)],
+            &opts,
+        ));
+        let syn = &out["DT_SYN"];
+
+        for i in 0..20 {
+            if dt[i].is_nan() {
+                continue;
+            }
+            assert_eq!(
+                syn[i], dt[i],
+                "sample {i}: FILL_MISSING must hand back the measurement untouched"
+            );
+        }
+        let (lo, hi) = (dt_true[0], dt_true[19]);
+        for i in [9usize, 10] {
+            let v = syn[i];
+            assert!(!v.is_nan(), "the gap at {i} was not filled");
+            assert!(
+                v >= lo && v <= hi,
+                "sample {i}: {v} is outside the range it was trained on ({lo}..{hi}) — a KNN \
+                 average cannot leave the hull of its neighbours, so this is extrapolated nonsense"
+            );
+            assert!(
+                (v - dt_true[i]).abs() < 10.0,
+                "sample {i}: {v} does not track the relation it was given (true {})",
+                dt_true[i]
+            );
+        }
+
+        // MAX_RAW: one sample reading far too LOW (a washout) and one reading HIGH.
+        let mut dt = dt_true.clone();
+        let (washed, high) = (4usize, 14usize);
+        dt[washed] = 60.0; // true 90 — the hole, not the rock
+        dt[high] = 200.0; // true 140 — high, and therefore trusted
+        let out = log_predict(&ctx_with(
+            20,
+            &[("TARGET", dt.clone()), ("P1", gr.clone())],
+            &[("K", 5.0)],
+            &[("OPT_COMBINE", "MAX_RAW"), ("__IN_TARGET", "DT")],
+        ));
+        let syn = &out["DT_SYN"];
+        assert!(
+            syn[washed] > dt[washed] + 20.0,
+            "the depressed sample was not repaired: {} vs raw {}",
+            syn[washed],
+            dt[washed]
+        );
+        assert!(
+            (syn[washed] - dt_true[washed]).abs() < 15.0,
+            "the repair should land near the trend, got {} for a true {}",
+            syn[washed],
+            dt_true[washed]
+        );
+        assert_eq!(
+            syn[high], dt[high],
+            "a reading ABOVE the prediction must stand — bad hole only pushes the log down, so \
+             the model has no standing to pull a high measurement back to the trend"
+        );
+
+        // Under ten training samples: nothing is written, rather than a confident guess.
+        let out = log_predict(&ctx_with(
+            6,
+            &[
+                ("TARGET", dt_true[..6].to_vec()),
+                ("P1", gr[..6].to_vec()),
+            ],
+            &[("K", 5.0)],
+            &opts,
+        ));
+        assert!(
+            out["DT_SYN"].iter().all(|v| v.is_nan()),
+            "six samples is not a training set — the module must write nothing"
+        );
+    }
+
     #[test]
     fn perm_wyllie_rose_negative_phie_missing_across_all_variants() {
         // Negative PHIE is non-physical. TIMUR's fractional exponent already NaN'd it, but the

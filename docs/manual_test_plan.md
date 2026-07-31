@@ -1303,7 +1303,8 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 1. Set **OPT_TU = degC**, SURF_TEMP 25, TEMP_GRAD 0.03 (degC/m). **Run**. Verify FTEMP in degC, FTEMP_F in degF (×1.8+32), RMF still Arps-correct.
 2. In **Zones…**, override TEMP_GRAD (e.g. 0.035) for one zone. Re-run.
 3. Plot FTEMP vs depth in a log view.
-   **Expected:** The FTEMP trend kinks exactly at the zone boundary (per-zone params resolve per sample); both segments linear; no discontinuity artifacts elsewhere. Covers REVIEW.md §Wave E-17 items 4 and 6.
+   **Expected:** The FTEMP trend changes slope exactly at the zone boundary (per-zone params resolve per sample) and both segments are linear. Covers REVIEW.md §Wave E-17 items 4 and 6.
+   **Known issue — CONFIRMED 2026-07-31, and this step's original wording was wrong.** It used to say the trend "kinks… no discontinuity artifacts". It does not kink: `precalc` computes every sample as `SURF_TEMP + gradient(sample) × depth(sample)`, applying the gradient **from surface** rather than integrating down through the zones above, so a per-zone override produces a **STEP at the boundary**. Measured: a 0.03 °C/m well with 0.035 below 1500 m gives 67.0 °C at 1400 m and **77.5 °C at 1500 m** — a 10.5 °C jump where the trend would have risen 3.0. Rock temperature is continuous, so this is not physical, and it propagates through the Arps Rw correction into Sw. Pinned as-is by `a_per_zone_gradient_override_reaches_exactly_its_own_samples` (`workflow.rs`) — **step 3 will show a step; that is the current code, log it against this finding.** Fixing it means deciding what temperature each zone starts at, which is a method decision awaiting your call.
    **Result — T-PREP-05:**
 
 - [ ] Pass

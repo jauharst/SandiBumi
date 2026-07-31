@@ -1975,6 +1975,275 @@ mod tests {
         assert!(raw_spread > 1.0, "the two wells must start with genuinely different GR");
     }
 
+    /// T-PREP-05 and T-WELL-16 together: a per-zone parameter override must reach **every sample
+    /// inside its zone and no sample outside it**, through the real runner.
+    ///
+    /// This is the interval-parameter model's whole promise. A module that read a parameter once
+    /// before its loop instead of per sample would ignore every zone override ever entered, and
+    /// nothing would say so — the run succeeds, the curve is smooth, and the only symptom is that
+    /// the numbers are the whole-well answer wearing a zoned label.
+    ///
+    /// The boundary is HALF-OPEN (`>= top`, `< bottom`), which is what stops a sample sitting
+    /// exactly on a shared boundary from belonging to both zones and taking whichever happened to
+    /// be listed last. That is pinned here, at the boundary sample itself.
+    ///
+    /// **A finding, pinned as-is rather than fixed.** `precalc` computes each sample as
+    /// `SURF_TEMP + grad(i) * depth(i)` — the gradient is applied from SURFACE, not integrated
+    /// down through the zones above. So overriding the gradient in a lower zone produces a **STEP
+    /// in temperature at the zone boundary, not a kink**: here 67.0 degC at 1400 m jumps to 77.5
+    /// at 1500 m, a 10.5 degC discontinuity where the undisturbed trend would have risen 3.0.
+    /// Rock temperature is continuous, so this profile is not physical, and it feeds Rw through
+    /// the Arps correction and Rw feeds Sw. T-PREP-05's own expected result says "the FTEMP trend
+    /// **kinks**… no discontinuity artifacts" — which is not what the code does.
+    ///
+    /// It is pinned rather than changed because the fix is method math: integrating per zone means
+    /// choosing what the zone's top temperature is, and that is a petrophysical decision with a
+    /// cited source, not a refactor. If it is ever integrated, this test must fail and force the
+    /// change into the open.
+    #[test]
+    fn a_per_zone_gradient_override_reaches_exactly_its_own_samples() {
+        use crate::db;
+        use duckdb::Connection;
+        use uuid::Uuid;
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        db::insert_well(&conn, wid, "SANDI-ZP1", None, None, Some(0.0)).unwrap();
+        let w = wid.to_string();
+
+        // Vertical well, no TVDSS curve — precalc falls back to measured depth as a whole curve.
+        let depths: Vec<f32> = (0..11).map(|i| 1000.0 + i as f32 * 100.0).collect();
+        let n = depths.len();
+        db::insert_standard_curves(
+            &conn,
+            wid,
+            depths.clone(),
+            vec![f32::NAN; n],
+            vec![f32::NAN; n],
+            vec![f32::NAN; n],
+            vec![f32::NAN; n],
+            vec![f32::NAN; n],
+            vec![f32::NAN; n],
+        )
+        .unwrap();
+
+        // Two zones meeting at 1500 m; only the deeper one carries an override.
+        let (boundary, base_grad, deep_grad, surf) = (1500.0f32, 0.03f64, 0.035f64, 25.0f64);
+        db::upsert_zone(&conn, &w, "SHALLOW", 1000.0, boundary).unwrap();
+        db::upsert_zone(&conn, &w, "DEEP", boundary, 2100.0).unwrap();
+        db::set_zone_param(&conn, &w, "DEEP", "TEMP_GRAD", Some(deep_grad as f32), None).unwrap();
+
+        let dbm = Mutex::new(conn);
+        let req = RunModuleRequest {
+            module: "precalc".into(),
+            well_ids: vec![w.clone()],
+            log_inputs: HashMap::new(),
+            params: [("SURF_TEMP".to_string(), surf), ("TEMP_GRAD".to_string(), base_grad)]
+                .into_iter()
+                .collect(),
+            opts: [("OPT_TU".to_string(), "degC".to_string())].into_iter().collect(),
+            output_set: None,
+            input_set: None,
+        };
+        let r = run_workflow_module(&dbm, &req);
+        assert!(r[0].error.is_none(), "precalc: {:?}", r[0].error);
+
+        let conn = dbm.lock().unwrap();
+        let (d, cols) = equations::fetch_curve_frame(&conn, &w, &["FTEMP".into()]).unwrap();
+        let ft = &cols["FTEMP"];
+        assert_eq!(d.len(), n);
+
+        for i in 0..n {
+            let grad = if d[i] >= boundary { deep_grad } else { base_grad };
+            let expect = surf + grad * d[i] as f64;
+            assert!(
+                (ft[i] as f64 - expect).abs() < 1e-2,
+                "sample {i} at {} m: FTEMP {} != {expect} — the {} gradient did not reach it",
+                d[i],
+                ft[i],
+                if d[i] >= boundary { "zone" } else { "well" }
+            );
+        }
+
+        // The boundary sample belongs to DEEP and to DEEP only. A closed interval on both sides
+        // would let SHALLOW and DEEP both claim 1500 m, and which one won would be list order.
+        let at_boundary = d.iter().position(|v| *v == boundary).expect("1500 m is a sample");
+        assert!(
+            (ft[at_boundary] as f64 - (surf + deep_grad * boundary as f64)).abs() < 1e-2,
+            "a sample exactly on the boundary must take the zone whose TOP it is"
+        );
+        assert!(
+            (ft[at_boundary - 1] as f64 - (surf + base_grad * (boundary - 100.0) as f64)).abs() < 1e-2,
+            "and the sample above it must be untouched by that zone"
+        );
+
+        // The step, recorded so the finding above cannot quietly disappear.
+        let step = ft[at_boundary] - ft[at_boundary - 1];
+        let within_zone = ft[at_boundary - 1] - ft[at_boundary - 2];
+        assert!(
+            (step as f64 - 10.5).abs() < 1e-2 && (within_zone as f64 - 3.0).abs() < 1e-2,
+            "the boundary discontinuity changed: step {step} across the boundary against \
+             {within_zone} within the zone. Either the gradient is now integrated per zone \
+             (good — update this test and its comment) or something else moved."
+        );
+
+        // The control: without the override every sample would sit on one line, so all of the
+        // above would pass on a runner that ignored zone parameters entirely.
+        assert!(
+            (ft[at_boundary] as f64 - (surf + base_grad * boundary as f64)).abs() > 1.0,
+            "the override never took effect — this well is still on the whole-well gradient"
+        );
+    }
+
+    /// T-PREP-16 step 3, pinned as the audited defect rather than as correct behaviour.
+    ///
+    /// `log_predict`'s MAX_RAW mode exists for exactly one purpose: to repair a density log inside
+    /// a washout, where the tool read mud instead of rock. The mask exists for the opposite
+    /// purpose: to remove washout samples from everything. Run them together — which is precisely
+    /// what the module's own documentation tells you to do — and the mask wins, so the one curve
+    /// built to fill the bad hole comes back MISSING inside the bad hole.
+    ///
+    /// **There are TWO blanks, not one, and the audit finding names only the second.** The runner
+    /// blanks the flagged samples in the module's INPUTS before the run (so the predictor is gone
+    /// and the module cannot even attempt a prediction), and blanks them again in the OUTPUTS
+    /// after. Exempting `log_predict` from the output pass alone would leave RHOB_SYN exactly as
+    /// MISSING as it is now, and the symptom would look unfixed. That is asserted below, so
+    /// whoever takes this on knows before they start.
+    ///
+    /// The unmasked control is what makes this a defect report rather than a complaint: the same
+    /// well, the same washout, no mask — and the repair happens. The module works. The runner
+    /// throws the answer away.
+    #[test]
+    fn a_masked_washout_defeats_the_very_module_meant_to_repair_it() {
+        use crate::db;
+        use duckdb::Connection;
+        use uuid::Uuid;
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        db::insert_well(&conn, wid, "SANDI-WO1", None, None, Some(0.0)).unwrap();
+        let w = wid.to_string();
+
+        // A clean density-gamma relation, and one washed-out sample reading far too light.
+        let n = 20usize;
+        let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
+        let gr: Vec<f32> = (0..n).map(|i| 20.0 + i as f32 * 5.0).collect();
+        let rhob_true: Vec<f32> = gr.iter().map(|g| 2.70 - 0.003 * g).collect();
+        let washout = 10usize;
+        let mut rhob = rhob_true.clone();
+        rhob[washout] = 1.95; // mud, not rock
+
+        db::insert_standard_curves(
+            &conn,
+            wid,
+            depths.clone(),
+            gr.clone(),
+            vec![f32::NAN; n],
+            vec![f32::NAN; n],
+            rhob.clone(),
+            vec![f32::NAN; n],
+            vec![f32::NAN; n],
+        )
+        .unwrap();
+        let mut flag = vec![0.0f32; n];
+        flag[washout] = 1.0;
+        equations::write_computed_curve(&conn, &w, &depths, "BADHOLE", &flag).unwrap();
+
+        let dbm = Mutex::new(conn);
+        let run = |mask: Option<&str>| -> Vec<ModuleRunResult> {
+            let mut opts: HashMap<String, String> =
+                [("OPT_COMBINE".to_string(), "MAX_RAW".to_string())].into_iter().collect();
+            if let Some(m) = mask {
+                opts.insert("MASK".to_string(), m.to_string());
+            }
+            run_workflow_module(
+                &dbm,
+                &RunModuleRequest {
+                    module: "log_predict".into(),
+                    well_ids: vec![w.clone()],
+                    log_inputs: [("TARGET".to_string(), "RHOB".to_string())].into_iter().collect(),
+                    params: [("K".to_string(), 5.0)].into_iter().collect(),
+                    opts,
+                    output_set: None,
+                    input_set: None,
+                },
+            )
+        };
+        let syn_of = || -> Vec<f32> {
+            let conn = dbm.lock().unwrap();
+            let (_, cols) =
+                equations::fetch_curve_frame(&conn, &w, &["RHOB_SYN".to_string()]).unwrap();
+            cols["RHOB_SYN"].clone()
+        };
+
+        // Control first: no mask, and the washout IS repaired.
+        let r = run(None);
+        assert!(r[0].error.is_none(), "unmasked log_predict: {:?}", r[0].error);
+        let unmasked = syn_of();
+        assert!(
+            !unmasked[washout].is_nan() && unmasked[washout] > rhob[washout] + 0.2,
+            "the module failed to repair the washout even unmasked ({}); the rest of this test \
+             would then be measuring the wrong thing",
+            unmasked[washout]
+        );
+        assert!(
+            (unmasked[washout] - rhob_true[washout]).abs() < 0.1,
+            "the repair should land near the trend: {} for a true {}",
+            unmasked[washout],
+            rhob_true[washout]
+        );
+
+        // Now with the mask the module's own documentation recommends.
+        let r = run(Some("BADHOLE"));
+        assert!(r[0].error.is_none(), "masked log_predict: {:?}", r[0].error);
+        let masked = syn_of();
+        assert!(
+            masked[washout].is_nan(),
+            "AUDIT-2026-07-21 (Prep statistical #1) says the repaired value is re-blanked at the \
+             masked depth, and T-PREP-16 tells the tester to expect that. It returned {} instead \
+             — if this was fixed deliberately, update this test and T-PREP-16's known-issue line \
+             together.",
+            masked[washout]
+        );
+        assert!(
+            masked.iter().enumerate().any(|(i, v)| i != washout && !v.is_nan()),
+            "the masked run wrote nothing anywhere — that is a different failure"
+        );
+
+        // The second blank. Feeding the module a context where only the PREDICTOR is missing at
+        // the washout — which is what the input-side mask does — already yields MISSING, before
+        // the output pass ever runs. So exempting log_predict from output masking would not fix
+        // this on its own.
+        let mut gr_masked = gr.clone();
+        gr_masked[washout] = f32::NAN;
+        let ctx = modules::ModuleContext {
+            n,
+            logs: [
+                ("TARGET".to_string(), rhob.clone()),
+                ("P1".to_string(), gr_masked),
+                ("DEPTH".to_string(), depths.clone()),
+            ]
+            .into_iter()
+            .collect(),
+            params: [("K".to_string(), vec![5.0; n])].into_iter().collect(),
+            opts: [
+                ("OPT_COMBINE".to_string(), "MAX_RAW".to_string()),
+                ("__IN_TARGET".to_string(), "RHOB".to_string()),
+            ]
+            .into_iter()
+            .collect(),
+            depth_unit: Default::default(),
+        };
+        let out = modules::run_module("log_predict", &ctx).unwrap();
+        assert!(
+            out["RHOB_SYN"][washout].is_nan(),
+            "with the predictor blanked the module cannot predict — so an output-masking \
+             exemption alone would leave RHOB_SYN missing anyway"
+        );
+    }
+
     /// T-PREP-11. A raw imported curve called FTEMP must NEVER satisfy a computed-only input.
     ///
     /// `nphi_env_corr` reads FTEMP in degC. Commercial LAS exports routinely carry an FTEMP in

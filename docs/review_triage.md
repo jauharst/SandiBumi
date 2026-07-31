@@ -81,7 +81,7 @@ verification mark** — that lives in `docs/manual_test_plan.md` and nothing aut
 touches it. A `[x]` below says the arithmetic is pinned; it does not say the feature works on
 your wells.
 
-**Done (10 of 45)**
+**Done (13 of 45)**
 
 - [x] **T-REP-18** — SQL Query rejects writes · `readonly_query_refuses_every_write_shape_including_a_cte_prefix` (`db.rs`)
 - [x] **T-SHIP-03** — missing perm curve fails loudly · `a_missing_curve_fails_by_name_rather_than_computing_on_another` (`lorenz.rs`)
@@ -94,9 +94,13 @@ your wells.
 - [x] **T-PREP-11** — a raw degF FTEMP never satisfies the computed-only input · `a_raw_ftemp_never_satisfies_the_computed_only_contract` (`workflow.rs`)
 - [~] **T-PREP-13** — Gas Correction negatives · `the_empty_flag_refusal_names_the_users_curve_and_its_remedy_works` (`modules.rs`). **Graded honestly:** I put this in pile B and most of it was already in pile A — `gascorr_guards_stay_missing_or_error` and `gascorr_flag_gate_and_missing_inputs` already pinned the refusal and the all-MISSING-without-precalc behaviour. What was genuinely uncovered, and is now pinned, is the message TEXT (it must name the curve you picked) and the remedy it recommends (EVERYWHERE must actually work).
 
+- [x] **T-PREP-05** — a per-zone gradient override reaches exactly its own samples · `a_per_zone_gradient_override_reaches_exactly_its_own_samples` (`workflow.rs`). **Found a defect while writing it** — see finding 6.
+- [x] **T-WELL-16** — a per-zone override actually drives a module run · same test (it is the same claim, so one test retires both)
+- [x] **T-PREP-16** — synthetic log: gap fill, raw kept, downward-only repair, and the masked-washout case · `a_synthetic_log_fills_gaps_keeps_raw_and_repairs_only_downward` (`modules.rs`) + `a_masked_washout_defeats_the_very_module_meant_to_repair_it` (`workflow.rs`). The second **pins the audited defect as-is**, not as correct behaviour.
+
 All three items flagged **silent-wrongness class** (T-REP-18, T-SHIP-03, T-INT-11) are closed.
 
-**Open (35)**
+**Open (32)**
 
 - [ ] T-PLOT-19 — Curve Edit negatives (invalid input, stale undo)
 - [ ] T-REP-02 — Composite render: layout, print scale, pagination
@@ -108,8 +112,6 @@ All three items flagged **silent-wrongness class** (T-REP-18, T-SHIP-03, T-INT-1
 - [ ] T-REP-16 — DB Inspector negatives
 - [ ] T-AUX-07 — Well-diagram track in Composite/Report + old layouts
 - [ ] T-AUX-17 — Equation runtime error mid-batch, per-well isolation
-- [ ] T-PREP-05 — Pre-Calculation degC + per-zone gradient kink
-- [ ] T-PREP-16 — Synthetic Log (KNN): gap fill + masked washout
 - [ ] T-PREP-18 — Splice Curves at depth
 - [ ] T-PETRO-02 — vsh_gr nonlinear options + version N+1
 - [ ] T-PETRO-13 — zone parameter override: RW in one zone only
@@ -132,7 +134,6 @@ All three items flagged **silent-wrongness class** (T-REP-18, T-SHIP-03, T-INT-1
 - [ ] T-IMP-08 — Core CSV with a duplicated plug depth
 - [ ] T-IMP-10 — Tops CSV: multi-well, unmatched, blank cells
 - [ ] T-IMP-12 — Deviation import: TVD/TVDSS, duplicate MD
-- [ ] T-WELL-16 — per-zone override actually drives a module run
 
 ### Pile C — covered by the end-to-end harness
 
@@ -496,6 +497,41 @@ The corrected line also adds the case that makes T-PREP-13 subtle: if your gas f
 part of the interval, the unflagged samples pass real densities through, the run is *not*
 all-MISSING, and a green ✓ is then **correct**. Step 2 only holds where the flag covers
 everything you ran.
+
+**And one that was checked and is still TRUE.** T-PREP-16's known-issue line — the masked
+washout — was verified against the current code rather than assumed stale like the other three.
+The output masking in `workflow.rs` is still unconditional. It stands as written, and is now
+pinned by a test. Three of four stale is not four of four; check, don't assume in either
+direction.
+
+### 6. Overriding a temperature gradient per zone makes a STEP, not a kink — **OPEN, your call**
+
+Found while writing T-PREP-05, and it is the first thing in this whole exercise that changes
+numbers rather than documentation.
+
+`precalc` computes each sample as `SURF_TEMP + gradient(sample) × depth(sample)`. The gradient is
+applied **from surface**, not integrated down through the zones above it. So the moment you give a
+lower zone its own gradient, the temperature profile jumps at the boundary instead of bending.
+
+With a 0.03 °C/m well and a 0.035 override below 1500 m, measured in the test:
+
+| depth | FTEMP |
+|---|---|
+| 1400 m | 67.0 °C |
+| 1500 m | **77.5 °C** |
+
+A **10.5 °C step across 100 m**, where the undisturbed trend rises 3.0 °C. Rock temperature is
+continuous — a 10 °C discontinuity at a formation top is not a thing the earth does. And it does
+not stay in FTEMP: the Arps correction turns temperature into Rw, and Rw goes straight into Sw.
+
+T-PREP-05's own expected result says the trend should **kink**, with *"no discontinuity
+artifacts"*. So the plan and the code disagree, and the plan is describing the physical answer.
+
+**Not fixed, deliberately.** Integrating per zone means deciding what temperature each zone
+*starts* at — carry the previous zone's value down, or re-anchor on surface — and that is method
+math with a cited source, not a refactor I should pick. The current behaviour is pinned exactly
+as it is, with the step written into the assertion, so it cannot drift and cannot be changed
+silently. Your call on which it should be.
 
 ---
 
