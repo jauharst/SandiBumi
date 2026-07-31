@@ -971,7 +971,7 @@ in petrophysics terms, not programming jargon. The working rhythm, on every mach
 - `src-tauri/` — Rust backend: DuckDB access, parsers, IPC commands, petrophysics engine.
 - `src/` — TypeScript frontend: WebGPU log canvas renderer, Tauri IPC calls.
 - `src-tauri/icons/` — app icon set + brand assets: `logo.png` (master), `logo-mark.svg`/`logo-mark.png` (square monogram), `logo-full.svg`/`logo-full.png` (full lockup). Frontend favicon/ribbon assets in `public/`.
-- `docs/` — method math + solver specs (SSC/SSPW, LRLC RtC/IMTS, workflow standards, the reference suite/IP multimin extraction). Portable knowledge lives here, not in machine-local memory.
+- `docs/` — method math + solver specs (SSC/SSPW, LRLC RtC/IMTS, workflow standards, the reference suite/IP multimin extraction). Portable knowledge lives here, not in machine-local memory. **`docs/plan_image_analysis.md` (2026-07-31) is the phase plan for core depth registration + plate digitizing** (ROADMAP C2 item 8) — read it before touching `images.rs`, `shift_core_depths` or anything that pairs a core sample with a log depth.
 - `tools/chartdig/` — chartbook vector digitizer (generates `src/ui/chartOverlays.ts`).
 - `Prompt/` — original phase-by-phase spec (`Claude_Implementation_Guide.pdf`). Listed in `.gitignore`, but the PDF was **committed before that rule was added and is still tracked** — a gitignore entry never untracks a file that is already in. It DOES exist on a fresh clone. Untracking it is an open decision (provenance sweep 2026-07-31, finding 3).
 

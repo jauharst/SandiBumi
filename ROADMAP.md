@@ -1138,7 +1138,10 @@ joblib (ML) → office four (deliverables) → opencv (digitizing).
 - [ ] **OpenCV** — NOT installed, and deliberately deferred to the **digitizing** phase of the
       image track, where it is the actual engine: thin-section modal analysis by colour
       segmentation (point counting without the point counter), core-photo depth registration and
-      lithology banding, borehole-image processing.
+      lithology banding, borehole-image processing. **Scoped 2026-07-31 into
+      `docs/plan_image_analysis.md`** (C2 item 8) — note that core-to-log *depth registration* turns
+      out NOT to need OpenCV at all: `tops.rs` already carries the best-lag and monotone-warp engine,
+      it has simply never been pointed at core.
 
 **Rejected, with reasons** (so this is not re-litigated): `pandas` — DuckDB already is the
 columnar frame, and routing through pandas copies data out of the store just to copy it back
@@ -1375,6 +1378,18 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       white-balance, CLAHE/denoise/sharpen, depth registration + stitched strip pyramid, core-to-log shift
       (photo-proxy-log cross-correlation vs GR), WL/UV pairs, log-view strip track. Absorbs the §4
       New-capability "core image input" stub. → `ref_image_core.md`.
+- [ ] **(8) Depth registration, then plate digitizing** — scoped 2026-07-31 at Jauhar's direction
+      ("all of those, it should be depth registered first, then the quantification or qualitative
+      analysis"). **The plan is `docs/plan_image_analysis.md`**; it supersedes the loose OpenCV note
+      in §B3 and overlaps (7) on the registration half. Two tiers: **Part 1** core-to-log depth
+      registration (a pane, a proposed best-lag reusing `tops.rs`'s existing `best_shift`/`warp_refine`
+      rather than a new algorithm, per-core-run piecewise shift, plates following their plugs, and the
+      still-uncalled `update_well_image`), then **Part 2** digitizing (modal analysis by colour, pore
+      geometry, grain size) through an OpenCV **subprocess**, storing results in `aux_data` and
+      `array_logs` so nothing new is needed downstream. Registration is first because nothing in the
+      repo can check a depth: the S-fit's own test records that a whole-sample shift is invisible to
+      any depth-tolerance check. Four open decisions are listed in the plan's §4; only **D1** (does he
+      receive core gamma?) blocks the first increment.
 
 ## C3. Trust & reproducibility — Phase 11 (§3)
 
