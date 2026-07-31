@@ -2138,6 +2138,16 @@ async fn run_pore_area(
     petrography::run_pore_area(&conn, &spec)
 }
 
+/// The published stain schemes this build ships, as (name, classes). Mineral identifications are
+/// standard carbonate petrography; the colour bands are round starting points for visual tuning.
+#[tauri::command]
+fn stain_schemes() -> Vec<(String, Vec<petrography::StainClass>)> {
+    petrography::stain_scheme_names()
+        .into_iter()
+        .filter_map(|n| petrography::stain_scheme(&n).map(|c| (n, c)))
+        .collect()
+}
+
 /// What the two axis pickers of the plug QC pane can offer over the wells in scope.
 #[tauri::command]
 fn list_plug_choices(
@@ -2778,6 +2788,7 @@ pub fn run() {
             set_image_delivery_details,
             pore_support,
             run_pore_area,
+            stain_schemes,
             list_plug_choices,
             run_plug_qc,
             core_depth_pairs,

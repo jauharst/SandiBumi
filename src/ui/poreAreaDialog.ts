@@ -3,9 +3,13 @@ import {
   listWellImages,
   poreSupport,
   runPoreArea,
+  stainSchemes,
   type ImageInfo,
   type PoreColorBand,
   type PoreResult,
+  type StainBand,
+  type StainClass,
+  type StainSpec,
 } from "../ipc";
 import { appState, bumpDataVersion, setStatus } from "../state";
 import { recordProcess } from "../processLog";
@@ -167,6 +171,109 @@ export async function openPoreAreaDialog(): Promise<void> {
   grainChk.addEventListener("change", syncGrainRows);
   syncGrainRows();
 
+  // ---- the stain ----------------------------------------------------------
+  // Off by default and it must stay that way: a stain assumed is a mineral fraction invented. The
+  // scheme picker offers published identifications (Friedman 1959, Dickson 1966) with generic
+  // colour bands — the same split as the epoxy band, and the reason a scheme can ship at all.
+  const stainChk = document.createElement("input");
+  stainChk.type = "checkbox";
+  const stainLabel = document.createElement("label");
+  stainLabel.appendChild(stainChk);
+  stainLabel.appendChild(document.createTextNode(" Also read the stain (mineral area fractions)"));
+  stainLabel.style.display = "block";
+  wrap.appendChild(stainLabel);
+
+  const schemes = await stainSchemes().catch(() => [] as [string, StainClass[]][]);
+  const schemeSel = document.createElement("select");
+  schemeSel.className = "form-control";
+  for (const [name] of schemes) {
+    const o = document.createElement("option");
+    o.value = name;
+    o.textContent = name;
+    schemeSel.appendChild(o);
+  }
+  const schemeRow = formRow(
+    "Stain",
+    schemeSel,
+    "Must match what each plate says it was stained with — a plate that disagrees is refused by name, because reading the wrong scheme returns mineral fractions that are wrong and entirely plausible.",
+  );
+  wrap.appendChild(schemeRow);
+
+  // The class list is editable: the identifications are published, the colours are not, and what
+  // a stained calcite photographs as depends on the dye batch, the lamp and the scan.
+  const classBox = document.createElement("div");
+  classBox.className = "eq-note";
+  wrap.appendChild(classBox);
+  const classInputs: { mineral: string; band: StainBand; inputs: HTMLInputElement[] }[] = [];
+  const buildClasses = (): void => {
+    classBox.textContent = "";
+    classInputs.length = 0;
+    const cls = schemes.find(([n]) => n === schemeSel.value)?.[1] ?? [];
+    for (const c of cls) {
+      const row = document.createElement("div");
+      row.style.display = "flex";
+      row.style.gap = "6px";
+      row.style.alignItems = "center";
+      row.style.marginBottom = "3px";
+      const name = document.createElement("span");
+      name.textContent = c.mineral;
+      name.style.minWidth = "9rem";
+      row.appendChild(name);
+      const inputs: HTMLInputElement[] = [];
+      for (const [key, step] of [
+        ["hue_lo", 5],
+        ["hue_hi", 5],
+        ["sat_min", 0.05],
+        ["sat_max", 0.05],
+      ] as const) {
+        const i = document.createElement("input");
+        i.className = "form-control";
+        i.type = "number";
+        i.step = String(step);
+        i.style.width = "5rem";
+        i.value = String(c.band[key]);
+        i.title = key;
+        row.appendChild(i);
+        inputs.push(i);
+      }
+      classBox.appendChild(row);
+      classInputs.push({ mineral: c.mineral, band: { ...c.band }, inputs });
+    }
+    const legend = document.createElement("div");
+    legend.textContent = "hue from / hue to / saturation at least / at most";
+    legend.style.opacity = "0.7";
+    classBox.appendChild(legend);
+  };
+  buildClasses();
+  schemeSel.addEventListener("change", buildClasses);
+
+  const stainSpec = (): StainSpec | null => {
+    if (!stainChk.checked) return null;
+    return {
+      stain: schemeSel.value,
+      classes: classInputs.map((c) => ({
+        mineral: c.mineral,
+        band: {
+          ...c.band,
+          hue_lo: Number(c.inputs[0].value),
+          hue_hi: Number(c.inputs[1].value),
+          sat_min: Number(c.inputs[2].value),
+          sat_max: Number(c.inputs[3].value),
+        },
+      })),
+    };
+  };
+
+  const syncStainRows = (): void => {
+    schemeRow.hidden = !stainChk.checked;
+    // `style.display`, not the `hidden` attribute — classBox has none of its own, but keeping the
+    // two toggles the same way is what stops the next one being written the broken way.
+    classBox.style.display = stainChk.checked ? "" : "none";
+  };
+  stainChk.addEventListener("change", syncStainRows);
+  syncStainRows();
+
+
   const band = (): PoreColorBand => ({
     hue_lo: Number(hueLo.value),
     hue_hi: Number(hueHi.value),
@@ -269,6 +376,13 @@ export async function openPoreAreaDialog(): Promise<void> {
     // to be told which of the two they are looking at.
     if (anyGrainSized) cols.push("GD50 app µm", "Sort app φ");
     if (anyW) cols.push("GD50 W µm", "Sort W φ");
+    // Every mineral the run reported, in the scheme's own order, plus the remainder. The remainder
+    // column is never optional: it is what says whether the mineral columns are a mineralogy.
+    const minerals: string[] = [];
+    for (const p of res.plates) {
+      for (const [m] of p.stain?.fractions ?? []) if (!minerals.includes(m)) minerals.push(m);
+    }
+    if (minerals.length) cols.push(...minerals, "Unclassified");
     for (const h of cols) {
       const th = document.createElement("th");
       th.textContent = h;
@@ -301,6 +415,14 @@ export async function openPoreAreaDialog(): Promise<void> {
       }
       if (anyW) {
         vals.push(um(gr?.d50_w_um), phi(gr?.sort_w_phi));
+      }
+      if (minerals.length) {
+        const st = p.stain;
+        const pct = (v: number | undefined): string => (v == null ? "" : `${(v * 100).toFixed(1)}%`);
+        for (const mname of minerals) {
+          vals.push(pct(st?.fractions.find(([m]) => m === mname)?.[1]));
+        }
+        vals.push(pct(st?.unclassified));
       }
       for (const v of vals) {
         const td = document.createElement("td");
@@ -360,6 +482,7 @@ export async function openPoreAreaDialog(): Promise<void> {
             min_grain_px: Number(minGrainPx.value) || 50,
             grain_sep_px: Number(sepPx.value) || 20,
             wicksell: wickChk.checked,
+            stain: stainSpec(),
             set_name: setIn.value || "TS",
           });
           const [ds, name] = saved.written ?? ["PETROGRAPHY", setIn.value];
@@ -391,6 +514,7 @@ export async function openPoreAreaDialog(): Promise<void> {
             min_grain_px: Number(minGrainPx.value) || 50,
             grain_sep_px: Number(sepPx.value) || 20,
             wicksell: wickChk.checked,
+            stain: stainSpec(),
           })
         );
       } catch (e) {

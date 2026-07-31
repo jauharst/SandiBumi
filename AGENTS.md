@@ -1202,6 +1202,61 @@ opt-in and its absence fails only the geometry, never the area fraction. The rea
 `a_disc_reads_as_round_and_its_diameter_follows_the_declared_scale` is `#[ignore]`d for the same
 reason the rest are.
 
+## Stained carbonate (2026-07-31 — Part 2 family A2)
+
+`petrography.rs` reads the stain as well, opt-in beside the pore fraction, the pore geometry and
+the grains — same decode, same pore mask, so the mineral fractions and `VPORE_TS` describe ONE
+segmentation and sum against each other. Fractions are of the WHOLE plate: **pore + minerals +
+unclassified = 1**, verified as exactly 1.000 on a synthetic four-quarter plate.
+
+**A plate is refused unless its OWN declared stain matches the scheme.** Undeclared is refused too,
+for the `prepared` reason: it cannot be read off the pixels, because the evidence for "this is
+alizarin red" is the red about to be measured. Reading an alizarin-red scheme off a section stained
+with something else does not fail — it returns mineral fractions that are wrong and entirely
+plausible. Names are compared with punctuation and spacing thrown away (`normalize_stain`), so
+"Alizarin Red S" and "alizarin-red-s" are one stain but a different stain is not.
+
+**The identifications are published; the colour bands are not.** `stain_scheme` ships Friedman
+(1959) for alizarin red S and Dickson (1966) for the combined alizarin red S + potassium
+ferricyanide stain — standard carbonate petrography, already named in
+`docs/plan_image_analysis.md` §2.1. What hue a stained calcite *photographs* as depends on the dye
+batch, the concentration, the etch, the lamp, the white balance and the scan, so the bands are round
+numbers to start a visual tuning from, exactly like the epoxy band, and the class list is editable.
+Pinned by `the_stain_schemes_are_published_identifications_with_generic_bands`.
+
+**`StainBand` carries a saturation CEILING, and that is not a decoration.** Dolomite under alizarin
+red S is identified by staying COLOURLESS. "Unstained" is the absence of colour and cannot be
+written as a floor, which is why this is a different type from `PoreColorBand`.
+
+**Classes are tested IN ORDER, first match wins.** A pixel is one mineral. Overlapping bands are
+resolved by the order the user put them in rather than being silently counted twice.
+
+**`MIN_UNCLASS` is written on every run and is the honesty number for the family.** Solid that fell
+in no band is reported rather than distributed over the classes; a section where a third of the rock
+matched nothing has not been given a mineralogy, whatever the other rows say. Above 25% the run says
+so in the notes.
+
+**Blue epoxy and turquoise ferroan dolomite are the same colour, and this is measured, not
+theorised.** Under Dickson's stain ferroan dolomite goes turquoise; blue-dyed epoxy is blue. On a
+plate that is both impregnated and stained the pore rule claims those pixels first, so the mineral
+is counted as porosity. On the synthetic plate, with the default epoxy band (180–260°) the run
+returned **pore 0.500 and ferroan dolomite 0.000** — porosity doubled and a mineral erased, both
+plausibly. Narrowing the epoxy band to 210–260° returned **pore 0.250 and ferroan dolomite 0.250**,
+which is the truth. `epoxy_collides` detects the overlap and NAMES the affected minerals in the
+notes; it is never resolved automatically, because which of the two bands to narrow is a judgement
+made looking at the plate. Pinned by
+`blue_epoxy_and_ferroan_dolomite_are_flagged_as_the_same_colour`, which also checks the check is not
+trivially always true.
+
+Items are `MIN_<MINERAL>` (`mineral_item` upper-cases and collapses non-alphanumerics, so "Ferroan
+calcite" becomes `MIN_FERROAN_CALCITE`) plus `MIN_UNCLASS`, all in the `PETROGRAPHY` dataset at the
+plate depth. Dimensionless throughout, so unlike the grain sizes they run on every plate including
+the uncalibrated ones.
+
+`hsv_of` and `in_band` are now the ONE colour conversion in the runner, shared by the pore rule and
+every stain class — the same argument that made `shape_stats` shared between the pore and grain
+phases.
+
 ## Grain size (2026-07-31 — Part 2 family B, D3 closed)
 
 `petrography.rs` gained the grain phase, opt-in beside the pore fraction and the pore geometry in

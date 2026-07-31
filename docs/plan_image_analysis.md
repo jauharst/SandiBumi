@@ -328,7 +328,7 @@ Part 1   1a  registration + proposal        SHIPPED 2026-07-31 (registration.rs)
 
 Part 2   2.0 scale + preparation per plate  SHIPPED 2026-07-31 (declared, no default)
          A1  pore by blue epoxy             SHIPPED 2026-07-31 (petrography.rs)
-         A2  stained carbonate              needs the lab's stain protocol
+         A2  stained carbonate              SHIPPED 2026-07-31 (declared stain, refused if absent)
          C   pore geometry                  SHIPPED 2026-07-31 (petrography.rs)
          QC  plug QC vs core and SCAL       SHIPPED 2026-07-31 (plugqc.rs)
          B   grain size                     SHIPPED 2026-07-31 (apparent + optional Wicksell)

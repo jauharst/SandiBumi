@@ -6553,3 +6553,43 @@ do not expect it to move D50 much.
 **Worth a real test:** compare GRAIN_D50_APP against a sieve or laser grain-size analysis on the
 same plugs, in **Plug QC**. Both are volume-weighted, so they should be directly comparable — and
 where they are not, Contact will usually tell you why.
+
+---
+
+## Stained carbonate — mineral fractions from a declared stain (2026-07-31)
+
+Family A2. Needs no scipy — it is a colour rule like the pore band, so it runs on every plate
+including the uncalibrated ones.
+
+- [ ] **Plate Details…** first: each stained plate needs its **Stain** field filled in with what
+      your laboratory actually applied. A plate with the field blank is refused by name, and one
+      whose stain does not match the scheme is refused too, naming both.
+- [ ] **Pore Area…**, tick **Also read the stain**. Pick the scheme. Two ship: **Alizarin red S**
+      (calcite stains, dolomite does not — Friedman 1959) and **Alizarin red S + potassium
+      ferricyanide** (the combined stain, which also separates the ferroan phases — Dickson 1966).
+- [ ] The class list below it is **editable**. The mineral identifications are published; the
+      colours are not — what a stained calcite photographs as depends on your dye batch, your lamp
+      and your scanner. Tune the hue ranges against the preview.
+- [ ] **Measure.** The table gains one column per mineral plus **Unclassified**. Check that every
+      row sums with the pore area to 100%.
+- [ ] **Read Unclassified first.** It is the rock that fell in no band. If it is large the mineral
+      columns are a partial answer, and the run says so above 25%.
+- [ ] **Save** and check the Wells tree: MIN_CALCITE, MIN_DOLOMITE, MIN_FERROAN_CALCITE,
+      MIN_FERROAN_DOLOMITE, MIN_UNCLASS.
+
+**The one trap, and it will bite you if your sections are both impregnated and stained.** Blue-dyed
+epoxy is blue. Under Dickson's combined stain, ferroan dolomite is turquoise. They are the same
+colour to a hue rule, and the pore rule runs first — so ferroan dolomite gets counted as porosity.
+
+On a test plate built as exact quarters, the default epoxy band (180–260°) returned **pore 50% and
+ferroan dolomite 0%**. Porosity doubled, a mineral erased, and both numbers entirely believable.
+Narrowing the epoxy band to 210–260° returned **pore 25% and ferroan dolomite 25%**, which is the
+truth.
+
+The run detects the overlap and names the affected mineral in the notes. It does **not** fix it —
+which of the two bands to narrow is your judgement, looking at your plate. If you see that note,
+tune before you trust either number.
+
+**Worth a real test:** compare MIN_CALCITE + MIN_DOLOMITE against your XRD on the same plugs, in
+**Plug QC**. XRD is by weight and a section is by area, but the two should track — and where they
+do not, Unclassified usually explains it.

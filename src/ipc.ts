@@ -3286,6 +3286,48 @@ export interface PoreSpec {
   /** Also report the Wicksell-corrected sizes beside the apparent ones. Off by default; the two
    *  are stored under DIFFERENT item names so neither can be mistaken for the other. */
   wicksell?: boolean;
+  /** Read the stain too. Omit for no stain — a stain assumed is a mineral fraction invented. */
+  stain?: StainSpec | null;
+}
+
+/** An HSV window. Richer than PoreColorBand because a stain scheme has to be able to say
+ *  UNSTAINED — dolomite under alizarin red S is identified by staying colourless, which is a
+ *  saturation ceiling and cannot be written as a floor. */
+export interface StainBand {
+  hue_lo: number;
+  hue_hi: number;
+  sat_min: number;
+  sat_max: number;
+  val_min: number;
+  val_max: number;
+}
+
+export interface StainClass {
+  mineral: string;
+  band: StainBand;
+}
+
+export interface StainSpec {
+  /** Matched against each plate's OWN declared stain; a plate that disagrees is refused by name. */
+  stain: string;
+  /** Tested in order, first match wins — a pixel is one mineral. */
+  classes: StainClass[];
+}
+
+/** Mineral area fractions on one plate, as fractions of the WHOLE plate: pore + minerals +
+ *  unclassified is 1. */
+export interface PlateStain {
+  fractions: [string, number][];
+  /** Solid that fell in no band. The honesty number — a section where a third of the rock matched
+   *  nothing has not been given a mineralogy, whatever the other rows say. */
+  unclassified: number;
+}
+
+/** The published stain schemes this build ships, as [name, classes]. Mineral identifications are
+ *  standard carbonate petrography (Friedman 1959, Dickson 1966); the colour bands are round
+ *  starting points for visual tuning, like the epoxy band. */
+export function stainSchemes(): Promise<[string, StainClass[]][]> {
+  return invoke<[string, StainClass[]][]>("stain_schemes");
 }
 
 export interface PlatePore {
@@ -3298,6 +3340,7 @@ export interface PlatePore {
   pixels: number;
   geometry?: PoreGeometry;
   grains?: GrainStats;
+  stain?: PlateStain;
 }
 
 /** Size of the individual grains on one plate.

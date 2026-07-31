@@ -1462,6 +1462,18 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       it. **Still not automatic**: a delivery already in the project does not move when the core is
       re-registered afterwards — that is increment 1d, waiting on Jauhar firming up D2.
 
+- [x] **Stained carbonate (Part 2, family A2)** — **SHIPPED 2026-07-31**. Mineral area fractions
+      from a DECLARED stain, in the same run and off the same pore mask, so pore + minerals +
+      unclassified = 1 (measured exactly 1.000). **A plate whose own stain does not match the
+      scheme is refused by name, and undeclared is refused too** — reading the wrong scheme returns
+      fractions that are wrong and entirely plausible, and the evidence for "this is alizarin red"
+      is the red about to be measured. Identifications are published (Friedman 1959, Dickson 1966);
+      the colour bands are round starting points and editable, the same split as the epoxy band.
+      `StainBand` carries a saturation CEILING because "unstained dolomite" is the absence of
+      colour. `MIN_UNCLASS` written every run — the honesty number. **The blue-epoxy / turquoise
+      ferroan-dolomite collision is real and measured**: with the default epoxy band the synthetic
+      plate returned pore 0.500 and ferroan dolomite 0.000; narrowed, 0.250 and 0.250.
+      `epoxy_collides` names the affected minerals and never resolves it automatically.
 - [x] **Grain size (Part 2, family B — D3 closed)** — **SHIPPED 2026-07-31**. Jauhar's answer
       ("apply wicksell correction is optional") shipped as apparent-by-default with the correction
       as a tick, and implemented as **different item names** rather than one name and a flag:

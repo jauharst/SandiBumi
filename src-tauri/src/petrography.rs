@@ -117,6 +117,138 @@ pub struct PoreSpec {
     /// mistaken for the other downstream.
     #[serde(default)]
     pub wicksell: bool,
+    /// Read the STAIN as well, giving a mineral area fraction per class. `None` means no stain is
+    /// assumed — the default, and the only safe one: a stain assumed is a mineral fraction
+    /// invented (`docs/plan_image_analysis.md` §2.1 A2).
+    #[serde(default)]
+    pub stain: Option<StainSpec>,
+}
+
+/// An HSV window. Richer than [`PoreColorBand`] because a stain scheme has to be able to say
+/// **unstained** — dolomite under alizarin red S is identified by staying colourless, which is a
+/// saturation CEILING and cannot be written as a floor.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct StainBand {
+    pub hue_lo: f32,
+    pub hue_hi: f32,
+    pub sat_min: f32,
+    pub sat_max: f32,
+    pub val_min: f32,
+    pub val_max: f32,
+}
+
+/// One mineral the stain is expected to reveal, and the colour it shows as.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct StainClass {
+    pub mineral: String,
+    pub band: StainBand,
+}
+
+/// What stain was applied, and how it is being read.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct StainSpec {
+    /// The stain this scheme is for. Matched against each plate's OWN declared stain, and a plate
+    /// that disagrees is refused BY NAME — reading an alizarin-red scheme off a section stained
+    /// with something else returns mineral fractions that are wrong and entirely plausible.
+    pub stain: String,
+    /// Tested IN ORDER, first match wins. A pixel is one mineral; overlapping bands are resolved
+    /// by the order the user put them in rather than silently counted twice.
+    pub classes: Vec<StainClass>,
+}
+
+/// Published stain identifications, offered as starting points for the class list.
+///
+/// **The mineral identifications are standard carbonate petrography** — Friedman (1959) for
+/// alizarin red S, Dickson (1966) for the combined alizarin red S + potassium ferricyanide stain,
+/// both reproduced in every carbonate text and already named in `docs/plan_image_analysis.md` §2.1.
+///
+/// **The colour bands are not from any paper.** What hue a stained calcite photographs as depends
+/// on the dye batch, the concentration, the etch, the lamp, the white balance and the scan, none of
+/// which this app knows. They are round numbers to start a VISUAL tuning from, exactly like the
+/// epoxy band, and the preview is how they get judged.
+pub fn stain_scheme(name: &str) -> Option<Vec<StainClass>> {
+    let cls = |mineral: &str, hue_lo: f32, hue_hi: f32| StainClass {
+        mineral: mineral.to_string(),
+        band: StainBand { hue_lo, hue_hi, sat_min: 0.2, sat_max: 1.0, val_min: 0.1, val_max: 1.0 },
+    };
+    // A mineral the stain leaves colourless, identified by the ABSENCE of colour — which is the
+    // whole reason the band model needs a saturation ceiling.
+    let unstained = |mineral: &str| StainClass {
+        mineral: mineral.to_string(),
+        band: StainBand {
+            hue_lo: 0.0,
+            hue_hi: 360.0,
+            sat_min: 0.0,
+            sat_max: 0.15,
+            val_min: 0.3,
+            val_max: 1.0,
+        },
+    };
+    match normalize_stain(name).as_str() {
+        // Friedman (1959): alizarin red S stains calcite, leaves dolomite colourless.
+        "alizarinreds" => Some(vec![cls("Calcite", 330.0, 20.0), unstained("Dolomite")]),
+        // Dickson (1966): the combined stain separates the ferroan phases as well.
+        "alizarinredspotassiumferricyanide" | "dickson" => Some(vec![
+            cls("Ferroan calcite", 260.0, 330.0),
+            cls("Calcite", 330.0, 20.0),
+            cls("Ferroan dolomite", 170.0, 260.0),
+            unstained("Dolomite"),
+        ]),
+        // Potassium ferricyanide alone marks the ferroan phases and nothing else.
+        "potassiumferricyanide" => {
+            Some(vec![cls("Ferroan phases", 170.0, 260.0), unstained("Non-ferroan")])
+        }
+        _ => None,
+    }
+}
+
+/// Every scheme this build ships, for the dialog's picker.
+pub fn stain_scheme_names() -> Vec<String> {
+    ["Alizarin red S", "Alizarin red S + potassium ferricyanide", "Potassium ferricyanide"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+
+/// Stain names are free text off a laboratory report, so they are compared with punctuation and
+/// spacing thrown away — "Alizarin Red S" and "alizarin-red-s" are one stain.
+pub fn normalize_stain(s: &str) -> String {
+    s.chars().filter(|c| c.is_ascii_alphanumeric()).flat_map(|c| c.to_lowercase()).collect()
+}
+
+/// Whether a stain class could be confused with the blue epoxy that marks pore.
+///
+/// This is a real collision, not a hypothetical: under Dickson's stain ferroan dolomite goes
+/// TURQUOISE, and blue-dyed epoxy is blue. On a section that was both impregnated and stained, the
+/// pore rule claims those pixels first, so a ferroan dolomite grain is silently counted as
+/// porosity — inflating `VPORE_TS` and removing a mineral, both plausibly. Reported, never
+/// resolved automatically: which band to narrow is a judgement made looking at the plate.
+pub fn epoxy_collides(pore: &PoreColorBand, band: &StainBand) -> bool {
+    let hue_overlaps = |a_lo: f32, a_hi: f32, b_lo: f32, b_hi: f32| {
+        let inside = |x: f32, lo: f32, hi: f32| {
+            if lo <= hi {
+                x >= lo && x <= hi
+            } else {
+                x >= lo || x <= hi
+            }
+        };
+        inside(b_lo, a_lo, a_hi) || inside(b_hi, a_lo, a_hi) || inside(a_lo, b_lo, b_hi)
+    };
+    hue_overlaps(pore.hue_lo, pore.hue_hi, band.hue_lo, band.hue_hi)
+        && band.sat_max >= pore.sat_min
+        && band.val_max >= pore.val_min
+}
+
+/// What the stain came to on one plate.
+///
+/// Fractions are of the WHOLE plate, so pore plus every mineral plus the unclassified remainder is
+/// 1 — the only form in which they can be read beside `VPORE_TS` as a modal analysis.
+#[derive(Debug, Clone, Serialize)]
+pub struct PlateStain {
+    pub fractions: Vec<(String, f32)>,
+    /// Solid that fell in no band. **The honesty number for this family**: a section where a third
+    /// of the rock matched nothing has not been given a mineralogy, whatever the other rows say.
+    pub unclassified: f32,
 }
 
 fn default_min_pore_px() -> u32 {
@@ -166,6 +298,9 @@ pub struct PlatePore {
     /// Size of the individual grains, when grains were asked for.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub grains: Option<GrainStats>,
+    /// Mineral area fractions, when a stain was declared and read.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stain: Option<PlateStain>,
 }
 
 /// What the individual grains on one plate came to.
@@ -278,13 +413,19 @@ for n in sizes:
     blobs.append(sys.stdin.buffer.read(n))
 
 def mask_of(img):
+    # Where the pixel is grey the hue is undefined; `hsv_of` leaves it at 0 and the saturation
+    # floor is what actually rejects it, so an undefined hue never counts as blue.
+    h, s, v = hsv_of(img)
+    return in_band(h, s, v, float(band["hue_lo"]), float(band["hue_hi"]),
+                   float(band["sat_min"]), 1.0, float(band["val_min"]), 1.0)
+
+def hsv_of(img):
+    """Hue in degrees, saturation and value 0..1 — the one conversion, used by every rule here."""
     a = np.asarray(img.convert("RGB"), dtype=np.float32) / 255.0
     r, g, b = a[..., 0], a[..., 1], a[..., 2]
     mx = np.max(a, axis=-1)
     mn = np.min(a, axis=-1)
     d = mx - mn
-    # Hue in degrees. Where the pixel is grey (d == 0) hue is undefined; it is set to 0 and the
-    # saturation floor below is what actually rejects it, so an undefined hue never counts as blue.
     h = np.zeros_like(mx)
     safe = d > 1e-6
     rmax = safe & (mx == r)
@@ -295,14 +436,38 @@ def mask_of(img):
         h[gmax] = 60.0 * ((b[gmax] - r[gmax]) / d[gmax]) + 120.0
         h[bmax] = 60.0 * ((r[bmax] - g[bmax]) / d[bmax]) + 240.0
     s = np.where(mx > 0, d / np.maximum(mx, 1e-6), 0.0)
-    v = mx
-    lo = float(band["hue_lo"]); hi = float(band["hue_hi"])
+    return h, s, mx
+
+
+def in_band(h, s, v, lo, hi, smin, smax, vmin, vmax):
     if lo <= hi:
         inband = (h >= lo) & (h <= hi)
     else:
-        # A band written across 0 degrees (e.g. 340 to 20) is two arcs, not an empty range.
+        # A band written across 0 degrees is two arcs, not an empty range.
         inband = (h >= lo) | (h <= hi)
-    return inband & (s >= float(band["sat_min"])) & (v >= float(band["val_min"]))
+    return inband & (s >= smin) & (s <= smax) & (v >= vmin) & (v <= vmax)
+
+
+def stain_of(img, pore, classes):
+    """Mineral area fractions from a stained section.
+
+    Pore is claimed FIRST and excluded: the epoxy filled it, so those pixels are not rock. Classes
+    are then tested IN ORDER and the first match wins, so a pixel is one mineral. What matched
+    nothing is reported as `unclassified` rather than being distributed over the classes - a
+    section where a third of the rock matched no band has not been given a mineralogy."""
+    h, s, v = hsv_of(img)
+    left = ~pore
+    total = float(h.size) or 1.0
+    fracs = []
+    for c in classes:
+        b = c["band"]
+        hit = left & in_band(h, s, v, float(b["hue_lo"]), float(b["hue_hi"]),
+                             float(b["sat_min"]), float(b["sat_max"]),
+                             float(b["val_min"]), float(b["val_max"]))
+        fracs.append([c["mineral"], float(np.count_nonzero(hit)) / total])
+        left = left & ~hit
+    return {"fractions": fracs, "unclassified": float(np.count_nonzero(left)) / total}
+
 
 def shape_stats(lab, n):
     """Per-object area, perimeter, aspect and edge flags from a label image.
@@ -529,6 +694,13 @@ for i, blob in enumerate(blobs):
             row["error"] = "pore geometry needs scipy (pip install scipy)"
         except Exception as e:
             row["error"] = "geometry failed: %s" % e
+    if header.get("stain"):
+        # Same decode, same pore mask: the mineral fractions and VPORE_TS sum against each other,
+        # so they have to describe one segmentation.
+        try:
+            row["stain"] = stain_of(img, m, header["stain"]["classes"])
+        except Exception as e:
+            row["error"] = "stain reading failed: %s" % e
     if header.get("grains"):
         # Same mask again: the grain phase is defined as what the pore rule did not claim, so the
         # porosity and the grains describe one segmentation rather than two.
@@ -614,7 +786,15 @@ struct RunnerRow {
     #[serde(default)]
     grain: Option<RunnerGrain>,
     #[serde(default)]
+    stain: Option<PlateStainRaw>,
+    #[serde(default)]
     error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct PlateStainRaw {
+    fractions: Vec<(String, f32)>,
+    unclassified: f32,
 }
 
 /// Per-GRAIN arrays. Same discipline as `RunnerGeom`: the runner outlines, Rust does the
@@ -843,6 +1023,25 @@ fn summarise(g: &RunnerGeom, um_per_px: Option<f64>) -> PoreGeometry {
     }
 }
 
+/// A mineral name as a point-data item suffix: upper case, non-alphanumerics to underscore.
+/// "Ferroan calcite" becomes `MIN_FERROAN_CALCITE`.
+fn mineral_item(mineral: &str) -> String {
+    let s: String = mineral
+        .trim()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_uppercase() } else { '_' })
+        .collect();
+    // Collapse runs and trim, so "Ferroan  calcite " is not FERROAN__CALCITE_.
+    let mut out = String::new();
+    for c in s.chars() {
+        if c == '_' && out.ends_with('_') {
+            continue;
+        }
+        out.push(c);
+    }
+    out.trim_matches('_').to_string()
+}
+
 /// Turns one plate's per-grain arrays into the numbers that get stored.
 ///
 /// Apparent always; corrected only when it was asked for, and under its own names.
@@ -934,6 +1133,30 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
             skipped.push(format!("{}: {}", info.name, why));
             continue;
         }
+        // A stain scheme applied to the wrong stain returns mineral fractions that are wrong and
+        // entirely plausible, so the plate's OWN declared stain has to agree. Undeclared is
+        // refused for the same reason `prepared` is: it cannot be read off the pixels, because the
+        // evidence for "this is alizarin red" is the red about to be measured.
+        if let Some(st) = &spec.stain {
+            let want = normalize_stain(&st.stain);
+            let have = normalize_stain(&info.stain);
+            if have.is_empty() {
+                skipped.push(format!(
+                    "{}: stain not stated - set it in Plate Details, it is the laboratory's fact",
+                    info.name
+                ));
+                continue;
+            }
+            if have != want {
+                skipped.push(format!(
+                    "{}: stained '{}', but the scheme is for '{}'",
+                    info.name,
+                    info.stain,
+                    st.stain
+                ));
+                continue;
+            }
+        }
         wanted.push(info.clone());
     }
     if wanted.is_empty() {
@@ -963,6 +1186,7 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
             "grains": spec.grains,
             "min_grain_px": spec.min_grain_px.max(1),
             "grain_sep_px": spec.grain_sep_px.max(3),
+            "stain": spec.stain,
             "ids": batch.iter().map(|i| i.image_id.clone()).collect::<Vec<_>>(),
             "sizes": blobs.iter().map(|b| b.len()).collect::<Vec<_>>(),
             "preview": spec.preview_image_id,
@@ -1015,6 +1239,10 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
                         pixels: row.pixels.unwrap_or(0),
                         geometry,
                         grains,
+                        stain: row.stain.map(|s| PlateStain {
+                            fractions: s.fractions,
+                            unclassified: s.unclassified,
+                        }),
                     })
                 }
                 (None, None) => skipped.push(format!("{}: no result", info.name)),
@@ -1054,6 +1282,14 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
                         put(item, v);
                     }
                 }
+            }
+            if let Some(s) = &p.stain {
+                for (mineral, v) in &s.fractions {
+                    put(&format!("MIN_{}", mineral_item(mineral)), *v);
+                }
+                // Written every time, never only when it is large. The remainder is what says
+                // whether the rows above are a mineralogy or a partial one.
+                put("MIN_UNCLASS", s.unclassified);
             }
             if let Some(g) = &p.grains {
                 put("GRAIN_N", g.n as f32);
@@ -1096,6 +1332,43 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
          of the section, plucked grains, or epoxy that did not penetrate."
             .to_string(),
     );
+    if let Some(st) = &spec.stain {
+        // The collision is real and specific: under Dickson's stain ferroan dolomite goes
+        // turquoise and blue-dyed epoxy is blue, so on a section that was both impregnated and
+        // stained the pore rule eats the mineral. Named, never resolved automatically — which band
+        // to narrow is a judgement made looking at the plate.
+        let clashing: Vec<&str> = st
+            .classes
+            .iter()
+            .filter(|c| epoxy_collides(&spec.band, &c.band))
+            .map(|c| c.mineral.as_str())
+            .collect();
+        if !clashing.is_empty() {
+            notes.push(format!(
+                "The pore band overlaps the colour of {} - these plates are impregnated AND \
+                 stained, so pore is claimed first and that mineral is being counted as porosity. \
+                 Narrow one of the two bands on the preview before trusting either number.",
+                clashing.join(", ")
+            ));
+        }
+        let worst = plates
+            .iter()
+            .filter_map(|p| p.stain.as_ref())
+            .map(|s| s.unclassified)
+            .fold(0.0f32, f32::max);
+        if worst > 0.25 {
+            notes.push(format!(
+                "Up to {:.0}% of the rock on a plate fell in no colour band. The mineral rows are \
+                 a partial answer until that comes down - widen the bands on the preview, or say \
+                 so when the numbers are quoted.",
+                worst * 100.0
+            ));
+        }
+        notes.push(
+            "Mineral fractions are of the WHOLE plate, so pore + minerals + unclassified is 1."
+                .to_string(),
+        );
+    }
     if spec.grains {
         notes.push(
             "Grain sizes are APPARENT unless the item name says _W. A random plane rarely cuts a \
@@ -1218,6 +1491,7 @@ mod tests {
             min_grain_px: MIN_GRAIN_PX,
             grain_sep_px: GRAIN_SEP_PX,
             wicksell: false,
+            stain: None,
         };
         let res = run_pore_area(&conn, &spec).expect("pore run");
 
@@ -1303,6 +1577,78 @@ mod tests {
         // weighting and not the algorithm.
         let flat = vec![1.0; diam.len()];
         assert!((weighted_percentile(&diam, &flat, 50.0) - 1.0).abs() < 1e-9);
+    }
+
+    /// A stain scheme read off the wrong stain returns mineral fractions that are wrong and
+    /// entirely plausible, so the plate's OWN declared stain has to agree — and "not stated" is
+    /// refused, not assumed, exactly as `prepared` is.
+    #[test]
+    fn a_stain_scheme_only_applies_to_the_stain_it_is_for() {
+        assert_eq!(normalize_stain("Alizarin Red S"), "alizarinreds");
+        assert_eq!(normalize_stain("alizarin-red-s"), "alizarinreds");
+        // A spelling difference is one stain; a different stain is not.
+        assert_ne!(normalize_stain("Alizarin red S"), normalize_stain("Potassium ferricyanide"));
+        assert_eq!(normalize_stain("  "), "", "an undeclared stain normalizes to nothing");
+        // The refusal text, so the two branches cannot quietly become one.
+        let src = include_str!("petrography.rs");
+        assert!(src.contains("stain not stated"));
+        assert!(src.contains("but the scheme is for"));
+    }
+
+    /// The shipped schemes carry PUBLISHED mineral identifications and GENERIC colour bands — the
+    /// same split as the epoxy band, and the reason a stain scheme can ship at all.
+    #[test]
+    fn the_stain_schemes_are_published_identifications_with_generic_bands() {
+        let dickson = stain_scheme("Alizarin red S + potassium ferricyanide").expect("scheme");
+        let names: Vec<&str> = dickson.iter().map(|c| c.mineral.as_str()).collect();
+        // Dickson (1966): the combined stain separates the ferroan phases from the plain ones.
+        assert!(names.contains(&"Calcite") && names.contains(&"Dolomite"));
+        assert!(names.contains(&"Ferroan calcite") && names.contains(&"Ferroan dolomite"));
+        // Dolomite is identified by staying COLOURLESS, which a saturation floor cannot express —
+        // it is the whole reason StainBand carries a ceiling.
+        let dol = dickson.iter().find(|c| c.mineral == "Dolomite").unwrap();
+        assert!(dol.band.sat_max < 0.5, "unstained means a saturation CEILING");
+
+        for c in &dickson {
+            for v in [c.band.hue_lo, c.band.hue_hi] {
+                assert_eq!(v % 10.0, 0.0, "a fitted hue would be somebody's regression result");
+            }
+        }
+        assert!(stain_scheme("something nobody applied").is_none(), "no scheme is invented");
+    }
+
+    /// Blue-dyed epoxy and turquoise ferroan dolomite are the same colour, and on a section that
+    /// was both impregnated and stained the pore rule eats the mineral. It has to be reported.
+    #[test]
+    fn blue_epoxy_and_ferroan_dolomite_are_flagged_as_the_same_colour() {
+        let pore = PoreColorBand::default(); // 180..260
+        let dickson = stain_scheme("dickson").unwrap();
+        let fdol = dickson.iter().find(|c| c.mineral == "Ferroan dolomite").unwrap();
+        assert!(epoxy_collides(&pore, &fdol.band), "turquoise is inside the epoxy band");
+        // …while the red end is not, so the check is not simply always true.
+        let cal = dickson.iter().find(|c| c.mineral == "Calcite").unwrap();
+        assert!(!epoxy_collides(&pore, &cal.band), "calcite red is nowhere near blue");
+        let src = include_str!("petrography.rs");
+        assert!(src.contains("that mineral is being counted as porosity"));
+    }
+
+    /// Mineral names are the user's own text, and the item they land under must stay readable.
+    #[test]
+    fn a_mineral_name_becomes_a_readable_item() {
+        assert_eq!(mineral_item("Ferroan calcite"), "FERROAN_CALCITE");
+        assert_eq!(mineral_item("  Ferroan  calcite "), "FERROAN_CALCITE");
+        assert_eq!(mineral_item("K-feldspar"), "K_FELDSPAR");
+    }
+
+    /// The remainder is written on every run, never only when it is large: it is what says whether
+    /// the mineral rows above are a mineralogy or a partial one.
+    #[test]
+    fn the_unclassified_remainder_is_always_stored() {
+        let src = include_str!("petrography.rs");
+        assert!(src.contains("put(\"MIN_UNCLASS\""));
+        assert!(src.contains("fell in no colour band"));
+        // Pore is excluded before the classes are tested, so the fractions sum against VPORE_TS.
+        assert!(src.contains("Pore is claimed FIRST and excluded"));
     }
 
     /// Wicksell's problem has a known answer for one sphere size, and this is it.
@@ -1557,6 +1903,7 @@ mod tests {
                 min_grain_px: MIN_GRAIN_PX,
                 grain_sep_px: GRAIN_SEP_PX,
                 wicksell: false,
+                stain: None,
             },
         )
         .expect("geometry run");
@@ -1657,6 +2004,7 @@ mod tests {
                 min_grain_px: MIN_GRAIN_PX,
                 grain_sep_px: GRAIN_SEP_PX,
                 wicksell: true,
+                stain: None,
             },
         )
         .expect("grain run");
