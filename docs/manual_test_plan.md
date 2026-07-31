@@ -422,6 +422,14 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
 2. In the Wells pane Ctrl-click two OTHER wells; back in the module pane pick scope **Selection** (should show 2). Click **Run**.
 3. Read the two new **Module** entries in the History panel.
    **Expected:** Petrophysically: VSH_GR lands 0–1, high in shales, low in clean sand (spot-check in a log view). History cross-check: the step-1 entry names the well that was ACTUALLY run (not the globally selected one); the step-2 batch entry carries **no well name** (field/batch convention). Covers REVIEW.md §Round 4 "History attribution" (fix pending click-through — if the entry still names the wrong/selected well, the fix regressed: log as Fail with the well names seen).
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** `history.e2e.mjs` covers both halves.
+   The single-well test is built around the sharp clause in `workspace.ts`: it selects well A,
+   scopes the run to well B ALONE, and requires the History row to name B. Attributing to the
+   globally selected well would be right most of the time and silently wrong exactly when it
+   matters - the History is what answers "where did this curve come from" months later, and a row
+   naming a well the run never covered is a wrong answer that looks authoritative. The batch test
+   requires NO well prefix and an explicit well count.
+
    **Result — T-SHELL-15:**
 
 - [x] Pass

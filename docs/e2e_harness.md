@@ -214,7 +214,7 @@ click listener the two are equivalent — but when the *gesture* is the thing un
 
 ## Current coverage
 
-Fifty-six tests across twelve spec files. Specs share ONE app launch and one project (see the spec
+Fifty-eight tests across thirteen spec files. Specs share ONE app launch and one project (see the spec
 grouping note in `wdio.conf.mjs`), so write each one to establish what it needs and to assert
 changes as before/after differences rather than as absolute state.
 
@@ -337,6 +337,13 @@ correct one if you only read the message.
 | Selection follows the tree LIVE | Growing and shrinking, without reopening the pane |
 | The star scope resolves to the pinned set | And follows a second pin |
 | An empty set resolves to nothing | Never a silent fallback to All |
+
+`history.e2e.mjs` — Processing History attribution (T-SHELL-15):
+
+| Test | What it proves |
+|---|---|
+| A single-well run names the well that RAN | Selected A, scoped to B, the row must say B |
+| A batch names no single well | And states how many it covered |
 
 Test data is `dataset for test/examples/` (`SANDI-*`) only. Never a real client project, never a
 path from `SANDIBUMI_FIELD_FIXTURES`.

@@ -235,7 +235,16 @@ can fail for reasons unrelated to the code is a gate people learn to ignore.
 **`[x]` here means an end-to-end test drives it against the real app. It is NOT your verification
 mark** — same rule as pile B.
 
-**Done (21 of 86)**
+**Done (22 of 86)**
+
+- [x] **T-SHELL-15** — History attribution: single-well vs batch module run · `history.e2e.mjs`.
+      The contract in `workspace.ts` is sharper than it looks — a single-well run is attributed BY
+      NAME, a batch to no well at all, and **neither is ever the globally selected well**. The test
+      is built around that last clause: it selects well A, scopes the run to well B alone, and
+      requires the row to name B. Attributing to the selected well would be right most of the time
+      and silently wrong exactly when it matters, since the History is what answers "where did this
+      curve come from" months later — and a row naming a well the run never covered is a wrong
+      answer that looks authoritative.
 
 - [x] **T-WELL-03** — A multi-selection feeds a batch pane's Selection scope, LIVE ·
       `scope.e2e.mjs`. The word live is the claim: the pane must follow a selection growing AND
