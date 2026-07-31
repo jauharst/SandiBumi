@@ -58,10 +58,22 @@ export const examplesDir = path.join(repoRoot, 'dataset for test', 'examples')
  * as absolute state — `pipeline.e2e.mjs` already computes VSH on every well, so "this well has no
  * VSH" is not a safe assertion for anyone who runs after it.
  */
+/**
+ * `pipeline.e2e.mjs` runs FIRST, and that is a real constraint rather than a preference.
+ *
+ * Its opening test asserts the sandboxed project is EMPTY — which is the layer-3 isolation claim
+ * stated as a test, and worth keeping — so any spec that seeds wells before it turns that
+ * assertion red. It used to hold by the accident that "pipeline" sorted early; adding a spec whose
+ * name begins with a letter before "p" broke three tests at once and named none of the reasons.
+ * Everything after it is alphabetical and order-independent, which is what the "assert changes as
+ * before/after differences" rule in the block below is for.
+ */
+const FIRST = 'pipeline.e2e.mjs'
+
 const specFiles = fs
   .readdirSync(path.join(here, 'specs'))
   .filter((f) => f.endsWith('.e2e.mjs'))
-  .sort()
+  .sort((a, b) => (a === FIRST ? -1 : b === FIRST ? 1 : a.localeCompare(b)))
   .map((f) => path.join(here, 'specs', f))
 
 /**

@@ -235,7 +235,23 @@ can fail for reasons unrelated to the code is a gate people learn to ignore.
 **`[x]` here means an end-to-end test drives it against the real app. It is NOT your verification
 mark** — same rule as pile B.
 
-**Done (8 of 86)**
+**Done (10 of 86)**
+
+- [x] **T-PREP-01** — Module dialog machinery smoke · `moduledialog.e2e.mjs`. The pane is opened
+      the way a user opens it — Petrophysics tab, ribbon dropdown, menu item — and the item is
+      found by the module's own manifest TITLE read from `list_modules`, so a rename moves both
+      sides together. Asserts the scope control, the numeric parameters, the Outputs note (the
+      only place a user is told what a run will write before pressing Run) and the leading
+      "(none)" on a curve picker — a picker that lost it would bind the first curve in the list
+      instead, and the module would run on a curve nobody chose.
+- [x] **T-INT-06** — Negative trio · leg 1 was already pinned in Rust
+      (`all_nan_module_output_reports_error_not_success`); legs 2 and 3 are now
+      `moduledialog.e2e.mjs`. Both are frontend-only and could not be pinned in Rust: the backend
+      computes happily with an out-of-range parameter and reports success on an empty well list,
+      so nine lines in a click handler are the only thing stopping either. **The assertion that
+      matters in both is that NO RUN STARTED** — compared as a project-wide `computed_curves`
+      fingerprint before and after, because a dialog that prints a complaint and then runs anyway
+      looks identical from the message alone.
 
 - [x] **T-WELL-15** — Zones pane: add/update/delete, invalid input, per-well isolation ·
       `zones.e2e.mjs` (steps 2–5; From Tops, the History entries and Convert-to-zone are not
@@ -281,6 +297,12 @@ mark** — same rule as pile B.
       a star that looks set and was never written gives a run scope that silently empties on the
       next launch. **Not covered:** the 📌 global well LOCK (a different control from the ★), the
       panel titles following the selection, and ★ persistence across a relaunch.
+
+- [ ] **T-PETRO-03** — vsh_gr invalid parameters. `moduledialog.e2e.mjs` covers step 1's range
+      refusal — the same guard, reached through vsh_gr's own pane — including that the message
+      NAMES the parameter and its bounds, since a bare "invalid input" is true and useless on a
+      form with several numeric fields. **Not covered:** step 2, the `GR_MA >= GR_SH` guard
+      reaching the all-NaN honest-report path. That one is a cheap pile-B test on its own.
 
 - [ ] **T-RT-16** — Legacy Multimin filtered from the step picker. `shell.e2e.mjs` covers **step 5
       only** (the ribbon cross-check), and covers it well: the retirement rests on two independent

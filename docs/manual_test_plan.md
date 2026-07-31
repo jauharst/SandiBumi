@@ -1348,6 +1348,15 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 4. Open **Data Prep ▸ Bad-Hole QC Flag**: its optional inputs (DRHO, CALI, BS) each offer a leading **"(none)"** entry in the dropdown even though curves of those names exist.
 5. Click **Project ▸ Help ▸ Help** with the Formation Temperature pane focused — the method narration/formula for the module appears.
    **Expected:** All 13 titles present; pane form matches the manifest exactly; "(none)" selectable on optional inputs (covers REVIEW.md §Round 4 "Blank '(none)' for optional inputs"); pane docks/undocks like any other (covers REVIEW.md §All tools as dockview panes #24).
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** `moduledialog.e2e.mjs` opens a module
+   pane the way a user does - Petrophysics tab, ribbon dropdown, menu item - finding the item by the
+   module's own manifest TITLE read from `list_modules`, so a rename moves both sides together
+   rather than leaving the test hunting a string that no longer exists. It asserts the scope
+   control, the numeric parameter fields, the Outputs note (the only place a user is told what a run
+   will write before pressing Run) and the leading **(none)** option on a curve picker - a picker
+   that lost it would bind the first curve in the list instead, and the module would run on a curve
+   nobody chose.
+
    **Result — T-PREP-01:**
 
 - [ ] Pass
@@ -1786,6 +1795,12 @@ Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a
 1. Type `GR_SH` = 1500 (above its 1000 max); click **Run**.
 2. Restore `GR_SH` = 120; set `GR_MA` = 150 (≥ GR_SH, but inside its own 0–200 range); click **Run**.
    **Expected:** Step 1: no run — the result line reads "GR_SH: value must be between 0 and 1000." and focus returns to the field. Step 2: the run executes but every sample is skipped by the GR_MA ≥ GR_SH guard → all-NaN output, and the Processing panel reports the well as **Warned/error ("no finite output")**, NOT a green success (covers REVIEW.md §"Round 4 — AUDIT-2026-07-21 safe-bucket follow-through" item "All-NaN module runs report honestly"). No crash; catalog stats stay finite.
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** step 1 only.
+   `moduledialog.e2e.mjs` drives the range refusal through vsh_gr's own pane and checks the message
+   NAMES the parameter and its bounds - a bare "invalid input" is true and useless on a form with
+   several numeric fields - and that nothing was written. **Not covered:** step 2, the
+   `GR_MA >= GR_SH` guard reaching the all-NaN honest-report path.
+
    **Result — T-PETRO-03:**
 
 - [ ] Pass
@@ -5104,6 +5119,15 @@ All source reading done — I verified every label against `index.html`, `ribbon
 2. In **VSH from Gamma Ray**, type GR_SH = `2000` (max 1000) and **Run**.
 3. Set scope = **Selection** with nothing selected in the Wells pane and **Run**.
    **Expected:** (1) the run is reported as an error/⚠ Warned in the Processing panel — NOT a green all-wells-computed success (an all-NaN output must not pass as success; covers REVIEW.md §Round 4 — "All-NaN module runs report honestly"). (2) inline validation "GR_SH: value must be between 0 and 1000." and no run starts. (3) "No wells in scope — pick a group, pin/select wells, or choose All." and no run starts. No crash in any case.
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** legs 2 and 3 are
+   `moduledialog.e2e.mjs`; leg 1 is already pinned in Rust by
+   `all_nan_module_output_reports_error_not_success` (workflow.rs). Both frontend legs are
+   frontend-ONLY: the backend computes happily with an out-of-range parameter and reports success on
+   an empty well list, so a click handler is the only thing stopping either, and no Rust test can
+   reach them. **The assertion that matters is that NO RUN STARTED** - a project-wide
+   `computed_curves` fingerprint is compared before and after, because a dialog that prints a
+   complaint and then runs anyway looks identical from the message alone.
+
    **Result — T-INT-06:**
 
 - [ ] Pass

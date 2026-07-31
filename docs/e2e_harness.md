@@ -188,7 +188,7 @@ click listener the two are equivalent — but when the *gesture* is the thing un
 
 ## Current coverage
 
-Twenty-six tests across five spec files. Specs share ONE app launch and one project (see the spec
+Twenty-nine tests across six spec files. Specs share ONE app launch and one project (see the spec
 grouping note in `wdio.conf.mjs`), so write each one to establish what it needs and to assert
 changes as before/after differences rather than as absolute state.
 
@@ -241,6 +241,19 @@ changes as before/after differences rather than as absolute state.
 | `bottom <= top` is refused | A dialog-only guard — the backend has none — asserted on stored state |
 | Zones stay on their own well | No leak to a neighbour that nobody edited |
 | Delete from the pane | Gone from the project and from the table |
+
+`moduledialog.e2e.mjs` — the module pane and its two refusals (T-PREP-01, T-INT-06 legs 2-3,
+T-PETRO-03 step 1):
+
+| Test | What it proves |
+|---|---|
+| The pane form is built from the manifest | Scope, parameters, Outputs note, and a curve picker leading with "(none)" |
+| An out-of-range parameter is refused | The message names the parameter AND its bounds, and nothing was written |
+| An empty scope is refused | The message says how to fix it, and nothing was written |
+
+Both refusals compare a project-wide `computed_curves` fingerprint before and after. That is the
+real claim: a dialog that prints a complaint and then runs anyway is indistinguishable from a
+correct one if you only read the message.
 
 Test data is `dataset for test/examples/` (`SANDI-*`) only. Never a real client project, never a
 path from `SANDIBUMI_FIELD_FIXTURES`.
