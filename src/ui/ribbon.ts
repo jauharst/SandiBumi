@@ -45,6 +45,7 @@ import { openImageImportDialog } from "./imageImportDialog";
 import { openDataSetsDialog } from "./dataSetsDialog";
 import { openWorkbookDialog } from "./workbookDialog";
 import { openDeckDialog } from "./deckDialog";
+import { requireWell } from "./needWell";
 
 interface RibbonMenuItem {
   label: string;
@@ -1109,11 +1110,8 @@ export class Ribbon {
 
   /** "Export LAS…" — writes the selected well (standard + computed curves) as LAS 2.0. */
   private async handleExport(): Promise<void> {
-    const well = appState.selectedWell.get();
-    if (!well) {
-      setStatus("Select a well first (Wells & Tops panel)");
-      return;
-    }
+    const well = requireWell("Export LAS");
+    if (!well) return;
     let dest: string | null;
     try {
       dest = await save({
@@ -1254,11 +1252,8 @@ export class Ribbon {
   /** "Data Sets…" — every delivery on the selected well (core, SCAL, surveys, point data):
    *  which one is live, switch, or delete (T-IMP-08 / T-IMP-12). */
   private handleDataSets(): void {
-    const well = appState.selectedWell.get();
-    if (!well) {
-      setStatus("Select a well first (Wells & Tops panel)");
-      return;
-    }
+    const well = requireWell("Data Sets");
+    if (!well) return;
     openDataSetsDialog(well, () => this.workspace.notifyDataChanged());
   }
 
@@ -1290,11 +1285,8 @@ export class Ribbon {
    *  (other deliveries of the well keep their own depths).
    *  Exactly reversible, so it lands on the undo stack (Ctrl+Z shifts back). */
   private handleShiftCore(): void {
-    const well = appState.selectedWell.get();
-    if (!well) {
-      setStatus("Select a well first (Wells & Tops panel)");
-      return;
-    }
+    const well = requireWell("Shift Core");
+    if (!well) return;
     const content = document.createElement("div");
     const doc = document.createElement("p");
     doc.className = "modal-doc";
@@ -1357,11 +1349,8 @@ export class Ribbon {
    *  know what a vendor tape holds until it is in, so duplicates are KEPT under their own
    *  set and compared afterwards. */
   private async handleImportDlis(): Promise<void> {
-    const well = appState.selectedWell.get();
-    if (!well) {
-      setStatus("Select a well first (Wells & Tops panel)");
-      return;
-    }
+    const well = requireWell("Import DLIS");
+    if (!well) return;
     let path: string | null;
     try {
       const selection = await open({
@@ -1472,11 +1461,8 @@ export class Ribbon {
    *  more files (flat CSV, porous-plate wide table, or per-plug centrifuge blocks) and
    *  fits the Leverett J-function, reporting SWH_A/SWH_B for the sw_height module. */
   private async handleImportScal(): Promise<void> {
-    const well = appState.selectedWell.get();
-    if (!well) {
-      setStatus("Select a well first (Wells & Tops panel)");
-      return;
-    }
+    const well = requireWell("Import SCAL");
+    if (!well) return;
     let paths: string[];
     try {
       const selection = await open({
@@ -1655,11 +1641,8 @@ export class Ribbon {
   /** "Import Aux…" — petrography / XRD / perforation (tops-style CSV/TXT) for the
    *  selected well. Each import replaces the well's previous rows of that dataset. */
   private handleImportAux(): void {
-    const well = appState.selectedWell.get();
-    if (!well) {
-      setStatus("Select a well first (Wells & Tops panel)");
-      return;
-    }
+    const well = requireWell("Import Aux");
+    if (!well) return;
     const content = document.createElement("div");
     const doc = document.createElement("p");
     doc.className = "modal-doc";
@@ -1773,11 +1756,8 @@ export class Ribbon {
   /** "Import Deviation…" — loads an MD/INC/AZI survey CSV and computes minimum-curvature
    *  TVD/TVDSS for the selected well. Prompts for the datum (KB) elevation. */
   private async handleImportDeviation(): Promise<void> {
-    const well = appState.selectedWell.get();
-    if (!well) {
-      setStatus("Select a well first (Wells & Tops panel)");
-      return;
-    }
+    const well = requireWell("Import deviation survey");
+    if (!well) return;
     let path: string | null;
     try {
       const selection = await open({
@@ -1954,11 +1934,8 @@ export class Ribbon {
 
   /** "Well Header…" — edits the selected well's field / TD / KB datum (Phase 6c). */
   private async handleWellHeader(): Promise<void> {
-    const selected = appState.selectedWell.get();
-    if (!selected) {
-      setStatus("Select a well first (Wells & Tops panel)");
-      return;
-    }
+    const selected = requireWell("Well header");
+    if (!selected) return;
     // `selectedWell` is a snapshot captured on tree-click and is NOT re-broadcast on a
     // dataVersion bump, so after an import (or a prior header save) it can carry stale
     // (often null) coordinates. Re-read the well from the DB so the X/Y/zone fields show

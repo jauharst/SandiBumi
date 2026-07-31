@@ -666,10 +666,15 @@ Multimin Parameters.xlsx, extracted into `ref_kkt_onwj_wave_e.md` — client fil
       shows the leftover columns with their sniffed type, opt-in, checked-state remembered by
       header NAME across role changes (a column claimed by a role leaves the list). Values are
       stored VERBATIM — no percent/unit conversion is applied to extras, and the dialog says so.
-- [ ] **(T-IMP-05) Silent import guards.** Core is now covered (the wizard opens without a
-      selected well and refuses with a reason only when nothing can be routed). SCAL still
-      status-bar-refuses without a well; Jauhar may want a louder guard — his call after the
-      2026-07-30 test-plan explanation.
+- [x] **(T-IMP-05) Silent import guards** — **done 2026-07-31.** Core was already covered. Every
+      remaining action that needs a selected well refused only in the STATUS BAR: the user picked
+      "Import SCAL…", expected a file dialog, and got nothing, with the reason in a corner nobody
+      was looking at. "Nothing happened" is indistinguishable from a broken button, and the usual
+      next move is to click it again. `src/ui/needWell.ts` `requireWell(action)` is now the one
+      refusal — a named modal that says which action, why, and what to do — used by Export LAS,
+      Import DLIS, Import SCAL, Import deviation, Import Aux, Import pictures, Data Sets, Shift
+      Core and Well header. The status line still receives the message; it just is not the only
+      place it appears. One helper rather than nine copies, the `followCore.ts` argument.
 - [x] **(T-IMP-08/-12) Duplicate/versioning for core + deviation data.** _(Done 2026-07-30)_
       Core plugs and surveys now follow the set model, with a deliberately DIFFERENT resolution
       rule from curves: two curve sets can both be read (a set supplies mnemonics RAW lacks),

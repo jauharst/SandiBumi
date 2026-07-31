@@ -6637,3 +6637,17 @@ claims, and a report has to be able to say which it quoted.
 
 **Worth a real test:** label a section you have already point counted by hand, then compare the
 fractions against your own count. That is the only calibration that means anything here.
+
+---
+
+## A click that needs a well now says so (2026-07-31)
+
+ROADMAP T-IMP-05. Small, but it is the kind of thing that wastes ten minutes and looks like a bug.
+
+- [ ] With **no well selected**, click each of: Export LAS, Import DLIS, Import SCAL, Import
+      deviation, Import Aux, Import pictures, Data Sets, Shift Core, Well header.
+- [ ] Each should open a small dialog naming that action and saying no well is selected, with what
+      to do about it. Previously the only sign was one line in the status bar.
+- [ ] **OK** closes it. Select a well and the same click should go straight through with no dialog.
+
+Nothing changed about what the actions do — only about how they refuse.

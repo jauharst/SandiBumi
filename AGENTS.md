@@ -1202,6 +1202,24 @@ opt-in and its absence fails only the geometry, never the area fraction. The rea
 `a_disc_reads_as_round_and_its_diameter_follows_the_declared_scale` is `#[ignore]`d for the same
 reason the rest are.
 
+## Refusing a click that needs a well (2026-07-31)
+
+`src/ui/needWell.ts` `requireWell(action)` is the ONE refusal for an action that works on the
+selected well, and it opens a named dialog rather than writing to the status bar.
+
+**A status-bar line is the wrong place to refuse a click.** The user picked "Import SCAL…" and
+expected a file dialog; what they got was nothing, with the reason in a corner of the window nobody
+was looking at. "Nothing happened" is indistinguishable from a broken button, and the usual next
+move is to click it again — which does nothing again. It is the same family as every other
+refusal in this app (an undeclared stain, an unimpregnated plate, a plug with no partner inside the
+depth tolerance): each is refused BY NAME with the fix stated. This was the one place still quiet.
+
+The status line still receives the message, because it belongs in the record of what was attempted;
+it simply cannot be the only place it appears. One helper rather than nine copies — the
+`followCore.ts` argument: same decision, and nine copies is nine places for the wording to drift.
+Callers: Export LAS, Import DLIS, Import SCAL, Import deviation, Import Aux, Import pictures, Data
+Sets, Shift Core, Well header.
+
 ## Mineral classifier (2026-07-31 — Part 2 family A3)
 
 `petrography.rs` `run_plate_classifier` + `mineralClassDialog.ts` (Petrophysics ▸ Petrography ▸

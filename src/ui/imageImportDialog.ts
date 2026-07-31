@@ -12,6 +12,7 @@ import { formRow, openModal } from "./modal";
 import { buildFollowCoreRow } from "./followCore";
 import { buildPlateDetails } from "./plateDetails";
 import { suggestSetName } from "./importSetDialog";
+import { requireWell } from "./needWell";
 
 /** Image import wizard: probe → CONFIRM → commit, the same shape as the core-table wizard
  *  and for the same reason. A plate's depth is the one thing nobody can recover later by
@@ -30,7 +31,7 @@ export async function openImageImportDialog(
   onDone: () => void,
 ): Promise<void> {
   if (!well) {
-    setStatus("Select a well first (Wells & Tops panel) — pictures are imported per well");
+    requireWell("Import pictures");
     return;
   }
   setStatus(`Reading ${paths.length} image file(s)…`);
