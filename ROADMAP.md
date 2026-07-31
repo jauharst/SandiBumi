@@ -789,6 +789,22 @@ The actionable backlog. Roughly ordered: safe frontend wins first, then Performa
       `rocktyping_without_a_permeability_curve_fails_and_writes_no_curves` (`workflow.rs`).
       Suppressing the write is one filter, but it changes behaviour for every module. Finding 10.
 
+- [x] **Legacy-multimin RECON_ERR at 3 tools — CLOSED 2026-07-31, no sign-off needed.** REVIEW.md
+      still lists this among the findings awaiting a decision because it would change
+      interpretation numbers. It does not need one. Legacy `multimin` is **retired** — `run_module`
+      blocks it, the solver body is gone — so that instance cannot occur. The concern was inherited
+      by SandiMin and is inherent rather than fixable: with as many equations as components the
+      solve reproduces the logs exactly whatever the endpoints are, so the residual carries no
+      information about them. SandiMin **detects** it (`dof == 0`) and returns `dof_note` telling
+      the user RECON is forced to ~0 and to add an input log. Measured on one well, one set of
+      logs, correct endpoints throughout: **dof 0 → RECON ~0.00; dof 2 → RECON 0.62**; with a
+      0.4 g/cc endpoint error the square case still reports ~0 while the clay volume moves, and the
+      dof-2 case goes 0.62 → 1.22. Pinned by
+      `an_exactly_determined_model_hides_a_wrong_endpoint_and_only_the_dof_note_says_so`
+      (`multimin2.rs`). **Remaining work is bookkeeping plus one UI judgement:** drop the item from
+      REVIEW.md's sign-off list, and check during click-through that the SandiMin pane makes the
+      note hard to miss. `docs/review_triage.md` finding 11; T-RT-18 carries a superseded block.
+
 **Performance (was "P2") — speed at field scale (100+ wells)** — all 6 mapped by a read-only
 investigation wave (file:line + risk). **5 of 6 shipped: #127 (crossplot memoize), #128 (long
 commands off the event loop), #130 (batch curve reads), #131 (raw-IPC ArrayBuffers), #132

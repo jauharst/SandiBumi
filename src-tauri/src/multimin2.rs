@@ -2313,6 +2313,147 @@ mod tests {
         assert!(res.dof_note.is_some(), "exactly-determined model should carry a dof note");
     }
 
+    /// T-RT-18, carried onto the module that actually ships.
+    ///
+    /// The audit's legacy-multimin finding was that RECON_ERR reads ~0 whenever the system is
+    /// exactly determined — the everyday no-PEF case — so a mis-parameterised model passes QC
+    /// while its volumes are wrong. Legacy `multimin` is retired and blocked, so that instance is
+    /// gone; the question that survives is whether SandiMin inherited it.
+    ///
+    /// It did — it cannot not, it is linear algebra: with as many equations as components the
+    /// solve reproduces the measurements exactly whatever the endpoints are, so the residual
+    /// carries no information about them. What SandiMin adds is that it SAYS so, via `dof_note`.
+    /// `dof_note_set_when_exactly_determined` already checks the note appears. What was never
+    /// asserted is the reason it has to be there, which is the whole of T-RT-18: the model is
+    /// wrong, the volumes move, and RECON does not budge.
+    ///
+    /// The over-determined control is what makes this a statement about the DOF rather than about
+    /// this particular endpoint — `recon_qc_emits_per_tool_curves_and_flags_endpoint_error` shows
+    /// the same +0.4 g/cc error is caught loudly at dof 2.
+    #[test]
+    fn an_exactly_determined_model_hides_a_wrong_endpoint_and_only_the_dof_note_says_so() {
+        let q = lib_get("Quartz");
+        let ill = lib_get("Illite");
+        let mut wat = lib_get("Water Sxo");
+        wat.zone = String::new();
+
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, "MM-BLIND", None, None, None).unwrap();
+        let n = 8usize;
+        let depth: Vec<f32> = (0..n).map(|i| 2000.0 + i as f32 * 0.5).collect();
+        crate::db::insert_standard_curves(
+            &conn, wid, depth, vec![40.0; n], vec![2.0; n], vec![0.2; n], vec![2.45; n], vec![80.0; n],
+            vec![f32::NAN; n],
+        )
+        .unwrap();
+        let db = Mutex::new(conn);
+
+        // Two tools + unity against three components = exactly determined. This is the ordinary
+        // one-log-missing case the audit named, not a contrived one.
+        let square = || vec![
+            ToolSpec { key: "RHOB".into(), curve: "RHOB".into(), sigma: 0.03 },
+            ToolSpec { key: "NPHI".into(), curve: "NPHI".into(), sigma: 0.03 },
+        ];
+        let over = || {
+            let mut t = square();
+            t.push(ToolSpec { key: "DT".into(), curve: "DT".into(), sigma: 2.0 });
+            t.push(ToolSpec { key: "GR".into(), curve: "GR".into(), sigma: 6.0 });
+            t
+        };
+        let run = |comps: Vec<Component>, tools: Vec<ToolSpec>, prefix: &str| -> MultiminResult {
+            run_multimin(
+                &db,
+                &MultiminRequest {
+                    components: comps,
+                    tools,
+                    apply_well_ids: vec![wid.to_string()],
+                    output_prefix: prefix.into(),
+                    unity: true,
+                    fluid: None,
+                    ftemp_curve: None,
+                    recon_qc: false,
+                    sw_model: SwModel::LinearDw,
+                    porosity_source: PorositySource::Cec,
+                    enforce_porosity: true,
+                    enforce_bndwat: true,
+                    enforce_water_mud: true,
+                    sigma_constraint: 0.01,
+                },
+                None,
+            )
+        };
+        let mean_vol = |name: &str| -> f64 {
+            let c = db.lock().unwrap();
+            let cols = fetch_curve_frame(&c, &wid.to_string(), &[name.to_string()]).unwrap().1;
+            let fin: Vec<f32> = cols[name].iter().copied().filter(|v| v.is_finite()).collect();
+            assert!(!fin.is_empty(), "{name} produced no finite samples");
+            fin.iter().map(|v| *v as f64).sum::<f64>() / fin.len() as f64
+        };
+
+        // The same endpoint error the over-determined test uses: illite 0.4 g/cc too dense.
+        let mut ill_bad = ill.clone();
+        *ill_bad.endpoints.get_mut("RHOB").unwrap() += 0.4;
+
+        // --- Exactly determined: the model is wrong and the QC cannot tell. ---
+        let good = run(vec![q.clone(), ill.clone(), wat.clone()], square(), "SG");
+        assert!(good.error.is_none(), "err={:?}", good.error);
+        assert_eq!(good.dof, 0);
+        let vol_good = mean_vol("VOL_ILLITE");
+
+        let bad = run(vec![q.clone(), ill_bad.clone(), wat.clone()], square(), "SB");
+        assert!(bad.error.is_none(), "err={:?}", bad.error);
+        assert_eq!(bad.dof, 0);
+        let vol_bad = mean_vol("VOL_ILLITE");
+
+        // The answer moved — this is a materially different clay volume.
+        let moved = (vol_bad - vol_good).abs();
+        assert!(
+            moved > 0.02,
+            "the wrong endpoint must actually change the answer, else the test proves nothing: \
+             {vol_good} vs {vol_bad}"
+        );
+
+        // The QC did not. Both reconstructions are essentially perfect because the system is
+        // square, so RECON is describing the arithmetic rather than the model.
+        for (label, res) in [("correct", &good), ("wrong endpoint", &bad)] {
+            let recon = res.wells[0].mean_recon;
+            assert!(
+                recon < 0.1,
+                "{label}: an exactly-determined solve reconstructs its inputs regardless, recon={recon}"
+            );
+        }
+
+        // The note is the ONLY thing standing between the user and a silently-perfect QC.
+        assert!(bad.dof_note.is_some(), "the dof note must be present — nothing else flags this");
+        let note = bad.dof_note.clone().unwrap();
+        assert!(
+            note.contains("RECON") && note.to_lowercase().contains("add an input log"),
+            "the note must name RECON and say what to do about it: {note}"
+        );
+
+        // --- Control: add two tools and the reconstruction starts carrying information. ---
+        let over_good = run(vec![q.clone(), ill, wat.clone()], over(), "OG");
+        let over_bad = run(vec![q, ill_bad, wat], over(), "OB");
+        assert_eq!(over_good.dof, 2);
+        assert!(over_good.dof_note.is_none(), "an over-determined model needs no warning");
+        let (rg, rb) = (over_good.wells[0].mean_recon, over_bad.wells[0].mean_recon);
+
+        // The sharpest statement of the finding, and it needs no endpoint error at all: same well,
+        // same logs, same components, CORRECT endpoints throughout — the square solve reports
+        // essentially zero incoherence and the over-determined one reports a real number. The
+        // difference is not the model, it is whether anything was left over to check it with.
+        let square_recon = good.wells[0].mean_recon;
+        assert!(
+            rg > square_recon + 0.3,
+            "identical model and logs: square reports {square_recon}, over-determined reports {rg} — \
+             the square figure is arithmetic, not fit quality"
+        );
+        // And only with those degrees of freedom does the endpoint error move the number.
+        assert!(rb > rg * 1.5, "the endpoint error must show once RECON can see it: {rg} -> {rb}");
+    }
+
     #[test]
     fn recovers_known_three_mineral_mix() {
         let (q, ill) = (lib_get("Quartz"), lib_get("Illite"));

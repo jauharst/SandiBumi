@@ -30,7 +30,7 @@ Pile D is the number that matters: **37 tests, about one in seven, genuinely nee
 | Pile | Done | Remaining |
 |---|---|---|
 | **A** — was already pinned before this work started | **21** | — |
-| **B** — a Rust test now checks it | **24** | 21 (of 44 — T-IMP-06 regraded to D) |
+| **B** — a Rust test now checks it | **26** | 17 (of 43 — T-IMP-06 and T-RT-18 regraded out) |
 | **C** — a machine now drives it | **5 harness tests** | 81 unblocked (+61 blocked) |
 
 ### Pile A — the checklist
@@ -81,7 +81,7 @@ verification mark** — that lives in `docs/manual_test_plan.md` and nothing aut
 touches it. A `[x]` below says the arithmetic is pinned; it does not say the feature works on
 your wells.
 
-**Done (24 of 44)**
+**Done (26 of 43)**
 
 - [x] **T-REP-18** — SQL Query rejects writes · `readonly_query_refuses_every_write_shape_including_a_cte_prefix` (`db.rs`)
 - [x] **T-SHIP-03** — missing perm curve fails loudly · `a_missing_curve_fails_by_name_rather_than_computing_on_another` (`lorenz.rs`)
@@ -140,18 +140,45 @@ your wells.
   New here: step 3's monotone-ordering claim, which **fails** (finding 9), and that an invalid
   sample blanks all ELEVEN outputs rather than the three the old test checked.
 
+- [~] **T-ADV-10** — RtC/IMTS on an SSPW-only well ·
+  `the_sspw_fallback_covers_imts_and_chooses_sample_by_sample` (`lrlc.rs`). **Graded honestly:**
+  `rtc_falls_back_to_sspw_curve_names` already pinned the sw_rtc half. New here: **sw_imts**, which
+  the manual test asks you to repeat and which nothing checked, and that `prefer` chooses per
+  SAMPLE — a section reprocessed through SSPW leaves SSC curves above and below it, and a
+  curve-level fallback would either ignore the new work or throw away the old. The fallback is also
+  asserted to land on the SAME answer as the SSC path, not merely on *an* answer.
+- [~] **T-ADV-11** — RtC with no porosity curve: honest failure ·
+  `rtc_without_porosity_under_either_name_is_reported_not_returned_as_success` (`workflow.rs`).
+  **Graded honestly:** `all_nan_module_output_reports_error_not_success` already pinned the guard
+  on vsh_gr and electrofacies. New here: sw_rtc, which is the case the guard was written for and
+  the nastier one — RES_DEEP is healthy, so a full-length SWT_RTC comes back MISSING at every
+  depth, and on a saturation curve that is the difference between "no answer" and "no
+  hydrocarbon". The control gives the well porosity under the FALLBACK name only, so the refusal
+  is provably about absent porosity rather than the module failing to look for the second name.
+  Note finding 10 applies here too: the blank curves are still written.
+
 All three items flagged **silent-wrongness class** (T-REP-18, T-SHIP-03, T-INT-11) are closed.
 
-**Regraded out of pile B (1)**
+**Regraded out of pile B (2)**
 
 - **T-IMP-06 (DLIS)** moves to **pile D — genuinely yours.** It needs a real `.dlis` file and the
   `dlisio` package; `dlis.rs::import_real_dlis` already exists for it but is `#[ignore]`d behind
   `SANDIBUMI_TEST_DLIS`, because DLIS is a binary vendor format and there is no honest way to
   synthesise a fixture that exercises sentinel screening and mnemonic collision. Point the
   variable at one of your own files and `cargo test -- --ignored` runs it; nothing automated can
-  retire it. Pile B is therefore 44 items, not 45.
+  retire it.
 
-**Open (21)**
+- **T-RT-18 (legacy Multimin RECON_ERR at 3 tools)** cannot be run **or** pinned as written: the
+  module it tests is **retired**. `modules::run_module` blocks `multimin` through
+  `retired_module`, the solver body was deleted with it, and the spec survives only so a saved
+  chain resolves by name. Following the test's steps today gets a loud "use SandiMin" refusal at
+  step 3, not a RECON_ERR to read. Already covered by `multimin_is_retired_but_still_cataloged`.
+  The *concern* is not obsolete, though, and is now pinned on the module that ships — see
+  finding 11.
+
+Pile B is therefore 43 items, not 45.
+
+**Open (17)**
 
 - [ ] T-PLOT-19 — Curve Edit negatives (invalid input, stale undo)
 - [ ] T-REP-02 — Composite render: layout, print scale, pagination
@@ -166,11 +193,8 @@ All three items flagged **silent-wrongness class** (T-REP-18, T-SHIP-03, T-INT-1
 - [ ] T-PREP-18 — Splice Curves at depth
 - [ ] T-PETRO-02 — vsh_gr nonlinear options + version N+1
 - [ ] T-PETRO-13 — zone parameter override: RW in one zone only
-- [ ] T-ADV-10 — RtC/IMTS on an SSPW-only well: fallback
-- [ ] T-ADV-11 — RtC with no porosity curve: honest failure
 - [ ] T-ADV-13 — Saturation-Height on a deviated well (TVD wiring)
 - [ ] T-ADV-17 — SandiMin re-run, lowercase prefix, no shadow rows
-- [ ] T-RT-18 — Legacy Multimin RECON_ERR at exactly 3 tools
 - [ ] T-SHELL-07 — Save Project As = backup copy
 - [ ] T-SHELL-09 — project switch refused while a chain runs
 
@@ -460,7 +484,7 @@ these turns on a judgement about real rock, a visual read, or a feel for whether
 
 ---
 
-## Ten things the triage found that are worth fixing regardless
+## Eleven things the triage found that are worth fixing regardless
 
 These came out of reading all 250 tests against the current code. Each was verified directly,
 not taken on a subagent's word. **Findings 1, 2 and 3 have since been fixed — see the notes
@@ -688,6 +712,46 @@ module (gascorr without precalc, electrofacies with no usable curve, an equation
 input), and a blank curve is arguably the honest record that a run happened. Pinned as-is by
 `rocktyping_without_a_permeability_curve_fails_and_writes_no_curves`, which asserts both halves —
 the rows exist, and not one of them is finite.
+
+### 11. The held legacy-multimin RECON_ERR item is already answered — **CLOSE IT**
+
+`REVIEW.md` lists "legacy-multimin RECON_ERR at 3 tools" among the findings **awaiting your
+sign-off because they would change interpretation numbers**. It does not need your sign-off. It
+was resolved twice over while nobody updated the list, and T-RT-18 still instructs you to run a
+module that refuses to start.
+
+**First, the module is gone.** Legacy `multimin` is retired: `run_module` blocks it via
+`retired_module`, the solver body was deleted, and the spec survives only so a saved chain
+resolves by name and can show its stored parameters while you redo it in SandiMin. T-RT-18 step 3
+gets a "use SandiMin" refusal, not a RECON_ERR.
+
+**Second, the concern is real, it was inherited, and SandiMin already handles it.** The blindness
+is not a bug anyone can fix — it is linear algebra. With as many equations as components the solve
+reproduces the measurements exactly whatever the endpoints are, so the residual says nothing about
+them. What SandiMin adds is that it *detects* the condition (`dof == 0`) and returns `dof_note`
+saying RECON is forced to ~0 and telling the user to add an input log.
+
+Measured on one well, one set of logs, one set of components, **correct endpoints throughout**:
+
+| tools | dof | RECON |
+|---|---|---|
+| RHOB + NPHI (+ unity) | 0 | **~0.00** |
+| + DT + GR | 2 | **0.62** |
+
+The square figure is arithmetic, not fit quality. Add the 0.4 g/cc illite density error from the
+existing endpoint test and the square case still reports ~0 while the clay volume moves materially;
+at dof 2 the same error takes RECON from 0.62 to 1.22.
+
+`dof_note_set_when_exactly_determined` already checked the note appears. It never checked the
+reason it must be there, which is the whole of T-RT-18 — so
+`an_exactly_determined_model_hides_a_wrong_endpoint_and_only_the_dof_note_says_so` now pins it,
+with the over-determined run as the control.
+
+**Nothing to decide, and nothing to fix.** What is left is bookkeeping: drop the item from
+REVIEW.md's sign-off list, and T-RT-18's instruction now carries a superseded block pointing at
+SandiMin. The one judgement worth making is a UI one — the note is returned, and whether the
+SandiMin pane makes it hard to miss is worth a look during your click-through, because a warning
+nobody reads is the same as no warning.
 
 ---
 

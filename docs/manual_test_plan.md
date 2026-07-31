@@ -2213,6 +2213,8 @@ Shared preconditions: project open in `npm run tauri dev` with at least one Maha
 3. Log View: SWT_RTC / SWT_IMTS on this well.
    **Expected:** both runs succeed with FINITE Sw curves — PHIT/CAPBW/CBW silently fall back per-sample to PHIT_SSPW/CAPBW_SSPW/CBW_SSPW (covers REVIEW.md §Round 4 "LRLC SSPW fallback", **Try** case verbatim). Sw values plausible per T-ADV-08/09 criteria.
    **Known issue:** AUDIT-2026-07-21 "sw_rtc/sw_imts default input wiring points only to SSC's curve names; running them against an SSPW-only well silently produces an all-NaN 'success'" — fixed in the uncommitted Round-4 batch. Expect PASS; an all-blank Sw curve here is that finding resurfacing — log as known, not new.
+   **Automated coverage - pinned (pile B, 2026-07-31):** the sw_rtc half was already covered by `rtc_falls_back_to_sspw_curve_names`; `the_sspw_fallback_covers_imts_and_chooses_sample_by_sample` (lrlc.rs) adds sw_imts and pins that the fallback is per SAMPLE, not per curve - so a section reprocessed through SSPW mixes cleanly with SSC curves above and below it. It also checks the fallback lands on the SAME Sw as the SSC path, not merely on a finite one.
+
    **Result — T-ADV-10:**
 
 - [ ] Pass
@@ -2231,6 +2233,8 @@ Shared preconditions: project open in `npm run tauri dev` with at least one Maha
 2. Read the pane result line and the Processing panel row for this well.
    **Expected:** NOT a green "N samples → …" success: the well is reported as an error / **Warned** with "no finite output — every sample is missing (check inputs…)" and the pane says "0/1 well(s) computed — 1 need attention" (covers REVIEW.md §Round 4 "All-NaN module runs report honestly").
    **Known issue:** AUDIT-2026-07-21 "Module-run status reports '✓ success' even when every output sample is MISSING" — fixed in the uncommitted Round-4 batch. Expect PASS; a green full-sample-count success here is that finding — log as known.
+   **Automated coverage - pinned (pile B, 2026-07-31):** `rtc_without_porosity_under_either_name_is_reported_not_returned_as_success` (workflow.rs), with the well then given porosity under the FALLBACK name only as the control - so the refusal is provably about absent porosity, not about sw_rtc failing to look for the SSPW name. One thing to expect that Expected does not mention: per finding 10, the blank output curves ARE still written to the catalog.
+
    **Result — T-ADV-11:**
 
 - [ ] Pass
@@ -2794,6 +2798,27 @@ Covers the four Rock Typing modules on the Petrophysics ribbon (`rocktyping`, `l
 3. **Run chain** on the same well; inspect the new RECON_ERR version and the volume curves.
    **Expected (desired behavior):** RECON_ERR should flag the wrong-endpoint intervals (or the curve should be NaN/flagged as under-constrained at 3 tools) so the tester is never shown a silently-perfect QC on a mis-parameterized model.
    **Known issue:** AUDIT-2026-07-21-full-qc.md, Legacy multimin finding 2 (CONFIRMED, fix currently HELD per REVIEW.md "6 findings that WOULD change interpretation numbers await your sign-off (… legacy-multimin RECON_ERR at 3 tools …)"): "RECON_ERR is a near-guaranteed ~0 (uninformative) QC signal whenever exactly 3 of the 4 tools are live — the common one-log-missing case (e.g. no PEF)" — with 3 tool rows + the unity row the system is square, so "the NNLS solve is provably equal to the exact solution of that square system … so RECON_ERR … reads ~0 regardless of whether the chosen endpoints are physically right for the rock." Expect RECON_ERR ≈ 0 everywhere despite the wrong endpoint (while VOL_CLAY can be off by up to 100% relative per the verifier's numerical experiment). Mark Fail-as-predicted and record the observed RECON_ERR magnitude for the sign-off decision.
+   **SUPERSEDED 2026-07-31 — do not run this one; mark it Blocked and move on.** The module it
+   tests is RETIRED. `run_module` blocks legacy `multimin` and the solver body was deleted; the spec
+   survives only so a saved chain still resolves by name and can show its stored parameters while
+   you redo the step in SandiMin. Step 3 gets a loud "use SandiMin" refusal, not a RECON_ERR to
+   read. The Known issue above is describing code that no longer exists.
+
+   The concern itself was inherited by SandiMin and is already handled there, so **the REVIEW.md
+   sign-off item for this can be dropped** - there is nothing to decide. The blindness is not a bug
+   anyone can fix: with as many equations as components the solve reproduces the logs exactly
+   whatever the endpoints are, so the residual cannot say anything about them. SandiMin detects the
+   condition (dof = 0) and returns a note saying RECON is forced to ~0 and to add an input log.
+   Measured on one well, one set of logs, CORRECT endpoints throughout: RHOB + NPHI + unity gives
+   dof 0 and RECON ~0.00; adding DT and GR gives dof 2 and RECON 0.62. The square number is
+   arithmetic, not fit quality.
+
+   **What IS worth your click-through:** run SandiMin with only two tools and check the pane makes
+   that note hard to miss. A warning nobody reads is the same as no warning - and that is a UI
+   judgement, which is yours.
+
+   **Automated coverage - pinned (pile B, 2026-07-31):** `multimin_is_retired_but_still_cataloged` (modules.rs) for the retirement, and `an_exactly_determined_model_hides_a_wrong_endpoint_and_only_the_dof_note_says_so` (multimin2.rs) for the inherited concern - it shows the wrong endpoint moving the clay volume while RECON does not budge, with the over-determined run as the control. See docs/review_triage.md finding 11.
+
    **Result — T-RT-18:**
 
 - [ ] Pass

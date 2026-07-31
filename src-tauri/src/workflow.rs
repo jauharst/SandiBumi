@@ -1453,6 +1453,71 @@ mod tests {
         }
     }
 
+    /// T-ADV-11 — RtC on a well that has resistivity but no porosity of ANY name must be reported,
+    /// not returned as a green run.
+    ///
+    /// `all_nan_module_output_reports_error_not_success` pins the guard on vsh_gr and
+    /// electrofacies. This is the case the guard was actually written for, and it is nastier than
+    /// a dead well: RES_DEEP is present and healthy, so the run has real data to chew on and comes
+    /// back with a full-length SWT_RTC curve that happens to be MISSING at every depth. On a
+    /// saturation curve that is the difference between "no answer" and "no hydrocarbon".
+    ///
+    /// The control matters especially here because sw_rtc has the SSPW fallback: the failure must
+    /// be the absence of porosity under EITHER name, not the module failing to look for the
+    /// second one. So the same well is then given PHIT_SSPW only — the fallback curve, never the
+    /// primary — and must succeed.
+    #[test]
+    fn rtc_without_porosity_under_either_name_is_reported_not_returned_as_success() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, id, "RTC-NOPHI", Some("Synthetic"), None, None).unwrap();
+        let well = id.to_string();
+        let n = 20usize;
+        let depth: Vec<f32> = (0..n).map(|i| 2000.0 + i as f32).collect();
+        let nan = vec![f32::NAN; n];
+        // A raw well: real deep resistivity, no porosity interpretation of any kind.
+        db::insert_standard_curves(
+            &conn, id, depth.clone(), vec![60.0; n], vec![8.0; n], nan.clone(), nan.clone(),
+            nan.clone(), nan,
+        )
+        .unwrap();
+        let dbm = Mutex::new(conn);
+
+        let run = || {
+            run_workflow_module(
+                &dbm,
+                &RunModuleRequest {
+                    module: "sw_rtc".into(),
+                    well_ids: vec![well.clone()],
+                    log_inputs: HashMap::new(),
+                    params: HashMap::new(),
+                    opts: HashMap::new(),
+                    output_set: None,
+                    input_set: None,
+                },
+            )
+        };
+
+        let res = run();
+        assert!(
+            res[0].error.is_some(),
+            "a saturation run with no porosity must be reported, not returned as a success"
+        );
+        assert_eq!(res[0].rows_written, 0, "and must not claim a sample count");
+
+        // Control: give it porosity under the FALLBACK name only. If this failed too, the test
+        // above would be pinning a broken module rather than an honest refusal.
+        {
+            let conn = dbm.lock().unwrap();
+            equations::write_computed_curve(&conn, &well, &depth, "PHIT_SSPW", &vec![0.25f32; n]).unwrap();
+            equations::write_computed_curve(&conn, &well, &depth, "CAPBW_SSPW", &vec![0.08f32; n]).unwrap();
+        }
+        let ok = run();
+        assert!(ok[0].error.is_none(), "the SSPW fallback alone must be enough to run: {:?}", ok[0].error);
+        assert!(ok[0].rows_written > 0, "and it must write real samples");
+    }
+
     /// T-BATCH-08 (3) — one unusable well must not zero the whole response.
     ///
     /// `run_pay_summary` `continue`s past a well whose curve frame or zone read fails instead of
