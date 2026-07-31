@@ -891,6 +891,35 @@ The actionable backlog. Roughly ordered: safe frontend wins first, then Performa
       decision.** Correct tables-only behaviour otherwise is pinned by
       `tables_only_drops_the_composite_pages_and_still_dates_the_cover_to_real_rock`. Finding 18.
 
+- [ ] **Curve Edit's "coerce invalid input to 0.0" is HALF fixed — the surviving half is one line
+      of TypeScript.** The backend guard is correct and tested: `apply_op` refuses a non-finite
+      constant outright (`curve_edit.rs:417`), writing nothing, pinned by
+      `a_set_constant_refuses_a_value_that_is_not_a_number`. It is also unreachable for the case
+      the audit reported. `curveEditDialog.ts:88` reads every numeric field through
+      `Number.isFinite(v) ? v : dflt`, so an empty Value field or `abc` becomes **0** — finite,
+      accepted, and written over the interval as a real reading. The comment there shows the
+      narrowing was deliberate and stopped one step short: it was added so `1e999` could not set a
+      curve to +Inf and poison catalog min/max and plot autoscale, and it fixed that half only;
+      `1e999` now writes 0.0 instead. **The sharp version: 0 is the identity for every field where
+      it is the default except this one** — an empty `add` falls back to 0 and an empty `mul` to 1,
+      both no-ops, which is why nobody noticed, and there is no identity for "set a constant".
+      **Not fixed: refusing Apply with a hint is a UI decision. Passing the non-finite value
+      through to the existing backend refusal is one character and gives a worse message.**
+      Finding 19.
+
+- [ ] **The Wells grid's editor has no 0-row check, unlike the other three.**
+      `update_standard_sample`, `update_computed_sample` and `update_core_sample` all check the
+      UPDATE's row count and error with the depth named — the fix for the audit's "DB-inspector
+      edit reports success on a 0-row update", now pinned by
+      `an_inspector_edit_on_a_row_that_moved_fails_instead_of_reporting_success`.
+      `update_well_field` (`db.rs:5140`) validates the COLUMN and then updates without checking
+      that anything matched, so an edit against a well that is no longer there returns `Ok`. The
+      route is the Wells grid left open while the well is deleted in the Wells & Tops pane: the
+      cell shows the new value, the status bar reports the edit, and an undo entry is pushed for a
+      change that never happened. Rarer than a moved curve sample and the same silent outcome.
+      **Not fixed, though nearly mechanical: the `n == 0` check the other three already carry,
+      with a message naming the well rather than a depth.** Finding 20.
+
 - [x] **Legacy-multimin RECON_ERR at 3 tools — CLOSED 2026-07-31, no sign-off needed.** REVIEW.md
       still lists this among the findings awaiting a decision because it would change
       interpretation numbers. It does not need one. Legacy `multimin` is **retired** — `run_module`

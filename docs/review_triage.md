@@ -30,7 +30,7 @@ Pile D is the number that matters: **37 tests, about one in seven, genuinely nee
 | Pile | Done | Remaining |
 |---|---|---|
 | **A** — was already pinned before this work started | **21** | — |
-| **B** — a Rust test now checks it | **38** | 5 (of 43 — T-IMP-06 and T-RT-18 regraded out) |
+| **B** — a Rust test now checks it | **41** | 2 (of 43 — T-IMP-06 and T-RT-18 regraded out) |
 | **C** — a machine now drives it | **5 harness tests** | 81 unblocked (+61 blocked) |
 
 ### Pile A — the checklist
@@ -81,8 +81,11 @@ verification mark** — that lives in `docs/manual_test_plan.md` and nothing aut
 touches it. A `[x]` below says the arithmetic is pinned; it does not say the feature works on
 your wells.
 
-**Done (38 of 43)**
+**Done (41 of 43)**
 
+- [x] **T-REP-14** — DB Inspector: browse all 8 tables, page through · `every_inspector_table_returns_the_columns_it_declares` + `the_inspector_pager_lands_exactly_on_the_last_partial_page` (`db.rs`). Every `TABLE_SPECS` entry, and the pager checked on a count that does not divide evenly by the page size.
+- [x] **T-REP-16** — DB Inspector negatives: bad input, stale row, read-only Aux · `an_inspector_edit_on_a_row_that_moved_fails_instead_of_reporting_success` + `aux_data_can_be_browsed_but_no_editor_will_write_to_it` (`db.rs`). The three sample editors all guard the 0-row case; the wells editor does not — see finding 20.
+- [x] **T-PLOT-19** — Curve Edit negatives (invalid input, stale undo) · `a_set_constant_refuses_a_value_that_is_not_a_number` + `an_undo_replayed_after_the_curve_was_rewritten_splices_stale_values` (`curve_edit.rs`). Both audit findings re-examined: the invalid-input one is half fixed (finding 19), the stale-undo one is fully open and now pinned as-is.
 - [x] **T-REP-02** — Composite render: layout, print scale, page size, pagination · `a_metre_of_formation_occupies_its_declared_millimetres_on_the_page` + `the_page_count_follows_the_print_scale_and_the_page_size` (`composite.rs`). The scale is now measured in the ARTWORK — the emitted depth labels — not just asserted as arithmetic.
 - [x] **T-REP-09** — "Tables only" mode · `tables_only_drops_the_composite_pages_and_still_dates_the_cover_to_real_rock` + `a_composite_depth_window_re_dates_a_cover_whose_tables_ignore_it` (`report.rs`). One residual — see finding 18, which also explains why the audit's slowness is not a missing `if`.
 - [x] **T-AUX-07** — Well-diagram track in Composite/Report + old layouts · `a_well_diagram_draws_its_strings_shoes_and_perforations_at_the_declared_depths` + `a_well_diagram_track_is_redrawn_on_every_composite_page` + `a_layout_saved_before_well_diagram_tracks_opens_as_curves` (`composite.rs`). Clean.
@@ -219,11 +222,8 @@ All three items flagged **silent-wrongness class** (T-REP-18, T-SHIP-03, T-INT-1
 
 Pile B is therefore 43 items, not 45.
 
-**Open (5)**
+**Open (2)**
 
-- [ ] T-PLOT-19 — Curve Edit negatives (invalid input, stale undo)
-- [ ] T-REP-14 — DB Inspector: browse all 8 tables
-- [ ] T-REP-16 — DB Inspector negatives
 - [ ] T-PETRO-02 — vsh_gr nonlinear options + version N+1
 - [ ] T-ADV-17 — SandiMin re-run, lowercase prefix, no shadow rows
 
@@ -513,7 +513,7 @@ these turns on a judgement about real rock, a visual read, or a feel for whether
 
 ---
 
-## Eighteen things the triage found that are worth fixing regardless
+## Twenty things the triage found that are worth fixing regardless
 
 These came out of reading all 250 tests against the current code. Each was verified directly,
 not taken on a subagent's word. **Findings 1, 2 and 3 have since been fixed — see the notes
@@ -957,6 +957,50 @@ separately from the interval the study covers. Whether the cover should then nam
 is a document-design decision, which is why this is yours. Making the change fails that test, which
 is the alarm. The correct behaviour of tables-only otherwise is pinned by
 `tables_only_drops_the_composite_pages_and_still_dates_the_cover_to_real_rock`.
+
+### 19. Curve Edit's "coerce to 0.0" is HALF fixed, and the surviving half is one line of TypeScript — **OPEN, your call**
+
+The BACKEND guard is correct and tested: `apply_op` refuses a non-finite constant outright
+(`curve_edit.rs:417`), writing nothing — pinned by
+`a_set_constant_refuses_a_value_that_is_not_a_number`. It is also unreachable for the case the
+audit reported.
+
+`curveEditDialog.ts:88` reads every numeric field through
+`const v = parseFloat(s); return Number.isFinite(v) ? v : dflt;`. An empty Value field, or `abc`,
+gives NaN, which is not finite, so the helper returns its default of **0** — a perfectly finite
+number that passes the backend guard and is written over the interval as a real reading. The
+comment above that line shows the narrowing was deliberate and stopped one step short: it was
+added so `1e999` could not set a curve to +Inf and poison catalog min/max and plot autoscale. It
+fixed the Infinity half. `1e999` now writes **0.0** instead, which is the audit's own finding
+arriving by the new route.
+
+**The sharp version: 0 is the identity for every field where it is the default except this one.**
+An empty `add` falls back to 0 and an empty `mul` to 1 — both no-ops, which is why nobody noticed.
+There is no identity for "set a constant", and 0.0 gAPI over an interval does not look like an
+error; it looks like a measurement of very clean rock.
+
+**Your call because the fix is a UI decision**: refuse Apply with a hint while the field is empty
+or unparseable, or pass the non-finite value through and let the backend's existing refusal
+surface. The second is one character (`dflt` to `NaN`, for `value` only) and gives a worse message.
+
+### 20. The Wells grid's editor has no 0-row check, unlike the other three — **OPEN, your call**
+
+`update_standard_sample`, `update_computed_sample` and `update_core_sample` all check the UPDATE's
+row count and return an error naming the depth when nothing matched — the fix for the audit's
+"DB-inspector edit reports success on a 0-row update", and now pinned by
+`an_inspector_edit_on_a_row_that_moved_fails_instead_of_reporting_success`.
+
+`update_well_field` (`db.rs:5140`) does not. It validates the COLUMN and then runs the UPDATE
+without checking that anything matched, so an edit against a well that is no longer there returns
+`Ok`. The route is the Wells grid left open while the well is deleted in the Wells & Tops pane:
+the cell shows the new value, the status bar reports the edit, and an undo entry is pushed for a
+change that never happened.
+
+Rarer than a moved curve sample — a well_id does not drift the way a depth does — and the same
+silent outcome. Pinned as-is in the test above.
+
+**Your call, though this one is nearly mechanical**: the `n == 0` check the other three already
+carry, with a message naming the well rather than a depth.
 
 ---
 

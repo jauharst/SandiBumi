@@ -3958,6 +3958,210 @@ mod inspector_tests {
         assert!(update_standard_sample(&conn, &ids, 1000.0, "well_id", 0.0).is_err(), "key columns must not be editable");
     }
 
+    /// T-REP-14. `table_page_reads_and_cell_updates` above browses ONE table. The inspector's
+    /// dropdown offers every entry in `TABLE_SPECS`, and a table whose query is malformed does
+    /// not degrade — it throws, and the grid shows an error where the user expected their data.
+    ///
+    /// So every spec is exercised: each returns exactly the columns it declares, in order, and
+    /// the well-scoped ones refuse rather than silently returning the whole project. That last
+    /// point is the one worth a test: a well-scoped read that quietly dropped its filter would
+    /// show one well's grid full of another well's samples, which looks like data, not an error.
+    #[test]
+    fn every_inspector_table_returns_the_columns_it_declares() {
+        let conn = mem_db();
+        let id = Uuid::new_v4();
+        insert_well(&conn, id, "SANDI-INSP", Some("Sandi Field"), Some(2000.0), Some(25.0)).unwrap();
+        let w = id.to_string();
+
+        for (table, columns, well_scoped, _order) in TABLE_SPECS {
+            let scope = if *well_scoped { Some(w.as_str()) } else { None };
+            let page = get_table_page(&conn, table, scope, 0, 200)
+                .unwrap_or_else(|e| panic!("table '{table}' failed to browse: {e}"));
+            assert_eq!(
+                page.columns,
+                columns.iter().map(|c| c.to_string()).collect::<Vec<_>>(),
+                "table '{table}' returned the wrong column set"
+            );
+            assert!(!page.truncated, "the paginated path always knows its true count");
+
+            if *well_scoped {
+                assert!(
+                    get_table_page(&conn, table, None, 0, 200).is_err(),
+                    "well-scoped table '{table}' must refuse rather than return the whole project"
+                );
+            }
+        }
+    }
+
+    /// T-REP-14, the pager. Off-by-one arithmetic here is not cosmetic: a last page that drops
+    /// its final row hides a sample, and one that repeats a row makes the grid disagree with the
+    /// count printed above it. Checked on a count that does NOT divide evenly by the page size,
+    /// because a total that happens to be a multiple passes both mistakes.
+    #[test]
+    fn the_inspector_pager_lands_exactly_on_the_last_partial_page() {
+        let conn = mem_db();
+        let id = Uuid::new_v4();
+        insert_well(&conn, id, "SANDI-PAGE", None, None, None).unwrap();
+        let w = id.to_string();
+
+        // 250 samples, paged 100 at a time: 100 + 100 + 50.
+        let n = 250usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
+        let nan = vec![f32::NAN; n];
+        insert_standard_curves(
+            &conn, id, depth.clone(), vec![50.0; n], nan.clone(), nan.clone(), nan.clone(),
+            nan.clone(), nan,
+        )
+        .unwrap();
+
+        let page = |offset: usize| get_table_page(&conn, "standard_curves", Some(&w), offset, 100).unwrap();
+        assert_eq!(page(0).total_rows, n, "the count is the whole table, not the page");
+        assert_eq!(page(0).rows.len(), 100);
+        assert_eq!(page(100).rows.len(), 100);
+        assert_eq!(page(200).rows.len(), 50, "the last page is the remainder, not a full one");
+        assert!(page(250).rows.is_empty(), "one page past the end is empty, not an error");
+
+        // Every sample appears exactly once across the three pages, in depth order — no row
+        // dropped at a boundary and none repeated.
+        let mut seen: Vec<String> = Vec::new();
+        for off in [0usize, 100, 200] {
+            for row in page(off).rows {
+                seen.push(row[0].clone().expect("depth is never NULL"));
+            }
+        }
+        assert_eq!(seen.len(), n);
+        let mut sorted = seen.clone();
+        sorted.dedup();
+        assert_eq!(sorted.len(), n, "a depth appeared on two pages");
+        for pair in seen.windows(2) {
+            let (a, b) = (pair[0].parse::<f64>().unwrap(), pair[1].parse::<f64>().unwrap());
+            assert!(a < b, "depths must increase across the page boundary: {a} then {b}");
+        }
+    }
+
+    /// T-REP-16. A cell edit whose row is no longer there must FAIL, not report success having
+    /// changed nothing. The grid on screen is a snapshot: a module re-run, a depth shift or a
+    /// re-import between the read and the double-click leaves the user editing a row that has
+    /// moved. A silent 0-row UPDATE is the worst outcome — the cell shows the new value, the
+    /// status bar says it was written, an undo entry is pushed for a change that never happened,
+    /// and the database still holds the old number.
+    ///
+    /// All three sample editors are checked, because they are three separate `execute` calls
+    /// with three separate guards, and one of them regressing would be invisible.
+    #[test]
+    fn an_inspector_edit_on_a_row_that_moved_fails_instead_of_reporting_success() {
+        let conn = mem_db();
+        let id = Uuid::new_v4();
+        insert_well(&conn, id, "SANDI-STALE", None, None, None).unwrap();
+        let w = id.to_string();
+        let nan = vec![f32::NAN; 2];
+        insert_standard_curves(
+            &conn, id, vec![1000.0, 1000.5], vec![55.0, 60.0], nan.clone(), nan.clone(),
+            nan.clone(), nan.clone(), nan,
+        )
+        .unwrap();
+        crate::equations::write_computed_curve(&conn, &w, &[1000.0, 1000.5], "VSH", &[0.3, 0.4])
+            .unwrap();
+        insert_core_data(
+            &conn, &w, "RAW", None, &[1000.0], &[0.20], &[50.0], &[f32::NAN], &[f32::NAN],
+        )
+        .unwrap();
+
+        // The depth that IS there edits cleanly — the control for all three refusals below.
+        update_standard_sample(&conn, &w, 1000.0, "gr", 77.0).unwrap();
+        update_computed_sample(&conn, &w, 1000.0, "VSH", 0.55).unwrap();
+        update_core_sample(&conn, &w, 1000.0, "cpor", 0.25).unwrap();
+
+        // A depth that is not. Half a sample off — exactly what a re-run on a shifted grid
+        // leaves behind, and close enough that nothing about the request looks wrong.
+        for (what, err) in [
+            ("standard", update_standard_sample(&conn, &w, 1000.25, "gr", 77.0)),
+            ("computed", update_computed_sample(&conn, &w, 1000.25, "VSH", 0.55)),
+            ("core", update_core_sample(&conn, &w, 1000.25, "cpor", 0.25)),
+        ] {
+            let e = match err {
+                Ok(()) => panic!("{what}: a 0-row update must not report success"),
+                Err(e) => e,
+            };
+            assert!(
+                e.contains("1000.25") && e.contains("refresh"),
+                "{what}: the message must name the depth and say what to do: {e}"
+            );
+        }
+
+        // A curve name that does not exist takes the same path — the user's grid can be stale
+        // about WHICH curves a well has, not only about where its samples are.
+        assert!(update_computed_sample(&conn, &w, 1000.0, "PHIE", 0.2).is_err());
+
+        // KNOWN GAP, pinned AS-IS and not endorsed. The FOURTH editor the inspector uses —
+        // `update_well_field`, behind the Wells grid — has no such guard. It validates the
+        // COLUMN and then runs the UPDATE without checking that anything matched, so an edit
+        // against a well that is no longer there reports success and writes nothing.
+        //
+        // The route is the Wells grid left open while the well is deleted in the Wells & Tops
+        // pane. Rarer than a moved curve sample, and the same silent outcome: the cell shows
+        // the new value and an undo entry is pushed for a change that never happened. The fix
+        // is the `n == 0` check the other three already carry.
+        assert!(
+            update_well_field(&conn, "00000000-0000-0000-0000-000000000000", "field_name", Some("x")).is_ok(),
+            "pinned AS-IS, not endorsed: editing a well that does not exist reports success"
+        );
+        // The column check DOES work, so the gap is specifically the missing row count.
+        assert!(update_well_field(&conn, &w, "depth", Some("x")).is_err());
+    }
+
+    /// T-REP-16 step 4. Aux Data is browsable but not editable, and that is a data-integrity
+    /// rule rather than a missing feature: a point sample is what a laboratory reported, so
+    /// correcting it means re-importing the delivery, which keeps the set model and the
+    /// provenance intact. The inspector offers no editable column for it — and there is no
+    /// backend writer either, which is what makes the rule hold rather than merely be observed.
+    ///
+    /// Pinned by exhaustion over the whitelist: every column `aux_data` exposes is rejected by
+    /// every sample editor that exists. A new editor accepting one of these names would fail
+    /// here rather than quietly making a lab result editable in place.
+    #[test]
+    fn aux_data_can_be_browsed_but_no_editor_will_write_to_it() {
+        let conn = mem_db();
+        let id = Uuid::new_v4();
+        insert_well(&conn, id, "SANDI-AUX", None, None, None).unwrap();
+        let w = id.to_string();
+        insert_aux_data(
+            &conn,
+            &w,
+            "XRD",
+            "RAW",
+            None,
+            &[AuxRow {
+                dataset: "XRD".into(), depth_top: 1000.0, depth_base: None,
+                item: "ILLITE".into(), value_num: Some(12.5), value_text: None,
+            }],
+        )
+        .unwrap();
+
+        let page = get_table_page(&conn, "aux_data", Some(&w), 0, 200).unwrap();
+        assert_eq!(page.total_rows, 1, "the row is readable");
+        let item_idx = page.columns.iter().position(|c| c == "item").unwrap();
+        assert_eq!(page.rows[0][item_idx].as_deref(), Some("ILLITE"));
+
+        // Nothing writes to it. The numeric editors reject every one of its columns by name,
+        // including `value_num`, which is the one a reader would assume is editable.
+        let aux_columns = TABLE_SPECS.iter().find(|(t, ..)| *t == "aux_data").unwrap().1;
+        for col in aux_columns {
+            assert!(
+                update_standard_sample(&conn, &w, 1000.0, col, 1.0).is_err(),
+                "the standard-curve editor accepted aux column '{col}'"
+            );
+            assert!(
+                update_core_sample(&conn, &w, 1000.0, col, 1.0).is_err(),
+                "the core editor accepted aux column '{col}'"
+            );
+            assert!(
+                update_well_field(&conn, &w, col, Some("x")).is_err(),
+                "the wells editor accepted aux column '{col}'"
+            );
+        }
+    }
+
     fn pk_count(conn: &Connection, table: &str) -> i64 {
         conn.query_row(
             "SELECT COUNT(*) FROM duckdb_constraints() WHERE table_name = ?1 AND constraint_type = 'PRIMARY KEY'",

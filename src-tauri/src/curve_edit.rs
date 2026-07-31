@@ -564,6 +564,137 @@ mod tests {
         }
     }
 
+    /// T-PLOT-19, the invalid-input half. The BACKEND guard is correct: a "set constant" whose
+    /// value is not a real number is refused outright, and nothing is written. This matters
+    /// because 0 is not a neutral value for this op — for `scale` an empty factor falls back to
+    /// mul 1 / add 0, which is the identity and harmless, but for `set` there is no identity, and
+    /// 0.0 gAPI is a reading, not a no-op. Written over an interval it looks exactly like a real
+    /// measurement of very clean rock.
+    ///
+    /// The curve is re-read after each refusal, because "returns Err" and "changed nothing" are
+    /// different claims and only the second one protects the data.
+    #[test]
+    fn a_set_constant_refuses_a_value_that_is_not_a_number() {
+        let conn = open_db();
+        let w = seed_ramp_well(&conn);
+        let before = read_gr(&conn, &w).1;
+
+        let base = CurveEditRequest {
+            well_id: w.clone(),
+            curve: "GR".into(),
+            op: "set".into(),
+            delta: 0.0,
+            top: 1010.0,
+            bottom: 1020.0,
+            value: 0.0,
+            mul: 1.0,
+            add: 0.0,
+        };
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let req = CurveEditRequest { value: bad, ..base.clone() };
+            let err = edit_curve(&conn, &req).expect_err("a non-finite constant must be refused");
+            assert!(err.contains("finite"), "the refusal must say why: {err}");
+            let after = read_gr(&conn, &w).1;
+            for (i, (a, b)) in before.iter().zip(after.iter()).enumerate() {
+                assert_eq!(a.to_bits(), b.to_bits(), "sample {i} changed on a refused edit");
+            }
+        }
+
+        // The control: a real value in the same request DOES write, so the assertions above are
+        // about the value and not about some unrelated reason the edit could not run.
+        let ok = edit_curve(&conn, &CurveEditRequest { value: 12.5, ..base }).unwrap();
+        assert_eq!(ok.affected, 21, "1010..1020 inclusive at 0.5 m");
+    }
+
+    /// KNOWN GAP, pinned AS-IS and not endorsed. T-PLOT-19 step 3: `restore_curve_values` — the
+    /// undo path — has no staleness check of any kind. It matches depths bit-exactly against
+    /// whatever is in the curve NOW and writes the old values in.
+    ///
+    /// So the sequence the plan describes (edit a VSH interval, re-run the VSH module, press
+    /// Ctrl+Z) splices pre-edit values over the freshly computed curve and reports success. The
+    /// result is a VSH curve that is partly one vintage and partly another, with nothing on the
+    /// log, in the catalog or in the provenance to say where the boundary falls.
+    ///
+    /// Both failure modes are silent and they are opposites, which is why both are pinned here:
+    /// when the depths still match, the undo writes stale values over new ones; when they no
+    /// longer match (the curve was depth-shifted since), it matches nothing and returns Ok(0) —
+    /// an undo that did nothing at all, also reported as success.
+    ///
+    /// A fix would carry the curve's version or a content hash in the undo entry and refuse a
+    /// mismatch. Making that change fails this test, which is the alarm.
+    #[test]
+    fn an_undo_replayed_after_the_curve_was_rewritten_splices_stale_values() {
+        let conn = open_db();
+        let w = seed_ramp_well(&conn);
+
+        // VSH on a 0.5 m grid — a COMPUTED curve, which is what the plan's scenario edits and
+        // re-runs. It matters that this is not `standard_curves`: that table's depth grid comes
+        // from the import and a module cannot move it, whereas a computed curve is DELETEd and
+        // re-appended on every run, so its sampling can genuinely change under an undo entry.
+        let vsh: Vec<f32> = (0..21).map(|i| 0.10 + i as f32 * 0.01).collect();
+        let depth: Vec<f32> = (0..21).map(|i| 1000.0 + i as f32 * 0.5).collect();
+        crate::equations::write_computed_curve(&conn, &w, &depth, "VSH", &vsh).unwrap();
+        let read_vsh = |conn: &Connection| -> (Vec<f32>, Vec<f32>) {
+            let store = locate_curve(conn, &w, "VSH").unwrap();
+            read_curve(conn, &store, &w).unwrap()
+        };
+
+        // Edit: set 1002–1006 to a constant, keeping the undo payload the dialog would keep.
+        let res = edit_curve(
+            &conn,
+            &CurveEditRequest {
+                well_id: w.clone(),
+                curve: "VSH".into(),
+                op: "set".into(),
+                delta: 0.0,
+                top: 1002.0,
+                bottom: 1006.0,
+                value: 0.99,
+                mul: 1.0,
+                add: 0.0,
+            },
+        )
+        .unwrap();
+        assert_eq!(res.store, "computed");
+        let (undo_depth, undo_value) = unpack_pairs(res.point_count, &res.data).unwrap();
+
+        // The module is now RE-RUN: same grid, every sample recomputed to a new answer.
+        crate::equations::write_computed_curve(&conn, &w, &depth, "VSH", &vec![0.77f32; depth.len()])
+            .unwrap();
+
+        // Now the stale undo runs. It reports success and a full match count.
+        let n = restore_curve_values(&conn, &w, "VSH", &undo_depth, &undo_value).unwrap();
+        assert_eq!(n, res.affected, "pinned AS-IS, not endorsed: the stale undo matches and writes");
+
+        let (d, v) = read_vsh(&conn);
+        let inside = d.iter().position(|&x| x == 1004.0).unwrap();
+        let outside = d.iter().position(|&x| x == 1009.0).unwrap();
+        assert!(
+            (v[inside] - (0.10 + 8.0 * 0.01)).abs() < 1e-5,
+            "the edited window came back to its PRE-EDIT value, over the recomputed 0.77: {}",
+            v[inside]
+        );
+        assert!(
+            (v[outside] - 0.77).abs() < 1e-5,
+            "while the rest of the curve is the fresh computation: {}",
+            v[outside]
+        );
+        // That is the damage stated plainly: one curve, two vintages, no marker between them.
+
+        // The mirror. The module re-runs on an OFFSET grid — a re-import or a depth-shifted
+        // run — which a computed curve's DELETE-and-append write really does allow. The samples
+        // are half a step off, so no stored depth matches the undo entry's: the same undo now
+        // matches nothing, writes nothing, and still returns Ok. (A merely FINER grid would not
+        // show this: 0.25 m contains every 0.5 m depth, so the stale splice above still lands —
+        // into a curve that now has twice as many samples.)
+        let offset: Vec<f32> = (0..21).map(|i| 1000.25 + i as f32 * 0.5).collect();
+        crate::equations::write_computed_curve(&conn, &w, &offset, "VSH", &vec![0.77f32; offset.len()])
+            .unwrap();
+        let n = restore_curve_values(&conn, &w, "VSH", &undo_depth, &undo_value)
+            .expect("pinned AS-IS: a depth mismatch is not reported as an error either");
+        assert_eq!(n, 0, "nothing matched, and the only sign of it is a zero count");
+    }
+
     #[test]
     fn blank_then_interpolate_bridges_the_gap() {
         let conn = open_db();
