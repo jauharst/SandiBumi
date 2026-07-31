@@ -5988,6 +5988,51 @@ it at a water sand and it gives you *your* A_CAP / B_QV / C0.
 reported as **0 with a note** rather than guessed, and the capillary term absorbs whatever
 constant clay conductivity is present.
 
+---
+
+## IMTS S-factor calibration from your own lab CEC (2026-07-31)
+
+**Advance ▸ Calibrate S…** Same story as RtC, one module along. `sw_imts` defines S as a
+measurement — your lab CEC divided by the CEC the clay model predicts — and the app shipped
+**0.5**, which was never measured in any rock. S multiplies the whole clay-charge term, so a
+wrong S scales Qv_eff straight through to SwT with nothing on the log to show for it.
+
+**Try it on a well with a CEC suite:**
+
+- [ ] Point it at the dataset and item holding your lab CEC. Get the item name wrong on purpose
+      — it should tell you **which items are actually there**, not just "no data".
+- [ ] **Name the clay curves your `sw_imts` run will use** (VDCL / VILL by default), not the XRD
+      table the CEC came from. This is the trap: calibrate against one estimate of clay and run
+      against another and S is wrong by the difference — invisibly, because both are clay
+      volumes.
+- [ ] Fit, then **Copy** — it copies S together with CEC_KAOL and CEC_ILL, because S multiplies
+      those constants and the three are one setting.
+- [ ] Run `sw_imts` with your S and compare SWT_IMTS against the shipped 0.5. On clay-rich rock
+      the difference should be substantial; that gap is what the placeholder was costing you.
+
+**Read these before the number:**
+
+- [ ] **Plug ratios P10 → P90.** This is the real check, not R². If the plugs' own ratios span
+      more than a factor of two, no single S describes them and it says so. Either S genuinely
+      drifts with clay content, or the lean plugs are noisy — a small measured CEC divided by a
+      small modelled clay volume is a noisy ratio either way.
+- [ ] **The "Not fitted" line.** A plug further than the depth tolerance from any log sample is
+      **dropped, not snapped** to the nearest one. If most of your plugs land there, the core is
+      not depth-shifted to the log. Worth knowing: a shift that happens to be a whole number of
+      log samples is invisible to this check — the log grid cannot see it — so the tolerance is
+      not a substitute for shifting against core gamma.
+- [ ] **Plugs where the clay model says no clay** are excluded rather than divided by zero. If a
+      plug there has real measured CEC, that is evidence against your clay curves, not a data
+      point.
+- [ ] **S above 1** gets flagged. The method expects lab CEC *below* the XRD-theoretical value,
+      so above 1 your clay model is under-calling exchange capacity — most often a mineral it
+      does not carry. Smectite is 80-150 meq/100g against illite's 25, so a few percent of it is
+      enough. That S then only suits rock with the same smectite fraction as your cored plugs.
+
+**Also fixed here:** both calibration dialogs used to open with a blank, greyed-out Fit button
+until you touched the well scope. They now label themselves on open.
+
+
 `sw_rtc`'s own description now says plainly that the shipped defaults are one field's, and
 points at this dialog.
 

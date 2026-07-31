@@ -1636,6 +1636,20 @@ async fn run_rtc_fit(
         .map_err(|e| e.to_string())
 }
 
+/// Fits `sw_imts`'s CEC scaling factor S to the user's OWN laboratory CEC measurements, against
+/// the clay content of the very curves the run will use — see `lrlc::run_s_factor_fit`.
+/// Off-thread; writes no curves.
+#[tauri::command]
+async fn run_s_factor_fit(
+    db: tauri::State<'_, DbState>,
+    req: lrlc::SFactorFitRequest,
+) -> Result<lrlc::SFactorFitResult, String> {
+    let conn = db.0.clone();
+    tauri::async_runtime::spawn_blocking(move || lrlc::run_s_factor_fit(&conn, &req))
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Height-domain SHF fit (Wave B item 8, increment 2): Brooks-Corey or Skelt-Harrison fitted to
 /// the log-derived Sw-vs-height cloud. Off-thread; writes no curves.
 #[tauri::command]
@@ -2552,6 +2566,7 @@ pub fn run() {
             run_cuddy_foil,
             run_shf_fit,
             run_rtc_fit,
+            run_s_factor_fit,
             run_thomeer_fit,
             run_hfu_cluster,
             run_lorenz,

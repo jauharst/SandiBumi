@@ -311,13 +311,23 @@
               <span class="ribbon-group-caption">Mineral Solver</span>
             </div>
             <div class="ribbon-group">
-              <button id="rtc-fit-btn" class="ribbon-btn" title="Fit the RtC excess-conductivity coefficients (A_CAP / B_QV / C0) to your own water-bearing interval, instead of running one study's calibration on every field">
-                <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M3 15.5h14M3 15.5 7 9l3.5 3.5L17 4.5"/>
-                  <circle cx="7" cy="9" r="1.2"/><circle cx="10.5" cy="12.5" r="1.2"/>
-                </svg>
-                <span class="ribbon-label">Calibrate RtC…</span>
-              </button>
+              <div class="ribbon-btn-row">
+                <button id="rtc-fit-btn" class="ribbon-btn" title="Fit the RtC excess-conductivity coefficients (A_CAP / B_QV / C0) to your own water-bearing interval, instead of running one study's calibration on every field">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 15.5h14M3 15.5 7 9l3.5 3.5L17 4.5"/>
+                    <circle cx="7" cy="9" r="1.2"/><circle cx="10.5" cy="12.5" r="1.2"/>
+                  </svg>
+                  <span class="ribbon-label">Calibrate RtC…</span>
+                </button>
+                <button id="sfactor-fit-btn" class="ribbon-btn" title="Fit the IMTS CEC scaling factor S to your own laboratory CEC measurements, against the clay content of the very curves the run will use">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 16.5h14M3 16.5V4"/>
+                    <path d="M4.5 14.5 16 5.5"/>
+                    <circle cx="6.5" cy="13" r="1.1"/><circle cx="10" cy="10.5" r="1.1"/><circle cx="13.5" cy="7.5" r="1.1"/>
+                  </svg>
+                  <span class="ribbon-label">Calibrate S…</span>
+                </button>
+              </div>
               <span class="ribbon-group-caption">Calibration</span>
             </div>
             <div class="ribbon-group">

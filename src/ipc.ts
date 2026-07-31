@@ -2733,6 +2733,61 @@ export function runRtcFit(req: RtcFitRequest): Promise<RtcFitResult> {
   return invoke<RtcFitResult>("run_rtc_fit", { req });
 }
 
+/** One laboratory CEC plug paired with the clay content of the curves the run will use. */
+export interface SFactorPoint {
+  well_id: string;
+  depth: number;
+  /** Depth of the log sample it was paired with — so a suspicious pairing is visible. */
+  log_depth: number;
+  vkaol: number;
+  vill: number;
+  /** Theoretical bulk CEC from the clay model — the regression's x. */
+  cec_theo: number;
+  /** Measured laboratory CEC — the regression's y. */
+  cec_lab: number;
+  ratio: number;
+}
+
+/** Fits sw_imts's CEC scaling factor S to the user's OWN laboratory CEC measurements. */
+export interface SFactorFitRequest {
+  well_ids: string[];
+  /** Point dataset holding the lab CEC ("CEC", or "CORE" for a core-table extra column). */
+  cec_dataset: string;
+  cec_item: string;
+  /** The clay curves the sw_imts RUN will use — not the XRD table the lab CEC came from.
+   *  Calibrating against one clay estimate and running against another makes S wrong by the
+   *  ratio between them, and both look like clay volumes. */
+  vkaol_curve: string;
+  vill_curve?: string;
+  /** Held fixed; S multiplies these, so the fitted S belongs to them only. */
+  cec_kaol?: number;
+  cec_ill?: number;
+  /** How far a plug may sit from the nearest log sample and still be paired with it. */
+  depth_tol?: number;
+}
+
+export interface SFactorFitResult {
+  s_factor: number;
+  s_median_ratio: number;
+  ratio_p10: number;
+  ratio_p90: number;
+  r2: number;
+  rms: number;
+  n_points: number;
+  n_wells: number;
+  cec_kaol_used: number;
+  cec_ill_used: number;
+  points: SFactorPoint[];
+  excluded: [string, number][];
+  notes: string[];
+  error: string | null;
+}
+
+/** Fits the IMTS CEC scaling factor S to the selected wells' laboratory CEC measurements. */
+export function runSFactorFit(req: SFactorFitRequest): Promise<SFactorFitResult> {
+  return invoke<SFactorFitResult>("run_s_factor_fit", { req });
+}
+
 /** What the Python equation engine can offer, probed once per session. */
 export interface PythonStatus {
   /** Interpreter the engine will use; null when no Python with numpy was found. */

@@ -38,6 +38,14 @@ export async function openRtcFitDialog(): Promise<void> {
     },
   });
   wrap.appendChild(scope.el);
+  // First paint. `buildWellScope` deliberately does NOT fire onChange during construction
+  // (wellScope.ts: a synchronous first fire would run this callback before the caller's consts
+  // exist), so every caller labels the button itself or it opens blank and disabled.
+  {
+    const n = scope.getWellIds().length;
+    runBtn.textContent = `Fit from ${n} well(s)`;
+    runBtn.disabled = n === 0;
+  }
 
   // ---- the water zone -----------------------------------------------------
   const zoneNote = document.createElement("div");

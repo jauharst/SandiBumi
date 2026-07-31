@@ -647,6 +647,59 @@ the result says so. An unfittable term (constant Qv) is reported as 0 with a not
 guessed, and every excluded sample is counted and named. The dialog offers **Copy**, not
 auto-apply — a calibration is a judgement made after reading R² and the exclusions.
 
+## IMTS S-factor calibration (2026-07-31)
+
+`sw_imts`'s S is the RtC problem again: it is *defined* as a measurement — S = lab CEC / XRD-
+theoretical CEC (`docs/method_lrlc_rtc_imts.md`, IMTS §1) — and the app shipped a placeholder
+for it. S multiplies the entire clay-charge term, so a wrong S scales Qv_eff directly and moves
+SwT with nothing on the log to show for it. `lrlc::run_s_factor_fit` (Advance ▸ Calibrate S…,
+`sFactorFitDialog.ts`) fits it from the user's own core. Five rules.
+
+**The regression is the algebraic inverse of the module's own line, not a re-derivation** —
+same discipline as RtC. `sw_imts` computes `cec_bulk = S · cec_theo_at(vk, vi, CEC_KAOL,
+CEC_ILL)`, so `S = CEC_lab / cec_theo_at(...)`, and `cec_theo_at` is **shared by the module and
+the fit** exactly as `qv_at` is shared with the RtC fit. Pinned by
+`the_fitted_s_makes_the_module_reproduce_the_measured_cec`, which runs the fitted S back through
+`sw_imts` and checks QVEFF lands on the laboratory value.
+
+**The clay must come from the curves the RUN will use, not from the XRD table.** This is the
+trap the dialog exists to close: calibrate S against XRD weight fractions, run against a
+VDCL-derived VKAOL curve, and S is wrong by the ratio between those two estimates of clay —
+silently, because both look like clay volumes.
+
+**Through the origin, and least squares rather than the mean of the ratios.** S is a pure
+scaling factor; an intercept would assert cation exchange where the clay model says there is no
+clay, a claim the module's equation has nowhere to put. Through-origin OLS weights each plug by
+its clay content, which is right — those are the plugs where Qv drives the answer, and on a
+nearly clean plug the ratio is measurement noise over a small number.
+
+**The drift detector is the SPREAD of the per-plug ratios (P10-P90), not the median-vs-fit gap.**
+Two central values can only differ by as much as the ratio changes between the median plug and
+the clay-weighted one; on a 12x clay range with a ratio running 1.13 → 0.40 that is barely 28%,
+so a gap threshold loose enough to survive noise never fires on real drift. The spread has no
+such ceiling and catches the same case at 2.8x. Both are reported; the gap note is secondary and
+says only that the disagreement is *systematic with clay content*. Pinned by
+`a_drifting_s_shows_up_in_the_spread_of_the_per_plug_ratios`.
+
+**S above 1 is a note, never a clamp.** The method expects lab CEC *below* the XRD-theoretical
+value. Above 1 the clay model is under-calling exchange capacity, and the usual cause is a
+mineral it does not carry — smectite runs 80-150 meq/100g against illite's 25, so a few percent
+dwarfs the modelled charge — which makes that S wrong wherever the missing mineral's fraction
+differs from the cored plugs.
+
+Two further contracts. A plug further than `depth_tol` (default 0.15, one standard 6-inch
+sample) from any log sample is **dropped and counted, never snapped** to the nearest one — but
+the test records the honest limit: a shift that is a whole number of sample intervals is
+invisible to any depth-tolerance check, so this is not a substitute for depth-shifting the core.
+And **S and the literature CEC constants are not jointly identifiable** (S multiplies them), so
+the constants are held fixed, echoed in the result and copied alongside S.
+
+Both fit dialogs offer **Copy**, not auto-apply. Both also paint their own run-button label:
+`buildWellScope` deliberately does not fire `onChange` during construction (`wellScope.ts`), so
+a caller that relies on it opens with a blank, disabled button — `rtcFitDialog.ts` did, and is
+fixed here.
+
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under

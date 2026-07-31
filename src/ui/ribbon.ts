@@ -256,6 +256,9 @@ export class Ribbon {
     q<HTMLButtonElement>("#rtc-fit-btn")?.addEventListener("click", () => {
       void import("./rtcFitDialog").then((m) => m.openRtcFitDialog());
     });
+    q<HTMLButtonElement>("#sfactor-fit-btn")?.addEventListener("click", () => {
+      void import("./sFactorFitDialog").then((m) => m.openSFactorFitDialog());
+    });
     q<HTMLButtonElement>("#dashboard-btn")?.addEventListener("click", () => workspace.openDashboard());
     q<HTMLButtonElement>("#results-qc-btn")?.addEventListener("click", () => workspace.openResultsQc());
     q<HTMLButtonElement>("#map-btn")?.addEventListener("click", () => workspace.openMap());

@@ -47,6 +47,18 @@ fn qv_at(qv_log: f64, phit: f64, cec: f64, rhog: f64) -> f64 {
     cec * rhog * (1.0 - phit) / (100.0 * phit)
 }
 
+/// Theoretical bulk CEC (meq/100g) from the clay model alone, BEFORE the lab scaling factor S:
+/// `Σ V_clay · CEC_literature` with the literature constants kaolinite 8 / illite 25 meq/100g
+/// (`docs/method_lrlc_rtc_imts.md`, IMTS §1).
+///
+/// Shared by the `sw_imts` module and the S-factor calibration below **on purpose**, for the same
+/// reason `qv_at` is shared with the RtC fit: `S = CEC_lab / cec_theo_at(...)` is then the exact
+/// algebraic inverse of what the run computes, so the calibration cannot quietly stop inverting
+/// the model it was fitted for.
+fn cec_theo_at(vkaol: f64, vill: f64, cec_kaol: f64, cec_ill: f64) -> f64 {
+    vkaol * cec_kaol + vill * cec_ill
+}
+
 /// Juhasz (1981) counterion mobility B as a function of temperature (degC) and Rw.
 /// Standard Waxman-Smits-family temperature form.
 fn juhasz_b(temp_c: f64, rw: f64) -> f64 {
@@ -175,7 +187,14 @@ pub fn sw_imts_spec() -> ModuleSpec {
               (8 / 25 meq/100g), calibrated to lab CEC by scaling factor S. Iterates \
               Ct = SwT^N*/F*·(Cw + B·Qv_eff/SwT) with F* = A/PHIT^M* and Juhasz B(T, Rw) \
               until SwT is stable. SWE from CBW. VKAOL/VILL default to SSC's VDCL and a \
-              zero illite curve; S ≈ lab CEC / XRD-theoretical CEC (typically < 1)."
+              zero illite curve. \
+              S = measured lab CEC / XRD-theoretical CEC, so it is A PROPERTY OF THE ROCK AND \
+              OF THE CLAY CURVES IT IS PAIRED WITH — the shipped 0.5 is a placeholder standing \
+              in for the study's observation that lab CEC runs below the XRD-theoretical value, \
+              not a value measured anywhere. S multiplies the whole clay-charge term, so getting \
+              it wrong scales Qv_eff directly and moves Sw with no outward sign. Fit your own \
+              with Advance ▸ Calibrate S…, which regresses S from lab CEC measurements against \
+              the clay content of the very curves this run will use."
             .into(),
         args: vec![
             param("RW", "Formation water resistivity at FT", "ohm.m", 0.3, 0.001, 100.0),
@@ -237,7 +256,7 @@ pub fn sw_imts(ctx: &ModuleContext) -> ModuleOutputs {
 
         // Qv_bulk from scaled XRD clay charge; Qv_eff references the active water.
         let cec_bulk = ctx.p("S_FACTOR", i)
-            * (vk * ctx.p("CEC_KAOL", i) + vi * ctx.p("CEC_ILL", i));
+            * cec_theo_at(vk, vi, ctx.p("CEC_KAOL", i), ctx.p("CEC_ILL", i));
         let qv_bulk = cec_bulk * ctx.p("RHOG", i) * (1.0 - pt) / (100.0 * pt);
         let qv_eff = qv_bulk / (1.0 - swirr);
         qveff_o[i] = qv_eff as f32;
@@ -715,6 +734,441 @@ pub fn run_rtc_fit(db: &Mutex<Connection>, req: &RtcFitRequest) -> RtcFitResult 
         rms,
         n_points,
         n_wells,
+        points: pts,
+        excluded,
+        notes,
+        error: None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// S-FACTOR CALIBRATION — fit S to the user's own laboratory CEC measurements
+// ---------------------------------------------------------------------------
+//
+// `sw_imts`'s S factor has exactly the problem `sw_rtc`'s coefficients had: it is defined as a
+// measurement — S = lab CEC / XRD-theoretical CEC (`docs/method_lrlc_rtc_imts.md`, IMTS §1) — and
+// the app shipped a placeholder for it. S multiplies the entire clay-charge term, so a wrong S
+// scales Qv_eff directly and moves SwT with nothing on the log to show for it.
+//
+// Same discipline as the RtC fit. The regression is the ALGEBRAIC INVERSE of the module's own
+// line — `sw_imts` computes `cec_bulk = S · cec_theo_at(vk, vi, CEC_KAOL, CEC_ILL)`, so
+//
+//     S = CEC_lab / cec_theo_at(...)          <- least squares THROUGH THE ORIGIN in one unknown
+//
+// and `cec_theo_at` is the very function the run calls, so the two cannot drift apart.
+//
+// **Through the origin, no intercept.** S is defined as a pure scaling factor. An intercept
+// would assert measurable cation exchange where the clay model says there is no clay — a
+// different physical claim, and one the module's equation has nowhere to put.
+//
+// **Least squares, not the mean of the per-plug ratios.** Through-origin OLS weights each plug
+// by its clay content, which is right: those are the plugs where Qv actually drives the answer,
+// and on a nearly clean plug the ratio is mostly measurement noise divided by a small number.
+// The median ratio is reported ALONGSIDE it, because the two agree only when S really is
+// constant across the clay range — a wide gap between them is the diagnosis that it is not.
+//
+// **The clay must come from the curves the run will use, not from the XRD table.** This is the
+// trap. If S is calibrated against XRD weight fractions and then applied to a VDCL-derived
+// VKAOL curve, S is wrong by the ratio between those two estimates of clay — silently, because
+// both look like clay volumes. So the fit reads VKAOL/VILL through the normal curve resolution,
+// exactly as the module does.
+//
+// **S and the literature CEC constants are not jointly identifiable**, the same way RSF and the
+// RtC coefficients are not: S multiplies (V·CEC_KAOL + V·CEC_ILL), so scaling the constants and
+// scaling S are the same operation. The fitted S belongs to the constants it was fitted with,
+// and the result says so.
+
+use crate::db;
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SFactorFitRequest {
+    pub well_ids: Vec<String>,
+    /// Point dataset holding the laboratory CEC measurements — "CEC", or "CORE" when they
+    /// arrived as an extra column on a core table. Read from the ACTIVE delivery of that
+    /// dataset, like every other point-data reader.
+    pub cec_dataset: String,
+    /// Item name within that dataset carrying the CEC value (meq/100g).
+    pub cec_item: String,
+    /// Clay curves, resolved the way `sw_imts` resolves them. See the header note on why these
+    /// must be the run's curves and not the XRD table the lab CEC came from.
+    pub vkaol_curve: String,
+    #[serde(default)]
+    pub vill_curve: String,
+    /// Literature CEC constants. Held FIXED — see the header note on identifiability.
+    #[serde(default = "default_cec_kaol")]
+    pub cec_kaol: f64,
+    #[serde(default = "default_cec_ill")]
+    pub cec_ill: f64,
+    /// How far a plug depth may sit from the nearest log sample and still be paired with it.
+    #[serde(default = "default_depth_tol")]
+    pub depth_tol: f64,
+}
+
+fn default_cec_kaol() -> f64 {
+    8.0
+}
+fn default_cec_ill() -> f64 {
+    25.0
+}
+/// One standard 6-inch log sample, in metres. A plug quoted to the centimetre lands inside one
+/// sample of its true depth once the core is depth-shifted to the log; anything looser is
+/// pairing a measurement with rock it did not come from.
+fn default_depth_tol() -> f64 {
+    0.15
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SFactorPoint {
+    pub well_id: String,
+    /// Depth of the plug, as delivered.
+    pub depth: f64,
+    /// Depth of the log sample it was paired with, so a suspicious pairing is visible.
+    pub log_depth: f64,
+    pub vkaol: f64,
+    pub vill: f64,
+    /// Theoretical bulk CEC from the clay model — the regression's x.
+    pub cec_theo: f64,
+    /// Measured laboratory CEC — the regression's y.
+    pub cec_lab: f64,
+    /// This plug's own ratio, for the scatter.
+    pub ratio: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SFactorFitResult {
+    /// Through-origin least squares — the value to put in S_FACTOR.
+    pub s_factor: f64,
+    /// Median of the per-plug ratios. Reported so a gap between the two can be seen.
+    pub s_median_ratio: f64,
+    /// P10/P90 of the per-plug ratios — how far the individual plugs disagree about S. This,
+    /// not the median-vs-fit gap, is the real drift detector: the fit weights by clay content
+    /// and the median does not, but both are central values, so the two can only ever differ by
+    /// as much as the ratio changes between the median plug and the clay-weighted one. The
+    /// spread has no such ceiling.
+    pub ratio_p10: f64,
+    pub ratio_p90: f64,
+    /// R² about the MEAN (the conventional, comparable one — see the note it can go negative).
+    pub r2: f64,
+    /// RMS of (CEC_lab − S·CEC_theo), in meq/100g.
+    pub rms: f64,
+    pub n_points: usize,
+    pub n_wells: usize,
+    /// Echoed back: S is only valid for these constants.
+    pub cec_kaol_used: f64,
+    pub cec_ill_used: f64,
+    pub points: Vec<SFactorPoint>,
+    pub excluded: Vec<(String, usize)>,
+    pub notes: Vec<String>,
+    pub error: Option<String>,
+}
+
+fn s_err(msg: &str) -> SFactorFitResult {
+    SFactorFitResult {
+        s_factor: f64::NAN,
+        s_median_ratio: f64::NAN,
+        ratio_p10: f64::NAN,
+        ratio_p90: f64::NAN,
+        r2: f64::NAN,
+        rms: f64::NAN,
+        n_points: 0,
+        n_wells: 0,
+        cec_kaol_used: f64::NAN,
+        cec_ill_used: f64::NAN,
+        points: vec![],
+        excluded: vec![],
+        notes: vec![],
+        error: Some(msg.to_string()),
+    }
+}
+
+/// Index of the depth nearest `target` in an ASCENDING slice, or `None` when the slice is empty.
+fn nearest_depth(depths: &[f32], target: f64) -> Option<usize> {
+    if depths.is_empty() {
+        return None;
+    }
+    let pos = depths.partition_point(|d| (*d as f64) < target);
+    let mut best = pos.min(depths.len() - 1);
+    if pos > 0 {
+        let prev = pos - 1;
+        if (depths[prev] as f64 - target).abs() <= (depths[best] as f64 - target).abs() {
+            best = prev;
+        }
+    }
+    Some(best)
+}
+
+/// Fits the IMTS CEC scaling factor S to the user's own laboratory CEC measurements.
+pub fn run_s_factor_fit(db_mx: &Mutex<Connection>, req: &SFactorFitRequest) -> SFactorFitResult {
+    if req.well_ids.is_empty() {
+        return s_err("select at least one well");
+    }
+    let dataset = req.cec_dataset.trim().to_uppercase();
+    let item = req.cec_item.trim().to_uppercase();
+    if dataset.is_empty() || item.is_empty() {
+        return s_err("name the point dataset and the item holding the laboratory CEC values");
+    }
+    let vk_n = req.vkaol_curve.trim().to_uppercase();
+    let vi_n = req.vill_curve.trim().to_uppercase();
+    if vk_n.is_empty() && vi_n.is_empty() {
+        return s_err("at least one clay curve is required — S scales the clay charge, so with no clay there is nothing to scale");
+    }
+    if !(req.cec_kaol.is_finite() && req.cec_ill.is_finite())
+        || req.cec_kaol < 0.0
+        || req.cec_ill < 0.0
+    {
+        return s_err("the literature CEC constants must be finite and non-negative");
+    }
+    if req.cec_kaol <= 0.0 && req.cec_ill <= 0.0 {
+        return s_err("both literature CEC constants are zero — the clay model then predicts no exchange capacity anywhere and S cannot be defined");
+    }
+    if !(req.depth_tol.is_finite() && req.depth_tol > 0.0) {
+        return s_err("the depth tolerance must be positive");
+    }
+
+    let mut pts: Vec<SFactorPoint> = Vec::new();
+    let (mut ex_nomatch, mut ex_noclay, mut ex_nolab, mut ex_noclaydata) =
+        (0usize, 0usize, 0usize, 0usize);
+    let mut items_seen: std::collections::BTreeSet<String> = Default::default();
+    let mut wells_used: std::collections::BTreeSet<String> = Default::default();
+    let mut empty_wells: Vec<String> = Vec::new();
+    let mut any_rows = false;
+
+    {
+        let conn = db_mx.lock().unwrap();
+        let mut names: Vec<String> = Vec::new();
+        if !vk_n.is_empty() {
+            names.push(vk_n.clone());
+        }
+        if !vi_n.is_empty() {
+            names.push(vi_n.clone());
+        }
+        for well_id in &req.well_ids {
+            let before = pts.len();
+            'well: {
+                let Ok(aux) = db::list_aux_data(&conn, well_id, Some(&dataset)) else { break 'well };
+                if aux.is_empty() {
+                    break 'well;
+                }
+                any_rows = true;
+                for r in &aux {
+                    items_seen.insert(r.item.to_uppercase());
+                }
+                let Ok((depth, cols)) = fetch_curve_frame(&conn, well_id, &names) else { break 'well };
+                if depth.is_empty() {
+                    break 'well;
+                }
+                let vkv = cols.get(&vk_n);
+                let viv = cols.get(&vi_n);
+                if vkv.is_none() && viv.is_none() {
+                    break 'well;
+                }
+
+                for r in aux.iter().filter(|r| r.item.eq_ignore_ascii_case(&item)) {
+                    let d = r.depth_top as f64;
+                    // A lab CEC is measured on ONE plug. An interval row (depth_base present) is
+                    // anchored at its middle, the same convention the point-data tracks use.
+                    let d = match r.depth_base {
+                        Some(b) if (b as f64) > d => 0.5 * (d + b as f64),
+                        _ => d,
+                    };
+                    let lab = match r.value_num {
+                        Some(v) if (v as f64).is_finite() && v >= 0.0 => v as f64,
+                        _ => {
+                            ex_nolab += 1;
+                            continue;
+                        }
+                    };
+                    let Some(idx) = nearest_depth(&depth, d) else {
+                        ex_nomatch += 1;
+                        continue;
+                    };
+                    let ld = depth[idx] as f64;
+                    if (ld - d).abs() > req.depth_tol {
+                        // Never stretch to the nearest sample regardless of distance: a CEC
+                        // paired with rock it was not cut from is a fabricated data point, and
+                        // it would look exactly like a real one in the scatter.
+                        ex_nomatch += 1;
+                        continue;
+                    }
+                    let vk = vkv.and_then(|c| c.get(idx)).map(|v| *v as f64).unwrap_or(f64::NAN);
+                    let vi = viv.and_then(|c| c.get(idx)).map(|v| *v as f64).unwrap_or(f64::NAN);
+                    // A missing clay curve reads as ZERO clay of that mineral (what the module
+                    // does), but a plug where BOTH are missing carries no clay information at all
+                    // and must not be read as a clean plug.
+                    if vk.is_nan() && vi.is_nan() {
+                        ex_noclaydata += 1;
+                        continue;
+                    }
+                    let vk = if vk.is_nan() { 0.0 } else { limit(vk, 0.0, 1.0) };
+                    let vi = if vi.is_nan() { 0.0 } else { limit(vi, 0.0, 1.0) };
+                    let theo = cec_theo_at(vk, vi, req.cec_kaol, req.cec_ill);
+                    if !(theo.is_finite() && theo > 0.0) {
+                        // The clay model says there is no clay here. A ratio would divide by
+                        // zero, and a lab CEC that is NOT zero at such a depth is evidence
+                        // against the clay curves — not a point that can set a scaling factor.
+                        ex_noclay += 1;
+                        continue;
+                    }
+                    pts.push(SFactorPoint {
+                        well_id: well_id.clone(),
+                        depth: d,
+                        log_depth: ld,
+                        vkaol: vk,
+                        vill: vi,
+                        cec_theo: theo,
+                        cec_lab: lab,
+                        ratio: lab / theo,
+                    });
+                }
+            }
+            if pts.len() == before {
+                empty_wells.push(well_id.clone());
+            } else {
+                wells_used.insert(well_id.clone());
+            }
+        }
+    }
+
+    if pts.is_empty() && any_rows && !items_seen.contains(&item) {
+        let list: Vec<&str> = items_seen.iter().map(|s| s.as_str()).take(24).collect();
+        return s_err(&format!(
+            "no item named '{item}' in the {dataset} data of these wells. Items present: {}",
+            if list.is_empty() { "(none)".to_string() } else { list.join(", ") }
+        ));
+    }
+    if pts.len() < 3 {
+        return s_err(&format!(
+            "only {} usable plug(s) — need at least 3, so the scatter around S can be judged \
+             rather than taken on trust from a single measurement",
+            pts.len()
+        ));
+    }
+
+    // Through-origin least squares: S = Σ(x·y) / Σ(x²).
+    let sxy: f64 = pts.iter().map(|p| p.cec_theo * p.cec_lab).sum();
+    let sxx: f64 = pts.iter().map(|p| p.cec_theo * p.cec_theo).sum();
+    if !(sxx.is_finite() && sxx > 0.0) {
+        return s_err("the theoretical CEC is zero across every paired plug — check the clay curves resolve to data at the plug depths");
+    }
+    let s_factor = sxy / sxx;
+
+    let mut ratios: Vec<f32> = pts.iter().map(|p| p.ratio as f32).collect();
+    ratios.sort_by(|a, b| a.partial_cmp(b).expect("ratios are finite by construction"));
+    let s_median_ratio = crate::distribution::percentile(&ratios, 50.0) as f64;
+    let ratio_p10 = crate::distribution::percentile(&ratios, 10.0) as f64;
+    let ratio_p90 = crate::distribution::percentile(&ratios, 90.0) as f64;
+
+    // R² about the MEAN — the conventional definition, deliberately NOT the no-intercept variant
+    // (which measures against zero and flatters every through-origin fit into looking excellent).
+    let y_mean = pts.iter().map(|p| p.cec_lab).sum::<f64>() / pts.len() as f64;
+    let (mut ss_res, mut ss_tot) = (0.0f64, 0.0f64);
+    for p in &pts {
+        let resid = p.cec_lab - s_factor * p.cec_theo;
+        ss_res += resid * resid;
+        ss_tot += (p.cec_lab - y_mean).powi(2);
+    }
+    let r2 = if ss_tot > 0.0 { 1.0 - ss_res / ss_tot } else { f64::NAN };
+    let rms = (ss_res / pts.len() as f64).sqrt();
+
+    let n_points = pts.len();
+    let n_wells = wells_used.len();
+    let mut notes: Vec<String> = Vec::new();
+
+    if !empty_wells.is_empty() {
+        notes.push(format!(
+            "{} scoped well(s) contributed no paired plugs and are not in this fit",
+            empty_wells.len()
+        ));
+    }
+    if s_factor > 1.0 {
+        // The method's own expectation is S < 1: measured lab CEC runs BELOW the XRD-theoretical
+        // value. Above 1 the clay model is under-calling exchange capacity, and the usual cause
+        // is a mineral it does not carry — smectite runs 80-150 meq/100g against illite's 25, so
+        // even a few percent of it dwarfs the modelled charge and S absorbs the difference. An S
+        // carrying a missing mineral is then wrong at every depth where that mineral's fraction
+        // differs from the cored plugs'.
+        notes.push(format!(
+            "S = {s_factor:.3} is above 1, where the method expects lab CEC to sit BELOW the \
+             XRD-theoretical value. The clay model is under-calling exchange capacity — most \
+             often a CEC-active mineral it does not carry (smectite is 80-150 meq/100g against \
+             illite's 25). S is absorbing that, and will be wrong wherever its fraction differs \
+             from these plugs"
+        ));
+    }
+    // THE drift detector. Two central values (the clay-weighted fit and the plain median) can
+    // only differ by as much as the ratio changes between the median plug and the clay-weighted
+    // one — on a wide clay range with a linear drift that is barely 30%, so a gap threshold
+    // alone misses real drift. The SPREAD of the individual ratios has no such ceiling.
+    if ratio_p10.is_finite() && ratio_p90.is_finite() && ratio_p10 > 0.0 && ratio_p90 / ratio_p10 > 2.0
+    {
+        notes.push(format!(
+            "the plugs disagree about S: their own ratios run {ratio_p10:.3} (P10) to \
+             {ratio_p90:.3} (P90), a factor of {:.1}. No single S describes them. Either S \
+             genuinely drifts with clay content, or the lean plugs are carrying measurement \
+             scatter — a small absolute CEC divided by a small modelled clay volume is a noisy \
+             ratio. Look at the scatter before quoting one number",
+            ratio_p90 / ratio_p10
+        ));
+    }
+    // A systematic gap on top of that spread says the disagreement tracks clay content, which
+    // is the part that decides WHICH plugs the single fitted S actually suits.
+    if s_median_ratio.is_finite() && s_factor.is_finite() && s_factor > 0.0 {
+        let gap = (s_median_ratio / s_factor).max(s_factor / s_median_ratio);
+        if gap.is_finite() && gap > 1.25 {
+            notes.push(format!(
+                "the median per-plug ratio is {s_median_ratio:.3} against a fitted S of \
+                 {s_factor:.3}. The fit is weighted toward the clayey plugs and the median is \
+                 not, so a gap this wide means the disagreement is systematic with clay content: \
+                 the fitted S suits the clay-rich rock, which is where Qv drives the answer, and \
+                 over-corrects nothing in the clean sand where it barely matters"
+            ));
+        }
+    }
+    if r2.is_finite() && r2 < 0.0 {
+        notes.push(format!(
+            "R2 = {r2:.2} is negative: proportional to clay describes the lab CEC WORSE than a \
+             flat average would. The clay curves are not tracking exchange capacity here, and no \
+             single S will fix that"
+        ));
+    } else if r2.is_finite() && r2 < 0.3 {
+        notes.push(format!(
+            "R2 = {r2:.2} is low — the clay curves explain little of the CEC variation. Check \
+             they resolve to real data at the plug depths and that the core is depth-shifted to \
+             the log"
+        ));
+    }
+    notes.push(format!(
+        "S is valid for CEC_KAOL = {} and CEC_ILL = {} only — S multiplies those constants, so \
+         the three are not jointly identifiable and changing them afterwards invalidates it",
+        req.cec_kaol, req.cec_ill
+    ));
+
+    let excluded: Vec<(String, usize)> = [
+        ("no log sample within the depth tolerance".to_string(), ex_nomatch),
+        ("clay curves carry no data at that depth".to_string(), ex_noclaydata),
+        ("clay model says no clay there (no ratio to take)".to_string(), ex_noclay),
+        ("laboratory CEC missing or negative".to_string(), ex_nolab),
+    ]
+    .into_iter()
+    .filter(|(_, n)| *n > 0)
+    .collect();
+
+    if pts.len() > MAX_RTC_POINTS {
+        let step = pts.len() as f64 / MAX_RTC_POINTS as f64;
+        pts = (0..MAX_RTC_POINTS).map(|k| pts[((k as f64) * step) as usize].clone()).collect();
+    }
+
+    SFactorFitResult {
+        s_factor,
+        s_median_ratio,
+        ratio_p10,
+        ratio_p90,
+        r2,
+        rms,
+        n_points,
+        n_wells,
+        cec_kaol_used: req.cec_kaol,
+        cec_ill_used: req.cec_ill,
         points: pts,
         excluded,
         notes,
@@ -1212,6 +1666,324 @@ mod tests {
             r.notes.iter().any(|n| n.contains("Qv does not vary")),
             "the user must be told the clay term was not fitted: {:?}",
             r.notes
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // S-factor calibration
+    // -----------------------------------------------------------------------
+
+    /// A well with clay curves on a 0.5 m log grid and laboratory CEC plugs whose values were
+    /// generated as `s_true · (VKAOL·8 + VILL·25)` — the module's own clay-charge line.
+    ///
+    /// `plug_offset` shifts every plug depth off the log grid, which is how a core that has not
+    /// been depth-shifted to the log actually presents itself.
+    fn synth_cec_well(
+        conn: &Connection,
+        name: &str,
+        s_true: f64,
+        n_samples: usize,
+        n_plugs: usize,
+        plug_offset: f64,
+        // vk, vi at fraction f along the well
+        clay_at: impl Fn(f64) -> (f64, f64),
+        // scales the lab CEC of plug k, for the "S is not constant" case
+        lab_scale: impl Fn(usize, f64) -> f64,
+    ) -> String {
+        use crate::db;
+        use uuid::Uuid;
+        let wid = Uuid::new_v4();
+        db::insert_well(conn, wid, name, None, None, Some(0.0)).unwrap();
+
+        let mut depth = Vec::with_capacity(n_samples);
+        let (mut vk, mut vi) = (vec![], vec![]);
+        for i in 0..n_samples {
+            let f = i as f64 / (n_samples - 1) as f64;
+            depth.push((1000.0 + 0.5 * i as f64) as f32);
+            let (a, b) = clay_at(f);
+            vk.push(a as f32);
+            vi.push(b as f32);
+        }
+        let nan = vec![f32::NAN; n_samples];
+        db::insert_standard_curves(
+            conn, wid, depth.clone(),
+            nan.clone(), nan.clone(), nan.clone(), nan.clone(), nan.clone(), nan.clone(),
+        )
+        .unwrap();
+        crate::equations::write_computed_curves_batch(
+            conn, &wid.to_string(), &depth, &[("VKAOL_SYN", &vk), ("VILL_SYN", &vi)],
+        )
+        .unwrap();
+
+        // Plugs sit on every (n_samples / n_plugs)-th log sample, offset by `plug_offset`.
+        let step = (n_samples / n_plugs).max(1);
+        let rows: Vec<db::AuxRow> = (0..n_plugs)
+            .map(|k| {
+                let i = (k * step).min(n_samples - 1);
+                let theo = cec_theo_at(vk[i] as f64, vi[i] as f64, 8.0, 25.0);
+                db::AuxRow {
+                    dataset: "CEC".into(),
+                    depth_top: (depth[i] as f64 + plug_offset) as f32,
+                    depth_base: None,
+                    item: "CEC".into(),
+                    value_num: Some((s_true * theo * lab_scale(k, theo)) as f32),
+                    value_text: None,
+                }
+            })
+            .collect();
+        db::insert_aux_data(conn, &wid.to_string(), "CEC", "RAW", Some("test"), &rows).unwrap();
+        wid.to_string()
+    }
+
+    fn s_req(wells: Vec<String>) -> SFactorFitRequest {
+        SFactorFitRequest {
+            well_ids: wells,
+            cec_dataset: "CEC".into(),
+            cec_item: "CEC".into(),
+            vkaol_curve: "VKAOL_SYN".into(),
+            vill_curve: "VILL_SYN".into(),
+            cec_kaol: 8.0,
+            cec_ill: 25.0,
+            depth_tol: 0.15,
+        }
+    }
+
+    /// Clay that varies over a wide range, so the fit is not being asked to find a slope through
+    /// a cloud of near-identical plugs. Both minerals rise together, giving a theoretical CEC
+    /// from ~0.4 to ~4.8 meq/100g — a first attempt had them move in opposite directions, which
+    /// held the total nearly constant and made every clay-range test vacuous.
+    fn spread_clay(f: f64) -> (f64, f64) {
+        (0.02 + 0.30 * f, 0.01 + 0.08 * f)
+    }
+
+    /// The claim of the whole feature: point it at your own lab CEC and you get YOUR S.
+    #[test]
+    fn the_s_fit_recovers_the_scaling_factor_that_generated_the_plugs() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let w = synth_cec_well(&conn, "CEC-1", 0.42, 120, 30, 0.0, spread_clay, |_, _| 1.0);
+        let db = Mutex::new(conn);
+
+        let r = run_s_factor_fit(&db, &s_req(vec![w]));
+        assert!(r.error.is_none(), "fit failed: {:?}", r.error);
+        assert_eq!(r.n_points, 30, "every plug should pair: {:?}", r.excluded);
+        assert!((r.s_factor - 0.42).abs() < 1e-4, "S {} vs 0.42", r.s_factor);
+        // With no scatter, the weighted fit and the plain median of ratios must agree — that is
+        // what "S is constant across the clay range" means, and the gap note must stay silent.
+        assert!((r.s_median_ratio - 0.42).abs() < 1e-4, "median {}", r.s_median_ratio);
+        assert!(r.r2 > 0.999, "a noiseless fit must be near-perfect: R2 {}", r.r2);
+        assert!((r.ratio_p90 / r.ratio_p10 - 1.0).abs() < 1e-3, "a constant S has no spread");
+        assert!(
+            !r.notes.iter().any(|n| n.contains("plugs disagree") || n.contains("median per-plug")),
+            "no spread here, so no spread warning: {:?}",
+            r.notes
+        );
+    }
+
+    /// The fitted S must make `sw_imts` reproduce the measured CEC — that is the point of
+    /// deriving the fit as the algebraic inverse of `cec_theo_at` rather than from the method
+    /// note. QVEFF is the module's only exposed view of the clay charge, so check it there.
+    #[test]
+    fn the_fitted_s_makes_the_module_reproduce_the_measured_cec() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let w = synth_cec_well(&conn, "CEC-2", 0.37, 120, 30, 0.0, spread_clay, |_, _| 1.0);
+        let db = Mutex::new(conn);
+        let r = run_s_factor_fit(&db, &s_req(vec![w]));
+        assert!(r.error.is_none(), "{:?}", r.error);
+
+        // Take a real plug and run the module at its clay content with the fitted S.
+        let p = &r.points[10];
+        let (rhog, swirr, phit) = (2.65f64, 0.2f64, 0.25f64);
+        let spec = sw_imts_spec();
+        let mut ctx = ctx_with(
+            vec![
+                ("RT", vec![10.0]),
+                ("PHIT", vec![phit as f32]),
+                ("VKAOL", vec![p.vkaol as f32]),
+                ("VILL", vec![p.vill as f32]),
+            ],
+            &spec,
+            1,
+        );
+        ctx.params.insert("S_FACTOR".into(), vec![r.s_factor]);
+        ctx.params.insert("SWIRR_DEF".into(), vec![swirr]);
+        ctx.params.insert("RHOG".into(), vec![rhog]);
+        let qveff = sw_imts(&ctx)["QVEFF"][0] as f64;
+
+        // What the laboratory measurement itself says Qv_eff is at this plug.
+        let expect = p.cec_lab * rhog * (1.0 - phit) / (100.0 * phit * (1.0 - swirr));
+        assert!(
+            (qveff - expect).abs() < 1e-6 * expect.max(1.0),
+            "the module must land on the lab CEC: {qveff} vs {expect}"
+        );
+    }
+
+    /// A plug depth that does not line up with the log is a core that has not been depth-shifted.
+    /// Pairing it with the nearest sample regardless of distance would fabricate a data point
+    /// that looks exactly like a real one, so it must be dropped and counted.
+    ///
+    /// The offset here is a QUARTER of the log sampling, deliberately. Writing this test with a
+    /// 3.0 m shift on a 0.5 m grid proved nothing: 3.0 is six whole samples, so every plug landed
+    /// exactly on a log depth and paired perfectly. That is not a flaw in the check but a real
+    /// limit of it — **a shift that is a whole number of sample intervals is invisible to any
+    /// depth-tolerance test**, because the log grid has no way to see it. The tolerance keeps a
+    /// measurement off rock it did not come from; it is not a substitute for depth-shifting the
+    /// core against the core gamma.
+    #[test]
+    fn a_plug_off_the_log_depth_is_dropped_not_snapped_to_the_nearest_sample() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let w = synth_cec_well(&conn, "CEC-3", 0.42, 120, 30, 0.25, spread_clay, |_, _| 1.0);
+        let db = Mutex::new(conn);
+
+        let r = run_s_factor_fit(&db, &s_req(vec![w.clone()]));
+        assert!(r.error.is_some(), "an unshifted core must not quietly produce an S");
+        let msg = r.error.unwrap();
+        assert!(msg.contains("usable plug"), "{msg}");
+
+        // Widen the tolerance past the shift and the same plugs pair — so the guard is the
+        // tolerance doing its job, not a broken depth lookup.
+        let mut wide = s_req(vec![w]);
+        wide.depth_tol = 0.3;
+        let r2 = run_s_factor_fit(&db, &wide);
+        assert!(r2.error.is_none(), "{:?}", r2.error);
+        assert_eq!(r2.n_points, 30);
+    }
+
+    /// Where the clay curves say there is no clay there is no ratio to take, and a lab CEC that
+    /// is nevertheless non-zero is evidence AGAINST the clay model rather than a data point.
+    #[test]
+    fn a_plug_with_no_modelled_clay_is_excluded_instead_of_dividing_by_zero() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        // Clean over the top half of the well, clayey below.
+        let w = synth_cec_well(
+            &conn, "CEC-4", 0.42, 120, 30, 0.0,
+            |f| if f < 0.5 { (0.0, 0.0) } else { (0.10 + 0.20 * f, 0.05) },
+            |_, _| 1.0,
+        );
+        let db = Mutex::new(conn);
+        let r = run_s_factor_fit(&db, &s_req(vec![w]));
+
+        assert!(r.error.is_none(), "{:?}", r.error);
+        assert!(r.s_factor.is_finite(), "S must not be NaN from a zero divide");
+        assert!((r.s_factor - 0.42).abs() < 1e-4, "the clayey plugs still give S: {}", r.s_factor);
+        let dropped: usize = r
+            .excluded
+            .iter()
+            .filter(|(why, _)| why.contains("no clay"))
+            .map(|(_, n)| *n)
+            .sum();
+        assert!(dropped > 0, "the clean plugs must be counted out loud: {:?}", r.excluded);
+        assert_eq!(dropped + r.n_points, 30, "every plug is either fitted or named");
+    }
+
+    /// S above 1 means the clay model is under-calling exchange capacity — most often a mineral
+    /// it does not carry. Smectite at 80-150 meq/100g dwarfs illite's 25, so a few percent of it
+    /// is enough. The fit must say so rather than return a number that looks ordinary.
+    #[test]
+    fn an_s_above_one_is_flagged_because_a_missing_clay_mineral_hides_there() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        // Lab CEC 1.8x what kaolinite+illite can account for: unmodelled smectite.
+        let w = synth_cec_well(&conn, "CEC-5", 1.8, 120, 30, 0.0, spread_clay, |_, _| 1.0);
+        let db = Mutex::new(conn);
+        let r = run_s_factor_fit(&db, &s_req(vec![w]));
+
+        assert!(r.error.is_none(), "{:?}", r.error);
+        assert!(r.s_factor > 1.0, "S {}", r.s_factor);
+        assert!(
+            r.notes.iter().any(|n| n.contains("smectite")),
+            "the likely cause must be named: {:?}",
+            r.notes
+        );
+    }
+
+    /// When S drifts with clay content it is not a scaling factor at all, and the user must be
+    /// told before quoting one number.
+    ///
+    /// This test is why the spread, not the median-vs-fit gap, is the detector. A ratio drifting
+    /// linearly from 1.13 on the leanest plugs to 0.40 on the clayiest — a factor of nearly three,
+    /// unmistakable in a crossplot — moves the median only 28% away from the fit, because both
+    /// are central values and the clay-weighted centre sits at x ≈ 3.6 against the median's
+    /// x ≈ 2.6. A gap threshold loose enough to survive noise would never fire on real drift. The
+    /// P10-P90 spread of the plugs' own ratios is bounded by nothing and catches it at 2.8x.
+    #[test]
+    fn a_drifting_s_shows_up_in_the_spread_of_the_per_plug_ratios() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        // Lab CEC runs 3x high on the leanest plugs and falls to 1x on the clayiest — the shape
+        // a non-clay conductive mineral or a detection-limit floor puts into a CEC suite.
+        let w = synth_cec_well(&conn, "CEC-6", 0.4, 200, 40, 0.0, spread_clay, |_, theo| {
+            1.0 + 2.0 * (1.0 - (theo / 4.8).clamp(0.0, 1.0))
+        });
+        let db = Mutex::new(conn);
+        let r = run_s_factor_fit(&db, &s_req(vec![w]));
+
+        assert!(r.error.is_none(), "{:?}", r.error);
+        assert!(
+            r.ratio_p90 / r.ratio_p10 > 2.0,
+            "the plugs' own ratios must show the drift: P10 {} P90 {}",
+            r.ratio_p10,
+            r.ratio_p90
+        );
+        assert!(
+            r.notes.iter().any(|n| n.contains("plugs disagree about S")),
+            "the user must be told S drifts: {:?}",
+            r.notes
+        );
+        // The median-vs-fit gap is real but small — pinned here so the ceiling argument in the
+        // doc comment above stays honest if anyone retunes the thresholds.
+        assert!(
+            r.s_median_ratio > r.s_factor && r.s_median_ratio < r.s_factor * 1.5,
+            "median {} vs fit {}",
+            r.s_median_ratio,
+            r.s_factor
+        );
+    }
+
+    /// Getting the item name wrong is the most likely first mistake, and "no data" is a useless
+    /// answer to it. Say which items the delivery actually holds.
+    #[test]
+    fn a_wrong_item_name_reports_the_items_that_are_actually_there() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let w = synth_cec_well(&conn, "CEC-7", 0.42, 120, 30, 0.0, spread_clay, |_, _| 1.0);
+        let db = Mutex::new(conn);
+        let mut req = s_req(vec![w]);
+        req.cec_item = "CEC_MEAS".into();
+        let r = run_s_factor_fit(&db, &req);
+
+        let msg = r.error.expect("a missing item must be an error, not an empty fit");
+        assert!(msg.contains("CEC_MEAS"), "{msg}");
+        assert!(msg.contains("Items present"), "{msg}");
+        assert!(msg.contains("CEC"), "{msg}");
+    }
+
+    /// S and the literature constants are the same knob twice — halve the constants and the
+    /// fitted S doubles, landing on the same clay charge. The result must therefore pin the
+    /// constants it belongs to.
+    #[test]
+    fn s_is_reported_against_the_constants_it_was_fitted_with() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let w = synth_cec_well(&conn, "CEC-8", 0.42, 120, 30, 0.0, spread_clay, |_, _| 1.0);
+        let db = Mutex::new(conn);
+
+        let base = run_s_factor_fit(&db, &s_req(vec![w.clone()]));
+        let mut halved = s_req(vec![w]);
+        halved.cec_kaol = 4.0;
+        halved.cec_ill = 12.5;
+        let half = run_s_factor_fit(&db, &halved);
+
+        assert!((half.s_factor - 2.0 * base.s_factor).abs() < 1e-4, "{} vs {}", half.s_factor, base.s_factor);
+        assert_eq!(half.cec_kaol_used, 4.0);
+        assert_eq!(half.cec_ill_used, 12.5);
+        assert!(
+            half.notes.iter().any(|n| n.contains("not jointly identifiable")),
+            "{:?}",
+            half.notes
         );
     }
 }

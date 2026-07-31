@@ -1089,8 +1089,23 @@ joblib (ML) → office four (deliverables) → opencv (digitizing).
       counted by reason. `sw_rtc`'s description now states the shipped defaults are one field's.
       *Open follow-ups:* a cross-plot of measured vs fitted excess in the dialog (the backend
       already returns the points); writing the accepted coefficients into `zone_params` per zone
-      rather than copy-paste; and the same treatment for `sw_imts`'s S factor, which has the
-      identical "someone else's calibration" problem.
+      rather than copy-paste.
+- [x] **SHIPPED 2026-07-31 — IMTS S-factor calibration from the user's own lab CEC.**
+      `lrlc::run_s_factor_fit` + Advance ▸ Calibrate S… fits `sw_imts`'s CEC scaling factor from
+      laboratory CEC point data against the clay content of the very curves the run will use.
+      Same discipline as RtC: the regression is the module's own clay-charge line inverted, via
+      the shared `cec_theo_at`, so a fitted S provably makes `sw_imts` reproduce the measured
+      CEC. Through the origin (S is a scaling factor, an intercept would be a different claim)
+      and clay-weighted rather than a mean of ratios. The drift detector is the P10-P90 SPREAD of
+      the per-plug ratios, not the median-vs-fit gap — two central values cannot diverge far
+      enough to catch real drift. S > 1 is flagged as a probable unmodelled mineral (smectite at
+      80-150 meq/100g against illite's 25), never clamped. A plug outside the depth tolerance is
+      dropped, not snapped. `sw_imts`'s description now says the shipped 0.5 was never measured
+      anywhere. Also fixed: both fit dialogs opened with a blank run button, because
+      `buildWellScope` does not fire `onChange` during construction.
+      *Open follow-ups:* the same measured-vs-fitted cross-plot, shared with the RtC dialog;
+      picking the dataset/item from a dropdown of what the wells actually hold, rather than
+      typing a name and reading the error.
 - [ ] **`Pillow`** — already present, and enough for the *display* half of the image-track item
       above (read JPEG/PNG/TIFF, dimensions, downsample). No install needed.
 - [ ] **OpenCV** — NOT installed, and deliberately deferred to the **digitizing** phase of the
