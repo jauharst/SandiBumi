@@ -6651,3 +6651,61 @@ ROADMAP T-IMP-05. Small, but it is the kind of thing that wastes ten minutes and
 - [ ] **OK** closes it. Select a well and the same click should go straight through with no dialog.
 
 Nothing changed about what the actions do — only about how they refuse.
+
+---
+
+## Run on a real petrography delivery — and what it changed (2026-07-31)
+
+I ran the pore-area rule over a real carbonate thin-section delivery: 134 photomicrographs, one
+laboratory, one well, one report. Three things came out of it, and one of them changed the code.
+
+**Before you click anything, the part that has no fix yet.** Your plates arrive inside an Excel
+workbook — one worksheet per plate, with the well, the depth in feet, the plug number and the
+magnification typed into cells, and the pictures pasted on top. Import pictures… takes a folder of
+files, so it cannot read a single one of them. I had to lift them out of the workbook by hand
+before anything here could see them. That is the real first barrier, and it is the next thing worth
+building.
+
+- [ ] Confirm that is how your petrography usually arrives, or whether some laboratories send you
+      loose JPEGs with the depth in the filename.
+
+**What changed.** The app already refuses a plate nobody declared impregnated. It had nothing to
+say about a plate that WAS impregnated but photographed under a different light — and that is most
+of a real delivery. Across those 134 plates the overall colour ran from orange through green to
+violet. On one blue-cast plate the rule returned **97% porosity**. On a green-cast plate from the
+same core it returned 6%. Twenty-eight plates came back above 50% porosity. None of them failed;
+all of them would have been saved at a real depth.
+
+The new rule is: **if the picture is mostly the colour you called pore, it is not a porosity.** Rock
+is mostly rock, so on a plate the band is reading correctly the typical pixel is a grain. When the
+typical pixel is pore-coloured, the band is matching the background.
+
+- [ ] Run **Pore Area…** on a delivery where the plates were not all photographed alike. Plates the
+      rule cannot read should appear in the table in orange with a ⚠ on the percentage.
+- [ ] Hover one. The tooltip should name that plate's own median hue and say the band is matching
+      the background.
+- [ ] The number is still shown — that is deliberate, it is what you tune the band against — but
+      **Save** should not store those plates. Check the point data afterwards: only the readable
+      plates should be there.
+- [ ] The notes should say how many plates were affected, and — when the delivery was shot under
+      more than one light — that its colours span too wide a range for one band, so it should be
+      measured in groups.
+- [ ] Tune the band on one flagged plate using the preview until the mask sits on the pores. The
+      warning should clear and that plate should become storable.
+
+On my run this took what would have been stored from a 0–97% spread down to 0–39%, median 12%. That
+is a believable carbonate.
+
+**What is still refused, correctly.** Your delivery states `5x` and `10x`, not a field of view in
+micrometres — and magnification alone cannot be converted without the camera and tube factors. So
+every size in microns stays blank on these plates. Some sheets carry a scale bar as a separate
+little graphic beside the picture; Calibrate (⇹) can only use a bar that is inside the picture
+itself.
+
+- [ ] Check whether your plates ever have the scale bar burned into the photograph rather than
+      pasted next to it. That decides whether ⇹ is usable on your deliveries at all.
+
+**Still open, and I did not guess at it.** A delivery can mix thin sections with SEM plates in one
+folder. A colour rule run over a grey SEM image returns **0.0%** — which looks like a perfectly
+reasonable answer for a tight rock, and is the mirror of the 97% case. The obvious test did not
+separate them on this data, so I shipped nothing rather than a threshold I could not defend.

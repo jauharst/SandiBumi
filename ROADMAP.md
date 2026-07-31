@@ -1607,6 +1607,39 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       the compiler. Part 1 of `docs/plan_image_analysis.md` is now complete except 1f (recording why
       the core sits where it does).
 
+- [x] **Run the petrography suite on a real delivery** — **SHIPPED 2026-07-31**. 134 real
+      photomicrographs, one carbonate delivery. Three findings. (1) **The plates arrive inside an
+      Excel workbook**, one worksheet per plate with well/depth/plug/magnification in cells and the
+      pictures anchored on top; `images.rs` takes files and can read none of it — see the open item
+      below. (2) The delivery states a MAGNIFICATION (`5x`/`10x`), not a field of view, so `fov_um`
+      cannot be filled from it and everything dimensional stays correctly refused; some sheets carry
+      a scale bar as a SEPARATE graphic beside the plate, which `scaleBarDialog.ts` cannot use.
+      (3) The one that changed the code: `epoxy_check` was only half the guard. Median hue across
+      the delivery ran 26–310 degrees; a blue-cast plate read **0.97 v/v**, a green-cast plate from
+      the same core 0.06, and 28 plates came back above 0.5. `petrography::scene_dominated` refuses
+      the WRITE (never the measurement — tuning needs the number) when the plate's own median hue
+      falls inside the pore band. Caught every plate above 0.5; highest unflagged was 0.387. Stored
+      range went 0.000–0.972 (median 0.231) → 0.000–0.387 (median 0.115). Flagged rows render in
+      `var(--warn)` with the reason on hover; the run also reports the delivery's hue spread when it
+      exceeds 60 degrees. The synthetic welded-grain fixture was 87% pore — a mount, not a rock —
+      and is now grain-dominated.
+
+### Open, from that run
+
+- [ ] **Import plates from a petrography workbook** (`.xls`/`.xlsx`, one sheet per plate). This is
+      the actual first barrier between the suite and a client's rock: the depth, plug number,
+      well and magnification are all in cells beside the picture, so a workbook importer gets the
+      depth registration for free where a folder of files needs it guessed from filenames. Bigger
+      than any remaining measurement and worth more.
+- [ ] **A colour rule over a greyscale SEM plate returns 0.000** — the mirror of the 0.97 case, and
+      more dangerous because it looks like a tight rock rather than an absurdity. A delivery mixes
+      thin sections, SEM plates and scale graphics in one folder. The obvious test (saturation) did
+      NOT separate them on the real data (p99 saturation ≥ 0.34 on every plate, including the ones
+      that are grey with a coloured annotation), so nothing shipped rather than a guessed threshold.
+- [ ] **Magnification → field of view** needs the camera sensor width and tube factor. Both are
+      properties of the laboratory's microscope, not of the plate, so they would be a per-delivery
+      declaration — ask before building.
+
 ## C3. Trust & reproducibility — Phase 11 (§3)
 
 - **Audit trail & lineage**: every module/equation run and data edit logged (`runs` table: params, inputs,

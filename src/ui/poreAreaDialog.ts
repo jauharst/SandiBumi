@@ -393,6 +393,16 @@ export async function openPoreAreaDialog(): Promise<void> {
       const tr = document.createElement("tr");
       const g = p.geometry;
       const vals = [p.name, String(p.depth_top), `${(p.pore_fraction * 100).toFixed(1)}%`];
+      if (p.scene_dominated) {
+        // The number is still shown — it is what the band has to be tuned against — but it must
+        // never read as a measurement, because this plate is not going to be stored.
+        tr.style.color = "var(--warn)";
+        tr.title =
+          `This plate is mostly the colour you called pore (its own median hue is ` +
+          `${p.scene_hue.toFixed(0)}°, inside the band), so the rule is matching the background. ` +
+          `Not a porosity, and not stored — tune the band on this plate.`;
+        vals[2] += " ⚠";
+      }
       if (anyGeom) {
         vals.push(
           g ? String(g.n) : "",

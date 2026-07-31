@@ -3402,6 +3402,12 @@ export interface PlatePore {
   depth_base: number | null;
   /** Pore area as a fraction of the plate, v/v. */
   pore_fraction: number;
+  /** The plate's own median hue in degrees — what colour this picture mostly is. */
+  scene_hue: number;
+  /** True when that median hue falls inside the declared pore band, so the band is matching the
+   *  background rather than the pores. The fraction is still shown — tuning the band is how it
+   *  gets fixed — but the plate is left out of the write. */
+  scene_dominated: boolean;
   pixels: number;
   geometry?: PoreGeometry;
   grains?: GrainStats;

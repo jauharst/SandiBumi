@@ -1514,6 +1514,70 @@ and the decimation says so in a note; the display points are spread evenly, neve
 Changing the reference line or an axis scale redraws from the pairs already in hand — those are
 display choices, and re-pairing would be the same answer arrived at more slowly.
 
+## The first real delivery (2026-07-31 — what running it on real rock changed)
+
+Six increments of measurement had been built on top of each other without any of them meeting real
+rock. Running the pore rule over a real carbonate petrography delivery — 134 photomicrographs, one
+laboratory, one well, one report — changed the design. Three findings, in the order they bite.
+
+**A petrography delivery does not arrive as a folder of pictures.** It arrives as an Excel workbook
+with one WORKSHEET per plate: the well, the depth in feet, the plug number and the magnification
+typed into cells, and the photomicrographs anchored on top as embedded objects. `images.rs` takes a
+list of files and can read none of it. Every plate in this delivery had to be lifted out of the
+workbook before anything in this app could see it. That is the actual first barrier between the
+petrography suite and a client's rock, and nothing in the suite addresses it yet — a plate importer
+that reads a workbook is the missing increment, not another measurement.
+
+**The delivery states a magnification, not a field of view.** Cells read `5x` and `10x`. Turning
+that into micrometres needs the camera sensor size and the tube factor, neither of which the
+delivery states, so `fov_um` cannot be filled from it. Some plates carry a scale BAR as a separate
+embedded graphic beside the picture — a yellow rule captioned `1 mm` — which is what
+`scaleBarDialog.ts` exists for, but only once the bar and the plate are in the same picture.
+Everything dimensional stays refused on this delivery, which is the designed behaviour and, on real
+data, the common case rather than a corner.
+
+**And the finding that changed the code: `epoxy_check` was only half the guard.** It refuses the
+plate nobody impregnated. It says nothing about a plate that WAS impregnated but photographed under
+a light the colour band was never tuned for — and there the rule swallows the matrix and returns a
+porosity anyway. Across these 134 plates the median hue of the picture ran from **26 to 310
+degrees**: one blue-cast plate sat at 221 and read **0.97 v/v**, a green-cast plate from the same
+core at 149 read 0.06. Twenty-eight plates measured above half the section as pore. Not one of them
+would have failed; all of them would have been stored at a real depth and gone on to plot against
+core helium porosity.
+
+`petrography::scene_dominated` is the guard. **The test is the plate's OWN median hue, not a cap on
+the answer.** A cap would be arbitrary — one field of view crossing a large vug genuinely can be
+mostly pore — but rock is mostly rock, so on a plate the band is reading correctly the TYPICAL
+pixel is a grain and its hue falls OUTSIDE the pore band. When the median pixel is pore-coloured,
+the band has stopped discriminating and is describing the scene. On this delivery that flagged
+every one of the 28 plates reading above 0.5 v/v, and the highest an unflagged plate reached was
+0.387 — a plausible carbonate. What would be stored went from a 0.000–0.972 range with a 0.231
+median to 0.000–0.387 with a 0.115 median.
+
+**The fraction is still measured, shown, and previewed; what is refused is the WRITE.** Tuning the
+band is exactly how a user fixes this and they cannot tune against a number they are not shown, so
+the plate appears in the table in `var(--warn)` with the reason on hover. Nothing off that plate is
+stored — not the fraction, not the pore shapes, not the minerals — because they all come off the
+same mask, and if the mask is the background then every number derived from it is about the
+background. The run also reports the delivery's hue SPREAD when it exceeds 60 degrees, because that
+is what decides whether one band can serve the whole delivery: here it could not, and the honest
+instruction is to measure the plates in groups. Pinned by
+`a_plate_whose_own_median_hue_is_pore_coloured_is_not_measured`,
+`the_scene_check_reads_a_wrapped_band_the_way_the_runner_does` (the guard must read a band written
+across 0 degrees as two arcs, exactly as the runner's `in_band` does, or it would silently disable
+itself for anyone using one) and the round trip `a_blue_cast_plate_is_shown_but_never_stored`.
+
+**A synthetic fixture the guard rejected was the fixture's fault, and fixing it mattered.**
+`welded_grains_still_split_but_say_that_the_boundary_was_inferred` drew small discs floating in
+epoxy — 87% pore, which is a mount rather than a rock. It now draws grain-dominated plates. A
+fixture that could not exist is a fixture that cannot catch the bug the real delivery found.
+
+Still open, found and not yet fixed: a delivery can mix photomicrographs with SEM plates and scale
+graphics in one folder, and a colour rule run over a greyscale SEM image returns **0.000** — a
+plausible-looking number for a tight rock, and the mirror of the 0.97 case. The obvious test
+(saturation) did not separate them on this data, so nothing was shipped rather than a guessed
+threshold.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under
