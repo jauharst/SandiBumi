@@ -920,6 +920,27 @@ The actionable backlog. Roughly ordered: safe frontend wins first, then Performa
       **Not fixed, though nearly mechanical: the `n == 0` check the other three already carry,
       with a message naming the well rather than a depth.** Finding 20.
 
+- [ ] **T-PETRO-02's Larionov labels are reversed, and the OPT_GR dropdown gives no rock age.**
+      The code is right: `LARINOV1` is `0.33*(2^(2*IGR) - 1)`, Larionov (1969) for **older rocks /
+      Mesozoic and older**, giving 0.330 at IGR 0.5; `LARINOV2` is `0.083*(2^(3.7*IGR) - 1)`, the
+      **Tertiary / unconsolidated** form, giving 0.216. Those are the published coefficient sets.
+      The manual plan has them swapped — step 1 calls LARINOV1 "Larionov Tertiary" and its Expected
+      pairs Tertiary with ≈0.33 and older with ≈0.22. **Mahakam Delta is Miocene, so the transform
+      this work wants is LARINOV2**; picking LARINOV1 on the plan's label overstates shale volume by
+      more than half through the whole intermediate-GR interval, which is exactly where the VSH
+      cutoff decides net pay, and the curve looks entirely normal. The dropdown cannot settle it
+      either: `OPT_GR`'s choices are bare ids with no rock age, coefficient or tooltip, so the plan
+      is the only place a user is told which is which. Now pinned by
+      `every_vsh_gr_transform_lands_on_its_published_coefficient` (`modules.rs`), which evaluates
+      all eight options by hand at IGR 0.5 so the mapping cannot drift again silently.
+      **Two separable calls: correcting the plan text is free; labelling the dropdown
+      ("LARINOV2 — Larionov, Tertiary") is a small UI change — but the option IDS are stored in
+      `params_json` on every saved run and must not be renamed.** A second correction to the same
+      Expected line: "endpoints 0 and 1 unchanged" does not hold for the Larionov forms, which are
+      empirical fits never normalised to close at 1 (LARINOV1 stops at 0.99, LARINOV2 at 0.9957,
+      LARINOV3 overshoots to 1.133; VSH clamps, VSH_GR keeps the raw value). Not a defect, but it
+      reads as one against the plan as written. Finding 21.
+
 - [x] **Legacy-multimin RECON_ERR at 3 tools — CLOSED 2026-07-31, no sign-off needed.** REVIEW.md
       still lists this among the findings awaiting a decision because it would change
       interpretation numbers. It does not need one. Legacy `multimin` is **retired** — `run_module`

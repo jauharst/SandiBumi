@@ -30,7 +30,7 @@ Pile D is the number that matters: **37 tests, about one in seven, genuinely nee
 | Pile | Done | Remaining |
 |---|---|---|
 | **A** — was already pinned before this work started | **21** | — |
-| **B** — a Rust test now checks it | **41** | 2 (of 43 — T-IMP-06 and T-RT-18 regraded out) |
+| **B** — a Rust test now checks it | **43** | **0** (of 43 — T-IMP-06 and T-RT-18 regraded out) |
 | **C** — a machine now drives it | **5 harness tests** | 81 unblocked (+61 blocked) |
 
 ### Pile A — the checklist
@@ -81,8 +81,10 @@ verification mark** — that lives in `docs/manual_test_plan.md` and nothing aut
 touches it. A `[x]` below says the arithmetic is pinned; it does not say the feature works on
 your wells.
 
-**Done (41 of 43)**
+**Done (43 of 43) — pile B is CLOSED**
 
+- [x] **T-PETRO-02** — vsh_gr nonlinear options + version N+1 · `every_vsh_gr_transform_lands_on_its_published_coefficient` (`modules.rs`) + `re_running_a_module_bumps_the_set_version_and_keeps_every_earlier_run` (`equations.rs`). All eight transforms evaluated by hand against their published closed forms. **Found that the plan's Larionov labels are reversed** — see finding 21, which is the most consequential thing this pile turned up.
+- [x] **T-ADV-17** — SandiMin re-run, lowercase prefix, no shadow rows · `a_re_run_under_a_lowercase_prefix_leaves_no_shadow_rows` (`multimin2.rs`). Both halves of the fix hold: the prefix is canonicalized and the case-insensitive DELETE reclaims prior-casing rows. Clean.
 - [x] **T-REP-14** — DB Inspector: browse all 8 tables, page through · `every_inspector_table_returns_the_columns_it_declares` + `the_inspector_pager_lands_exactly_on_the_last_partial_page` (`db.rs`). Every `TABLE_SPECS` entry, and the pager checked on a count that does not divide evenly by the page size.
 - [x] **T-REP-16** — DB Inspector negatives: bad input, stale row, read-only Aux · `an_inspector_edit_on_a_row_that_moved_fails_instead_of_reporting_success` + `aux_data_can_be_browsed_but_no_editor_will_write_to_it` (`db.rs`). The three sample editors all guard the 0-row case; the wells editor does not — see finding 20.
 - [x] **T-PLOT-19** — Curve Edit negatives (invalid input, stale undo) · `a_set_constant_refuses_a_value_that_is_not_a_number` + `an_undo_replayed_after_the_curve_was_rewritten_splices_stale_values` (`curve_edit.rs`). Both audit findings re-examined: the invalid-input one is half fixed (finding 19), the stale-undo one is fully open and now pinned as-is.
@@ -222,10 +224,7 @@ All three items flagged **silent-wrongness class** (T-REP-18, T-SHIP-03, T-INT-1
 
 Pile B is therefore 43 items, not 45.
 
-**Open (2)**
-
-- [ ] T-PETRO-02 — vsh_gr nonlinear options + version N+1
-- [ ] T-ADV-17 — SandiMin re-run, lowercase prefix, no shadow rows
+**Open (0)** — every pile-B item now has a Rust test running on the green gate.
 
 ### Pile C — covered by the end-to-end harness
 
@@ -513,7 +512,7 @@ these turns on a judgement about real rock, a visual read, or a feel for whether
 
 ---
 
-## Twenty things the triage found that are worth fixing regardless
+## Twenty-one things the triage found that are worth fixing regardless
 
 These came out of reading all 250 tests against the current code. Each was verified directly,
 not taken on a subagent's word. **Findings 1, 2 and 3 have since been fixed — see the notes
@@ -1001,6 +1000,44 @@ silent outcome. Pinned as-is in the test above.
 
 **Your call, though this one is nearly mechanical**: the `n == 0` check the other three already
 carry, with a message naming the well rather than a depth.
+
+### 21. T-PETRO-02's Larionov labels are reversed, and the dropdown gives no rock age — **OPEN, and this one is worth reading**
+
+The CODE is right. `modules.rs:349-350`:
+
+- `LARINOV1` = `0.33 * (2^(2*IGR) - 1)` — Larionov (1969) for **older rocks / Mesozoic and older**. At IGR 0.5 it gives **0.330**.
+- `LARINOV2` = `0.083 * (2^(3.7*IGR) - 1)` — Larionov (1969) for **Tertiary / unconsolidated**. At IGR 0.5 it gives **0.216**.
+
+Those are the published coefficient sets, and they match the numbers in this document's own pile-B
+row. The manual plan has them the other way round: step 1 reads "change `OPT_GR` to **LARINOV1**
+(Larionov Tertiary)", and its Expected pairs "Larionov-Tertiary ≈0.33, Larionov-older ≈0.22". Both
+associations are backwards relative to what the code computes.
+
+**Why this is the one worth reading.** Mahakam Delta is Miocene deltaic — Tertiary — so the
+transform this work usually wants is `LARINOV2`. Selecting `LARINOV1` on the plan's label returns
+0.33 where 0.216 belongs: a shale volume more than half again too high through the whole
+intermediate-GR interval, which is exactly where the VSH cutoff decides net pay. The curve looks
+entirely normal, both endpoints are fine, and nothing downstream can catch it.
+
+**The dropdown cannot settle it either.** `OPT_GR`'s choices are the bare strings `LARINOV1`,
+`LARINOV2`, `LARINOV3`, `STIEBER1..3` — no rock age, no coefficient, no tooltip. The plan is the
+only place a user is told which is which, and it is wrong.
+
+Now pinned by `every_vsh_gr_transform_lands_on_its_published_coefficient`, which evaluates all
+eight transforms by hand at IGR 0.5 and asserts each lands on its published closed form, so the
+mapping cannot drift again without failing.
+
+**Two calls, and they are separable.** Correcting the plan text is free. Labelling the dropdown
+(`LARINOV1 — Larionov, Mesozoic and older`, `LARINOV2 — Larionov, Tertiary`) is a small UI change
+that would make the option self-describing — but the option IDs are stored in `params_json` on
+every saved run, so the ids themselves must not be renamed.
+
+**A second correction to the same Expected line.** It says "endpoints 0 and 1 unchanged". At pure
+shale that is true for LINEAR, all three Stieber forms and Clavier (which cancels exactly), but
+the Larionov forms are empirical fits that were never normalised to close at 1: `LARINOV1` stops
+at **0.99**, `LARINOV2` at **0.9957**, and `LARINOV3` overshoots to **1.133**. `VSH` clamps all of
+them to 0–1; `VSH_GR` keeps the raw value, which is what that pair of outputs is for. Not a defect
+— but read against the plan as written it looks like one.
 
 ---
 

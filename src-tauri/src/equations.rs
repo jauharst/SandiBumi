@@ -1168,6 +1168,79 @@ mod tests {
     use super::*;
     use duckdb::Connection;
 
+    /// T-PETRO-02, the versioning half. Re-running a module must land as version N+1 and never
+    /// overwrite the previous run, because that history is the only way to answer "which OPT_GR
+    /// produced the VSH in this report" after the fact. Five runs of `vsh_gr` under one set name
+    /// have to be five versions carrying five different parameter records.
+    ///
+    /// The per-well independence is the part with a real bug behind it. `create_log_sets_batch`
+    /// pre-computes each well's next version because reading `MAX(version)` after an INSERT
+    /// inside the same transaction trips a DuckDB internal error (`equations.rs:671`) — and a
+    /// pre-computation that took ONE number for the whole batch would give a freshly added well
+    /// its neighbours' version. Its history would then start at 7, and every earlier version of
+    /// it would appear to exist and be missing.
+    #[test]
+    fn re_running_a_module_bumps_the_set_version_and_keeps_every_earlier_run() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let a = "33333333-3333-3333-3333-333333333333";
+        let b = "44444444-4444-4444-4444-444444444444";
+        conn.execute_batch(&format!(
+            "INSERT INTO wells (well_id, well_name) VALUES ('{a}', 'SANDI-V1'), ('{b}', 'SANDI-V2');"
+        ))
+        .unwrap();
+
+        let spec = |opt: &str| LogSetSpec {
+            set_name: "INTERP".into(),
+            module: "vsh_gr".into(),
+            params_json: format!("{{\"OPT_GR\":\"{opt}\"}}"),
+            inputs_json: "[\"GR\"]".into(),
+        };
+
+        // The plan's own sequence: five runs, one per OPT_GR, all into the set named INTERP.
+        let opts = ["LINEAR", "LARINOV1", "LARINOV2", "STIEBER1", "CLAVIER"];
+        let mut ids = Vec::new();
+        for (i, opt) in opts.iter().enumerate() {
+            let (set_id, version) = create_log_set(&conn, a, &spec(opt)).unwrap();
+            assert_eq!(version, i as i64 + 1, "run {} of vsh_gr must be version {}", i + 1, i + 1);
+            ids.push(set_id);
+        }
+        ids.sort();
+        ids.dedup();
+        assert_eq!(ids.len(), opts.len(), "each run needs its own set id, or the runs share history");
+
+        // Every earlier run survives, and each carries the parameters that produced it — which
+        // is what makes the version list answerable rather than just countable.
+        let sets = list_log_sets(&conn, a).unwrap();
+        let interp: Vec<_> = sets.iter().filter(|s| s.set_name == "INTERP").collect();
+        assert_eq!(interp.len(), 5, "a re-run must never overwrite the version before it");
+        for opt in opts {
+            assert!(
+                interp.iter().any(|s| s.params_json.as_deref().unwrap_or("").contains(opt)),
+                "no version records OPT_GR {opt}; the tooltip could not tell them apart"
+            );
+        }
+
+        // A DIFFERENT set name on the same well versions independently — INTERP's five runs must
+        // not push a first run of FINAL to version 6.
+        let (_, first_final) = create_log_set(&conn, a, &LogSetSpec { set_name: "FINAL".into(), ..spec("LINEAR") }).unwrap();
+        assert_eq!(first_final, 1, "a set's version counts that set's own runs");
+
+        // And a well that has never been run starts at 1, whatever its neighbours are on.
+        let (_, first_b) = create_log_set(&conn, b, &spec("LINEAR")).unwrap();
+        assert_eq!(first_b, 1, "version is per well, not per project");
+
+        // The batch path must agree with the single path, per well. Well A is on 5, well B on 1,
+        // so one shared number for the batch would be wrong for at least one of them.
+        let batch = create_log_sets_batch(&conn, &[a.to_string(), b.to_string()], &spec("LARINOV2")).unwrap();
+        assert_eq!(batch.len(), 2);
+        let version_of = |well: &str, set_id: &str| -> i64 {
+            list_log_sets(&conn, well).unwrap().into_iter().find(|s| s.set_id == *set_id).unwrap().version
+        };
+        assert_eq!(version_of(a, &batch[a]), 6, "well A had 5 INTERP runs, so the batch is its 6th");
+        assert_eq!(version_of(b, &batch[b]), 2, "well B had 1, so the batch is its 2nd");
+    }
+
     /// The batched `fetch_curve_frame` must return byte-for-byte what the old per-curve path
     /// did: standard columns straight through, computed curves matched case-insensitively and
     /// aligned onto the depth grid (missing depths → NaN), and a name with no computed rows

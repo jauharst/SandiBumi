@@ -3401,6 +3401,104 @@ mod tests {
         assert!((out["VSH_GR"][2] - 1.3).abs() < 1e-5); // unlimited
     }
 
+    /// T-PETRO-02. Every `OPT_GR` transform at the same mid-range gamma ray, against the
+    /// published coefficient it implements. `vsh_gr_linear_and_limits` above covers LINEAR only,
+    /// and a wrong nonlinear transform is the archetype of what this pile exists to catch: VSH
+    /// comes out plausible at both endpoints and wrong through the whole shaly section, which is
+    /// exactly where the net-pay cutoff sits.
+    ///
+    /// The expected values are the closed forms in `vsh_gr` (`modules.rs:337-355`), which carry
+    /// the standard published coefficients and are inherited from Jauhar's own `vsh_gr.lls` —
+    /// they are re-derived here by hand rather than copied from a run, so this is a check and
+    /// not a snapshot.
+    ///
+    /// GR_MA 20 / GR_SH 120, so GR 70 is IGR = 0.5 exactly.
+    #[test]
+    fn every_vsh_gr_transform_lands_on_its_published_coefficient() {
+        let vsh_at = |method: &str, gr: f32| -> (f32, f32) {
+            let ctx = ctx_with(
+                1,
+                &[("GR", vec![gr])],
+                &[("GR_MA", 20.0), ("GR_SH", 120.0)],
+                &[("OPT_GR", method)],
+            );
+            let out = vsh_gr(&ctx);
+            (out["VSH"][0], out["VSH_GR"][0])
+        };
+
+        // At IGR = 0.5. Each expectation is the transform evaluated by hand.
+        let expected: [(&str, f64); 8] = [
+            ("LINEAR", 0.5),
+            // Stieber (1970) and its two variants: IGR / (k - (k-1)*IGR).
+            ("STIEBER1", 0.5 / (3.0 - 2.0 * 0.5)),           // 0.250000
+            ("STIEBER2", 0.5 / (2.0 - 0.5)),                 // 0.333333
+            ("STIEBER3", 0.5 / (4.0 - 3.0 * 0.5)),           // 0.200000
+            // Larionov (1969), OLDER rocks (Mesozoic and older): 0.33*(2^(2*IGR) - 1).
+            ("LARINOV1", 0.33 * (2.0f64.powf(1.0) - 1.0)),   // 0.330000
+            // Larionov (1969), TERTIARY / unconsolidated: 0.083*(2^(3.7*IGR) - 1).
+            ("LARINOV2", 0.083 * (2.0f64.powf(1.85) - 1.0)), // 0.216248
+            ("LARINOV3", 0.127 * (3.15f64.powf(1.0) - 1.0)), // 0.273050
+            // Clavier (1971): 1.7 - sqrt(3.38 - (IGR + 0.7)^2).
+            ("CLAVIER", 1.7 - (3.38f64 - 1.2f64.powi(2)).sqrt()), // 0.307161
+        ];
+        for (method, want) in expected {
+            let (vsh, _) = vsh_at(method, 70.0);
+            assert!(
+                (vsh as f64 - want).abs() < 1e-5,
+                "{method} at IGR 0.5 gave {vsh}, expected {want:.6}"
+            );
+        }
+
+        // The domain claim the plan makes: every correction is concave, so at intermediate GR
+        // every nonlinear form reads BELOW the linear one. A transform that came out above it
+        // would be overstating shale in exactly the interval the cutoff decides.
+        let linear = vsh_at("LINEAR", 70.0).0;
+        for (method, _) in expected.iter().skip(1) {
+            assert!(vsh_at(method, 70.0).0 < linear, "{method} must read below LINEAR at IGR 0.5");
+        }
+
+        // A clean matrix reads zero on every transform — including Clavier, where 1.7 - sqrt(2.89)
+        // cancels exactly rather than approximately.
+        for (method, _) in expected {
+            let (vsh, raw) = vsh_at(method, 20.0);
+            assert!(vsh.abs() < 1e-6, "{method} at IGR 0 gave {vsh}");
+            assert!(raw.abs() < 1e-6, "{method} at IGR 0 gave raw {raw}");
+        }
+
+        // The top endpoint is NOT 1.0 for the Larionov forms, and that is the published
+        // coefficients rather than a defect: they are empirical fits, never normalised to close
+        // at pure shale. LARINOV1 stops at 0.99, LARINOV2 at 0.9957, and LARINOV3 OVERSHOOTS to
+        // 1.133. VSH_GR keeps the raw number and VSH clamps it, which is the whole reason the
+        // module emits both.
+        for (method, want_raw) in [("LARINOV1", 0.99f64), ("LARINOV2", 0.995671), ("LARINOV3", 1.133155)] {
+            let (vsh, raw) = vsh_at(method, 120.0);
+            assert!((raw as f64 - want_raw).abs() < 1e-4, "{method} raw at IGR 1 gave {raw}");
+            assert!((0.0..=1.0).contains(&vsh), "{method} limited VSH left 0..1: {vsh}");
+        }
+        for method in ["LINEAR", "STIEBER1", "STIEBER2", "STIEBER3", "CLAVIER"] {
+            let (_, raw) = vsh_at(method, 120.0);
+            assert!((raw - 1.0).abs() < 1e-5, "{method} does close at 1.0 at pure shale: {raw}");
+        }
+
+        // Past pure shale every limited VSH stays inside 0..1 while the raw curve runs on.
+        for (method, _) in expected {
+            let (vsh, raw) = vsh_at(method, 200.0);
+            assert!((0.0..=1.0).contains(&vsh), "{method} limited VSH left 0..1 above GR_SH: {vsh}");
+            assert!(raw > 1.0 || method == "LARINOV1", "{method} raw {raw}");
+        }
+
+        // Monotone in GR: more gamma ray is never less shale. A transform with a sign or
+        // bracket slip can still hit the endpoints and fail only in between.
+        for (method, _) in expected {
+            let mut prev = f32::NEG_INFINITY;
+            for gr in [20.0f32, 40.0, 60.0, 80.0, 100.0, 120.0] {
+                let v = vsh_at(method, gr).1;
+                assert!(v > prev - 1e-6, "{method} is not monotone at GR {gr}: {v} after {prev}");
+                prev = v;
+            }
+        }
+    }
+
     #[test]
     fn sw_arch_clean_sand() {
         // Classic Archie check: A=1, M=N=2, Rw=0.1, PHIT=0.25, RT=10 →
