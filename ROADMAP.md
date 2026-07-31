@@ -728,6 +728,26 @@ The actionable backlog. Roughly ordered: safe frontend wins first, then Performa
 
 ## B1. Hardening backlog (§4b)
 
+**Correctness — OPEN, awaiting Jauhar's method decision (found 2026-07-31)**
+
+- [ ] **A per-zone TEMP_GRAD override makes a STEP in FTEMP, not a kink.** `precalc` computes
+      every sample as `SURF_TEMP + gradient(sample) × depth(sample)` — the gradient is applied
+      **from surface**, never integrated down through the zones above it. So the moment a lower
+      zone carries its own gradient, the temperature profile is discontinuous at the boundary.
+      Measured on a 0.03 °C/m well with 0.035 below 1500 m: **67.0 °C at 1400 m, 77.5 °C at
+      1500 m — a 10.5 °C jump where the undisturbed trend rises 3.0.** Rock temperature is
+      continuous, so the profile is not physical, and it does not stay in FTEMP: the Arps
+      correction turns temperature into Rw, and Rw goes into Sw. T-PREP-05's own expected result
+      says the trend should *kink* with "no discontinuity artifacts", so the plan and the code
+      disagree and the plan describes the physical answer.
+
+      **Pinned as-is, not fixed** — `a_per_zone_gradient_override_reaches_exactly_its_own_samples`
+      (`workflow.rs`) asserts the 10.5 °C step explicitly, so it cannot drift or be changed
+      silently. The fix is method math, not a refactor: integrating per zone means choosing what
+      temperature each zone *starts* at (carry the zone above's value down, or re-anchor on
+      surface), and that needs a cited source. Same question applies to PGRAD, which is computed
+      the same way. Logged in `docs/review_triage.md` finding 6 and in T-PREP-05's known-issue line.
+
 **Performance (was "P2") — speed at field scale (100+ wells)** — all 6 mapped by a read-only
 investigation wave (file:line + risk). **5 of 6 shipped: #127 (crossplot memoize), #128 (long
 commands off the event loop), #130 (batch curve reads), #131 (raw-IPC ArrayBuffers), #132
