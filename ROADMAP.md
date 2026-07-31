@@ -1895,16 +1895,20 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       first number" would fix it and break `PLATE 12, DEPTH 4633.50 FT`. Left to the import wizard's
       editable depth table, where a 354 among 7,000s is visible. Revisit only if a delivery turns up
       where this shape is the majority.
-- [ ] **WHICH plate is the reference matters more than the band does, and nothing guides the
-      choice.** Sweeping three references drawn from a cored interval's own plates, scored inside
-      that interval against helium: shallow core 0.110 / 0.237 / 0.203, deep core 0.297 / **0.530** /
-      0.152. That is a 3.5x spread in the deep core from a choice the user makes by eye, and the
-      worst of the three (0.152) is WORSE than not correcting at all (0.270). Quoting the best of a
-      sweep is the same overfitting trap this delivery already taught, so the honest statement is
-      the spread. Two things follow and neither is invented yet: the dialog gives no signal for
-      picking a reference beyond the preview, and there is no warning when a chosen reference makes
-      a delivery worse. A cheap first move would be to report the delivery's agreement with core
-      porosity where core exists — the tool has `plugqc` already.
+- [x] **WHICH plate is the reference matters more than the band does.** ANSWERED and served
+      (2026-07-31): the Pore Area dialog now scores each run against an independent plug
+      measurement (`PoreSpec.check_against` → `plugqc::score_against_plugs`) and keeps a table of
+      every setting tried this session, so the spread below is visible while tuning rather than
+      only in a study afterwards. Still open underneath it: nothing yet warns BEFORE a run that a
+      delivery's hue spread makes one reference hopeless, and there is no per-interval reference
+      (next item).
+- [x] **The measurement behind it, kept for the numbers.** Sweeping three references drawn from a
+      cored interval's own plates, scored inside that interval against helium: shallow core 0.110 /
+      0.237 / 0.203, deep core 0.297 / **0.530** / 0.152. That is a 3.5x spread in the deep core
+      from a choice the user makes by eye, and the worst of the three (0.152) is WORSE than not
+      correcting at all (0.270). Quoting the best of a sweep is the same overfitting trap this
+      delivery already taught, so the honest statement is the spread — which is why the dialog now
+      shows every setting tried rather than announcing a winner.
 - [ ] **Per-interval references beat one reference for the delivery, modestly.** Giving each cored
       interval its own reference: shallow 0.237 against 0.193 for a delivery-wide one, deep 0.530
       against 0.494. So "measure them in groups" is real advice rather than a hedge — but it is a

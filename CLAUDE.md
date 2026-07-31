@@ -1927,6 +1927,60 @@ reaches 0.49 there against helium. That is the one interval where this suite is 
 did by hand, and whether the numbers look like the rock is a question for the interpreter rather
 than for another statistic.
 
+## Judging a setting instead of eyeballing it (2026-07-31)
+
+`PoreSpec.check_against` + `plugqc::score_against_plugs`, surfaced as **Check against** in the Pore
+Area dialog. The reference plate turned out to be a bigger lever on the answer than the colour band
+is — a 3.5x spread in rank agreement across three references drawn from one cored interval, with the
+worst pick WORSE than not correcting at all — and the dialog offered nothing to tell a good choice
+from a bad one except the preview. A setting judged by eye against a picture is judged on how the
+picture LOOKS. This is the number that says whether it also tracks the rock. Six rules.
+
+**The pairing is `plugqc`'s, literally the same code.** `score_against_plugs` differs from
+`run_plug_qc` only in that one axis arrives as a slice instead of a database read; it shares
+`samples_for`, `pair_samples` and `ranks`. A second pairing implementation would drift, and the
+drift would be SILENT — both versions return a plausible correlation and nothing on screen says
+which rule produced it. Pinned by `scoring_a_run_in_hand_matches_scoring_it_after_it_is_saved`,
+which stores the identical values and requires the two paths to agree to the last decimal.
+
+**Scored BEFORE it is saved.** That is the whole reason the slice form exists: tuning that had to be
+written first would leave a trail of half-judged answers in the project, the same reasoning that
+makes `set_name` optional on a pore run.
+
+**Only the plates that would be STORED are scored.** `storable()` is the single predicate the write
+path and the check share, and `storable_samples` is split out so the rule can be pinned without a
+Python subprocess. A plate the run has already refused must not vote on whether the run is any good
+— and the failure would be quiet rather than loud, because a scene-dominated plate reads near 1.0,
+which is exactly the kind of outlier that moves a correlation on its own. Pinned by
+`the_agreement_scores_only_the_plates_the_write_would_keep`, which also checks an interval plate
+pairs on its MIDDLE, the convention `plugqc` and the point tracks already use.
+
+**The RANK figure is the one to choose a setting on, and the dialog says so.** A section reads
+systematically below its plug's helium porosity — microporosity below optical resolution, which on
+a carbonate is most of the pore system — without being wrong about which plug is the better rock. A
+delivery stored as a percent instead of a fraction does the same thing again, a hundredfold. Pearson
+feels both; Spearman feels neither. Both are reported, and so are the two MEDIANS, which is what
+makes a unit mismatch visible instead of mysterious. Pinned by
+`a_scale_difference_moves_the_medians_and_not_the_rank_agreement`.
+
+**One coefficient is not a decision, so the dialog keeps every setting tried this session.** 0.24 is
+a poor result next to 0.53 and a good one next to 0.11, and the only way to know which is to have
+seen the alternatives — the same argument as reporting the whole correlogram in `registration.rs`
+rather than only its peak. The best is bolded, **but only among rows scored on the same number of
+plugs**: changing the reference changes which plates get refused, so two runs can be scored on
+different rock, and a coefficient that rose because the awkward plugs dropped out is not an
+improvement. A non-comparable row is FLAGGED and never bolded, rather than hidden — it is still
+informative, it just cannot be read straight across. Not persisted: it describes an afternoon's
+tuning, not the project.
+
+**A well with nothing to check against says so, and nothing is ever snapped.** A 0.00 would read as
+"this setting is useless" rather than "nothing was compared". A plate with no plug inside the
+tolerance is dropped and counted, and the empty-result note points at Register Depth… rather than at
+a wider tolerance — a core off by a whole sample interval passes any tolerance check, so loosening
+it quietly pairs each section with its neighbour's plug and returns a confident number about the
+wrong rock. Core porosity is picked by DEFAULT where the well has it: a setting nobody thought to
+verify is exactly the one that ships.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under

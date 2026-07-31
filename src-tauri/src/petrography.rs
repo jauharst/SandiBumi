@@ -130,6 +130,54 @@ pub struct PoreSpec {
     /// invented (`docs/plan_image_analysis.md` §2.1 A2).
     #[serde(default)]
     pub stain: Option<StainSpec>,
+    /// Score this run against an independent measurement of the same plugs — the core porosity the
+    /// laboratory measured on the plug each section was cut from, usually. `None` skips the check.
+    ///
+    /// This exists because [`PoreSpec::reference_image_id`] turned out to be a bigger lever on the
+    /// answer than the colour band is (a 3.5x spread in rank agreement across three reference
+    /// plates from one cored interval, with the worst pick worse than not correcting at all), and
+    /// the dialog offered nothing to tell a good choice from a bad one except the preview. A
+    /// setting judged by eye against a picture is a setting judged on how the picture looks; this
+    /// is the number that says whether it also tracks the rock.
+    #[serde(default)]
+    pub check_against: Option<crate::plugqc::PlugSource>,
+    /// Two measurements further apart than this are not the same plug. Defaults to `plugqc`'s own.
+    #[serde(default)]
+    pub check_depth_tol: f32,
+}
+
+/// Whether a plate's numbers may leave the run.
+///
+/// The single statement of a rule the write path and the agreement check must never disagree
+/// about. Both refusals are already documented where they are computed — [`scene_dominated`] and
+/// its mirror [`band_missed`] — and what matters here is that a plate the run has ALREADY declared
+/// unmeasurable must not vote on whether the run is any good. Score it and the scene-dominance
+/// failures this guard exists to catch would flatter or wreck the very number the user is choosing
+/// a reference plate on.
+fn storable(p: &PlatePore) -> bool {
+    !p.scene_dominated && !p.band_missed
+}
+
+/// The plates that go into the agreement check, at the depths they will be paired on.
+///
+/// Split out from [`run_pore_area`] so the rule can be pinned without a Python subprocess: what
+/// this returns is what decides whether the number the user picks a reference plate on was
+/// computed over the same rock twice.
+fn storable_samples(plates: &[PlatePore]) -> Vec<crate::plugqc::MeasuredSample> {
+    plates
+        .iter()
+        .filter(|p| storable(p))
+        .map(|p| crate::plugqc::MeasuredSample {
+            // An interval plate is anchored at its MIDDLE — the convention `plugqc` and the point
+            // tracks already use, so this number, the plot and the log view agree about where the
+            // plate is.
+            depth: match p.depth_base.filter(|b| b.is_finite()) {
+                Some(b) => (p.depth_top + b) * 0.5,
+                None => p.depth_top,
+            },
+            value: p.pore_fraction,
+        })
+        .collect()
 }
 
 /// An HSV window. Richer than [`PoreColorBand`] because a stain scheme has to be able to say
@@ -404,6 +452,10 @@ pub struct PoreResult {
     pub preview_height: i32,
     /// Point dataset and delivery written, when `set_name` was given.
     pub written: Option<(String, String)>,
+    /// How the STORABLE plates agreed with an independent plug measurement, when one was named.
+    /// Computed whether or not the run was saved, so a setting can be judged before it is kept.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agreement: Option<crate::plugqc::Agreement>,
     pub notes: Vec<String>,
 }
 
@@ -1994,29 +2046,32 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
         // line drawn between two of them would claim rock nobody looked at.
         let mut rows: Vec<crate::db::AuxRow> = Vec::new();
         for p in &plates {
-            // Nothing from a scene-dominated plate is stored — not the fraction, not the pore
-            // shapes, not the minerals. They all come off the same mask, so if the mask is the
-            // background then every number derived from it is about the background.
-            if p.scene_dominated {
-                skipped.push(format!(
-                    "{}: not stored - the picture's own median hue ({:.0} deg) is inside the pore \
-                     band, so the band is matching the background rather than the pores. Tune the \
-                     band on this plate, or exclude it.",
-                    p.name, p.scene_hue
-                ));
-                continue;
-            }
-            // The mirror case, and the more dangerous one: near zero looks like a tight rock, so
-            // nothing downstream would ever query it. Refused only because a reference plate was
-            // named — see `band_missed`.
-            if p.band_missed {
-                skipped.push(format!(
-                    "{}: not stored - the band claimed less than one pore's worth of this plate. \
-                     Either the section is nonporous or the correction did not reach it (its light \
-                     sat {:.0} deg from the reference plate's), and the picture cannot say which. \
-                     Tune a band on this plate, or make it the reference.",
-                    p.name, p.cast_shift
-                ));
+            // ONE predicate, so the plates that are stored and the plates that are scored can never
+            // come apart. The two messages differ because the two failures do.
+            if !storable(p) {
+                skipped.push(if p.scene_dominated {
+                    // Nothing from a scene-dominated plate is stored — not the fraction, not the
+                    // pore shapes, not the minerals. They all come off the same mask, so if the
+                    // mask is the background then every number derived from it is about the
+                    // background.
+                    format!(
+                        "{}: not stored - the picture's own median hue ({:.0} deg) is inside the \
+                         pore band, so the band is matching the background rather than the pores. \
+                         Tune the band on this plate, or exclude it.",
+                        p.name, p.scene_hue
+                    )
+                } else {
+                    // The mirror case, and the more dangerous one: near zero looks like a tight
+                    // rock, so nothing downstream would ever query it. Refused only because a
+                    // reference plate was named — see `band_missed`.
+                    format!(
+                        "{}: not stored - the band claimed less than one pore's worth of this \
+                         plate. Either the section is nonporous or the correction did not reach it \
+                         (its light sat {:.0} deg from the reference plate's), and the picture \
+                         cannot say which. Tune a band on this plate, or make it the reference.",
+                        p.name, p.cast_shift
+                    )
+                });
                 continue;
             }
             let mut put = |item: &str, v: f32| {
@@ -2211,7 +2266,51 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
         }
     }
 
-    Ok(PoreResult { plates, skipped, preview_png, preview_width, preview_height, written, notes })
+    // Nothing above this point can say whether the settings were any good. The preview shows what
+    // the band claimed; it cannot show whether what the band claimed is the rock. This can.
+    let mut agreement = None;
+    if let Some(src) = &spec.check_against {
+        if spec.only_image_id.is_some() {
+            // A tuning preview measures ONE plate. An agreement over one plug is not a number, and
+            // saying nothing beats printing a blank the user has to work out the meaning of.
+        } else {
+            // EXACTLY the plates that would be stored, by the same predicate the write uses. A
+            // plate the run has already refused must not vote on whether the run is any good.
+            let measured = storable_samples(&plates);
+            let a = crate::plugqc::score_against_plugs(
+                conn,
+                &spec.well_id,
+                &measured,
+                src,
+                spec.check_depth_tol,
+            )?;
+            if a.n_pairs > 0 && measured.len() > a.n_pairs {
+                // The comparability warning, and it is not pedantic: change the reference plate and
+                // a different set of plates gets refused, so two runs can be scored on different
+                // rock. A coefficient that rose because the awkward plugs dropped out is not an
+                // improvement, and nothing else on the screen would say so.
+                notes.push(format!(
+                    "The agreement is over {} of the {} plate(s) that would be stored - the rest \
+                     found no plug within the depth tolerance. Comparing two settings is only fair \
+                     when this count is the same for both.",
+                    a.n_pairs,
+                    measured.len()
+                ));
+            }
+            agreement = Some(a);
+        }
+    }
+
+    Ok(PoreResult {
+        plates,
+        skipped,
+        preview_png,
+        preview_width,
+        preview_height,
+        written,
+        agreement,
+        notes,
+    })
 }
 
 #[cfg(test)]
@@ -2228,6 +2327,54 @@ mod tests {
         assert!(epoxy_check("").is_err(), "unknown must never be treated as impregnated");
         assert!(epoxy_check("plain").is_err());
         assert!(epoxy_check("something else").is_err());
+    }
+
+    fn plate(name: &str, top: f32, base: Option<f32>, fraction: f32) -> PlatePore {
+        PlatePore {
+            image_id: name.into(),
+            name: name.into(),
+            depth_top: top,
+            depth_base: base,
+            pore_fraction: fraction,
+            scene_hue: 40.0,
+            scene_dominated: false,
+            cast_shift: f32::NAN,
+            band_missed: false,
+            pixels: 1_000_000,
+            geometry: None,
+            grains: None,
+            stain: None,
+        }
+    }
+
+    /// The agreement check has to score EXACTLY the plates the write would store.
+    ///
+    /// A plate the run has already refused — the band matched the background, or it claimed less
+    /// than one pore — is a plate whose fraction is not a porosity. Letting one into the number the
+    /// user picks a reference plate on would be the tool grading itself on the answers it already
+    /// threw away, and the failure would be quiet: a scene-dominated plate reads near 1.0, which is
+    /// exactly the kind of outlier that moves a correlation on its own.
+    #[test]
+    fn the_agreement_scores_only_the_plates_the_write_would_keep() {
+        let mut dominated = plate("blue-cast", 2001.0, None, 0.97);
+        dominated.scene_dominated = true;
+        let mut missed = plate("green-cast", 2002.0, None, 0.0004);
+        missed.band_missed = true;
+
+        let plates = vec![
+            plate("good", 2000.0, None, 0.21),
+            dominated,
+            missed,
+            // A core photograph spans an interval; a thin section does not. Anchored at its middle,
+            // the same place the point tracks draw it.
+            plate("slab", 2003.0, Some(2004.0), 0.18),
+        ];
+
+        let got = storable_samples(&plates);
+        assert_eq!(got.len(), 2, "the two refused plates are not scored");
+        assert!((got[0].depth - 2000.0).abs() < 1e-6, "a point plate stays a point");
+        assert!((got[0].value - 0.21).abs() < 1e-6);
+        assert!((got[1].depth - 2003.5).abs() < 1e-6, "an interval plate pairs on its middle");
     }
 
     /// The other half of the impregnation problem, and the one a real delivery found.
@@ -2335,6 +2482,8 @@ mod tests {
             grain_sep_px: GRAIN_SEP_PX,
             wicksell: false,
             stain: None,
+            check_against: None,
+            check_depth_tol: 0.0,
         };
         let res = run_pore_area(&conn, &spec).expect("pore run");
 
@@ -2418,6 +2567,8 @@ mod tests {
                 grain_sep_px: GRAIN_SEP_PX,
                 wicksell: false,
                 stain: None,
+                check_against: None,
+                check_depth_tol: 0.0,
             },
         )
         .expect("pore run");
@@ -2918,6 +3069,8 @@ mod tests {
                 grain_sep_px: GRAIN_SEP_PX,
                 wicksell: false,
                 stain: None,
+                check_against: None,
+                check_depth_tol: 0.0,
             },
         )
         .expect("geometry run");
@@ -3124,6 +3277,8 @@ mod tests {
                 grain_sep_px: GRAIN_SEP_PX,
                 wicksell: true,
                 stain: None,
+                check_against: None,
+                check_depth_tol: 0.0,
             },
         )
         .expect("grain run");
@@ -3349,6 +3504,8 @@ mod tests {
             grain_sep_px: GRAIN_SEP_PX,
             wicksell: false,
             stain: None,
+            check_against: None,
+            check_depth_tol: 0.0,
         };
 
         // --- as the app behaved before: one absolute band over the whole delivery --------------
@@ -3486,6 +3643,8 @@ mod tests {
             grain_sep_px: GRAIN_SEP_PX,
             wicksell: false,
             stain: None,
+            check_against: None,
+            check_depth_tol: 0.0,
         };
 
         let plain = run_pore_area(&conn, &spec(None)).expect("uncorrected run");
@@ -3653,6 +3812,8 @@ mod field_tests {
             grain_sep_px: GRAIN_SEP_PX,
             wicksell: false,
             stain: None,
+            check_against: None,
+            check_depth_tol: 0.0,
         };
         let res = run_pore_area(&conn, &spec).expect("pore run");
         let flagged = res.plates.iter().filter(|p| p.scene_dominated).count();

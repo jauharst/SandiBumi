@@ -3329,6 +3329,17 @@ export interface PoreSpec {
   wicksell?: boolean;
   /** Read the stain too. Omit for no stain — a stain assumed is a mineral fraction invented. */
   stain?: StainSpec | null;
+  /** Score this run against an independent measurement of the same plugs — usually the core
+   *  porosity the laboratory measured on the plug each section was cut from. Omit to skip.
+   *
+   *  `reference_image_id` turned out to be a bigger lever on the answer than the colour band is,
+   *  and until now the dialog offered nothing to tell a good choice from a bad one except the
+   *  preview. A setting judged by eye against a picture is judged on how the picture looks; this
+   *  is the number that says whether it also tracks the rock. */
+  check_against?: PlugSource | null;
+  /** Two measurements further apart than this are not the same plug. Omit for the standard
+   *  6-inch sample the rest of the app pairs on. */
+  check_depth_tol?: number;
 }
 
 /** An HSV window. Richer than PoreColorBand because a stain scheme has to be able to say
@@ -3521,6 +3532,28 @@ export interface PoreResult {
   preview_height: number;
   /** [dataset, delivery] written, when a set name was given. */
   written: [string, string] | null;
+  /** How the STORABLE plates agreed with an independent plug measurement, when one was named.
+   *  Computed whether or not the run was saved, so a setting can be judged before it is kept. */
+  agreement?: Agreement | null;
+  notes: string[];
+}
+
+/** How a run agrees with a measurement this app did not produce. */
+export interface Agreement {
+  reference_label: string;
+  /** Plugs carrying BOTH — not the number of plates measured. Two runs that refused different
+   *  plates are scored on different rock, so this has to be read beside every coefficient. */
+  n_pairs: number;
+  /** Measurements on either side that found no partner inside the tolerance. */
+  n_unpaired: number;
+  /** Straight-line agreement — the right question when both axes are porosity. */
+  pearson: number;
+  /** Rank agreement: does it order the plugs the way the laboratory does. The number to choose a
+   *  setting on, because it survives the systematic offset a section-versus-plug comparison always
+   *  carries. */
+  spearman: number;
+  measured_median: number;
+  reference_median: number;
   notes: string[];
 }
 

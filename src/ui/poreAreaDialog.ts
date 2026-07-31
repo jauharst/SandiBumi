@@ -1,10 +1,13 @@
 import {
   listImageDatasets,
+  listPlugChoices,
   listWellImages,
   poreSupport,
   runPoreArea,
   stainSchemes,
   type ImageInfo,
+  type PlugChoice,
+  type PlugSource,
   type PoreColorBand,
   type PoreResult,
   type StainBand,
@@ -130,6 +133,47 @@ export async function openPoreAreaDialog(): Promise<void> {
   );
   /** The reference, or nothing. Read at run time so changing the picker needs no rewiring. */
   const refId = (): string | undefined => refSel.value || undefined;
+
+  // ---- the yardstick ------------------------------------------------------
+  //
+  // Directly under the reference plate because this is the dial for that knob. Choosing a reference
+  // plate moved rank agreement with core porosity by 3.5x on a real delivery — more than the colour
+  // band did — and the worst of three picks was worse than not correcting at all. None of which is
+  // visible in the preview, which shows only what the band claimed and not whether what it claimed
+  // is the rock.
+  const checkSel = document.createElement("select");
+  checkSel.className = "form-control";
+  const choices = await listPlugChoices([well.well_id]).catch(() => [] as PlugChoice[]);
+  const noCheck = document.createElement("option");
+  noCheck.value = "";
+  noCheck.textContent = choices.length
+    ? "— none: do not check —"
+    : "— this well has no plug measurements —";
+  checkSel.appendChild(noCheck);
+  for (const [i, c] of choices.entries()) {
+    const o = document.createElement("option");
+    o.value = String(i);
+    o.textContent = c.label;
+    checkSel.appendChild(o);
+  }
+  // Core porosity is picked by default where the well has it. The check is worth having by default
+  // rather than on request — a setting nobody thought to verify is exactly the one that ships.
+  const cpor = choices.findIndex((c) => c.kind === "core" && c.item.toUpperCase() === "CPOR");
+  if (cpor >= 0) checkSel.value = String(cpor);
+  wrap.appendChild(
+    formRow(
+      "Check against",
+      checkSel,
+      "Scores the run against a measurement of the same plugs that this app did not produce — " +
+        "usually the laboratory's core porosity. It is the only way to tell a good reference plate " +
+        "from a bad one; the preview cannot say."
+    )
+  );
+  /** The chosen yardstick, or nothing. */
+  const checkSrc = (): PlugSource | undefined => {
+    const c = choices[Number(checkSel.value)];
+    return c ? { kind: c.kind, dataset: c.dataset, item: c.item } : undefined;
+  };
 
   // ---- the colour band ----------------------------------------------------
   const mk = (label: string, value: number, step: number, hint: string): HTMLInputElement => {
@@ -380,9 +424,102 @@ export async function openPoreAreaDialog(): Promise<void> {
 
   let last: PoreResult | null = null;
 
+  /** Which reference plate and band a run used, in one phrase. Recorded beside its score so the
+   *  comparison table below identifies what was actually changed between two runs. */
+  const settingLabel = (): string => {
+    const ref = refSel.value ? (refSel.selectedOptions[0]?.textContent ?? "?") : "none";
+    return `${ref} · band ${hueLo.value}–${hueHi.value}°`;
+  };
+
+  /** Every scored run this session. Kept here rather than persisted because it describes an
+   *  afternoon's tuning, not the project — but kept at all because a single coefficient answers
+   *  nothing: 0.24 is a poor result next to 0.53 and a good one next to 0.11, and the only way to
+   *  know which is to have seen the alternatives. */
+  const tried: { setting: string; n: number; spearman: number }[] = [];
+
+  const renderAgreement = (res: PoreResult): void => {
+    const a = res.agreement;
+    if (!a) return;
+    const box = document.createElement("div");
+    box.className = "eq-note";
+
+    if (!a.n_pairs || !Number.isFinite(a.spearman)) {
+      box.style.color = "var(--warn)";
+      box.textContent = a.notes.join(" ") || "Nothing could be paired, so this run was not scored.";
+      out.appendChild(box);
+      return;
+    }
+
+    tried.push({ setting: settingLabel(), n: a.n_pairs, spearman: a.spearman });
+    box.innerHTML = "";
+    const strong = document.createElement("strong");
+    strong.textContent = `Agreement with ${a.reference_label}: rank ${a.spearman.toFixed(2)} over ${a.n_pairs} plug(s).`;
+    box.appendChild(strong);
+    box.appendChild(
+      document.createTextNode(
+        ` Straight-line ${a.pearson.toFixed(2)}. Medians ${a.measured_median.toFixed(3)} measured ` +
+          `against ${a.reference_median.toFixed(3)}. Compare settings on the RANK figure — a ` +
+          `section reads systematically below a plug's porosity without being wrong about which ` +
+          `plug is the better rock, and only the rank figure ignores that offset.`
+      )
+    );
+    out.appendChild(box);
+
+    // A number with nothing to compare it to is not yet a decision. Once there are two, the table
+    // is the whole point of the feature.
+    if (tried.length > 1) {
+      // Best among the rows that are actually comparable with the latest run — a row scored on a
+      // different set of plugs is not in the running, whatever its number. Bolding the highest
+      // figure regardless would recommend the row the next line goes on to say cannot be read
+      // straight across, and the bold is the part people act on.
+      const here = tried.filter((t) => t.n === a.n_pairs);
+      const best = Math.max(...here.map((t) => t.spearman));
+      const t = document.createElement("table");
+      t.className = "data-table";
+      const hr = document.createElement("tr");
+      for (const h of ["Setting tried", "Plugs", "Rank agreement"]) {
+        const th = document.createElement("th");
+        th.textContent = h;
+        hr.appendChild(th);
+      }
+      t.appendChild(hr);
+      for (const row of tried) {
+        const tr = document.createElement("tr");
+        if (row.n === a.n_pairs && row.spearman === best) tr.style.fontWeight = "bold";
+        // Two runs that scored a different number of plugs were scored on different rock, so their
+        // coefficients are not a fair comparison. Marked rather than hidden: the run is still
+        // informative, it just cannot be read straight across.
+        if (row.n !== a.n_pairs) {
+          tr.style.color = "var(--warn)";
+          tr.title =
+            "Scored on a different set of plugs from the latest run, because a different set of " +
+            "plates was refused. Not directly comparable with the rows that share the current count.";
+        }
+        for (const v of [row.setting, String(row.n), row.spearman.toFixed(2)]) {
+          const td = document.createElement("td");
+          td.textContent = v;
+          tr.appendChild(td);
+        }
+        t.appendChild(tr);
+      }
+      out.appendChild(t);
+      const hint = document.createElement("div");
+      hint.className = "eq-note";
+      hint.textContent =
+        "Settings tried this session, best in bold. If changing the reference plate moves this " +
+        "column a long way, the delivery was not photographed under one light and wants measuring " +
+        "in groups. If a reference scores below the run with no reference at all, it is making " +
+        "things worse.";
+      out.appendChild(hint);
+    }
+  };
+
   const render = (res: PoreResult): void => {
     out.innerHTML = "";
     last = res;
+    // Before the plate table, because it is the verdict on the settings above and the table is the
+    // detail behind it.
+    renderAgreement(res);
 
     const table = document.createElement("table");
     table.className = "data-table";
@@ -537,6 +674,7 @@ export async function openPoreAreaDialog(): Promise<void> {
             grain_sep_px: Number(sepPx.value) || 20,
             wicksell: wickChk.checked,
             stain: stainSpec(),
+            check_against: checkSrc(),
             set_name: setIn.value || "TS",
           });
           const [ds, name] = saved.written ?? ["PETROGRAPHY", setIn.value];
@@ -570,6 +708,7 @@ export async function openPoreAreaDialog(): Promise<void> {
             grain_sep_px: Number(sepPx.value) || 20,
             wicksell: wickChk.checked,
             stain: stainSpec(),
+            check_against: checkSrc(),
           })
         );
       } catch (e) {

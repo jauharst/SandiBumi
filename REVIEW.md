@@ -7033,3 +7033,52 @@ preview.
 Giving each core its own reference did beat using one for the whole delivery — 0.24 against 0.19 in
 the shallow core, 0.53 against 0.49 in the deep one. So **measure them in groups** is real advice.
 It is a refinement, though, not the missing piece.
+
+## You can now see which reference plate is the right one (2026-07-31)
+
+Last session's finding was that picking the reference plate moved the answer more than tuning the
+colour band did — 0.11 to 0.53 in your deep core, with the worst pick worse than not correcting at
+all — and that nothing in the dialog let you see that. It does now.
+
+**Check against** sits directly under Reference plate in Pore Area…, and defaults to your core
+porosity where the well has it. After each run you get a line like:
+
+> Agreement with CPOR — core plugs: rank 0.49 over 11 plug(s).
+
+and, once you have tried more than one setting, a small table of everything tried this session with
+the best in bold:
+
+| Setting tried | Plugs | Rank agreement |
+|---|---|---|
+| none · band 180–260° | 11 | 0.27 |
+| a strongly cast plate · band 180–260° | 11 | 0.15 |
+| **a mid-tone plate · band 180–260°** | 11 | **0.53** |
+
+Those three numbers are your deep core, from last session's sweep — no correction 0.27, a bad
+reference 0.15 which is worse than doing nothing, and a good one 0.53. Before this they all looked
+the same on screen. (The setting column names whichever plate you actually picked; the descriptions
+here are just so the row reads.)
+
+Three things to know about reading it.
+
+**Use the rank column, not the straight-line one.** A thin section always reads below the plug's
+helium porosity because helium finds micropores the microscope cannot see. That offset is real and
+it is not an error, and only the rank figure ignores it and asks the question you actually care
+about: does the tool put the plugs in the same order the laboratory does.
+
+**Watch the Plugs column.** If it changes when you change a setting, the two runs were scored on
+different rock — a different set of plates got refused — and the rows are not a fair comparison. The
+non-comparable rows go orange and are never bolded, so a number that only rose because the awkward
+plugs dropped out cannot be mistaken for an improvement.
+
+**Nothing is written by this.** It is measured on exactly the plates that a Save would store, but it
+runs whether you save or not, so you can tune freely.
+
+- [ ] Open Pore Area… on a well that has both plates and core porosity, and check that Check
+      against comes up already set to CPOR.
+- [ ] Run once with no reference plate, then two or three times with different references, and see
+      whether the table spreads the way your deep core did.
+- [ ] If a reference scores below the no-reference run, that reference is making things worse —
+      worth knowing before it goes into a report.
+- [ ] On a well with no core, check the run still works and simply says there is nothing to check
+      against.

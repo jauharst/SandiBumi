@@ -1591,6 +1591,32 @@ and taking the bare number would be a coin toss. A sheet with no stated depth ge
 counted, and is reported; it is never filled in from a neighbour. Pinned by
 `the_workbook_reader_only_takes_a_depth_that_carries_a_unit`.
 
+**And that number is read under EITHER decimal convention** (2026-07-31). One delivered book wrote
+103 of its plate sheets `6980.71 FT` and 18 of them `7016,54 FT` — one laboratory, one report, one
+file number, two people. Reading only the dot convention did not FAIL on the comma sheets, which is
+what made it dangerous: the comma split the number, `7016` was dropped for carrying no unit, and
+`54 FT` matched instead, so a seventh of the delivery was stored at **54 feet on rock cored at
+7,000**. A plausible shallow depth on entirely the wrong sand. Same family as
+`parsers::read_text_file`: bytes must be interpreted rather than assumed, and so must numbers.
+
+`as_number` in `WORKBOOK_RUNNER` is the one place that decides. **Where both separators appear the
+RIGHTMOST is the decimal** — true of `1,234.56` and `1.234,56` alike, and it needs no guess about
+which locale typed it. **A single separator is a decimal unless the token is VALIDLY grouped**
+(1–3 digits, then exactly 3), which is what keeps `4633.500 FT` reading as three decimal places
+rather than becoming 4,633,500. The genuinely ambiguous `1,234` is read as a DECIMAL and REPORTED,
+because the wrong answer is then absurd (1.234 ft) rather than plausible (1234 ft) — an absurd
+depth gets looked at, a plausible one gets used. Pinned by
+`a_comma_decimal_depth_is_read_as_one_number_not_two`, which is EXECUTED through the discovered
+interpreter rather than asserted against the source (a source match keeps passing over a regex that
+no longer works) and skips with a printed reason where there is no Python, the `field_fixtures`
+pattern.
+
+**Known limit, found on the same delivery and deliberately not patched around.** One sheet in 129
+writes `7033,50/354 FT (CORE)` — the unit sits on the PLUG number, not the depth — and reads 354 ft.
+Every rule that would fix it breaks a commoner shape: "prefer the first number" misreads
+`PLATE 12, DEPTH 4633.50 FT`. The defence stays the import wizard's editable table, where a 354
+among 7,000s is visible before anything is stored.
+
 **The unit is the sheets' own**, and only when every sheet that stated one agreed; a mixed workbook
 returns `None` so the wizard has to ask rather than fall back to the display unit. A foot silently
 read as a metre puts a plate more than three times too deep and nothing on the log looks wrong.
@@ -1835,6 +1861,115 @@ Still open, and deliberately not invented: whether a single reference can serve 
 degrees at all. The correction gets less exact the further a plate has to move — shifts of 180
 degrees appear on this delivery, which is the far side of the wheel and not a lamp — and how far is
 too far is a judgement to be read off the shift column and the preview, not a number to ship.
+
+## The second opinion, and what it moved (2026-07-31 — the helium arm)
+
+Every judgement of the pore rule so far was made against the petrographer's own point count, on the
+argument that counting the SAME picture puts only the measurement under test. That argument holds,
+and it hid something: **nobody had asked whether the point count agrees with anything either.**
+
+**It does not, much.** Against the laboratory's ambient helium porosity on the same 45 plugs, the
+delivered point count reads **Pearson 0.581, Spearman 0.505**, with a median 14.5% against helium's
+24.8%. That is the microporosity difference stated plainly — a point count ticks pores VISIBLE under
+an optical grid, helium fills every connected pore including micropores far below optical
+resolution, and in a carbonate that is most of the pore system. So ~0.5 is about the ceiling for
+this rock, and "the colour rule disagrees with the point count" was never on its own evidence that
+the colour rule is wrong.
+
+**AMBIENT helium, not overburden.** A section is cut from an unstressed plug and photographed at
+atmospheric pressure, so ambient is the like-for-like number; overburden folds in the rock's
+compressibility, which is real and is not something a picture can see.
+
+**Against helium the colour rule reaches 0.575 uncorrected and 0.67–0.69 corrected — and that
+headline must never be quoted.** The delivery spans two cored intervals of very different rock, ~25%
+porosity against ~5%. A coefficient computed across both is largely rewarding the tool for telling a
+porous carbonate from a tight one, which an interpreter knows before starting. Scored INSIDE each
+interval against helium:
+
+| | shallow core | deep core |
+|---|---|---|
+| colour rule, uncorrected | 0.01 | 0.27 |
+| colour rule, corrected | 0.19 | 0.49 |
+| the petrographer's count | 0.51 | not counted |
+
+Three things follow, and they are the reason this arm was worth running.
+
+**The colour correction earns its place on independent data.** It lifts agreement inside BOTH
+intervals — roughly doubling the deep one — measured against a laboratory instrument rather than
+against the count it was previously scored on. Everything said before about the correction rested on
+a reference that itself only reaches 0.5.
+
+**The colour rule still loses to the petrographer where both exist**, 0.19 against 0.51. It is not a
+replacement for a point count on this rock, which is the same conclusion as before, now reached
+against a yardstick that can be defended.
+
+**A cross-interval coefficient is a trap in this family generally.** Any measurement that separates
+two rock types will look strong pooled and may resolve nothing within either. Score within an
+interval, or say plainly that the number is a between-core contrast.
+
+Method note that changes the numbers: this delivery photographed TWO fields of view of every plug,
+and they are **averaged per depth, never pooled**. Pooling counts each plug twice, inflates n from
+45 to 90, and adds no independent rock. Pairing is `plugqc.rs`'s rule throughout — closest pair
+first, each measurement consumed once, nothing snapped beyond the tolerance.
+
+Still open and deliberately not chased: the deep core has no point count at all, and the colour rule
+reaches 0.49 there against helium. That is the one interval where this suite is doing work nobody
+did by hand, and whether the numbers look like the rock is a question for the interpreter rather
+than for another statistic.
+
+## Judging a setting instead of eyeballing it (2026-07-31)
+
+`PoreSpec.check_against` + `plugqc::score_against_plugs`, surfaced as **Check against** in the Pore
+Area dialog. The reference plate turned out to be a bigger lever on the answer than the colour band
+is — a 3.5x spread in rank agreement across three references drawn from one cored interval, with the
+worst pick WORSE than not correcting at all — and the dialog offered nothing to tell a good choice
+from a bad one except the preview. A setting judged by eye against a picture is judged on how the
+picture LOOKS. This is the number that says whether it also tracks the rock. Six rules.
+
+**The pairing is `plugqc`'s, literally the same code.** `score_against_plugs` differs from
+`run_plug_qc` only in that one axis arrives as a slice instead of a database read; it shares
+`samples_for`, `pair_samples` and `ranks`. A second pairing implementation would drift, and the
+drift would be SILENT — both versions return a plausible correlation and nothing on screen says
+which rule produced it. Pinned by `scoring_a_run_in_hand_matches_scoring_it_after_it_is_saved`,
+which stores the identical values and requires the two paths to agree to the last decimal.
+
+**Scored BEFORE it is saved.** That is the whole reason the slice form exists: tuning that had to be
+written first would leave a trail of half-judged answers in the project, the same reasoning that
+makes `set_name` optional on a pore run.
+
+**Only the plates that would be STORED are scored.** `storable()` is the single predicate the write
+path and the check share, and `storable_samples` is split out so the rule can be pinned without a
+Python subprocess. A plate the run has already refused must not vote on whether the run is any good
+— and the failure would be quiet rather than loud, because a scene-dominated plate reads near 1.0,
+which is exactly the kind of outlier that moves a correlation on its own. Pinned by
+`the_agreement_scores_only_the_plates_the_write_would_keep`, which also checks an interval plate
+pairs on its MIDDLE, the convention `plugqc` and the point tracks already use.
+
+**The RANK figure is the one to choose a setting on, and the dialog says so.** A section reads
+systematically below its plug's helium porosity — microporosity below optical resolution, which on
+a carbonate is most of the pore system — without being wrong about which plug is the better rock. A
+delivery stored as a percent instead of a fraction does the same thing again, a hundredfold. Pearson
+feels both; Spearman feels neither. Both are reported, and so are the two MEDIANS, which is what
+makes a unit mismatch visible instead of mysterious. Pinned by
+`a_scale_difference_moves_the_medians_and_not_the_rank_agreement`.
+
+**One coefficient is not a decision, so the dialog keeps every setting tried this session.** 0.24 is
+a poor result next to 0.53 and a good one next to 0.11, and the only way to know which is to have
+seen the alternatives — the same argument as reporting the whole correlogram in `registration.rs`
+rather than only its peak. The best is bolded, **but only among rows scored on the same number of
+plugs**: changing the reference changes which plates get refused, so two runs can be scored on
+different rock, and a coefficient that rose because the awkward plugs dropped out is not an
+improvement. A non-comparable row is FLAGGED and never bolded, rather than hidden — it is still
+informative, it just cannot be read straight across. Not persisted: it describes an afternoon's
+tuning, not the project.
+
+**A well with nothing to check against says so, and nothing is ever snapped.** A 0.00 would read as
+"this setting is useless" rather than "nothing was compared". A plate with no plug inside the
+tolerance is dropped and counted, and the empty-result note points at Register Depth… rather than at
+a wider tolerance — a core off by a whole sample interval passes any tolerance check, so loosening
+it quietly pairs each section with its neighbour's plug and returns a confident number about the
+wrong rock. Core porosity is picked by DEFAULT where the well has it: a setting nobody thought to
+verify is exactly the one that ships.
 
 ## Provenance discipline (2026-07-31)
 
