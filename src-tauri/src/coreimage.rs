@@ -827,7 +827,15 @@ for i, ident in enumerate(hdr["ids"]):
         if axis == "x":
             a = np.transpose(a, (1, 0, 2))
         if reverse:
-            a = a[::-1]
+            # BOTH axes, which is a 180-degree rotation of the frame - because that is what
+            # "photographed deepest end first" physically is. Reversing only the down-core axis
+            # mirrors each row but leaves the ROWS in their original order, so on a four-row box
+            # the deepest row would still be read first and the trace would come back interleaved:
+            # each row internally right, the rows themselves upside down. On a single-lane strip the
+            # two are identical, which is exactly why this went unnoticed - and a per-slab mean or
+            # standard deviation does not care which way the across-core axis runs, so reversing it
+            # as well changes nothing except the lane order it is about to be cut into.
+            a = a[::-1, ::-1]
         # Lanes are cut on the ACROSS axis and stacked in order, which is what turns a four-row core
         # box into one continuous trace.
         h, w = a.shape[0], a.shape[1]
@@ -1588,6 +1596,95 @@ mod tests {
             "and the run has to name the photograph it happened to: {:?}",
             equalised.notes
         );
+    }
+
+    /// A box photographed deepest-end-first is ROTATED, not mirrored — and a four-row box is where
+    /// the difference shows.
+    ///
+    /// Reversing only the down-core axis flips each row while leaving the ROWS in their original
+    /// order, so the deepest row is still read first: every row internally correct, the rows
+    /// themselves upside down. The trace comes back interleaved, at depths that are wrong by up to
+    /// most of a box, and it looks entirely plausible — a core box does not have a smooth trend
+    /// down it that would make the mistake obvious.
+    ///
+    /// On a single-lane strip the two readings are identical, which is precisely why this survived
+    /// `the_trace_runs_the_way_the_picture_is_laid_out`. Here the four rows carry four distinct
+    /// brightnesses, so reading the box the other way up has to return the forward sequence exactly
+    /// backwards.
+    ///
+    /// **The rows are deliberately FLAT**, and that is what makes the test discriminate: mirroring
+    /// a uniform row changes nothing, so under the old rule the reversed reading came back
+    /// byte-identical to the forward one — and comparing it against the forward sequence REVERSED,
+    /// which is monotone, therefore fails. A fixture with a gradient inside each row would pass
+    /// either way for the wrong reason.
+    #[test]
+    #[ignore = "needs numpy and Pillow"]
+    fn a_box_read_the_other_way_up_is_the_forward_reading_backwards() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, "SANDI-CP-5", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        // A four-row box. Core runs ACROSS the picture; each row is a flat grey, and the four get
+        // steadily darker down the box, which is the order a reversed reading must undo.
+        const ROWS: [u8; 4] = [230, 180, 130, 80];
+        let box_photo = bmp(400, 200, |_, y| {
+            let v = ROWS[(y * 4 / 200).min(3)];
+            (v, v, v)
+        });
+        crate::db::insert_well_images(
+            &conn,
+            &w,
+            "CORE PHOTO",
+            "RUN1",
+            None,
+            &[crate::db::NewImage {
+                depth_top: 1000.0,
+                depth_base: Some(1004.0),
+                name: "BOX-1".into(),
+                mime: "image/bmp".into(),
+                width: 400,
+                height: 200,
+                data: box_photo,
+                printable: true,
+                ..Default::default()
+            }],
+        )
+        .unwrap();
+
+        let spec = |reverse: bool| CoreLogSpec {
+            well_id: w.clone(),
+            dataset: "CORE PHOTO".into(),
+            axis: "x".into(),
+            reverse,
+            lanes: 4,
+            step: 0.5,
+            compare_curve: None,
+            write: false,
+        };
+        let dark = |r: bool| -> Vec<f32> {
+            let res = extract_core_log(&conn, &spec(r)).expect("read");
+            res.curves.iter().find(|c| c.name.ends_with("_DARK")).unwrap().preview.clone()
+        };
+
+        let fwd = dark(false);
+        let back = dark(true);
+        assert_eq!(fwd.len(), back.len());
+        assert!(fwd.len() >= 8, "four rows over four metres at 0.5 m: {}", fwd.len());
+        // Darkness rises steadily down the forward reading: 230 -> 80 through four flat rows.
+        assert!(
+            fwd[0] < fwd[fwd.len() - 1] - 0.4,
+            "the four rows have to be distinguishable at all: {fwd:?}"
+        );
+        let flipped: Vec<f32> = back.iter().rev().copied().collect();
+        for (i, (a, b)) in fwd.iter().zip(flipped.iter()).enumerate() {
+            assert!(
+                (a - b).abs() < 0.02,
+                "sample {i}: reading the box the other way up must be the forward reading \
+                 backwards, not each row flipped in place.\n  forward  {fwd:?}\n  reversed {back:?}"
+            );
+        }
     }
 
     /// Sampling follows the photograph's OWN depth span, and is bounded at both ends.
