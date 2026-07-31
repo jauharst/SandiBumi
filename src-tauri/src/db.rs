@@ -1620,6 +1620,50 @@ pub fn list_aux_datasets(conn: &Connection, well_id: &str) -> DbResult<Vec<(Stri
     Ok(out)
 }
 
+/// One measurement name inside a point dataset, with what is actually stored under it.
+#[derive(Debug, Clone, Serialize)]
+pub struct AuxItemInfo {
+    pub dataset: String,
+    pub item: String,
+    /// Wells carrying it in their ACTIVE delivery.
+    pub wells: i64,
+    pub rows: i64,
+    /// Rows whose value is a NUMBER. A dialog that needs a measurement to compute with — the
+    /// S-factor calibration wants lab CEC — must be able to tell a numeric item from a
+    /// descriptive one, because a lithology description cannot set a scaling factor and
+    /// offering it as a choice invites a run that fails for reasons the user cannot see.
+    pub numeric_rows: i64,
+}
+
+/// Every measurement name in the project's point data, from the ACTIVE delivery of each dataset.
+///
+/// Deliberately unfiltered by well, for the same reason [`list_well_param_overrides`] is: one
+/// scan of a grouped aggregate beats either N round trips or an `IN (...)` list long enough to
+/// hit a binding limit on a 2000-well project. The result is a project-wide catalogue of what a
+/// dataset/item box could name, which is the question a picker actually asks — a run's own
+/// exclusion counts still report what the chosen wells turned out to hold.
+pub fn list_aux_item_catalog(conn: &Connection) -> DbResult<Vec<AuxItemInfo>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT a.dataset, a.item, COUNT(DISTINCT a.well_id), COUNT(*), COUNT(a.value_num)
+         FROM aux_data a WHERE a.set_name = {ACTIVE_AUX_SET}
+         GROUP BY a.dataset, a.item ORDER BY a.dataset, a.item"
+    ))?;
+    let rows = stmt.query_map([], |row| {
+        Ok(AuxItemInfo {
+            dataset: row.get(0)?,
+            item: row.get(1)?,
+            wells: row.get(2)?,
+            rows: row.get(3)?,
+            numeric_rows: row.get(4)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
 // ---------------------------------------------------------------------------
 // Depth-registered images (thin sections, core photographs) — see `well_images`
 // ---------------------------------------------------------------------------
@@ -3629,6 +3673,52 @@ mod inspector_tests {
         assert_eq!(list_core_sets(&conn, &w).unwrap().len(), 1);
         let fresh = mem_db();
         migrate_point_data_sets(&fresh, None).unwrap();
+    }
+
+    /// The item picker's catalogue. Two contracts: it follows the ACTIVE delivery like every
+    /// other point-data reader (a superseded CEC suite must not appear as a choice), and it
+    /// separates NUMERIC items from descriptive ones — a lithology description cannot set a
+    /// scaling factor, and offering it would produce a run that fails for invisible reasons.
+    #[test]
+    fn the_aux_item_catalog_follows_the_active_delivery_and_flags_text_only_items() {
+        let conn = mem_db();
+        let wid = Uuid::new_v4();
+        insert_well(&conn, wid, "SANDI-CAT", None, None, Some(0.0)).unwrap();
+        let w = wid.to_string();
+        let row = |item: &str, num: Option<f32>, text: Option<&str>| AuxRow {
+            dataset: "CEC".into(),
+            depth_top: 1000.0,
+            depth_base: None,
+            item: item.into(),
+            value_num: num,
+            value_text: text.map(str::to_string),
+        };
+        // First delivery, then a second one that supersedes it with a DIFFERENT item name.
+        insert_aux_data(&conn, &w, "CEC", "RAW", None, &[row("CEC_OLD", Some(4.0), None)]).unwrap();
+        insert_aux_data(
+            &conn,
+            &w,
+            "CEC",
+            "LAB2024",
+            None,
+            &[
+                row("CEC", Some(4.2), None),
+                row("CEC", Some(5.1), None),
+                row("METHOD", None, Some("ammonium acetate")),
+            ],
+        )
+        .unwrap();
+
+        let cat = list_aux_item_catalog(&conn).unwrap();
+        let names: Vec<&str> = cat.iter().map(|c| c.item.as_str()).collect();
+        assert!(!names.contains(&"CEC_OLD"), "a superseded delivery is not a choice: {names:?}");
+
+        let cec = cat.iter().find(|c| c.item == "CEC").expect("CEC listed");
+        assert_eq!((cec.rows, cec.numeric_rows, cec.wells), (2, 2, 1));
+
+        let method = cat.iter().find(|c| c.item == "METHOD").expect("METHOD listed");
+        assert_eq!(method.numeric_rows, 0, "a descriptive item carries no number to fit");
+        assert_eq!(method.rows, 1);
     }
 
     fn a_plate(name: &str, top: f32, base: Option<f32>, bytes: &[u8]) -> NewImage {

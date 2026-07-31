@@ -519,6 +519,15 @@ fn list_aux_datasets(db: tauri::State<DbState>, well_id: String) -> Result<Vec<(
     db::list_aux_datasets(&conn, &well_id).map_err(|e| e.to_string())
 }
 
+/// Every measurement name in the project's point data, so a dialog can offer what exists
+/// instead of asking the user to type a name and read an error. Project-wide by design — see
+/// `db::list_aux_item_catalog`.
+#[tauri::command]
+fn list_aux_item_catalog(db: tauri::State<DbState>) -> Result<Vec<db::AuxItemInfo>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_aux_item_catalog(&conn).map_err(|e| e.to_string())
+}
+
 // --- Depth-registered images (thin sections, core photographs) ----------------------
 
 /// Reads the headers of the selected image files: what they are, their true pixel size, and
@@ -2606,6 +2615,7 @@ pub fn run() {
             import_aux_data,
             list_aux_data,
             list_aux_datasets,
+            list_aux_item_catalog,
             probe_image_files,
             image_support,
             import_well_images,

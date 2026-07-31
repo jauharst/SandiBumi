@@ -6094,6 +6094,31 @@ without their constant are a calibration for different rock, and nothing downstr
 it. They go in one batch or not at all.
 
 
+---
+
+## Calibrate S… now offers your data instead of asking you to type it (2026-07-31)
+
+The CEC dataset and item boxes were free text, so the most likely first mistake — getting the
+item name wrong — could only be discovered by running the fit. They are now dropdowns built from
+what your project actually holds.
+
+- [ ] Open **Advance ▸ Calibrate S…**. The dataset list should show every point dataset with its
+      item count, defaulting to CEC (or CORE if you have no CEC dataset).
+- [ ] Switch datasets. The item list follows, and each item shows **how many rows and how many
+      wells** carry it — so an item present in 2 of your 12 wells says so before you fit it.
+- [ ] **A text-only item is greyed out**, marked "no numeric values". A lithology description
+      cannot set a scaling factor, and this is the honest way to say so: it stays visible, so you
+      can see it is there and see why it is not a choice.
+- [ ] If a whole dataset has nothing numeric in it you get "(nothing numeric in this dataset)"
+      rather than an empty box.
+- [ ] On a project with no point data at all it falls back to typing, and says plainly that there
+      is nothing to pick from yet.
+
+**Worth knowing:** the list is built from the **ACTIVE delivery** of each dataset, like every
+other point-data reader. Switch a well's CEC set in Data → Data Sets… and the picker follows —
+a superseded delivery is not offered as a choice.
+
+
 
 `sw_rtc`'s own description now says plainly that the shipped defaults are one field's, and
 points at this dialog.

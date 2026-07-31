@@ -715,6 +715,22 @@ exposes `redraw()` and each caller invokes it right after inserting the element.
 equally load-bearing: the canvas context is scaled by the `dpr` that `fitCanvasBackingStore`
 returns, or a HiDPI screen draws the whole plot at half scale in the corner.
 
+**Picking the CEC measurement** — `db::list_aux_item_catalog` returns every measurement name in
+the project's point data (from the ACTIVE delivery of each dataset) with its row count, well count
+and **numeric-row count**, and the S dialog turns it into two dependent selects. Project-wide and
+unfiltered by well for the same reason `list_well_param_overrides` is: one grouped scan beats N
+round trips or an `IN (...)` list long enough to hit a binding limit on a 2000-well project, and
+"what could this box name" is the question a picker actually asks — a run's own exclusion counts
+still report what the chosen wells turned out to hold.
+
+`numeric_rows` is the part that matters. A descriptive item cannot set a scaling factor, so a
+text-only one is shown **greyed with "no numeric values"** rather than hidden: "LITHOLOGY is
+there but it is text" answers the question the user was about to ask by running the fit. A dataset
+with nothing numeric in it gets an explicit "(nothing numeric in this dataset)" placeholder rather
+than a silently empty select. With no point data at all the dialog falls back to typed names and
+says so in a VISIBLE note — `formRow`'s hint is a tooltip, and "there is nothing here to pick
+from" is not something to hide behind a hover.
+
 **Accepting a calibration** — `calibrationApply.ts`, shared by both fit dialogs, writes the
 coefficients as `zone_params` overrides through the new atomic `db::set_zone_param_batch(conn,
 zone_name, entries)`. `set_well_param_overrides` is now just its `"*"` scope, so the parameter

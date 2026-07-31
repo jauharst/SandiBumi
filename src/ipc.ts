@@ -2806,6 +2806,24 @@ export function runSFactorFit(req: SFactorFitRequest): Promise<SFactorFitResult>
   return invoke<SFactorFitResult>("run_s_factor_fit", { req });
 }
 
+/** One measurement name inside a point dataset, with what is actually stored under it. */
+export interface AuxItemInfo {
+  dataset: string;
+  item: string;
+  /** Wells carrying it in their ACTIVE delivery. */
+  wells: number;
+  rows: number;
+  /** Rows whose value is a NUMBER — a descriptive item has none and cannot be fitted against. */
+  numeric_rows: number;
+}
+
+/** Every measurement name in the project's point data, from the ACTIVE delivery of each dataset.
+ *  Project-wide by design: one grouped scan beats N round trips or an IN-list long enough to hit
+ *  a binding limit. Lets a dialog offer what exists instead of asking for a typed name. */
+export function listAuxItemCatalog(): Promise<AuxItemInfo[]> {
+  return invoke<AuxItemInfo[]>("list_aux_item_catalog");
+}
+
 /** What the Python equation engine can offer, probed once per session. */
 export interface PythonStatus {
   /** Interpreter the engine will use; null when no Python with numpy was found. */

@@ -1,4 +1,10 @@
-import { runSFactorFit, type SFactorFitRequest, type SFactorFitResult } from "../ipc";
+import {
+  listAuxItemCatalog,
+  runSFactorFit,
+  type AuxItemInfo,
+  type SFactorFitRequest,
+  type SFactorFitResult,
+} from "../ipc";
 import { setStatus } from "../state";
 import { recordProcess } from "../processLog";
 import { formRow, openModal } from "./modal";
@@ -59,12 +65,91 @@ export async function openSFactorFitDialog(): Promise<void> {
     wrap.appendChild(formRow(label, i, hint));
     return i;
   };
-  const dsIn = mkText(
-    "CEC point dataset",
-    "CEC",
-    "Read from the ACTIVE delivery of that dataset. Use CORE if the CEC arrived as an extra column on a core table."
-  );
-  const itemIn = mkText("Item name", "CEC", "The measurement's name within the dataset, in meq/100g");
+
+  // Offer what the project actually holds rather than asking for a typed name. A wrong item name
+  // is the most likely first mistake here, and the previous version could only answer it after a
+  // run — which is a slow way to learn that your CEC suite is called CEC_MEQ.
+  const catalog = await listAuxItemCatalog().catch(() => [] as AuxItemInfo[]);
+  let dsIn: HTMLSelectElement | HTMLInputElement;
+  let itemIn: HTMLSelectElement | HTMLInputElement;
+
+  if (catalog.length === 0) {
+    // No point data in the project (or the catalogue could not be read). Fall back to typing, so
+    // the dialog still works — but say why the picker is not there, VISIBLY: `formRow`'s hint is
+    // a tooltip, and "there is nothing here to pick from" is not something to hide behind a hover.
+    const none = document.createElement("div");
+    none.className = "eq-note";
+    none.style.color = "var(--warn)";
+    none.textContent =
+      "No point data found in this project, so there is nothing to pick from. Import a CEC table " +
+      "or a core table with a CEC column first — or type the names below if you know them.";
+    wrap.appendChild(none);
+    dsIn = mkText(
+      "CEC point dataset",
+      "CEC",
+      "The ACTIVE delivery of that dataset. Use CORE if the CEC arrived as an extra column on a core table."
+    );
+    itemIn = mkText("Item name", "CEC", "The measurement's name within the dataset, in meq/100g");
+  } else {
+    const datasets = [...new Set(catalog.map((c) => c.dataset))].sort();
+    const dsSel = document.createElement("select");
+    dsSel.className = "form-control";
+    for (const d of datasets) {
+      const o = document.createElement("option");
+      o.value = d;
+      const items = catalog.filter((c) => c.dataset === d);
+      o.textContent = `${d} — ${items.length} item(s)`;
+      dsSel.appendChild(o);
+    }
+    dsSel.value = datasets.includes("CEC") ? "CEC" : datasets.includes("CORE") ? "CORE" : datasets[0];
+    wrap.appendChild(
+      formRow(
+        "CEC point dataset",
+        dsSel,
+        "The ACTIVE delivery of each dataset. CORE holds the extra columns from a core table."
+      )
+    );
+
+    const itemSel = document.createElement("select");
+    itemSel.className = "form-control";
+    const fillItems = (): void => {
+      itemSel.textContent = "";
+      const items = catalog.filter((c) => c.dataset === dsSel.value);
+      for (const it of items) {
+        const o = document.createElement("option");
+        o.value = it.item;
+        const where = `${it.rows} row(s), ${it.wells} well(s)`;
+        if (it.numeric_rows === 0) {
+          // A descriptive item carries no number to regress against. Showing it greyed is more
+          // useful than hiding it: "METHOD is there but it is text" answers the question the
+          // user was about to ask by running the fit.
+          o.textContent = `${it.item} — ${where}, no numeric values`;
+          o.disabled = true;
+        } else {
+          o.textContent = `${it.item} — ${where}`;
+        }
+        itemSel.appendChild(o);
+      }
+      const usable = items.filter((i) => i.numeric_rows > 0);
+      if (usable.length === 0) {
+        const o = document.createElement("option");
+        o.value = "";
+        o.textContent = "(nothing numeric in this dataset)";
+        o.disabled = true;
+        o.selected = true;
+        itemSel.insertBefore(o, itemSel.firstChild);
+        return;
+      }
+      itemSel.value = usable.some((i) => i.item.toUpperCase() === "CEC") ? "CEC" : usable[0].item;
+    };
+    fillItems();
+    dsSel.addEventListener("change", fillItems);
+    wrap.appendChild(
+      formRow("Item name", itemSel, "The lab CEC measurement, in meq/100g")
+    );
+    dsIn = dsSel;
+    itemIn = itemSel;
+  }
 
   // ---- the pairing --------------------------------------------------------
   const pairNote = document.createElement("div");

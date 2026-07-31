@@ -1102,8 +1102,7 @@ joblib (ML) → office four (deliverables) → opencv (digitizing).
       dropped, not snapped. `sw_imts`'s description now says the shipped 0.5 was never measured
       anywhere. Also fixed: both fit dialogs opened with a blank run button, because
       `buildWellScope` does not fire `onChange` during construction.
-      *Open follow-up:* picking the dataset/item from a dropdown of what the wells actually
-      hold, rather than typing a name and reading the error.
+      (Both follow-ups shipped 2026-07-31 - the QC scatter and the dataset/item picker.)
 - [x] **SHIPPED 2026-07-31 - calibration QC scatter on both fits** (`fitScatter.ts`, shared).
       RtC plots measured vs fitted excess with a dashed 1:1 line; the S fit plots the regression
       itself, lab vs modelled CEC, with the fitted line through the origin - only that version
@@ -1125,6 +1124,15 @@ joblib (ML) → office four (deliverables) → opencv (digitizing).
       uncalibrated wells. The held-fixed constants (RSF; CEC_KAOL/CEC_ILL) are written in the
       SAME batch, since they are not jointly identifiable with the coefficients. One transaction,
       one undo, and undo restores "no override" rather than zero.
+- [x] **SHIPPED 2026-07-31 - the S dialog picks the CEC measurement from the project.**
+      `db::list_aux_item_catalog` returns every point-data measurement name from the ACTIVE
+      delivery of each dataset, with row / well / NUMERIC-row counts, and the dialog turns it into
+      two dependent selects. Project-wide and unfiltered by well for the `list_well_param_overrides`
+      reason (one grouped scan, no IN-list binding limit). A text-only item is shown GREYED with
+      "no numeric values" rather than hidden - a lithology description cannot set a scaling
+      factor, and saying so beats a run that fails invisibly. A dataset with nothing numeric gets
+      an explicit placeholder; a project with no point data falls back to typed names with a
+      VISIBLE warning, since `formRow` hints are tooltips.
 - [ ] **`Pillow`** — already present, and enough for the *display* half of the image-track item
       above (read JPEG/PNG/TIFF, dimensions, downsample). No install needed.
 - [ ] **OpenCV** — NOT installed, and deliberately deferred to the **digitizing** phase of the
