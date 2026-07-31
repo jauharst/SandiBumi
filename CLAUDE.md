@@ -1578,6 +1578,70 @@ plausible-looking number for a tight rock, and the mirror of the 0.97 case. The 
 (saturation) did not separate them on this data, so nothing was shipped rather than a guessed
 threshold.
 
+## Plates delivered inside a workbook (2026-07-31)
+
+`images::probe_plate_workbooks` + `WORKBOOK_RUNNER`, wired into the existing Import pictures…
+wizard. The barrier the first real delivery exposed: **a petrography delivery does not arrive as a
+folder of pictures.** It arrives as a workbook with one WORKSHEET per plate — the well, the depth,
+the plug number and the magnification typed into cells, the photomicrographs anchored on top. A
+file picker can read none of it. On this machine 165 such workbooks exist against essentially no
+folders of loose thin sections.
+
+**It is an EXTRACTOR, not a second importer.** It writes the plates to a temporary folder and hands
+them plus a depth table to `import_images`, so normalization, the Pillow long-edge cap, the delivery
+set model, `follow_core`, `fov_um` and `prepared` all apply unchanged. Two importers would
+eventually disagree about one of those — the standing `composite.rs` versus log-view-renderer
+warning — and an extractor plus one importer cannot.
+
+**The depth comes from the CELL, and overrules anything a filename would have said.**
+`parse_depth_from_name` exists for a folder of loose files and has to guess; here the laboratory
+wrote the depth down. It is read only where a UNIT follows it, because the same header block
+carries the plate number and the plug number — on a real delivery the cell reads `4633.50 FT/ 108`
+and taking the bare number would be a coin toss. A sheet with no stated depth gets NONE, is
+counted, and is reported; it is never filled in from a neighbour. Pinned by
+`the_workbook_reader_only_takes_a_depth_that_carries_a_unit`.
+
+**The unit is the sheets' own**, and only when every sheet that stated one agreed; a mixed workbook
+returns `None` so the wizard has to ask rather than fall back to the display unit. A foot silently
+read as a metre puts a plate more than three times too deep and nothing on the log looks wrong.
+
+**A magnification is not a field of view and is never converted into one.** Turning `10x` into
+micrometres needs the camera sensor width and the tube factor, both properties of the laboratory's
+microscope rather than of the plate, and neither is in the delivery. It is carried through as text
+so the user sees what the sheet claimed, and everything dimensional stays refused until a real
+scale is entered. A sheet stating TWO magnifications attaches none — which picture is which cannot
+be told without guessing from where the caption sits, and a magnification on the wrong plate is
+worse than none.
+
+**`MIN_PLATE_PX` (400) is in PIXELS and round**, the `min_pore_px` argument: it states what a
+picture has to be to be a plate, where a byte count would say more about the JPEG quality. A
+workbook carries decorations anchored beside the plates — scale-bar graphics, logos, letterheads;
+on the real delivery those ran 117x59 and 207x79 against plates of 1920x1080. Every drop is COUNTED
+and named per sheet, never silent.
+
+**The old `.xls` is REFUSED BY NAME with the fix** ("Save As .xlsx in Excel"), and it is the
+majority format — 107 of the 165 workbooks here. Its pictures can be recovered by scanning the file
+for JPEG blobs; what cannot be recovered without a full BIFF parser is which worksheet each one sat
+on, and the worksheet is where the depth is. A plate hung off the wrong sand is a wrong conclusion,
+so a guessed association is worse than no import. `.xls` stays in the file-dialog filter on purpose:
+selecting one gets a named refusal rather than a picker that appears broken. Pinned by
+`the_old_workbook_format_is_refused_by_name_with_the_fix`, and its sibling
+`the_newer_workbook_formats_are_accepted` exists so nobody tidies `.xlsm` out of the filter — that
+is the same package with macros in it.
+
+Rule 7 throughout: openpyxl + Pillow in ONE subprocess for the whole selection, and the runner reads
+`sys.stdin.buffer`, never `sys.stdin` — a workbook path with any non-ASCII character would otherwise
+arrive as mojibake and fail naming a path nobody has. Pillow is used HEADER-ONLY here (`Image.open`
+without `.load()`) to size each embedded picture; it also decodes the EMF plates a vector-illustrated
+delivery carries, through the Windows GDI.
+
+The real round trip is `images::workbook_field_tests::plates_come_out_of_a_real_petrography_workbook`,
+`#[ignore]`d and driven by `SANDIBUMI_FIELD_FIXTURES` with a `workbooks/` subfolder — it takes
+whatever the folder holds and skips with a printed reason when unset, so a fresh clone stays green.
+Measured on two real deliveries: **152 plates, every one with a depth from its sheet, unit ft, 33
+notes** covering dropped decorations, sheets stating two magnifications and sheets whose header omits
+the depth.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under

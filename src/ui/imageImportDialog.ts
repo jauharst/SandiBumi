@@ -2,6 +2,7 @@ import {
   imageSupport,
   importWellImages,
   probeImageFiles,
+  probePlateWorkbooks,
   type ImageImportItem,
   type ImageProbe,
   type WellSummary,
@@ -34,13 +35,56 @@ export async function openImageImportDialog(
     requireWell("Import pictures");
     return;
   }
-  setStatus(`Reading ${paths.length} image file(s)…`);
+  // A petrography delivery arrives as a WORKBOOK, one worksheet per plate, with the well, the
+  // depth and the magnification typed into cells and the pictures anchored on top. Extract them
+  // first and then carry on down the ordinary path — one importer, not two. The depths come from
+  // the cells and OVERRULE anything a filename would have suggested: the lab wrote them down, and
+  // a guess standing beside a stated fact is a bug waiting to happen.
+  const isBook = (p: string) => /\.(xlsx|xlsm|xls)$/i.test(p);
+  const books = paths.filter(isBook);
+  let plain = paths.filter((p) => !isBook(p));
+  const bookNotes: string[] = [];
+  let bookUnit: string | null = null;
+  const fromCell = new Map<string, { name: string; top: number | null; base: number | null; mag: string | null }>();
+  if (books.length) {
+    setStatus(`Reading ${books.length} workbook(s)…`);
+    try {
+      const wb = await probePlateWorkbooks(books);
+      bookNotes.push(...wb.notes);
+      bookUnit = wb.depth_unit;
+      for (const pl of wb.plates) {
+        plain.push(pl.path);
+        fromCell.set(pl.path, {
+          name: pl.name,
+          top: pl.depth_top,
+          base: pl.depth_base,
+          mag: pl.magnification,
+        });
+      }
+    } catch (err) {
+      setStatus(`Could not read the workbook: ${err}`);
+      return;
+    }
+    if (plain.length === 0) {
+      const why = bookNotes[0] ?? "no worksheet in it carries a picture";
+      setStatus(`No plates came out of the workbook: ${why}`);
+      return;
+    }
+  }
+  setStatus(`Reading ${plain.length} image file(s)…`);
   let probes: ImageProbe[];
   try {
-    probes = await probeImageFiles(paths);
+    probes = await probeImageFiles(plain);
   } catch (err) {
     setStatus(`Could not read the selected files: ${err}`);
     return;
+  }
+  for (const p of probes) {
+    const cell = fromCell.get(p.path);
+    if (!cell) continue;
+    p.name = cell.name;
+    p.depth_top = cell.top;
+    p.depth_base = cell.base;
   }
   const pillow = await imageSupport().catch(() => false);
   const usable = probes.filter((p) => !p.error);
@@ -72,6 +116,17 @@ export async function openImageImportDialog(
     (failed > 0 ? `, ${failed} unreadable (hover the file name for the reason)` : "") +
     ` — importing into ${well.well_name}.`;
   wrap.appendChild(summary);
+
+  if (bookNotes.length) {
+    // What the workbook could not give, said before anything is imported. A silent subset of a
+    // 76-sheet delivery reads exactly like a complete one.
+    const note = document.createElement("div");
+    note.className = "eq-note";
+    note.style.whiteSpace = "pre-line";
+    note.textContent =
+      (bookUnit ? `Depths read from the sheets, in ${bookUnit}.\n` : "") + bookNotes.join("\n");
+    wrap.appendChild(note);
+  }
 
   const datasetInput = document.createElement("input");
   datasetInput.className = "form-control";
@@ -130,7 +185,10 @@ export async function openImageImportDialog(
     o.textContent = label;
     unitSel.appendChild(o);
   }
-  unitSel.value = appState.displayDepthUnit.get() === "FT" ? "ft" : "m";
+  // A workbook that STATED its unit on every sheet decides this; the display unit is only the
+  // fallback for a folder of files, which says nothing. A foot silently read as a metre puts a
+  // plate more than three times too deep and nothing on the log looks wrong.
+  unitSel.value = bookUnit ?? (appState.displayDepthUnit.get() === "FT" ? "ft" : "m");
   wrap.appendChild(
     formRow("Depths are in", unitSel, "Converted to the project's depth unit on import."),
   );

@@ -545,6 +545,19 @@ async fn probe_image_files(paths: Vec<String>) -> Result<Vec<images::ImageProbe>
         .map_err(|e| e.to_string())
 }
 
+/// Lifts the plates out of one or more petrography workbooks so the normal import wizard can take
+/// them. A petrography delivery arrives as a workbook with one worksheet per plate — the well, the
+/// depth and the magnification in cells, the pictures anchored on top — which a file picker cannot
+/// read at all. Extracts to a temporary folder; nothing is stored until the wizard's commit.
+#[tauri::command]
+async fn probe_plate_workbooks(paths: Vec<String>) -> Result<images::WorkbookProbe, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        images::probe_plate_workbooks(&paths, &images::workbook_scratch_dir())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Is Pillow reachable? Decides whether the wizard offers TIFF and whether it warns that
 /// pictures will print as labelled frames.
 #[tauri::command]
@@ -2865,6 +2878,7 @@ pub fn run() {
             list_aux_datasets,
             list_aux_item_catalog,
             probe_image_files,
+            probe_plate_workbooks,
             image_support,
             import_well_images,
             list_well_images,

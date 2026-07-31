@@ -6709,3 +6709,44 @@ itself.
 folder. A colour rule run over a grey SEM image returns **0.0%** — which looks like a perfectly
 reasonable answer for a tight rock, and is the mirror of the 97% case. The obvious test did not
 separate them on this data, so I shipped nothing rather than a threshold I could not defend.
+
+---
+
+## Import plates straight from a petrography workbook (2026-07-31)
+
+This is the barrier the last run hit. Your plates live inside the workbook, one worksheet per plate,
+with the depth typed in a cell — so **Import pictures…** now reads the workbook itself.
+
+- [ ] **Data ▸ Import pictures…** with a well selected. The file dialog should now offer
+      *Plates and petrography workbooks* and let you pick a `.xlsx` directly.
+- [ ] Pick one of your petrography photo-sheet books. The wizard should open with every plate
+      already listed and **the depth filled in from the sheet** — not guessed from a filename.
+- [ ] The depth unit should already be set to what the sheets say (ft on the ones I tested), not to
+      your display unit.
+- [ ] Read the note block above the table. It should list what was left out and why: decorations
+      dropped per sheet, sheets that state two magnifications, sheets whose header has no depth.
+- [ ] Check a few rows against the workbook itself. Panel A and panel B of one sheet are two
+      separate plates at the same depth — that is deliberate, only you can say which is plane light
+      and which is crossed nicols.
+- [ ] Import, then open the well's picture track. The plates should sit at the depths the report
+      gives them.
+
+On the two books I tested this gave **152 plates, every one with a depth**.
+
+**The old `.xls` is refused.** You'll get a message naming the file and telling you to Save As
+`.xlsx` in Excel first. That's 107 of the 165 petrography workbooks on this machine, so it will come
+up. The reason: the pictures can be pulled out of an `.xls`, but working out which *worksheet* each
+one came from — and the worksheet is where the depth is — needs a lot more work, and guessing it
+would hang a plate off the wrong sand.
+
+- [ ] Try selecting an `.xls` and confirm the message says what to do rather than doing nothing.
+- [ ] Save one as `.xlsx` and confirm it then imports normally.
+
+**Tell me if the Save As route is too tedious** and I'll scope reading `.xls` properly.
+
+**Magnification is carried but not used.** Your sheets say `5x`, `10x`, `2.5x`. That can't become a
+field of view without your microscope's camera and tube factors, so sizes in microns stay blank
+until you enter a real scale. The wizard says so rather than staying silent about it.
+
+- [ ] Confirm you'd want a per-delivery "camera width and tube factor" setting that turns
+      magnification into a scale automatically — or whether you'd rather always measure a bar.
