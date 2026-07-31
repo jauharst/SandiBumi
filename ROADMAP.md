@@ -789,6 +789,32 @@ The actionable backlog. Roughly ordered: safe frontend wins first, then Performa
       `rocktyping_without_a_permeability_curve_fails_and_writes_no_curves` (`workflow.rs`).
       Suppressing the write is one filter, but it changes behaviour for every module. Finding 10.
 
+- [ ] **Two wells with one name overwrite each other's report, and the batch count says
+      otherwise.** `export_report_batch` builds each filename from the well NAME with every
+      non-alphanumeric mapped to `_`, and `well_name` has no uniqueness constraint — an import with
+      attach OFF creates a duplicate by design, and `SANDI/1` / `SANDI 1` collide as well. The
+      second write silently replaces the first while BOTH paths are pushed onto `written`, so a
+      3-well batch reports "wrote 3 file(s)" over 2 files and the surviving report carries the
+      wrong well's name. The same function identifies wells two ways — the success path looks the
+      name up for the filename, the failure path reports the raw UUID — which is the same gap seen
+      from the other side. Pinned as-is by
+      `two_wells_with_one_name_silently_overwrite_each_others_report` (`report.rs`). **Not fixed:
+      suffixing the duplicate or falling back to the well id both change what lands in a client
+      folder.** Finding 12.
+
+- [ ] **A Rhai equation that raises on only SOME samples reports a clean success.** A Rhai error is
+      caught per sample and written as MISSING, and the all-MISSING guard — the only thing that
+      turns a script error into a reported failure — fires only when EVERY sample failed. So a
+      half-raising script yields a curve with holes and the full row count, indistinguishable from
+      a curve whose inputs were absent there, which is the ordinary innocent case. Same shape as
+      finding 10: the honest signal exists but is gated on the failure being total. Pinned as-is by
+      `a_script_that_raises_on_only_some_samples_still_reports_a_clean_success` (`equations.rs`),
+      with a control that raises everywhere and IS caught. The Python path is unaffected — it runs
+      the whole well's array at once, verified by
+      `a_python_raise_in_one_well_leaves_the_rest_of_the_batch_intact`. **Not fixed: counting the
+      raises changes the run summary, and whether a partially failed curve should be written at all
+      is a judgement about how the equation editor is used.** Finding 13.
+
 - [x] **Legacy-multimin RECON_ERR at 3 tools — CLOSED 2026-07-31, no sign-off needed.** REVIEW.md
       still lists this among the findings awaiting a decision because it would change
       interpretation numbers. It does not need one. Legacy `multimin` is **retired** — `run_module`

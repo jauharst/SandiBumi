@@ -745,4 +745,91 @@ mod tests {
             .expect("worker should survive a prior script error and serve the next request");
         assert_eq!(ok, vec![2.0, 4.0, 6.0]);
     }
+
+    /// T-AUX-17's main scenario, which is the PYTHON path — a different function from the Rhai
+    /// one (`lib.rs` dispatches on `equation.language`), so the Rhai batch test in
+    /// `equations.rs` says nothing about it.
+    ///
+    /// `worker_survives_a_script_error` already pins that the persistent worker survives one bad
+    /// request. What is unpinned is the level above: that a raise in ONE well leaves that well
+    /// unwritten and every other well complete. The failing well is listed FIRST, because this
+    /// path is SEQUENTIAL (`.iter()`, not the Rhai path's `.par_iter()` — Python spawns a worker
+    /// per well and parallelising it would multiply subprocesses), so a `?` in the wrong place
+    /// would abandon the wells behind it.
+    ///
+    /// Skips with a printed reason where there is no interpreter, the same as its neighbours —
+    /// so it is real coverage on a machine that has numpy and never a red gate on one that does
+    /// not.
+    #[test]
+    fn a_python_raise_in_one_well_leaves_the_rest_of_the_batch_intact() {
+        use crate::db;
+        use uuid::Uuid;
+        if find_python().is_none() {
+            eprintln!("skipping: no python+numpy on this machine");
+            return;
+        }
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let seed = |name: &str, nphi: f32| -> String {
+            let wid = Uuid::new_v4();
+            db::insert_well(&conn, wid, name, None, None, Some(0.0)).unwrap();
+            let depths = vec![1000.0f32, 1000.5, 1001.0, 1001.5];
+            let n = depths.len();
+            db::insert_standard_curves(
+                &conn,
+                wid,
+                depths,
+                vec![40.0; n],
+                vec![2.0; n],
+                vec![nphi; n],
+                vec![2.4; n],
+                vec![f32::NAN; n],
+                vec![f32::NAN; n],
+            )
+            .unwrap();
+            wid.to_string()
+        };
+        let no_nphi = seed("SANDI-PY-BARE", f32::NAN);
+        let good_a = seed("SANDI-PY-A", 0.25);
+        let good_b = seed("SANDI-PY-B", 0.30);
+        let dbm = Mutex::new(conn);
+
+        // Verbatim the script the manual step asks the user to type.
+        let eq = EquationDef {
+            equation_id: Uuid::new_v4().to_string(),
+            name: "PHIN_TEST".into(),
+            description: None,
+            script: "if np.all(np.isnan(nphi)): raise ValueError(\"NPHI missing in this well\")\nphin_test = np.clip(nphi, 0, 0.6)".into(),
+            input_curves: vec!["NPHI".into()],
+            output_curve: "PHIN_TEST".into(),
+            output_units: None,
+            language: "python".into(),
+        };
+        let wells = [no_nphi.clone(), good_a.clone(), good_b.clone()];
+        let res = run_python_equation(&dbm, &eq, &wells, None);
+
+        assert_eq!(res.len(), 3);
+        let bare = res[0].error.as_ref().expect("the NPHI-less well must fail");
+        assert!(
+            bare.contains("NPHI missing in this well"),
+            "the user's OWN message must reach the run summary, not a generic failure: {bare}"
+        );
+        for (label, r) in [("A", &res[1]), ("B", &res[2])] {
+            assert!(r.error.is_none(), "healthy well {label} must survive the raise ahead of it: {:?}", r.error);
+            assert_eq!(r.rows_written, 4);
+        }
+
+        let conn = dbm.lock().unwrap();
+        let rows = |w: &str| -> i64 {
+            conn.query_row(
+                "SELECT COUNT(*) FROM computed_curves WHERE well_id = ?1 AND UPPER(curve_name) = 'PHIN_TEST'",
+                duckdb::params![w],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(rows(&no_nphi), 0, "the raising well must leave no curve behind");
+        assert_eq!(rows(&good_a), 4);
+        assert_eq!(rows(&good_b), 4);
+    }
 }

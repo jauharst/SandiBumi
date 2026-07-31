@@ -4044,6 +4044,10 @@ Shared preconditions for this cluster: app running via `npm run tauri dev`; a pr
 3. Enter top **below** bottom (e.g. top 1700, bottom 1500) → **Render**.
 4. Enter a window entirely outside the logged interval (e.g. 9000 / 9100) → **Render**.
    **Expected:** (1) Pages cover only 1500–1700 m; page labels confirm. (2) Full interval returns. (3)+(4) A clear failure in the status line ("Render failed: …" e.g. empty depth range) — no crash, no stale preview left claiming to be the new window; **Save SVG…/Save PDF…** become disabled after a failed render.
+
+   **Automated coverage - pinned, with a residual (2026-07-31):** `a_depth_window_that_selects_no_rock_is_refused_rather_than_rendered` (`composite.rs`) asserts the backend refuses all four ways of selecting no rock - top below bottom, wholly under TD, wholly above the logged top, and zero thickness. NOT asserted: the display surface - that the status line shows the message, that the previous preview is not left on screen claiming to be the new window, and that Save SVG/PDF disable. Those three are the whole point of steps 3 and 4 and are still yours.
+
+   **Worth knowing before you click:** a window that only PARTIALLY overlaps the logged interval does NOT fail - it renders the overlap. Ask for 1500 - 9000 on a well logged to 2000 and you get 1500 - 2000, with the page labels saying 2000. That is correct (you cannot render rock that was never logged) but it means step 4 only fails when the window misses the data ENTIRELY.
    **Result — T-REP-03:**
 
 - [ ] Pass
@@ -4211,6 +4215,10 @@ Shared preconditions for this cluster: app running via `npm run tauri dev`; a pr
 3. Watch the status line and the **Processing** panel while it runs.
 4. When finished, open the destination folder; open one good well's PDF.
    **Expected:** Per-well failure isolation: every good well gets `{WELL}_report.pdf` (non-alphanumeric name chars become `_`), each a complete report for THAT well (check the cover well name differs per file). The broken well is skipped, not fatal: the status line reports the mixed outcome — "Batch export: wrote {N−1} file(s); failed: {well_id}: no curve data for this well" (note the failure is identified by well **UUID**, not name — worth logging as UX feedback). The Processing panel shows a "Report batch" job entry. No partial/corrupt PDF for the failed well in the folder.
+
+   **Automated coverage - pinned, with a residual (2026-07-31):** `one_unrenderable_well_costs_only_itself_in_a_batch_export` (`report.rs`) asserts the isolation - the broken well is listed FIRST, both healthy wells still get their own complete PDF (byte-different from each other, so the cover well really did change), and the broken well leaves no file at all. The UUID-not-name failure message you flagged is pinned as current behaviour too. NOT asserted: the status line wording and the Processing panel entry. Those are still yours.
+
+   **KNOWN ISSUE found while writing that test (2026-07-31) - worth adding a step:** if two wells in scope share a name, the second report **silently overwrites the first**, and the batch still reports both as written. A 3-well batch says "wrote 3 file(s)" with 2 files in the folder. The filename comes from the well name with every non-alphanumeric mapped to `_`, so `SANDI/1` and `SANDI 1` collide as well. Nothing warns. Pinned as-is by `two_wells_with_one_name_silently_overwrite_each_others_report`; the fix (suffix the duplicate, or fall back to the well id) changes delivered filenames, so it is logged in `ROADMAP.md` §B1 as **your call** rather than done. If you have duplicate well names in your project, add them to this test's scope and check the folder count against the status line.
    **Result — T-REP-12:**
 
 - [ ] Pass
@@ -4761,6 +4769,10 @@ This cluster sweeps the tools and behaviours the first drafting pass missed: the
 5. Rhai-path variant: switch Language to Rhai (legacy), script `nphi * 1.0`, input `NPHI` → on the NPHI-less well the run must fail per-well with "equation produced no finite output — check the input/output curve name(s) resolve to data", not a clean success.
 6. Cleanup: delete the PHIN_TEST curves.
    **Expected:** Runtime errors surface per well in the Processing job with actionable messages; healthy wells complete and write; all-NaN outputs are never written as success. _(REVIEW.md ▸ Round 3 "[ ] All-NaN module runs report honestly … Same guard on Rhai + Python equations (an unresolvable input/output curve → error, not a clean success)" — unchecked.)_
+
+   **Automated coverage - pinned, with a residual (2026-07-31):** both language paths, because they are different functions - `lib.rs` dispatches on the equation's language, so a test on one says nothing about the other. `a_python_raise_in_one_well_leaves_the_rest_of_the_batch_intact` (`python_engine.rs`) runs your exact step-1 script and asserts steps 2 and 4: the raising well writes NOTHING (checked in the database, not just in the return value) and every healthy well completes, with your own "NPHI missing in this well" message reaching the run summary. It runs for real on this machine because numpy is here. `one_failing_well_does_not_poison_a_multi_well_equation_run` (`equations.rs`) does the same for step 5's Rhai path. NOT asserted: step 3's Processing panel actually rendering those per-well ✗ marks. That is still yours.
+
+   **KNOWN ISSUE found while writing that test (2026-07-31) - it makes step 5 narrower than it looks:** the Rhai guard only fires when EVERY sample fails. A Rhai error is caught per sample and written as MISSING, so a script that raises on only some depths produces a curve with holes and reports a **clean success with the full row count** - and that is indistinguishable from a curve whose inputs were simply absent there. Pinned as-is by `a_script_that_raises_on_only_some_samples_still_reports_a_clean_success`, with a control that raises everywhere and IS caught. Logged in `ROADMAP.md` §B1 as **your call**, because counting the raises changes the run summary. The Python path does not have this - it runs the whole well's array at once, so a raise fails the well outright.
    **Result — T-AUX-17:**
 
 - [ ] Pass

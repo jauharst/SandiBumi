@@ -30,7 +30,7 @@ Pile D is the number that matters: **37 tests, about one in seven, genuinely nee
 | Pile | Done | Remaining |
 |---|---|---|
 | **A** — was already pinned before this work started | **21** | — |
-| **B** — a Rust test now checks it | **26** | 17 (of 43 — T-IMP-06 and T-RT-18 regraded out) |
+| **B** — a Rust test now checks it | **29** | 14 (of 43 — T-IMP-06 and T-RT-18 regraded out) |
 | **C** — a machine now drives it | **5 harness tests** | 81 unblocked (+61 blocked) |
 
 ### Pile A — the checklist
@@ -81,7 +81,7 @@ verification mark** — that lives in `docs/manual_test_plan.md` and nothing aut
 touches it. A `[x]` below says the arithmetic is pinned; it does not say the feature works on
 your wells.
 
-**Done (26 of 43)**
+**Done (29 of 43)**
 
 - [x] **T-REP-18** — SQL Query rejects writes · `readonly_query_refuses_every_write_shape_including_a_cte_prefix` (`db.rs`)
 - [x] **T-SHIP-03** — missing perm curve fails loudly · `a_missing_curve_fails_by_name_rather_than_computing_on_another` (`lorenz.rs`)
@@ -157,6 +157,37 @@ your wells.
   is provably about absent porosity rather than the module failing to look for the second name.
   Note finding 10 applies here too: the blank curves are still written.
 
+- [x] **T-REP-03** — composite depth window + invalid window ·
+  `a_depth_window_that_selects_no_rock_is_refused_rather_than_rendered` (`composite.rs`).
+  Four ways to select no rock — top below bottom, wholly under TD, wholly above the logged top,
+  zero thickness — all refused. The test also pins the two behaviours the pane's page labels
+  depend on: a window that OVERLAPS the data is honoured over the overlap rather than refused
+  (1150 → 9000 renders 1150 → 1199.5, and the labels say 1199.5, because you cannot render rock
+  that was never logged), and a NaN in one field is absorbed to the data bound by `f32::max`/`min`
+  before the guard sees it — identical to leaving that field blank, and unreachable over IPC
+  anyway since JSON has no NaN literal.
+
+- [x] **T-REP-12** — batch export with a broken well in scope ·
+  `one_unrenderable_well_costs_only_itself_in_a_batch_export` (`report.rs`).
+  The broken well is listed FIRST, so a loop that gave up on first failure would fail this test.
+  Both healthy wells get their own complete PDF, byte-different from each other; the broken well
+  leaves no file at all, because `std::fs::write` is only reached after the render returns bytes.
+  Also pins the UUID-not-name failure message the plan itself flagged as UX feedback — see
+  finding 12 for the second, sharper defect this turned up.
+
+- [x] **T-AUX-17** — equation runtime error mid-batch, per-well isolation ·
+  `one_failing_well_does_not_poison_a_multi_well_equation_run` (`equations.rs`),
+  `a_python_raise_in_one_well_leaves_the_rest_of_the_batch_intact` (`python_engine.rs`),
+  `a_script_that_raises_on_only_some_samples_still_reports_a_clean_success` (`equations.rs`).
+  **Both language paths, because they are different functions** — `lib.rs:1073` dispatches on
+  `equation.language`, so the Rhai test says nothing about Python. Isolation holds in both, and
+  is checked in the DATABASE rather than only in the return value: the failing well leaves zero
+  rows, not an all-MISSING curve. The Python test runs for real on any machine with numpy (it
+  skips with a printed reason elsewhere, matching its neighbours) and confirms the user's OWN
+  `raise` message reaches the run summary. The third test records finding 13. What stays yours
+  is step 3 — that the Processing panel *renders* those per-well ✗ marks; the progress calls
+  behind it are already pinned by `python_equation_reports_progress_on_every_terminal_branch`.
+
 All three items flagged **silent-wrongness class** (T-REP-18, T-SHIP-03, T-INT-11) are closed.
 
 **Regraded out of pile B (2)**
@@ -178,18 +209,15 @@ All three items flagged **silent-wrongness class** (T-REP-18, T-SHIP-03, T-INT-1
 
 Pile B is therefore 43 items, not 45.
 
-**Open (17)**
+**Open (14)**
 
 - [ ] T-PLOT-19 — Curve Edit negatives (invalid input, stale undo)
 - [ ] T-REP-02 — Composite render: layout, print scale, pagination
-- [ ] T-REP-03 — Composite depth window + invalid window
 - [ ] T-REP-06 — Report render: cover, methodology, zone params, pay summary
 - [ ] T-REP-09 — "Tables only" mode
-- [ ] T-REP-12 — Batch export with a broken well in scope
 - [ ] T-REP-14 — DB Inspector: browse all 8 tables
 - [ ] T-REP-16 — DB Inspector negatives
 - [ ] T-AUX-07 — Well-diagram track in Composite/Report + old layouts
-- [ ] T-AUX-17 — Equation runtime error mid-batch, per-well isolation
 - [ ] T-PREP-18 — Splice Curves at depth
 - [ ] T-PETRO-02 — vsh_gr nonlinear options + version N+1
 - [ ] T-PETRO-13 — zone parameter override: RW in one zone only
@@ -484,7 +512,7 @@ these turns on a judgement about real rock, a visual read, or a feel for whether
 
 ---
 
-## Eleven things the triage found that are worth fixing regardless
+## Thirteen things the triage found that are worth fixing regardless
 
 These came out of reading all 250 tests against the current code. Each was verified directly,
 not taken on a subagent's word. **Findings 1, 2 and 3 have since been fixed — see the notes
@@ -752,6 +780,55 @@ REVIEW.md's sign-off list, and T-RT-18's instruction now carries a superseded bl
 SandiMin. The one judgement worth making is a UI one — the note is returned, and whether the
 SandiMin pane makes it hard to miss is worth a look during your click-through, because a warning
 nobody reads is the same as no warning.
+
+### 12. Two wells with one name overwrite each other's report, and the count says otherwise — **OPEN, your call**
+
+`export_report_batch` names each file from the well NAME, sanitized (`report.rs:527`). `well_name`
+carries no uniqueness constraint, so two wells can share one — and an import with attach OFF
+creates a second record under the same name by design. The sanitizer widens the collision
+further: every non-alphanumeric maps to `_`, so `SANDI/1` and `SANDI 1` land on one filename too.
+
+When they collide the second write **silently overwrites the first**, and both paths are still
+pushed onto `written` — so a 3-well batch reports "wrote 3 file(s)" over 2 files on disk, and the
+report you keep is the last well's under the first well's name. Nothing in the status line, the
+Processing panel or the folder says a well is missing. Pinned as-is by
+`two_wells_with_one_name_silently_overwrite_each_others_report`.
+
+The **same function identifies wells two different ways**, which is the root of it: the success
+path looks up the name for the filename (`:518`), the failure path never does and reports the raw
+UUID (`:535`). So a failure you can't attribute and a success that silently replaced a file are
+the same underlying gap. Your plan already flagged the UUID half as UX feedback.
+
+**Your call because it changes delivered filenames.** Suffixing the duplicate (`SANDI-1_report.pdf`,
+`SANDI-1_2_report.pdf`) is the obvious fix; falling back to the well id is the other. Either
+changes what lands in a client folder, which is not something to alter under you.
+
+### 13. A script that raises on only SOME samples reports a clean success — **OPEN, your call**
+
+A Rhai error is caught per sample and written as MISSING (`equations.rs:1116`,
+`Ok(_) | Err(_) => NAN`). The only thing that converts a script error into a reported failure is
+the all-MISSING guard at `:1124` — and it fires **only when every sample failed**.
+
+So a script that raises on half the depths produces a curve with holes and reports success with
+the full row count. Nothing tells the user their script threw. Worse, the result is
+indistinguishable from a curve whose inputs were simply absent there, which is the ordinary
+innocent case — so there is nothing on the log to prompt a second look. Pinned as-is by
+`a_script_that_raises_on_only_some_samples_still_reports_a_clean_success`, whose control raises
+everywhere and IS caught: the difference between reported and silent is only ever coverage.
+
+Same shape as finding 10 (a failed run still writes its empty curves): in both, the honest signal
+exists but is gated on the failure being total.
+
+**Your call because it changes the run summary.** Counting the raises and reporting "N of M
+samples failed" is the fix; whether that is a warning or an error — and whether a partially
+failed curve should be written at all — is a judgement about how you use the equation editor. If
+you make it, this test fails, which is the alarm.
+
+Worth saying what this is NOT: the Python path is fine. `run_python_equation` runs the whole
+well's array in one call, so a `raise` fails that well outright and the user's own message reaches
+the summary — verified, not assumed, by
+`a_python_raise_in_one_well_leaves_the_rest_of_the_batch_intact`. This is specific to Rhai's
+per-sample evaluation.
 
 ---
 

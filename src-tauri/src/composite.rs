@@ -2601,6 +2601,57 @@ mod tests {
         assert!((1000.0 / spec.scale as f64 - 5.0).abs() < 1e-9);
     }
 
+    /// T-REP-03. A depth window that selects no rock must be REFUSED, not returned as an
+    /// empty page set. The pane only swaps its preview on success, so a silent empty result
+    /// would leave the PREVIOUS window's pages on screen labelled as the new one — the
+    /// failure mode the manual step is written to catch.
+    ///
+    /// Note the order of operations in `render_pages`: the window is CLAMPED against the
+    /// logged interval first (`.max(data_top)` / `.min(data_bot)`) and only then checked, so
+    /// every refusal below arrives at `!(bottom > top)` by a different route.
+    #[test]
+    fn a_depth_window_that_selects_no_rock_is_refused_rather_than_rendered() {
+        let conn = Connection::open_in_memory().unwrap();
+        let w = seed_well(&conn); // logged 1000.0 .. 1199.5
+        let win = |top: Option<f32>, bot: Option<f32>| {
+            let mut s = full_spec(w.clone(), 500, PageSize::A4);
+            s.depth_top = top;
+            s.depth_bottom = bot;
+            render_composite(&conn, &s)
+        };
+
+        // Top below bottom. Both fields hold valid numbers in the logged interval, so nothing
+        // upstream can catch this — only the render can.
+        assert!(win(Some(1150.0), Some(1050.0)).is_err(), "top below bottom must not render");
+        // Wholly below TD, and wholly above the logged top. The clamp collapses each to an
+        // inverted pair rather than to an empty-but-valid one.
+        assert!(win(Some(9000.0), Some(9100.0)).is_err(), "a window under TD must not render");
+        assert!(win(Some(100.0), Some(200.0)).is_err(), "a window above the logged top must not render");
+        // Zero thickness is not a window; `!(bottom > top)` is strict for this reason.
+        assert!(win(Some(1100.0), Some(1100.0)).is_err(), "a zero-thickness window must not render");
+
+        // A NaN in one field is ABSORBED, not refused — `f32::max`/`min` ignore NaN by
+        // definition, so the clamp replaces it with the data bound before the guard sees it,
+        // and the result is identical to leaving that field blank. Recorded because the guard
+        // is written `!(bottom > top)` rather than `bottom <= top`, which reads as NaN-safety
+        // that is in fact unreachable from here. (It is also unreachable over IPC: JSON has no
+        // NaN literal, so a frontend `parseFloat("abc")` arrives as `null` -> `None`.)
+        let nan_top = win(Some(f32::NAN), Some(1150.0)).expect("a NaN top behaves as blank");
+        let blank_top = win(None, Some(1150.0)).expect("blank top renders");
+        assert_eq!(nan_top.pages.len(), blank_top.pages.len());
+        assert!((nan_top.pages[0].top_depth - blank_top.pages[0].top_depth).abs() < 1e-3);
+
+        // The control, and the reason the clamp is a clamp rather than a fifth error: a window
+        // that OVERLAPS the data is honoured over the overlap. You cannot render rock that was
+        // never logged, so 1150 -> 9000 renders 1150 -> 1199.5 and the page labels say 1199.5.
+        let over = win(Some(1150.0), Some(9000.0)).expect("a partially overlapping window renders");
+        assert!((over.pages.first().unwrap().top_depth - 1150.0).abs() < 1e-3);
+        assert!(
+            (over.pages.last().unwrap().bottom_depth - 1199.5).abs() < 0.6,
+            "the page labels must state the logged bottom, not the requested 9000"
+        );
+    }
+
     #[test]
     fn pdf_is_valid_and_multipage() {
         let conn = Connection::open_in_memory().unwrap();

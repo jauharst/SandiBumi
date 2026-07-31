@@ -542,6 +542,172 @@ pub fn export_report_batch(
 mod tests {
     use super::*;
 
+    use crate::db;
+    use uuid::Uuid;
+
+    /// A well with curves renders; one without is the "broken well" the batch step puts in
+    /// scope. Deliberately the same shape as the composite tests' fixture so the two agree
+    /// about what a renderable well is.
+    fn seed_batch_well(conn: &Connection, name: &str, with_curves: bool) -> String {
+        let wid = Uuid::new_v4();
+        db::insert_well(conn, wid, name, Some("Sandi Field"), Some(1300.0), Some(20.0)).unwrap();
+        if with_curves {
+            let n = 40;
+            let depths: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
+            db::insert_standard_curves(
+                conn,
+                wid,
+                depths,
+                vec![50.0; n],
+                vec![2.0; n],
+                vec![0.25; n],
+                vec![2.4; n],
+                vec![f32::NAN; n],
+                vec![f32::NAN; n],
+            )
+            .unwrap();
+        }
+        wid.to_string()
+    }
+
+    fn batch_spec() -> ReportSpec {
+        ReportSpec {
+            composite: composite::CompositeSpec {
+                well_id: String::new(),
+                layout: crate::layout::standard_layout(),
+                depth_top: None,
+                depth_bottom: None,
+                scale: 500,
+                page_size: composite::PageSize::A4,
+            },
+            title: "Petrophysical Evaluation".into(),
+            author: "Tester".into(),
+            methodology: vec![],
+            vsh_max: 0.5,
+            phie_min: 0.1,
+            swe_max: 0.6,
+            perm_min: None,
+            tables_only: true,
+        }
+    }
+
+    /// A scratch directory that deletes itself, so a failing assertion never leaves files in
+    /// the user's temp folder.
+    struct ScratchDir(std::path::PathBuf);
+    impl ScratchDir {
+        fn new() -> Self {
+            let p = std::env::temp_dir().join(format!("sandibumi_report_batch_{}", Uuid::new_v4()));
+            std::fs::create_dir_all(&p).unwrap();
+            ScratchDir(p)
+        }
+        fn path(&self) -> String {
+            self.0.to_string_lossy().to_string()
+        }
+        fn files(&self) -> Vec<String> {
+            let mut v: Vec<String> = std::fs::read_dir(&self.0)
+                .unwrap()
+                .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+                .collect();
+            v.sort();
+            v
+        }
+    }
+    impl Drop for ScratchDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// T-REP-12. One unrenderable well in scope must cost exactly that well. Every healthy
+    /// well still gets its own complete PDF, and the broken one leaves NO file behind — not
+    /// an empty one, not a truncated one — because `std::fs::write` is only reached after
+    /// `render_report_pdf` has returned bytes.
+    ///
+    /// The broken well is listed FIRST on purpose: a loop that gave up on the first failure
+    /// would pass a test that put it last.
+    #[test]
+    fn one_unrenderable_well_costs_only_itself_in_a_batch_export() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let broken = seed_batch_well(&conn, "SANDI-BATCH-BROKEN", false);
+        let a = seed_batch_well(&conn, "SANDI-BATCH-A", true);
+        let b = seed_batch_well(&conn, "SANDI-BATCH-B", true);
+        let dbm = Mutex::new(conn);
+
+        let dir = ScratchDir::new();
+        let (written, errors) =
+            export_report_batch(&dbm, &batch_spec(), &[broken.clone(), a, b], &dir.path()).unwrap();
+
+        assert_eq!(written.len(), 2, "both healthy wells must be written: {written:?}");
+        assert_eq!(errors.len(), 1, "exactly one failure expected: {errors:?}");
+        assert_eq!(
+            dir.files(),
+            vec!["SANDI-BATCH-A_report.pdf".to_string(), "SANDI-BATCH-B_report.pdf".to_string()],
+            "the broken well must leave no file at all"
+        );
+
+        // The failure names the well by UUID, never by name — the success path looks the name
+        // up for the filename (:518) but the error path does not (:535), so the status line
+        // says "failed: 3f2a…: no curve data for this well" and the user cannot tell which
+        // well that is. Pinned AS-IS, not endorsed: fixing it makes this assertion fail, which
+        // is the alarm.
+        assert!(errors[0].starts_with(&broken), "the error identifies the well by id: {}", errors[0]);
+        assert!(errors[0].contains("no curve data for this well"), "and states the reason: {}", errors[0]);
+        assert!(
+            !errors[0].contains("SANDI-BATCH-BROKEN"),
+            "the well NAME is absent from the failure — this is the UX gap, recorded"
+        );
+
+        // Each file is a real PDF for ITS OWN well, not two copies of the first.
+        for f in dir.files() {
+            let bytes = std::fs::read(self_path(&dir, &f)).unwrap();
+            assert!(bytes.starts_with(b"%PDF"), "{f} is not a PDF");
+            assert!(bytes.len() > 500, "{f} is too small to be a report");
+        }
+        let pa = std::fs::read(self_path(&dir, "SANDI-BATCH-A_report.pdf")).unwrap();
+        let pb = std::fs::read(self_path(&dir, "SANDI-BATCH-B_report.pdf")).unwrap();
+        assert_ne!(pa, pb, "each well's report must be its own — identical bytes means the cover well never changed");
+    }
+
+    fn self_path(dir: &ScratchDir, name: &str) -> std::path::PathBuf {
+        dir.0.join(name)
+    }
+
+    /// T-REP-12, second half. Two wells whose names sanitize to the SAME string write to the
+    /// same path: the second silently overwrites the first, yet BOTH paths are returned as
+    /// written, so the status line reports "wrote 2 file(s)" over one file on disk.
+    ///
+    /// Not hypothetical — `well_name` carries no uniqueness constraint, and an import with
+    /// attach OFF creates a second record under the same name by design. The sanitizer widens
+    /// it further: every non-alphanumeric maps to `_`, so `SANDI/1` and `SANDI 1` collide too.
+    ///
+    /// Pinned AS-IS, not endorsed. The fix is a judgement — suffix the duplicate, or fall back
+    /// to the well id — and it changes delivered filenames, so it is Jauhar's call.
+    #[test]
+    fn two_wells_with_one_name_silently_overwrite_each_others_report() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let first = seed_batch_well(&conn, "SANDI-DUP", true);
+        let second = seed_batch_well(&conn, "SANDI/DUP", true); // '/' -> '_' ... still distinct
+        let third = seed_batch_well(&conn, "SANDI-DUP", true); // same name outright
+        let dbm = Mutex::new(conn);
+
+        let dir = ScratchDir::new();
+        let (written, errors) =
+            export_report_batch(&dbm, &batch_spec(), &[first, second, third], &dir.path()).unwrap();
+
+        assert!(errors.is_empty(), "all three wells render: {errors:?}");
+        assert_eq!(written.len(), 3, "the caller is told three files were written");
+        assert_eq!(
+            dir.files().len(),
+            2,
+            "but only two exist on disk — the duplicate name overwrote its twin: {:?}",
+            dir.files()
+        );
+        // And the report the caller keeps is the LAST well's, under the first well's name.
+        assert_eq!(written[0], written[2], "two entries point at one path: {written:?}");
+    }
+
     #[test]
     fn wrap_respects_width_and_splits_long_words() {
         let lines = wrap("porosity from density neutron crossplot", 12);

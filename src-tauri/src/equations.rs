@@ -1406,4 +1406,166 @@ mod tests {
         assert!(r[0].error.is_none(), "good equation: {:?}", r[0].error);
         assert_eq!(r[0].rows_written, n);
     }
+
+    /// Three wells, one of which lacks the input curve. `equation_all_nan_output_reports_error`
+    /// already pins that ONE such well reports an error; what is unpinned — and what T-AUX-17
+    /// actually asks for — is that the failure stays inside that well.
+    ///
+    /// The failing well is listed FIRST and the wells run under `rayon`, so this also checks
+    /// that a per-well early return is a return and not an abort of the batch.
+    #[test]
+    fn one_failing_well_does_not_poison_a_multi_well_equation_run() {
+        use crate::db;
+        use uuid::Uuid;
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+
+        // NPHI present or absent; every other curve identical, so the ONLY difference between
+        // these wells is the input the equation reads.
+        let seed = |name: &str, nphi: f32| -> String {
+            let wid = Uuid::new_v4();
+            db::insert_well(&conn, wid, name, None, None, Some(0.0)).unwrap();
+            let depths = vec![1000.0f32, 1000.5, 1001.0, 1001.5];
+            let n = depths.len();
+            db::insert_standard_curves(
+                &conn,
+                wid,
+                depths,
+                vec![40.0; n],
+                vec![2.0; n],
+                vec![nphi; n],
+                vec![2.4; n],
+                vec![f32::NAN; n],
+                vec![f32::NAN; n],
+            )
+            .unwrap();
+            wid.to_string()
+        };
+        let no_nphi = seed("SANDI-EQ-BARE", f32::NAN);
+        let good_a = seed("SANDI-EQ-A", 0.25);
+        let good_b = seed("SANDI-EQ-B", 0.30);
+        let dbm = Mutex::new(conn);
+
+        let eq = EquationDef {
+            equation_id: Uuid::new_v4().to_string(),
+            name: "PHIN_TEST".into(),
+            description: None,
+            script: "nphi * 1.0".into(),
+            input_curves: vec!["NPHI".into()],
+            output_curve: "PHIN_TEST".into(),
+            output_units: None,
+            language: "rhai".into(),
+        };
+        let wells = [no_nphi.clone(), good_a.clone(), good_b.clone()];
+        let res = run_equation(&dbm, &eq, &wells, None);
+
+        assert_eq!(res.len(), 3);
+        let bare = &res[0];
+        assert!(bare.error.is_some(), "the NPHI-less well must fail");
+        assert!(
+            bare.error.as_ref().unwrap().contains("no finite output"),
+            "and say why in words a user can act on: {:?}",
+            bare.error
+        );
+        for (label, r) in [("A", &res[1]), ("B", &res[2])] {
+            assert!(r.error.is_none(), "healthy well {label} must not inherit the failure: {:?}", r.error);
+            assert_eq!(r.rows_written, 4, "healthy well {label} writes every sample");
+        }
+
+        // Isolation is about the DATABASE, not just the return value: the failing well must
+        // have written nothing at all, and the healthy ones must have written for themselves.
+        let conn = dbm.lock().unwrap();
+        let rows = |w: &str| -> i64 {
+            conn.query_row(
+                "SELECT COUNT(*) FROM computed_curves WHERE well_id = ?1 AND UPPER(curve_name) = 'PHIN_TEST'",
+                duckdb::params![w],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(rows(&no_nphi), 0, "the failed well must leave no curve behind, not an all-MISSING one");
+        assert_eq!(rows(&good_a), 4);
+        assert_eq!(rows(&good_b), 4);
+    }
+
+    /// The other half of T-AUX-17, and the half the manual step does not say out loud: the
+    /// all-MISSING guard is the ONLY thing that turns a script error into a reported failure,
+    /// and it fires only when EVERY sample failed.
+    ///
+    /// A Rhai error is caught per sample and written as MISSING (`Ok(_) | Err(_) => NAN`), so a
+    /// script that raises on some depths and not others produces a curve with holes and reports
+    /// a clean success with the full row count. Nothing tells the user their script threw — and
+    /// a curve with holes is indistinguishable from one whose inputs were simply absent there.
+    ///
+    /// Pinned AS-IS, not endorsed. Counting the raises and reporting them is a real change to
+    /// the run summary, so it is Jauhar's call; if it is made, this test fails, which is the
+    /// alarm.
+    #[test]
+    fn a_script_that_raises_on_only_some_samples_still_reports_a_clean_success() {
+        use crate::db;
+        use uuid::Uuid;
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        db::insert_well(&conn, wid, "SANDI-EQ-PARTIAL", None, None, Some(0.0)).unwrap();
+        // GR alternates either side of 60, so the script raises on exactly half the samples.
+        let depths = vec![1000.0f32, 1000.5, 1001.0, 1001.5];
+        let gr = vec![40.0f32, 80.0, 40.0, 80.0];
+        let n = depths.len();
+        db::insert_standard_curves(
+            &conn,
+            wid,
+            depths,
+            gr,
+            vec![2.0; n],
+            vec![0.25; n],
+            vec![2.4; n],
+            vec![f32::NAN; n],
+            vec![f32::NAN; n],
+        )
+        .unwrap();
+        let w = wid.to_string();
+        let dbm = Mutex::new(conn);
+
+        let eq = EquationDef {
+            equation_id: Uuid::new_v4().to_string(),
+            name: "HALF".into(),
+            description: None,
+            script: "if gr > 60.0 { throw \"boom\" } gr / 100.0".into(),
+            input_curves: vec!["GR".into()],
+            output_curve: "HALF".into(),
+            output_units: None,
+            language: "rhai".into(),
+        };
+        let res = run_equation(&dbm, &eq, &[w.clone()], None);
+
+        assert!(res[0].error.is_none(), "a half-failing script reports NO error today: {:?}", res[0].error);
+        assert_eq!(res[0].rows_written, n, "and claims every sample was written");
+
+        // The written curve is half MISSING. Counted in Rust, never in SQL: DuckDB gives NaN a
+        // total ordering, so `value = value` is TRUE for NaN and would count them as finite.
+        let conn = dbm.lock().unwrap();
+        let mut st = conn
+            .prepare("SELECT value FROM computed_curves WHERE well_id = ?1 AND UPPER(curve_name) = 'HALF'")
+            .unwrap();
+        let vals: Vec<Option<f32>> = st
+            .query_map(duckdb::params![w], |r| r.get::<_, Option<f32>>(0))
+            .unwrap()
+            .map(|v| v.unwrap())
+            .collect();
+        assert_eq!(vals.len(), n);
+        let finite = vals.iter().filter(|v| v.is_some_and(f32::is_finite)).count();
+        assert_eq!(finite, 2, "two samples computed, two were swallowed by the raise");
+
+        // And the control that makes the gap sharp: raise on EVERY sample and the same script
+        // is refused. The difference between "reported" and "silent" is only ever coverage.
+        let all = EquationDef { script: "throw \"boom\"".into(), ..eq.clone() };
+        drop(conn);
+        let res = run_equation(&dbm, &all, &[w], None);
+        assert!(
+            res[0].error.as_ref().is_some_and(|e| e.contains("no finite output")),
+            "a script that raises everywhere IS caught: {:?}",
+            res[0].error
+        );
+    }
 }
