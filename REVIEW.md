@@ -7286,3 +7286,40 @@ break rather than being closed up.
 - [ ] Rebuild with a different row count and confirm the old strips are replaced, not added to.
 - [ ] Put the strip beside GR and see whether the dark bands line up with the gamma peaks. If they
       are shifted by a constant, that is a core depth shift — Data ▸ Tools ▾ ▸ Register Depth…
+
+## Register the core off its own photograph (2026-08-01)
+
+**Data ▸ Tools ▾ ▸ Register Depth…** now offers the core photograph's trace in the reference list,
+as **Core photo — CPHOTO_DARK**, alongside the plug columns and the point datasets.
+
+This is usually the best reference you have. Core plugs give you a few dozen samples a foot apart;
+the photograph gives a reading every few millimetres down the whole cored interval, which is what a
+cross-correlation actually wants. Read the trace and Save as curves first, then open Register
+Depth… and pick it.
+
+**If the result comes back negative, do not accept it.** Darkness should rise with gamma, because
+clay is both dark and radioactive. A negative best match nearly always means the boxes are laid out
+the other way up rather than that the core is shifted — go back to Condition Core Photos, tick
+Deepest end first, save the trace again, and re-run. The run says this in the notes rather than
+quietly proposing a shift, because a correlogram cannot tell an upside-down box from a real depth
+error.
+
+### Fixed at the same time
+
+**Saved trace curves were unreadable.** They were being stored at the photograph's own sampling
+rather than on the well's depth frame, and the app joins computed curves to that frame by an exact
+depth match — so CPHOTO_DARK was saved, was reported as saved, and then came back empty to every
+module, plot and log track. If you saved trace curves before today and could not find them
+anywhere, that was why. Save them again and they will be there.
+
+They are now written on the well's own depth frame, each sample being the average of the photograph
+samples inside it rather than one of them picked out. Depths outside the cored interval stay blank.
+
+- [ ] Read a trace, Save as curves, then check CPHOTO_DARK really appears — in a log track, in the
+      crossplot curve list, and in Register Depth…
+- [ ] Register a core against CPHOTO_DARK and compare the shift with what you get from the plug
+      porosity. Does the photograph give a sharper peak on the correlogram?
+- [ ] Deliberately set the wrong lay-out (untick Deepest end first on a reversed box), save, and
+      run Register Depth… — does it refuse in words rather than propose a shift?
+- [ ] Apply a shift found from the photograph and check the core plugs, the extras and the plates
+      all move with it.

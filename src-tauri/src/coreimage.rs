@@ -789,17 +789,90 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
     ));
 
     if spec.write {
+        // **On the WELL'S depth frame, not the photograph's.** `computed_curves` are joined onto
+        // the standard depth grid by an EXACT match, so a curve stored at a photograph's own
+        // sampling - which lands on a wireline depth only by coincidence - is written, is counted,
+        // and is then invisible to every module, plot and export that reads it back. Silent in the
+        // worst way: the run reports three curves saved and the project holds three curves nothing
+        // can open.
+        let (frame, _) = crate::equations::fetch_curve_frame(conn, &spec.well_id, &[])
+            .map_err(|e| e.to_string())?;
+        let (out_depth, out_cols) = if frame.len() >= 2 {
+            let cols: Vec<Vec<f32>> = sorted.iter().map(|v| resample_onto(&sorted_depth, v, &frame)).collect();
+            res.notes.push(format!(
+                "Written on the well's own depth frame ({} samples) so modules and plots can read \
+                 them. The photograph was read at about {:.3} - each stored sample is the AVERAGE \
+                 of the photograph samples inside it rather than one of them picked out, which \
+                 would alias.",
+                frame.len(),
+                spec.step.max(1e-4)
+            ));
+            (frame, cols)
+        } else {
+            // No wireline frame to join to. Storing at the photograph's own depths is then the only
+            // thing on offer, and says so rather than pretending.
+            res.notes.push(
+                "This well has no wireline depth frame, so the curves are stored at the \
+                 photograph's own sampling. Import a log for this well before expecting a module \
+                 to read them."
+                    .into(),
+            );
+            (sorted_depth.clone(), sorted.clone())
+        };
         let refs: Vec<(&str, &[f32])> = res
             .curves
             .iter()
-            .zip(sorted.iter())
+            .zip(out_cols.iter())
             .map(|(c, v)| (c.name.as_str(), v.as_slice()))
             .collect();
-        crate::equations::write_computed_curves_batch(conn, &spec.well_id, &sorted_depth, &refs)
+        crate::equations::write_computed_curves_batch(conn, &spec.well_id, &out_depth, &refs)
             .map_err(|e| e.to_string())?;
         res.written = res.curves.iter().map(|c| c.name.clone()).collect();
     }
     Ok(res)
+}
+
+/// Averages a dense trace onto a coarser depth frame.
+///
+/// A box AVERAGE rather than an interpolation, because the photograph is sampled several times
+/// finer than a wireline log: linear interpolation between two neighbouring photograph samples is
+/// very nearly picking one of them, which aliases — a lamination every few centimetres would beat
+/// against the log's sampling and come back as a trend that is not in the rock. Each output sample
+/// takes every input sample inside the interval reaching halfway to its neighbours on both sides.
+///
+/// An output depth with no input inside it is NaN, never the nearest value: outside the cored
+/// interval there is no photograph, and filling it in would draw core where there is none.
+fn resample_onto(src_depth: &[f32], src: &[f32], frame: &[f32]) -> Vec<f32> {
+    let mut out = vec![f32::NAN; frame.len()];
+    if src_depth.is_empty() || frame.len() < 2 {
+        return out;
+    }
+    let mut i = 0usize;
+    for (k, d) in frame.iter().enumerate() {
+        let lo = if k == 0 { d - (frame[1] - frame[0]) * 0.5 } else { 0.5 * (frame[k - 1] + d) };
+        let hi = if k + 1 == frame.len() {
+            d + (frame[k] - frame[k - 1]) * 0.5
+        } else {
+            0.5 * (d + frame[k + 1])
+        };
+        // src_depth is sorted, so the window only ever moves forward across the whole frame.
+        while i < src_depth.len() && src_depth[i] < lo {
+            i += 1;
+        }
+        let (mut sum, mut n) = (0.0f64, 0usize);
+        let mut j = i;
+        while j < src_depth.len() && src_depth[j] < hi {
+            if src[j].is_finite() {
+                sum += src[j] as f64;
+                n += 1;
+            }
+            j += 1;
+        }
+        if n > 0 {
+            out[k] = (sum / n as f64) as f32;
+        }
+    }
+    out
 }
 
 /// The dataset depth strips are written to, unless the caller names another.
@@ -2117,6 +2190,60 @@ mod tests {
         assert!(err.contains("written over"), "{err}");
     }
 
+    /// A saved trace has to land on the depth frame everything else reads.
+    ///
+    /// `computed_curves` are joined onto the standard depth grid by an EXACT depth match, so a
+    /// curve stored at the photograph's own sampling — which coincides with a wireline depth only
+    /// by accident — is written, is counted in the run's report, and is then invisible to every
+    /// module, plot and export that reads it back. That is the worst shape a bug can have here:
+    /// the run says three curves were saved and the project holds three curves nothing can open.
+    ///
+    /// The resampling is a box AVERAGE, not an interpolation, and that is checked too: a lamination
+    /// alternating sample by sample must come back at its MEAN rather than at whichever phase the
+    /// coarser frame happened to land on. Linear interpolation between two neighbouring photograph
+    /// samples is very nearly picking one of them, and picking one of every seven is aliasing.
+    #[test]
+    fn a_saved_trace_lands_on_the_frame_the_rest_of_the_project_reads() {
+        // Twenty photograph samples per metre, alternating dark and light — the finest thing a
+        // photograph can show, and exactly what a coarse frame can alias.
+        let src_depth: Vec<f32> = (0..200).map(|i| 1000.0 + i as f32 * 0.05).collect();
+        let src: Vec<f32> = (0..200).map(|i| if i % 2 == 0 { 0.2 } else { 0.8 }).collect();
+        // A wireline frame at 0.5 m, well inside the photograph's span.
+        let frame: Vec<f32> = (0..20).map(|i| 1001.0 + i as f32 * 0.5).collect();
+
+        let out = resample_onto(&src_depth, &src, &frame);
+        assert_eq!(out.len(), frame.len());
+        // Only the samples whose whole window sits inside the photograph: at the two ends the
+        // window is half empty, so its mean is legitimately off the lamination's — that is an edge,
+        // not aliasing.
+        for (k, v) in out.iter().enumerate() {
+            if frame[k] < 1000.5 || frame[k] > 1009.5 {
+                continue;
+            }
+            assert!(
+                (v - 0.5).abs() < 0.06,
+                "sample {k} at {} came back {v}, not the mean of the lamination it covers - that \
+                 is aliasing, which is why this is an average and not an interpolation",
+                frame[k]
+            );
+        }
+
+        // Outside the photograph there is NaN, never the nearest value: filling it in would draw
+        // core where none was cut.
+        let far: Vec<f32> = vec![990.0, 995.0, 1005.0, 1020.0, 1030.0];
+        let out = resample_onto(&src_depth, &src, &far);
+        assert!(out[0].is_nan() && out[1].is_nan(), "above the cored interval: {out:?}");
+        assert!(out[2].is_finite(), "inside it: {out:?}");
+        assert!(out[3].is_nan() && out[4].is_nan(), "below it: {out:?}");
+
+        // A frame finer than the photograph still works: each output takes whatever falls in it,
+        // and the ones that catch nothing are NaN rather than an invented value.
+        let fine: Vec<f32> = (0..40).map(|i| 1002.0 + i as f32 * 0.01).collect();
+        let out = resample_onto(&src_depth, &src, &fine);
+        assert!(out.iter().any(|v| v.is_finite()), "some of them have to catch a sample");
+        assert!(out.iter().all(|v| v.is_nan() || (*v - 0.2).abs() < 1e-5 || (*v - 0.8).abs() < 1e-5));
+    }
+
     /// Sampling follows the photograph's OWN depth span, and is bounded at both ends.
     #[test]
     fn a_photograph_gives_up_samples_in_proportion_to_the_rock_it_covers() {
@@ -2250,14 +2377,20 @@ mod tests {
         s.write = true;
         let saved = extract_core_log(&conn, &s).expect("write");
         assert_eq!(saved.written.len(), 3);
-        let n: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM computed_curves WHERE well_id = ?1 AND curve_name = 'CPHOTO_DARK'",
-                duckdb::params![w],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(n, 200);
+        // On the WELL'S depth frame — 101 wireline samples, not the photograph's 200. Anything
+        // stored off that grid is joined by an exact depth match and comes back all-NaN, so a run
+        // could report three curves saved while the project held three curves nothing can open.
+        // The check is the read-back rather than the row count, because the read-back is the thing
+        // that was broken.
+        let (frame, map) =
+            crate::equations::fetch_curve_frame(&conn, &w, &["CPHOTO_DARK".into()]).unwrap();
+        assert_eq!(frame.len(), 101, "the well's own frame");
+        let back = map.get("CPHOTO_DARK").expect("readable by the route every module takes");
+        let finite = back.iter().filter(|v| v.is_finite()).count();
+        assert!(finite >= 95, "only {finite} of {} samples came back", frame.len());
+        // And it is still the same measurement: darkness rising down the same strip.
+        let (lo, hi) = (back[5], back[95]);
+        assert!(hi > lo + 0.3, "the saved curve has to carry the trend: {lo} -> {hi}");
     }
 
     #[test]

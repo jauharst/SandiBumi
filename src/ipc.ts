@@ -2971,7 +2971,8 @@ export function coreExtraDatasets(wellId: string): Promise<[string, number][]> {
 // --- Core-to-log depth registration ---
 
 export interface CoreReference {
-  /** "core" = a plug-table column; "aux" = an item of a point dataset. */
+  /** "core" = a plug-table column; "aux" = an item of a point dataset; "curve" = the core
+   *  photograph's own proxy trace, which is the densest reference this dialog has. */
   kind: string;
   dataset: string;
   item: string;

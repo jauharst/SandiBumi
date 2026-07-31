@@ -1624,8 +1624,7 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       into one tall depth-registered picture, so the log-view strip track is an ordinary image track
       and no renderer needed new geometry; `ImageStyle.fit` gained "stretch" for it. Also fixed here:
       `reverse` flipped only the down-core axis, so a multi-row box was read with its rows in the
-      original order. **Still open**: WL/UV pairs, and feeding the trace into
-      `registration.rs` to PROPOSE a shift (it is already a curve, so that composes). Absorbs the
+      original order. **2026-08-01**: the trace anchors a registration (`registration.rs` reference kind `curve`), and saving it now lands on the well's depth frame instead of the photograph's, which had made the curves unreadable. **Still open**: WL/UV pairs. Absorbs the
       §4 New-capability "core image input" stub. → `ref_image_core.md`.
 - [ ] **(8) Depth registration, then plate digitizing** — scoped 2026-07-31 at Jauhar's direction
       ("all of those, it should be depth registered first, then the quantification or qualitative

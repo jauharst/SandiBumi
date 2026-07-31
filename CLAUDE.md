@@ -2274,6 +2274,65 @@ detail, with the height following proportionally so nothing is distorted.
 Still open on the core-photo road: WL/UV pairs, and feeding the trace into `registration.rs` to
 PROPOSE a core-to-log shift (it is already a curve, so that composes).
 
+## The photograph as a registration reference, and a saved curve nothing could read (2026-08-01)
+
+`registration.rs` gains a third reference kind, `"curve"`, offering the core photograph's own
+`CPHOTO_*` traces beside the plug columns and the point datasets in Data ▸ Tools ▾ ▸ Register
+Depth… Four rules, and one bug the work uncovered.
+
+**It is not a general curve-vs-curve registration.** The `CPHOTO_*` curves are the only ones in a
+project MEASURED ON THE CORE, so they carry the core's depth error and a shift found from them is a
+shift for the plugs. Any other curve is a wireline reading and registering it against another
+wireline reading would answer nothing.
+
+**They are also the densest reference this dialog has.** A plug table gives a few dozen samples a
+foot apart; a photograph gives a reading every few millimetres down the whole cored interval. That
+is what a cross-correlation wants — the same reason the thing being registered against is a log
+rather than a set of picks.
+
+**Darkness is the one proxy whose SIGN is known, and a negative peak is refused in words.** The
+shift is still chosen on |r| like any other proxy, because darkness is not a gamma reading and
+forcing two different quantities onto one line would be a claim nobody made. But the expected sign
+is not a mystery: clay is dark and clay is radioactive, so both rise into shale. A winning peak that
+is NEGATIVE says the box is laid out the other way up — which a correlogram cannot tell apart from a
+genuine depth error — and accepting it would bake an upside-down photograph into the core's depths
+where nothing downstream could find it. `expects_to_rise_with_shale` is deliberately a named
+predicate rather than a family entry: giving `CPHOTO_DARK` the GR family would make the pairing
+like-for-like, which asserts they are the same quantity.
+
+Pinned from both sides by `the_photograph_trace_can_anchor_a_shift_and_says_when_the_box_is_upside_
+down`, which runs the same fixture twice — once as delivered, once inverted — and requires the first
+to recover the 2 m error and the second to be named rather than proposed.
+
+### The bug it uncovered: a saved trace nothing could read
+
+`computed_curves` are joined onto the standard depth grid by an **exact** depth match. `extract_core
+_log` wrote its curves at the PHOTOGRAPH's own sampling — a reading every couple of centimetres,
+landing on a wireline depth only by coincidence — so `CPHOTO_DARK` was written, was counted in the
+run's report, and then came back all-NaN to every module, plot and export that read it. The worst
+shape a bug can have here: the run says three curves were saved and the project holds three curves
+nothing can open.
+
+The trace now resamples onto the well's own depth frame before writing, and says so in its notes. A
+well with no wireline frame falls back to the photograph's sampling and says THAT instead, rather
+than pretending.
+
+**The resampling is a box AVERAGE, not an interpolation.** The photograph is sampled several times
+finer than a log, so linear interpolation between two neighbouring photograph samples is very nearly
+picking one of them — and picking one of every seven is aliasing: a lamination every few centimetres
+would beat against the log's sampling and come back as a trend that is not in the rock. Each output
+sample takes every photograph sample inside the interval reaching halfway to its neighbours.
+
+**An output depth with no photograph inside it is NaN, never the nearest value.** Outside the cored
+interval there is no picture, and filling it in would draw core where none was cut.
+
+Pinned by `a_saved_trace_lands_on_the_frame_the_rest_of_the_project_reads`, which checks the
+read-back through `fetch_curve_frame` rather than a row count — the read-back is the thing that was
+broken — and feeds the resampler a lamination alternating sample by sample, which must come back at
+its mean rather than at whichever phase the coarse frame happened to land on. The older test
+asserted 200 stored rows, which was pinning the bug; it now asserts the curve is readable and still
+carries its trend.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under
