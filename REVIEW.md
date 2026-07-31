@@ -7323,3 +7323,27 @@ samples inside it rather than one of them picked out. Depths outside the cored i
       run Register Depth… — does it refuse in words rather than propose a shift?
 - [ ] Apply a shift found from the photograph and check the core plugs, the extras and the plates
       all move with it.
+
+## The UV frame beside the white-light one (2026-08-01)
+
+In **Condition Core Photos…**, next to Hold to compare, there is now a delivery picker and a **Hold
+for the pair** button. Pick your UV delivery there (it opens on one automatically if its name says
+UV) and hold the button to see the same depth under ultraviolet.
+
+It matches on depth, not on filename, so it works whatever the two deliveries are called. Each frame
+is shown with its own conditioning — a UV frame under a white-light photograph's white balance would
+be a picture of the correction rather than of the fluorescence.
+
+**Build depth strips now shows the dataset it writes to**, pre-filled from the source name: build
+off CORE PHOTO and it suggests CORE STRIP, build off CORE PHOTO UV and it suggests CORE STRIP UV. So
+you can build both and put them in two tracks side by side in a log view — white light beside
+fluorescence, both at true depth.
+
+- [ ] Open a well with both deliveries. Does the pair picker land on the UV one by itself?
+- [ ] Hold for the pair on a box you know has a show. Is the fluorescence where you expect it?
+- [ ] Check a box where the two deliveries were framed differently — does it still find the right
+      UV frame?
+- [ ] Build strips off both deliveries into two dataset names, then put both in one log view beside
+      GR. Do they line up with each other and with the log?
+- [ ] Condition the UV delivery separately (it usually wants a different exposure) and check the
+      white-light one was not touched.

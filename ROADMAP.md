@@ -1608,7 +1608,7 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       interactive dip picking (5 modes → true dip), dip datasets + classification, auto-dip, stereonet/rose/
       walkout/cumulative plots, structural dip removal, fracture counting w/ Terzaghi, aperture
       (Luthi-Souhaite), image porosity + binarization + sand count. → `ref_image_core.md`.
-- [ ] **(7) Core photo digitization** — **STARTED 2026-07-31**, `coreimage.rs` +
+- [x] **(7) Core photo digitization** — **STARTED 2026-07-31**, `coreimage.rs` +
       `coreConditionDialog.ts` (Data ▸ Tools ▾ ▸ Condition Core Photos…).
       **Shipped**: the non-destructive recipe model (crop / deskew / colour-card white balance /
       tone), baked into `data` with the import kept in `source_data` + `source_meta` so a restore
@@ -1624,7 +1624,7 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       into one tall depth-registered picture, so the log-view strip track is an ordinary image track
       and no renderer needed new geometry; `ImageStyle.fit` gained "stretch" for it. Also fixed here:
       `reverse` flipped only the down-core axis, so a multi-row box was read with its rows in the
-      original order. **2026-08-01**: the trace anchors a registration (`registration.rs` reference kind `curve`), and saving it now lands on the well's depth frame instead of the photograph's, which had made the curves unreadable. **Still open**: WL/UV pairs. Absorbs the
+      original order. **2026-08-01**: the trace anchors a registration (`registration.rs` reference kind `curve`), and saving it now lands on the well's depth frame instead of the photograph's, which had made the curves unreadable. WL/UV pairs (hold-to-see the paired frame, matched on depth interval; editable strip target so both lights get their own strips). **Item (7) is COMPLETE.** Absorbs the
       §4 New-capability "core image input" stub. → `ref_image_core.md`.
 - [ ] **(8) Depth registration, then plate digitizing** — scoped 2026-07-31 at Jauhar's direction
       ("all of those, it should be depth registered first, then the quantification or qualitative

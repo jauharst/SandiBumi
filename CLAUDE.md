@@ -2333,6 +2333,41 @@ its mean rather than at whichever phase the coarse frame happened to land on. Th
 asserted 200 stored rows, which was pinning the bug; it now asserts the curve is readable and still
 carries its trend.
 
+## White light and ultraviolet, side by side (2026-08-01)
+
+A core shed shoots the same box twice — once in white light, once under ultraviolet — and the UV
+frame is where an oil show lives, as fluorescence that is simply not in the white-light picture.
+Condition Core Photos… gets a **pair picker and a Hold for the pair** button, and Build depth strips
+gets an editable **target dataset**. Five rules.
+
+**The two deliveries stay two deliveries.** A UV frame is a different measurement of the same rock,
+not a version of the white-light one, so it arrives as its own dataset and follows the delivery-set
+model like everything else. That also means everything downstream already works: build strips off
+both, put two image tracks side by side, and the log view and the composite need nothing new.
+
+**Held, not toggled** — the before/after argument. The answer is a glance, and a toggle leaves you
+one click away from tuning the wrong picture without noticing.
+
+**The pair is matched on the depth INTERVAL, never on the name.** The two deliveries are two
+cameras' filenames for one box, and a shed's naming is a shed's business. Matching on OVERLAP rather
+than on nearest top means a UV frame shot in two halves still finds the white-light box it belongs
+to; a point sample with no thickness falls back to a half-metre proximity so it is not excluded by
+having no interval to overlap with.
+
+**Each frame is rendered with its OWN recipe**, through the same preview pipeline. Showing a UV
+frame under a white-light photograph's white balance would be a picture of the correction rather
+than of the fluorescence — and the white balance is exactly the correction that has no meaning
+across two light sources.
+
+**A delivery is never paired with itself.** The picker is rebuilt when the source changes and drops
+the source from its own list; otherwise it would show the same picture and read as a control that
+does nothing.
+
+**The strip target is editable and suggested rather than fixed.** `build_core_strips` always took a
+target; the dialog now shows it, pre-filled from the source's own name — `CORE PHOTO UV` suggests
+`CORE STRIP UV`. With one fixed name the second build would quietly replace the first, leaving one
+box's two lights reduced to whichever was built last.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under

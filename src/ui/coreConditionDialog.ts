@@ -2,6 +2,7 @@ import {
   applyCoreLook,
   bakeCoreImages,
   buildCoreStrips,
+  CORE_STRIP_DATASET,
   coreImageSupport,
   extractCoreLog,
   getWellImage,
@@ -354,6 +355,102 @@ export async function openCoreConditionDialog(): Promise<void> {
     compare.addEventListener(ev, () => showBefore(false));
   }
 
+  // ---- the other light ----------------------------------------------------
+  //
+  // A core shed shoots the same box twice, once in white light and once under ultraviolet, and the
+  // UV frame is where an oil show lives — fluorescence that is simply not in the white-light
+  // picture. So the two have to be looked at TOGETHER: a bright patch under UV means nothing until
+  // you can see what rock it sits on, and a sand that looks clean in white light says nothing about
+  // whether it has oil in it.
+  //
+  // Held, not toggled, for the same reason the before/after is: the answer is a glance, and a
+  // toggle leaves you tuning the wrong picture.
+  const pairSel = document.createElement("select");
+  pairSel.className = "form-control";
+  pairSel.style.maxWidth = "16rem";
+  const pairBtn = document.createElement("button");
+  pairBtn.className = "btn";
+  pairBtn.textContent = "Hold for the pair";
+  pairBtn.disabled = true;
+  pairBtn.title =
+    "Shows the same depth from the other delivery — the UV frame beside the white-light one — for " +
+    "as long as the button is held. Each is shown with its OWN conditioning.";
+
+  /** Every picture of the paired dataset, and its stored recipe. Loaded when the pair is chosen. */
+  let pairPlates: ImageInfo[] = [];
+  const pairRecipes = new Map<string, CoreRecipe>();
+  let pairPng: string | null = null;
+
+  /** The paired picture covering the same rock. Matched on the depth INTERVAL rather than on the
+   *  name, because the two deliveries are two different cameras' filenames for one box — and
+   *  matched on overlap rather than on nearest top, so a UV frame shot in two halves still finds
+   *  the white-light box it belongs to. */
+  const pairFor = (info: ImageInfo): ImageInfo | null => {
+    const aTop = info.depth_top;
+    const aBot = info.depth_base ?? info.depth_top;
+    let best: ImageInfo | null = null;
+    let bestOverlap = 0;
+    for (const p of pairPlates) {
+      const bTop = p.depth_top;
+      const bBot = p.depth_base ?? p.depth_top;
+      const overlap = Math.min(aBot, bBot) - Math.max(aTop, bTop);
+      // A zero-thickness sample still matches when it falls inside the other's interval.
+      const score = overlap > 0 ? overlap : aBot === aTop || bBot === bTop ? (Math.abs(aTop - bTop) < 0.5 ? 1e-6 : 0) : 0;
+      if (score > bestOverlap) {
+        bestOverlap = score;
+        best = p;
+      }
+    }
+    return best;
+  };
+
+  const loadPair = async (): Promise<void> => {
+    pairPlates = [];
+    pairRecipes.clear();
+    pairPng = null;
+    pairBtn.disabled = true;
+    const ds = pairSel.value;
+    if (!ds) return;
+    pairPlates = await listWellImages(well.well_id, ds).catch(() => [] as ImageInfo[]);
+    for (const [id, json] of await listImageRecipes(well.well_id, ds).catch(() => [] as [string, string][])) {
+      if (!json) continue;
+      try {
+        pairRecipes.set(id, JSON.parse(json) as CoreRecipe);
+      } catch {
+        /* an unreadable stored recipe reads as nothing applied */
+      }
+    }
+    pairBtn.disabled = pairPlates.length === 0;
+  };
+
+  const showPair = async (on: boolean): Promise<void> => {
+    if (!on) {
+      if (last) img.src = `data:image/png;base64,${last.png}`;
+      return;
+    }
+    const info = plates.find((p) => p.image_id === current);
+    const mate = info ? pairFor(info) : null;
+    if (!mate) {
+      status.textContent = "Nothing in that delivery covers this depth.";
+      return;
+    }
+    if (!pairPng) {
+      // Rendered through the SAME pipeline with the MATE's own recipe — not this picture's. A UV
+      // frame shown under a white-light photograph's white balance would be a picture of the
+      // correction rather than of the fluorescence.
+      const res = await previewCoreImage(mate.image_id, pairRecipes.get(mate.image_id) ?? {}).catch(() => null);
+      if (!res) return;
+      pairPng = res.png;
+    }
+    img.src = `data:image/png;base64,${pairPng}`;
+    status.textContent = `${mate.name} — ${pairSel.value}`;
+  };
+  pairBtn.addEventListener("pointerdown", () => void showPair(true));
+  for (const ev of ["pointerup", "pointerleave", "pointercancel"]) {
+    pairBtn.addEventListener(ev, () => void showPair(false));
+  }
+  pairSel.addEventListener("change", () => void loadPair());
+
   // ---- the sliders --------------------------------------------------------
   const sliderBox = document.createElement("div");
   sliderBox.style.marginTop = "6px";
@@ -626,8 +723,34 @@ export async function openCoreConditionDialog(): Promise<void> {
   toolRow.style.alignItems = "center";
   toolRow.style.flexWrap = "wrap";
   toolRow.style.margin = "6px 0";
-  toolRow.append(pickBtn, swatch, clearWb, cropBtn, clearCrop, quadBtn, clearQuad, compare);
+  toolRow.append(pickBtn, swatch, clearWb, cropBtn, clearCrop, quadBtn, clearQuad, compare, pairSel, pairBtn);
   wrap.appendChild(toolRow);
+
+  // The pair picker offers every OTHER delivery this well has. It opens on one whose name says
+  // ultraviolet, because that is what the control is for — but it is a picker rather than a rule,
+  // since a shed labels its deliveries whatever it labels them.
+  /** Rebuilt whenever the source changes, because a delivery paired with ITSELF is not a pair — it
+   *  would show the same picture and read as a control that does nothing. */
+  const refreshPairOptions = (): void => {
+    const keep = pairSel.value;
+    pairSel.innerHTML = "";
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = "— no paired delivery —";
+    pairSel.appendChild(none);
+    for (const [name] of datasets) {
+      if (name === dsSel.value) continue;
+      const o = document.createElement("option");
+      o.value = name;
+      o.textContent = name;
+      pairSel.appendChild(o);
+    }
+    const uv = datasets.find(([n]) => n !== dsSel.value && /\bUV\b|ULTRAVIOLET|FLUOR/i.test(n));
+    pairSel.value = keep && keep !== dsSel.value ? keep : (uv?.[0] ?? "");
+    void loadPair();
+  };
+  refreshPairOptions();
+  dsSel.addEventListener("change", refreshPairOptions);
 
   /** Where a pointer is on the PICTURE, as fractions — never pixels. The displayed size changes
    *  with the window and the stored copy is already capped, so a fraction is the only measure that
@@ -950,15 +1073,32 @@ export async function openCoreConditionDialog(): Promise<void> {
   stripBtn.textContent = "Build depth strips";
   stripBtn.title =
     "Cuts every box into its rows and stacks them into one tall picture per box, with the core " +
-    "running down it. Put an image track on CORE STRIP in depth mode to see it beside the logs. " +
-    "Building again replaces the last one.";
+    "running down it. Put an image track on it in depth mode to see it beside the logs. Building " +
+    "again into the same name replaces the last one.";
+
+  // Where the strips land. Visible and editable rather than fixed, because a white-light delivery
+  // and a UV one both want strips and one name would have the second quietly replace the first —
+  // the same box, twice, and only the second light left.
+  const stripTarget = document.createElement("input");
+  stripTarget.className = "form-control";
+  stripTarget.style.maxWidth = "12rem";
+  stripTarget.title = "The picture dataset the strips are written to.";
+  /** `CORE STRIP`, plus whatever the source delivery is called beyond "CORE PHOTO" — so a delivery
+   *  named CORE PHOTO UV suggests CORE STRIP UV without the user having to think about it. */
+  const suggestTarget = (): void => {
+    const src = dsSel.value.toUpperCase();
+    const extra = src.replace(/CORE|PHOTO|PHOTOS|SLAB/g, "").replace(/\s+/g, " ").trim();
+    stripTarget.value = extra ? `${CORE_STRIP_DATASET} ${extra}` : CORE_STRIP_DATASET;
+  };
+  suggestTarget();
+  dsSel.addEventListener("change", suggestTarget);
 
   const readRow = document.createElement("div");
   readRow.style.display = "flex";
   readRow.style.gap = "8px";
   readRow.style.margin = "6px 0";
   readRow.style.flexWrap = "wrap";
-  readRow.append(readBtn, writeBtn, stripBtn);
+  readRow.append(readBtn, writeBtn, stripBtn, stripTarget);
   logBox.appendChild(readRow);
 
   const trace = document.createElement("canvas");
@@ -1094,6 +1234,7 @@ export async function openCoreConditionDialog(): Promise<void> {
           axis: axisPick.get() as "x" | "y",
           reverse: revChk.checked,
           lanes: Number(lanePick.get()) || 1,
+          target: stripTarget.value.trim() || null,
         });
         logNote.textContent =
           `${res.built} strip(s) in ${res.dataset}. ` +
@@ -1115,6 +1256,9 @@ export async function openCoreConditionDialog(): Promise<void> {
   // ---- loading ------------------------------------------------------------
   const select = (id: string): void => {
     current = id;
+    // The paired frame belongs to the picture being looked at, so it is dropped rather than left
+    // to be shown beside the next box.
+    pairPng = null;
     syncControls();
     markStrip();
     void render();
