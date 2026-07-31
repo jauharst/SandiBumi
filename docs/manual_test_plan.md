@@ -43,6 +43,26 @@ verifies what the running app does in your hands, with real field data.
    for you and prints the Fail/Blocked rows with their Notes, ready to hand back to a Claude
    Code session in this repo for serial fixing.
 
+### "Automated coverage" lines (added 2026-07-31)
+
+Some tests now carry an **Automated coverage** line just above their Result block. It says whether a
+Rust test on the green gate (`tools\check.ps1`) already checks that test's arithmetic, and names it.
+Three forms:
+
+- **pinned** — the numbers are checked on every gate run. Your tick still adds something: the gate
+  proves the arithmetic, not that the running app puts it on screen where you can see it.
+- **pinned, with a residual** — most of the claim is checked; the line names the part that is not.
+- **none** — and, where it says so, why there will not be any.
+
+Where a test **pins a known defect AS-IS**, the line says so. That is not a vote that the behaviour
+is right; it stops it drifting further while the decision is open, and the test fails the moment
+someone fixes it, which is the alarm.
+
+**Nothing automated has touched, or will ever touch, your Pass / Fail / Blocked boxes.** Those are
+yours alone, and `tools\testplan-tally.ps1` scores only those — it does not read the coverage lines.
+A `[x]` in `docs/review_triage.md` means "a Rust test checks this"; a `[x]` here means "Jauhar ran it
+and it worked." The two are deliberately different things.
+
 ## Tally
 
 | Code  | Section                                                            | Tests   | Pre-flagged known issues |
@@ -439,6 +459,8 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 2. In the file dialog multi-select 3 LAS files → Open.
 3. Watch the status line; then open the **Wells** pane, the **Processing History** pane, and **Curve Catalog**.
    **Expected:** Status shows `Importing 3 LAS file(s)...` then `Imported 3/3 well(s).` All 3 wells appear in the Wells pane without a manual refresh. History gains an `Import — Imported 3/3 LAS well(s)` entry. Curve Catalog lists every curve from each file (standard GR/RES_DEEP/NPHI/RHOB/DT/SP plus extras like PEF/CALI as RAW-set rows with the LAS file's units). Null values (−999.25 or the file's own `~W NULL` declaration — covers REVIEW.md §Chartbook overlay library + audit quick fixes, LAS NULL item) render as gaps in a Log View, not as spikes. GR should read ~10–120 gapi with shale/sand character intact.
+   **Automated coverage - pinned (pile A):** a test on the green gate already checks the arithmetic behind this one. What your tick still adds is that the running app surfaces it correctly.
+
    **Result — T-IMP-01:**
 
 - [x] Pass
@@ -455,6 +477,8 @@ Shared preconditions: app running via `npm run tauri dev` with a project open; a
 
 1. Data tab → **Import Logs ▾** → **Import LAS…** → pick one of the SAME files imported in T-IMP-01 → Open.
    **Expected:** Import completes (`Imported 1/1 well(s). 1 well(s) had depth issues.` — the generic warning note), and History gains a per-well entry containing `a well named '<name>' already exists — imported as a separate record`. The Wells pane now shows two rows with the same name (merge is deliberately NOT automatic). Covers REVIEW.md §Round 4 — AUDIT safe-bucket ("LAS duplicate-name warning").
+   **Automated coverage - pinned, with a residual (pile A):** that the duplicate warns and stays a separate record IS asserted. NOT asserted: the display surface - the status line and the History row. That part is still yours.
+
    **Result — T-IMP-02:**
 
 - [x] Pass
@@ -483,6 +507,8 @@ FPROOH + MULTIMIN folders for the same well.
 1. Data tab → **Import Logs ▾** → **Import LAS…** → pick `dup_depth.las`.
 2. Check status, History, then open the well in a Log View.
    **Expected:** Import SUCCEEDS (`Imported 1/1 well(s). 1 well(s) had depth issues.`) — never a silent partial well or a raw PK-constraint error. History carries the per-well warning `dropped 0 row(s) with missing depth and 20 with duplicate depth` (first occurrence kept). Log View shows continuous curves with no doubled interval. Covers REVIEW.md §P0 senior-audit backlog ("LAS import survives duplicate/odd-depth files on BOTH stores").
+   **Automated coverage - pinned (pile A):** a test on the green gate already checks the arithmetic behind this one. What your tick still adds is that the running app surfaces it correctly.
+
    **Result — T-IMP-03:**
 
 - [ ] Pass
@@ -507,6 +533,8 @@ can't drift apart.
 2. Data tab → **Import Logs ▾** → **Import LAS…** → pick `null_depth.las`.
 3. Repeat with `truncated.las`.
    **Expected:** Each import ends with status `Imported 0/1 well(s).` and the Wells pane count is UNCHANGED — no empty orphan well, no partial curves in the Curve Catalog. (Backend errors: "no importable rows: N had missing depth…" and "ASCII data ended with N leftover token(s)… truncated or corrupt LAS?".) Covers REVIEW.md §P0 senior-audit backlog (all-null depth errors cleanly) and §Low-tier correctness & data-integrity sweep (truncated-row loud failure).
+   **Automated coverage - pinned (pile B, 2026-07-31):** `malformed_las_exemplars_fail_the_documented_way` (already existed) plus `a_truncated_las_refuses_rather_than_importing_what_survived` (example_data_test.rs). Your Blocked mark is now answerable - there was no truncated exemplar to import, so `dataset for test/examples/bad_truncated.las` was added to the generator.
+
    **Result — T-IMP-04:**
 
 - [ ] Pass
@@ -567,6 +595,8 @@ louder than a status-bar line (e.g. a dialog), say so and it becomes a small UX 
 4. Open a module dialog (e.g. Petrophysics → VSH — Gamma Ray) and check which GR the input dropdown resolves.
    **Expected:** Step 1: `Imported N curve(s), M samples into <well>.` + History entry. Step 2: no curve min/max shows −999.25/−9999 or |v|>1e30 — sentinels are screened to missing; curves read physically (RHOB ~1.9–2.9 g/cc, NPHI ~0–0.6). Step 3: status now appends `(replaced N existing curve(s))` — covers REVIEW.md §P0 senior-audit backlog ("DLIS null sentinels + no silent overwrite"). Step 4: modules still resolve the original LAS curve, not the DLIS run.
    **Known issue:** AUDIT-2026-07-21 §DLIS import #2 — "The 'no silent overwrite' collision check only catches a re-import of the identical DLIS file — the far more common case (a DLIS curve reusing a mnemonic already present in the well from LAS/standard_curves at run_no NULL) is never flagged, and the shadowed DLIS curve becomes permanently invisible to every module/equation with zero indication to the user." Expect step 1 to report a clean unqualified success even when the DLIS carries GR/NPHI/RHOB names the well already has, and the DLIS copies (visible as `run N` rows in the Curve Catalog) to be unreachable in step 4. Log as known, not new.
+   **Automated coverage - none, and there will not be any (regraded to pile D, 2026-07-31):** DLIS is a binary vendor format and there is no honest way to synthesise a fixture that exercises sentinel screening and mnemonic collision. `dlis.rs::import_real_dlis` exists but is ignored behind the `SANDIBUMI_TEST_DLIS` environment variable. Point that at one of your own .dlis files and `cargo test -- --ignored` runs it. Nothing automated can retire this one.
+
    **Result — T-IMP-06:**
 
 - [ ] Pass
@@ -640,6 +670,8 @@ DB Inspector → `aux_data`.
 1. Select the well → **Import Data ▾** → **Import Core…** → pick the doctored CSV.
 2. Check DB Inspector → **Core Data** row count.
    **Expected:** Import SUCCEEDS with `Imported N core sample(s)` where N = file rows − 1 (first occurrence of the repeated depth wins) — NOT a raw `PRIMARY KEY or UNIQUE constraint violation` error with 0 rows. Re-import replaces (row count stays N, not doubled). Covers REVIEW.md §Round 4 — import-robustness batch 2, fix (1).
+   **Automated coverage - pinned (pile B, 2026-07-31):** `a_repeated_plug_depth_is_dropped_not_a_failed_import` (parsers.rs) - first occurrence wins, companion columns follow the kept row, and the import never aborts.
+
    **Result — T-IMP-08:**
 
 - [ ] Pass
@@ -712,6 +744,8 @@ Shift Core still applies to the selected well's plugs only.
 3. With well B selected → **Import Tops…** → file (b).
 4. Open a Log View on well B.
    **Expected:** Step 1: status `Tops: N marker(s) across 2 well(s) — unmatched well name(s): <bogus>`; History entry; tops appear immediately under the matched wells and as lines in open log views (dataVersion refresh). The blank-WELL row is SKIPPED, not routed to the selected well (covers REVIEW.md §Round 4 — import-robustness batch 2, fix (5)). Step 3: all tops land in well B only. Step 4: tops lines drawn at the right depths. Covers REVIEW.md §P2-a — Tops-style imports.
+   **Automated coverage - pinned (pile B, 2026-07-31):** `tops_import_multiwell_and_default` (already existed) plus `a_blank_well_cell_is_skipped_rather_than_charged_to_the_selected_well` (ingest.rs).
+
    **Result — T-IMP-10:**
 
 - [ ] Pass
@@ -735,6 +769,8 @@ multi-select of many files and .txt/tab delimiters. See the T-IMP-07 update.
 3. Repeat with Dataset = **XRD** and the XRD CSV. Also try Dataset = **Custom…** with an empty name → Choose file.
 4. Data → **DB Inspector** → table **Aux Data**.
    **Expected:** Step 2/3: result box `Imported N value(s) across M column(s): <names>`; status + History entry per import. Step 3 empty-Custom: refused with `Enter a dataset name.` (no file dialog). Step 4: rows visible per well/dataset (read-only). Re-importing the same dataset replaces that dataset's rows only (count stays, other datasets untouched). XRD quartz+clay+carbonate percentages should sum to ~100%. Covers REVIEW.md §P2-a — Tops-style imports (Aux item).
+   **Automated coverage - pinned (pile A):** a test on the green gate already checks the arithmetic behind this one. What your tick still adds is that the running app surfaces it correctly.
+
    **Result — T-IMP-11:**
 
 - [ ] Pass
@@ -763,6 +799,8 @@ correctly (value_num vs value_text per cell).
 5. Cross-check consumption: open the **SW — Saturation-Height** module dialog and look at its TVD input.
    **Expected:** Step 2: status `Imported N survey station(s); TVD/TVDSS computed for <well>.` + History entry; dialog closes. Step 3: TVD ≤ MD everywhere (equal only in the vertical section), monotonically increasing, TVDSS = TVD − datum; at 30° inclination TVD grows ~0.866 m per m MD — sanity-check one station by hand. Step 4: import still succeeds with the duplicate MD dropped (first kept) — covers REVIEW.md §Round 4 — import-robustness batch 2, fix (2).
    **Known issue:** AUDIT-2026-07-21 §Importers B #1 — "Deviation-survey TVD/TVDSS is computed and stored, but no code path ever exposes it as a fetchable curve — sw_height's 'TVD' input (the P0 fix's whole point) is permanently unreachable for any well relying on Import Deviation, and the module dialog silently pre-selects it as if it worked." Expect step 5 to show "TVD" pre-selected even though no TVD curve exists; a run will silently fall back to MD per sample (SWH unchanged vs MD-based). `getWellPath` has no UI consumer yet. Log as known, not new.
+   **Automated coverage - pinned (pile B, 2026-07-31):** `deviation_import_materializes_tvd_tvdss_curves` and `deviation_import_versions_surveys_and_switching_rebuilds_tvd` (both already existed) plus `a_repeated_survey_station_is_dropped_not_a_failed_survey` (parsers.rs).
+
    **Result — T-IMP-12:**
 
 - [ ] Pass
@@ -812,6 +850,8 @@ switch, and change back.
 3. Negative: reopen, set Fluid system = **Other / custom** (sigma field clears), leave it blank → **Import & Fit**.
 4. Re-import the same files and compare point counts.
    **Expected:** Step 2: result box `Imported N Pc point(s). J-fit: A = …, B = …, R² = … (n points). Enter these as SWH_A/SWH_B in SW — Saturation-Height.` (or the honest `Too few valid points…` message if plugs lack perm/poro); status + History entry (`Imported SCAL Pc data (auto) ← <path>`). B should be negative (Sw falls as J rises) and R² > ~0.7 for a consistent rock family. Step 3: refused with `Lab sigma·cosθ must be a positive number.` — nothing imported. Step 4: points REPLACE (count unchanged), never append; a zero-point parse refuses the replace-write instead of wiping existing data. Covers REVIEW.md §Round 3 — (8) increment 2 — SCAL importers (incl. the post-review hardening items).
+   **Automated coverage - pinned, with a residual (pile A):** multi-file import, auto-detect, the Leverett-J fit and the zero-row refusal ARE asserted. NOT asserted: the sigma guard, which is a frontend string rather than backend arithmetic.
+
    **Result — T-IMP-14:**
 
 - [ ] Pass
@@ -829,6 +869,8 @@ switch, and change back.
 1. Select the well → Data tab → **Export LAS…** → accept the default filename `<well>.las` → Save.
 2. Open the exported file in a text editor.
    **Expected:** Status `Exported <well> (N rows) to <path>`; History entry `Export — Exported LAS (N rows) → <path>`. In the file: `NULL. −999.25` declared in `~W`; every gap in the source curves written as −999.25; header lists GR/RES_DEEP/NPHI/RHOB/DT/SP plus each computed curve; the `Vsh_final` column carries REAL values (0–1, high in shale), NOT −999.25 at every depth. Covers REVIEW.md §Round 4 — backend robustness batch 1, fix (9) (mixed-case export column).
+   **Automated coverage - pinned (pile B, 2026-07-31):** `export_writes_missing_as_null_and_carries_mixed_case_computed_curves` (export.rs).
+
    **Result — T-IMP-15:**
 
 - [ ] Pass
@@ -848,6 +890,8 @@ switch, and change back.
 3. Open a Log View; read the same 3 depths. Optionally Data → **SQL Query**: `SELECT depth, gr, rhob FROM standard_curves WHERE depth BETWEEN <d1> AND <d2>`.
 4. Reopen the original project (Project → **Recent ▾**) and confirm it is untouched.
    **Expected:** Import succeeds `Imported 1/1 well(s).`; the well carries the full curve set including `VSH_FINAL`-named computed curve (re-imported as a RAW curve — provenance is now "imported", visible in the Curve Catalog set/run columns). Spot values match the source to LAS precision (4 decimals); −999.25 rows come back as gaps, not as spikes of −999. Depth range and sample count match the source well's export row count N.
+   **Automated coverage - pinned (pile B, 2026-07-31):** `an_exported_las_reimports_with_the_same_values` (export.rs).
+
    **Result — T-IMP-16:**
 
 - [ ] Pass
@@ -1193,6 +1237,8 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 3. Petrophysics ▸ **VSH ▾** ▸ **VSH from Gamma Ray**; leave GR_MA at its dialog default 20 and GR_SH 120; scope to just this well; click **Run**.
 4. Display VSH in the Log View across the ZONE_A/ZONE_B boundary; open the Curve Catalog.
    **Expected:** (3) Result line "✓ <well>: N samples → VSH_GR, VSH"; History entry "Module — Ran VSH from Gamma Ray" attributed to this well (covers REVIEW.md §Round 4 "History attribution"). (4) VSH ∈ [0,1] everywhere, high in shale, low in clean sand; inside ZONE_A VSH is systematically LOWER than the same GR would give elsewhere (denominator GR_SH−GR_MA shrinks 100→60 but the numerator drops more: at GR=60, VSH=0 in ZONE_A vs 0.40 outside) with a visible step exactly at the zone boundary — proving the zone value beat the dialog value, as the pane's hint promises ("Overrides beat the value typed in a module dialog"). VSH/VSH_GR appear in the Curve Catalog with a new version. Remove the override (✕) and re-run: the step disappears.
+   **Automated coverage - pinned (pile B, 2026-07-31):** `a_per_zone_gradient_override_reaches_exactly_its_own_samples` (workflow.rs) - the same test retires this and T-PREP-05, because it is the same claim.
+
    **Result — T-WELL-16:**
 
 - [ ] Pass
@@ -1212,6 +1258,8 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 3. Inspect FTEMP in the Log View / Curve Catalog min-max.
 4. Remove the override and re-run.
    **Expected:** (2–3) The BHT interpolation must NOT emit ±Infinity or a fake green success: FTEMP comes back MISSING where TD_BHT ≤ 0 applies, and an all-missing run is reported as an error/Warned in the Processing panel rather than "✓ N samples" (covers REVIEW.md §Round 4 "All-NaN module runs report honestly"; the TD_BHT guard from AUDIT finding "ftemp_grad's BHT mode divides by TD_BHT with no degenerate-value guard" is now in modules.rs with a unit test — this test field-verifies it). (4) With the override gone, FTEMP is a smooth monotonic ramp from TSURF (~27 °C) to BHT at TD — physically sensible for a Mahakam gradient (~0.03 °C/m).
+   **Automated coverage - pinned (pile A):** a test on the green gate already checks the arithmetic behind this one. What your tick still adds is that the running app surfaces it correctly.
+
    **Result — T-WELL-17:**
 
 - [ ] Pass
@@ -1258,6 +1306,8 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 2. Add FTEMP to a log view (Plot ▸ New Log View, then **Properties…** ▸ add curve FTEMP) or check Min/Max in the Curve Catalog.
 3. Set **OPT_FT = BHT**, enter the well's real BHT and TD (e.g. BHT 100, TD_BHT 2000). Click **Run** again.
    **Expected:** GRADIENT: FTEMP is perfectly linear, ≈26.7 °C at 0 m and TSURF + 0.03·TD at TD (e.g. ≈86.7 °C at 2000 m) — a plausible Mahakam gradient. BHT: FTEMP interpolates linearly from TSURF at surface to exactly BHT at TD_BHT. Second run creates INTERP **v2** in the Curve Catalog "Constellations" list — v1 is not overwritten. Result line: "All 1 well(s) computed…"; Processing panel shows one ✓ line.
+   **Automated coverage - pinned (pile B, 2026-07-31):** `formation_temperature_lands_on_both_of_its_anchors` (modules.rs) - both modes land on their anchors, and a control proves OPT_FT still switches between them.
+
    **Result — T-PREP-02:**
 
 - [ ] Pass
@@ -1276,6 +1326,8 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 2. In the Formation Temperature pane set **OPT_FT = BHT**, Run.
 3. Inspect FTEMP inside that zone (log view cursor readout, or Curve Catalog Min/Max).
    **Expected:** Samples in the overridden zone are MISSING (blank), never ±Infinity; FTEMP outside the zone is unchanged; Curve Catalog Min/Max for FTEMP stay finite and physically sensible. Covers REVIEW.md §Round 4 "backend robustness batch 1" item (2) — verifies the fix for the audit finding "ftemp_grad's BHT mode divides by TD_BHT with no degenerate-value guard".
+   **Automated coverage - pinned (pile A):** a test on the green gate already checks the arithmetic behind this one. What your tick still adds is that the running app surfaces it correctly.
+
    **Result — T-PREP-03:**
 
 - [ ] Pass
@@ -1314,6 +1366,8 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 3. Plot FTEMP vs depth in a log view.
    **Expected:** The FTEMP trend changes slope exactly at the zone boundary (per-zone params resolve per sample) and both segments are linear. Covers REVIEW.md §Wave E-17 items 4 and 6.
    **Known issue — CONFIRMED 2026-07-31, and this step's original wording was wrong.** It used to say the trend "kinks… no discontinuity artifacts". It does not kink: `precalc` computes every sample as `SURF_TEMP + gradient(sample) × depth(sample)`, applying the gradient **from surface** rather than integrating down through the zones above, so a per-zone override produces a **STEP at the boundary**. Measured: a 0.03 °C/m well with 0.035 below 1500 m gives 67.0 °C at 1400 m and **77.5 °C at 1500 m** — a 10.5 °C jump where the trend would have risen 3.0. Rock temperature is continuous, so this is not physical, and it propagates through the Arps Rw correction into Sw. Pinned as-is by `a_per_zone_gradient_override_reaches_exactly_its_own_samples` (`workflow.rs`) — **step 3 will show a step; that is the current code, log it against this finding.** Fixing it means deciding what temperature each zone starts at, which is a method decision awaiting your call.
+   **Automated coverage - pinned (pile B, 2026-07-31):** `a_per_zone_gradient_override_reaches_exactly_its_own_samples` (workflow.rs). Writing it found the zone-boundary step now recorded in the Known issue below.
+
    **Result — T-PREP-05:**
 
 - [ ] Pass
@@ -1389,6 +1443,8 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 2. Overlay GR_EC on GR in a log view.
 3. Negative: set CALI to **"(none)"** and Run again.
    **Expected:** GR_EC > GR only where CALI > bit size (in the washout, GR_EC restored upward by ~0.75 %/inch of enlargement); GR_EC = GR in gauge and in undersize hole (no negative correction). With CALI = (none): GR_EC identical to GR (documented pass-through), still reported as a normal ✓ run.
+   **Automated coverage - pinned (pile A):** a test on the green gate already checks the arithmetic behind this one. What your tick still adds is that the running app surfaces it correctly.
+
    **Result — T-PREP-09:**
 
 - [ ] Pass
@@ -1406,6 +1462,8 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 1. Open **Data Prep ▸ Density Hole-Size Correction**, defaults (K_RHO 0.004, HD_REF 10). **Run**.
 2. Overlay RHOB_EC on RHOB.
    **Expected:** RHOB_EC = RHOB wherever CALI ≤ 10"; above 10" RHOB_EC is shifted up by 0.004 g/cc per inch beyond 10 — a small (<~0.05 g/cc) correction; grossly washed-out intervals should instead be excluded via BADHOLE downstream (the module doc says no correction is trustworthy there).
+   **Automated coverage - pinned (pile A):** a test on the green gate already checks the arithmetic behind this one. What your tick still adds is that the running app surfaces it correctly.
+
    **Result — T-PREP-10:**
 
 - [ ] Pass
@@ -1424,6 +1482,8 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 2. Compare NPHI_EC to NPHI at a hot deep level and a shallow level.
 3. Negative: Run on the well with only the raw LAS FTEMP (no precalc/ftemp_grad output).
    **Expected:** Step 2: correction = 0.0001·(FTEMP−24) − 0.0004 — small, positive at depth, larger where hotter; NPHI_EC tracks NPHI within a few thousandths v/v. Step 3: the raw degF FTEMP must NOT be consumed (FTEMP is a computed-only input) — only the salinity term applies, so NPHI_EC = NPHI − 0.0004 everywhere. Covers REVIEW.md §Round 4 "backend robustness batch 1" item (5) — verifies the fix for the audit finding "nphi_env_corr's FTEMP input is a plain log_in, not computed_only".
+   **Automated coverage - pinned (pile B, 2026-07-31):** `a_raw_ftemp_never_satisfies_the_computed_only_contract` (workflow.rs) - a raw degF FTEMP in the RAW set is correctly ignored, and the computed one is followed sample by sample.
+
    **Result — T-PREP-11:**
 
 - [ ] Pass
@@ -1462,6 +1522,8 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 3. Open the Processing panel and Processing History; inspect how each run is reported.
    **Expected:** Step 1: explicit error — "OPT_GATE = FLAGGED but the gas flag '…' has no data — run condflag first or set OPT_GATE = EVERYWHERE" (covers REVIEW.md §Gas Correction #23 item 3). Step 2: every output sample is MISSING and the run must be reported as **⚠/error "no finite output — every sample is missing (check inputs, e.g. precalc not run)"** — NOT a green "✓ N samples" success (covers REVIEW.md §Round 4 "All-NaN module runs report honestly" and §Gas Correction #23 item 4).
    **Known issue — RESOLVED, corrected 2026-07-31:** this step used to say the Round-4 fix for AUDIT-2026-07-21 "Module-run status reports '✓ success' even when every output sample is MISSING" was still uncommitted, and told you to log a green ✓ against that finding rather than as new. **It is committed and pinned** by `all_nan_module_output_reports_error_not_success` (`workflow.rs`), which runs on every gate. So a green "✓ N samples" on an all-MISSING run is now a **genuine new failure** — log it as one. Note the one case where a green ✓ is CORRECT: if the flag curve covers only part of the well, the unflagged samples pass RHOB through with real values, so the run is not all-MISSING and should succeed. Step 2 only holds where the flag covers everything you ran.
+   **Automated coverage - pinned (pile B, 2026-07-31):** `the_empty_flag_refusal_names_the_users_curve_and_its_remedy_works` (modules.rs), on top of the older `gascorr_guards_stay_missing_or_error` and `gascorr_flag_gate_and_missing_inputs`. What was genuinely uncovered and is now pinned: the refusal must NAME the curve you picked, and the remedy it recommends (EVERYWHERE) must actually work.
+
    **Result — T-PREP-13:**
 
 - [ ] Pass
@@ -1487,6 +1549,8 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
    > on its OWN percentiles is now pinned by
    > `gr_normalization_anchors_each_well_on_its_own_percentiles` (`workflow.rs`), so step 3 is
    > checked automatically; what remains for you is whether the character survived on real logs.
+   **Automated coverage - pinned (pile B, 2026-07-31):** `gr_normalization_anchors_each_well_on_its_own_percentiles` (workflow.rs).
+
    **Result — T-PREP-14:**
 
 - [ ] Pass
@@ -1504,6 +1568,8 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 1. Re-run GR Normalization on one well with **Mask (optional) = BADHOLE**, Output cons = "TEST" (type it — new constellation).
 2. Compare GRN (TEST, masked) against GRN (INTERP, unmasked) in a log view (use Input cons to pick each).
    **Expected:** Two observable differences: (a) GRN is MISSING inside every BADHOLE = 1 interval (outputs blanked); (b) GRN values in GOOD hole shift too, because the well P3/P97 are now computed from unmasked samples only — the washout/hot-streak GR no longer anchors the two-point transform. If (b) shows no change at all, the input-side masking is broken. Both runs visible as separate constellations (INTERP vs TEST) in the Curve Catalog.
+   **Automated coverage - pinned (pile A):** a test on the green gate already checks the arithmetic behind this one. What your tick still adds is that the running app surfaces it correctly.
+
    **Result — T-PREP-15:**
 
 - [ ] Pass
@@ -1524,6 +1590,8 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 4. Negative: run with TARGET = a curve with under 10 valid samples (or scope a nearly-empty well).
    **Expected:** Step 2: filled values are plausible DT (within the well's DT range, tracking lithology — high in shale/coal, low in tight streaks); no extrapolated nonsense outside predictor coverage. Step 4: all-MISSING output reported as ⚠ "no finite output", not green success. Step 3 SHOULD show a finite repaired RHOB inside the washout (that is the module's purpose), but see below.
    **Known issue:** AUDIT-2026-07-21 finding "log_predict's MAX_RAW/repaired-synthetic value is unconditionally re-blanked at masked (washout) depths by workflow.rs's output-masking step" (§Prep statistical #1, CONFIRMED; still unfixed — listed in REVIEW.md Round 4 under "6 findings that … await your sign-off"). Expect step 3 to FAIL: RHOB_SYN will be NaN exactly inside the masked washout it exists to fill. Log as known.
+   **Automated coverage - pinned (pile B, 2026-07-31):** `a_synthetic_log_fills_gaps_keeps_raw_and_repairs_only_downward` (modules.rs) plus `a_masked_washout_defeats_the_very_module_meant_to_repair_it` (workflow.rs). The second one pins the audited defect AS-IS, not as correct behaviour.
+
    **Result — T-PREP-16:**
 
 - [ ] Pass
@@ -1683,6 +1751,8 @@ Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a
 1. Leave all endpoints at defaults but type `RHO_SH` = **2.0482843** (makes matrix/shale/fluid collinear: (c−d) ≈ 0).
 2. **Run**; then check the VSH_DN row's stats in the Curve Catalog and autoscale in a log view.
    **Expected:** No ±Infinity anywhere: the degenerate samples are skipped to MISSING, so VSH_DN is blank and the run is reported **Warned ("no finite output")** in the Processing panel; catalog min/max and plot autoscale stay finite. This verifies the fix for AUDIT-2026-07-21 finding "vsh_dn's density-neutron crossplot divides by (c − d) with no guard against a degenerate matrix/shale/fluid triangle" (covers REVIEW.md §"Round 4…" item "(1) vsh_dn now skips a degenerate matrix/shale/fluid triangle"). If the curve pins at ±Inf, log Fail citing that finding.
+   **Automated coverage - pinned (pile A):** a test on the green gate already checks the arithmetic behind this one. What your tick still adds is that the running app surfaces it correctly.
+
    **Result — T-PETRO-05:**
 
 - [ ] Pass
@@ -1738,6 +1808,8 @@ Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a
 3. Set `OPT_SON` = **RHG**, `OPT_CP` still ON; **Run**. Compare the three PHIT_SON versions.
    **Expected:** Baseline: PHIT_SON = (DT−DT_MA)/(DT_FL−DT_MA), 0–1, tracking the D-N porosity in compacted sand. RHG version unaffected by OPT_CP (self-compacting). Domain expectation for step 2: with DT_SH = 90 (≤ 100 µs/ft, i.e. compacted shale) the Cp correction should be a **no-op** — instead the current code divides by Cp = 0.9 and **inflates PHIT_SON ≈ +11 %** over the whole well. Covers REVIEW.md §"Held-item resolutions" item "Wyllie lack-of-compaction (Cp) correction — shipped as opt-in".
    **Known issue:** AUDIT-2026-07-21 finding "phi_son OPT_CP lack-of-compaction correction is missing the DT_SH>100 us/ft gate — it inflates porosity instead of no-op below the threshold, including at the module's own default". Expect step 2 to fail the domain check (porosity rises ~11 % where it should be unchanged); awaiting your sign-off on the gate — log as known, not new.
+   **Automated coverage - pinned, with a caveat (pile A):** the gate checks Wyllie/RHG and the opt-in compaction correction. The caveat: it pins the CURRENT un-gated behaviour, which is the audited defect. If the DT_SH gate is ever added, that test changes with it. It is not a vote that this behaviour is right.
+
    **Result — T-PETRO-08:**
 
 - [ ] Pass
@@ -1756,6 +1828,8 @@ Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a
 2. Overlay **PHIE_CAP** and **PHIE_MAX** with PHIE in a log view.
 3. `MODE` = **linear**, `TVDSS_REF` = a shallow depth, `PHIMAX_GRAD` = 0.03; **Run** (no TVDSS curve → it reads against measured DEPTH — fine for a near-vertical well).
    **Expected:** Constant mode: PHIE_CAP = PHIE wherever PHIE < 0.25 and flattens at exactly 0.25 above it; PHIE_MAX is a flat 0.25 line; no point pokes above the ceiling; input PHIE itself is untouched (same version/stats as before). Linear mode: PHIE_MAX declines with depth (deeper = lower ceiling); a deep zone's ceiling < a shallow zone's. Output curves are named **PHIE_CAP / PHIE_MAX** (named after the input curve).
+   **Automated coverage - pinned (pile A):** a test on the green gate already checks the arithmetic behind this one. What your tick still adds is that the running app surfaces it correctly.
+
    **Result — T-PETRO-09:**
 
 - [ ] Pass
@@ -1809,6 +1883,8 @@ Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a
 1. Run **SW — Archie** and **SW — Indonesia** over that well (defaults from T-10/11).
 2. Inspect SWT_ARCH and SWE_INDO in the Curve Catalog (min/max) and in a log view over the streak.
    **Expected:** The RT ≤ 0 streak reads as a **gap (MISSING)** in SWT_ARCH/SWE_INDO — not Sw = 1, and never +Infinity; curve autoscale is not pinned to a huge number; catalog min/max finite. This verifies the fix for AUDIT-2026-07-21 finding "sw_arch/sw_indo store +Infinity in their unlimited curves when RT is exactly 0 (or negative)" (covers REVIEW.md §"Round 4…" item "Correctness — RT ≤ 0 → +Infinity in the Sw modules"). If the streak pins the scale, log Fail citing that finding.
+   **Automated coverage - pinned (pile A):** a test on the green gate already checks the arithmetic behind this one. What your tick still adds is that the running app surfaces it correctly.
+
    **Result — T-PETRO-12:**
 
 - [ ] Pass
@@ -2079,6 +2155,8 @@ Shared preconditions: project open in `npm run tauri dev` with at least one Maha
 2. **Run**.
 3. Log View: PHIT_SSPW/PHIE_SSPW/PHIFF_SSPW + CBW_SSPW/CAPBW_SSPW/BW_SSPW/SWIRR_SSPW.
    **Expected:** run reports 1/1 computed; PHIT_SSPW ≥ PHIE_SSPW ≥ PHIFF_SSPW; CBW_SSPW ≈ VSH·0.1 (rises with VSH); SWIRR_SSPW ∈ [0,1], high in shale; Curve Catalog gains the 7 `*_SSPW` rows under INTERP; History entry recorded.
+   **Automated coverage - pinned (pile A):** a test on the green gate already checks the arithmetic behind this one. What your tick still adds is that the running app surfaces it correctly.
+
    **Result — T-ADV-07:**
 
 - [ ] Pass
@@ -2845,6 +2923,17 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 2. Set PERM back to blank; scope to only the well with **no computed curves** ▸ Compute Summary.
 3. Scope a mix of good wells + the bare well ▸ Compute Summary.
    **Expected:** (1) PAY rows show Net = 0 / no PAY intervals — a sample with missing PERM must FAIL the cutoff, not silently pass (REVIEW.md, confirmed [x] item "with a PERM cutoff active, samples with missing PERM now FAIL the cutoff"); SAND/RESERVOIR rows are unaffected. (2) "No results — check that VSH/PHIE/SWE have been computed for the selected wells." — no crash, no misleading rows. (3) Good wells still return full rows; the bare well contributes nothing — one well's failure no longer zeroes the whole response (covers REVIEW.md §Round 4 "Per-well isolation").
+   **Known issue — CONFIRMED 2026-07-31, step 1 will NOT behave as Expected says.** The confirmed
+   REVIEW.md item is about a SAMPLE with missing PERM, and that part is true. But whether the cutoff
+   runs at all is decided per WELL: `has_perm_cut = perm_min.is_some() && perm.iter().any(|v|
+   !v.is_nan())`. A well carrying no permeability ANYWHERE makes that false and exempts itself, so
+   expect **full pay, not Net = 0**. Measured on two wells of identical rock at PERM >= 1000: the
+   well that measured 1 mD reported net 0, the well that measured nothing reported all of it. Log as
+   known, not new. Steps 2 and 3 behave as written. See docs/review_triage.md finding 7 - whether an
+   uncored well should be excluded or exempted is your call, and it changes reserves.
+
+   **Automated coverage - pinned (pile B, 2026-07-31):** `a_well_with_no_perm_at_all_quietly_escapes_an_active_perm_cutoff` and `one_unusable_well_cannot_zero_the_whole_pay_summary` (workflow.rs). The first pins the exemption above AS-IS, not as correct behaviour - when it is fixed, that test fails, which is the alarm.
+
    **Result — T-BATCH-08:**
 
 - [ ] Pass
@@ -2884,6 +2973,8 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 2. Read the curve maximum; place the pick at the loosest cutoff (VSH = 1).
 3. Cross-check the same well/zone/DST at fixed cutoffs against **Cutoffs & Pay Summary** Net and N/G.
    **Expected:** NTG never exceeds 1.0 anywhere on the sweep, including at fully-permissive cutoffs, and the sweep's numbers agree with the Pay Summary for the same slice — the boundary sample now contributes only its clamped overlap (covers REVIEW.md §Round 4 "Cutoff-sweep geometric clamp"; verifies the fixed audit finding "Cutoff-sweep NET/HPV/NTG isn't clamped to the zone/DST overlap — it re-introduces the exact 'step bleed past boundary' bug").
+   **Automated coverage - pinned, with a residual (pile A):** NTG staying at or below 1 across a mid-sample zone base IS asserted. NOT asserted: step 3, the sweep-versus-Pay-Summary agreement.
+
    **Result — T-BATCH-10:**
 
 - [ ] Pass
@@ -2960,6 +3051,8 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 2. Run again, same Seed 42, nothing else changed.
 3. Change Seed to 43 ▸ run again.
    **Expected:** Runs 1 and 2 produce **identical numbers to every displayed digit** for every cell (seeded per-realization RNG); run 3 differs slightly in the percentile bands but P50s stay close (200 realizations of the same distributions).
+   **Automated coverage - pinned, with a residual (pile A):** seed 42 reproducibility and the zero-variance case ARE asserted. NOT asserted: the seed 43 step, where the run differs but P50 should stay close.
+
    **Result — T-BATCH-14:**
 
 - [ ] Pass
@@ -2997,6 +3090,14 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 3. Run again with **PERM ≥** set high enough that it must bite (e.g. 50) — compare.
    **Expected:** The PERM-cutoff run should report **lower or equal** Net/HPV, mirroring the Pay Summary's behavior with the same cutoff.
    **Known issue:** AUDIT-2026-07-21 §Monte Carlo — "PERM cutoff is silently ignored whenever PERM is produced by the Monte Carlo chain itself (not read from the DB)": `has_perm_cut` only checks the DB-read input pool, and chain-produced PERM never enters it, so **expect both runs to return identical numbers**. Still unfixed (REVIEW.md holds it for sign-off as an interpretation-changing fix). Log as known, not new.
+   **Update 2026-07-31 — the trigger is broader than the Known issue line says.** PERM reaches the
+   cutoff check only if a step CONSUMES it and no step PRODUCES it. So the cutoff works on a chain
+   that reads permeability from the project (e.g. one ending in Rock Typing), and goes silently dead
+   the moment a permeability MODEL is inserted ahead of it - which is exactly the chain this test
+   uses. Still expect both runs to return identical numbers. See docs/review_triage.md finding 8.
+
+   **Automated coverage - pinned (pile B, 2026-07-31):** `adding_a_permeability_model_to_a_chain_switches_off_the_permeability_cutoff` (montecarlo.rs), which runs the working chain beside the broken one as its control. Pins the defect AS-IS.
+
    **Result — T-BATCH-16:**
 
 - [ ] Pass
@@ -3015,6 +3116,14 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 2. Run **Monte Carlo** on the same saved chain, same well, same cutoffs, **no** uncertain parameters, Iterations 10, Seed 42 — note P50 Net pay.
    **Expected:** The two should agree: the MC engine claims to run "the same chain", so masked (washout) samples must be excluded from pay in both.
    **Known issue:** AUDIT-2026-07-21 §Monte Carlo — "montecarlo.rs's own from-scratch chain executor misses two correctness behaviors the real chain runner enforces: MASK blanking and computed_only provenance resolution": MC ignores the step's MASK, so **expect MC Net/HPV ≥ the pay-summary value**, inflated by flagged intervals. Still unfixed (held for sign-off). Log as known.
+   **Update 2026-07-31 — there are TWO causes, so a partial fix will not show up here.** Besides
+   `run_realization` never blanking, the Monte Carlo planner never even FETCHES the flag curve: its
+   external-input list is built from log inputs, and MASK is an option. The mask setting is carried
+   all the way into the plan and then read by nobody. Still expect MC Net/HPV above the pay-summary
+   value.
+
+   **Automated coverage - pinned (pile B, 2026-07-31):** `the_monte_carlo_chain_ignores_a_step_mask_the_real_chain_honours` (montecarlo.rs) - it runs the real chain and the Monte Carlo chain over the same masked well and compares them, and asserts BOTH causes. Pins the defect AS-IS.
+
    **Result — T-BATCH-17:**
 
 - [ ] Pass
@@ -3229,6 +3338,8 @@ Everything verified against source. Composing the test plan now — this is my f
 2. **Run**, then open the Processing panel details for the run.
    **Expected:** the well is reported as an **error / ⚠ warned** ("no input curve present" class of failure) — NOT a green "✓ N samples" success; no plausible-looking all-NaN FACIES version should be silently added for that well.
    **Known issue:** audit finding "facies.rs's 'can't cluster this well' cases (no input curve present, or fewer complete samples than K) are silently reported as a full successful run with a plausible row count, not a warning or error" (Facies §2). Round 4's uncommitted "All-NaN module runs report honestly" fix claims this now warns — if you still see ✓ success with an all-NaN FACIES, mark Fail and log as this known finding.
+   **Automated coverage - pinned, with a residual (pile A):** the honest error on a well with no usable curve IS asserted, with a live control. NOT asserted: that no FACIES version row was written.
+
    **Result — T-MLEQ-09:**
 
 - [ ] Pass
@@ -4159,6 +4270,8 @@ Shared preconditions for this cluster: app running via `npm run tauri dev`; a pr
 5. Run the CTE smuggle `WITH x AS (SELECT 1) DELETE FROM tops`.
 6. Re-run `SELECT COUNT(*) FROM tops`.
    **Expected:** (1)–(3) rejected before execution with "only SELECT queries are allowed here" in the results area; (4) rejected with "one statement at a time"; (5) starts with WITH so it passes the prefix check but must still fail as a SQL error from the read-only subquery wrapper — under no circumstance may it delete. (6) The tops count is unchanged from the start — zero rows were harmed. App stays responsive throughout; the status bar logs "Query failed: …" for each rejection.
+   **Automated coverage - pinned (pile B, 2026-07-31):** `readonly_query_refuses_every_write_shape_including_a_cte_prefix` (db.rs).
+
    **Result — T-REP-18:**
 
 - [ ] Pass
@@ -4704,6 +4817,8 @@ All source reading done — I verified every label against `index.html`, `ribbon
 
 1. **Data → Import Logs ▾ → Import LAS…** and re-import one of the SAME files from T-INT-01.
    **Expected:** the import completes but the status/History carries an "already exists" duplicate-name warning; a separate well record is created (merge is deliberate, not automatic) — you should see the warning, not a silent second copy. Covers REVIEW.md §Round 4 — "LAS duplicate-name warning". Delete the duplicate well afterwards to keep the project clean.
+   **Automated coverage - pinned, with a residual (pile A):** that the duplicate warns and stays a separate record IS asserted. NOT asserted: the display surface - the status line and the History row. That part is still yours.
+
    **Result — T-INT-02:**
 
 - [ ] Pass
@@ -4723,6 +4838,8 @@ All source reading done — I verified every label against `index.html`, `ribbon
 3. Check the Zones table against the known formation tops.
 4. Negative: select a well the CSV did not cover, open **Zones…**, click **From Tops**.
    **Expected:** (2) status "Built N zone(s) from tops for <well>"; zone Top/Bottom depths match the tops, zones are contiguous top-down; History gets a "Zone" entry per action. (4) "Built 0 zone(s)…" and the table shows `No zones — use "From Tops" or add one below.` — no crash, no phantom zones.
+   **Automated coverage - pinned (pile B, 2026-07-31):** `zones_from_tops_are_contiguous_and_absent_tops_make_no_zones` plus `a_top_below_the_logged_interval_never_makes_an_inverted_zone` (db.rs).
+
    **Result — T-INT-03:**
 
 - [ ] Pass
@@ -4875,6 +4992,8 @@ All source reading done — I verified every label against `index.html`, `ribbon
 4. Click **Restore** on `TEST v1`.
 5. Run **Porosity from Density** (VSH input = VSH) on well 1 and read PHIE in the shaly interval.
    **Expected:** two versions coexist — nothing overwritten ("Constellations — every run is kept as a version"). After step 2 VSH is HIGHER in shaly beds (lower GR_SH inflates VSH). Restore shows "Version restored (N samples back in the current curves)", bumps every open panel, and VSH drops back to the v1 (GR_SH=120) values. Step 5's PHIE matches a v1-VSH computation (higher PHIE in shaly beds than it would be under v2) — proving downstream modules consume the restored values, and the Curve Catalog shows the new PHIE version's provenance.
+   **Automated coverage - pinned (pile B, 2026-07-31):** `a_restored_log_set_version_feeds_the_next_module_run` (workflow.rs).
+
    **Result — T-INT-11:**
 
 - [ ] Pass
@@ -5137,6 +5256,8 @@ every dev-mode session to date has never exercised it.
    **Expected:** step 2 fails with the backend's own message naming the curve ("permeability
    curve 'PERM' has no data in this well") — NOT a plausible-looking result silently computed
    on GR. REVIEW.md Round 90 has the full story.
+   **Automated coverage - pinned (pile B, 2026-07-31):** `a_missing_curve_fails_by_name_rather_than_computing_on_another` (lorenz.rs).
+
    **Result — T-SHIP-03:**
 
 - [ ] Pass
@@ -5155,6 +5276,8 @@ every dev-mode session to date has never exercised it.
 2. SQL Query panel: `SELECT * FROM project_meta`.
    **Expected:** two rows — `format_version` = 1, `written_by` = SandiBumi 0.1.0. The refusal
    path (newer file on older build) is cargo-tested; no manual setup can produce it today.
+   **Automated coverage - pinned (pile A):** a test on the green gate already checks the arithmetic behind this one. What your tick still adds is that the running app surfaces it correctly.
+
    **Result — T-SHIP-04:**
 
 - [ ] Pass
@@ -5175,6 +5298,8 @@ project copy that still has the old computed_curves PRIMARY KEY.
    **Expected:** step 1: NO new `*-backup.duckdb` appears, launch is not slower — absence is
    the pass. Step 2: a `<name>.pre-1-backup.duckdb` appears BEFORE the rebuild and the launch
    log announces it; the backup opens as a valid project if pointed at directly.
+   **Automated coverage - pinned (pile A):** a test on the green gate already checks the arithmetic behind this one. What your tick still adds is that the running app surfaces it correctly.
+
    **Result — T-SHIP-05:**
 
 - [ ] Pass

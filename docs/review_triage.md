@@ -30,7 +30,7 @@ Pile D is the number that matters: **37 tests, about one in seven, genuinely nee
 | Pile | Done | Remaining |
 |---|---|---|
 | **A** — was already pinned before this work started | **21** | — |
-| **B** — a Rust test now checks it | **17** | 28 (of 44 — T-IMP-06 regraded to D) |
+| **B** — a Rust test now checks it | **20** | 25 (of 44 — T-IMP-06 regraded to D) |
 | **C** — a machine now drives it | **5 harness tests** | 81 unblocked (+61 blocked) |
 
 ### Pile A — the checklist
@@ -81,7 +81,7 @@ verification mark** — that lives in `docs/manual_test_plan.md` and nothing aut
 touches it. A `[x]` below says the arithmetic is pinned; it does not say the feature works on
 your wells.
 
-**Done (17 of 45)**
+**Done (20 of 44)**
 
 - [x] **T-REP-18** — SQL Query rejects writes · `readonly_query_refuses_every_write_shape_including_a_cte_prefix` (`db.rs`)
 - [x] **T-SHIP-03** — missing perm curve fails loudly · `a_missing_curve_fails_by_name_rather_than_computing_on_another` (`lorenz.rs`)
@@ -103,6 +103,22 @@ your wells.
 - [x] **T-IMP-10** — tops CSV: multi-well, unmatched, **blank WELL cells** · `tops_import_multiwell_and_default` (already existed) + `a_blank_well_cell_is_skipped_rather_than_charged_to_the_selected_well` (`ingest.rs`)
 - [x] **T-IMP-12** — deviation: TVD/TVDSS **and** duplicate MD · `deviation_import_materializes_tvd_tvdss_curves` + `deviation_import_versions_surveys_and_switching_rebuilds_tvd` (both already existed) + `a_repeated_survey_station_is_dropped_not_a_failed_survey` (`parsers.rs`)
 
+- [x] **T-BATCH-08** — Pay Summary negatives: PERM cutoff, bare well, per-well isolation ·
+  `a_well_with_no_perm_at_all_quietly_escapes_an_active_perm_cutoff` +
+  `one_unusable_well_cannot_zero_the_whole_pay_summary` (`workflow.rs`). **Found a defect while
+  writing it** — see finding 7; the plan's Expected for step 1 was describing behaviour the code
+  does not have, and now carries a Known issue line.
+- [x] **T-BATCH-16** — Monte Carlo PERM cutoff with chain-produced PERM ·
+  `adding_a_permeability_model_to_a_chain_switches_off_the_permeability_cutoff` (`montecarlo.rs`).
+  **Pins the audited defect as-is**, with the working chain beside it as the control. Sharpens the
+  audit's trigger — see finding 8.
+- [x] **T-BATCH-17** — Monte Carlo vs chain with a bad-hole MASK ·
+  `the_monte_carlo_chain_ignores_a_step_mask_the_real_chain_honours` (`montecarlo.rs`). **Pins the
+  audited defect as-is.** Like T-PREP-16's masked washout it turns out to have **two causes**:
+  `run_realization` never blanks, and `build_plans` never even fetches the flag curve, because the
+  external-input set is built from LogIn args and MASK is an Option. Both are asserted, so a
+  half-fix that touches only the executor will still fail.
+
 All three items flagged **silent-wrongness class** (T-REP-18, T-SHIP-03, T-INT-11) are closed.
 
 **Regraded out of pile B (1)**
@@ -114,7 +130,7 @@ All three items flagged **silent-wrongness class** (T-REP-18, T-SHIP-03, T-INT-1
   variable at one of your own files and `cargo test -- --ignored` runs it; nothing automated can
   retire it. Pile B is therefore 44 items, not 45.
 
-**Open (28)**
+**Open (25)**
 
 - [ ] T-PLOT-19 — Curve Edit negatives (invalid input, stale undo)
 - [ ] T-REP-02 — Composite render: layout, print scale, pagination
@@ -138,9 +154,6 @@ All three items flagged **silent-wrongness class** (T-REP-18, T-SHIP-03, T-INT-1
 - [ ] T-RT-07 — Rock Type from Cutoffs: RT_LOG ladder
 - [ ] T-RT-08 — Pittman r10–r75 + APEX selector
 - [ ] T-RT-18 — Legacy Multimin RECON_ERR at exactly 3 tools
-- [ ] T-BATCH-08 — Pay Summary negatives
-- [ ] T-BATCH-16 — Monte Carlo PERM cutoff with chain-produced PERM
-- [ ] T-BATCH-17 — Monte Carlo vs chain with a bad-hole MASK
 - [ ] T-SHELL-07 — Save Project As = backup copy
 - [ ] T-SHELL-09 — project switch refused while a chain runs
 
@@ -430,7 +443,7 @@ these turns on a judgement about real rock, a visual read, or a feel for whether
 
 ---
 
-## Four things the triage found that are worth fixing regardless
+## Eight things the triage found that are worth fixing regardless
 
 These came out of reading all 250 tests against the current code. Each was verified directly,
 not taken on a subagent's word. **Findings 1, 2 and 3 have since been fixed — see the notes
@@ -541,6 +554,65 @@ artifacts"*. So the plan and the code disagree, and the plan is describing the p
 math with a cited source, not a refactor I should pick. The current behaviour is pinned exactly
 as it is, with the step written into the assertion, so it cannot drift and cannot be changed
 silently. Your call on which it should be.
+
+### 7. A well with no permeability is EXEMPTED from the permeability cutoff — **OPEN, your call**
+
+Found while writing T-BATCH-08, and like finding 6 it changes numbers rather than documentation.
+
+`classify_sample` is emphatic about this at the sample level, and there is a confirmed `[x]` in
+`REVIEW.md` for it: *a sample with missing PERM must FAIL an active PERM cutoff, not silently
+pass.* But whether the cutoff is active at all is decided one line earlier, per WELL:
+
+```rust
+let has_perm_cut = req.perm_min.is_some() && perm.iter().any(|v| !v.is_nan());
+```
+
+A well carrying **no permeability anywhere** makes that false and switches the cutoff off for
+itself. Measured in the test, two wells of identical rock, cutoff PERM ≥ 1000 mD:
+
+| well | permeability | net pay |
+|---|---|---|
+| measured 1 mD | 1 mD | **0** — correctly excluded |
+| measured none | — | **full** — cutoff never applied |
+
+So the two halves of the same rule disagree, and in the damaging direction: **the less permeability
+data a well has, the more pay it books.** Both wells report `n_classified > 0`, so nothing
+downstream — not the Field Dashboard, not the workbook, not the client PDF — can tell the exempted
+row from the honest one. In a field roll-up they simply add together.
+
+T-BATCH-08's own Expected says the opposite of what the code does, so that test would have been
+logged as a new failure; its instruction now carries a Known issue line pointing here.
+
+**Not fixed, deliberately.** Whether an uncored well should be excluded from a permeability cutoff
+or exempted from it is a petrophysical decision — exclusion is defensible (it cannot be shown to
+pass) and so is exemption (a cutoff you have no data for should not silently delete a well) — and
+either way it changes reserves. Pinned exactly as it is by
+`a_well_with_no_perm_at_all_quietly_escapes_an_active_perm_cutoff`, with the asymmetry written into
+the assertions so it cannot drift. Your call.
+
+### 8. The Monte Carlo PERM cutoff — the audit's wording understates the trigger
+
+Not a new finding: AUDIT-2026-07-21 already has it, and T-BATCH-16 carries the Known issue line.
+What writing the test refined is **when** it fires.
+
+The audit says the cutoff is ignored "whenever PERM is produced by the Monte Carlo chain itself
+(not read from the DB)". The actual discriminator is `build_plans`'s external-input set: PERM
+reaches `has_perm_cut` only if some step CONSUMES it and **no step produces it**. So the failure
+is not a corner case of an unusual chain — it is triggered by *adding a permeability model*:
+
+| chain | PERM cutoff |
+|---|---|
+| `vsh_gr → phi_dn → sw_indo → rocktyping` (reads PERM from the project) | works |
+| the same chain with `perm_coates` inserted ahead of it | **silently dead** |
+
+A study that models permeability is precisely the study whose permeability cutoff matters. Pinned
+as-is by `adding_a_permeability_model_to_a_chain_switches_off_the_permeability_cutoff`, which shows
+both chains side by side so the working case is the control.
+
+I also asserted, wrongly, that no module reads PERM as an input — a grep for `log_in("PERM"` misses
+`rocktyping.rs` and `satheight.rs`, which sit in their own files. Because it was written as an
+assertion rather than a comment, the build rejected it immediately. Worth repeating as a habit:
+**a claim about the codebase belongs in an assertion, where it can be wrong out loud.**
 
 ---
 

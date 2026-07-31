@@ -1256,6 +1256,144 @@ mod tests {
         }
     }
 
+    /// A clean, porous, low-Sw sand where every sample passes VSH/PHIE/SWE on its own, so the
+    /// only thing that can exclude a sample is the PERM cutoff. `perm` is the permeability the
+    /// well MEASURED — `None` means the well carries none at all, which is the case under test.
+    fn seed_pay_well(conn: &duckdb::Connection, name: &str, perm: Option<f32>) -> String {
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(conn, id, name, Some("Synthetic"), None, None).unwrap();
+        let well = id.to_string();
+        let n = 20usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            conn, id, depth.clone(), vec![40.0; n], vec![20.0; n], vec![0.2; n], vec![2.35; n],
+            nan.clone(), nan,
+        )
+        .unwrap();
+        for (curve, v) in [("VSH", 0.2f32), ("PHIE", 0.20), ("SWE", 0.30)] {
+            equations::write_computed_curve(conn, &well, &depth, curve, &vec![v; n]).unwrap();
+        }
+        if let Some(k) = perm {
+            equations::write_computed_curve(conn, &well, &depth, "PERM", &vec![k; n]).unwrap();
+        }
+        well
+    }
+
+    /// T-BATCH-08 (1) — the PERM cutoff has a whole-well escape hatch, and it opens the wrong way.
+    ///
+    /// `classify_sample` is emphatic that a SAMPLE with no PERM cannot demonstrate it passes an
+    /// active cutoff, so it fails (`classify_sample_nan_propagation` pins that). But whether the
+    /// cutoff is active at all is decided per WELL, one line earlier: `perm_min.is_some() &&
+    /// perm.iter().any(|v| !v.is_nan())`. A well carrying NO permeability anywhere therefore
+    /// switches the cutoff off for itself and reports its full pay.
+    ///
+    /// The two halves of the same rule disagree, and the direction is the damaging one: the well
+    /// that measured permeability and measured it BELOW the cutoff is excluded, while the well
+    /// that measured none at all sails through. In a field summary those rows add together with
+    /// nothing on screen saying which wells the cutoff was applied to — so the less data a well
+    /// has, the more pay it books.
+    ///
+    /// Pinned AS-IS, not endorsed. Whether an uncored well should be excluded or exempted is a
+    /// petrophysical decision that changes client numbers, so it is Jauhar's to make — see
+    /// docs/review_triage.md finding 7.
+    #[test]
+    fn a_well_with_no_perm_at_all_quietly_escapes_an_active_perm_cutoff() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        // Identical rock. The ONLY difference is whether permeability was measured.
+        let no_perm = seed_pay_well(&conn, "PAY-NOPERM", None);
+        let low_perm = seed_pay_well(&conn, "PAY-LOWPERM", Some(1.0));
+        let dbm = Mutex::new(conn);
+
+        let summary = |perm_min: Option<f64>| -> Vec<PaySummaryRow> {
+            run_pay_summary(
+                &dbm,
+                &PaySummaryRequest {
+                    well_ids: vec![no_perm.clone(), low_perm.clone()],
+                    vsh_max: 0.5,
+                    phie_min: 0.1,
+                    swe_max: 0.6,
+                    perm_min,
+                    skip_version: false,
+                    stats_only: true,
+                },
+            )
+            .expect("summary runs")
+        };
+        let pay = |rows: &[PaySummaryRow], w: &str| -> PaySummaryRow {
+            rows.iter().find(|r| r.well_id == w && r.flag == "PAY").expect("a PAY row per well").clone()
+        };
+
+        // Baseline: with no PERM cutoff at all, both wells are full pay. This is the control —
+        // it establishes the rock is identical, so anything below is the cutoff's doing.
+        let open = summary(None);
+        let base_no_perm = pay(&open, &no_perm).net;
+        let base_low_perm = pay(&open, &low_perm).net;
+        assert!(base_no_perm > 0.0, "the test rock must be pay before any cutoff is applied");
+        assert_eq!(base_no_perm, base_low_perm, "both wells must start as the same rock");
+
+        // Now a cutoff nothing in either well could pass.
+        let cut = summary(Some(1000.0));
+
+        // The well that MEASURED permeability, at 1 mD, is correctly excluded.
+        assert_eq!(pay(&cut, &low_perm).net, 0.0, "1 mD cannot pass a 1000 mD cutoff");
+
+        // The well that measured NONE keeps every metre of its pay — the cutoff never applied.
+        assert_eq!(
+            pay(&cut, &no_perm).net,
+            base_no_perm,
+            "a well with no PERM at all is exempted from the PERM cutoff rather than failing it"
+        );
+        assert!(pay(&cut, &no_perm).hpv > 0.0, "and it books hydrocarbon volume on that exemption");
+
+        // Both wells were fully interpreted, so `n_classified` cannot be used downstream to tell
+        // the exempted rows apart from the honest ones — which is what makes this silent.
+        assert!(pay(&cut, &no_perm).n_classified > 0);
+        assert!(pay(&cut, &low_perm).n_classified > 0);
+    }
+
+    /// T-BATCH-08 (3) — one unusable well must not zero the whole response.
+    ///
+    /// `run_pay_summary` `continue`s past a well whose curve frame or zone read fails instead of
+    /// `?`-aborting the batch. The bare well is listed FIRST here on purpose: an abort would take
+    /// the good well's rows with it, and a test that put the good well first would pass either way.
+    #[test]
+    fn one_unusable_well_cannot_zero_the_whole_pay_summary() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        // A well record with no curve data at all — an import that failed, or a well created by hand.
+        let bare_id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, bare_id, "PAY-BARE", Some("Synthetic"), None, None).unwrap();
+        let bare = bare_id.to_string();
+        let good = seed_pay_well(&conn, "PAY-GOOD", Some(500.0));
+        let dbm = Mutex::new(conn);
+
+        let rows = run_pay_summary(
+            &dbm,
+            &PaySummaryRequest {
+                well_ids: vec![bare.clone(), good.clone()],
+                vsh_max: 0.5,
+                phie_min: 0.1,
+                swe_max: 0.6,
+                perm_min: None,
+                skip_version: false,
+                stats_only: true,
+            },
+        )
+        .expect("a bare well must not fail the batch");
+
+        let good_pay = rows.iter().find(|r| r.well_id == good && r.flag == "PAY").expect("the good well still reports");
+        assert!(good_pay.net > 0.0, "the good well keeps its full answer: {good_pay:?}");
+
+        // The bare well contributes NO rows — it is skipped, not reported as a zero. A zero row
+        // would be indistinguishable from a genuinely wet zone in the Field Dashboard.
+        assert!(
+            !rows.iter().any(|r| r.well_id == bare),
+            "a well with no curves must be absent, not present with zeros"
+        );
+    }
+
     /// A zone override beats the module dialog by design, so it also skips the dialog's range
     /// check — `moduleDialog.ts` validates against ArgSpec.min/max, `zonesDialog.ts` does not,
     /// and the DB Inspector edits `zone_params.value_num` raw. A petrophysicist entering
