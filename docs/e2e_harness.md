@@ -214,7 +214,7 @@ click listener the two are equivalent — but when the *gesture* is the thing un
 
 ## Current coverage
 
-Sixty-seven tests across sixteen spec files. Specs share ONE app launch and one project (see the spec
+Seventy tests across seventeen spec files. Specs share ONE app launch and one project (see the spec
 grouping note in `wdio.conf.mjs`), so write each one to establish what it needs and to assert
 changes as before/after differences rather than as absolute state.
 
@@ -368,6 +368,14 @@ correct one if you only read the message.
 | The pane opens with its form | Task, Algorithm, and the save-the-model field |
 | A Mask control exists | The plan says it does not — finding 24 |
 | A run with no input curve is refused | And nothing is written |
+
+`rocktyping.e2e.mjs` — the Rock Typing ribbon group (T-RT-01):
+
+| Test | What it proves |
+|---|---|
+| The menu lists exactly its catalogued modules | Compared as a set both ways |
+| Re-clicking focuses, never duplicates | Two panes for one module = a run nobody configured |
+| The pane is built from its manifest | Including an Outputs note naming the real outputs |
 
 Test data is `dataset for test/examples/` (`SANDI-*`) only. Never a real client project, never a
 path from `SANDIBUMI_FIELD_FIXTURES`.

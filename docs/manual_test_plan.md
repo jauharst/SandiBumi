@@ -2587,6 +2587,16 @@ Covers the four Rock Typing modules on the Petrophysics ribbon (`rocktyping`, `l
 4. Click each entry in turn; a dock pane opens per module. In the **Rock Typing (FZI / R35 / PGS)** pane check: a Wells scope row (mode buttons **Group / ★ Pinned / Selection / All / Custom…**), a **METHOD** select with entries `ghe` and `winland_port`, a **PS_EXP [-]** numeric (default 3.5), **PHI** and **PERM** curve selects, **Mask (optional)**, **Input cons** (default "(latest values)"), **Output cons** (default "INTERP"), the note "Outputs: RQI, PHIZ, FZI, R35, PGEOM, PSTRUC, RT, PERM_RT", and a **Run** button.
 5. Click the same ribbon entry again — the existing pane is focused, not duplicated (singleton).
    **Expected:** All four entries present with those exact titles; each opens a parameter pane without errors; re-clicking never duplicates a pane. Legacy "Multimin — Mineral Inversion" does NOT appear anywhere in the Petrophysics tab or the Advance tab.
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** `rocktyping.e2e.mjs`. The expected
+   titles are read from the MANIFESTS rather than hard-coded, so a rename moves both sides together;
+   the menu is compared as a set BOTH WAYS, because a menu with an extra entry is a module the
+   catalog does not know about - which is how a retired one comes back. Step 5's singleton is pinned
+   for a concrete reason: two panes for one module each carry their own scope and parameters, so
+   editing one and running the other produces a run nobody configured. The Outputs note is checked
+   against the manifest's own output names - a stale note is worse than none, since it tells you
+   which curves to expect and you will go looking for them. **Not covered:** the per-field defaults
+   in step 4 (METHOD entries, PS_EXP 3.5, the cons defaults).
+
    **Result — T-RT-01:**
 
 - [ ] Pass

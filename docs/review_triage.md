@@ -235,7 +235,16 @@ can fail for reasons unrelated to the code is a gate people learn to ignore.
 **`[x]` here means an end-to-end test drives it against the real app. It is NOT your verification
 mark** — same rule as pile B.
 
-**Done (26 of 86)**
+**Done (27 of 86)**
+
+- [x] **T-RT-01** — Rock Typing ribbon group lists its modules and opens their panes ·
+      `rocktyping.e2e.mjs`. The expected titles come from the MANIFESTS, not from a hard-coded
+      list, so a rename moves both sides together. The menu is compared as a SET BOTH WAYS: every
+      catalogued module offered, and nothing else — a menu with an extra entry is a module the
+      catalog does not know about, which is how a retired one comes back. Step 5's singleton claim
+      is pinned because a duplicate pane is not cosmetic: two panes for one module each carry their
+      own scope and parameters, so editing one and running the other produces a run nobody
+      configured, with nothing in the result to say which pane it came from.
 
 - [x] **T-MLEQ-01** — ML pane opens with the full form · `ml.e2e.mjs`. Task and Algorithm (which
       drive the algorithm list and the output name), and the "Save model as" field — the control
