@@ -2413,6 +2413,13 @@ export interface ImageInfo {
   /** false = the viewer shows it but the PDF exporter cannot embed it (see images.rs). */
   printable: boolean;
   bytes: number;
+  /** Width of the WHOLE picture in micrometres. null = no scale was declared, and nothing
+   *  dimensional may run on this plate. um/px of any copy = fov_um / that copy pixel width. */
+  fov_um: number | null;
+  /** "" = unknown (refused, never assumed), "blue_epoxy", "plain". */
+  prepared: string;
+  /** As the laboratory report names it; "" = none or not stated. */
+  stain: string;
 }
 
 export interface ImageSetInfo {
@@ -2446,6 +2453,9 @@ export interface ImageImportItem {
   depth_top: number;
   depth_base?: number | null;
   caption?: string | null;
+  /** Overrides the delivery value; absent falls back to it. Magnification genuinely varies
+   *  within one delivery, which is why this is per plate. */
+  fov_um?: number | null;
 }
 
 export interface ImageImportRequest {
@@ -2458,7 +2468,33 @@ export interface ImageImportRequest {
   /** Place the plate depths through the well's core depth record — a section is cut from a plug,
    *  so when that plug is re-registered the plate belongs with it. */
   follow_core?: boolean;
+  /** Delivery-level defaults. All absent by default, and absent is a real answer. */
+  fov_um?: number | null;
+  prepared?: string | null;
+  stain?: string | null;
   items: ImageImportItem[];
+}
+
+/** One plate field of view and preparation. Every value is written as given, null included —
+ *  a scale typed by mistake has to be clearable. */
+export function setImageDetails(
+  imageId: string,
+  fovUm: number | null,
+  prepared: string | null,
+  stain: string | null,
+): Promise<number> {
+  return invoke<number>("set_image_details", { imageId, fovUm, prepared, stain });
+}
+
+/** The same three facts across a whole live delivery, in one statement. */
+export function setImageDeliveryDetails(
+  wellId: string,
+  dataset: string,
+  fovUm: number | null,
+  prepared: string | null,
+  stain: string | null,
+): Promise<number> {
+  return invoke<number>("set_image_delivery_details", { wellId, dataset, fovUm, prepared, stain });
 }
 
 export interface ImageImportResult {

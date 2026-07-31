@@ -1,6 +1,8 @@
 import {
   listImageDatasets,
   listWellImages,
+  setImageDeliveryDetails,
+  setImageDetails,
   shiftWellImages,
   updateWellImage,
   type ImageInfo,
@@ -9,8 +11,9 @@ import { appState, bumpDataVersion, setStatus } from "../state";
 import { recordProcess } from "../processLog";
 import { pushUndo } from "../undo";
 import { formRow, openModal } from "./modal";
+import { buildPlateDetails } from "./plateDetails";
 
-/** Plate depth editing (Data ▸ Tools ▾ ▸ Plate Depths…).
+/** Plate depth, scale and preparation editing (Data ▸ Tools ▾ ▸ Plate Details…).
  *
  *  `update_well_image` has existed and been tested since the image track shipped, and nothing
  *  called it: a thin section delivered at the wrong depth could only be corrected by deleting the
@@ -31,7 +34,7 @@ import { formRow, openModal } from "./modal";
 export async function openPlateDepthDialog(): Promise<void> {
   const well = appState.selectedWell.get();
   const wrap = document.createElement("div");
-  openModal(well ? `Plate depths — ${well.well_name}` : "Plate depths", wrap, 780);
+  openModal(well ? `Plates — ${well.well_name}` : "Plates", wrap, 900);
 
   if (!well) {
     const none = document.createElement("div");
@@ -90,6 +93,56 @@ export async function openPlateDepthDialog(): Promise<void> {
     formRow("Shift every plate by", shiftRow, "+ = deeper. Applies to the dataset selected above.")
   );
 
+  // ---- scale and preparation, delivery-wide ------------------------------
+  // A delivery is usually one microscope and one impregnation run, so correcting it plate by
+  // plate would be hundreds of round trips to apply one decision — the same argument the bulk
+  // shift is built on. The per-plate columns below stay for the delivery that is genuinely mixed,
+  // which is the case that made these fields per-plate in the first place.
+  const details = buildPlateDetails({
+    scaleHint:
+      "Applies to every plate of the dataset selected above. Leave blank to clear it — a scale " +
+      "nobody can remove is worse than one never entered.",
+  });
+  wrap.appendChild(details.el);
+  const applyDetails = document.createElement("button");
+  applyDetails.className = "btn";
+  applyDetails.textContent = "Apply to whole delivery";
+  wrap.appendChild(applyDetails);
+
+  applyDetails.addEventListener("click", () => {
+    const ds = dsSel.value;
+    if (!ds) {
+      // A delivery-wide write needs a delivery. "All datasets" would silently give a core
+      // photograph the thin sections' magnification.
+      setStatus("Choose one dataset first — scale and preparation belong to a delivery");
+      return;
+    }
+    const d = details.get();
+    const before = rows.filter((r) => r.dataset === ds).map((r) => ({ ...r }));
+    void (async () => {
+      const n = await setImageDeliveryDetails(well!.well_id, ds, d.fov_um, d.prepared || null, d.stain || null);
+      setStatus(`Set scale and preparation on ${n} plate(s) of ${ds}`);
+      recordProcess("Edit", `Plate details on ${ds} (${n} plates)`, well!.well_name);
+      pushUndo({
+        label: `plate details ${ds} (${well!.well_name})`,
+        // Restored plate by plate: they need not have agreed before, and writing one value back
+        // across the delivery would invent a uniformity that was not there.
+        undo: async () => {
+          for (const r of before) await setImageDetails(r.image_id, r.fov_um, r.prepared || null, r.stain || null);
+          await refresh();
+          bumpDataVersion();
+        },
+        redo: async () => {
+          await setImageDeliveryDetails(well!.well_id, ds, d.fov_um, d.prepared || null, d.stain || null);
+          await refresh();
+          bumpDataVersion();
+        },
+      });
+      await refresh();
+      bumpDataVersion();
+    })();
+  });
+
   const tableWrap = document.createElement("div");
   tableWrap.style.maxHeight = "340px";
   tableWrap.style.overflow = "auto";
@@ -109,7 +162,7 @@ export async function openPlateDepthDialog(): Promise<void> {
     const table = document.createElement("table");
     table.className = "data-table";
     const head = document.createElement("tr");
-    for (const h of ["Dataset", "Name", "Top", "Base", "Kind", "Caption", ""]) {
+    for (const h of ["Dataset", "Name", "Top", "Base", "Kind", "FOV mm", "Prep", "Caption", ""]) {
       const th = document.createElement("th");
       th.textContent = h;
       head.appendChild(th);
@@ -157,6 +210,35 @@ export async function openPlateDepthDialog(): Promise<void> {
           : "Spans a real interval.";
       cell(kind);
 
+      // Blank means no scale was declared for this plate, and that is a real answer — nothing
+      // dimensional will run on it, which is the point.
+      const fovIn = document.createElement("input");
+      fovIn.className = "form-control";
+      fovIn.type = "number";
+      fovIn.step = "0.01";
+      fovIn.min = "0";
+      fovIn.placeholder = "none";
+      fovIn.value = img.fov_um == null ? "" : String(img.fov_um / 1000);
+      fovIn.title =
+        img.fov_um == null
+          ? "No scale declared. Grain and pore size cannot be measured on this plate."
+          : `${(img.fov_um / img.width).toFixed(3)} µm/px on the stored copy (${img.width} px wide)`;
+      cell(fovIn);
+
+      const prepIn = document.createElement("select");
+      prepIn.className = "form-control";
+      for (const [v, label] of [["", "?"], ["blue_epoxy", "Blue epoxy"], ["plain", "Plain"]] as const) {
+        const o = document.createElement("option");
+        o.value = v;
+        o.textContent = label;
+        prepIn.appendChild(o);
+      }
+      prepIn.value = img.prepared || "";
+      prepIn.title =
+        "Unknown is refused by the pore measurement rather than assumed — a blue-epoxy rule run on " +
+        "an unimpregnated section returns a porosity built from blue-ish grains.";
+      cell(prepIn);
+
       const capIn = document.createElement("input");
       capIn.className = "form-control";
       capIn.value = img.caption ?? "";
@@ -183,21 +265,35 @@ export async function openPlateDepthDialog(): Promise<void> {
           setStatus(`${nameIn.value}: base is above top — check the depths`);
           return;
         }
-        const before = { top: img.depth_top, base: img.depth_base, name: img.name, caption: img.caption };
-        const after = { top, base, name: nameIn.value, caption: capIn.value || null };
+        const fovMm = Number(fovIn.value);
+        const before = {
+          top: img.depth_top, base: img.depth_base, name: img.name, caption: img.caption,
+          fov: img.fov_um, prep: img.prepared || null,
+        };
+        const after = {
+          top, base, name: nameIn.value, caption: capIn.value || null,
+          // Blank clears the scale. A wrongly typed field of view has to be removable — one that
+          // cannot be cleared is worse than one never entered, because everything downstream
+          // believes it.
+          fov: fovIn.value.trim() === "" || !Number.isFinite(fovMm) || fovMm <= 0 ? null : fovMm * 1000,
+          prep: prepIn.value || null,
+        };
         void (async () => {
           await updateWellImage(img.image_id, after.top, after.base, after.name, after.caption);
+          await setImageDetails(img.image_id, after.fov, after.prep, img.stain || null);
           setStatus(`Re-registered ${after.name} at ${after.top}`);
           recordProcess("Edit", `Plate ${after.name} → ${after.top}`, well!.well_name);
           pushUndo({
             label: `plate depth ${after.name} (${well!.well_name})`,
             undo: async () => {
               await updateWellImage(img.image_id, before.top, before.base, before.name, before.caption);
+              await setImageDetails(img.image_id, before.fov, before.prep, img.stain || null);
               await refresh();
               bumpDataVersion();
             },
             redo: async () => {
               await updateWellImage(img.image_id, after.top, after.base, after.name, after.caption);
+              await setImageDetails(img.image_id, after.fov, after.prep, img.stain || null);
               await refresh();
               bumpDataVersion();
             },

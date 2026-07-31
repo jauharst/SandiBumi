@@ -2115,6 +2115,36 @@ fn shift_well_images(
     db::shift_well_images(&conn, &well_id, dataset.as_deref(), delta).map_err(|e| e.to_string())
 }
 
+/// One plate's field of view and preparation. Every value is written as given, `null` included —
+/// a scale typed by mistake has to be clearable.
+#[tauri::command]
+fn set_image_details(
+    db: tauri::State<DbState>,
+    image_id: String,
+    fov_um: Option<f32>,
+    prepared: Option<String>,
+    stain: Option<String>,
+) -> Result<usize, String> {
+    let conn = db.0.lock().unwrap();
+    db::set_image_details(&conn, &image_id, fov_um, prepared.as_deref(), stain.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+/// The same three facts across a whole live image delivery, in one statement.
+#[tauri::command]
+fn set_image_delivery_details(
+    db: tauri::State<DbState>,
+    well_id: String,
+    dataset: String,
+    fov_um: Option<f32>,
+    prepared: Option<String>,
+    stain: Option<String>,
+) -> Result<usize, String> {
+    let conn = db.0.lock().unwrap();
+    db::set_image_delivery_details(&conn, &well_id, &dataset, fov_um, prepared.as_deref(), stain.as_deref())
+        .map_err(|e| e.to_string())
+}
+
 /// Point datasets delivered as part of this well's active core table — what a depth shift
 /// should move along with the plugs.
 #[tauri::command]
@@ -2700,6 +2730,8 @@ pub fn run() {
             shift_well_images,
             apply_core_run_shifts,
             list_core_registrations,
+            set_image_details,
+            set_image_delivery_details,
             core_depth_pairs,
             map_core_depths,
             list_core_references,

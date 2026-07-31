@@ -10,6 +10,7 @@ import { appState, setStatus } from "../state";
 import { recordProcess } from "../processLog";
 import { formRow, openModal } from "./modal";
 import { buildFollowCoreRow } from "./followCore";
+import { buildPlateDetails } from "./plateDetails";
 import { suggestSetName } from "./importSetDialog";
 
 /** Image import wizard: probe → CONFIRM → commit, the same shape as the core-table wizard
@@ -54,6 +55,9 @@ export async function openImageImportDialog(
     depthTop: p.depth_top,
     depthBase: p.depth_base,
     caption: "",
+    // Per plate: the delivery-level field of view fills the blanks, this overrules it. Absent in
+    // both means no scale was declared for this plate, which is a real answer.
+    fovUm: null as number | null,
     include: !p.error,
   }));
 
@@ -104,6 +108,16 @@ export async function openImageImportDialog(
   const followCore = buildFollowCoreRow("the plate depths", "images");
   wrap.appendChild(followCore.el);
 
+  // Scale and preparation, delivered once for the whole delivery. Stored PER PLATE, because
+  // magnification varies within a delivery — the per-plate column below overrules this, and the
+  // plate editor can correct any of it afterwards.
+  const details = buildPlateDetails({
+    scaleHint:
+      "How wide the whole picture is, for plates that state it. Leave blank otherwise — nothing " +
+      "dimensional runs on a plate with no scale, and a guess would be a microscope setting nobody used.",
+  });
+  wrap.appendChild(details.el);
+
   const unitSel = document.createElement("select");
   unitSel.className = "form-control";
   for (const [v, label] of [
@@ -148,7 +162,7 @@ export async function openImageImportDialog(
   scroll.className = "core-import-preview";
   const table = document.createElement("table");
   const head = document.createElement("tr");
-  for (const h of ["", "File", "Pixels", "Name", "Depth", "Base (optional)", "Caption"]) {
+  for (const h of ["", "File", "Pixels", "Name", "Depth", "Base (optional)", "FOV mm", "Caption"]) {
     const th = document.createElement("th");
     th.textContent = h;
     head.appendChild(th);
@@ -221,6 +235,22 @@ export async function openImageImportDialog(
     });
     tr.appendChild(cell(baseIn));
 
+    // Blank = use the delivery value above. A plate photographed at another magnification is
+    // corrected here rather than by splitting the delivery in two.
+    const fovIn = document.createElement("input");
+    fovIn.className = "form-control";
+    fovIn.type = "number";
+    fovIn.step = "0.01";
+    fovIn.min = "0";
+    fovIn.placeholder = "delivery";
+    fovIn.title =
+      "Width of this picture in millimetres. Leave blank to use the delivery value, or blank in both if this plate does not state a scale.";
+    fovIn.addEventListener("change", () => {
+      const v = Number(fovIn.value);
+      r.fovUm = fovIn.value.trim() === "" || !Number.isFinite(v) || v <= 0 ? null : v * 1000;
+    });
+    tr.appendChild(cell(fovIn));
+
     const capIn = document.createElement("input");
     capIn.className = "form-control";
     capIn.addEventListener("change", () => (r.caption = capIn.value));
@@ -259,6 +289,7 @@ export async function openImageImportDialog(
         depth_top: r.depthTop,
         depth_base: r.depthBase,
         caption: r.caption.trim() || null,
+        fov_um: r.fovUm,
       });
     }
     if (items.length === 0) {
@@ -277,6 +308,9 @@ export async function openImageImportDialog(
         max_px: Number(maxPxInput.value) || 0,
         quality: 85,
         follow_core: followCore.checked(),
+        fov_um: details.get().fov_um,
+        prepared: details.get().prepared || null,
+        stain: details.get().stain || null,
         items,
       });
       const mb = (res.bytes / 1048576).toFixed(1);

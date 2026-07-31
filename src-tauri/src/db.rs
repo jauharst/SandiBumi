@@ -561,6 +561,27 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             source_path VARCHAR,
             printable   INTEGER NOT NULL DEFAULT 1, -- 0 = viewer only, cannot embed in a PDF
             data        BLOB NOT NULL,
+            -- How big the rock is, and how the section was prepared. Both are DECLARED and both
+            -- default to absent, because a delivery holds plates of both kinds (Jauhar,
+            -- 2026-07-31: "sometimes yes, sometimes not" for the scale, "sometimes stained and
+            -- epoxy, sometimes not" for the preparation).
+            --
+            -- `fov_um` is the WIDTH OF THE WHOLE PICTURE in micrometres, not a um/px ratio,
+            -- because the stored copy is resampled to a long-edge cap: a ratio would silently
+            -- belong to whichever copy it was measured on, while a field of view survives any
+            -- resampling. um/px of any copy is fov_um / that copy's pixel width. NULL means no
+            -- scale was declared, and nothing dimensional may run on such a plate — reporting
+            -- pixels under a micron label is the same class of error as a wrong `m`.
+            --
+            -- `prepared` and `stain` are INDEPENDENT: a section can be impregnated, stained,
+            -- both or neither. NULL/'' on `prepared` is UNKNOWN, not "plain" — a blue-epoxy
+            -- pore rule run over an unimpregnated section returns a porosity built from
+            -- blue-ish feldspar and edge artefact, so unknown must be refused rather than
+            -- assumed either way. The stain protocol comes from the laboratory report, so it is
+            -- free text rather than a vocabulary invented here.
+            fov_um      FLOAT,
+            prepared    VARCHAR,   -- '' / NULL = unknown | 'blue_epoxy' | 'plain'
+            stain       VARCHAR,   -- as the lab report names it; NULL = none or not stated
             PRIMARY KEY (well_id, dataset, set_name, image_id)
         );
 
@@ -1173,6 +1194,25 @@ pub fn migrate_delivery_depth_basis(conn: &Connection) -> DbResult<()> {
     Ok(())
 }
 
+/// Adds the plate's scale and preparation columns. ADD COLUMN only — no rebuild, no backup —
+/// and existing plates get NULL, which is the honest answer: nothing in a stored JPEG says how
+/// wide the field of view was or whether the section was impregnated, so an older delivery is
+/// UNKNOWN rather than assumed calibrated or assumed plain.
+pub fn migrate_plate_scale_and_prep(conn: &Connection) -> DbResult<()> {
+    for (col, ty) in [("fov_um", "FLOAT"), ("prepared", "VARCHAR"), ("stain", "VARCHAR")] {
+        let has: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM duckdb_columns()
+             WHERE table_name = 'well_images' AND column_name = ?1",
+            params![col],
+            |r| r.get(0),
+        )?;
+        if has == 0 {
+            conn.execute_batch(&format!("ALTER TABLE well_images ADD COLUMN {col} {ty};"))?;
+        }
+    }
+    Ok(())
+}
+
 pub fn migrate_point_data_sets(conn: &Connection, path: Option<&str>) -> DbResult<()> {
     let has_set: i64 = conn.query_row(
         "SELECT COUNT(*) FROM duckdb_columns()
@@ -1780,7 +1820,7 @@ pub fn list_aux_item_catalog(conn: &Connection) -> DbResult<Vec<AuxItemInfo>> {
 /// One picture's METADATA. Deliberately without the pixels: a catalog listing of a well
 /// that carries 300 core photographs must cost kilobytes, not a gigabyte, so every listing
 /// path uses this and the bytes are fetched one image at a time by `get_well_image`.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct ImageInfo {
     pub image_id: String,
     pub dataset: String,
@@ -1799,10 +1839,17 @@ pub struct ImageInfo {
     pub printable: bool,
     /// Stored size of the display copy, bytes.
     pub bytes: i64,
+    /// Width of the WHOLE picture in micrometres. None = no scale declared, and nothing
+    /// dimensional may run on this plate.
+    pub fov_um: Option<f32>,
+    /// '' = unknown (refused by anything that needs to know), 'blue_epoxy', 'plain'.
+    pub prepared: String,
+    /// As the laboratory report names it; empty = none or not stated.
+    pub stain: String,
 }
 
 /// One picture on its way INTO the store (the import commit path).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct NewImage {
     pub depth_top: f32,
     pub depth_base: Option<f32>,
@@ -1816,6 +1863,9 @@ pub struct NewImage {
     pub source_path: Option<String>,
     pub printable: bool,
     pub data: Vec<u8>,
+    pub fov_um: Option<f32>,
+    pub prepared: Option<String>,
+    pub stain: Option<String>,
 }
 
 /// SQL fragment naming the ACTIVE image delivery of the dataset in the row being tested —
@@ -1972,8 +2022,8 @@ pub fn insert_well_images(
         let mut stmt = conn.prepare(
             "INSERT INTO well_images (well_id, dataset, set_name, image_id, depth_top, depth_base,
                                       name, caption, mime, width, height, src_width, src_height,
-                                      source_path, printable, data)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                                      source_path, printable, data, fov_um, prepared, stain)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
         )?;
         let mut n = 0usize;
         for img in images {
@@ -1995,6 +2045,9 @@ pub fn insert_well_images(
                 img.source_path,
                 if img.printable { 1i32 } else { 0i32 },
                 img.data,
+                img.fov_um,
+                img.prepared,
+                img.stain,
             ])?;
             n += 1;
         }
@@ -2021,7 +2074,8 @@ pub fn list_well_images(conn: &Connection, well_id: &str, dataset: Option<&str>)
     let mut stmt = conn.prepare(&format!(
         "SELECT CAST(i.image_id AS VARCHAR), i.dataset, i.set_name, i.depth_top, i.depth_base,
                 i.name, i.caption, i.mime, i.width, i.height, i.src_width, i.src_height,
-                i.source_path, i.printable, octet_length(i.data)
+                i.source_path, i.printable, octet_length(i.data),
+                i.fov_um, COALESCE(i.prepared, ''), COALESCE(i.stain, '')
          FROM well_images i
          WHERE i.well_id = ?1 AND (?2 IS NULL OR i.dataset = ?2) AND i.set_name = {ACTIVE_IMAGE_SET}
          ORDER BY i.dataset, i.depth_top, i.name"
@@ -2043,6 +2097,9 @@ pub fn list_well_images(conn: &Connection, well_id: &str, dataset: Option<&str>)
             source_path: r.get(12)?,
             printable: r.get::<_, i32>(13)? != 0,
             bytes: r.get(14)?,
+            fov_um: r.get(15)?,
+            prepared: r.get(16)?,
+            stain: r.get(17)?,
         })
     })?;
     let mut out = Vec::new();
@@ -2091,7 +2148,8 @@ pub fn read_images_for_print(
     let mut stmt = conn.prepare(&format!(
         "SELECT CAST(i.image_id AS VARCHAR), i.dataset, i.set_name, i.depth_top, i.depth_base,
                 i.name, i.caption, i.mime, i.width, i.height, i.src_width, i.src_height,
-                i.source_path, i.printable, octet_length(i.data), i.data
+                i.source_path, i.printable, octet_length(i.data),
+                i.fov_um, COALESCE(i.prepared, ''), COALESCE(i.stain, ''), i.data
          FROM well_images i
          WHERE i.well_id = ?1 AND i.dataset = ?2 AND i.set_name = {ACTIVE_IMAGE_SET}
            AND COALESCE(i.depth_base, i.depth_top) >= ?3 AND i.depth_top <= ?4
@@ -2115,8 +2173,11 @@ pub fn read_images_for_print(
                 source_path: r.get(12)?,
                 printable: r.get::<_, i32>(13)? != 0,
                 bytes: r.get(14)?,
+                fov_um: r.get(15)?,
+                prepared: r.get(16)?,
+                stain: r.get(17)?,
             },
-            r.get::<_, Vec<u8>>(15)?,
+            r.get::<_, Vec<u8>>(18)?,
         ))
     })?;
     let mut out = Vec::new();
@@ -2145,6 +2206,50 @@ pub fn update_well_image(
         "UPDATE well_images SET depth_top = ?2, depth_base = ?3, name = ?4, caption = ?5
          WHERE image_id = ?1",
         params![image_id, depth_top, depth_base, name, caption],
+    )?)
+}
+
+/// How big the rock in one plate is, and how the section was prepared.
+///
+/// Separate from [`update_well_image`] because they are different facts with different lifetimes:
+/// a depth is corrected by registering the core, while a field of view is a property of the
+/// microscope that took the picture and does not change when the core moves.
+///
+/// Every argument is written as given, `None` included — clearing a wrongly-typed scale has to be
+/// possible, and a scale that cannot be cleared is worse than one that was never entered.
+pub fn set_image_details(
+    conn: &Connection,
+    image_id: &str,
+    fov_um: Option<f32>,
+    prepared: Option<&str>,
+    stain: Option<&str>,
+) -> DbResult<usize> {
+    Ok(conn.execute(
+        "UPDATE well_images SET fov_um = ?2, prepared = ?3, stain = ?4 WHERE image_id = ?1",
+        params![image_id, fov_um, prepared, stain],
+    )?)
+}
+
+/// The same three facts across a whole live delivery, in one statement.
+///
+/// A delivery is usually uniform — one microscope, one preparation run — and correcting it plate
+/// by plate would be hundreds of IPC round trips to apply one decision, the same argument
+/// [`shift_well_images`] is built on. Per-plate editing stays available for the delivery that is
+/// genuinely mixed, which is the case that made these fields per-plate rather than per-set.
+pub fn set_image_delivery_details(
+    conn: &Connection,
+    well_id: &str,
+    dataset: &str,
+    fov_um: Option<f32>,
+    prepared: Option<&str>,
+    stain: Option<&str>,
+) -> DbResult<usize> {
+    Ok(conn.execute(
+        &format!(
+            "UPDATE well_images AS i SET fov_um = ?3, prepared = ?4, stain = ?5
+             WHERE i.well_id = ?1 AND i.dataset = ?2 AND i.set_name = {ACTIVE_IMAGE_SET}"
+        ),
+        params![well_id, dataset, fov_um, prepared, stain],
     )?)
 }
 
@@ -3959,6 +4064,7 @@ mod inspector_tests {
             source_path: Some(format!("D:/plates/{name}.jpg")),
             printable: true,
             data: bytes.to_vec(),
+            ..Default::default()
         }
     }
 

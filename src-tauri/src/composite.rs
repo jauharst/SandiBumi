@@ -2125,6 +2125,7 @@ mod tests {
                 source_path: None,
                 printable,
                 bytes: 6,
+                ..Default::default()
             },
             img: std::sync::Arc::new(PrintImage {
                 id,

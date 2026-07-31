@@ -271,7 +271,7 @@ Part 1   1a  registration + proposal        SHIPPED 2026-07-31 (registration.rs)
          1d  everything follows a re-registration   SHIPPED 2026-07-31 (D2 closed)
          1f  registration recorded            SHIPPED 2026-07-31 (core_registrations)
 
-Part 2   2.0 scale + preparation per plate  D4 closed: declared, optional, no default
+Part 2   2.0 scale + preparation per plate  SHIPPED 2026-07-31 (declared, no default)
          A1  pore by blue epoxy             dimensionless; needs the impregnation flag
          A2  stained carbonate              needs the lab's stain protocol
          C   pore geometry                  highest cross-check value

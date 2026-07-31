@@ -397,7 +397,7 @@ export class Ribbon {
           },
         },
         {
-          label: "Plate Depths…",
+          label: "Plate Details…",
           doc: "Re-register pictures already imported — shift a whole delivery, or correct one plate's depth, name or caption (undoable)",
           onPick: () => {
             void import("./plateDepthDialog").then((m) => m.openPlateDepthDialog());

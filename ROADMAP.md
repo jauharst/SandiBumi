@@ -1462,6 +1462,19 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       it. **Still not automatic**: a delivery already in the project does not move when the core is
       re-registered afterwards — that is increment 1d, waiting on Jauhar firming up D2.
 
+- [x] **Plate scale and preparation (Part 2, increment 2.0 — D4 answered)** — **SHIPPED
+      2026-07-31**. Jauhar answered "sometimes" on both the scale and the epoxy, so one delivery
+      holds plates of both kinds: `well_images` gained `fov_um` / `prepared` / `stain` PER PLATE,
+      all declared, all defaulting to absent (`db::migrate_plate_scale_and_prep`, ADD COLUMN only).
+      **Scale is a field of view WIDTH, not um/px** — the stored copy is resampled, so a ratio
+      belongs to whichever copy it was measured on while a field of view survives resampling; um/px
+      is derived per copy. **Unknown preparation is refused, never assumed**: a blue-epoxy rule over
+      an unimpregnated section returns a plausible porosity rather than failing, and detecting
+      impregnation from the pixels is circular. Delivery-level values fill the blanks, the per-plate
+      **FOV mm** column overrules them. `src/ui/plateDetails.ts` is the one shared control;
+      `db::set_image_details` / `set_image_delivery_details` write one plate or a whole live
+      delivery, with `None` written as given so a wrong entry is clearable. Data ▸ Tools ▾ ▸
+      **Plate Details…** (renamed from Plate Depths…). Next: A1, pore area from blue epoxy.
 - [x] **The core carries its own depth history (Part 1, increment 1f — COMPLETES PART 1)** —
       **SHIPPED 2026-07-31**. `core_registrations` holds one row per moved range, written inside
       the SAME transaction as the move: `shift_core_depths` and `apply_core_run_shifts` take a

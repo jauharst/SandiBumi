@@ -6333,3 +6333,32 @@ project rather than in somebody's memory.
 
 **Worth a real test:** register a core today, come back to the well next week, and check the history
 tells you what you did and how well it matched — without opening a notebook.
+
+---
+
+## Plate scale and preparation (2026-07-31)
+
+The groundwork for measuring anything on a thin section. Your answer was "sometimes" on both the
+scale and the epoxy, so both are things you tell the app rather than things it works out.
+
+- [ ] **Data ▸ Import ▸ Images…** now asks for a **field of view width in mm**, an **impregnation**
+      choice and a **stain**. Leave them all blank — the import should work exactly as before.
+- [ ] Set a field of view for the delivery, then override **one plate** in the new **FOV mm** column
+      of the confirm table. That plate keeps its own value; the rest take the delivery's.
+- [ ] **Data ▸ Tools ▾ ▸ Plate Details…** (this is the old Plate Depths… — same dialog, renamed
+      because it now holds more than depth). Depths work as before.
+- [ ] Hover a plate's **FOV mm** cell. A calibrated plate shows what that works out to in µm/px on
+      the stored copy; an uncalibrated one says grain and pore size cannot be measured on it.
+- [ ] **Apply to whole delivery** with "All datasets" selected should refuse — a core photograph
+      must not inherit the thin sections' magnification. Pick one dataset and it applies.
+- [ ] **Ctrl+Z** after that. Plates that had different values before should get their own back, not
+      one shared value.
+- [ ] **Clear** a plate's field of view (empty the box, Save). It should go back to having no scale.
+      A wrongly typed scale you cannot remove is worse than one never entered.
+
+**Why "unknown" is a real setting:** left unknown, the pore measurement will refuse the plate. If it
+assumed "not impregnated" it would still return a porosity — built out of blue-ish grains and edge
+artefact — and that number would plot against your core helium porosity looking perfectly sensible.
+
+**Worth a real test:** import a delivery where some sections state a scale and some do not, and
+check the ones without simply come in blank rather than picking up a neighbour's number.

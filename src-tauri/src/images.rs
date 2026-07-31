@@ -528,7 +528,7 @@ fn prepare_verbatim(path: &str, reason: &str) -> PreparedImage {
 // ---------------------------------------------------------------------------
 
 /// One confirmed row of the import wizard.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct ImageImportItem {
     pub path: String,
     pub name: String,
@@ -537,10 +537,15 @@ pub struct ImageImportItem {
     pub depth_base: Option<f32>,
     #[serde(default)]
     pub caption: Option<String>,
+    /// Width of this plate in micrometres. Overrides the delivery-level value; absent falls back
+    /// to it, and absent in both means no scale was declared. `#[serde(default)]`, so an older
+    /// payload still deserializes.
+    #[serde(default)]
+    pub fov_um: Option<f32>,
 }
 
 /// The confirmed import, as the wizard sends it.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct ImageImportRequest {
     pub well_id: String,
     /// 'THIN SECTION', 'CORE PHOTO', or anything the user types.
@@ -558,6 +563,19 @@ pub struct ImageImportRequest {
     /// the well's core depth record. `#[serde(default)]`, so an older payload still deserializes.
     #[serde(default)]
     pub follow_core: bool,
+    /// Delivery-level defaults for the plate's scale and preparation. All three are absent by
+    /// default and absent is a real answer — a plate with no declared scale is one nothing
+    /// dimensional may run on, and a section whose preparation is unknown is one a blue-epoxy
+    /// rule must refuse rather than guess at.
+    #[serde(default)]
+    pub fov_um: Option<f32>,
+    /// '' = unknown, 'blue_epoxy', 'plain'.
+    #[serde(default)]
+    pub prepared: Option<String>,
+    /// As the laboratory report names it. Free text on purpose: which stain was used is the lab's
+    /// fact, and a vocabulary invented here would be a protocol nobody performed.
+    #[serde(default)]
+    pub stain: Option<String>,
     pub items: Vec<ImageImportItem>,
 }
 
@@ -591,6 +609,15 @@ pub fn import_images(conn: &Connection, req: &ImageImportRequest) -> Result<Imag
         if d.is_empty() { "IMAGES".to_string() } else { d }
     };
     let target_set = db_resolve_set(conn, &req.well_id, &dataset, &req.set_name)?;
+
+    // Preparation is delivery-level: one impregnation run, one staining bath. An empty string is
+    // stored as absent so "unknown" has exactly one representation, and everything downstream can
+    // test it once.
+    let clean = |s: &Option<String>| -> Option<String> {
+        s.as_deref().map(str::trim).filter(|v| !v.is_empty()).map(str::to_string)
+    };
+    let prep_kind = clean(&req.prepared);
+    let stain_name = clean(&req.stain);
 
     // Depth unit: the wizard says what the numbers mean, the project decides what is stored.
     let project_unit = units::project_depth_unit_or_default(conn);
@@ -670,6 +697,12 @@ pub fn import_images(conn: &Connection, req: &ImageImportRequest) -> Result<Imag
             source_path: Some(item.path.clone()),
             printable: prep.printable,
             data: prep.data.clone(),
+            // Per plate, because magnification genuinely varies within one delivery — that is the
+            // whole content of "sometimes". The wizard's delivery-level value only fills the
+            // blanks; what is stored belongs to the plate.
+            fov_um: item.fov_um.or(req.fov_um).filter(|v| v.is_finite() && *v > 0.0),
+            prepared: prep_kind.clone(),
+            stain: stain_name.clone(),
         });
     }
     if rows.is_empty() {
@@ -816,6 +849,109 @@ mod tests {
             .collect()
     }
 
+    /// Jauhar, 2026-07-31: the scale is "sometimes yes, sometimes not", and so is the epoxy. So a
+    /// delivery holds plates of both kinds, and the absent case has to stay absent — a default
+    /// micron-per-pixel would be a microscope setting invented here, and a defaulted "plain" would
+    /// let a blue-epoxy rule run on a section nobody impregnated.
+    #[test]
+    fn a_plate_with_no_declared_scale_or_preparation_stores_neither() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, "SANDI-TS", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        let p = std::env::temp_dir().join("sandi_ts_noscale.jpg");
+        std::fs::write(&p, real_jpeg()).unwrap();
+
+        let req = ImageImportRequest {
+            well_id: w.clone(),
+            dataset: "THIN SECTION".into(),
+            set_name: "LAB".into(),
+            items: vec![ImageImportItem {
+                path: p.to_string_lossy().into_owned(),
+                name: "TS-1".into(),
+                depth_top: 2005.0,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        import_images(&conn, &req).expect("import");
+
+        let live = crate::db::list_well_images(&conn, &w, None).unwrap();
+        assert_eq!(live.len(), 1);
+        assert!(live[0].fov_um.is_none(), "no scale was declared, so none is stored");
+        assert_eq!(live[0].prepared, "", "unknown preparation, not an assumed 'plain'");
+        assert_eq!(live[0].stain, "");
+    }
+
+    /// The delivery-level value is a convenience that fills the blanks; what is stored belongs to
+    /// the PLATE, because magnification genuinely varies within one delivery — which is the whole
+    /// content of "sometimes".
+    #[test]
+    fn a_delivery_scale_fills_the_blanks_and_one_plate_can_overrule_it() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, "SANDI-TS", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        let dir = std::env::temp_dir();
+        let a = dir.join("sandi_ts_scale_a.jpg");
+        let b = dir.join("sandi_ts_scale_b.jpg");
+        std::fs::write(&a, real_jpeg()).unwrap();
+        std::fs::write(&b, real_jpeg()).unwrap();
+
+        let req = ImageImportRequest {
+            well_id: w.clone(),
+            dataset: "THIN SECTION".into(),
+            set_name: "LAB".into(),
+            fov_um: Some(2500.0),
+            prepared: Some("blue_epoxy".into()),
+            stain: Some("  ".into()), // whitespace is not a stain protocol
+            items: vec![
+                ImageImportItem {
+                    path: a.to_string_lossy().into_owned(),
+                    name: "TS-1".into(),
+                    depth_top: 2005.0,
+                    ..Default::default()
+                },
+                ImageImportItem {
+                    path: b.to_string_lossy().into_owned(),
+                    name: "TS-2".into(),
+                    depth_top: 2006.0,
+                    fov_um: Some(800.0), // taken at a higher magnification
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        import_images(&conn, &req).expect("import");
+
+        let live = crate::db::list_well_images(&conn, &w, None).unwrap();
+        let plate = |n: &str| live.iter().find(|i| i.name == n).unwrap();
+        assert_eq!(plate("TS-1").fov_um, Some(2500.0));
+        assert_eq!(plate("TS-2").fov_um, Some(800.0), "the plate overrules the delivery");
+        assert!(live.iter().all(|i| i.prepared == "blue_epoxy"));
+        assert!(live.iter().all(|i| i.stain.is_empty()), "blank is not a stain protocol");
+
+        // A wrong entry has to be clearable — a scale that cannot be cleared is worse than one
+        // that was never typed, because everything downstream will believe it.
+        let id = plate("TS-1").image_id.clone();
+        crate::db::set_image_details(&conn, &id, None, None, None).unwrap();
+        let live = crate::db::list_well_images(&conn, &w, None).unwrap();
+        let ts1 = live.iter().find(|i| i.name == "TS-1").unwrap();
+        assert!(ts1.fov_um.is_none() && ts1.prepared.is_empty());
+        // And the rest of the delivery is untouched by a per-plate edit.
+        assert_eq!(live.iter().find(|i| i.name == "TS-2").unwrap().fov_um, Some(800.0));
+
+        // The bulk path writes the whole live delivery in one statement.
+        crate::db::set_image_delivery_details(&conn, &w, "THIN SECTION", Some(1200.0), Some("plain"), None)
+            .unwrap();
+        let live = crate::db::list_well_images(&conn, &w, None).unwrap();
+        assert!(live.iter().all(|i| i.fov_um == Some(1200.0) && i.prepared == "plain"));
+    }
+
     /// A thin section is cut from a plug, so when that plug is re-registered the plate belongs
     /// with it. This is D2 answered as a deliberate choice rather than an automatic link.
     #[test]
@@ -861,6 +997,7 @@ mod tests {
                     depth_top: 2005.0,
                     depth_base: None,
                     caption: None,
+                    fov_um: None,
                 },
                 ImageImportItem {
                     path: cp.to_string_lossy().into_owned(),
@@ -868,8 +1005,10 @@ mod tests {
                     depth_top: 2010.0,
                     depth_base: Some(2011.0),
                     caption: None,
+                    fov_um: None,
                 },
             ],
+            ..Default::default()
         };
         let res = import_images(&conn, &req).expect("import");
         assert_eq!(res.imported, 2, "{:?}", res.skipped);
@@ -914,7 +1053,9 @@ mod tests {
                 depth_top: 2005.0,
                 depth_base: None,
                 caption: None,
+                fov_um: None,
             }],
+            ..Default::default()
         };
         let res = import_images(&conn, &req).expect("import");
         assert_eq!(res.note.as_deref(), Some("no core to follow, depths used as written"));

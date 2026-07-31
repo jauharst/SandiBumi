@@ -1028,6 +1028,57 @@ switching the active delivery later cannot rewrite what this one has been throug
 No migration: `CREATE TABLE IF NOT EXISTS` runs on every open, the `ml_models` precedent. Nothing
 is written when a shift moved no plugs.
 
+## Plate scale and preparation (2026-07-31 — D4 answered)
+
+Jauhar's answer to D4 was **"sometimes"** on both counts: sometimes the section states a scale,
+sometimes not; sometimes it is epoxy-impregnated and stained, sometimes not. A uniform answer
+either way would have been easier — this one means one delivery holds plates of both kinds, so
+`well_images` gained `fov_um`, `prepared` and `stain` **per plate**, all defaulting to absent, all
+DECLARED and never inferred (`db::migrate_plate_scale_and_prep`, ADD COLUMN only, no backup;
+existing plates get NULL, which is the honest answer).
+
+**Scale is entered as a FIELD OF VIEW WIDTH, not micrometres per pixel.** The stored copy is
+resampled to a long-edge cap, so a um/px belongs to whichever copy it was measured on and nothing
+in the number says which — while "this picture is 2.5 mm across" is true of every copy of it. um/px
+for any copy is `fov_um / that copy's pixel width`, which is what the readout derives. It is also
+the form a petrography caption already states. There is **no default**: §3's "no default um/px,
+ever" now has teeth, because absent is the normal case rather than a corner.
+
+**Anything dimensional must REFUSE an uncalibrated plate rather than report pixels.** A D50 in
+pixels is not a D50, and a number with the right name and the wrong unit is the same failure as a
+wrong `m` — it computes, it plots, it ships. A run over a mixed delivery reports how many plates it
+skipped and names them; a silent subset looks exactly like a complete answer. Family A (area
+fractions) is unaffected, which is why it stays first.
+
+**`prepared` unknown is REFUSED, not assumed either way.** This is the sharper rule, because the
+failure is silent in both directions. A blue-epoxy pore rule run over a section nobody impregnated
+does not fail — it returns a porosity assembled from blue-ish feldspar, stain bleed and edge
+artefact, which then plots against core helium porosity as though it meant something. Detecting
+impregnation from the pixels is the same circular move as detecting a water zone from the
+saturation being calibrated: the evidence for "this is blue epoxy" is the blue about to be
+measured. `stain` is FREE TEXT for the same reason the RtC water zone is declared — which stain
+was used is the laboratory's fact, and a menu invented here would be a protocol nobody performed.
+
+**Delivery-level values fill the blanks; what is stored belongs to the plate.** Magnification
+genuinely varies within one delivery — that is the whole content of "sometimes" — so the import
+wizard takes one field of view for the delivery plus a per-plate **FOV mm** column that overrules
+it, and `ImageImportItem.fov_um` (`#[serde(default)]`) carries the override. Preparation is taken
+delivery-wide at import (one impregnation run, one staining bath) but stored per plate so a mixed
+delivery can still be corrected.
+
+`src/ui/plateDetails.ts` is the one control, shared by the import wizard and the plate editor — the
+same decision, and two copies is two places for the wording to drift (the `followCore.ts`
+argument). `db::set_image_details` writes one plate, `db::set_image_delivery_details` writes a whole
+live delivery in one statement (the `shift_well_images` argument: a core-photograph delivery is
+hundreds of plates). **Every value is written as given, `None` included** — a wrongly typed scale
+has to be clearable, and one that cannot be removed is worse than one never entered, because
+everything downstream believes it. The delivery-wide button REFUSES "All datasets": that would give
+a core photograph the thin sections' magnification. Its undo restores plate by plate, because the
+plates need not have agreed before and writing one value back across the delivery would invent a
+uniformity that was not there.
+
+Data ▸ Tools ▾ ▸ **Plate Details…** (renamed from Plate Depths…, same dialog).
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under
