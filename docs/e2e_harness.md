@@ -214,7 +214,7 @@ click listener the two are equivalent — but when the *gesture* is the thing un
 
 ## Current coverage
 
-Fifty-eight tests across thirteen spec files. Specs share ONE app launch and one project (see the spec
+Sixty-two tests across fourteen spec files. Specs share ONE app launch and one project (see the spec
 grouping note in `wdio.conf.mjs`), so write each one to establish what it needs and to assert
 changes as before/after differences rather than as absolute state.
 
@@ -344,6 +344,15 @@ correct one if you only read the message.
 |---|---|
 | A single-well run names the well that RAN | Selected A, scoped to B, the row must say B |
 | A batch names no single well | And states how many it covered |
+
+`undo.e2e.mjs` — undo/redo through a real DB Inspector edit (T-SHELL-13, part of T-REP-15):
+
+| Test | What it proves |
+|---|---|
+| The undo button is labelled after an edit | The tooltip names the action, not just "Undo" |
+| Undo restores the VALUE | Not merely the button state |
+| Redo reapplies it | The full round trip |
+| A data edit is not "unsaved work" | The dirty dot means named-save freshness, nothing else |
 
 Test data is `dataset for test/examples/` (`SANDI-*`) only. Never a real client project, never a
 path from `SANDIBUMI_FIELD_FIXTURES`.

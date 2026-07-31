@@ -235,7 +235,15 @@ can fail for reasons unrelated to the code is a gate people learn to ignore.
 **`[x]` here means an end-to-end test drives it against the real app. It is NOT your verification
 mark** — same rule as pile B.
 
-**Done (22 of 86)**
+**Done (23 of 86)**
+
+- [x] **T-SHELL-13** — Undo/Redo with live labels · `undo.e2e.mjs`, driven through a real Database
+      Inspector cell edit (the cheapest genuinely undoable action). The claim is not that the
+      buttons exist: the tooltip must NAME what will be reversed, because "Undo (Ctrl+Z)" alone is
+      the empty-stack wording and a button that will not say what it undoes is a dare rather than a
+      tool. And the VALUE round trip is asserted, not just the button state — an undo that fires
+      its callback without changing the data is indistinguishable from a working one until someone
+      reads the number.
 
 - [x] **T-SHELL-15** — History attribution: single-well vs batch module run · `history.e2e.mjs`.
       The contract in `workspace.ts` is sharper than it looks — a single-well run is attributed BY
@@ -372,6 +380,21 @@ mark** — same rule as pile B.
       a star that looks set and was never written gives a run scope that silently empties on the
       next launch. **Not covered:** the 📌 global well LOCK (a different control from the ★), the
       panel titles following the selection, and ★ persistence across a relaunch.
+
+- [ ] **T-REP-15** — DB Inspector edits persist, refresh, undo. `undo.e2e.mjs` covers the edit
+      reaching the project, the undo restoring the old value and the redo reapplying it. **Not
+      covered:** the status text, the Log View repaint, and the survives-a-restart check.
+
+- [ ] **T-SHELL-12** — Dirty ● indicators. **NOT covered, and worth knowing why.** A first attempt
+      asserted that a Database Inspector edit lights the Project tab's dot. It does not, and that is
+      correct: `dirty.ts` tracks **named-save freshness** — workspace arrangement and log-view
+      layout edits, the things a Session captures — while a data edit goes straight to DuckDB and is
+      already persisted. Marking it dirty would train the user to ignore the dot, which is the only
+      warning that their PANE ARRANGEMENT is unsaved. `undo.e2e.mjs` pins the inverse instead (a
+      data edit must NOT report unsaved work) plus the placement rule, which holds either way: the
+      dot must be a CLASS, never a text prefix, or the tabstrip reflows and shifts every other tab
+      under the cursor. Covering the real claim needs a workspace change and a session save, and it
+      is order-dependent across specs because `muteDirty()` runs after a save.
 
 - [ ] **T-AUX-15** — Pinned wells as a batch-run scope. `scope.e2e.mjs` covers the ★ scope
       resolving to the pinned set and following a second pin without the pane being reopened, plus

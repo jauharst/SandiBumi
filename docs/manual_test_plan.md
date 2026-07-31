@@ -364,6 +364,15 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
 3. Plot tab → **Save Layout…**, save under a name.
 4. Rearrange the panes (drag a tab), then click **Project ▸ Session ▸ Save Session…** and save.
    **Expected:** Step 2: the Log View tab shows **●**; the **Project ribbon tab** carries a small amber dot while you are still on another tab (hover it: "Unsaved changes — Project ▸ Session ▸ Save Session…"), and the **Save Session…** button itself has a red dot with "— unsaved changes" in its tooltip. The tab must NOT change width when the dot appears. Step 3: that panel's ● clears (layout is now in a named save) but the workspace-arrangement dot may remain if panes moved. Step 4: **everything** clears — no ● on any panel tab, no dot on the Project ribbon tab, no red dot on the button. The dot means "not in a named save yet" only; the 10-s crash autosave runs regardless. Covers REVIEW.md §P1-b "Unsaved markers" (unchecked item).
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** NOT covered, and worth knowing why. A
+   first attempt asserted that a Database Inspector edit lights this dot. It does not, and that is
+   CORRECT: `dirty.ts` tracks named-save freshness - workspace arrangement and log-view layout
+   edits, the things a Session captures - while a data edit goes straight to DuckDB and is already
+   persisted. Marking it dirty would train you to ignore the dot, which is the only warning that
+   your pane ARRANGEMENT is unsaved. `undo.e2e.mjs` pins the inverse (a data edit must not report
+   unsaved work) and the placement rule that holds either way: the dot is a CLASS, never a text
+   prefix, so the tabstrip cannot reflow and shift every other tab under the cursor.
+
    **Result — T-SHELL-12:**
 
 - [x] Pass
@@ -384,6 +393,13 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
 4. Hover **Redo**; click it.
 5. Clean up: Undo once more (leave the project without `UAT_TOP`).
    **Expected:** After step 2: Undo enables, tooltip **Undo add top UAT_TOP (Ctrl+Z)**; History panel gains **Tops — {well}: Added top UAT_TOP at {depth}**. Step 3: status **Undo: add top UAT_TOP**; the top vanishes from the Log View AND the Tops pane; Redo enables with tooltip **Redo add top UAT_TOP (Ctrl+Y)**. Step 4: the top returns at the same depth. Ctrl+Z / Ctrl+Y do the same as the buttons.
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** `undo.e2e.mjs`, driven through a real
+   Database Inspector cell edit. The tooltip must NAME what will be reversed - "Undo (Ctrl+Z)" alone
+   is the empty-stack wording, and a button that will not say what it undoes is a dare rather than a
+   tool - and the VALUE round trip is asserted, not just the button state, because an undo that
+   fires its callback without changing the data is indistinguishable from a working one until
+   someone reads the number. **Not covered:** the full six-edit walk and redo invalidation.
+
    **Result — T-SHELL-13:**
 
 - [x] Pass
