@@ -1825,12 +1825,55 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       across the delivery. A white balance cannot do that — auto white balance on the camera would.
       Worth asking the laboratory before building anything further, because it is a setting rather
       than a re-shoot.
-- [ ] **A colour band is not yet a substitute for a point count on this rock.** Repeatable (0.85
-      between two views of one plug) but agreeing with the petrographer at only 0.10-0.27, so the
-      gap is systematic. The likely mechanism is that a point count ticks VISIBLE pores under a
-      grid while the rule counts every blue pixel including microporous haze — which would make
-      this a difference in definition rather than an error. Needs Jauhar's judgement before more
-      colour work is done.
+- [x] **A colour band is not yet a substitute for a point count on this rock** — **ANSWERED
+      2026-07-31 by the helium arm, and the premise was wrong.** The point count is not a yardstick:
+      it agrees with the laboratory's ambient helium porosity at only **Spearman 0.505** on the same
+      45 plugs, reading a median 14.5% against helium's 24.8%. That is the microporosity difference
+      showing up directly — a count ticks pores VISIBLE under an optical grid, helium fills every
+      connected pore — so 0.505 is about the ceiling for this rock and "disagrees with the point
+      count" was never on its own evidence of an error.
+- [x] **Does the colour rule track helium better than the point count?** — **MEASURED 2026-07-31.**
+      Across the whole delivery, yes: 0.575 uncorrected and 0.67–0.69 corrected against 0.505. **But
+      that headline is inflated and must not be quoted** — the delivery spans a ~25% carbonate and a
+      ~5% one, and separating two cores is not the same as ranking plugs within one. Scored INSIDE
+      each cored interval against helium: shallow core 0.01 uncorrected -> 0.19 corrected against
+      the count's 0.51; deep core 0.27 -> 0.49 with no count to compare. **The correction earns its
+      place on independent data** (it lifts both intervals, roughly doubling the deep one), and the
+      colour rule still loses to the petrographer where both exist. Method note: the two fields of
+      view per plug are AVERAGED, never pooled — pooling counts each plug twice and inflates n with
+      no independent rock.
+- [x] **A comma decimal put a seventh of a delivery on the wrong rock** — **SHIPPED 2026-07-31**,
+      found while pairing plates against core. 18 of one book's 129 plate sheets write `7016,54 FT`
+      where 103 write `6980.71 FT`. The comma split the number, `7016` was dropped for carrying no
+      unit and `54 FT` matched, so those plates stored at **54 feet on rock cored at 7,000** — a
+      plausible shallow depth, no failure, nothing downstream able to tell. `as_number` in
+      `WORKBOOK_RUNNER` now reads both conventions: rightmost separator wins where both appear, a
+      single separator is a decimal unless the token is validly grouped, and the honestly ambiguous
+      `1,234` is read as a decimal AND reported. Pinned by
+      `a_comma_decimal_depth_is_read_as_one_number_not_two`, executed through the discovered
+      interpreter rather than asserted against the source.
+- [ ] **One sheet in 129 still reads its depth wrong, and no safe rule fixes it.** It writes
+      `7033,50/354 FT (CORE)`, putting the unit on the PLUG number, and reads 354 ft. "Prefer the
+      first number" would fix it and break `PLATE 12, DEPTH 4633.50 FT`. Left to the import wizard's
+      editable depth table, where a 354 among 7,000s is visible. Revisit only if a delivery turns up
+      where this shape is the majority.
+- [ ] **WHICH plate is the reference matters more than the band does, and nothing guides the
+      choice.** Sweeping three references drawn from a cored interval's own plates, scored inside
+      that interval against helium: shallow core 0.110 / 0.237 / 0.203, deep core 0.297 / **0.530** /
+      0.152. That is a 3.5x spread in the deep core from a choice the user makes by eye, and the
+      worst of the three (0.152) is WORSE than not correcting at all (0.270). Quoting the best of a
+      sweep is the same overfitting trap this delivery already taught, so the honest statement is
+      the spread. Two things follow and neither is invented yet: the dialog gives no signal for
+      picking a reference beyond the preview, and there is no warning when a chosen reference makes
+      a delivery worse. A cheap first move would be to report the delivery's agreement with core
+      porosity where core exists — the tool has `plugqc` already.
+- [ ] **Per-interval references beat one reference for the delivery, modestly.** Giving each cored
+      interval its own reference: shallow 0.237 against 0.193 for a delivery-wide one, deep 0.530
+      against 0.494. So "measure them in groups" is real advice rather than a hedge — but it is a
+      refinement, not the missing piece.
+- [ ] **The deep core has no point count and the colour rule reaches 0.49 there.** That is the one
+      interval in this delivery where the tool is doing work nobody did by hand, and it is the
+      natural place to ask Jauhar whether the numbers look like the rock.
 - [ ] **Can ONE reference serve a 289-degree delivery?** The correction gets less exact the further
       a plate has to move, and nothing yet says how far is too far. Deliberately not invented: the
       answer has to come from Jauhar reporting the largest Shift on a plate whose preview still

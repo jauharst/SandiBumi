@@ -503,13 +503,15 @@ os.makedirs(out_dir, exist_ok=True)
 # A DEPTH IS A NUMBER WITH A UNIT ON IT. Never a bare number: the same header block carries the
 # plate number and the plug number, and on this delivery the depth cell reads "4633.50 FT/ 108" -
 # taking the bare number would be a coin toss between a depth and a plug. Absent means absent.
-DEPTH = re.compile(r"([0-9]+(?:\.[0-9]+)?)\s*(FEET|FEE?T|FT|METRES?|METERS?|M)\b", re.I)
+#
+# The number may be written with EITHER decimal separator - see as_number below.
+NUM = r"[0-9]+(?:[.,][0-9]+)*"
+DEPTH = re.compile(r"(%s)\s*(FEET|FEE?T|FT|METRES?|METERS?|M)\b" % NUM, re.I)
 # A range in one cell: "4626.00 - 4641.00 FT".
 RANGE = re.compile(
-    r"([0-9]+(?:\.[0-9]+)?)\s*[-–]\s*([0-9]+(?:\.[0-9]+)?)\s*(FEET|FEE?T|FT|METRES?|METERS?|M)\b",
-    re.I,
+    r"(%s)\s*[-–]\s*(%s)\s*(FEET|FEE?T|FT|METRES?|METERS?|M)\b" % (NUM, NUM), re.I
 )
-MAG = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*[xX]\s*$")
+MAG = re.compile(r"^\s*(%s)\s*[xX]\s*$" % NUM)
 
 FT = ("FT", "FEET", "FEE T")
 
@@ -519,6 +521,47 @@ def unit_of(tok):
     return "ft" if t.startswith("F") else "m"
 
 
+def as_number(tok):
+    """One depth, written under either decimal convention.
+
+    `4633.50 FT` and `7016,54 FT` are the same statement made by two people in the SAME delivery -
+    18 of one book's 129 sheets used the comma. Reading only the dot convention did not FAIL on
+    those, which is what made it dangerous: the comma split the number, `7016` was discarded for
+    carrying no unit, and `54 FT` matched instead, so the plate was stored at 54 feet on rock cored
+    at 7,000. A plausible shallow depth on entirely the wrong sand.
+
+    Same family as read_text_file's encoding rule: bytes must be interpreted rather than assumed,
+    and so must numbers.
+
+    Returns (value, ambiguous). `ambiguous` is set only where the token could honestly be read
+    either way; the caller REPORTS it rather than resolving it silently.
+    """
+    dot, comma = tok.rfind("."), tok.rfind(",")
+    if dot >= 0 and comma >= 0:
+        # Both appear, so one is grouping and the other is the decimal point, and the RIGHTMOST is
+        # the decimal. That is true of `1,234.56` and of `1.234,56` alike and needs no guess about
+        # which locale typed it.
+        dec, group = (".", ",") if dot > comma else (",", ".")
+        return float(tok.replace(group, "").replace(dec, ".")), False
+    sep = "." if dot >= 0 else ("," if comma >= 0 else None)
+    if sep is None:
+        return float(tok), False
+    parts = tok.split(sep)
+    if len(parts) > 2:
+        # `1.234.567` - a number has one decimal point, so every separator here is grouping.
+        return float("".join(parts)), False
+    # ONE separator. It can only be grouping if the token is VALIDLY grouped: 1-3 digits, then
+    # exactly 3. `7016,54` is not (two digits follow) so it reads as a decimal, which is the fix
+    # this delivery needed; `4633.500` is not either (four digits lead), so three decimal places
+    # still read as three decimal places rather than becoming 4,633,500.
+    if not (len(parts[0]) <= 3 and len(parts[1]) == 3):
+        return float(parts[0] + "." + parts[1]), False
+    # `1,234` could be one thousand two hundred and thirty-four, or 1.234, and nothing in the token
+    # says which. Read as a DECIMAL, because the wrong answer is then ABSURD (1.234 ft) rather than
+    # plausible (1234 ft) - an absurd depth gets looked at, a plausible one gets used. Reported.
+    return float(parts[0] + "." + parts[1]), True
+
+
 def scan(ws, max_rows):
     """Depth, unit and magnification from one plate sheet.
 
@@ -526,6 +569,7 @@ def scan(ws, max_rows):
     search invites a stray number further down the sheet. The magnification is looked for over the
     WHOLE sheet, because it is captioned under each panel rather than in the header."""
     depth = base = unit = None
+    unsure = []
     for row in ws.iter_rows(min_row=1, max_row=max_rows):
         for c in row:
             if c.value is None:
@@ -533,11 +577,16 @@ def scan(ws, max_rows):
             t = str(c.value)
             m = RANGE.search(t)
             if m:
-                depth, base, unit = float(m.group(1)), float(m.group(2)), unit_of(m.group(3))
+                depth, a = as_number(m.group(1))
+                base, b = as_number(m.group(2))
+                unit = unit_of(m.group(3))
+                unsure = [g for g, f in ((m.group(1), a), (m.group(2), b)) if f]
                 break
             m = DEPTH.search(t)
             if m:
-                depth, unit = float(m.group(1)), unit_of(m.group(2))
+                depth, a = as_number(m.group(1))
+                unit = unit_of(m.group(2))
+                unsure = [m.group(1)] if a else []
                 break
         if depth is not None:
             break
@@ -553,7 +602,7 @@ def scan(ws, max_rows):
     # which without guessing from where the caption sits, and a magnification on the wrong plate is
     # worse than none.
     mag = next(iter(mags)) if len(mags) == 1 else None
-    return depth, base, unit, mag, sorted(mags)
+    return depth, base, unit, mag, sorted(mags), unsure
 
 
 REL_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
@@ -659,10 +708,14 @@ for path in req["paths"]:
             bare += 1
             continue
         n_sheets += 1
-        depth, base, unit, mag, sheet_mags = scan(ws, req.get("header_rows", 14))
+        depth, base, unit, mag, sheet_mags, unsure = scan(ws, req.get("header_rows", 14))
         if unit:
             units.add(unit)
         mags.update(sheet_mags)
+        for tok in unsure:
+            # Read as a decimal and SAID so, rather than resolved silently either way.
+            notes.append("sheet %s: depth written %s - read as a decimal point; if that separator "
+                         "meant thousands the depth is %s" % (sname, tok, tok.replace(",", "").replace(".", "")))
         if len(sheet_mags) > 1:
             notes.append("sheet %s: states %s - no magnification attached, it cannot be told which "
                          "picture is which" % (sname, " and ".join(sheet_mags)))
@@ -750,6 +803,20 @@ sys.stdout.write(json.dumps({"rows": rows, "notes": notes}))
 /// beside a stated fact is a bug waiting to happen. It is also read only where a UNIT follows it,
 /// because the same header carries the plate number and the plug number — on a real delivery the
 /// cell reads `4633.50 FT/ 108`, and taking the bare number would be a coin toss.
+///
+/// **That number is read under EITHER decimal convention.** One delivered book wrote 103 of its
+/// sheets `6980.71 FT` and 18 of them `7016,54 FT` — one laboratory, one report, two people. The
+/// comma reading did not fail: it split the number, `7016` was dropped for carrying no unit and
+/// `54 FT` matched instead, so a seventh of the delivery was stored at 54 feet on rock cored at
+/// 7,000. A plausible shallow depth on entirely the wrong sand, which is the failure this module
+/// exists to refuse. See the runner's `as_number`; the same family as `parsers::read_text_file`,
+/// where bytes must be interpreted rather than assumed.
+///
+/// **Known limit, found on the same delivery and deliberately not patched around.** One sheet in
+/// 129 writes `7033,50/354 FT (CORE)`, putting the unit on the PLUG number rather than the depth,
+/// and reads 354 ft. Every rule that would fix it breaks a commoner shape — "prefer the first
+/// number" misreads `PLATE 12, DEPTH 4633.50 FT` — so the defence stays the import wizard's
+/// editable table, where a 354 among 7,000s is visible before anything is stored.
 ///
 /// **A magnification is not a field of view and is never converted into one.** Turning `10x` into
 /// micrometres needs the camera sensor width and the tube factor, both properties of the
@@ -1285,7 +1352,84 @@ mod workbook_tests {
         assert!(!src.contains("fov_um"), "a magnification must never be turned into a field of view");
         // stdin.buffer, never stdin - the standing rule for every runner in this repo.
         assert!(src.contains("sys.stdin.buffer"), "a piped child's text stdin is cp1252 here");
+        // ...and the number carrying that unit accepts EITHER decimal separator. Asserted here as
+        // well as executed below, so a machine with no interpreter still notices if it goes.
+        assert!(
+            src.contains(r"[0-9]+(?:[.,][0-9]+)*"),
+            "a depth may be written 7016,54 as readily as 7016.54"
+        );
     }
+
+    /// A depth written with a comma decimal is ONE number, not two.
+    ///
+    /// Found on a real delivery: 18 of one book's 129 plate sheets wrote the depth the Indonesian
+    /// way, `7016,54 FT`, alongside 103 that wrote `6980.71 FT`. Reading only the dot convention did
+    /// not FAIL on them, which is what made it dangerous — the comma split the number, `7016` was
+    /// discarded for carrying no unit, and `54 FT` matched instead, so those plates were stored at
+    /// 54 feet on rock cored at 7,000. A plausible shallow depth on entirely the wrong sand.
+    ///
+    /// Same family as `parsers::read_text_file`'s encoding rule: bytes must be interpreted rather
+    /// than assumed, and so must numbers.
+    ///
+    /// EXECUTED rather than asserted against the source, because the rule is real arithmetic and a
+    /// source match would keep passing over a regex that no longer works. It needs only the Python
+    /// standard library — the number section is sliced out ahead of the runner's openpyxl import —
+    /// and skips with a printed reason where there is no interpreter at all, the `field_fixtures`
+    /// pattern, so a fresh clone stays green.
+    #[test]
+    fn a_comma_decimal_depth_is_read_as_one_number_not_two() {
+        let Some(python) = find_python() else {
+            eprintln!("skipped: no python interpreter on this machine");
+            return;
+        };
+        let after = WORKBOOK_RUNNER.split("NUM = ").nth(1).expect("the number section");
+        let defs = &after[..after.find("def scan(").expect("scan follows the number section")];
+        let script = String::from("import re\nNUM = ") + defs + DRIVER;
+
+        let out = Command::new(&python)
+            .args(["-c", &script])
+            .output()
+            .expect("failed to run python");
+        assert!(
+            out.status.success() && String::from_utf8_lossy(&out.stdout).contains("OK"),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    /// Drives the runner's own `as_number`, `DEPTH` and `RANGE` over both decimal conventions.
+    const DRIVER: &str = r#"
+CASES = [
+    (":  7016,54 FT / 337", 7016.54, "ft"),   # the delivery that found this
+    (": 6980.71 FT/ 301",   6980.71, "ft"),   # ...and the 103 sheets beside it, unchanged
+    ("4633.500 FT",          4633.5, "ft"),   # three decimals stay three decimals
+    ("4633,500 FT",          4633.5, "ft"),   # ...under either convention
+    ("4,633.50 FT",          4633.5, "ft"),   # both separators: the rightmost is the decimal
+    ("4.633,50 FT",          4633.5, "ft"),   # ...whichever locale typed it
+    ("1.234.567 M",       1234567.0,  "m"),   # more than one separator is grouping
+    ("6980 FT",             6980.0,  "ft"),
+    ("2145,75 M",           2145.75,  "m"),
+]
+for text, want, unit in CASES:
+    m = DEPTH.search(text)
+    assert m, "no depth found in %r" % text
+    got, _ = as_number(m.group(1))
+    assert abs(got - want) < 1e-6, "%r read as %s, wanted %s" % (text, got, want)
+    assert unit_of(m.group(2)) == unit, "%r read the wrong unit" % text
+
+# `1,234` could honestly be either. Read as a DECIMAL, because the wrong answer is then absurd
+# (1.234 ft) rather than plausible (1234 ft) - and FLAGGED, so the caller can say so.
+v, unsure = as_number("1,234")
+assert unsure, "an honestly ambiguous separator must be reported"
+assert abs(v - 1.234) < 1e-9, v
+
+# A range in one cell, comma decimals throughout.
+m = RANGE.search("4626,00 - 4641,00 FT")
+assert m, "the range regex must accept comma decimals too"
+assert (as_number(m.group(1))[0], as_number(m.group(2))[0]) == (4626.0, 4641.0)
+
+print("OK")
+"#;
 
     /// The decoration floor is in PIXELS and round — the `min_pore_px` argument. A workbook carries
     /// scale-bar graphics and letterheads anchored beside the plates; on a real delivery those ran

@@ -6929,3 +6929,107 @@ white balance can explain, and it is why a single reference plate cannot rescue 
 
 - [ ] If you can ask the laboratory anything about these plates, ask whether the camera was on
       auto white balance. That would explain it exactly, and it is a setting, not a re-shoot.
+
+---
+
+## A seventh of a delivery was landing on the wrong rock (2026-07-31)
+
+Reading your petrography books to set up the helium comparison, 18 of one book's 129 plate sheets
+came out at depths of 33 to 71 feet — on a well cored at 4,600 and 7,000 feet.
+
+They are the sheets that write the depth the Indonesian way:
+
+```
+a sheet writing a decimal point   :  6980.71 FT/ 301     read as 6980.71 ft    correct
+a sheet writing a decimal comma   :  7016,54 FT / 337    read as 54 ft         wrong
+```
+
+The reader looks for a number with a unit after it. A comma decimal splits the number in two, so
+`7016` was thrown away for carrying no unit and `54 FT` matched instead. Nothing failed. The plate
+was simply stored at 54 feet, which is a perfectly plausible shallow depth, on rock 7,000 feet away.
+
+It now reads both conventions, and the 103 sheets that use a decimal point are untouched.
+
+- [ ] Re-import any petrography workbook you have already brought in, and check the depth column in
+      the wizard before you commit it. If a plate is sitting in the wrong sand, this is why.
+
+**One sheet in 129 still reads wrong and I have left it that way on purpose.** It writes
+`7033,50/354 FT (CORE)` — the unit sits on the plug number instead of the depth, so it reads 354 ft.
+Every rule that would fix that case breaks a commoner one (a cell reading `PLATE 12, DEPTH 4633.50
+FT` would then read 12). The wizard's editable depth table is the defence, and a 354 sitting among
+7,000s is easy to spot there.
+
+---
+
+## Your point count is not the yardstick I was treating it as (2026-07-31)
+
+I have been judging the colour rule against your petrographer's visible-porosity count and getting
+poor agreement. So I checked the count itself against the laboratory's helium porosity, on the same
+45 plugs. Neither of those measurements is mine.
+
+**They agree with each other at rank 0.505** — and the point count reads a median 14.5% against
+helium's 24.8%.
+
+That gap is the expected one: a point count ticks pores visible under an optical grid, while helium
+fills every connected pore including micropores far below what a microscope can resolve. In a
+carbonate that is a large difference. So 0.505 is roughly the ceiling for this rock, and
+"disagrees with the point count" was never on its own evidence that the colour rule is wrong.
+
+**Against helium, the colour rule reaches 0.575 with no correction and 0.67–0.69 with it** — better
+than the point count manages. But that headline is inflated and I want to be straight about it.
+
+- [ ] Nothing to click. This one is a number to know.
+
+### What survives when you look inside a single core
+
+Your delivery spans two cored intervals with very different rock — the shallow one runs about 25%
+helium porosity, the deep one about 5%. A correlation computed across both looks strong largely
+because it tells a porous carbonate from a tight one, which you already know before you start.
+
+Scored **inside** each interval, against helium:
+
+| | shallow core | deep core |
+|---|---|---|
+| colour rule, no correction | 0.01 | 0.27 |
+| colour rule, corrected | 0.19 | 0.49 |
+| your petrographer's count | 0.51 | not counted |
+
+So the honest reading is:
+
+- **The colour correction earns its place.** It lifts agreement inside both cores, measured against
+  an independent laboratory rather than against the point count. In the deep core it roughly
+  doubles, 0.27 to 0.49.
+- **It does not yet beat your petrographer where both exist.** In the shallow core the count reaches
+  0.51 and the colour rule 0.19.
+- **The cross-delivery 0.69 is mostly two different rocks.** Do not quote it.
+
+- [ ] The deep core has no point count at all, and there the colour rule reaches 0.49 against helium.
+      If that interval matters to you, this is the case where the tool is doing work nobody has done
+      by hand. Worth a look at those plates.
+
+### Which plate you pick as the reference matters more than the colour band
+
+This is the part I did not expect, and it is the most useful thing to come out of the run.
+
+Sweeping three reference plates drawn from each core's own plates, scored inside that core against
+helium:
+
+| reference plate | shallow core | deep core |
+|---|---|---|
+| a pale one | 0.11 | 0.30 |
+| a middling one | **0.24** | **0.53** |
+| a strongly cast one | 0.20 | 0.15 |
+| no correction at all | 0.01 | 0.27 |
+
+In the deep core that is a **three-and-a-half-fold spread** from one choice — and the worst pick
+(0.15) is worse than not correcting at all (0.27). So the reference plate is a bigger lever than the
+band you spend time tuning, and right now the dialog gives you nothing to pick it with except the
+preview.
+
+- [ ] When you next run Pore Area with a reference, try two or three different reference plates and
+      see how much the numbers move. If they move a lot, that is the tool telling you the delivery
+      needs splitting into groups, not that the band is wrong.
+
+Giving each core its own reference did beat using one for the whole delivery — 0.24 against 0.19 in
+the shallow core, 0.53 against 0.49 in the deep one. So **measure them in groups** is real advice.
+It is a refinement, though, not the missing piece.
