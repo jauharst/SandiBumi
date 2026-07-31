@@ -396,6 +396,13 @@ export class Ribbon {
           },
         },
         {
+          label: "Plate Depths…",
+          doc: "Re-register pictures already imported — shift a whole delivery, or correct one plate's depth, name or caption (undoable)",
+          onPick: () => {
+            void import("./plateDepthDialog").then((m) => m.openPlateDepthDialog());
+          },
+        },
+        {
           label: "Shift Core…",
           doc: "Shift the selected well's core plugs by a constant depth you already know (core-to-log alignment; undoable)",
           onPick: () => this.handleShiftCore(),

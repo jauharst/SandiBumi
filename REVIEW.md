@@ -6164,3 +6164,32 @@ in that case deliberately disagrees with the porosity answer so that the disagre
 
 **Also changed:** the old **Shift Core…** now moves the core's point data with the plugs too, and
 its status line says how many of each.
+
+---
+
+## Plate depths — fixing a picture's depth without re-importing (2026-07-31)
+
+Data ▸ Tools ▾ ▸ **Plate Depths…**. Until now a thin section imported at the wrong depth could only
+be corrected by deleting the whole delivery and importing it again.
+
+- [ ] Select a well with pictures and open **Plate Depths…**. The dataset box lists each kind with
+      its plate count; the table shows the LIVE delivery, sorted by depth.
+- [ ] Each plate shows **point** or **interval**. A thin section is a point — cut from one plug,
+      with no thickness — and a core photograph with a base depth is an interval.
+- [ ] **Shift every plate by** a constant, with a dataset selected. This is the normal repair: a
+      delivery read off one mis-registered tally is wrong by one number. Check the status line for
+      how many moved, then **Ctrl+Z**.
+- [ ] Correct one plate: edit its top, name or caption and press **Save**. Also undoable.
+- [ ] **Leave a base blank and it stays a point sample** — a shift moves it without inventing a
+      thickness. Type a base and it becomes an interval (a deliberate claim); clear it again and it
+      goes back to a point.
+- [ ] Type a base ABOVE the top and press Save. It should be **refused with a message naming the
+      plate**, not silently swapped — a reversed pair is a typo worth seeing.
+
+**Worth knowing:** the table only ever shows the ACTIVE delivery of each dataset, like every other
+reader in the app. A superseded delivery is untouched by a shift — switch which one is live in
+Data Sets… first.
+
+**Still open (your call):** whether thin sections should move automatically when you re-register the
+core they were cut from. You said yes but tentatively, so nothing does that yet — the shift above is
+deliberate and visible. Say the word and it becomes automatic.

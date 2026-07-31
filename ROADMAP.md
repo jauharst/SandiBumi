@@ -1407,6 +1407,19 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       justified a shift did not move with the porosity it was judged against. Which datasets ride
       along is offered (`db::core_extra_datasets`), never inferred from the set name alone.
 
+- [x] **Plate depth editing (Part 1, increment 1e)** — **SHIPPED 2026-07-31.** `plateDepthDialog.ts`
+      (Data ▸ Tools ▾ ▸ Plate Depths…) is the missing caller for `update_well_image`, closing the
+      follow-up left open when the image track shipped — a plate at the wrong depth previously
+      needed a delete-and-re-import. Adds `db::shift_well_images` for the whole-delivery case (ONE
+      statement following `ACTIVE_IMAGE_SET`; per-plate calls would be hundreds of IPC round trips
+      for a core-photograph delivery). **A blank base stays a POINT sample** through both paths —
+      `depth_base + delta` is NULL-safe, so a shift never gives a thin section a thickness — and a
+      base above the top is refused rather than swapped. Per-plate edits and bulk shifts are both
+      undoable. **D2 answered tentatively** ("yes, but its tentative"): plates riding
+      `shift_core_depths` automatically is increment 1d and is deliberately NOT wired yet, because a
+      picture that moves without being asked is the same class of error as a core extra that fails
+      to move at all.
+
 ## C3. Trust & reproducibility — Phase 11 (§3)
 
 - **Audit trail & lineage**: every module/equation run and data edit logged (`runs` table: params, inputs,

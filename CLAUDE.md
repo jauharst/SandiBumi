@@ -832,6 +832,31 @@ plugs is a core-handling judgement, not something to guess. Pinned by
 interval sample keeps its thickness (`depth_base + delta` is NULL-safe, so a point stays a point)
 and that the whole thing reverses exactly, which is what makes it undoable.
 
+**Plate depths (2026-07-31)** — `plateDepthDialog.ts` (Data ▸ Tools ▾ ▸ **Plate Depths…**) is the
+missing caller for `update_well_image`, which had been written and tested since the image track
+shipped with nothing invoking it: a thin section delivered at the wrong depth could only be fixed by
+deleting the delivery and importing it again.
+
+**An empty base means a POINT sample and stays one.** `depth_base IS NULL` is a petrophysical
+statement — a section is cut from one plug and has no thickness — so a blank field is never filled
+in from the plate below, and typing a base is a deliberate claim that the picture spans an interval
+(reversible by clearing it). A base ABOVE the top is **refused, not silently swapped**: a reversed
+pair is a typo or a wrong column, and guessing which hides it.
+
+`db::shift_well_images` moves a whole delivery in ONE statement, following `ACTIVE_IMAGE_SET` like
+every other image reader. Per-plate `update_well_image` calls would be hundreds of IPC round trips
+for a core-photograph delivery, which is exactly the delivery most likely to be off by one tally
+error. `depth_base + delta` is NULL-safe, so a shift moves a point sample without giving it a
+thickness — pinned by `shifting_plates_moves_the_live_delivery_and_keeps_a_point_a_point`, which
+also checks that an interval keeps its span and that a superseded delivery does not move.
+
+**D2 is answered TENTATIVELY (Jauhar, 2026-07-31: "yes, but its tentative")** — thin sections should
+follow their plugs when core is re-registered. A tentative yes is deliberately NOT wired as an
+automatic link: what shipped is the explicit bulk shift above, which the user applies knowing they
+applied it. Making plates ride `shift_core_depths` silently is increment 1d and waits on a firm
+answer, because a picture that moves without being asked is the same class of error as a core extra
+that fails to.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under

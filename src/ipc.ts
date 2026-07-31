@@ -2512,6 +2512,12 @@ export function updateWellImage(
   return invoke<number>("update_well_image", { imageId, depthTop, depthBase, name, caption });
 }
 
+/** Moves a whole plate delivery by a constant depth. `dataset` null = every live plate in the
+ *  well. A plate with no base stays a POINT sample; an interval keeps its thickness. */
+export function shiftWellImages(wellId: string, dataset: string | null, delta: number): Promise<number> {
+  return invoke<number>("shift_well_images", { wellId, dataset, delta });
+}
+
 export function updateCoreSample(wellId: string, depth: number, column: string, value: number): Promise<void> {
   return invoke("update_core_sample", { wellId, depth, column, value });
 }

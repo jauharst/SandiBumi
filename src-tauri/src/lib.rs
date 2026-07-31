@@ -2031,6 +2031,18 @@ fn shift_core_data(
     db::shift_core_depths(&mut conn, &well_id, delta, &datasets).map_err(|e| e.to_string())
 }
 
+/// Moves a whole plate delivery by a constant depth (re-registering pictures).
+#[tauri::command]
+fn shift_well_images(
+    db: tauri::State<DbState>,
+    well_id: String,
+    dataset: Option<String>,
+    delta: f32,
+) -> Result<usize, String> {
+    let conn = db.0.lock().unwrap();
+    db::shift_well_images(&conn, &well_id, dataset.as_deref(), delta).map_err(|e| e.to_string())
+}
+
 /// Point datasets delivered as part of this well's active core table — what a depth shift
 /// should move along with the plugs.
 #[tauri::command]
@@ -2612,6 +2624,7 @@ pub fn run() {
             update_core_sample,
             shift_core_data,
             core_extra_datasets,
+            shift_well_images,
             list_core_references,
             propose_registration,
             edit_curve,

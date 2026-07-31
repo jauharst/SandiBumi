@@ -83,9 +83,11 @@ to rock it was never cut from. Whether that link is automatic is **D2** — it i
 because a core photograph is registered by the photograph's own depth marks and may deserve to
 stay put while the plugs move.
 
-**1e — plate depth editing.** A small table over `update_well_image`, closing the follow-up
-recorded when the image track shipped. Independently useful and independently small; it may go
-first if the pane takes longer than expected.
+**1e — plate depth editing.** _(Shipped 2026-07-31, `plateDepthDialog.ts`.)_ A table over
+`update_well_image`, closing the follow-up recorded when the image track shipped, plus
+`db::shift_well_images` for the whole-delivery case — a core-photograph delivery is hundreds of
+plates and per-plate calls would be hundreds of IPC round trips to apply one decision. A blank base
+stays a point sample throughout, and a reversed top/base is refused rather than swapped.
 
 **1f — a registration is a record, not an edit.** Whatever the pane applies should leave the
 answer to "why is this core at this depth?" — the shift, the reference used, the correlation, the
@@ -210,7 +212,7 @@ draws and counts.
 | # | Decision | Blocks |
 |---|---|---|
 | ~~**D1**~~ | **ANSWERED 2026-07-31 — "not always, sometimes."** Which is the demanding case: the tool must handle both and must never present them as equivalent. Shipped in `registration.rs` as the like-for-like / proxy split, with the search rule differing between them (signed r vs \|r\|) and the result naming which applied. | ~~1a~~ — done |
-| **D2** | **When core is re-registered, should thin sections and SEM plates at those depths move with it?** My reading is yes for sections (cut from the plug) and no for core photographs (registered by their own marks) — but this is a core-handling question, not a software one. | 1d |
+| **D2** | **TENTATIVELY ANSWERED 2026-07-31 — "yes, but its tentative."** Sections follow their plugs. Because it is tentative it is deliberately NOT wired as an automatic link: 1e shipped an explicit bulk plate shift the user applies knowingly, and 1d (riding `shift_core_depths` silently) waits on a firm answer. A picture that moves without being asked is the same class of error as a core extra that fails to. | 1d, still |
 | **D3** | **Grain size: apparent, or Wicksell-corrected?** I would default to *apparent, labelled apparent*, and offer the correction as an explicit option, so a corrected number never leaves the app without saying so. | Family B |
 | **D4** | **How do your sections carry their scale** — a bar burned into the image, a stated magnification, a µm/px column in the lab spreadsheet, or nothing? And **are they blue-epoxy impregnated**, and stained? | Families B and C; A1 needs the epoxy answer. |
 
@@ -223,9 +225,9 @@ Only **D1** blocks the first increment. D2–D4 can be answered while Part 1 is 
 ```
 Part 1   1a  registration + proposal        SHIPPED 2026-07-31 (registration.rs)
          1b  proposed best-lag              SHIPPED with it
-         1e  plate depth editing            small, closes a shipped follow-up
+         1e  plate depth editing            SHIPPED 2026-07-31 (plateDepthDialog.ts)
          1c  per-run piecewise shift
-         1d  plates follow plugs            needs D2
+         1d  plates follow plugs AUTOMATICALLY   D2 answered but tentative — held
          1f  registration recorded
 
 Part 2   2.0 scale calibration              needs D4

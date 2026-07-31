@@ -2039,6 +2039,31 @@ pub fn update_well_image(
     )?)
 }
 
+/// Moves every picture of one dataset's ACTIVE delivery (or of every dataset, when `dataset` is
+/// None) by a constant depth — the plate equivalent of `shift_core_depths`, for a delivery whose
+/// depths were all read off the same mis-registered tally.
+///
+/// One statement rather than N round trips: a core-photograph delivery is routinely hundreds of
+/// plates, and `update_well_image` per plate would be hundreds of IPC calls to apply one decision.
+///
+/// `depth_base + delta` is NULL-safe in SQL, which is the point: **a plate with no base is a POINT
+/// sample and must stay one.** A thin section is cut from a plug and has no thickness (see the
+/// `well_images` note); a shift may move it but must never give it one.
+pub fn shift_well_images(
+    conn: &Connection,
+    well_id: &str,
+    dataset: Option<&str>,
+    delta: f32,
+) -> DbResult<usize> {
+    Ok(conn.execute(
+        &format!(
+            "UPDATE well_images AS i SET depth_top = i.depth_top + ?2, depth_base = i.depth_base + ?2
+             WHERE i.well_id = ?1 AND (?3 IS NULL OR i.dataset = ?3) AND i.set_name = {ACTIVE_IMAGE_SET}"
+        ),
+        params![well_id, delta, dataset],
+    )?)
+}
+
 // ---------------------------------------------------------------------------
 // Trained ML models
 // ---------------------------------------------------------------------------
@@ -3916,6 +3941,55 @@ mod inspector_tests {
         let live = list_well_images(&conn, &w, None).unwrap();
         assert_eq!(live.len(), 1, "the survivor takes over rather than leaving the track blank");
         assert_eq!(live[0].name, "A");
+    }
+
+    /// Re-registering a plate delivery: the shift follows the ACTIVE set like every other reader,
+    /// leaves other datasets alone, and — the part that matters petrophysically — never gives a
+    /// point sample a thickness it does not have.
+    #[test]
+    fn shifting_plates_moves_the_live_delivery_and_keeps_a_point_a_point() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        insert_well(&conn, wid, "SANDI-IMG4", None, None, None).unwrap();
+        let w = wid.to_string();
+        let jpg = b"\xFF\xD8x\xFF\xD9";
+
+        // A thin section (point) and a core photograph (real interval), plus a superseded set.
+        insert_well_images(&conn, &w, "THIN SECTION", "LAB", None, &[a_plate("TS-1", 1000.0, None, jpg)]).unwrap();
+        insert_well_images(&conn, &w, "CORE PHOTO", "RAW", None, &[a_plate("CP-1", 1000.0, Some(1001.0), jpg)])
+            .unwrap();
+        insert_well_images(&conn, &w, "THIN SECTION", "OLD", None, &[a_plate("TS-OLD", 900.0, None, jpg)]).unwrap();
+        set_active_image_set(&conn, &w, "THIN SECTION", "LAB").unwrap();
+
+        assert_eq!(shift_well_images(&conn, &w, Some("THIN SECTION"), 2.5).unwrap(), 1);
+        let live = list_well_images(&conn, &w, None).unwrap();
+        let ts = live.iter().find(|i| i.name == "TS-1").unwrap();
+        assert!((ts.depth_top - 1002.5).abs() < 1e-4);
+        assert!(ts.depth_base.is_none(), "a section is cut from one plug and gains no thickness from a shift");
+        let cp = live.iter().find(|i| i.name == "CP-1").unwrap();
+        assert!((cp.depth_top - 1000.0).abs() < 1e-4, "another dataset must not move");
+
+        // The superseded delivery stays where it was — it is not what anyone is looking at.
+        let old: f32 = conn
+            .query_row(
+                "SELECT depth_top FROM well_images WHERE well_id = ?1 AND set_name = 'OLD'",
+                params![w],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!((old - 900.0).abs() < 1e-4);
+
+        // No dataset given = every live plate in the well, and exactly reversible.
+        assert_eq!(shift_well_images(&conn, &w, None, -2.5).unwrap(), 2);
+        let live = list_well_images(&conn, &w, None).unwrap();
+        assert!((live.iter().find(|i| i.name == "TS-1").unwrap().depth_top - 1000.0).abs() < 1e-4);
+        let cp = live.iter().find(|i| i.name == "CP-1").unwrap();
+        assert!((cp.depth_top - 997.5).abs() < 1e-4);
+        assert!(
+            (cp.depth_base.unwrap() - 998.5).abs() < 1e-4,
+            "an interval keeps its thickness through a shift"
+        );
     }
 
     /// R-B (RELEASE §3.2): when the destructive PK-drop migration actually fires against a
