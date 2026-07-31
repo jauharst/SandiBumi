@@ -1307,10 +1307,16 @@ export class Ribbon {
     content.appendChild(apply);
 
     const close = openModal(`Shift Core — ${well.well_name}`, content, 420);
-    const doShift = async (delta: number): Promise<void> => {
+    const doShift = async (delta: number, kind = "manual"): Promise<void> => {
       // No dataset list = the point data delivered with this core rides along, so the plugs and
       // the measurements made on them never part company.
-      const n = await shiftCoreData(well.well_id, delta);
+      //
+      // A typed shift goes into the depth record too, marked "manual": next year the question is
+      // "why is this core here?", and "somebody typed it" is a real answer — a blank is not.
+      const n = await shiftCoreData(well.well_id, delta, undefined, {
+        kind,
+        note: "typed in Shift Core",
+      });
       const sign = delta > 0 ? "+" : "";
       setStatus(
         `Shifted ${n.plugs} core plug(s) and ${n.extras} point sample(s) of ${well.well_name} by ${sign}${delta} m`
@@ -1328,7 +1334,7 @@ export class Ribbon {
         .then(() => {
           pushUndo({
             label: `core shift ${delta} m (${well.well_name})`,
-            undo: () => void doShift(-delta),
+            undo: () => void doShift(-delta, "undo"),
             redo: () => void doShift(delta),
           });
           close();

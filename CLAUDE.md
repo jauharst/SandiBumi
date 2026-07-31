@@ -994,6 +994,40 @@ barrel path silently ignored them — caught in the browser, not by the compiler
 came in with the core table" (the old behaviour, still what `Shift Core…` uses), an **empty object**
 means plugs only. The two must stay distinguishable.
 
+**The core carries its own depth history (2026-07-31, increment 1f)** — `core_registrations` holds
+one row per moved range, written by `db::write_registration` inside the SAME transaction as the
+move (`shift_core_depths` and `apply_core_run_shifts` both take a `RegistrationNote` now). Not a
+separate "log it afterwards" call: a depth registration that committed without its reason is
+exactly the state this exists to prevent. There is deliberately no "do not record" value —
+recording is the default, and `RegistrationNote::default()` means a manual shift.
+
+**It is an EVENT LOG, not a state table.** An undo appends its own reversal rather than deleting
+the row it reverses. Deleting would make the record agree with the current depths at the cost of
+the only question it answers: a core that was registered, judged wrong and put back is not the
+same as a core nobody ever touched, and nothing downstream can tell those apart afterwards. Pinned
+by `an_undo_appends_a_reversal_instead_of_erasing_the_record`, which also checks the plugs really
+are back where they started — so the log is the only thing that still remembers.
+
+**The correlation stored is the one at the shift ACTUALLY applied, not the peak of the scan.** The
+user is free to overrule the proposal (`correlationAt` in `depthRegDialog.ts` reads the applied
+delta off `res.scan`), and filing the peak would describe an alignment nobody chose. Outside the
+scanned window nothing is stored rather than extrapolated.
+
+**Agreement is per RANGE, not per apply.** Each barrel is proposed against its own correlogram, so
+`RunShift` gained `correlation` / `n_pairs` (`#[serde(default)]` — absent on the computed inverse
+and on any range typed by hand). One number for the whole operation would file the well-matched
+barrel's confidence against the doubtful one. **A blank is "not measured", never zero** — a 0.00
+there would read as a registration that matched nothing.
+
+`top`/`base` are NULL for a whole-core shift, a statement rather than a missing field: no range was
+declared, so the correction applied everywhere. `seq` counts within (well, set) rather than keying
+on the timestamp — two applies can land in the same microsecond, and a primary-key collision there
+would fail the SHIFT, not just its record. The set name is STORED as it was at the time, so
+switching the active delivery later cannot rewrite what this one has been through.
+
+No migration: `CREATE TABLE IF NOT EXISTS` runs on every open, the `ml_models` precedent. Nothing
+is written when a shift moved no plugs.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under

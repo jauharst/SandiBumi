@@ -3,12 +3,14 @@ import {
   coreDepthPairs,
   coreShiftCandidates,
   listCoreReferences,
+  listCoreRegistrations,
   listCurveCatalog,
   proposeRegistration,
   shiftCoreData,
   type CoreReference,
   type ShiftCandidate,
   type ShiftTargets,
+  type RegistrationNote,
   type RegistrationResult,
 } from "../ipc";
 import { appState, bumpDataVersion, setStatus } from "../state";
@@ -167,6 +169,9 @@ export async function openDepthRegDialog(): Promise<void> {
   const barrels = document.createElement("div");
   wrap.appendChild(barrels);
 
+  const history = document.createElement("div");
+  wrap.appendChild(history);
+
   // ---- what rides along ---------------------------------------------------
   // A core registration moves rock that other deliveries were measured on. Which ones belong to
   // the core is recorded at import (the "these depths came from the core report" tick-box), so
@@ -216,6 +221,35 @@ export async function openDepthRegDialog(): Promise<void> {
       image_datasets: picked.filter((c) => c.kind === "image").map((c) => c.dataset),
     };
   };
+
+  /** Agreement at the shift the user is ACTUALLY applying, read off the scan. They are free to
+   *  overrule the proposal, and recording the peak instead would describe an alignment nobody
+   *  chose — a good number filed against a shift it does not belong to. */
+  function correlationAt(res: RegistrationResult, delta: number): { r: number | null; n: number | null } {
+    let best: { r: number; n: number; gap: number } | null = null;
+    for (const p of res.scan) {
+      const gap = Math.abs(p.delta - delta);
+      if (!best || gap < best.gap) best = { r: p.r, n: p.n, gap };
+    }
+    // Outside the scanned window there is no measured agreement, and inventing one by
+    // extrapolation would put a number in the record that was never computed.
+    if (!best || best.gap > 0.51) return { r: null, n: null };
+    return { r: best.r, n: best.n };
+  }
+
+  /** Why this shift is being applied, in the shape the record takes. */
+  function noteFor(res: RegistrationResult | null, delta: number, kind = "proposed"): RegistrationNote {
+    if (!res) return { kind: "manual", note: "typed without a proposal on screen" };
+    const at = correlationAt(res, delta);
+    return {
+      kind,
+      log_curve: logSel.value,
+      reference: res.reference_label,
+      pairing: res.like_for_like ? "like-for-like" : `proxy (${res.matched_on})`,
+      correlation: at.r,
+      n_pairs: at.n,
+    };
+  }
 
 
   // ---------------------------------------------------------------------------
@@ -507,7 +541,7 @@ export async function openDepthRegDialog(): Promise<void> {
       }
       const targets = chosenTargets();
       void (async () => {
-        const n = await shiftCoreData(well!.well_id, delta, targets);
+        const n = await shiftCoreData(well!.well_id, delta, targets, noteFor(res, delta));
         const sign = delta > 0 ? "+" : "";
         setStatus(
           `Shifted ${n.plugs} plug(s), ${n.extras} point sample(s), ${n.scal} Pc point(s) and ${n.plates} picture(s) of ${well!.well_name} by ${sign}${delta}`
@@ -520,11 +554,16 @@ export async function openDepthRegDialog(): Promise<void> {
         pushUndo({
           label: `core registration ${sign}${delta} (${well!.well_name})`,
           undo: async () => {
-            await shiftCoreData(well!.well_id, -delta, targets);
+            // The reversal is recorded too. A core that was registered and put back is not the
+            // same as one nobody touched, and only the log still knows the difference.
+            await shiftCoreData(well!.well_id, -delta, targets, {
+              kind: "undo",
+              note: `reverses ${sign}${delta}`,
+            });
             bumpDataVersion();
           },
           redo: async () => {
-            await shiftCoreData(well!.well_id, delta, targets);
+            await shiftCoreData(well!.well_id, delta, targets, noteFor(res, delta));
             bumpDataVersion();
           },
         });
@@ -583,7 +622,14 @@ export async function openDepthRegDialog(): Promise<void> {
     table.appendChild(hrow);
     barrels.appendChild(table);
 
-    const rows: { top: HTMLInputElement; base: HTMLInputElement; delta: HTMLInputElement }[] = [];
+    // `res` is this barrel's OWN proposal, kept so the depth record can carry the agreement that
+    // justified this range rather than one number for the whole apply.
+    const rows: {
+      top: HTMLInputElement;
+      base: HTMLInputElement;
+      delta: HTMLInputElement;
+      res: RegistrationResult | null;
+    }[] = [];
 
     const addRow = (top = "", base = "", delta = ""): void => {
       const tr = document.createElement("tr");
@@ -627,6 +673,8 @@ export async function openDepthRegDialog(): Promise<void> {
               return;
             }
             deltaIn2.value = res.proposed_delta.toFixed(2);
+            const mine = rows.find((r) => r.top === topIn2);
+            if (mine) mine.res = res;
             // Show this barrel's own correlogram — each range is judged on its own evidence.
             renderResult(res);
           } finally {
@@ -653,7 +701,7 @@ export async function openDepthRegDialog(): Promise<void> {
       tr.appendChild(td2);
 
       table.appendChild(tr);
-      rows.push({ top: topIn2, base: baseIn2, delta: deltaIn2 });
+      rows.push({ top: topIn2, base: baseIn2, delta: deltaIn2, res: null });
     };
 
     const addBtn = document.createElement("button");
@@ -667,7 +715,19 @@ export async function openDepthRegDialog(): Promise<void> {
     applyAll.textContent = "Apply all barrels";
     applyAll.addEventListener("click", () => {
       const runs = rows
-        .map((r) => ({ top: Number(r.top.value), base: Number(r.base.value), delta: Number(r.delta.value) }))
+        .map((r) => {
+          const delta = Number(r.delta.value);
+          // Each barrel carries the evidence for its OWN range. A row the user typed without
+          // proposing carries none, which the record shows as blank rather than as a zero.
+          const at = r.res ? correlationAt(r.res, delta) : { r: null, n: null };
+          return {
+            top: Number(r.top.value),
+            base: Number(r.base.value),
+            delta,
+            correlation: at.r,
+            n_pairs: at.n,
+          };
+        })
         .filter((r) => Number.isFinite(r.top) && Number.isFinite(r.base) && Number.isFinite(r.delta) && r.delta !== 0);
       if (!runs.length) {
         setStatus("Fill in at least one range with a non-zero shift");
@@ -675,7 +735,14 @@ export async function openDepthRegDialog(): Promise<void> {
       }
       void (async () => {
         try {
-          const n = await applyCoreRunShifts(well!.well_id, runs, chosenTargets());
+          const anyProposed = rows.some((r) => r.res);
+          const barrelNote: RegistrationNote = {
+            kind: anyProposed ? "proposed" : "manual",
+            log_curve: anyProposed ? logSel.value : "",
+            reference: anyProposed ? (rows.find((r) => r.res)?.res?.reference_label ?? "") : "",
+            note: `${runs.length} barrel(s)`,
+          };
+          const n = await applyCoreRunShifts(well!.well_id, runs, chosenTargets(), barrelNote);
           setStatus(`Moved ${n.plugs} plug(s), ${n.extras} point sample(s), ${n.scal} Pc point(s) and ${n.plates} picture(s) across ${runs.length} barrel(s)`);
           recordProcess(
             "Edit",
@@ -689,17 +756,23 @@ export async function openDepthRegDialog(): Promise<void> {
             // not: two barrels moved by different amounts can produce overlapping ranges, and the
             // first match wins, so some plugs would come back by the wrong correction.
             undo: async () => {
-              await applyCoreRunShifts(well!.well_id, n.inverse, chosenTargets());
+              await applyCoreRunShifts(well!.well_id, n.inverse, chosenTargets(), {
+                kind: "undo",
+                note: `reverses ${runs.length} barrel(s)`,
+              });
               await buildBarrels();
+              await buildHistory();
               bumpDataVersion();
             },
             redo: async () => {
-              await applyCoreRunShifts(well!.well_id, runs, chosenTargets());
+              await applyCoreRunShifts(well!.well_id, runs, chosenTargets(), barrelNote);
               await buildBarrels();
+              await buildHistory();
               bumpDataVersion();
             },
           });
           await buildBarrels();
+          await buildHistory();
           bumpDataVersion();
         } catch (err) {
           // The backend refuses anything that would reorder the core and changes nothing, so
@@ -713,5 +786,75 @@ export async function openDepthRegDialog(): Promise<void> {
     if (!rows.length) addRow();
   }
 
+  // ---------------------------------------------------------------------------
+  // Why this core sits where it does
+  // ---------------------------------------------------------------------------
+
+  /** The well's depth history. An EVENT LOG, not a summary of the current position: an undo
+   *  appears as its own reversal, because a core that was registered, judged wrong and put back
+   *  is not the same as a core nobody ever touched, and next year only this can tell them
+   *  apart. */
+  async function buildHistory(): Promise<void> {
+    history.innerHTML = "";
+    let log;
+    try {
+      log = await listCoreRegistrations(well!.well_id);
+    } catch {
+      return;
+    }
+
+    const head = document.createElement("div");
+    head.className = "field-label";
+    head.textContent = "Why this core sits where it does";
+    history.appendChild(head);
+
+    if (!log.length) {
+      const none = document.createElement("div");
+      none.className = "eq-note";
+      none.textContent =
+        "This core has never been shifted. Its plugs are at the depths the laboratory delivered.";
+      history.appendChild(none);
+      return;
+    }
+
+    const table = document.createElement("table");
+    table.className = "data-table";
+    const hrow = document.createElement("tr");
+    for (const h of ["When", "Set", "Interval", "Shift", "Matched", "Against", "r", "n"]) {
+      const th = document.createElement("th");
+      th.textContent = h;
+      hrow.appendChild(th);
+    }
+    table.appendChild(hrow);
+
+    for (const e of log) {
+      const tr = document.createElement("tr");
+      const cell = (text: string, hint?: string): void => {
+        const td = document.createElement("td");
+        td.textContent = text;
+        if (hint) td.title = hint;
+        tr.appendChild(td);
+      };
+      // The timestamp is the database's; only the date and minute are worth the width.
+      cell((e.applied_at ?? "").replace("T", " ").slice(0, 16));
+      cell(e.set_name);
+      // A whole-core shift declared no range. "whole core" is the honest label — it is a
+      // statement about what was done, not a missing value.
+      cell(e.top === null ? "whole core" : `${e.top.toFixed(1)} – ${(e.base ?? 0).toFixed(1)}`);
+      const sign = e.delta > 0 ? "+" : "";
+      cell(`${sign}${e.delta.toFixed(2)}`, e.kind === "undo" ? e.note : undefined);
+      cell(e.kind === "undo" ? "undo" : e.pairing || "typed by hand");
+      cell(e.reference ? `${e.reference} vs ${e.log_curve}` : "—");
+      // A blank r is "not measured", never zero: a hand-typed shift was judged by eye, and a
+      // 0.00 there would read as a registration that matched nothing.
+      cell(e.correlation === null ? "" : e.correlation.toFixed(2));
+      cell(e.n_pairs === null ? "" : String(e.n_pairs));
+      if (e.kind === "undo") tr.style.opacity = "0.65";
+      table.appendChild(tr);
+    }
+    history.appendChild(table);
+  }
+
   await buildBarrels();
+  await buildHistory();
 }

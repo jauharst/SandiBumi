@@ -833,8 +833,9 @@ mod tests {
         crate::db::apply_core_run_shifts(
             &mut conn,
             &w,
-            &[crate::db::RunShift { top: 2000.0, base: 2019.0, delta: 2.0 }],
+            &[crate::db::RunShift { top: 2000.0, base: 2019.0, delta: 2.0, ..Default::default() }],
             &crate::db::ShiftTargets::default(),
+            &Default::default(),
         )
         .unwrap();
 

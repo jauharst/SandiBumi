@@ -1462,6 +1462,19 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       it. **Still not automatic**: a delivery already in the project does not move when the core is
       re-registered afterwards — that is increment 1d, waiting on Jauhar firming up D2.
 
+- [x] **The core carries its own depth history (Part 1, increment 1f — COMPLETES PART 1)** —
+      **SHIPPED 2026-07-31**. `core_registrations` holds one row per moved range, written inside
+      the SAME transaction as the move: `shift_core_depths` and `apply_core_run_shifts` take a
+      `RegistrationNote`, and there is no "do not record" value. **An event log, not a state
+      table** — an undo appends its own reversal rather than erasing the row it reverses, because
+      a core that was registered, judged wrong and put back is not the same as one nobody touched.
+      The stored correlation is the one at the shift ACTUALLY applied (`correlationAt` reads the
+      applied delta off the scan), and it is **per range**, so `RunShift` gained
+      `correlation`/`n_pairs` — each barrel is judged on its own correlogram, and a range typed by
+      hand records a blank rather than a zero. History shown at the foot of Register Depth…
+      D4 also closed this session ("sometimes" for both scale and epoxy/stain, so both become
+      declared per-plate properties defaulting to absent — `docs/plan_image_analysis.md` §4.1).
+      **Part 1 of `docs/plan_image_analysis.md` is complete.**
 - [x] **Already-imported deliveries follow a later re-registration (Part 1, increment 1d)** —
       **SHIPPED 2026-07-31**, on Jauhar's firm yes (D2 closed). `ShiftTargets` on
       `db::shift_core_depths` / `db::apply_core_run_shifts` carries the chosen point datasets, the

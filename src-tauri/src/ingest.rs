@@ -1554,7 +1554,7 @@ mod tests {
 
         // Core-to-log shift moves the ACTIVE set's plugs by the same delta and reverses
         // exactly; the other delivery keeps its own depths.
-        let shifted = db::shift_core_depths(&mut conn, &ids, 2.5, &Default::default()).unwrap();
+        let shifted = db::shift_core_depths(&mut conn, &ids, 2.5, &Default::default(), &Default::default()).unwrap();
         assert_eq!(shifted.plugs, 2);
         let min_depth: f32 = conn
             .query_row(
@@ -1572,7 +1572,7 @@ mod tests {
             )
             .unwrap();
         assert!((untouched - 2001.0).abs() < 1e-4, "the inactive delivery must not move");
-        db::shift_core_depths(&mut conn, &ids, -2.5, &Default::default()).unwrap();
+        db::shift_core_depths(&mut conn, &ids, -2.5, &Default::default(), &Default::default()).unwrap();
         let min_depth: f32 = conn
             .query_row(
                 "SELECT MIN(depth) FROM core_data WHERE well_id = ?1 AND set_name = 'CORE'",
@@ -2514,7 +2514,7 @@ mod tests {
         let v = vec![0.2f32; 20];
         let nan = vec![f32::NAN; 20];
         db::insert_core_data(&conn, &w, "RAW", None, &d, &v, &nan, &nan, &nan).unwrap();
-        db::apply_core_run_shifts(&mut conn, &w, &[db::RunShift { top: 2000.0, base: 2019.0, delta: 2.0 }], &Default::default())
+        db::apply_core_run_shifts(&mut conn, &w, &[db::RunShift { top: 2000.0, base: 2019.0, delta: 2.0, ..Default::default() }], &Default::default(), &Default::default())
             .unwrap();
 
         let path = std::env::temp_dir().join("sandi_scal_follow.csv");
@@ -2572,10 +2572,11 @@ mod tests {
             &mut conn,
             &w,
             &[
-                db::RunShift { top: 2000.0, base: 2009.0, delta: 1.0 },
-                db::RunShift { top: 2010.0, base: 2019.0, delta: 3.0 },
+                db::RunShift { top: 2000.0, base: 2009.0, delta: 1.0, ..Default::default() },
+                db::RunShift { top: 2010.0, base: 2019.0, delta: 3.0, ..Default::default() },
             ],
             &db::ShiftTargets::default(),
+            &Default::default(),
         )
         .unwrap();
 

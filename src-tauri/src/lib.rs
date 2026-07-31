@@ -2020,6 +2020,7 @@ fn shift_core_data(
     well_id: String,
     delta: f32,
     targets: Option<db::ShiftTargets>,
+    note: Option<db::RegistrationNote>,
 ) -> Result<db::CoreShiftCounts, String> {
     let mut conn = db.0.lock().unwrap();
     // Nothing given = the extras that provably came in on this core. An explicit empty set means
@@ -2034,7 +2035,8 @@ fn shift_core_data(
                 .collect(),
         ),
     };
-    db::shift_core_depths(&mut conn, &well_id, delta, &targets).map_err(|e| e.to_string())
+    db::shift_core_depths(&mut conn, &well_id, delta, &targets, &note.unwrap_or_default())
+        .map_err(|e| e.to_string())
 }
 
 /// Applies per-barrel (or finer) corrections to a well's active core delivery. Refuses any set
@@ -2045,6 +2047,7 @@ fn apply_core_run_shifts(
     well_id: String,
     runs: Vec<db::RunShift>,
     targets: Option<db::ShiftTargets>,
+    note: Option<db::RegistrationNote>,
 ) -> Result<db::CoreShiftCounts, String> {
     let mut conn = db.0.lock().unwrap();
     let targets = match targets {
@@ -2057,7 +2060,18 @@ fn apply_core_run_shifts(
                 .collect(),
         ),
     };
-    db::apply_core_run_shifts(&mut conn, &well_id, &runs, &targets)
+    db::apply_core_run_shifts(&mut conn, &well_id, &runs, &targets, &note.unwrap_or_default())
+}
+
+/// A well's core depth history: every shift ever applied, why, and how well it agreed. An event
+/// log, so an undo appears as its own reversal rather than erasing what it reversed.
+#[tauri::command]
+fn list_core_registrations(
+    db: tauri::State<DbState>,
+    well_id: String,
+) -> Result<Vec<db::RegistrationEntry>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_core_registrations(&conn, &well_id).map_err(|e| e.to_string())
 }
 
 /// Everything in a well that a core registration could carry with it, with whether each delivery
@@ -2685,6 +2699,7 @@ pub fn run() {
             core_shift_candidates,
             shift_well_images,
             apply_core_run_shifts,
+            list_core_registrations,
             core_depth_pairs,
             map_core_depths,
             list_core_references,

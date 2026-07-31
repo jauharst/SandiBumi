@@ -6311,3 +6311,25 @@ alone rather than moving data on a guess.
 
 **Worth a real test:** register a core, then check that a thin section you imported months ago has
 moved with its plug and still lines up in the log view.
+
+---
+
+## The core carries its own depth history (2026-07-31)
+
+The last piece of the depth work. Next year, "why is this core at this depth?" has an answer in the
+project rather than in somebody's memory.
+
+- [ ] Open **Tools ▸ Register Depth…** on a well whose core has never been shifted. At the bottom:
+      *"This core has never been shifted. Its plugs are at the depths the laboratory delivered."*
+- [ ] Propose a shift and apply it. Reopen the dialog — there is now a line giving the date, the
+      delivery, the amount, what it was matched against, and the correlation.
+- [ ] **Overrule a proposal**: propose, then type a different amount before applying. The recorded
+      correlation should be the one at the amount you APPLIED, not the peak of the scan.
+- [ ] **Ctrl+Z**, then reopen. The undo appears as its own line rather than the original vanishing —
+      a core you registered, disagreed with and put back is not the same as one you never touched.
+- [ ] Apply **per-barrel** shifts where one barrel was proposed and another typed by hand. Each gets
+      its own line with its own interval, and the hand-typed one shows a BLANK correlation, not 0.00.
+- [ ] A plain **Shift Core…** (Data ▸ Core) also lands in the history, marked *typed by hand*.
+
+**Worth a real test:** register a core today, come back to the well next week, and check the history
+tells you what you did and how well it matched — without opening a notebook.

@@ -441,6 +441,40 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             PRIMARY KEY (well_id, set_name)
         );
 
+        -- Why a core sits where it does. One row per range moved, written in the SAME
+        -- transaction as the move (see `shift_core_depths` / `apply_core_run_shifts`), so a
+        -- shift can never commit without its reason.
+        --
+        -- This is an EVENT LOG, not a state table: an undo appends its own reversal rather
+        -- than deleting the row it reverses. Deleting would make the record agree with the
+        -- current depths at the cost of the only question it exists to answer — a core that
+        -- was registered, judged wrong and put back is not the same as a core nobody ever
+        -- touched, and the second reading is what a re-run would otherwise conclude.
+        --
+        -- `top`/`base` are NULL for a whole-core shift, which is a statement rather than a
+        -- missing field: no range was declared, the correction applied everywhere.
+        --
+        -- `seq` counts within (well, set) rather than keying on the timestamp, because two
+        -- applies can land in the same microsecond and a primary-key collision there would
+        -- fail the SHIFT, not just its record.
+        CREATE TABLE IF NOT EXISTS core_registrations (
+            well_id     UUID NOT NULL,
+            set_name    VARCHAR NOT NULL,   -- the delivery that moved, as it was then
+            seq         INTEGER NOT NULL,
+            applied_at  TIMESTAMP NOT NULL DEFAULT now(),
+            kind        VARCHAR NOT NULL,   -- 'proposed' | 'manual' | 'undo'
+            top         FLOAT,              -- NULL = the whole core
+            base        FLOAT,
+            delta       FLOAT NOT NULL,
+            log_curve   VARCHAR,            -- what it was matched against
+            reference   VARCHAR,            -- the core measurement used
+            pairing     VARCHAR,            -- 'like-for-like' | 'proxy (direct)' | 'proxy (inverse)'
+            correlation FLOAT,              -- agreement AT THE APPLIED SHIFT, not at the peak
+            n_pairs     INTEGER,
+            note        VARCHAR,
+            PRIMARY KEY (well_id, set_name, seq)
+        );
+
         -- Tops-style auxiliary datasets (petrography, XRD, CEC, oil show, perforations,
         -- core extras, …): sparse point or interval samples in long format. One row per
         -- (depth, item); values may be numeric (mineral %, grain size) or text (status,
@@ -3864,7 +3898,7 @@ mod inspector_tests {
             "both share the core set's name, so both are OFFERED — the user decides"
         );
 
-        let moved = shift_core_depths(&mut conn, &w, 2.5, &ShiftTargets::aux(vec!["CORE".to_string()])).unwrap();
+        let moved = shift_core_depths(&mut conn, &w, 2.5, &ShiftTargets::aux(vec!["CORE".to_string()]), &Default::default()).unwrap();
         assert_eq!((moved.plugs, moved.extras), (3, 2));
 
         let plug: f32 = conn
@@ -3900,7 +3934,7 @@ mod inspector_tests {
         assert!((xrd - 2000.0).abs() < 1e-4, "a dataset not named in the call must not move");
 
         // Exactly reversible, which is what makes it undoable.
-        shift_core_depths(&mut conn, &w, -2.5, &ShiftTargets::aux(vec!["CORE".to_string()])).unwrap();
+        shift_core_depths(&mut conn, &w, -2.5, &ShiftTargets::aux(vec!["CORE".to_string()]), &Default::default()).unwrap();
         let back: f32 = conn
             .query_row(
                 "SELECT depth_top FROM aux_data WHERE well_id = ?1 AND item = 'CORE_GR'",
@@ -4030,6 +4064,126 @@ mod inspector_tests {
         w
     }
 
+    /// "Why is this core at this depth?" has to have an answer next year, and the answer has to
+    /// be written by the same transaction that moved it — a shift that commits without its reason
+    /// is the state the record exists to prevent.
+    #[test]
+    fn a_shift_records_why_the_core_moved() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let w = cored_well(&conn, 2000.0, 20);
+
+        let note = RegistrationNote {
+            kind: "proposed".into(),
+            log_curve: "GR".into(),
+            reference: "CORE_GR".into(),
+            pairing: "like-for-like".into(),
+            correlation: Some(0.87),
+            n_pairs: Some(18),
+            note: String::new(),
+        };
+        shift_core_depths(&mut conn, &w, 2.0, &Default::default(), &note).unwrap();
+
+        let log = list_core_registrations(&conn, &w).unwrap();
+        assert_eq!(log.len(), 1);
+        let e = &log[0];
+        assert_eq!(e.set_name, "RAW", "the delivery that moved is named, not resolved later");
+        assert!((e.delta - 2.0).abs() < 1e-6);
+        assert_eq!(e.log_curve, "GR");
+        assert_eq!(e.reference, "CORE_GR");
+        assert_eq!(e.pairing, "like-for-like");
+        assert!((e.correlation.unwrap() - 0.87).abs() < 1e-6);
+        assert_eq!(e.n_pairs, Some(18));
+        // A whole-core shift declared no range, and that is a statement rather than a gap.
+        assert!(e.top.is_none() && e.base.is_none(), "no range was declared");
+    }
+
+    /// The record is an EVENT LOG. A core that was registered, judged wrong and put back is not
+    /// the same as a core nobody ever touched — and deleting the reversed row is exactly what
+    /// would make those two read alike.
+    #[test]
+    fn an_undo_appends_a_reversal_instead_of_erasing_the_record() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let w = cored_well(&conn, 2000.0, 20);
+
+        shift_core_depths(&mut conn, &w, 2.0, &Default::default(), &RegistrationNote {
+            kind: "proposed".into(),
+            reference: "CORE_GR".into(),
+            ..Default::default()
+        })
+        .unwrap();
+        shift_core_depths(&mut conn, &w, -2.0, &Default::default(), &RegistrationNote {
+            kind: "undo".into(),
+            ..Default::default()
+        })
+        .unwrap();
+
+        let log = list_core_registrations(&conn, &w).unwrap();
+        assert_eq!(log.len(), 2, "the reversal is appended, not swapped for the row it reverses");
+        // Newest first: the undo, then what it undid.
+        assert_eq!(log[0].kind, "undo");
+        assert!((log[0].delta + 2.0).abs() < 1e-6);
+        assert_eq!(log[1].kind, "proposed");
+        assert_eq!(log[1].reference, "CORE_GR");
+        assert!(log[0].seq > log[1].seq, "seq orders the history within a delivery");
+
+        // And the core really is back where it started, so the log is the ONLY thing that still
+        // remembers it moved.
+        let pairs = core_depth_pairs(&conn, &w).unwrap();
+        assert!(pairs.iter().all(|(orig, now)| (orig - now).abs() < 1e-3));
+    }
+
+    /// Two barrels corrected by different amounts is the case the record has to preserve —
+    /// collapsing it to one line would describe a shift that was never applied.
+    #[test]
+    fn each_barrel_gets_its_own_line_in_the_record() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let w = cored_well(&conn, 2000.0, 20);
+
+        apply_core_run_shifts(
+            &mut conn,
+            &w,
+            &[
+                RunShift { top: 2000.0, base: 2009.0, delta: 1.0, correlation: Some(0.91), n_pairs: Some(9) },
+                RunShift { top: 2010.0, base: 2019.0, delta: 3.0, correlation: Some(0.62), n_pairs: Some(8) },
+            ],
+            &Default::default(),
+            &RegistrationNote { kind: "proposed".into(), log_curve: "GR".into(), ..Default::default() },
+        )
+        .unwrap();
+
+        let mut log = list_core_registrations(&conn, &w).unwrap();
+        assert_eq!(log.len(), 2);
+        log.sort_by(|a, b| a.seq.cmp(&b.seq));
+        assert_eq!((log[0].top, log[0].base), (Some(2000.0), Some(2009.0)));
+        assert!((log[0].delta - 1.0).abs() < 1e-6);
+        assert_eq!((log[1].top, log[1].base), (Some(2010.0), Some(2019.0)));
+        assert!((log[1].delta - 3.0).abs() < 1e-6);
+        assert!(log.iter().all(|e| e.log_curve == "GR"), "one apply, one reason");
+        // Each barrel was proposed on its own correlogram, so the confidence is per range. One
+        // number for the apply would file the well-matched barrel's r against the doubtful one.
+        assert!((log[0].correlation.unwrap() - 0.91).abs() < 1e-6);
+        assert!((log[1].correlation.unwrap() - 0.62).abs() < 1e-6);
+        assert_eq!((log[0].n_pairs, log[1].n_pairs), (Some(9), Some(8)));
+    }
+
+    /// A well with no core has no depth history. A row saying nothing happened is noise in the
+    /// one place that has to stay readable.
+    #[test]
+    fn a_shift_that_moved_nothing_writes_no_record() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        insert_well(&conn, wid, "SANDI-DRY", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        let n = shift_core_depths(&mut conn, &w, 2.0, &Default::default(), &Default::default()).unwrap();
+        assert_eq!(n.plugs, 0);
+        assert!(list_core_registrations(&conn, &w).unwrap().is_empty());
+    }
+
     /// Each barrel carries its own tally error, so the shifts differ down the hole — and the
     /// delivered depth is kept untouched so a later delivery can still be placed.
     #[test]
@@ -4039,11 +4193,11 @@ mod inspector_tests {
         let w = cored_well(&conn, 2000.0, 30); // 2000 .. 2029
 
         let runs = [
-            RunShift { top: 2000.0, base: 2009.0, delta: 1.0 },
-            RunShift { top: 2010.0, base: 2019.0, delta: 2.0 },
-            RunShift { top: 2020.0, base: 2029.0, delta: 3.5 },
+            RunShift { top: 2000.0, base: 2009.0, delta: 1.0, ..Default::default() },
+            RunShift { top: 2010.0, base: 2019.0, delta: 2.0, ..Default::default() },
+            RunShift { top: 2020.0, base: 2029.0, delta: 3.5, ..Default::default() },
         ];
-        let n = apply_core_run_shifts(&mut conn, &w, &runs, &Default::default()).unwrap();
+        let n = apply_core_run_shifts(&mut conn, &w, &runs, &Default::default(), &Default::default()).unwrap();
         assert_eq!(n.plugs, 30);
 
         let pairs = core_depth_pairs(&conn, &w).unwrap();
@@ -4062,8 +4216,8 @@ mod inspector_tests {
         let w = cored_well(&conn, 2000.0, 10); // 2000 .. 2009
 
         // Push the upper barrel 6 m down and leave the lower one — they would cross.
-        let runs = [RunShift { top: 2000.0, base: 2004.0, delta: 6.0 }];
-        let err = apply_core_run_shifts(&mut conn, &w, &runs, &Default::default()).unwrap_err();
+        let runs = [RunShift { top: 2000.0, base: 2004.0, delta: 6.0, ..Default::default() }];
+        let err = apply_core_run_shifts(&mut conn, &w, &runs, &Default::default(), &Default::default()).unwrap_err();
         assert!(err.contains("reorders the core"), "{err}");
 
         let pairs = core_depth_pairs(&conn, &w).unwrap();
@@ -4090,11 +4244,11 @@ mod inspector_tests {
         // stay 0.5 m apart at the join, having been 1 m apart) yet it makes the naive inverse
         // ranges overlap by 0.4 m, right where the lower barrel's first plug lands.
         let runs = [
-            RunShift { top: 1995.0, base: 2029.5, delta: 2.0 },
-            RunShift { top: 2029.6, base: 2065.0, delta: 1.5 },
+            RunShift { top: 1995.0, base: 2029.5, delta: 2.0, ..Default::default() },
+            RunShift { top: 2029.6, base: 2065.0, delta: 1.5, ..Default::default() },
         ];
         let before = core_depth_pairs(&conn, &w).unwrap();
-        let res = apply_core_run_shifts(&mut conn, &w, &runs, &Default::default()).unwrap();
+        let res = apply_core_run_shifts(&mut conn, &w, &runs, &Default::default(), &Default::default()).unwrap();
         assert_eq!(res.plugs, 60);
 
         // The naive inverse — the caller's own ranges, shifted, deltas negated — DOES overlap.
@@ -4118,7 +4272,7 @@ mod inspector_tests {
         let overlap = res.inverse[0].base - res.inverse[1].top;
         assert!(overlap <= 0.0, "overlap of {overlap} would make an undo ambiguous");
 
-        apply_core_run_shifts(&mut conn, &w, &res.inverse, &Default::default()).unwrap();
+        apply_core_run_shifts(&mut conn, &w, &res.inverse, &Default::default(), &Default::default()).unwrap();
         let after = core_depth_pairs(&conn, &w).unwrap();
         assert_eq!(before.len(), after.len());
         for (b, a) in before.iter().zip(&after) {
@@ -4188,7 +4342,7 @@ mod inspector_tests {
             scal: true,
             image_datasets: vec!["THIN SECTION".into()],
         };
-        let n = apply_core_run_shifts(&mut conn, &w, &[RunShift { top: 2000.0, base: 2019.0, delta: 3.0 }], &targets)
+        let n = apply_core_run_shifts(&mut conn, &w, &[RunShift { top: 2000.0, base: 2019.0, delta: 3.0, ..Default::default() }], &targets, &Default::default())
             .unwrap();
         assert_eq!((n.plugs, n.extras, n.scal, n.plates), (20, 1, 1, 1));
 
@@ -4219,18 +4373,18 @@ mod inspector_tests {
         create_schema(&conn).unwrap();
         let w = cored_well(&conn, 2000.0, 20);
         let runs = [
-            RunShift { top: 2000.0, base: 2010.0, delta: 0.5 },
-            RunShift { top: 2008.0, base: 2019.0, delta: 0.5 },
+            RunShift { top: 2000.0, base: 2010.0, delta: 0.5, ..Default::default() },
+            RunShift { top: 2008.0, base: 2019.0, delta: 0.5, ..Default::default() },
         ];
-        let err = apply_core_run_shifts(&mut conn, &w, &runs, &Default::default()).unwrap_err();
+        let err = apply_core_run_shifts(&mut conn, &w, &runs, &Default::default(), &Default::default()).unwrap_err();
         assert!(err.contains("overlap"), "{err}");
 
         // Adjacent barrels written the natural way — sharing one depth — are NOT an overlap.
         let touching = [
-            RunShift { top: 2000.0, base: 2010.0, delta: 0.5 },
-            RunShift { top: 2010.0, base: 2019.0, delta: 0.5 },
+            RunShift { top: 2000.0, base: 2010.0, delta: 0.5, ..Default::default() },
+            RunShift { top: 2010.0, base: 2019.0, delta: 0.5, ..Default::default() },
         ];
-        assert!(apply_core_run_shifts(&mut conn, &w, &touching, &Default::default()).is_ok());
+        assert!(apply_core_run_shifts(&mut conn, &w, &touching, &Default::default(), &Default::default()).is_ok());
     }
 
     /// The payoff Jauhar asked for: a laboratory sends XRD months later at the depths the core
@@ -4242,10 +4396,10 @@ mod inspector_tests {
         create_schema(&conn).unwrap();
         let w = cored_well(&conn, 2000.0, 30);
         let runs = [
-            RunShift { top: 2000.0, base: 2009.0, delta: 1.0 },
-            RunShift { top: 2010.0, base: 2029.0, delta: 3.0 },
+            RunShift { top: 2000.0, base: 2009.0, delta: 1.0, ..Default::default() },
+            RunShift { top: 2010.0, base: 2029.0, delta: 3.0, ..Default::default() },
         ];
-        apply_core_run_shifts(&mut conn, &w, &runs, &Default::default()).unwrap();
+        apply_core_run_shifts(&mut conn, &w, &runs, &Default::default(), &Default::default()).unwrap();
         let pairs = core_depth_pairs(&conn, &w).unwrap();
 
         // A sample on a plug lands exactly on that plug.
@@ -4291,7 +4445,7 @@ mod inspector_tests {
         let mut conn = Connection::open_in_memory().unwrap();
         create_schema(&conn).unwrap();
         let w = cored_well(&conn, 2000.0, 10);
-        shift_core_depths(&mut conn, &w, 2.5, &Default::default()).unwrap();
+        shift_core_depths(&mut conn, &w, 2.5, &Default::default(), &Default::default()).unwrap();
         let pairs = core_depth_pairs(&conn, &w).unwrap();
         assert!(pairs.iter().all(|(o, d)| (d - o - 2.5).abs() < 1e-3));
         let (d, ex) = map_core_depth(&pairs, 2003.0);
@@ -4780,6 +4934,157 @@ pub struct CoreShiftCounts {
     pub inverse: Vec<RunShift>,
 }
 
+/// Why a shift was applied, as the caller knows it at the moment of applying.
+///
+/// Passed to the shift functions rather than written afterwards by a separate call: a depth
+/// registration that committed without its reason is precisely the state this exists to prevent,
+/// and "the frontend will remember to log it" is not a guarantee anything can check later.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct RegistrationNote {
+    /// `"proposed"` (a correlation-backed registration), `"manual"` (a typed amount), `"undo"`.
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub log_curve: String,
+    #[serde(default)]
+    pub reference: String,
+    #[serde(default)]
+    pub pairing: String,
+    /// Agreement **at the shift actually applied** — not the peak of the scan. The user is free
+    /// to overrule the proposal, and recording the peak would then describe an alignment nobody
+    /// chose.
+    #[serde(default)]
+    pub correlation: Option<f32>,
+    #[serde(default)]
+    pub n_pairs: Option<i64>,
+    #[serde(default)]
+    pub note: String,
+}
+
+impl Default for RegistrationNote {
+    /// A shift with nothing said about it is a manual one. Recording is the default behaviour:
+    /// there is no "do not record" value, because the whole point is that it cannot be skipped.
+    fn default() -> Self {
+        Self {
+            kind: "manual".into(),
+            log_curve: String::new(),
+            reference: String::new(),
+            pairing: String::new(),
+            correlation: None,
+            n_pairs: None,
+            note: String::new(),
+        }
+    }
+}
+
+/// One line of a core's depth history, newest first.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RegistrationEntry {
+    pub set_name: String,
+    pub seq: i32,
+    pub applied_at: Option<String>,
+    pub kind: String,
+    /// `None` for a whole-core shift — no range was declared.
+    pub top: Option<f32>,
+    pub base: Option<f32>,
+    pub delta: f32,
+    pub log_curve: String,
+    pub reference: String,
+    pub pairing: String,
+    pub correlation: Option<f32>,
+    pub n_pairs: Option<i64>,
+    pub note: String,
+}
+
+/// One moved range together with the evidence for it. The agreement is per RANGE, not per apply:
+/// each barrel is proposed against its own correlogram, so one number for the whole operation
+/// would attribute one barrel's confidence to another's shift.
+struct RegRow {
+    top: Option<f32>,
+    base: Option<f32>,
+    delta: f32,
+    correlation: Option<f32>,
+    n_pairs: Option<i64>,
+}
+
+/// Appends one row per moved range. Takes a `&Connection` so it can be handed the open
+/// transaction: the record and the move commit together or neither does.
+fn write_registration(
+    conn: &Connection,
+    well_id: &str,
+    ranges: &[RegRow],
+    note: &RegistrationNote,
+) -> DbResult<()> {
+    if ranges.is_empty() {
+        return Ok(());
+    }
+    // The set that is live NOW is the one being moved, and it is stored rather than resolved at
+    // read time: switching the active delivery later must not rewrite what this one has been
+    // through.
+    let set_name: String =
+        conn.query_row(&format!("SELECT {ACTIVE_CORE_SET}"), params![well_id], |r| r.get(0))?;
+    let mut seq: i32 = conn.query_row(
+        "SELECT COALESCE(MAX(seq), -1) + 1 FROM core_registrations WHERE well_id = ?1 AND set_name = ?2",
+        params![well_id, &set_name],
+        |r| r.get(0),
+    )?;
+    for r in ranges {
+        let (top, base, delta) = (r.top, r.base, r.delta);
+        conn.execute(
+            "INSERT INTO core_registrations
+               (well_id, set_name, seq, kind, top, base, delta, log_curve, reference, pairing,
+                correlation, n_pairs, note)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            params![
+                well_id,
+                &set_name,
+                seq,
+                &note.kind,
+                top,
+                base,
+                delta,
+                &note.log_curve,
+                &note.reference,
+                &note.pairing,
+                r.correlation.or(note.correlation),
+                r.n_pairs.or(note.n_pairs),
+                &note.note
+            ],
+        )?;
+        seq += 1;
+    }
+    Ok(())
+}
+
+/// A core's depth history across every delivery it has, newest first.
+pub fn list_core_registrations(conn: &Connection, well_id: &str) -> DbResult<Vec<RegistrationEntry>> {
+    let mut stmt = conn.prepare(
+        "SELECT set_name, seq, CAST(applied_at AS VARCHAR), kind, top, base, delta,
+                COALESCE(log_curve, ''), COALESCE(reference, ''), COALESCE(pairing, ''),
+                correlation, n_pairs, COALESCE(note, '')
+         FROM core_registrations WHERE well_id = ?1
+         ORDER BY applied_at DESC, seq DESC",
+    )?;
+    let rows = stmt.query_map(params![well_id], |r| {
+        Ok(RegistrationEntry {
+            set_name: r.get(0)?,
+            seq: r.get(1)?,
+            applied_at: r.get(2)?,
+            kind: r.get(3)?,
+            top: r.get(4)?,
+            base: r.get(5)?,
+            delta: r.get(6)?,
+            log_curve: r.get(7)?,
+            reference: r.get(8)?,
+            pairing: r.get(9)?,
+            correlation: r.get(10)?,
+            n_pairs: r.get(11)?,
+            note: r.get(12)?,
+        })
+    })?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
 /// Applies a constant depth shift to the ACTIVE core set (core-to-log alignment).
 /// Exactly reversible with -delta, so the frontend makes it undoable. Other deliveries of
 /// the same well keep their own depths — a shift belongs to the set it was judged on.
@@ -4803,6 +5108,7 @@ pub fn shift_core_depths(
     well_id: &str,
     delta: f32,
     targets: &ShiftTargets,
+    note: &RegistrationNote,
 ) -> DbResult<CoreShiftCounts> {
     let datasets = &targets.aux_datasets;
     let tx = conn.transaction()?;
@@ -4841,6 +5147,12 @@ pub fn shift_core_depths(
             ),
             params![well_id, delta, dataset],
         )?;
+    }
+    // Only if something actually moved: a well with no core has no depth history to write, and a
+    // row saying "nothing was registered" is noise in the one place that must stay readable.
+    if plugs > 0 {
+        let row = RegRow { top: None, base: None, delta, correlation: None, n_pairs: None };
+        write_registration(&tx, well_id, &[row], note)?;
     }
     tx.commit()?;
     Ok(CoreShiftCounts { plugs, extras, scal, plates, inverse: Vec::new() })
@@ -4982,11 +5294,18 @@ impl ShiftTargets {
 /// One barrel's (or one piece's) correction: everything currently between `top` and `base` moves
 /// by `delta`. Ranges are in CURRENT depths — what you read off the log view — because that is
 /// what the user is looking at when they draw the interval.
-#[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, Copy, Default, serde::Deserialize, serde::Serialize)]
 pub struct RunShift {
     pub top: f32,
     pub base: f32,
     pub delta: f32,
+    /// Agreement at THIS range's own shift, for the depth record. `#[serde(default)]` so an older
+    /// payload — and the computed inverse, which was never proposed against anything — still
+    /// deserializes. Absent means "not measured", never zero.
+    #[serde(default)]
+    pub correlation: Option<f32>,
+    #[serde(default)]
+    pub n_pairs: Option<i64>,
 }
 
 /// Builds the `CASE` that maps an old depth to a new one. Written as ONE set-wise UPDATE rather
@@ -5031,6 +5350,7 @@ pub fn apply_core_run_shifts(
     well_id: &str,
     runs: &[RunShift],
     targets: &ShiftTargets,
+    note: &RegistrationNote,
 ) -> Result<CoreShiftCounts, String> {
     let datasets = &targets.aux_datasets;
     if runs.is_empty() {
@@ -5124,7 +5444,7 @@ pub fn apply_core_run_shifts(
             } else {
                 0.5 * (hi + spans[i + 1].1)
             };
-            RunShift { top, base, delta: -runs[ri].delta }
+            RunShift { top, base, delta: -runs[ri].delta, ..Default::default() }
         })
         .collect();
 
@@ -5183,6 +5503,22 @@ pub fn apply_core_run_shifts(
                 params![well_id, dataset],
             )
             .map_err(|e| e.to_string())?;
+    }
+    if plugs_moved > 0 {
+        // One line per barrel, in the ranges the user drew — not one line for the whole apply.
+        // Two barrels corrected by different amounts is exactly the case the record has to
+        // preserve; collapsing it to an average would describe a shift that was never applied.
+        let ranges: Vec<RegRow> = runs
+            .iter()
+            .map(|r| RegRow {
+                top: Some(r.top),
+                base: Some(r.base),
+                delta: r.delta,
+                correlation: r.correlation,
+                n_pairs: r.n_pairs,
+            })
+            .collect();
+        write_registration(&tx, well_id, &ranges, note).map_err(|e| e.to_string())?;
     }
     tx.commit().map_err(|e| e.to_string())?;
     Ok(CoreShiftCounts { plugs: plugs_moved, extras, scal, plates, inverse })

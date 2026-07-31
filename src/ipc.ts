@@ -2553,8 +2553,52 @@ export interface CoreShiftCounts {
  *  point measurements made ON those plugs move together — pass `datasets` to say which point
  *  datasets ride along (omit for the ones delivered with this core, `[]` for plugs only).
  *  Exactly reversible with -delta, which is what makes it undoable. */
-export function shiftCoreData(wellId: string, delta: number, targets?: ShiftTargets): Promise<CoreShiftCounts> {
-  return invoke<CoreShiftCounts>("shift_core_data", { wellId, delta, targets });
+export function shiftCoreData(
+  wellId: string,
+  delta: number,
+  targets?: ShiftTargets,
+  note?: RegistrationNote,
+): Promise<CoreShiftCounts> {
+  return invoke<CoreShiftCounts>("shift_core_data", { wellId, delta, targets, note });
+}
+
+/** Why a shift is being applied. Travels WITH the shift rather than being logged afterwards: a
+ *  depth registration that committed without its reason is the state the record exists to
+ *  prevent, and the backend writes both in one transaction. */
+export interface RegistrationNote {
+  /** "proposed" (correlation-backed), "manual" (a typed amount), "undo". */
+  kind: string;
+  log_curve?: string;
+  reference?: string;
+  pairing?: string;
+  /** Agreement at the shift ACTUALLY applied — not the peak of the scan. */
+  correlation?: number | null;
+  n_pairs?: number | null;
+  note?: string;
+}
+
+/** One line of a core's depth history. */
+export interface RegistrationEntry {
+  set_name: string;
+  seq: number;
+  applied_at: string | null;
+  kind: string;
+  /** null for a whole-core shift: no range was declared. */
+  top: number | null;
+  base: number | null;
+  delta: number;
+  log_curve: string;
+  reference: string;
+  pairing: string;
+  correlation: number | null;
+  n_pairs: number | null;
+  note: string;
+}
+
+/** A well's core depth history, newest first. An event log — an undo shows up as its own
+ *  reversal rather than erasing the row it reversed. */
+export function listCoreRegistrations(wellId: string): Promise<RegistrationEntry[]> {
+  return invoke<RegistrationEntry[]>("list_core_registrations", { wellId });
 }
 
 /** One barrel's correction: everything currently between `top` and `base` moves by `delta`.
@@ -2563,6 +2607,10 @@ export interface RunShift {
   top: number;
   base: number;
   delta: number;
+  /** Agreement at THIS range's own shift, for the depth record. Omit when the range was not
+   *  proposed against anything — absent means "not measured", never zero. */
+  correlation?: number | null;
+  n_pairs?: number | null;
 }
 
 /** Applies per-barrel (or finer) corrections to the active core delivery. Rejects — and changes
@@ -2571,8 +2619,9 @@ export function applyCoreRunShifts(
   wellId: string,
   runs: RunShift[],
   targets?: ShiftTargets,
+  note?: RegistrationNote,
 ): Promise<CoreShiftCounts> {
-  return invoke<CoreShiftCounts>("apply_core_run_shifts", { wellId, runs, targets });
+  return invoke<CoreShiftCounts>("apply_core_run_shifts", { wellId, runs, targets, note });
 }
 
 /** What a core registration should carry with it. Omit entirely to move the point data that

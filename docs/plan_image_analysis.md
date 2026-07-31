@@ -96,10 +96,15 @@ right, is just as silent as failing to move something that was wrong.
 plates and per-plate calls would be hundreds of IPC round trips to apply one decision. A blank base
 stays a point sample throughout, and a reversed top/base is refused rather than swapped.
 
-**1f — a registration is a record, not an edit.** Whatever the pane applies should leave the
-answer to "why is this core at this depth?" — the shift, the reference used, the correlation, the
-date. This is a small down-payment on Phase 11 lineage and is cheap while the code is being
-written; it is expensive to retrofit.
+**1f — a registration is a record, not an edit.** _(Shipped 2026-07-31, `core_registrations`.)_
+One row per moved range, written in the same transaction as the move, so a shift cannot commit
+without its reason. Two things turned out to matter more than expected. It is an **event log**: an
+undo appends its own reversal instead of erasing what it reversed, because a core that was
+registered, judged wrong and put back is not the same as one nobody touched, and afterwards nothing
+else can tell them apart. And the stored correlation is the one at the shift **actually applied**,
+per **range** rather than per apply — each barrel is proposed against its own correlogram, so one
+number for the operation would file the well-matched barrel's confidence against the doubtful one.
+A range typed by hand records a blank, never a zero.
 
 ---
 
@@ -221,11 +226,38 @@ draws and counts.
 | ~~**D1**~~ | **ANSWERED 2026-07-31 — "not always, sometimes."** Which is the demanding case: the tool must handle both and must never present them as equivalent. Shipped in `registration.rs` as the like-for-like / proxy split, with the search rule differing between them (signed r vs \|r\|) and the result naming which applied. | ~~1a~~ — done |
 | ~~**D2**~~ | **CLOSED 2026-07-31 — firm yes**, after an interim "yes, but its tentative". Shipped as increment 1d. The tentative stage was not wasted: it produced the explicit plate shift (1e) and the import tick-box, and it forced the realisation that "should this move?" has to be **recorded per delivery** rather than decided globally — a perforation record is on the driller's scale and must never ride along. So what moves is the deliveries the user declared as core-depth, pre-ticked and overridable, never everything. | ~~1d~~ — done |
 | **D3** | **Grain size: apparent, or Wicksell-corrected?** I would default to *apparent, labelled apparent*, and offer the correction as an explicit option, so a corrected number never leaves the app without saying so. | Family B |
-| **D4** | **How do your sections carry their scale** — a bar burned into the image, a stated magnification, a µm/px column in the lab spreadsheet, or nothing? And **are they blue-epoxy impregnated**, and stained? | Families B and C; A1 needs the epoxy answer. |
+| ~~**D4**~~ | **ANSWERED 2026-07-31 — "sometimes yes, sometimes not, so it will be option"** for scale, and **"same, sometimes stained and epoxy, sometimes not"** for preparation. Both are therefore DECLARED per plate (defaulting per delivery), never inferred, and both default to ABSENT. See §4.1. | scale gate + A1/A2 designed, not blocked |
 
-**D1 and D2 are closed and Part 1 is complete except 1f** (recording why the core sits where it
-does). **D3 and D4 are the live ones** — both gate Part 2, and D4 gates the dimensional families
-entirely.
+**D1, D2 and D4 are closed; D3 is the one live decision** and it gates only Family B. **Part 1 is
+complete.**
+
+### 4.1 What D4's answer means for the design
+
+A uniform answer either way would have been easier. "Sometimes" is the demanding case, and it
+settles three things.
+
+**Scale is a per-plate property with no default.** It cannot be a project setting or even a
+delivery setting, because one delivery holds both kinds. A delivery-level value typed once in the
+wizard is a convenience that fills the blanks; the stored value lives on the plate. There is no
+fallback constant — §3's "no default µm/px, ever" now has teeth, because the absent case is the
+normal case rather than a corner.
+
+**Anything dimensional refuses an uncalibrated plate rather than reporting pixels.** A D50 in
+pixels is not a D50, and a number carrying the right name and the wrong unit is the same failure as
+a wrong `m`: it computes, it plots, it ships. A run over a mixed delivery therefore reports how
+many plates it skipped and names them — a silent subset looks exactly like a complete answer.
+Family A is unaffected, which is why it stays first: an area fraction is dimensionless and every
+plate qualifies.
+
+**Preparation is declared, and A1 refuses a plate not declared impregnated.** This is the sharper
+one, because the failure is silent in both directions. Run a blue-epoxy rule over a section that
+was never impregnated and it does not fail — it returns a porosity assembled from blue-ish
+feldspar, stain bleed and edge artefact, which then plots against core helium porosity as though
+it meant something. Detecting impregnation from the pixels is the same circular move as detecting
+a water zone from the saturation you are calibrating: the evidence for "this is blue epoxy" is the
+blue you were about to measure. So `prepared` is a field on the plate, set at import, defaulting
+to unknown, and unknown is refused. Same for the stain, whose protocol still comes from the
+laboratory report per §2.1 A2.
 
 ---
 
@@ -237,10 +269,10 @@ Part 1   1a  registration + proposal        SHIPPED 2026-07-31 (registration.rs)
          1e  plate depth editing            SHIPPED 2026-07-31 (plateDepthDialog.ts)
          1c  per-barrel shift + depth record   SHIPPED 2026-07-31
          1d  everything follows a re-registration   SHIPPED 2026-07-31 (D2 closed)
-         1f  registration recorded
+         1f  registration recorded            SHIPPED 2026-07-31 (core_registrations)
 
-Part 2   2.0 scale calibration              needs D4
-         A1  pore by blue epoxy             dimensionless, first real digitizing
+Part 2   2.0 scale + preparation per plate  D4 closed: declared, optional, no default
+         A1  pore by blue epoxy             dimensionless; needs the impregnation flag
          A2  stained carbonate              needs the lab's stain protocol
          C   pore geometry                  highest cross-check value
          B   grain size                     needs the scale gate + D3
