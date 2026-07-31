@@ -1462,6 +1462,22 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       it. **Still not automatic**: a delivery already in the project does not move when the core is
       re-registered afterwards — that is increment 1d, waiting on Jauhar firming up D2.
 
+- [x] **Grain size (Part 2, family B — D3 closed)** — **SHIPPED 2026-07-31**. Jauhar's answer
+      ("apply wicksell correction is optional") shipped as apparent-by-default with the correction
+      as a tick, and implemented as **different item names** rather than one name and a flag:
+      `GRAIN_D50_APP` vs `GRAIN_D50_W`, with no bare `GRAIN_D50` anywhere. The split is a
+      **nearest-centre partition** of the solid phase, not `watershed_ift` — that was tried and
+      measured, giving one grain 47792 px and the other 9 on a welded pair the new code splits
+      23957/23844. Confined to one connected blob at a time, or a pixel can be nearer a centre
+      across open pore and one label lands in two places. **`GRAIN_CONTACT` rides with every run**:
+      where the rock is cemented there is no pore for the picture to see and the boundary was
+      placed rather than observed, so above 0.7 the notes say to read those sizes as rock fabric.
+      Sorting is **Folk & Ward (1957)** in phi; everything is area-weighted, which on a section IS
+      volume weighting (`n·D³`), so apparent, corrected and a sieve are all comparable. Wicksell is
+      **Saltykov derived from the chord geometry, not a transcribed coefficient table**, twelve
+      log classes with class 0 reaching zero so nothing is lost to a bin edge, negative classes
+      clamped and counted. Measured finding recorded in the tests: the correction earns its place
+      on SORTING, not on D50 — area weighting already absorbs most of the median bias.
 - [x] **Plug QC — the petrography numbers meet an independent measurement** — **SHIPPED
       2026-07-31**. `plugqc.rs` + `plugQcPanel.ts` (Petrophysics ▸ Petrography ▸ Plug QC…) pair two
       measurements of the SAME plug: a routine-core column, any numeric point-data item (where every

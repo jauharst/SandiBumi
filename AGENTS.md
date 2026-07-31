@@ -1202,6 +1202,107 @@ opt-in and its absence fails only the geometry, never the area fraction. The rea
 `a_disc_reads_as_round_and_its_diameter_follows_the_declared_scale` is `#[ignore]`d for the same
 reason the rest are.
 
+## Grain size (2026-07-31 — Part 2 family B, D3 closed)
+
+`petrography.rs` gained the grain phase, opt-in beside the pore fraction and the pore geometry in
+the same dialog. **One decode, one mask, three answers** — the grain phase is defined as whatever
+the pore rule did not claim, so the porosity and the grains describe ONE segmentation. That is also
+why grains inherit the blue-epoxy refusal: a plate where pore cannot be told from solid cannot have
+its grains outlined either.
+
+Outputs per plate: `GRAIN_N`, `GRAIN_ASPECT` and `GRAIN_CONTACT` (dimensionless, every plate), plus
+`GRAIN_D10_APP` / `GRAIN_D50_APP` / `GRAIN_D90_APP` in micrometres and `GRAIN_SORT_APP` in phi where
+the plate carries a scale, and the four `_W` twins when the Wicksell correction was asked for.
+
+**D3's answer — "apply wicksell correction is optional" (Jauhar, 2026-07-31) — is implemented as
+different ITEM NAMES, not one name and a flag.** There is deliberately no bare `GRAIN_D50`: a name
+that sometimes means the section value and sometimes the corrected one cannot be read by anything
+downstream, and a report quoting it has no way to say which it got. Pinned by
+`apparent_and_corrected_grain_sizes_are_stored_under_different_names`, which matches on the `put(`
+call site rather than the bare string — a test that scans its own source must not trip over the
+name it is looking for.
+
+**The split is a nearest-centre partition of the solid phase, NOT `scipy.ndimage.watershed_ift`.**
+That was tried first and measured: on a welded pair that should split evenly it gave one grain
+47792 pixels and the other 9, because its tie-breaking across the quantized cost plateaus lets
+whichever marker is reached first take almost everything. The nearest-centre partition splits the
+same pair 23957 / 23844, returns 16 of 16 discs in a loose pack at 7845 px against a true 7854, and
+keeps a single disc as ONE grain at every separation setting. (scikit-image's watershed would work
+too, at the price of a whole new dependency for one function.)
+
+**The search is confined to one connected blob of solid at a time, and that is load-bearing.**
+Without it a pixel can be nearer a centre across open pore than its own, and the two disconnected
+pieces would then carry one label — one grain in two places, with an area and a shape belonging to
+neither. Solid is labelled EIGHT-connected, the complement of the pore phase's four: two grains
+meeting at a corner are one piece of rock even though the pores either side of them are not one
+pore.
+
+**`GRAIN_CONTACT` is the honesty number and it rides with every grain run, never optionally.**
+Where grains are welded by cement or an overgrowth there is nothing in the picture to separate
+them, and the algorithm places a boundary at the neck anyway — a geometric artefact, not a grain
+contact. The stored value is the median fraction of a grain's outline that is a grain-to-grain
+contact rather than open pore; above 0.7 the run says so in the notes and tells the reader to treat
+those sizes as a rock-fabric description rather than a grain-size analysis. It is deliberately a
+ratio of two counts gathered the same way rather than two Crofton perimeters: the staircase bias
+affects both alike and cancels, and this is a quality indicator, not a length.
+
+**Sorting is Folk & Ward (1957) inclusive graphic standard deviation**, `σ_I = (φ84 − φ16)/4 +
+(φ95 − φ5)/6` with `φ = −log2(d in mm)`. Chosen over a plain standard deviation because it is what
+maps onto the verbal scale a core description already uses. Phi RISES as grains get finer, and a
+sign slip there would flip every sorting number in a deliverable while leaving it looking entirely
+reasonable — hence `phi_rises_as_grains_get_finer`. Phi is a logarithm of millimetres, so sorting
+needs a scale exactly as much as a diameter does.
+
+**Everything is AREA-weighted, and on a section that IS volume weighting.** The chance of a random
+plane meeting a grain scales with its diameter and the mean cut area with its square, so the
+section area attributable to a size class goes as `n·D³` — which is what a sieve weighs. That is
+what makes apparent and corrected comparable to each other and either of them comparable to a
+sieve, and it is the same weighting the pore diameters already use, so there is one rule in the
+module rather than two.
+
+**The Wicksell unfolding is Saltykov's, DERIVED rather than transcribed.** The published
+coefficient table is a set of numbers that can be mis-copied and would then be wrong silently. They
+come instead from the chord geometry — a plane at distance `h` from a sphere's centre cuts a circle
+of diameter `√(d² − 4h²)`, so `F(x) = 1 − √(d² − x²)/d`, and a random plane meets a sphere at a rate
+proportional to its diameter. Twelve logarithmic classes, and class 0 reaches down to ZERO rather
+than stopping a decade below the maximum: the published version drops that tail, and losing real
+sections to a class boundary would be a silent subset. Negative unfolded populations are clamped
+and COUNTED (`w_clamped`) — the inversion is ill-conditioned by nature, and a clamped class is the
+signal that this plate's correction is unstable.
+
+**The representative diameter of a class is its UPPER bound, because that is the diameter the
+unfolding solved for.** Reporting the class midpoint instead would quote a population the
+arithmetic never solved, and on a single-size population it comes back ~11% fine purely from where
+the bin edges fell. Its cost is that every class is quoted at its coarse edge.
+
+**What the correction actually buys, measured rather than assumed.** A population of identical
+spheres is perfectly sorted; its sections are not, and that spread is the dominant Wicksell effect.
+It is on SORTING, not on the median — the apparent median of a monodisperse population is only
+about 13% low (the median chord of a sphere is √3/2 of its diameter) and area weighting pulls even
+that most of the way back, because it up-weights exactly the near-central cuts. Measured here:
+apparent sorting on a perfectly sorted population is 0.19 phi area-weighted, which on the Folk &
+Ward verbal scale is still inside "very well sorted"; count-weighted it is worse. So the weighting
+choice moves this number more than the correction does, and a user reaching for Wicksell hoping to
+move D50 is reaching for it for the wrong reason. Pinned by
+`the_correction_earns_its_place_on_sorting_not_on_the_median`, and the unfolding itself by
+`a_single_sphere_size_unfolds_back_to_one_class`, which recovers the true diameter exactly.
+
+Two pixel knobs, `min_grain_px` (50) and `grain_sep_px` (20), both ROUND and both stated in PIXELS
+for the `min_pore_px` reason: they say what the picture can resolve, not a size in the rock, and
+they must mean the same thing on a plate carrying no scale. Over-segmentation is what a
+distance-based split gets wrong when it gets anything wrong, so the preview draws the grain
+outlines in yellow over the same mask — judged by eye, not from the table. Pinned as generic by
+`the_grain_defaults_are_generic_not_a_calibration`.
+
+Geometry needs **scipy**, so grains are opt-in and their absence never touches the area fraction.
+The real round trip `welded_grains_still_split_but_say_that_the_boundary_was_inferred` is
+`#[ignore]`d for the usual reason.
+
+UI note: the Wicksell label is hidden with `style.display`, NOT the `hidden` attribute. It carries
+an inline `display: block`, and a display rule beats `hidden` every time — setting the attribute
+left the row fully visible at 19px tall. Same family as the ribbon panels and menus; caught in the
+browser, not by the compiler.
+
 ## Plug QC — checking a measurement against an independent one (2026-07-31)
 
 `plugqc.rs` + `plugQcPanel.ts` (Petrophysics ▸ Petrography ▸ **Plug QC…**, also in the workspace

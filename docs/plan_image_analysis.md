@@ -284,6 +284,22 @@ carry them is a number whose provenance is lost the moment it leaves the pane.
 scale gate, and a sorting coefficient read comparatively between plates is unaffected by a bias
 that applies to all of them.
 
+**Shipped 2026-07-31, with one finding worth recording here.** The correction turned out to earn its
+place on SORTING rather than on D50. A monodisperse population's median chord is √3/2 of the sphere
+diameter — only 13% low — and area weighting, which the module already uses because area weighting
+on a section is volume weighting, pulls most of even that back. The spread is the part the sectioning
+really damages: a perfectly sorted population measured 0.19 phi apparent, and worse count-weighted.
+So the weighting choice moves this number more than the correction does, and a user reaching for
+Wicksell to move D50 is reaching for it for the wrong reason. That is now in the test suite rather
+than in anyone's memory.
+
+**And one limit that D3 did not anticipate.** Wicksell corrects for the SECTIONING. It does nothing
+about whether the outlines were right in the first place, and in a cemented section they largely are
+not — there is no pore between two welded grains for the picture to see, so the algorithm places a
+boundary at the neck and the result is a rock-fabric description wearing a grain-size name. That is
+what `GRAIN_CONTACT` reports, on every run, whether or not the correction was asked for. A corrected
+size on a plate with a contact fraction of 0.8 is a precise answer to the wrong question.
+
 ### 4.3 Checking the output — Plug QC
 
 The measurements Part 2 produces were, until now, numbers nothing else in the app could check. **Plug
@@ -315,7 +331,7 @@ Part 2   2.0 scale + preparation per plate  SHIPPED 2026-07-31 (declared, no def
          A2  stained carbonate              needs the lab's stain protocol
          C   pore geometry                  SHIPPED 2026-07-31 (petrography.rs)
          QC  plug QC vs core and SCAL       SHIPPED 2026-07-31 (plugqc.rs)
-         B   grain size                     UNBLOCKED (D3 closed) — apparent, Wicksell optional
+         B   grain size                     SHIPPED 2026-07-31 (apparent + optional Wicksell)
 
 Tier 3   A3  trained mineral classifier     needs his own point counts as labels
 ```

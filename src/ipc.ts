@@ -3275,6 +3275,17 @@ export interface PoreSpec {
   /** Smallest thing counted as a pore, in PIXELS — a statement about what the picture can
    *  resolve, which has to mean the same thing on a plate carrying no scale. */
   min_pore_px?: number;
+  /** Also outline each GRAIN and measure its size. Needs scipy, and inherits the blue-epoxy
+   *  refusal: the grain phase is whatever the pore rule did not claim. */
+  grains?: boolean;
+  /** Smallest thing counted as a grain, in PIXELS. */
+  min_grain_px?: number;
+  /** How far apart two grain centres must be before they count as two grains, in PIXELS. The knob
+   *  for over-segmentation — judged against the preview, not from the table. */
+  grain_sep_px?: number;
+  /** Also report the Wicksell-corrected sizes beside the apparent ones. Off by default; the two
+   *  are stored under DIFFERENT item names so neither can be mistaken for the other. */
+  wicksell?: boolean;
 }
 
 export interface PlatePore {
@@ -3286,6 +3297,37 @@ export interface PlatePore {
   pore_fraction: number;
   pixels: number;
   geometry?: PoreGeometry;
+  grains?: GrainStats;
+}
+
+/** Size of the individual grains on one plate.
+ *
+ *  Everything dimensional here is APPARENT unless its name says `_w`. A random plane rarely cuts a
+ *  grain through its centre, so section diameters run small and section sorting runs worse than
+ *  the rock's — which is why the apparent and corrected numbers are stored under different item
+ *  names rather than one name and a flag. */
+export interface GrainStats {
+  n: number;
+  n_edge: number;
+  n_small: number;
+  aspect_p50: number;
+  /** Median fraction of a grain's outline that is a contact with another grain rather than open
+   *  pore. The honesty number: where the rock is cemented there is nothing in the picture to
+   *  separate two grains, and the boundary was placed rather than seen. */
+  contact_p50: number;
+  d10_app_um: number | null;
+  d50_app_um: number | null;
+  d90_app_um: number | null;
+  /** Folk & Ward inclusive graphic standard deviation, phi units. Needs a scale, like the
+   *  diameters — phi is a logarithm of millimetres. */
+  sort_app_phi: number | null;
+  d10_w_um: number | null;
+  d50_w_um: number | null;
+  d90_w_um: number | null;
+  sort_w_phi: number | null;
+  /** Saltykov classes that unfolded to a negative population and were clamped. Several of them
+   *  means the correction is unstable on that plate. */
+  w_clamped: number;
 }
 
 /** Shape and size of the individual pores on one plate. */

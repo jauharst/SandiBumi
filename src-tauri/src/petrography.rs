@@ -96,15 +96,58 @@ pub struct PoreSpec {
     /// mean the same thing on a plate that carries no scale at all.
     #[serde(default = "default_min_pore_px")]
     pub min_pore_px: u32,
+    /// Also outline the individual GRAINS and measure their size. Needs scipy, like the pore
+    /// geometry, and inherits the same blue-epoxy refusal: the grain phase here is defined as
+    /// everything the pore rule did not claim, so a plate where pore cannot be told from solid
+    /// cannot have its grains outlined either.
+    #[serde(default)]
+    pub grains: bool,
+    /// Smallest thing counted as a grain, in PIXELS — same reasoning as `min_pore_px`.
+    #[serde(default = "default_min_grain_px")]
+    pub min_grain_px: u32,
+    /// How far apart two grain centres must be before the watershed calls them two grains, in
+    /// PIXELS. This is the knob that decides over-segmentation, which is the failure mode of a
+    /// distance-transform watershed, and it is judged against the preview.
+    #[serde(default = "default_grain_sep_px")]
+    pub grain_sep_px: u32,
+    /// Also report the Wicksell-corrected size distribution beside the apparent one. OFF by
+    /// default (Jauhar, 2026-07-31: "apply wicksell correction is optional") — a correction
+    /// carries assumptions of its own, and a corrected number must never leave the app without
+    /// having been asked for. The two are stored under DIFFERENT item names, so neither can be
+    /// mistaken for the other downstream.
+    #[serde(default)]
+    pub wicksell: bool,
 }
 
 fn default_min_pore_px() -> u32 {
     MIN_PORE_PX
 }
 
+fn default_min_grain_px() -> u32 {
+    MIN_GRAIN_PX
+}
+
+fn default_grain_sep_px() -> u32 {
+    GRAIN_SEP_PX
+}
+
 /// Below this a blob is speckle rather than a pore. Round, and stated in pixels for the reason
 /// given on `PoreSpec::min_pore_px`.
 pub const MIN_PORE_PX: u32 = 20;
+
+/// Below this a patch of solid is not a grain. Larger than the pore floor because a grain is the
+/// larger object, and round for the same reason the colour band is: it is a starting point for a
+/// visual judgement, not a calibration.
+pub const MIN_GRAIN_PX: u32 = 50;
+
+/// Default minimum distance between two grain centres, in pixels. Round on purpose — see
+/// `PoreSpec::grain_sep_px`.
+pub const GRAIN_SEP_PX: u32 = 20;
+
+/// Saltykov classes for the Wicksell unfolding. Twelve is the published convention, and it is
+/// about as far as the inversion can be pushed before the class-to-class subtraction turns into
+/// noise amplification.
+const SALTYKOV_CLASSES: usize = 12;
 
 /// What one plate came to.
 #[derive(Debug, Clone, Serialize)]
@@ -120,6 +163,53 @@ pub struct PlatePore {
     /// Shape and size of the individual pores, when geometry was asked for.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub geometry: Option<PoreGeometry>,
+    /// Size of the individual grains, when grains were asked for.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub grains: Option<GrainStats>,
+}
+
+/// What the individual grains on one plate came to.
+///
+/// **Everything dimensional here is APPARENT unless its name says otherwise.** A random plane
+/// rarely cuts a grain through its centre, so section diameters run systematically small and
+/// section sorting systematically worse than the rock's. Reporting apparent values under an
+/// unqualified name is how that bias travels into a deliverable unnoticed, which is why the
+/// apparent and corrected statistics carry different item names rather than one name and a flag.
+#[derive(Debug, Clone, Serialize)]
+pub struct GrainStats {
+    /// Grains measured: big enough, and not cut by the frame.
+    pub n: usize,
+    /// Grains dropped for touching the plate edge — their true size is unknown, and keeping them
+    /// biases the distribution small. The same stereological edge rule the pores follow.
+    pub n_edge: usize,
+    /// Grains dropped as too small to be anything but debris or a watershed sliver.
+    pub n_small: usize,
+    /// Median equivalent-ellipse aspect ratio of the SECTIONS. Dimensionless, so every plate.
+    pub aspect_p50: f32,
+    /// Median fraction of a grain's outline that is a grain-to-grain contact rather than open
+    /// pore. **This is the honesty number for the whole family.** Where grains are welded by
+    /// cement or an overgrowth there is nothing in the picture to separate them, and the watershed
+    /// will put a line at the narrowest point of the blob anyway — a geometric artefact, not a
+    /// grain boundary. A high value says most of what was called a boundary was inferred.
+    pub contact_p50: f32,
+    /// Apparent equivalent-circle diameters in MICROMETRES, area-weighted. `None` on a plate with
+    /// no declared scale — a diameter in pixels is not a diameter.
+    pub d10_app_um: Option<f32>,
+    pub d50_app_um: Option<f32>,
+    pub d90_app_um: Option<f32>,
+    /// Folk & Ward (1957) inclusive graphic standard deviation of the APPARENT distribution, in
+    /// phi units. Phi is −log2(d in mm), so this needs a scale as much as the diameters do.
+    pub sort_app_phi: Option<f32>,
+    /// The same four after the Wicksell correction, when it was asked for.
+    pub d10_w_um: Option<f32>,
+    pub d50_w_um: Option<f32>,
+    pub d90_w_um: Option<f32>,
+    pub sort_w_phi: Option<f32>,
+    /// Saltykov classes whose unfolded population came out NEGATIVE and was clamped to zero. The
+    /// inversion is ill-conditioned — that is a property of Wicksell's problem, not of this
+    /// implementation — so a plate with several of these has an unstable correction and the number
+    /// is here to say so rather than to be hidden.
+    pub w_clamped: usize,
 }
 
 /// What the individual pores on one plate came to.
@@ -214,16 +304,12 @@ def mask_of(img):
         inband = (h >= lo) | (h <= hi)
     return inband & (s >= float(band["sat_min"])) & (v >= float(band["val_min"]))
 
-def geometry_of(m):
-    # scipy only for the labelling: connected components in pure numpy would be a Python-level
-    # union-find over millions of pixels. Absent, the area fraction above still works.
-    from scipy import ndimage
+def shape_stats(lab, n):
+    """Per-object area, perimeter, aspect and edge flags from a label image.
 
-    # FOUR-connectivity for the pore phase. Two pores meeting at a single corner are joined by a
-    # throat of zero width - that is not one pore body, and 8-connectivity would fuse them.
-    lab, n = ndimage.label(m, structure=np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]]))
-    if n == 0:
-        return None
+    Shared by the pore phase and the grain phase on purpose: they are the same measurement of
+    different objects, and two copies of the Crofton perimeter and the second-moment ellipse is
+    two places for them to drift apart."""
     area = np.bincount(lab.ravel(), minlength=n + 1).astype(np.float64)
 
     # Crofton perimeter from directional transition counts, NOT a boundary-pixel count. A
@@ -234,12 +320,16 @@ def geometry_of(m):
     per = np.zeros(n + 1, dtype=np.float64)
 
     def add(a, b, weight):
-        # Exactly one side is pore at a transition, so the label involved is the larger of the two.
-        t = (a > 0) != (b > 0)
+        # BOTH sides of a transition are credited. For the pore phase one side is always 0 so this
+        # is the obvious thing; for the grain phase, where two labels meet, the contact is real
+        # boundary of both grains and crediting only one would halve the other's perimeter.
+        t = a != b
         if not np.any(t):
             return
-        who = np.maximum(a, b)[t]
-        per[: n + 1] += weight * np.bincount(who, minlength=n + 1)
+        for side in (a[t], b[t]):
+            g = side > 0
+            if np.any(g):
+                per[: n + 1] += weight * np.bincount(side[g], minlength=n + 1)
 
     add(lab[:, :-1], lab[:, 1:], 1.0)
     add(lab[:-1, :], lab[1:, :], 1.0)
@@ -250,7 +340,7 @@ def geometry_of(m):
 
     # Second moments give the equivalent ellipse without needing the boundary at all, so the
     # aspect ratio carries none of the perimeter's discretization bias.
-    ys, xs = np.nonzero(m)
+    ys, xs = np.nonzero(lab)
     idx = lab[ys, xs]
     xs = xs.astype(np.float64)
     ys = ys.astype(np.float64)
@@ -280,19 +370,136 @@ def geometry_of(m):
 
     with np.errstate(divide="ignore", invalid="ignore"):
         circ = 4.0 * np.pi * area / np.maximum(per, 1e-9) ** 2
+    return area, aspect, circ, edge
 
-    keep = np.ones(n + 1, dtype=bool)
-    keep[0] = False
-    n_edge = int(np.count_nonzero(edge[1:]))
-    small = area < float(header.get("min_pore_px", 20))
+
+def select(area, edge, min_px):
+    """The keep mask plus the two counts, shared by both phases.
+
+    `exists` matters for the grain phase: a watershed can leave a marker with no territory at all,
+    and a label owning no pixels is neither a grain that was measured nor one that was dropped for
+    being small - it is not there."""
+    exists = area > 0
+    small = exists & (area < float(min_px))
     small[0] = False
+    n_edge = int(np.count_nonzero(edge[1:] & exists[1:]))
     n_small = int(np.count_nonzero(small[1:] & ~edge[1:]))
-    keep &= ~edge
-    keep &= ~small
+    keep = exists & ~edge & ~small
+    keep[0] = False
+    return keep, n_edge, n_small
+
+
+def geometry_of(m):
+    # scipy only for the labelling: connected components in pure numpy would be a Python-level
+    # union-find over millions of pixels. Absent, the area fraction above still works.
+    from scipy import ndimage
+
+    # FOUR-connectivity for the pore phase. Two pores meeting at a single corner are joined by a
+    # throat of zero width - that is not one pore body, and 8-connectivity would fuse them.
+    lab, n = ndimage.label(m, structure=np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]]))
+    if n == 0:
+        return None
+    area, aspect, circ, edge = shape_stats(lab, n)
+    keep, n_edge, n_small = select(area, edge, header.get("min_pore_px", 20))
     return {
         "area": area[keep].tolist(),
         "aspect": aspect[keep].tolist(),
         "circ": circ[keep].tolist(),
+        "n_edge": n_edge,
+        "n_small": n_small,
+    }
+
+
+def grain_labels(m, sep_px):
+    """Split the solid phase into grains at the necks between their distance-map centres.
+
+    The grain phase is everything the pore rule did not claim. Grains touch, so a plain connected
+    component returns the whole rock as one blob; the distance transform's ridges are the grain
+    centres, and each solid pixel then goes to the centre nearest it.
+
+    NOT scipy's `watershed_ift`, which was tried first and measured: on a welded pair that should
+    split evenly it gave one grain 47792 pixels and the other 9, because its tie-breaking across the
+    quantized cost plateaus lets whichever marker is reached first take almost everything. The
+    nearest-centre partition splits the same pair 23957 / 23844. (scikit-image's proper watershed
+    would do it too, at the price of a whole new dependency for one function.)
+
+    The search is confined to ONE connected blob of solid at a time, and that is load-bearing:
+    without it a pixel can be nearer a centre across open pore than its own, and the two
+    disconnected pieces would then carry one label - one grain in two places, with an area and a
+    shape that belong to neither.
+
+    The honest limit: a boundary lands midway between two centres, which for convex grains of
+    similar size is the neck and for a strongly elongated or embayed one is not. That is a second
+    reason the grain-to-grain contact fraction is reported alongside every size."""
+    from scipy import ndimage
+
+    solid = ~m
+    if not np.any(solid):
+        return None, None
+    dist = ndimage.distance_transform_edt(solid)
+    # Markers are the local maxima of the distance map. `sep_px` is the footprint, so it sets how
+    # close two centres may be before they count as one grain - the knob for over-segmentation,
+    # which is what this kind of split gets wrong when it gets anything wrong.
+    size = max(3, int(sep_px) | 1)
+    peaks = solid & (dist >= ndimage.maximum_filter(dist, size=size, mode="constant")) & (dist > 0)
+    markers, nm = ndimage.label(peaks)
+    if nm == 0:
+        return None, None
+    lab = np.zeros(solid.shape, dtype=np.int32)
+    # EIGHT-connectivity for the solid phase, the complement of the pore phase's four: two grains
+    # meeting at a corner are one piece of rock even though the pores either side of them are not
+    # one pore.
+    blobs, _ = ndimage.label(solid, structure=np.ones((3, 3), dtype=int))
+    for bi, sl in enumerate(ndimage.find_objects(blobs), start=1):
+        if sl is None:
+            continue
+        sub = blobs[sl] == bi
+        smk = np.where(sub, markers[sl], 0)
+        if not smk.any():
+            continue
+        idx = ndimage.distance_transform_edt(smk == 0, return_distances=False, return_indices=True)
+        lab[sl] = np.where(sub, smk[tuple(idx)], lab[sl])
+    return lab, int(lab.max())
+
+
+def grains_of(m, min_px, sep_px):
+    lab, n = grain_labels(m, sep_px)
+    if lab is None or not n:
+        return None
+    area, aspect, circ, edge = shape_stats(lab, n)
+
+    # How much of each grain's outline is OPEN pore rather than a contact with the next grain.
+    # Deliberately a ratio of two counts gathered the same way rather than two Crofton perimeters:
+    # the staircase bias affects both counts alike and cancels, and this is a quality indicator,
+    # not a length. Four-connected, because a corner touch is not a contact.
+    open_n = np.zeros(n + 1, dtype=np.float64)
+    total_n = np.zeros(n + 1, dtype=np.float64)
+
+    def tally(a, b):
+        t = a != b
+        if not np.any(t):
+            return
+        for side, other in ((a, b), (b, a)):
+            s = side[t]
+            o = other[t]
+            g = s > 0
+            if not np.any(g):
+                continue
+            total_n[: n + 1] += np.bincount(s[g], minlength=n + 1)
+            free = g & (o == 0)
+            if np.any(free):
+                open_n[: n + 1] += np.bincount(s[free], minlength=n + 1)
+
+    tally(lab[:, :-1], lab[:, 1:])
+    tally(lab[:-1, :], lab[1:, :])
+    with np.errstate(divide="ignore", invalid="ignore"):
+        contact = 1.0 - open_n / np.maximum(total_n, 1e-9)
+
+    keep, n_edge, n_small = select(area, edge, min_px)
+    return {
+        "area": area[keep].tolist(),
+        "aspect": aspect[keep].tolist(),
+        "contact": contact[keep].tolist(),
         "n_edge": n_edge,
         "n_small": n_small,
     }
@@ -322,12 +529,34 @@ for i, blob in enumerate(blobs):
             row["error"] = "pore geometry needs scipy (pip install scipy)"
         except Exception as e:
             row["error"] = "geometry failed: %s" % e
+    if header.get("grains"):
+        # Same mask again: the grain phase is defined as what the pore rule did not claim, so the
+        # porosity and the grains describe one segmentation rather than two.
+        try:
+            row["grain"] = grains_of(m, header.get("min_grain_px", 50), header.get("grain_sep_px", 20))
+        except ImportError:
+            row["error"] = "grain sizing needs scipy (pip install scipy)"
+        except Exception as e:
+            row["error"] = "grain sizing failed: %s" % e
     out["results"].append(row)
     if preview is not None and ids[i] == preview:
         # The overlay is drawn from the SAME mask that produced the number above. What the user
         # tunes against is literally what was measured.
         rgb = np.asarray(img.convert("RGB")).copy()
         rgb[m] = (0.35 * rgb[m] + 0.65 * np.array([255, 40, 40], dtype=np.float32)).astype(np.uint8)
+        if header.get("grains"):
+            # Grain outlines on the same picture. Over-segmentation is what the separation knob is
+            # for and it cannot be judged from a number - a section chopped into fifty slivers and
+            # one sensibly split into twelve grains produce equally plausible tables.
+            try:
+                glab, gn = grain_labels(m, header.get("grain_sep_px", 20))
+                if glab is not None:
+                    b = np.zeros(glab.shape, dtype=bool)
+                    b[:, :-1] |= (glab[:, :-1] != glab[:, 1:]) & (glab[:, :-1] > 0) & (glab[:, 1:] > 0)
+                    b[:-1, :] |= (glab[:-1, :] != glab[1:, :]) & (glab[:-1, :] > 0) & (glab[1:, :] > 0)
+                    rgb[b] = np.array([255, 230, 60], dtype=np.uint8)
+            except Exception:
+                pass
         small = Image.fromarray(rgb)
         small.thumbnail((900, 900))
         buf = io.BytesIO()
@@ -383,7 +612,21 @@ struct RunnerRow {
     #[serde(default)]
     geom: Option<RunnerGeom>,
     #[serde(default)]
+    grain: Option<RunnerGrain>,
+    #[serde(default)]
     error: Option<String>,
+}
+
+/// Per-GRAIN arrays. Same discipline as `RunnerGeom`: the runner outlines, Rust does the
+/// arithmetic, so Folk & Ward and the Wicksell unfolding sit under `cargo test`.
+#[derive(Deserialize)]
+struct RunnerGrain {
+    area: Vec<f64>,
+    aspect: Vec<f64>,
+    /// Fraction of each grain's outline that is a contact with another grain rather than pore.
+    contact: Vec<f64>,
+    n_edge: usize,
+    n_small: usize,
 }
 
 /// Per-PORE arrays, not summaries. The runner stays deliberately dumb (the `office.rs` rule): every
@@ -426,6 +669,131 @@ fn weighted_percentile(values: &[f64], weights: &[f64], p: f64) -> f64 {
         }
     }
     values[*idx.last().unwrap()]
+}
+
+/// Folk & Ward (1957) inclusive graphic standard deviation, in phi units.
+///
+/// `σ_I = (φ84 − φ16)/4 + (φ95 − φ5)/6`, where `φ = −log2(d in mm)`. It is the standard
+/// sedimentological sorting measure and the one that maps onto the verbal scale (very well sorted,
+/// well sorted, …), which is why it is used rather than a plain standard deviation: it is what a
+/// core description compares against.
+///
+/// Phi RISES as grains get finer, so `φ16` is the coarse end and the difference comes out positive.
+/// Needs a scale, like every diameter here — phi is a logarithm of millimetres, not a pure number.
+fn folk_ward_sorting(diam_um: &[f64], weights: &[f64]) -> f64 {
+    if diam_um.len() < 2 {
+        return f64::NAN;
+    }
+    let phi: Vec<f64> = diam_um.iter().map(|&d| -((d / 1000.0).log2())).collect();
+    let p = |q: f64| weighted_percentile(&phi, weights, q);
+    (p(84.0) - p(16.0)) / 4.0 + (p(95.0) - p(5.0)) / 6.0
+}
+
+/// Fraction of a sphere of diameter `d` whose random sections come out no wider than `x`.
+///
+/// A plane at distance `h` from the centre cuts a circle of diameter `√(d² − 4h²)`, and `h` is
+/// uniform across the sphere, so `F(x) = 1 − √(d² − x²)/d`.
+fn section_cdf(d: f64, x: f64) -> f64 {
+    if x >= d {
+        return 1.0;
+    }
+    if x <= 0.0 {
+        return 0.0;
+    }
+    1.0 - ((d * d - x * x).max(0.0)).sqrt() / d
+}
+
+/// Wicksell's problem, solved by Saltykov's unfolding.
+///
+/// A random section through a population of spheres shows diameters that are systematically too
+/// small, because a plane rarely passes near a centre. Saltykov strips that off class by class from
+/// the coarse end: the largest class can only have come from spheres of that size, so its
+/// population is known, and its contribution to every smaller class is then subtracted before the
+/// next one is solved.
+///
+/// **The class-to-class probabilities are DERIVED, not transcribed.** The published coefficient
+/// table is a set of numbers that can be mis-copied and would then be wrong silently — the same
+/// hazard as any tabulated constant in this repo. They come instead from [`section_cdf`] plus the
+/// fact that a random plane meets a sphere at a rate proportional to its diameter, which makes the
+/// arithmetic checkable against a population whose answer is known.
+///
+/// `counts[i]` is the number of observed sections in class `i` and `upper[i]` its upper diameter
+/// bound, classes ascending, class 0 starting at zero. Returns the population per class and how
+/// many classes had to be clamped at zero — the inversion is ill-conditioned by nature, and a
+/// clamped class is the honest signal that this plate's correction is unstable.
+fn saltykov(counts: &[f64], upper: &[f64]) -> (Vec<f64>, usize) {
+    let k = counts.len().min(upper.len());
+    let mut nv = vec![0.0; k];
+    let mut resid = counts[..k].to_vec();
+    let total: f64 = counts.iter().sum();
+    let noise = total.abs() * 1e-9;
+    let mut clamped = 0usize;
+    let lower = |i: usize| if i == 0 { 0.0 } else { upper[i - 1] };
+
+    for j in (0..k).rev() {
+        let d = upper[j];
+        if !(d > 0.0) {
+            continue;
+        }
+        // A sphere of class j lands in class j when the cut is near its centre.
+        let self_p = d * (section_cdf(d, d) - section_cdf(d, lower(j)));
+        if !(self_p > 0.0) {
+            continue;
+        }
+        let mut v = resid[j] / self_p;
+        if v < -noise {
+            clamped += 1;
+            v = 0.0;
+        } else if v < 0.0 {
+            v = 0.0;
+        }
+        nv[j] = v;
+        if v > 0.0 {
+            for i in 0..j {
+                resid[i] -= v * d * (section_cdf(d, upper[i]) - section_cdf(d, lower(i)));
+            }
+        }
+    }
+    (nv, clamped)
+}
+
+/// Saltykov class bounds: twelve logarithmic classes ending at the largest section seen.
+///
+/// Class 0 reaches down to ZERO rather than stopping a decade below the maximum, so nothing
+/// measured falls outside the scheme. The published version drops that tail; losing real sections
+/// to a class boundary would be a silent subset, which this repo refuses everywhere else.
+fn saltykov_bounds(d_max: f64) -> Vec<f64> {
+    (0..SALTYKOV_CLASSES)
+        .map(|i| d_max * 10f64.powf(-0.1 * (SALTYKOV_CLASSES - 1 - i) as f64))
+        .collect()
+}
+
+/// The corrected size distribution: representative diameter per class and its VOLUME weight.
+///
+/// **The representative diameter is the class UPPER bound, because that is the diameter the
+/// unfolding solved for.** [`saltykov`] builds its class-to-class probabilities from spheres of
+/// diameter `upper[j]`; reporting the class midpoint instead would quote a population the
+/// arithmetic never solved, and on a single-size population it would come back ~11% fine purely
+/// from where the bin edges happened to fall. It is Saltykov's own convention, and its cost is
+/// that every class is quoted at its coarse edge.
+///
+/// Volume-weighted to match the apparent statistics, which are area-weighted — and area weighting
+/// on a section IS volume weighting, because the chance of a plane meeting a grain already scales
+/// with its diameter and the mean cut area with its square, so the section area attributable to a
+/// size class goes as `n·D³`. That is what makes apparent and corrected comparable, and it is what
+/// makes either of them comparable to a sieve, which weighs.
+fn unfolded_distribution(nv: &[f64], upper: &[f64]) -> (Vec<f64>, Vec<f64>) {
+    let mut diam = Vec::new();
+    let mut wt = Vec::new();
+    for (i, &n) in nv.iter().enumerate() {
+        if !(n > 0.0) {
+            continue;
+        }
+        let d = upper[i];
+        diam.push(d);
+        wt.push(n * d * d * d);
+    }
+    (diam, wt)
 }
 
 /// Whether a plate may be measured by a blue-epoxy rule, and why not when it may not.
@@ -473,6 +841,73 @@ fn summarise(g: &RunnerGeom, um_per_px: Option<f64>) -> PoreGeometry {
         d50_um: d50,
         d90_um: d90,
     }
+}
+
+/// Turns one plate's per-grain arrays into the numbers that get stored.
+///
+/// Apparent always; corrected only when it was asked for, and under its own names.
+fn summarise_grains(g: &RunnerGrain, um_per_px: Option<f64>, wicksell: bool) -> GrainStats {
+    let pct = |v: &[f64], p: f32| -> f32 {
+        let mut s: Vec<f32> = v.iter().map(|&x| x as f32).collect();
+        s.sort_by(f32::total_cmp);
+        crate::distribution::percentile(&s, p)
+    };
+    let mut out = GrainStats {
+        n: g.area.len(),
+        n_edge: g.n_edge,
+        n_small: g.n_small,
+        aspect_p50: pct(&g.aspect, 50.0),
+        contact_p50: pct(&g.contact, 50.0),
+        d10_app_um: None,
+        d50_app_um: None,
+        d90_app_um: None,
+        sort_app_phi: None,
+        d10_w_um: None,
+        d50_w_um: None,
+        d90_w_um: None,
+        sort_w_phi: None,
+        w_clamped: 0,
+    };
+    let Some(k) = um_per_px else { return out };
+    if g.area.is_empty() {
+        return out;
+    }
+    let diam: Vec<f64> =
+        g.area.iter().map(|&a| 2.0 * (a / std::f64::consts::PI).sqrt() * k).collect();
+    out.d10_app_um = Some(weighted_percentile(&diam, &g.area, 10.0) as f32);
+    out.d50_app_um = Some(weighted_percentile(&diam, &g.area, 50.0) as f32);
+    out.d90_app_um = Some(weighted_percentile(&diam, &g.area, 90.0) as f32);
+    let s = folk_ward_sorting(&diam, &g.area);
+    if s.is_finite() {
+        out.sort_app_phi = Some(s as f32);
+    }
+
+    if wicksell {
+        let d_max = diam.iter().cloned().fold(0.0f64, f64::max);
+        if d_max > 0.0 {
+            let upper = saltykov_bounds(d_max);
+            let mut counts = vec![0.0f64; upper.len()];
+            for &d in &diam {
+                // Counts, NOT areas: Saltykov unfolds a population of objects. The volume
+                // weighting is applied afterwards, to the unfolded classes.
+                let i = upper.iter().position(|&u| d <= u).unwrap_or(upper.len() - 1);
+                counts[i] += 1.0;
+            }
+            let (nv, clamped) = saltykov(&counts, &upper);
+            out.w_clamped = clamped;
+            let (wd, ww) = unfolded_distribution(&nv, &upper);
+            if !wd.is_empty() {
+                out.d10_w_um = Some(weighted_percentile(&wd, &ww, 10.0) as f32);
+                out.d50_w_um = Some(weighted_percentile(&wd, &ww, 50.0) as f32);
+                out.d90_w_um = Some(weighted_percentile(&wd, &ww, 90.0) as f32);
+                let sw = folk_ward_sorting(&wd, &ww);
+                if sw.is_finite() {
+                    out.sort_w_phi = Some(sw as f32);
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Measures pore area on a well's live image delivery.
@@ -525,6 +960,9 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
             "band": spec.band,
             "geometry": spec.geometry,
             "min_pore_px": spec.min_pore_px.max(1),
+            "grains": spec.grains,
+            "min_grain_px": spec.min_grain_px.max(1),
+            "grain_sep_px": spec.grain_sep_px.max(3),
             "ids": batch.iter().map(|i| i.image_id.clone()).collect::<Vec<_>>(),
             "sizes": blobs.iter().map(|b| b.len()).collect::<Vec<_>>(),
             "preview": spec.preview_image_id,
@@ -566,6 +1004,8 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
                     let px_w = row.width.unwrap_or(info.width).max(1) as f64;
                     let um_per_px = info.fov_um.map(|fov| fov as f64 / px_w);
                     let geometry = row.geom.as_ref().map(|g| summarise(g, um_per_px));
+                    let grains =
+                        row.grain.as_ref().map(|g| summarise_grains(g, um_per_px, spec.wicksell));
                     plates.push(PlatePore {
                         image_id: info.image_id.clone(),
                         name: info.name.clone(),
@@ -574,6 +1014,7 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
                         pore_fraction: f,
                         pixels: row.pixels.unwrap_or(0),
                         geometry,
+                        grains,
                     })
                 }
                 (None, None) => skipped.push(format!("{}: no result", info.name)),
@@ -614,6 +1055,31 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
                     }
                 }
             }
+            if let Some(g) = &p.grains {
+                put("GRAIN_N", g.n as f32);
+                put("GRAIN_ASPECT", g.aspect_p50);
+                // The honesty number rides with every grain run, never optionally: a size measured
+                // on a section whose boundaries were mostly inferred is a different statement from
+                // one measured on a loose sand, and nothing else in the table would say so.
+                put("GRAIN_CONTACT", g.contact_p50);
+                // APPARENT and CORRECTED under different names, never one name and a flag. A
+                // `GRAIN_D50` that sometimes means one and sometimes the other cannot be read by
+                // anything downstream, and a report quoting it has no way to say which it got.
+                for (item, v) in [
+                    ("GRAIN_D10_APP", g.d10_app_um),
+                    ("GRAIN_D50_APP", g.d50_app_um),
+                    ("GRAIN_D90_APP", g.d90_app_um),
+                    ("GRAIN_SORT_APP", g.sort_app_phi),
+                    ("GRAIN_D10_W", g.d10_w_um),
+                    ("GRAIN_D50_W", g.d50_w_um),
+                    ("GRAIN_D90_W", g.d90_w_um),
+                    ("GRAIN_SORT_W", g.sort_w_phi),
+                ] {
+                    if let Some(v) = v {
+                        put(item, v);
+                    }
+                }
+            }
         }
         let name = crate::db::resolve_aux_set_name(conn, &spec.well_id, PORE_DATASET, set)
             .map_err(|e| e.to_string())?;
@@ -630,6 +1096,37 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
          of the section, plucked grains, or epoxy that did not penetrate."
             .to_string(),
     );
+    if spec.grains {
+        notes.push(
+            "Grain sizes are APPARENT unless the item name says _W. A random plane rarely cuts a \
+             grain through its centre, so section diameters run small and section sorting runs \
+             worse than the rock's."
+                .to_string(),
+        );
+        // Not a caveat in a footnote: where the section is cemented there is nothing in the
+        // picture to separate one grain from the next, and the watershed will draw a line anyway.
+        let welded = plates
+            .iter()
+            .filter_map(|p| p.grains.as_ref())
+            .filter(|g| g.contact_p50 > 0.7)
+            .count();
+        if welded > 0 {
+            notes.push(format!(
+                "{welded} plate(s) have most of their grain outline as grain-to-grain contact \
+                 (GRAIN_CONTACT above 0.7). There is no pore between those grains for the picture \
+                 to see, so the boundary was placed by the watershed rather than observed - read \
+                 their sizes as a rock-fabric description, not a grain-size analysis."
+            ));
+        }
+        if plates.iter().filter_map(|p| p.grains.as_ref()).any(|g| g.w_clamped > 0) {
+            notes.push(
+                "Some Wicksell classes unfolded to a negative population and were clamped at zero. \
+                 That is the inversion being ill-conditioned, not a bug - treat the corrected \
+                 numbers on those plates as indicative."
+                    .to_string(),
+            );
+        }
+    }
 
     Ok(PoreResult { plates, skipped, preview_png, preview_width, preview_height, written, notes })
 }
@@ -717,6 +1214,10 @@ mod tests {
             set_name: Some("TS".into()),
             geometry: false,
             min_pore_px: MIN_PORE_PX,
+            grains: false,
+            min_grain_px: MIN_GRAIN_PX,
+            grain_sep_px: GRAIN_SEP_PX,
+            wicksell: false,
         };
         let res = run_pore_area(&conn, &spec).expect("pore run");
 
@@ -802,6 +1303,168 @@ mod tests {
         // weighting and not the algorithm.
         let flat = vec![1.0; diam.len()];
         assert!((weighted_percentile(&diam, &flat, 50.0) - 1.0).abs() < 1e-9);
+    }
+
+    /// Wicksell's problem has a known answer for one sphere size, and this is it.
+    ///
+    /// Section a population of identical spheres and the apparent diameters spread over every class
+    /// below the true one. The unfolding must put the whole population back in the top class — if it
+    /// does not, the correction is inventing a fine tail that is purely the sectioning.
+    #[test]
+    fn a_single_sphere_size_unfolds_back_to_one_class() {
+        let d = 100.0f64;
+        let upper = saltykov_bounds(d);
+        // The EXACT apparent distribution of a monodisperse population, straight from the chord
+        // geometry — no sampling, so a failure here is the unfolding and nothing else.
+        let counts: Vec<f64> = (0..upper.len())
+            .map(|i| {
+                let lo = if i == 0 { 0.0 } else { upper[i - 1] };
+                d * (section_cdf(d, upper[i]) - section_cdf(d, lo))
+            })
+            .collect();
+        // Most sections of a sphere are near its full width, but far from all of them.
+        assert!(counts.last().unwrap() / counts.iter().sum::<f64>() < 0.7);
+
+        let (nv, clamped) = saltykov(&counts, &upper);
+        assert_eq!(clamped, 0, "an exact input needs no clamping");
+        let top = nv[nv.len() - 1];
+        assert!(top > 0.0);
+        for (i, &v) in nv.iter().enumerate().take(nv.len() - 1) {
+            assert!(v < top * 1e-6, "class {i} kept {v} of a population that is all one size");
+        }
+
+        // And the corrected median lands EXACTLY on the true sphere size, because the class the
+        // population went into is represented by the diameter the unfolding solved it for.
+        let (wd, ww) = unfolded_distribution(&nv, &upper);
+        let w50 = weighted_percentile(&wd, &ww, 50.0);
+        assert!((w50 - d).abs() < 1e-9, "corrected D50 = {w50} against a true {d}");
+    }
+
+    /// **What the correction actually buys, measured rather than assumed.**
+    ///
+    /// A population of identical spheres is perfectly sorted, but its sections are not: cuts land
+    /// anywhere from a sliver to the full width, so the section distribution has a real spread.
+    /// That is the dominant Wicksell effect and it is on SORTING, not on the median — the apparent
+    /// median of a monodisperse population is only about 13% low (the median chord of a sphere is
+    /// √3/2 of its diameter), and area weighting pulls even that most of the way back, because it
+    /// up-weights exactly the near-central cuts.
+    ///
+    /// So: the correction earns its place on the sorting number, and a user who applies it hoping
+    /// to move D50 is applying it for the wrong reason.
+    #[test]
+    fn the_correction_earns_its_place_on_sorting_not_on_the_median() {
+        let d = 200.0f64;
+        let upper = saltykov_bounds(d);
+        let counts: Vec<f64> = (0..upper.len())
+            .map(|i| {
+                let lo = if i == 0 { 0.0 } else { upper[i - 1] };
+                d * (section_cdf(d, upper[i]) - section_cdf(d, lo))
+            })
+            .collect();
+        let mid: Vec<f64> = (0..upper.len())
+            .map(|i| {
+                let lo = if i == 0 { upper[i] * 0.5 } else { upper[i - 1] };
+                (lo * upper[i]).sqrt()
+            })
+            .collect();
+
+        // By COUNT the sections read finer than the rock is — the classic bias.
+        let c50 = weighted_percentile(&mid, &counts, 50.0);
+        assert!(c50 < d * 0.95, "count median {c50} against a true {d}");
+
+        // Apparent sorting on a perfectly sorted population is non-zero: entirely an artefact of
+        // the sectioning, and exactly what the correction is for. Area-weighted it measures about
+        // 0.19 phi, which on the Folk & Ward verbal scale is still inside "very well sorted"
+        // (< 0.35) — so the artefact is real but modest, and worth knowing before anyone reads a
+        // corrected number as a large discovery.
+        let app_wt: Vec<f64> = counts.iter().zip(&mid).map(|(c, m)| c * m * m).collect();
+        let app_sort = folk_ward_sorting(&mid, &app_wt);
+        assert!(app_sort > 0.15, "sections of one grain size still spread: {app_sort} phi");
+
+        // By COUNT the artefact is worse, which is the other half of the same point: the weighting
+        // choice moves this number more than the correction does.
+        let cnt_sort = folk_ward_sorting(&mid, &counts);
+        assert!(cnt_sort > app_sort, "count sorting {cnt_sort} vs area {app_sort}");
+
+        // Unfolded, the whole population is one class and the sorting collapses to zero.
+        let (nv, _) = saltykov(&counts, &upper);
+        let (wd, ww) = unfolded_distribution(&nv, &upper);
+        let w_sort = folk_ward_sorting(&wd, &ww);
+        assert!(w_sort.abs() < 1e-9 || w_sort.is_nan(), "corrected sorting {w_sort}");
+    }
+
+    /// Folk & Ward against a distribution whose spread is known by construction: a population
+    /// spread over exactly two phi units, so (φ84−φ16)/4 + (φ95−φ5)/6 has a value that can be
+    /// worked out by hand rather than trusted.
+    #[test]
+    fn folk_ward_sorting_is_in_phi_units_and_rises_with_spread() {
+        // Uniform in phi from 1 to 3 (500 µm down to 125 µm), equal weights.
+        let n = 2001;
+        let diam: Vec<f64> = (0..n)
+            .map(|i| {
+                let phi = 1.0 + 2.0 * i as f64 / (n - 1) as f64;
+                2f64.powf(-phi) * 1000.0
+            })
+            .collect();
+        let w = vec![1.0; n];
+        let s = folk_ward_sorting(&diam, &w);
+        // Uniform on [1,3]: φ16 = 1.32, φ84 = 2.68, φ5 = 1.10, φ95 = 2.90.
+        let want = (2.68 - 1.32) / 4.0 + (2.90 - 1.10) / 6.0;
+        assert!((s - want).abs() < 0.02, "sorting {s} against {want}");
+
+        // A single grain size is perfectly sorted, and sorting has to fall to zero there — the
+        // direction of the scale matters as much as the number.
+        let one = vec![250.0; 50];
+        assert!(folk_ward_sorting(&one, &vec![1.0; 50]).abs() < 1e-9);
+    }
+
+    /// Phi runs the other way from diameter, and a sign slip there would flip every sorting number
+    /// in a deliverable while leaving it looking entirely reasonable.
+    #[test]
+    fn phi_rises_as_grains_get_finer() {
+        // 1 mm is phi 0, 0.5 mm is phi 1, 0.25 mm is phi 2.
+        let f = |um: f64| -((um / 1000.0).log2());
+        assert!((f(1000.0) - 0.0).abs() < 1e-12);
+        assert!((f(500.0) - 1.0).abs() < 1e-12);
+        assert!((f(250.0) - 2.0).abs() < 1e-12);
+    }
+
+    /// The apparent and corrected statistics must never share an item name.
+    #[test]
+    fn apparent_and_corrected_grain_sizes_are_stored_under_different_names() {
+        let src = include_str!("petrography.rs");
+        for item in ["GRAIN_D50_APP", "GRAIN_SORT_APP", "GRAIN_D50_W", "GRAIN_SORT_W"] {
+            assert!(src.contains(item), "{item} is not written anywhere");
+        }
+        // A bare GRAIN_D50 would be readable as either, which is the one thing D3's answer rules
+        // out: a corrected number must never leave the app without saying that it is corrected.
+        // Matched on the WRITE call, not the bare name — a test that scans its own source has to
+        // avoid tripping over the string it is looking for.
+        for bad in ["put(\"GRAIN_D50\"", "put(\"GRAIN_SORT\"", "put(\"GRAIN_D10\"", "put(\"GRAIN_D90\""] {
+            assert!(!src.contains(bad), "{bad} stores an unqualified name");
+        }
+    }
+
+    /// The grain defaults are round starting points for a visual judgement, not calibrations —
+    /// the same rule the colour band follows.
+    #[test]
+    fn the_grain_defaults_are_generic_not_a_calibration() {
+        for v in [MIN_GRAIN_PX, GRAIN_SEP_PX] {
+            assert_eq!(v % 10, 0, "a non-round pixel default would be somebody's regression result");
+        }
+        assert!(MIN_GRAIN_PX > MIN_PORE_PX, "a grain is the larger object");
+    }
+
+    /// Where the section is cemented there is no pore between the grains, so the watershed places
+    /// a boundary that the picture never showed. That has to be reported, not assumed away.
+    #[test]
+    fn a_welded_fabric_is_reported_rather_than_measured_silently() {
+        let src = include_str!("petrography.rs");
+        assert!(src.contains("GRAIN_CONTACT"), "the contact fraction is stored");
+        assert!(
+            src.contains("placed by the watershed rather than observed"),
+            "and a heavily welded plate says so in the notes"
+        );
     }
 
     /// The perimeter estimator's honest character, recorded so nobody "fixes" it into a boundary
@@ -890,6 +1553,10 @@ mod tests {
                 set_name: Some("TS".into()),
                 geometry: true,
                 min_pore_px: MIN_PORE_PX,
+                grains: false,
+                min_grain_px: MIN_GRAIN_PX,
+                grain_sep_px: GRAIN_SEP_PX,
+                wicksell: false,
             },
         )
         .expect("geometry run");
@@ -921,6 +1588,109 @@ mod tests {
 
     /// 200x200 BMP: a blue-epoxy disc of radius 40 at the centre, grey elsewhere.
     #[cfg(test)]
+    /// The real grain round trip. `#[ignore]`d for the usual reason: it needs scipy, and the green
+    /// gate must never depend on an optional package.
+    ///
+    /// Two plates, both 200 px wide and declared 2000 µm across, so 10 µm/px:
+    ///   LOOSE  — four separated discs of radius 20. Every boundary is open pore, so the contact
+    ///            fraction must be ~0 and each diameter must come back as 400 µm.
+    ///   WELDED — two discs of radius 30 overlapping into one blob. They must still come out as
+    ///            TWO grains, and the contact fraction must rise to say that the boundary between
+    ///            them was placed by the algorithm rather than seen in the picture.
+    #[test]
+    #[ignore]
+    fn welded_grains_still_split_but_say_that_the_boundary_was_inferred() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, "SANDI-TS", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        let grain = |x: usize, y: usize, centres: &[(f64, f64, f64)]| {
+            for (cx, cy, r) in centres {
+                let (dx, dy) = (x as f64 - cx, y as f64 - cy);
+                if dx * dx + dy * dy <= r * r {
+                    return (180u8, 178u8, 172u8); // grain
+                }
+            }
+            (32, 64, 192) // blue epoxy
+        };
+        let loose = bmp(200, 200, |x, y| {
+            grain(x, y, &[(60.0, 60.0, 20.0), (140.0, 60.0, 20.0), (60.0, 140.0, 20.0), (140.0, 140.0, 20.0)])
+        });
+        let welded = bmp(200, 200, |x, y| grain(x, y, &[(80.0, 100.0, 30.0), (120.0, 100.0, 30.0)]));
+
+        let mk = |name: &str, depth: f32, data: Vec<u8>| crate::db::NewImage {
+            depth_top: depth,
+            name: name.into(),
+            mime: "image/bmp".into(),
+            width: 200,
+            height: 200,
+            data,
+            printable: true,
+            prepared: Some("blue_epoxy".into()),
+            fov_um: Some(2000.0),
+            ..Default::default()
+        };
+        crate::db::insert_well_images(
+            &conn,
+            &w,
+            "THIN SECTION",
+            "LAB",
+            None,
+            &[mk("LOOSE", 2000.0, loose), mk("WELDED", 2001.0, welded)],
+        )
+        .unwrap();
+
+        let res = run_pore_area(
+            &conn,
+            &PoreSpec {
+                well_id: w.clone(),
+                dataset: "THIN SECTION".into(),
+                band: PoreColorBand::default(),
+                preview_image_id: None,
+                only_image_id: None,
+                set_name: Some("TS".into()),
+                geometry: false,
+                min_pore_px: MIN_PORE_PX,
+                grains: true,
+                min_grain_px: MIN_GRAIN_PX,
+                grain_sep_px: GRAIN_SEP_PX,
+                wicksell: true,
+            },
+        )
+        .expect("grain run");
+
+        let plate = |n: &str| res.plates.iter().find(|p| p.name == n).unwrap();
+        let l = plate("LOOSE").grains.as_ref().expect("loose grains");
+        assert_eq!(l.n, 4, "four separated discs are four grains");
+        assert!(l.contact_p50 < 0.02, "open pore all round: contact {}", l.contact_p50);
+        // Radius 20 px at 10 µm/px is a 400 µm grain.
+        let d50 = l.d50_app_um.expect("a declared scale gives a diameter");
+        assert!((d50 - 400.0).abs() < 12.0, "apparent D50 {d50} against a true 400");
+        assert!((l.aspect_p50 - 1.0).abs() < 0.03, "a disc is round: {}", l.aspect_p50);
+
+        let we = plate("WELDED").grains.as_ref().expect("welded grains");
+        assert_eq!(we.n, 2, "one blob, but two grains");
+        assert!(
+            we.contact_p50 > 0.05,
+            "the neck must register as an inferred boundary: contact {}",
+            we.contact_p50
+        );
+
+        // Both plates carry a scale, so the corrected items exist and are COARSER than apparent.
+        let wd = l.d50_w_um.expect("wicksell was asked for");
+        assert!(wd >= d50 * 0.9, "corrected {wd} against apparent {d50}");
+
+        // Stored under names that say which they are.
+        let rows = crate::db::list_aux_data(&conn, &w, Some(PORE_DATASET)).unwrap();
+        let has = |item: &str| rows.iter().any(|r| r.item == item);
+        for item in ["GRAIN_N", "GRAIN_CONTACT", "GRAIN_D50_APP", "GRAIN_SORT_APP", "GRAIN_D50_W"] {
+            assert!(has(item), "{item} was not written");
+        }
+        assert!(!has("GRAIN_D50"), "nothing is stored under an unqualified name");
+    }
+
     fn disc_plate() -> Vec<u8> {
         bmp(200, 200, |x, y| {
             let (dx, dy) = (x as f64 - 100.0, y as f64 - 100.0);

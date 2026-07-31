@@ -6503,3 +6503,53 @@ than extrapolated.
 systematically below CPOR, that is the Delesse relation meeting a real section — under-counted thin
 epoxy, or a plate that is not representative of the plug. Either way the size of the gap is a number
 you now have.
+
+---
+
+## Grain size — apparent, with Wicksell as a tick (2026-07-31)
+
+Your D3 answer, shipped. Family B completes Part 2 of the image plan. Needs scipy, like the pore
+geometry.
+
+- [ ] **Petrophysics ▸ Petrography ▸ Pore Area…**, tune the colour band as usual, then tick
+      **Also outline each grain and measure its size**. Two more fields appear —
+      **Smallest grain (pixels)** and **Grain separation (pixels)** — plus the Wicksell tick.
+- [ ] **Look at the preview before the table.** The grains are drawn as yellow outlines over the
+      same picture. This is the one thing you cannot judge from a number: a section chopped into
+      fifty slivers and one sensibly split into twelve grains produce equally plausible tables.
+- [ ] **Drag Grain separation up and down** and watch the outlines. Small = more, thinner grains;
+      large = fewer, fatter ones. Stop where it matches what you see down the microscope.
+- [ ] **Measure.** The table gains **Grains** and **Contact**, and on plates with a scale
+      **GD50 app µm** and **Sort app φ**.
+- [ ] Tick **Also report Wicksell-corrected sizes** and measure again. Two more columns,
+      **GD50 W µm** and **Sort W φ**.
+- [ ] A plate with no scale should show **Grains** and **Contact** and leave every µm and φ column
+      **blank** — phi is a logarithm of millimetres, so sorting needs a scale as much as a diameter
+      does.
+- [ ] **Save as point data** and check the Wells tree: GRAIN_N, GRAIN_ASPECT, GRAIN_CONTACT, then
+      GRAIN_D10/D50/D90_APP and GRAIN_SORT_APP, and the _W set if you asked for it. **There is no
+      plain GRAIN_D50** — that is deliberate.
+
+**Contact is the number to read first.** It is the fraction of a grain's outline that touches
+another grain rather than open pore. Where your sand is loose it will be near zero and the outlines
+are real. Where it is cemented or has quartz overgrowths there is no pore between the grains for
+the picture to see, and the algorithm places a boundary at the narrowest point anyway. Above 0.7
+the run tells you so, and those sizes are a description of the fabric rather than a grain-size
+analysis. No correction fixes that — Wicksell corrects for the sectioning, not for outlines that
+were never visible.
+
+**Sorting is Folk & Ward in phi**, the same measure your core descriptions use: under 0.35 is very
+well sorted, 0.35–0.50 well sorted, 0.50–0.71 moderately well sorted, and so on. Phi runs backwards
+from millimetres — bigger phi is finer rock.
+
+**What Wicksell actually changes, and it is not what you would expect.** A random cut through a
+grain rarely goes through its centre, so sections look small and badly sorted. But the size effect
+is smaller than the textbooks make it sound: about 13% on the median, and because the diameters here
+are area-weighted (which on a section is the same as weighing, like a sieve) most of even that is
+already absorbed. The real damage is to **sorting** — a perfectly sorted rock reads about 0.19 phi
+from its sections alone. So use the correction when the sorting number is what you are quoting, and
+do not expect it to move D50 much.
+
+**Worth a real test:** compare GRAIN_D50_APP against a sieve or laser grain-size analysis on the
+same plugs, in **Plug QC**. Both are volume-weighted, so they should be directly comparable — and
+where they are not, Contact will usually tell you why.

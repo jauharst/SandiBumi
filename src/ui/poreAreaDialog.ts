@@ -131,6 +131,42 @@ export async function openPoreAreaDialog(): Promise<void> {
 
   const minPx = mk("Smallest pore (pixels)", 20, 1, "Below this a blob is speckle. In PIXELS on purpose — it is what the picture can resolve, not a size in the rock, and it must mean the same on a plate with no scale.");
 
+  // Grains are the other phase of the same segmentation: whatever the pore rule did not claim.
+  // Opt-in for the same reason as the pore geometry — it needs scipy.
+  const grainChk = document.createElement("input");
+  grainChk.type = "checkbox";
+  const grainLabel = document.createElement("label");
+  grainLabel.appendChild(grainChk);
+  grainLabel.appendChild(document.createTextNode(" Also outline each grain and measure its size (needs scipy)"));
+  grainLabel.style.display = "block";
+  wrap.appendChild(grainLabel);
+
+  const minGrainPx = mk("Smallest grain (pixels)", 50, 1, "Below this a patch of solid is debris or a sliver, not a grain. In PIXELS, same reasoning as the pore floor.");
+  const sepPx = mk("Grain separation (pixels)", 20, 1, "How close two grain centres may be before they count as one grain. Over-segmentation is what this gets wrong — watch the yellow outlines in the preview, not the table.");
+
+  const wickChk = document.createElement("input");
+  wickChk.type = "checkbox";
+  const wickLabel = document.createElement("label");
+  wickLabel.appendChild(wickChk);
+  wickLabel.appendChild(
+    document.createTextNode(" Also report Wicksell-corrected sizes (stored under _W names)")
+  );
+  wickLabel.style.display = "block";
+  wrap.appendChild(wickLabel);
+
+  // The grain fields only mean anything once grains are on. Hidden rather than disabled, because a
+  // greyed field still reads as a setting that applies.
+  const grainRows = [minGrainPx, sepPx].map((i) => i.closest(".form-row") as HTMLElement | null);
+  const syncGrainRows = (): void => {
+    for (const r of grainRows) if (r) r.hidden = !grainChk.checked;
+    // `style.display` and NOT the `hidden` attribute: this label carries an inline `display:block`,
+    // and a display rule beats `hidden` every time — the gotcha the ribbon panels hit twice. Setting
+    // the attribute here left the row fully visible at 19px tall.
+    wickLabel.style.display = grainChk.checked ? "block" : "none";
+  };
+  grainChk.addEventListener("change", syncGrainRows);
+  syncGrainRows();
+
   const band = (): PoreColorBand => ({
     hue_lo: Number(hueLo.value),
     hue_hi: Number(hueHi.value),
@@ -222,9 +258,17 @@ export async function openPoreAreaDialog(): Promise<void> {
     // an uncalibrated delivery invites reading the pixel numbers as microns.
     const anyGeom = res.plates.some((p) => p.geometry);
     const anySized = res.plates.some((p) => p.geometry?.d50_um != null);
+    const anyGrain = res.plates.some((p) => p.grains);
+    const anyGrainSized = res.plates.some((p) => p.grains?.d50_app_um != null);
+    const anyW = res.plates.some((p) => p.grains?.d50_w_um != null);
     const cols = ["Plate", "Depth", "Pore area"];
     if (anyGeom) cols.push("Pores", "Aspect", "Roundness");
     if (anySized) cols.push("D10 µm", "D50 µm", "D90 µm");
+    if (anyGrain) cols.push("Grains", "Contact");
+    // "app" is in the header, not only in the stored item name: a reader looking at the table has
+    // to be told which of the two they are looking at.
+    if (anyGrainSized) cols.push("GD50 app µm", "Sort app φ");
+    if (anyW) cols.push("GD50 W µm", "Sort W φ");
     for (const h of cols) {
       const th = document.createElement("th");
       th.textContent = h;
@@ -242,10 +286,21 @@ export async function openPoreAreaDialog(): Promise<void> {
           g ? g.shape_p50.toFixed(2) : ""
         );
       }
+      // A blank, never a zero and never a pixel figure: this plate stated no scale.
+      const um = (v: number | null | undefined): string => (v == null ? "" : v.toFixed(0));
       if (anySized) {
-        // A blank, never a zero and never a pixel figure: this plate stated no scale.
-        const um = (v: number | null | undefined): string => (v == null ? "" : v.toFixed(0));
         vals.push(um(g?.d10_um), um(g?.d50_um), um(g?.d90_um));
+      }
+      const gr = p.grains;
+      if (anyGrain) {
+        vals.push(gr ? String(gr.n) : "", gr ? gr.contact_p50.toFixed(2) : "");
+      }
+      const phi = (v: number | null | undefined): string => (v == null ? "" : v.toFixed(2));
+      if (anyGrainSized) {
+        vals.push(um(gr?.d50_app_um), phi(gr?.sort_app_phi));
+      }
+      if (anyW) {
+        vals.push(um(gr?.d50_w_um), phi(gr?.sort_w_phi));
       }
       for (const v of vals) {
         const td = document.createElement("td");
@@ -301,6 +356,10 @@ export async function openPoreAreaDialog(): Promise<void> {
             band: band(),
             geometry: geomChk.checked,
             min_pore_px: Number(minPx.value) || 20,
+            grains: grainChk.checked,
+            min_grain_px: Number(minGrainPx.value) || 50,
+            grain_sep_px: Number(sepPx.value) || 20,
+            wicksell: wickChk.checked,
             set_name: setIn.value || "TS",
           });
           const [ds, name] = saved.written ?? ["PETROGRAPHY", setIn.value];
@@ -328,6 +387,10 @@ export async function openPoreAreaDialog(): Promise<void> {
             band: band(),
             geometry: geomChk.checked,
             min_pore_px: Number(minPx.value) || 20,
+            grains: grainChk.checked,
+            min_grain_px: Number(minGrainPx.value) || 50,
+            grain_sep_px: Number(sepPx.value) || 20,
+            wicksell: wickChk.checked,
           })
         );
       } catch (e) {
