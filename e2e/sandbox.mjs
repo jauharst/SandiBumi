@@ -52,10 +52,14 @@ export const outDir = path.join(sandboxDir, 'out')
  *
  * That is not theoretical. `autosave.ts` keeps its "session running" flag there: a run that ends
  * uncleanly leaves the flag set, and then EVERY later launch — the harness's and the developer's
- * own — starts in crash recovery. Observed here: one dirty shutdown, and every subsequent run
- * failed with `window.__TAURI__` undefined and `#ribbon` never appearing, because `main.ts` takes
- * an early return down the recovery path before it builds anything. Nothing in the harness could
- * reset it, so the breakage was permanent and looked like a flaky test.
+ * own — starts in crash recovery, with nothing in the harness able to reset it.
+ *
+ * CORRECTION, and it matters because the wrong diagnosis was written here first: the run of
+ * failures that prompted this — `window.__TAURI__` undefined, `#ribbon` never appearing — was NOT
+ * caused by the shared profile. It was the IPC-readiness race documented in the `before` hook of
+ * wdio.conf.mjs: the harness called `invoke` before the webview had navigated to the app document.
+ * The shared profile is a real isolation hole and this fix stands on its own merits, but it was
+ * not the cause, and leaving that claim here would send the next reader down the same wrong path.
  *
  * `WEBVIEW2_USER_DATA_FOLDER` is read by the WebView2 loader itself, so pointing it into the
  * sandbox gives each run a clean profile and keeps the harness out of the developer's app state

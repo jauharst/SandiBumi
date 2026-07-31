@@ -226,11 +226,46 @@ Pile B is therefore 43 items, not 45.
 
 **Open (0)** — every pile-B item now has a Rust test running on the green gate.
 
-### Pile C — covered by the end-to-end harness
+### Pile C — the checklist
 
-`npm run test:e2e` (see `docs/e2e_harness.md`) drives the built app: a sandboxed project, a real
-LAS import, a real `vsh_gr` run with the curves read back, a real LAS export, and a frontend-boot
-check. Optional; never part of the green gate.
+`npm run test:e2e` (see `docs/e2e_harness.md`) drives the built app. Optional; **never part of the
+green gate**, and never will be — it needs a built binary and a WebDriver stack, and a gate that
+can fail for reasons unrelated to the code is a gate people learn to ignore.
+
+**`[x]` here means an end-to-end test drives it against the real app. It is NOT your verification
+mark** — same rule as pile B.
+
+**Done (6 of 86)**
+
+- [x] **T-INT-09** — Well-group scoping end-to-end · `wellgroups.e2e.mjs`. Create/activate,
+      exactly-one-active, membership-replaces, and a group-scoped run that writes to members while
+      leaving the outsider's curves byte-identical. A 2-of-3 group rather than the plan's 3-of-4,
+      because test data stays the repo's own three example wells; the exclusion claim is the same.
+- [x] **T-SHELL-01** — App launch · `shell.e2e.mjs`. Every declared tab has a panel and no panel is
+      orphaned, the status bar exists, the dockview workspace was created.
+- [x] **T-SHELL-02** — Ribbon tab walk · `shell.e2e.mjs`. Exactly one panel visible per tab, exactly
+      one `.active`, every group captioned. Asserted on `checkVisibility()` rather than the `hidden`
+      attribute — a CSS `display` rule has overridden `hidden` on these very panels twice, and the
+      attribute reads correct in both of those bugs. **The overflow-chevron leg is NOT covered**: it
+      needs a window resize, which is a native window operation.
+- [x] **T-SHELL-03** — Language EN → ID → SU → JV → EN · `shell.e2e.mjs`. Keyed on "Project", whose
+      four forms differ only by diacritics (Project / Proyek / Proyék / Proyèk), so the assertion
+      proves the RIGHT dictionary was selected. "Petrophysics" would have proved nothing — it is
+      "Petrofisika" in all three translations. Also checks an untranslated term stays English.
+- [x] **T-ADV-01** — Advance tab smoke · `shell.e2e.mjs`. All five promoted manifests render, plus
+      SandiMin / Calibrate RtC / Calibrate S / ML Models. Tooltip text and the chevron leg are not
+      covered.
+- [x] **T-SHIP-06** — The green gate from your own shell · `tools\check.ps1` is the test; it is run
+      before every commit in this series and its `GATE GREEN` line is the assertion.
+
+**Partially covered**
+
+- [ ] **T-RT-16** — Legacy Multimin filtered from the step picker. `shell.e2e.mjs` covers **step 5
+      only** (the ribbon cross-check), and covers it well: the retirement rests on two independent
+      mechanisms — membership of `ADVANCED_MODULE_IDS`, which filters it out of the Petrophysics
+      dropdowns, and a META caption outside `groupOrder`, which keeps it out of the Advance tab —
+      so breaking either one puts the button back somewhere, and the test sweeps the whole ribbon.
+      Steps 1–4 (the Workflow Builder's own picker) are untouched.
 
 ### Where else to look
 
@@ -512,7 +547,7 @@ these turns on a judgement about real rock, a visual read, or a feel for whether
 
 ---
 
-## Twenty-one things the triage found that are worth fixing regardless
+## Twenty-two things the triage found that are worth fixing regardless
 
 These came out of reading all 250 tests against the current code. Each was verified directly,
 not taken on a subagent's word. **Findings 1, 2 and 3 have since been fixed — see the notes
@@ -1038,6 +1073,41 @@ the Larionov forms are empirical fits that were never normalised to close at 1: 
 at **0.99**, `LARINOV2` at **0.9957**, and `LARINOV3` overshoots to **1.133**. `VSH` clamps all of
 them to 0–1; `VSH_GR` keeps the raw value, which is what that pair of outputs is for. Not a defect
 — but read against the plan as written it looks like one.
+
+### 22. The end-to-end harness was driving a dev server, not the built app — **FIXED 2026-08-01**
+
+The harness's opening line claims it drives "the REAL BUILT DESKTOP APP", and that claim was
+false for as long as the harness has existed.
+
+`src-tauri/target/release/sandibumi.exe` can be produced two ways. `npm run tauri build` embeds
+`../dist` into the binary; a bare `cargo build --release` compiles exactly the same Rust and bakes
+in `tauri.conf.json`'s **`devUrl`** instead, so the webview loads `http://localhost:1420`. The
+second binary is not distinguishable from the first by size, by name, or by anything the harness
+looked at.
+
+**With a Vite dev server up it passes every test.** That is the whole problem: the run is green,
+the assertions are real, and what was actually driven is the dev server's frontend — a different
+build of the frontend from the one in the binary, with none of the packaged app's CSP or asset
+pipeline. Everything the harness is FOR is the difference between those two.
+
+It surfaced only because the dev server happened to stop between one run and the next, at which
+point the webview landed on `chrome-error://chromewebdata/` and every test failed at once. Until
+then it had passed 10 of 10 twice that morning. A harness that silently tests the wrong artefact
+is worse than no harness, and this one gave no signal in either direction.
+
+**The fix is a refusal, not a rebuild.** The `before` hook now reads `location.href` and aborts
+unless the app is serving its own embedded frontend (`tauri://` / `http://tauri.localhost`),
+naming the cause and the correct build command. A dev-pointing binary can no longer produce a
+green run, and — deliberately — the message tells the reader NOT to fix it by starting a dev
+server. `e2e/run.mjs`'s "no binary" message now names `npm run tauri build -- --no-bundle` for the
+same reason: a bare cargo build is the trap, so the instruction has to rule it out explicitly.
+
+**One thing to re-check, which this casts doubt on.** The pile C note for **T-SHIP-01** ("packaged
+app launches under the hardened CSP") records it as *already machine-verified once on 2026-07-29
+by exactly this route*. The CSP exists only in a packaged build, so if that verification ran
+against a dev-pointing binary it verified nothing. Which binary it used is not recorded, so this
+is a doubt rather than a finding — but T-SHIP-01 is cheap to re-run now that the harness refuses
+the wrong artefact.
 
 ---
 

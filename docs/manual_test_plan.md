@@ -112,6 +112,12 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
    `cmd.exe /c "call \"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat\" -vcvars_ver=14.29 && set PATH=C:\Program Files\nodejs;%USERPROFILE%\.cargo\bin;%PATH% && cd /d \"D:\XX. SandiBumi\" && npm run tauri dev"`
 2. Wait for the Rust compile to finish and the desktop window to appear.
    **Expected:** Window opens titled **SandiBumi — {project name}**. Ribbon shows tabs **Project / Data / Petrophysics / Advance / Plot / View** with **Petrophysics** active; there is **no icon strip left of the tabs** (removed 2026-07-30). Click **Project**: its groups read **Project** (Open Project… / New Project… / Save Project As… / Recent ▾), **Session** (Save Session… / Open Session…), **Edit** (Undo / Redo, both greyed), **Monitor** (History / Processing / Performance), **Appearance**, **Language**, **Help** — every one a labelled button, no bare icons. Status bar at the bottom reads **Ready**. Sidebar anchor panes **Wells**, **Tops**, **Processing**, **Performance** are present plus **Log View** and **Inspector**. No error dialogs. If the app panics on startup instead: check `src-tauri\` for `.corrupt-backup-*` files (WAL recovery already ran — note it, relaunch once).
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** `shell.e2e.mjs` "renders the ribbon,
+   the status bar and the workspace" drives the built app and asserts every declared tab has a
+   panel and no panel is orphaned, that the status bar exists, and that the dockview workspace was
+   created. What stays yours: the window TITLE, the specific group contents of the Project tab, the
+   sidebar pane set, and "no error dialogs" — a modal the harness does not know to look for.
+
    **Result — T-SHELL-01:**
 
 - [x] Pass
@@ -130,6 +136,14 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
 2. On **Data**, open **Import Logs ▾**, then click **Import Data ▾** — then click elsewhere.
 3. Narrow the app window until a tab's groups no longer fit (≈720 px); click the **›** box; widen the window again.
    **Expected:** Each tab shows its groups: Project = Open/New Project + Recent ▾ + Theme + Language; Data = Import Logs ▾ / Import Data ▾ / **Export LAS…** / Tools ▾ + Wells & Tops / Curve Catalog / DB Inspector / SQL Query; Petrophysics = module dropdowns + Zones… + Cutoffs & Summary… + batch group; Advance = SSC/SSPW/RtC/IMTS buttons + **SandiMin…** + **ML Models…**; Plot = Log Views / Parameter Selection / Correlation / Deliverables; View = New Window / Reset Workspace. Only one dropdown menu is open at a time; picking an item or clicking outside closes it (covers REVIEW.md §"Highlight tool + ribbon overflow…" and §Wave A-2). When narrow, no raw scrollbar — a boxed **›** appears at the overflowing edge, clicking scrolls the row and **‹** appears at the left; chevrons disappear when the window is wide again.
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** `shell.e2e.mjs` "shows exactly one
+   ribbon panel at a time, and each one has captioned groups" walks all six tabs and asserts
+   exactly one panel visible, exactly one `.active` tab, and no blank group caption. It reads
+   `checkVisibility()` rather than the `hidden` attribute on purpose — a CSS `display` rule has
+   overridden `hidden` on these panels twice, and in both of those bugs the attribute was correct.
+   **Not covered:** step 2's dropdown behaviour (only one menu open at a time) and step 3's
+   overflow chevrons, which need a real window resize.
+
    **Result — T-SHELL-02:**
 
 - [x] Pass
@@ -149,6 +163,15 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
 3. Switch to **Basa Sunda**, then **Basa Jawa**, checking a few labels each time.
 4. Switch back to **English**.
    **Expected:** Status line shows **Language: Bahasa Indonesia**. Labels translate live without a restart: Petrophysics→**Petrofisika**, View→**Tampilan**, Import Logs→**Impor Log**, Tools→**Alat**, Save→**Simpan**; in Basa Jawa: Save→**Simpen**, Depth→**Jero**, Reload→**Muat manèh**. Technical terms stay English by design (Monte Carlo, Pickett, SandiMin, curve mnemonics, LAS/DLIS). Well names and layout names are never translated; the Language dropdown's own option labels stay native names in every language. Back to English restores every label exactly. Choice survives a relaunch. Covers REVIEW.md §"Held-item resolutions" (Bahasa Jawa item) and §Wave A-2 (translated import labels).
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** `shell.e2e.mjs` "switches UI language
+   EN to ID to SU to JV and back" drives the real select through all four locales and back. It
+   keys on **Project**, whose four forms differ only by diacritics (Project / Proyek / Proyék /
+   Proyèk), so the assertion proves the RIGHT dictionary was selected — **Petrophysics would have
+   proved nothing**, since it is "Petrofisika" in all three translations, and a test built on it
+   would pass while serving Sundanese to an Indonesian user. It also asserts an untranslated term
+   stays English. **Not covered:** the status line, the deeper label set inside dialogs, that well
+   and layout names are never translated, and survival across a relaunch.
+
    **Result — T-SHELL-03:**
 
 - [x] Pass
@@ -2071,6 +2094,13 @@ Shared preconditions: project open in `npm run tauri dev` with at least one Maha
 3. Confirm the **Mineral Solver** group shows **SandiMin…** and that no button named "Mineral Inv" / legacy "multimin" appears anywhere on the tab.
 4. Narrow the window until the tab overflows; a **›** chevron appears at the right edge and scrolls the panel; **‹** appears after scrolling.
    **Expected:** all five method buttons plus SandiMin… present with correct tooltips; legacy multimin absent (superseded by SandiMin); overflow chevrons work.
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** `shell.e2e.mjs` "fills the Advance tab
+   with the flagship methods and the calibration tools" asserts all five promoted buttons (SSC,
+   SSPW, RtC, IMTS, Thin Beds) resolved from their manifests, plus SandiMin…, Calibrate RtC…,
+   Calibrate S… and ML Models…. A companion test sweeps the WHOLE ribbon for a legacy
+   "Mineral Inv" / "Multimin" button and asserts there is none — step 3's negative. **Not
+   covered:** the tooltip text of each button, and step 4's overflow chevrons.
+
    **Result — T-ADV-01:**
 
 - [ ] Pass
@@ -2792,6 +2822,15 @@ Covers the four Rock Typing modules on the Petrophysics ribbon (`rocktyping`, `l
 5. Cross-check the ribbon: neither the Petrophysics Saturation dropdown nor the Advance tab shows a "Multimin — Mineral Inversion" / "Mineral Inv" button.
    **Expected:** The deprecated solver is unreachable from any new-chain or ribbon path; the only remaining route is loading a pre-existing saved workflow that already references it (see T-RT-17). This verifies the fix REVIEW.md records as an unchecked click-through item: "the deprecated legacy `multimin` module is filtered out of the Workflow step picker (use SandiMin)."
    **Known issue:** AUDIT-2026-07-21-full-qc.md, Legacy multimin finding 1: "Workflow Builder's step picker exposes the deprecated multimin module unfiltered/unlabeled, while SandiMin has no path into chains at all … a user building a brand-new chain today can only silently add the deprecated fixed 4-component solver … with no UI signal". The picker half was fixed post-audit (workflowDialog.ts now filters `multimin`) — this test confirms the fix holds; the SandiMin-not-chainable half is unchanged by design.
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** **step 5 only.** `shell.e2e.mjs`
+   "gives the legacy fixed multimin no button in any ribbon tab" sweeps every `.ribbon-label` in
+   the whole ribbon. That is the right shape for this claim, because the retirement rests on TWO
+   independent mechanisms — membership of `Ribbon.ADVANCED_MODULE_IDS`, which filters it out of the
+   Petrophysics dropdowns, and a META caption outside `groupOrder`, which keeps it off the Advance
+   tab — so breaking either one puts the button back in a different place, and checking one tab
+   would catch only one. **Steps 1–4 (the Workflow Builder's own step picker) are NOT covered** and
+   remain yours.
+
    **Result — T-RT-16:**
 
 - [ ] Pass

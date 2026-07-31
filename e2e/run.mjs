@@ -41,8 +41,13 @@ if (!fs.existsSync(appBinary)) {
     'No release binary to test.',
     `  expected: ${appBinary}`,
     '',
-    'Build it first. On the reference machine that must go through the vcvars 14.29 pin:',
-    '  see CLAUDE.md "Dev commands" for the full command, then re-run this.',
+    'Build it with the Tauri CLI — NOT with `cargo build --release`, which bakes in the devUrl',
+    'and produces a binary that loads http://localhost:1420 instead of its own embedded frontend:',
+    '',
+    '  npm run tauri build -- --no-bundle',
+    '',
+    'On the reference machine that must go through the vcvars 14.29 pin: see CLAUDE.md',
+    '"Dev commands" for the wrapper, then re-run this.',
   ])
 }
 

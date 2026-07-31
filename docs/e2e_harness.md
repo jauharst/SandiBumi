@@ -32,10 +32,24 @@ chrome itself is not.
 
 ## Setup on a new machine
 
-1. **Build the app.** The harness deliberately does not build it — on the reference machine a
-   Tauri release build must go through the vcvars 14.29 pin (`CLAUDE.md` → "Dev commands"), and
-   burying a slow, environment-specific compile inside a test run makes a toolchain problem look
-   like a test failure. It refuses to start with a clear message if the binary is missing.
+1. **Build the app — with the Tauri CLI, not with `cargo`.**
+
+   ```
+   npm run tauri build -- --no-bundle
+   ```
+
+   This distinction is not pedantry, and getting it wrong cost a day. `cargo build --release`
+   compiles the same Rust but bakes in `tauri.conf.json`'s **`devUrl`**, so the resulting binary
+   loads `http://localhost:1420` instead of its own embedded frontend. The two are the same size
+   and the same name. With a Vite dev server running, the dev-pointing one **passes every test** —
+   while driving the dev server's frontend rather than the one that ships, which is the entire
+   difference this harness exists to check. The `before` hook now refuses such a binary by name;
+   see finding 22 in `review_triage.md`. Do not work around that refusal by starting a dev server.
+
+   The harness deliberately does not build the app itself — on the reference machine the build must
+   go through the vcvars 14.29 pin (`CLAUDE.md` → "Dev commands"), and burying a slow,
+   environment-specific compile inside a test run makes a toolchain problem look like a test
+   failure. It refuses to start with a clear message if the binary is missing.
 
    The built binary **embeds the frontend as it was at build time**. After changing anything in
    `src/`, rebuild before trusting a DOM-level assertion.
@@ -124,9 +138,30 @@ looked for `~VERSION`; `export.rs` writes `~Version Information`. The file was f
 was wrong — which is the direction a harness should fail in, but only if you check the output
 rather than assume it.
 
+### Cost per command — why specs batch their DOM work
+
+`@wdio/tauri-service` runs a window-focus probe in `beforeCommand` for exactly `getTitle`,
+`findElement`, `findElements`, `$`, `$$` and `elementClick`. The probe asks for
+`@wdio/tauri-plugin`, which this app deliberately does not register (see "Why
+`driverProvider: 'external'`"), and each failure costs about **7.5 seconds**. `execute` is not on
+that list and is effectively free.
+
+So a six-tab ribbon walk written the obvious way — `await $(sel)` then `await el.click()` — is
+twelve of those commands and blows the 180 s mocha timeout. The same walk driven through one
+`browser.execute` finishes in under a second. `shell.e2e.mjs`'s `clickTab` documents the pattern.
+
+The trade is small and worth stating: an in-page `el.click()` is not a trusted user gesture, so it
+cannot exercise anything gated on user activation (fullscreen, clipboard, autoplay). For a plain
+click listener the two are equivalent — but when the *gesture* is the thing under test, pay the
+7.5 s and use `$`.
+
 ## Current coverage
 
-Five tests, chosen to prove the harness rather than to chase coverage:
+Fifteen tests across three spec files. Specs share ONE app launch and one project (see the spec
+grouping note in `wdio.conf.mjs`), so write each one to establish what it needs and to assert
+changes as before/after differences rather than as absolute state.
+
+`pipeline.e2e.mjs` — five tests, chosen to prove the harness rather than to chase coverage:
 
 | Test | What it proves |
 |---|---|
@@ -135,6 +170,25 @@ Five tests, chosen to prove the harness rather than to chase coverage:
 | Run `vsh_gr`, read the catalog back | The module engine ran and curves were written |
 | Export LAS | A real file on disk, with the row count the exporter reported |
 | Ribbon and dock populated | The frontend booted, not just the backend |
+
+`shell.e2e.mjs` — the application chrome (manual plan T-SHELL-01/02/03, T-ADV-01, T-RT-16 step 5):
+
+| Test | What it proves |
+|---|---|
+| Ribbon, status bar, workspace render | Every declared tab has a panel and none is orphaned |
+| One panel at a time, captioned groups | Asserted on `checkVisibility()`, not the `hidden` attribute |
+| Advance tab flagships + calibration tools | The five promoted manifests resolved; SandiMin/RtC/S/ML present |
+| Legacy multimin has no ribbon button | Both retirement mechanisms, swept across the whole ribbon |
+| Language EN → ID → SU → JV → EN | The right dictionary each time; untranslated terms stay English |
+
+`wellgroups.e2e.mjs` — well-group scoping (T-INT-09):
+
+| Test | What it proves |
+|---|---|
+| Create and activate a group | The group exists and is the active one |
+| Exactly one group active | `set_active_well_group` clears the others |
+| Membership replaces | A second write is not an append |
+| A scoped run writes only to members | The outsider's curves are byte-identical before and after |
 
 Test data is `dataset for test/examples/` (`SANDI-*`) only. Never a real client project, never a
 path from `SANDIBUMI_FIELD_FIXTURES`.

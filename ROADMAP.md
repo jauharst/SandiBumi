@@ -941,6 +941,21 @@ The actionable backlog. Roughly ordered: safe frontend wins first, then Performa
       LARINOV3 overshoots to 1.133; VSH clamps, VSH_GR keeps the raw value). Not a defect, but it
       reads as one against the plan as written. Finding 21.
 
+- [x] **The end-to-end harness was driving a Vite dev server, not the built app — FIXED
+      2026-08-01.** `cargo build --release` compiles the same Rust as `npm run tauri build` but
+      bakes in `tauri.conf.json`'s `devUrl`, so the binary loads `http://localhost:1420` instead of
+      its own embedded frontend. Same name, same size, nothing to tell them apart — and with a dev
+      server running the wrong one **passes every test**, while driving a different build of the
+      frontend from the one in the binary. It only surfaced when the dev server stopped between two
+      runs and the webview landed on `chrome-error://chromewebdata/`. The `before` hook in
+      `e2e/wdio.conf.mjs` now reads `location.href` and refuses anything that is not
+      `tauri://` / `http://tauri.localhost`, naming the correct build command and telling the reader
+      NOT to work around it by starting a dev server; `e2e/run.mjs`'s missing-binary message names
+      `npm run tauri build -- --no-bundle` for the same reason. **Leaves one doubt worth closing:**
+      the triage records T-SHIP-01 (packaged app under the hardened CSP) as machine-verified once on
+      2026-07-29 by this same route, and the CSP exists only in a packaged build — which binary that
+      run used is not recorded. Finding 22.
+
 - [x] **Legacy-multimin RECON_ERR at 3 tools — CLOSED 2026-07-31, no sign-off needed.** REVIEW.md
       still lists this among the findings awaiting a decision because it would change
       interpretation numbers. It does not need one. Legacy `multimin` is **retired** — `run_module`
