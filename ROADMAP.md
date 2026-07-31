@@ -1616,8 +1616,11 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       (`CPHOTO_DARK` / `_RED` / `_TEX`) with a signed agreement against a real curve, which is the
       photo-proxy-log half of the core-to-log shift. Every control is the picture itself — thumbnail
       strip, drag-to-crop, click-a-grey, gradient-tracked sliders (Jauhar, 2026-07-31: "geologist see
-      image not text"). **Still open**: perspective correction, CLAHE/denoise/sharpen, the stitched
-      multi-box strip pyramid, WL/UV pairs, a log-view strip track, and feeding the trace into
+      image not text"). **2026-08-01**: perspective rectification (four draggable corners, output
+      proportions from the quadrilateral) and the detail group — CLAHE local contrast, median
+      denoise, unsharp sharpen, radius as a fraction of the long edge — with `touches_detail`
+      naming any photograph the trace was read off that carries one of them. **Still open**: the
+      stitched multi-box strip pyramid, WL/UV pairs, a log-view strip track, and feeding the trace into
       `registration.rs` to PROPOSE a shift (it is already a curve, so that composes). Absorbs the
       §4 New-capability "core image input" stub. → `ref_image_core.md`.
 - [ ] **(8) Depth registration, then plate digitizing** — scoped 2026-07-31 at Jauhar's direction

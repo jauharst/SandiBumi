@@ -7194,3 +7194,61 @@ careful job crop to one row and run it per row.
 - [ ] On a four-row core box, compare 4 rows in one go against cropping to one row at a time — is
       the equal-lane approximation good enough on your boxes?
 - [ ] Save the curves and put CPHOTO_DARK in a log track beside GR.
+
+## Square up a box shot from an angle, and three detail corrections (2026-08-01)
+
+Two more things in Data ▸ Tools ▾ ▸ **Condition Core Photos…**
+
+### Square up
+
+For a box photographed from one end rather than straight above. Press **Square up**, drag the four
+handles onto the corners of the core itself, then press **Done**. The picture is stretched back to
+the shape the box really is.
+
+This is not the same as Straighten and Straighten cannot do it. A box shot from an angle is a
+trapezoid — the far end is drawn shorter than the near end — so a depth read straight down the
+frame runs fast at one end and slow at the other, and every sample in between lands at a depth that
+is wrong by an amount which changes along the core. Rotating a trapezoid just gives you a tilted
+trapezoid.
+
+The squared-up picture is a different SHAPE from the one that arrived, and that is correct: the
+delivered shape was already wrong, and the new proportions are measured from the corners you
+placed. (This is deliberately the opposite of what happens to a thin section, whose delivered shape
+is the truth and is never stretched.)
+
+While you are dragging, the picture is shown as the camera framed it — otherwise you would be
+pointing at corners in a photograph that had already been squared up to them.
+
+### Detail: Local contrast, Denoise, Sharpen
+
+Three new sliders, grouped apart from the colour ones because they do something different.
+
+- **Local contrast** lifts the shadowed end of a box towards the lit end, tile by tile, instead of
+  brightening the whole picture. This is the one for a box lit from one side.
+- **Denoise** takes out speckle and dust without softening the grain boundary next to it.
+- **Sharpen** lifts real edges — bedding, grain boundaries, fractures.
+
+**They change what Read the trace measures, and there is a warning under them that turns orange
+when one is active.** Local contrast roughly HALVES the darkness contrast between clean sand and
+mudstone, so an equalised box and a plain one no longer read on the same scale — the trace still
+follows the rock, but a calibration against GR fitted on one will not hold on the other. Sharpening
+inflates TEX and denoising suppresses it. Read the trace off photographs corrected for light and
+framing only; use these three to make a picture readable.
+
+Read the trace also names any photograph carrying one of the three, so a run cannot quietly mix
+equalised and plain boxes.
+
+- [ ] Take a box photographed from one end, Square up, and check the core comes out as a rectangle
+      with the ends the same width.
+- [ ] Read the trace off that box before and after squaring up — does DARK agree with GR better
+      once the depth axis is linear?
+- [ ] Try Square up on a box that was already shot square: the handles start at the frame corners,
+      so leaving them there should change nothing.
+- [ ] Apply this light to the whole run on a photo you have squared up, and check the other boxes
+      did NOT get its corners.
+- [ ] Push Local contrast up on a box lit from one side. Does the shadowed end become readable?
+- [ ] Then Read the trace on that box and check the run names it in the notes.
+- [ ] Denoise a grainy photograph and check the grain boundaries are still sharp — if they soften,
+      say so, that would mean the filter is wrong.
+- [ ] Check a preview against the applied result: a denoise or sharpen judged on screen should look
+      the same once saved, not weaker.

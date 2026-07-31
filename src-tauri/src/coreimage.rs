@@ -55,6 +55,20 @@ pub struct CropBox {
     pub h: f32,
 }
 
+/// The four corners of the core box as the camera saw them, FRACTIONS again, in reading order:
+/// top-left, top-right, bottom-right, bottom-left.
+///
+/// A box photographed from anywhere but straight above is a trapezoid, and the far end of it is
+/// drawn shorter than the near end — so a depth read straight down the picture runs fast at one end
+/// and slow at the other, and every sample in between is at the wrong depth by an amount that
+/// changes along the core. Deskew cannot fix that: rotating a trapezoid gives a rotated trapezoid.
+///
+/// **Rectifying deliberately CHANGES the aspect ratio, and that is the opposite of the rule plates
+/// follow.** A thin section must never be stretched because its delivered shape is the truth; a core
+/// box shot at an angle arrives with its shape already wrong, and the output's proportions are
+/// measured from the quadrilateral's own sides rather than inherited from the frame.
+pub type Quad = [[f32; 2]; 4];
+
 /// What was done to one photograph.
 ///
 /// Every field defaults to "nothing", so an absent or empty recipe is exactly the imported picture
@@ -65,6 +79,11 @@ pub struct CoreRecipe {
     /// leaves behind are cropped away rather than printed.
     #[serde(default)]
     pub rotate_deg: f32,
+    /// Perspective rectification — see [`Quad`]. Applied AFTER the rotation and BEFORE the crop,
+    /// because the corners are dragged onto the picture the user can see, which is the rotated one,
+    /// and the crop is what states where the rock is.
+    #[serde(default)]
+    pub quad: Option<Quad>,
     #[serde(default)]
     pub crop: Option<CropBox>,
     /// Per-channel gains from a neutral patch the user clicked — the colour card, the grey tray,
@@ -91,6 +110,22 @@ pub struct CoreRecipe {
     /// -1 grey, 0 no change, +1 vivid.
     #[serde(default)]
     pub saturation: f32,
+    /// Speckle removal, 0 (off) to 1 (strong). A median filter, because it takes out a dust speck
+    /// without softening the grain boundary next to it the way a blur would.
+    ///
+    /// **Its radius is a FRACTION of the long edge, not a pixel count**, so the preview the user
+    /// judges it on and the full-size bake remove the same thing from the rock — the `min_pore_px`
+    /// argument turned the other way round: there the number states what the picture can resolve
+    /// and must stay in pixels, here it states a size on the core and must not.
+    #[serde(default)]
+    pub denoise: f32,
+    /// Local contrast, 0 (off) to 1 (strong) — contrast-limited adaptive histogram equalisation.
+    /// What lifts the shadowed end of a box shot under one lamp without blowing out the lit end.
+    #[serde(default)]
+    pub clarity: f32,
+    /// Unsharp mask, 0 (off) to 1 (strong). Applied after the denoise, or it sharpens the speckle.
+    #[serde(default)]
+    pub sharpen: f32,
 }
 
 impl CoreRecipe {
@@ -100,15 +135,42 @@ impl CoreRecipe {
         *self == Self::default()
     }
 
-    /// Just the colour half. What "apply to the whole delivery" copies, because a crop belongs to
-    /// one photograph and a lamp belongs to the afternoon.
+    /// True when this recipe rearranges the pixels' NEIGHBOURS rather than only their colour. The
+    /// trace reads this: a locally equalised photograph has had exactly the long-wavelength darkness
+    /// contrast that `CPHOTO_DARK` measures partly flattened out of it, and a sharpened or denoised
+    /// one has had `CPHOTO_TEX` inflated or suppressed. None of that is visible in the curve.
+    pub fn touches_detail(&self) -> bool {
+        self.denoise.abs() > 1e-6 || self.clarity.abs() > 1e-6 || self.sharpen.abs() > 1e-6
+    }
+
+    /// Just the light, none of the framing. What "apply to the whole delivery" copies: a core-shed
+    /// run is shot under one lamp in one afternoon, so the colour genuinely belongs to the delivery,
+    /// while the box sits differently on the bench in every frame.
+    ///
+    /// Written out field by field rather than with `..self.clone()` on purpose. A new field added to
+    /// the recipe must be classified as framing or as light DELIBERATELY, because getting it wrong
+    /// is silent: every other box in the run would quietly take this box's framing, and the only
+    /// evidence would be crops that look slightly off on pictures nobody cropped.
     pub fn colour_only(&self) -> Self {
-        Self { rotate_deg: 0.0, crop: None, ..self.clone() }
+        Self {
+            rotate_deg: 0.0,
+            quad: None,
+            crop: None,
+            gain: self.gain,
+            warmth: self.warmth,
+            tint: self.tint,
+            exposure: self.exposure,
+            contrast: self.contrast,
+            saturation: self.saturation,
+            denoise: self.denoise,
+            clarity: self.clarity,
+            sharpen: self.sharpen,
+        }
     }
 
     /// This picture's own framing, under another picture's light.
     pub fn with_look(&self, look: &CoreRecipe) -> Self {
-        Self { rotate_deg: self.rotate_deg, crop: self.crop, ..look.colour_only() }
+        Self { rotate_deg: self.rotate_deg, quad: self.quad, crop: self.crop, ..look.colour_only() }
     }
 }
 
@@ -676,6 +738,50 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
              Condition Core Photos and run this per row."
         ));
     }
+
+    // Conditioning that moved a pixel's NEIGHBOURS, rather than only its colour, changes what these
+    // three measures mean - and changes it invisibly, because the curve looks exactly as reasonable
+    // either way. Local contrast is the sharp case: it lifts the shadowed end of a box towards the
+    // lit end, which is the same long-wavelength darkness variation DARK is trying to measure, so a
+    // shale-rich end can be equalised part-way back towards a clean sand. Sharpening inflates TEX
+    // and denoising suppresses it, for the same reason.
+    if let Ok(recipes) = crate::db::list_image_recipes(conn, &spec.well_id, &spec.dataset) {
+        let read: std::collections::HashSet<&str> =
+            wanted.iter().map(|i| i.image_id.as_str()).collect();
+        let touched: Vec<&str> = recipes
+            .iter()
+            .filter(|(id, json)| {
+                read.contains(id.as_str())
+                    && serde_json::from_str::<CoreRecipe>(json)
+                        .map(|r| r.touches_detail())
+                        .unwrap_or(false)
+            })
+            .map(|(id, _)| id.as_str())
+            .collect();
+        if !touched.is_empty() {
+            let named: Vec<&str> = all
+                .iter()
+                .filter(|i| touched.contains(&i.image_id.as_str()))
+                .map(|i| i.name.as_str())
+                .take(6)
+                .collect();
+            let more = touched.len().saturating_sub(named.len());
+            res.notes.push(format!(
+                "{} of {} photograph(s) read here carry Clarity, Sharpen or Denoise: {}{}. Those \
+                 rearrange a pixel's NEIGHBOURS rather than its colour, and all three measures are \
+                 read from neighbours. Local contrast is the one that bites: it roughly HALVES the \
+                 darkness contrast between clean sand and mudstone, so an equalised box and a \
+                 plain one no longer read on the same scale - the trace still tracks the rock, but \
+                 a calibration against GR fitted on one will not hold on the other. Sharpening \
+                 inflates TEX and denoising suppresses it. Use all three to make a picture \
+                 readable, and read the trace off photographs corrected for light and framing only.",
+                touched.len(),
+                res.photographs,
+                named.join(", "),
+                if more > 0 { format!(" and {more} more") } else { String::new() }
+            ));
+        }
+    }
     res.notes.push(format!(
         "These are IMAGE measures, not petrophysical properties. {LOG_PREFIX}_DARK tracks shale in \
          most clastic sections but is not a shale volume, which is why it is not called VSH - \
@@ -793,12 +899,20 @@ fn decode_b64(s: &str) -> Result<Vec<u8>, String> {
 const CORE_RUNNER: &str = r#"
 import sys, io, json, base64
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFilter
 
 hdr = json.loads(sys.stdin.buffer.readline())
 blobs = []
 for n in hdr["sizes"]:
     blobs.append(sys.stdin.buffer.read(n))
+
+# How far a denoise or a sharpen reaches, as a FRACTION of the picture's long edge rather than as a
+# pixel count - the user judges these on the preview and gets them on the full-size bake, and a
+# radius in pixels would take out something a third of the size on each. The caps are there because
+# a median filter costs the square of its radius: a 9x9 on a full-size photograph is already a
+# couple of seconds, and nothing beyond it removes speckle any better.
+DENOISE_SPAN, DENOISE_MAX = 0.0015, 4
+SHARPEN_SPAN, SHARPEN_MAX = 0.004, 12
 
 def geometry(im, rc, max_px):
     # Proxy FIRST so a preview is cheap; the recipe is in fractions, so the proxy and the
@@ -811,6 +925,25 @@ def geometry(im, rc, max_px):
         # Pillow rotates counter-clockwise; the slider is degrees clockwise, which is how a box
         # tilted to the right reads to the eye.
         im = im.rotate(-deg, resample=Image.BICUBIC, expand=False, fillcolor=(0, 0, 0))
+    q = rc.get("quad")
+    if q:
+        w, h = im.size
+        pts = [(min(max(float(p[0]), -0.5), 1.5) * w, min(max(float(p[1]), -0.5), 1.5) * h) for p in q]
+        tl, tr, br, bl = pts
+        span = lambda a, b: ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
+        # The rectified size is measured from the quadrilateral's OWN sides. Inheriting the frame's
+        # proportions would re-impose the distortion being removed, and a core box that really is
+        # eight times as long as it is wide has to come out eight times as long or the depth axis
+        # is still not linear.
+        ow = int(round(max(span(tl, tr), span(bl, br))))
+        oh = int(round(max(span(tl, bl), span(tr, br))))
+        if ow >= 8 and oh >= 8:
+            # Pillow's QUAD wants the source corners upper-left, LOWER-left, lower-right,
+            # upper-right. The recipe stores them in reading order, so they are reordered here
+            # rather than stored in Pillow's order - a stored order nobody can read is a stored
+            # order somebody will eventually get wrong.
+            data = [tl[0], tl[1], bl[0], bl[1], br[0], br[1], tr[0], tr[1]]
+            im = im.transform((ow, oh), Image.QUAD, data, resample=Image.BICUBIC)
     c = rc.get("crop")
     if c:
         w, h = im.size
@@ -840,9 +973,92 @@ def colour(a, rc):
     s = float(rc.get("saturation") or 0.0)
     if abs(s) > 1e-6:
         # Rec. 709 luma, so desaturating a red core does not make it darker than a grey one.
-        lum = (a * np.asarray([0.2126, 0.7152, 0.0722], dtype=np.float32)).sum(axis=2, keepdims=True)
+        lum = luma(a)[..., None]
         a = lum + (a - lum) * np.float32(1.0 + s)
     return np.clip(a, 0.0, 1.0)
+
+def luma(a):
+    # Rec. 709, the same weights the saturation slider uses - two brightness definitions in one
+    # pipeline would let the histogram disagree with what the sliders did.
+    return (a * np.asarray([0.2126, 0.7152, 0.0722], dtype=np.float32)).sum(axis=2)
+
+def clahe(y, clip, tiles=8):
+    # Contrast-limited adaptive histogram equalisation (Zuiderveld 1994), on the LUMA only:
+    # equalising the three channels independently moves hues, and a core photograph whose reds
+    # have shifted no longer says what the rock is.
+    h, w = y.shape
+    bins = 256
+    q = np.clip((y * (bins - 1) + 0.5).astype(np.int32), 0, bins - 1)
+    ys = np.linspace(0, h, tiles + 1).round().astype(np.int32)
+    xs = np.linspace(0, w, tiles + 1).round().astype(np.int32)
+    ident = np.linspace(0.0, 1.0, bins, dtype=np.float32)
+    luts = np.empty((tiles, tiles, bins), dtype=np.float32)
+    for i in range(tiles):
+        for j in range(tiles):
+            blk = q[ys[i]:ys[i + 1], xs[j]:xs[j + 1]].ravel()
+            # A floor of a handful of pixels, NOT "at least one per bin". A core box cropped down to
+            # a single row is a few dozen pixels across, so a tile there holds fewer pixels than the
+            # histogram has bins - and requiring one per bin would turn every tile into the identity
+            # and make the slider do nothing at all, silently, on exactly the pictures most likely
+            # to need it. Sparse counts are what the clip limit is for.
+            if blk.size < 16:
+                luts[i, j] = ident
+                continue
+            hist = np.bincount(blk, minlength=bins).astype(np.float32)
+            # The contrast LIMIT is the whole of the "CL". An unlimited local equalisation
+            # amplifies whatever noise sits in a flat tile until that tile carries a texture the
+            # rock never had. Clipped counts are redistributed, never discarded.
+            limit = max(1.0, float(clip) * blk.size / bins)
+            excess = float(np.maximum(hist - limit, 0.0).sum())
+            hist = np.minimum(hist, limit) + np.float32(excess / bins)
+            cdf = np.cumsum(hist)
+            luts[i, j] = (cdf / cdf[-1]).astype(np.float32)
+    # Bilinear between the four surrounding tile look-ups, or the tile edges print as a grid over
+    # the core - which a geologist would read as a fracture set.
+    cy = (ys[:-1] + ys[1:]) * 0.5
+    cx = (xs[:-1] + xs[1:]) * 0.5
+    fy = np.interp(np.arange(h), cy, np.arange(tiles)).astype(np.float32)
+    fx = np.interp(np.arange(w), cx, np.arange(tiles)).astype(np.float32)
+    i0 = np.floor(fy).astype(np.int32)
+    j0 = np.floor(fx).astype(np.int32)
+    i1 = np.minimum(i0 + 1, tiles - 1)
+    j1 = np.minimum(j0 + 1, tiles - 1)
+    wy = (fy - i0)[:, None]
+    wx = (fx - j0)[None, :]
+    a = luts[i0[:, None], j0[None, :], q]
+    b = luts[i0[:, None], j1[None, :], q]
+    c = luts[i1[:, None], j0[None, :], q]
+    d = luts[i1[:, None], j1[None, :], q]
+    return (a * (1.0 - wx) + b * wx) * (1.0 - wy) + (c * (1.0 - wx) + d * wx) * wy
+
+def detail(a, rc, long_edge):
+    # Denoise first, or the sharpen amplifies the speckle it was meant to remove.
+    d = min(max(float(rc.get("denoise") or 0.0), 0.0), 1.0)
+    if d > 1e-6:
+        r = int(min(DENOISE_MAX, max(1, round(d * DENOISE_SPAN * long_edge))))
+        im = Image.fromarray((a * 255.0 + 0.5).astype(np.uint8), "RGB")
+        # A MEDIAN, not a blur: it takes out a dust speck without softening the grain boundary
+        # beside it, which is the difference between a cleaner photograph and a vaguer one.
+        a = np.asarray(im.filter(ImageFilter.MedianFilter(size=2 * r + 1)), dtype=np.float32) / np.float32(255.0)
+    cl = min(max(float(rc.get("clarity") or 0.0), 0.0), 1.0)
+    if cl > 1e-6:
+        # A clip limit of 1 IS the identity - every bin held to the mean gives a flat histogram,
+        # whose running total is the straight line - so the slider runs out of "no change" without
+        # needing a special case at zero.
+        y = luma(a)
+        out = clahe(y, 1.0 + 3.0 * cl)
+        # Applied as a RATIO across the three channels: that moves the brightness and leaves the
+        # hue and the saturation where the colour sliders put them.
+        a = np.clip(a * (out / np.maximum(y, 1e-4))[..., None], 0.0, 1.0)
+    sh = min(max(float(rc.get("sharpen") or 0.0), 0.0), 1.0)
+    if sh > 1e-6:
+        r = float(min(SHARPEN_MAX, max(1.0, sh * SHARPEN_SPAN * long_edge)))
+        im = Image.fromarray((a * 255.0 + 0.5).astype(np.uint8), "RGB")
+        # threshold 3 so flat rock is left alone and only real edges are lifted - without it an
+        # unsharp mask turns sensor noise into grain.
+        im = im.filter(ImageFilter.UnsharpMask(radius=r, percent=int(round(200.0 * sh)), threshold=3))
+        a = np.asarray(im, dtype=np.float32) / np.float32(255.0)
+    return a
 
 def png_b64(a):
     im = Image.fromarray((a * 255.0 + 0.5).astype(np.uint8), "RGB")
@@ -882,7 +1098,7 @@ for i, ident in enumerate(hdr["ids"]):
             row["picked_gain"] = [float(x) for x in gains]
             row["picked_rgb"] = [int(round(float(x) * 255.0)) for x in med]
 
-        out = colour(base, rc)
+        out = detail(colour(base, rc), rc, max(im.size))
 
         if mode == "bake":
             im2 = Image.fromarray((out * 255.0 + 0.5).astype(np.uint8), "RGB")
@@ -935,8 +1151,12 @@ mod tests {
     /// `set_image_delivery_details` refuses to make with a magnification.
     #[test]
     fn applying_a_look_to_a_delivery_carries_the_colour_and_not_the_framing() {
+        // Written as a full struct literal on purpose: adding a field to the recipe must fail to
+        // compile HERE, so somebody has to decide whether it is framing or light. Getting that
+        // wrong is otherwise silent.
         let r = CoreRecipe {
             rotate_deg: 1.4,
+            quad: Some([[0.02, 0.03], [0.98, 0.01], [0.97, 0.99], [0.03, 0.96]]),
             crop: Some(CropBox { x: 0.05, y: 0.1, w: 0.9, h: 0.8 }),
             gain: Some([1.0, 0.94, 0.86]),
             warmth: -0.2,
@@ -944,16 +1164,68 @@ mod tests {
             exposure: 0.3,
             contrast: 0.1,
             saturation: -0.05,
+            denoise: 0.4,
+            clarity: 0.6,
+            sharpen: 0.25,
         };
         let c = r.colour_only();
         assert_eq!(c.rotate_deg, 0.0);
         assert!(c.crop.is_none());
+        // The corners were dragged onto ONE box standing on ONE bench. Every other box in the run
+        // sits differently, so copying them across would rectify each of them to a quadrilateral
+        // nobody looked at — and a rectification is a depth axis, not a cosmetic.
+        assert!(c.quad.is_none(), "the corners belong to the photograph they were dragged on");
         assert_eq!(c.gain, r.gain);
         assert_eq!(c.warmth, r.warmth);
         assert_eq!(c.exposure, r.exposure);
         assert_eq!(c.contrast, r.contrast);
         assert_eq!(c.saturation, r.saturation);
         assert_eq!(c.tint, r.tint);
+        // The detail corrections DO travel: one camera, one lens, one ISO for the afternoon, so
+        // the speckle and the softness are the run's, not the box's.
+        assert_eq!((c.denoise, c.clarity, c.sharpen), (r.denoise, r.clarity, r.sharpen));
+
+        // And the other direction: this box's own framing, under that light.
+        let mine = CoreRecipe {
+            rotate_deg: -0.4,
+            quad: Some([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]),
+            ..Default::default()
+        };
+        let merged = mine.with_look(&r);
+        assert_eq!(merged.rotate_deg, -0.4);
+        assert_eq!(merged.quad, mine.quad);
+        assert_eq!(merged.exposure, r.exposure);
+        assert_eq!(merged.clarity, r.clarity);
+    }
+
+    /// The trace has to know when a photograph was sharpened, blurred or locally equalised.
+    ///
+    /// All three measures are read from a pixel's NEIGHBOURS — darkness averaged across a slab,
+    /// texture as the spread within one. So a correction that rearranges neighbours changes what
+    /// the curve says about the rock, and changes it invisibly: the trace comes back looking just
+    /// as reasonable either way. A colour correction does not have that property, which is why the
+    /// distinction is drawn here rather than at "was anything done to this picture".
+    #[test]
+    fn a_correction_that_moves_a_pixels_neighbours_is_visible_to_the_trace() {
+        let mut r = CoreRecipe::default();
+        assert!(!r.touches_detail(), "an untouched photograph is not flagged");
+        // Everything the colour sliders do leaves a pixel's neighbours alone.
+        r.exposure = 1.5;
+        r.contrast = 0.8;
+        r.saturation = -1.0;
+        r.gain = Some([0.5, 0.8, 1.0]);
+        r.rotate_deg = 3.0;
+        r.crop = Some(CropBox { x: 0.1, y: 0.1, w: 0.5, h: 0.5 });
+        assert!(!r.touches_detail(), "light and framing do not change what a neighbour is");
+        for f in [
+            |r: &mut CoreRecipe| r.clarity = 0.5,
+            |r: &mut CoreRecipe| r.sharpen = 0.5,
+            |r: &mut CoreRecipe| r.denoise = 0.5,
+        ] {
+            let mut t = r.clone();
+            f(&mut t);
+            assert!(t.touches_detail());
+        }
     }
 
     /// A recipe written by an older build must still load, and an absent field must mean "nothing"
@@ -1087,6 +1359,235 @@ mod tests {
         assert_eq!(crate::db::get_well_image(&conn, &id).unwrap().1, import, "byte for byte");
         let info = crate::db::list_well_images(&conn, &w, None).unwrap()[0].clone();
         assert_eq!((info.width, info.height, info.mime.as_str()), (400, 200, "image/bmp"));
+    }
+
+    /// A box shot from an angle is rectified to the shape the box actually is.
+    ///
+    /// Two claims, and the first is the one that matters petrophysically. **The rectified picture
+    /// takes its proportions from the quadrilateral, not from the frame.** A core box photographed
+    /// from one end is a trapezoid: the far end is drawn shorter than the near end, so depth read
+    /// straight down the frame runs fast at one end and slow at the other, and every sample between
+    /// them lands at a depth that is wrong by an amount which changes along the core. Deskew cannot
+    /// touch that — rotating a trapezoid gives a rotated trapezoid — and inheriting the frame's
+    /// proportions on the way out would put the distortion straight back.
+    ///
+    /// **And the quadrilateral really is mapped onto the whole output**, checked through the
+    /// histogram rather than by trusting the transform: a frame that is two thirds black rectifies
+    /// to a picture that is almost all rock.
+    #[test]
+    #[ignore = "needs numpy and Pillow"]
+    fn a_box_shot_from_an_angle_is_rectified_to_its_own_proportions() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, "SANDI-CP-3", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        // A 400x200 frame holding a light trapezoid on black — one core box photographed from its
+        // near end. Corners at (20,60) (380,60) (340,140) (60,140).
+        let (tlx, trx, brx, blx) = (20.0f32, 380.0, 340.0, 60.0);
+        let (ty, by) = (60.0f32, 140.0);
+        let frame = bmp(400, 200, |x, y| {
+            let (x, y) = (x as f32, y as f32);
+            if y < ty || y > by {
+                return (0, 0, 0);
+            }
+            let t = (y - ty) / (by - ty);
+            let l = tlx + t * (blx - tlx);
+            let r = trx + t * (brx - trx);
+            if x >= l && x <= r { (210, 190, 170) } else { (0, 0, 0) }
+        });
+        crate::db::insert_well_images(
+            &conn,
+            &w,
+            "CORE PHOTO",
+            "RUN1",
+            None,
+            &[crate::db::NewImage {
+                depth_top: 1000.0,
+                depth_base: Some(1003.0),
+                name: "BOX-1".into(),
+                mime: "image/bmp".into(),
+                width: 400,
+                height: 200,
+                data: frame,
+                printable: true,
+                ..Default::default()
+            }],
+        )
+        .unwrap();
+        let id = crate::db::list_well_images(&conn, &w, None).unwrap()[0].image_id.clone();
+
+        /// Share of the picture brighter than three quarters — how much of it is the light rock
+        /// rather than the black bench. The rock's red is 210/255, which lands in bin 52 of 64.
+        fn light_share(p: &CorePreview) -> f32 {
+            let total: u32 = p.hist_r.iter().sum();
+            let lit: u32 = p.hist_r[48..].iter().sum();
+            lit as f32 / total.max(1) as f32
+        }
+
+        let plain = preview_core_image(&conn, &id, &CoreRecipe::default(), None).expect("preview");
+        assert!(
+            light_share(&plain) < 0.45,
+            "the delivered frame is mostly bench: {}",
+            light_share(&plain)
+        );
+
+        let quad: Quad = [
+            [tlx / 400.0, ty / 200.0],
+            [trx / 400.0, ty / 200.0],
+            [brx / 400.0, by / 200.0],
+            [blx / 400.0, by / 200.0],
+        ];
+        let rect = CoreRecipe { quad: Some(quad), ..Default::default() };
+        let fixed = preview_core_image(&conn, &id, &rect, None).expect("preview");
+        assert!(
+            light_share(&fixed) > 0.9,
+            "the corners should map onto the whole picture: {}",
+            light_share(&fixed)
+        );
+
+        // The proportions are the quadrilateral's own: the long sides run 360 px, the short ones
+        // sqrt(40^2 + 80^2) = 89, so roughly 4:1 — where the frame it arrived in is 2:1.
+        let res = bake_core_images(&conn, &[BakeItem { image_id: id.clone(), recipe: rect }])
+            .expect("bake");
+        assert_eq!((res.conditioned, res.restored), (1, 0), "{:?}", res.skipped);
+        let info = crate::db::list_well_images(&conn, &w, None).unwrap()[0].clone();
+        let ratio = info.width as f32 / info.height as f32;
+        assert!(
+            (ratio - 4.0).abs() < 0.3,
+            "rectified to the box's own shape, not the frame's 2:1: {}x{}",
+            info.width,
+            info.height
+        );
+
+        // And it is still non-destructive: the trapezoid comes back.
+        bake_core_images(&conn, &[BakeItem { image_id: id.clone(), recipe: CoreRecipe::default() }])
+            .expect("clear");
+        let info = crate::db::list_well_images(&conn, &w, None).unwrap()[0].clone();
+        assert_eq!((info.width, info.height), (400, 200));
+    }
+
+    /// Local contrast really does flatten the darkness variation the trace is measuring — and it
+    /// shows up in the SPREAD, not in the correlation.
+    ///
+    /// This is the reason `touches_detail` exists, and it is measured rather than asserted: one
+    /// strip read twice, once as delivered and once after Clarity has been baked into it. On a
+    /// perfect ramp from clean sand into mudstone, equalising HALVES the darkness contrast between
+    /// the two ends (P10–P90 0.62 → 0.30) while the agreement with a GR rising through the same
+    /// mudstone barely moves (+1.00 → +0.97).
+    ///
+    /// **Do not "improve" this into a correlation check.** Pearson is scale-invariant, and CLAHE
+    /// compresses the trend without inverting it, so a squashed but still monotone trace correlates
+    /// just as well as the original — the same ceiling the S-factor calibration ran into, where two
+    /// central values could only ever disagree by so much and the spread had no such limit.
+    ///
+    /// What the compression costs is comparability. `CPHOTO_DARK` is only useful once it is
+    /// calibrated against a real GR, and a transform fitted on an un-equalised box does not hold on
+    /// an equalised one — the same rock now reads over half the range. Nothing in either curve says
+    /// which is which, so the run has to NAME the photographs.
+    #[test]
+    #[ignore = "needs numpy and Pillow"]
+    fn local_contrast_flattens_the_very_trend_the_trace_is_reading() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, "SANDI-CP-4", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        // Clean sand at the top darkening steadily into mudstone, with a little grain-scale
+        // speckle so the tiles have something to equalise against.
+        let strip = bmp(40, 400, |x, y| {
+            let noise = ((x * 7 + y * 13) % 11) as f32 - 5.0;
+            let v = (240.0 - y as f32 * 0.5 + noise).clamp(0.0, 255.0) as u8;
+            (v, v, v)
+        });
+        crate::db::insert_well_images(
+            &conn,
+            &w,
+            "CORE PHOTO",
+            "RUN1",
+            None,
+            &[crate::db::NewImage {
+                depth_top: 1000.0,
+                depth_base: Some(1010.0),
+                name: "BOX-1".into(),
+                mime: "image/bmp".into(),
+                width: 40,
+                height: 400,
+                data: strip,
+                printable: true,
+                ..Default::default()
+            }],
+        )
+        .unwrap();
+        let id = crate::db::list_well_images(&conn, &w, None).unwrap()[0].image_id.clone();
+        for i in 0..=100 {
+            let d = 1000.0 + i as f32 * 0.1;
+            conn.execute(
+                "INSERT INTO standard_curves (well_id, depth, gr, res_deep, nphi, rhob)
+                 VALUES (?1, ?2, ?3, 1.0, 0.2, 2.4)",
+                duckdb::params![w, d, 40.0 + (d - 1000.0) * 8.0],
+            )
+            .unwrap();
+        }
+
+        let spec = CoreLogSpec {
+            well_id: w.clone(),
+            dataset: "CORE PHOTO".into(),
+            axis: "y".into(),
+            reverse: false,
+            lanes: 1,
+            step: 0.05,
+            compare_curve: Some("GR".into()),
+            write: false,
+        };
+        let plain = extract_core_log(&conn, &spec).expect("read");
+        let before = plain.curves.iter().find(|c| c.name.ends_with("_DARK")).unwrap().clone();
+        assert!(before.correlation > 0.95, "as delivered it tracks GR: {}", before.correlation);
+        assert!(
+            !plain.notes.iter().any(|n| n.contains("Clarity")),
+            "nothing to warn about yet: {:?}",
+            plain.notes
+        );
+
+        bake_core_images(
+            &conn,
+            &[BakeItem {
+                image_id: id.clone(),
+                recipe: CoreRecipe { clarity: 1.0, ..Default::default() },
+            }],
+        )
+        .expect("bake");
+
+        let equalised = extract_core_log(&conn, &spec).expect("read");
+        let after = equalised.curves.iter().find(|c| c.name.ends_with("_DARK")).unwrap().clone();
+        println!("DARK vs GR: as delivered {:+.3}, equalised {:+.3}", before.correlation, after.correlation);
+        println!(
+            "DARK spread P10-P90: as delivered {:.3}, equalised {:.3}",
+            before.p90 - before.p10,
+            after.p90 - after.p10
+        );
+        let (was, now) = (before.p90 - before.p10, after.p90 - after.p10);
+        assert!(
+            now < was * 0.7,
+            "local contrast has to measurably squash the sand-to-mudstone contrast, or the \
+             warning is theatre: {was:.3} -> {now:.3}"
+        );
+        // And the trap this test exists to keep out of the codebase: the correlation is NOT the
+        // sensitive statistic, because a compressed but still monotone trace correlates just as
+        // well. Anyone reaching for it here would find it flat and conclude there was nothing to
+        // warn about.
+        assert!(
+            after.correlation > 0.9,
+            "the equalised trace still tracks GR - the harm is to the scale, not the shape: {}",
+            after.correlation
+        );
+        assert!(
+            equalised.notes.iter().any(|n| n.contains("Clarity") && n.contains("BOX-1")),
+            "and the run has to name the photograph it happened to: {:?}",
+            equalised.notes
+        );
     }
 
     /// Sampling follows the photograph's OWN depth span, and is bounded at both ends.

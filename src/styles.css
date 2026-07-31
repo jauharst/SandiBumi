@@ -5870,6 +5870,9 @@ input[type="number"].num-editing:focus {
   align-items: center;
   justify-content: center;
   min-height: 260px;
+  /* Room for the corner handles to sit ON the picture's edge without being clipped away — a
+     handle you cannot grab is a corner you cannot place. */
+  padding: 14px;
   background: var(--bg-panel-alt);
   border-radius: var(--r-sm);
   overflow: hidden;
@@ -5894,6 +5897,41 @@ input[type="number"].num-editing:focus {
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
   pointer-events: none;
 }
+
+/* The four corners of the core box. The outline is drawn as an SVG polygon rather than four
+   rotated borders so a genuinely skewed quadrilateral closes properly. */
+.cond-quad {
+  position: absolute;
+  inset: 0;
+}
+
+.cond-quad svg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.cond-quad polygon {
+  fill: rgba(255, 255, 255, 0.08);
+  stroke: #fff;
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+}
+
+.cond-handle {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border-radius: 50%;
+  background: var(--bg-panel);
+  border: 2px solid var(--accent);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+  cursor: grab;
+  touch-action: none;
+}
+
+.cond-handle:active { cursor: grabbing; }
 
 .cond-slider {
   -webkit-appearance: none;

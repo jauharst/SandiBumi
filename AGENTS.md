@@ -2141,6 +2141,68 @@ stitched multi-box depth strip, WL/UV pairs, and a log-view strip track. Cross-c
 photograph trace against GR to PROPOSE a depth shift is `registration.rs`'s job and would compose
 with it — the trace is already a curve.
 
+## Squaring up a box, and the three corrections that change what a trace says (2026-08-01)
+
+`coreimage.rs` finishes the conditioning toolbox. `CoreRecipe` gains `quad` (perspective) and
+`denoise` / `clarity` / `sharpen` (detail), every field `#[serde(default)]` so recipes already
+stored in a project still load. Six rules.
+
+**Perspective is four draggable corners rather than another slider, because a slider cannot fix
+it.** A core box photographed from one end is a trapezoid: the far end is drawn shorter than the
+near end, so a depth read straight down the frame runs fast at one end and slow at the other, and
+every sample between them is out by an amount that changes along the core. Straighten cannot touch
+that — rotating a trapezoid gives a rotated trapezoid. `Quad` is the four corners in reading order
+(TL, TR, BR, BL) as FRACTIONS, applied after the rotation and before the crop, because the corners
+are dragged onto the picture the user can see and the crop is what states where the rock is.
+
+**Rectifying deliberately CHANGES the aspect ratio, which is the opposite of the rule plates
+follow.** A thin section must never be stretched, because its delivered shape is the truth; a box
+shot at an angle arrives with its shape already wrong. The output's proportions are measured from
+the quadrilateral's OWN sides — inheriting the frame's would put the distortion straight back, and
+a box that really is eight times as long as it is wide has to come out eight times as long or the
+depth axis is still not linear.
+
+**In corner mode the picture is shown UNRECTIFIED and uncropped.** You cannot point at the box's
+corner in a photograph that has already been squared up to it, and a crop would have cut the
+corners off. `viewRecipe()` in `coreConditionDialog.ts` is the one place that decides; everything
+else edits the real recipe. The polygon is the feedback while dragging, so a corner is stored on
+pointer-up without re-rendering — re-rendering rectified on every corner would take the corners off
+screen.
+
+**The corners belong to the photograph, so `colour_only` clears them** — and `colour_only` is now
+written out field by field rather than with a `..self.clone()` spread, so a new field has to be
+classified as framing or as light DELIBERATELY. Getting that wrong is silent: every other box in
+the run would quietly take this box's framing, and the only evidence would be crops that look
+slightly off on pictures nobody cropped. Pinned by
+`applying_a_look_to_a_delivery_carries_the_colour_and_not_the_framing`, which is written as a full
+struct literal so a new field fails to compile there.
+
+**CLAHE's tile floor is a handful of pixels, NOT one per histogram bin.** The obvious guard — a
+tile smaller than the 256-bin histogram falls back to the identity — turns EVERY tile into the
+identity on a box cropped down to a single row, which is forty-odd pixels across. The slider then
+does nothing at all, silently, on exactly the pictures most likely to need it. Sparse counts are
+what the clip limit is for. Found by a test, not by reading it back.
+
+**Local contrast damages the SCALE, not the shape, and that is the whole reason `touches_detail`
+exists.** On a perfect ramp from clean sand into mudstone, Clarity HALVES the darkness contrast
+(P10-P90 0.62 to 0.30) while the agreement with a GR rising through the same mudstone barely moves
+(+1.00 to +0.97). Pearson is scale-invariant and CLAHE compresses without inverting, so the
+correlation has a ceiling on how far it can move — the S-factor calibration's lesson again, where
+two central values could only ever disagree by so much and the spread had no such limit. What the
+compression costs is comparability: `CPHOTO_DARK` is only useful once it is calibrated against a
+real GR, and a transform fitted on an un-equalised box does not hold on an equalised one. Nothing
+in either curve says which is which, so `extract_core_log` NAMES the photographs that carry one of
+the three. Pinned by `local_contrast_flattens_the_very_trend_the_trace_is_reading`, which also
+asserts the correlation STAYS high — so nobody "improves" the test into the check that would find
+nothing to warn about.
+
+Denoise and Sharpen are the same family read the other way: one suppresses `CPHOTO_TEX`, the other
+inflates it. **Their radius is a FRACTION of the long edge rather than a pixel count**, so the
+preview the user judges them on and the full-size bake take the same thing out of the rock — the
+`min_pore_px` argument turned around (there the number states what the picture can resolve and must
+stay in pixels; here it states a size on the core and must not). Both are capped, because a median
+filter costs the square of its radius and nothing past a 9x9 removes speckle any better.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under

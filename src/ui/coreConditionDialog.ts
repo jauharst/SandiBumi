@@ -13,6 +13,7 @@ import {
   type CoreLogResult,
   type CropBox,
   type ImageInfo,
+  type Quad,
 } from "../ipc";
 import { loadCurveNames } from "./plotCommon";
 import { appState, bumpDataVersion, setStatus } from "../state";
@@ -153,6 +154,7 @@ export async function openCoreConditionDialog(): Promise<void> {
   const canon = (r: CoreRecipe): string =>
     JSON.stringify([
       Number((r.rotate_deg ?? 0).toFixed(4)),
+      r.quad ? r.quad.map((p) => p.map((v) => Number(v.toFixed(6)))) : null,
       r.crop
         ? [r.crop.x, r.crop.y, r.crop.w, r.crop.h].map((v) => Number(v.toFixed(6)))
         : null,
@@ -162,6 +164,9 @@ export async function openCoreConditionDialog(): Promise<void> {
       Number((r.exposure ?? 0).toFixed(4)),
       Number((r.contrast ?? 0).toFixed(4)),
       Number((r.saturation ?? 0).toFixed(4)),
+      Number((r.denoise ?? 0).toFixed(4)),
+      Number((r.clarity ?? 0).toFixed(4)),
+      Number((r.sharpen ?? 0).toFixed(4)),
     ]);
   const PLAIN = canon({});
 
@@ -202,7 +207,32 @@ export async function openCoreConditionDialog(): Promise<void> {
   const cropBox = document.createElement("div");
   cropBox.className = "cond-crop";
   cropBox.hidden = true;
-  stage.append(img, cropBox);
+
+  // ---- the four corners of the box ----------------------------------------
+  //
+  // A box photographed from one end is a trapezoid: the far end is drawn shorter than the near end,
+  // so a depth read straight down the frame runs fast at one end and slow at the other. Straighten
+  // cannot touch that — rotating a trapezoid gives a rotated trapezoid — which is why this is four
+  // draggable corners rather than another slider.
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const quadLayer = document.createElement("div");
+  quadLayer.className = "cond-quad";
+  quadLayer.hidden = true;
+  const quadSvg = document.createElementNS(SVG_NS, "svg");
+  const quadPoly = document.createElementNS(SVG_NS, "polygon");
+  quadSvg.appendChild(quadPoly);
+  quadLayer.appendChild(quadSvg);
+  const CORNER = ["top-left", "top-right", "bottom-right", "bottom-left"];
+  const handles: HTMLElement[] = CORNER.map((name, i) => {
+    const h = document.createElement("div");
+    h.className = "cond-handle";
+    h.dataset.i = String(i);
+    h.title = `Drag onto the ${name} corner of the core itself`;
+    quadLayer.appendChild(h);
+    return h;
+  });
+
+  stage.append(img, cropBox, quadLayer);
   wrap.appendChild(stage);
 
   const hist = document.createElement("canvas");
@@ -256,6 +286,15 @@ export async function openCoreConditionDialog(): Promise<void> {
     }
   };
 
+  /** The recipe the PICTURE is drawn with, which is not always the recipe being edited.
+   *
+   *  While the corners are being dragged the picture has to be shown unrectified and uncropped —
+   *  you cannot point at the box's corner in a photograph that has already been squared up to it,
+   *  and a crop would have cut the corners off. Everything else stays on, because the light is what
+   *  makes the box edge findable in the first place. */
+  const viewRecipe = (): CoreRecipe =>
+    mode === "quad" ? { ...recipeOf(current), quad: null, crop: null } : recipeOf(current);
+
   let seq = 0;
   let pending: number | null = null;
   const render = async (pick?: { x: number; y: number }): Promise<void> => {
@@ -263,7 +302,7 @@ export async function openCoreConditionDialog(): Promise<void> {
     const mine = ++seq;
     status.textContent = "Rendering…";
     try {
-      const res = await previewCoreImage(current, recipeOf(current), pick?.x, pick?.y);
+      const res = await previewCoreImage(current, viewRecipe(), pick?.x, pick?.y);
       // A slider moved while this was in flight — drop the stale answer rather than let it
       // overwrite the newer one.
       if (mine !== seq) return;
@@ -319,7 +358,16 @@ export async function openCoreConditionDialog(): Promise<void> {
   sliderBox.style.marginTop = "6px";
   wrap.appendChild(sliderBox);
 
-  type Key = "rotate_deg" | "exposure" | "contrast" | "saturation" | "warmth" | "tint";
+  type Key =
+    | "rotate_deg"
+    | "exposure"
+    | "contrast"
+    | "saturation"
+    | "warmth"
+    | "tint"
+    | "clarity"
+    | "sharpen"
+    | "denoise";
   interface Ctl {
     key: Key;
     input: HTMLInputElement;
@@ -366,6 +414,7 @@ export async function openCoreConditionDialog(): Promise<void> {
     const apply = (v: number): void => {
       recipeOf(current)[key] = v;
       val.textContent = fmt(v);
+      syncDetailNote();
       schedule();
     };
     input.addEventListener("input", () => apply(Number(input.value)));
@@ -397,6 +446,43 @@ export async function openCoreConditionDialog(): Promise<void> {
     "linear-gradient(to right, #6fb36f, #cfcfcf, #c06fb3)", (v) => v.toFixed(2),
     "The other white-balance axis. Fluorescent light usually needs a nudge towards magenta.");
 
+  // The three below are a different kind of correction and are grouped apart on purpose — see the
+  // note under them.
+  const detailHead = document.createElement("div");
+  detailHead.className = "eq-note";
+  detailHead.style.margin = "10px 0 4px";
+  detailHead.textContent = "Detail";
+  sliderBox.appendChild(detailHead);
+
+  slider("Local contrast", "clarity", 0, 1, 0.02,
+    "linear-gradient(to right, #7a7a7a, #a8a8a8 45%, #1c1c1c 50%, #f0f0f0 55%, #e0e0e0)", (v) => v.toFixed(2),
+    "Lifts the shadowed end of a box towards the lit end, tile by tile, instead of brightening the whole picture. What to reach for when one lamp lit the box from one side.");
+  slider("Denoise", "denoise", 0, 1, 0.02,
+    "linear-gradient(to right, #8a8a8a, #b4b4b4)", (v) => v.toFixed(2),
+    "Takes out speckle and dust without softening the grain boundary beside it. Its reach follows the picture's size, so the preview and the saved copy remove the same thing.");
+  slider("Sharpen", "sharpen", 0, 1, 0.02,
+    "linear-gradient(to right, #9a9a9a, #d8d8d8)", (v) => v.toFixed(2),
+    "Lifts real edges — bedding, grain boundaries, fractures. Applied after the denoise, or it would sharpen the speckle.");
+
+  const detailNote = document.createElement("div");
+  detailNote.className = "eq-note";
+  detailNote.style.margin = "2px 0 0";
+  detailNote.textContent =
+    "These three move a pixel's NEIGHBOURS rather than its colour, which is what makes a " +
+    "photograph readable — and what changes Read the trace. Local contrast roughly halves the " +
+    "darkness contrast between clean sand and mudstone, so an equalised box and a plain one no " +
+    "longer read on the same scale; sharpening inflates TEX and denoising suppresses it. Read a " +
+    "trace off photographs corrected for light and framing only.";
+  sliderBox.appendChild(detailNote);
+
+  /** Coloured only while one of the three is actually doing something. A warning that is always red
+   *  is a warning nobody reads by the third photograph — so this has to follow the slider as it
+   *  moves, not only the picture as it changes. */
+  const syncDetailNote = (): void => {
+    const r = recipeOf(current);
+    detailNote.style.color = r.denoise || r.clarity || r.sharpen ? "var(--warn)" : "";
+  };
+
   // ---- white balance, crop, and the two modes -----------------------------
   const swatch = document.createElement("span");
   swatch.className = "cond-swatch";
@@ -422,16 +508,105 @@ export async function openCoreConditionDialog(): Promise<void> {
   clearCrop.textContent = "Clear";
   clearCrop.title = "Back to the whole picture.";
 
-  let mode: "none" | "pick" | "crop" = "none";
+  const quadBtn = document.createElement("button");
+  quadBtn.className = "btn";
+  quadBtn.textContent = "Square up";
+  quadBtn.title =
+    "For a box photographed from an angle. Drag the four handles onto the corners of the core " +
+    "itself, then press Square up again. The picture is stretched back to the shape the box " +
+    "really is — which straightening cannot do, because a tilted trapezoid is still a trapezoid.";
+  const clearQuad = document.createElement("button");
+  clearQuad.className = "btn";
+  clearQuad.textContent = "Clear";
+  clearQuad.title = "Back to the picture as the camera framed it.";
+
+  const FRAME: Quad = [
+    [0, 0],
+    [1, 0],
+    [1, 1],
+    [0, 1],
+  ];
+  const copyQuad = (q: Quad): Quad => q.map((p) => [p[0], p[1]]) as Quad;
+  let editQuad: Quad = copyQuad(FRAME);
+
+  /** Puts the polygon and its four handles over the picture, in whatever size it is drawn at. */
+  const placeQuad = (): void => {
+    const r = img.getBoundingClientRect();
+    const s = stage.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) return;
+    const ox = r.left - s.left;
+    const oy = r.top - s.top;
+    quadSvg.setAttribute("width", String(Math.round(s.width)));
+    quadSvg.setAttribute("height", String(Math.round(s.height)));
+    quadPoly.setAttribute(
+      "points",
+      editQuad.map(([x, y]) => `${ox + x * r.width},${oy + y * r.height}`).join(" ")
+    );
+    for (let i = 0; i < 4; i++) {
+      handles[i].style.left = `${ox + editQuad[i][0] * r.width}px`;
+      handles[i].style.top = `${oy + editQuad[i][1] * r.height}px`;
+    }
+  };
+  // The picture changes size when a new one loads or the window moves; the corners are stored as
+  // fractions precisely so they survive that, but they still have to be re-drawn.
+  img.addEventListener("load", () => {
+    if (!quadLayer.hidden) placeQuad();
+  });
+
+  let mode: "none" | "pick" | "crop" | "quad" = "none";
   const setMode = (m: typeof mode): void => {
+    const was = mode;
     mode = mode === m ? "none" : m;
     stage.classList.toggle("is-picking", mode === "pick");
     stage.classList.toggle("is-cropping", mode === "crop");
     pickBtn.classList.toggle("btn-accent", mode === "pick");
     cropBtn.classList.toggle("btn-accent", mode === "crop");
+    quadBtn.classList.toggle("btn-accent", mode === "quad");
+    quadBtn.textContent = mode === "quad" ? "Done" : "Square up";
+    quadLayer.hidden = mode !== "quad";
+    if (mode === "quad") {
+      editQuad = copyQuad(recipeOf(current).quad ?? FRAME);
+    }
+    // Entering or leaving corner mode swaps the picture between rectified and as-framed, so it has
+    // to be re-rendered; the other modes only change the cursor.
+    if (was === "quad" || mode === "quad") void render();
   };
   pickBtn.addEventListener("click", () => setMode("pick"));
   cropBtn.addEventListener("click", () => setMode("crop"));
+  quadBtn.addEventListener("click", () => setMode("quad"));
+  clearQuad.addEventListener("click", () => {
+    recipeOf(current).quad = null;
+    editQuad = copyQuad(FRAME);
+    if (mode === "quad") placeQuad();
+    void render();
+  });
+
+  // ---- dragging a corner ---------------------------------------------------
+  let dragHandle: number | null = null;
+  quadLayer.addEventListener("pointerdown", (ev) => {
+    const i = Number((ev.target as HTMLElement).dataset?.i ?? NaN);
+    if (!Number.isFinite(i)) return;
+    dragHandle = i;
+    quadLayer.setPointerCapture(ev.pointerId);
+    ev.preventDefault();
+  });
+  quadLayer.addEventListener("pointermove", (ev) => {
+    if (dragHandle === null) return;
+    const p = atFraction(ev);
+    editQuad[dragHandle] = [p.x, p.y];
+    placeQuad();
+  });
+  for (const evName of ["pointerup", "pointercancel"]) {
+    quadLayer.addEventListener(evName, () => {
+      if (dragHandle === null) return;
+      dragHandle = null;
+      // Stored even while the unrectified picture is still on screen: the polygon IS the feedback
+      // here, and re-rendering rectified on every corner would take the corners off screen.
+      recipeOf(current).quad = copyQuad(editQuad);
+      status.textContent = describe();
+      markStrip();
+    });
+  }
   clearWb.addEventListener("click", () => {
     recipeOf(current).gain = null;
     pickedColour.delete(current);
@@ -450,7 +625,7 @@ export async function openCoreConditionDialog(): Promise<void> {
   toolRow.style.alignItems = "center";
   toolRow.style.flexWrap = "wrap";
   toolRow.style.margin = "6px 0";
-  toolRow.append(pickBtn, swatch, clearWb, cropBtn, clearCrop, compare);
+  toolRow.append(pickBtn, swatch, clearWb, cropBtn, clearCrop, quadBtn, clearQuad, compare);
   wrap.appendChild(toolRow);
 
   /** Where a pointer is on the PICTURE, as fractions — never pixels. The displayed size changes
@@ -476,7 +651,9 @@ export async function openCoreConditionDialog(): Promise<void> {
 
   let dragFrom: { x: number; y: number } | null = null;
   stage.addEventListener("pointerdown", (ev) => {
-    if (!current || mode === "none") return;
+    // Corner mode owns its own drags, on the layer above — without this a miss between two handles
+    // would silently start a crop.
+    if (!current || mode === "none" || mode === "quad") return;
     if (mode === "pick") {
       void render(atFraction(ev));
       setMode("none");
@@ -541,6 +718,9 @@ export async function openCoreConditionDialog(): Promise<void> {
         ? "A neutral patch was picked on this photograph in an earlier session."
         : "No white balance set — the colours are as delivered.";
     cropBox.hidden = true;
+    editQuad = copyQuad(r.quad ?? FRAME);
+    if (!quadLayer.hidden) placeQuad();
+    syncDetailNote();
   };
 
   // ---- apply --------------------------------------------------------------

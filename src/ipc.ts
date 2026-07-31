@@ -2587,6 +2587,11 @@ export interface CoreRecipe {
   /** Deskew, degrees CLOCKWISE. Applied before the crop, so a rotation's empty corners are cut
    *  away rather than printed. */
   rotate_deg?: number;
+  /** The four corners of the box as the camera saw them, FRACTIONS, in reading order: top-left,
+   *  top-right, bottom-right, bottom-left. Rectifying deliberately changes the aspect ratio — a box
+   *  shot from one end arrives with its shape already wrong, and the output takes its proportions
+   *  from these corners rather than from the frame. */
+  quad?: Quad | null;
   crop?: CropBox | null;
   /** Per-channel gains from a neutral patch the user clicked. Normalised so the LARGEST is 1, so
    *  it can only darken and never clips the brightest pixels. */
@@ -2599,7 +2604,17 @@ export interface CoreRecipe {
   exposure?: number;
   contrast?: number;
   saturation?: number;
+  /** Speckle removal, 0..1 — a median filter whose radius is a fraction of the long edge, so the
+   *  preview and the full-size bake take the same thing out of the rock. */
+  denoise?: number;
+  /** Local contrast, 0..1 (contrast-limited adaptive histogram equalisation). */
+  clarity?: number;
+  /** Unsharp mask, 0..1. */
+  sharpen?: number;
 }
+
+/** Four corners as fractions, top-left, top-right, bottom-right, bottom-left. */
+export type Quad = [[number, number], [number, number], [number, number], [number, number]];
 
 export interface CorePreview {
   /** The conditioned proxy, base64 PNG. */
