@@ -2566,6 +2566,122 @@ export function listImageDatasets(wellId: string): Promise<[string, number][]> {
 
 /** The pixels of one picture, as raw bytes (rule 3 — never a JSON array). Wrapped into a
  *  Blob by the caller, which already knows the mime type from `listWellImages`. */
+// ---------------------------------------------------------------------------
+// Core slab photograph conditioning (coreimage.rs)
+// ---------------------------------------------------------------------------
+
+/** A rectangle as FRACTIONS of the picture it was drawn on, never pixels — the stored copy is
+ *  already resampled to a long-edge cap, so a pixel rectangle would belong to whichever copy it
+ *  was dragged on. It is also what lets the preview and the full-size bake describe the same
+ *  rectangle. Taken on the ROTATED picture, because that is what the user dragged across. */
+export interface CropBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** What was done to one photograph. Every field defaults to "no change", so an empty recipe is
+ *  exactly the imported picture. */
+export interface CoreRecipe {
+  /** Deskew, degrees CLOCKWISE. Applied before the crop, so a rotation's empty corners are cut
+   *  away rather than printed. */
+  rotate_deg?: number;
+  crop?: CropBox | null;
+  /** Per-channel gains from a neutral patch the user clicked. Normalised so the LARGEST is 1, so
+   *  it can only darken and never clips the brightest pixels. */
+  gain?: [number, number, number] | null;
+  /** Manual white-balance trim on top of the picked patch: blue-to-amber. */
+  warmth?: number;
+  /** The other axis: green-to-magenta. */
+  tint?: number;
+  /** Stops. */
+  exposure?: number;
+  contrast?: number;
+  saturation?: number;
+}
+
+export interface CorePreview {
+  /** The conditioned proxy, base64 PNG. */
+  png: string;
+  width: number;
+  height: number;
+  /** The same proxy with nothing applied — sent together so before and after are the same decode
+   *  of the same picture, and a stale one can never linger beside a fresh one. */
+  before_png: string;
+  before_width: number;
+  before_height: number;
+  hist_r: number[];
+  hist_g: number[];
+  hist_b: number[];
+  /** Present when the call carried a pick: the gains that neutralise the patch clicked, and the
+   *  colour it actually is, so a swatch can be shown instead of three numbers. */
+  picked_gain?: [number, number, number] | null;
+  picked_rgb?: [number, number, number] | null;
+}
+
+export interface BakeItem {
+  image_id: string;
+  recipe: CoreRecipe;
+}
+
+export interface BakeResult {
+  conditioned: number;
+  /** Pictures whose recipe was cleared, so the import was restored. */
+  restored: number;
+  skipped: string[];
+  notes: string[];
+}
+
+/** Are numpy and Pillow reachable? Probed once so the workspace can say what is missing before a
+ *  photograph is opened rather than after a slider is moved. */
+export async function coreImageSupport(): Promise<boolean> {
+  return invoke<boolean>("core_image_support");
+}
+
+/** One photograph at preview size under a recipe, with the un-conditioned proxy and a histogram.
+ *  Writes nothing. `pickX`/`pickY` are fractions of the rotated, cropped picture — where the user
+ *  clicked on what they can see — and the gains come back computed BEFORE any colour operation, so
+ *  clicking the same grey twice gives the same answer rather than compounding. */
+export async function previewCoreImage(
+  imageId: string,
+  recipe: CoreRecipe,
+  pickX?: number,
+  pickY?: number
+): Promise<CorePreview> {
+  return invoke<CorePreview>("preview_core_image", {
+    imageId,
+    recipe,
+    pickX: pickX ?? null,
+    pickY: pickY ?? null,
+  });
+}
+
+/** Bakes recipes into pictures, keeping each import so the conditioning stays reversible. An empty
+ *  recipe restores the photograph as delivered. */
+export async function bakeCoreImages(items: BakeItem[]): Promise<BakeResult> {
+  return invoke<BakeResult>("bake_core_images", { items });
+}
+
+/** Copies one photograph's LIGHT across a whole live delivery, keeping each picture's own framing.
+ *  The merge happens in Rust so what "the look" means is one rule rather than one per caller. */
+export async function applyCoreLook(
+  wellId: string,
+  dataset: string,
+  look: CoreRecipe
+): Promise<BakeResult> {
+  return invoke<BakeResult>("apply_core_look", { wellId, dataset, look });
+}
+
+/** The conditioning recipe of every picture in a dataset's live delivery, as (image_id, json).
+ *  Empty string where a picture is exactly as imported. Never reads a blob. */
+export async function listImageRecipes(
+  wellId: string,
+  dataset: string
+): Promise<[string, string][]> {
+  return invoke<[string, string][]>("list_image_recipes", { wellId, dataset });
+}
+
 export async function getWellImage(imageId: string): Promise<ArrayBuffer> {
   return invoke<ArrayBuffer>("get_well_image", { imageId });
 }

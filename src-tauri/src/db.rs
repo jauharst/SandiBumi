@@ -582,6 +582,30 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             fov_um      FLOAT,
             prepared    VARCHAR,   -- '' / NULL = unknown | 'blue_epoxy' | 'plain'
             stain       VARCHAR,   -- as the lab report names it; NULL = none or not stated
+            -- Core-photograph conditioning (crop, deskew, white balance, tone). NON-DESTRUCTIVE,
+            -- and the two columns together are what makes that true rather than a claim.
+            --
+            -- `recipe` is the settings as JSON; NULL/'' means the picture is exactly as imported.
+            -- `source_data` holds the UN-conditioned display copy and is written once, the first
+            -- time a recipe is baked. Everything afterwards is rendered FROM it, so a recipe can
+            -- be edited any number of times without conditioning an already-conditioned picture,
+            -- and clearing it restores the import byte for byte.
+            --
+            -- The conditioned pixels go into `data` — they are BAKED rather than applied at
+            -- render time, and that is not laziness. Every reader downstream already takes `data`
+            -- as the picture, and the PDF exporter embeds those bytes UNTOUCHED through a
+            -- /DCTDecode XObject: a render-time recipe would leave the print showing the
+            -- unconditioned photograph while the screen showed the corrected one, silently.
+            -- Baking also means the log view, the composite and the PDF cannot disagree, because
+            -- there is nothing left for them to disagree about.
+            --
+            -- `source_meta` carries the kept copy's own `WxH;mime`. Without it a restore would
+            -- leave `width`/`height` describing the cropped picture while `data` held the whole
+            -- one, and every renderer would draw the plate at the wrong aspect ratio — the one
+            -- thing this app never does to a photograph.
+            recipe      VARCHAR,
+            source_data BLOB,
+            source_meta VARCHAR,
             PRIMARY KEY (well_id, dataset, set_name, image_id)
         );
 
@@ -1198,6 +1222,26 @@ pub fn migrate_delivery_depth_basis(conn: &Connection) -> DbResult<()> {
 /// and existing plates get NULL, which is the honest answer: nothing in a stored JPEG says how
 /// wide the field of view was or whether the section was impregnated, so an older delivery is
 /// UNKNOWN rather than assumed calibrated or assumed plain.
+/// Adds the core-photograph conditioning columns. ADD COLUMN only — no rebuild, so no backup, the
+/// [`migrate_plate_scale_and_prep`] precedent. Existing pictures get NULL, which reads as "exactly
+/// as imported" and is the honest answer for a delivery nobody has conditioned.
+///
+/// They must stay the LAST columns for the same reason every other late column here does.
+pub fn migrate_core_image_recipe(conn: &Connection) -> DbResult<()> {
+    for (col, ty) in [("recipe", "VARCHAR"), ("source_data", "BLOB"), ("source_meta", "VARCHAR")] {
+        let has: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM duckdb_columns()
+             WHERE table_name = 'well_images' AND column_name = ?1",
+            params![col],
+            |r| r.get(0),
+        )?;
+        if has == 0 {
+            conn.execute_batch(&format!("ALTER TABLE well_images ADD COLUMN {col} {ty};"))?;
+        }
+    }
+    Ok(())
+}
+
 pub fn migrate_plate_scale_and_prep(conn: &Connection) -> DbResult<()> {
     for (col, ty) in [("fov_um", "FLOAT"), ("prepared", "VARCHAR"), ("stain", "VARCHAR")] {
         let has: i64 = conn.query_row(
@@ -2133,6 +2177,101 @@ pub fn get_well_image(conn: &Connection, image_id: &str) -> DbResult<(String, Ve
         |r| Ok((r.get::<_, String>(0)?, r.get::<_, Vec<u8>>(1)?)),
     )?;
     Ok(row)
+}
+
+/// The picture conditioning must start from: the un-conditioned display copy where one was kept,
+/// otherwise the picture itself.
+///
+/// **Never `data` when a recipe has been baked.** Editing a recipe means re-rendering from the
+/// import, not stacking a second correction on top of the first — a brightness raised twice by
+/// eye is a photograph nobody can get back to, and that is exactly what "non-destructive" has to
+/// rule out.
+pub fn get_well_image_source(conn: &Connection, image_id: &str) -> DbResult<(String, Vec<u8>)> {
+    let row = conn.query_row(
+        "SELECT mime, COALESCE(source_data, data) FROM well_images WHERE image_id = ?1",
+        params![image_id],
+        |r| Ok((r.get::<_, String>(0)?, r.get::<_, Vec<u8>>(1)?)),
+    )?;
+    Ok(row)
+}
+
+/// Bakes a conditioned picture, keeping the import.
+///
+/// The kept copy and its `WxH;mime` are filled only the FIRST time, by the `COALESCE`s below rather
+/// than by a read-then-write: two applies in flight could otherwise both see them empty and the
+/// second would file the first's output as the original, quietly making that correction permanent.
+pub fn bake_image_conditioned(
+    conn: &Connection,
+    image_id: &str,
+    recipe: &str,
+    data: &[u8],
+    mime: &str,
+    width: i32,
+    height: i32,
+) -> DbResult<usize> {
+    Ok(conn.execute(
+        "UPDATE well_images
+            SET source_data = COALESCE(source_data, data),
+                source_meta = COALESCE(source_meta, width || 'x' || height || ';' || mime),
+                data = ?2, recipe = ?3, mime = ?4, width = ?5, height = ?6
+          WHERE image_id = ?1",
+        params![image_id, data, recipe, mime, width, height],
+    )?)
+}
+
+/// Puts a conditioned picture back exactly as it was imported, and drops the kept copy — a picture
+/// with nothing left to undo should not carry a second blob for the life of the project.
+///
+/// **`width`, `height` and `mime` are restored from `source_meta`, not left as they were.** A crop
+/// changes the picture's shape, so leaving the baked dimensions behind would have every renderer
+/// draw the restored plate at the wrong aspect ratio — the one thing this app never does to a
+/// photograph. A row with no kept copy was never conditioned and is left alone.
+pub fn clear_image_conditioning(conn: &Connection, image_id: &str) -> DbResult<usize> {
+    let meta: Option<String> = conn
+        .prepare("SELECT source_meta FROM well_images WHERE image_id = ?1 AND source_data IS NOT NULL")?
+        .query_map(params![image_id], |r| r.get::<_, Option<String>>(0))?
+        .next()
+        .transpose()?
+        .flatten();
+    let Some(meta) = meta else {
+        // Nothing kept means nothing baked. Still clear any stray recipe, so a row cannot claim a
+        // conditioning that was never applied to its pixels.
+        return Ok(conn.execute(
+            "UPDATE well_images SET recipe = NULL WHERE image_id = ?1 AND source_data IS NULL",
+            params![image_id],
+        )?);
+    };
+    let (dims, mime) = meta.split_once(';').unwrap_or((meta.as_str(), "image/jpeg"));
+    let (w, h) = dims.split_once('x').unwrap_or(("0", "0"));
+    let (w, h) = (w.parse::<i32>().unwrap_or(0), h.parse::<i32>().unwrap_or(0));
+    Ok(conn.execute(
+        "UPDATE well_images
+            SET data = source_data, source_data = NULL, source_meta = NULL, recipe = NULL,
+                mime = ?2, width = ?3, height = ?4
+          WHERE image_id = ?1",
+        params![image_id, mime, w, h],
+    )?)
+}
+
+/// The conditioning recipes of one dataset's live delivery, keyed by picture. Empty string where a
+/// picture is exactly as imported. Never reads a blob.
+pub fn list_image_recipes(
+    conn: &Connection,
+    well_id: &str,
+    dataset: &str,
+) -> DbResult<Vec<(String, String)>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT CAST(i.image_id AS VARCHAR), COALESCE(i.recipe, '')
+         FROM well_images i
+         WHERE i.well_id = ?1 AND i.dataset = ?2 AND i.set_name = {ACTIVE_IMAGE_SET}
+         ORDER BY i.depth_top, i.name"
+    ))?;
+    let rows = stmt.query_map(params![well_id, dataset], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
 }
 
 /// Every printable picture of one dataset in a depth window, pixels included — the composite
@@ -4455,6 +4594,68 @@ mod inspector_tests {
             data: bytes.to_vec(),
             ..Default::default()
         }
+    }
+
+    /// Conditioning a core photograph must be reversible to the byte, and reversible to the SHAPE.
+    ///
+    /// Three claims, and the third is the one that would have shipped broken. The import is kept
+    /// the first time and never again, so editing a recipe re-renders from the photograph rather
+    /// than stacking a second correction on the first. Clearing restores those exact bytes. And it
+    /// restores `width`/`height`/`mime` as well — a crop changes the picture's shape, so a restore
+    /// that left the cropped dimensions behind would have every renderer draw the whole photograph
+    /// into the cropped one's box, at the wrong aspect ratio.
+    #[test]
+    fn conditioning_keeps_the_import_and_a_restore_puts_back_its_shape() {
+        let conn = mem_db();
+        let wid = Uuid::new_v4();
+        insert_well(&conn, wid, "SANDI-CP", None, None, None).unwrap();
+        let w = wid.to_string();
+        let import: &[u8] = b"\xFF\xD8the-photograph-as-delivered\xFF\xD9";
+        insert_well_images(&conn, &w, "CORE PHOTO", "RUN1", None, &[a_plate("BOX-1", 1000.0, Some(1003.0), import)])
+            .unwrap();
+        let id = list_well_images(&conn, &w, None).unwrap()[0].image_id.clone();
+
+        // Nothing conditioned yet: the source IS the picture, and the recipe is empty.
+        assert_eq!(get_well_image_source(&conn, &id).unwrap().1, import);
+        assert_eq!(list_image_recipes(&conn, &w, "CORE PHOTO").unwrap(), vec![(id.clone(), String::new())]);
+
+        bake_image_conditioned(&conn, &id, r#"{"exposure":0.4}"#, b"first-bake", "image/jpeg", 700, 500)
+            .unwrap();
+        assert_eq!(get_well_image(&conn, &id).unwrap().1, b"first-bake");
+        assert_eq!(get_well_image_source(&conn, &id).unwrap().1, import, "the import is kept");
+        let info = &list_well_images(&conn, &w, None).unwrap()[0];
+        assert_eq!((info.width, info.height), (700, 500));
+
+        // A second bake re-renders from the IMPORT. If the kept copy moved, the correction would be
+        // permanent and the next edit would be conditioning an already-conditioned photograph.
+        bake_image_conditioned(&conn, &id, r#"{"exposure":0.9}"#, b"second-bake", "image/jpeg", 640, 480)
+            .unwrap();
+        assert_eq!(get_well_image_source(&conn, &id).unwrap().1, import, "kept once, never again");
+        assert_eq!(
+            list_image_recipes(&conn, &w, "CORE PHOTO").unwrap()[0].1,
+            r#"{"exposure":0.9}"#,
+            "the recipe on the row is the one its pixels were made with"
+        );
+
+        clear_image_conditioning(&conn, &id).unwrap();
+        assert_eq!(get_well_image(&conn, &id).unwrap().1, import, "back to the delivered bytes");
+        let info = &list_well_images(&conn, &w, None).unwrap()[0];
+        assert_eq!((info.width, info.height), (800, 600), "and back to the delivered shape");
+        assert_eq!(info.mime, "image/jpeg");
+        assert_eq!(list_image_recipes(&conn, &w, "CORE PHOTO").unwrap()[0].1, "");
+        // The kept copy is dropped, so a photograph with nothing to undo stops carrying two blobs.
+        let kept: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM well_images WHERE image_id = ?1 AND source_data IS NOT NULL",
+                params![id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(kept, 0);
+
+        // Clearing a picture nobody conditioned is a no-op, not an error and not a wipe.
+        clear_image_conditioning(&conn, &id).unwrap();
+        assert_eq!(get_well_image(&conn, &id).unwrap().1, import);
     }
 
     /// Pictures follow the universal delivery-set rule: a second delivery lands BESIDE the

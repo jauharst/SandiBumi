@@ -185,6 +185,11 @@ pub fn open_and_migrate(path: &str) -> Result<duckdb::Connection, String> {
         .map_err(|e| format!("plate scale migration failed: {e}"))?;
     eprintln!("[boot] migrate_plate_scale_and_prep: {:?}", t.elapsed());
 
+    let t = std::time::Instant::now();
+    db::migrate_core_image_recipe(&conn)
+        .map_err(|e| format!("core image recipe migration failed: {e}"))?;
+    eprintln!("[boot] migrate_core_image_recipe: {:?}", t.elapsed());
+
     // A long open is almost always the one-time storage upgrades above (each backs up the
     // whole project first). Tell the user so — from their chair a silent 15-minute open on
     // a field-scale file is indistinguishable from a hang.

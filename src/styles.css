@@ -5805,3 +5805,137 @@ input[type="number"].num-editing:focus {
   font-size: var(--fs-sm);
   line-height: 1.45;
 }
+
+/* ---------------------------------------------------------------------------
+   Core slab photograph conditioning (coreConditionDialog.ts)
+
+   A geologist judges a photograph by looking at it, so the controls here are the
+   picture itself wherever they can be: a strip of thumbnails to choose from, a
+   drag on the image to crop, a click on a grey patch to set the white balance,
+   and sliders whose TRACK carries the gradient they move along. A number beside
+   a plain grey bar says nothing about which way to drag.
+   --------------------------------------------------------------------------- */
+
+.cond-strip {
+  display: flex;
+  gap: var(--s-2);
+  overflow-x: auto;
+  padding: var(--s-2) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.cond-thumb {
+  position: relative;
+  flex: 0 0 auto;
+  width: 92px;
+  height: 62px;
+  border: 2px solid transparent;
+  border-radius: var(--r-sm);
+  background: var(--bg-panel-alt) center/cover no-repeat;
+  cursor: pointer;
+}
+
+.cond-thumb.is-current { border-color: var(--accent); }
+
+/* A dot, not a word: the strip is scanned, not read. */
+.cond-thumb.is-conditioned::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent2);
+  box-shadow: 0 0 0 2px var(--bg-panel);
+}
+
+.cond-thumb-label {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 1px 3px;
+  font-size: 10px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cond-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 260px;
+  background: var(--bg-panel-alt);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+
+.cond-stage img {
+  display: block;
+  max-width: 100%;
+  max-height: 46vh;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.cond-stage.is-picking { cursor: crosshair; }
+.cond-stage.is-cropping { cursor: cell; }
+
+/* The crop rectangle is drawn as a hole in a dim overlay, so what is being kept reads as the
+   bright part — the way every photo tool has done it since darkrooms. */
+.cond-crop {
+  position: absolute;
+  border: 1px solid #fff;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+.cond-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 12px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border);
+  outline: none;
+  cursor: ew-resize;
+}
+
+.cond-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--bg-panel);
+  border: 2px solid var(--accent);
+  cursor: ew-resize;
+}
+
+.cond-row {
+  display: grid;
+  grid-template-columns: 7.5rem 1fr 3.2rem 1.6rem;
+  align-items: center;
+  gap: var(--s-3);
+  margin-bottom: var(--s-2);
+}
+
+.cond-row .cond-val {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  text-align: right;
+}
+
+.cond-swatch {
+  display: inline-block;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border-strong);
+  vertical-align: middle;
+}

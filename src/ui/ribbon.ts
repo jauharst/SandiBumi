@@ -412,6 +412,13 @@ export class Ribbon {
           },
         },
         {
+          label: "Condition Core Photos…",
+          doc: "Straighten, crop and colour-correct a core slab photograph, judged on the picture rather than on numbers — the import is kept, so it is always reversible",
+          onPick: () => {
+            void import("./coreConditionDialog").then((m) => m.openCoreConditionDialog());
+          },
+        },
+        {
           label: "Shift Core…",
           doc: "Shift the selected well's core plugs by a constant depth you already know (core-to-log alignment; undoable)",
           onPick: () => this.handleShiftCore(),

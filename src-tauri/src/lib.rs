@@ -1,6 +1,7 @@
 mod chain;
 mod composite;
 mod contacts;
+mod coreimage;
 mod curve_edit;
 mod curves;
 mod db;
@@ -2200,6 +2201,64 @@ async fn run_plug_qc(
     plugqc::run_plug_qc(&conn, &req)
 }
 
+/// Are numpy and Pillow reachable? Probed once so the conditioning workspace can say what is
+/// missing before a photograph is opened rather than after a slider is moved.
+#[tauri::command]
+async fn core_image_support() -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(coreimage::core_image_support)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// One core photograph rendered at preview size under a recipe, with the un-conditioned proxy and
+/// a histogram beside it. Writes nothing — tuning must not leave half-judged pictures in a project.
+#[tauri::command]
+async fn preview_core_image(
+    db: tauri::State<'_, DbState>,
+    image_id: String,
+    recipe: coreimage::CoreRecipe,
+    pick_x: Option<f32>,
+    pick_y: Option<f32>,
+) -> Result<coreimage::CorePreview, String> {
+    let conn = db.0.lock().unwrap();
+    let pick = pick_x.zip(pick_y);
+    coreimage::preview_core_image(&conn, &image_id, &recipe, pick)
+}
+
+/// Bakes recipes into pictures, keeping each import so the conditioning stays reversible.
+#[tauri::command]
+async fn bake_core_images(
+    db: tauri::State<'_, DbState>,
+    items: Vec<coreimage::BakeItem>,
+) -> Result<coreimage::BakeResult, String> {
+    let conn = db.0.lock().unwrap();
+    coreimage::bake_core_images(&conn, &items)
+}
+
+/// Copies one photograph's look across a whole live delivery, keeping each picture's own framing.
+#[tauri::command]
+async fn apply_core_look(
+    db: tauri::State<'_, DbState>,
+    well_id: String,
+    dataset: String,
+    look: coreimage::CoreRecipe,
+) -> Result<coreimage::BakeResult, String> {
+    let conn = db.0.lock().unwrap();
+    coreimage::apply_look_to_delivery(&conn, &well_id, &dataset, &look)
+}
+
+/// The conditioning recipe of every picture in a dataset's live delivery. Never reads a blob, so
+/// the workspace can show which photographs have been touched without fetching any of them.
+#[tauri::command]
+fn list_image_recipes(
+    db: tauri::State<DbState>,
+    well_id: String,
+    dataset: String,
+) -> Result<Vec<(String, String)>, String> {
+    let conn = db.0.lock().unwrap();
+    db::list_image_recipes(&conn, &well_id, &dataset).map_err(|e| e.to_string())
+}
+
 /// One plate's field of view and preparation. Every value is written as given, `null` included —
 /// a scale typed by mistake has to be clearable.
 #[tauri::command]
@@ -2816,6 +2875,11 @@ pub fn run() {
             apply_core_run_shifts,
             list_core_registrations,
             set_image_details,
+            core_image_support,
+            preview_core_image,
+            bake_core_images,
+            apply_core_look,
+            list_image_recipes,
             set_image_delivery_details,
             pore_support,
             run_pore_area,
