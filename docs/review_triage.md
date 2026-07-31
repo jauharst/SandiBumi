@@ -235,7 +235,14 @@ can fail for reasons unrelated to the code is a gate people learn to ignore.
 **`[x]` here means an end-to-end test drives it against the real app. It is NOT your verification
 mark** — same rule as pile B.
 
-**Done (6 of 86)**
+**Done (7 of 86)**
+
+- [x] **T-WELL-02** — Multi-select: Ctrl-click, Shift-click range, ⇄ invert, plain-click clear ·
+      `wells.e2e.mjs`. All four gestures against the real pane, plus the two things a naive version
+      of this test would miss: that ctrl-click is a TOGGLE (a second one removes), and that it does
+      not move the active well — which is the whole point of the gesture, since every open view
+      follows the active well. Shift takes a range of two out of three deliberately, so an
+      implementation that selected everything visible would fail rather than pass.
 
 - [x] **T-INT-09** — Well-group scoping end-to-end · `wellgroups.e2e.mjs`. Create/activate,
       exactly-one-active, membership-replaces, and a group-scoped run that writes to members while
@@ -259,6 +266,13 @@ mark** — same rule as pile B.
       before every commit in this series and its `GATE GREEN` line is the assertion.
 
 **Partially covered**
+
+- [ ] **T-WELL-01** — Object tree: click activates, 📌 pin drives the workspace. `wells.e2e.mjs`
+      covers the plain-click activation (exactly one row marked) and the ★ **favourite** pin,
+      asserting it reached the project via `list_pinned_wells` rather than that a class toggled —
+      a star that looks set and was never written gives a run scope that silently empties on the
+      next launch. **Not covered:** the 📌 global well LOCK (a different control from the ★), the
+      panel titles following the selection, and ★ persistence across a relaunch.
 
 - [ ] **T-RT-16** — Legacy Multimin filtered from the step picker. `shell.e2e.mjs` covers **step 5
       only** (the ribbon cross-check), and covers it well: the retirement rests on two independent

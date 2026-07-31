@@ -138,6 +138,37 @@ looked for `~VERSION`; `export.rs` writes `~Version Information`. The file was f
 was wrong — which is the direction a harness should fail in, but only if you check the output
 rather than assume it.
 
+### `invoke` does not tell the frontend anything
+
+Seeding data through `invoke` writes to DuckDB and nothing else. The panes only re-read when the
+frontend's own code path asks them to, so a spec that imports three wells by command and then
+looks at the Wells pane finds it still showing **"No wells ingested yet"** — observed exactly
+that.
+
+Force a refresh through a real user path rather than a test hook. `wells.e2e.mjs` dispatches
+`change` on the tree's own group `<select>`, whose handler ends in `refresh()`; note it dispatches
+**unconditionally**, even when the value is unchanged, because a tidy-looking
+`if (sel.value !== '')` guard suppresses the very refresh that is wanted.
+
+### The DOM lags the state it renders
+
+`appState` is the truth; a CSS class on a row is a rendering of it that arrives one async
+`refresh()` later (`setMulti`, `togglePin` and friends fire it without awaiting). Asserting
+immediately after a click therefore tests which of the two won a race — the same ctrl-click
+assertion passed on one run and failed on the next with no code change in between.
+
+Wait for the state to settle, then assert. `wells.e2e.mjs`'s `expectMulti` is the pattern: poll
+until the pane shows the expected set, and on timeout assert the last observed value so the
+failure still reads as an ordinary expected-vs-actual diff. This is not a workaround — the claim
+being tested is that the pane *ends up* right, not how fast it got there.
+
+### Modifier clicks must be dispatched, not `.click()`ed
+
+`el.click()` synthesises a plain click and every modifier reads false, so a ctrl-click written
+that way silently becomes a plain click — which in this app CLEARS the multi-selection instead of
+extending it, and the test then measures a different gesture entirely. Dispatch a real
+`MouseEvent` with `ctrlKey` / `shiftKey` and `bubbles: true`.
+
 ### Cost per command — why specs batch their DOM work
 
 `@wdio/tauri-service` runs a window-focus probe in `beforeCommand` for exactly `getTitle`,
@@ -157,7 +188,7 @@ click listener the two are equivalent — but when the *gesture* is the thing un
 
 ## Current coverage
 
-Fifteen tests across three spec files. Specs share ONE app launch and one project (see the spec
+Twenty-one tests across four spec files. Specs share ONE app launch and one project (see the spec
 grouping note in `wdio.conf.mjs`), so write each one to establish what it needs and to assert
 changes as before/after differences rather than as absolute state.
 
@@ -189,6 +220,17 @@ changes as before/after differences rather than as absolute state.
 | Exactly one group active | `set_active_well_group` clears the others |
 | Membership replaces | A second write is not an append |
 | A scoped run writes only to members | The outsider's curves are byte-identical before and after |
+
+`wells.e2e.mjs` — Wells pane selection (T-WELL-02 in full, the selection half of T-WELL-01):
+
+| Test | What it proves |
+|---|---|
+| Plain click activates | Exactly one row marked, no multi-selection created |
+| Ctrl-click builds a selection | Adds, TOGGLES off, and never moves the active well |
+| Shift-click takes a range | Inclusive from the anchor, and stops — two of three, not all |
+| ⇄ inverts within the visible wells | Selection and inverse partition the visible list exactly |
+| Plain click clears | The scope a user thinks they dismissed is really gone |
+| ★ pins a well | The pin reached the project, read back via `list_pinned_wells` |
 
 Test data is `dataset for test/examples/` (`SANDI-*`) only. Never a real client project, never a
 path from `SANDIBUMI_FIELD_FIXTURES`.

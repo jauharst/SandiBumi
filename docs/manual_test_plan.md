@@ -971,6 +971,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 3. Click 📌 to turn it OFF (status: "Pin OFF — only the active panel follows…"), activate the Log View tab, then click a third well.
 4. Click the ☆ star left of a well name.
    **Expected:** (1–2) clicked well highlights, and with 📌 ON every open view (Log View, Histogram) reloads to it. (3) With 📌 OFF only the active Log View follows; the Histogram keeps the previous well. (4) Star turns ★, status "Well pinned — available as a run scope", and it survives an app restart (persisted). Covers REVIEW.md §Panes ("★ pin a well").
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** `wells.e2e.mjs` covers the plain-click
+   activation (exactly one row carries `tree-selected`) and the ★ **favourite** pin — asserting the
+   pin reached the project via `list_pinned_wells`, not merely that a class toggled, because a star
+   that looks set and was never written gives a run scope that silently empties on the next launch.
+   **Not covered:** the 📌 global well LOCK (a different control from the ★), panel titles following
+   the selection, and ★ persistence across a relaunch.
+
    **Result — T-WELL-01:**
 
 - [ ] Pass
@@ -991,6 +998,16 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 4. Click the **⇄** button in the group bar.
 5. Plain-click any well.
    **Expected:** (1) B and C get the accent multi-select edge; header reads "Wells (N) • 2 selected"; status "2 wells selected — batch dialogs will pre-tick them". (2) Active well unchanged — Ctrl-click never fires well activation. (3) The whole range highlights. (4) Selection inverts within the visible list (previously selected wells clear, the rest select). (5) Multi-selection clears, status "Multi-selection cleared", and the clicked well activates. Covers REVIEW.md §Well scope.
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** `wells.e2e.mjs` drives all four
+   gestures against the real pane. Two things it checks that a naive version would miss: ctrl-click
+   is a **toggle**, so a second one must REMOVE (a test that only ever adds passes on an
+   implementation that cannot remove); and ctrl-click must **not move the active well**, which is
+   the entire point of the gesture, since every open view follows the active well. The shift range
+   is deliberately two of three, so an implementation that selected everything visible fails rather
+   than passes. Note for anyone extending it: `el.click()` cannot carry modifier keys, so ctrl- and
+   shift-click must be dispatched as real `MouseEvent`s — written the obvious way a ctrl-click
+   silently becomes a plain click and the test then measures a different gesture.
+
    **Result — T-WELL-02:**
 
 - [ ] Pass
