@@ -1672,11 +1672,57 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
 - [ ] **Magnification → field of view** would need a per-delivery camera sensor width and tube
       factor. Both are properties of the laboratory's microscope, not of the plate, so they are a
       declaration — ask whether that beats measuring a scale bar.
+- [x] **Run the whole road end to end, and check it against an independent measurement** —
+      **SHIPPED 2026-07-31**. `petrography::field_tests::a_delivered_book_measures_against_the_
+      petrographers_own_point_count` drives workbook → plates → pore area → `plugqc` on a real
+      delivery, checked against the petrographer's own point-counted visible porosity (the SAME
+      picture, so only the measurement is under test — helium porosity would confound it with the
+      depth registration). Fixture: `SANDIBUMI_FIELD_FIXTURES` with `workbooks/` and `petrography/`.
+      **The measurement does NOT agree on this delivery**: 35 pairs, counted median 14%, measured
+      median 6.8%, Pearson −0.300, Spearman −0.092, and no band in the 180–260…220–260 sweep moves
+      either coefficient off zero. Cause: the plates' own median hue spans **289°** across one core
+      and one report, and the rule tracks the cast (green-cast plate 0.04% against a counted 15%;
+      blue-cast plate 31% against a counted 9%). **Within the colour-consistent blue-cast group with
+      a band tuned to it: Pearson 0.643, Spearman 0.616 on 10 plates** — the method is sound and
+      "measure a delivery in groups" is a real instruction. **Sharpest result: on the green-cast
+      group a band can be tuned until the measured median matches the counted median (15.72 vs
+      15.00) while per-plate rank agreement stays at −0.10** — tuning until the average looks right
+      is exactly the wrong way to tune it.
+- [x] **A vector plate book was importing as zero plates** — **SHIPPED 2026-07-31**, found by the
+      run above. `openpyxl` DROPS WMF/EMF with a warning nothing downstream sees, so a book of 53
+      sheets and 106 photomicrographs produced nothing and almost no notes (`ws._images` empty →
+      `if not imgs: continue`). `WORKBOOK_RUNNER` now reads pictures from the PACKAGE (workbook →
+      sheet part → drawing part → media part, every step an explicit relationship file; document
+      order is anchor order) and leaves openpyxl to read the cells — removing the failure mode by
+      construction rather than patching around it. `sniff` recognises EMF (` EMF` at offset 40, not
+      the far-too-weak record type; `rclBounds` is inclusive) so a recovered plate is never called
+      unreadable by the importer that just extracted it; without Pillow it says "EMF needs Pillow"
+      by name. A worksheet holding no picture is counted and reported once per file. Measured:
+      **258 plates where there had been 152**, 242 imported and measured. Pinned by
+      `the_workbook_reader_takes_its_pictures_from_the_package_not_from_openpyxl` (fails if
+      `_images` returns) and `an_enhanced_metafile_plate_is_recognised_rather_than_called_unreadable`
+      (with the control that the record type alone is not enough).
+- [ ] **Refuse a suspiciously empty measurement on a declared-impregnated plate** — the mirror of
+      the scene-dominance guard, and the one thing the end-to-end run exposed that was NOT shipped.
+      A plate cast AWAY from the band returns a fraction near zero, which is a plausible number for
+      a tight rock and is currently stored: measured 0.04% against a counted 15%. The signature is
+      now documented with real numbers, but the floor separating it from a genuinely tight section
+      is a judgement, not a measurement. **Ask Jauhar** which way he wants the asymmetry to fall.
+- [ ] **Per-plate colour normalization, or a relative pore rule.** The deeper fix for the above:
+      an absolute hue band cannot serve a delivery whose white balance varies, and grouping is a
+      workaround. Either normalize each plate before the band is applied, or define pore relative to
+      the plate's OWN colour distribution. Both change what the measurement means, so neither should
+      be done quietly.
 - [ ] **A colour rule over a greyscale SEM plate returns 0.000** — the mirror of the 0.97 case, and
       more dangerous because it looks like a tight rock rather than an absurdity. A delivery mixes
       thin sections, SEM plates and scale graphics in one folder. The obvious test (saturation) did
       NOT separate them on the real data (p99 saturation ≥ 0.34 on every plate, including the ones
       that are grey with a coloured annotation), so nothing shipped rather than a guessed threshold.
+- [ ] **A point-count table need not carry its own total.** One delivered table left the *Total
+      porosity* column EMPTY on every row with the six components filled in, and several component
+      cells read `trace` — a word, not a number. The core-import wizard has no notion of "sum these
+      columns", so the independent measurement had to be assembled by hand. Worth a mapping role if
+      point-count tables are going to be a routine import.
 
 ## C3. Trust & reproducibility — Phase 11 (§3)
 

@@ -6777,3 +6777,63 @@ until you enter a real scale. The wizard says so rather than staying silent abou
 
 - [ ] Confirm you'd want a per-delivery "camera width and tube factor" setting that turns
       magnification into a scale automatically — or whether you'd rather always measure a bar.
+
+---
+
+## The whole road, run on your own core (2026-07-31)
+
+I ran the petrography suite end to end on a delivered carbonate photo book — workbook in, plates at
+their stated depths, pore area measured, then checked against the petrographer's own point-counted
+visible porosity for the same samples. Two things came out of it: one delivery format that was
+vanishing, and an honest answer about whether the measurement works.
+
+### Your vector plate books now import
+
+One of the two books holds its photomicrographs as **EMF** (vector) rather than JPEG. It was
+importing as **zero plates** — 53 sheets, 106 pictures, nothing, and almost no explanation. The
+library reading the workbook silently discards picture formats it cannot decode. It now reads the
+pictures straight out of the file instead, so they all come through.
+
+- [ ] Import the vector book (the one whose PDF twin shows magenta-stained plates). You should get
+      **106 plates** rather than an empty list.
+- [ ] Check the note block. Sheets whose header states no depth are counted and named — those
+      plates come in without a depth rather than borrowing one from the sheet above.
+- [ ] Confirm the plates display in the picture track and print in a composite.
+
+Both books together now give **258 plates** where you previously got 152.
+
+### The measurement does not yet agree with the petrographer, and here is the number
+
+On the blue-epoxy book: 35 samples paired against the point-count table. **Counted median 14%,
+measured median 6.8%, rank agreement -0.09.** No colour band anywhere in the range fixes it.
+
+The reason is that your plates are not colour-consistent. Across one core, one laboratory, one
+report, the plates' own median hue spans **289 degrees** — some fields are green-cast, some
+blue-cast. On a green-cast plate the rule found 0.04% where you counted 15%; on a blue-cast plate
+it found 31% where you counted 9%. It is measuring the photograph, not the rock.
+
+- [ ] Open Pore Area, tune the band on ONE plate with the preview, and look at how badly it fits
+      the next plate along. That is the problem in one click.
+
+**Where the plates ARE colour-consistent it works.** Restricted to the blue-cast group with a band
+tuned to them: rank agreement **0.62** on 10 plates. So the method is sound and the instruction is
+real: measure a delivery in colour groups, not in one pass.
+
+**One warning worth having.** On the green-cast group I could tune a band until the measured median
+landed on your counted median almost exactly — 15.7 against 15.0 — while the per-plate agreement
+stayed at -0.10. **Tuning until the average looks right is the wrong way to tune it.** Judge the
+band on the preview and on agreement, never on the mean.
+
+- [ ] Does this match your own experience of these plates — that the lighting varied between
+      sessions? If the laboratory can re-export them under one white balance, that is worth more
+      than anything I can do in software.
+
+### Still open, deliberately not guessed
+
+A plate cast AWAY from the band returns a fraction near zero — which looks exactly like a tight
+rock. I can see the signature (0.04% against your 15%) but I cannot pick the cut-off that separates
+it from a genuinely tight section without inventing a number.
+
+- [ ] Tell me whether you would rather it REFUSED a suspiciously empty measurement on a section you
+      declared impregnated, or kept storing it. Refusing costs you the odd real tight plate; keeping
+      it ships the odd wrong number that looks fine.

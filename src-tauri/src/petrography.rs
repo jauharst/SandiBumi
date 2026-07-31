@@ -2956,3 +2956,215 @@ mod tests {
         assert_eq!(PORE_ITEM, "VPORE_TS");
     }
 }
+
+/// The whole road, on a real delivery: a workbook of plates in, a number checked against an
+/// independent measurement out.
+#[cfg(test)]
+mod field_tests {
+    use super::*;
+
+    /// Workbook -> plates -> pore area -> checked against the petrographer's own point count.
+    ///
+    /// Every increment so far has been verified against synthetic plates, which can only ever
+    /// prove the arithmetic. This one asks the question the arithmetic cannot: does the automatic
+    /// measurement agree with a human who counted the same sections by eye?
+    ///
+    /// The comparison is deliberately the POINT COUNT rather than helium porosity. A plug's helium
+    /// porosity and a section's area fraction differ for two reasons at once — the measurement and
+    /// the depth registration — and a disagreement could not be attributed to either. The
+    /// petrographer counted the SAME picture, so only the measurement is under test.
+    ///
+    /// Runs only when `SANDIBUMI_FIELD_FIXTURES` names a folder holding
+    /// `workbooks/` (the delivered `.xlsx`) and `petrography/` (a delimited table with a WELL
+    /// column, a depth and the counted porosity). SKIPS with a printed reason otherwise.
+    #[test]
+    #[ignore = "needs a real petrography delivery; set SANDIBUMI_FIELD_FIXTURES"]
+    fn a_delivered_book_measures_against_the_petrographers_own_point_count() {
+        let Some(root) = crate::field_fixtures::root() else {
+            eprintln!("SKIP: set SANDIBUMI_FIELD_FIXTURES to a folder with workbooks/ and petrography/");
+            return;
+        };
+        let books: Vec<String> = match std::fs::read_dir(root.join("workbooks")) {
+            Ok(rd) => rd
+                .filter_map(|e| e.ok().map(|e| e.path()))
+                .filter(|p| {
+                    p.extension()
+                        .and_then(|e| e.to_str())
+                        .is_some_and(|e| e.eq_ignore_ascii_case("xlsx"))
+                })
+                .map(|p| p.to_string_lossy().into_owned())
+                .collect(),
+            Err(_) => {
+                eprintln!("SKIP: no workbooks/ under {}", root.display());
+                return;
+            }
+        };
+        let counts: Vec<String> = match std::fs::read_dir(root.join("petrography")) {
+            Ok(rd) => rd
+                .filter_map(|e| e.ok().map(|e| e.path()))
+                .filter(|p| {
+                    p.extension()
+                        .and_then(|e| e.to_str())
+                        .is_some_and(|e| e.eq_ignore_ascii_case("csv"))
+                })
+                .map(|p| p.to_string_lossy().into_owned())
+                .collect(),
+            Err(_) => {
+                eprintln!("SKIP: no petrography/ under {}", root.display());
+                return;
+            }
+        };
+        if books.is_empty() || counts.is_empty() {
+            eprintln!("SKIP: need at least one .xlsx and one .csv");
+            return;
+        }
+
+        // --- 1. the plates come out of the book, depths and all -------------------------------
+        let out = std::env::temp_dir().join("sandibumi_pore_e2e");
+        let _ = std::fs::remove_dir_all(&out);
+        let probe = crate::images::probe_plate_workbooks(&books, &out).expect("workbook read");
+        eprintln!(
+            "extracted {} plate(s) from {} book(s); unit {:?}; {} note(s)",
+            probe.plates.len(),
+            books.len(),
+            probe.depth_unit,
+            probe.notes.len()
+        );
+        for n in probe.notes.iter().take(6) {
+            eprintln!("   note: {n}");
+        }
+        assert!(!probe.plates.is_empty(), "no plate came out of the delivery");
+
+        // --- 2. a project holding one well --------------------------------------------------
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        // The delivery states feet and the point-count table is written in feet. Working in the
+        // delivered unit keeps every depth in this test the number the laboratory wrote down.
+        crate::units::set_project_depth_unit(&conn, crate::units::DepthUnit::Feet).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        let well_name = "SANDI-TS-1";
+        crate::db::insert_well(&conn, wid, well_name, None, None, None).unwrap();
+        let w = wid.to_string();
+
+        // --- 3. the ordinary importer takes them --------------------------------------------
+        //
+        // `prepared` is DECLARED here, exactly as a user declares it in the wizard. It is a fact
+        // about how the section was made and the picture cannot be asked — the evidence for "this
+        // is blue epoxy" is the blue about to be measured.
+        let items: Vec<crate::images::ImageImportItem> = probe
+            .plates
+            .iter()
+            .filter_map(|p| {
+                Some(crate::images::ImageImportItem {
+                    path: p.path.clone(),
+                    name: p.name.clone(),
+                    depth_top: p.depth_top?,
+                    depth_base: p.depth_base,
+                    ..Default::default()
+                })
+            })
+            .collect();
+        assert!(!items.is_empty(), "no plate carried a depth from its sheet");
+        let req = crate::images::ImageImportRequest {
+            well_id: w.clone(),
+            dataset: "THIN SECTION".into(),
+            set_name: "LAB".into(),
+            depth_unit: probe.depth_unit.clone(),
+            prepared: Some("blue_epoxy".into()),
+            items,
+            ..Default::default()
+        };
+        let imported = crate::images::import_images(&conn, &req).expect("image import");
+        eprintln!("imported {} plate(s)", imported.imported);
+
+        // --- 4. the measurement --------------------------------------------------------------
+        // Spelled out rather than `..Default::default()`: `PoreSpec` deliberately has no Default,
+        // because a zeroed colour band would be a band nobody chose.
+        let spec = PoreSpec {
+            well_id: w.clone(),
+            dataset: "THIN SECTION".into(),
+            band: PoreColorBand::default(),
+            preview_image_id: None,
+            only_image_id: None,
+            set_name: Some("TS".into()),
+            geometry: false,
+            min_pore_px: MIN_PORE_PX,
+            grains: false,
+            min_grain_px: MIN_GRAIN_PX,
+            grain_sep_px: GRAIN_SEP_PX,
+            wicksell: false,
+            stain: None,
+        };
+        let res = run_pore_area(&conn, &spec).expect("pore run");
+        let flagged = res.plates.iter().filter(|p| p.scene_dominated).count();
+        let stored: Vec<f32> = res
+            .plates
+            .iter()
+            .filter(|p| !p.scene_dominated)
+            .map(|p| p.pore_fraction)
+            .collect();
+        eprintln!(
+            "measured {} plate(s); {flagged} flagged as scene-dominated; {} stored",
+            res.plates.len(),
+            stored.len()
+        );
+        for n in &res.notes {
+            eprintln!("   note: {n}");
+        }
+        assert!(!stored.is_empty(), "the whole delivery was refused");
+
+        // --- 5. the independent measurement, imported the ordinary way -----------------------
+        //
+        // Its OWN dataset, not PETROGRAPHY: exactly one delivery per (well, dataset) is live, so
+        // writing the point count into the same dataset would switch off the measurement it is
+        // meant to check.
+        let mut counted = 0usize;
+        for path in &counts {
+            let r = crate::ingest::import_aux_file(&conn, &w, "POINTCOUNT", path, Some("LAB"), false);
+            assert!(r.error.is_none(), "point-count import failed: {:?}", r.error);
+            counted += r.rows;
+        }
+        eprintln!("imported {counted} point-count row(s)");
+        assert!(counted > 0, "the point-count table brought in nothing");
+
+        // --- 6. the two measurements meet ----------------------------------------------------
+        let qc = crate::plugqc::run_plug_qc(
+            &conn,
+            &crate::plugqc::PlugQcRequest {
+                well_ids: vec![w.clone()],
+                x: crate::plugqc::PlugSource {
+                    kind: "aux".into(),
+                    dataset: "POINTCOUNT".into(),
+                    item: "VISPOR_PC".into(),
+                    saturation: 0.0,
+                },
+                y: crate::plugqc::PlugSource {
+                    kind: "aux".into(),
+                    dataset: PORE_DATASET.into(),
+                    item: PORE_ITEM.into(),
+                    saturation: 0.0,
+                },
+                depth_tol: 0.15,
+            },
+        )
+        .expect("plug qc");
+
+        eprintln!(
+            "paired {} plug(s); point count median {:.2}, measured median {:.4}",
+            qc.n_pairs, qc.x_median, qc.y_median
+        );
+        eprintln!("   pearson {:.3}  spearman {:.3}", qc.pearson, qc.spearman);
+        for (why, n) in &qc.excluded {
+            eprintln!("   excluded {n}: {why}");
+        }
+        for n in &qc.notes {
+            eprintln!("   note: {n}");
+        }
+
+        // The claim under test is that the two measurements are OF THE SAME THING. That is a
+        // pairing question, not a correlation threshold — a delivery where nothing pairs has not
+        // been checked at all, whatever the coefficient says.
+        assert!(qc.n_pairs > 0, "not one plate met its own point count");
+        let _ = std::fs::remove_dir_all(&out);
+    }
+}

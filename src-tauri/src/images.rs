@@ -112,6 +112,25 @@ pub fn sniff(bytes: &[u8]) -> Option<RasterMeta> {
         };
         return Some(RasterMeta { mime: "image/webp", width: w, height: h, components: 0 });
     }
+    if bytes.len() >= 44 && bytes[0..4] == [1, 0, 0, 0] && &bytes[40..44] == b" EMF" {
+        // Enhanced metafile — how a petrography laboratory delivers a vector-illustrated plate
+        // book. The four-byte record type is far too weak a magic on its own, so the signature
+        // at offset 40 is what identifies it.
+        //
+        // `rclBounds` is the bounding rectangle in DEVICE units and is inclusive, so a picture
+        // 1103 pixels across reads 0..1102. Pillow does the decoding (Windows GDI); reading the
+        // size here is what lets a decoration be told from a plate before anything is decoded.
+        let l = le32(bytes, 8) as i32;
+        let t = le32(bytes, 12) as i32;
+        let r = le32(bytes, 16) as i32;
+        let b = le32(bytes, 20) as i32;
+        return Some(RasterMeta {
+            mime: "image/emf",
+            width: (r - l + 1).max(0) as u32,
+            height: (b - t + 1).max(0) as u32,
+            components: 0,
+        });
+    }
     if bytes.len() >= 8 && (bytes.starts_with(b"II\x2a\x00") || bytes.starts_with(b"MM\x00\x2a")) {
         // TIFF dimensions live in IFD tags that can sit anywhere in the file; Pillow reads
         // them. Recognising the format is still worth it so the wizard can say "needs
@@ -464,7 +483,8 @@ pub const MIN_PLATE_PX: u32 = 400;
 pub const WORKBOOK_HEADER_ROWS: u32 = 14;
 
 const WORKBOOK_RUNNER: &str = r#"
-import sys, json, os, re, io
+import sys, json, os, re, io, zipfile, posixpath
+import xml.etree.ElementTree as ET
 
 try:
     import openpyxl
@@ -536,6 +556,84 @@ def scan(ws, max_rows):
     return depth, base, unit, mag, sorted(mags)
 
 
+REL_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+
+
+def _resolve(base_dir, target):
+    """A relationship Target, which may be package-absolute or relative to its own part."""
+    if target.startswith("/"):
+        return target.lstrip("/")
+    return posixpath.normpath(posixpath.join(base_dir, target))
+
+
+def _rels(zf, part):
+    """{Id: (Type, resolved target)} for one part, or {} when it has no relationships."""
+    name = posixpath.join(posixpath.dirname(part), "_rels", posixpath.basename(part) + ".rels")
+    try:
+        root = ET.fromstring(zf.read(name))
+    except Exception:
+        return {}
+    base = posixpath.dirname(part)
+    out = {}
+    for r in root:
+        rid, typ, tgt = r.get("Id"), r.get("Type", ""), r.get("Target", "")
+        if rid and tgt and r.get("TargetMode") != "External":
+            out[rid] = (typ, _resolve(base, tgt))
+    return out
+
+
+def sheet_pictures(zf):
+    """{sheet name: [picture bytes, ...]} in anchor order, read from the PACKAGE.
+
+    openpyxl is the wrong tool for this half. It DROPS the picture formats it cannot decode -
+    WMF and EMF - with a warning that nothing downstream sees, so a delivery of vector plates
+    arrives as a workbook that simply appears to hold no pictures. That is a silent subset, and a
+    silent subset reads as a complete answer.
+
+    The bytes and the sheet association are both in the package, and unlike the old .xls the
+    association is EXPLICIT: workbook -> sheet part -> drawing part -> media part, each step a
+    relationship file. So openpyxl is left to do what it is good at - reading the cells the depth
+    is written in - and the pictures are read from the zip.
+    """
+    out = {}
+    try:
+        book = ET.fromstring(zf.read("xl/workbook.xml"))
+    except Exception:
+        return out
+    book_rels = _rels(zf, "xl/workbook.xml")
+    for sheets in book.iter():
+        if not sheets.tag.endswith("}sheets"):
+            continue
+        for sh in sheets:
+            name = sh.get("name")
+            rid = sh.get(REL_NS + "id")
+            if not name or rid not in book_rels:
+                continue
+            part = book_rels[rid][1]
+            blobs = []
+            for typ, tgt in _rels(zf, part).values():
+                if not typ.endswith("/drawing"):
+                    continue
+                try:
+                    dr = ET.fromstring(zf.read(tgt))
+                except Exception:
+                    continue
+                dr_rels = _rels(zf, tgt)
+                # Document order IS anchor order, which is the order the panels appear.
+                for blip in dr.iter():
+                    if not blip.tag.endswith("}blip"):
+                        continue
+                    embed = blip.get(REL_NS + "embed")
+                    if embed not in dr_rels:
+                        continue
+                    try:
+                        blobs.append(zf.read(dr_rels[embed][1]))
+                    except Exception:
+                        pass
+            out[name] = blobs
+    return out
+
+
 rows = []
 notes = []
 for path in req["paths"]:
@@ -545,13 +643,20 @@ for path in req["paths"]:
     except Exception as e:
         notes.append("%s: cannot be read (%s)" % (os.path.basename(path), e))
         continue
+    try:
+        pics = sheet_pictures(zipfile.ZipFile(path))
+    except Exception as e:
+        notes.append("%s: pictures cannot be read (%s)" % (os.path.basename(path), e))
+        pics = {}
     units = set()
     mags = set()
     n_sheets = 0
+    bare = 0
     for sname in wb.sheetnames:
         ws = wb[sname]
-        imgs = list(getattr(ws, "_images", []))
+        imgs = pics.get(sname, [])
         if not imgs:
+            bare += 1
             continue
         n_sheets += 1
         depth, base, unit, mag, sheet_mags = scan(ws, req.get("header_rows", 14))
@@ -567,12 +672,8 @@ for path in req["paths"]:
         # because only the user can say which is which.
         kept = 0
         dropped = 0
-        for im in imgs:
-            try:
-                blob = im._data()
-            except Exception:
-                continue
-            if blob is None:
+        for blob in imgs:
+            if not blob:
                 continue
             # A workbook holds DECORATIONS as well as plates: scale-bar graphics, logos, north
             # arrows, the laboratory's letterhead. The floor is in PIXELS rather than bytes because
@@ -615,6 +716,11 @@ for path in req["paths"]:
             notes.append("sheet %s: no depth in the header - a bare number is not read as one" % sname)
     if n_sheets == 0:
         notes.append("%s: no worksheet carries a picture" % os.path.basename(path))
+    elif bare:
+        # A cover sheet or a summary table legitimately holds no picture. Said once per file
+        # rather than once per sheet: it is a tally, not a fault, but a delivery whose plates
+        # failed to come through would show up here as a large number.
+        notes.append("%s: %d worksheet(s) hold no picture" % (os.path.basename(path), bare))
     if len(units) > 1:
         notes.append("%s: sheets state more than one depth unit (%s)" % (
             os.path.basename(path), ", ".join(sorted(units))))
@@ -1189,6 +1295,62 @@ mod workbook_tests {
         assert_eq!(MIN_PLATE_PX % 100, 0, "a round number, not somebody's tuned threshold");
         assert!(MIN_PLATE_PX >= 200 && MIN_PLATE_PX <= 800);
         assert!(WORKBOOK_HEADER_ROWS >= 5 && WORKBOOK_HEADER_ROWS <= 40);
+    }
+
+    /// The pictures come from the PACKAGE, never from openpyxl's own list.
+    ///
+    /// openpyxl DROPS the formats it cannot decode — WMF and EMF — with a warning nothing
+    /// downstream sees. A delivered book of vector plates then arrives as a workbook that
+    /// appears to hold no pictures at all, which is a silent subset, and a silent subset reads as
+    /// a complete answer. Reading the zip is what makes that impossible rather than merely
+    /// reported.
+    #[test]
+    fn the_workbook_reader_takes_its_pictures_from_the_package_not_from_openpyxl() {
+        let src = WORKBOOK_RUNNER;
+        assert!(src.contains("def sheet_pictures("), "the package reader is gone");
+        assert!(
+            !src.contains("_images"),
+            "openpyxl's own picture list is back — it silently drops WMF and EMF"
+        );
+        // The association is what makes this safe and the old .xls unsafe: every step of
+        // workbook -> sheet -> drawing -> media is an explicit relationship file.
+        assert!(src.contains("xl/workbook.xml"));
+        assert!(src.contains("_rels"));
+        // A worksheet holding nothing is counted rather than skipped in silence.
+        assert!(src.contains("hold no picture"));
+    }
+
+    /// An EMF plate must be RECOGNISED, or the importer calls a delivered plate an unreadable file.
+    ///
+    /// The four-byte record type is far too weak a magic on its own — plenty of files begin with a
+    /// little-endian 1 — so the ` EMF` signature at offset 40 is what identifies it. `rclBounds`
+    /// is inclusive, so a picture 1103 device units across reads 0..1102.
+    #[test]
+    fn an_enhanced_metafile_plate_is_recognised_rather_than_called_unreadable() {
+        let mut v = vec![0u8; 88];
+        v[0] = 1; // iType = EMR_HEADER
+        let put = |v: &mut Vec<u8>, at: usize, n: i32| {
+            v[at..at + 4].copy_from_slice(&n.to_le_bytes());
+        };
+        put(&mut v, 8, 0); // rclBounds left
+        put(&mut v, 12, 0); // top
+        put(&mut v, 16, 1102); // right, inclusive
+        put(&mut v, 20, 791); // bottom, inclusive
+        v[40..44].copy_from_slice(b" EMF");
+
+        let m = sniff(&v).expect("an EMF is a recognised delivery format");
+        assert_eq!(m.mime, "image/emf");
+        assert_eq!(m.width, 1103);
+        assert_eq!(m.height, 792);
+        // It is not something the WebView can draw, so without Pillow the importer must say so by
+        // name rather than store a plate nothing can display.
+        assert!(!browser_decodable(m.mime));
+
+        // The control: the same leading bytes without the signature are NOT an EMF. Without this
+        // the check would claim any file starting with a little-endian 1.
+        let mut fake = v.clone();
+        fake[40..44].copy_from_slice(b"junk");
+        assert!(sniff(&fake).is_none(), "the record type alone is not enough to claim EMF");
     }
 }
 

@@ -1642,6 +1642,86 @@ Measured on two real deliveries: **152 plates, every one with a depth from its s
 notes** covering dropped decorations, sheets stating two magnifications and sheets whose header omits
 the depth.
 
+## The whole road, and what it measured (2026-07-31)
+
+`petrography::field_tests::a_delivered_book_measures_against_the_petrographers_own_point_count`
+drives the entire chain on a real delivery — workbook in, plates at their stated depths, pore area
+measured, checked against an independent measurement of the same rock through `plugqc`. Every
+increment before it was verified against synthetic plates, which can only ever prove the
+arithmetic.
+
+**The independent measurement is the petrographer's own POINT COUNT, deliberately not helium
+porosity.** A plug's helium porosity and a section's area fraction differ for two reasons at once —
+the measurement and the depth registration — so a disagreement could not be attributed to either.
+The petrographer counted the SAME picture, which puts only the measurement under test. (This also
+found that a point-count table need not carry its own total: one delivered table left the *Total
+porosity* column empty on every row with the six components filled in, and several component cells
+read `trace`, which is a word.)
+
+**The answer on this delivery is that it does NOT agree, and that is the finding.** 152 plates
+against 50 counted samples paired 35 plugs: counted median 14%, measured median 6.8%, Pearson
+**-0.300**, Spearman **-0.092**. Sweeping the band from 180-260 to 220-260 moved the measured median
+from 5.8% to 0.5% and never moved either coefficient off zero.
+
+**The measurement was tracking each photograph's colour cast rather than the rock.** On a
+green-cast plate (own median hue ~149 degrees) the band found 0.04% against a counted 15%; on a
+blue-cast plate (~195 degrees) it found 31% against a counted 9%. Across one laboratory, one core
+and one report the plates' median hue spanned 289 degrees. The existing "not photographed under one
+light" note was already firing; what was new is how completely it invalidates the numbers rather
+than merely qualifying them.
+
+**Within a colour-consistent group it works.** Restricted to the blue-cast plates with a band
+tuned to them: Pearson 0.643, Spearman 0.616 on 10 plates. That is the reason the family is worth
+keeping and the reason "measure them in groups" is a real instruction rather than a hedge.
+
+**Matching the median is not evidence that the measurement is right, and this is the sharpest
+result of the exercise.** On the green-cast group a band can be tuned until the measured median
+lands on the counted median almost exactly (15.72 against 15.00) while the per-plate rank agreement
+stays at **-0.10**. Tuning a colour band until the average looks right is therefore precisely the
+wrong way to tune it: the average is the one statistic that survives a segmentation which has
+stopped discriminating. Tune against the PREVIEW on a single plate, and judge a delivery by
+agreement, never by its mean.
+
+Still open and not shipped: the mirror of the scene-dominance guard. A plate cast AWAY from the
+band returns a fraction near zero, which is a plausible number for a tight rock and is currently
+stored. The signature is visible here (0.04% against a counted 15%) but the floor that would
+separate it from a genuinely tight section is a judgement, not a measurement, so nothing was
+invented.
+
+## A delivery can be vector, and it was vanishing (2026-07-31)
+
+The same run found that half a petrography delivery could not be imported at all. `openpyxl`
+**DROPS** the picture formats it cannot decode — WMF and EMF — with a warning nothing downstream
+sees. One delivered book of 53 plate sheets and 106 photomicrographs therefore arrived as a
+workbook that appeared to hold no pictures: `ws._images` was empty, the sheet was skipped by `if
+not imgs: continue`, and the file produced **zero plates and almost no notes**. A silent subset,
+which reads as a complete answer — the same failure the scene guard was built for, one layer down.
+
+**So `WORKBOOK_RUNNER` now reads the pictures from the PACKAGE and leaves openpyxl to read the
+cells.** That is not a patch around the drop, it removes the failure mode by construction: openpyxl
+does what it is good at (the cells the depth is written in) and the pictures come from the zip.
+Unlike the old `.xls`, the association is EXPLICIT — workbook -> sheet part -> drawing part -> media
+part, every step a relationship file — so nothing is guessed, which is exactly the property `.xls`
+lacks and why that format is still refused. Document order in the drawing XML is anchor order, so
+the panels keep the order they appear in. Pinned by
+`the_workbook_reader_takes_its_pictures_from_the_package_not_from_openpyxl`, which fails if
+`_images` ever comes back.
+
+`sniff` recognises **EMF**, or a recovered plate would be called "not a recognised image format" by
+the importer that just extracted it. The four-byte record type is far too weak a magic on its own,
+so the ` EMF` signature at offset 40 is what identifies it — pinned from both sides, including the
+control that the record type alone is NOT enough. `rclBounds` is inclusive, so a picture 1103
+device units across reads 0..1102. Pillow decodes EMF through the Windows GDI; without Pillow the
+importer says "EMF needs Pillow" by name rather than storing a plate nothing can display.
+
+A worksheet holding no picture is now **counted and reported once per file** rather than skipped in
+silence. A cover sheet legitimately holds none — but a delivery whose plates failed to come through
+shows up here as a large number instead of as nothing at all.
+
+Measured on the same two real books: **258 plates where there had been 152**, all 258 through the
+extractor, 242 through import and measurement (the 16 without a stated depth are counted and
+reported, never filled in from a neighbour).
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under
