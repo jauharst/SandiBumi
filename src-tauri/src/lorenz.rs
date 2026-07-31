@@ -505,6 +505,73 @@ mod tests {
         assert_eq!(r.skipped, 4);
     }
 
+    /// A Lorenz/flow-unit run needs a real permeability curve. If the requested one is absent
+    /// the run must FAIL AND NAME IT — never fall through to whatever else the frame happens to
+    /// carry. This is silent-wrongness class: a flow-unit split computed off the wrong curve
+    /// still produces a plausible Lc and a plausible unit count, and nothing downstream can tell.
+    ///
+    /// The messages existed in `run_lorenz` but nothing asserted them; `errors_when_no_valid_samples`
+    /// is a different claim (every sample invalid, message unchecked) on the pure function.
+    ///
+    /// The control is the reversed case: swapping which curve is missing must move the name in
+    /// the message. A guard that always blamed the same curve, or blamed both, would pass a
+    /// one-sided test and still be useless for finding out what is actually wrong.
+    #[test]
+    fn a_missing_curve_fails_by_name_rather_than_computing_on_another() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let id = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, id, "SANDI-LZ", Some("Synthetic"), None, None).unwrap();
+
+        // NPHI carries data; no permeability curve of any name exists in this well.
+        let n = 20usize;
+        let depth: Vec<f32> = (0..n).map(|i| 2000.0 + i as f32 * 0.5).collect();
+        let nan = vec![f32::NAN; n];
+        crate::db::insert_standard_curves(
+            &conn,
+            id,
+            depth,
+            vec![50.0; n],
+            nan.clone(),
+            vec![0.20; n],
+            vec![2.45; n],
+            nan.clone(),
+            nan,
+        )
+        .unwrap();
+
+        let dbm = std::sync::Mutex::new(conn);
+        let well = id.to_string();
+        let req = |phi: &str, perm: &str| LorenzRequest {
+            well_id: well.clone(),
+            phi_curve: phi.to_string(),
+            perm_curve: perm.to_string(),
+            depth_from: None,
+            depth_to: None,
+            n_units: 0,
+        };
+
+        // Permeability absent: refused, and the message names the permeability curve.
+        let r = run_lorenz(&dbm, &req("NPHI", "KLOGH"));
+        let msg = r.error.expect("a missing permeability curve must fail the run");
+        assert!(msg.contains("KLOGH"), "the message must name the missing curve; got {msg}");
+        assert!(
+            !msg.contains("NPHI"),
+            "the porosity curve is present and must not be blamed; got {msg}"
+        );
+        assert_eq!(r.n_samples, 0, "a refused run must compute nothing");
+        assert!(r.units.is_empty(), "a refused run must produce no flow units");
+
+        // Control: move the absence to the porosity side and the name in the message moves too.
+        let r2 = run_lorenz(&dbm, &req("PHIT_NOT_HERE", "NPHI"));
+        let msg2 = r2.error.expect("a missing porosity curve must also fail the run");
+        assert!(
+            msg2.contains("PHIT_NOT_HERE"),
+            "the message must name the missing porosity curve; got {msg2}"
+        );
+        assert_eq!(r2.n_samples, 0);
+    }
+
     #[test]
     fn errors_when_no_valid_samples() {
         let d = vec![2000.0f32, 2000.5];
