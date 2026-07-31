@@ -4346,6 +4346,27 @@ textarea {
   flex: 1;
   margin-bottom: 0;
 }
+/* Well legend under a calibration QC scatter (fitScatter.ts). Wraps rather than scrolls: on a
+   field-wide fit the names are secondary to the colours on the canvas. */
+.fit-scatter-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 10px;
+  margin-top: 4px;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+.fit-scatter-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.fit-scatter-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex: none;
+}
 .mc-gear {
   flex: none;
   border: 1px solid var(--border);

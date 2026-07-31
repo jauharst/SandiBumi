@@ -3,6 +3,7 @@ import { setStatus } from "../state";
 import { recordProcess } from "../processLog";
 import { formRow, openModal } from "./modal";
 import { buildWellScope } from "./wellScope";
+import { buildFitScatter, type FitScatter } from "./fitScatter";
 
 /** IMTS S-factor calibration (Advance ▸ Calibrate S…).
  *
@@ -46,6 +47,8 @@ export async function openSFactorFitDialog(): Promise<void> {
     runBtn.disabled = n === 0;
   };
   paintRunBtn();
+  // The backend returns well IDs; the scatter legend has to show the names the user knows.
+  const wellName = (id: string): string => scope.namesFor([id])[0] ?? id;
 
   // ---- where the laboratory CEC lives -------------------------------------
   const mkText = (label: string, def: string, hint?: string) => {
@@ -100,10 +103,19 @@ export async function openSFactorFitDialog(): Promise<void> {
 
   const actions = document.createElement("div");
   actions.className = "modal-actions";
+  // Rebuilt on every fit; keep a handle so its ResizeObserver and tooltip are released rather
+  // than accumulating one set per run.
+  let scatter: FitScatter | null = null;
+  const dropScatter = (): void => {
+    scatter?.dispose();
+    scatter = null;
+  };
+
   const cancel = document.createElement("button");
   cancel.className = "btn";
   cancel.textContent = "Close";
   cancel.addEventListener("click", () => {
+    dropScatter();
     scope.dispose();
     close();
   });
@@ -118,6 +130,7 @@ export async function openSFactorFitDialog(): Promise<void> {
 
   const render = (r: SFactorFitResult): void => {
     out.hidden = false;
+    dropScatter();
     out.innerHTML = "";
     if (r.error) {
       const e = document.createElement("div");
@@ -151,6 +164,33 @@ export async function openSFactorFitDialog(): Promise<void> {
       tbl.appendChild(tr);
     }
     out.appendChild(tbl);
+
+    // The regression itself, NOT measured-vs-fitted. With one predictor those two plots carry
+    // the same information, but only this one puts clay content on the x axis — which is what
+    // turns "the plugs disagree" in the note above into a shape you can name: a curved cloud is
+    // S drifting with clay, a fan opening toward the origin is noise on the lean plugs, and a
+    // cluster off the line is one core suite. The line is the fit, through the origin.
+    if (r.points.length) {
+      scatter = buildFitScatter({
+        points: r.points.map((p) => ({
+          x: p.cec_theo,
+          y: p.cec_lab,
+          group: wellName(p.well_id),
+          detail: [
+            `${wellName(p.well_id)} @ ${p.depth.toFixed(2)} (log ${p.log_depth.toFixed(2)})`,
+            `lab ${p.cec_lab.toFixed(2)}  model ${p.cec_theo.toFixed(2)} meq/100g`,
+            `ratio ${p.ratio.toFixed(3)}   VKAOL ${p.vkaol.toFixed(3)}  VILL ${p.vill.toFixed(3)}`,
+          ],
+        })),
+        xLabel: "Theoretical CEC from the clay model (meq/100g)",
+        yLabel: "Laboratory CEC (meq/100g)",
+        line: { kind: "origin", slope: r.s_factor },
+        caption: `Lab vs modelled CEC — ${r.points.length} plug(s), line is S = ${r.s_factor.toFixed(3)} through the origin`,
+        exportName: "imts-s-factor",
+      });
+      out.appendChild(scatter.el);
+      scatter.redraw(); // first paint is synchronous once it is in the document
+    }
 
     // Excluded counts are shown, always — an S quoted from 4 plugs of a 60-plug CEC suite is a
     // different statement, and silence about it is the failure.

@@ -3,6 +3,7 @@ import { appState, setStatus } from "../state";
 import { recordProcess } from "../processLog";
 import { formRow, openModal } from "./modal";
 import { buildWellScope } from "./wellScope";
+import { buildFitScatter, type FitScatter } from "./fitScatter";
 
 /** RtC calibration (Advance ▸ Calibrate RtC…).
  *
@@ -46,6 +47,8 @@ export async function openRtcFitDialog(): Promise<void> {
     runBtn.textContent = `Fit from ${n} well(s)`;
     runBtn.disabled = n === 0;
   }
+  // The backend returns well IDs; the scatter legend has to show the names the user knows.
+  const wellName = (id: string): string => scope.namesFor([id])[0] ?? id;
 
   // ---- the water zone -----------------------------------------------------
   const zoneNote = document.createElement("div");
@@ -126,10 +129,19 @@ export async function openRtcFitDialog(): Promise<void> {
 
   const actions = document.createElement("div");
   actions.className = "modal-actions";
+  // The QC scatter is rebuilt on every fit; keep a handle so its ResizeObserver and tooltip are
+  // released rather than accumulating one set per run.
+  let scatter: FitScatter | null = null;
+  const dropScatter = (): void => {
+    scatter?.dispose();
+    scatter = null;
+  };
+
   const cancel = document.createElement("button");
   cancel.className = "btn";
   cancel.textContent = "Close";
   cancel.addEventListener("click", () => {
+    dropScatter();
     scope.dispose();
     close();
   });
@@ -146,6 +158,7 @@ export async function openRtcFitDialog(): Promise<void> {
 
   const render = (r: RtcFitResult): void => {
     out.hidden = false;
+    dropScatter();
     if (r.error) {
       out.innerHTML = "";
       const e = document.createElement("div");
@@ -180,6 +193,31 @@ export async function openRtcFitDialog(): Promise<void> {
       tbl.appendChild(tr);
     }
     out.appendChild(tbl);
+
+    // Measured against fitted excess conductivity, with the 1:1 line. R² says how much scatter
+    // there is; only the picture says what KIND — curvature (the two paths are not linear over
+    // this interval), or one well parked off the trend, which R² averages away.
+    if (r.points.length) {
+      scatter = buildFitScatter({
+        points: r.points.map((p) => ({
+          x: p.y_fit,
+          y: p.y,
+          group: wellName(p.well_id),
+          detail: [
+            `${wellName(p.well_id)} @ ${p.depth.toFixed(2)}`,
+            `measured ${p.y.toFixed(5)}  fitted ${p.y_fit.toFixed(5)}`,
+            `CAPBW ${p.capbw.toFixed(3)}   Qv ${p.qv.toFixed(3)}`,
+          ],
+        })),
+        xLabel: "Fitted excess / (PHIT·RSF)",
+        yLabel: "Measured excess / (PHIT·RSF)",
+        line: { kind: "identity" },
+        caption: `Measured vs fitted excess conductivity — ${r.points.length} sample(s), 1:1 dashed`,
+        exportName: "rtc-calibration",
+      });
+      out.appendChild(scatter.el);
+      scatter.redraw(); // first paint is synchronous once it is in the document
+    }
 
     // Excluded counts are shown, always. A calibration quoted from 12 samples of an interval
     // the user believed held 500 is a different statement, and silence about it is the failure.

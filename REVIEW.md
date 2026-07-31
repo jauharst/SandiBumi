@@ -6032,6 +6032,39 @@ wrong S scales Qv_eff straight through to SwT with nothing on the log to show fo
 **Also fixed here:** both calibration dialogs used to open with a blank, greyed-out Fit button
 until you touched the well scope. They now label themselves on open.
 
+---
+
+## Calibration QC scatter, on both fits (2026-07-31)
+
+Both calibration dialogs now draw the fit, not just report it. A calibration comes down to two or
+three numbers, and **R² tells you how much scatter there is but not what kind** — curvature, one
+well sitting off the trend, a cluster of plugs dragging the line. Those only show in the picture.
+
+- [ ] **Calibrate RtC…** now plots **measured against fitted** excess conductivity with a dashed
+      1:1 line. On a good fit the cloud straddles the line evenly. A bow above or below it at one
+      end means CAPBW and Qv are not linear over that interval — worth knowing before you accept
+      the coefficients.
+- [ ] **Calibrate S…** plots **lab CEC against modelled CEC** with the fitted line through the
+      origin. Deliberately the regression itself rather than measured-vs-fitted, because only this
+      version puts clay content on the x axis: a curved cloud is S drifting with clay, a fan
+      opening toward the origin is noise on the lean plugs, and a cluster off the line is one core
+      suite. That turns the "plug ratios P10 → P90" number into something you can name.
+- [ ] **Points are coloured by well**, with a legend underneath. On a field-wide calibration this
+      is the question the table cannot answer: is one well pulling it?
+- [ ] **Hover a point** — it names the well, the depth, and the values. On the S plot it shows the
+      plug depth *and* the log depth it was paired with, so a bad pairing is visible.
+- [ ] **⧉ Copy / ⭳ Image / ⎙ Print** on each plot, the same buttons as every other plot.
+
+**Two things to check deliberately:**
+
+- [ ] **The 1:1 line should sit at 45°** on the RtC plot regardless of how wide the scatter is.
+      Both axes are forced to the same range on purpose — scale them independently and the aspect
+      ratio alone can make a clean fit look biased.
+- [ ] **The S plot should always show zero** on both axes even if your plugs are all clay-rich.
+      Through-the-origin is the model's claim, and cropping to the data would hide whether your
+      cloud actually heads for zero — which is the one thing that would disprove it.
+
+
 
 `sw_rtc`'s own description now says plainly that the shipped defaults are one field's, and
 points at this dialog.

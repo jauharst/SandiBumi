@@ -694,6 +694,27 @@ invisible to any depth-tolerance check, so this is not a substitute for depth-sh
 And **S and the literature CEC constants are not jointly identifiable** (S multiplies them), so
 the constants are held fixed, echoed in the result and copied alongside S.
 
+**Calibration QC scatter** — `fitScatter.ts` is shared by both fit dialogs, because a calibration
+reduces a core or a water leg to two or three numbers and R² cannot say *how* it failed:
+curvature, one well parked off the trend, a cluster the fit is being dragged by. That is what both
+backends return `points` for. Two rules are the reason it is one module rather than two plots.
+**A measured-vs-fitted plot forces both axes to the SAME range** so the 1:1 line lands at 45° —
+scale them independently and the aspect ratio alone makes a good fit look biased or a biased one
+look clean. **A through-the-origin plot forces the origin onto the page**, because proportionality
+is the model's claim and cropping to the data hides whether the cloud actually heads for zero.
+Points are coloured by WELL (a single well pulling a field calibration is the question the table
+cannot answer), out-of-window points are SKIPPED rather than clamped to an edge, and the hover
+readout names the well and depth. RtC plots measured against fitted; the S fit plots the
+regression itself, lab CEC against modelled CEC, because with one predictor only that version puts
+clay content on the x axis and turns the P10-P90 spread into a shape with a name.
+
+**The first paint is synchronous and must stay that way.** `requestAnimationFrame` only fires
+while the tab is compositing, so deferring it leaves the plot blank in an occluded or background
+window — and `attachResizeRedraw` schedules through rAF too, so there is no fallback. The handle
+exposes `redraw()` and each caller invokes it right after inserting the element. Related and
+equally load-bearing: the canvas context is scaled by the `dpr` that `fitCanvasBackingStore`
+returns, or a HiDPI screen draws the whole plot at half scale in the corner.
+
 Both fit dialogs offer **Copy**, not auto-apply. Both also paint their own run-button label:
 `buildWellScope` deliberately does not fire `onChange` during construction (`wellScope.ts`), so
 a caller that relies on it opens with a blank, disabled button — `rtcFitDialog.ts` did, and is

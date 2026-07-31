@@ -1087,9 +1087,8 @@ joblib (ML) → office four (deliverables) → opencv (digitizing).
       comes back too high, which erases pay. RSF is held fixed (not jointly identifiable), an
       unfittable Qv term is reported as 0 rather than guessed, and every excluded sample is
       counted by reason. `sw_rtc`'s description now states the shipped defaults are one field's.
-      *Open follow-ups:* a cross-plot of measured vs fitted excess in the dialog (the backend
-      already returns the points); writing the accepted coefficients into `zone_params` per zone
-      rather than copy-paste.
+      *Open follow-up:* writing the accepted coefficients into `zone_params` per zone rather
+      than copy-paste. (The measured-vs-fitted cross-plot shipped 2026-07-31 — see below.)
 - [x] **SHIPPED 2026-07-31 — IMTS S-factor calibration from the user's own lab CEC.**
       `lrlc::run_s_factor_fit` + Advance ▸ Calibrate S… fits `sw_imts`'s CEC scaling factor from
       laboratory CEC point data against the clay content of the very curves the run will use.
@@ -1103,9 +1102,19 @@ joblib (ML) → office four (deliverables) → opencv (digitizing).
       dropped, not snapped. `sw_imts`'s description now says the shipped 0.5 was never measured
       anywhere. Also fixed: both fit dialogs opened with a blank run button, because
       `buildWellScope` does not fire `onChange` during construction.
-      *Open follow-ups:* the same measured-vs-fitted cross-plot, shared with the RtC dialog;
-      picking the dataset/item from a dropdown of what the wells actually hold, rather than
-      typing a name and reading the error.
+      *Open follow-up:* picking the dataset/item from a dropdown of what the wells actually
+      hold, rather than typing a name and reading the error.
+- [x] **SHIPPED 2026-07-31 - calibration QC scatter on both fits** (`fitScatter.ts`, shared).
+      RtC plots measured vs fitted excess with a dashed 1:1 line; the S fit plots the regression
+      itself, lab vs modelled CEC, with the fitted line through the origin - only that version
+      puts clay content on the x axis, which is what turns the P10-P90 spread into a shape with a
+      name. Points coloured by WELL with a legend, hover naming well/depth, and the standard
+      Copy/Image/Print buttons. Two geometry rules make it one shared module: a measured-vs-fitted
+      plot forces both axes to the SAME range so the 1:1 line is at 45 degrees, and a
+      through-the-origin plot forces the origin onto the page. Two bugs found by building it: the
+      first paint must NOT be deferred to requestAnimationFrame (it does not fire in a
+      non-compositing window, and attachResizeRedraw schedules through rAF too, so there is no
+      fallback), and the canvas context must be scaled by the dpr fitCanvasBackingStore returns.
 - [ ] **`Pillow`** — already present, and enough for the *display* half of the image-track item
       above (read JPEG/PNG/TIFF, dimensions, downsample). No install needed.
 - [ ] **OpenCV** — NOT installed, and deliberately deferred to the **digitizing** phase of the
