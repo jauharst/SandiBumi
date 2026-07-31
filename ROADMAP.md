@@ -971,6 +971,18 @@ The actionable backlog. Roughly ordered: safe frontend wins first, then Performa
       makes the guard STRICTER, not looser — it would test the first real token), and put the
       wrapper's suffix on a new line. Pinned as-is in `panels.e2e.mjs`. Finding 23.
 
+- [ ] **T-MLEQ-14's Mask note is stale a SECOND time — PLAN ONLY, no code change.** Step 3 tells
+      you to search the ML pane for a mask picker, expects not to find one, and instructs you to log
+      it against the dialog. **The control is there:** `mlDialog.ts` builds a `maskSel` and adds a
+      "Mask (exclude)" row, kept visible for ALL tasks because it also governs the unsupervised fit
+      pool. The note was already corrected once on 2026-07-31 (the BACKEND half turned out to be
+      pinned by `run_ml_mask_excludes_apply_samples` / `run_ml_mask_excludes_training_outlier`), and
+      that correction left behind "what is still missing is only the Mask picker in mlDialog.ts",
+      which is now also untrue. The cost is not small: the note tells the reader what conclusion to
+      draw, so the likeliest outcome is a defect filed against working code. Fix: correct step 3's
+      Expected and delete the known-issue note. Now pinned from the other side by `ml.e2e.mjs`,
+      which goes red the day the control is removed. Finding 24.
+
 - [x] **Legacy-multimin RECON_ERR at 3 tools — CLOSED 2026-07-31, no sign-off needed.** REVIEW.md
       still lists this among the findings awaiting a decision because it would change
       interpretation numbers. It does not need one. Legacy `multimin` is **retired** — `run_module`

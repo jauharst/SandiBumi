@@ -3447,6 +3447,12 @@ Everything verified against source. Composing the test plan now — this is my f
 1. Ribbon → **Advance** tab → **ML Models…** (Machine Learning group).
 2. Inspect the pane top to bottom without running anything.
    **Expected:** a dock pane titled **Machine Learning** opens (non-blocking). Controls present: **Task** = "Predict a continuous log (regression)", **Algorithm** = "Random Forest Regressor" with a one-line description under it; **Input curves** checkbox list (GR, NPHI, RHOB, RES_DEEP, DT pre-checked where they exist); **Target curve**; **Train wells** checklist; the shared **Wells** scope row (Group / ★ Pinned / Selection / All / Custom… with a live count); **Parameters** (trees = 200, max depth = 0); **Output curve** = ML_PRED; **Common** = "Standardize inputs (z-score)" checked, Seed = 42; **Run Model** button; **Compare** row with subset dropdown ("Full set only") and **Compare algorithms** button; hint line "Needs Python with numpy + scikit-learn". Switching Task swaps the algorithm list and the Output curve default (ML_CLASS / FACIES_ML / PC).
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** `ml.e2e.mjs` asserts the pane builds
+   its form with Task and Algorithm (which drive the algorithm list and the output name) and the
+   "Save model as" field - the control that makes a fitted model an ARTIFACT rather than a
+   by-product, which is the whole point of `ml_models`, since a refit on different data is a
+   different model.
+
    **Result — T-MLEQ-01:**
 
 - [ ] Pass
@@ -3707,6 +3713,16 @@ Everything verified against source. Composing the test plan now — this is my f
 3. Search the whole ML pane for any "Mask (optional)" control (compare: every module pane, e.g. Electrofacies, has one above "Input cons").
    **Expected:** (1) status "Check at least one input curve", nothing runs. (2) "Blind-well comparison needs at least 2 training wells". (3) desired behavior would be a mask picker so washout/casing samples can be excluded from training/pooling — it does not exist, so flagged bad-hole samples silently bias the scaler, cluster centers, trained models and PCs for every well in the run.
    **Known issue — MOSTLY RESOLVED, corrected 2026-07-31:** this used to say "run_ml has no bad-hole/flag MASK support at all" and told you to expect step 3 to Fail. **The backend does have it**, pinned by `run_ml_mask_excludes_apply_samples` and `run_ml_mask_excludes_training_outlier` (`ml.rs`), both on the gate — flagged samples are excluded from the apply set *and* from training. What is still missing is only the **Mask picker in `mlDialog.ts`**, so you cannot choose one from the dialog. Step 3 will therefore look like it fails from the UI, but the reason is a missing control, not a missing capability — log it against the dialog, and do not treat ML results over bad-hole intervals as untrustworthy on this basis.
+   **STEP 3 IS STALE - the Mask control EXISTS (checked 2026-08-01, finding 24).** `mlDialog.ts`
+   builds a **Mask (exclude)** row and keeps it visible for every task, including the unsupervised
+   ones where it governs the fit pool. This note was already corrected once, on 2026-07-31, when the
+   BACKEND half turned out to be pinned by `run_ml_mask_excludes_apply_samples` and
+   `run_ml_mask_excludes_training_outlier`; the correction left behind "what is still missing is
+   only the Mask picker", which is now also untrue. **Do not log a defect against the dialog** -
+   step 3 passes. **Automated coverage - end-to-end (pile C, 2026-08-01):** `ml.e2e.mjs` covers
+   step 1's refusal (and that nothing was written) and pins the Mask control as PRESENT, so its
+   removal goes red. **Not covered:** step 2.
+
    **Result — T-MLEQ-14:**
 
 - [ ] Pass

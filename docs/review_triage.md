@@ -235,7 +235,12 @@ can fail for reasons unrelated to the code is a gate people learn to ignore.
 **`[x]` here means an end-to-end test drives it against the real app. It is NOT your verification
 mark** — same rule as pile B.
 
-**Done (25 of 86)**
+**Done (26 of 86)**
+
+- [x] **T-MLEQ-01** — ML pane opens with the full form · `ml.e2e.mjs`. Task and Algorithm (which
+      drive the algorithm list and the output name), and the "Save model as" field — the control
+      that makes a fitted model an ARTIFACT rather than a by-product, which is the whole point of
+      `ml_models`, since a refit on different data is a different model.
 
 - [x] **T-MLEQ-02** — The Inspector names the Python engine it found · `equations.e2e.mjs`. The
       note is checked against `python_status`'s own answer, so it cannot drift into naming an
@@ -394,6 +399,12 @@ mark** — same rule as pile B.
       a star that looks set and was never written gives a run scope that silently empties on the
       next launch. **Not covered:** the 📌 global well LOCK (a different control from the ★), the
       panel titles following the selection, and ★ persistence across a relaunch.
+
+- [ ] **T-MLEQ-14** — ML negatives + the bad-hole Mask. `ml.e2e.mjs` covers step 1 (the
+      no-input-curve refusal, plus that nothing was written) and step 3 — **which is where it found
+      the plan is stale for the second time; see finding 24.** The Mask control EXISTS; the test
+      pins it as present so its removal goes red. **Not covered:** step 2, the blind-well
+      comparison needing two training wells.
 
 - [ ] **T-REP-15** — DB Inspector edits persist, refresh, undo. `undo.e2e.mjs` covers the edit
       reaching the project, the undo restoring the old value and the redo reapplying it. **Not
@@ -724,7 +735,7 @@ these turns on a judgement about real rock, a visual read, or a feel for whether
 
 ---
 
-## Twenty-three things the triage found that are worth fixing regardless
+## Twenty-four things the triage found that are worth fixing regardless
 
 These came out of reading all 250 tests against the current code. Each was verified directly,
 not taken on a subagent's word. **Findings 1, 2 and 3 have since been fixed — see the notes
@@ -1332,6 +1343,30 @@ puts that in your hands:
 
 Current behaviour is pinned as-is in `panels.e2e.mjs`, with instructions to delete whichever half
 gets fixed rather than restoring it.
+
+### 24. T-MLEQ-14's Mask note is stale a SECOND time — **PLAN IS STALE, no code change needed**
+
+Step 3 of T-MLEQ-14 tells you to search the ML pane for a mask picker, expects not to find one,
+explains that flagged washout samples therefore "silently bias the scaler, cluster centers, trained
+models and PCs", and instructs you to log it against the dialog.
+
+**The control is there.** `mlDialog.ts` builds a `maskSel` and adds a **"Mask (exclude)"** form row,
+with a comment saying it is kept visible for ALL tasks because it also governs the unsupervised fit
+pool.
+
+This note has now been wrong twice in different ways. It originally said the BACKEND had no mask
+support at all; that was corrected on 2026-07-31 when `run_ml_mask_excludes_apply_samples` and
+`run_ml_mask_excludes_training_outlier` turned out to pin exactly that. The correction left behind
+"what is still missing is only the Mask picker in `mlDialog.ts`" — which is now also untrue.
+
+The cost is the usual one for a stale plan line, and it is not small: a tester following it looks
+for a control, finds it, and has to decide whether the plan or their own eyes are right. Worse, the
+note tells them what conclusion to draw ("log it against the dialog"), so the likeliest outcome is a
+defect filed against working code.
+
+**Fix: correct step 3's Expected and delete the known-issue note.** No code change. Now pinned from
+the other side by `ml.e2e.mjs`'s "has a Mask control" test, which goes red the day the control is
+removed — the failure mode the note was worried about, caught properly rather than described.
 
 ---
 

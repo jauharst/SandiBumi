@@ -214,7 +214,7 @@ click listener the two are equivalent — but when the *gesture* is the thing un
 
 ## Current coverage
 
-Sixty-four tests across fifteen spec files. Specs share ONE app launch and one project (see the spec
+Sixty-seven tests across sixteen spec files. Specs share ONE app launch and one project (see the spec
 grouping note in `wdio.conf.mjs`), so write each one to establish what it needs and to assert
 changes as before/after differences rather than as absolute state.
 
@@ -360,6 +360,14 @@ correct one if you only read the message.
 |---|---|
 | The engine note matches `python_status` | Missing scipy is a note; missing Python is a warning |
 | An unsaved equation will not run | And the refusal writes nothing |
+
+`ml.e2e.mjs` — the ML pane (T-MLEQ-01, T-MLEQ-14 steps 1 and 3):
+
+| Test | What it proves |
+|---|---|
+| The pane opens with its form | Task, Algorithm, and the save-the-model field |
+| A Mask control exists | The plan says it does not — finding 24 |
+| A run with no input curve is refused | And nothing is written |
 
 Test data is `dataset for test/examples/` (`SANDI-*`) only. Never a real client project, never a
 path from `SANDIBUMI_FIELD_FIXTURES`.
