@@ -3644,6 +3644,17 @@ Everything verified against source. Composing the test plan now — this is my f
 2. Verify one row per curve produced so far (PHIE_TEST, VSHR_TEST, FACIES, FACIES_GMM, FPROB, DT_SYN, ML_CLASS, ML_CLASS_PROB, FACIES_ML, PC1–PC3) with columns Mnemonic / Unit / Family / **Set** (with vN) / **Module / Source** / When / n / Min / Max / Mean.
 3. In the **Constellations** section hover a set row; then type `electrofacies` (then `EQUATION`) in the search box; click the **Mean** header twice.
    **Expected:** every computed curve shows its set + version (EQUATION / ML / INTERP …), producing module, timestamp and n/min/max/mean stats. The hover tooltip reveals the exact **params / inputs / curves** of that run (e.g. K=4, SEED=7, CURVE1=GR — answer to "where did this FACIES come from?" in one glance). Search filters live across mnemonic/set/module/unit/date; header clicks sort then reverse. Covers REVIEW.md §P1-c "Per-curve provenance" and "Catalog search/filter/sort".
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** `catalog.e2e.mjs` covers the rows, the
+   live search and the header sorting. The filter is checked for NARROWING to matching rows rather
+   than merely shrinking the table, and for being reversible - a filter that cannot be cleared
+   leaves the panel stuck on a subset, which reads exactly like a well that lost its curves.
+   Sorting is asserted on the SECOND click reversing the first exactly, since one click can
+   coincide with the order already there and a header that only draws an arrow looks sorted
+   without being sorted. **Not covered:** the hover provenance tooltip, and the statistics columns.
+   Worth knowing: with no active well this panel renders a plausible static placeholder (GR,
+   RES_DEEP, NPHI, RHOB, DT, SP) with no search box - if you are reading a catalog that looks
+   oddly generic, no well is selected.
+
    **Result — T-MLEQ-16:**
 
 - [ ] Pass

@@ -188,7 +188,7 @@ click listener the two are equivalent — but when the *gesture* is the thing un
 
 ## Current coverage
 
-Twenty-nine tests across six spec files. Specs share ONE app launch and one project (see the spec
+Thirty-two tests across seven spec files. Specs share ONE app launch and one project (see the spec
 grouping note in `wdio.conf.mjs`), so write each one to establish what it needs and to assert
 changes as before/after differences rather than as absolute state.
 
@@ -254,6 +254,14 @@ T-PETRO-03 step 1):
 Both refusals compare a project-wide `computed_curves` fingerprint before and after. That is the
 real claim: a dialog that prints a complaint and then runs anyway is indistinguishable from a
 correct one if you only read the message.
+
+`catalog.e2e.mjs` — the Curve Catalog (T-MLEQ-16):
+
+| Test | What it proves |
+|---|---|
+| Rows list raw and computed curves | Including the set/version marker, the visible half of the write discipline |
+| Search narrows the table | Every surviving row matches, and clearing restores all of them |
+| A sortable header reorders | The second click reverses the first exactly |
 
 Test data is `dataset for test/examples/` (`SANDI-*`) only. Never a real client project, never a
 path from `SANDIBUMI_FIELD_FIXTURES`.

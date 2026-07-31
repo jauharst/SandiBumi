@@ -235,7 +235,18 @@ can fail for reasons unrelated to the code is a gate people learn to ignore.
 **`[x]` here means an end-to-end test drives it against the real app. It is NOT your verification
 mark** — same rule as pile B.
 
-**Done (10 of 86)**
+**Done (11 of 86)**
+
+- [x] **T-MLEQ-16** — Curve Catalog: rows, live search, header sorting · `catalog.e2e.mjs`. The
+      rows come from the backend and are pinned there; what is checked is the three things that
+      exist only in the panel. The filter must NARROW to matching rows (a filter that merely
+      highlights, or drops the wrong rows, also shrinks the table, so a count alone would not catch
+      it) and must be reversible — a filter that cannot be cleared leaves a panel stuck on a subset,
+      which reads exactly like a well that lost its curves. Sorting is asserted on the SECOND click
+      reversing the first exactly, because one click can coincide with the order already there, and
+      a header that only draws an arrow looks sorted without being sorted. Found on the way: with no
+      active well the catalog renders a plausible static placeholder (GR, RES_DEEP, NPHI, RHOB, DT,
+      SP) with no search box — so the spec waits on `#catalog-filter`, not on a row count.
 
 - [x] **T-PREP-01** — Module dialog machinery smoke · `moduledialog.e2e.mjs`. The pane is opened
       the way a user opens it — Petrophysics tab, ribbon dropdown, menu item — and the item is
