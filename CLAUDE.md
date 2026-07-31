@@ -1212,6 +1212,69 @@ opt-in and its absence fails only the geometry, never the area fraction. The rea
 `a_disc_reads_as_round_and_its_diameter_follows_the_declared_scale` is `#[ignore]`d for the same
 reason the rest are.
 
+## Mineral classifier (2026-07-31 — Part 2 family A3)
+
+`petrography.rs` `run_plate_classifier` + `mineralClassDialog.ts` (Petrophysics ▸ Petrography ▸
+**Mineral Classifier…**). Quartz against feldspar in plane light is not a colour problem, so this
+family is a supervised classifier and never a colour rule — `docs/plan_image_analysis.md` §2.1 A3.
+
+**There is no shipped model and there will not be one.** A model trained on somebody else's
+sections, under somebody else's lamp, would produce numbers with the shape of a modal analysis and
+none of the content. The training data is this user's clicks on these plates, and the result says
+so in its own notes: the lamp, the white balance and the scanner are part of what it learned, so it
+is not a model for a differently photographed delivery.
+
+**Clicking IS the method, because it is the workflow that already exists.** Point counting is a
+petrographer moving a stage and naming what is under the crosshair. The dialog is that act, and
+what it produces is training data rather than a tally.
+
+**The labels are the artefact, not the model.** They persist as a `platelabels` document keyed
+`<well_id>/<dataset>`, and the forest is refitted from them — seeded — on every run. A stored model
+blob cannot be read, argued with or corrected; a list of clicks can be all three, and the answer
+stays reproducible from it. This is deliberately unlike `ml_models`, where the artefact is the
+model because the training curves may be gone by the time it is applied.
+
+**Cross-validation groups by CLICK, not by pixel.** A click contributes its immediate neighbourhood
+so the fit has some support, but those pixels are near-identical — splitting them across a fold
+boundary scores the model on data it has already seen and reports an accuracy nobody can reproduce
+on a new plate. Same discipline as blind-well CV in `ml.rs`. Pinned by
+`the_classifier_is_cross_validated_by_click_not_by_pixel`.
+
+**Recall is reported PER CLASS and the weak ones are named.** An overall 0.9 sits comfortably on top
+of one mineral the model cannot see at all, and that mineral's fraction is then noise wearing a
+percentage sign. Below 0.7 the run names it and the dialog colours the row.
+
+**Two refusals before a subprocess is even started.** One class is not a classification — a model
+that always says "quartz" is right every time and knows nothing. And a class with fewer than
+`MIN_CLICKS_PER_CLASS` (3) clicks cannot have any held out, so its accuracy would be a number about
+nothing. Pinned by `the_classifier_refuses_a_training_set_it_could_not_be_checked_on`.
+
+**Features are colour plus TEXTURE**, and the texture is the only reason this can attempt a pair
+colour cannot separate: R, G, B, cos/sin of hue, saturation, value, and the local 5×5 mean and
+standard deviation of brightness. **Hue enters as its sine and cosine** because it is circular — 359°
+and 1° are neighbours, and a raw angle would place them at opposite ends of the feature.
+
+**Measured, not asserted** (`the_classifier_separates_on_texture_and_admits_when_it_cannot`,
+`#[ignore]`d, needs scikit-learn). Two halves of a plate with the SAME mean colour differing only in
+texture — one smooth, one cloudy: accuracy 1.000, both recalls 1.000, fractions 0.504 / 0.496 against
+a true half and half. The CONTROL matters more: label one uniform material as two minerals and
+held-out accuracy fell to **0.410** with recalls 0.38 and 0.44, near chance, and the run then names
+both classes as unreliable. A classifier that cannot be caught inventing a distinction is worse than
+no classifier.
+
+Items are `CLS_<MINERAL>` — **deliberately not `MIN_`**, which the stain rule uses. A fraction a
+colour rule produced from a published stain identification and one a classifier produced from this
+user's clicks are different claims with different provenance, and one name would leave a report
+unable to say which it quoted. Same argument that keeps `GRAIN_D50_APP` apart from `GRAIN_D50_W`.
+
+Label positions are FRACTIONS of the picture, never pixels — the stored copy is resampled to a
+long-edge cap, so a pixel coordinate belongs to whichever copy it was taken on and nothing in the
+number says which. The scale-bar argument again.
+
+Each plate's fraction is estimated from a systematic sample capped at 400 000 pixels, and the count
+is reported rather than being a silent truncation. Needs scipy AND scikit-learn, probed by
+`classify_support` so the dialog can name what is missing before a run.
+
 ## Stained carbonate (2026-07-31 — Part 2 family A2)
 
 `petrography.rs` reads the stain as well, opt-in beside the pore fraction, the pore geometry and

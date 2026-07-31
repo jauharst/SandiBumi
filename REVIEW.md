@@ -6593,3 +6593,47 @@ tune before you trust either number.
 **Worth a real test:** compare MIN_CALCITE + MIN_DOLOMITE against your XRD on the same plugs, in
 **Plug QC**. XRD is by weight and a section is by area, but the two should track — and where they
 do not, Unclassified usually explains it.
+
+---
+
+## Mineral classifier — trained on your own point counts (2026-07-31)
+
+Family A3, the last one. Quartz against feldspar in plane light is not a colour problem, so this is
+a classifier you train. Needs scikit-learn as well as scipy.
+
+- [ ] **Petrophysics ▸ Petrography ▸ Mineral Classifier…**
+- [ ] Type a mineral name and **Add mineral**. Repeat for each one you want to separate.
+- [ ] **Click on the plate** to label what is under the pointer — the same act as point counting.
+      The chip for each mineral shows its running count. **Undo last label** takes one back.
+- [ ] Switch plates and keep labelling. Labels from every plate in the delivery train one model.
+- [ ] **Save labels.** They persist with the project, so you can come back and add more.
+- [ ] **Train and apply.** Read the per-mineral table FIRST, then the fractions.
+- [ ] **Train, apply and save** writes CLS_QUARTZ, CLS_FELDSPAR … to the PETROGRAPHY dataset. Check
+      the Wells tree.
+
+**Read the recall column before anything else.** It is the fraction of held-out clicks the model got
+right for that mineral, and a row below 0.70 is coloured. **A low recall means that mineral's
+percentage is noise** — the model cannot see it, and no amount of confident decimal places changes
+that. The overall accuracy can be 90% while one mineral is at 0.4, which is why the table is per
+class.
+
+**The check is honest by construction.** The model is scored on clicks it has never seen — and
+grouped by click, so the pixels around a click can never be split between training and testing.
+That is the difference between an accuracy you can trust on a new plate and one that just measures
+how well the model memorised your clicks.
+
+**What it can and cannot do.** It sees colour and local texture. Cloudy altered feldspar against
+clear quartz at the same colour is exactly the case it handles — tested, and it separated them
+perfectly. Two minerals that genuinely look identical in your images it will NOT separate, and it
+tells you so: labelling one uniform material as two minerals gave a held-out accuracy of 41%, near
+chance, with both classes flagged.
+
+**Nothing is pre-trained, and the model does not travel.** It learned your lamp, your white balance
+and your scanner along with your minerals. A differently photographed delivery needs its own labels.
+
+**On the item names.** These are `CLS_` and the stain results are `MIN_`. That is deliberate — a
+fraction from a published stain identification and one from your own classifier are different
+claims, and a report has to be able to say which it quoted.
+
+**Worth a real test:** label a section you have already point counted by hand, then compare the
+fractions against your own count. That is the only calibration that means anything here.

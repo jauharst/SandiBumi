@@ -256,6 +256,9 @@ export class Ribbon {
     q<HTMLButtonElement>("#pore-area-btn")?.addEventListener("click", () => {
       void import("./poreAreaDialog").then((m) => m.openPoreAreaDialog());
     });
+    q<HTMLButtonElement>("#mineral-class-btn")?.addEventListener("click", () => {
+      void import("./mineralClassDialog").then((m) => m.openMineralClassDialog());
+    });
     q<HTMLButtonElement>("#plug-qc-btn")?.addEventListener("click", () => workspace.openPlugQc());
     q<HTMLButtonElement>("#multimin-btn")?.addEventListener("click", () => workspace.openMultimin());
     q<HTMLButtonElement>("#rtc-fit-btn")?.addEventListener("click", () => {

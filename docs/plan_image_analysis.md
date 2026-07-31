@@ -333,5 +333,5 @@ Part 2   2.0 scale + preparation per plate  SHIPPED 2026-07-31 (declared, no def
          QC  plug QC vs core and SCAL       SHIPPED 2026-07-31 (plugqc.rs)
          B   grain size                     SHIPPED 2026-07-31 (apparent + optional Wicksell)
 
-Tier 3   A3  trained mineral classifier     needs his own point counts as labels
+Tier 3   A3  trained mineral classifier     SHIPPED 2026-07-31 (his clicks, no shipped model)
 ```

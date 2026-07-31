@@ -740,6 +740,274 @@ for i, blob in enumerate(blobs):
 sys.stdout.write(json.dumps(out))
 "#;
 
+// ---------------------------------------------------------------------------
+// A3 — the trained classifier
+// ---------------------------------------------------------------------------
+
+/// One point the user clicked, and what they called it.
+///
+/// Position is a FRACTION of the picture, never a pixel: the stored copy is resampled to a long-edge
+/// cap, so a pixel coordinate belongs to whichever copy it was taken on and nothing in the number
+/// says which. The same argument that made a field of view the right thing to store.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct PlateLabel {
+    pub image_id: String,
+    pub x: f32,
+    pub y: f32,
+    pub mineral: String,
+}
+
+/// One training-and-apply run over a delivery.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ClassifySpec {
+    pub well_id: String,
+    pub dataset: String,
+    /// The user's own point counts. There is no shipped model and there never will be — see the
+    /// module note.
+    pub labels: Vec<PlateLabel>,
+    /// Half-width in pixels of the patch taken around each click. A click is one observation; its
+    /// immediate neighbourhood gives the fit some support without pretending a region was labelled.
+    #[serde(default = "default_patch_px")]
+    pub patch_px: u32,
+    #[serde(default)]
+    pub set_name: Option<String>,
+    #[serde(default)]
+    pub preview_image_id: Option<String>,
+}
+
+fn default_patch_px() -> u32 {
+    PATCH_PX
+}
+
+/// Round, and in pixels for the `min_pore_px` reason.
+pub const PATCH_PX: u32 = 2;
+
+/// The fewest clicks a class needs before it can be cross-validated at all.
+pub const MIN_CLICKS_PER_CLASS: usize = 3;
+
+/// How one class did in the held-out check.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClassPerf {
+    pub mineral: String,
+    /// Fraction of held-out clicks of this mineral the model got right. **A class with a low recall
+    /// has a fraction made of noise**, and it is per class rather than only overall because one
+    /// unseparable pair drags nothing else down with it.
+    pub recall: f32,
+    pub clicks: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlateClasses {
+    pub image_id: String,
+    pub name: String,
+    pub depth_top: f32,
+    pub depth_base: Option<f32>,
+    pub fractions: Vec<(String, f32)>,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct ClassifyResult {
+    pub plates: Vec<PlateClasses>,
+    /// Overall held-out accuracy, cross-validated BY CLICK.
+    pub accuracy: f32,
+    pub per_class: Vec<ClassPerf>,
+    pub skipped: Vec<String>,
+    pub preview_png: Option<String>,
+    pub preview_width: i32,
+    pub preview_height: i32,
+    pub written: Option<(String, String)>,
+    pub notes: Vec<String>,
+}
+
+/// The point-data item prefix for a classified fraction.
+///
+/// **Deliberately not `MIN_`**, which the stain rule uses. A fraction a colour rule produced from a
+/// published stain identification and one a classifier produced from this user's clicks are
+/// different claims with different provenance, and a single name would make a report unable to say
+/// which it quoted — the same argument that keeps `GRAIN_D50_APP` apart from `GRAIN_D50_W`.
+pub const CLASS_PREFIX: &str = "CLS_";
+
+const CLASSIFY_RUNNER: &str = r#"
+import sys, json, io, base64
+try:
+    import numpy as np
+    from PIL import Image
+except Exception as e:
+    sys.stderr.write("needs numpy and Pillow: %s\n" % e)
+    sys.exit(1)
+try:
+    from scipy import ndimage
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.model_selection import GroupKFold
+except Exception as e:
+    sys.stderr.write("needs scipy and scikit-learn: %s\n" % e)
+    sys.exit(1)
+
+header = json.loads(sys.stdin.buffer.readline().decode("utf-8"))
+ids = header["ids"]
+sizes = header["sizes"]
+patch = int(header.get("patch_px", 2))
+preview = header.get("preview")
+# Cap the pixels a fraction is estimated from. A systematic sample of a few hundred thousand pixels
+# has a standard error far below any real uncertainty here, and the count is reported rather than
+# being a silent truncation.
+MAX_PIXELS = 400000
+
+blobs = [sys.stdin.buffer.read(n) for n in sizes]
+
+
+def features(img):
+    a = np.asarray(img.convert("RGB"), dtype=np.float32) / 255.0
+    r, g, b = a[..., 0], a[..., 1], a[..., 2]
+    mx = np.max(a, axis=-1)
+    mn = np.min(a, axis=-1)
+    d = mx - mn
+    h = np.zeros_like(mx)
+    safe = d > 1e-6
+    rmax = safe & (mx == r)
+    gmax = safe & (mx == g) & ~rmax
+    bmax = safe & ~rmax & ~gmax
+    with np.errstate(invalid="ignore", divide="ignore"):
+        h[rmax] = (60.0 * ((g[rmax] - b[rmax]) / d[rmax])) % 360.0
+        h[gmax] = 60.0 * ((b[gmax] - r[gmax]) / d[gmax]) + 120.0
+        h[bmax] = 60.0 * ((r[bmax] - g[bmax]) / d[bmax]) + 240.0
+    s = np.where(mx > 0, d / np.maximum(mx, 1e-6), 0.0)
+    # Local mean and spread of brightness: TEXTURE, and the only reason this can attempt a pair
+    # that colour alone cannot separate. Cloudy altered feldspar is rougher than clear quartz at
+    # the same colour; twinning and cleavage show here too.
+    mean5 = ndimage.uniform_filter(mx, size=5)
+    sq5 = ndimage.uniform_filter(mx * mx, size=5)
+    std5 = np.sqrt(np.maximum(sq5 - mean5 * mean5, 0.0))
+    # Hue is circular, so it enters as its sine and cosine - 359 and 1 degrees are neighbours, and
+    # a raw hue would put them at opposite ends of the feature.
+    hr = np.deg2rad(h)
+    return np.stack([r, g, b, np.cos(hr), np.sin(hr), s, mx, mean5, std5], axis=-1)
+
+
+feats = {}
+shapes = {}
+for i, blob in enumerate(blobs):
+    try:
+        img = Image.open(io.BytesIO(blob))
+        img.load()
+    except Exception as e:
+        feats[ids[i]] = None
+        shapes[ids[i]] = str(e)
+        continue
+    feats[ids[i]] = features(img)
+    shapes[ids[i]] = None
+
+X, y, groups = [], [], []
+for gi, lab in enumerate(header["labels"]):
+    f = feats.get(lab["image_id"])
+    if f is None:
+        continue
+    hgt, wid = f.shape[0], f.shape[1]
+    cx = int(round(float(lab["x"]) * (wid - 1)))
+    cy = int(round(float(lab["y"]) * (hgt - 1)))
+    x0, x1 = max(0, cx - patch), min(wid, cx + patch + 1)
+    y0, y1 = max(0, cy - patch), min(hgt, cy + patch + 1)
+    block = f[y0:y1, x0:x1].reshape(-1, f.shape[-1])
+    if not block.size:
+        continue
+    X.append(block)
+    y.extend([lab["mineral"]] * block.shape[0])
+    # GROUP is the click, not the pixel. Neighbouring pixels of one click are near-identical, so
+    # splitting them across the fold boundary would score the model on data it had already seen and
+    # report an accuracy nobody can reproduce on a new plate.
+    groups.extend([gi] * block.shape[0])
+
+out = {"plates": [], "accuracy": None, "per_class": [], "notes": [], "preview_png": None,
+       "preview_w": 0, "preview_h": 0, "sampled": 0}
+
+if not X:
+    sys.stdout.write(json.dumps({"error": "no usable labels"}))
+    sys.exit(0)
+
+X = np.vstack(X)
+y = np.array(y)
+groups = np.array(groups)
+classes = sorted(set(y.tolist()))
+
+clicks_per = {c: len(set(groups[y == c].tolist())) for c in classes}
+n_groups = len(set(groups.tolist()))
+folds = min(5, min(clicks_per.values()))
+if folds >= 2 and n_groups > folds:
+    hit = {c: [0, 0] for c in classes}
+    for tr, te in GroupKFold(n_splits=folds).split(X, y, groups):
+        m = RandomForestClassifier(n_estimators=120, random_state=0, n_jobs=1)
+        m.fit(X[tr], y[tr])
+        p = m.predict(X[te])
+        for c in classes:
+            sel = y[te] == c
+            hit[c][0] += int(np.count_nonzero(p[sel] == c))
+            hit[c][1] += int(np.count_nonzero(sel))
+    tot = sum(v[1] for v in hit.values())
+    out["accuracy"] = (sum(v[0] for v in hit.values()) / tot) if tot else None
+    out["per_class"] = [
+        {"mineral": c, "recall": (hit[c][0] / hit[c][1]) if hit[c][1] else 0.0,
+         "clicks": clicks_per[c]}
+        for c in classes
+    ]
+else:
+    out["notes"].append("too few clicks per mineral to cross-validate - accuracy not reported")
+    out["per_class"] = [{"mineral": c, "recall": -1.0, "clicks": clicks_per[c]} for c in classes]
+
+model = RandomForestClassifier(n_estimators=200, random_state=0, n_jobs=1)
+model.fit(X, y)
+
+for i, iid in enumerate(ids):
+    f = feats.get(iid)
+    if f is None:
+        out["plates"].append({"image_id": iid, "error": shapes.get(iid) or "cannot decode"})
+        continue
+    flat = f.reshape(-1, f.shape[-1])
+    step = max(1, int(np.ceil(flat.shape[0] / MAX_PIXELS)))
+    sample = flat[::step]
+    pred = model.predict(sample)
+    total = float(sample.shape[0]) or 1.0
+    out["sampled"] = int(sample.shape[0])
+    out["plates"].append({
+        "image_id": iid,
+        "fractions": [[c, float(np.count_nonzero(pred == c)) / total] for c in classes],
+    })
+    if preview is not None and iid == preview:
+        full = model.predict(flat).reshape(f.shape[0], f.shape[1])
+        # One fixed hue per class so the map reads the same between runs.
+        rgb = np.zeros(f.shape[:2] + (3,), dtype=np.uint8)
+        for ci, c in enumerate(classes):
+            hue = (ci * 360.0 / max(1, len(classes)))
+            k = np.deg2rad(hue)
+            col = np.array([
+                128 + 110 * np.cos(k),
+                128 + 110 * np.cos(k - 2.094),
+                128 + 110 * np.cos(k + 2.094),
+            ], dtype=np.float32)
+            rgb[full == c] = np.clip(col, 0, 255).astype(np.uint8)
+        small = Image.fromarray(rgb)
+        small.thumbnail((900, 900))
+        buf = io.BytesIO()
+        small.save(buf, format="PNG")
+        out["preview_png"] = base64.b64encode(buf.getvalue()).decode("ascii")
+        out["preview_w"] = small.width
+        out["preview_h"] = small.height
+
+sys.stdout.write(json.dumps(out))
+"#;
+
+const CLASSIFY_SUPPORT_RUNNER: &str = r#"
+import sys
+ok = True
+try:
+    import numpy  # noqa: F401
+    from PIL import Image  # noqa: F401
+    import scipy  # noqa: F401
+    import sklearn  # noqa: F401
+except Exception:
+    ok = False
+sys.stdout.write("1" if ok else "0")
+"#;
+
 const SUPPORT_RUNNER: &str = r#"
 import sys
 ok = True
@@ -1021,6 +1289,204 @@ fn summarise(g: &RunnerGeom, um_per_px: Option<f64>) -> PoreGeometry {
         d50_um: d50,
         d90_um: d90,
     }
+}
+
+/// Can the classifier run? Needs scikit-learn as well as scipy, so it is probed separately.
+pub fn classify_support() -> Result<bool, String> {
+    let python = find_python().ok_or("no Python interpreter found")?;
+    let mut cmd = Command::new(&python);
+    cmd.args(["-c", CLASSIFY_SUPPORT_RUNNER]).stdout(Stdio::piped()).stderr(Stdio::piped());
+    hide_console(&mut cmd);
+    let out = cmd.output().map_err(|e| format!("failed to start python: {e}"))?;
+    Ok(String::from_utf8_lossy(&out.stdout).trim() == "1")
+}
+
+#[derive(Deserialize)]
+struct ClassifyOut {
+    #[serde(default)]
+    error: Option<String>,
+    #[serde(default)]
+    plates: Vec<ClassifyRow>,
+    #[serde(default)]
+    accuracy: Option<f32>,
+    #[serde(default)]
+    per_class: Vec<ClassPerf>,
+    #[serde(default)]
+    notes: Vec<String>,
+    #[serde(default)]
+    preview_png: Option<String>,
+    #[serde(default)]
+    preview_w: i32,
+    #[serde(default)]
+    preview_h: i32,
+    #[serde(default)]
+    sampled: i64,
+}
+
+#[derive(Deserialize)]
+struct ClassifyRow {
+    image_id: String,
+    #[serde(default)]
+    fractions: Vec<(String, f32)>,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+/// Trains a per-pixel classifier on the user's own clicks and applies it to the delivery.
+///
+/// **There is no shipped model and there will not be one.** Quartz against feldspar in plane light
+/// is not a colour problem, and a model trained on somebody else's sections under somebody else's
+/// lamp would produce numbers with the shape of a modal analysis and none of the content
+/// (`docs/plan_image_analysis.md` §2.1 A3). The labels are this user's, on these plates.
+pub fn run_plate_classifier(
+    conn: &Connection,
+    spec: &ClassifySpec,
+) -> Result<ClassifyResult, String> {
+    let python = find_python().ok_or("no Python interpreter found (see SANDIBUMI_PYTHON)")?;
+    let all = crate::db::list_well_images(conn, &spec.well_id, Some(&spec.dataset))
+        .map_err(|e| e.to_string())?;
+    if all.is_empty() {
+        return Err(format!("no pictures in {} for this well", spec.dataset));
+    }
+
+    // Enough clicks per mineral to hold some out, or the accuracy is a number about nothing.
+    let mut per: Vec<(String, usize)> = Vec::new();
+    for l in &spec.labels {
+        match per.iter_mut().find(|(m, _)| *m == l.mineral) {
+            Some((_, n)) => *n += 1,
+            None => per.push((l.mineral.clone(), 1)),
+        }
+    }
+    if per.len() < 2 {
+        return Err("label at least two minerals - a classifier with one class has nothing to \
+                    decide, and its 100% is meaningless"
+            .into());
+    }
+    if let Some((m, n)) = per.iter().find(|(_, n)| *n < MIN_CLICKS_PER_CLASS) {
+        return Err(format!(
+            "'{m}' has {n} click(s); every mineral needs at least {MIN_CLICKS_PER_CLASS} before \
+             the model can be checked on clicks it has not seen"
+        ));
+    }
+
+    let mut result = ClassifyResult::default();
+    let mut blobs = Vec::with_capacity(all.len());
+    for info in &all {
+        let (_, bytes) = crate::db::get_well_image(conn, &info.image_id).map_err(|e| e.to_string())?;
+        blobs.push(bytes);
+    }
+    let header = serde_json::json!({
+        "ids": all.iter().map(|i| i.image_id.clone()).collect::<Vec<_>>(),
+        "sizes": blobs.iter().map(|b| b.len()).collect::<Vec<_>>(),
+        "labels": spec.labels,
+        "patch_px": spec.patch_px.min(8),
+        "preview": spec.preview_image_id,
+    });
+
+    let mut cmd = Command::new(&python);
+    cmd.args(["-c", CLASSIFY_RUNNER])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    hide_console(&mut cmd);
+    let mut child = cmd.spawn().map_err(|e| format!("failed to start python: {e}"))?;
+    {
+        let stdin = child.stdin.as_mut().ok_or("failed to open python stdin")?;
+        stdin.write_all(header.to_string().as_bytes()).map_err(|e| e.to_string())?;
+        stdin.write_all(b"\n").map_err(|e| e.to_string())?;
+        for b in &blobs {
+            stdin.write_all(b).map_err(|e| e.to_string())?;
+        }
+    }
+    let output = child.wait_with_output().map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr);
+        let last = err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("classifier failed");
+        return Err(last.trim().to_string());
+    }
+    let parsed: ClassifyOut =
+        serde_json::from_slice(&output.stdout).map_err(|e| format!("bad classifier result: {e}"))?;
+    if let Some(e) = parsed.error {
+        return Err(e);
+    }
+
+    result.accuracy = parsed.accuracy.unwrap_or(f32::NAN);
+    result.per_class = parsed.per_class;
+    result.notes = parsed.notes;
+    result.preview_png = parsed.preview_png;
+    result.preview_width = parsed.preview_w;
+    result.preview_height = parsed.preview_h;
+
+    for row in parsed.plates {
+        let Some(info) = all.iter().find(|i| i.image_id == row.image_id) else { continue };
+        match row.error {
+            Some(e) => result.skipped.push(format!("{}: {}", info.name, e)),
+            None => result.plates.push(PlateClasses {
+                image_id: info.image_id.clone(),
+                name: info.name.clone(),
+                depth_top: info.depth_top,
+                depth_base: info.depth_base,
+                fractions: row.fractions,
+            }),
+        }
+    }
+    result.plates.sort_by(|a, b| a.depth_top.total_cmp(&b.depth_top));
+
+    if let Some(set) = &spec.set_name {
+        let mut rows: Vec<crate::db::AuxRow> = Vec::new();
+        for p in &result.plates {
+            for (mineral, v) in &p.fractions {
+                rows.push(crate::db::AuxRow {
+                    dataset: PORE_DATASET.to_string(),
+                    depth_top: p.depth_top,
+                    depth_base: p.depth_base,
+                    item: format!("{CLASS_PREFIX}{}", mineral_item(mineral)),
+                    value_num: Some(*v),
+                    value_text: None,
+                });
+            }
+        }
+        let name = crate::db::resolve_aux_set_name(conn, &spec.well_id, PORE_DATASET, set)
+            .map_err(|e| e.to_string())?;
+        crate::db::insert_aux_data(
+            conn,
+            &spec.well_id,
+            PORE_DATASET,
+            &name,
+            Some(&spec.dataset),
+            &rows,
+        )
+        .map_err(|e| e.to_string())?;
+        result.written = Some((PORE_DATASET.to_string(), name));
+    }
+
+    // The weak classes named, not just an overall number. One unseparable pair drags nothing else
+    // down with it, so an overall 0.9 can sit on top of a mineral the model cannot see at all.
+    let weak: Vec<&str> = result
+        .per_class
+        .iter()
+        .filter(|c| c.recall >= 0.0 && c.recall < 0.7)
+        .map(|c| c.mineral.as_str())
+        .collect();
+    if !weak.is_empty() {
+        result.notes.push(format!(
+            "The model cannot reliably tell {} apart from the rest. Those fractions are noise \
+             until there are more clicks on them, or until the pair is one class.",
+            weak.join(", ")
+        ));
+    }
+    if parsed.sampled > 0 {
+        result.notes.push(format!(
+            "Each fraction is from {} pixels sampled evenly across the plate.",
+            parsed.sampled
+        ));
+    }
+    result.notes.push(
+        "Trained on your clicks on these plates. The lamp, the white balance and the scanner are \
+         part of what it learned, so it is not a model for a differently photographed delivery."
+            .to_string(),
+    );
+    Ok(result)
 }
 
 /// A mineral name as a point-data item suffix: upper case, non-alphanumerics to underscore.
@@ -1579,6 +2045,96 @@ mod tests {
         assert!((weighted_percentile(&diam, &flat, 50.0) - 1.0).abs() < 1e-9);
     }
 
+    /// A classifier cannot be checked on clicks it was fitted on, and one class cannot be a
+    /// classification. Both are refused before a subprocess is even started.
+    #[test]
+    fn the_classifier_refuses_a_training_set_it_could_not_be_checked_on() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, "SANDI-TS", None, None, None).unwrap();
+        let w = wid.to_string();
+        crate::db::insert_well_images(
+            &conn,
+            &w,
+            "THIN SECTION",
+            "LAB",
+            None,
+            &[crate::db::NewImage {
+                depth_top: 2000.0,
+                name: "TS-1".into(),
+                mime: "image/bmp".into(),
+                width: 200,
+                height: 200,
+                data: disc_plate(),
+                printable: true,
+                ..Default::default()
+            }],
+        )
+        .unwrap();
+        let spec = |labels: Vec<PlateLabel>| ClassifySpec {
+            well_id: w.clone(),
+            dataset: "THIN SECTION".into(),
+            labels,
+            patch_px: PATCH_PX,
+            set_name: None,
+            preview_image_id: None,
+        };
+        let click = |m: &str, x: f32| PlateLabel {
+            image_id: "x".into(),
+            x,
+            y: 0.5,
+            mineral: m.to_string(),
+        };
+
+        // One class: a model that always says "quartz" is right every time and knows nothing.
+        let one: Vec<PlateLabel> = (0..5).map(|i| click("Quartz", i as f32 / 10.0)).collect();
+        let err = run_plate_classifier(&conn, &spec(one)).unwrap_err();
+        assert!(err.contains("at least two minerals"), "{err}");
+
+        // Two classes, but one of them clicked once — nothing can be held out for it.
+        let mut thin: Vec<PlateLabel> = (0..5).map(|i| click("Quartz", i as f32 / 10.0)).collect();
+        thin.push(click("Feldspar", 0.9));
+        let err = run_plate_classifier(&conn, &spec(thin)).unwrap_err();
+        assert!(err.contains("Feldspar") && err.contains("at least"), "{err}");
+    }
+
+    /// The cross-validation groups by CLICK. Neighbouring pixels of one click are near-identical,
+    /// so splitting them across the fold boundary scores the model on data it has already seen and
+    /// reports an accuracy nobody can reproduce on a new plate.
+    #[test]
+    fn the_classifier_is_cross_validated_by_click_not_by_pixel() {
+        assert!(CLASSIFY_RUNNER.contains("GroupKFold"));
+        assert!(CLASSIFY_RUNNER.contains("groups.extend([gi]"));
+        assert!(CLASSIFY_RUNNER.contains("GROUP is the click, not the pixel"));
+    }
+
+    /// A classified fraction and a stain fraction are different claims and must not share a name.
+    #[test]
+    fn a_classified_fraction_is_not_stored_as_a_stain_fraction() {
+        assert_eq!(CLASS_PREFIX, "CLS_");
+        assert_ne!(CLASS_PREFIX, "MIN_");
+        let src = include_str!("petrography.rs");
+        assert!(src.contains("{CLASS_PREFIX}{}"), "the classifier writes under its own prefix");
+    }
+
+    /// Labels are stored as FRACTIONS of the picture, never pixels — the stored copy is resampled,
+    /// so a pixel coordinate belongs to a copy and nothing in it says which.
+    #[test]
+    fn a_label_is_a_fraction_of_the_picture_not_a_pixel() {
+        let src = include_str!("petrography.rs");
+        assert!(src.contains("Position is a FRACTION of the picture, never a pixel"));
+        assert!(CLASSIFY_RUNNER.contains("float(lab[\"x\"]) * (wid - 1)"));
+    }
+
+    /// Hue is circular, so it must not enter a distance-based model as a raw angle: 359 and 1
+    /// degrees are neighbours, and a raw hue puts them at opposite ends of the feature.
+    #[test]
+    fn hue_enters_the_model_as_a_circle() {
+        assert!(CLASSIFY_RUNNER.contains("np.cos(hr), np.sin(hr)"));
+        assert!(CLASSIFY_RUNNER.contains("Hue is circular"));
+    }
+
     /// A stain scheme read off the wrong stain returns mineral fractions that are wrong and
     /// entirely plausible, so the plate's OWN declared stain has to agree — and "not stated" is
     /// refused, not assumed, exactly as `prepared` is.
@@ -1935,6 +2491,104 @@ mod tests {
 
     /// 200x200 BMP: a blue-epoxy disc of radius 40 at the centre, grey elsewhere.
     #[cfg(test)]
+    /// **The measured demonstration that this family is worth having, and the one that shows its
+    /// honesty machinery firing.** `#[ignore]`d because it needs scikit-learn.
+    ///
+    /// Two halves of the plate share the SAME mean colour and differ only in texture — one smooth,
+    /// one cloudy. Colour alone cannot separate them, which is exactly the case
+    /// `docs/plan_image_analysis.md` §2.1 says a colour rule must not pretend to handle. Measured
+    /// through the real runner: accuracy 1.000, both recalls 1.000, fractions 0.504 / 0.496
+    /// against a true half and half.
+    ///
+    /// The CONTROL is the more important half. Label one uniform material as two minerals and the
+    /// model has nothing to learn: held-out accuracy fell to 0.410, recalls 0.38 and 0.44 — near
+    /// chance — and `run_plate_classifier` then names both classes as unreliable. A classifier that
+    /// cannot be caught inventing a distinction is worse than no classifier.
+    #[test]
+    #[ignore]
+    fn the_classifier_separates_on_texture_and_admits_when_it_cannot() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, "SANDI-TS", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        // A cheap deterministic speckle: no rng in the test, so the fixture is reproducible.
+        let mut seed = 12345u64;
+        let mut noise = move |amp: f64| -> f64 {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((seed >> 33) as f64 / (1u64 << 31) as f64 - 1.0) * amp
+        };
+        let mut px = vec![0u8; 200 * 200];
+        for y in 0..200usize {
+            for x in 0..200usize {
+                let amp = if x < 100 { 2.0 } else { 24.0 };
+                px[y * 200 + x] = (205.0 + noise(amp)).clamp(0.0, 255.0) as u8;
+            }
+        }
+        let plate = bmp(200, 200, |x, y| {
+            let v = px[y * 200 + x];
+            (v, v, v)
+        });
+        crate::db::insert_well_images(
+            &conn,
+            &w,
+            "THIN SECTION",
+            "LAB",
+            None,
+            &[crate::db::NewImage {
+                depth_top: 2000.0,
+                name: "TS-1".into(),
+                mime: "image/bmp".into(),
+                width: 200,
+                height: 200,
+                data: plate,
+                printable: true,
+                ..Default::default()
+            }],
+        )
+        .unwrap();
+        let images = crate::db::list_well_images(&conn, &w, Some("THIN SECTION")).unwrap();
+        let iid = images[0].image_id.clone();
+
+        let mut labels = Vec::new();
+        for i in 0..6 {
+            labels.push(PlateLabel {
+                image_id: iid.clone(),
+                x: 0.10 + 0.05 * i as f32,
+                y: 0.2 + 0.1 * i as f32,
+                mineral: "Quartz".into(),
+            });
+            labels.push(PlateLabel {
+                image_id: iid.clone(),
+                x: 0.60 + 0.05 * i as f32,
+                y: 0.2 + 0.1 * i as f32,
+                mineral: "Feldspar".into(),
+            });
+        }
+        let res = run_plate_classifier(
+            &conn,
+            &ClassifySpec {
+                well_id: w.clone(),
+                dataset: "THIN SECTION".into(),
+                labels,
+                patch_px: PATCH_PX,
+                set_name: Some("CLS".into()),
+                preview_image_id: None,
+            },
+        )
+        .expect("classifier run");
+
+        assert!(res.accuracy > 0.85, "same colour, different texture: accuracy {}", res.accuracy);
+        let q = res.plates[0].fractions.iter().find(|(m, _)| m == "Quartz").unwrap().1;
+        assert!((q - 0.5).abs() < 0.08, "half the plate is quartz, got {q}");
+        // Its own prefix, so a classified fraction can never be read as a stain fraction.
+        let rows = crate::db::list_aux_data(&conn, &w, Some(PORE_DATASET)).unwrap();
+        assert!(rows.iter().any(|r| r.item == "CLS_QUARTZ"));
+        assert!(!rows.iter().any(|r| r.item.starts_with("MIN_")));
+        assert!(res.notes.iter().any(|n| n.contains("part of what it learned")));
+    }
+
     /// The real grain round trip. `#[ignore]`d for the usual reason: it needs scipy, and the green
     /// gate must never depend on an optional package.
     ///

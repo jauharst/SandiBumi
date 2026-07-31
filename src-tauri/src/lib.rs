@@ -2138,6 +2138,24 @@ async fn run_pore_area(
     petrography::run_pore_area(&conn, &spec)
 }
 
+/// Is scikit-learn reachable? Probed so the dialog can say what is missing before a run.
+#[tauri::command]
+async fn classify_support() -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(petrography::classify_support)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Trains a per-pixel mineral classifier on the user's own clicks and applies it to the delivery.
+#[tauri::command]
+async fn run_plate_classifier(
+    db: tauri::State<'_, DbState>,
+    spec: petrography::ClassifySpec,
+) -> Result<petrography::ClassifyResult, String> {
+    let conn = db.0.lock().unwrap();
+    petrography::run_plate_classifier(&conn, &spec)
+}
+
 /// The published stain schemes this build ships, as (name, classes). Mineral identifications are
 /// standard carbonate petrography; the colour bands are round starting points for visual tuning.
 #[tauri::command]
@@ -2789,6 +2807,8 @@ pub fn run() {
             pore_support,
             run_pore_area,
             stain_schemes,
+            classify_support,
+            run_plate_classifier,
             list_plug_choices,
             run_plug_qc,
             core_depth_pairs,

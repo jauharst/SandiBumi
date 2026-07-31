@@ -3330,6 +3330,71 @@ export function stainSchemes(): Promise<[string, StainClass[]][]> {
   return invoke<[string, StainClass[]][]>("stain_schemes");
 }
 
+// ---------------------------------------------------------------------------
+// A3 — the trained mineral classifier
+// ---------------------------------------------------------------------------
+
+/** One point the user clicked, and what they called it. Position is a FRACTION of the picture,
+ *  never a pixel: the stored copy is resampled, so a pixel coordinate belongs to whichever copy it
+ *  was taken on and nothing in the number says which. */
+export interface PlateLabel {
+  image_id: string;
+  x: number;
+  y: number;
+  mineral: string;
+}
+
+export interface ClassifySpec {
+  well_id: string;
+  dataset: string;
+  labels: PlateLabel[];
+  patch_px?: number;
+  set_name?: string | null;
+  preview_image_id?: string | null;
+}
+
+export interface ClassPerf {
+  mineral: string;
+  /** Fraction of held-out clicks the model got right. **−1 means it could not be checked.** A low
+   *  recall means that mineral's fraction is noise. */
+  recall: number;
+  clicks: number;
+}
+
+export interface PlateClasses {
+  image_id: string;
+  name: string;
+  depth_top: number;
+  depth_base: number | null;
+  fractions: [string, number][];
+}
+
+export interface ClassifyResult {
+  plates: PlateClasses[];
+  /** Overall held-out accuracy, cross-validated BY CLICK. */
+  accuracy: number;
+  per_class: ClassPerf[];
+  skipped: string[];
+  preview_png: string | null;
+  preview_width: number;
+  preview_height: number;
+  written: [string, string] | null;
+  notes: string[];
+}
+
+/** Is scikit-learn reachable? Probed so the dialog can say what is missing before a run. */
+export function classifySupport(): Promise<boolean> {
+  return invoke<boolean>("classify_support");
+}
+
+/** Trains a per-pixel mineral classifier on the user's own clicks and applies it to the delivery.
+ *  There is no shipped model: quartz against feldspar in plane light is not a colour problem, and
+ *  a model trained on somebody else's sections under somebody else's lamp would produce numbers
+ *  with the shape of a modal analysis and none of the content. */
+export function runPlateClassifier(spec: ClassifySpec): Promise<ClassifyResult> {
+  return invoke<ClassifyResult>("run_plate_classifier", { spec });
+}
+
 export interface PlatePore {
   image_id: string;
   name: string;

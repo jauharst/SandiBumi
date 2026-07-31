@@ -1462,6 +1462,21 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       it. **Still not automatic**: a delivery already in the project does not move when the core is
       re-registered afterwards — that is increment 1d, waiting on Jauhar firming up D2.
 
+- [x] **Mineral classifier (Part 2, family A3 — Tier 3)** — **SHIPPED 2026-07-31**. A supervised
+      per-pixel classifier trained on the user's OWN clicks; **nothing ships pre-trained**, because
+      a model fitted under somebody else's lamp gives numbers with the shape of a modal analysis and
+      none of the content. Clicking is the method — it is point counting, producing training data
+      instead of a tally. **The labels are the artefact, not the model**: they persist as a
+      `platelabels` document and the seeded forest is refitted from them, so the answer stays
+      readable and reproducible (deliberately unlike `ml_models`). **CV groups by CLICK**, since a
+      click's neighbouring pixels are near-identical and splitting them across a fold reports an
+      accuracy nobody can reproduce. **Recall is per class and the weak ones are named** — an
+      overall 0.9 sits comfortably on a mineral the model cannot see. One class and under-3-click
+      classes are refused before the subprocess starts. Features are colour + local texture, with
+      hue entering as sin/cos because it is circular. Measured: two halves of identical mean colour
+      differing only in texture gave accuracy 1.000 and fractions 0.504/0.496; the control — one
+      uniform material labelled as two minerals — fell to **0.410**, near chance, and was named as
+      unreliable. Items are `CLS_<MINERAL>`, never `MIN_`.
 - [x] **Stained carbonate (Part 2, family A2)** — **SHIPPED 2026-07-31**. Mineral area fractions
       from a DECLARED stain, in the same run and off the same pore mask, so pore + minerals +
       unclassified = 1 (measured exactly 1.000). **A plate whose own stain does not match the
