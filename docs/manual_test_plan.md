@@ -519,6 +519,15 @@ can't drift apart.
 (every depth cell is −999.25). Import it and expect a clean error with NO well row created —
 check the Wells pane and the DB Inspector for a stray `SANDI-BAD-NULL`. Asserted by cargo test.
 
+**Update 2026-07-31 — the OTHER half now has a file too.** Your Blocked note was right about
+both files, and only one of them had been supplied. The truncated case now ships as
+**`dataset for test/examples/bad_truncated.las`** (last data row cut mid-line: depth and GR
+present, RHOB missing, no trailing newline — what a half-written file actually looks like).
+Import it and expect a clean error naming *"leftover token(s) … truncated or corrupt LAS?"*,
+with **nothing imported — not even the 39 intact rows** and no stray `SANDI-BAD-TRUNC`. Pinned
+by `a_truncated_las_refuses_rather_than_importing_what_survived`. Both halves of this test are
+now doable from the shipped examples folder; nothing needs doctoring by hand.
+
 ### T-IMP-05 — No-well-selected guards and cancel mid-dialog leave no side-effects
 
 **Tool/panel:** all Data-tab importers (ribbon.ts guard clauses)

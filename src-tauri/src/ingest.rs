@@ -2426,6 +2426,48 @@ mod tests {
         std::fs::remove_file(&path).ok();
     }
 
+    /// T-IMP-10's remaining half: a BLANK cell in the WELL column.
+    ///
+    /// `tops_import_multiwell_and_default` already covers multi-well routing, case-insensitive
+    /// matching, unmatched wells and the no-WELL-column file. A blank cell is a different thing
+    /// from an unmatched name, and it is the common one — spreadsheets carry a merged or
+    /// forward-filled well column, and whoever exported it left the repeats empty.
+    ///
+    /// **A blank must never fall through to the selected well.** That is the tempting reading —
+    /// "no well named, so use the one they picked" — and it is how a marker from a different well
+    /// ends up on this one. There is nothing on the log to catch it: the top lands at a plausible
+    /// depth, it just belongs to somebody else's well, and every zone below it is then wrong.
+    /// Skipped and counted is the only safe answer.
+    #[test]
+    fn a_blank_well_cell_is_skipped_rather_than_charged_to_the_selected_well() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let w1 = Uuid::new_v4();
+        db::insert_well(&conn, w1, "SANDI-10", None, None, None).unwrap();
+        let id1 = w1.to_string();
+
+        let path = std::env::temp_dir().join("sandibumi_tops_blank_well.csv");
+        std::fs::write(
+            &path,
+            "WELL,TOP,MD\nSANDI-10,TOP_A,1000.0\n,TOP_ORPHAN,1100.0\n   ,TOP_SPACES,1200.0\n",
+        )
+        .unwrap();
+        // A default well IS supplied — the case where falling through would be silent.
+        let res = import_tops_file(&conn, Some(&id1), path.to_str().unwrap());
+        std::fs::remove_file(&path).ok();
+        assert!(res.error.is_none(), "{:?}", res.error);
+
+        let tops = db::list_tops(&conn, &id1).unwrap();
+        let names: Vec<&str> = tops.iter().map(|t| t.top_name.as_str()).collect();
+        assert!(names.contains(&"TOP_A"), "the named row must still land: {names:?}");
+        assert!(
+            !names.contains(&"TOP_ORPHAN") && !names.contains(&"TOP_SPACES"),
+            "a blank WELL cell was charged to the selected well — a marker from an unknown well \
+             is now sitting on SANDI-10 and nothing downstream can tell: {names:?}"
+        );
+        assert_eq!(res.tops_written, 1, "one row had a well, so one top was written");
+    }
+
     /// P2 aux import: XRD point data (numeric + text cells) and perforation intervals
     /// land in aux_data long format; datasets are independent; and every dataset follows
     /// the SET discipline (a re-delivery is kept beside the first, one is live).

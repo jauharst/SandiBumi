@@ -30,7 +30,7 @@ Pile D is the number that matters: **37 tests, about one in seven, genuinely nee
 | Pile | Done | Remaining |
 |---|---|---|
 | **A** — was already pinned before this work started | **21** | — |
-| **B** — a Rust test now checks it | **10** | 35 |
+| **B** — a Rust test now checks it | **17** | 28 (of 44 — T-IMP-06 regraded to D) |
 | **C** — a machine now drives it | **5 harness tests** | 81 unblocked (+61 blocked) |
 
 ### Pile A — the checklist
@@ -81,7 +81,7 @@ verification mark** — that lives in `docs/manual_test_plan.md` and nothing aut
 touches it. A `[x]` below says the arithmetic is pinned; it does not say the feature works on
 your wells.
 
-**Done (13 of 45)**
+**Done (17 of 45)**
 
 - [x] **T-REP-18** — SQL Query rejects writes · `readonly_query_refuses_every_write_shape_including_a_cte_prefix` (`db.rs`)
 - [x] **T-SHIP-03** — missing perm curve fails loudly · `a_missing_curve_fails_by_name_rather_than_computing_on_another` (`lorenz.rs`)
@@ -98,9 +98,23 @@ your wells.
 - [x] **T-WELL-16** — a per-zone override actually drives a module run · same test (it is the same claim, so one test retires both)
 - [x] **T-PREP-16** — synthetic log: gap fill, raw kept, downward-only repair, and the masked-washout case · `a_synthetic_log_fills_gaps_keeps_raw_and_repairs_only_downward` (`modules.rs`) + `a_masked_washout_defeats_the_very_module_meant_to_repair_it` (`workflow.rs`). The second **pins the audited defect as-is**, not as correct behaviour.
 
+- [x] **T-IMP-04** — malformed LAS: all-null depth **and** the truncated last row · `malformed_las_exemplars_fail_the_documented_way` (already existed) + `a_truncated_las_refuses_rather_than_importing_what_survived` (`example_data_test.rs`). **Your Blocked mark is now answerable** — there was no truncated exemplar to import, so `dataset for test/examples/bad_truncated.las` was added to the generator.
+- [x] **T-IMP-08** — a repeated plug depth is dropped, first kept, import never aborts · `a_repeated_plug_depth_is_dropped_not_a_failed_import` (`parsers.rs`)
+- [x] **T-IMP-10** — tops CSV: multi-well, unmatched, **blank WELL cells** · `tops_import_multiwell_and_default` (already existed) + `a_blank_well_cell_is_skipped_rather_than_charged_to_the_selected_well` (`ingest.rs`)
+- [x] **T-IMP-12** — deviation: TVD/TVDSS **and** duplicate MD · `deviation_import_materializes_tvd_tvdss_curves` + `deviation_import_versions_surveys_and_switching_rebuilds_tvd` (both already existed) + `a_repeated_survey_station_is_dropped_not_a_failed_survey` (`parsers.rs`)
+
 All three items flagged **silent-wrongness class** (T-REP-18, T-SHIP-03, T-INT-11) are closed.
 
-**Open (32)**
+**Regraded out of pile B (1)**
+
+- **T-IMP-06 (DLIS)** moves to **pile D — genuinely yours.** It needs a real `.dlis` file and the
+  `dlisio` package; `dlis.rs::import_real_dlis` already exists for it but is `#[ignore]`d behind
+  `SANDIBUMI_TEST_DLIS`, because DLIS is a binary vendor format and there is no honest way to
+  synthesise a fixture that exercises sentinel screening and mnemonic collision. Point the
+  variable at one of your own files and `cargo test -- --ignored` runs it; nothing automated can
+  retire it. Pile B is therefore 44 items, not 45.
+
+**Open (28)**
 
 - [ ] T-PLOT-19 — Curve Edit negatives (invalid input, stale undo)
 - [ ] T-REP-02 — Composite render: layout, print scale, pagination
@@ -129,11 +143,6 @@ All three items flagged **silent-wrongness class** (T-REP-18, T-SHIP-03, T-INT-1
 - [ ] T-BATCH-17 — Monte Carlo vs chain with a bad-hole MASK
 - [ ] T-SHELL-07 — Save Project As = backup copy
 - [ ] T-SHELL-09 — project switch refused while a chain runs
-- [ ] T-IMP-04 — Malformed LAS: all-null depth + truncated last row
-- [ ] T-IMP-06 — DLIS: sentinels, replaced-count, mnemonic collision
-- [ ] T-IMP-08 — Core CSV with a duplicated plug depth
-- [ ] T-IMP-10 — Tops CSV: multi-well, unmatched, blank cells
-- [ ] T-IMP-12 — Deviation import: TVD/TVDSS, duplicate MD
 
 ### Pile C — covered by the end-to-end harness
 
