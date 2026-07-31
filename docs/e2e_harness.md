@@ -214,7 +214,7 @@ click listener the two are equivalent — but when the *gesture* is the thing un
 
 ## Current coverage
 
-Seventy tests across seventeen spec files. Specs share ONE app launch and one project (see the spec
+Seventy-three tests across eighteen spec files. Specs share ONE app launch and one project (see the spec
 grouping note in `wdio.conf.mjs`), so write each one to establish what it needs and to assert
 changes as before/after differences rather than as absolute state.
 
@@ -376,6 +376,17 @@ correct one if you only read the message.
 | The menu lists exactly its catalogued modules | Compared as a set both ways |
 | Re-clicking focuses, never duplicates | Two panes for one module = a run nobody configured |
 | The pane is built from its manifest | Including an Outputs note naming the real outputs |
+
+`paysummary.e2e.mjs` — the pay summary and its row invariants (T-BATCH-07):
+
+| Test | What it proves |
+|---|---|
+| The pane produces a table | Every row names its cutoff level |
+| Net within gross, levels nested | PAY ≤ RESERVOIR ≤ SAND, counted so it cannot pass vacuously |
+| HPV within net × porosity | The ceiling the arithmetic implies |
+
+It never picks a cutoff — the invariants hold for any, and a VSH/PHIE/SWE value invented to make a
+test pass would be an unsourced petrophysical number in the repo.
 
 Test data is `dataset for test/examples/` (`SANDI-*`) only. Never a real client project, never a
 path from `SANDIBUMI_FIELD_FIXTURES`.

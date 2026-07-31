@@ -235,7 +235,21 @@ can fail for reasons unrelated to the code is a gate people learn to ignore.
 **`[x]` here means an end-to-end test drives it against the real app. It is NOT your verification
 mark** — same rule as pile B.
 
-**Done (27 of 86)**
+**Done (28 of 86)**
+
+- [x] **T-BATCH-07** — Cutoffs & Pay Summary: the table and **the row invariants the triage flagged
+      as worth testing** · `paysummary.e2e.mjs`. Net ≤ Gross, N/G within 0..1, PAY-net ≤
+      RESERVOIR-net ≤ SAND-net, and HPV ≤ net × avg PHIE. **The test never picks a cutoff** — it
+      runs the pane with whatever the pane prefills, because the invariants hold for ANY cutoff and
+      inventing a VSH/PHIE/SWE value here would put an unsourced petrophysical number in the repo.
+      Two guards make the coverage real rather than vacuous: the nesting check counts the
+      comparisons it made and fails if none were available, and the HPV check does the same. An
+      uninterpreted row (`n_classified == 0`, shown as "—") is SKIPPED rather than read as 0, which
+      is the convention's whole point — a 0 net is byte-identical to a genuine wet zone.
+      **Deliberately NOT asserted: that HPV is non-negative.** It is not guaranteed (finding 16, a
+      dense stringer inside the net interval is subtracted), so asserting it would either fail on
+      correct behaviour or encode a claim the code does not make. **Not covered:** the History
+      entry, the status line and the PAYFLAG catalog version.
 
 - [x] **T-RT-01** — Rock Typing ribbon group lists its modules and opens their panes ·
       `rocktyping.e2e.mjs`. The expected titles come from the MANIFESTS, not from a hard-coded

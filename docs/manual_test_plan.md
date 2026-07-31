@@ -3174,6 +3174,18 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 4. Open **Inspector ▸ Curve Catalog**; then the History panel (**Project ▸ Monitor ▸ History**).
 5. Re-run Compute Summary once.
    **Expected:** Table with columns Well | Zone | Flag | Top | Bottom | Gross | Net | N/G | Avg VSH | Avg PHIE | Avg SWE | HPV (m), rows for SAND/RESERVOIR/PAY per well-zone. Domain acceptance: **Net ≤ Gross** everywhere; N/G in [0,1]; per zone PAY-net ≤ RESERVOIR-net ≤ SAND-net; SAND rows' Avg VSH ≤ 0.5, RESERVOIR rows' Avg PHIE ≥ 0.1, PAY rows' Avg SWE ≤ 0.6; HPV ≤ Net × Avg PHIE. Status line "Pay summary: N rows; FLAG curves written". Cross-checks: Curve Catalog shows a **PAYFLAG** log set holding FLAG*SAND/FLAG_RESERVOIR/FLAG_PAY whose provenance records the cutoffs; the re-run makes it **version N+1** (covers REVIEW.md §"Pay-summary provenance — FLAG*\* versioned + cutoffs recorded"); a **"Pay Summary"** entry appears in Processing History listing the cutoffs and well count (covers REVIEW.md §Round 4 "Pay Summary → Processing History" — verifies the fixed audit finding "Compute Summary … never calls recordProcess"); an open Log View with a FLAG curve refreshes.
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** `paysummary.e2e.mjs` covers the table
+   and the row invariants: Net <= Gross, N/G within 0..1, PAY-net <= RESERVOIR-net <= SAND-net, and
+   HPV <= net x avg PHIE. **The test never picks a cutoff** - it runs the pane with whatever the
+   pane prefills, because those relationships hold for ANY cutoff, and inventing a VSH/PHIE/SWE
+   value to make a test pass would put an unsourced petrophysical number in the repo. The nesting
+   and HPV checks each COUNT what they compared and fail if nothing was available, so the coverage
+   cannot be vacuously true. An uninterpreted row ("—") is skipped rather than read as 0 - that
+   convention exists because a 0 net is byte-identical to a genuine wet zone. **Deliberately not
+   asserted: that HPV is non-negative** - it is not guaranteed (finding 16, a dense stringer is
+   subtracted), so asserting it would either fail on correct behaviour or encode a claim the code
+   does not make. **Not covered:** the History entry, the status line, the PAYFLAG catalog version.
+
    **Result — T-BATCH-07:**
 
 - [ ] Pass
