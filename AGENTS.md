@@ -847,6 +847,51 @@ applied it. Making plates ride `shift_core_depths` silently is increment 1d and 
 answer, because a picture that moves without being asked is the same class of error as a core extra
 that fails to.
 
+**Per-barrel shifts and the core depth record (2026-07-31)** — core comes up a barrel at a time and
+each barrel carries its own tally error, so one number for a whole well is right in the middle of
+the cored interval and wrong at both ends. Pieces also move INSIDE a barrel between the core face
+and the lab bench, which is why `db::RunShift` is a free interval rather than a fixed barrel length:
+splitting a row into two shorter rows is how that case is handled. UI is the barrel table in
+`depthRegDialog.ts`, where each row proposes its own shift through the same `registration.rs`
+engine restricted to that range.
+
+**`core_data.depth_orig` is the record**, added by `db::migrate_core_depth_orig` (non-destructive —
+one ADD COLUMN and a back-fill, so unlike `migrate_point_data_sets` it needs no backup; it must run
+AFTER that one, which rebuilds the table). `depth` is where the rock is, `depth_orig` is where the
+lab said it was, and **nothing ever shifts `depth_orig`**. It must stay the LAST column: the
+Appender is positional and a migrated database gets it appended.
+
+That column is what makes a later delivery follow. An XRD or CEC table arrives months after the
+core was registered, still written at the depths the core report used; `db::core_depth_pairs` +
+`db::map_core_depth` place it where that rock now sits. **The map lives in the core itself rather
+than in a side table of shift history** — it survives per-barrel shifts, single-plug nudges and
+re-registrations with no bookkeeping, and cannot drift out of sync with the data it describes.
+Between plugs the correction is INTERPOLATED, which is the whole point when pieces moved inside a
+barrel: the offset genuinely varies along the core. Outside the cored interval the nearest end's
+correction is held and the result is flagged `extrapolated`, because there is no evidence out
+there and a caller must be able to show which samples were guessed.
+
+Two rules `apply_core_run_shifts` enforces, both in a Rust dry run before anything is written:
+**no set of shifts may reorder the core** (two barrels shifted into each other's depths would put
+deeper rock above shallower rock, and no reader downstream could tell), and **two ranges may not
+overlap** (across a real overlap the first match silently wins and "which barrel was this plug in?"
+stops being answerable). Ranges that TOUCH at one depth are fine — `2000–2010` and `2010–2020` is
+how anyone writes two adjacent barrels — and the shared depth goes to the first range listed.
+
+**The inverse is computed by the backend and returned in `CoreShiftCounts.inverse`; a caller must
+never build its own.** Negating each delta and shifting the caller's own ranges looks equivalent
+and is not: two barrels that never overlapped can land on overlapping ranges once each moves by a
+different amount, and first-match-wins then returns some plugs by their neighbour's correction.
+The returned boundaries sit halfway between one run's deepest plug and the next run's shallowest,
+so every plug is inside its own range and none is inside two. Pinned by
+`undoing_per_barrel_shifts_returns_every_plug_to_where_it_started`, which asserts the naive inverse
+really does overlap before checking the computed one does not.
+
+The write itself is ONE set-wise `UPDATE ... CASE`, not a row per plug, because `depth` is part of
+the primary key: moving 1000→1001 row by row collides with the plug already at 1001 even when the
+finished result is perfectly valid. An interval sample is placed by its TOP so a barrel boundary
+cannot split one sample into two different shifts, and its base moves by the same amount.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under

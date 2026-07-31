@@ -169,6 +169,12 @@ pub fn open_and_migrate(path: &str) -> Result<duckdb::Connection, String> {
     db::migrate_array_logs_store(&conn).map_err(|e| format!("array-log migration failed: {e}"))?;
     eprintln!("[boot] migrate_array_logs_store: {:?}", t.elapsed());
 
+    // Must run AFTER migrate_point_data_sets, which rebuilds core_data for its primary key —
+    // a column added before that rebuild would be dropped by it.
+    let t = std::time::Instant::now();
+    db::migrate_core_depth_orig(&conn).map_err(|e| format!("core depth-record migration failed: {e}"))?;
+    eprintln!("[boot] migrate_core_depth_orig: {:?}", t.elapsed());
+
     // A long open is almost always the one-time storage upgrades above (each backs up the
     // whole project first). Tell the user so — from their chair a silent 15-minute open on
     // a field-scale file is indistinguishable from a hang.

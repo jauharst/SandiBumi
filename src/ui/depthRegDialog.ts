@@ -1,4 +1,6 @@
 import {
+  applyCoreRunShifts,
+  coreDepthPairs,
   coreExtraDatasets,
   listCoreReferences,
   listCurveCatalog,
@@ -159,6 +161,9 @@ export async function openDepthRegDialog(): Promise<void> {
 
   const out = document.createElement("div");
   wrap.appendChild(out);
+
+  const barrels = document.createElement("div");
+  wrap.appendChild(barrels);
 
   // ---------------------------------------------------------------------------
   // Drawing
@@ -504,4 +509,184 @@ export async function openDepthRegDialog(): Promise<void> {
     });
     out.appendChild(applyBtn);
   }
+
+  // ---------------------------------------------------------------------------
+  // One shift per barrel
+  // ---------------------------------------------------------------------------
+
+  /** Core comes up a barrel at a time and each barrel carries its own tally error, so one number
+   *  for a whole well is right in the middle of the cored interval and wrong at both ends. Pieces
+   *  can also move INSIDE a barrel between the core face and the lab, which is why these are free
+   *  intervals rather than a fixed barrel length — split one row into two and shift each half. */
+  async function buildBarrels(): Promise<void> {
+    barrels.innerHTML = "";
+    const head = document.createElement("div");
+    head.className = "eq-note";
+    head.innerHTML =
+      "<b>One shift per barrel</b> — core comes up a barrel at a time and each one is out by its " +
+      "own amount, so a single number for the whole well is right in the middle and wrong at both " +
+      "ends. Propose each range separately. Pieces that moved inside a barrel just mean a shorter " +
+      "range: split the row and shift each part.";
+    barrels.appendChild(head);
+
+    // What the core already carries, so a second pass is not applied on top of a forgotten first.
+    const pairs = await coreDepthPairs(well!.well_id).catch(() => [] as [number, number][]);
+    if (pairs.length) {
+      const offs = pairs.map(([o, d]) => d - o);
+      const lo = Math.min(...offs);
+      const hi = Math.max(...offs);
+      const rec = document.createElement("div");
+      rec.className = "eq-note";
+      rec.textContent =
+        Math.abs(hi - lo) < 1e-3
+          ? Math.abs(hi) < 1e-3
+            ? "This core is still exactly where the lab put it — no shift recorded yet."
+            : `Already moved by ${hi.toFixed(2)} throughout. Anything you apply now adds to that.`
+          : `Already moved by between ${lo.toFixed(2)} and ${hi.toFixed(2)} down the hole. ` +
+            "Anything you apply now adds to that.";
+      barrels.appendChild(rec);
+    }
+
+    const table = document.createElement("table");
+    table.className = "data-table";
+    const hrow = document.createElement("tr");
+    for (const h of ["Top", "Base", "Shift", "", ""]) {
+      const th = document.createElement("th");
+      th.textContent = h;
+      hrow.appendChild(th);
+    }
+    table.appendChild(hrow);
+    barrels.appendChild(table);
+
+    const rows: { top: HTMLInputElement; base: HTMLInputElement; delta: HTMLInputElement }[] = [];
+
+    const addRow = (top = "", base = "", delta = ""): void => {
+      const tr = document.createElement("tr");
+      const mk = (v: string, step: string): HTMLInputElement => {
+        const i = document.createElement("input");
+        i.className = "form-control";
+        i.type = "number";
+        i.step = step;
+        i.value = v;
+        const td = document.createElement("td");
+        td.appendChild(i);
+        tr.appendChild(td);
+        return i;
+      };
+      const topIn2 = mk(top, "0.1");
+      const baseIn2 = mk(base, "0.1");
+      const deltaIn2 = mk(delta, "0.05");
+
+      const prop = document.createElement("button");
+      prop.className = "btn";
+      prop.textContent = "Propose";
+      prop.addEventListener("click", () => {
+        const ref = refs[Number(refSel.value)];
+        if (!ref) return;
+        prop.disabled = true;
+        prop.textContent = "…";
+        void (async () => {
+          try {
+            const res = await proposeRegistration({
+              well_id: well!.well_id,
+              log_curve: logSel.value,
+              ref_kind: ref.kind,
+              ref_dataset: ref.dataset,
+              ref_item: ref.item,
+              depth_from: topIn2.value ? Number(topIn2.value) : null,
+              depth_to: baseIn2.value ? Number(baseIn2.value) : null,
+              search_range: Number(rangeIn.value) || 5,
+            });
+            if (res.error) {
+              setStatus(res.error);
+              return;
+            }
+            deltaIn2.value = res.proposed_delta.toFixed(2);
+            // Show this barrel's own correlogram — each range is judged on its own evidence.
+            renderResult(res);
+          } finally {
+            prop.disabled = false;
+            prop.textContent = "Propose";
+          }
+        })();
+      });
+      const td1 = document.createElement("td");
+      td1.appendChild(prop);
+      tr.appendChild(td1);
+
+      const del = document.createElement("button");
+      del.className = "btn";
+      del.textContent = "✕";
+      del.title = "Remove this range";
+      del.addEventListener("click", () => {
+        const i = rows.findIndex((r) => r.top === topIn2);
+        if (i >= 0) rows.splice(i, 1);
+        tr.remove();
+      });
+      const td2 = document.createElement("td");
+      td2.appendChild(del);
+      tr.appendChild(td2);
+
+      table.appendChild(tr);
+      rows.push({ top: topIn2, base: baseIn2, delta: deltaIn2 });
+    };
+
+    const addBtn = document.createElement("button");
+    addBtn.className = "btn";
+    addBtn.textContent = "Add a barrel";
+    addBtn.addEventListener("click", () => addRow());
+    barrels.appendChild(addBtn);
+
+    const applyAll = document.createElement("button");
+    applyAll.className = "btn btn-accent";
+    applyAll.textContent = "Apply all barrels";
+    applyAll.addEventListener("click", () => {
+      const runs = rows
+        .map((r) => ({ top: Number(r.top.value), base: Number(r.base.value), delta: Number(r.delta.value) }))
+        .filter((r) => Number.isFinite(r.top) && Number.isFinite(r.base) && Number.isFinite(r.delta) && r.delta !== 0);
+      if (!runs.length) {
+        setStatus("Fill in at least one range with a non-zero shift");
+        return;
+      }
+      void (async () => {
+        try {
+          const n = await applyCoreRunShifts(well!.well_id, runs);
+          setStatus(`Moved ${n.plugs} plug(s) and ${n.extras} point sample(s) across ${runs.length} barrel(s)`);
+          recordProcess(
+            "Edit",
+            `Core registration, ${runs.length} barrel(s): ${runs.map((r) => `${r.top}-${r.base} ${r.delta > 0 ? "+" : ""}${r.delta}`).join(", ")}`,
+            well!.well_name
+          );
+          pushUndo({
+            label: `core barrel shifts (${well!.well_name})`,
+            // The backend hands back the ranges that undo this, because it knows where the plugs
+            // landed. Negating the deltas and shifting these ranges here looks equivalent and is
+            // not: two barrels moved by different amounts can produce overlapping ranges, and the
+            // first match wins, so some plugs would come back by the wrong correction.
+            undo: async () => {
+              await applyCoreRunShifts(well!.well_id, n.inverse);
+              await buildBarrels();
+              bumpDataVersion();
+            },
+            redo: async () => {
+              await applyCoreRunShifts(well!.well_id, runs);
+              await buildBarrels();
+              bumpDataVersion();
+            },
+          });
+          await buildBarrels();
+          bumpDataVersion();
+        } catch (err) {
+          // The backend refuses anything that would reorder the core and changes nothing, so
+          // this is a message to read, not a failure to recover from.
+          setStatus(String(err));
+        }
+      })();
+    });
+    barrels.appendChild(applyAll);
+
+    if (!rows.length) addRow();
+  }
+
+  await buildBarrels();
 }

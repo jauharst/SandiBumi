@@ -69,7 +69,9 @@ accepts. This follows the marker autocorrelation precedent exactly, and for the 
 correlation maximum is a suggestion, and a core with a repeated sand can have a very good one in
 the wrong place.
 
-**1c — per-run shift.** A cored well is delivered in **runs**, and each run accumulates its own
+**1c — per-run shift.** _(Shipped 2026-07-31, with the depth record Jauhar asked for on top: the
+core keeps its as-delivered depths so a later XRD/CEC delivery written at the lab's depths can be
+placed where that rock now sits.)_ A cored well is delivered in **runs**, and each run accumulates its own
 tally error. One delta for the whole well is a simplification the data does not support: it will
 be right in the middle of the cored interval and wrong at both ends. This increment is a table of
 (interval, delta) with monotonicity enforced — two runs may not be shifted into each other's
@@ -226,7 +228,7 @@ Only **D1** blocks the first increment. D2–D4 can be answered while Part 1 is 
 Part 1   1a  registration + proposal        SHIPPED 2026-07-31 (registration.rs)
          1b  proposed best-lag              SHIPPED with it
          1e  plate depth editing            SHIPPED 2026-07-31 (plateDepthDialog.ts)
-         1c  per-run piecewise shift
+         1c  per-barrel shift + depth record   SHIPPED 2026-07-31
          1d  plates follow plugs AUTOMATICALLY   D2 answered but tentative — held
          1f  registration recorded
 

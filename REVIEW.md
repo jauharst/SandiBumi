@@ -6193,3 +6193,35 @@ Data Sets… first.
 **Still open (your call):** whether thin sections should move automatically when you re-register the
 core they were cut from. You said yes but tentatively, so nothing does that yet — the shift above is
 deliberate and visible. Say the word and it becomes automatic.
+
+---
+
+## One shift per barrel, and the core remembers it (2026-07-31)
+
+Data ▸ Tools ▾ ▸ **Register Depth…**, the new table at the bottom.
+
+- [ ] Open it on a cored well. Below the single-shift tools there is now **One shift per barrel**.
+      A note tells you whether this core has already been moved, and by how much — so a second
+      pass is never applied on top of a forgotten first one.
+- [ ] Fill a range (top, base) for the first barrel and press **Propose**. It runs the same match
+      as before but only over that range, fills in the shift, and draws that barrel's own
+      correlogram. **Add a barrel** for the next one.
+- [ ] If pieces moved inside a barrel, just split it: two shorter ranges, a different shift each.
+- [ ] **Apply all barrels**, then **Ctrl+Z**. Every plug should return exactly where it started.
+- [ ] Try shifts that would cross — push an upper barrel down past the one below it. It should
+      **refuse, name the two plugs that would cross, and change nothing**. Deeper rock must never
+      end up above shallower rock.
+- [ ] Try two ranges that overlap. Also refused: a plug can only belong to one barrel. Ranges that
+      just touch (2000–2010 and 2010–2020) are fine.
+
+**The part worth testing on real data:** import an XRD or CEC table AFTER you have shifted the core,
+still at the depths the lab wrote. The core now remembers where it started, so those samples can be
+placed where that rock actually is — including where one barrel moved further than its neighbour,
+because the correction is interpolated between plugs rather than applied as one number.
+
+Outside the cored interval there is nothing to go on, so the correction is held from the nearest
+end and those samples are marked as extrapolated rather than quietly placed.
+
+**Note on older projects:** a project made before today gets the new record filled in as "no shift
+yet". Any shifting you did before this exists is not recoverable, so the core is treated as
+delivered where it currently sits. From here on it is tracked.

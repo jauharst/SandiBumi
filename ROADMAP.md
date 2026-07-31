@@ -1420,6 +1420,23 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       picture that moves without being asked is the same class of error as a core extra that fails
       to move at all.
 
+- [x] **Per-barrel shifts + the core depth record (Part 1, increment 1c)** — **SHIPPED 2026-07-31.**
+      From Jauhar: core comes up in barrels, pieces can shift inside a barrel too, and **the core
+      set must record the shift so later deliveries follow it**. `db::RunShift` +
+      `apply_core_run_shifts` (free intervals, so a moved piece is just a shorter range) with the
+      barrel table in `depthRegDialog.ts`, each row proposing its own shift through the existing
+      `registration.rs` engine. New `core_data.depth_orig` (migration
+      `db::migrate_core_depth_orig`, non-destructive, must run after `migrate_point_data_sets`)
+      never moves, so `core_depth_pairs` + `map_core_depth` place a later XRD/CEC delivery written
+      at the lab's depths onto where that rock now sits — interpolated between plugs (the offset
+      really does vary when pieces moved), held and FLAGGED outside the cored interval. Two rules
+      enforced in a dry run before any write: no shift may reorder the core, and two ranges may not
+      overlap (touching is fine). **The inverse for undo is computed by the backend**
+      (`CoreShiftCounts.inverse`) — a browser check caught that negating the caller's own ranges
+      produces overlapping inverse ranges when barrels move by different amounts, which would undo
+      some plugs by their neighbour's correction. Remaining on this thread: wiring the map into the
+      import wizards so it is offered rather than available (Part 1 follow-up).
+
 ## C3. Trust & reproducibility — Phase 11 (§3)
 
 - **Audit trail & lineage**: every module/equation run and data edit logged (`runs` table: params, inputs,

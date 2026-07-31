@@ -2031,6 +2031,48 @@ fn shift_core_data(
     db::shift_core_depths(&mut conn, &well_id, delta, &datasets).map_err(|e| e.to_string())
 }
 
+/// Applies per-barrel (or finer) corrections to a well's active core delivery. Refuses any set
+/// that would reorder the core, and changes nothing when it does.
+#[tauri::command]
+fn apply_core_run_shifts(
+    db: tauri::State<DbState>,
+    well_id: String,
+    runs: Vec<db::RunShift>,
+    datasets: Option<Vec<String>>,
+) -> Result<db::CoreShiftCounts, String> {
+    let mut conn = db.0.lock().unwrap();
+    let datasets = match datasets {
+        Some(d) => d,
+        None => db::core_extra_datasets(&conn, &well_id)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|(d, _)| d)
+            .collect(),
+    };
+    db::apply_core_run_shifts(&mut conn, &well_id, &runs, &datasets)
+}
+
+/// A well's core depth record: `(depth the lab wrote, depth it sits at now)` per plug.
+#[tauri::command]
+fn core_depth_pairs(db: tauri::State<DbState>, well_id: String) -> Result<Vec<(f32, f32)>, String> {
+    let conn = db.0.lock().unwrap();
+    db::core_depth_pairs(&conn, &well_id).map_err(|e| e.to_string())
+}
+
+/// Maps depths written by a laboratory onto where that rock now sits, using the core's own
+/// record. Returns one `(depth, extrapolated)` per input, so a caller can show which samples fell
+/// outside the cored interval and were therefore guessed rather than measured.
+#[tauri::command]
+fn map_core_depths(
+    db: tauri::State<DbState>,
+    well_id: String,
+    depths: Vec<f32>,
+) -> Result<Vec<(f32, bool)>, String> {
+    let conn = db.0.lock().unwrap();
+    let pairs = db::core_depth_pairs(&conn, &well_id).map_err(|e| e.to_string())?;
+    Ok(depths.into_iter().map(|d| db::map_core_depth(&pairs, d)).collect())
+}
+
 /// Moves a whole plate delivery by a constant depth (re-registering pictures).
 #[tauri::command]
 fn shift_well_images(
@@ -2625,6 +2667,9 @@ pub fn run() {
             shift_core_data,
             core_extra_datasets,
             shift_well_images,
+            apply_core_run_shifts,
+            core_depth_pairs,
+            map_core_depths,
             list_core_references,
             propose_registration,
             edit_curve,

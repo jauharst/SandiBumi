@@ -2526,6 +2526,10 @@ export interface CoreShiftCounts {
   plugs: number;
   /** Point-data rows moved along with them. */
   extras: number;
+  /** The ranges that put this operation back, in the depths that exist AFTER it. Use these for
+   *  undo rather than negating your own deltas — barrels moved by different amounts can produce
+   *  overlapping ranges, and the first match wins. Empty for a whole-well shift. */
+  inverse: RunShift[];
 }
 
 /** Shifts a well's ACTIVE core delivery by `delta` (core-to-log alignment). The plugs and the
@@ -2534,6 +2538,36 @@ export interface CoreShiftCounts {
  *  Exactly reversible with -delta, which is what makes it undoable. */
 export function shiftCoreData(wellId: string, delta: number, datasets?: string[]): Promise<CoreShiftCounts> {
   return invoke<CoreShiftCounts>("shift_core_data", { wellId, delta, datasets });
+}
+
+/** One barrel's correction: everything currently between `top` and `base` moves by `delta`.
+ *  Ranges are CURRENT depths — what you read off the log view. */
+export interface RunShift {
+  top: number;
+  base: number;
+  delta: number;
+}
+
+/** Applies per-barrel (or finer) corrections to the active core delivery. Rejects — and changes
+ *  nothing for — any set that would put deeper rock above shallower rock. */
+export function applyCoreRunShifts(
+  wellId: string,
+  runs: RunShift[],
+  datasets?: string[],
+): Promise<CoreShiftCounts> {
+  return invoke<CoreShiftCounts>("apply_core_run_shifts", { wellId, runs, datasets });
+}
+
+/** The well's core depth record: `[depth the lab wrote, depth it sits at now]` per plug. */
+export function coreDepthPairs(wellId: string): Promise<[number, number][]> {
+  return invoke<[number, number][]>("core_depth_pairs", { wellId });
+}
+
+/** Maps lab-written depths onto where that rock now sits. Each result is
+ *  `[depth, extrapolated]`; `extrapolated` marks samples outside the cored interval, where the
+ *  correction is held from the nearest end rather than measured. */
+export function mapCoreDepths(wellId: string, depths: number[]): Promise<[number, boolean][]> {
+  return invoke<[number, boolean][]>("map_core_depths", { wellId, depths });
 }
 
 /** Point datasets delivered as part of this well's active core table, with their row counts. */

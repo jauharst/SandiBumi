@@ -410,6 +410,13 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
         -- earlier one (names auto-suffix, as curve sets do). Unlike curve sets, core sets
         -- do NOT union: two deliveries measure the SAME plugs, so exactly one set is
         -- ACTIVE per well and every reader sees only that one (`core_sets.active`).
+        -- `depth` is where the rock IS (after registration); `depth_orig` is where the lab
+        -- wrote it. Keeping both is what lets a later delivery follow: an XRD table arrives
+        -- months afterwards at the SAME depths the core report used, and without the original
+        -- there is no way to know how far those depths have since moved. It also means a
+        -- registration is never lost — depth_orig is written once at import and never shifted.
+        -- MUST stay the LAST column: the Appender is positional, and a migrated database gets
+        -- it appended, so fresh and migrated schemas have to agree.
         CREATE TABLE IF NOT EXISTS core_data (
             well_id     UUID NOT NULL,
             set_name    VARCHAR NOT NULL DEFAULT 'RAW',
@@ -418,6 +425,7 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             cperm       FLOAT, -- core permeability, mD
             cgd         FLOAT, -- core grain density, g/cc
             csw         FLOAT, -- core water saturation, v/v
+            depth_orig  FLOAT, -- as delivered; NULL only in a project older than this column
             PRIMARY KEY (well_id, set_name, depth)
         );
 
@@ -1075,6 +1083,32 @@ pub fn delete_array_log(conn: &Connection, well_id: &str, set_name: &str, curve_
 /// Destructive (a table rebuild), so it follows the RELEASE §3.2 rule: when it is actually
 /// going to run, `path` is backed up first and a failed backup ABORTS the migration.
 /// `path: None` is for in-memory test databases only.
+/// Adds `core_data.depth_orig` (as-delivered depth) to a project that predates it.
+///
+/// Non-destructive: one ADD COLUMN and one back-fill, no table rebuild, so unlike
+/// `migrate_point_data_sets` it needs no backup. The back-fill sets `depth_orig = depth`, which
+/// says the honest thing about an old project — **whatever shifts were applied before this column
+/// existed are not recoverable**, so the core is treated as if it had been delivered where it now
+/// sits. New data imported against it will follow from here on, just not backwards.
+///
+/// Idempotent via `duckdb_columns()`; a no-op on a freshly created database and on every launch
+/// after the first.
+pub fn migrate_core_depth_orig(conn: &Connection) -> DbResult<()> {
+    let has: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM duckdb_columns()
+         WHERE table_name = 'core_data' AND column_name = 'depth_orig'",
+        [],
+        |r| r.get(0),
+    )?;
+    if has == 0 {
+        conn.execute_batch("ALTER TABLE core_data ADD COLUMN depth_orig FLOAT;")?;
+    }
+    // Runs regardless: a row could have been written by an older code path after the column
+    // was added (and NULL there would silently break the map).
+    conn.execute_batch("UPDATE core_data SET depth_orig = depth WHERE depth_orig IS NULL;")?;
+    Ok(())
+}
+
 pub fn migrate_point_data_sets(conn: &Connection, path: Option<&str>) -> DbResult<()> {
     let has_set: i64 = conn.query_row(
         "SELECT COUNT(*) FROM duckdb_columns()
@@ -1380,7 +1414,18 @@ pub fn insert_core_data(
         )?;
         let mut appender: Appender = conn.appender("core_data")?;
         for i in 0..n {
-            appender.append_row(params![well_id, set_name, depths[i], cpor[i], cperm[i], cgd[i], csw[i]])?;
+            // depth_orig starts equal to depth and is never shifted afterwards — it is the
+            // record of where this delivery said the rock was.
+            appender.append_row(params![
+                well_id,
+                set_name,
+                depths[i],
+                cpor[i],
+                cperm[i],
+                cgd[i],
+                csw[i],
+                depths[i]
+            ])?;
         }
         appender.flush()?;
         conn.execute(
@@ -3943,6 +3988,204 @@ mod inspector_tests {
         assert_eq!(live[0].name, "A");
     }
 
+    /// Sets up a well with plugs every metre from `top`, all at their delivered depths.
+    fn cored_well(conn: &Connection, top: f32, n: usize) -> String {
+        let wid = Uuid::new_v4();
+        insert_well(conn, wid, "SANDI-RUN", None, None, None).unwrap();
+        let w = wid.to_string();
+        let d: Vec<f32> = (0..n).map(|i| top + i as f32).collect();
+        let v: Vec<f32> = (0..n).map(|i| 0.20 + 0.001 * i as f32).collect();
+        let nan = vec![f32::NAN; n];
+        insert_core_data(conn, &w, "RAW", None, &d, &v, &nan, &nan, &nan).unwrap();
+        w
+    }
+
+    /// Each barrel carries its own tally error, so the shifts differ down the hole — and the
+    /// delivered depth is kept untouched so a later delivery can still be placed.
+    #[test]
+    fn each_barrel_can_be_shifted_by_its_own_amount() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let w = cored_well(&conn, 2000.0, 30); // 2000 .. 2029
+
+        let runs = [
+            RunShift { top: 2000.0, base: 2009.0, delta: 1.0 },
+            RunShift { top: 2010.0, base: 2019.0, delta: 2.0 },
+            RunShift { top: 2020.0, base: 2029.0, delta: 3.5 },
+        ];
+        let n = apply_core_run_shifts(&mut conn, &w, &runs, &[]).unwrap();
+        assert_eq!(n.plugs, 30);
+
+        let pairs = core_depth_pairs(&conn, &w).unwrap();
+        let at = |orig: f32| pairs.iter().find(|p| (p.0 - orig).abs() < 1e-4).unwrap().1;
+        assert!((at(2000.0) - 2001.0).abs() < 1e-3, "first barrel moved 1");
+        assert!((at(2015.0) - 2017.0).abs() < 1e-3, "second barrel moved 2");
+        assert!((at(2029.0) - 2032.5).abs() < 1e-3, "third barrel moved 3.5");
+        assert_eq!(pairs.len(), 30, "the delivered depths are all still recorded");
+    }
+
+    /// The rule that cannot be relaxed: no set of shifts may put deeper rock above shallower rock.
+    #[test]
+    fn a_shift_that_would_reorder_the_core_is_refused_and_changes_nothing() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let w = cored_well(&conn, 2000.0, 10); // 2000 .. 2009
+
+        // Push the upper barrel 6 m down and leave the lower one — they would cross.
+        let runs = [RunShift { top: 2000.0, base: 2004.0, delta: 6.0 }];
+        let err = apply_core_run_shifts(&mut conn, &w, &runs, &[]).unwrap_err();
+        assert!(err.contains("reorders the core"), "{err}");
+
+        let pairs = core_depth_pairs(&conn, &w).unwrap();
+        assert!(
+            pairs.iter().all(|(o, d)| (o - d).abs() < 1e-4),
+            "a refused shift must leave every plug exactly where it was"
+        );
+    }
+
+    /// Undoing per-barrel shifts must put every plug back exactly.
+    ///
+    /// The obvious inverse — negate each delta and shift the user's own ranges — is wrong, and
+    /// quietly. Barrels that never overlapped can land on ranges that DO once each moves by a
+    /// different amount, and the first matching range wins, so some plugs come back by their
+    /// neighbour's correction. This is the case that caught it.
+    #[test]
+    fn undoing_per_barrel_shifts_returns_every_plug_to_where_it_started() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let w = cored_well(&conn, 2000.0, 60); // 2000 .. 2059
+
+        // Declared ranges reach past the plugs they hold — exactly how a user types a barrel —
+        // and the upper barrel moves 0.5 m FURTHER than the lower one. That is legal (the plugs
+        // stay 0.5 m apart at the join, having been 1 m apart) yet it makes the naive inverse
+        // ranges overlap by 0.4 m, right where the lower barrel's first plug lands.
+        let runs = [
+            RunShift { top: 1995.0, base: 2029.5, delta: 2.0 },
+            RunShift { top: 2029.6, base: 2065.0, delta: 1.5 },
+        ];
+        let before = core_depth_pairs(&conn, &w).unwrap();
+        let res = apply_core_run_shifts(&mut conn, &w, &runs, &[]).unwrap();
+        assert_eq!(res.plugs, 60);
+
+        // The naive inverse — the caller's own ranges, shifted, deltas negated — DOES overlap.
+        // Proving that here is the point: it is what makes the computed inverse necessary.
+        let naive: Vec<(f32, f32)> =
+            runs.iter().map(|r| (r.top + r.delta, r.base + r.delta)).collect();
+        assert!(
+            naive[1].0 <= naive[0].1,
+            "this test is pointless unless the naive inverse really overlaps: {naive:?}"
+        );
+
+        // The computed inverse meets at a single point instead of overlapping across 0.4 m. That
+        // point is the midpoint of two distinct plug depths, so it is strictly between them and no
+        // plug can sit on it — which is what matters. The exact round trip below is the real proof.
+        assert_eq!(res.inverse.len(), 2);
+        assert!(
+            res.inverse[1].top >= res.inverse[0].base,
+            "the computed inverse must not overlap, got {:?}",
+            res.inverse
+        );
+        let overlap = res.inverse[0].base - res.inverse[1].top;
+        assert!(overlap <= 0.0, "overlap of {overlap} would make an undo ambiguous");
+
+        apply_core_run_shifts(&mut conn, &w, &res.inverse, &[]).unwrap();
+        let after = core_depth_pairs(&conn, &w).unwrap();
+        assert_eq!(before.len(), after.len());
+        for (b, a) in before.iter().zip(&after) {
+            assert!(
+                (b.0 - a.0).abs() < 1e-3 && (b.1 - a.1).abs() < 1e-3,
+                "plug {b:?} came back as {a:?}"
+            );
+        }
+    }
+
+    /// Two barrels cannot claim the same rock — with overlapping ranges "which barrel was this
+    /// plug in?" stops having an answer.
+    #[test]
+    fn overlapping_barrel_ranges_are_refused() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let w = cored_well(&conn, 2000.0, 20);
+        let runs = [
+            RunShift { top: 2000.0, base: 2010.0, delta: 0.5 },
+            RunShift { top: 2008.0, base: 2019.0, delta: 0.5 },
+        ];
+        let err = apply_core_run_shifts(&mut conn, &w, &runs, &[]).unwrap_err();
+        assert!(err.contains("overlap"), "{err}");
+
+        // Adjacent barrels written the natural way — sharing one depth — are NOT an overlap.
+        let touching = [
+            RunShift { top: 2000.0, base: 2010.0, delta: 0.5 },
+            RunShift { top: 2010.0, base: 2019.0, delta: 0.5 },
+        ];
+        assert!(apply_core_run_shifts(&mut conn, &w, &touching, &[]).is_ok());
+    }
+
+    /// The payoff Jauhar asked for: a laboratory sends XRD months later at the depths the core
+    /// report used, and it lands where that rock now is — including where a barrel moved by a
+    /// different amount than its neighbour.
+    #[test]
+    fn a_later_delivery_follows_the_core_that_was_already_shifted() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let w = cored_well(&conn, 2000.0, 30);
+        let runs = [
+            RunShift { top: 2000.0, base: 2009.0, delta: 1.0 },
+            RunShift { top: 2010.0, base: 2029.0, delta: 3.0 },
+        ];
+        apply_core_run_shifts(&mut conn, &w, &runs, &[]).unwrap();
+        let pairs = core_depth_pairs(&conn, &w).unwrap();
+
+        // A sample on a plug lands exactly on that plug.
+        let (d, ex) = map_core_depth(&pairs, 2005.0);
+        assert!((d - 2006.0).abs() < 1e-3, "got {d}");
+        assert!(!ex);
+        let (d, ex) = map_core_depth(&pairs, 2025.0);
+        assert!((d - 2028.0).abs() < 1e-3, "got {d}");
+        assert!(!ex);
+
+        // Between plugs the correction is interpolated — pieces move inside a barrel, so the
+        // offset really does vary along the core.
+        let (d, _) = map_core_depth(&pairs, 2009.5);
+        assert!((d - 2011.5).abs() < 1e-3, "half way between a 1 m and a 3 m shift: got {d}");
+
+        // Outside the cored interval there is no evidence, so the end correction is held AND the
+        // caller is told it was extrapolated rather than measured.
+        let (d, ex) = map_core_depth(&pairs, 1990.0);
+        assert!((d - 1991.0).abs() < 1e-3);
+        assert!(ex, "above the core is a guess and must say so");
+        let (_, ex) = map_core_depth(&pairs, 2100.0);
+        assert!(ex, "below the core is a guess and must say so");
+    }
+
+    /// An un-shifted core maps every depth to itself — the feature costs nothing until used.
+    #[test]
+    fn an_unregistered_core_maps_every_depth_to_itself() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let w = cored_well(&conn, 2000.0, 10);
+        let pairs = core_depth_pairs(&conn, &w).unwrap();
+        for probe in [1999.0, 2000.0, 2004.5, 2009.0, 2050.0] {
+            let (d, _) = map_core_depth(&pairs, probe);
+            assert!((d - probe).abs() < 1e-4, "{probe} moved to {d}");
+        }
+        assert_eq!(map_core_depth(&[], 1234.0), (1234.0, false), "no core at all is a no-op");
+    }
+
+    /// A whole-well shift and a per-barrel shift must agree about the record they leave behind,
+    /// or the two routes would disagree about where a later delivery goes.
+    #[test]
+    fn a_plain_shift_leaves_the_same_record_a_run_shift_does() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let w = cored_well(&conn, 2000.0, 10);
+        shift_core_depths(&mut conn, &w, 2.5, &[]).unwrap();
+        let pairs = core_depth_pairs(&conn, &w).unwrap();
+        assert!(pairs.iter().all(|(o, d)| (d - o - 2.5).abs() < 1e-3));
+        let (d, ex) = map_core_depth(&pairs, 2003.0);
+        assert!((d - 2005.5).abs() < 1e-3 && !ex, "got {d}");
+    }
+
     /// Re-registering a plate delivery: the shift follows the ACTIVE set like every other reader,
     /// leaves other datasets alone, and — the part that matters petrophysically — never gives a
     /// point sample a thickness it does not have.
@@ -4404,12 +4647,21 @@ pub fn update_standard_sample(conn: &Connection, well_id: &str, depth: f32, colu
 
 /// What a core depth shift moved. Reported in two parts because the second one is easy to
 /// forget and impossible to see afterwards — see [`shift_core_depths`].
-#[derive(Debug, Clone, Copy, Default, serde::Serialize)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct CoreShiftCounts {
     /// Rows moved in `core_data`.
     pub plugs: usize,
     /// Rows moved in `aux_data` — the extras that rode in on those same plugs.
     pub extras: usize,
+    /// The ranges that put this operation back, in the depths that exist AFTER it. Empty for a
+    /// whole-well shift, whose inverse is simply the negated delta.
+    ///
+    /// Computed here rather than by the caller because it needs the plug positions. Negating the
+    /// deltas and shifting the caller's own ranges LOOKS right and is not: two barrels moved by
+    /// different amounts can end up with overlapping ranges even though the barrels themselves
+    /// never overlap, and the first matching range wins — so an undo would quietly move some
+    /// plugs by their neighbour's correction.
+    pub inverse: Vec<RunShift>,
 }
 
 /// Applies a constant depth shift to the ACTIVE core set (core-to-log alignment).
@@ -4454,7 +4706,229 @@ pub fn shift_core_depths(
         )?;
     }
     tx.commit()?;
-    Ok(CoreShiftCounts { plugs, extras })
+    Ok(CoreShiftCounts { plugs, extras, inverse: Vec::new() })
+}
+
+/// One barrel's (or one piece's) correction: everything currently between `top` and `base` moves
+/// by `delta`. Ranges are in CURRENT depths — what you read off the log view — because that is
+/// what the user is looking at when they draw the interval.
+#[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize)]
+pub struct RunShift {
+    pub top: f32,
+    pub base: f32,
+    pub delta: f32,
+}
+
+/// Builds the `CASE` that maps an old depth to a new one. Written as ONE set-wise UPDATE rather
+/// than a row per plug, because the primary key contains `depth`: shifting 1000→1001 row by row
+/// collides with the plug already at 1001, even when the finished result is perfectly valid.
+/// `cond` is the column the range is tested against, `target` the one that moves. They differ for
+/// an interval sample: it is placed by its TOP (so a barrel boundary cannot split one sample into
+/// two different shifts) while its base moves by the same amount, keeping the logged thickness.
+/// Every value is finite by the time this is called, so the formatted literals are always valid SQL.
+fn run_shift_case_on(runs: &[RunShift], cond: &str, target: &str) -> String {
+    let mut sql = String::from("CASE ");
+    for r in runs {
+        sql.push_str(&format!(
+            "WHEN {cond} >= {:?} AND {cond} <= {:?} THEN {target} + {:?} ",
+            r.top, r.base, r.delta
+        ));
+    }
+    sql.push_str(&format!("ELSE {target} END"));
+    sql
+}
+
+fn run_shift_case(runs: &[RunShift], column: &str) -> String {
+    run_shift_case_on(runs, column, column)
+}
+
+/// Applies a per-barrel (or finer) set of corrections to the ACTIVE core delivery.
+///
+/// Core comes up a barrel at a time and each barrel carries its own tally error, so one number for
+/// a whole well is right in the middle of the cored interval and wrong at both ends. Pieces can
+/// also move INSIDE a barrel between the core face and the lab bench, which is why the ranges here
+/// are free intervals rather than a fixed barrel length.
+///
+/// **Refuses anything that would reorder the core.** Two barrels shifted into each other's depths
+/// would put deeper rock above shallower rock, and no downstream reader could tell. The check is
+/// done in Rust on the finished depths, not approximated by a smoothness constraint, and names the
+/// two plugs that would cross.
+///
+/// `depth_orig` is deliberately untouched: the record of where the delivery said the rock was is
+/// what lets a later import follow ([`core_depth_pairs`]).
+pub fn apply_core_run_shifts(
+    conn: &mut Connection,
+    well_id: &str,
+    runs: &[RunShift],
+    datasets: &[String],
+) -> Result<CoreShiftCounts, String> {
+    if runs.is_empty() {
+        return Ok(CoreShiftCounts::default());
+    }
+    for r in runs {
+        if !(r.top.is_finite() && r.base.is_finite() && r.delta.is_finite()) {
+            return Err("a shift range or amount is not a number".into());
+        }
+        if r.base < r.top {
+            return Err(format!("range {} to {} is upside down", r.top, r.base));
+        }
+    }
+
+    // Dry-run on the plug depths first. Nothing is written unless the result is still in order.
+    let plugs: Vec<f32> = {
+        let mut stmt = conn
+            .prepare(&format!(
+                "SELECT depth FROM core_data WHERE well_id = ?1 AND set_name = {ACTIVE_CORE_SET} ORDER BY depth"
+            ))
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![well_id], |r| r.get::<_, f32>(0))
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+    };
+    // Two barrels may not claim the same rock — across a real overlap the first match silently
+    // wins, and which barrel a plug belonged to stops being answerable.
+    //
+    // Ranges that TOUCH at a single depth are allowed: `2000–2010` and `2010–2020` is the natural
+    // way to write two adjacent barrels, and the shared depth goes to the first range listed. The
+    // computed inverse below relies on this, since its boundaries sit exactly halfway between two
+    // plugs — a point no plug can occupy.
+    let mut sorted: Vec<&RunShift> = runs.iter().collect();
+    sorted.sort_by(|a, b| a.top.total_cmp(&b.top));
+    for pair in sorted.windows(2) {
+        if pair[1].top < pair[0].base {
+            return Err(format!(
+                "the ranges {}–{} and {}–{} overlap; a plug can only belong to one barrel",
+                pair[0].top, pair[0].base, pair[1].top, pair[1].base
+            ));
+        }
+    }
+
+    let run_for = |d: f32| -> Option<usize> { runs.iter().position(|r| d >= r.top && d <= r.base) };
+    let delta_for = |d: f32| -> f32 { run_for(d).map(|i| runs[i].delta).unwrap_or(0.0) };
+    let moved: Vec<f32> = plugs.iter().map(|&d| d + delta_for(d)).collect();
+    for i in 1..moved.len() {
+        if moved[i] <= moved[i - 1] {
+            return Err(format!(
+                "these shifts would put the plug from {} at {} and the one from {} at {} — that \
+                 reorders the core, so nothing was changed",
+                plugs[i - 1],
+                moved[i - 1],
+                plugs[i],
+                moved[i]
+            ));
+        }
+    }
+
+    // Where each run's plugs ended up. Runs that moved nothing are dropped: they have no inverse
+    // because they did nothing.
+    let mut spans: Vec<(usize, f32, f32)> = Vec::new();
+    for (idx, &old) in plugs.iter().enumerate() {
+        if let Some(ri) = run_for(old) {
+            let new = moved[idx];
+            match spans.iter_mut().find(|(r, _, _)| *r == ri) {
+                Some(s) => {
+                    s.1 = s.1.min(new);
+                    s.2 = s.2.max(new);
+                }
+                None => spans.push((ri, new, new)),
+            }
+        }
+    }
+    spans.sort_by(|a, b| a.1.total_cmp(&b.1));
+    // Boundaries sit halfway between one run's deepest plug and the next run's shallowest, so
+    // every plug a run moved is inside its own inverse range, no plug is inside two, and a point
+    // sample that sits in the gap between barrels still rides back with the barrel above it.
+    let inverse: Vec<RunShift> = spans
+        .iter()
+        .enumerate()
+        .map(|(i, &(ri, lo, hi))| {
+            let top = if i == 0 {
+                lo - 0.5
+            } else {
+                0.5 * (spans[i - 1].2 + lo)
+            };
+            let base = if i + 1 == spans.len() {
+                hi + 0.5
+            } else {
+                0.5 * (hi + spans[i + 1].1)
+            };
+            RunShift { top, base, delta: -runs[ri].delta }
+        })
+        .collect();
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let case = run_shift_case(runs, "depth");
+    let plugs_moved = tx
+        .execute(
+            &format!(
+                "UPDATE core_data SET depth = {case}
+                 WHERE well_id = ?1 AND set_name = {ACTIVE_CORE_SET}"
+            ),
+            params![well_id],
+        )
+        .map_err(|e| e.to_string())?;
+
+    let mut extras = 0usize;
+    let top_case = run_shift_case(runs, "a.depth_top");
+    let base_case = run_shift_case_on(runs, "a.depth_top", "a.depth_base");
+    for dataset in datasets {
+        extras += tx
+            .execute(
+                &format!(
+                    "UPDATE aux_data AS a SET depth_top = {top_case}, depth_base = {base_case}
+                     WHERE a.well_id = ?1 AND a.dataset = ?2 AND a.set_name = {ACTIVE_AUX_SET}"
+                ),
+                params![well_id, dataset],
+            )
+            .map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(CoreShiftCounts { plugs: plugs_moved, extras, inverse })
+}
+
+/// Every plug of the ACTIVE core delivery as `(where the lab said it was, where it is now)`,
+/// ordered by the delivered depth. This IS the well's core depth record, kept in the core itself
+/// rather than in a side table of shift history — it survives per-barrel shifts, single-plug
+/// nudges and re-registrations without any bookkeeping, and it cannot drift out of sync with the
+/// data it describes.
+pub fn core_depth_pairs(conn: &Connection, well_id: &str) -> DbResult<Vec<(f32, f32)>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT COALESCE(depth_orig, depth), depth FROM core_data
+         WHERE well_id = ?1 AND set_name = {ACTIVE_CORE_SET} ORDER BY 1"
+    ))?;
+    let rows = stmt.query_map(params![well_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+/// Where a depth written by the lab now sits, given the core's own record.
+///
+/// Returns `(mapped depth, extrapolated)`. Between plugs the correction is interpolated, which is
+/// the right behaviour when pieces moved inside a barrel: the offset genuinely varies along the
+/// core, and a single number for the whole delivery would be wrong everywhere except one point.
+///
+/// **Outside the cored interval the nearest end's correction is held and `extrapolated` is true.**
+/// There is no evidence out there — the core is what recorded the movement — so the caller must
+/// show which samples were guessed rather than measured, instead of quietly placing them.
+pub fn map_core_depth(pairs: &[(f32, f32)], delivered: f32) -> (f32, bool) {
+    if pairs.is_empty() || !delivered.is_finite() {
+        return (delivered, false);
+    }
+    let offset_at = |i: usize| pairs[i].1 - pairs[i].0;
+    if delivered <= pairs[0].0 {
+        let ex = delivered < pairs[0].0;
+        return (delivered + offset_at(0), ex);
+    }
+    let last = pairs.len() - 1;
+    if delivered >= pairs[last].0 {
+        let ex = delivered > pairs[last].0;
+        return (delivered + offset_at(last), ex);
+    }
+    let i = pairs.partition_point(|p| p.0 < delivered);
+    let (d0, d1) = (pairs[i - 1].0, pairs[i].0);
+    let (o0, o1) = (offset_at(i - 1), offset_at(i));
+    let t = if d1 > d0 { (delivered - d0) / (d1 - d0) } else { 0.0 };
+    (delivered + o0 + (o1 - o0) * t, false)
 }
 
 /// The point datasets that were delivered as part of the well's ACTIVE core table — those whose
