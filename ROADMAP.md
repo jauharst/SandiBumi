@@ -1462,6 +1462,17 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       it. **Still not automatic**: a delivery already in the project does not move when the core is
       re-registered afterwards — that is increment 1d, waiting on Jauhar firming up D2.
 
+- [x] **Scale bar calibration (Part 2, the scale gate opened)** — **SHIPPED 2026-07-31**.
+      `src/ui/scaleBarDialog.ts`, the ⇹ button on each Plate Details… row: drag along the plate's
+      own printed scale bar, type what it reads, get a field of view. **The measurement is a pure
+      ratio** — the bar as a FRACTION of the picture's width — so it is invariant to display zoom
+      and to the stored copy's resampling, and comes out already in the form the store wants
+      (verified: the same drag at 848 px and at 400 px displayed width both returned 2000 µm).
+      No snapping, because a 5° error is 0.4%; Actual size is the mode that matters, because
+      hitting the bar's ends is what decides the accuracy. It only FILLS the box — the row's Save
+      still writes it. The optional apply-to-delivery goes row by row so each plate keeps its own
+      preparation and stain. This opens the gate for the dimensional families (B grain size, the
+      sized parts of C).
 - [x] **Pore area from blue-dyed epoxy (Part 2, family A1)** — **SHIPPED 2026-07-31**.
       `petrography.rs` + `poreAreaDialog.ts`, Petrophysics ▸ Petrography ▸ Pore Area…. The first
       measurement off a plate and deliberately the dimensionless one, so it runs on every plate

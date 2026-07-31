@@ -124,6 +124,9 @@ delivered scale has to come from somewhere. Three routes, in order of reliabilit
    a known camera) typed once in the import wizard.
 2. **A drawn calibration**: the user drags a line along the plate's own scale bar and types its
    length. Per plate, tedious, and the only option when the delivery is heterogeneous.
+   _(Shipped 2026-07-31, `scaleBarDialog.ts`. The drag is measured as a FRACTION of the picture's
+   width, so it is invariant to display zoom and to the stored copy's resampling — the same
+   property that made a field of view the right thing to store.)_
 3. **Embedded resolution tags** (TIFF `XResolution`, EXIF). Present sometimes, correct less often,
    and never to be trusted silently — at most a pre-filled guess in route 1.
 

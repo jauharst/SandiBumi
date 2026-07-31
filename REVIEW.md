@@ -6393,3 +6393,32 @@ mean a different physical size on every plate — including the ones with no sca
 stays visible so you can judge it.
 
 **Worth a real test:** run it on a delivery you have point-counted by hand and see how close it lands.
+
+---
+
+## Measuring a plate's own scale bar (2026-07-31)
+
+For plates that print a scale bar instead of stating the field of view. This is what makes grain
+size and pore size possible at all.
+
+- [ ] **Data ▸ Tools ▾ ▸ Plate Details…**, then the **⇹** button in a plate's FOV column.
+- [ ] Switch to **Actual size** and scroll to the bar. This is worth doing — one pixel out on a
+      100-pixel bar is 1%, and looking closer is the only cure.
+- [ ] Drag from one end of the bar to the other. A red line with end caps shows exactly where you
+      landed, and the readout gives the bar as a percentage of the plate.
+- [ ] Type what the bar reads (500 µm, 1 mm, whatever is printed) and the field of view appears,
+      with the µm/px it works out to.
+- [ ] **Use this scale** fills the FOV box in the table. Press the row's **Save** to keep it — the
+      measuring does not write anything by itself.
+- [ ] Tick **Apply to every plate of this delivery** before accepting if they were all shot at the
+      same magnification. Each plate keeps its own impregnation and stain — only the scale changes.
+- [ ] **Ctrl+Z** after that undoes the whole delivery.
+- [ ] Press **Esc** in the middle of measuring. Nothing should be written or left half-done.
+
+**Why it does not care about zoom:** the bar is measured as a *share of the picture*, not in pixels.
+If the bar is a quarter of the plate's width and reads 500 µm, the plate is 2 mm across — and that
+stays true whether you are looking at it fit-to-window or at full size, and whether the stored copy
+was shrunk on import or not.
+
+**Worth a real test:** measure the same bar twice, once fitted and once at actual size, and check you
+get the same answer to within your own hand.

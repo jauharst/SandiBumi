@@ -12,6 +12,7 @@ import { recordProcess } from "../processLog";
 import { pushUndo } from "../undo";
 import { formRow, openModal } from "./modal";
 import { buildPlateDetails } from "./plateDetails";
+import { openScaleBarDialog, scaleBarAppliedToAll } from "./scaleBarDialog";
 
 /** Plate depth, scale and preparation editing (Data ▸ Tools ▾ ▸ Plate Details…).
  *
@@ -223,7 +224,52 @@ export async function openPlateDepthDialog(): Promise<void> {
         img.fov_um == null
           ? "No scale declared. Grain and pore size cannot be measured on this plate."
           : `${(img.fov_um / img.width).toFixed(3)} µm/px on the stored copy (${img.width} px wide)`;
-      cell(fovIn);
+
+      // The route for a plate that states its scale as a BAR rather than in the caption. It only
+      // FILLS the box — the row's own Save is still what writes it, so a calibration is reviewed
+      // like any other typed value.
+      const calBtn = document.createElement("button");
+      calBtn.className = "btn";
+      calBtn.textContent = "⇹";
+      calBtn.title = "Measure the plate's own scale bar";
+      calBtn.addEventListener("click", () => {
+        void (async () => {
+          const fov = await openScaleBarDialog(img);
+          if (fov == null) return;
+          fovIn.value = (fov / 1000).toFixed(4);
+          setStatus(`${img.name}: field of view ${(fov / 1000).toFixed(3)} mm — press Save to keep it`);
+          if (!scaleBarAppliedToAll()) return;
+          // Applied across the delivery row by row rather than in one statement, because each
+          // plate keeps its OWN preparation and stain: a scale must not quietly overwrite what
+          // the section was made of. Slower, and the only version that is right.
+          const mine = rows.filter((r) => r.dataset === img.dataset);
+          const before = mine.map((r) => ({ ...r }));
+          for (const r of mine) await setImageDetails(r.image_id, fov, r.prepared || null, r.stain || null);
+          setStatus(`Field of view ${(fov / 1000).toFixed(3)} mm on ${mine.length} plate(s) of ${img.dataset}`);
+          recordProcess("Edit", `Scale bar on ${img.dataset}: ${mine.length} plate(s)`, well!.well_name);
+          pushUndo({
+            label: `plate scale ${img.dataset} (${well!.well_name})`,
+            undo: async () => {
+              for (const r of before) await setImageDetails(r.image_id, r.fov_um, r.prepared || null, r.stain || null);
+              await refresh();
+              bumpDataVersion();
+            },
+            redo: async () => {
+              for (const r of before) await setImageDetails(r.image_id, fov, r.prepared || null, r.stain || null);
+              await refresh();
+              bumpDataVersion();
+            },
+          });
+          await refresh();
+          bumpDataVersion();
+        })();
+      });
+      const fovCell = document.createElement("div");
+      fovCell.style.display = "flex";
+      fovCell.style.gap = "4px";
+      fovCell.appendChild(fovIn);
+      fovCell.appendChild(calBtn);
+      cell(fovCell);
 
       const prepIn = document.createElement("select");
       prepIn.className = "form-control";

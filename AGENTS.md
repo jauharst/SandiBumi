@@ -1119,6 +1119,39 @@ optional package; it builds a plate that is exactly a quarter blue plus a pale v
 hue test alone would count — **it is the saturation floor that rejects that patch**, which is why the
 floor exists.
 
+## Calibrating a plate from its own scale bar (2026-07-31)
+
+`src/ui/scaleBarDialog.ts`, reached from the **⇹** button on each row of Plate Details…. The route
+that makes a plate measurable when it states its scale as a BAR burned into the image rather than as
+a field of view in the caption — which, on Jauhar's "sometimes yes, sometimes not", is a good share
+of them. It is the gate everything dimensional sits behind.
+
+**The measurement is a pure RATIO, and that is the whole reason it is safe.** The drag is taken as a
+FRACTION of the picture's width, so the field of view is `bar length / that fraction`. Nothing in it
+depends on the display zoom, or on the stored copy having been resampled to a long-edge cap — both
+lengths shrank by the same factor and the ratio did not move. This is the same property that made a
+field of view the right thing to store rather than micrometres per pixel, and it means the answer
+comes out already in the form the store wants, with no second conversion to get wrong. Verified in
+the browser: the same drag at a displayed width of 848 px and of 400 px both returned 2000 µm.
+
+Endpoints are held as fractions of the natural width/height for the same reason — they survive a
+view-mode switch and a window resize without being recomputed.
+
+**A crooked drag costs almost nothing, so there is no snapping.** Off a truly horizontal bar by 5°
+the measured length is long by 0.4%, because the error is second-order in the angle. What actually
+decides the accuracy is hitting the bar's ENDS, which is what the **Actual size** mode is for — one
+pixel of a 100 px bar is 1%, and there is no way to shrink that except to look closer.
+
+**It only FILLS the box.** The row's own Save is still what writes the value, so a calibration is
+reviewed like any other typed number rather than being applied by the act of measuring. The optional
+"apply to every plate of this delivery" writes row by row rather than through
+`set_image_delivery_details`, because each plate must keep its OWN preparation and stain: a scale
+must never quietly overwrite what the section was made of. Slower, and the only version that is
+right.
+
+`openModal` has no close hook, so the dialog watches `#modal-root` for its content being detached
+and resolves `null` — a caller awaiting a calibration must not be left hanging on Esc or ✕.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under
