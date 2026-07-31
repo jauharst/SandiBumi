@@ -30,7 +30,7 @@ Pile D is the number that matters: **37 tests, about one in seven, genuinely nee
 | Pile | Done | Remaining |
 |---|---|---|
 | **A** — was already pinned before this work started | **21** | — |
-| **B** — a Rust test now checks it | **35** | 8 (of 43 — T-IMP-06 and T-RT-18 regraded out) |
+| **B** — a Rust test now checks it | **38** | 5 (of 43 — T-IMP-06 and T-RT-18 regraded out) |
 | **C** — a machine now drives it | **5 harness tests** | 81 unblocked (+61 blocked) |
 
 ### Pile A — the checklist
@@ -81,8 +81,11 @@ verification mark** — that lives in `docs/manual_test_plan.md` and nothing aut
 touches it. A `[x]` below says the arithmetic is pinned; it does not say the feature works on
 your wells.
 
-**Done (35 of 43)**
+**Done (38 of 43)**
 
+- [x] **T-REP-02** — Composite render: layout, print scale, page size, pagination · `a_metre_of_formation_occupies_its_declared_millimetres_on_the_page` + `the_page_count_follows_the_print_scale_and_the_page_size` (`composite.rs`). The scale is now measured in the ARTWORK — the emitted depth labels — not just asserted as arithmetic.
+- [x] **T-REP-09** — "Tables only" mode · `tables_only_drops_the_composite_pages_and_still_dates_the_cover_to_real_rock` + `a_composite_depth_window_re_dates_a_cover_whose_tables_ignore_it` (`report.rs`). One residual — see finding 18, which also explains why the audit's slowness is not a missing `if`.
+- [x] **T-AUX-07** — Well-diagram track in Composite/Report + old layouts · `a_well_diagram_draws_its_strings_shoes_and_perforations_at_the_declared_depths` + `a_well_diagram_track_is_redrawn_on_every_composite_page` + `a_layout_saved_before_well_diagram_tracks_opens_as_curves` (`composite.rs`). Clean.
 - [x] **T-SHELL-09** — NEGATIVE: project switch refused while a chain runs · `a_registered_chain_holds_the_project_switch_shut_until_it_is_really_finished` + `a_chain_that_never_reports_a_terminal_status_jams_the_guard_permanently` (`chain.rs`). The guard is correct and closes its own pre-flight window. One residual — see finding 17.
 - [x] **T-SHELL-07** — Save Project As = backup copy · `save_as_writes_a_backup_copy_and_leaves_the_app_on_the_original` (`project.rs`). Backup-copy semantics confirmed from both sides: the copy is a snapshot, the later edit lands in the original only.
 - [x] **T-PREP-18** — Splice Curves at depth · `a_gap_in_the_contributing_run_stays_a_gap` + `a_sample_with_no_depth_is_not_assigned_to_a_side` (`modules.rs`), beside the existing `splice_switches_at_depth`. Clean — a gap in the contributing run is never filled from the other run.
@@ -216,14 +219,11 @@ All three items flagged **silent-wrongness class** (T-REP-18, T-SHIP-03, T-INT-1
 
 Pile B is therefore 43 items, not 45.
 
-**Open (8)**
+**Open (5)**
 
 - [ ] T-PLOT-19 — Curve Edit negatives (invalid input, stale undo)
-- [ ] T-REP-02 — Composite render: layout, print scale, pagination
-- [ ] T-REP-09 — "Tables only" mode
 - [ ] T-REP-14 — DB Inspector: browse all 8 tables
 - [ ] T-REP-16 — DB Inspector negatives
-- [ ] T-AUX-07 — Well-diagram track in Composite/Report + old layouts
 - [ ] T-PETRO-02 — vsh_gr nonlinear options + version N+1
 - [ ] T-ADV-17 — SandiMin re-run, lowercase prefix, no shadow rows
 
@@ -513,7 +513,7 @@ these turns on a judgement about real rock, a visual read, or a feel for whether
 
 ---
 
-## Seventeen things the triage found that are worth fixing regardless
+## Eighteen things the triage found that are worth fixing regardless
 
 These came out of reading all 250 tests against the current code. Each was verified directly,
 not taken on a subagent's word. **Findings 1, 2 and 3 have since been fixed — see the notes
@@ -928,6 +928,35 @@ exists and carries `#[allow(dead_code)]` precisely because nothing emits it. The
 the user should then be told, and whether a chain that died mid-write should let the project be
 switched at all or should insist on a restart. Making the change fails this test, which is the
 alarm.
+
+### 18. The report cover states the composite's PRINT WINDOW, not the logged interval — **OPEN, your call**
+
+The cover's "Interval: … – … m" is read straight off the composite pagination
+(`report.rs:319` — `composite_pages.first().top` / `.last().bot`), and that pagination honours the
+render's depth window. So setting a print window re-dates the whole report, **including the tables
+the window never touched**: `run_pay_summary` works per zone and knows nothing about the composite
+window. A report rendered over 1005–1010 m carries a pay table covering every zone in the well
+under a cover announcing a 5 m interval. On a **tables-only** render there are no log pages left to
+show the reader that the window was only ever a print setting.
+
+Pinned as-is by `a_composite_depth_window_re_dates_a_cover_whose_tables_ignore_it` (`report.rs`),
+which renders a 1005–1010 window over a well whose only zone is 1012–1019 and finds that zone
+reported in full under the narrowed cover.
+
+**The same line explains the audit's tables-only slowness, and constrains its fix.**
+AUDIT-2026-07-21 (Viz/reporting #3) reads as though `report_pages` forgot an `if`: the composite is
+rendered unconditionally at `:314` and only skipped when appending at `:463`. It did not forget.
+The comment at `:312` says why — "Composite pages (also gives the true interval for the cover)" —
+so the expensive render is what supplies the cover's one remaining fact. Skip it naively and the
+cover falls to the `unwrap_or(0.0)` default and prints **"Interval: 0.0 – 0.0 m"** on a client
+deliverable.
+
+**Your call, and both halves want the same fix**: give the cover its own cheap logged-interval
+query (`MIN`/`MAX` depth), which makes tables-only genuinely fast AND lets a print window be stated
+separately from the interval the study covers. Whether the cover should then name the window at all
+is a document-design decision, which is why this is yours. Making the change fails that test, which
+is the alarm. The correct behaviour of tables-only otherwise is pinned by
+`tables_only_drops_the_composite_pages_and_still_dates_the_cover_to_real_rock`.
 
 ---
 

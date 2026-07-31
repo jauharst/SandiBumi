@@ -2014,6 +2014,178 @@ mod tests {
         assert!(cs.draw_style.is_none() && cs.fill_to.is_none() && cs.fill_color2.is_none());
     }
 
+    /// T-AUX-07, the compatibility half. `layouts_saved_before_crossover_still_load` above covers
+    /// the CurveStyle fields; this covers the field the diagram feature added to the TRACK, which
+    /// is the one that would break every layout the user has ever saved.
+    ///
+    /// A layout is stored as JSON in the project. Every layout written before well-diagram tracks
+    /// existed has no `kind` key at all, so without `#[serde(default)]` on `Track::kind` the whole
+    /// layout fails to deserialize — and a layout that will not load takes the user's track
+    /// widths, scales, colours and curve choices with it. Defaulting to `Curves` is what makes an
+    /// old layout open as exactly what it was.
+    #[test]
+    fn a_layout_saved_before_well_diagram_tracks_opens_as_curves() {
+        // Deliberately written as a PRE-feature layout would have been stored: no `kind`, no
+        // `points`, no `arrays`, no `images` — only the keys that existed at the time.
+        let old: crate::layout::Layout = serde_json::from_value(serde_json::json!({
+            "name": "My Field Layout",
+            "tracks": [{
+                "title": "GR",
+                "width_weight": 1.0,
+                "scale_type": "linear",
+                "curves": [{ "curve_name": "GR", "color": "#2e7d32", "min": 0.0, "max": 150.0 }]
+            }]
+        }))
+        .expect("a layout saved before well-diagram tracks must still deserialize");
+
+        assert_eq!(old.name, "My Field Layout");
+        let t = &old.tracks[0];
+        assert_eq!(t.kind, crate::layout::TrackKind::Curves, "an absent kind means a curve track");
+        assert_eq!(t.curves[0].curve_name, "GR");
+        // The three later collections default to empty rather than to a missing-field error.
+        assert!(t.points.is_empty() && t.arrays.is_empty() && t.images.is_empty());
+    }
+
+    /// T-AUX-07, the artwork half. The well diagram is the one track whose content is not a
+    /// curve, so nothing else in the render path exercises it — and it is read for DEPTH: an
+    /// engineer checks that a perforation sits in the sand and above the contact, and that the
+    /// shoe is where the completion report says it is. A casing shoe drawn at the wrong depth is
+    /// a picture that argues for perforating the wrong interval.
+    #[test]
+    fn a_well_diagram_draws_its_strings_shoes_and_perforations_at_the_declared_depths() {
+        // A surface string that ends on this page, and a liner that runs past its base. The
+        // depths are the completion report's; the y map is 1:1 so a depth reads as a y.
+        let casing = vec![
+            crate::db::AuxRow {
+                dataset: "COMPLETION".into(), depth_top: 1000.0, depth_base: Some(1100.0),
+                item: "SURFACE".into(), value_num: Some(9.625), value_text: None,
+            },
+            crate::db::AuxRow {
+                dataset: "COMPLETION".into(), depth_top: 1080.0, depth_base: Some(1190.0),
+                item: "LINER".into(), value_num: Some(7.0), value_text: None,
+            },
+        ];
+        let perfs = vec![crate::db::AuxRow {
+            dataset: "PERFORATION".into(), depth_top: 1120.0, depth_base: Some(1125.0),
+            item: "PERF".into(), value_num: None, value_text: None,
+        }];
+
+        let mut ops = Vec::new();
+        let y = |d: f32| d as f64;
+        draw_well_diagram(&mut ops, &casing, &perfs, 0.0, 20.0, 1000.0, 1200.0, &y);
+        let cx = 10.0;
+
+        // Casing walls: a symmetric PAIR per string, spanning exactly top to base.
+        let walls: Vec<(f64, f64, f64)> = ops
+            .iter()
+            .filter_map(|o| match o {
+                DrawOp::Line { x1, y1, x2, y2, stroke, .. }
+                    if stroke == "#5a5a5a" && (x1 - x2).abs() < 1e-9 =>
+                {
+                    Some((*x1, *y1, *y2))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(walls.len(), 4, "two strings, two walls each");
+        let surface: Vec<_> = walls.iter().filter(|w| (w.1 - 1000.0).abs() < 1e-9).collect();
+        assert_eq!(surface.len(), 2, "the surface string draws a symmetric pair");
+        assert!((surface[0].2 - 1100.0).abs() < 1e-9, "and stops at its declared shoe depth");
+        assert!(
+            ((surface[0].0 - cx) + (surface[1].0 - cx)).abs() < 1e-9,
+            "the pair must straddle the track centre"
+        );
+
+        // The wider string draws wider. This is the only thing on the page that says which
+        // casing is which, so an OD that did not affect the width would make the picture mute.
+        let half = |top: f64| -> f64 {
+            walls.iter().find(|w| (w.1 - top).abs() < 1e-9).map(|w| (w.0 - cx).abs()).unwrap()
+        };
+        assert!(half(1000.0) > half(1080.0), "9.625 in must draw wider than 7 in");
+
+        // Shoe markers: a filled square at each wall, at each string's base.
+        let shoes: Vec<f64> = ops
+            .iter()
+            .filter_map(|o| match o {
+                DrawOp::Rect { y, fill: Some(f), .. } if f == "#333333" => Some(*y),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(shoes.len(), 4, "two shoes, two markers each");
+        assert!(shoes.iter().filter(|y| (**y - (1100.0 - 1.2)).abs() < 1e-9).count() == 2);
+        assert!(shoes.iter().filter(|y| (**y - (1190.0 - 1.2)).abs() < 1e-9).count() == 2);
+
+        // OD labels at each string's top, in inches.
+        let labels: Vec<(f64, String)> = ops
+            .iter()
+            .filter_map(|o| match o {
+                DrawOp::Text { y, s, .. } => Some((*y, s.clone())),
+                _ => None,
+            })
+            .collect();
+        assert!(labels.iter().any(|(_, s)| s == "9.625\""), "got {labels:?}");
+        assert!(labels.iter().any(|(_, s)| s == "7\""));
+        let surf_label = labels.iter().find(|(_, s)| s == "9.625\"").unwrap();
+        assert!((surf_label.0 - (1000.0 - 0.8)).abs() < 1e-9, "the label sits at the string top");
+
+        // Perforation ticks stay inside the perforated interval — the assertion an engineer is
+        // really making when they look at this track.
+        let ticks: Vec<f64> = ops
+            .iter()
+            .filter_map(|o| match o {
+                DrawOp::Line { y1, stroke, .. } if stroke == "#c0392b" => Some(*y1),
+                _ => None,
+            })
+            .collect();
+        assert!(!ticks.is_empty(), "a perforated interval must draw ticks");
+        for t in &ticks {
+            assert!(
+                (1120.0..=1125.0).contains(t),
+                "a perf tick at {t} m is outside the perforated interval 1120-1125"
+            );
+        }
+    }
+
+    /// The joint: a well-diagram track in a saved layout actually reaches the rendered pages, on
+    /// EVERY page rather than only the first. A string that runs the length of the well has to be
+    /// redrawn per page — the diagram is not a header block — and a track that quietly rendered
+    /// empty after page 1 would look like the casing stopped at the page break.
+    #[test]
+    fn a_well_diagram_track_is_redrawn_on_every_composite_page() {
+        let conn = Connection::open_in_memory().unwrap();
+        let w = seed_well(&conn); // logged 1000.0 .. 1199.5
+        crate::db::insert_aux_data(
+            &conn,
+            &w,
+            "COMPLETION",
+            "RAW",
+            None,
+            &[crate::db::AuxRow {
+                dataset: "COMPLETION".into(), depth_top: 1000.0, depth_base: Some(1199.0),
+                item: "SURFACE".into(), value_num: Some(9.625), value_text: None,
+            }],
+        )
+        .unwrap();
+
+        let mut spec = full_spec(w, 500, PageSize::A4);
+        spec.layout.tracks.push(serde_json::from_value(serde_json::json!({
+            "title": "Well", "width_weight": 0.6, "scale_type": "linear",
+            "kind": "well_diagram", "curves": []
+        }))
+        .unwrap());
+
+        let (pages, _pw, _ph, _n) = render_pages(&conn, &spec).unwrap();
+        assert!(pages.len() >= 2, "need a multi-page render to prove the diagram repeats");
+        for p in &pages {
+            let walls = p
+                .ops
+                .iter()
+                .filter(|o| matches!(o, DrawOp::Line { stroke, x1, x2, .. } if stroke == "#5a5a5a" && (x1 - x2).abs() < 1e-9))
+                .count();
+            assert_eq!(walls, 2, "page {} lost the casing string", p.idx);
+        }
+    }
+
     #[test]
     fn blocky_style_holds_each_value_down_to_the_next_sample() {
         let vals = [0.2f32, 0.8, 0.8];
@@ -2587,6 +2759,126 @@ mod tests {
         }
         assert!((res.pages.first().unwrap().top_depth - 1000.0).abs() < 1e-3);
         assert!((res.pages.last().unwrap().bottom_depth - 1199.5).abs() < 0.6);
+    }
+
+    /// Every major depth label on a page, as (depth, y-in-mm). The labels are the only ops that
+    /// carry a depth AND a page position, which is what makes the print scale measurable from
+    /// the emitted artwork rather than from the constants that produced it.
+    fn depth_labels(ops: &[DrawOp]) -> Vec<(f64, f64)> {
+        let mut out: Vec<(f64, f64)> = ops
+            .iter()
+            .filter_map(|o| match o {
+                // The depth column sits at the far left; a track's own header text is higher up
+                // and never parses as a bare integer.
+                DrawOp::Text { x, y, s, .. } if *x < MARGIN_L + DEPTH_TRACK_W => {
+                    s.parse::<f64>().ok().map(|d| (d, *y))
+                }
+                _ => None,
+            })
+            .collect();
+        out.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        out
+    }
+
+    /// T-REP-02. `print_scale_is_physically_exact` below checks that 1000/200 is 5.0, which is
+    /// arithmetic — it never looks at the page. This measures the scale in the ARTWORK: how far
+    /// apart the depth labels actually land.
+    ///
+    /// The claim is the one the whole print path rests on. At 1:200 one metre of formation must
+    /// occupy exactly 5 mm of paper, because someone will put a ruler on the printed log and read
+    /// a sand thickness off it. A composite that is out by a few percent still looks entirely
+    /// correct — the curves are there, the grid is even, the header says 1:200 — and the error
+    /// only surfaces as a thickness that disagrees with the tops.
+    #[test]
+    fn a_metre_of_formation_occupies_its_declared_millimetres_on_the_page() {
+        let conn = Connection::open_in_memory().unwrap();
+        let w = seed_well(&conn);
+
+        for scale in [200u32, 500, 1000] {
+            let (pages, _pw, _ph, _n) =
+                render_pages(&conn, &full_spec(w.clone(), scale, PageSize::A4)).unwrap();
+            let labels = depth_labels(&pages[0].ops);
+            assert!(labels.len() >= 3, "1:{scale} produced too few depth labels to measure");
+
+            let expected_mm_per_m = 1000.0 / scale as f64;
+            // Every adjacent pair, not just the ends: a scale that drifted across the page
+            // would still pass an end-to-end check.
+            for pair in labels.windows(2) {
+                let (d0, y0) = pair[0];
+                let (d1, y1) = pair[1];
+                let mm_per_m = (y1 - y0) / (d1 - d0);
+                assert!(
+                    (mm_per_m - expected_mm_per_m).abs() < 1e-9,
+                    "1:{scale}: {d0} m to {d1} m spans {:.6} mm/m, expected {expected_mm_per_m}",
+                    mm_per_m
+                );
+            }
+            // Deeper prints lower. A sign slip here mirrors the log vertically, which is
+            // obvious on screen and easy to miss in a page of vector ops.
+            assert!(labels[0].1 < labels[labels.len() - 1].1, "1:{scale}: depth must increase downwards");
+        }
+    }
+
+    /// T-REP-02, the pagination half. Page count is not a cosmetic property: it is what says the
+    /// depth-per-page came out right. If a page silently held more metres than the scale allows,
+    /// the curves would be compressed to fit and the print scale in the header would be a lie.
+    ///
+    /// The relationships are checked rather than a hardcoded count, and the ratios are
+    /// deliberately loose in one direction — the FIRST page carries a taller metadata header
+    /// (32 mm against 8 mm) so it holds fewer metres than the pages after it. That is why the
+    /// plan says "≈2.5×" rather than exactly 2.5, and why a short well can give the same page
+    /// count at two different page sizes.
+    #[test]
+    fn the_page_count_follows_the_print_scale_and_the_page_size() {
+        let conn = Connection::open_in_memory().unwrap();
+        let w = seed_well(&conn); // logged 1000.0 .. 1199.5
+
+        let count = |scale: u32, page: PageSize| -> usize {
+            render_composite(&conn, &full_spec(w.clone(), scale, page)).unwrap().pages.len()
+        };
+        let a4_200 = count(200, PageSize::A4);
+        let a4_500 = count(500, PageSize::A4);
+        let a4_1000 = count(1000, PageSize::A4);
+        let a3_200 = count(200, PageSize::A3);
+
+        assert!(a4_200 > a4_500, "1:200 must need more pages than 1:500 ({a4_200} vs {a4_500})");
+        assert!(a4_500 > a4_1000, "1:500 must need more pages than 1:1000 ({a4_500} vs {a4_1000})");
+        assert!(
+            a3_200 < a4_200,
+            "a taller page holds more rock at the same scale ({a3_200} on A3 vs {a4_200} on A4)"
+        );
+
+        // The metres one page holds scale exactly with the denominator. Measured on page ONE,
+        // because it is the only page guaranteed to be full at both scales here: the LAST page
+        // is clipped at TD, and this well is short enough that 1:500 has no page in between.
+        // Comparing two first pages is still like-for-like — both carry the tall header.
+        let first_page_metres = |scale: u32| -> f64 {
+            let res = render_composite(&conn, &full_spec(w.clone(), scale, PageSize::A4)).unwrap();
+            assert!(res.pages.len() >= 2, "1:{scale} fits on one page — page 1 would be clipped at TD");
+            let p = &res.pages[0];
+            (p.bottom_depth - p.top_depth) as f64
+        };
+        let m200 = first_page_metres(200);
+        let m500 = first_page_metres(500);
+        assert!(
+            (m500 / m200 - 2.5).abs() < 1e-4,
+            "a 1:500 page must hold exactly 2.5x the rock of a 1:200 one ({m500} vs {m200})"
+        );
+
+        // Every page set tiles its interval exactly: no gap (rock printed on no page) and no
+        // overlap (rock printed twice, which reads as a repeated section).
+        for scale in [200u32, 500, 1000] {
+            let res = render_composite(&conn, &full_spec(w.clone(), scale, PageSize::A4)).unwrap();
+            for pair in res.pages.windows(2) {
+                assert!(
+                    (pair[1].top_depth - pair[0].bottom_depth).abs() < 1e-3,
+                    "1:{scale}: page {} ends at {} and page {} starts at {}",
+                    pair[0].index, pair[0].bottom_depth, pair[1].index, pair[1].top_depth
+                );
+            }
+            assert!((res.pages.first().unwrap().top_depth - 1000.0).abs() < 1e-3, "1:{scale} top");
+            assert!((res.pages.last().unwrap().bottom_depth - 1199.5).abs() < 0.6, "1:{scale} base");
+        }
     }
 
     #[test]

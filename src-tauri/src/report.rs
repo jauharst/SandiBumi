@@ -709,6 +709,154 @@ mod tests {
         assert_eq!(written[0], written[2], "two entries point at one path: {written:?}");
     }
 
+    /// T-REP-09. "Tables only" must produce a document that is COMPLETE without the composite
+    /// pages — which means the cover still has to state a real logged interval. A cover reading
+    /// "Interval: 0.0 – 0.0 m" would be a client deliverable that says the well was never logged.
+    ///
+    /// This also pins the shape of the audit's known slowness. `report_pages` renders the
+    /// composite UNCONDITIONALLY at `report.rs:314` and only skips APPENDING it at `:463`, which
+    /// looks like a missing `if` — and is not. The comment at `:312` says why: "Composite pages
+    /// (also gives the true interval for the cover)". The interval is read straight off the
+    /// composite pagination (`:319`), so the expensive render is what supplies the cover's one
+    /// remaining fact. Anyone making tables-only fast has to give the cover its own cheap source
+    /// (a MIN/MAX depth query) FIRST, or the fix trades a slow report for a wrong one.
+    #[test]
+    fn tables_only_drops_the_composite_pages_and_still_dates_the_cover_to_real_rock() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        db::insert_well(&conn, wid, "SANDI-REP-09", Some("Sandi Field"), Some(1300.0), Some(20.0)).unwrap();
+        let w = wid.to_string();
+
+        // Logged 1000.0 .. 1019.5 — deliberately not starting at zero, so a cover that lost the
+        // interval cannot pass by accident.
+        let n = 40usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            &conn, wid, depth.clone(), vec![50.0; n], vec![2.0; n], vec![0.25; n],
+            vec![2.4; n], nan.clone(), nan,
+        )
+        .unwrap();
+        for (name, v) in [("VSH", 0.2f32), ("PHIE", 0.20), ("SWE", 0.30)] {
+            equations::write_computed_curve(&conn, &w, &depth, name, &vec![v; n]).unwrap();
+        }
+        db::upsert_zone(&conn, &w, "UPPER", 1000.0, 1010.0).unwrap();
+
+        let dbm = Mutex::new(conn);
+        let text_of = |ops: &Vec<DrawOp>| -> String {
+            ops.iter()
+                .filter_map(|op| match op {
+                    DrawOp::Text { s, .. } => Some(s.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join(" | ")
+        };
+
+        let mut spec = batch_spec();
+        spec.composite.well_id = w.clone();
+        spec.tables_only = true;
+        let (tables, _pw, _ph, _n) = report_pages(&dbm, &spec).expect("tables-only render");
+        let t_texts: Vec<String> = tables.iter().map(text_of).collect();
+
+        // Exactly the four sections, in order, and nothing after the pay summary.
+        assert_eq!(tables.len(), 4, "cover + methodology + zone params + pay summary: {t_texts:#?}");
+        assert!(t_texts[0].contains("Well: SANDI-REP-09"), "page 1 is the cover: {}", t_texts[0]);
+        assert!(t_texts[1].contains("Methodology"), "{}", t_texts[1]);
+        assert!(t_texts[2].contains("Zone Parameters"), "{}", t_texts[2]);
+        assert!(t_texts[3].contains("Pay Summary"), "{}", t_texts[3]);
+
+        // The cover dates the study to the rock that was actually logged.
+        assert!(
+            t_texts[0].contains("Interval: 1000.0 \u{2013} 1019.5 m"),
+            "the cover must state the true logged interval: {}",
+            t_texts[0]
+        );
+        assert!(t_texts[0].contains("TD: 1300.0 m") && t_texts[0].contains("KB: 20.0 m"));
+
+        // The control: with the composite ON, those same four pages are still the first four and
+        // the log pages come after. Without this, a tables-only mode that silently dropped a
+        // table would pass every assertion above.
+        let mut full = spec.clone();
+        full.tables_only = false;
+        let (all, _pw, _ph, _n) = report_pages(&dbm, &full).expect("full render");
+        assert!(all.len() > tables.len(), "the composite pages must actually be appended");
+        for i in 0..4 {
+            assert_eq!(text_of(&all[i]), t_texts[i], "page {i} differs between the two modes");
+        }
+    }
+
+    /// KNOWN GAP, pinned AS-IS and not endorsed. The cover's interval is read off the COMPOSITE
+    /// pagination, which honours the render's depth window — so setting one re-dates the whole
+    /// report, including the tables, which the window never touched.
+    ///
+    /// The pay summary is computed per ZONE by `run_pay_summary` and knows nothing about the
+    /// composite window. So a report rendered over 1005–1010 carries a pay table covering every
+    /// zone in the well under a cover announcing a 5 m interval. On a tables-only render there
+    /// are no log pages left to show the reader that the window was only ever a print setting.
+    ///
+    /// A fix would give the cover a real logged-interval query and state any print window
+    /// separately, which is also what makes tables-only fast (see the test above). Making that
+    /// change fails this test, which is the alarm.
+    #[test]
+    fn a_composite_depth_window_re_dates_a_cover_whose_tables_ignore_it() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        db::insert_well(&conn, wid, "SANDI-REP-09B", None, None, None).unwrap();
+        let w = wid.to_string();
+        let n = 40usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            &conn, wid, depth.clone(), vec![50.0; n], vec![2.0; n], vec![0.25; n],
+            vec![2.4; n], nan.clone(), nan,
+        )
+        .unwrap();
+        for (name, v) in [("VSH", 0.2f32), ("PHIE", 0.20), ("SWE", 0.30)] {
+            equations::write_computed_curve(&conn, &w, &depth, name, &vec![v; n]).unwrap();
+        }
+        // One zone, wholly OUTSIDE the print window below.
+        db::upsert_zone(&conn, &w, "DEEP", 1012.0, 1019.0).unwrap();
+
+        let dbm = Mutex::new(conn);
+        let mut spec = batch_spec();
+        spec.composite.well_id = w;
+        spec.tables_only = true;
+        spec.composite.depth_top = Some(1005.0);
+        spec.composite.depth_bottom = Some(1010.0);
+
+        let (pages, _pw, _ph, _n) = report_pages(&dbm, &spec).expect("render");
+        let cover: String = pages[0]
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::Text { s, .. } => Some(s.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join(" | ");
+
+        assert!(
+            cover.contains("Interval: 1005.0 \u{2013} 1010.0 m"),
+            "pinned AS-IS, not endorsed: the cover states the PRINT window, not the logged \
+             interval 1000.0-1019.5: {cover}"
+        );
+        // And the table underneath it covers a zone the cover's interval excludes entirely.
+        let pay: String = pages[3]
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::Text { s, .. } => Some(s.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join(" | ");
+        assert!(
+            pay.contains("DEEP"),
+            "the pay table reports zone DEEP (1012-1019), which the cover's interval excludes: {pay}"
+        );
+    }
+
     /// T-REP-06. The report is the client deliverable, so its structure and its pay numbers are
     /// checked together: the page ORDER the plan describes (cover, methodology, zone parameters,
     /// pay summary), and the domain invariants the reader relies on to trust the table —

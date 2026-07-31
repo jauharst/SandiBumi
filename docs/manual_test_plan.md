@@ -4049,6 +4049,10 @@ Shared preconditions for this cluster: app running via `npm run tauri dev`; a pr
 4. Change **Print scale** to 1:200 → **Render**. Then 1:1000 → **Render**.
 5. Change **Page size** to A3 (297×420) → **Render**.
    **Expected:** A vector preview appears (tracks, depth grid, curve traces matching the on-screen Log View for the same layout). Page 1 header shows well name, "Field: … TD: … KB: …", "Layout: {name} Scale 1:{n} Interval {top}–{bot} m", and the grey footer "Made in SandiBumi — composite log". Depth per page must be physically exact: at 1:500 an A4 track window covers ~2.5× the metres of 1:200 — so 1:200 gives ≈2.5× the pages of 1:500, and 1:1000 halves the 1:500 count; each page label's top–bottom range must tile the full logged interval with no gaps/overlap. A3 gives fewer pages than A4 at the same scale. ◀ is disabled on page 1, ▶ on the last.
+
+   **Automated coverage - pinned (pile B, 2026-07-31):** `a_metre_of_formation_occupies_its_declared_millimetres_on_the_page` (composite.rs) measures the scale in the ARTWORK rather than asserting arithmetic — it reads every depth label off the emitted page and checks each adjacent pair spans exactly 1000/scale mm, at 1:200, 1:500 and 1:1000. Every pair, not just the ends, so a scale that drifted down the page could not pass. `the_page_count_follows_the_print_scale_and_the_page_size` covers the counts, the exact 2.5x page-height ratio between 1:500 and 1:200, and the tiling. What is NOT covered and is still yours: the on-screen preview matching the Log View, the page label text, and ◀ / ▶ enable states.
+
+   **Worth knowing before you click: "A3 gives fewer pages" can come out EQUAL, and that is not a failure.** Page count is a step function — the extra height only costs a page when it crosses a boundary. On the test well (199.5 m) A3 and A4 both give 2 pages at 1:500, and A3 only wins at 1:200. If your well is short, compare at the finest scale. Related: the FIRST page holds fewer metres than the ones after it (its metadata header is 32 mm against 8 mm), which is why the plan says "≈2.5x" rather than exactly 2.5 — the exact ratio is between two pages of the same kind.
    **Result — T-REP-02:**
 
 - [ ] Pass
@@ -4190,6 +4194,12 @@ Shared preconditions for this cluster: app running via `npm run tauri dev`; a pr
 2. Page through; then **Save PDF…**.
    **Expected:** Output is correct: cover + methodology + zone params + pay summary only, **no** composite pages, and the cover still states the true logged interval. However the render should feel meaningfully faster than the full render — it currently will NOT be.
    **Known issue:** AUDIT-2026-07-21 (Viz/reporting #3) — "Report generator's 'Tables only' mode still does the full composite computation — it only skips appending the result." Expect tables-only render time ≈ full render time; log as known, not new. Output content itself should still be correct.
+
+   **Automated coverage - pinned (pile B, 2026-07-31):** `tables_only_drops_the_composite_pages_and_still_dates_the_cover_to_real_rock` (report.rs) confirms the output half — exactly four pages in order, no composite, the cover stating the true logged interval, TD and KB — with a full render beside it as the control, so a tables-only mode that silently dropped a TABLE could not pass. Timing is not asserted (a test cannot honestly time a render on a build machine); the slowness is still yours to observe.
+
+   **Worth knowing before you click: the known issue is NOT a missing `if`, and that changes what a fix costs.** `report_pages` renders the composite unconditionally and skips only the appending, because the cover's interval is read off the composite's own pagination — the expensive render supplies the cover's last remaining fact. Remove it naively and the cover prints "Interval: 0.0 – 0.0 m" on a client document. So expect the slowness to persist until the cover gets its own depth query; it is a coupling, not an oversight.
+
+   **KNOWN ISSUE (2026-07-31, finding 18) — OPEN, your call.** Because the interval comes from the pagination, it follows the composite's **print window**. Set a depth window and the cover re-dates the whole report — including the pay table, which is computed per zone and ignores the window entirely. A report rendered over 1005–1010 m carries a table covering every zone in the well under a cover announcing a 5 m interval, and on a tables-only render there are no log pages left to show the reader that the window was only a print setting. If you want to see it: set a narrow window, tick Tables only, and compare the cover against the zones in the pay table.
    **Result — T-REP-09:**
 
 - [ ] Pass
@@ -4559,6 +4569,10 @@ This cluster sweeps the tools and behaviours the first drafting pass missed: the
 3. **Plot ▸ Deliverables ▸ Report…** — set a **Study title**, pick the same layout, **Render**, then **Save PDF…**. The composite pages inside the report carry the diagram track too.
 4. Compatibility: load an OLD saved layout (one created before this feature) via the **Plot ▸ Layout** selector — it must open normally, every track behaving as a Curves track (kind defaults to "curves"), no errors.
    **Expected:** Diagram renders identically in live view, composite SVG/PDF and report PDF; legacy layouts unaffected. _(REVIEW.md ▸ "(16) Well-diagram track … Renders in the log view and the composite/report SVG. Old saved layouts still load (kind defaults to 'curves')", unchecked.)_
+
+   **Automated coverage - pinned (pile B, 2026-07-31):** three tests in composite.rs. `a_well_diagram_draws_its_strings_shoes_and_perforations_at_the_declared_depths` checks the artwork against the completion report's own depths — each string draws a symmetric pair of walls spanning exactly its top to its shoe, the wider OD draws wider, shoe markers land at each base, the OD label sits at the string top, and every perf tick falls inside the perforated interval. `a_well_diagram_track_is_redrawn_on_every_composite_page` is the joint — the diagram is not a header block, so a string running the length of the well must be redrawn per page. `a_layout_saved_before_well_diagram_tracks_opens_as_curves` covers step 4 by deserializing a layout written the way a pre-feature one was stored (no `kind`, no `points`/`arrays`/`images` keys at all).
+
+   **Worth knowing before you click:** the diagram track draws from the **COMPLETION** and **PERFORATION** point datasets, and like every other point reader it follows the ACTIVE delivery set — so if a well shows an empty diagram, check Data Sets before suspecting the track. The OD label prefers the row's text value and falls back to the number with an inch mark, so a string stored as 9.625 prints `9.625"`. Step 4 matters more than it looks: an old layout that fails to load takes the user's track widths, scales, colours and curve choices with it, so check the tracks look right, not just that it opened.
    **Result — T-AUX-07:**
 
 - [ ] Pass

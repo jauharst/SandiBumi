@@ -872,6 +872,25 @@ The actionable backlog. Roughly ordered: safe frontend wins first, then Performa
       switchable at all after a chain died mid-write, is a judgement about failure semantics.**
       Finding 17.
 
+- [ ] **The report cover states the composite's PRINT WINDOW, not the logged interval.** The
+      cover's "Interval: … – … m" is read straight off the composite pagination (`report.rs:319`),
+      which honours the render's depth window — so setting one re-dates the whole report, including
+      the tables the window never touched. `run_pay_summary` works per zone and knows nothing about
+      the composite window, so a report rendered over 1005–1010 m carries a pay table covering every
+      zone in the well under a cover announcing a 5 m interval; on a **tables-only** render there
+      are no log pages left to show the reader that the window was only a print setting. Pinned
+      as-is by `a_composite_depth_window_re_dates_a_cover_whose_tables_ignore_it` (`report.rs`).
+      **The same line explains the audit's tables-only slowness and constrains its fix.**
+      AUDIT-2026-07-21 (Viz/reporting #3) reads as a missing `if` — the composite is rendered
+      unconditionally at `:314` and skipped only when appending at `:463` — but `:312` says why:
+      "Composite pages (also gives the true interval for the cover)". Skip it naively and the cover
+      falls to `unwrap_or(0.0)` and prints "Interval: 0.0 – 0.0 m" on a client document. **Not
+      fixed, and both halves want the same fix: give the cover its own cheap logged-interval
+      (MIN/MAX depth) query, which makes tables-only genuinely fast and lets a print window be
+      stated separately. Whether the cover should name the window at all is a document-design
+      decision.** Correct tables-only behaviour otherwise is pinned by
+      `tables_only_drops_the_composite_pages_and_still_dates_the_cover_to_real_rock`. Finding 18.
+
 - [x] **Legacy-multimin RECON_ERR at 3 tools — CLOSED 2026-07-31, no sign-off needed.** REVIEW.md
       still lists this among the findings awaiting a decision because it would change
       interpretation numbers. It does not need one. Legacy `multimin` is **retired** — `run_module`
