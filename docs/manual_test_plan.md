@@ -1043,6 +1043,13 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 4. With the pane still open, Ctrl-click a 4th well in the Wells pane.
 5. Click **Custom…**.
    **Expected:** (2–3) **Selection** is the active scope, count "3 wells", hover tooltip lists exactly the 3 well names, hint reads "Running on the wells selected in the Wells pane (Ctrl/Shift-click)". (4) Count updates live to "4 wells" without reopening. (5) Custom opens a searchable checklist seeded with those 4 wells ticked. Covers REVIEW.md §Well scope.
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** `scope.e2e.mjs`. The word LIVE is the
+   claim: the open pane must follow a multi-selection growing AND shrinking without being reopened,
+   because a scope that only reads the selection at open time is T-WELL-06's bug one level down. It
+   also checks that Selection with nothing selected resolves to NOTHING rather than falling back to
+   All - the dangerous default, where the user believes they are running on a handful and covers the
+   whole field.
+
    **Result — T-WELL-03:**
 
 - [ ] Pass
@@ -4959,6 +4966,14 @@ This cluster sweeps the tools and behaviours the first drafting pass missed: the
 6. Probe: with the module pane still open, pin a third well, then reselect **★ Pinned** / press Run — the run must include 3 wells (the scope "resolves against live state at run time").
 7. Unpin all but your usual set.
    **Expected:** Stars persist; ★ Pinned scope resolves exactly the pinned set at run time; provenance and History confirm only in-scope wells were written. _(REVIEW.md ▸ "[ ] ★ pin a well in the Wells pane" and ▸ "Well scope — no more well-by-well checklists" with "Group · ★ Pinned · Selection · All · Custom…", and Round 3 "[ ] History attribution" — unchecked.)_
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** `scope.e2e.mjs` covers the star scope
+   resolving to the pinned set, following a second pin without the pane being reopened, and the
+   mirror case - an emptied pinned set resolves to nothing, never to All. The pins are set by
+   CLICKING THE STAR rather than by `set_well_pin`: the scope resolves against
+   `appState.pinnedWellIds`, which only the tree updates, so invoking the command writes the project
+   and leaves the pane reading an empty set. **Not covered:** persistence across a relaunch, and
+   which wells got fresh curves after a run.
+
    **Result — T-AUX-15:**
 
 - [ ] Pass

@@ -214,7 +214,7 @@ click listener the two are equivalent — but when the *gesture* is the thing un
 
 ## Current coverage
 
-Fifty-two tests across eleven spec files. Specs share ONE app launch and one project (see the spec
+Fifty-six tests across twelve spec files. Specs share ONE app launch and one project (see the spec
 grouping note in `wdio.conf.mjs`), so write each one to establish what it needs and to assert
 changes as before/after differences rather than as absolute state.
 
@@ -328,6 +328,15 @@ correct one if you only read the message.
 | A two-step chain saves | The stored JSON carries the steps in the order they were added |
 | It reloads in order | Cleared, reloaded, re-saved, compared as JSON |
 | Delete | Gone from the store |
+
+`scope.e2e.mjs` — how a batch pane resolves its scope (T-WELL-03, T-AUX-15):
+
+| Test | What it proves |
+|---|---|
+| All resolves to every well | The baseline |
+| Selection follows the tree LIVE | Growing and shrinking, without reopening the pane |
+| The star scope resolves to the pinned set | And follows a second pin |
+| An empty set resolves to nothing | Never a silent fallback to All |
 
 Test data is `dataset for test/examples/` (`SANDI-*`) only. Never a real client project, never a
 path from `SANDIBUMI_FIELD_FIXTURES`.

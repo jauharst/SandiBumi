@@ -235,7 +235,14 @@ can fail for reasons unrelated to the code is a gate people learn to ignore.
 **`[x]` here means an end-to-end test drives it against the real app. It is NOT your verification
 mark** — same rule as pile B.
 
-**Done (20 of 86)**
+**Done (21 of 86)**
+
+- [x] **T-WELL-03** — A multi-selection feeds a batch pane's Selection scope, LIVE ·
+      `scope.e2e.mjs`. The word live is the claim: the pane must follow a selection growing AND
+      shrinking without being reopened, because a scope that only reads the selection at open time
+      is T-WELL-06's bug one level down. Also checks that Selection with nothing selected resolves
+      to NOTHING rather than quietly falling back to All — the dangerous default, where the user
+      believes they are running on a handful and covers the whole field.
 
 - [x] **T-BATCH-01** — Workflow Builder smoke, step picker clean · `workflow.e2e.mjs`. The picker
       is grouped by category and offers the catalog; the retired `multimin` is absent under both its
@@ -356,6 +363,14 @@ mark** — same rule as pile B.
       a star that looks set and was never written gives a run scope that silently empties on the
       next launch. **Not covered:** the 📌 global well LOCK (a different control from the ★), the
       panel titles following the selection, and ★ persistence across a relaunch.
+
+- [ ] **T-AUX-15** — Pinned wells as a batch-run scope. `scope.e2e.mjs` covers the ★ scope
+      resolving to the pinned set and following a second pin without the pane being reopened, plus
+      the mirror case: an emptied pinned set must resolve to nothing, never to All. **Not covered:**
+      persistence across a relaunch, and which wells got fresh curves after a run. Note the pins are
+      set by CLICKING THE STAR, not by `set_well_pin` — the scope resolves against
+      `appState.pinnedWellIds`, which only the tree updates, so invoking the command writes the
+      project and leaves the pane reading an empty set.
 
 - [ ] **T-BATCH-06** — Workflow negatives. `workflow.e2e.mjs` covers the two SAVE refusals (no
       name, no steps), both frontend-only — `save_document` would store either quite happily — and
