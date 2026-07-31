@@ -1904,6 +1904,10 @@ Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a
 3. Re-run **SW — Archie** with the dialog still showing `RW` = 0.1 (overrides beat the dialog value, per the pane's own hint).
 4. Compare the new SWT version against the previous one in a log view.
    **Expected:** SWT changes **only inside the overridden zone**: with N = 2, SWT there drops by ×√(0.02/0.1) ≈ ×0.45; outside the zone the two versions are identical sample-for-sample. Processing History shows "\<well>: Set RW = 0.02 on zone \<name>" and the re-run entry.
+
+   **Automated coverage - pinned (pile B, 2026-07-31):** `a_zone_parameter_override_moves_that_zone_and_leaves_the_rest_untouched` (workflow.rs) checks exactly the numbers this step names — the ×√(0.02/0.1) ratio inside the zone, and **sample-for-sample equality** outside it (`assert_eq!` on the raw f32, not a tolerance). The dialog still says RW = 0.1 on the re-run, so the override really is what wins.
+
+   **Worth knowing before you click:** a zone interval is **half-open** — `[top, bottom)`. Two adjacent zones written the way anyone writes them (1000–1010 and 1010–1020) do not both claim the sample sitting exactly on 1010; it belongs to the deeper zone. So if you are checking the boundary in a log view, expect the change to stop one sample above where you might read it off the zone table. Also: a `*` override applies well-wide FIRST and a named zone overrides it, so the two stack rather than conflict — and where two NAMED zones overlap, the later one in the table wins silently.
    **Result — T-PETRO-13:**
 
 - [ ] Pass
@@ -2273,6 +2277,12 @@ Shared preconditions: project open in `npm run tauri dev` with at least one Maha
 3. By hand compute FWL − MD and FWL − trueTVD (from the survey) at that depth and compare with HAFWL.
    **Expected:** (desired behaviour) HAFWL = FWL − trueTVD, i.e. the height honours the deviation survey.
    **Known issue:** AUDIT-2026-07-21 "sw_height's TVD input has no producer anywhere in the app — the deviated-well fix (marked DONE, unit-tested) is a no-op in real use" — NOT yet fixed. Expect HAFWL = FWL − MD exactly (the TVD dropdown is a false affordance: no curve named TVD exists, the module silently falls back to measured depth, overstating height ≈ 1/cos(inc) and understating SWH in the deviated section). Mark **Fail — known**, log against the audit finding.
+
+   **THE KNOWN ISSUE ABOVE IS OUT OF DATE — IGNORE IT (2026-07-31).** The producer it says does not exist does: `ingest::materialize_tvd_curves` resamples the deviation survey onto the log depth grid and writes TVD/TVDSS as fetchable curves, on every deviation import. Expect the step to **PASS** — HAFWL = FWL − trueTVD, the desired behaviour. Do not mark Fail out of deference to the paragraph above.
+
+   **Automated coverage - pinned (pile B, 2026-07-31):** `a_deviated_wells_height_is_measured_from_the_survey_not_along_hole` (workflow.rs) runs the whole path — imports a survey (vertical to 1000 m, building to 60° by 2000 m), runs sw_height through the real input resolution, reads HAFWL back from the database — and it lands on FWL − TVD at every sample, more than 500 m above the along-hole answer at TD. It also pins the fallback: a well with **no** survey still measures along hole, which is correct for a vertical well.
+
+   **Worth knowing before you click:** both halves of this were already tested and both were green the whole time the feature was a no-op — `sw_height_uses_tvd_and_allows_tvdss_fwl` hands the module a TVD array by hand, `deviation_import_materializes_tvd_tvdss_curves` checks the survey reaches the log grid. Nothing tested the joint. If your deviated well still reads along hole, check the survey actually imported (the Wells pane ▸ tree shows it) before suspecting the module.
    **Result — T-ADV-13:**
 
 - [ ] Pass
@@ -4103,6 +4113,12 @@ Shared preconditions for this cluster: app running via `npm run tauri dev`; a pr
 2. Leave **Cutoffs VSH/PHIE/SWE/PERM** at defaults 0.5 / 0.1 / 0.6 / blank; **Tables only** unchecked.
 3. Click **Render**; page through with ◀ / ▶.
    **Expected:** Status "{well}: N report page(s)." Page order: (1) cover with title, well, interval, "Prepared by: {name}"; (2) Methodology table (Parameter | Method | Remarks — defaults if you typed nothing); (3) Zone Parameters table listing your zones (zones without params show "-"), your RW override visible; (4) Pay Summary table titled "Pay Summary (VSH ≤ 0.50, PHIE ≥ 0.10, SWE ≤ 0.60)" with per-zone SAND/RESERVOIR/PAY rows — domain check: Net ≤ Gross, 0 ≤ NTG ≤ 1, avg VSH low on SAND rows, avg PHIE plausible for Mahakam sands (~0.1–0.3), HPV ≥ 0 and PAY ⊆ RESERVOIR ⊆ SAND (each successive Net no larger); (5) the composite pages. Each table page footer: "Made in SandiBumi".
+
+   **Automated coverage - pinned (pile B, 2026-07-31):** `a_rendered_report_carries_the_plans_page_order_and_a_self_consistent_pay_table` (report.rs) renders the real document and checks the page order (cover → Methodology → Zone Parameters → Pay Summary, located by first occurrence so a table that paginates does not break it), the cover's title/well/"Prepared by", the exact pay-section title string, the RW override listed by name AND value with an unoverridden zone still shown, and that `tables_only` genuinely stops there. The invariants are checked on the computed rows AND the printed nets are checked to match them, so they are pinned to what ships. The fixture stops every fourth sample at a different cutoff, so SAND/RESERVOIR/PAY are **strictly** decreasing rather than merely non-increasing.
+
+   **KNOWN ISSUE found while writing that test (2026-07-31) — step 3's footer expectation is wrong:** the table pages carry **no footer at all**. "Made in SandiBumi" is emitted by the cover, by every composite page, by the Word document and by the PowerPoint deck — but not by `table_pages`, so the methodology, zone-parameter and pay-summary pages are the only unmarked surface in the deliverable set. Everything else in step 3 checks out. Log as known; whether the mark belongs on every page or only the cover is your call.
+
+   **KNOWN ISSUE (2026-07-31) — "HPV ≥ 0" is not an invariant:** the pay summary sums PHIE·(1−SWE)·h with no floor, so a **negative PHIE inside net sand is subtracted**. A tight carbonate streak reads low GR, clears the VSH cutoff and is flagged SAND, while a density porosity on a sandstone matrix reads slightly negative there. Measured: 2.5 m of streak at PHIE = −0.05 through a 5 m zone understates the SAND row's HPV by over 20%. RESERVOIR and PAY are byte-identical either way (the streak fails the porosity cutoff), so the two rows you check first agree while the SAND row quietly does not. Pinned as-is by `a_dense_stringer_is_subtracted_from_the_sand_rows_hpv`.
    **Result — T-REP-06:**
 
 - [ ] Pass

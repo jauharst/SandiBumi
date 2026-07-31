@@ -30,7 +30,7 @@ Pile D is the number that matters: **37 tests, about one in seven, genuinely nee
 | Pile | Done | Remaining |
 |---|---|---|
 | **A** — was already pinned before this work started | **21** | — |
-| **B** — a Rust test now checks it | **29** | 14 (of 43 — T-IMP-06 and T-RT-18 regraded out) |
+| **B** — a Rust test now checks it | **32** | 11 (of 43 — T-IMP-06 and T-RT-18 regraded out) |
 | **C** — a machine now drives it | **5 harness tests** | 81 unblocked (+61 blocked) |
 
 ### Pile A — the checklist
@@ -81,7 +81,11 @@ verification mark** — that lives in `docs/manual_test_plan.md` and nothing aut
 touches it. A `[x]` below says the arithmetic is pinned; it does not say the feature works on
 your wells.
 
-**Done (29 of 43)**
+**Done (32 of 43)**
+
+- [x] **T-ADV-13** — Saturation-Height on a deviated well (TVD wiring) · `a_deviated_wells_height_is_measured_from_the_survey_not_along_hole` (`workflow.rs`). **The audit finding is FIXED and the plan step is stale** — `ingest::materialize_tvd_curves` is the producer the audit said did not exist. See finding 14.
+- [x] **T-PETRO-13** — zone parameter override: RW in one zone only · `a_zone_parameter_override_moves_that_zone_and_leaves_the_rest_untouched` (`workflow.rs`)
+- [x] **T-REP-06** — Report render: cover, methodology, zone params, pay summary · `a_rendered_report_carries_the_plans_page_order_and_a_self_consistent_pay_table` + `a_dense_stringer_is_subtracted_from_the_sand_rows_hpv` (`report.rs`). Two residuals — see findings 15 and 16.
 
 - [x] **T-REP-18** — SQL Query rejects writes · `readonly_query_refuses_every_write_shape_including_a_cte_prefix` (`db.rs`)
 - [x] **T-SHIP-03** — missing perm curve fails loudly · `a_missing_curve_fails_by_name_rather_than_computing_on_another` (`lorenz.rs`)
@@ -209,19 +213,16 @@ All three items flagged **silent-wrongness class** (T-REP-18, T-SHIP-03, T-INT-1
 
 Pile B is therefore 43 items, not 45.
 
-**Open (14)**
+**Open (11)**
 
 - [ ] T-PLOT-19 — Curve Edit negatives (invalid input, stale undo)
 - [ ] T-REP-02 — Composite render: layout, print scale, pagination
-- [ ] T-REP-06 — Report render: cover, methodology, zone params, pay summary
 - [ ] T-REP-09 — "Tables only" mode
 - [ ] T-REP-14 — DB Inspector: browse all 8 tables
 - [ ] T-REP-16 — DB Inspector negatives
 - [ ] T-AUX-07 — Well-diagram track in Composite/Report + old layouts
 - [ ] T-PREP-18 — Splice Curves at depth
 - [ ] T-PETRO-02 — vsh_gr nonlinear options + version N+1
-- [ ] T-PETRO-13 — zone parameter override: RW in one zone only
-- [ ] T-ADV-13 — Saturation-Height on a deviated well (TVD wiring)
 - [ ] T-ADV-17 — SandiMin re-run, lowercase prefix, no shadow rows
 - [ ] T-SHELL-07 — Save Project As = backup copy
 - [ ] T-SHELL-09 — project switch refused while a chain runs
@@ -512,7 +513,7 @@ these turns on a judgement about real rock, a visual read, or a feel for whether
 
 ---
 
-## Thirteen things the triage found that are worth fixing regardless
+## Sixteen things the triage found that are worth fixing regardless
 
 These came out of reading all 250 tests against the current code. Each was verified directly,
 not taken on a subagent's word. **Findings 1, 2 and 3 have since been fixed — see the notes
@@ -829,6 +830,76 @@ well's array in one call, so a `raise` fails that well outright and the user's o
 the summary — verified, not assumed, by
 `a_python_raise_in_one_well_leaves_the_rest_of_the_batch_intact`. This is specific to Rhai's
 per-sample evaluation.
+
+### 14. T-ADV-13 tells you to expect a failure that was fixed — **PLAN IS STALE, no code change needed**
+
+The step says the TVD dropdown on SW — Saturation-Height is a false affordance, that no producer
+for a TVD curve exists anywhere in the app, and that you should **"Mark Fail — known"**.
+
+That is no longer true. `ingest::materialize_tvd_curves` (`ingest.rs:469`) resamples the deviation
+survey onto the well's log depth grid and writes TVD and TVDSS as fetchable curves, and
+`import_deviation_csv` calls it on every import. So a deviated well with its survey loaded gets a
+real TVD, `sw_height` consumes it, and HAFWL is measured from true vertical depth.
+
+Verified end to end rather than inferred from the code:
+`a_deviated_wells_height_is_measured_from_the_survey_not_along_hole` imports a survey (vertical to
+1000 m, building to 60° by 2000 m), runs the module through `run_workflow_module`'s own input
+resolution, and reads HAFWL back out of the database. It lands on FWL − TVD at every sample, and
+at TD sits more than 500 m above the along-hole answer.
+
+Worth noting **why the suite did not already say so**. Both halves had tests the whole time:
+`sw_height_uses_tvd_and_allows_tvdss_fwl` hands the module a TVD array by hand, and
+`deviation_import_materializes_tvd_tvdss_curves` checks the survey reaches the log grid. Neither
+touches the joint between them, which is precisely where the finding lived. A suite organised by
+file tests halves by default.
+
+**Action is on the plan, not the code**: strike the Known-issue paragraph from the T-ADV-13 step so
+you do not mark a passing feature as a failure out of deference to it.
+
+### 15. The report's table pages carry no footer, unlike every other surface — **OPEN, your call**
+
+T-REP-06 expects **"Each table page footer: 'Made in SandiBumi'"**. They have none.
+
+The mark is emitted by the report COVER (`report.rs:289`), by every composite page
+(`composite.rs:609`), by the Word document (`office.rs:827`) and by the PowerPoint deck
+(`office.rs:1332`). But `table_pages` and `note_page` emit no footer at all — so the methodology,
+zone-parameter and pay-summary pages of the PDF are the only unmarked surface in the whole
+deliverable set. A reader who extracts or photocopies the pay summary gets an unattributed page.
+
+Pinned as-is by `a_rendered_report_carries_the_plans_page_order_and_a_self_consistent_pay_table`,
+which asserts the cover IS marked and no table page is. Everything else in that step checks out:
+page order is cover → methodology → zone parameters → pay summary, `tables_only` genuinely stops
+there, the zone override is listed by name and value, and the printed nets match the computed ones.
+
+**Your call because it is a branding decision on a client document**, not arithmetic — whether the
+mark belongs on every page or only on the cover is yours. Either way the plan and the code should
+agree; today they do not. Fixing it fails this test, which is the alarm.
+
+### 16. HPV is not guaranteed non-negative — a dense stringer is subtracted — **OPEN, your call**
+
+T-REP-06 lists **HPV ≥ 0** as a domain check. It is not an invariant. The pay summary sums
+`PHIE * (1 - SWE) * h` over net with no floor (`workflow.rs:717`), so the row inherits the sign of
+PHIE.
+
+The route is ordinary. A tight carbonate streak reads low GR, clears the VSH cutoff and is flagged
+SAND; a density porosity computed on a sandstone matrix reads slightly NEGATIVE there, which is a
+routine artefact of a vendor PHIE rather than a corrupt curve. Its contribution is then subtracted
+from the SAND row's hydrocarbon column.
+
+Measured, not asserted: `a_dense_stringer_is_subtracted_from_the_sand_rows_hpv` puts 2.5 m of
+streak at PHIE = −0.05 through a 5 m zone and the SAND row's HPV comes back **more than 20% below**
+the same well with the streak floored at zero.
+
+Two things make it easy to miss. The streak fails the porosity cutoff, so **RESERVOIR and PAY are
+byte-identical either way** — the two rows anyone checks first agree with each other while the SAND
+row quietly does not. And the understatement is in the safe direction, so nothing looks alarming.
+Flipping the printed sign takes a porosity far outside anything a log produces, which is why the
+test claims the understatement and not a negative number.
+
+**Your call because the fix has two candidate homes**: clamp PHIE at 0 where the porosity modules
+write it, or floor the HPV contribution in the pay summary. Those are different statements about
+whose job it is to reject a non-physical porosity, and the first changes curves you may want to
+see unclamped for QC.
 
 ---
 

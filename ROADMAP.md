@@ -815,6 +815,44 @@ The actionable backlog. Roughly ordered: safe frontend wins first, then Performa
       raises changes the run summary, and whether a partially failed curve should be written at all
       is a judgement about how the equation editor is used.** Finding 13.
 
+- [x] **T-ADV-13's TVD no-op is FIXED — the plan step is what is stale. CLOSED 2026-07-31.**
+      AUDIT-2026-07-21 said `sw_height`'s TVD input had no producer anywhere in the app, and the
+      test-plan step still instructs "Mark Fail — known". `ingest::materialize_tvd_curves` IS that
+      producer: it resamples the deviation survey onto the well's log depth grid and writes
+      TVD/TVDSS as fetchable curves on every deviation import. Verified end to end rather than read
+      off the code by `a_deviated_wells_height_is_measured_from_the_survey_not_along_hole`
+      (`workflow.rs`), which imports a survey, runs the module through the real input resolution and
+      reads HAFWL back from the database — FWL − TVD at every sample, >500 m above the along-hole
+      answer at TD, with a no-survey control pinning the MD fallback. Both HALVES had tests the whole
+      time it was broken (`sw_height_uses_tvd_and_allows_tvdss_fwl`,
+      `deviation_import_materializes_tvd_tvdss_curves`); nothing tested the joint, which is where the
+      finding lived. Plan annotated. Finding 14.
+
+- [ ] **The report's table pages carry no footer, unlike every other deliverable surface.**
+      T-REP-06 expects "Made in SandiBumi" on each table page. It is emitted by the report cover,
+      every composite page, the Word document and the PowerPoint deck — but `table_pages` and
+      `note_page` emit no footer at all, so the methodology, zone-parameter and pay-summary pages of
+      the PDF are the only unmarked surface in the set. A reader who extracts the pay summary gets
+      an unattributed page. Pinned as-is inside
+      `a_rendered_report_carries_the_plans_page_order_and_a_self_consistent_pay_table`
+      (`report.rs`), which asserts the cover IS marked and no table page is. **Not fixed: whether
+      the mark belongs on every page or only the cover is a branding decision on a client
+      document.** Finding 15.
+
+- [ ] **HPV is not guaranteed non-negative — a dense stringer is subtracted from the SAND row.**
+      T-REP-06 lists HPV ≥ 0 as a domain check, but `run_pay_summary` sums PHIE·(1−SWE)·h with no
+      floor, so the row inherits the sign of PHIE. A tight carbonate streak reads low GR, clears the
+      VSH cutoff and is flagged SAND, while a density porosity on a sandstone matrix reads slightly
+      negative there — a routine vendor-PHIE artefact, not a corrupt curve. Measured: 2.5 m of
+      streak at PHIE = −0.05 through a 5 m zone understates the SAND row's HPV by over 20%.
+      RESERVOIR and PAY are byte-identical either way (the streak fails the porosity cutoff), so the
+      two rows a reader checks first agree while the SAND row quietly does not, and the error is in
+      the safe direction so nothing looks alarming. Pinned as-is by
+      `a_dense_stringer_is_subtracted_from_the_sand_rows_hpv` (`report.rs`). **Not fixed: the fix has
+      two candidate homes — clamp PHIE at 0 where the porosity modules write it, or floor the HPV
+      contribution here — and those are different statements about whose job it is to reject a
+      non-physical porosity.** Finding 16.
+
 - [x] **Legacy-multimin RECON_ERR at 3 tools — CLOSED 2026-07-31, no sign-off needed.** REVIEW.md
       still lists this among the findings awaiting a decision because it would change
       interpretation numbers. It does not need one. Legacy `multimin` is **retired** — `run_module`

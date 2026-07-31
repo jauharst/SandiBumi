@@ -543,6 +543,7 @@ mod tests {
     use super::*;
 
     use crate::db;
+    use crate::equations;
     use uuid::Uuid;
 
     /// A well with curves renders; one without is the "broken well" the batch step puts in
@@ -706,6 +707,243 @@ mod tests {
         );
         // And the report the caller keeps is the LAST well's, under the first well's name.
         assert_eq!(written[0], written[2], "two entries point at one path: {written:?}");
+    }
+
+    /// T-REP-06. The report is the client deliverable, so its structure and its pay numbers are
+    /// checked together: the page ORDER the plan describes (cover, methodology, zone parameters,
+    /// pay summary), and the domain invariants the reader relies on to trust the table —
+    /// Net <= Gross, 0 <= NTG <= 1, HPV >= 0, and PAY within RESERVOIR within SAND.
+    ///
+    /// The nesting is guaranteed at the SAMPLE level by `classify_sample` (pay is defined as
+    /// reservoir AND ..., reservoir as sand AND ...), but the printed rows are thickness sums
+    /// with their own zone clamping, so the property has to be re-checked where it is read.
+    #[test]
+    fn a_rendered_report_carries_the_plans_page_order_and_a_self_consistent_pay_table() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        db::insert_well(&conn, wid, "SANDI-REP-06", Some("Sandi Field"), Some(1300.0), Some(20.0)).unwrap();
+        let w = wid.to_string();
+
+        // 40 samples at 0.5 m over two 10 m zones. Every fourth sample is deliberately stopped
+        // at a different cutoff, so the three flags cannot collapse onto each other: a fixture
+        // where SAND == PAY would let a broken nesting rule pass.
+        let n = 40usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            &conn, wid, depth.clone(), vec![50.0; n], vec![2.0; n], vec![0.25; n],
+            vec![2.4; n], nan.clone(), nan,
+        )
+        .unwrap();
+
+        let mut vsh = Vec::with_capacity(n);
+        let mut phie = Vec::with_capacity(n);
+        let mut swe = Vec::with_capacity(n);
+        for i in 0..n {
+            match i % 4 {
+                0 => { vsh.push(0.80); phie.push(0.20); swe.push(0.30); } // shale — fails SAND
+                1 => { vsh.push(0.20); phie.push(0.05); swe.push(0.30); } // tight — fails RESERVOIR
+                2 => { vsh.push(0.20); phie.push(0.20); swe.push(0.90); } // wet   — fails PAY
+                _ => { vsh.push(0.20); phie.push(0.20); swe.push(0.30); } // pay
+            }
+        }
+        for (name, values) in [("VSH", &vsh), ("PHIE", &phie), ("SWE", &swe)] {
+            equations::write_computed_curve(&conn, &w, &depth, name, values).unwrap();
+        }
+        db::upsert_zone(&conn, &w, "UPPER", 1000.0, 1010.0).unwrap();
+        db::upsert_zone(&conn, &w, "LOWER", 1010.0, 1020.0).unwrap();
+        db::set_zone_param(&conn, &w, "UPPER", "RW", Some(0.02), None).unwrap();
+
+        let dbm = Mutex::new(conn);
+        let mut spec = batch_spec();
+        spec.composite.well_id = w.clone();
+        spec.title = "Petrophysical Evaluation".into();
+        spec.author = "Tester".into();
+
+        // --- the numbers, before asking what they look like on the page ---
+        let rows = run_pay_summary(
+            &dbm,
+            &PaySummaryRequest {
+                well_ids: vec![w.clone()],
+                vsh_max: spec.vsh_max,
+                phie_min: spec.phie_min,
+                swe_max: spec.swe_max,
+                perm_min: spec.perm_min,
+                skip_version: true,
+                stats_only: true,
+            },
+        )
+        .expect("pay summary");
+        assert_eq!(rows.len(), 6, "two zones x three flags");
+
+        for r in &rows {
+            assert!(r.net <= r.gross + 1e-3, "{} {}: net {} exceeds gross {}", r.zone, r.flag, r.net, r.gross);
+            assert!((0.0..=1.0).contains(&r.ntg), "{} {}: NTG out of range: {}", r.zone, r.flag, r.ntg);
+            assert!(r.hpv >= 0.0, "{} {}: negative HPV {}", r.zone, r.flag, r.hpv);
+            assert!(r.n_classified > 0, "{} {}: the fixture is interpreted everywhere", r.zone, r.flag);
+        }
+
+        for zone in ["UPPER", "LOWER"] {
+            let net = |flag: &str| -> f32 {
+                rows.iter().find(|r| r.zone == zone && r.flag == flag).unwrap().net
+            };
+            let (sand, res, pay) = (net("SAND"), net("RESERVOIR"), net("PAY"));
+            // Strictly decreasing, not merely non-increasing: each cutoff must actually be
+            // rejecting something, or the invariant is being satisfied by an inert fixture.
+            assert!(sand > res && res > pay, "{zone}: SAND {sand} > RESERVOIR {res} > PAY {pay}");
+            assert!((sand - 7.5).abs() < 1e-3, "{zone}: three of every four samples are sand: {sand}");
+            assert!((res - 5.0).abs() < 1e-3, "{zone}: two of every four clear the porosity cutoff: {res}");
+            assert!((pay - 2.5).abs() < 1e-3, "{zone}: one of every four is pay: {pay}");
+        }
+
+        // --- and now the document ---
+        let (pages, _pw, _ph, well_name) = report_pages(&dbm, &spec).expect("render");
+        assert_eq!(well_name, "SANDI-REP-06");
+        let text_of = |ops: &Vec<DrawOp>| -> String {
+            ops.iter()
+                .filter_map(|op| match op {
+                    DrawOp::Text { s, .. } => Some(s.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join(" | ")
+        };
+        let texts: Vec<String> = pages.iter().map(text_of).collect();
+        let first_with = |needle: &str| -> usize {
+            texts
+                .iter()
+                .position(|t| t.contains(needle))
+                .unwrap_or_else(|| panic!("no page carries {needle:?}; pages were {texts:#?}"))
+        };
+
+        // Page 1 is the cover.
+        assert!(texts[0].contains("Petrophysical Evaluation"), "cover title: {}", texts[0]);
+        assert!(texts[0].contains("Well: SANDI-REP-06"), "cover well: {}", texts[0]);
+        assert!(texts[0].contains("Prepared by: Tester"), "cover author: {}", texts[0]);
+
+        // Then methodology, zone parameters, pay summary — in that order. Located by first
+        // occurrence rather than by index, so a table that paginates does not break the check.
+        let pay_section = "Pay Summary  (VSH \u{2264} 0.50, PHIE \u{2265} 0.10, SWE \u{2264} 0.60)";
+        let (m, z, p) = (first_with("Methodology"), first_with("Zone Parameters"), first_with(pay_section));
+        assert!(0 < m && m < z && z < p, "page order was cover {m} methodology, {z} zones, {p} pay");
+
+        // The zone parameter the run was made with has to be ON the page — a report that states
+        // its cutoffs but not its overrides cannot be reproduced from itself.
+        assert!(texts[z].contains("RW"), "the RW override must be listed: {}", texts[z]);
+        assert!(texts[z].contains("0.02"), "the override VALUE must be listed: {}", texts[z]);
+        assert!(texts[z].contains("LOWER"), "a zone with no override is still listed: {}", texts[z]);
+
+        // And the printed pay table carries the numbers checked above, so the invariants are
+        // pinned to what SHIPS rather than to an intermediate the reader never sees.
+        assert!(texts[p].contains("SAND") && texts[p].contains("RESERVOIR") && texts[p].contains("PAY"));
+        for net in ["7.5", "5.0", "2.5"] {
+            assert!(texts[p].contains(net), "printed net {net} missing from: {}", texts[p]);
+        }
+        // KNOWN GAP, pinned AS-IS and not endorsed. The plan says every table page carries a
+        // "Made in SandiBumi" footer. It does not: the mark is emitted by the COVER
+        // (`cover_page`) and by each composite page (`composite.rs`), and the Word and
+        // PowerPoint exports carry their own — but `table_pages` and `note_page` emit no footer
+        // at all, so the methodology, zone-parameter and pay-summary pages of the PDF are the
+        // only unmarked surface in the whole deliverable set. Adding it makes this line fail,
+        // which is the alarm.
+        for (i, t) in texts.iter().enumerate().skip(1) {
+            assert!(
+                !t.contains("Made in SandiBumi"),
+                "table page {i} now carries the footer — if that was deliberate, this test and \
+                 the T-REP-06 plan step both need updating"
+            );
+        }
+        assert!(texts[0].contains("Made in SandiBumi"), "the cover IS marked");
+
+        // tables_only keeps the composite out, so the document ends at the pay summary.
+        assert_eq!(p, pages.len() - 1, "tables_only must not append composite pages");
+    }
+
+    /// T-REP-06, second half. "HPV >= 0" is listed as a domain check the reader applies to the
+    /// printed table, so it is worth knowing whether it is an INVARIANT or merely true of tidy
+    /// data. It is the latter: the pay summary sums `PHIE * (1 - SWE) * h` with no floor, so the
+    /// SAND row inherits the sign of PHIE.
+    ///
+    /// The route is ordinary rather than exotic. A tight carbonate streak reads low GR, so it
+    /// clears the VSH cutoff and is flagged SAND; a density porosity computed on a sandstone
+    /// matrix reads slightly NEGATIVE there, which is a routine artefact of a vendor PHIE and
+    /// not a corrupt curve. Its contribution is then subtracted from the SAND row's HPV.
+    ///
+    /// What this test claims is the UNDERSTATEMENT, which is reachable with ordinary numbers.
+    /// It deliberately does NOT claim the printed HPV goes negative: flipping the sign of a
+    /// whole row takes a porosity far outside anything a log would produce, and inflating the
+    /// finding that far would misrepresent it. RESERVOIR and PAY are untouched either way —
+    /// the streak fails the porosity cutoff — which is what makes this easy to miss.
+    #[test]
+    fn a_dense_stringer_is_subtracted_from_the_sand_rows_hpv() {
+        let build = |phie_streak: f32| -> Vec<crate::workflow::PaySummaryRow> {
+            let conn = Connection::open_in_memory().unwrap();
+            db::create_schema(&conn).unwrap();
+            let wid = Uuid::new_v4();
+            db::insert_well(&conn, wid, "SANDI-STRINGER", None, None, None).unwrap();
+            let w = wid.to_string();
+            let n = 10usize;
+            let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
+            let nan = vec![f32::NAN; n];
+            db::insert_standard_curves(
+                &conn, wid, depth.clone(), vec![30.0; n], vec![2.0; n], vec![0.2; n],
+                vec![2.4; n], nan.clone(), nan,
+            )
+            .unwrap();
+            // Clean throughout — every sample clears the VSH cutoff — with a 2.5 m tight streak
+            // through the middle. Only its porosity differs between the two runs.
+            let mut phie = vec![0.20f32; n];
+            for p in phie.iter_mut().take(8).skip(3) {
+                *p = phie_streak;
+            }
+            equations::write_computed_curve(&conn, &w, &depth, "VSH", &vec![0.10f32; n]).unwrap();
+            equations::write_computed_curve(&conn, &w, &depth, "PHIE", &phie).unwrap();
+            equations::write_computed_curve(&conn, &w, &depth, "SWE", &vec![0.30f32; n]).unwrap();
+            db::upsert_zone(&conn, &w, "SAND-A", 1000.0, 1005.0).unwrap();
+            let dbm = Mutex::new(conn);
+            run_pay_summary(
+                &dbm,
+                &PaySummaryRequest {
+                    well_ids: vec![w],
+                    vsh_max: 0.5,
+                    phie_min: 0.1,
+                    swe_max: 0.6,
+                    perm_min: None,
+                    skip_version: true,
+                    stats_only: true,
+                },
+            )
+            .expect("pay summary")
+        };
+        let hpv = |rows: &[crate::workflow::PaySummaryRow], flag: &str| -> f32 {
+            rows.iter().find(|r| r.flag == flag).unwrap().hpv
+        };
+
+        // Zero porosity is the honest floor for a tight streak: it contributes no hydrocarbon.
+        let floored = build(0.0);
+        // The same streak as a vendor PHIE would actually deliver it.
+        let negative = build(-0.05);
+
+        assert!(hpv(&floored, "SAND") > 0.0, "control SAND HPV: {}", hpv(&floored, "SAND"));
+        assert!(
+            hpv(&negative, "SAND") < hpv(&floored, "SAND"),
+            "pinned AS-IS, not endorsed: a negative PHIE inside net sand is SUBTRACTED from HPV \
+             ({} against a floored {}). Clamping PHIE at 0 makes this line fail — that is the alarm.",
+            hpv(&negative, "SAND"), hpv(&floored, "SAND")
+        );
+        // Material, not a rounding tail: 2.5 m of streak inside a 5 m zone understates the
+        // SAND row's hydrocarbon column by more than a fifth.
+        let understated = 1.0 - hpv(&negative, "SAND") / hpv(&floored, "SAND");
+        assert!(understated > 0.20, "understated by only {:.1}%", understated * 100.0);
+
+        // RESERVOIR and PAY never see it — the streak fails the porosity cutoff — so the two
+        // rows a reader checks first agree with each other while the SAND row quietly does not.
+        assert_eq!(
+            hpv(&negative, "RESERVOIR"), hpv(&floored, "RESERVOIR"),
+            "the streak must not reach the RESERVOIR row at all"
+        );
+        assert_eq!(hpv(&negative, "PAY"), hpv(&floored, "PAY"));
     }
 
     #[test]

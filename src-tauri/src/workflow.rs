@@ -2847,6 +2847,221 @@ mod tests {
         assert!(results2[0].rows_written > 0, "uncancelled run must write VSH");
     }
 
+    /// T-ADV-13. The audit finding was that `sw_height`'s TVD input had NO PRODUCER anywhere in
+    /// the app: the deviated-well fix was unit-tested at the module level, the deviation survey
+    /// was imported and stored, and nothing connected the two — so the TVD dropdown was a false
+    /// affordance and every height silently came back measured along hole, overstating the column
+    /// by ~1/cos(inc).
+    ///
+    /// Both HALVES have had tests for a while — `satheight`'s `sw_height_uses_tvd_and_allows_
+    /// tvdss_fwl` hands the module a TVD array directly, and `ingest`'s `deviation_import_
+    /// materializes_tvd_curves` checks the survey lands on the log grid. Neither says anything
+    /// about the JOINT, which is exactly where the finding lived. This runs the real path:
+    /// import a survey, then run the module through `run_workflow_module`'s own input
+    /// resolution and read HAFWL back out of the database.
+    #[test]
+    fn a_deviated_wells_height_is_measured_from_the_survey_not_along_hole() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+
+        // Two identical wells on the same MD grid. Only one gets a deviation survey, so the
+        // other is the control: it must still fall back to measured depth.
+        let depth: Vec<f32> = vec![0.0, 500.0, 1000.0, 1500.0, 2000.0, 2500.0, 3000.0];
+        let n = depth.len();
+        let mk = |name: &str| -> String {
+            let id = uuid::Uuid::new_v4();
+            db::insert_well(&conn, id, name, None, None, None).unwrap();
+            let nan = vec![f32::NAN; n];
+            db::insert_standard_curves(
+                &conn, id, depth.clone(), vec![50.0; n], nan.clone(), vec![0.2; n],
+                vec![2.4; n], nan.clone(), nan,
+            )
+            .unwrap();
+            let w = id.to_string();
+            // sw_height needs PHIE; PERM keeps the LEVERETT branch alive so SWH is real too.
+            equations::write_computed_curve(&conn, &w, &depth, "PHIE", &vec![0.25f32; n]).unwrap();
+            equations::write_computed_curve(&conn, &w, &depth, "PERM", &vec![100.0f32; n]).unwrap();
+            w
+        };
+        let dev = mk("SANDI-DEV");
+        let vert = mk("SANDI-VERT");
+
+        // Vertical to 1000 m MD, build to 60 deg by 2000, hold to TD. At 60 deg inclination a
+        // metre of hole buys half a metre of true depth, so by TD the two references are
+        // hundreds of metres apart — far too large to be confused with interpolation slop.
+        let csv = std::env::temp_dir().join(format!("sandibumi_devheight_{dev}.csv"));
+        std::fs::write(&csv, "MD,INC,AZI\n0,0,0\n1000,0,0\n2000,60,45\n3000,60,45\n").unwrap();
+        let imported = ingest::import_deviation_csv(&conn, &dev, csv.to_str().unwrap(), Some(25.0), None);
+        std::fs::remove_file(&csv).ok();
+        assert!(imported.error.is_none(), "survey import failed: {:?}", imported.error);
+
+        // What the survey actually put on the log grid — the test never re-derives minimum
+        // curvature, it asserts that the module CONSUMED whatever the survey produced.
+        let tvd = equations::fetch_curve_frame(&conn, &dev, &["TVD".into()]).unwrap().1["TVD"].clone();
+        assert!(
+            tvd.iter().all(|v| v.is_finite()),
+            "the survey must materialize a TVD curve on the log grid: {tvd:?}"
+        );
+
+        const FWL: f64 = 2600.0;
+        let dbm = Mutex::new(conn);
+        let req = RunModuleRequest {
+            module: "sw_height".into(),
+            well_ids: vec![dev.clone(), vert.clone()],
+            log_inputs: HashMap::new(),
+            params: HashMap::from([("FWL".to_string(), FWL)]),
+            opts: HashMap::new(),
+            output_set: None,
+            input_set: None,
+        };
+        let results = run_workflow_module(&dbm, &req);
+        assert!(results.iter().all(|r| r.error.is_none()), "run errored: {results:?}");
+
+        let conn = dbm.lock().unwrap();
+        let hafwl = |w: &str| -> Vec<f32> {
+            equations::fetch_curve_frame(&conn, w, &["HAFWL".into()]).unwrap().1["HAFWL"].clone()
+        };
+        let (h_dev, h_vert) = (hafwl(&dev), hafwl(&vert));
+
+        // The deviated well's height is FWL minus TRUE vertical depth, at every sample.
+        for i in 0..n {
+            let want = FWL as f32 - tvd[i];
+            assert!(
+                (h_dev[i] - want).abs() < 0.1,
+                "sample {i} (MD {}): HAFWL {} should be FWL - TVD {} = {want}",
+                depth[i], h_dev[i], tvd[i]
+            );
+        }
+
+        // In the VERTICAL section TVD == MD, so the two references agree — which is what makes
+        // the deviated section's disagreement meaningful rather than an artefact of the fixture.
+        let i1000 = 2;
+        assert!(
+            (h_dev[i1000] - (FWL as f32 - depth[i1000])).abs() < 0.5,
+            "above the kick-off the survey and the driller's depth must agree: {}",
+            h_dev[i1000]
+        );
+
+        // At TD they must NOT. This is the assertion the audit finding would have failed:
+        // measured along hole the column reads hundreds of metres taller than it is.
+        let td = n - 1;
+        let along_hole = FWL as f32 - depth[td];
+        assert!(
+            (h_dev[td] - along_hole) > 500.0,
+            "at TD the survey height {} must sit far above the along-hole height {along_hole}",
+            h_dev[td]
+        );
+
+        // Control: no survey, no TVD curve — the module falls back to measured depth. That
+        // fallback is correct behaviour for a genuinely vertical well, and it is also exactly
+        // what the deviated well used to do.
+        for i in 0..n {
+            let want = FWL as f32 - depth[i];
+            assert!(
+                (h_vert[i] - want).abs() < 1e-3,
+                "a well with no survey measures height along hole: {} vs {want}",
+                h_vert[i]
+            );
+        }
+    }
+
+    /// T-PETRO-13. A `zone_params` override must beat the dialog value INSIDE its zone and
+    /// change nothing outside it. The failure this guards against is silent in both directions:
+    /// an override that leaks writes a wrong Sw over rock nobody calibrated, and one that never
+    /// applies leaves the calibration looking done while the numbers are unchanged.
+    ///
+    /// The arithmetic is checked against the plan's own expectation — with N = 2, dropping RW
+    /// from 0.1 to 0.02 scales SWT by sqrt(0.02/0.1) — rather than against whatever the code
+    /// happens to return.
+    #[test]
+    fn a_zone_parameter_override_moves_that_zone_and_leaves_the_rest_untouched() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, id, "SANDI-ZONE", None, None, None).unwrap();
+        let w = id.to_string();
+
+        // 1000..1019 at 1 m. RT 4 ohmm and PHIT 0.25 put the baseline SWT at 0.632, so the
+        // overridden value (0.283) is nowhere near the [SWT_IRR, 1] clamp — a clamped answer
+        // would mask the very ratio under test.
+        let n = 20usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            &conn, id, depth.clone(), vec![50.0; n], vec![4.0; n], vec![0.25; n],
+            vec![2.4; n], nan.clone(), nan,
+        )
+        .unwrap();
+        for name in ["PHIT", "PHIE"] {
+            equations::write_computed_curve(&conn, &w, &depth, name, &vec![0.25f32; n]).unwrap();
+        }
+        db::upsert_zone(&conn, &w, "UPPER", 1000.0, 1010.0).unwrap();
+        db::upsert_zone(&conn, &w, "LOWER", 1010.0, 1020.0).unwrap();
+
+        let dbm = Mutex::new(conn);
+        let run = || -> Vec<f32> {
+            let req = RunModuleRequest {
+                module: "sw_arch".into(),
+                well_ids: vec![w.clone()],
+                log_inputs: HashMap::new(),
+                params: HashMap::from([
+                    ("A".to_string(), 1.0),
+                    ("M".to_string(), 2.0),
+                    ("N".to_string(), 2.0),
+                    ("RW".to_string(), 0.1),
+                    ("SWT_IRR".to_string(), 0.0),
+                ]),
+                opts: HashMap::from([("OPT_RW".to_string(), "CONSTANT".to_string())]),
+                output_set: None,
+                input_set: None,
+            };
+            let r = run_workflow_module(&dbm, &req);
+            assert!(r[0].error.is_none(), "sw_arch failed: {:?}", r[0].error);
+            let conn = dbm.lock().unwrap();
+            equations::fetch_curve_frame(&conn, &w, &["SWT".into()]).unwrap().1["SWT"].clone()
+        };
+
+        let before = run();
+        assert!(before.iter().all(|v| v.is_finite()), "baseline SWT must be finite: {before:?}");
+
+        // The dialog still says RW = 0.1 on the re-run — the override is what has to win.
+        {
+            let conn = dbm.lock().unwrap();
+            db::set_zone_param(&conn, &w, "UPPER", "RW", Some(0.02), None).unwrap();
+        }
+        let after = run();
+
+        let ratio = (0.02f64 / 0.1).sqrt() as f32; // 0.4472
+        for i in 0..n {
+            let d = depth[i];
+            if d < 1010.0 {
+                let want = before[i] * ratio;
+                assert!(
+                    (after[i] - want).abs() < 1e-4,
+                    "inside UPPER at {d}: SWT {} should be {} x {ratio} = {want}",
+                    after[i], before[i]
+                );
+            } else {
+                // Sample-for-sample identical, not merely close: nothing in the LOWER zone saw
+                // a different parameter, so nothing about its arithmetic changed.
+                assert_eq!(
+                    after[i], before[i],
+                    "outside UPPER at {d}: SWT moved from {} to {}",
+                    before[i], after[i]
+                );
+            }
+        }
+
+        // The zone interval is half-open [top, bottom): the sample sitting exactly on 1010 is
+        // the LOWER zone's first sample, not the UPPER zone's last. Two adjacent zones written
+        // the way anyone writes them (1000-1010, 1010-1020) must not both claim it.
+        let boundary = depth.iter().position(|&d| d == 1010.0).unwrap();
+        assert_eq!(
+            after[boundary], before[boundary],
+            "the sample at the shared boundary belongs to the deeper zone"
+        );
+    }
+
     /// Batched write (perf refactor): a module run over MANY wells writes each well's own curve
     /// correctly in ONE transaction — rows are not crossed between wells and per-well set
     /// versioning is intact (one INTERP set per well).
