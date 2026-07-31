@@ -1462,6 +1462,21 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       it. **Still not automatic**: a delivery already in the project does not move when the core is
       re-registered afterwards — that is increment 1d, waiting on Jauhar firming up D2.
 
+- [x] **Already-imported deliveries follow a later re-registration (Part 1, increment 1d)** —
+      **SHIPPED 2026-07-31**, on Jauhar's firm yes (D2 closed). `ShiftTargets` on
+      `db::shift_core_depths` / `db::apply_core_run_shifts` carries the chosen point datasets, the
+      live SCAL delivery and each chosen image delivery with the plugs in one transaction;
+      `CoreShiftCounts` reports plugs / extras / scal / plates. **Which deliveries belong to the
+      core is recorded, not guessed**: `aux_sets`/`scal_sets`/`image_sets` gained `on_core_depths`,
+      written from the import tick-box (`db::migrate_delivery_depth_basis`, ADD COLUMN only,
+      existing rows get 0 = leave alone). `db::core_shift_candidates` lists every live delivery WITH
+      its flag rather than filtering, so an older project does not look empty; the dialog pre-ticks
+      the flagged ones and marks the rest "not marked as core-depth data". The tick-boxes sit at
+      dialog level so the single-shift and per-barrel Apply share them — they were briefly inside
+      the result block, which made the barrel path ignore them, caught in the browser rather than by
+      the compiler. Part 1 of `docs/plan_image_analysis.md` is now complete except 1f (recording why
+      the core sits where it does).
+
 ## C3. Trust & reproducibility — Phase 11 (§3)
 
 - **Audit trail & lineage**: every module/equation run and data edit logged (`runs` table: params, inputs,

@@ -175,6 +175,11 @@ pub fn open_and_migrate(path: &str) -> Result<duckdb::Connection, String> {
     db::migrate_core_depth_orig(&conn).map_err(|e| format!("core depth-record migration failed: {e}"))?;
     eprintln!("[boot] migrate_core_depth_orig: {:?}", t.elapsed());
 
+    let t = std::time::Instant::now();
+    db::migrate_delivery_depth_basis(&conn)
+        .map_err(|e| format!("delivery depth-basis migration failed: {e}"))?;
+    eprintln!("[boot] migrate_delivery_depth_basis: {:?}", t.elapsed());
+
     // A long open is almost always the one-time storage upgrades above (each backs up the
     // whole project first). Tell the user so — from their chair a silent 15-minute open on
     // a field-scale file is indistinguishable from a hang.

@@ -971,6 +971,9 @@ pub fn import_scal_files(
     if let Err(e) = db::insert_scal_pc(conn, well_id, &set, Some(&joined), &rows) {
         return fail(e.to_string());
     }
+    if follow_core {
+        let _ = db::mark_scal_set_on_core(conn, well_id, &set);
+    }
 
     let points: Vec<crate::satheight::ScalPoint> = records
         .iter()
@@ -1425,6 +1428,11 @@ pub fn import_aux_file(
                         Ok(()) => {
                             rows_written += rows.len();
                             wells_imported += 1;
+                            // Record the depth basis, so a later core registration knows whether
+                            // this delivery should move with the core.
+                            if follow_core {
+                                let _ = db::mark_aux_set_on_core(conn, &ids[0], &dataset, &set);
+                            }
                             sets_used.insert(set);
                         }
                         Err(e) => notes.push(format!("{name}: {e}")),
@@ -1467,6 +1475,9 @@ pub fn import_aux_file(
             Ok(()) => {
                 rows_written = rows.len();
                 wells_imported = 1;
+                if follow_core {
+                    let _ = db::mark_aux_set_on_core(conn, well_id, &dataset, &set);
+                }
                 sets_used.insert(set);
             }
             Err(e) => return fail(e.to_string()),
@@ -1543,7 +1554,7 @@ mod tests {
 
         // Core-to-log shift moves the ACTIVE set's plugs by the same delta and reverses
         // exactly; the other delivery keeps its own depths.
-        let shifted = db::shift_core_depths(&mut conn, &ids, 2.5, &[]).unwrap();
+        let shifted = db::shift_core_depths(&mut conn, &ids, 2.5, &Default::default()).unwrap();
         assert_eq!(shifted.plugs, 2);
         let min_depth: f32 = conn
             .query_row(
@@ -1561,7 +1572,7 @@ mod tests {
             )
             .unwrap();
         assert!((untouched - 2001.0).abs() < 1e-4, "the inactive delivery must not move");
-        db::shift_core_depths(&mut conn, &ids, -2.5, &[]).unwrap();
+        db::shift_core_depths(&mut conn, &ids, -2.5, &Default::default()).unwrap();
         let min_depth: f32 = conn
             .query_row(
                 "SELECT MIN(depth) FROM core_data WHERE well_id = ?1 AND set_name = 'CORE'",
@@ -2503,7 +2514,7 @@ mod tests {
         let v = vec![0.2f32; 20];
         let nan = vec![f32::NAN; 20];
         db::insert_core_data(&conn, &w, "RAW", None, &d, &v, &nan, &nan, &nan).unwrap();
-        db::apply_core_run_shifts(&mut conn, &w, &[db::RunShift { top: 2000.0, base: 2019.0, delta: 2.0 }], &[])
+        db::apply_core_run_shifts(&mut conn, &w, &[db::RunShift { top: 2000.0, base: 2019.0, delta: 2.0 }], &Default::default())
             .unwrap();
 
         let path = std::env::temp_dir().join("sandi_scal_follow.csv");
@@ -2564,7 +2575,7 @@ mod tests {
                 db::RunShift { top: 2000.0, base: 2009.0, delta: 1.0 },
                 db::RunShift { top: 2010.0, base: 2019.0, delta: 3.0 },
             ],
-            &[],
+            &db::ShiftTargets::default(),
         )
         .unwrap();
 

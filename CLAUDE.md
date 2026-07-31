@@ -966,6 +966,34 @@ following plugs is served by the explicit tick-box at import; wiring plates into
 `shift_core_depths` so an ALREADY-imported delivery moves automatically is still increment 1d and
 still waits on a firm answer.
 
+**Already-imported deliveries follow a later re-registration (2026-07-31, increment 1d)** — a core
+registration moves rock that other deliveries were measured on, so `db::shift_core_depths` and
+`db::apply_core_run_shifts` now take a `ShiftTargets { aux_datasets, scal, image_datasets }` and
+carry the chosen point datasets, the live SCAL delivery and each chosen image delivery with the
+plugs, in the same transaction. `CoreShiftCounts` reports `plugs / extras / scal / plates`.
+
+**Which deliveries belong to the core is RECORDED, not guessed.** `aux_sets`, `scal_sets` and
+`image_sets` gained `on_core_depths`, written from the user's own "these depths came from the core
+report" declaration at import (`db::mark_aux_set_on_core` and its two siblings). Without it there
+is no way to tell a core-depth delivery from a log-depth one, and moving the wrong one is silent —
+a perforation record is on the driller's scale and must never be dragged along with the core.
+Migration `db::migrate_delivery_depth_basis` is ADD COLUMN only (no rebuild, no backup) and gives
+existing deliveries **0**, the safe answer: an older delivery is left alone rather than moved on a
+guess.
+
+`db::core_shift_candidates` lists every live delivery **with** its flag rather than filtering by
+it, because the flag only exists for deliveries imported since it did — filtering would make an
+older project look as though it had nothing to move. The dialog pre-ticks the flagged ones, lists
+the rest with "not marked as core-depth data", and lets the user override either way.
+
+**The tick-boxes live at dialog level, not inside the result block**, so the single-shift Apply and
+the per-barrel Apply use the SAME choices. They were briefly inside `renderResult`, which meant the
+barrel path silently ignored them — caught in the browser, not by the compiler.
+
+`ShiftTargets` is `Option` at the command boundary: **omitted** means "the extras that provably
+came in with the core table" (the old behaviour, still what `Shift Core…` uses), an **empty object**
+means plugs only. The two must stay distinguishable.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under

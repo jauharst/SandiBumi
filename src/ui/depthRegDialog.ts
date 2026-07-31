@@ -1,12 +1,14 @@
 import {
   applyCoreRunShifts,
   coreDepthPairs,
-  coreExtraDatasets,
+  coreShiftCandidates,
   listCoreReferences,
   listCurveCatalog,
   proposeRegistration,
   shiftCoreData,
   type CoreReference,
+  type ShiftCandidate,
+  type ShiftTargets,
   type RegistrationResult,
 } from "../ipc";
 import { appState, bumpDataVersion, setStatus } from "../state";
@@ -164,6 +166,57 @@ export async function openDepthRegDialog(): Promise<void> {
 
   const barrels = document.createElement("div");
   wrap.appendChild(barrels);
+
+  // ---- what rides along ---------------------------------------------------
+  // A core registration moves rock that other deliveries were measured on. Which ones belong to
+  // the core is recorded at import (the "these depths came from the core report" tick-box), so
+  // those are pre-ticked here — but everything live is LISTED, because the flag only exists for
+  // deliveries imported since it did, and an older project would otherwise look empty.
+  const ridersWrap = document.createElement("div");
+  out.appendChild(ridersWrap);
+  const boxes: { el: HTMLInputElement; cand: ShiftCandidate }[] = [];
+  void coreShiftCandidates(well!.well_id)
+    .then((cands) => {
+      if (!cands.length) return;
+      const lead = document.createElement("div");
+      lead.className = "eq-note";
+      lead.textContent =
+        "These deliveries can move with the core. A measurement made on a plug must move with " +
+        "that plug, or it ends up registered against rock it was never taken from — and anything " +
+        "already on the log's own depth scale must not move at all. Ticked ones were imported as " +
+        "core-depth data.";
+      ridersWrap.appendChild(lead);
+      const label = (c: ShiftCandidate): string => {
+        const what =
+          c.kind === "scal" ? `SCAL ${c.set_name}` : `${c.dataset} (${c.set_name})`;
+        const unit = c.kind === "image" ? "picture(s)" : c.kind === "scal" ? "Pc point(s)" : "row(s)";
+        const basis = c.on_core_depths ? "" : " — not marked as core-depth data";
+        return ` ${what} — ${c.rows} ${unit}${basis}`;
+      };
+      for (const c of cands) {
+        const lab = document.createElement("label");
+        lab.style.display = "block";
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = c.on_core_depths;
+        boxes.push({ el: cb, cand: c });
+        lab.appendChild(cb);
+        lab.appendChild(document.createTextNode(label(c)));
+        ridersWrap.appendChild(lab);
+      }
+    })
+    .catch(() => {});
+
+  /** The ticked deliveries, in the shape the backend takes. */
+  const chosenTargets = (): ShiftTargets => {
+    const picked = boxes.filter((b) => b.el.checked).map((b) => b.cand);
+    return {
+      aux_datasets: picked.filter((c) => c.kind === "aux").map((c) => c.dataset),
+      scal: picked.some((c) => c.kind === "scal"),
+      image_datasets: picked.filter((c) => c.kind === "image").map((c) => c.dataset),
+    };
+  };
+
 
   // ---------------------------------------------------------------------------
   // Drawing
@@ -443,34 +496,6 @@ export async function openDepthRegDialog(): Promise<void> {
       out.appendChild(note);
     }
 
-    // ---- what rides along ---------------------------------------------------
-    const ridersWrap = document.createElement("div");
-    out.appendChild(ridersWrap);
-    const boxes: HTMLInputElement[] = [];
-    void coreExtraDatasets(well!.well_id)
-      .then((sets) => {
-        if (!sets.length) return;
-        const lead = document.createElement("div");
-        lead.className = "eq-note";
-        lead.textContent =
-          "These point datasets were delivered with this core. A measurement made on a plug " +
-          "must move with that plug, or it ends up registered against rock it was never taken from.";
-        ridersWrap.appendChild(lead);
-        for (const [dataset, rows] of sets) {
-          const lab = document.createElement("label");
-          lab.style.display = "block";
-          const cb = document.createElement("input");
-          cb.type = "checkbox";
-          cb.checked = true;
-          cb.value = dataset;
-          boxes.push(cb);
-          lab.appendChild(cb);
-          lab.appendChild(document.createTextNode(` ${dataset} — ${rows} row(s)`));
-          ridersWrap.appendChild(lab);
-        }
-      })
-      .catch(() => {});
-
     const applyBtn = document.createElement("button");
     applyBtn.className = "btn btn-accent";
     applyBtn.textContent = "Apply this shift";
@@ -480,12 +505,12 @@ export async function openDepthRegDialog(): Promise<void> {
         setStatus("Enter a non-zero shift");
         return;
       }
-      const datasets = boxes.filter((b) => b.checked).map((b) => b.value);
+      const targets = chosenTargets();
       void (async () => {
-        const n = await shiftCoreData(well!.well_id, delta, datasets);
+        const n = await shiftCoreData(well!.well_id, delta, targets);
         const sign = delta > 0 ? "+" : "";
         setStatus(
-          `Shifted ${n.plugs} plug(s) and ${n.extras} point sample(s) of ${well!.well_name} by ${sign}${delta}`
+          `Shifted ${n.plugs} plug(s), ${n.extras} point sample(s), ${n.scal} Pc point(s) and ${n.plates} picture(s) of ${well!.well_name} by ${sign}${delta}`
         );
         recordProcess(
           "Edit",
@@ -495,11 +520,11 @@ export async function openDepthRegDialog(): Promise<void> {
         pushUndo({
           label: `core registration ${sign}${delta} (${well!.well_name})`,
           undo: async () => {
-            await shiftCoreData(well!.well_id, -delta, datasets);
+            await shiftCoreData(well!.well_id, -delta, targets);
             bumpDataVersion();
           },
           redo: async () => {
-            await shiftCoreData(well!.well_id, delta, datasets);
+            await shiftCoreData(well!.well_id, delta, targets);
             bumpDataVersion();
           },
         });
@@ -650,8 +675,8 @@ export async function openDepthRegDialog(): Promise<void> {
       }
       void (async () => {
         try {
-          const n = await applyCoreRunShifts(well!.well_id, runs);
-          setStatus(`Moved ${n.plugs} plug(s) and ${n.extras} point sample(s) across ${runs.length} barrel(s)`);
+          const n = await applyCoreRunShifts(well!.well_id, runs, chosenTargets());
+          setStatus(`Moved ${n.plugs} plug(s), ${n.extras} point sample(s), ${n.scal} Pc point(s) and ${n.plates} picture(s) across ${runs.length} barrel(s)`);
           recordProcess(
             "Edit",
             `Core registration, ${runs.length} barrel(s): ${runs.map((r) => `${r.top}-${r.base} ${r.delta > 0 ? "+" : ""}${r.delta}`).join(", ")}`,
@@ -664,12 +689,12 @@ export async function openDepthRegDialog(): Promise<void> {
             // not: two barrels moved by different amounts can produce overlapping ranges, and the
             // first match wins, so some plugs would come back by the wrong correction.
             undo: async () => {
-              await applyCoreRunShifts(well!.well_id, n.inverse);
+              await applyCoreRunShifts(well!.well_id, n.inverse, chosenTargets());
               await buildBarrels();
               bumpDataVersion();
             },
             redo: async () => {
-              await applyCoreRunShifts(well!.well_id, runs);
+              await applyCoreRunShifts(well!.well_id, runs, chosenTargets());
               await buildBarrels();
               bumpDataVersion();
             },

@@ -480,6 +480,11 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             active      INTEGER NOT NULL DEFAULT 0,
             source      VARCHAR,
             imported_at TIMESTAMP NOT NULL DEFAULT now(),
+            -- 1 = this delivery sits on the CORE's depth scale, so a later core registration
+            -- must carry it along. Recorded at import from the user's own declaration; without
+            -- it the app could not tell a core-depth delivery from a log-depth one, and moving
+            -- the wrong one is silent.
+            on_core_depths INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (well_id, dataset, set_name)
         );
 
@@ -534,6 +539,7 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             active      INTEGER NOT NULL DEFAULT 0,
             source      VARCHAR,
             imported_at TIMESTAMP NOT NULL DEFAULT now(),
+            on_core_depths INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (well_id, dataset, set_name)
         );
 
@@ -603,6 +609,7 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             active      INTEGER NOT NULL DEFAULT 0,
             source      VARCHAR,
             imported_at TIMESTAMP NOT NULL DEFAULT now(),
+            on_core_depths INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (well_id, set_name)
         );
 
@@ -1106,6 +1113,29 @@ pub fn migrate_core_depth_orig(conn: &Connection) -> DbResult<()> {
     // Runs regardless: a row could have been written by an older code path after the column
     // was added (and NULL there would silently break the map).
     conn.execute_batch("UPDATE core_data SET depth_orig = depth WHERE depth_orig IS NULL;")?;
+    Ok(())
+}
+
+/// Adds `on_core_depths` to the point-data, SCAL and image delivery registries.
+///
+/// Non-destructive (ADD COLUMN only, no rebuild, no backup needed) and idempotent. Existing
+/// deliveries get **0** — "not known to be on core depths" — which is the safe answer: a later
+/// core registration will leave them alone rather than moving data that may already be on the
+/// log's scale. The user can still tick them by hand; the flag only chooses the default.
+pub fn migrate_delivery_depth_basis(conn: &Connection) -> DbResult<()> {
+    for table in ["aux_sets", "scal_sets", "image_sets"] {
+        let has: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM duckdb_columns()
+             WHERE table_name = ?1 AND column_name = 'on_core_depths'",
+            params![table],
+            |r| r.get(0),
+        )?;
+        if has == 0 {
+            conn.execute_batch(&format!(
+                "ALTER TABLE {table} ADD COLUMN on_core_depths INTEGER NOT NULL DEFAULT 0;"
+            ))?;
+        }
+    }
     Ok(())
 }
 
@@ -3834,7 +3864,7 @@ mod inspector_tests {
             "both share the core set's name, so both are OFFERED — the user decides"
         );
 
-        let moved = shift_core_depths(&mut conn, &w, 2.5, &["CORE".to_string()]).unwrap();
+        let moved = shift_core_depths(&mut conn, &w, 2.5, &ShiftTargets::aux(vec!["CORE".to_string()])).unwrap();
         assert_eq!((moved.plugs, moved.extras), (3, 2));
 
         let plug: f32 = conn
@@ -3870,7 +3900,7 @@ mod inspector_tests {
         assert!((xrd - 2000.0).abs() < 1e-4, "a dataset not named in the call must not move");
 
         // Exactly reversible, which is what makes it undoable.
-        shift_core_depths(&mut conn, &w, -2.5, &["CORE".to_string()]).unwrap();
+        shift_core_depths(&mut conn, &w, -2.5, &ShiftTargets::aux(vec!["CORE".to_string()])).unwrap();
         let back: f32 = conn
             .query_row(
                 "SELECT depth_top FROM aux_data WHERE well_id = ?1 AND item = 'CORE_GR'",
@@ -4013,7 +4043,7 @@ mod inspector_tests {
             RunShift { top: 2010.0, base: 2019.0, delta: 2.0 },
             RunShift { top: 2020.0, base: 2029.0, delta: 3.5 },
         ];
-        let n = apply_core_run_shifts(&mut conn, &w, &runs, &[]).unwrap();
+        let n = apply_core_run_shifts(&mut conn, &w, &runs, &Default::default()).unwrap();
         assert_eq!(n.plugs, 30);
 
         let pairs = core_depth_pairs(&conn, &w).unwrap();
@@ -4033,7 +4063,7 @@ mod inspector_tests {
 
         // Push the upper barrel 6 m down and leave the lower one — they would cross.
         let runs = [RunShift { top: 2000.0, base: 2004.0, delta: 6.0 }];
-        let err = apply_core_run_shifts(&mut conn, &w, &runs, &[]).unwrap_err();
+        let err = apply_core_run_shifts(&mut conn, &w, &runs, &Default::default()).unwrap_err();
         assert!(err.contains("reorders the core"), "{err}");
 
         let pairs = core_depth_pairs(&conn, &w).unwrap();
@@ -4064,7 +4094,7 @@ mod inspector_tests {
             RunShift { top: 2029.6, base: 2065.0, delta: 1.5 },
         ];
         let before = core_depth_pairs(&conn, &w).unwrap();
-        let res = apply_core_run_shifts(&mut conn, &w, &runs, &[]).unwrap();
+        let res = apply_core_run_shifts(&mut conn, &w, &runs, &Default::default()).unwrap();
         assert_eq!(res.plugs, 60);
 
         // The naive inverse — the caller's own ranges, shifted, deltas negated — DOES overlap.
@@ -4088,7 +4118,7 @@ mod inspector_tests {
         let overlap = res.inverse[0].base - res.inverse[1].top;
         assert!(overlap <= 0.0, "overlap of {overlap} would make an undo ambiguous");
 
-        apply_core_run_shifts(&mut conn, &w, &res.inverse, &[]).unwrap();
+        apply_core_run_shifts(&mut conn, &w, &res.inverse, &Default::default()).unwrap();
         let after = core_depth_pairs(&conn, &w).unwrap();
         assert_eq!(before.len(), after.len());
         for (b, a) in before.iter().zip(&after) {
@@ -4097,6 +4127,88 @@ mod inspector_tests {
                 "plug {b:?} came back as {a:?}"
             );
         }
+    }
+
+    /// Re-registering a core months later must carry the deliveries that sit on ITS depth scale —
+    /// the XRD, the SCAL plugs, the thin sections — and must leave alone anything that does not.
+    #[test]
+    fn a_later_registration_carries_the_deliveries_that_sit_on_core_depths() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        create_schema(&conn).unwrap();
+        let w = cored_well(&conn, 2000.0, 20); // 2000 .. 2019
+        let jpg = b"\xFF\xD8x\xFF\xD9";
+
+        let aux_row = |ds: &str, item: &str, d: f32| AuxRow {
+            dataset: ds.into(),
+            depth_top: d,
+            depth_base: None,
+            item: item.into(),
+            value_num: Some(1.0),
+            value_text: None,
+        };
+        // On core depths (declared at import) …
+        insert_aux_data(&conn, &w, "XRD", "LAB", None, &[aux_row("XRD", "KAOLINITE", 2005.0)]).unwrap();
+        mark_aux_set_on_core(&conn, &w, "XRD", "LAB").unwrap();
+        // … and NOT (a perforation record is on the driller's/log scale).
+        insert_aux_data(&conn, &w, "PERFORATION", "RAW", None, &[aux_row("PERFORATION", "SHOTS", 2005.0)]).unwrap();
+
+        insert_scal_pc(
+            &conn,
+            &w,
+            "SCAL",
+            None,
+            &[ScalPcRow {
+                sample_no: Some(1),
+                depth: Some(2005.0),
+                perm: 100.0,
+                poro: 0.2,
+                pc: 1.0,
+                sw: 1.0,
+                system: None,
+                ift: Some(72.0),
+            }],
+        )
+        .unwrap();
+        mark_scal_set_on_core(&conn, &w, "SCAL").unwrap();
+
+        insert_well_images(&conn, &w, "THIN SECTION", "LAB", None, &[a_plate("TS-1", 2005.0, None, jpg)]).unwrap();
+        mark_image_set_on_core(&conn, &w, "THIN SECTION", "LAB").unwrap();
+
+        // What the dialog would show, and how it would pre-tick.
+        let cands = core_shift_candidates(&conn, &w).unwrap();
+        let on: Vec<&str> = cands.iter().filter(|c| c.on_core_depths).map(|c| c.kind.as_str()).collect();
+        assert_eq!(on.len(), 3, "XRD, SCAL and the sections are on core depths: {cands:?}");
+        assert!(
+            cands.iter().any(|c| c.dataset == "PERFORATION" && !c.on_core_depths),
+            "a log-depth delivery is offered but NOT pre-ticked: {cands:?}"
+        );
+
+        let targets = ShiftTargets {
+            aux_datasets: vec!["XRD".into()],
+            scal: true,
+            image_datasets: vec!["THIN SECTION".into()],
+        };
+        let n = apply_core_run_shifts(&mut conn, &w, &[RunShift { top: 2000.0, base: 2019.0, delta: 3.0 }], &targets)
+            .unwrap();
+        assert_eq!((n.plugs, n.extras, n.scal, n.plates), (20, 1, 1, 1));
+
+        let at = |sql: &str| -> f32 { conn.query_row(sql, params![w], |r| r.get(0)).unwrap() };
+        assert!(
+            (at("SELECT depth_top FROM aux_data WHERE well_id = ?1 AND item = 'KAOLINITE'") - 2008.0).abs() < 1e-3,
+            "the XRD moved with the core"
+        );
+        assert!(
+            (at("SELECT depth FROM scal_pc WHERE well_id = ?1") - 2008.0).abs() < 1e-3,
+            "the SCAL plug moved with the core"
+        );
+        assert!(
+            (at("SELECT depth_top FROM well_images WHERE well_id = ?1") - 2008.0).abs() < 1e-3,
+            "the thin section moved with its plug"
+        );
+        assert!(
+            (at("SELECT depth_top FROM aux_data WHERE well_id = ?1 AND item = 'SHOTS'") - 2005.0).abs() < 1e-3,
+            "a delivery on the LOG's scale must not be dragged along"
+        );
     }
 
     /// Two barrels cannot claim the same rock — with overlapping ranges "which barrel was this
@@ -4110,7 +4222,7 @@ mod inspector_tests {
             RunShift { top: 2000.0, base: 2010.0, delta: 0.5 },
             RunShift { top: 2008.0, base: 2019.0, delta: 0.5 },
         ];
-        let err = apply_core_run_shifts(&mut conn, &w, &runs, &[]).unwrap_err();
+        let err = apply_core_run_shifts(&mut conn, &w, &runs, &Default::default()).unwrap_err();
         assert!(err.contains("overlap"), "{err}");
 
         // Adjacent barrels written the natural way — sharing one depth — are NOT an overlap.
@@ -4118,7 +4230,7 @@ mod inspector_tests {
             RunShift { top: 2000.0, base: 2010.0, delta: 0.5 },
             RunShift { top: 2010.0, base: 2019.0, delta: 0.5 },
         ];
-        assert!(apply_core_run_shifts(&mut conn, &w, &touching, &[]).is_ok());
+        assert!(apply_core_run_shifts(&mut conn, &w, &touching, &Default::default()).is_ok());
     }
 
     /// The payoff Jauhar asked for: a laboratory sends XRD months later at the depths the core
@@ -4133,7 +4245,7 @@ mod inspector_tests {
             RunShift { top: 2000.0, base: 2009.0, delta: 1.0 },
             RunShift { top: 2010.0, base: 2029.0, delta: 3.0 },
         ];
-        apply_core_run_shifts(&mut conn, &w, &runs, &[]).unwrap();
+        apply_core_run_shifts(&mut conn, &w, &runs, &Default::default()).unwrap();
         let pairs = core_depth_pairs(&conn, &w).unwrap();
 
         // A sample on a plug lands exactly on that plug.
@@ -4179,7 +4291,7 @@ mod inspector_tests {
         let mut conn = Connection::open_in_memory().unwrap();
         create_schema(&conn).unwrap();
         let w = cored_well(&conn, 2000.0, 10);
-        shift_core_depths(&mut conn, &w, 2.5, &[]).unwrap();
+        shift_core_depths(&mut conn, &w, 2.5, &Default::default()).unwrap();
         let pairs = core_depth_pairs(&conn, &w).unwrap();
         assert!(pairs.iter().all(|(o, d)| (d - o - 2.5).abs() < 1e-3));
         let (d, ex) = map_core_depth(&pairs, 2003.0);
@@ -4653,6 +4765,10 @@ pub struct CoreShiftCounts {
     pub plugs: usize,
     /// Rows moved in `aux_data` — the extras that rode in on those same plugs.
     pub extras: usize,
+    /// SCAL Pc rows moved.
+    pub scal: usize,
+    /// Pictures moved.
+    pub plates: usize,
     /// The ranges that put this operation back, in the depths that exist AFTER it. Empty for a
     /// whole-well shift, whose inverse is simply the negated delta.
     ///
@@ -4686,13 +4802,34 @@ pub fn shift_core_depths(
     conn: &mut Connection,
     well_id: &str,
     delta: f32,
-    datasets: &[String],
+    targets: &ShiftTargets,
 ) -> DbResult<CoreShiftCounts> {
+    let datasets = &targets.aux_datasets;
     let tx = conn.transaction()?;
     let plugs = tx.execute(
         &format!("UPDATE core_data SET depth = depth + ?2 WHERE well_id = ?1 AND set_name = {ACTIVE_CORE_SET}"),
         params![well_id, delta],
     )?;
+    let mut scal = 0usize;
+    if targets.scal {
+        scal = tx.execute(
+            &format!(
+                "UPDATE scal_pc AS p SET depth = p.depth + ?2
+                 WHERE p.well_id = ?1 AND p.depth IS NOT NULL AND p.set_name = {ACTIVE_SCAL_SET}"
+            ),
+            params![well_id, delta],
+        )?;
+    }
+    let mut plates = 0usize;
+    for dataset in &targets.image_datasets {
+        plates += tx.execute(
+            &format!(
+                "UPDATE well_images AS i SET depth_top = i.depth_top + ?2, depth_base = i.depth_base + ?2
+                 WHERE i.well_id = ?1 AND i.dataset = ?3 AND i.set_name = {ACTIVE_IMAGE_SET}"
+            ),
+            params![well_id, delta, dataset],
+        )?;
+    }
     let mut extras = 0usize;
     for dataset in datasets {
         // `depth_base + delta` is NULL-safe in SQL: a point sample stays a point sample.
@@ -4706,7 +4843,140 @@ pub fn shift_core_depths(
         )?;
     }
     tx.commit()?;
-    Ok(CoreShiftCounts { plugs, extras, inverse: Vec::new() })
+    Ok(CoreShiftCounts { plugs, extras, scal, plates, inverse: Vec::new() })
+}
+
+/// Records that a delivery sits on the CORE's depth scale, so a later core registration carries it
+/// along. Called after an import the user declared as core-depth; harmless when the set does not
+/// exist yet, which keeps the import paths free of ordering rules.
+pub fn mark_aux_set_on_core(conn: &Connection, well_id: &str, dataset: &str, set_name: &str) -> DbResult<()> {
+    conn.execute(
+        "UPDATE aux_sets SET on_core_depths = 1 WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
+        params![well_id, dataset, set_name],
+    )?;
+    Ok(())
+}
+
+pub fn mark_scal_set_on_core(conn: &Connection, well_id: &str, set_name: &str) -> DbResult<()> {
+    conn.execute(
+        "UPDATE scal_sets SET on_core_depths = 1 WHERE well_id = ?1 AND set_name = ?2",
+        params![well_id, set_name],
+    )?;
+    Ok(())
+}
+
+pub fn mark_image_set_on_core(conn: &Connection, well_id: &str, dataset: &str, set_name: &str) -> DbResult<()> {
+    conn.execute(
+        "UPDATE image_sets SET on_core_depths = 1 WHERE well_id = ?1 AND dataset = ?2 AND set_name = ?3",
+        params![well_id, dataset, set_name],
+    )?;
+    Ok(())
+}
+
+/// One thing that could ride along with a core depth shift.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ShiftCandidate {
+    /// `"aux"`, `"scal"` or `"image"`.
+    pub kind: String,
+    /// Dataset name; empty for SCAL, which has only one live delivery per well.
+    pub dataset: String,
+    pub set_name: String,
+    pub rows: i64,
+    /// True when this delivery was imported as being on the core's depth scale. The dialog
+    /// pre-ticks these and leaves the rest alone — moving a log-depth delivery would be wrong,
+    /// and nothing downstream could tell.
+    pub on_core_depths: bool,
+}
+
+/// Everything in a well that a core registration could carry with it: the point datasets, the live
+/// SCAL delivery and each live image delivery.
+///
+/// Reported with `on_core_depths` rather than filtered by it, because the flag is only known for
+/// deliveries imported since it existed — an older project would otherwise show nothing and look
+/// as though there were nothing to move.
+pub fn core_shift_candidates(conn: &Connection, well_id: &str) -> DbResult<Vec<ShiftCandidate>> {
+    let mut out: Vec<ShiftCandidate> = Vec::new();
+
+    let mut stmt = conn.prepare(&format!(
+        "SELECT a.dataset, a.set_name, COUNT(*),
+                COALESCE((SELECT s.on_core_depths FROM aux_sets s
+                          WHERE s.well_id = ?1 AND s.dataset = a.dataset AND s.set_name = a.set_name), 0)
+         FROM aux_data a
+         WHERE a.well_id = ?1 AND a.set_name = {ACTIVE_AUX_SET}
+         GROUP BY a.dataset, a.set_name ORDER BY a.dataset"
+    ))?;
+    for row in stmt.query_map(params![well_id], |r| {
+        Ok(ShiftCandidate {
+            kind: "aux".into(),
+            dataset: r.get(0)?,
+            set_name: r.get(1)?,
+            rows: r.get(2)?,
+            on_core_depths: r.get::<_, i64>(3)? != 0,
+        })
+    })? {
+        out.push(row?);
+    }
+
+    let mut stmt = conn.prepare(&format!(
+        "SELECT p.set_name, COUNT(*),
+                COALESCE((SELECT s.on_core_depths FROM scal_sets s
+                          WHERE s.well_id = ?1 AND s.set_name = p.set_name), 0)
+         FROM scal_pc p
+         WHERE p.well_id = ?1 AND p.set_name = {ACTIVE_SCAL_SET}
+         GROUP BY p.set_name"
+    ))?;
+    for row in stmt.query_map(params![well_id], |r| {
+        Ok(ShiftCandidate {
+            kind: "scal".into(),
+            dataset: String::new(),
+            set_name: r.get(0)?,
+            rows: r.get(1)?,
+            on_core_depths: r.get::<_, i64>(2)? != 0,
+        })
+    })? {
+        out.push(row?);
+    }
+
+    let mut stmt = conn.prepare(&format!(
+        "SELECT i.dataset, i.set_name, COUNT(*),
+                COALESCE((SELECT s.on_core_depths FROM image_sets s
+                          WHERE s.well_id = ?1 AND s.dataset = i.dataset AND s.set_name = i.set_name), 0)
+         FROM well_images i
+         WHERE i.well_id = ?1 AND i.set_name = {ACTIVE_IMAGE_SET}
+         GROUP BY i.dataset, i.set_name ORDER BY i.dataset"
+    ))?;
+    for row in stmt.query_map(params![well_id], |r| {
+        Ok(ShiftCandidate {
+            kind: "image".into(),
+            dataset: r.get(0)?,
+            set_name: r.get(1)?,
+            rows: r.get(2)?,
+            on_core_depths: r.get::<_, i64>(3)? != 0,
+        })
+    })? {
+        out.push(row?);
+    }
+    Ok(out)
+}
+
+/// What a core shift should carry with it, as the caller chose it.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct ShiftTargets {
+    /// Point datasets (by dataset name; the ACTIVE delivery of each moves).
+    #[serde(default)]
+    pub aux_datasets: Vec<String>,
+    /// Move the live SCAL delivery's plug depths.
+    #[serde(default)]
+    pub scal: bool,
+    /// Image datasets (by dataset name; the ACTIVE delivery of each moves).
+    #[serde(default)]
+    pub image_datasets: Vec<String>,
+}
+
+impl ShiftTargets {
+    pub fn aux(datasets: Vec<String>) -> Self {
+        Self { aux_datasets: datasets, ..Default::default() }
+    }
 }
 
 /// One barrel's (or one piece's) correction: everything currently between `top` and `base` moves
@@ -4760,8 +5030,9 @@ pub fn apply_core_run_shifts(
     conn: &mut Connection,
     well_id: &str,
     runs: &[RunShift],
-    datasets: &[String],
+    targets: &ShiftTargets,
 ) -> Result<CoreShiftCounts, String> {
+    let datasets = &targets.aux_datasets;
     if runs.is_empty() {
         return Ok(CoreShiftCounts::default());
     }
@@ -4869,6 +5140,36 @@ pub fn apply_core_run_shifts(
         )
         .map_err(|e| e.to_string())?;
 
+    let mut scal = 0usize;
+    if targets.scal {
+        // A Pc point with no depth is left alone: there is nothing to correct, and NULL + delta
+        // would stay NULL anyway — the filter is there so the count reports what really moved.
+        scal = tx
+            .execute(
+                &format!(
+                    "UPDATE scal_pc AS p SET depth = {}
+                     WHERE p.well_id = ?1 AND p.depth IS NOT NULL AND p.set_name = {ACTIVE_SCAL_SET}",
+                    run_shift_case(runs, "p.depth")
+                ),
+                params![well_id],
+            )
+            .map_err(|e| e.to_string())?;
+    }
+    let mut plates = 0usize;
+    for dataset in &targets.image_datasets {
+        plates += tx
+            .execute(
+                &format!(
+                    "UPDATE well_images AS i SET depth_top = {}, depth_base = {}
+                     WHERE i.well_id = ?1 AND i.dataset = ?2 AND i.set_name = {ACTIVE_IMAGE_SET}",
+                    run_shift_case(runs, "i.depth_top"),
+                    run_shift_case_on(runs, "i.depth_top", "i.depth_base")
+                ),
+                params![well_id, dataset],
+            )
+            .map_err(|e| e.to_string())?;
+    }
+
     let mut extras = 0usize;
     let top_case = run_shift_case(runs, "a.depth_top");
     let base_case = run_shift_case_on(runs, "a.depth_top", "a.depth_base");
@@ -4884,7 +5185,7 @@ pub fn apply_core_run_shifts(
             .map_err(|e| e.to_string())?;
     }
     tx.commit().map_err(|e| e.to_string())?;
-    Ok(CoreShiftCounts { plugs: plugs_moved, extras, inverse })
+    Ok(CoreShiftCounts { plugs: plugs_moved, extras, scal, plates, inverse })
 }
 
 /// Every plug of the ACTIVE core delivery as `(where the lab said it was, where it is now)`,

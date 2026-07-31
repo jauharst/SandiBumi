@@ -2539,6 +2539,10 @@ export interface CoreShiftCounts {
   plugs: number;
   /** Point-data rows moved along with them. */
   extras: number;
+  /** SCAL Pc rows moved. */
+  scal: number;
+  /** Pictures moved. */
+  plates: number;
   /** The ranges that put this operation back, in the depths that exist AFTER it. Use these for
    *  undo rather than negating your own deltas — barrels moved by different amounts can produce
    *  overlapping ranges, and the first match wins. Empty for a whole-well shift. */
@@ -2549,8 +2553,8 @@ export interface CoreShiftCounts {
  *  point measurements made ON those plugs move together — pass `datasets` to say which point
  *  datasets ride along (omit for the ones delivered with this core, `[]` for plugs only).
  *  Exactly reversible with -delta, which is what makes it undoable. */
-export function shiftCoreData(wellId: string, delta: number, datasets?: string[]): Promise<CoreShiftCounts> {
-  return invoke<CoreShiftCounts>("shift_core_data", { wellId, delta, datasets });
+export function shiftCoreData(wellId: string, delta: number, targets?: ShiftTargets): Promise<CoreShiftCounts> {
+  return invoke<CoreShiftCounts>("shift_core_data", { wellId, delta, targets });
 }
 
 /** One barrel's correction: everything currently between `top` and `base` moves by `delta`.
@@ -2566,9 +2570,31 @@ export interface RunShift {
 export function applyCoreRunShifts(
   wellId: string,
   runs: RunShift[],
-  datasets?: string[],
+  targets?: ShiftTargets,
 ): Promise<CoreShiftCounts> {
-  return invoke<CoreShiftCounts>("apply_core_run_shifts", { wellId, runs, datasets });
+  return invoke<CoreShiftCounts>("apply_core_run_shifts", { wellId, runs, targets });
+}
+
+/** What a core registration should carry with it. Omit entirely to move the point data that
+ *  provably came in with the core table; pass an empty object for plugs only. */
+export interface ShiftTargets {
+  aux_datasets?: string[];
+  scal?: boolean;
+  image_datasets?: string[];
+}
+
+/** One delivery a core shift could carry. `on_core_depths` marks the ones imported as sitting on
+ *  the core depth scale — those are pre-ticked, the rest are offered but left alone. */
+export interface ShiftCandidate {
+  kind: "aux" | "scal" | "image";
+  dataset: string;
+  set_name: string;
+  rows: number;
+  on_core_depths: boolean;
+}
+
+export function coreShiftCandidates(wellId: string): Promise<ShiftCandidate[]> {
+  return invoke<ShiftCandidate[]>("core_shift_candidates", { wellId });
 }
 
 /** The well's core depth record: `[depth the lab wrote, depth it sits at now]` per plug. */

@@ -6284,3 +6284,30 @@ rather than pretending it placed them.
 **Still not automatic:** a delivery already sitting in the project does not move when you re-register
 the core afterwards. That is the last piece of your tentative "yes" on pictures following plugs, and
 it waits for you to firm it up.
+
+---
+
+## Data already in the project follows a later re-registration (2026-07-31)
+
+The last piece. Until now, re-registering a core moved the plugs and their extras — but the XRD you
+imported last month, the SCAL points and the thin sections stayed where they were.
+
+- [ ] Open **Tools ▸ Register Depth…** on a well that already has XRD/CEC, SCAL and pictures. Below
+      the plots there is now a list of **everything that can move with the core**.
+- [ ] Deliveries you imported with **"these depths came from the core report"** ticked are
+      **pre-ticked** here. Anything else is listed but left unticked, marked *"not marked as
+      core-depth data"* — a perforation record is on the driller's scale and must not be dragged
+      along.
+- [ ] Apply a shift. The status line should count **plugs, point samples, Pc points and pictures**
+      separately, so you can see everything moved.
+- [ ] **Ctrl+Z.** All four should come back together.
+- [ ] The same list drives the **per-barrel** Apply — untick something, apply barrels, and it stays
+      put.
+- [ ] Untick everything and apply: only the plugs move. That is a legitimate choice, not an error.
+
+**Note on older data:** anything imported before today is marked *not* core-depth, because the app
+genuinely does not know. It is still listed and you can tick it by hand — but the default leaves it
+alone rather than moving data on a guess.
+
+**Worth a real test:** register a core, then check that a thin section you imported months ago has
+moved with its plug and still lines up in the log view.

@@ -679,6 +679,10 @@ pub fn import_images(conn: &Connection, req: &ImageImportRequest) -> Result<Imag
     let source = req.items.first().map(|i| i.path.clone());
     let imported = crate::db::insert_well_images(conn, &req.well_id, &dataset, &target_set, source.as_deref(), &rows)
         .map_err(|e| e.to_string())?;
+    // Record the depth basis, so a later core registration knows whether these plates move too.
+    if req.follow_core {
+        let _ = crate::db::mark_image_set_on_core(conn, &req.well_id, &dataset, &target_set);
+    }
 
     let mut notes: Vec<String> = Vec::new();
     if entered_unit != project_unit {
@@ -830,7 +834,7 @@ mod tests {
             &mut conn,
             &w,
             &[crate::db::RunShift { top: 2000.0, base: 2019.0, delta: 2.0 }],
-            &[],
+            &crate::db::ShiftTargets::default(),
         )
         .unwrap();
 

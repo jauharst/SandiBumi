@@ -2019,20 +2019,22 @@ fn shift_core_data(
     db: tauri::State<DbState>,
     well_id: String,
     delta: f32,
-    datasets: Option<Vec<String>>,
+    targets: Option<db::ShiftTargets>,
 ) -> Result<db::CoreShiftCounts, String> {
     let mut conn = db.0.lock().unwrap();
-    // No list given = the extras that provably came in on this core. An explicit empty list
-    // means "plugs only", and must stay distinguishable from "not specified".
-    let datasets = match datasets {
-        Some(d) => d,
-        None => db::core_extra_datasets(&conn, &well_id)
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .map(|(d, _)| d)
-            .collect(),
+    // Nothing given = the extras that provably came in on this core. An explicit empty set means
+    // "plugs only", and must stay distinguishable from "not specified".
+    let targets = match targets {
+        Some(t) => t,
+        None => db::ShiftTargets::aux(
+            db::core_extra_datasets(&conn, &well_id)
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .map(|(d, _)| d)
+                .collect(),
+        ),
     };
-    db::shift_core_depths(&mut conn, &well_id, delta, &datasets).map_err(|e| e.to_string())
+    db::shift_core_depths(&mut conn, &well_id, delta, &targets).map_err(|e| e.to_string())
 }
 
 /// Applies per-barrel (or finer) corrections to a well's active core delivery. Refuses any set
@@ -2042,18 +2044,28 @@ fn apply_core_run_shifts(
     db: tauri::State<DbState>,
     well_id: String,
     runs: Vec<db::RunShift>,
-    datasets: Option<Vec<String>>,
+    targets: Option<db::ShiftTargets>,
 ) -> Result<db::CoreShiftCounts, String> {
     let mut conn = db.0.lock().unwrap();
-    let datasets = match datasets {
-        Some(d) => d,
-        None => db::core_extra_datasets(&conn, &well_id)
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .map(|(d, _)| d)
-            .collect(),
+    let targets = match targets {
+        Some(t) => t,
+        None => db::ShiftTargets::aux(
+            db::core_extra_datasets(&conn, &well_id)
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .map(|(d, _)| d)
+                .collect(),
+        ),
     };
-    db::apply_core_run_shifts(&mut conn, &well_id, &runs, &datasets)
+    db::apply_core_run_shifts(&mut conn, &well_id, &runs, &targets)
+}
+
+/// Everything in a well that a core registration could carry with it, with whether each delivery
+/// was imported as sitting on the core depth scale.
+#[tauri::command]
+fn core_shift_candidates(db: tauri::State<DbState>, well_id: String) -> Result<Vec<db::ShiftCandidate>, String> {
+    let conn = db.0.lock().unwrap();
+    db::core_shift_candidates(&conn, &well_id).map_err(|e| e.to_string())
 }
 
 /// A well's core depth record: `(depth the lab wrote, depth it sits at now)` per plug.
@@ -2670,6 +2682,7 @@ pub fn run() {
             update_core_sample,
             shift_core_data,
             core_extra_datasets,
+            core_shift_candidates,
             shift_well_images,
             apply_core_run_shifts,
             core_depth_pairs,
