@@ -1467,9 +1467,16 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 **Steps:**
 
 1. Plot ▸ **Histogram**, curve GR, on well A: ⚙ **Properties** ▸ user percentiles "3, 97" ▸ Apply. Note P3/P97. Repeat for well B — confirm they differ (the mis-calibration you are about to remove).
-2. Open **Data Prep ▸ GR Normalization (Two-Point Percentile)**. Wells scope = **Selection** with both wells (Ctrl-click in the Wells pane). Keep defaults (P_LOW 3, P_HIGH 97, GR_LOW_REF 53.68, GR_HIGH_REF 133.93 — the Rokan 562-well calibration; substitute your field refs if set). **Run**.
+2. Open **Data Prep ▸ GR Normalization (Two-Point Percentile)**. Wells scope = **Selection** with both wells (Ctrl-click in the Wells pane). Keep defaults (P_LOW 3, P_HIGH 97, GR_LOW_REF 20, GR_HIGH_REF 120 — generic clean-sand and clay endpoints, matching vsh_gr's own defaults; substitute your field refs if you have them). **Run**.
 3. Histogram of **GRN** on each well with the same "3, 97" percentiles.
-   **Expected:** For every normalized well, GRN's P3 ≈ 53.68 and P97 ≈ 133.93 gAPI (percentile pinning) — the histograms now overlay; shale intervals read high, clean sands low, character preserved (a linear rescale, no shape change). Both wells get their own ✓ line in the Processing panel.
+   **Expected:** For every normalized well, GRN's P3 ≈ GR_LOW_REF and P97 ≈ GR_HIGH_REF (percentile pinning, whatever references you ran with) — the histograms now overlay; shale intervals read high, clean sands low, character preserved (a linear rescale, no shape change). Both wells get their own ✓ line in the Processing panel.
+
+   > **Corrected 2026-07-31.** This step used to name 53.68 / 133.93 as the defaults. The
+   > provenance sweep replaced those with the generic 20 / 120 — a two-decimal endpoint is
+   > somebody's regression result, and it is silently wrong in another basin. Each well anchoring
+   > on its OWN percentiles is now pinned by
+   > `gr_normalization_anchors_each_well_on_its_own_percentiles` (`workflow.rs`), so step 3 is
+   > checked automatically; what remains for you is whether the character survived on real logs.
    **Result — T-PREP-14:**
 
 - [ ] Pass
@@ -4720,7 +4727,7 @@ All source reading done — I verified every label against `index.html`, `ribbon
 **Preconditions:** T-INT-01/03 done.
 **Steps:**
 
-1. **Petrophysics → Data Prep ▾ → GR Normalization (Two-Point Percentile)**. In the pane: Wells scope = **All**; set GR_LOW_REF/GR_HIGH_REF to your field's P3/P97 reference (defaults are Rokan 53.68/133.93 — replace with your Mahakam values); Output cons = `INTERP`; **Run**.
+1. **Petrophysics → Data Prep ▾ → GR Normalization (Two-Point Percentile)**. In the pane: Wells scope = **All**; set GR_LOW_REF/GR_HIGH_REF to your field's P3/P97 reference (defaults are the generic 20/120 — replace with your own field values); Output cons = `INTERP`; **Run**.
 2. **Data Prep ▾ → Bad-Hole QC Flag**: defaults (DRHO_MAX 0.05, DCAL_MAX 1.0); **Run**.
 3. **Data Prep ▾ → Data Conditioning Flags**: defaults; **Run**.
 4. **Data Prep ▾ → Pre-Calculation (P / T / Rmf / Ct / Cxo)**: defaults; **Run**.

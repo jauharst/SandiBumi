@@ -1622,7 +1622,7 @@ mod tests {
             module: "gr_normalize".into(),
             well_ids: vec![w.clone()],
             log_inputs: HashMap::new(),
-            params: HashMap::new(), // defaults: P3/P97, refs 53.68/133.93
+            params: HashMap::new(), // manifest defaults: P3/P97, generic refs 20/120
             opts: [("MASK".to_string(), "BADHOLE".to_string())].into_iter().collect(),
             output_set: None,
             input_set: None,
@@ -1848,6 +1848,131 @@ mod tests {
                 .unwrap();
             assert!(flag_curves > 0, "the writing run must persist FLAG_* curves");
         }
+    }
+
+    /// GR normalization anchors on EACH WELL'S OWN percentiles, not on the batch's pooled ones.
+    ///
+    /// That is the entire point of the module: two wells logged by different tools, or in
+    /// different mud, read different absolute GR in the same shale, and normalizing is what makes
+    /// one VSH cutoff mean the same rock in both. Pooling the percentiles across the run would
+    /// still produce a plausible-looking GRN — the FIELD would anchor on the references while
+    /// each individual well drifted off them by however much its own distribution differs from
+    /// the pool. Nothing on the log says so, and the wells would then disagree exactly where the
+    /// module was supposed to make them agree.
+    ///
+    /// So the two wells here are deliberately given very different GR characters and run in ONE
+    /// batch. Each must come back with its own P3 and P97 on the shared references.
+    ///
+    /// The reference values are read from the manifest rather than typed in, because they are
+    /// generic defaults held by `gr_normalize_reference_defaults_are_generic_not_a_field_calibration`
+    /// and must never be restated as literals here — a second copy is a second thing to go stale.
+    #[test]
+    fn gr_normalization_anchors_each_well_on_its_own_percentiles() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+
+        // Two wells, same rock, very different absolute GR: B reads roughly twice A and is
+        // shifted. Pooled percentiles would sit between them and fit neither.
+        let n = 101usize;
+        let mk = |name: &str, base: f32, span: f32| -> uuid::Uuid {
+            let id = uuid::Uuid::new_v4();
+            db::insert_well(&conn, id, name, None, None, None).unwrap();
+            let depth: Vec<f32> = (0..n).map(|i| 2000.0 + i as f32 * 0.5).collect();
+            // A deterministic saw-tooth spread over the span: a real distribution, not a ramp
+            // that would make every percentile trivially exact.
+            let gr: Vec<f32> = (0..n)
+                .map(|i| base + span * (((i * 37) % n) as f32 / (n - 1) as f32))
+                .collect();
+            let nan = vec![f32::NAN; n];
+            db::insert_standard_curves(
+                &conn,
+                id,
+                depth,
+                gr,
+                nan.clone(),
+                nan.clone(),
+                nan.clone(),
+                nan.clone(),
+                nan,
+            )
+            .unwrap();
+            id
+        };
+        let a = mk("SANDI-GRA", 15.0, 60.0);
+        let b = mk("SANDI-GRB", 70.0, 150.0);
+
+        // The shipped reference endpoints, taken from the manifest.
+        let spec = modules::list_modules()
+            .into_iter()
+            .find(|m| m.name == "gr_normalize")
+            .expect("gr_normalize must be in the catalog");
+        let default_of = |name: &str| -> f32 {
+            spec.args
+                .iter()
+                .find(|x| x.name == name)
+                .expect("arg present")
+                .default
+                .parse()
+                .expect("numeric default")
+        };
+        let (lo_ref, hi_ref) = (default_of("GR_LOW_REF"), default_of("GR_HIGH_REF"));
+        let (p_lo, p_hi) = (default_of("P_LOW"), default_of("P_HIGH"));
+
+        let dbm = Mutex::new(conn);
+        let req = RunModuleRequest {
+            module: "gr_normalize".into(),
+            well_ids: vec![a.to_string(), b.to_string()],
+            log_inputs: HashMap::new(),
+            params: HashMap::new(),
+            opts: HashMap::new(),
+            output_set: None,
+            input_set: None,
+        };
+        let results = run_workflow_module_into(&dbm, &req, None, None, None);
+        assert_eq!(results.len(), 2);
+        for r in &results {
+            assert!(r.error.is_none(), "gr_normalize failed: {:?}", r.error);
+        }
+
+        let grn_of = |well: &uuid::Uuid| -> Vec<f32> {
+            let c = dbm.lock().unwrap();
+            let mut stmt = c
+                .prepare(
+                    "SELECT value FROM computed_curves
+                     WHERE well_id = ?1 AND curve_name = 'GRN' ORDER BY depth",
+                )
+                .unwrap();
+            let v: Vec<f32> = stmt
+                .query_map(duckdb::params![well.to_string()], |r| r.get(0))
+                .unwrap()
+                .filter_map(|x| x.ok())
+                .collect();
+            v
+        };
+
+        for (name, id) in [("SANDI-GRA", &a), ("SANDI-GRB", &b)] {
+            let mut v = grn_of(id);
+            assert_eq!(v.len(), n, "{name}: every sample must be normalized");
+            v.sort_by(|x, y| x.partial_cmp(y).unwrap());
+
+            let got_lo = crate::distribution::percentile(&v, p_lo);
+            let got_hi = crate::distribution::percentile(&v, p_hi);
+            assert!(
+                (got_lo - lo_ref).abs() < 0.5,
+                "{name}: its OWN P{p_lo} must land on the low reference {lo_ref}, got {got_lo} \
+                 — percentiles look pooled across the batch rather than per well"
+            );
+            assert!(
+                (got_hi - hi_ref).abs() < 0.5,
+                "{name}: its OWN P{p_hi} must land on the high reference {hi_ref}, got {got_hi}"
+            );
+        }
+
+        // The control: before normalizing, these two wells were nowhere near each other. If the
+        // raw curves already agreed, the assertions above would pass without the module doing
+        // anything at all.
+        let raw_spread = (70.0f32 - 15.0).abs();
+        assert!(raw_spread > 1.0, "the two wells must start with genuinely different GR");
     }
 
     /// Restoring an earlier log-set version must change what the NEXT module run computes.

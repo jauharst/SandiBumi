@@ -29,21 +29,68 @@ Pile D is the number that matters: **37 tests, about one in seven, genuinely nee
 
 | Pile | Done | Remaining |
 |---|---|---|
-| **B** — a Rust test now checks it | **6** | 39 |
-| **C** — a machine now drives it | **5** | 81 unblocked (+61 blocked) |
+| **B** — a Rust test now checks it | **7** | 38 |
+| **C** — a machine now drives it | **5 harness tests** | 81 unblocked (+61 blocked) |
 
-### Pile B — retired so far
+### Pile B — the checklist
 
-| Manual test | Now checked by | Where |
-|---|---|---|
-| T-REP-18 | `readonly_query_refuses_every_write_shape_including_a_cte_prefix` | `db.rs` |
-| T-SHIP-03 | `a_missing_curve_fails_by_name_rather_than_computing_on_another` | `lorenz.rs` |
-| T-IMP-15 | `export_writes_missing_as_null_and_carries_mixed_case_computed_curves` | `export.rs` |
-| T-IMP-16 | `an_exported_las_reimports_with_the_same_values` | `export.rs` |
-| T-INT-03 | `zones_from_tops_are_contiguous_and_absent_tops_make_no_zones` (+ the inverted-zone guard) | `db.rs` |
-| T-INT-11 | `a_restored_log_set_version_feeds_the_next_module_run` | `workflow.rs` |
+**`[x]` here means a Rust test now checks it and runs on every gate. It is NOT your
+verification mark** — that lives in `docs/manual_test_plan.md` and nothing automated ever
+touches it. A `[x]` below says the arithmetic is pinned; it does not say the feature works on
+your wells.
 
-All three items flagged as **silent-wrongness class** (T-REP-18, T-SHIP-03, T-INT-11) are closed.
+**Done (7 of 45)**
+
+- [x] **T-REP-18** — SQL Query rejects writes · `readonly_query_refuses_every_write_shape_including_a_cte_prefix` (`db.rs`)
+- [x] **T-SHIP-03** — missing perm curve fails loudly · `a_missing_curve_fails_by_name_rather_than_computing_on_another` (`lorenz.rs`)
+- [x] **T-IMP-15** — LAS export: NaN→null, computed curves, mixed-case name · `export_writes_missing_as_null_and_carries_mixed_case_computed_curves` (`export.rs`)
+- [x] **T-IMP-16** — export → re-import round trip · `an_exported_las_reimports_with_the_same_values` (`export.rs`)
+- [x] **T-INT-03** — tops → zones, + empty-well negative · `zones_from_tops_are_contiguous_and_absent_tops_make_no_zones` + `a_top_below_the_logged_interval_never_makes_an_inverted_zone` (`db.rs`)
+- [x] **T-INT-11** — restore v1, downstream consumes it · `a_restored_log_set_version_feeds_the_next_module_run` (`workflow.rs`)
+- [x] **T-PREP-14** — GR normalization anchors per well · `gr_normalization_anchors_each_well_on_its_own_percentiles` (`workflow.rs`)
+
+All three items flagged **silent-wrongness class** (T-REP-18, T-SHIP-03, T-INT-11) are closed.
+
+**Open (38)**
+
+- [ ] T-PLOT-19 — Curve Edit negatives (invalid input, stale undo)
+- [ ] T-REP-02 — Composite render: layout, print scale, pagination
+- [ ] T-REP-03 — Composite depth window + invalid window
+- [ ] T-REP-06 — Report render: cover, methodology, zone params, pay summary
+- [ ] T-REP-09 — "Tables only" mode
+- [ ] T-REP-12 — Batch export with a broken well in scope
+- [ ] T-REP-14 — DB Inspector: browse all 8 tables
+- [ ] T-REP-16 — DB Inspector negatives
+- [ ] T-AUX-07 — Well-diagram track in Composite/Report + old layouts
+- [ ] T-AUX-17 — Equation runtime error mid-batch, per-well isolation
+- [ ] T-PREP-02 — Formation Temperature: GRADIENT and BHT modes
+- [ ] T-PREP-05 — Pre-Calculation degC + per-zone gradient kink
+- [ ] T-PREP-11 — Neutron Env Correction: computed-only FTEMP contract
+- [ ] T-PREP-13 — Gas Correction negatives
+- [ ] T-PREP-16 — Synthetic Log (KNN): gap fill + masked washout
+- [ ] T-PREP-18 — Splice Curves at depth
+- [ ] T-PETRO-02 — vsh_gr nonlinear options + version N+1
+- [ ] T-PETRO-13 — zone parameter override: RW in one zone only
+- [ ] T-PETRO-14 — perm_wyllie_rose, all OPT_WR variants
+- [ ] T-ADV-10 — RtC/IMTS on an SSPW-only well: fallback
+- [ ] T-ADV-11 — RtC with no porosity curve: honest failure
+- [ ] T-ADV-13 — Saturation-Height on a deviated well (TVD wiring)
+- [ ] T-ADV-17 — SandiMin re-run, lowercase prefix, no shadow rows
+- [ ] T-RT-05 — rocktyping with no permeability curve
+- [ ] T-RT-07 — Rock Type from Cutoffs: RT_LOG ladder
+- [ ] T-RT-08 — Pittman r10–r75 + APEX selector
+- [ ] T-RT-18 — Legacy Multimin RECON_ERR at exactly 3 tools
+- [ ] T-BATCH-08 — Pay Summary negatives
+- [ ] T-BATCH-16 — Monte Carlo PERM cutoff with chain-produced PERM
+- [ ] T-BATCH-17 — Monte Carlo vs chain with a bad-hole MASK
+- [ ] T-SHELL-07 — Save Project As = backup copy
+- [ ] T-SHELL-09 — project switch refused while a chain runs
+- [ ] T-IMP-04 — Malformed LAS: all-null depth + truncated last row
+- [ ] T-IMP-06 — DLIS: sentinels, replaced-count, mnemonic collision
+- [ ] T-IMP-08 — Core CSV with a duplicated plug depth
+- [ ] T-IMP-10 — Tops CSV: multi-well, unmatched, blank cells
+- [ ] T-IMP-12 — Deviation import: TVD/TVDSS, duplicate MD
+- [ ] T-WELL-16 — per-zone override actually drives a module run
 
 ### Pile C — covered by the end-to-end harness
 
