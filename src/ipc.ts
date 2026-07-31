@@ -3784,6 +3784,10 @@ export interface PoreResult {
   /** Plates left out and why, one entry each — never a silent subset. */
   skipped: string[];
   preview_png: string | null;
+  /** The same plate at the same size WITHOUT the mask — what the eyedropper reads and what Hold to
+   *  compare shows. Sent with the overlay so the two can never be one plate's mask over another
+   *  plate's pixels. */
+  plain_png?: string | null;
   preview_width: number;
   preview_height: number;
   /** [dataset, delivery] written, when a set name was given. */

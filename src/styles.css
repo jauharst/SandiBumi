@@ -5898,6 +5898,66 @@ input[type="number"].num-editing:focus {
   pointer-events: none;
 }
 
+/* The colour band, as a colour. The wheel is dimmed and the SELECTED arc is the bright part —
+   the crop-rectangle idiom, so what is kept reads as what is lit. */
+.cband { margin: 4px 0 8px; }
+
+.cband-wheel {
+  position: relative;
+  height: 30px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  cursor: ew-resize;
+  touch-action: none;
+  overflow: hidden;
+}
+
+.cband-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.cband-handle {
+  position: absolute;
+  top: -3px;
+  width: 12px;
+  height: 36px;
+  margin-left: -6px;
+  border-radius: var(--r-sm);
+  border: 2px solid var(--bg-panel);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+  cursor: ew-resize;
+  touch-action: none;
+  z-index: 3;
+}
+
+.cband-nums {
+  display: flex;
+  gap: var(--s-3);
+  align-items: center;
+  margin-top: var(--s-2);
+}
+
+.cband-num {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+
+.cband-num input { width: 5rem; }
+
+.cband-swatch {
+  display: inline-block;
+  width: 30px;
+  height: 22px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border-strong);
+}
+
 /* The four corners of the core box. The outline is drawn as an SVG polygon rather than four
    rotated borders so a genuinely skewed quadrilateral closes properly. */
 .cond-quad {

@@ -24,12 +24,24 @@ import { pushUndo } from "../undo";
 import { formRow, openModal } from "./modal";
 import { requireWell } from "./needWell";
 
+/** Which kind of picture the workspace was opened for. */
+export type ConditionSubject = "core" | "plate";
+
 /**
- * Conditioning a core slab photograph (Data ▸ Tools ▾ ▸ Condition Core Photos…).
+ * Conditioning a picture of rock — a core slab photograph (Data ▸ Tools ▾ ▸ Condition Core Photos…)
+ * or a thin section (Petrophysics ▸ Petrography ▸ Condition Plates…).
  *
  * A core photograph arrives as somebody's snapshot: the box a degree off square on the bench, the
  * tray and the tape in frame, and whatever colour the core shed's lights had that afternoon. None
- * of that is the rock, and all of it goes into a report.
+ * of that is the rock, and all of it goes into a report. **A thin section arrives with exactly the
+ * same problems** — lifted out of a workbook at whatever angle it was scanned, under whatever lamp
+ * the microscope had — so it gets the same workspace rather than a second one written to look like
+ * it. Two dialogs would be two places for the wording, the gamma and the white-balance rule to
+ * drift, which is the `followCore.ts` argument.
+ *
+ * The one real difference is at the bottom: the proxy trace and the depth strips are core-only, and
+ * not by omission. A thin section is cut from ONE plug and covers no interval, so there is no axis
+ * to read a log along and nothing to stretch a strip over.
  *
  * **The controls are the picture wherever they can be.** A geologist judges a photograph by looking
  * at it, so the delivery is a strip of thumbnails rather than a dropdown of filenames, the crop is a
@@ -46,20 +58,25 @@ import { requireWell } from "./needWell";
  * **Nothing is written until Apply.** The conditioning is reversible afterwards too: the import is
  * kept the first time a recipe is baked and Reset puts the photograph back byte for byte.
  */
-export async function openCoreConditionDialog(): Promise<void> {
+export async function openCoreConditionDialog(subject: ConditionSubject = "core"): Promise<void> {
+  const plate = subject === "plate";
+  const what = plate ? "plates" : "core photos";
   const well = appState.selectedWell.get();
   if (!well) {
-    requireWell("Condition core photos");
+    requireWell(`Condition ${what}`);
     return;
   }
   const wrap = document.createElement("div");
-  openModal(`Condition core photos — ${well.well_name}`, wrap, 1000);
+  openModal(`Condition ${what} — ${well.well_name}`, wrap, 1000);
 
   const intro = document.createElement("div");
   intro.className = "eq-note";
-  intro.textContent =
-    "Straighten, crop and colour-correct a core photograph. Nothing is destroyed — the picture as " +
-    "imported is kept, and Reset puts it back exactly.";
+  intro.textContent = plate
+    ? "Straighten, crop and colour-correct a thin section — the same tools the core photographs " +
+      "use, because the job is the same one. Nothing is destroyed: the picture as imported is kept, " +
+      "and Reset puts it back exactly. What you apply here is what Pore Area measures."
+    : "Straighten, crop and colour-correct a core photograph. Nothing is destroyed — the picture as " +
+      "imported is kept, and Reset puts it back exactly.";
   wrap.appendChild(intro);
 
   if (!(await coreImageSupport().catch(() => false))) {
@@ -82,9 +99,13 @@ export async function openCoreConditionDialog(): Promise<void> {
     o.textContent = `${name} — ${n} picture(s)`;
     dsSel.appendChild(o);
   }
-  // A core-photograph delivery is what this tool is for, so it opens on one where the well has it.
-  const photo = datasets.find(([n]) => n.toUpperCase().includes("CORE") || n.toUpperCase().includes("PHOTO"));
-  if (photo) dsSel.value = photo[0];
+  // Opens on the kind of delivery it was asked for, so neither entry point starts on the other's
+  // pictures. A plate delivery is named for what it is; a core one is named for the core.
+  const want = plate
+    ? (n: string) => /THIN|SECTION|PLATE|SEM|PETROG/.test(n)
+    : (n: string) => n.includes("CORE") || n.includes("PHOTO");
+  const first = datasets.find(([n]) => want(n.toUpperCase()));
+  if (first) dsSel.value = first[0];
   wrap.appendChild(formRow("Picture dataset", dsSel));
 
   if (!datasets.length) {
@@ -854,11 +875,13 @@ export async function openCoreConditionDialog(): Promise<void> {
 
   const applyAll = document.createElement("button");
   applyAll.className = "btn";
-  applyAll.textContent = "Apply this light to the whole run";
+  applyAll.textContent = plate ? "Apply this light to the whole delivery" : "Apply this light to the whole run";
   applyAll.title =
     "Copies the colour half only — the brightness, contrast, colour, warmth and the grey you " +
-    "picked. Each picture keeps its own straightening and crop, because the box sits differently " +
-    "on the bench in every frame.";
+    "picked. Each picture keeps its own straightening and crop, because " +
+    (plate
+      ? "a section sits differently under the microscope every time."
+      : "the box sits differently on the bench in every frame.");
 
   const resetOne = document.createElement("button");
   resetOne.className = "btn";
@@ -951,7 +974,11 @@ export async function openCoreConditionDialog(): Promise<void> {
   //
   // Everything here is chosen by looking at the photograph rather than by typing: which way the
   // depth runs, how many rows of core are in the frame, and then a drawn trace to judge.
+  // The trace and the depth strips are core-only, and not by omission: a thin section is cut from
+  // ONE plug and covers no interval, so there is no axis to read a log along and nothing to stretch
+  // a strip over — the same reason `extract_core_log` refuses a picture with no base depth.
   const logBox = document.createElement("div");
+  logBox.hidden = plate;
   logBox.style.borderTop = "1px solid var(--border)";
   logBox.style.marginTop = "10px";
   logBox.style.paddingTop = "8px";

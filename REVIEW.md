@@ -7347,3 +7347,45 @@ fluorescence, both at true depth.
       GR. Do they line up with each other and with the log?
 - [ ] Condition the UV delivery separately (it usually wants a different exposure) and check the
       white-light one was not touched.
+
+## Thin sections get the core photographs' workspace (2026-08-01)
+
+**Petrophysics ▸ Petrography ▸ Condition Plates…** is the same workspace the core photographs use —
+thumbnail strip, drag to crop, click a grey to fix the cast, sliders whose tracks show the colour
+they move through, hold to compare, histogram. It opens on a thin-section delivery instead of a core
+one, and the trace and depth-strip section is hidden, because a section is cut from one plug and
+covers no interval.
+
+**Condition first, then measure.** Pore Area reads the conditioned plate, so a cast fixed here is a
+cast the measurement never has to fight.
+
+### Pore Area: the band is a colour now
+
+The four number boxes are gone. In their place:
+
+- A **hue wheel** with two draggable ends. The part of the wheel your band accepts is the bright
+  part; everything else is dimmed. Drag an end past the other and the band wraps through red, which
+  is allowed.
+- **At least this vivid** and **at least this bright** are sliders showing the colours they move
+  through, at your band's own hue.
+- A **swatch** of roughly what a pixel has to look like to be counted.
+- The numbers are still there beside them, and still typable.
+
+**Pick the pore colour** — press it, then click a pore on the plate below. The band re-centres on
+that colour keeping the width you set, and the floors drop just enough that the pixel you clicked is
+inside it. It reads the plate WITHOUT the red mask on it, so clicking inside the mask still samples
+the rock.
+
+**Hold to compare** shows the plate without the mask, so you can see what the band claimed against
+what is actually there.
+
+- [ ] Open Condition Plates… on a thin-section delivery. Does the filmstrip fill in, and does
+      cropping and white-balancing work the way it does on core photos?
+- [ ] Fix a plate's colour cast there, then run Pore Area on it. Is the band easier to set?
+- [ ] Use Pick the pore colour on a clear blue pore. Does the band land somewhere sensible?
+- [ ] Now click a grain by mistake — does the band move somewhere obviously wrong, so you can see
+      it did what you asked?
+- [ ] Drag the wheel's ends and watch the preview. Is it easier to judge than typing degrees?
+- [ ] Try a band wrapped through red (drag the high end below the low one) and check the preview
+      agrees with the wheel.
+- [ ] Hold to compare on a plate you are unsure about. Does the mask sit on the pores?

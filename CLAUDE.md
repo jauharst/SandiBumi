@@ -2368,6 +2368,67 @@ target; the dialog now shows it, pre-filled from the source's own name — `CORE
 `CORE STRIP UV`. With one fixed name the second build would quietly replace the first, leaving one
 box's two lights reduced to whichever was built last.
 
+## A thin section is a picture too (2026-08-01)
+
+The conditioning workspace built for core slab photographs now serves plates as well
+(Petrophysics ▸ Petrography ▸ **Condition Plates…**), and Pore Area's colour band is a colour rather
+than four numbers. Jauhar's rule from the core work — "geologist see image not text" — applied to the
+petrography side, which is where it matters most, because a colour threshold is the one setting that
+genuinely cannot be judged from a number.
+
+**One workspace, two entry points, not two dialogs.** A thin section arrives with exactly the
+problems a core photograph does: lifted out of a workbook at whatever angle it was scanned, under
+whatever lamp the microscope had. `openCoreConditionDialog("plate")` retitles, opens on a
+thin-section delivery and hides the core-only block; everything else is the same code. Two dialogs
+would be two places for the wording, the white-balance rule and the three-state status to drift —
+the `followCore.ts` argument.
+
+**The trace and the depth strips stay core-only, and not by omission.** A thin section is cut from
+ONE plug and covers no interval, so there is no axis to read a log along and nothing to stretch a
+strip over — the same statement `extract_core_log` makes when it refuses a picture with no base
+depth.
+
+**Conditioning a plate is upstream of measuring it**, since `petrography.rs` reads the baked `data`.
+That is the intended order — correct the plate, then measure it — and it composes with the
+reference-plate correction rather than competing: a white balance done by hand leaves the reference
+correction less to do, and the reference correction anchors on the matrix colour either way.
+
+### The band, as a colour
+
+`src/ui/colourBand.ts` is the shared control: a hue wheel laid out flat with two draggable ends, the
+saturation and brightness floors as sliders whose TRACKS carry the gradient they move along, a live
+swatch of what the band accepts, and the numbers still there and still typable — a band that came
+off somebody else's run has to be enterable, and a value that can only be dragged cannot be written
+down.
+
+**The wheel is a canvas, one column per degree.** A band that WRAPS through red is two arcs, and
+dimming everything outside two arcs with layered CSS panels is three special cases that each have to
+be got right. `inBand` is the runner's own rule restated here so the picture and the measurement
+agree about what a wrapped band means — refusing to draw one would make the control unable to
+express a band the runner reads perfectly well.
+
+**Pick the pore colour is the white-balance pick pointed the other way.** There a click says "this
+should be neutral"; here it says "this is pore". Both replace a number nobody can picture with the
+thing itself. The band keeps its WIDTH and moves its centre, because a click says "this colour is
+pore", not "this is the only colour that is pore" — a band collapsed onto one hue finds almost
+nothing and reads as a broken tool. The floors drop to just under what was clicked, so the very
+pixel the user pointed at is inside the band it just defined.
+
+**The colour is read from the UN-MASKED plate**, which is why `PoreResult` gained `plain_png`: the
+same picture at the same size without the overlay. Clicking inside the red mask would otherwise
+sample the mask and re-centre the band on the overlay's own colour, which is circular. It is sent
+BESIDE the overlay rather than fetched separately — the `CorePreview.before_png` argument, so the
+two can never be one plate's mask over another plate's pixels — and it is the CORRECTED picture,
+because that is what the band is applied to. A small patch and its MEDIAN, not one pixel: a single
+pixel on a scanned plate is as likely to be a speck as the epoxy, the same reason the white-balance
+pick takes a median.
+
+It also buys **Hold to compare** on the plate: what the band claimed, against what is actually
+there.
+
+Measured in the browser on a plate half blue epoxy and half tan grain: clicking the blue moved the
+band from 180–260° to 190–270°, centred on the epoxy's own 230°.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under

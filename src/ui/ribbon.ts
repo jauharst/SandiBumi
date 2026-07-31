@@ -254,6 +254,11 @@ export class Ribbon {
     window.addEventListener("sandibumi:open-processing", () => workspace.openProcessing());
     q<HTMLButtonElement>("#montecarlo-btn")?.addEventListener("click", () => workspace.openMonteCarlo());
     q<HTMLButtonElement>("#ml-btn")?.addEventListener("click", () => workspace.openMl());
+    // Same workspace the core photographs use — a thin section arrives with the same problems, and
+    // two dialogs would be two places for the wording and the white-balance rule to drift.
+    q<HTMLButtonElement>("#plate-condition-btn")?.addEventListener("click", () => {
+      void import("./coreConditionDialog").then((m) => m.openCoreConditionDialog("plate"));
+    });
     q<HTMLButtonElement>("#pore-area-btn")?.addEventListener("click", () => {
       void import("./poreAreaDialog").then((m) => m.openPoreAreaDialog());
     });

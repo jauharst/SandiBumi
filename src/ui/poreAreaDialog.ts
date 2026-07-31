@@ -17,6 +17,7 @@ import {
 } from "../ipc";
 import { appState, bumpDataVersion, setStatus } from "../state";
 import { recordProcess } from "../processLog";
+import { buildColourBand } from "./colourBand";
 import { formRow, openModal } from "./modal";
 
 /**
@@ -265,7 +266,25 @@ export async function openPoreAreaDialog(): Promise<void> {
     return c ? { kind: c.kind, dataset: c.dataset, item: c.item } : undefined;
   };
 
-  // ---- the colour band ----------------------------------------------------
+  // ---- the colour band, as a colour ---------------------------------------
+  //
+  // A hue threshold cannot be judged from a number: 205 degrees means nothing to anyone, and the
+  // thing a petrographer actually knows is what the epoxy in front of them looks like. So the band
+  // is a wheel with two draggable ends and the floors are sliders carrying the gradient they move
+  // along - the conditioning workspace's rule, applied to the measurement.
+  //
+  // Round starting numbers, and said to be a starting point: a two-decimal threshold here would
+  // look like somebody's regression result, and there is no regression behind it.
+  const bandCtl = buildColourBand({ hue_lo: 180, hue_hi: 260, sat_min: 0.15, val_min: 0.1 }, () => void preview());
+  wrap.appendChild(
+    formRow(
+      "Pore colour",
+      bandCtl.el,
+      "Drag the ends of the band onto the colour your blue epoxy actually is, or press Pick the " +
+        "pore colour and click a pore on the plate. A starting band, not a calibration."
+    )
+  );
+
   const mk = (label: string, value: number, step: number, hint: string): HTMLInputElement => {
     const i = document.createElement("input");
     i.className = "form-control";
@@ -275,12 +294,6 @@ export async function openPoreAreaDialog(): Promise<void> {
     wrap.appendChild(formRow(label, i, hint));
     return i;
   };
-  // Round starting numbers, and said to be a starting point: a two-decimal threshold here would
-  // look like somebody's regression result, and there is no regression behind it.
-  const hueLo = mk("Hue from (°)", 180, 5, "Blue-dyed epoxy sits in the blue-to-violet arc. A starting band, not a calibration — judge it on the picture.");
-  const hueHi = mk("Hue to (°)", 260, 5, "Narrow this if grain edges or stain are being caught.");
-  const satMin = mk("Saturation at least", 0.15, 0.01, "Rejects greys and near-whites, whose hue is meaningless. Raise it to drop pale, washed-out blue.");
-  const valMin = mk("Brightness at least", 0.1, 0.01, "Rejects near-black — cracks, plucked holes and the shadow at a plate edge.");
 
   // Pore geometry is opt-in: it needs scipy, and the area fraction must keep working where scipy
   // is not installed.
@@ -433,12 +446,7 @@ export async function openPoreAreaDialog(): Promise<void> {
   syncStainRows();
 
 
-  const band = (): PoreColorBand => ({
-    hue_lo: Number(hueLo.value),
-    hue_hi: Number(hueHi.value),
-    sat_min: Number(satMin.value),
-    val_min: Number(valMin.value),
-  });
+  const band = (): PoreColorBand => bandCtl.get();
 
   // ---- preview ------------------------------------------------------------
   const previewWrap = document.createElement("div");
@@ -453,6 +461,85 @@ export async function openPoreAreaDialog(): Promise<void> {
   img.style.maxWidth = "100%";
   img.style.display = "none";
   previewWrap.appendChild(img);
+
+  /** The plate WITHOUT the mask on it, at the same size — what the eyedropper reads and what Hold
+   *  to compare shows. Both need the CORRECTED pixels the band is applied to, not the delivered
+   *  ones, which is why the runner sends it beside the overlay rather than the viewer fetching the
+   *  stored picture. */
+  let plainPng: string | null = null;
+  let overlayPng: string | null = null;
+
+  const compare = document.createElement("button");
+  compare.className = "btn";
+  compare.textContent = "Hold to compare";
+  compare.disabled = true;
+  compare.title = "Shows the plate without the mask, so you can see what the band claimed against what is actually there.";
+  const showPlain = (on: boolean): void => {
+    const src = on ? plainPng : overlayPng;
+    if (src) img.src = `data:image/png;base64,${src}`;
+  };
+  compare.addEventListener("pointerdown", () => showPlain(true));
+  for (const e of ["pointerup", "pointerleave", "pointercancel"]) {
+    compare.addEventListener(e, () => showPlain(false));
+  }
+
+  // ---- the eyedropper -----------------------------------------------------
+  //
+  // The "pick a grey" idea from the conditioning workspace, pointed the other way: there the click
+  // says "this should be neutral", here it says "this is pore". Both replace a number nobody can
+  // picture with the thing itself.
+  const pickBtn = document.createElement("button");
+  pickBtn.className = "btn";
+  pickBtn.textContent = "Pick the pore colour";
+  pickBtn.disabled = true;
+  pickBtn.title = "Then click a pore on the plate below. The band re-centres on that colour, keeping the width you have set.";
+  let picking = false;
+  const setPicking = (on: boolean): void => {
+    picking = on;
+    pickBtn.classList.toggle("btn-accent", on);
+    img.style.cursor = on ? "crosshair" : "";
+  };
+  pickBtn.addEventListener("click", () => setPicking(!picking));
+  img.addEventListener("click", (ev) => {
+    if (!picking || !plainPng) return;
+    // Read the colour out of the UN-MASKED copy: clicking inside the red overlay would otherwise
+    // sample the overlay and re-centre the band on the mask's own colour, which is circular.
+    const probe = new Image();
+    probe.onload = () => {
+      const r = img.getBoundingClientRect();
+      const fx = (ev.clientX - r.left) / Math.max(1, r.width);
+      const fy = (ev.clientY - r.top) / Math.max(1, r.height);
+      const cv = document.createElement("canvas");
+      cv.width = probe.naturalWidth;
+      cv.height = probe.naturalHeight;
+      const ctx = cv.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(probe, 0, 0);
+      // A small patch, and its MEDIAN — a single pixel on a scanned plate is as likely to be a
+      // speck as the epoxy, the same reason the white-balance pick takes a median.
+      const px = Math.round(fx * (cv.width - 1));
+      const py = Math.round(fy * (cv.height - 1));
+      const rad = Math.max(2, Math.round(0.006 * Math.max(cv.width, cv.height)));
+      const x0 = Math.max(0, px - rad);
+      const y0 = Math.max(0, py - rad);
+      const d = ctx.getImageData(x0, y0, Math.min(2 * rad + 1, cv.width - x0), Math.min(2 * rad + 1, cv.height - y0)).data;
+      const rs: number[] = [];
+      const gs: number[] = [];
+      const bs: number[] = [];
+      for (let i = 0; i < d.length; i += 4) {
+        rs.push(d[i]);
+        gs.push(d[i + 1]);
+        bs.push(d[i + 2]);
+      }
+      const med = (a: number[]): number => {
+        a.sort((x, y) => x - y);
+        return a[Math.floor(a.length / 2)] ?? 0;
+      };
+      bandCtl.pickFrom([med(rs), med(gs), med(bs)]);
+      setPicking(false);
+    };
+    probe.src = `data:image/png;base64,${plainPng}`;
+  });
 
   let previewSeq = 0;
   const preview = async (): Promise<void> => {
@@ -475,8 +562,12 @@ export async function openPoreAreaDialog(): Promise<void> {
       // it overwrite the newer one.
       if (seq !== previewSeq) return;
       if (res.preview_png) {
+        overlayPng = res.preview_png;
+        plainPng = res.plain_png ?? null;
         img.src = `data:image/png;base64,${res.preview_png}`;
         img.style.display = "";
+        pickBtn.disabled = !plainPng;
+        compare.disabled = !plainPng;
       }
       const p = res.plates[0];
       previewFrac.textContent = p
@@ -491,12 +582,17 @@ export async function openPoreAreaDialog(): Promise<void> {
   const previewBtn = document.createElement("button");
   previewBtn.className = "btn";
   previewBtn.textContent = "Preview this plate";
+  const previewRow = document.createElement("div");
+  previewRow.style.display = "flex";
+  previewRow.style.gap = "6px";
+  previewRow.style.flexWrap = "wrap";
+  previewRow.style.margin = "4px 0";
+  previewRow.append(pickBtn, compare);
+  previewWrap.parentElement?.insertBefore(previewRow, previewWrap);
   previewBtn.addEventListener("click", () => void preview());
   wrap.appendChild(previewBtn);
 
-  for (const el of [hueLo, hueHi, satMin, valMin, plateSel]) {
-    el.addEventListener("change", () => void preview());
-  }
+  plateSel.addEventListener("change", () => void preview());
   dsSel.addEventListener("change", () => {
     void (async () => {
       await loadPlates();
@@ -523,7 +619,8 @@ export async function openPoreAreaDialog(): Promise<void> {
     // The intervals are named by their count rather than listed: the row has to stay readable, and
     // what changed between two runs is almost always how many intervals there were, not their ends.
     const head = n ? `${n} interval${n > 1 ? "s" : ""}${refSel.value ? ` + ${ref}` : ""}` : ref;
-    return `${head} · band ${hueLo.value}–${hueHi.value}°`;
+    const b = bandCtl.get();
+    return `${head} · band ${Math.round(b.hue_lo)}–${Math.round(b.hue_hi)}°`;
   };
 
   /** Every scored run this session. Kept here rather than persisted because it describes an

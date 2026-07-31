@@ -570,6 +570,10 @@ pub struct PoreResult {
     pub skipped: Vec<String>,
     /// Base64 PNG of the mask drawn over the requested plate, when one was asked for.
     pub preview_png: Option<String>,
+    /// The same picture, same size, WITHOUT the mask — the corrected plate as it actually looks.
+    /// Sent with the overlay rather than fetched separately so the two can never be one plate's
+    /// mask over another plate's pixels, the argument `CorePreview.before_png` already makes.
+    pub plain_png: Option<String>,
     pub preview_width: i32,
     pub preview_height: i32,
     /// Point dataset and delivery written, when `set_name` was given.
@@ -920,7 +924,7 @@ def grains_of(m, min_px, sep_px):
         "n_small": n_small,
     }
 
-out = {"results": [], "preview_png": None, "preview_w": 0, "preview_h": 0}
+out = {"results": [], "preview_png": None, "plain_png": None, "preview_w": 0, "preview_h": 0}
 for i, blob in enumerate(blobs):
     try:
         img = Image.open(io.BytesIO(blob))
@@ -988,6 +992,15 @@ for i, blob in enumerate(blobs):
         # was measured - a preview of the delivered colours under a band applied to corrected ones
         # would be a picture nothing in the run ever looked at.
         rgb = (np.clip(shown, 0.0, 1.0) * 255.0).astype(np.uint8)
+        # The SAME picture without the mask on it, sent alongside. Two jobs, and both need the
+        # corrected pixels rather than the delivered ones: holding to compare shows what the band
+        # claimed against what is actually there, and clicking a pore to set the band has to read
+        # the colour the band will be applied to. Thumbnailed identically so a click maps across.
+        plain = Image.fromarray(rgb.copy())
+        plain.thumbnail((900, 900))
+        pbuf = io.BytesIO()
+        plain.save(pbuf, format="PNG")
+        out["plain_png"] = base64.b64encode(pbuf.getvalue()).decode("ascii")
         rgb[m] = (0.35 * rgb[m] + 0.65 * np.array([255, 40, 40], dtype=np.float32)).astype(np.uint8)
         if header.get("grains"):
             # Grain outlines on the same picture. Over-segmentation is what the separation knob is
@@ -1307,6 +1320,8 @@ pub fn pore_support() -> Result<bool, String> {
 struct RunnerOut {
     results: Vec<RunnerRow>,
     preview_png: Option<String>,
+    #[serde(default)]
+    plain_png: Option<String>,
     #[serde(default)]
     preview_w: i32,
     #[serde(default)]
@@ -2049,6 +2064,7 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
 
     let mut plates: Vec<PlatePore> = Vec::new();
     let mut preview_png = None;
+    let mut plain_png = None;
     let mut preview_width = 0;
     let mut preview_height = 0;
 
@@ -2155,6 +2171,7 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
             let parsed = run_batch(conn, &python, spec, batch, anchor.map(|(rgb, _)| rgb), true)?;
             if let Some(p) = parsed.preview_png {
                 preview_png = Some(p);
+                plain_png = parsed.plain_png;
                 preview_width = parsed.preview_w;
                 preview_height = parsed.preview_h;
             }
@@ -2515,6 +2532,7 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
         plates,
         skipped,
         preview_png,
+        plain_png,
         preview_width,
         preview_height,
         written,
