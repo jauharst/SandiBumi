@@ -7389,3 +7389,27 @@ what is actually there.
 - [ ] Try a band wrapped through red (drag the high end below the low one) and check the preview
       agrees with the wheel.
 - [ ] Hold to compare on a plate you are unsure about. Does the mask sit on the pores?
+
+## Pick a plate by looking at it (2026-08-01)
+
+Both **Pore Area…** and **Mineral Classifier…** now show the delivery as a strip of thumbnails
+above the picture, the same way Condition Plates… does. Click a tile to work on that plate; the
+dropdown is still there underneath if you prefer it.
+
+In **Pore Area**, a plate that cannot be measured is greyed out with the reason when you hover it —
+"not impregnated", or "preparation not stated". It is still clickable, so you can preview what the
+band would claim on it before deciding whether to declare it in Plate Details.
+
+In the **Mineral Classifier**, each tile shows how many clicks you have already placed on that
+plate. That is the thing a filename list cannot tell you: which plates you have counted and which
+you have not.
+
+- [ ] Open Pore Area on a mixed delivery. Are the undeclared plates obviously greyed?
+- [ ] Hover one — does it say why?
+- [ ] Click a greyed one and press Preview. You should still see what the band would claim, even
+      though it will not be stored.
+- [ ] In the Mineral Classifier, click through a few plates and place labels. Do the counts on the
+      tiles keep up?
+- [ ] Close the classifier and reopen it. Do the counts come back?
+- [ ] On a large delivery (a hundred plates or more), scroll the strip — does it stay responsive,
+      loading thumbnails as you go?

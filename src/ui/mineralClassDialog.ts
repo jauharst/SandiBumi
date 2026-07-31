@@ -10,6 +10,7 @@ import {
   type ImageInfo,
   type PlateLabel,
 } from "../ipc";
+import { buildPlateStrip } from "./plateStrip";
 import { appState, bumpDataVersion, setStatus } from "../state";
 import { recordProcess } from "../processLog";
 import { faciesColor } from "./plotCanvas";
@@ -169,6 +170,7 @@ export async function openMineralClassDialog(): Promise<void> {
     labels.push({ image_id: plateSel.value, x, y, mineral: minerals[active] });
     drawDots();
     drawClasses();
+    countLabels();
   });
 
   let objectUrl: string | null = null;
@@ -189,6 +191,20 @@ export async function openMineralClassDialog(): Promise<void> {
     drawDots();
   };
 
+  // The delivery as PICTURES, and each tile carrying its own click count. Point counting means
+  // moving through a delivery plate by plate, and "which ones have I done" is the question a list
+  // of filenames cannot answer — you would have to open each one to find out.
+  const filmstrip = buildPlateStrip((id) => {
+    plateSel.value = id;
+    filmstrip.mark(id);
+    void loadPlate();
+  });
+  const countLabels = (): void =>
+    filmstrip.annotate((p) => {
+      const n = labels.filter((l) => l.image_id === p.image_id).length;
+      return n ? `${n} click${n > 1 ? "s" : ""}` : null;
+    });
+
   const loadPlates = async (): Promise<void> => {
     plates = await listWellImages(well.well_id, dsSel.value).catch(() => [] as ImageInfo[]);
     plateSel.textContent = "";
@@ -199,6 +215,9 @@ export async function openMineralClassDialog(): Promise<void> {
       plateSel.appendChild(o);
     }
     if (plates.length) plateSel.value = plates[0].image_id;
+    filmstrip.load(plates);
+    filmstrip.mark(plateSel.value);
+    countLabels();
     await loadPlate();
   };
 
@@ -221,13 +240,23 @@ export async function openMineralClassDialog(): Promise<void> {
     active = 0;
     drawClasses();
     drawDots();
+    // The counts come from the labels, which load AFTER the strip is built — so the strip is
+    // re-annotated here rather than only when a click is placed, or a delivery reopened would show
+    // every tile as uncounted.
+    countLabels();
   };
 
   dsSel.addEventListener("change", () => {
     void loadPlates().then(loadLabels);
   });
-  plateSel.addEventListener("change", () => void loadPlate());
-  wrap.appendChild(formRow("Label on plate", plateSel, "Click anywhere on the picture to place a label."));
+  plateSel.addEventListener("change", () => {
+    filmstrip.mark(plateSel.value);
+    void loadPlate();
+  });
+  wrap.appendChild(filmstrip.el);
+  wrap.appendChild(
+    formRow("Label on plate", plateSel, "Or click one in the strip above. Then click anywhere on the picture to place a label.")
+  );
   wrap.appendChild(stage);
   await loadPlates();
   await loadLabels();

@@ -2419,6 +2419,33 @@ there.
 Measured in the browser on a plate half blue epoxy and half tan grain: clicking the blue moved the
 band from 180–260° to 190–270°, centred on the epoxy's own 230°.
 
+## The delivery, as pictures, everywhere it is picked from (2026-08-01)
+
+`src/ui/plateStrip.ts` is the filmstrip lifted out of the conditioning workspace so the MEASURING
+dialogs get it too — Pore Area and the Mineral Classifier. A petrographer choosing which plate to
+tune a threshold on, or which plate to point-count next, is choosing a PICTURE; a list of filenames
+makes them open six to find the one they meant.
+
+**A plate the tool cannot measure is GREYED with the reason on hover, never hidden.** "TS-2 is
+there, but nobody declared it impregnated" is exactly the question the user is about to ask by
+running the tool. Hiding it instead turns a refusal into a delivery that silently lost a plate —
+the same argument the S-factor dialog makes for showing a text-only measurement greyed rather than
+dropping it.
+
+**And a blocked tile is still clickable.** Previewing what the band WOULD claim is how somebody
+decides whether the plate is worth declaring; a greyed tile with no way to look at it is a dead end.
+The refusal is on the WRITE, which is where it has always been.
+
+**The classifier's tiles carry their own click count**, re-annotated in place rather than by
+rebuilding the strip. Point counting means moving through a delivery plate by plate, and "which ones
+have I already done" is the question a dropdown cannot answer without opening every entry.
+`annotate` exists precisely so a count can change without a single thumbnail being refetched — the
+lazy-load rule still holds, and a delivery is routinely hundreds of plates at about a megabyte each.
+
+The counts are refreshed when the LABELS load, not only when a click is placed: the labels arrive
+after the strip is built, so annotating only on click would show every tile as uncounted each time a
+delivery was reopened.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under

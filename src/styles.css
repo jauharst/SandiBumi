@@ -5837,6 +5837,11 @@ input[type="number"].num-editing:focus {
 
 .cond-thumb.is-current { border-color: var(--accent); }
 
+/* A plate the tool cannot measure — greyed and explained on hover, never hidden. Still clickable:
+   previewing what the band WOULD claim is how you decide whether to declare the plate. */
+.cond-thumb.is-blocked { filter: grayscale(1) brightness(0.6); }
+.cond-thumb.is-blocked .cond-thumb-label { color: var(--warn); }
+
 /* A dot, not a word: the strip is scanned, not read. */
 .cond-thumb.is-conditioned::after {
   content: "";

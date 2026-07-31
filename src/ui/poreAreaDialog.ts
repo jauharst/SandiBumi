@@ -18,6 +18,7 @@ import {
 import { appState, bumpDataVersion, setStatus } from "../state";
 import { recordProcess } from "../processLog";
 import { buildColourBand } from "./colourBand";
+import { buildPlateStrip } from "./plateStrip";
 import { formRow, openModal } from "./modal";
 
 /**
@@ -134,9 +135,29 @@ export async function openPoreAreaDialog(): Promise<void> {
     if (first) plateSel.value = first.image_id;
     fillPlates(refSel, "— none: read every plate as delivered —");
     for (const s of zoneSelects) fillPlates(s, "— choose a plate —");
+    // The preparation decides whether a plate can be measured at all, so it is on the tile rather
+    // than discovered after pressing Measure. Greyed, never hidden.
+    filmstrip.load(plates, (pl) =>
+      pl.prepared === "blue_epoxy"
+        ? null
+        : pl.prepared === "plain"
+          ? "not impregnated — a blue rule over an unimpregnated section returns a porosity assembled from blue-ish feldspar and edge artefact"
+          : "preparation not stated — declare it in Plate Details, it cannot be read off the pixels"
+    );
+    filmstrip.mark(plateSel.value);
   };
+
+  // The delivery as PICTURES. A petrographer choosing which plate to tune a threshold on is
+  // choosing a picture; a list of names makes them open six to find the one they meant.
+  const filmstrip = buildPlateStrip((id) => {
+    plateSel.value = id;
+    filmstrip.mark(id);
+    void preview();
+  });
+  wrap.appendChild(filmstrip.el);
+
   await loadPlates();
-  wrap.appendChild(formRow("Tune on plate", plateSel, "The band is judged by eye on one plate, then applied to the delivery."));
+  wrap.appendChild(formRow("Tune on plate", plateSel, "Or click one in the strip above. The band is judged by eye on one plate, then applied to the delivery."));
   wrap.appendChild(
     formRow(
       "Reference plate",
@@ -592,7 +613,10 @@ export async function openPoreAreaDialog(): Promise<void> {
   previewBtn.addEventListener("click", () => void preview());
   wrap.appendChild(previewBtn);
 
-  plateSel.addEventListener("change", () => void preview());
+  plateSel.addEventListener("change", () => {
+    filmstrip.mark(plateSel.value);
+    void preview();
+  });
   dsSel.addEventListener("change", () => {
     void (async () => {
       await loadPlates();
