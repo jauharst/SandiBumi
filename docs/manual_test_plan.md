@@ -1063,6 +1063,15 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 4. Double-click the group name, rename to "UAT-N" in the prompt.
 5. Click **Delete** on the group; cancel the confirm; click Delete again and accept.
    **Expected:** (2) Group row appears, membership editor jumps straight to it. (3) Status "Group “UAT-North” now has 3 wells"; the row's wells count reads 3; live "3 selected" label tracks ticking. (4) Row shows "UAT-N". (5) First confirm cancels harmlessly; second removes the row; wells themselves are untouched (count in "All wells" unchanged).
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** `wellgroupmanager.e2e.mjs` covers
+   create, rename, membership and delete through the manager modal. The rename test asserts the
+   group ID SURVIVES - a rename that quietly created a new group and dropped the old one would look
+   identical in the list while silently emptying the membership, and every batch dialog scoped to it
+   would then run on nothing. Delete asserts the WELLS survive: a group is a view over wells, never
+   a container of them. **Caveat:** rename goes through `window.prompt`, a browser dialog the driver
+   cannot answer, so it is stubbed for the click - what is verified is the rename path behind the
+   prompt, not the prompt itself.
+
    **Result — T-WELL-04:**
 
 - [ ] Pass
@@ -1082,6 +1091,11 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 3. Petrophysics ▸ **VSH ▾** ▸ **VSH from Gamma Ray** (close it first if already open, via the pane's ✕).
 4. Switch the dropdown back to **All wells**.
    **Expected:** (1) Status "Active well group: North (3 wells)". (2) Header "Wells — North (3)"; only member wells listed; empty groups would show "No wells in this group — Edit wells to add some". (3) The scope row defaults to **Group** with "North" selected in its group dropdown, count "3 wells". (4) Status "Well group cleared — showing all wells"; full list returns.
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** `wellgroupmanager.e2e.mjs`. The tree
+   must show EXACTLY the members, not merely the right number of rows. The freshly-opened-pane half
+   uses a module no other spec opens, because module panes are singletons: asking for one already
+   open re-focuses it carrying whatever scope it was left with, which is not the claim.
+
    **Result — T-WELL-05:**
 
 - [ ] Pass
@@ -1102,6 +1116,11 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 4. Also create a brand-new group via ⚙ and check whether it appears in the open pane's Group dropdown.
    **Expected (spec):** the open dialog's Group scope should follow the new active group (or at minimum offer it).
    **Known issue:** AUDIT-2026-07-21-full-qc.md, Substrate — well-group scoping sweep #1: "No batch-run dialog re-scopes to a new active well group while it's already open — only the Wells sidebar tree and Map pane react live to a group switch." Expect the pane to keep "North" and its stale membership/count, and new groups to be missing until the pane is closed and reopened. A run launched now would silently compute over the WRONG group — log as known, note which panes you tried.
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** `wellgroupmanager.e2e.mjs` pins this
+   as a regression guard, asserting the WRONG behaviour on purpose - the open pane keeps the stale
+   group scope. **The day the bug is fixed this test goes RED, which is the alarm; the assertion
+   should be flipped to require the pane to follow, not removed.**
+
    **Result — T-WELL-06:**
 
 - [ ] Pass

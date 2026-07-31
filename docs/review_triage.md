@@ -235,7 +235,24 @@ can fail for reasons unrelated to the code is a gate people learn to ignore.
 **`[x]` here means an end-to-end test drives it against the real app. It is NOT your verification
 mark** — same rule as pile B.
 
-**Done (15 of 86)**
+**Done (18 of 86)**
+
+- [x] **T-WELL-04** — Well Groups manager: create, membership, rename, delete · `wellgroupmanager
+      .e2e.mjs`. The rename test asserts the group ID SURVIVES: a rename that quietly created a new
+      group and dropped the old one would look identical in the list while silently emptying the
+      membership, and every batch dialog scoped to it would then run on nothing. Delete asserts the
+      WELLS survive — a group is a view over wells, never a container of them. Caveat: rename goes
+      through `window.prompt`, a browser dialog the driver cannot answer, so it is stubbed for the
+      click; what is verified is the rename path behind the prompt, not the prompt.
+- [x] **T-WELL-05** — Active group scopes the tree and freshly opened batch panes · same spec. The
+      tree must show exactly the members, not merely the right NUMBER of rows. The "freshly opened"
+      half needs a module NO other spec has opened: module panes are singletons, so asking for one
+      already open re-focuses it with whatever scope it was left carrying.
+- [x] **T-WELL-06** — NEGATIVE: an already-open batch pane does NOT re-scope · same spec, and it
+      asserts the WRONG behaviour on purpose. AUDIT-2026-07-21 records that `wellScope.ts` does not
+      follow a group change once a pane is built, so the pane shows the old group's count while the
+      user believes they have re-scoped and the run covers the wrong wells. **The day this is fixed
+      the test goes red — that is the alarm. Flip the assertion then; do not delete it.**
 
 - [x] **T-REP-17** — SQL Query console · `panels.e2e.mjs`. Opens the pane, requires a runnable
       starter and RUNS it. **This is what caught finding 23** — the starter shipped opening with

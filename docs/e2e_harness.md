@@ -214,7 +214,7 @@ click listener the two are equivalent — but when the *gesture* is the thing un
 
 ## Current coverage
 
-Forty-one tests across nine spec files. Specs share ONE app launch and one project (see the spec
+Forty-seven tests across ten spec files. Specs share ONE app launch and one project (see the spec
 grouping note in `wdio.conf.mjs`), so write each one to establish what it needs and to assert
 changes as before/after differences rather than as absolute state.
 
@@ -307,6 +307,17 @@ correct one if you only read the message.
 | A write is refused, and so is a commented SELECT | The second is pinned as-is, not endorsed |
 | The performance monitor shows gauges | Every one labelled AND carrying a value |
 | Help opens and names no vendor | The provenance rule, where a user reads it |
+
+`wellgroupmanager.e2e.mjs` — the manager and the scoping it drives (T-WELL-04/05/06):
+
+| Test | What it proves |
+|---|---|
+| Create from the manager | Written, and listed |
+| Rename in place | The group ID and the membership both survive |
+| The tree scopes to the active group | Exactly the members, not merely the right count |
+| A newly opened pane inherits the scope | Uses a module no other spec opens — panes are singletons |
+| An already-open pane does NOT re-scope | Pinned as the known open bug; goes red when fixed |
+| Delete | The group goes, the wells stay |
 
 Test data is `dataset for test/examples/` (`SANDI-*`) only. Never a real client project, never a
 path from `SANDIBUMI_FIELD_FIXTURES`.

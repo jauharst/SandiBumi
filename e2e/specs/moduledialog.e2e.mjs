@@ -126,6 +126,28 @@ describe('module pane and its refusals (T-PREP-01, T-PETRO-03, T-INT-06)', () =>
     )
   })
 
+  after(async () => {
+    // Put the pane's scope back to All and its parameter back to something valid.
+    //
+    // Module panes are SINGLETONS: a later spec asking for this module re-focuses this pane rather
+    // than building a fresh one, so a scope left on "Selection: 0 wells" is inherited by whoever
+    // comes next — and it looks like their bug, not this spec's leftover. That is exactly what
+    // happened to `wellgroupmanager.e2e.mjs`.
+    await browser.execute(() => {
+      const pane = document.querySelector('.module-pane')
+      if (!pane) return
+      const all = Array.from(pane.querySelectorAll('.well-scope-mode')).find(
+        (b) => (b.textContent ?? '').trim() === 'All',
+      )
+      all?.click()
+      const input = pane.querySelector('input[type="number"]')
+      if (input) {
+        input.value = '10'
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+      }
+    })
+  })
+
   it('builds the pane form from the manifest', async () => {
     const form = await browser.execute(() => {
       const pane = document.querySelector('.module-pane')
