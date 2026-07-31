@@ -1735,11 +1735,35 @@ Anchoring on the reference plate's matrix colour assumes only that the rock is t
 within one core is a far better assumption than "the lamp was the same". Pinned by
 `the_colour_correction_is_anchored_on_the_reference_plate_not_on_grey`.
 
-**The matrix colour is the channel-wise MEDIAN, and the scene guard is what makes that legal.**
-Three numbers are exactly what a diagonal correction needs, and taking the median is what makes
-them the matrix rather than the pore phase — rock is mostly rock. On a plate where that is not
-true, `scene_dominated` already refuses the plate. The correction is therefore only ever anchored
-where its own assumption holds; the guard and the correction hold each other up.
+**The matrix colour is the channel-wise median of the pixels the band did NOT claim — never the
+whole plate's median.** This shipped as the whole-plate median first and that was wrong in a way
+that looked right. The whole-plate median moves with how much epoxy is in the field of view: a
+plate with more pore has a bluer median, so anchoring on it partly normalizes away the very
+contrast being measured. That is the grey-world trap above, reached by a different route. Measured
+against a petrographer's own point count on a real delivery: rank agreement **0.19 uncorrected,
+0.05 on the whole-plate anchor, 0.20 on the matrix anchor**. The same delivery photographed each
+plug twice, and the two fields of view differ in whole-plate median hue by 66 degrees at p90 —
+far more than one lamp can explain, which is what says the whole-plate median is measuring the rock
+rather than the light.
+
+Resolving matrix from pore needs the band, and the band needs the correction, so it is ONE
+iteration and it terminates: the uncorrected band defines the matrix, the gain follows, the band is
+applied again. `scene_hue` stays the WHOLE-plate median hue, because "is the typical pixel
+pore-coloured" is genuinely a whole-plate question — only the anchor changed.
+
+Pinned by `a_plate_corrected_onto_one_lit_the_same_way_is_left_alone`, which is the invariant the
+first version broke: two plates of one rock under one lamp differing only in porosity must come
+back unchanged. Its fixture scatters the pore evenly through a gradient-lit frame rather than
+stacking it at one end — scattered pore hides the same share of every part of the gradient, so the
+matrix median is identical on both plates while the whole-plate median moves. Stack it and both
+anchors are biased and the test proves nothing. The test asserts that discriminating power before
+it asserts the invariant.
+
+**A plate the correction cannot reach at all is refused.** Where the band claimed essentially the
+whole picture there is no matrix left to anchor on, so no gain can be built — and read as delivered
+that plate would be stored at nearly 1.0. On a normalized run that case IS the scene-dominance
+refusal, and takes the same message. It is the opposite end of `band_missed`, and the pair is why
+neither guard can be dropped.
 
 **The gain is scaled so the LARGEST channel gain is 1.** The correction is a relative rebalance, so
 a uniform scale changes nothing that matters — and this way no channel can be pushed past 1 and
@@ -1747,9 +1771,9 @@ clipped, which would distort the hue of exactly the brightest pixels. The cost i
 darkening, which the value floor can see.
 
 **A reference plate that is itself scene-dominated REFUSES the whole run.** Everything is corrected
-onto it, so its median hue becomes the delivery's and a mistake there is inherited by every plate
-and then agrees with itself everywhere. On a normalized run the per-plate scene test would only
-restate the reference's, so it is checked once, up front, by name.
+onto it, so a mistake there is inherited by every plate and then agrees with itself everywhere. On
+a normalized run the plain per-plate scene test would only restate the reference's, so it is
+checked once, up front, by name.
 
 **The stain is read off the SAME corrected picture.** `stain_from` takes the h, s, v the pore rule
 was read from rather than re-converting the image, or the minerals and the porosity would describe
@@ -1793,10 +1817,24 @@ wholly blue plate is refused as scene-dominated on an uncorrected run, and on a 
 own blue has become the matrix, so it is refused as `band_missed` instead. Same outcome, and the
 round-trip test asserts both.
 
-Still open, and deliberately not invented: the delivery-wide question of whether a single reference
-can serve plates spanning 289 degrees at all. The correction gets less exact the further a plate
-has to move, and how far is too far is a judgement to be read off the shift column and the preview,
-not a number to ship.
+**What it is worth on real rock, measured rather than hoped.** On the delivery it was built for it
+stops the measurement being actively wrong and does not make it right. Against the petrographer's
+own point count over 45 plugs, with the two fields of view per plug averaged: rank agreement 0.19
+uncorrected and 0.10–0.22 corrected depending on which plate is the reference; sweeping 57 bands,
+the best reachable is 0.25 uncorrected against 0.15–0.36 corrected. Those best-of figures are an
+upper bound fitted on the data they are scored on and must never be quoted as accuracy — this same
+delivery already taught that tuning until a statistic looks right is how a segmentation that has
+stopped discriminating passes for a good one.
+
+**The measurement is repeatable; it is the agreement that is weak.** That delivery photographed two
+independent fields of view of every plug, and the two agree with each other at rank 0.85 while
+agreeing with the point count at 0.10–0.27. So the disagreement is systematic rather than noise,
+and it is not the pictures. A colour band is not yet a substitute for a point count on this rock.
+
+Still open, and deliberately not invented: whether a single reference can serve plates spanning 289
+degrees at all. The correction gets less exact the further a plate has to move — shifts of 180
+degrees appear on this delivery, which is the far side of the wheel and not a lamp — and how far is
+too far is a judgement to be read off the shift column and the preview, not a number to ship.
 
 ## Provenance discipline (2026-07-31)
 

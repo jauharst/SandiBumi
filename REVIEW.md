@@ -6887,3 +6887,45 @@ the preview — I have not invented a cut-off for it.
 
 - [ ] After a run, tell me the largest Shift you saw on a plate whose preview still looked right.
       That is the number I would need before any automatic cut-off could exist.
+
+## What the correction was actually worth on your rock (2026-07-31)
+
+I ran the point-count comparison again with a reference plate, on your own delivery. Two things
+came out of it, and the first is a bug I had just shipped.
+
+**The correction was anchoring on the wrong thing.** I had it measure each plate's overall colour
+and correct that onto the reference. But a plate with more blue epoxy in the field of view HAS a
+bluer overall colour — so the correction was partly cancelling the porosity itself. It is now
+anchored on the matrix only: the pixels the band did not claim.
+
+The difference on your plates, against the petrographer's point count over 45 plugs:
+
+| | rank agreement |
+|---|---|
+| no correction | 0.19 |
+| corrected, anchored on the whole plate (this morning's version) | 0.05 |
+| corrected, anchored on the matrix (now) | 0.20 |
+
+- [ ] Nothing to click for this one — but if you ran Pore Area with a reference plate before
+      reading this, re-run it. The stored numbers came from the wrong anchor.
+
+**The honest verdict: it stops the measurement being wrong, it does not make it right.** Rank
+agreement with your petrographer is around 0.2, and sweeping 57 different bands the best I could
+reach was 0.25 without the correction and 0.36 with it — and that best-of number is fitted on the
+same data it is scored on, so it is a ceiling, not an accuracy.
+
+**But the measurement itself is repeatable.** Your delivery photographed two separate fields of
+view of every plug. The two agree with each other at **0.85**, while agreeing with the point count
+at 0.10–0.27. So the pictures are fine and the measurement is stable — the disagreement with the
+point count is systematic, not noise.
+
+- [ ] Does that match your expectation? A point count ticks visible pores under a grid; the colour
+      rule counts every blue pixel including microporous haze the counter would not tick. If you
+      think that is the whole gap, say so and I will stop trying to close it with colour.
+
+**One number that says the colour cast is not just a lamp.** Two photographs of the SAME plug,
+taken minutes apart, differ in overall colour by up to 66 degrees of hue. That is far more than a
+white balance can explain, and it is why a single reference plate cannot rescue the whole delivery.
+
+- [ ] If you can ask the laboratory anything about these plates, ask whether the camera was on
+      auto white balance. That would explain it exactly, and it is a setting, not a re-shoot.

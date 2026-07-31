@@ -1724,6 +1724,30 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       column is hidden on an uncorrected run rather than shown empty. Pinned by
       `an_empty_measurement_is_refused_only_once_a_reference_plate_says_the_band_works` and
       `the_cast_shift_measures_the_short_way_round_the_colour_wheel`.
+- [x] **SHIPPED (2026-07-31) — the anchor was the whole plate and had to be the matrix.** Running
+      the point-count comparison on the real delivery showed every coefficient turning NEGATIVE
+      with the correction on. Cause: the whole-plate median moves with how much epoxy is in the
+      field of view, so anchoring on it partly cancels the porosity contrast — the grey-world trap
+      reached by a different route. Now anchored on the pixels the band did not claim, resolved in
+      one terminating iteration. Measured over 45 plugs with the two fields of view averaged: rank
+      agreement 0.19 uncorrected, 0.05 whole-plate anchor, 0.20 matrix anchor; best of 57 bands
+      0.25 against 0.15-0.36. Also closed a hole the fix exposed: a plate whose band claimed the
+      whole picture has no matrix to anchor on, and was falling through to be stored at nearly 1.0
+      — it is now the scene-dominance refusal. Pinned by
+      `a_plate_corrected_onto_one_lit_the_same_way_is_left_alone`, whose fixture scatters pore
+      through a gradient-lit frame so that it can discriminate the two anchors at all.
+- [ ] **The colour cast is not only the lamp, and that caps what any correction can do.** The same
+      delivery photographed two fields of view per plug; they agree with EACH OTHER at rank 0.85
+      but differ in whole-plate median hue by 66 degrees at p90, and shifts of 180 degrees appear
+      across the delivery. A white balance cannot do that — auto white balance on the camera would.
+      Worth asking the laboratory before building anything further, because it is a setting rather
+      than a re-shoot.
+- [ ] **A colour band is not yet a substitute for a point count on this rock.** Repeatable (0.85
+      between two views of one plug) but agreeing with the petrographer at only 0.10-0.27, so the
+      gap is systematic. The likely mechanism is that a point count ticks VISIBLE pores under a
+      grid while the rule counts every blue pixel including microporous haze — which would make
+      this a difference in definition rather than an error. Needs Jauhar's judgement before more
+      colour work is done.
 - [ ] **Can ONE reference serve a 289-degree delivery?** The correction gets less exact the further
       a plate has to move, and nothing yet says how far is too far. Deliberately not invented: the
       answer has to come from Jauhar reporting the largest Shift on a plate whose preview still
