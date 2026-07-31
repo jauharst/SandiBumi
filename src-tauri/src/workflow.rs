@@ -1975,6 +1975,149 @@ mod tests {
         assert!(raw_spread > 1.0, "the two wells must start with genuinely different GR");
     }
 
+    /// T-PREP-11. A raw imported curve called FTEMP must NEVER satisfy a computed-only input.
+    ///
+    /// `nphi_env_corr` reads FTEMP in degC. Commercial LAS exports routinely carry an FTEMP in
+    /// degF, and it lands in the RAW import store under exactly that mnemonic. Consume it and the
+    /// temperature term is computed from a number roughly twice too large — a correction of a few
+    /// thousandths v/v instead of a few ten-thousandths. Nothing about that is visible: NPHI_EC
+    /// still tracks NPHI, still looks like a neutron log, and the error rides into porosity.
+    ///
+    /// `gascorr_spec_shape` asserts the FLAG on gascorr's arguments. This asserts the BEHAVIOUR,
+    /// on the module whose manual test names it, through the real runner — which is where the
+    /// contract is actually enforced (`workflow.rs` re-resolves computed-only inputs after the
+    /// ordinary curve frame has already fallen back to RAW). The flag and the re-resolution loop
+    /// are two separate things and either alone is silently useless.
+    ///
+    /// The three states, in the order a user meets them:
+    ///
+    /// 1. RAW FTEMP present, nothing computed → the temperature term must be ABSENT, leaving only
+    ///    salinity. Not an error, by design: the module documents FTEMP as optional.
+    /// 2. Run Formation Temperature → the term appears.
+    /// 3. With BOTH present the computed one must win — the case that actually bites, because a
+    ///    user who ran precalc reasonably assumes they are covered.
+    #[test]
+    fn a_raw_ftemp_never_satisfies_the_computed_only_contract() {
+        use crate::db;
+        use duckdb::Connection;
+        use uuid::Uuid;
+
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        db::insert_well(&conn, wid, "SANDI-EC1", None, None, Some(0.0)).unwrap();
+        let w = wid.to_string();
+
+        let depths = vec![1000.0f32, 1500.0, 2000.0];
+        let n = depths.len();
+        let nphi_in = 0.30f32;
+        db::insert_standard_curves(
+            &conn,
+            wid,
+            depths.clone(),
+            vec![f32::NAN; n],   // GR
+            vec![f32::NAN; n],   // RES_DEEP
+            vec![nphi_in; n],    // NPHI
+            vec![f32::NAN; n],   // RHOB
+            vec![f32::NAN; n],   // DT
+            vec![f32::NAN; n],   // SP
+        )
+        .unwrap();
+
+        // The trap: a RAW-set curve called FTEMP carrying degF numbers, exactly as a vendor LAS
+        // delivers it. 220 degF is 104.4 degC — a perfectly ordinary deep temperature in either
+        // unit, which is what makes it undetectable by any range check.
+        let raw_degf = 220.0f32;
+        {
+            let id = db::upsert_curve_meta(
+                &conn, &w, "RAW", "FTEMP", Some("degF"), Some("FTEMP"), Some("test"), None,
+            )
+            .unwrap();
+            db::insert_curve_samples(&conn, &id, &depths, &vec![raw_degf; n]).unwrap();
+        }
+
+        let dbm = Mutex::new(conn);
+        let run = |module: &str, params: &[(&str, f64)]| -> Vec<ModuleRunResult> {
+            let req = RunModuleRequest {
+                module: module.into(),
+                well_ids: vec![w.clone()],
+                log_inputs: HashMap::new(),
+                params: params.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
+                opts: HashMap::new(),
+                output_set: None,
+                input_set: None,
+            };
+            run_workflow_module(&dbm, &req)
+        };
+        let curve = |name: &str| -> Vec<f32> {
+            let conn = dbm.lock().unwrap();
+            let (_, cols) = equations::fetch_curve_frame(&conn, &w, &[name.to_string()]).unwrap();
+            cols[name].clone()
+        };
+
+        // Manifest defaults, read rather than retyped — a second copy is a second thing to drift.
+        let spec = crate::modules::list_modules()
+            .into_iter()
+            .find(|s| s.name == "nphi_env_corr")
+            .expect("nphi_env_corr must be in the manifest");
+        let dflt = |name: &str| -> f64 {
+            spec.args.iter().find(|a| a.name == name).unwrap().default.parse().unwrap()
+        };
+        let (k_temp, t_ref, k_sal, salw) =
+            (dflt("K_TEMP"), dflt("T_REF"), dflt("K_SAL"), dflt("SALW"));
+        let ec_params = [("K_TEMP", k_temp), ("T_REF", t_ref), ("K_SAL", k_sal), ("SALW", salw)];
+        let salinity_only = nphi_in as f64 + k_sal * salw / 100000.0;
+
+        // (1) Only the raw degF FTEMP exists. The temperature term must not appear.
+        let r = run("nphi_env_corr", &ec_params);
+        assert!(r[0].error.is_none(), "nphi_env_corr: {:?}", r[0].error);
+        let ec = curve("NPHI_EC");
+        for (i, v) in ec.iter().enumerate() {
+            assert!(
+                (*v as f64 - salinity_only).abs() < 1e-6,
+                "sample {i}: a RAW degF FTEMP was consumed — NPHI_EC {v} is not the \
+                 salinity-only {salinity_only}"
+            );
+        }
+        // Stated the other way round, so the failure message says what went wrong rather than
+        // only that a number moved: the degF value must not have driven the correction.
+        let if_degf_consumed = salinity_only + k_temp * (raw_degf as f64 - t_ref);
+        assert!(
+            (ec[0] as f64 - if_degf_consumed).abs() > 1e-5,
+            "NPHI_EC landed exactly where consuming the raw degF FTEMP would put it"
+        );
+
+        // (2) Run Formation Temperature — now a genuine degC FTEMP exists in computed provenance.
+        let r = run(
+            "ftemp_grad",
+            &[("TSURF", 26.7), ("TGRAD", 0.03), ("BHT", 100.0), ("TD_BHT", 2000.0)],
+        );
+        assert!(r[0].error.is_none(), "ftemp_grad: {:?}", r[0].error);
+        let ftemp = curve("FTEMP");
+
+        // (3) Re-run with BOTH present. The computed one must win, sample by sample.
+        let r = run("nphi_env_corr", &ec_params);
+        assert!(r[0].error.is_none(), "nphi_env_corr rerun: {:?}", r[0].error);
+        let ec = curve("NPHI_EC");
+        for i in 0..n {
+            let expect = salinity_only + k_temp * (ftemp[i] as f64 - t_ref);
+            assert!(
+                (ec[i] as f64 - expect).abs() < 1e-6,
+                "sample {i}: NPHI_EC {} must follow the COMPUTED FTEMP {} (expected {expect})",
+                ec[i],
+                ftemp[i]
+            );
+        }
+
+        // The control. Every assertion above would also pass on a module that ignored FTEMP
+        // altogether, so the computed run must genuinely differ from the salinity-only one.
+        assert!(
+            (ec[2] as f64 - salinity_only).abs() > 1e-6,
+            "the temperature term never appeared even with a computed FTEMP — this test would \
+             pass on a module that ignored FTEMP entirely"
+        );
+    }
+
     /// Restoring an earlier log-set version must change what the NEXT module run computes.
     ///
     /// `db::log_set_versioning_never_overwrites` proves the restore itself: the archive keeps

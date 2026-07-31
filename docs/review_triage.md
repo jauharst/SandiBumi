@@ -29,8 +29,50 @@ Pile D is the number that matters: **37 tests, about one in seven, genuinely nee
 
 | Pile | Done | Remaining |
 |---|---|---|
-| **B** — a Rust test now checks it | **7** | 38 |
+| **A** — was already pinned before this work started | **21** | — |
+| **B** — a Rust test now checks it | **10** | 35 |
 | **C** — a machine now drives it | **5 harness tests** | 81 unblocked (+61 blocked) |
+
+### Pile A — the checklist
+
+These were already covered when the triage was written; nothing here was work I did. The
+checklist exists so you can see at a glance which are **fully** pinned and which carry a
+**residual** — a part of the manual test the automated one does not reach. A `~` is not a
+failure; it means the test makes most of the claim and the rest is still yours if you want it.
+
+**Fully pinned (15)** — you can stop hand-checking these.
+
+- [x] T-SHIP-04 — project format stamp (fresh, legacy, and a refused future format)
+- [x] T-SHIP-05 — destructive migration backs up first; a normal open writes nothing
+- [x] T-PREP-03 — FTEMP negative: TD_BHT ≤ 0 → MISSING, never ±Infinity
+- [x] T-PREP-09 — GR hole-size correction, including the no-caliper pass-through
+- [x] T-PREP-10 — density hole-size correction, in-gauge and beyond
+- [x] T-PREP-15 — MASK machinery: flagged samples leave the percentiles *and* the output
+- [x] T-PETRO-05 — vsh_dn degenerate triangle → MISSING, not ±Infinity
+- [x] T-PETRO-08 — phi_son Wyllie/RHG + the opt-in compaction correction
+- [x] T-PETRO-09 — phimax constant ceiling and the TVDSS-trend ceiling
+- [x] T-PETRO-12 — RT ≤ 0 → MISSING in both Archie and Indonesia
+- [x] T-ADV-07 — SSPW porosity ladder (PHIE = PHIT − CBW) and the clean-sand end
+- [x] T-IMP-01 — LAS batch import: 3 files, names, curves, units, NULL sentinel
+- [x] T-IMP-03 — malformed LAS: duplicated depth imports with a warning
+- [x] T-IMP-11 — aux import: PERFORATION and XRD land per well, replace on re-import
+- [x] T-WELL-17 — degenerate zone override reports honestly rather than "✓ N samples"
+
+**Pinned with a residual (6)** — the arithmetic holds; the noted part is not asserted.
+
+- [~] T-INT-02 / T-IMP-02 — duplicate LAS warns and stays a separate record. **Residual:** the
+  display surface (status line, History row) is untested — that is the delivery, not the claim.
+- [~] T-PETRO-08 — *also* listed above as full, with one caveat worth knowing: it pins the
+  **current un-gated** compaction behaviour, i.e. the audited defect. If the DT_SH > 100 µs/ft
+  gate is ever added, this test must change with it — it is not a vote that the behaviour is right.
+- [~] T-BATCH-10 — cutoff sensitivity: NTG stays ≤ 1 across a mid-sample zone base.
+  **Residual:** step 3's sweep-vs-Pay-Summary agreement is not itself asserted.
+- [~] T-BATCH-14 — Monte Carlo seed reproducibility at seed 42, plus the zero-variance case.
+  **Residual:** the seed-43 "differs but P50 stays close" step is not asserted.
+- [~] T-MLEQ-09 — facies on a well with no usable curve reports an error, with a live control.
+  **Residual:** it does not separately check that no FACIES version row was written.
+- [~] T-IMP-14 — SCAL import: multi-file, auto-detect, Leverett-J fit, zero-row refusal.
+  **Residual:** the sigma guard is a frontend string, not backend arithmetic.
 
 ### Pile B — the checklist
 
@@ -39,7 +81,7 @@ verification mark** — that lives in `docs/manual_test_plan.md` and nothing aut
 touches it. A `[x]` below says the arithmetic is pinned; it does not say the feature works on
 your wells.
 
-**Done (7 of 45)**
+**Done (10 of 45)**
 
 - [x] **T-REP-18** — SQL Query rejects writes · `readonly_query_refuses_every_write_shape_including_a_cte_prefix` (`db.rs`)
 - [x] **T-SHIP-03** — missing perm curve fails loudly · `a_missing_curve_fails_by_name_rather_than_computing_on_another` (`lorenz.rs`)
@@ -48,10 +90,13 @@ your wells.
 - [x] **T-INT-03** — tops → zones, + empty-well negative · `zones_from_tops_are_contiguous_and_absent_tops_make_no_zones` + `a_top_below_the_logged_interval_never_makes_an_inverted_zone` (`db.rs`)
 - [x] **T-INT-11** — restore v1, downstream consumes it · `a_restored_log_set_version_feeds_the_next_module_run` (`workflow.rs`)
 - [x] **T-PREP-14** — GR normalization anchors per well · `gr_normalization_anchors_each_well_on_its_own_percentiles` (`workflow.rs`)
+- [x] **T-PREP-02** — Formation Temperature: both modes land on their anchors · `formation_temperature_lands_on_both_of_its_anchors` (`modules.rs`)
+- [x] **T-PREP-11** — a raw degF FTEMP never satisfies the computed-only input · `a_raw_ftemp_never_satisfies_the_computed_only_contract` (`workflow.rs`)
+- [~] **T-PREP-13** — Gas Correction negatives · `the_empty_flag_refusal_names_the_users_curve_and_its_remedy_works` (`modules.rs`). **Graded honestly:** I put this in pile B and most of it was already in pile A — `gascorr_guards_stay_missing_or_error` and `gascorr_flag_gate_and_missing_inputs` already pinned the refusal and the all-MISSING-without-precalc behaviour. What was genuinely uncovered, and is now pinned, is the message TEXT (it must name the curve you picked) and the remedy it recommends (EVERYWHERE must actually work).
 
 All three items flagged **silent-wrongness class** (T-REP-18, T-SHIP-03, T-INT-11) are closed.
 
-**Open (38)**
+**Open (35)**
 
 - [ ] T-PLOT-19 — Curve Edit negatives (invalid input, stale undo)
 - [ ] T-REP-02 — Composite render: layout, print scale, pagination
@@ -63,10 +108,7 @@ All three items flagged **silent-wrongness class** (T-REP-18, T-SHIP-03, T-INT-1
 - [ ] T-REP-16 — DB Inspector negatives
 - [ ] T-AUX-07 — Well-diagram track in Composite/Report + old layouts
 - [ ] T-AUX-17 — Equation runtime error mid-batch, per-well isolation
-- [ ] T-PREP-02 — Formation Temperature: GRADIENT and BHT modes
 - [ ] T-PREP-05 — Pre-Calculation degC + per-zone gradient kink
-- [ ] T-PREP-11 — Neutron Env Correction: computed-only FTEMP contract
-- [ ] T-PREP-13 — Gas Correction negatives
 - [ ] T-PREP-16 — Synthetic Log (KNN): gap fill + masked washout
 - [ ] T-PREP-18 — Splice Curves at depth
 - [ ] T-PETRO-02 — vsh_gr nonlinear options + version N+1
@@ -381,9 +423,10 @@ these turns on a judgement about real rock, a visual read, or a feel for whether
 ## Four things the triage found that are worth fixing regardless
 
 These came out of reading all 250 tests against the current code. Each was verified directly,
-not taken on a subagent's word.
+not taken on a subagent's word. **Findings 1, 2 and 3 have since been fixed — see the notes
+under each.** A fourth of the same shape was found later and is recorded as finding 5.
 
-### 1. The plan still teaches a client calibration that no longer ships
+### 1. The plan still teaches a client calibration that no longer ships — **FIXED 2026-07-31**
 
 `manual_test_plan.md` lines 1470, 1472 and 4723 tell the tester to keep
 `GR_LOW_REF 53.68 / GR_HIGH_REF 133.93 — the Rokan 562-well calibration` and to expect GRN's P3
@@ -400,7 +443,10 @@ still sitting in a committed document as an instruction — which is the exact t
 `CLAUDE.md`'s provenance discipline forbids in source. The sweep covered the code; it did not
 cover this plan.
 
-### 2. A known-issue line will make a passing feature look broken
+**Fixed 2026-07-31.** Both places in the plan now say 20/120 with a dated inline note, and the
+stale `workflow.rs:1625` comment is corrected. Instruction text only — no mark was touched.
+
+### 2. A known-issue line will make a passing feature look broken — **FIXED 2026-07-31**
 
 T-MLEQ-14 carries: *"run_ml has no bad-hole/flag MASK support at all… Expect step 3 to Fail."*
 
@@ -409,10 +455,18 @@ It does have it, and two tests run in the gate proving it — `run_ml_mask_exclu
 is only the missing Mask picker in `mlDialog.ts`. As written, the plan tells you to log a working
 backend as a known failure.
 
-### 3. `export.rs` has zero tests
+**Fixed 2026-07-31.** T-MLEQ-14's known-issue line now says the backend has MASK and names the
+two tests, and points the failure at the missing dialog control instead. The distinction matters:
+"the capability is absent" tells you not to trust ML over washout, "the picker is absent" tells
+you to add a picker.
+
+### 3. `export.rs` has zero tests — **FIXED 2026-07-31**
 
 4.4 KB of export code, no test of any kind. T-IMP-15 and T-IMP-16 both landed in pile B because
 of it — meaning LAS export is currently proven only by you clicking it.
+
+**Fixed.** Two tests now: `export_writes_missing_as_null_and_carries_mixed_case_computed_curves`
+and `an_exported_las_reimports_with_the_same_values`. Both pile-B items retired.
 
 ### 4. The plan cannot cover what shipped after it was written
 
@@ -422,6 +476,26 @@ Workbook — 0 tests. Deck — 0. Core depth registration — 0. Grain size — 
 So the 250 tests are not 250 out of 250. The petrography suite, the office deliverables, the
 calibrations, the depth registration and the image tracks have **no systematic test coverage in
 this plan at all** — they exist only as prose claims in `REVIEW.md`.
+
+### 5. A second stale known-issue line — found and **FIXED 2026-07-31**
+
+Found while writing T-PREP-13. It said the Round-4 fix for "module runs report ✓ success even
+when every output sample is MISSING" was *"uncommitted, in the working tree"* and told you to log
+a green ✓ against that known finding rather than as new. It has been committed for some time and
+is pinned by `all_nan_module_output_reports_error_not_success`.
+
+**This is the same defect as findings 1 and 2, and three instances is a pattern worth naming.**
+The plan was written at a moment when several fixes were in flight, and it froze that moment.
+Every "known issue" line in it is a claim about the code that was true on 2026-07-22 and has been
+decaying since — and each one costs you the same way, by telling you to accept a real failure or
+to log a working feature as broken. The three found here were the ones the triage happened to
+walk past. **Nothing has swept the rest.** If a step tells you to expect a failure, check the
+claim before you believe it.
+
+The corrected line also adds the case that makes T-PREP-13 subtle: if your gas flag covers only
+part of the interval, the unflagged samples pass real densities through, the run is *not*
+all-MISSING, and a green ✓ is then **correct**. Step 2 only holds where the flag covers
+everything you ran.
 
 ---
 

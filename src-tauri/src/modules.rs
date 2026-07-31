@@ -2853,6 +2853,60 @@ mod tests {
         assert!((good["FTEMP"][0] as f64 - expect).abs() < 1e-3, "FTEMP {}", good["FTEMP"][0]);
     }
 
+    /// T-PREP-02. Both temperature models, pinned at the anchors that define them.
+    ///
+    /// GRADIENT is a straight line THROUGH the surface temperature: at zero depth it reads TSURF
+    /// exactly and every metre adds TGRAD. BHT is a different statement entirely — an
+    /// interpolation onto a temperature somebody MEASURED — so at TD_BHT it must land on BHT
+    /// exactly. That landing is the whole reason the mode exists; a BHT run that misses the
+    /// measurement it was handed is not a BHT run.
+    ///
+    /// The two are deliberately given parameters that DISAGREE below surface (86.7 against 100
+    /// degC at 2000 m), so an OPT_FT that stopped switching fails here rather than quietly
+    /// returning the gradient answer under a BHT label. Nothing on a log would show that: both
+    /// curves are smooth, monotonic and entirely plausible, and the error would only surface much
+    /// later as an Rw that is wrong by a few percent everywhere.
+    ///
+    /// Below TD_BHT the interpolation EXTRAPOLATES, and that is pinned rather than assumed. It is
+    /// the honest behaviour — the trend is all the evidence there is past the measurement — but it
+    /// means FTEMP below TD is no longer anchored on anything, and if that is ever clamped instead,
+    /// this test forces the decision into the open rather than letting it change silently.
+    #[test]
+    fn formation_temperature_lands_on_both_of_its_anchors() {
+        let depths = vec![0.0f32, 1000.0, 2000.0, 3000.0, f32::NAN];
+        let params = [("TSURF", 26.7), ("TGRAD", 0.03), ("BHT", 100.0), ("TD_BHT", 2000.0)];
+        let logs = [("DEPTH", depths)];
+        let n = 5;
+
+        let grad = ftemp_grad(&ctx_with(n, &logs, &params, &[("OPT_FT", "GRADIENT")]))["FTEMP"].clone();
+        assert!((grad[0] as f64 - 26.7).abs() < 1e-3, "surface must read TSURF, got {}", grad[0]);
+        assert!((grad[2] as f64 - 86.7).abs() < 1e-3, "TSURF + 0.03*2000, got {}", grad[2]);
+        let (d1, d2) = (grad[1] - grad[0], grad[2] - grad[1]);
+        assert!((d1 - d2).abs() < 1e-3, "GRADIENT must be a straight line: {d1} vs {d2}");
+
+        let bht = ftemp_grad(&ctx_with(n, &logs, &params, &[("OPT_FT", "BHT")]))["FTEMP"].clone();
+        assert!((bht[0] as f64 - 26.7).abs() < 1e-3, "both modes start at TSURF, got {}", bht[0]);
+        assert!(
+            (bht[2] as f64 - 100.0).abs() < 1e-3,
+            "BHT mode must land ON the measured BHT at TD_BHT, got {}",
+            bht[2]
+        );
+        assert!((bht[1] as f64 - 63.35).abs() < 1e-3, "half way is the mean, got {}", bht[1]);
+
+        // The control: the modes must actually disagree, or the switch proves nothing.
+        assert!(
+            (bht[2] - grad[2]).abs() > 10.0,
+            "OPT_FT stopped switching — both modes returned {} at TD",
+            grad[2]
+        );
+
+        // Past the measurement the trend simply continues: 26.7 + 73.3*1.5.
+        assert!((bht[3] as f64 - 136.65).abs() < 1e-2, "below TD_BHT it extrapolates, got {}", bht[3]);
+
+        // No depth, no temperature — in either mode.
+        assert!(grad[4].is_nan() && bht[4].is_nan(), "a missing depth must not produce a temperature");
+    }
+
     #[test]
     fn perm_wyllie_rose_negative_phie_missing_across_all_variants() {
         // Negative PHIE is non-physical. TIMUR's fractional exponent already NaN'd it, but the
@@ -4029,6 +4083,75 @@ mod tests {
         );
         let out = gascorr(&ctx).unwrap();
         assert!(out["RHOB_GC"][0].is_nan() && out["PHIT_GC"][0].is_nan());
+    }
+
+    /// T-PREP-13, the half `gascorr_guards_stay_missing_or_error` leaves open: that refusal
+    /// only asserts `is_err()`. Two things about the message itself carry the weight.
+    ///
+    /// **It must name the curve the USER picked, not the slot.** The gate flag defaults to
+    /// XOVER_FLAG but any flag can be chosen, and someone sent to look at "GAS_FLAG" when they
+    /// selected something else is being sent to a curve that does not exist in their project.
+    /// They will conclude the message is wrong before they conclude their flag is empty.
+    ///
+    /// **The remedy the message offers must actually work.** It tells the user to set
+    /// OPT_GATE = EVERYWHERE, so that path is exercised with the same empty flag: it must
+    /// correct rather than refuse. A refusal that recommends a fix nobody tested is worse than
+    /// a bare refusal — it spends the user's trust on advice that sends them in a circle.
+    #[test]
+    fn the_empty_flag_refusal_names_the_users_curve_and_its_remedy_works() {
+        let params: &[(&str, f64)] = &[
+            ("RHO_MA", 2.65),
+            ("RHO_FL", 1.0),
+            ("SG_GAS", 0.65),
+            ("A", 1.0),
+            ("M", 2.0),
+            ("N", 2.0),
+            ("RW", 0.1),
+        ];
+        let logs = [
+            ("RHOB", vec![2.0f32]),
+            ("RT", vec![6.9444f32]),
+            ("FTEMP", vec![93.9f32]),
+            ("FPRESS", vec![2743.34f32]),
+            ("GAS_FLAG", vec![f32::NAN]),
+        ];
+
+        let err = gascorr(&ctx_with(
+            1,
+            &logs,
+            params,
+            &[("OPT_GATE", "FLAGGED"), ("OPT_RW", "CONSTANT"), ("__IN_GAS_FLAG", "MY_GAS_ZONES")],
+        ))
+        .expect_err("an empty flag under FLAGGED must refuse");
+        assert!(
+            err.contains("MY_GAS_ZONES"),
+            "the refusal must name the flag the user chose, got: {err}"
+        );
+        assert!(err.contains("EVERYWHERE"), "the refusal must state the remedy, got: {err}");
+
+        // Nothing chosen — the message falls back to the slot name rather than an empty quote.
+        let err = gascorr(&ctx_with(
+            1,
+            &logs,
+            params,
+            &[("OPT_GATE", "FLAGGED"), ("OPT_RW", "CONSTANT")],
+        ))
+        .expect_err("still a refusal with no chosen mnemonic");
+        assert!(err.contains("GAS_FLAG"), "no chosen curve must not leave a blank name: {err}");
+
+        // The remedy, on the same empty flag: EVERYWHERE corrects instead of refusing.
+        let out = gascorr(&ctx_with(
+            1,
+            &logs,
+            params,
+            &[("OPT_GATE", "EVERYWHERE"), ("OPT_RW", "CONSTANT"), ("__IN_GAS_FLAG", "MY_GAS_ZONES")],
+        ))
+        .expect("EVERYWHERE is the documented escape hatch — it must not refuse too");
+        assert!(
+            out["RHOB_GC"][0] > 2.0,
+            "the remedy must actually correct, got {}",
+            out["RHOB_GC"][0]
+        );
     }
 
     /// The shipped reference pair must stay GENERIC. Until 2026-07-31 it was one operator's
