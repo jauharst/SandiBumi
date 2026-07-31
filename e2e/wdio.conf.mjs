@@ -9,9 +9,17 @@
 // Every repo path here is ABSOLUTE, because the launcher (`run.mjs`) changes the working
 // directory into the sandbox before wdio starts — see sandbox.mjs for why that matters.
 
+import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { configDir, outDir, sandboxDir, isInsideSandbox, expectedProject } from './sandbox.mjs'
+import {
+  configDir,
+  outDir,
+  sandboxDir,
+  webviewDir,
+  isInsideSandbox,
+  expectedProject,
+} from './sandbox.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 export const repoRoot = path.resolve(here, '..')
@@ -24,9 +32,34 @@ const appBinary = path.join(repoRoot, 'src-tauri', 'target', 'release', 'sandibu
 
 export const examplesDir = path.join(repoRoot, 'dataset for test', 'examples')
 
+/**
+ * Every spec file, as ONE GROUP — the nested array is load-bearing, not a style choice.
+ *
+ * wdio starts a fresh session per spec FILE, and for this service a session is a launch of
+ * `sandibumi.exe`. With two spec files that meant launch, tear down, launch again against the
+ * same project — and the intermediate teardown is not clean: the second launch found a WAL it
+ * could not replay and `db::init_db_resilient` moved it aside as a `.corrupt-backup-*`. The
+ * harness's own WAL check caught it, which is what that check is for.
+ *
+ * Wrapping the list in an inner array tells wdio to run every file in ONE session, so the app is
+ * launched once and shut down once, exactly as it was when there was a single spec file. That is
+ * also what `maxInstances: 1` below already intends: one app, one project, one DuckDB writer.
+ *
+ * The consequence for spec authors: specs SHARE one app and one project, and wdio does not
+ * promise an order between files. Write each spec so it establishes what it needs (see the
+ * `before` hook in wellgroups.e2e.mjs) and assert changes as before/after differences rather than
+ * as absolute state — `pipeline.e2e.mjs` already computes VSH on every well, so "this well has no
+ * VSH" is not a safe assertion for anyone who runs after it.
+ */
+const specFiles = fs
+  .readdirSync(path.join(here, 'specs'))
+  .filter((f) => f.endsWith('.e2e.mjs'))
+  .sort()
+  .map((f) => path.join(here, 'specs', f))
+
 export const config = {
   runner: 'local',
-  specs: [path.join(here, 'specs', '**', '*.e2e.mjs')],
+  specs: [specFiles],
   maxInstances: 1, // One app, one project file, one DuckDB writer. Never parallelise this.
   framework: 'mocha',
   reporters: ['spec'],
@@ -44,6 +77,11 @@ export const config = {
         // reads is empty, and the developer's real per-user list is never written to.
         env: {
           SANDIBUMI_CONFIG_DIR: configDir,
+          // Layer 4: a private WebView2 profile, so `localStorage` is this run's own. Without it
+          // the harness shares `%LOCALAPPDATA%\com.sandibumi.petro\EBWebView` with the developer's
+          // real SandiBumi — and `autosave.ts` keeps its crash flag there, so ONE unclean shutdown
+          // puts every later launch of BOTH into crash recovery, permanently. See sandbox.mjs.
+          WEBVIEW2_USER_DATA_FOLDER: webviewDir,
           // Keep the engine's memory cap modest; the harness works on three synthetic wells and
           // has no business reserving gigabytes on the machine running it.
           SANDIBUMI_DB_MEMORY: '512MB',

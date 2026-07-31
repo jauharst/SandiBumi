@@ -42,6 +42,28 @@ export const SANDBOX_ENV = 'SANDIBUMI_E2E_SANDBOX'
 export const configDir = path.join(sandboxDir, 'cfg')
 export const outDir = path.join(sandboxDir, 'out')
 
+/**
+ * The WebView2 profile — layer 4, and it was missing.
+ *
+ * The three layers above cover the config directory, the working directory and the project path.
+ * None of them touches WebView2, which keeps `localStorage` in a per-APPLICATION folder
+ * (`%LOCALAPPDATA%\com.sandibumi.petro\EBWebView`) — the SAME folder the developer's own SandiBumi
+ * uses. So the harness and the real app shared one localStorage, and it leaked both ways.
+ *
+ * That is not theoretical. `autosave.ts` keeps its "session running" flag there: a run that ends
+ * uncleanly leaves the flag set, and then EVERY later launch — the harness's and the developer's
+ * own — starts in crash recovery. Observed here: one dirty shutdown, and every subsequent run
+ * failed with `window.__TAURI__` undefined and `#ribbon` never appearing, because `main.ts` takes
+ * an early return down the recovery path before it builds anything. Nothing in the harness could
+ * reset it, so the breakage was permanent and looked like a flaky test.
+ *
+ * `WEBVIEW2_USER_DATA_FOLDER` is read by the WebView2 loader itself, so pointing it into the
+ * sandbox gives each run a clean profile and keeps the harness out of the developer's app state
+ * in both directions. It also means the autosave/crash-recovery paths can be exercised
+ * deliberately rather than inherited by accident.
+ */
+export const webviewDir = path.join(sandboxDir, 'webview2')
+
 /** Where the app will land given layers 1 and 2 above. Layer 3 checks it actually did. */
 export const expectedProject = path.join(sandboxDir, 'project.duckdb')
 
@@ -49,6 +71,7 @@ export function createSandbox() {
   fs.rmSync(sandboxDir, { recursive: true, force: true })
   fs.mkdirSync(configDir, { recursive: true })
   fs.mkdirSync(outDir, { recursive: true })
+  fs.mkdirSync(webviewDir, { recursive: true })
   return sandboxDir
 }
 
