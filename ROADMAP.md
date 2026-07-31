@@ -983,6 +983,20 @@ The actionable backlog. Roughly ordered: safe frontend wins first, then Performa
       Expected and delete the known-issue note. Now pinned from the other side by `ml.e2e.mjs`,
       which goes red the day the control is removed. Finding 24.
 
+- [ ] **T-IMP-05 is marked Fail and the behaviour has since been fixed — PLAN ONLY, but it carries
+      Jauhar's own mark.** Its Expected says every no-well-selected tool refuses with status
+      `Select a well first (Wells & Tops panel)` and that **no dialog opens**. `src/ui/needWell.ts`
+      (2026-07-31, after the mark) replaced that quiet status line with a NAMED REFUSAL DIALOG — so
+      "no dialog opens" is now wrong by design, and the wording is
+      `"<action> needs a well — select one in the Wells & Tops pane"`. The helper's own header reads
+      like the complaint that produced the Fail: *a status-bar line is the wrong place to refuse a
+      click … what they got was nothing, with the reason in a corner of the window nobody was
+      looking at*. Callers are exactly T-IMP-05's list. **Correct the Expected and re-run it — the
+      item is very likely a Pass now, and the Fail is the only record saying otherwise.** Not
+      covered by the harness: nothing reachable from the DOM clears `appState.selectedWell` once a
+      well has been clicked, and adding a test-only path to do so would be a change to the product
+      to serve the tests. Finding 25.
+
 - [x] **Legacy-multimin RECON_ERR at 3 tools — CLOSED 2026-07-31, no sign-off needed.** REVIEW.md
       still lists this among the findings awaiting a decision because it would change
       interpretation numbers. It does not need one. Legacy `multimin` is **retired** — `run_module`

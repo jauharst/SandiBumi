@@ -638,6 +638,17 @@ now doable from the shipped examples folder; nothing needs doctoring by hand.
 2. Try **Import DLIS…**, **Import Core…**, **Import SCAL…**, **Import Aux…**, **Import Deviation…**, **Export LAS…**, and Tools ▾ → **Shift Core…** — each without a selected well.
 3. Select a well, open **Import LAS…**, then press **Cancel** in the file dialog. Repeat Cancel for **Import Tops…** and **Import Deviation…**.
    **Expected:** Steps 2: every tool refuses with status `Select a well first (Wells & Tops panel)` — no dialog opens, no History entry. Step 3: cancelling the file picker returns silently — no status change, no History entry, no data change (open plots do not refresh).
+   **EXPECTED IS STALE, and this item carries your Fail mark (checked 2026-08-01, finding 25).**
+   `src/ui/needWell.ts` (added 2026-07-31, after that mark) replaced the quiet status line with a
+   **named refusal dialog**. So "no dialog opens" is now wrong BY DESIGN - a modal naming the action
+   is the fix - and the wording is `"<action> needs a well - select one in the Wells & Tops pane"`,
+   not the string quoted above. The status line still receives it too, because the message belongs
+   in the record of what was attempted; it just cannot be the only place it appears. The callers are
+   exactly this step's list. **Worth re-running: the item is very likely a Pass now, and your Fail
+   is the only record saying otherwise.** Not automated - nothing reachable from the DOM clears
+   `appState.selectedWell` once a well has been clicked, and adding a test-only path to do so would
+   be a change to the product to serve the tests.
+
    **Result — T-IMP-05:**
 
 - [ ] Pass

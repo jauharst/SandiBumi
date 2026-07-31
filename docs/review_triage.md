@@ -778,7 +778,7 @@ these turns on a judgement about real rock, a visual read, or a feel for whether
 
 ---
 
-## Twenty-four things the triage found that are worth fixing regardless
+## Twenty-five things the triage found that are worth fixing regardless
 
 These came out of reading all 250 tests against the current code. Each was verified directly,
 not taken on a subagent's word. **Findings 1, 2 and 3 have since been fixed — see the notes
@@ -1410,6 +1410,39 @@ defect filed against working code.
 **Fix: correct step 3's Expected and delete the known-issue note.** No code change. Now pinned from
 the other side by `ml.e2e.mjs`'s "has a Mask control" test, which goes red the day the control is
 removed — the failure mode the note was worried about, caught properly rather than described.
+
+### 25. T-IMP-05 is marked **Fail**, and the behaviour it failed on has since been fixed — **PLAN IS STALE, and worth your attention because your own mark is on it**
+
+`manual_test_plan.md` T-IMP-05 carries **`[x] Fail`** — your mark, from clicking through the
+no-well-selected guards. Its Expected reads: *every tool refuses with status `Select a well first
+(Wells & Tops panel)` — no dialog opens*.
+
+**Both halves of that sentence are now wrong, and the second one is wrong on purpose.**
+`src/ui/needWell.ts` (added 2026-07-31, after your mark) replaced the quiet status line with a
+NAMED REFUSAL DIALOG. Its own header explains why in terms that read like the complaint that
+produced your Fail:
+
+> A status-bar line is the wrong place to refuse a click. The user picked "Import SCAL…" and
+> expected a file dialog; what they got was nothing, with the reason in a corner of the window
+> nobody was looking at.
+
+So the step now: shows a modal naming the action and telling you to pick a well, AND still writes
+to the status line — because the message belongs in the record of what was attempted, it just
+cannot be the only place it appears. The wording is
+`"<action> needs a well — select one in the Wells & Tops pane"`, not the string the plan quotes.
+The callers are exactly T-IMP-05's list: Export LAS, Import DLIS, Import SCAL, Import deviation,
+Import Aux, Import pictures, Data Sets, Shift Core, Well header.
+
+**Two things to do.** Correct T-IMP-05's Expected — "no dialog opens" must become "a named refusal
+dialog opens" — and then re-run it, because **the item is very likely a Pass now and your Fail is
+the only record saying otherwise.** Nothing else in the plan tracks that a marked item was fixed
+afterwards, which is precisely how a fixed defect stays on the books.
+
+**Not covered by the harness**, and the reason is worth stating: driving it needs the app in a
+no-well-selected state, and nothing reachable from the DOM clears `appState.selectedWell` once a
+well has been clicked. Every other spec selects a well by design. A test-only "clear selection"
+path would be a change to the product to serve the tests — the same decision the harness declined
+over `driverProvider: 'embedded'` — so it is left to you.
 
 ---
 
