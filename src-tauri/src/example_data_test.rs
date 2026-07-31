@@ -217,6 +217,7 @@ fn multiwell_core_and_aux_examples_import_end_to_end() {
         "XRD",
         &example("xrd_multiwell.txt"),
         None,
+        false,
     );
     assert!(aux.error.is_none(), "{:?}", aux.error);
     assert_eq!(aux.wells_imported, 3, "rows routed to all three wells: {:?}", aux.notes);

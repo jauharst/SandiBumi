@@ -1437,6 +1437,19 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       some plugs by their neighbour's correction. Remaining on this thread: wiring the map into the
       import wizards so it is offered rather than available (Part 1 follow-up).
 
+- [x] **A late delivery follows the core (Part 1, increment 1c follow-up)** — **SHIPPED 2026-07-31.**
+      `ingest::import_aux_file(..., follow_core)` + the "These depths came from the core report"
+      tick-box in Data ▸ Import Aux…. Turns the depth record from something the app *can* do into
+      something it *offers*: XRD/CEC/petrography written at the original core depths is placed
+      through `db::core_depth_pairs`, per WELL (a multi-well file routes by its WELL column and each
+      well has its own record). Off by default — nothing in a delimited text file says which depth
+      scale it uses, so this is the user's declaration, like the RtC fit's water zone. An interval
+      is placed by its top with the base taking the same offset (mapping the ends independently
+      could invert a thin sample at a barrel boundary). Reported rather than assumed: samples
+      outside the cored interval, a core that was never shifted, and a well with no core to follow.
+      Pinned by `a_late_delivery_can_follow_the_core_it_was_measured_on`. **Not yet offered for SCAL
+      or image imports**, which also arrive at lab-written depths.
+
 ## C3. Trust & reproducibility — Phase 11 (§3)
 
 - **Audit trail & lineage**: every module/equation run and data edit logged (`runs` table: params, inputs,

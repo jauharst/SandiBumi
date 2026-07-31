@@ -2072,8 +2072,13 @@ export function importAuxData(
   dataset: string,
   path: string,
   setName: string | null = null,
+  /** Treat the file's depths as the ones the original core report used, and place them through
+   *  the target well's core depth record. Off by default: a file written on the log's scale must
+   *  not be moved. The result's notes say what happened, including samples that fell outside the
+   *  cored interval and wells with no core to follow. */
+  followCore = false,
 ): Promise<AuxImportResult> {
-  return invoke<AuxImportResult>("import_aux_data", { wellId, dataset, path, setName });
+  return invoke<AuxImportResult>("import_aux_data", { wellId, dataset, path, setName, followCore });
 }
 
 export function listAuxData(wellId: string, dataset: string | null): Promise<AuxRow[]> {

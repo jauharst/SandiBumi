@@ -461,12 +461,14 @@ async fn import_aux_data(
     dataset: String,
     path: String,
     set_name: Option<String>,
+    follow_core: Option<bool>,
 ) -> Result<ingest::AuxImportResult, String> {
     let conn = db.0.clone();
     let base = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_string();
+    let follow_core = follow_core.unwrap_or(false);
     jobs::run_simple_job(jobs_reg.inner().clone(), "Import dataset", base, move || {
         let c = conn.lock().unwrap();
-        Ok(ingest::import_aux_file(&c, &well_id, &dataset, &path, set_name.as_deref()))
+        Ok(ingest::import_aux_file(&c, &well_id, &dataset, &path, set_name.as_deref(), follow_core))
     })
     .await
 }

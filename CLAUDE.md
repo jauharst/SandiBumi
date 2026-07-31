@@ -902,6 +902,37 @@ the primary key: moving 1000→1001 row by row collides with the plug already at
 finished result is perfectly valid. An interval sample is placed by its TOP so a barrel boundary
 cannot split one sample into two different shifts, and its base moves by the same amount.
 
+**A late delivery can follow the core (2026-07-31)** — `ingest::import_aux_file` gained
+`follow_core`, exposed as the **"These depths came from the core report"** tick-box in Data ▸
+Import Aux…. A laboratory writes the depths from the original core report; if that core has since
+been registered against the log, those depths are stale by exactly however far the core moved, and
+the samples get attributed to rock they were never measured on. With the box ticked each row is
+placed through the target well's `core_depth_pairs` map.
+
+**Off by default, and never silently on.** A file already written on the log's depth scale must not
+be moved, and there is nothing in a delimited text file that reliably says which scale it uses — so
+this is the user's declaration, exactly as the RtC fit's water zone is. The mirror case is covered
+too: ticking the box on a well with no core, or where the record cannot be read, imports unmapped
+and SAYS so in the notes rather than appearing to have mapped something.
+
+**The mapping is per WELL**, resolved inside the row-building closure rather than once per file,
+because a multi-well delivery routes by its WELL column and each well has its own core record.
+
+**An interval is placed by its TOP and its base takes the same offset** — the same rule the barrel
+shifts use. Mapping the two ends independently could invert a thin sample where the correction
+changes steeply across a barrel boundary, and a sample that measured 20 cm of rock still measured
+20 cm of rock.
+
+Three things are reported rather than assumed: samples that fell **outside the cored interval**
+(placed by holding the nearest correction — there is no evidence out there), a core that has **not
+been shifted** (so the box worked and simply had nothing to correct, which beats silence), and a
+well with **no core to follow**. Pinned by
+`ingest::tests::a_late_delivery_can_follow_the_core_it_was_measured_on`, which registers two
+barrels by different amounts and checks a sample from each lands on its own barrel's correction.
+
+Not yet wired the same way: SCAL and image imports. Both take lab-written depths and both would
+benefit; neither is offered yet.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under

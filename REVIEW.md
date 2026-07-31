@@ -6225,3 +6225,34 @@ end and those samples are marked as extrapolated rather than quietly placed.
 **Note on older projects:** a project made before today gets the new record filled in as "no shift
 yet". Any shifting you did before this exists is not recoverable, so the core is treated as
 delivered where it currently sits. From here on it is tracked.
+
+---
+
+## New data can follow the shifted core (2026-07-31)
+
+Data ▸ **Import Aux…** has a new tick-box: **"These depths came from the core report"**.
+
+This is the payoff for the depth record. A lab sends XRD or CEC written at the depths from the
+original core report. If you have since registered that core against the log, those depths are out
+by however far the core moved — and the samples would be attributed to the wrong rock.
+
+- [ ] Register a well's core first (Tools ▸ Register Depth…), ideally with two barrels moved by
+      **different** amounts so the test is a real one.
+- [ ] Import an XRD or CEC file written at the ORIGINAL core depths with the box **ticked**. Each
+      sample should land on the rock it was measured from — including across the barrel boundary,
+      where the correction is worked out between plugs rather than applied as one number.
+- [ ] Import the same file with the box **off** and compare. The depths stay exactly as written.
+      That is the right behaviour for a file already on the log's depth scale.
+- [ ] Check the message after the import. It should say the samples were **placed from the core
+      depth record**, and count any that fell **outside the cored interval** — those have nothing
+      to go on, so they keep the nearest correction and are reported rather than placed quietly.
+- [ ] Tick the box on a well with no core. It should import the depths as written and say **"no
+      core to follow"** rather than looking like it mapped something.
+- [ ] Tick it on a well whose core has never been shifted. It should say so — the box worked, there
+      was simply nothing to correct.
+
+**Deliberately off by default.** Nothing in a delimited text file reliably says which depth scale
+it uses, so this is your declaration, not a guess the app makes.
+
+**Not yet offered for SCAL or image imports** — both also arrive at lab-written depths. Say the
+word and they get the same tick-box.

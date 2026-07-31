@@ -1204,12 +1204,61 @@ pub struct AuxImportResult {
 /// `set_name` versions the DELIVERY within the dataset, exactly as core sets do: a second
 /// XRD (or CEC, oil show, …) delivery lands beside the first, auto-suffixed per well, and
 /// becomes the live one for that dataset. Nothing is ever overwritten.
+/// The well's core depth record, or an empty slice when the caller did not ask to follow it — or
+/// asked but the well has no core. **Not following is never silent**: a user who ticked the box
+/// and got raw depths would have no way to tell, and the samples would be wrong by exactly the
+/// amount the core was corrected by.
+fn core_record(
+    conn: &Connection,
+    well_id: &str,
+    follow_core: bool,
+    label: &str,
+    notes: &mut Vec<String>,
+) -> Vec<(f32, f32)> {
+    if !follow_core {
+        return Vec::new();
+    }
+    match db::core_depth_pairs(conn, well_id) {
+        Ok(p) if p.is_empty() => {
+            notes.push(format!("{label}: no core to follow, depths used as written"));
+            Vec::new()
+        }
+        Ok(p) => p,
+        Err(e) => {
+            notes.push(format!("{label}: could not read the core depth record ({e}), depths used as written"));
+            Vec::new()
+        }
+    }
+}
+
+/// Says what the mapping did. A core that has never been shifted maps every depth to itself, and
+/// saying so beats silence — it tells the user the box worked and simply had nothing to correct.
+fn note_mapping(notes: &mut Vec<String>, label: &str, pairs: &[(f32, f32)], rows: usize, outside: usize) {
+    if pairs.is_empty() || rows == 0 {
+        return;
+    }
+    let shifted = pairs.iter().any(|(o, d)| (o - d).abs() > 1e-4);
+    if !shifted {
+        notes.push(format!("{label}: core has not been shifted, so depths are unchanged"));
+        return;
+    }
+    if outside > 0 {
+        notes.push(format!(
+            "{label}: placed from the core depth record; {outside} sample(s) fell outside the cored \
+             interval and were placed by holding the nearest correction"
+        ));
+    } else {
+        notes.push(format!("{label}: placed from the core depth record"));
+    }
+}
+
 pub fn import_aux_file(
     conn: &Connection,
     well_id: &str,
     dataset: &str,
     path: &str,
     set_name: Option<&str>,
+    follow_core: bool,
 ) -> AuxImportResult {
     let fail = |e: String| AuxImportResult {
         path: path.to_string(),
@@ -1237,10 +1286,31 @@ pub fn import_aux_file(
 
     // One AuxRow batch per routing target. `None` key = the selected-well fallback
     // (only used when the file has no well column).
-    let to_aux_rows = |idx: &[usize]| -> Vec<db::AuxRow> {
+    //
+    // `follow_core` places the file's depths through the target well's core depth record: a
+    // laboratory writes the depths from the original core report, and if that core has since been
+    // registered against the log those depths are stale by however far the core moved. The record
+    // is per WELL, so the mapping is resolved inside this closure rather than once for the file.
+    //
+    // An interval is placed by its TOP and its base takes the same offset — the same rule the
+    // barrel shifts use. Mapping the two ends independently could invert a thin sample where the
+    // correction changes steeply across a barrel boundary, and a sample that measured 20 cm of
+    // rock still measured 20 cm of rock.
+    let to_aux_rows = |idx: &[usize], pairs: &[(f32, f32)], outside: &mut usize| -> Vec<db::AuxRow> {
         let mut rows: Vec<db::AuxRow> = Vec::new();
         for &i in idx {
-            let (top, base, values) = &data.rows[i];
+            let (raw_top, raw_base, values) = &data.rows[i];
+            let (top, base) = if pairs.is_empty() {
+                (*raw_top, *raw_base)
+            } else {
+                let (mapped, ex) = db::map_core_depth(pairs, *raw_top);
+                if ex {
+                    *outside += 1;
+                }
+                let offset = mapped - *raw_top;
+                (mapped, raw_base.map(|b| b + offset))
+            };
+            let (top, base) = (&top, &base);
             for (item, raw) in data.items.iter().zip(values) {
                 let Some(raw) = raw else { continue };
                 let num = raw.replace(',', ".").parse::<f32>().ok();
@@ -1298,7 +1368,10 @@ pub fn import_aux_file(
             };
             match ids.len() {
                 1 => {
-                    let rows = to_aux_rows(idx);
+                    let pairs = core_record(conn, &ids[0], follow_core, name, &mut notes);
+                    let mut outside = 0usize;
+                    let rows = to_aux_rows(idx, &pairs, &mut outside);
+                    note_mapping(&mut notes, name, &pairs, rows.len(), outside);
                     // Per well, like core sets: a name free on one well may be taken on another.
                     let set = match db::resolve_aux_set_name(conn, &ids[0], &dataset, &desired_set) {
                         Ok(s) => s,
@@ -1341,7 +1414,10 @@ pub fn import_aux_file(
             return fail(format!("unknown well '{well_id}'"));
         }
         let idx: Vec<usize> = (0..data.rows.len()).collect();
-        let rows = to_aux_rows(&idx);
+        let pairs = core_record(conn, well_id, follow_core, "this well", &mut notes);
+        let mut outside = 0usize;
+        let rows = to_aux_rows(&idx, &pairs, &mut outside);
+        note_mapping(&mut notes, "this well", &pairs, rows.len(), outside);
         let set = match db::resolve_aux_set_name(conn, well_id, &dataset, &desired_set) {
             Ok(s) => s,
             Err(e) => return fail(e.to_string()),
@@ -1897,7 +1973,7 @@ mod tests {
         let path = std::env::temp_dir().join("sandibumi_aux_v2_test.csv");
         std::fs::write(&path, csv).unwrap();
 
-        let res = import_aux_file(&conn, &wa.to_string(), "PETROGRAPHY", path.to_str().unwrap(), None);
+        let res = import_aux_file(&conn, &wa.to_string(), "PETROGRAPHY", path.to_str().unwrap(), None, false);
         assert!(res.error.is_none(), "{:?}", res.error);
         assert_eq!(res.wells_imported, 2, "W-A and W-B routed by the WELL column");
         let notes = res.notes.as_deref().unwrap_or("");
@@ -2310,7 +2386,7 @@ mod tests {
 
         let xrd = std::env::temp_dir().join("arshilla_aux_xrd.csv");
         std::fs::write(&xrd, "Depth,Quartz,Illite,Remarks\n2000.0,45.2,12.1,clean\n2001.0,40.0,,silty\n").unwrap();
-        let res = import_aux_file(&conn, &ids, "xrd", xrd.to_str().unwrap(), None);
+        let res = import_aux_file(&conn, &ids, "xrd", xrd.to_str().unwrap(), None, false);
         assert!(res.error.is_none(), "{:?}", res.error);
         assert_eq!(res.dataset, "XRD", "dataset name normalized upper");
         assert_eq!(res.rows, 5, "empty cell is skipped, text cell kept");
@@ -2327,7 +2403,7 @@ mod tests {
         // Perforation intervals in a second dataset; both coexist.
         let perf = std::env::temp_dir().join("arshilla_aux_perf.csv");
         std::fs::write(&perf, "FROM,TO,STATUS\n2050.0,2055.0,OPEN\n2100.0,2104.0,SQUEEZED\n").unwrap();
-        let res2 = import_aux_file(&conn, &ids, "PERFORATION", perf.to_str().unwrap(), None);
+        let res2 = import_aux_file(&conn, &ids, "PERFORATION", perf.to_str().unwrap(), None, false);
         assert!(res2.error.is_none());
         assert_eq!(res2.rows, 2);
         let perfs = db::list_aux_data(&conn, &ids, Some("PERFORATION")).unwrap();
@@ -2339,7 +2415,7 @@ mod tests {
         // A SECOND XRD delivery: kept beside the first (never overwritten), live, and
         // counted alone — the whole point of the set model applied to point data.
         std::fs::write(&xrd, "Depth,Quartz\n2000.0,50.0\n").unwrap();
-        let res3 = import_aux_file(&conn, &ids, "XRD", xrd.to_str().unwrap(), None);
+        let res3 = import_aux_file(&conn, &ids, "XRD", xrd.to_str().unwrap(), None, false);
         assert!(res3.error.is_none());
         assert_eq!(res3.sets, vec!["RAW_1".to_string()], "auto-suffixed, not overwritten");
         let counts = db::list_aux_datasets(&conn, &ids).unwrap();
@@ -2367,8 +2443,90 @@ mod tests {
         std::fs::remove_file(&perf).ok();
 
         // Unknown well errors cleanly.
-        let bad = import_aux_file(&conn, "nope", "XRD", "x.csv", None);
+        let bad = import_aux_file(&conn, "nope", "XRD", "x.csv", None, false);
         assert!(bad.error.is_some());
+    }
+
+    /// The whole point of keeping the core's as-delivered depths: a laboratory sends XRD months
+    /// after the core was registered, still written at the depths from the original core report,
+    /// and those samples land on the rock they were measured from.
+    #[test]
+    fn a_late_delivery_can_follow_the_core_it_was_measured_on() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        db::insert_well(&conn, wid, "SANDI-LATE", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        // Plugs 2000–2019 as delivered, then registered: upper half +1, lower half +3.
+        let d: Vec<f32> = (0..20).map(|i| 2000.0 + i as f32).collect();
+        let v = vec![0.2f32; 20];
+        let nan = vec![f32::NAN; 20];
+        db::insert_core_data(&conn, &w, "RAW", None, &d, &v, &nan, &nan, &nan).unwrap();
+        db::apply_core_run_shifts(
+            &mut conn,
+            &w,
+            &[
+                db::RunShift { top: 2000.0, base: 2009.0, delta: 1.0 },
+                db::RunShift { top: 2010.0, base: 2019.0, delta: 3.0 },
+            ],
+            &[],
+        )
+        .unwrap();
+
+        let dir = std::env::temp_dir();
+        let xrd = dir.join("sandi_late_xrd.csv");
+        // Written at the ORIGINAL depths, as the lab would have them.
+        std::fs::write(&xrd, "DEPTH,KAOLINITE,ILLITE\n2005,0.10,0.20\n2015,0.30,0.40\n1990,0.05,0.06\n").unwrap();
+        let path = xrd.to_str().unwrap();
+
+        // Off: the samples land where the file says, which is now the wrong rock.
+        let plain = import_aux_file(&conn, &w, "XRD", path, Some("ASWRITTEN"), false);
+        assert!(plain.error.is_none(), "{:?}", plain.error);
+        let rows = db::list_aux_data(&conn, &w, Some("XRD")).unwrap();
+        assert!(
+            rows.iter().any(|r| (r.depth_top - 2005.0).abs() < 1e-3),
+            "unmapped import keeps the delivered depth"
+        );
+
+        // On: each sample follows the barrel it was cut from.
+        let followed = import_aux_file(&conn, &w, "XRD", path, Some("FOLLOWED"), true);
+        assert!(followed.error.is_none(), "{:?}", followed.error);
+        let rows = db::list_aux_data(&conn, &w, Some("XRD")).unwrap();
+        let depths: Vec<f32> = {
+            let mut d: Vec<f32> = rows.iter().map(|r| r.depth_top).collect();
+            d.sort_by(f32::total_cmp);
+            d.dedup_by(|a, b| (*a - *b).abs() < 1e-3);
+            d
+        };
+        assert!(
+            depths.iter().any(|&x| (x - 2006.0).abs() < 1e-3),
+            "2005 was in the barrel that moved 1 m: {depths:?}"
+        );
+        assert!(
+            depths.iter().any(|&x| (x - 2018.0).abs() < 1e-3),
+            "2015 was in the barrel that moved 3 m: {depths:?}"
+        );
+        assert!(
+            depths.iter().any(|&x| (x - 1991.0).abs() < 1e-3),
+            "1990 is above the core, so it holds the nearest correction: {depths:?}"
+        );
+        let notes = followed.notes.unwrap_or_default();
+        assert!(
+            notes.contains("outside the cored interval"),
+            "the sample above the core must be reported as a guess, not placed silently: {notes}"
+        );
+
+        // A well with no core says so rather than pretending it mapped anything.
+        let w2 = uuid::Uuid::new_v4();
+        db::insert_well(&conn, w2, "SANDI-NOCORE", None, None, None).unwrap();
+        let none = import_aux_file(&conn, &w2.to_string(), "XRD", path, None, true);
+        assert!(none.error.is_none(), "{:?}", none.error);
+        assert!(
+            none.notes.unwrap_or_default().contains("no core to follow"),
+            "asking to follow a core that is not there must be said out loud"
+        );
+        std::fs::remove_file(&xrd).ok();
     }
 
     /// Ad-hoc verification against a real field delivery — whatever LAS files sit in the

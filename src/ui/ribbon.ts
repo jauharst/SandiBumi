@@ -1677,6 +1677,37 @@ export class Ribbon {
       ),
     );
 
+    // A laboratory writes the depths from the original core report. If that core has since been
+    // registered against the log, those depths are stale by exactly however far the core moved —
+    // and the samples would be attributed to rock they were never measured on. Off by default,
+    // because a file written on the log's own scale must not be moved.
+    const followCore = document.createElement("input");
+    followCore.type = "checkbox";
+    followCore.id = "aux-follow-core";
+    const followLabel = document.createElement("label");
+    followLabel.htmlFor = followCore.id;
+    followLabel.textContent = " These depths came from the core report";
+    const followRow = document.createElement("div");
+    followRow.appendChild(followCore);
+    followRow.appendChild(followLabel);
+    content.appendChild(
+      formRow(
+        "Follow the core",
+        followRow,
+        "Tick if the file uses the depths the core was delivered at. Each sample is then placed where that rock now sits, using the core's own record — including where one barrel moved further than another. Leave it off for a file already on the log's depth scale.",
+      ),
+    );
+    const followNote = document.createElement("div");
+    followNote.className = "eq-note";
+    followNote.style.display = "none";
+    followNote.textContent =
+      "Samples above or below the cored interval have nothing to go on — they keep the nearest " +
+      "correction and are reported as such rather than being placed silently.";
+    content.appendChild(followNote);
+    followCore.addEventListener("change", () => {
+      followNote.style.display = followCore.checked ? "" : "none";
+    });
+
     const pick = document.createElement("button");
     pick.className = "form-run-btn";
     pick.textContent = "Choose file & import…";
@@ -1707,7 +1738,13 @@ export class Ribbon {
       pick.disabled = true;
       resultBox.textContent = `Importing ${dataset} for ${well.well_name}…`;
       try {
-        const result = await importAuxData(well.well_id, dataset, path, setInput.value.trim() || "RAW");
+        const result = await importAuxData(
+          well.well_id,
+          dataset,
+          path,
+          setInput.value.trim() || "RAW",
+          followCore.checked,
+        );
         if (result.error) {
           resultBox.textContent = `Import failed: ${result.error}`;
           return;
