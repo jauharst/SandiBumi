@@ -3303,6 +3303,11 @@ export interface PoreSpec {
   preview_image_id?: string | null;
   /** Measure only this plate — so moving a slider does not re-measure the whole delivery. */
   only_image_id?: string | null;
+  /** The plate the band was tuned on. Every other plate is colour-corrected onto it before the
+   *  band is applied, which is what lets one band serve a delivery photographed under more than
+   *  one light. Omit to read every plate exactly as delivered. Naming one also turns on the
+   *  empty-measurement refusal — see `band_missed`. */
+  reference_image_id?: string | null;
   /** Store the results as point data under this delivery name. Omit to measure without writing:
    *  tuning must not leave a trail of half-judged answers in the project. */
   set_name?: string | null;
@@ -3444,6 +3449,13 @@ export interface PlatePore {
    *  background rather than the pores. The fraction is still shown — tuning the band is how it
    *  gets fixed — but the plate is left out of the write. */
   scene_dominated: boolean;
+  /** How far this photograph's light sat from the reference plate's, in degrees of hue — the size
+   *  of the correction applied. NaN when no reference was named. Diagnostic, never a threshold. */
+  cast_shift: number;
+  /** True when the band, carried onto this plate, claimed less than one resolvable pore. Only ever
+   *  set on a normalized run: near zero reads as a tight rock, so it is refused rather than stored,
+   *  but only once a reference plate has established that the band finds epoxy somewhere. */
+  band_missed: boolean;
   pixels: number;
   geometry?: PoreGeometry;
   grains?: GrainStats;

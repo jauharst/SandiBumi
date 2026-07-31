@@ -1702,17 +1702,32 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       `the_workbook_reader_takes_its_pictures_from_the_package_not_from_openpyxl` (fails if
       `_images` returns) and `an_enhanced_metafile_plate_is_recognised_rather_than_called_unreadable`
       (with the control that the record type alone is not enough).
-- [ ] **Refuse a suspiciously empty measurement on a declared-impregnated plate** — the mirror of
-      the scene-dominance guard, and the one thing the end-to-end run exposed that was NOT shipped.
-      A plate cast AWAY from the band returns a fraction near zero, which is a plausible number for
-      a tight rock and is currently stored: measured 0.04% against a counted 15%. The signature is
-      now documented with real numbers, but the floor separating it from a genuinely tight section
-      is a judgement, not a measurement. **Ask Jauhar** which way he wants the asymmetry to fall.
-- [ ] **Per-plate colour normalization, or a relative pore rule.** The deeper fix for the above:
-      an absolute hue band cannot serve a delivery whose white balance varies, and grouping is a
-      workaround. Either normalize each plate before the band is applied, or define pore relative to
-      the plate's OWN colour distribution. Both change what the measurement means, so neither should
-      be done quietly.
+- [x] **SHIPPED (2026-07-31) — one band, many lamps.** `PoreSpec.reference_image_id` names the
+      plate the band was tuned on and every other plate is colour-corrected onto it before the band
+      is applied: a per-channel (von Kries) gain putting each plate's matrix colour where the
+      reference's sits, anchored on the delivery's own ROCK rather than on grey — grey-world would
+      normalize away the porosity signal itself, since a blue-epoxy section is genuinely blue and
+      the more porous the more so. The matrix colour is a channel-wise median, which is legal
+      exactly where `scene_dominated` passes, so the guard and the correction hold each other up.
+      The gain is scaled so no channel clips; the stain and the preview are read off the same
+      corrected picture. A reference plate that is itself scene-dominated refuses the whole run by
+      name. Verified by `the_same_rock_under_a_different_lamp_reads_as_the_same_rock`: a plate shot
+      through a 2.0x-green / 0.55x-blue lamp reads under 1% uncorrected against its identical twin's
+      25%, and the same quarter once corrected.
+- [x] **SHIPPED (2026-07-31) — the empty-measurement refusal, conditionally** (Jauhar: "yes but
+      conditional"). `band_missed` refuses a plate whose band claimed less than one resolvable
+      pore's worth of pixels, **only on a normalized run**. That is where the condition comes from
+      rather than from a threshold: without a reference there is no evidence the band finds epoxy
+      anywhere in the delivery, so an empty answer might only mean it has never been tuned. "Empty"
+      is the user's own `min_pore_px`, not a new constant. `cast_shift` (`hue_delta`, the short way
+      round the wheel) rides beside every result as a diagnostic and is shown in the table; the
+      column is hidden on an uncorrected run rather than shown empty. Pinned by
+      `an_empty_measurement_is_refused_only_once_a_reference_plate_says_the_band_works` and
+      `the_cast_shift_measures_the_short_way_round_the_colour_wheel`.
+- [ ] **Can ONE reference serve a 289-degree delivery?** The correction gets less exact the further
+      a plate has to move, and nothing yet says how far is too far. Deliberately not invented: the
+      answer has to come from Jauhar reporting the largest Shift on a plate whose preview still
+      looked right. Until then the shift column and the preview are the judgement.
 - [ ] **A colour rule over a greyscale SEM plate returns 0.000** — the mirror of the 0.97 case, and
       more dangerous because it looks like a tight rock rather than an absurdity. A delivery mixes
       thin sections, SEM plates and scale graphics in one folder. The obvious test (saturation) did

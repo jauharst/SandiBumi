@@ -6837,3 +6837,53 @@ it from a genuinely tight section without inventing a number.
 - [ ] Tell me whether you would rather it REFUSED a suspiciously empty measurement on a section you
       declared impregnated, or kept storing it. Refusing costs you the odd real tight plate; keeping
       it ships the odd wrong number that looks fine.
+
+## One band, many lamps — the colour fix (2026-07-31)
+
+You said "yes but conditional" to refusing an empty measurement, and asked for the colour problem
+fixed properly. Both are here.
+
+**The fix: name a reference plate.** Pore Area… now has a **Reference plate** picker under the
+tuning plate. Leave it at *none* and nothing changes — every plate is read exactly as delivered,
+which is right for a delivery shot in one session. Pick the plate your band reads correctly and
+every other plate is colour-corrected onto it before the band is applied.
+
+What that means in petrophysical terms: the app measures your reference plate's matrix colour and
+puts every other plate's matrix colour in the same place, then applies your band. It corrects the
+lamp, not the rock. It deliberately does **not** use the textbook grey-balance, because a
+blue-epoxy section genuinely is blue — the more porous the more so — and grey-balancing would
+flatten the porosity signal itself.
+
+- [ ] Open Pore Area, tune the band on one plate, set that plate as the Reference, then use **Tune
+      on plate** to preview a differently-cast plate. The band should now sit on its epoxy.
+- [ ] Run it over the delivery and look at the new **Shift** column — how far each plate's light
+      sat from your reference's. A plate that moved a long way is one to look at.
+- [ ] Compare the result against your petrographer's point count again. Before: rank agreement
+      -0.09 over 35 samples. If the correction is doing its job this should move.
+
+**The conditional refusal.** A plate whose band claims less than one pore's worth of pixels is now
+refused — but **only when you have named a reference plate.** Without one there is no evidence the
+band finds epoxy anywhere in the delivery, so an empty answer might just mean you haven't tuned it
+yet, and refusing would refuse your first click. Once a reference is named, that plate is your
+statement that the band works, and a plate showing nothing after being corrected onto it is either
+nonporous or mis-corrected — and the picture cannot say which.
+
+- [ ] Check the refused rows read sensibly (orange, with the reason on hover). If a genuinely tight
+      section of yours gets refused, tell me — that is the cost of the conservative call and I want
+      to know how often you actually pay it.
+
+**A reference plate that is itself mostly the colour you called pore is refused outright**, by
+name, before anything runs. Everything is anchored to it, so a mistake there would be inherited by
+the whole delivery and would look consistent everywhere.
+
+- [ ] Try setting a badly cast plate as the reference and confirm you get a clear refusal rather
+      than a delivery of plausible nonsense.
+
+### Still open
+
+Whether ONE reference can serve plates spanning 289 degrees at all. The correction gets less exact
+the further a plate has to move. How far is too far is a judgement to read off the Shift column and
+the preview — I have not invented a cut-off for it.
+
+- [ ] After a run, tell me the largest Shift you saw on a plate whose preview still looked right.
+      That is the number I would need before any automatic cut-off could exist.

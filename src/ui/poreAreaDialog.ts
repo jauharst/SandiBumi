@@ -87,9 +87,22 @@ export async function openPoreAreaDialog(): Promise<void> {
   const plateSel = document.createElement("select");
   plateSel.className = "form-control";
   let plates: ImageInfo[] = [];
+  // ---- the plate the rest of the delivery is corrected onto ----------------
+  //
+  // Separate from the tuning plate on purpose: with a reference chosen you want to preview a
+  // DIFFERENT plate, to see whether the correction carried the band onto it. One picker doing both
+  // jobs could never answer that question.
+  const refSel = document.createElement("select");
+  refSel.className = "form-control";
+
   const loadPlates = async (): Promise<void> => {
     plates = await listWellImages(well.well_id, dsSel.value).catch(() => [] as ImageInfo[]);
     plateSel.innerHTML = "";
+    refSel.innerHTML = "";
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = "— none: read every plate as delivered —";
+    refSel.appendChild(none);
     for (const p of plates) {
       const o = document.createElement("option");
       o.value = p.image_id;
@@ -99,12 +112,24 @@ export async function openPoreAreaDialog(): Promise<void> {
       o.textContent = `${p.name} @ ${p.depth_top}${prep}`;
       o.disabled = p.prepared !== "blue_epoxy";
       plateSel.appendChild(o);
+      refSel.appendChild(o.cloneNode(true));
     }
     const first = plates.find((p) => p.prepared === "blue_epoxy");
     if (first) plateSel.value = first.image_id;
   };
   await loadPlates();
   wrap.appendChild(formRow("Tune on plate", plateSel, "The band is judged by eye on one plate, then applied to the delivery."));
+  wrap.appendChild(
+    formRow(
+      "Reference plate",
+      refSel,
+      "Pick the plate the band reads correctly and every other plate is colour-corrected onto it " +
+        "before the band is applied — which is how one band serves a delivery shot under more " +
+        "than one light. Leave it at none for a delivery photographed in a single session."
+    )
+  );
+  /** The reference, or nothing. Read at run time so changing the picker needs no rewiring. */
+  const refId = (): string | undefined => refSel.value || undefined;
 
   // ---- the colour band ----------------------------------------------------
   const mk = (label: string, value: number, step: number, hint: string): HTMLInputElement => {
@@ -306,6 +331,7 @@ export async function openPoreAreaDialog(): Promise<void> {
         well_id: well.well_id,
         dataset: dsSel.value,
         band: band(),
+        reference_image_id: refId(),
         preview_image_id: id,
         only_image_id: id,
         // No set_name: tuning writes nothing.
@@ -365,10 +391,14 @@ export async function openPoreAreaDialog(): Promise<void> {
     // an uncalibrated delivery invites reading the pixel numbers as microns.
     const anyGeom = res.plates.some((p) => p.geometry);
     const anySized = res.plates.some((p) => p.geometry?.d50_um != null);
+    // Only on a normalized run — with no reference there is no shift to report, and an empty
+    // column would read as "every plate matched" rather than "nothing was compared".
+    const anyShift = res.plates.some((p) => Number.isFinite(p.cast_shift));
     const anyGrain = res.plates.some((p) => p.grains);
     const anyGrainSized = res.plates.some((p) => p.grains?.d50_app_um != null);
     const anyW = res.plates.some((p) => p.grains?.d50_w_um != null);
     const cols = ["Plate", "Depth", "Pore area"];
+    if (anyShift) cols.push("Shift");
     if (anyGeom) cols.push("Pores", "Aspect", "Roundness");
     if (anySized) cols.push("D10 µm", "D50 µm", "D90 µm");
     if (anyGrain) cols.push("Grains", "Contact");
@@ -402,7 +432,20 @@ export async function openPoreAreaDialog(): Promise<void> {
           `${p.scene_hue.toFixed(0)}°, inside the band), so the rule is matching the background. ` +
           `Not a porosity, and not stored — tune the band on this plate.`;
         vals[2] += " ⚠";
+      } else if (p.band_missed) {
+        // The mirror, and the one that hides: near zero looks exactly like a tight rock, so it
+        // would never be queried. Marked the same way, because it is the same kind of non-answer.
+        tr.style.color = "var(--warn)";
+        tr.title =
+          `The band claimed less than one pore's worth of this plate. Either the section is ` +
+          `nonporous or the correction did not reach it — its light sat ` +
+          `${p.cast_shift.toFixed(0)}° from the reference plate's — and the picture cannot say ` +
+          `which. Not stored. Tune a band on this plate, or make it the reference.`;
+        vals[2] += " ⚠";
       }
+      // The size of the correction, beside the answer it produced. A plate that had to move a long
+      // way is one to look at, and it is the only thing on the row that says so.
+      if (anyShift) vals.push(Number.isFinite(p.cast_shift) ? `${p.cast_shift.toFixed(0)}°` : "");
       if (anyGeom) {
         vals.push(
           g ? String(g.n) : "",
@@ -486,6 +529,7 @@ export async function openPoreAreaDialog(): Promise<void> {
             well_id: well.well_id,
             dataset: dsSel.value,
             band: band(),
+            reference_image_id: refId(),
             geometry: geomChk.checked,
             min_pore_px: Number(minPx.value) || 20,
             grains: grainChk.checked,
@@ -518,6 +562,7 @@ export async function openPoreAreaDialog(): Promise<void> {
             well_id: well.well_id,
             dataset: dsSel.value,
             band: band(),
+            reference_image_id: refId(),
             geometry: geomChk.checked,
             min_pore_px: Number(minPx.value) || 20,
             grains: grainChk.checked,

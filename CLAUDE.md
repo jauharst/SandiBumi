@@ -1722,6 +1722,92 @@ Measured on the same two real books: **258 plates where there had been 152**, al
 extractor, 242 through import and measurement (the 16 without a stated depth are counted and
 reported, never filled in from a neighbour).
 
+## One band, many lamps (2026-07-31 — the colour fix)
+
+The first real delivery showed the pore rule tracking each photograph's colour cast rather than
+the rock: across one core, one laboratory and one report the plates' own median hue spanned 289
+degrees, and a band tuned on one plate found 31% on a blue-cast plate the petrographer had counted
+at 9% and 0.04% on a green-cast plate they had counted at 15%. `PoreSpec.reference_image_id` names
+the plate the band was tuned on, and every other plate is colour-corrected onto it before the band
+is applied. Six rules.
+
+**The correction is a per-channel GAIN, not a rotation of the hue wheel.** A wrong white balance is
+physically a gain on each sensor channel, so undoing it is a gain back — the von Kries diagonal
+model. A fixed hue rotation looks like the same thing and is not: a channel gain moves hues near
+the boosted primary much less than hues perpendicular to it, so a rigid rotation lands the matrix
+correctly and the epoxy wrong, which is exactly the wrong way round.
+
+**The reference patch is the delivery's own ROCK, never grey.** Grey-world — forcing the three
+channel means together — is the textbook white balance and is actively harmful here: a blue-epoxy
+section IS genuinely blue-biased, and the more porous it is the more so, so grey-world would
+normalize away the very signal being measured and compress every plate toward one answer.
+Anchoring on the reference plate's matrix colour assumes only that the rock is the same rock, which
+within one core is a far better assumption than "the lamp was the same". Pinned by
+`the_colour_correction_is_anchored_on_the_reference_plate_not_on_grey`.
+
+**The matrix colour is the channel-wise MEDIAN, and the scene guard is what makes that legal.**
+Three numbers are exactly what a diagonal correction needs, and taking the median is what makes
+them the matrix rather than the pore phase — rock is mostly rock. On a plate where that is not
+true, `scene_dominated` already refuses the plate. The correction is therefore only ever anchored
+where its own assumption holds; the guard and the correction hold each other up.
+
+**The gain is scaled so the LARGEST channel gain is 1.** The correction is a relative rebalance, so
+a uniform scale changes nothing that matters — and this way no channel can be pushed past 1 and
+clipped, which would distort the hue of exactly the brightest pixels. The cost is a slight uniform
+darkening, which the value floor can see.
+
+**A reference plate that is itself scene-dominated REFUSES the whole run.** Everything is corrected
+onto it, so its median hue becomes the delivery's and a mistake there is inherited by every plate
+and then agrees with itself everywhere. On a normalized run the per-plate scene test would only
+restate the reference's, so it is checked once, up front, by name.
+
+**The stain is read off the SAME corrected picture.** `stain_from` takes the h, s, v the pore rule
+was read from rather than re-converting the image, or the minerals and the porosity would describe
+two different photographs of one section — and they are required to sum against each other. The
+preview overlay is drawn on the corrected copy too, for the standing reason: what the user tunes
+against has to be literally what was measured.
+
+Verified end to end by `the_same_rock_under_a_different_lamp_reads_as_the_same_rock` (ignored,
+needs Pillow): two plates of identical synthetic rock, one photographed through a lamp 2.0x on
+green and 0.55x on blue. Uncorrected the cast plate reads under 1% against its twin's 25% — the
+delivery's failure, reproduced. Corrected onto its twin it reads the same quarter. The cast is
+applied as channel gains chosen so nothing clips, which is what makes it a genuine white-balance
+error rather than a repaint.
+
+**The mirror guard, and why it is conditional** (Jauhar, 2026-07-31: "yes but conditional"). A
+plate cast AWAY from the band returns a fraction near zero, and near zero is a perfectly plausible
+reading for a tight rock — it plots against helium porosity without ever drawing attention to
+itself, which makes it the more dangerous of the two failures. `band_missed` refuses it, and takes
+its condition from the user rather than from a threshold: it applies **only on a normalized run**.
+Without a reference there is no evidence the band finds epoxy anywhere in this delivery, so an
+empty answer could equally mean the band has never been tuned, and refusing then would refuse a
+first click. Naming a reference is the user's statement that the band works on THAT plate; once
+that is on the record, a plate showing nothing after being corrected onto it is either nonporous or
+mis-corrected, and nothing in the picture separates those two. Refusing is the conservative call.
+
+**"Empty" is one resolvable pore's worth of pixels — the user's own `min_pore_px`, not a new
+constant.** A band that has not claimed even a single countable pore over a whole field of view has
+not found a pore phase; that is not a small porosity, it is not a measurement. Pinned by
+`an_empty_measurement_is_refused_only_once_a_reference_plate_says_the_band_works`, which checks
+both conditions independently and that raising the floor moves the bar with it.
+
+`cast_shift` — how far this photograph's light sat from the reference's, by
+`hue_delta`, the SHORT way round the wheel — rides beside every result and is reported in the
+table. It is diagnostic and never a threshold: a plate that had to move a long way is one to look
+at, and nothing else on the row would say so. NaN when no reference was named, and the column is
+hidden then rather than shown empty — an empty column reads as "every plate matched" instead of
+"nothing was compared".
+
+The two guards cover for each other by different routes, which is why neither can be dropped: a
+wholly blue plate is refused as scene-dominated on an uncorrected run, and on a corrected run its
+own blue has become the matrix, so it is refused as `band_missed` instead. Same outcome, and the
+round-trip test asserts both.
+
+Still open, and deliberately not invented: the delivery-wide question of whether a single reference
+can serve plates spanning 289 degrees at all. The correction gets less exact the further a plate
+has to move, and how far is too far is a judgement to be read off the shift column and the preview,
+not a number to ship.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under

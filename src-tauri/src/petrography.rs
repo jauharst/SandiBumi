@@ -117,6 +117,14 @@ pub struct PoreSpec {
     /// mistaken for the other downstream.
     #[serde(default)]
     pub wicksell: bool,
+    /// The plate the band was tuned on. Every other plate is colour-corrected onto this one before
+    /// the band is applied, which is what lets one band serve a delivery photographed under more
+    /// than one light. `None` reads every plate exactly as delivered — the behaviour this app
+    /// always had, and still the right one for a delivery shot in a single session.
+    ///
+    /// Naming a reference also turns on the empty-measurement refusal: see [`band_missed`].
+    #[serde(default)]
+    pub reference_image_id: Option<String>,
     /// Read the STAIN as well, giving a mineral area fraction per class. `None` means no stain is
     /// assumed — the default, and the only safe one: a stain assumed is a mineral fraction
     /// invented (`docs/plan_image_analysis.md` §2.1 A2).
@@ -297,6 +305,14 @@ pub struct PlatePore {
     /// band can be tuned against it, but the plate is left out of the write. See
     /// [`scene_dominated`].
     pub scene_dominated: bool,
+    /// How far this photograph's light sat from the reference plate's, in degrees of hue — the
+    /// size of the correction that was applied. NaN when no reference was named. Diagnostic, never
+    /// a threshold: it is what turns "the band found nothing here" into a reason.
+    pub cast_shift: f32,
+    /// Set when the band, transferred onto this plate, claimed less than one resolvable pore. Only
+    /// ever set on a normalized run — see [`band_missed`]. Kept out of the write like a
+    /// scene-dominated plate, and for the mirror reason.
+    pub band_missed: bool,
     /// Pixels examined — the whole plate, since nothing is masked out.
     pub pixels: i64,
     /// Shape and size of the individual pores, when geometry was asked for.
@@ -414,25 +430,57 @@ band = header["band"]
 sizes = header["sizes"]
 ids = header["ids"]
 preview = header.get("preview")
+# The reference plate's own matrix colour, when the user named one. Absent means every plate is
+# read exactly as delivered, which is what the app always did.
+reference_rgb = header.get("reference_rgb")
 
 blobs = []
 for n in sizes:
     blobs.append(sys.stdin.buffer.read(n))
 
-def mask_of(img):
-    # Where the pixel is grey the hue is undefined; `hsv_of` leaves it at 0 and the saturation
+def mask_from(h, s, v):
+    # Where the pixel is grey the hue is undefined; `hsv_from` leaves it at 0 and the saturation
     # floor is what actually rejects it, so an undefined hue never counts as blue.
-    h, s, v = hsv_of(img)
-    m = in_band(h, s, v, float(band["hue_lo"]), float(band["hue_hi"]),
-                float(band["sat_min"]), 1.0, float(band["val_min"]), 1.0)
-    # The plate's OWN median hue rides back with the mask. Rock is mostly rock, so on a plate
-    # the band is reading correctly the typical pixel is a grain and its hue sits OUTSIDE the
-    # pore band. When it sits inside, the band is describing the scene - see `scene_dominated`.
-    return m, float(np.median(h))
+    return in_band(h, s, v, float(band["hue_lo"]), float(band["hue_hi"]),
+                   float(band["sat_min"]), 1.0, float(band["val_min"]), 1.0)
 
-def hsv_of(img):
+
+def rgb_of(img):
+    return np.asarray(img.convert("RGB"), dtype=np.float32) / 255.0
+
+
+def median_rgb(a):
+    """This picture's MATRIX colour, channel by channel.
+
+    Channel-wise medians rather than the median pixel: three numbers are exactly what a diagonal
+    correction needs, and taking the median is what makes them the matrix rather than the pore
+    phase, because rock is mostly rock. On a plate where that is not true the scene guard refuses
+    the plate anyway, so the correction is only ever anchored where its own assumption holds."""
+    return [float(np.median(a[..., c])) for c in range(3)]
+
+
+def gain_for(med):
+    """Per-channel gain putting this plate's matrix colour where the reference plate's sits.
+
+    The von Kries diagonal model, with the delivery's OWN rock as the reference patch instead of
+    an assumed grey. Grey-world would be wrong here in a way that would never look wrong: a
+    blue-epoxy section IS genuinely blue-biased, and the more porous it is the more so, so forcing
+    the three channel means together would normalize away the very signal being measured.
+
+    Scaled so the LARGEST gain is 1. The correction is a relative rebalance, and this way no
+    channel can be pushed past 1 and clipped - clipping would distort the hue of exactly the
+    brightest pixels. The cost is a slight uniform darkening, which the value floor can see."""
+    if not reference_rgb:
+        return None
+    g = [float(reference_rgb[c]) / max(med[c], 1e-4) for c in range(3)]
+    mx = max(g)
+    if not (mx > 0.0):
+        return None
+    return [x / mx for x in g]
+
+
+def hsv_from(a):
     """Hue in degrees, saturation and value 0..1 — the one conversion, used by every rule here."""
-    a = np.asarray(img.convert("RGB"), dtype=np.float32) / 255.0
     r, g, b = a[..., 0], a[..., 1], a[..., 2]
     mx = np.max(a, axis=-1)
     mn = np.min(a, axis=-1)
@@ -459,14 +507,17 @@ def in_band(h, s, v, lo, hi, smin, smax, vmin, vmax):
     return inband & (s >= smin) & (s <= smax) & (v >= vmin) & (v <= vmax)
 
 
-def stain_of(img, pore, classes):
+def stain_from(h, s, v, pore, classes):
     """Mineral area fractions from a stained section.
+
+    Takes the SAME h, s, v the pore rule was read from, so where a colour correction was applied
+    the minerals and the porosity describe one corrected picture. Reading the stain off the
+    uncorrected copy would put the two families on different photographs of the same section.
 
     Pore is claimed FIRST and excluded: the epoxy filled it, so those pixels are not rock. Classes
     are then tested IN ORDER and the first match wins, so a pixel is one mineral. What matched
     nothing is reported as `unclassified` rather than being distributed over the classes - a
     section where a third of the rock matched no band has not been given a mineralogy."""
-    h, s, v = hsv_of(img)
     left = ~pore
     total = float(h.size) or 1.0
     fracs = []
@@ -688,7 +739,23 @@ for i, blob in enumerate(blobs):
     except Exception as e:
         out["results"].append({"image_id": ids[i], "error": "cannot decode: %s" % e})
         continue
-    m, scene_hue = mask_of(img)
+    a0 = rgb_of(img)
+    med = median_rgb(a0)
+    gain = gain_for(med)
+    hr, sr, vr = hsv_from(a0)
+    # The median hue reported is of the picture AS DELIVERED, never of the corrected copy. It is
+    # what says how far this photograph's light sat from the reference's, and correcting it first
+    # would erase exactly that. Rock is mostly rock, so on a plate the band is reading correctly
+    # the typical pixel is a grain and its hue sits OUTSIDE the pore band; when it sits inside,
+    # the band is describing the scene - see `scene_dominated`.
+    scene_hue = float(np.median(hr))
+    if gain is None:
+        h, s, v = hr, sr, vr
+        shown = a0
+    else:
+        shown = a0 * np.asarray(gain, dtype=np.float32)
+        h, s, v = hsv_from(shown)
+    m = mask_from(h, s, v)
     total = int(m.size)
     hits = int(np.count_nonzero(m))
     row = {
@@ -697,6 +764,7 @@ for i, blob in enumerate(blobs):
         "pixels": total,
         "width": int(img.width),
         "scene_hue": scene_hue,
+        "median_rgb": med,
     }
     if header.get("geometry"):
         # Same mask, so the fraction and the pore shapes can never describe different pictures.
@@ -710,7 +778,7 @@ for i, blob in enumerate(blobs):
         # Same decode, same pore mask: the mineral fractions and VPORE_TS sum against each other,
         # so they have to describe one segmentation.
         try:
-            row["stain"] = stain_of(img, m, header["stain"]["classes"])
+            row["stain"] = stain_from(h, s, v, m, header["stain"]["classes"])
         except Exception as e:
             row["error"] = "stain reading failed: %s" % e
     if header.get("grains"):
@@ -724,9 +792,11 @@ for i, blob in enumerate(blobs):
             row["error"] = "grain sizing failed: %s" % e
     out["results"].append(row)
     if preview is not None and ids[i] == preview:
-        # The overlay is drawn from the SAME mask that produced the number above. What the user
-        # tunes against is literally what was measured.
-        rgb = np.asarray(img.convert("RGB")).copy()
+        # The overlay is drawn from the SAME mask that produced the number above, over the SAME
+        # corrected picture the band was applied to. What the user tunes against is literally what
+        # was measured - a preview of the delivered colours under a band applied to corrected ones
+        # would be a picture nothing in the run ever looked at.
+        rgb = (np.clip(shown, 0.0, 1.0) * 255.0).astype(np.uint8)
         rgb[m] = (0.35 * rgb[m] + 0.65 * np.array([255, 40, 40], dtype=np.float32)).astype(np.uint8)
         if header.get("grains"):
             # Grain outlines on the same picture. Over-segmentation is what the separation knob is
@@ -1065,6 +1135,10 @@ struct RunnerRow {
     /// runner still deserializes — it simply cannot be checked.
     #[serde(default)]
     scene_hue: Option<f32>,
+    /// The plate's matrix colour, channel by channel. Only the reference plate's is used, and only
+    /// to build the gain the rest of the delivery is corrected by.
+    #[serde(default)]
+    median_rgb: Option<[f32; 3]>,
     #[serde(default)]
     geom: Option<RunnerGeom>,
     #[serde(default)]
@@ -1307,6 +1381,49 @@ pub fn scene_dominated(median_hue: f32, band: &PoreColorBand) -> bool {
         // wrong plates.
         h >= band.hue_lo || h <= band.hue_hi
     }
+}
+
+/// The smallest angle between two hues, in degrees, 0..180.
+///
+/// Hue is a circle, so 350 and 10 are twenty degrees apart, not three hundred and forty. Getting
+/// that wrong would make every warm-cast plate look like the most badly cast in the delivery.
+pub fn hue_delta(a: f32, b: f32) -> f32 {
+    if !a.is_finite() || !b.is_finite() {
+        return f32::NAN;
+    }
+    let d = (a - b).rem_euclid(360.0);
+    if d > 180.0 {
+        360.0 - d
+    } else {
+        d
+    }
+}
+
+/// Did the band, carried onto this plate, land where the picture has nothing?
+///
+/// This is the MIRROR of [`scene_dominated`], and the failure it catches is the more dangerous of
+/// the two because it does not look like a failure. A plate cast AWAY from the band returns a
+/// fraction near zero, and near zero is a perfectly plausible reading for a tight rock — it plots
+/// against helium porosity without ever drawing attention to itself. On the delivery this was
+/// found on, a green-cast plate returned 0.04% where the petrographer had counted 15%.
+///
+/// **It only applies on a normalized run, and that is the whole design.** Without a reference
+/// plate there is no evidence that this band finds epoxy anywhere in this delivery, so an empty
+/// answer could equally mean the band has never been tuned — refusing then would refuse a first
+/// click. Naming a reference is the user's statement that the band works on THAT plate, and once
+/// that is on the record a plate that shows nothing after being corrected onto it is either
+/// nonporous or mis-corrected, and nothing in the picture separates those two. Refusing is the
+/// conservative call.
+///
+/// **"Empty" is one resolvable pore's worth of pixels, which is the user's own `min_pore_px` and
+/// not a new constant.** A band that has not claimed even a single countable pore over a whole
+/// field of view has not found a pore phase; it is not a small porosity, it is no measurement.
+pub fn band_missed(pore_fraction: f32, pixels: i64, min_pore_px: u32, normalized: bool) -> bool {
+    if !normalized || pixels <= 0 || !pore_fraction.is_finite() {
+        return false;
+    }
+    let claimed = pore_fraction as f64 * pixels as f64;
+    claimed < min_pore_px.max(1) as f64
 }
 
 /// Turns one plate's per-pore arrays into the numbers that get stored.
@@ -1640,8 +1757,12 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
     let mut skipped: Vec<String> = Vec::new();
     let mut wanted = Vec::new();
     for info in &all {
+        let is_reference = spec.reference_image_id.as_deref() == Some(info.image_id.as_str());
         if let Some(only) = &spec.only_image_id {
-            if &info.image_id != only {
+            // The tuning preview measures ONE plate, but a normalized run still needs the
+            // reference plate's own colour to correct that plate onto, so the reference rides
+            // along even when it is not the one being tuned. It is dropped from the results below.
+            if &info.image_id != only && !is_reference {
                 continue;
             }
         }
@@ -1690,7 +1811,31 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
     let mut preview_width = 0;
     let mut preview_height = 0;
 
-    for batch in wanted.chunks(CHUNK) {
+    // The reference plate goes alone in the first batch. Its own matrix colour is what every later
+    // plate is corrected onto, so it has to be measured before any of them — one extra subprocess
+    // for one picture, and the reference pass is otherwise an ordinary pass (correcting a plate
+    // onto itself is the identity, so it needs no special case in the runner).
+    let mut batches: Vec<Vec<crate::db::ImageInfo>> = Vec::new();
+    match &spec.reference_image_id {
+        Some(id) => {
+            let Some(r) = wanted.iter().find(|i| &i.image_id == id).cloned() else {
+                return Err(
+                    "the reference plate is not among the plates this run can measure - it may be \
+                     the one whose impregnation or stain is undeclared"
+                        .to_string(),
+                );
+            };
+            batches.push(vec![r]);
+            let rest: Vec<_> = wanted.iter().filter(|i| &i.image_id != id).cloned().collect();
+            batches.extend(rest.chunks(CHUNK).map(<[_]>::to_vec));
+        }
+        None => batches.extend(wanted.chunks(CHUNK).map(<[_]>::to_vec)),
+    }
+    let normalized = spec.reference_image_id.is_some();
+    let mut reference_rgb: Option<[f32; 3]> = None;
+    let mut reference_hue = f32::NAN;
+
+    for batch in &batches {
         let mut blobs = Vec::with_capacity(batch.len());
         for info in batch {
             let (_, bytes) =
@@ -1705,6 +1850,7 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
             "min_grain_px": spec.min_grain_px.max(1),
             "grain_sep_px": spec.grain_sep_px.max(3),
             "stain": spec.stain,
+            "reference_rgb": reference_rgb,
             "ids": batch.iter().map(|i| i.image_id.clone()).collect::<Vec<_>>(),
             "sizes": blobs.iter().map(|b| b.len()).collect::<Vec<_>>(),
             "preview": spec.preview_image_id,
@@ -1751,7 +1897,40 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
                     // A plate the band cannot discriminate on is still measured and previewed —
                     // tuning the band is how the user fixes it — but it is kept out of the write.
                     let scene_hue = row.scene_hue.unwrap_or(f32::NAN);
-                    let dominated = scene_dominated(scene_hue, &spec.band);
+                    let is_reference =
+                        spec.reference_image_id.as_deref() == Some(info.image_id.as_str());
+                    if is_reference {
+                        // Everything after this point is corrected onto this plate, so a reference
+                        // that is itself mostly the colour called pore would anchor the whole
+                        // delivery to the mistake — and silently, because every corrected plate
+                        // then inherits its median hue and the per-plate test agrees with itself.
+                        if scene_dominated(scene_hue, &spec.band) {
+                            return Err(format!(
+                                "{} cannot be the reference plate: its own median hue ({:.0} deg) \
+                                 is inside the pore band, so on this plate the band is matching \
+                                 the background. Tune the band here first, or choose a plate the \
+                                 band reads correctly.",
+                                info.name, scene_hue
+                            ));
+                        }
+                        reference_rgb = row.median_rgb;
+                        reference_hue = scene_hue;
+                        if reference_rgb.is_none() {
+                            return Err(format!(
+                                "{} gave no matrix colour, so nothing can be corrected onto it",
+                                info.name
+                            ));
+                        }
+                    }
+                    // On a normalized run every corrected plate carries the reference's median hue
+                    // by construction, so the per-plate scene test would only ever restate the
+                    // reference's — which was checked once, above. What replaces it is the mirror
+                    // guard: a band that landed where this picture has nothing.
+                    let dominated =
+                        !normalized && scene_dominated(scene_hue, &spec.band);
+                    let cast_shift =
+                        if normalized { hue_delta(scene_hue, reference_hue) } else { f32::NAN };
+                    let missed = band_missed(f, row.pixels.unwrap_or(0), spec.min_pore_px, normalized);
                     plates.push(PlatePore {
                         image_id: info.image_id.clone(),
                         name: info.name.clone(),
@@ -1760,6 +1939,8 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
                         pore_fraction: f,
                         scene_hue,
                         scene_dominated: dominated,
+                        cast_shift,
+                        band_missed: missed,
                         pixels: row.pixels.unwrap_or(0),
                         geometry,
                         grains,
@@ -1772,6 +1953,12 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
                 (None, None) => skipped.push(format!("{}: no result", info.name)),
             }
         }
+    }
+
+    // The reference plate rode along so the tuned plate had something to be corrected onto; it was
+    // not what the user asked to see.
+    if let Some(only) = &spec.only_image_id {
+        plates.retain(|p| &p.image_id == only);
     }
 
     plates.sort_by(|a, b| a.depth_top.total_cmp(&b.depth_top));
@@ -1792,6 +1979,19 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
                      band, so the band is matching the background rather than the pores. Tune the \
                      band on this plate, or exclude it.",
                     p.name, p.scene_hue
+                ));
+                continue;
+            }
+            // The mirror case, and the more dangerous one: near zero looks like a tight rock, so
+            // nothing downstream would ever query it. Refused only because a reference plate was
+            // named — see `band_missed`.
+            if p.band_missed {
+                skipped.push(format!(
+                    "{}: not stored - the band claimed less than one pore's worth of this plate. \
+                     Either the section is nonporous or the correction did not reach it (its light \
+                     sat {:.0} deg from the reference plate's), and the picture cannot say which. \
+                     Tune a band on this plate, or make it the reference.",
+                    p.name, p.cast_shift
                 ));
                 continue;
             }
@@ -1882,15 +2082,35 @@ pub fn run_pore_area(conn: &Connection, spec: &PoreSpec) -> Result<PoreResult, S
         let lo = hues.iter().cloned().fold(f32::INFINITY, f32::min);
         let hi = hues.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
         if hi - lo > 60.0 {
-            notes.push(format!(
-                "These plates were not photographed under one light: their median hue spans {:.0} \
-                 degrees ({:.0} to {:.0}). One colour band cannot serve all of them - measure them \
-                 in groups.",
-                hi - lo,
-                lo,
-                hi
-            ));
+            notes.push(if normalized {
+                format!(
+                    "These plates were not photographed under one light - their median hue spans \
+                     {:.0} degrees ({:.0} to {:.0}) - so each was corrected onto the reference \
+                     plate before the band was applied. The correction is a channel rebalance, and \
+                     it gets less exact the further a plate had to move: read the shift column \
+                     beside each result.",
+                    hi - lo, lo, hi
+                )
+            } else {
+                format!(
+                    "These plates were not photographed under one light: their median hue spans \
+                     {:.0} degrees ({:.0} to {:.0}). One colour band cannot serve all of them - \
+                     name a reference plate so each is corrected onto it, or measure them in \
+                     groups.",
+                    hi - lo, lo, hi
+                )
+            });
         }
+    }
+    let missed = plates.iter().filter(|p| p.band_missed).count();
+    if missed > 0 {
+        notes.push(format!(
+            "{} of {} plate(s) showed less than one pore's worth of the band and were not stored. \
+             Near zero reads as a tight rock, which is why it is refused rather than kept: on a \
+             plate corrected from a long way off, an empty answer and a missed band look the same.",
+            missed,
+            plates.len()
+        ));
     }
     notes.push(
         "Area fraction estimates volume fraction by the Delesse relation. Where it disagrees with \
@@ -2080,6 +2300,7 @@ mod tests {
             well_id: w.clone(),
             dataset: "THIN SECTION".into(),
             band: PoreColorBand::default(),
+            reference_image_id: None,
             preview_image_id: None,
             only_image_id: None,
             set_name: Some("TS".into()),
@@ -2162,6 +2383,7 @@ mod tests {
                 well_id: w.clone(),
                 dataset: "THIN SECTION".into(),
                 band: PoreColorBand::default(),
+                reference_image_id: None,
                 preview_image_id: None,
                 only_image_id: None,
                 set_name: Some("TS".into()),
@@ -2661,6 +2883,7 @@ mod tests {
                 well_id: w.clone(),
                 dataset: "THIN SECTION".into(),
                 band: PoreColorBand::default(),
+                reference_image_id: None,
                 preview_image_id: None,
                 only_image_id: None,
                 set_name: Some("TS".into()),
@@ -2866,6 +3089,7 @@ mod tests {
                 well_id: w.clone(),
                 dataset: "THIN SECTION".into(),
                 band: PoreColorBand::default(),
+                reference_image_id: None,
                 preview_image_id: None,
                 only_image_id: None,
                 set_name: Some("TS".into()),
@@ -2954,6 +3178,198 @@ mod tests {
         assert_eq!(PORE_DATASET, "PETROGRAPHY");
         assert_ne!(PORE_DATASET, "THIN SECTION");
         assert_eq!(PORE_ITEM, "VPORE_TS");
+    }
+
+    /// Hue is a circle. A warm-cast plate at 10 degrees is twenty degrees from a reference at 350,
+    /// not three hundred and forty — and reading it the wrong way round would make the plates
+    /// closest to the reference look like the worst cast in the delivery.
+    #[test]
+    fn the_cast_shift_measures_the_short_way_round_the_colour_wheel() {
+        assert!((hue_delta(10.0, 350.0) - 20.0).abs() < 1e-3);
+        assert!((hue_delta(350.0, 10.0) - 20.0).abs() < 1e-3);
+        assert!((hue_delta(20.0, 200.0) - 180.0).abs() < 1e-3);
+        // Never more than half a turn, whichever way it is written.
+        assert!((hue_delta(20.0, 210.0) - 170.0).abs() < 1e-3);
+        assert!((hue_delta(149.0, 195.0) - 46.0).abs() < 1e-3);
+        assert!(hue_delta(f32::NAN, 10.0).is_nan(), "an unknown hue is not a zero shift");
+    }
+
+    /// The empty-measurement refusal needs BOTH of its conditions, and the pair is the point.
+    ///
+    /// Refusing a near-zero fraction on its own would refuse a delivery where the band has simply
+    /// never been tuned, which is every first click. Naming a reference plate is the user's
+    /// statement that the band finds epoxy on THAT plate; only after that does a plate showing
+    /// nothing mean something.
+    #[test]
+    fn an_empty_measurement_is_refused_only_once_a_reference_plate_says_the_band_works() {
+        let px = 1_000_000i64;
+        // 20 pixels of a million is 2e-5 — less than one resolvable pore.
+        let empty = 1e-5f32;
+        let real = 0.08f32;
+
+        assert!(band_missed(empty, px, MIN_PORE_PX, true), "empty, and a reference was named");
+        assert!(!band_missed(empty, px, MIN_PORE_PX, false), "no reference: nothing is claimed yet");
+        assert!(!band_missed(real, px, MIN_PORE_PX, true), "a real 8% is a measurement");
+        assert!(!band_missed(real, px, MIN_PORE_PX, false));
+
+        // The yardstick is the user's OWN resolution floor, not a new constant: exactly one pore's
+        // worth is a measurement, anything under it is not.
+        let one_pore = MIN_PORE_PX as f32 / px as f32;
+        assert!(!band_missed(one_pore * 1.01, px, MIN_PORE_PX, true));
+        assert!(band_missed(one_pore * 0.5, px, MIN_PORE_PX, true));
+        // Raising the floor raises the bar with it, in both directions.
+        assert!(band_missed(one_pore * 1.01, px, MIN_PORE_PX * 4, true));
+
+        assert!(!band_missed(f32::NAN, px, MIN_PORE_PX, true), "no answer is not an empty answer");
+        assert!(!band_missed(empty, 0, MIN_PORE_PX, true), "a plate with no pixels was not read");
+    }
+
+    /// The correction is anchored on the delivery's own rock, and it must stay that way.
+    ///
+    /// Grey-world — forcing the three channel means together — is the textbook white balance and is
+    /// actively wrong here: a blue-epoxy section IS genuinely blue-biased, and the more porous it
+    /// is the more so, so grey-world would normalize away the very signal being measured and
+    /// compress every plate toward the same answer. Using the reference plate's own matrix colour
+    /// assumes only that the rock is the same rock.
+    #[test]
+    fn the_colour_correction_is_anchored_on_the_reference_plate_not_on_grey() {
+        let src = PORE_RUNNER;
+        assert!(src.contains("def gain_for("), "the correction is gone");
+        assert!(src.contains("reference_rgb[c]"), "the anchor must be the reference plate");
+        assert!(src.contains("np.median"), "the matrix colour is a median, not a mean");
+        // No channel may be pushed past 1 and clipped: clipping distorts the hue of exactly the
+        // brightest pixels, which is where a stained or strongly lit section carries its colour.
+        assert!(src.contains("mx = max(g)"), "the gain must be scaled so nothing clips");
+        // The stain has to be read off the SAME corrected picture the pore rule was read from.
+        assert!(src.contains("def stain_from(h, s, v,"));
+        assert!(!src.contains("hsv_of(img)"), "a second uncorrected conversion has come back");
+    }
+
+    /// The same rock under a different lamp reads as the same rock.
+    ///
+    /// This is the finding from the first real delivery, turned into a fixture. Two plates cut from
+    /// identical rock — a quarter blue epoxy on a warm brown matrix — one photographed as delivered
+    /// and one through a green-cast lamp (channel gains 1.0 / 2.0 / 0.55, chosen so nothing clips,
+    /// which is what makes the cast a genuine white-balance error rather than a repaint). On the
+    /// real delivery that failure looked like 0.04% against a counted 15%.
+    ///
+    /// Two more plates make the refusals honest: one with no epoxy at all, and one that is entirely
+    /// the colour called pore.
+    #[test]
+    #[ignore = "needs numpy and Pillow"]
+    fn the_same_rock_under_a_different_lamp_reads_as_the_same_rock() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::create_schema(&conn).unwrap();
+        let wid = uuid::Uuid::new_v4();
+        crate::db::insert_well(&conn, wid, "SANDI-TS-2", None, None, None).unwrap();
+        let w = wid.to_string();
+
+        const MATRIX: (u8, u8, u8) = (120, 80, 60); // warm brown rock, hue 20 deg
+        const PORE: (u8, u8, u8) = (40, 60, 150); // blue epoxy, hue 229 deg
+        // The same two colours through a lamp 2.0x on green and 0.55x on blue. The matrix lands at
+        // hue 79 and the epoxy at 152 — outside the 180..260 band, which is the whole failure.
+        const MATRIX_CAST: (u8, u8, u8) = (120, 160, 33);
+        const PORE_CAST: (u8, u8, u8) = (40, 120, 82);
+
+        let quarter = |a: (u8, u8, u8), b: (u8, u8, u8)| {
+            bmp(200, 200, move |x, y| if x < 100 && y < 100 { b } else { a })
+        };
+        let flat = |c: (u8, u8, u8)| bmp(200, 200, move |_, _| c);
+
+        let mk = |name: &str, depth: f32, data: Vec<u8>| crate::db::NewImage {
+            depth_top: depth,
+            name: name.into(),
+            mime: "image/bmp".into(),
+            width: 200,
+            height: 200,
+            data,
+            printable: true,
+            prepared: Some("blue_epoxy".into()),
+            ..Default::default()
+        };
+        crate::db::insert_well_images(
+            &conn,
+            &w,
+            "THIN SECTION",
+            "LAB",
+            None,
+            &[
+                mk("REF", 2000.0, quarter(MATRIX, PORE)),
+                mk("CAST", 2001.0, quarter(MATRIX_CAST, PORE_CAST)),
+                mk("TIGHT", 2002.0, flat(MATRIX)),
+                mk("ALLBLUE", 2003.0, flat(PORE)),
+            ],
+        )
+        .unwrap();
+        let ids = crate::db::list_well_images(&conn, &w, Some("THIN SECTION")).unwrap();
+        let id_of = |n: &str| {
+            ids.iter().find(|i| i.name == n).map(|i| i.image_id.clone()).expect("plate")
+        };
+
+        let spec = |reference: Option<String>, set: Option<&str>| PoreSpec {
+            well_id: w.clone(),
+            dataset: "THIN SECTION".into(),
+            band: PoreColorBand::default(),
+            reference_image_id: reference,
+            preview_image_id: None,
+            only_image_id: None,
+            set_name: set.map(str::to_string),
+            geometry: false,
+            min_pore_px: MIN_PORE_PX,
+            grains: false,
+            min_grain_px: MIN_GRAIN_PX,
+            grain_sep_px: GRAIN_SEP_PX,
+            wicksell: false,
+            stain: None,
+        };
+
+        // --- as the app behaved before: one absolute band over the whole delivery --------------
+        let plain = run_pore_area(&conn, &spec(None, None)).expect("uncorrected run");
+        let find = |r: &PoreResult, n: &str| r.plates.iter().find(|p| p.name == n).unwrap().clone();
+        let (a_ref, a_cast) = (find(&plain, "REF"), find(&plain, "CAST"));
+        assert!((a_ref.pore_fraction - 0.25).abs() < 0.01, "REF {}", a_ref.pore_fraction);
+        // The failure this increment exists for: identical rock, and the answer is gone.
+        assert!(
+            a_cast.pore_fraction < 0.01,
+            "the cast plate should read as tight before correction, not {}",
+            a_cast.pore_fraction
+        );
+        assert!(find(&plain, "ALLBLUE").scene_dominated, "a wholly blue plate is the band");
+        assert!(!a_cast.band_missed, "with no reference there is nothing to say the band works");
+        assert!(a_cast.cast_shift.is_nan(), "no reference means no shift to report");
+
+        // --- corrected onto the plate the band was tuned on --------------------------------
+        let fixed = run_pore_area(&conn, &spec(Some(id_of("REF")), Some("TS"))).expect("run");
+        let (b_ref, b_cast) = (find(&fixed, "REF"), find(&fixed, "CAST"));
+        assert!((b_ref.pore_fraction - 0.25).abs() < 0.01, "the reference is unchanged by itself");
+        assert!(
+            (b_cast.pore_fraction - 0.25).abs() < 0.02,
+            "the cast plate must read the same quarter: {}",
+            b_cast.pore_fraction
+        );
+        assert!((b_cast.cast_shift - 59.0).abs() < 5.0, "shift {}", b_cast.cast_shift);
+        assert!(b_ref.cast_shift.abs() < 0.01, "the reference is zero from itself");
+
+        // The two refusals, reached by different routes and both landing on "not stored".
+        assert!(find(&fixed, "TIGHT").band_missed, "no epoxy at all is not a measurement");
+        // A wholly blue plate is no longer flagged as scene-dominated once corrected — its own
+        // blue has become the matrix — so the mirror guard is what catches it. The two cover for
+        // each other, which is why neither can be dropped.
+        let blue = find(&fixed, "ALLBLUE");
+        assert!(!blue.scene_dominated && blue.band_missed, "caught by the mirror guard instead");
+
+        // Only the two real plates reached the project.
+        let rows = crate::db::list_aux_data(&conn, &w, Some(PORE_DATASET)).unwrap();
+        let mut depths: Vec<f32> =
+            rows.iter().filter(|r| r.item == PORE_ITEM).map(|r| r.depth_top).collect();
+        depths.sort_by(f32::total_cmp);
+        assert_eq!(depths, vec![2000.0, 2001.0], "only REF and CAST are measurements");
+
+        // --- and a reference the band cannot read condemns the whole run -----------------------
+        // Every plate is corrected onto it, so its median hue becomes the delivery's. A mistake
+        // here would be inherited by all of them and would agree with itself everywhere.
+        let err = run_pore_area(&conn, &spec(Some(id_of("ALLBLUE")), None)).unwrap_err();
+        assert!(err.contains("cannot be the reference plate"), "{err}");
     }
 }
 
@@ -3084,6 +3500,7 @@ mod field_tests {
             well_id: w.clone(),
             dataset: "THIN SECTION".into(),
             band: PoreColorBand::default(),
+            reference_image_id: None,
             preview_image_id: None,
             only_image_id: None,
             set_name: Some("TS".into()),
