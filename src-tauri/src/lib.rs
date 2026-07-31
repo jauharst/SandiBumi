@@ -21,6 +21,7 @@ mod health;
 mod hfu;
 mod images;
 mod petrography;
+mod plugqc;
 mod ingest;
 mod jobs;
 mod layout;
@@ -2137,6 +2138,27 @@ async fn run_pore_area(
     petrography::run_pore_area(&conn, &spec)
 }
 
+/// What the two axis pickers of the plug QC pane can offer over the wells in scope.
+#[tauri::command]
+fn list_plug_choices(
+    db: tauri::State<DbState>,
+    well_ids: Vec<String>,
+) -> Result<Vec<plugqc::PlugChoice>, String> {
+    let conn = db.0.lock().unwrap();
+    plugqc::list_plug_choices(&conn, &well_ids)
+}
+
+/// Pairs two plug-scale measurements by depth across the scoped wells. Long enough on a field of
+/// cored wells to be worth keeping off the event loop.
+#[tauri::command]
+async fn run_plug_qc(
+    db: tauri::State<'_, DbState>,
+    req: plugqc::PlugQcRequest,
+) -> Result<plugqc::PlugQcResult, String> {
+    let conn = db.0.lock().unwrap();
+    plugqc::run_plug_qc(&conn, &req)
+}
+
 /// One plate's field of view and preparation. Every value is written as given, `null` included —
 /// a scale typed by mistake has to be clearable.
 #[tauri::command]
@@ -2756,6 +2778,8 @@ pub fn run() {
             set_image_delivery_details,
             pore_support,
             run_pore_area,
+            list_plug_choices,
+            run_plug_qc,
             core_depth_pairs,
             map_core_depths,
             list_core_references,

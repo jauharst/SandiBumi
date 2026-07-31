@@ -2154,6 +2154,13 @@ textarea {
   margin-bottom: 7px;
 }
 
+/* A `display` rule beats the `hidden` attribute, so every one of them needs its own escape hatch
+   or a row that hides itself stays on screen — the ribbon panels and menus were bitten by exactly
+   this twice. Used by the plug QC pane, whose mercury-saturation row only applies to one source. */
+.form-row[hidden] {
+  display: none;
+}
+
 .form-label {
   flex: 0 0 180px;
   font-size: var(--fs-sm);

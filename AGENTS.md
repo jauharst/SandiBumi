@@ -1202,6 +1202,71 @@ opt-in and its absence fails only the geometry, never the area fraction. The rea
 `a_disc_reads_as_round_and_its_diameter_follows_the_declared_scale` is `#[ignore]`d for the same
 reason the rest are.
 
+## Plug QC — checking a measurement against an independent one (2026-07-31)
+
+`plugqc.rs` + `plugQcPanel.ts` (Petrophysics ▸ Petrography ▸ **Plug QC…**, also in the workspace
+＋ menu) plot two measurements made on the SAME plug against each other. The petrography numbers
+were the first measurements this app produced that nothing else in it could check: an area fraction
+estimating a volume fraction by the Delesse relation is a *claim*, and the only test of it is the
+helium porosity of the plug the section was cut from.
+
+Sources are the three plug-scale stores — a routine-core column (CPOR/CPERM/CGD/CSW), any numeric
+item of any point dataset (which is where every petrography output lands), and a **pore-throat
+radius read off the plug's own capillary-pressure curve**. All three read through the active-set
+fragments like every other reader.
+
+**A pair is two measurements of the same plug, and a sample with no partner inside the tolerance is
+DROPPED and COUNTED — never snapped.** Same rule as the S-factor calibration and the same reason: a
+core that is off by a whole sample interval is invisible to any tolerance check, so widening the
+tolerance to win more points quietly pairs a plug with its neighbour. `registration.rs` is the fix,
+and the empty-result note points there rather than suggesting a wider tolerance.
+
+**A measurement is used ONCE.** Pairing is greedy on the closest pair first and consumes both
+sides. Two sections cut a centimetre apart would otherwise both claim the one plug nearest them,
+and that single core porosity would appear twice in the cloud and twice in the correlation,
+tightening it for free. Pinned by `one_plug_cannot_be_claimed_by_two_sections`.
+
+**Both a linear and a rank correlation are reported, because they answer different questions.**
+Pearson asks "is this a straight line", which is right when the axes are the same quantity measured
+twice. Spearman asks only "do they move together", which is the only sensible question for pore
+BODIES against pore THROATS — different lengths that must never fall on one line, though a rock
+with bigger bodies had better have bigger throats. Spearman is also invariant to any monotone
+transform, so it does not move when the pane switches an axis to log, which keeps the number from
+disagreeing with the picture beside it. Pinned by
+`a_curved_but_monotone_relation_reads_as_rank_agreement_not_a_straight_line`. Both inherit
+`tops::pearson`'s four-point floor, and a blank is EXPLAINED in the notes rather than left as an
+empty cell that reads as a bug.
+
+**Nothing here converts a unit** — point data is stored verbatim — so the result reports the MEDIAN
+of each axis. A 0.19 beside an 18.2 is a percent-versus-fraction delivery the user can see at a
+glance, which beats a guess about which one was meant.
+
+**The throat radius is Washburn with the laboratory's OWN σcosθ**, taken from `scal_pc.ift` as
+recorded. A plug with no recorded interfacial tension has a pressure but no radius and is excluded
+BY NAME — `thomeer.rs` takes the same line for the same reason. Pc is interpolated in **log Pc**:
+one curve spans decades, so interpolating linearly between a 10 psi and a 1000 psi step lands an
+order of magnitude out. A saturation outside the measured range is **never extrapolated** — a curve
+that stopped at 20% mercury cannot state r35, and a radius invented past the last step would be the
+strongest-looking number on the plot. The default is **35% mercury**, the Kolodzie (1980) / Winland
+r35 convention already used by `rocktyping.rs`, which is what makes this plot directly comparable
+to the R35 curve that module predicts from φ and k. `resolved_saturation` is the ONE place the
+default is applied, so a caption can never disagree with the number it labels.
+
+`fitScatter.ts` gained the two things this needed and the calibration dialogs did not: a
+`{kind: "none"}` reference line and optional log axes. **A comparison of two DIFFERENT quantities
+gets no line and independent axes** — a 1:1 line between a pore diameter and a throat radius
+asserts an equality nobody claims, and every point sitting below it would read as a disagreement
+when it is the physics. The line is SAMPLED across the window rather than drawn end to end, because
+`y = slope·x` is not a straight line in log space. A value at or below zero is SKIPPED on a decade
+axis, never floored to the smallest positive one. `.form-row[hidden]` was added to `styles.css` for
+the mercury-saturation row — a `display` rule beats the `hidden` attribute, the gotcha the ribbon
+panels hit twice.
+
+Statistics are computed on EVERY pair before the cloud is decimated to `MAX_POINTS` for the wire,
+and the decimation says so in a note; the display points are spread evenly, never the first N.
+Changing the reference line or an axis scale redraws from the pairs already in hand — those are
+display choices, and re-pairing would be the same answer arrived at more slowly.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under

@@ -3330,3 +3330,68 @@ export function poreSupport(): Promise<boolean> {
 export function runPoreArea(spec: PoreSpec): Promise<PoreResult> {
   return invoke<PoreResult>("run_pore_area", { spec });
 }
+
+// ---------------------------------------------------------------------------
+// Plug QC — two measurements of the same plug, plotted against each other
+// ---------------------------------------------------------------------------
+
+/** Where one axis of the comparison comes from. */
+export interface PlugSource {
+  /** "core" | "aux" | "scal_throat" */
+  kind: string;
+  /** aux only — the point dataset, whose ACTIVE delivery is read. */
+  dataset?: string;
+  /** core: CPOR/CPERM/CGD/CSW. aux: the measurement name. */
+  item?: string;
+  /** scal_throat only — the mercury saturation the radius is quoted at (0.35 = the r35 convention). */
+  saturation?: number;
+}
+
+export interface PlugChoice {
+  kind: string;
+  dataset: string;
+  item: string;
+  label: string;
+  n: number;
+  wells: number;
+}
+
+export interface PlugQcRequest {
+  well_ids: string[];
+  x: PlugSource;
+  y: PlugSource;
+  depth_tol: number;
+}
+
+export interface PlugQcPoint {
+  well_id: string;
+  x: number;
+  y: number;
+  x_depth: number;
+  y_depth: number;
+}
+
+export interface PlugQcResult {
+  points: PlugQcPoint[];
+  /** Pairs found — NOT points.length once the cloud is decimated for the wire. */
+  n_pairs: number;
+  n_wells: number;
+  pearson: number;
+  spearman: number;
+  x_label: string;
+  y_label: string;
+  x_median: number;
+  y_median: number;
+  excluded: [string, number][];
+  notes: string[];
+}
+
+/** What the two axis pickers can offer over the wells in scope. */
+export function listPlugChoices(wellIds: string[]): Promise<PlugChoice[]> {
+  return invoke<PlugChoice[]>("list_plug_choices", { wellIds });
+}
+
+/** Pairs two plug-scale measurements by depth across the scoped wells. */
+export function runPlugQc(req: PlugQcRequest): Promise<PlugQcResult> {
+  return invoke<PlugQcResult>("run_plug_qc", { req });
+}

@@ -1462,6 +1462,22 @@ Bigger lifts, planned but not scheduled. The method-suite and data-model waves e
       it. **Still not automatic**: a delivery already in the project does not move when the core is
       re-registered afterwards — that is increment 1d, waiting on Jauhar firming up D2.
 
+- [x] **Plug QC — the petrography numbers meet an independent measurement** — **SHIPPED
+      2026-07-31**. `plugqc.rs` + `plugQcPanel.ts` (Petrophysics ▸ Petrography ▸ Plug QC…) pair two
+      measurements of the SAME plug: a routine-core column, any numeric point-data item (where every
+      petrography output lands), or a pore-throat radius read off that plug's own Pc curve. **A
+      sample with no partner inside the depth tolerance is dropped and counted, never snapped** (the
+      S-fit rule — a core off by a whole sample interval is invisible to any tolerance check), and
+      **a measurement is used ONCE** so two nearby sections cannot both claim one plug and tighten
+      the correlation for free. **Pearson AND Spearman**, because bodies-against-throats should move
+      together without falling on a line — and Spearman survives a log axis, so the number never
+      disagrees with the picture. Throat radius is Washburn with the lab's own σcosθ from
+      `scal_pc.ift` (no ift → excluded by name, as `thomeer.rs` does), Pc interpolated in **log Pc**,
+      a saturation outside the measured range **never extrapolated**, default 35% = the
+      Kolodzie/Winland r35 convention already in `rocktyping.rs`. Medians of both axes reported so a
+      percent-versus-fraction delivery is visible rather than silently ruining a 1:1 comparison.
+      `fitScatter.ts` gained a `{kind:"none"}` line and log axes; `.form-row[hidden]` added to
+      styles.css.
 - [x] **Pore geometry (Part 2, family C)** — **SHIPPED 2026-07-31**. Per-pore shape and size beside
       the area fraction, from the SAME mask in the same pass so the two can never describe different
       pictures. Outputs `PORE_N` / `PORE_ASPECT` / `PORE_SHAPE` for every plate and

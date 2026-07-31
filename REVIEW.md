@@ -6454,3 +6454,52 @@ minimum are dropped as speckle. Both are counted so you can see how many.
 **Worth a real test:** compare D50 against the pore throat radii from your SCAL Pc curves on the same
 plugs. They measure different things — bodies against throats — so they should NOT match, but they
 should move together, and where they do not is worth a look.
+
+---
+
+## Plug QC — the petrography numbers meet an independent measurement (2026-07-31)
+
+The check the last three items were building toward. Everything Part 2 measures is a number nothing
+else in the app could test; this pairs it with the core.
+
+- [ ] **Petrophysics ▸ Petrography ▸ Plug QC…** (also in the workspace ＋ menu, "Plug QC (core vs
+      petrography)"). It opens on **CPOR against VPORE_TS** if the well has both — the section
+      against the plug it was cut from, which is the question the pane exists for.
+- [ ] **Compare.** Check the table: pairs, Pearson r, Spearman ρ, and the median of each axis.
+- [ ] **Read the medians first.** A 0.19 beside an 18.2 means one delivery is a fraction and the
+      other is percent — nothing here converts a unit, so this is where you would see it.
+- [ ] Turn the **reference line** to **1:1** for this pair. Porosity against porosity is the same
+      quantity twice, so the line means something and the axes go square. Points below it are
+      sections reading leaner than the plug.
+- [ ] **Now the harder one:** X = **SCAL — pore-throat radius**, Y = **PORE_D50**. A **Mercury
+      saturation** box appears; 35% is the Winland r35 convention. Leave the reference line at
+      **None**.
+- [ ] Tick **Log X** and **Log Y**. Both quantities run over decades, so this is the honest picture.
+      Watch **Spearman stay exactly the same** while Pearson moves — that is the point of showing
+      both, and it is why Spearman is the one to quote.
+- [ ] **Read the exclusions line.** It names why each sample was left out: no partner within the
+      tolerance, no depth, no recorded interfacial tension, a Pc curve that never reached 35%.
+- [ ] **Hover a point.** It names the well and depth, and says either "same depth" or how far apart
+      the two deliveries were paired across.
+
+**What the numbers mean.** Pearson asks whether the cloud is a straight line. Spearman asks only
+whether the two move together, and does not care about the shape or the axis scale. For a pore
+BODY against a pore THROAT you want Spearman: bodies are always larger than the throats that drain
+them, so they must never fall on one line, but a rock with bigger bodies had better have bigger
+throats. A high Spearman with a poor Pearson is the healthy answer there. On porosity against
+porosity it is the other way round — there you want Pearson near 1 and the cloud on the 1:1 line.
+
+**On the depth tolerance.** The default 0.15 is one standard 6-inch sample. If almost nothing pairs,
+do NOT widen it — a core off by a whole sample interval will happily pair with its neighbour and
+look fine. Register the core first (**Data ▸ Tools ▾ ▸ Register Depth…**); the pane's own note says
+so when it finds nothing.
+
+**The throat radius.** Washburn, r = 2σcosθ/Pc, using the σcosθ your laboratory recorded on that
+delivery — a plug with none is excluded by name rather than converted with an assumed mercury
+system. Pc is interpolated in log Pc, and a curve that stopped before 35% mercury is excluded rather
+than extrapolated.
+
+**Worth a real test:** run it on a well where you already trust the core. If VPORE_TS sits
+systematically below CPOR, that is the Delesse relation meeting a real section — under-counted thin
+epoxy, or a plate that is not representative of the plug. Either way the size of the gap is a number
+you now have.

@@ -228,11 +228,13 @@ draws and counts.
 |---|---|---|
 | ~~**D1**~~ | **ANSWERED 2026-07-31 — "not always, sometimes."** Which is the demanding case: the tool must handle both and must never present them as equivalent. Shipped in `registration.rs` as the like-for-like / proxy split, with the search rule differing between them (signed r vs \|r\|) and the result naming which applied. | ~~1a~~ — done |
 | ~~**D2**~~ | **CLOSED 2026-07-31 — firm yes**, after an interim "yes, but its tentative". Shipped as increment 1d. The tentative stage was not wasted: it produced the explicit plate shift (1e) and the import tick-box, and it forced the realisation that "should this move?" has to be **recorded per delivery** rather than decided globally — a perforation record is on the driller's scale and must never ride along. So what moves is the deliveries the user declared as core-depth, pre-ticked and overridable, never everything. | ~~1d~~ — done |
-| **D3** | **Grain size: apparent, or Wicksell-corrected?** I would default to *apparent, labelled apparent*, and offer the correction as an explicit option, so a corrected number never leaves the app without saying so. | Family B |
+| ~~**D3**~~ | **ANSWERED 2026-07-31 — "apply wicksell correction is optional."** So: apparent by default, labelled apparent, with the correction offered as an explicit tick — exactly the safer default, because the correction carries assumptions of its own (grain shape, size-distribution family) that a deliverable would otherwise be carrying invisibly. See §4.2. | ~~Family B~~ — unblocked |
 | ~~**D4**~~ | **ANSWERED 2026-07-31 — "sometimes yes, sometimes not, so it will be option"** for scale, and **"same, sometimes stained and epoxy, sometimes not"** for preparation. Both are therefore DECLARED per plate (defaulting per delivery), never inferred, and both default to ABSENT. See §4.1. | scale gate + A1/A2 designed, not blocked |
 
-**D1, D2 and D4 are closed; D3 is the one live decision** and it gates only Family B. **Part 1 is
-complete.**
+**Every decision is now closed.** Part 1 is complete; Part 2 has families A1 and C shipped, plus
+the Plug QC pane that checks their output against core and SCAL (§4.3). Family B is unblocked by
+D3; A2 waits only on the laboratory's stain protocol, which is a fact to be supplied rather than a
+decision to be made.
 
 ### 4.1 What D4's answer means for the design
 
@@ -262,6 +264,40 @@ blue you were about to measure. So `prepared` is a field on the plate, set at im
 to unknown, and unknown is refused. Same for the stain, whose protocol still comes from the
 laboratory report per §2.1 A2.
 
+### 4.2 What D3's answer means for Family B
+
+Apparent by default, labelled apparent, with Wicksell offered as a tick — which settles the shape of
+the output rather than only its value.
+
+**The label travels with the number, not with the run.** Apparent and corrected diameters are the
+same quantity in different senses, so they cannot share an item name: a `GRAIN_D50` that sometimes
+means one and sometimes the other is a number nobody downstream can interpret, and a report that
+quotes it has no way to say which it got. Family B therefore writes distinct items, and the
+corrected ones only exist when the correction was asked for — the same discipline as the µm
+diameters, which are absent rather than NaN on an uncalibrated plate.
+
+**The correction's own assumptions get stated where the number is.** Wicksell's inversion assumes a
+grain shape and a size-distribution family; those are inputs, and a corrected D50 that does not
+carry them is a number whose provenance is lost the moment it leaves the pane.
+
+**Apparent stays computable without any of it**, which is why it is the default: it needs only the
+scale gate, and a sorting coefficient read comparatively between plates is unaffected by a bias
+that applies to all of them.
+
+### 4.3 Checking the output — Plug QC
+
+The measurements Part 2 produces were, until now, numbers nothing else in the app could check. **Plug
+QC** (Petrophysics ▸ Petrography ▸ Plug QC…, `plugqc.rs`) pairs any two measurements made on the same
+plug: a thin-section pore area against the plug's helium porosity, a pore diameter against the
+throat radii the capillary-pressure curve reports.
+
+It is deliberately not a validation *step* that Family A or C run themselves — a measurement that
+graded its own homework would be the circularity problem again. It is a plot the user reads. Its
+rules are in `CLAUDE.md`; the two that matter to this plan are that **an unpaired sample is dropped
+and counted rather than snapped to the nearest plug** (which is what makes Part 1's registration the
+fix rather than a wider tolerance), and that **bodies against throats are compared by rank, not by a
+1:1 line**, because they are different lengths and must never be expected to agree.
+
 ---
 
 ## 5. Sequencing
@@ -278,7 +314,8 @@ Part 2   2.0 scale + preparation per plate  SHIPPED 2026-07-31 (declared, no def
          A1  pore by blue epoxy             SHIPPED 2026-07-31 (petrography.rs)
          A2  stained carbonate              needs the lab's stain protocol
          C   pore geometry                  SHIPPED 2026-07-31 (petrography.rs)
-         B   grain size                     needs the scale gate + D3
+         QC  plug QC vs core and SCAL       SHIPPED 2026-07-31 (plugqc.rs)
+         B   grain size                     UNBLOCKED (D3 closed) — apparent, Wicksell optional
 
 Tier 3   A3  trained mineral classifier     needs his own point counts as labels
 ```

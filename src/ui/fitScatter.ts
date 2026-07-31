@@ -18,6 +18,12 @@ import { setStatus } from "../state";
  *  **A through-the-origin fit must show the origin.** Proportionality is the model's claim, so
  *  cropping to the data hides whether the cloud actually heads for zero, which is the one thing
  *  that would falsify it.
+ *
+ *  **A comparison of two DIFFERENT quantities gets no reference line and independent axes.** Put a
+ *  1:1 line between a thin-section pore diameter and a capillary-pressure throat radius and the
+ *  picture asserts an equality nobody claims — bodies are larger than the throats that drain them,
+ *  always, so every point sitting below the line would read as a disagreement when it is the
+ *  physics. `{kind: "none"}` is that case, and it is why the plug QC pane defaults to it.
  */
 export interface FitScatterPoint {
   x: number;
@@ -32,7 +38,9 @@ export type FitScatterLine =
   /** y = x. Measured against fitted; axes are forced square. */
   | { kind: "identity" }
   /** y = slope·x. Axes are forced to include the origin. */
-  | { kind: "origin"; slope: number };
+  | { kind: "origin"; slope: number }
+  /** Two different quantities. No line, axes independent — see the module note. */
+  | { kind: "none" };
 
 export interface FitScatterSpec {
   points: FitScatterPoint[];
@@ -42,6 +50,9 @@ export interface FitScatterSpec {
   caption: string;
   /** Base name for the exported image file. */
   exportName: string;
+  /** Decade axis. A value at or below zero has no place on one and is SKIPPED, not floored. */
+  logX?: boolean;
+  logY?: boolean;
 }
 
 interface Frame {
@@ -77,13 +88,58 @@ function tickStep(span: number): number {
   return step * mag;
 }
 
+/** Value → plot space. A decade axis works in log10 throughout, so every window, tick and hit
+ *  test below is in the SAME space and there is only one place the transform happens. */
+const fwd = (v: number, log: boolean): number => (log ? Math.log10(v) : v);
+const inv = (v: number, log: boolean): number => (log ? Math.pow(10, v) : v);
+
+/** Can this point be drawn on these axes? A value at or below zero has no position on a decade
+ *  axis, and flooring it to the smallest positive value would state a magnitude it does not have. */
+function usable(p: FitScatterPoint, spec: FitScatterSpec): boolean {
+  if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) return false;
+  if (spec.logX && !(p.x > 0)) return false;
+  if (spec.logY && !(p.y > 0)) return false;
+  return true;
+}
+
+interface Tick {
+  /** Plot space. */
+  at: number;
+  label: string;
+}
+
+function ticksFor(lo: number, hi: number, log: boolean): Tick[] {
+  const out: Tick[] = [];
+  if (!log) {
+    const s = tickStep(hi - lo);
+    for (let v = Math.ceil(lo / s) * s; v <= hi; v += s) out.push({ at: v, label: nice(v) });
+    return out;
+  }
+  const d0 = Math.floor(lo);
+  const d1 = Math.ceil(hi);
+  if (!Number.isFinite(d0) || !Number.isFinite(d1) || d1 - d0 > 12) return out;
+  // Inside a couple of decades the 1-2-5 rungs are what makes a log axis readable; beyond that
+  // they crowd into a smear and the decades alone carry it.
+  const mantissas = d1 - d0 <= 2 ? [1, 2, 5] : [1];
+  for (let d = d0; d <= d1; d++) {
+    for (const m of mantissas) {
+      const at = d + Math.log10(m);
+      if (at < lo || at > hi) continue;
+      out.push({ at, label: nice(m * Math.pow(10, d)) });
+    }
+  }
+  return out;
+}
+
 function frameFor(spec: FitScatterSpec, w: number, h: number): Frame | null {
-  const pts = spec.points.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+  const lx = !!spec.logX;
+  const ly = !!spec.logY;
+  const pts = spec.points.filter((p) => usable(p, spec));
   if (!pts.length) return null;
-  let xmin = Math.min(...pts.map((p) => p.x));
-  let xmax = Math.max(...pts.map((p) => p.x));
-  let ymin = Math.min(...pts.map((p) => p.y));
-  let ymax = Math.max(...pts.map((p) => p.y));
+  let xmin = Math.min(...pts.map((p) => fwd(p.x, lx)));
+  let xmax = Math.max(...pts.map((p) => fwd(p.x, lx)));
+  let ymin = Math.min(...pts.map((p) => fwd(p.y, ly)));
+  let ymax = Math.max(...pts.map((p) => fwd(p.y, ly)));
 
   if (spec.line.kind === "identity") {
     // Same window on both axes, or the 1:1 line is not at 45 degrees and the eye reads a bias
@@ -92,13 +148,19 @@ function frameFor(spec: FitScatterSpec, w: number, h: number): Frame | null {
     const hi = Math.max(xmax, ymax);
     xmin = ymin = lo;
     xmax = ymax = hi;
-  } else {
-    // Proportionality is the claim being made, so the origin has to be on the page.
-    xmin = Math.min(0, xmin);
-    ymin = Math.min(0, ymin);
-    xmax = Math.max(0, xmax);
-    ymax = Math.max(0, ymax);
+  } else if (spec.line.kind === "origin") {
+    // Proportionality is the claim being made, so the origin has to be on the page — except on a
+    // decade axis, where zero is infinitely far away and the demand is meaningless.
+    if (!lx) {
+      xmin = Math.min(0, xmin);
+      xmax = Math.max(0, xmax);
+    }
+    if (!ly) {
+      ymin = Math.min(0, ymin);
+      ymax = Math.max(0, ymax);
+    }
   }
+  // `none`: two different quantities, so each axis is left to frame its own data.
   const padX = (xmax - xmin) * 0.04 || 1;
   const padY = (ymax - ymin) * 0.04 || 1;
   return {
@@ -144,26 +206,24 @@ function draw(canvas: HTMLCanvasElement, spec: FitScatterSpec): void {
   ctx.font = canvasFont(theme, 9, 400);
   ctx.strokeStyle = theme.grid;
   ctx.lineWidth = 1;
-  const sx = tickStep(fr.xmax - fr.xmin);
-  const sy = tickStep(fr.ymax - fr.ymin);
   ctx.fillStyle = theme.text;
   ctx.textAlign = "center";
-  for (let v = Math.ceil(fr.xmin / sx) * sx; v <= fr.xmax; v += sx) {
-    const px = X(v);
+  for (const t of ticksFor(fr.xmin, fr.xmax, !!spec.logX)) {
+    const px = X(t.at);
     ctx.beginPath();
     ctx.moveTo(px, fr.padT);
     ctx.lineTo(px, h - fr.padB);
     ctx.stroke();
-    ctx.fillText(nice(v), px, h - fr.padB + 12);
+    ctx.fillText(t.label, px, h - fr.padB + 12);
   }
   ctx.textAlign = "right";
-  for (let v = Math.ceil(fr.ymin / sy) * sy; v <= fr.ymax; v += sy) {
-    const py = Y(v);
+  for (const t of ticksFor(fr.ymin, fr.ymax, !!spec.logY)) {
+    const py = Y(t.at);
     ctx.beginPath();
     ctx.moveTo(fr.padL, py);
     ctx.lineTo(w - fr.padR, py);
     ctx.stroke();
-    ctx.fillText(nice(v), fr.padL - 4, py + 3);
+    ctx.fillText(t.label, fr.padL - 4, py + 3);
   }
 
   // Axes.
@@ -174,15 +234,35 @@ function draw(canvas: HTMLCanvasElement, spec: FitScatterSpec): void {
   ctx.lineTo(w - fr.padR, h - fr.padB);
   ctx.stroke();
 
-  // The reference line, drawn UNDER the points so a dense cloud is not hidden by it.
-  const slope = spec.line.kind === "identity" ? 1 : spec.line.slope;
+  // The reference line, drawn UNDER the points so a dense cloud is not hidden by it. Sampled
+  // across the window rather than drawn end to end: on a decade axis y = slope·x is not a straight
+  // line in plot space, and sampling is the one version that is right on every axis combination.
+  const slope = spec.line.kind === "identity" ? 1 : spec.line.kind === "origin" ? spec.line.slope : NaN;
   if (Number.isFinite(slope)) {
     ctx.strokeStyle = theme.accent;
     ctx.lineWidth = 1.6;
     ctx.setLineDash(spec.line.kind === "identity" ? [5, 4] : []);
     ctx.beginPath();
-    ctx.moveTo(X(fr.xmin), Y(slope * fr.xmin));
-    ctx.lineTo(X(fr.xmax), Y(slope * fr.xmax));
+    let started = false;
+    const steps = 64;
+    for (let i = 0; i <= steps; i++) {
+      const px = fr.xmin + ((fr.xmax - fr.xmin) * i) / steps;
+      const yv = slope * inv(px, !!spec.logX);
+      if (!Number.isFinite(yv) || (spec.logY && !(yv > 0))) {
+        started = false;
+        continue;
+      }
+      const py = fwd(yv, !!spec.logY);
+      if (py < fr.ymin || py > fr.ymax) {
+        started = false;
+        continue;
+      }
+      if (started) ctx.lineTo(X(px), Y(py));
+      else {
+        ctx.moveTo(X(px), Y(py));
+        started = true;
+      }
+    }
     ctx.stroke();
     ctx.setLineDash([]);
   }
@@ -192,11 +272,13 @@ function draw(canvas: HTMLCanvasElement, spec: FitScatterSpec): void {
   const groups = [...new Set(spec.points.map((p) => p.group))];
   const colorOf = new Map(groups.map((g, i) => [g, faciesColor(i)]));
   for (const p of spec.points) {
-    if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
-    if (p.x < fr.xmin || p.x > fr.xmax || p.y < fr.ymin || p.y > fr.ymax) continue;
+    if (!usable(p, spec)) continue;
+    const px = fwd(p.x, !!spec.logX);
+    const py = fwd(p.y, !!spec.logY);
+    if (px < fr.xmin || px > fr.xmax || py < fr.ymin || py > fr.ymax) continue;
     ctx.fillStyle = colorOf.get(p.group) ?? theme.accent2;
     ctx.beginPath();
-    ctx.arc(X(p.x), Y(p.y), 2.1, 0, Math.PI * 2);
+    ctx.arc(X(px), Y(py), 2.1, 0, Math.PI * 2);
     ctx.fill();
   }
 
@@ -285,9 +367,9 @@ export function buildFitScatter(spec: FitScatterSpec): FitScatter {
     let best: FitScatterPoint | null = null;
     let bestD = 81; // 9 px, squared — beyond that the pointer is not on a point
     for (const p of spec.points) {
-      if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
-      const dx = X(p.x) - px;
-      const dy = Y(p.y) - py;
+      if (!usable(p, spec)) continue;
+      const dx = X(fwd(p.x, !!spec.logX)) - px;
+      const dy = Y(fwd(p.y, !!spec.logY)) - py;
       const d = dx * dx + dy * dy;
       if (d < bestD) {
         bestD = d;

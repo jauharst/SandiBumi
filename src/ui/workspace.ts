@@ -345,6 +345,7 @@ export class Workspace {
       ["Facies Tie-in (RT confusion)", () => this.openFaciesTie(group)],
       ["Unconventional (ΔlogR + Langmuir)", () => this.openUnconventional(group)],
       ["Results QC (Sw spread)", () => this.openResultsQc(group)],
+      ["Plug QC (core vs petrography)", () => this.openPlugQc(group)],
       ["SandiMin Solver", () => this.openMultimin(group)],
       "sep",
       ["Zones", () => this.openZones(group)],
@@ -513,6 +514,12 @@ export class Workspace {
           "dock-facies-tie",
           () => import("./faciesTieDialog").then((m) => m.buildFaciesTieContent(setStatus)),
           "facies tie-in",
+        );
+      case "plugQc":
+        return this.asyncPane(
+          "dock-plug-qc",
+          () => import("./plugQcPanel").then((m) => m.buildPlugQcContent(setStatus)),
+          "plug QC",
         );
       case "multimin":
         return this.asyncPane(
@@ -1431,6 +1438,10 @@ export class Workspace {
 
   openFaciesTie(group?: DockviewGroupPanel): void {
     this.openSingleton("faciesTie", "faciesTie", "Facies Tie-in", group);
+  }
+
+  openPlugQc(group?: DockviewGroupPanel): void {
+    this.openSingleton("plugQc", "plugQc", "Plug QC (core vs petrography)", group);
   }
 
   openUnconventional(group?: DockviewGroupPanel): void {
