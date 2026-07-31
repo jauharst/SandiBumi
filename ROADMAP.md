@@ -853,6 +853,25 @@ The actionable backlog. Roughly ordered: safe frontend wins first, then Performa
       contribution here — and those are different statements about whose job it is to reject a
       non-physical porosity.** Finding 16.
 
+- [ ] **A chain whose worker thread dies jams the project switch for the rest of the session.**
+      T-SHELL-09's guard itself is correct and has no window: `chain::register` runs at
+      `lib.rs:2428`, before the worker thread is spawned at `:2468`, so Open Project is already
+      refused the instant Run returns; completing and cancelling both release it. What has no
+      release is a worker that dies without reaching one of the three terminal `set_status` calls.
+      **Nothing ever removes an entry from the chain registry** — `register` inserts, `set_status`
+      mutates, and there is no prune (contrast `jobs.rs`, which prunes finished jobs and has a test
+      for it). The job stays Queued/Running forever and `any_active` keeps answering true, so Open
+      Project, New Project and Compact Project are all refused from that moment on, each telling the
+      user to wait for a job that will never finish; only an app restart clears it, which on a field
+      project means paying the reopen cost again. `lib.rs:2466` already documents that a panic in
+      `run_chain` "simply stops reporting progress" — it does more than that. Pinned as-is by
+      `a_chain_that_never_reports_a_terminal_status_jams_the_guard_permanently` (`chain.rs`).
+      **Not fixed: the mechanical part is easy (`catch_unwind` around the `run_chain` call setting
+      `ChainStatus::Failed` — the variant exists and is `#[allow(dead_code)]` precisely because
+      nothing emits it), but what the user should be told, and whether a project should be
+      switchable at all after a chain died mid-write, is a judgement about failure semantics.**
+      Finding 17.
+
 - [x] **Legacy-multimin RECON_ERR at 3 tools — CLOSED 2026-07-31, no sign-off needed.** REVIEW.md
       still lists this among the findings awaiting a decision because it would change
       interpretation numbers. It does not need one. Legacy `multimin` is **retired** — `run_module`

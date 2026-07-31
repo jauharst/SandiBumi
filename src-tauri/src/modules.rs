@@ -3615,6 +3615,72 @@ mod tests {
         assert_eq!(s[3], 2.0, "at/below the splice depth the bottom curve wins");
     }
 
+    /// T-PREP-18. `splice_switches_at_depth` above pins the handover itself. The plan promises
+    /// something further: where the CONTRIBUTING run is missing, the output is missing — no fill
+    /// from the other run.
+    ///
+    /// That is worth a test even though `splice` has no fallback branch to get wrong, because
+    /// the tempting "helpful" rewrite is the wrong one. A gap in the top run above the splice
+    /// depth is rock that run did not log. Reaching down to the bottom run to fill it would be a
+    /// SECOND splice, at a depth the user never chose and cannot see on the log — and the joined
+    /// curve would look continuous, which is precisely why nothing downstream would catch it.
+    ///
+    /// Four quadrants, because only two of them are load-bearing: a gap in the run that is
+    /// contributing must survive, and a gap in the run that is NOT contributing must be
+    /// irrelevant. Both directions are checked, and in both the other run holds a real value at
+    /// that depth — a gap opposite a gap would prove nothing.
+    #[test]
+    fn a_gap_in_the_contributing_run_stays_a_gap() {
+        // 1000..1005 at 1 m, splice at 1003 → indices 0,1,2 take TOP; 3,4,5 take BOT.
+        let depths: Vec<f32> = (0..6).map(|i| 1000.0 + i as f32).collect();
+        //                    1000  1001(hole)  1002  1003  1004  1005
+        let top = vec![1.0, f32::NAN, 1.0, 1.0, 1.0, 1.0];
+        let bot = vec![2.0, 2.0, f32::NAN, 2.0, f32::NAN, 2.0];
+        let ctx = ctx_with(
+            6,
+            &[("DEPTH", depths), ("TOP_CURVE", top), ("BOT_CURVE", bot)],
+            &[("SPLICE_DEPTH", 1003.0)],
+            &[("__IN_TOP_CURVE", "RES_RUN1")],
+        );
+        let s = &splice(&ctx)["RES_RUN1_SPL"];
+
+        assert!(
+            s[1].is_nan(),
+            "the top run has no value at 1001 and the bottom run's 2.0 must NOT be borrowed to fill it"
+        );
+        assert_eq!(s[2], 1.0, "the bottom run's gap at 1002 is above the splice — it contributes nothing there");
+        assert!(
+            s[4].is_nan(),
+            "the bottom run has no value at 1004 and the top run's 1.0 must NOT be borrowed to fill it"
+        );
+        assert_eq!(s[0], 1.0);
+        assert_eq!(s[3], 2.0, "the sample exactly ON the splice depth belongs to the bottom run");
+        assert_eq!(s[5], 2.0);
+    }
+
+    /// A sample with no depth cannot be placed on either side of the splice, so it is missing —
+    /// never assigned to a side by default. Also pins the fallback output name: with no resolved
+    /// input mnemonic to build `<top>_SPL` from, the curve is plain `SPLICED` rather than a name
+    /// with an empty prefix (`_SPL`), which would collide across runs.
+    #[test]
+    fn a_sample_with_no_depth_is_not_assigned_to_a_side() {
+        let ctx = ctx_with(
+            3,
+            &[
+                ("DEPTH", vec![1000.0, f32::NAN, 1010.0]),
+                ("TOP_CURVE", vec![1.0, 1.0, 1.0]),
+                ("BOT_CURVE", vec![2.0, 2.0, 2.0]),
+            ],
+            &[("SPLICE_DEPTH", 1005.0)],
+            &[],
+        );
+        let out = splice(&ctx);
+        let s = &out["SPLICED"];
+        assert_eq!(s[0], 1.0);
+        assert!(s[1].is_nan(), "a sample with no depth is on neither side of the splice");
+        assert_eq!(s[2], 2.0);
+    }
+
     #[test]
     fn badhole_flags_washout_and_drho() {
         let ctx = ctx_with(

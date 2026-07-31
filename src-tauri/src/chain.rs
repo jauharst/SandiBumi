@@ -325,4 +325,103 @@ mod tests {
         let conn = db.lock().unwrap();
         assert_eq!(finite(&conn, &well, "VSH"), 0, "no work should have run");
     }
+
+    /// T-SHELL-09. Opening or creating another project while a chain runs must be refused, or
+    /// the chain's later steps write their curves into whichever database happens to be live by
+    /// then — a well's VSH landing in a project that has never heard of that well. Nothing
+    /// downstream can detect that, and the chain reports success.
+    ///
+    /// `open_project`, `new_project` and `compact_project` all gate on the same predicate
+    /// (`lib.rs:267`, `:292`, `:205`), so what has to be true is that `any_active` tells the
+    /// truth across a real chain's whole life — not just while it is visibly running.
+    ///
+    /// The first assertion is the one with a bug behind it. `lib.rs:2428` calls `register`
+    /// BEFORE `std::thread::spawn` on `:2468`; move it inside the worker and there is a window
+    /// where the command has already returned to the frontend, nothing is registered, and a
+    /// switch clicked in that instant is allowed — after which the chain starts writing into the
+    /// project the user just opened. The window is small and entirely real: the frontend fronts
+    /// the Processing panel the moment Run returns, which is exactly when a user who changed
+    /// their mind reaches for Open Project.
+    #[test]
+    fn a_registered_chain_holds_the_project_switch_shut_until_it_is_really_finished() {
+        let path = std::env::temp_dir().join("sandibumi_chain_guard.duckdb");
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("duckdb.wal"));
+        let conn = db::init_db(path.to_str().unwrap()).unwrap();
+        let well = seed_well(&conn);
+        let db = Mutex::new(conn);
+        let reg = new_registry();
+
+        assert!(!any_active(&reg), "an idle app must let the user switch projects");
+
+        // Queued: registered, not yet started. This is the pre-flight window.
+        let job = U::new_v4();
+        let cancel = register(&reg, job);
+        assert!(matches!(status(&reg, job).unwrap(), ChainStatus::Queued));
+        assert!(
+            any_active(&reg),
+            "the switch must already be shut the instant the job is registered — before the \
+             worker thread has run a single step"
+        );
+
+        run_chain(&db, &reg, job, &cancel, &[step("vsh_gr")], &[well.clone()], None, None, None);
+
+        assert!(matches!(status(&reg, job).unwrap(), ChainStatus::Completed { .. }));
+        assert!(
+            !any_active(&reg),
+            "a finished chain must release the guard, or the user is locked out of Open Project \
+             for the rest of the session"
+        );
+
+        // Cancelling must release it too. A user who cancels a long chain specifically because
+        // they want to open another project would otherwise still be refused.
+        let job2 = U::new_v4();
+        let cancel2 = register(&reg, job2);
+        cancel2.store(true, Ordering::SeqCst);
+        run_chain(&db, &reg, job2, &cancel2, &[step("vsh_gr")], &[well.clone()], None, None, None);
+        assert!(matches!(status(&reg, job2).unwrap(), ChainStatus::Cancelled { .. }));
+        assert!(!any_active(&reg), "a cancelled chain must release the guard");
+
+        // Two finished jobs must not mask a third that is still queued: the guard is an ANY,
+        // and a registry that only looked at the most recent entry would pass every test above.
+        let job3 = U::new_v4();
+        let _cancel3 = register(&reg, job3);
+        assert!(any_active(&reg), "one queued job among finished ones still holds the guard");
+
+        drop(db);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// KNOWN GAP, pinned AS-IS and not endorsed. Nothing ever REMOVES an entry from the chain
+    /// registry — `register` inserts, `set_status` mutates, and there is no prune (contrast
+    /// `jobs.rs`, which prunes finished jobs). So a chain whose worker thread dies without
+    /// reaching one of the three terminal `set_status` calls stays `Queued`/`Running` in the map
+    /// forever, and `any_active` keeps answering true.
+    ///
+    /// That is not hypothetical: `lib.rs:2466` documents that a panic inside `run_chain` "stays
+    /// on this thread (it can't abort the process); the job simply stops reporting progress".
+    /// It does more than stop reporting. Open Project, New Project and Compact Project are all
+    /// refused from that moment on, with a message telling the user to wait for a job that will
+    /// never finish, and the only way out is to restart the app.
+    ///
+    /// A fix would be a terminal status on unwind (`catch_unwind` around the `run_chain` call,
+    /// setting `ChainStatus::Failed` — the variant already exists and is marked `dead_code`
+    /// because nothing emits it). Making that change turns this test red, which is the alarm.
+    #[test]
+    fn a_chain_that_never_reports_a_terminal_status_jams_the_guard_permanently() {
+        let reg = new_registry();
+        let ghost = U::new_v4();
+        let _cancel = register(&reg, ghost);
+
+        // The worker died here — no Completed, no Cancelled, no Failed.
+        assert!(matches!(status(&reg, ghost).unwrap(), ChainStatus::Queued));
+        assert!(
+            any_active(&reg),
+            "pinned AS-IS, not endorsed: the guard stays shut with nothing left to wait for"
+        );
+        assert!(
+            status(&reg, ghost).is_some(),
+            "and nothing prunes the entry, so it cannot age out either"
+        );
+    }
 }

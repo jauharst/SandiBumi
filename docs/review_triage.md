@@ -30,7 +30,7 @@ Pile D is the number that matters: **37 tests, about one in seven, genuinely nee
 | Pile | Done | Remaining |
 |---|---|---|
 | **A** — was already pinned before this work started | **21** | — |
-| **B** — a Rust test now checks it | **32** | 11 (of 43 — T-IMP-06 and T-RT-18 regraded out) |
+| **B** — a Rust test now checks it | **35** | 8 (of 43 — T-IMP-06 and T-RT-18 regraded out) |
 | **C** — a machine now drives it | **5 harness tests** | 81 unblocked (+61 blocked) |
 
 ### Pile A — the checklist
@@ -81,8 +81,11 @@ verification mark** — that lives in `docs/manual_test_plan.md` and nothing aut
 touches it. A `[x]` below says the arithmetic is pinned; it does not say the feature works on
 your wells.
 
-**Done (32 of 43)**
+**Done (35 of 43)**
 
+- [x] **T-SHELL-09** — NEGATIVE: project switch refused while a chain runs · `a_registered_chain_holds_the_project_switch_shut_until_it_is_really_finished` + `a_chain_that_never_reports_a_terminal_status_jams_the_guard_permanently` (`chain.rs`). The guard is correct and closes its own pre-flight window. One residual — see finding 17.
+- [x] **T-SHELL-07** — Save Project As = backup copy · `save_as_writes_a_backup_copy_and_leaves_the_app_on_the_original` (`project.rs`). Backup-copy semantics confirmed from both sides: the copy is a snapshot, the later edit lands in the original only.
+- [x] **T-PREP-18** — Splice Curves at depth · `a_gap_in_the_contributing_run_stays_a_gap` + `a_sample_with_no_depth_is_not_assigned_to_a_side` (`modules.rs`), beside the existing `splice_switches_at_depth`. Clean — a gap in the contributing run is never filled from the other run.
 - [x] **T-ADV-13** — Saturation-Height on a deviated well (TVD wiring) · `a_deviated_wells_height_is_measured_from_the_survey_not_along_hole` (`workflow.rs`). **The audit finding is FIXED and the plan step is stale** — `ingest::materialize_tvd_curves` is the producer the audit said did not exist. See finding 14.
 - [x] **T-PETRO-13** — zone parameter override: RW in one zone only · `a_zone_parameter_override_moves_that_zone_and_leaves_the_rest_untouched` (`workflow.rs`)
 - [x] **T-REP-06** — Report render: cover, methodology, zone params, pay summary · `a_rendered_report_carries_the_plans_page_order_and_a_self_consistent_pay_table` + `a_dense_stringer_is_subtracted_from_the_sand_rows_hpv` (`report.rs`). Two residuals — see findings 15 and 16.
@@ -213,7 +216,7 @@ All three items flagged **silent-wrongness class** (T-REP-18, T-SHIP-03, T-INT-1
 
 Pile B is therefore 43 items, not 45.
 
-**Open (11)**
+**Open (8)**
 
 - [ ] T-PLOT-19 — Curve Edit negatives (invalid input, stale undo)
 - [ ] T-REP-02 — Composite render: layout, print scale, pagination
@@ -221,11 +224,8 @@ Pile B is therefore 43 items, not 45.
 - [ ] T-REP-14 — DB Inspector: browse all 8 tables
 - [ ] T-REP-16 — DB Inspector negatives
 - [ ] T-AUX-07 — Well-diagram track in Composite/Report + old layouts
-- [ ] T-PREP-18 — Splice Curves at depth
 - [ ] T-PETRO-02 — vsh_gr nonlinear options + version N+1
 - [ ] T-ADV-17 — SandiMin re-run, lowercase prefix, no shadow rows
-- [ ] T-SHELL-07 — Save Project As = backup copy
-- [ ] T-SHELL-09 — project switch refused while a chain runs
 
 ### Pile C — covered by the end-to-end harness
 
@@ -513,7 +513,7 @@ these turns on a judgement about real rock, a visual read, or a feel for whether
 
 ---
 
-## Sixteen things the triage found that are worth fixing regardless
+## Seventeen things the triage found that are worth fixing regardless
 
 These came out of reading all 250 tests against the current code. Each was verified directly,
 not taken on a subagent's word. **Findings 1, 2 and 3 have since been fixed — see the notes
@@ -900,6 +900,34 @@ test claims the understatement and not a negative number.
 write it, or floor the HPV contribution in the pay summary. Those are different statements about
 whose job it is to reject a non-physical porosity, and the first changes curves you may want to
 see unclamped for QC.
+
+### 17. A chain whose worker thread dies jams the project switch for the rest of the session — **OPEN, your call**
+
+The guard T-SHELL-09 exercises is correct: `chain::register` is called at `lib.rs:2428`, BEFORE
+the worker thread is spawned at `:2468`, so the switch is already shut the instant Run is clicked
+— there is no window where the command has returned and nothing is registered. Completing and
+cancelling both release it. That is all pinned by
+`a_registered_chain_holds_the_project_switch_shut_until_it_is_really_finished`.
+
+What has no release is a worker that dies without reaching one of the three terminal `set_status`
+calls. **Nothing ever removes an entry from the chain registry** — `register` inserts, `set_status`
+mutates, and there is no prune (contrast `jobs.rs`, which prunes finished jobs and has a test for
+it). So the job stays `Queued`/`Running` in the map forever and `any_active` keeps answering true.
+
+`lib.rs:2466` already documents the case: a panic inside `run_chain` "stays on this thread (it
+can't abort the process); the job simply stops reporting progress". It does more than stop
+reporting. **Open Project, New Project and Compact Project are all refused from that moment on**,
+each telling the user to wait for a job that will never finish, and the only way out is to restart
+the app — which on a field project means paying the reopen cost again.
+
+Pinned as-is by `a_chain_that_never_reports_a_terminal_status_jams_the_guard_permanently`.
+
+**Your call because the fix is a judgement about failure semantics.** The mechanical part is easy:
+`catch_unwind` around the `run_chain` call, setting `ChainStatus::Failed` — the variant already
+exists and carries `#[allow(dead_code)]` precisely because nothing emits it. The judgement is what
+the user should then be told, and whether a chain that died mid-write should let the project be
+switched at all or should insist on a restart. Making the change fails this test, which is the
+alarm.
 
 ---
 

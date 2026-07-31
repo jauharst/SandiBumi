@@ -224,6 +224,10 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
 3. Make a small change (e.g. pin a well ★, or add a top) and note it.
 4. Close and reopen the app.
    **Expected:** Status **Project saved to {path}**; History entry **Project — Saved project to {path}**; the file exists on disk at the chosen path. The app KEEPS working on the original project (backup-copy semantics, not IP-style switch-to-copy): the step-3 change is in the original project on relaunch, and opening `backup-uat.duckdb` via Open Project shows the pre-change state. Covers REVIEW.md §Wave A-3 note item ("Save Project As stays a backup copy").
+
+   **Automated coverage - pinned (pile B, 2026-07-31):** `save_as_writes_a_backup_copy_and_leaves_the_app_on_the_original` (project.rs) drives the same sequence against a real file and checks the claim from both sides — the copy opens as a valid project holding the state at the moment it was taken, and the well added afterwards is in the ORIGINAL only, read back from disk rather than from the connection that wrote it.
+
+   **Worth knowing before you click:** the backup will be **noticeably smaller than the original**, and that is correct, not data loss. Save As is an engine copy (`ATTACH` + `COPY FROM DATABASE`), which writes live rows only — so it is also a compaction, and a project bloated by months of module re-runs exports at its true data size. In the test a project with 200k deleted rows behind it copies smaller while every one of the 1000 live rows crosses. If you want to be sure, compare well and curve counts rather than file size.
    **Result — T-SHELL-07:**
 
 - [x] Pass
@@ -259,6 +263,12 @@ Shared preconditions: reference machine (ARUNIKA), repo at `D:\XX. SandiBumi`, p
 1. Petrophysics tab → **Workflow…** → run the chain with scope **All** so it takes at least several seconds.
 2. While the Processing panel shows live progress, go Project tab → **Open Project…** and pick another project.
    **Expected:** A clear refusal (status/error à la **Project switch failed: …** naming the running chain) — NOT a switch. The chain keeps running to completion in the Processing panel; the current project stays open and uncorrupted. Afterwards (chain finished) the same switch succeeds. Covers REVIEW.md §Wave A-3 item 5.
+
+   **Automated coverage - pinned (pile B, 2026-07-31):** `a_registered_chain_holds_the_project_switch_shut_until_it_is_really_finished` (chain.rs) walks a real chain's whole life against the same predicate the three commands gate on — shut the instant the job is registered, still shut while running, released on Completed, released on Cancelled, and one queued job among finished ones still holds it.
+
+   **Worth knowing before you click:** you do not need to be quick. The job is registered BEFORE the worker thread starts, so the switch is already refused the instant Run returns — there is no window where the chain is running but unregistered. Cancelling releases it, so "cancel the chain, then switch" works and is the intended way out. The same guard covers **New Project** and **Compact Project**, which are worth a try each while the chain runs.
+
+   **KNOWN ISSUE (2026-07-31, finding 17) — OPEN, your call.** Nothing ever removes an entry from the chain registry, so a chain whose worker thread dies without reporting a terminal status stays "running" forever and the guard never releases. Open Project, New Project and Compact Project are then all refused for the rest of the session, each telling you to wait for a job that will never finish; only restarting the app clears it. If during a click-through you get "A background job is still running" with the Processing panel showing nothing in flight, that is this, not a mis-click.
    **Result — T-SHELL-09:**
 
 - [x] Pass
@@ -1628,6 +1638,10 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 1. Open **Data Prep ▸ Splice Curves**. TOP_CURVE = run-1 GR, BOT_CURVE = run-2 GR, SPLICE_DEPTH = the casing-shoe/overlap depth. **Run**.
 2. Overlay the output on both inputs around the splice depth.
    **Expected:** Output (named `<top input>_SPL`) equals TOP_CURVE strictly above SPLICE_DEPTH and BOT_CURVE at and below it — one clean handover, no averaging, no gap; inputs unmodified. Where the contributing curve is MISSING the output is MISSING (no fill from the other curve).
+
+   **Automated coverage - pinned (pile B, 2026-07-31):** `a_gap_in_the_contributing_run_stays_a_gap` (modules.rs) checks all four quadrants — a gap in the run that IS contributing survives as a gap in both directions (with a real value sitting in the other run at that depth, so the assertion means something), and a gap in the run that is NOT contributing is irrelevant. `a_sample_with_no_depth_is_not_assigned_to_a_side` covers a sample with no depth. Both pass; the promise holds.
+
+   **Worth knowing before you click:** the handover is **half-open** — the sample sitting exactly ON the splice depth belongs to the BOTTOM run. Overlay the two inputs and you should see the last top-run sample one step above the depth you typed. Also: if your two runs have different data coverage, expect gaps to show through rather than be papered over — that is the intended answer, since filling one would be a second splice at a depth you never chose and could not see on the log.
    **Result — T-PREP-18:**
 
 - [ ] Pass
