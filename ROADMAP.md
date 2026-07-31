@@ -748,6 +748,47 @@ The actionable backlog. Roughly ordered: safe frontend wins first, then Performa
       surface), and that needs a cited source. Same question applies to PGRAD, which is computed
       the same way. Logged in `docs/review_triage.md` finding 6 and in T-PREP-05's known-issue line.
 
+- [ ] **A well with NO permeability is EXEMPTED from an active PERM cutoff.** `classify_sample`
+      correctly fails a *sample* whose PERM is missing, and there is a confirmed `[x]` for that.
+      But `run_pay_summary` decides whether the cutoff runs at all per WELL —
+      `perm_min.is_some() && perm.iter().any(|v| !v.is_nan())` — so a well carrying no permeability
+      anywhere switches it off for itself. Measured on two wells of identical rock at PERM ≥ 1000:
+      **the well that measured 1 mD reported net 0; the well that measured nothing reported all of
+      it.** The less data a well has, the more pay it books, and `n_classified` is non-zero for
+      both, so no consumer downstream — dashboard, workbook, PDF — can tell them apart.
+
+      **Pinned as-is, not fixed** — `a_well_with_no_perm_at_all_quietly_escapes_an_active_perm_cutoff`
+      (`workflow.rs`). Exclude or exempt is a petrophysical decision that changes reserves.
+      `docs/review_triage.md` finding 7; T-BATCH-08 carries the known-issue line.
+
+- [ ] **Adding a permeability model to a Monte Carlo chain switches off the permeability cutoff.**
+      Already in AUDIT-2026-07-21, but the trigger is broader than recorded there. PERM reaches
+      `has_perm_cut` only if a step CONSUMES it and none PRODUCES it, so the cutoff works on a
+      chain ending in Rock Typing and goes dead the moment `perm_coates` is inserted ahead of it —
+      which is exactly the study whose permeability cutoff matters. Pinned as-is by
+      `adding_a_permeability_model_to_a_chain_switches_off_the_permeability_cutoff`
+      (`montecarlo.rs`), with the working chain beside it as the control. Finding 8.
+
+- [ ] **Pittman PR75 exceeds PR50 above about 79 mD.** Mercury enters the widest throats first, so
+      the 75 % radius must be the smaller one. The nine rows are independent regressions, and
+      `PR50 − PR75 = −0.634 − 0.066·log k + 0.543·log φ%` changes sign in ordinary good sand.
+      Measured at φ = 25 %, k = 100 mD: **PR50 2.907 µm against PR75 2.953 µm.** PR10–PR50 stay
+      monotone, which narrows it to the PR75 row. `pittman_rx_spec`'s own doc already flags the
+      table *verify before field release* — this is that verification failing. **Not fixed:
+      correcting a published coefficient needs Pittman 1992 in hand, and inventing one to make the
+      ordering come out right is precisely what the provenance rules forbid.** Pinned by
+      `the_pittman_radius_family_inverts_between_r50_and_r75_in_good_sand`. Finding 9.
+
+- [ ] **A failed run still writes its empty curves into the Curve Catalog.** Phase 2 of
+      `run_workflow_module_into` writes for any well whose outcome is `Computed` with a non-empty
+      output map, and an all-MISSING map is still non-empty. rocktyping on a well with porosity but
+      no permeability reports its error **and versions all eight outputs** as curves blank from top
+      to bottom. The values are honestly MISSING, so nothing is corrupted — but the catalog stops
+      distinguishing "never run" from "run and could not answer", and a log-set version is spent
+      recording the second as an interpretation. Pinned both halves by
+      `rocktyping_without_a_permeability_curve_fails_and_writes_no_curves` (`workflow.rs`).
+      Suppressing the write is one filter, but it changes behaviour for every module. Finding 10.
+
 **Performance (was "P2") — speed at field scale (100+ wells)** — all 6 mapped by a read-only
 investigation wave (file:line + risk). **5 of 6 shipped: #127 (crossplot memoize), #128 (long
 commands off the event loop), #130 (batch curve reads), #131 (raw-IPC ArrayBuffers), #132

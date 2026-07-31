@@ -1353,6 +1353,106 @@ mod tests {
         assert!(pay(&cut, &low_perm).n_classified > 0);
     }
 
+    /// T-RT-05 — rocktyping on a well that has porosity but no permeability must fail by name and
+    /// write NOTHING.
+    ///
+    /// The dangerous outcome is not a crash, it is a quiet success: every output would be NaN at
+    /// every depth, the run would report ✓, and the Curve Catalog would gain FZI/RT rows that are
+    /// empty from top to bottom. A later reader has no way to tell that from a well where the
+    /// rock genuinely had no answer. The control below runs the same module on the same well with
+    /// permeability present, so the failure is provably the missing curve and not a broken module.
+    #[test]
+    fn rocktyping_without_a_permeability_curve_fails_and_writes_no_curves() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, id, "RT-NOPERM", Some("Synthetic"), None, None).unwrap();
+        let well = id.to_string();
+        let n = 20usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            &conn, id, depth.clone(), vec![40.0; n], vec![20.0; n], vec![0.2; n], vec![2.35; n],
+            nan.clone(), nan,
+        )
+        .unwrap();
+        // Porosity, but deliberately no permeability of any name.
+        equations::write_computed_curve(&conn, &well, &depth, "PHIE", &vec![0.20f32; n]).unwrap();
+        let dbm = Mutex::new(conn);
+
+        let run = || {
+            run_workflow_module(
+                &dbm,
+                &RunModuleRequest {
+                    module: "rocktyping".into(),
+                    well_ids: vec![well.clone()],
+                    log_inputs: HashMap::new(),
+                    params: HashMap::new(),
+                    opts: HashMap::new(),
+                    output_set: None,
+                    input_set: None,
+                },
+            )
+        };
+        let outputs = ["RQI", "PHIZ", "FZI", "R35", "PGEOM", "PSTRUC", "RT", "PERM_RT"];
+        let written = |name: &str| -> i64 {
+            let conn = dbm.lock().unwrap();
+            conn.query_row(
+                "SELECT COUNT(*) FROM computed_curves WHERE well_id = ?1 AND UPPER(curve_name) = ?2",
+                duckdb::params![well, name],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+
+        // Counted in Rust, deliberately. DuckDB gives NaN a TOTAL ordering — `NaN = NaN` is true
+        // there, so an SQL `value = value` filter counts every MISSING sample as a real one and
+        // this test would have reported the opposite of the truth.
+        let finite = |name: &str| -> usize {
+            let conn = dbm.lock().unwrap();
+            let mut st = conn
+                .prepare("SELECT value FROM computed_curves WHERE well_id = ?1 AND UPPER(curve_name) = ?2")
+                .unwrap();
+            let rows: Vec<Option<f32>> = st
+                .query_map(duckdb::params![well, name], |r| r.get(0))
+                .unwrap()
+                .map(|v| v.unwrap())
+                .collect();
+            rows.iter().filter(|v| v.is_some_and(f32::is_finite)).count()
+        };
+
+        let res = run();
+        assert_eq!(res.len(), 1);
+
+        // The API half is honest, and that much is already pinned by
+        // `all_nan_module_output_reports_error_not_success`.
+        assert!(res[0].error.is_some(), "a missing permeability curve must be reported, not absorbed");
+        assert_eq!(res[0].rows_written, 0, "the failed run must not report a sample count");
+
+        // The catalog half is NOT. Phase 2 writes for any well whose outcome is `Computed` with a
+        // non-empty output map, and an all-MISSING output map is still non-empty — so the whole
+        // rocktyping family is versioned into the catalog as curves that are blank end to end.
+        // T-RT-05's Expected says the catalog must gain NO FZI/RT rows. Pinned AS-IS, not endorsed
+        // — see docs/review_triage.md finding 10.
+        for name in outputs {
+            assert!(written(name) > 0, "{name}: the empty curve IS written today");
+            assert_eq!(finite(name), 0, "{name}: and every sample of it is MISSING");
+        }
+
+        // Control: give the well a permeability and the identical call succeeds and writes the
+        // family. Without this the assertions above would also pass on a module that never works.
+        {
+            let conn = dbm.lock().unwrap();
+            equations::write_computed_curve(&conn, &well, &depth, "PERM", &vec![100.0f32; n]).unwrap();
+        }
+        let ok = run();
+        assert!(ok[0].error.is_none(), "with permeability present it must run: {:?}", ok[0].error);
+        assert!(ok[0].rows_written > 0);
+        for name in outputs {
+            assert!(finite(name) > 0, "{name} must carry real values after the successful run");
+        }
+    }
+
     /// T-BATCH-08 (3) — one unusable well must not zero the whole response.
     ///
     /// `run_pay_summary` `continue`s past a well whose curve frame or zone read fails instead of

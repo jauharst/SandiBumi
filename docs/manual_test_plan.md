@@ -1922,6 +1922,8 @@ Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a
 2. Re-run with **MORRIS_BIGGS_OIL**, **MORRIS_BIGGS_GAS**, **TIXIER** (same cons → 4 versions).
 3. Histogram PERM_WR (log scale) per version.
    **Expected:** PERM_WR/PERM ≥ 0, MISSING where PHIE is missing, 0 at PHIE = 0. Domain sanity at φ ≈ 0.25, Swirr 0.15: TIMUR ≈ 900 mD, MORRIS_BIGGS_OIL ≈ 700 mD, MORRIS_BIGGS_GAS ≈ 70 mD. **MORRIS_BIGGS_OIL and TIXIER are byte-identical** (same C=250/D=3/E=1 in this port — confirm, it is documented in the pane's doc); GAS is lowest by >~1 decade.
+   **Automated coverage - pinned (pile B, 2026-07-31):** `the_wyllie_rose_variants_carry_their_own_constants_and_two_are_one_equation` (modules.rs) confirms all four numbers above, the TIXIER / MORRIS_BIGGS_OIL identity and the decade between oil and gas; the edge cases were already covered by `perm_wyllie_rose_edges` and `perm_wyllie_rose_negative_phie_missing_across_all_variants`. One thing to know that the plan does not say: an UNRECOGNISED OPT_WR silently falls back to TIMUR, so a typo in a saved chain becomes a different rock without complaint.
+
    **Result — T-PETRO-14:**
 
 - [ ] Pass
@@ -2489,6 +2491,16 @@ Covers the four Rock Typing modules on the Petrophysics ribbon (`rocktyping`, `l
 2. Keep **PERM** pointing at the permeability mnemonic that exists only on the cored well. Click **Run**.
 3. Watch the Processing panel per-well breakdown and the pane's one-line outcome.
    **Expected:** A clean per-well failure (✗/⚠ with an error naming the input problem) — no crash, no freeze. The Curve Catalog for that well gains NO FZI/RT rows, and no half-written curves appear. Catalog Min/Max of existing curves unchanged (no ±Inf poisoning).
+   **Known issue — CONFIRMED 2026-07-31, the catalog part of Expected will NOT hold.** The per-well
+   failure IS clean and named, and no half-written values appear - but the Curve Catalog DOES gain
+   rows. A run whose every output is MISSING still writes and versions the whole family (RQI, PHIZ,
+   FZI, R35, PGEOM, PSTRUC, RT, PERM_RT), blank from top to bottom. Measured: rows for all eight,
+   finite values in none. So expect eight new catalog entries with n = 0, not none at all. Nothing
+   is corrupted and Min/Max are not poisoned; what is lost is the catalog's ability to tell "never
+   run" from "run and could not answer". Log as known. See docs/review_triage.md finding 10.
+
+   **Automated coverage - pinned (pile B, 2026-07-31):** `rocktyping_without_a_permeability_curve_fails_and_writes_no_curves` (workflow.rs) - it asserts the clean failure, and pins the empty-curve write AS-IS, with the same well plus a permeability curve as the control.
+
    **Result — T-RT-05:**
 
 - [ ] Pass
@@ -2529,6 +2541,15 @@ Covers the four Rock Typing modules on the Petrophysics ribbon (`rocktyping`, `l
 4. Negative sub-check: set **VSH1** = 0.50 and **VSH2** = 0.20 (violates the doc's "Requires VSH1 ≤ VSH2") and **Run**. Record what happens — the pane validates only the 0–1 range per field, so the run is expected to proceed; note whether any warning appears and whether the resulting ladder is self-contradictory.
 5. Restore defaults and re-run so a sane RT_LOG (new version) exists for T-RT-15.
    **Expected:** Steps 1–3: correct 1/2/3 ladder honoring the cutoffs, MISSING propagated. Step 4: no crash; document the (current) silent acceptance of an inconsistent ladder in Notes — candidate for a cross-field validation ticket.
+   **Update 2026-07-31 — step 4 is worse than silent acceptance, so look closely.** The inverted
+   ladder does not just shift classes, it SCATTERS the middle one. Because RT1 is tested first and
+   its Vsh gate is now the looser one, moderately shaly rock splits: the porous half is PROMOTED to
+   class 1 (best) and the tighter half is DEMOTED to class 3 (non-net), in the same run, with no
+   warning. Worth noting in your Notes as a cross-field validation ticket, since RT_LOG feeds the
+   facies tie-in in T-RT-15.
+
+   **Automated coverage - pinned (pile B, 2026-07-31):** `an_inverted_cutoff_ladder_is_accepted_and_scatters_the_middle_class` (rocktyping.rs) - the sane 1/2/3 ladder and MISSING propagation, then the inverted case pinned AS-IS.
+
    **Result — T-RT-07:**
 
 - [ ] Pass
@@ -2549,6 +2570,19 @@ Covers the four Rock Typing modules on the Petrophysics ribbon (`rocktyping`, `l
 4. Cross-check PR35 vs the Winland **R35** from T-RT-03 on a crossplot — same order of magnitude, correlated but not identical (different regressions).
 5. Change **APEX** to `r50`, **Run** again (version N+1): RAPEX now tracks PR50 and RT_PITT re-bins accordingly (generally one class finer or equal).
    **Expected:** Full family written; monotone ordering holds everywhere both curves are populated; RAPEX follows the chosen APEX row; invalid samples (φ∉(0,1), k≤0) blank in ALL eleven outputs.
+   **Known issue — CONFIRMED 2026-07-31, step 3's ordering does NOT hold at the r50/r75 end.**
+   PR10 > PR15 > ... > PR50 holds as written. PR75 does not: above roughly **79 mD at 25 % porosity**
+   the table returns a LARGER radius at 75 % mercury than at 50 %, which cannot happen in rock -
+   mercury enters the widest throats first. Measured at that point: PR50 2.907 um against PR75
+   2.953 um. At 1 mD the same pair is the right way round, so it is the coefficients, not a bad
+   sample. The nine rows are independent regressions with nothing forcing them to agree, and the
+   module doc already flags the full set as transcribed from Pittman 1992 and to be verified before
+   field release - this is that verification failing. It reaches the outputs: choosing APEX = r75
+   for fine rock, which the doc recommends, builds RAPEX and RT_PITT on the inverted value. Log as
+   known. Fixing it needs the paper in hand. See docs/review_triage.md finding 9.
+
+   **Automated coverage - pinned (pile B, 2026-07-31):** `the_pittman_radius_family_inverts_between_r50_and_r75_in_good_sand` (rocktyping.rs) pins the monotone head, the inversion above with its measured numbers, and that an invalid sample blanks all ELEVEN outputs. RAPEX, the APEX selector and the port class were already covered by `pittman_r35_matches_published_regression`, `pittman_apex_selector_switches_controlling_radius` and `pittman_missing_inputs_stay_missing`.
+
    **Result — T-RT-08:**
 
 - [ ] Pass

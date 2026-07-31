@@ -408,6 +408,138 @@ mod tests {
         ModuleContext { n, logs, params, opts, depth_unit: Default::default() }
     }
 
+    /// Builds a ModuleContext for `rt_cutoff` from VSH/PHIE and the four ladder cutoffs.
+    fn cutoff_ctx(vsh: Vec<f32>, phie: Vec<f32>, vsh1: f64, phi1: f64, vsh2: f64, phi2: f64) -> ModuleContext {
+        let n = vsh.len();
+        let logs = HashMap::from([("VSH".to_string(), vsh), ("PHIE".to_string(), phie)]);
+        let params = HashMap::from([
+            ("VSH1".to_string(), vec![vsh1; n]),
+            ("PHI1".to_string(), vec![phi1; n]),
+            ("VSH2".to_string(), vec![vsh2; n]),
+            ("PHI2".to_string(), vec![phi2; n]),
+        ]);
+        ModuleContext { n, logs, params, opts: HashMap::new(), depth_unit: Default::default() }
+    }
+
+    /// T-RT-07 — the RT_LOG ladder on sane cutoffs, and what an inverted one actually does.
+    ///
+    /// The module doc requires VSH1 ≤ VSH2 and PHI1 ≥ PHI2, and nothing enforces it: the dialog
+    /// range-checks each field against 0–1 independently, so `VSH1 = 0.50, VSH2 = 0.20` runs.
+    /// The plan's step 4 asks what happens. It is worse than "no warning" — the ladder does not
+    /// merely shift, it SCATTERS. Because class 1 is tested first and its Vsh gate is now the
+    /// looser one, moderately shaly rock splits: the porous half is promoted to BEST and the
+    /// tight half is demoted to non-net, with class 2 left meaning something else entirely.
+    ///
+    /// Pinned AS-IS, not endorsed — a cross-field validation is a UI decision, and RT_LOG feeds
+    /// the facies tie-in, so silently repairing the ladder would change published class counts.
+    #[test]
+    fn an_inverted_cutoff_ladder_is_accepted_and_scatters_the_middle_class() {
+        // best | moderate+porous | moderate+tight | non-net | missing Vsh | missing PHIE
+        let vsh = vec![0.10f32, 0.30, 0.30, 0.60, f32::NAN, 0.10];
+        let phie = vec![0.20f32, 0.20, 0.08, 0.03, 0.20, f32::NAN];
+
+        // Sane defaults from the manifest: VSH1 0.15, PHI1 0.12, VSH2 0.35, PHI2 0.06.
+        let sane = rt_cutoff(&cutoff_ctx(vsh.clone(), phie.clone(), 0.15, 0.12, 0.35, 0.06))["RT_LOG"].clone();
+        assert_eq!(sane[0], 1.0, "clean and porous is the best class");
+        assert_eq!(sane[1], 2.0, "moderately shaly but porous is the middle class");
+        assert_eq!(sane[2], 2.0, "moderately shaly and tighter is still the middle class");
+        assert_eq!(sane[3], 3.0, "shaly and tight is non-net");
+        assert!(sane[4].is_nan() && sane[5].is_nan(), "a missing input stays MISSING, never class 3");
+
+        // Inverted, exactly as step 4 asks: VSH1 0.50 > VSH2 0.20.
+        let bad = rt_cutoff(&cutoff_ctx(vsh, phie, 0.50, 0.12, 0.20, 0.06))["RT_LOG"].clone();
+        assert_eq!(bad[0], 1.0, "the genuinely best rock is unaffected");
+        assert_eq!(bad[1], 1.0, "middle rock is PROMOTED to best — the damaging direction");
+        assert_eq!(bad[2], 3.0, "and its tighter half is DEMOTED to non-net in the same run");
+        assert_eq!(bad[3], 3.0);
+        assert!(bad[4].is_nan() && bad[5].is_nan(), "MISSING is unaffected by the cutoffs");
+
+        // Stated as the reader would see it: one sample moved two classes without any warning.
+        assert_ne!(sane[1], bad[1]);
+        assert_ne!(sane[2], bad[2]);
+    }
+
+    /// Builds a ModuleContext for `pittman_rx` from PHI/PERM and the APEX selector.
+    fn pittman_ctx(phi: Vec<f32>, perm: Vec<f32>, apex: &str) -> ModuleContext {
+        let n = phi.len();
+        let logs = HashMap::from([("PHI".to_string(), phi), ("PERM".to_string(), perm)]);
+        let opts = HashMap::from([("APEX".to_string(), apex.to_string())]);
+        ModuleContext { n, logs, params: HashMap::new(), opts, depth_unit: Default::default() }
+    }
+
+    /// T-RT-08 — the Pittman family, the APEX selector, and the ordering claim that does NOT hold.
+    ///
+    /// The physics is not in doubt: mercury enters the widest throats first, so the radius quoted
+    /// at a higher saturation must be the smaller one, and r75 < r50 always. The plan's Expected
+    /// says the monotone ordering "holds everywhere both curves are populated".
+    ///
+    /// It does not. The nine rows are nine INDEPENDENT regressions, not a nested family, so
+    /// nothing in the arithmetic makes them agree. PR50 − PR75 in log space is
+    /// `−0.634 − 0.066·log k + 0.543·log φ%`, which changes sign at about **79 mD at 25 % porosity**
+    /// — ordinary reservoir sand, not a corner. Above that the transcribed table reports a LARGER
+    /// throat at 75 % mercury than at 50 %, which cannot happen in rock.
+    ///
+    /// The module's own doc already flags the full set as transcribed and "verify before field
+    /// release". This is that verification, and the r50/r75 pair fails it. Pinned AS-IS because
+    /// correcting a coefficient needs the 1992 paper in hand, not a guess — see
+    /// docs/review_triage.md finding 9.
+    #[test]
+    fn the_pittman_radius_family_inverts_between_r50_and_r75_in_good_sand() {
+        // Good sand: φ = 25 %, k = 100 mD. Plus the two invalid shapes the doc promises to skip.
+        let phi = vec![0.25f32, 0.25, 1.0, 0.25];
+        let perm = vec![100.0f32, 1.0, 100.0, -5.0];
+        let out = pittman_rx(&pittman_ctx(phi.clone(), perm.clone(), "r35"));
+
+        // All eleven outputs exist.
+        for name in ["PR10", "PR15", "PR20", "PR25", "PR30", "PR35", "PR40", "PR50", "PR75", "RAPEX", "RT_PITT"] {
+            assert!(out.contains_key(name), "missing output {name}");
+        }
+
+        // The head of the family IS monotone in good sand, which is what makes the tail's failure
+        // a transcription question rather than a wholesale problem with the method.
+        let at = |name: &str| out[name][0] as f64;
+        let head = ["PR10", "PR15", "PR20", "PR25", "PR30", "PR35", "PR40", "PR50"];
+        for pair in head.windows(2) {
+            assert!(
+                at(pair[0]) > at(pair[1]),
+                "{} ({}) must exceed {} ({})",
+                pair[0],
+                at(pair[0]),
+                pair[1],
+                at(pair[1])
+            );
+        }
+
+        // The tail does not. Pinned with the measured numbers so it cannot drift unnoticed.
+        assert!(
+            at("PR75") > at("PR50"),
+            "the inversion this test exists to record has gone — re-read finding 9 before deleting it"
+        );
+        assert!((at("PR50") - 2.907).abs() < 0.01, "PR50 {}", at("PR50"));
+        assert!((at("PR75") - 2.953).abs() < 0.01, "PR75 {}", at("PR75"));
+
+        // At 1 mD the same pair is the right way round, which locates the problem in the
+        // coefficients rather than in any one sample.
+        let low_k = |name: &str| out[name][1] as f64;
+        assert!(low_k("PR50") > low_k("PR75"), "at 1 mD the ordering holds: {} vs {}", low_k("PR50"), low_k("PR75"));
+
+        // RAPEX follows the selector exactly, and RT_PITT is its port class.
+        assert_eq!(out["RAPEX"][0], out["PR35"][0], "default APEX r35 must BE PR35, not merely near it");
+        let r50 = pittman_rx(&pittman_ctx(phi.clone(), perm.clone(), "r50"));
+        assert_eq!(r50["RAPEX"][0], r50["PR50"][0], "APEX r50 must track PR50");
+        assert_ne!(out["RAPEX"][0], r50["RAPEX"][0], "and the selector must actually change the answer");
+        for v in [out["RT_PITT"][0], r50["RT_PITT"][0]] {
+            assert!((1.0..=5.0).contains(&v) && v.fract() == 0.0, "RT_PITT must be an integer 1..5, was {v}");
+        }
+
+        // An invalid sample is blank in ALL eleven — a half-written row would let one bad depth
+        // poison a catalog Min/Max while the rest of the family looked fine.
+        for name in ["PR10", "PR15", "PR20", "PR25", "PR30", "PR35", "PR40", "PR50", "PR75", "RAPEX", "RT_PITT"] {
+            assert!(out[name][2].is_nan(), "{name} must be MISSING at phi = 1.0");
+            assert!(out[name][3].is_nan(), "{name} must be MISSING at k <= 0");
+        }
+    }
+
     #[test]
     fn fzi_and_rqi_match_amaefule_formula() {
         // φ=0.20, k=100 mD → RQI=0.0314·√500=0.702..; φz=0.25; FZI=RQI/φz.

@@ -3048,6 +3048,53 @@ mod tests {
         assert!(ok["PERM"][0].is_finite() && ok["PERM"][0] > 0.0);
     }
 
+    /// T-PETRO-14 — each Wyllie-Rose variant must carry its OWN published constants, and two of
+    /// them are deliberately the same equation.
+    ///
+    /// `perm_wyllie_rose_edges` and `..._negative_phie_missing_across_all_variants` already pin the
+    /// guards; what was never checked is that OPT_WR actually selects different physics. A variant
+    /// wired to the wrong constants is the silent kind of wrong — permeability comes back finite,
+    /// positive, correctly shaped against porosity, and an order of magnitude off.
+    ///
+    /// Values hand-derived from PERM = (C·φ^D / Swirr^E)² at the plan's domain-sanity point
+    /// φ = 0.25, Swirr = 0.15, with the constants in the module doc:
+    ///   TIMUR              C=100 D=2.25 E=1 → (100·0.25^2.25 / 0.15)² = 868.06 mD
+    ///   MORRIS_BIGGS_OIL   C=250 D=3    E=1 → (250·0.015625 / 0.15)²  = 678.17 mD
+    ///   MORRIS_BIGGS_GAS   C=79  D=3    E=1 → (79·0.015625  / 0.15)²  =  67.72 mD
+    ///   TIXIER             C=250 D=3    E=1 → same equation as MORRIS_BIGGS_OIL
+    #[test]
+    fn the_wyllie_rose_variants_carry_their_own_constants_and_two_are_one_equation() {
+        let run = |variant: &str| -> f64 {
+            perm_wyllie_rose(&ctx_with(
+                1,
+                &[("PHIE", vec![0.25f32])],
+                &[("SWE_IRR", 0.15)],
+                &[("OPT_WR", variant)],
+            ))["PERM_WR"][0] as f64
+        };
+        let timur = run("TIMUR");
+        let oil = run("MORRIS_BIGGS_OIL");
+        let gas = run("MORRIS_BIGGS_GAS");
+        let tixier = run("TIXIER");
+
+        assert!((timur - 868.06).abs() < 0.5, "TIMUR {timur}");
+        assert!((oil - 678.17).abs() < 0.5, "MORRIS_BIGGS_OIL {oil}");
+        assert!((gas - 67.72).abs() < 0.5, "MORRIS_BIGGS_GAS {gas}");
+
+        // TIXIER is MORRIS_BIGGS_OIL in this port — identical to the last bit, not merely close.
+        // Documented in the module doc; asserted here so a future edit to one must touch both.
+        assert_eq!(oil, tixier, "TIXIER and MORRIS_BIGGS_OIL are the same C/D/E in this port");
+
+        // The gas variant sits a full decade below the oil one — (250/79)² = 10.01 — which is the
+        // whole reason the choice matters. Anything less than a decade means a variant is misread.
+        assert!(oil / gas > 9.9, "gas must be ~1 decade below oil: {oil} / {gas} = {}", oil / gas);
+        assert!(timur > oil, "TIMUR is the highest of the four at this point");
+
+        // An unknown OPT_WR falls back to TIMUR rather than failing. Pinned so the fallback stays
+        // a deliberate choice — a typo in a saved chain must not silently become a different rock.
+        assert_eq!(run("NOT_A_VARIANT"), timur, "an unrecognised variant falls back to TIMUR");
+    }
+
     #[test]
     fn perm_coates_computes_and_handles_edges() {
         // PERM = (C*phi^2*(1-swirr)/swirr)^2. C=100, phi=0.2, swirr=0.2 →

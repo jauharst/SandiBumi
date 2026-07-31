@@ -30,7 +30,7 @@ Pile D is the number that matters: **37 tests, about one in seven, genuinely nee
 | Pile | Done | Remaining |
 |---|---|---|
 | **A** — was already pinned before this work started | **21** | — |
-| **B** — a Rust test now checks it | **20** | 25 (of 44 — T-IMP-06 regraded to D) |
+| **B** — a Rust test now checks it | **24** | 21 (of 44 — T-IMP-06 regraded to D) |
 | **C** — a machine now drives it | **5 harness tests** | 81 unblocked (+61 blocked) |
 
 ### Pile A — the checklist
@@ -81,7 +81,7 @@ verification mark** — that lives in `docs/manual_test_plan.md` and nothing aut
 touches it. A `[x]` below says the arithmetic is pinned; it does not say the feature works on
 your wells.
 
-**Done (20 of 44)**
+**Done (24 of 44)**
 
 - [x] **T-REP-18** — SQL Query rejects writes · `readonly_query_refuses_every_write_shape_including_a_cte_prefix` (`db.rs`)
 - [x] **T-SHIP-03** — missing perm curve fails loudly · `a_missing_curve_fails_by_name_rather_than_computing_on_another` (`lorenz.rs`)
@@ -119,6 +119,27 @@ your wells.
   external-input set is built from LogIn args and MASK is an Option. Both are asserted, so a
   half-fix that touches only the executor will still fail.
 
+- [~] **T-PETRO-14** — Wyllie-Rose variants ·
+  `the_wyllie_rose_variants_carry_their_own_constants_and_two_are_one_equation` (`modules.rs`).
+  **Graded honestly:** the edge cases were already pile A — `perm_wyllie_rose_edges` and
+  `perm_wyllie_rose_negative_phie_missing_across_all_variants` pin PHIE = 0, missing and negative.
+  What was genuinely uncovered is that OPT_WR selects different physics at all: the four constants
+  at the plan's own domain point, TIXIER being byte-identical to MORRIS_BIGGS_OIL, the decade
+  between oil and gas, and the silent fallback to TIMUR on an unknown variant.
+- [x] **T-RT-05** — rocktyping with no permeability curve ·
+  `rocktyping_without_a_permeability_curve_fails_and_writes_no_curves` (`workflow.rs`), with the
+  same well plus permeability as the control. **Found a defect while writing it** — see finding 10.
+- [x] **T-RT-07** — RT_LOG ladder and the inconsistent-cutoff case ·
+  `an_inverted_cutoff_ladder_is_accepted_and_scatters_the_middle_class` (`rocktyping.rs`). Step 4
+  asked what an inverted ladder does; it is worse than silent acceptance — the middle class splits,
+  half promoted to BEST and half demoted to non-net in the same run. Pinned as-is.
+- [~] **T-RT-08** — Pittman r10–r75 family and the APEX selector ·
+  `the_pittman_radius_family_inverts_between_r50_and_r75_in_good_sand` (`rocktyping.rs`). **Graded
+  honestly:** `pittman_r35_matches_published_regression`, `pittman_apex_selector_switches_controlling_radius`
+  and `pittman_missing_inputs_stay_missing` already pinned RAPEX, the selector and the port class.
+  New here: step 3's monotone-ordering claim, which **fails** (finding 9), and that an invalid
+  sample blanks all ELEVEN outputs rather than the three the old test checked.
+
 All three items flagged **silent-wrongness class** (T-REP-18, T-SHIP-03, T-INT-11) are closed.
 
 **Regraded out of pile B (1)**
@@ -130,7 +151,7 @@ All three items flagged **silent-wrongness class** (T-REP-18, T-SHIP-03, T-INT-1
   variable at one of your own files and `cargo test -- --ignored` runs it; nothing automated can
   retire it. Pile B is therefore 44 items, not 45.
 
-**Open (25)**
+**Open (21)**
 
 - [ ] T-PLOT-19 — Curve Edit negatives (invalid input, stale undo)
 - [ ] T-REP-02 — Composite render: layout, print scale, pagination
@@ -145,14 +166,10 @@ All three items flagged **silent-wrongness class** (T-REP-18, T-SHIP-03, T-INT-1
 - [ ] T-PREP-18 — Splice Curves at depth
 - [ ] T-PETRO-02 — vsh_gr nonlinear options + version N+1
 - [ ] T-PETRO-13 — zone parameter override: RW in one zone only
-- [ ] T-PETRO-14 — perm_wyllie_rose, all OPT_WR variants
 - [ ] T-ADV-10 — RtC/IMTS on an SSPW-only well: fallback
 - [ ] T-ADV-11 — RtC with no porosity curve: honest failure
 - [ ] T-ADV-13 — Saturation-Height on a deviated well (TVD wiring)
 - [ ] T-ADV-17 — SandiMin re-run, lowercase prefix, no shadow rows
-- [ ] T-RT-05 — rocktyping with no permeability curve
-- [ ] T-RT-07 — Rock Type from Cutoffs: RT_LOG ladder
-- [ ] T-RT-08 — Pittman r10–r75 + APEX selector
 - [ ] T-RT-18 — Legacy Multimin RECON_ERR at exactly 3 tools
 - [ ] T-SHELL-07 — Save Project As = backup copy
 - [ ] T-SHELL-09 — project switch refused while a chain runs
@@ -443,7 +460,7 @@ these turns on a judgement about real rock, a visual read, or a feel for whether
 
 ---
 
-## Eight things the triage found that are worth fixing regardless
+## Ten things the triage found that are worth fixing regardless
 
 These came out of reading all 250 tests against the current code. Each was verified directly,
 not taken on a subagent's word. **Findings 1, 2 and 3 have since been fixed — see the notes
@@ -613,6 +630,64 @@ I also asserted, wrongly, that no module reads PERM as an input — a grep for `
 `rocktyping.rs` and `satheight.rs`, which sit in their own files. Because it was written as an
 assertion rather than a comment, the build rejected it immediately. Worth repeating as a habit:
 **a claim about the codebase belongs in an assertion, where it can be wrong out loud.**
+
+### 9. Pittman's r50 and r75 cross over in ordinary sand — **OPEN, needs the paper**
+
+Found while writing T-RT-08. The physics is not in question: mercury enters the widest throats
+first, so the radius quoted at 75 % saturation must be SMALLER than the one at 50 %. `PR75 < PR50`,
+always, in rock.
+
+The nine Pittman rows are nine **independent regressions**, not a nested family, so nothing in the
+arithmetic makes them obey that. In log space,
+
+```
+PR50 − PR75 = −0.634 − 0.066·log k + 0.543·log φ%
+```
+
+which changes sign at about **79 mD at 25 % porosity**. Measured at φ = 25 %, k = 100 mD:
+
+| | radius |
+|---|---|
+| PR50 | 2.907 µm |
+| PR75 | **2.953 µm** ← larger, which cannot happen |
+
+At 1 mD the same pair is the right way round, so this is not one bad sample — it is the
+coefficients. PR10 through PR50 stay monotone throughout, which narrows it to the PR75 row (or,
+less likely, PR50).
+
+T-RT-08's Expected says the ordering "holds everywhere both curves are populated". It does not, and
+the well where it fails is a good one. It also reaches the outputs: someone selecting `r75` as APEX
+in fine rock — which is exactly what the module doc recommends for fine rock — gets RAPEX and
+RT_PITT built on the inverted value.
+
+**Not fixed, deliberately.** `pittman_rx_spec`'s own doc already says the full set is transcribed
+from Pittman 1992 and flags it *verify before field release*. This is that verification, and it
+fails — but correcting a published coefficient requires the paper in hand, and inventing one to
+make the ordering come out right is exactly the move the provenance rules forbid. Pinned with the
+measured numbers by `the_pittman_radius_family_inverts_between_r50_and_r75_in_good_sand`.
+
+### 10. A run that fails still writes its empty curves into the catalog — **OPEN, your call**
+
+Found while writing T-RT-05. `all_nan_module_output_reports_error_not_success` already pins the
+honest half: an all-MISSING run reports an error and a zero sample count instead of a green ✓. What
+nobody had checked is what reaches the database.
+
+Phase 2 of `run_workflow_module_into` writes for any well whose outcome is `Computed` with a
+non-empty output map — and an all-MISSING output map is still non-empty. So rocktyping on a well
+with porosity but no permeability reports its failure **and versions the whole family** — RQI,
+PHIZ, FZI, R35, PGEOM, PSTRUC, RT, PERM_RT — into the Curve Catalog as curves that are blank from
+top to bottom. Measured: rows written for all eight, finite values in none.
+
+T-RT-05's Expected says the catalog must gain no FZI/RT rows and no half-written curves. It gains
+eight of them. The cost is not corruption — the values are honestly MISSING — it is that the
+catalog stops distinguishing *"this was never run"* from *"this was run and could not answer"*, and
+a log-set version is burned recording the second as though it were an interpretation.
+
+**Not fixed.** Suppressing the write is a one-line filter, but it is a behaviour change for every
+module (gascorr without precalc, electrofacies with no usable curve, an equation over a missing
+input), and a blank curve is arguably the honest record that a run happened. Pinned as-is by
+`rocktyping_without_a_permeability_curve_fails_and_writes_no_curves`, which asserts both halves —
+the rows exist, and not one of them is finite.
 
 ---
 
