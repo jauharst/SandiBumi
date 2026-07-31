@@ -4489,6 +4489,15 @@ Shared preconditions for this cluster: app running via `npm run tauri dev`; a pr
    → Run.
 3. Run `SELECT * FROM standard_curves` on a big well.
    **Expected:** (1) One row per well: sample counts > 0, avg*gr plausible (~20–150 gAPI for Mahakam sand/shale), top < bottom matching the wells' logged intervals. (2) The join executes — every computed curve (VSH, PHIE, SWE, FLAG*\*, …) appears against the well's log-set provenance rows (set_name/version/module tell you what run produced curves for that well); counts consistent with the Curve Catalog. (3) Result silently caps at the display limit ("1000 row(s)") rather than freezing the UI.
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** `panels.e2e.mjs` opens the pane,
+   requires it to arrive with a runnable starter (an empty box would mean guessing at schema names)
+   and RUNS it, asserting rows come back. **That is how finding 23 was caught: the starter shipped
+   opening with two `--` comment lines, and `db::run_readonly_query` tests the first keyword of the
+   trimmed text - so the very first thing a new user clicked in this panel was refused with "only
+   SELECT queries are allowed here", about a query that is a SELECT.** The starter is fixed here.
+   The guard still cannot see past a comment; that behaviour is pinned as-is and is your call. **Not
+   covered:** the provenance join in step 2, and the "avg_gr plausible" human read.
+
    **Result — T-REP-17:**
 
 - [ ] Pass
@@ -4564,6 +4573,12 @@ This cluster sweeps the tools and behaviours the first drafting pass missed: the
 6. If any gauge reads **n/a**, note which one (metrics are Windows-only, best-effort).
 7. Right-click empty space in the pane — the context menu heading must read **Performance**, and the pane must not offer Close (it is an anchor pane).
    **Expected:** Four live colour-coded gauges updating every ~1.5 s without flicker; n/a only for genuinely unavailable metrics; pane survives (cannot be closed) and keeps its width when other panes open/close. _(REVIEW.md ▸ "Hardware Health Monitor" — unchecked "[ ] Test: open Health → MEM/USER/GDI show live %; leave a few heavy panels open and watch GDI/USER climb". Note: REVIEW describes a GPU Memory gauge; the shipped panel replaced it with CPU — record what you actually see.)_
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** `panels.e2e.mjs` opens the pane and
+   asserts every gauge is both LABELLED and shows a value. A gauge rendering an empty string is
+   worse than a missing gauge - it reads as "measured, and it is nothing" rather than "not
+   measured". **Not covered:** the 1.5 s live tick, the tooltips, and the leak watch, which is a
+   human read over time.
+
    **Result — T-AUX-01:**
 
 - [ ] Pass
@@ -4586,6 +4601,13 @@ This cluster sweeps the tools and behaviours the first drafting pass missed: the
 4. Repeat the right-click help on a Log View and on the DB Inspector (its blurb must say "spreadsheet-style", not any vendor name).
 5. Confirm each help modal ends with the note "Illustrated help for each panel will open here in a later release."
    **Expected:** The Help button and the right-click **Help for this panel…** entry open the same contextual guide; module panes show the method doc, other panels a short blurb; no vendor trademarks appear. _(REVIEW.md ▸ "Help (?) tool" — unchecked "[ ] click Help (Project ▸ Help) (or right-click any panel → Help for this panel…)"; and ▸ trademark scrub "hover the DB Inspector ribbon button + open Help → reads 'spreadsheet-style'".)_
+   **Automated coverage - end-to-end (pile C, 2026-08-01):** `panels.e2e.mjs` opens contextual
+   help for the active panel and asserts it carries real text, then checks the provenance rule where
+   a user actually reads it: the help must name no vendor (Schlumberger, Halliburton, Techlog,
+   Geolog, Interactive Petrophysics). Attribution belongs in comments and in
+   `docs/IP_PROVENANCE.md` beside the asset it describes, never in shipped help text. **Not
+   covered:** the right-click context-help route, and the per-module help body.
+
    **Result — T-AUX-02:**
 
 - [ ] Pass

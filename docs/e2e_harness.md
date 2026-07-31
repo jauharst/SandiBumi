@@ -138,6 +138,32 @@ looked for `~VERSION`; `export.rs` writes `~Version Information`. The file was f
 was wrong — which is the direction a harness should fail in, but only if you check the output
 rather than assume it.
 
+### Testing a refusal: catch on BOTH sides
+
+The usual `call` helper wraps `invoke` in a page-side `try` and returns `{ok, value|error}`. That
+is enough while every command succeeds — but a command you expect to be REFUSED still escapes:
+@wdio/tauri-service re-throws page-side errors through its own `__wdio_error__` channel, wdio
+retries three times, and the test then fails with the backend's own message as a WebDriverError.
+Which is a confusing way to be told that the refusal you were testing for happened exactly as
+expected.
+
+Wrap the `browser.execute` call on the Node side too — see `panels.e2e.mjs`. A refusal has to be
+data, not an exception.
+
+### Do not rebuild immediately after a run
+
+The link step **deletes** `sandibumi.exe` before writing the new one, and Windows refuses while any
+handle is open. A build started while the app is still closing fails with
+
+```
+error: failed to remove file …\target\release\sandibumi.exe
+```
+
+and — this is the part that wastes time — leaves the OLD binary in place. The next e2e run then
+tests the previous build and the change under test appears not to have worked. Check that
+`sandibumi.exe` is gone from the task list before rebuilding, or simply rebuild again; orphaned
+`tauri-driver` / `msedgedriver` processes are harmless here and the next run reaps them.
+
 ### `invoke` does not tell the frontend anything
 
 Seeding data through `invoke` writes to DuckDB and nothing else. The panes only re-read when the
@@ -188,7 +214,7 @@ click listener the two are equivalent — but when the *gesture* is the thing un
 
 ## Current coverage
 
-Thirty-seven tests across eight spec files. Specs share ONE app launch and one project (see the spec
+Forty-one tests across nine spec files. Specs share ONE app launch and one project (see the spec
 grouping note in `wdio.conf.mjs`), so write each one to establish what it needs and to assert
 changes as before/after differences rather than as absolute state.
 
@@ -272,6 +298,15 @@ correct one if you only read the message.
 | Listed in Open Session | The dialog can find what was saved |
 | Ctrl+S re-saves quietly | No dialog reopens; the status line names the session |
 | Delete | Gone from the store |
+
+`panels.e2e.mjs` — panes that open and report (T-REP-17, T-AUX-01, T-AUX-02):
+
+| Test | What it proves |
+|---|---|
+| The SQL console opens with a runnable starter | And it is RUN — which is how finding 23 was caught |
+| A write is refused, and so is a commented SELECT | The second is pinned as-is, not endorsed |
+| The performance monitor shows gauges | Every one labelled AND carrying a value |
+| Help opens and names no vendor | The provenance rule, where a user reads it |
 
 Test data is `dataset for test/examples/` (`SANDI-*`) only. Never a real client project, never a
 path from `SANDIBUMI_FIELD_FIXTURES`.

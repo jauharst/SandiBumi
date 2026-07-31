@@ -2,9 +2,24 @@ import { runQuery, type TablePage } from "../ipc";
 import { setStatus } from "../state";
 import { messageNode } from "./safeDom";
 
-const STARTER = `-- Full DuckDB SQL over the project (read-only).
--- Tables: wells, standard_curves, computed_curves, tops, zones, zone_params, equations, documents
-SELECT w.well_name,
+// The explanatory text is a BLOCK comment placed after the first keyword, and both of those are
+// forced by `db::run_readonly_query` — see finding 23 in docs/review_triage.md.
+//
+// It must not come FIRST: the guard decides whether a query is a read by testing the first keyword
+// of the trimmed text, so a leading `--` line makes a valid SELECT fail with "only SELECT queries
+// are allowed here". This starter opened that way, so the first thing a new user clicked in this
+// panel was refused, with a message saying their SELECT was not a SELECT.
+//
+// And it must not be a LINE comment at the end: the query is executed wrapped as
+// `SELECT * FROM ({sql}) __sandibumi_q LIMIT n`, so a trailing `--` swallows the closing paren and
+// the limit, and DuckDB reports "syntax error at end of input" against the user's own query.
+//
+// A closed `/* … */` is safe in both directions.
+const STARTER = `SELECT /* Read-only console over the project — the whole of DuckDB SQL: joins,
+          window functions, aggregates, QUALIFY, PIVOT.
+          Tables: wells, standard_curves, computed_curves, tops, zones, zone_params,
+          equations, documents. */
+       w.well_name,
        COUNT(*)            AS samples,
        ROUND(AVG(s.gr), 1) AS avg_gr,
        ROUND(MIN(s.depth)) AS top,

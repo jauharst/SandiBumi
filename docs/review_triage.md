@@ -235,7 +235,19 @@ can fail for reasons unrelated to the code is a gate people learn to ignore.
 **`[x]` here means an end-to-end test drives it against the real app. It is NOT your verification
 mark** — same rule as pile B.
 
-**Done (12 of 86)**
+**Done (15 of 86)**
+
+- [x] **T-REP-17** — SQL Query console · `panels.e2e.mjs`. Opens the pane, requires a runnable
+      starter and RUNS it. **This is what caught finding 23** — the starter shipped opening with
+      `--` comment lines and the read-only guard tests the first keyword, so the panel's own first
+      click was refused. Fixed here; the guard's blindness to comments is pinned as-is and left to
+      you. The provenance join in step 2 is not covered.
+- [x] **T-AUX-01** — Performance monitor · `panels.e2e.mjs`. Every gauge must be labelled AND show
+      a value: a gauge rendering an empty string reads as "measured, and it is nothing" rather than
+      "not measured". The live tick and the leak watch stay yours.
+- [x] **T-AUX-02** — Help tool · `panels.e2e.mjs`. The modal carries real text and names NO vendor,
+      which is the provenance rule checked where a user actually reads it. The right-click route is
+      not covered.
 
 - [x] **T-SHELL-10** — Sessions: save, list, delete · `sessions.e2e.mjs`. The snapshot is asserted
       FIELD BY FIELD rather than "it is valid JSON": a snapshot that lost `layout` still parses,
@@ -615,7 +627,7 @@ these turns on a judgement about real rock, a visual read, or a feel for whether
 
 ---
 
-## Twenty-two things the triage found that are worth fixing regardless
+## Twenty-three things the triage found that are worth fixing regardless
 
 These came out of reading all 250 tests against the current code. Each was verified directly,
 not taken on a subagent's word. **Findings 1, 2 and 3 have since been fixed — see the notes
@@ -1176,6 +1188,53 @@ by exactly this route*. The CSP exists only in a packaged build, so if that veri
 against a dev-pointing binary it verified nothing. Which binary it used is not recorded, so this
 is a doubt rather than a finding — but T-SHIP-01 is cheap to re-run now that the harness refuses
 the wrong artefact.
+
+### 23. An ordinary SQL comment breaks the read-only console, two different ways — **STARTER FIXED 2026-08-01, the guard is your call**
+
+The SQL console mishandles `--` comments at BOTH ends of a query, and neither failure is the
+user's fault.
+
+**A leading comment is refused.** `db::run_readonly_query` decides whether a query is a read by
+lower-casing the trimmed text and testing whether it **starts with** `select` or `with`. A `--`
+line in front hides the keyword, so a perfectly valid SELECT comes back *"only SELECT queries are
+allowed here"*.
+
+That is what shipped the panel's own starter query broken: it opened with two comment lines naming
+the project's tables, so **the first thing a new user clicked in that panel was refused, with a
+message telling them their SELECT was not a SELECT.**
+
+**A trailing comment corrupts the query.** The console executes what you typed WRAPPED:
+
+```
+SELECT * FROM ({your sql}) __sandibumi_q LIMIT n
+```
+
+so a `--` at the end swallows the closing paren and the limit, and DuckDB reports *"syntax error at
+end of input"* — against a query that is valid on its own. This is the more confusing half: nothing
+on screen says the query was rewritten before it ran.
+
+Both were found by the end-to-end harness, which runs the starter through the pane's own Run
+button. Neither is reachable by a Rust test: the guard is pinned by
+`readonly_query_refuses_every_write_shape_including_a_cte_prefix` and behaves correctly by its own
+definition, the wrapper is an implementation detail no test inspects, and the starter is frontend
+text nothing was checking.
+
+**Fixed here:** the starter now begins with `SELECT` and carries its explanation as a closed
+`/* … */` block comment, which is safe at both ends. Frontend text only; the write discipline is
+untouched.
+
+**NOT fixed, and it is your call**, because both fixes touch a write-discipline path and rule 6
+puts that in your hands:
+
+- The leading case wants the guard to skip leading `--` lines and blank lines before testing the
+  first keyword. Note this makes it **stricter**, not looser — it would then test the first REAL
+  token, and `-- x⏎DELETE …` is rejected either way.
+- The trailing case wants the wrapper to put its suffix on a NEW LINE (`…
+) __sandibumi_q LIMIT n`),
+  which costs nothing and fixes it outright.
+
+Current behaviour is pinned as-is in `panels.e2e.mjs`, with instructions to delete whichever half
+gets fixed rather than restoring it.
 
 ---
 

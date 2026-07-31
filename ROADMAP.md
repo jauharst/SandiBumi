@@ -956,6 +956,21 @@ The actionable backlog. Roughly ordered: safe frontend wins first, then Performa
       2026-07-29 by this same route, and the CSP exists only in a packaged build — which binary that
       run used is not recorded. Finding 22.
 
+- [ ] **An ordinary SQL comment breaks the read-only console, two ways — STARTER FIXED 2026-08-01,
+      the guard is your call.** `db::run_readonly_query` tests whether the TRIMMED text starts with
+      `select`/`with`, so a leading `--` line hides the keyword and a valid SELECT is refused with
+      *"only SELECT queries are allowed here"*. The panel's own starter opened that way, so the
+      first thing a new user clicked there was refused with a message saying their SELECT was not a
+      SELECT. Separately, the query runs WRAPPED as `SELECT * FROM ({sql}) __sandibumi_q LIMIT n`,
+      so a TRAILING `--` swallows the closing paren and the limit and DuckDB reports *"syntax error
+      at end of input"* against a query that is valid on its own — the more confusing half, since
+      nothing says the query was rewritten. Both found by the end-to-end harness running the
+      starter through the pane's Run button; neither reachable by a Rust test. **Fixed:** the
+      starter now begins with `SELECT` and explains itself in a closed `/* … */` block (frontend
+      text only). **Open, both small:** skip leading `--`/blank lines before the keyword test (which
+      makes the guard STRICTER, not looser — it would test the first real token), and put the
+      wrapper's suffix on a new line. Pinned as-is in `panels.e2e.mjs`. Finding 23.
+
 - [x] **Legacy-multimin RECON_ERR at 3 tools — CLOSED 2026-07-31, no sign-off needed.** REVIEW.md
       still lists this among the findings awaiting a decision because it would change
       interpretation numbers. It does not need one. Legacy `multimin` is **retired** — `run_module`
