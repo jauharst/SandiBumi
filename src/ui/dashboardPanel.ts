@@ -1,5 +1,5 @@
 import { listWells, runPaySummary, type PaySummaryRow } from "../ipc";
-import { filterByActiveGroup } from "../state";
+import { appState, filterByActiveGroup } from "../state";
 import { escapeHtml } from "./safeDom";
 
 /** Field Dashboard: multi-well × zone pay statistics in one panel.
@@ -59,13 +59,30 @@ export async function buildDashboardContent(
   const sweIn = num("0.6");
   const permIn = num("", "(off)");
 
-  const flagSel = document.createElement("select");
-  flagSel.className = "dash-sel";
-  flagSel.innerHTML = ["PAY", "RESERVOIR", "SAND"].map((f) => `<option value="${f}">${f}</option>`).join("");
-
-  const metricSel = document.createElement("select");
-  metricSel.className = "dash-sel";
-  metricSel.innerHTML = METRICS.map((m) => `<option value="${m.key}">${m.label}</option>`).join("");
+  // Flag / Metric are Organic segmented pills (design 1b) — same semantics the
+  // old <select>s had, one value each, change re-renders from the held rows.
+  let flagVal = "PAY";
+  let metricVal: Metric = "avg_phie";
+  const buildSeg = (opts: { value: string; label: string }[], get: () => string, set: (v: string) => void) => {
+    const seg = document.createElement("div");
+    seg.className = "seg";
+    const paint = () =>
+      seg.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === get())));
+    for (const o of opts) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "seg-opt";
+      b.dataset.v = o.value;
+      b.textContent = o.label;
+      b.addEventListener("click", () => {
+        set(o.value);
+        paint();
+      });
+      seg.appendChild(b);
+    }
+    paint();
+    return seg;
+  };
 
   const runBtn = document.createElement("button");
   runBtn.className = "btn btn-accent";
@@ -76,6 +93,23 @@ export async function buildDashboardContent(
   csvBtn.textContent = "Export CSV";
   csvBtn.disabled = true;
 
+  // Header row (design 1b): display-face title + a group·wells tag, actions
+  // right-aligned. The tag stays hidden until a Compute has established what
+  // scope the numbers on screen actually describe.
+  const header = document.createElement("div");
+  header.className = "dashboard-header";
+  const title = document.createElement("span");
+  title.className = "dashboard-title";
+  title.textContent = "Field Dashboard";
+  const scopeTag = document.createElement("span");
+  scopeTag.className = "dash-tag";
+  scopeTag.hidden = true;
+  const actions = document.createElement("span");
+  actions.className = "dashboard-actions";
+  actions.append(csvBtn, runBtn);
+  header.append(title, scopeTag, actions);
+  el.appendChild(header);
+
   const controls = document.createElement("div");
   controls.className = "dashboard-controls";
   const field = (label: string, node: HTMLElement) => {
@@ -85,15 +119,29 @@ export async function buildDashboardContent(
     w.appendChild(node);
     return w;
   };
+  const flagSeg = buildSeg(
+    ["PAY", "RESERVOIR", "SAND"].map((f) => ({ value: f, label: f })),
+    () => flagVal,
+    (v) => {
+      flagVal = v;
+      render();
+    },
+  );
+  const metricSeg = buildSeg(
+    METRICS.map((m) => ({ value: m.key, label: m.label })),
+    () => metricVal,
+    (v) => {
+      metricVal = v as Metric;
+      render();
+    },
+  );
   controls.append(
     field("VSH ≤", vshIn),
     field("PHIE ≥", phieIn),
     field("SWE ≤", sweIn),
     field("PERM ≥", permIn),
-    field("Flag", flagSel),
-    field("Metric", metricSel),
-    runBtn,
-    csvBtn,
+    field("Flag", flagSeg),
+    field("Metric", metricSeg),
   );
   el.appendChild(controls);
 
@@ -114,38 +162,68 @@ export async function buildDashboardContent(
   // Rows whose classifier could judge nothing (VSH/PHIE/SWE never computed for that well) carry
   // net/ntg/hpv of exactly 0 — indistinguishable from a genuine wet zone. Here that is worse
   // than a mis-rendered cell: feeding those zeros into the medians and box plots would drag
-  // every aggregate down with data that does not exist. So they are excluded from the panel and
-  // counted, rather than blanked in place.
-  // Returns the count alongside the rows rather than assigning to an outer variable: the CSV
-  // handler calls this outside `render`, so a side-effecting version would leave the on-screen
-  // "n excluded" note describing a different selection than the one displayed.
-  const rowsForFlag = (): { rows: PaySummaryRow[]; uninterpreted: number } => {
-    const forFlag = allRows.filter((r) => r.flag === flagSel.value);
+  // every aggregate down with data that does not exist. So they are excluded from every number
+  // and counted — design 1b shows them GREYED at the bottom of the grid (a delivery that
+  // silently lost rows reads as complete) with a ZONES EXCLUDED card and a footnote saying so.
+  // Returns both lists rather than assigning to an outer variable: the CSV handler calls this
+  // outside `render`, so a side-effecting version would leave the on-screen state describing a
+  // different selection than the one displayed.
+  const rowsForFlag = (): { rows: PaySummaryRow[]; excluded: PaySummaryRow[] } => {
+    const forFlag = allRows.filter((r) => r.flag === flagVal);
     const rows = forFlag.filter((r) => r.n_classified > 0);
-    return { rows, uninterpreted: forFlag.length - rows.length };
+    return { rows, excluded: forFlag.filter((r) => r.n_classified === 0) };
+  };
+
+  // ---- Section: KPI cards (design 1b) — the display face carries the numerals ----
+  const sectionKpis = (rows: PaySummaryRow[], excluded: PaySummaryRow[]) => {
+    const wrap = document.createElement("div");
+    wrap.className = "dash-kpis";
+    const kpi = (label: string, value: string, cls: string, suffix?: string) => {
+      const card = document.createElement("div");
+      card.className = `kpi-card ${cls}`;
+      const l = document.createElement("div");
+      l.className = "kpi-label";
+      l.textContent = label;
+      const v = document.createElement("div");
+      v.className = "kpi-value";
+      v.textContent = value;
+      if (suffix) {
+        const s = document.createElement("span");
+        s.className = "kpi-suffix";
+        s.textContent = ` ${suffix}`;
+        v.appendChild(s);
+      }
+      card.append(l, v);
+      return card;
+    };
+    // Same arithmetic the tables below use — the cards are a reading of the
+    // aggregation, never a second implementation of it.
+    const flagSfx = flagVal === "PAY" ? "PAY" : flagVal;
+    wrap.append(
+      kpi(`TOTAL NET ${flagSfx}`, fmt(sum(rows, "net"), 1), "kpi-accent", "m"),
+      kpi("TOTAL HPV", fmt(sum(rows, "hpv"), 2), "kpi-accent2", "m"),
+      kpi(`MEAN PHIE (${flagVal})`, fmt(weightedMean(rows, "avg_phie", "net"), 3), "kpi-neutral"),
+      kpi(`MEAN SWE (${flagVal})`, fmt(weightedMean(rows, "avg_swe", "net"), 3), "kpi-neutral"),
+      kpi("ZONES EXCLUDED", String(excluded.length), "kpi-neutral", excluded.length ? "no results" : ""),
+    );
+    return wrap;
   };
 
   const render = () => {
-    const { rows, uninterpreted } = rowsForFlag();
+    const { rows, excluded } = rowsForFlag();
     body.innerHTML = "";
     if (rows.length === 0) {
       const why =
-        uninterpreted > 0
-          ? `None of the ${uninterpreted} ${flagSel.value} interval(s) could be classified — run VSH/PHIE/SWE for these wells first.`
-          : `No ${flagSel.value} intervals. Check cutoffs, or that VSH/PHIE/SWE are computed.`;
+        excluded.length > 0
+          ? `None of the ${excluded.length} ${flagVal} interval(s) could be classified — run VSH/PHIE/SWE for these wells first.`
+          : `No ${flagVal} intervals. Check cutoffs, or that VSH/PHIE/SWE are computed.`;
       body.innerHTML = `<div class="dashboard-empty">${escapeHtml(why)}</div>`;
       csvBtn.disabled = true;
       return;
     }
     csvBtn.disabled = false;
-    const metric = METRICS.find((m) => m.key === metricSel.value)!;
-    if (uninterpreted > 0) {
-      const note = document.createElement("div");
-      note.className = "dashboard-empty";
-      note.textContent =
-        `${uninterpreted} interval(s) excluded — VSH/PHIE/SWE not computed, so no sample could be classified.`;
-      body.appendChild(note);
-    }
+    const metric = METRICS.find((m) => m.key === metricVal)!;
+    body.appendChild(sectionKpis(rows, excluded));
     // Wells with no PERM curve against an active permeability cutoff. Every sample fails it for
     // want of data, so they contribute a hard zero to every average and box below — which looks
     // exactly like a well that was judged and found wet (`docs/review_triage.md` finding 7). This
@@ -163,8 +241,8 @@ export async function buildDashboardContent(
       body.appendChild(note);
     }
     body.appendChild(sectionByZone(rows, metric));
-    body.appendChild(sectionBoxPlots(rows, metric));
-    body.appendChild(sectionGrid(rows));
+    body.appendChild(sectionBoxPlots(rows, metric, excluded.length));
+    body.appendChild(sectionGrid(rows, excluded));
   };
 
   // ---- Section: per-zone aggregation ----
@@ -172,7 +250,7 @@ export async function buildDashboardContent(
     const byZone = groupBy(rows, (r) => r.zone);
     const sec = document.createElement("div");
     sec.className = "dashboard-section";
-    sec.innerHTML = `<h4>By zone — ${escapeHtml(flagSel.value)}</h4>`;
+    sec.innerHTML = `<h4>By zone — ${escapeHtml(flagVal)}</h4>`;
     const table = document.createElement("table");
     table.className = "summary-table";
     table.innerHTML =
@@ -195,7 +273,7 @@ export async function buildDashboardContent(
   };
 
   // ---- Section: per-zone box plots for the chosen metric ----
-  const sectionBoxPlots = (rows: PaySummaryRow[], metric: (typeof METRICS)[number]) => {
+  const sectionBoxPlots = (rows: PaySummaryRow[], metric: (typeof METRICS)[number], nExcluded: number) => {
     const sec = document.createElement("div");
     sec.className = "dashboard-section";
     sec.innerHTML = `<h4>${escapeHtml(metric.label)} distribution by zone</h4>`;
@@ -210,20 +288,28 @@ export async function buildDashboardContent(
     const lo = Math.min(...stats.map((s) => s.box!.min));
     const hi = Math.max(...stats.map((s) => s.box!.max));
     sec.appendChild(renderBoxPlots(stats as { zone: string; box: BoxStats }[], lo, hi, metric.digits));
+    if (nExcluded > 0) {
+      const note = document.createElement("div");
+      note.className = "dashboard-footnote";
+      note.textContent =
+        `${nExcluded} zone(s) with no computed results are excluded and counted — never averaged in as zero.`;
+      sec.appendChild(note);
+    }
     return sec;
   };
 
   // ---- Section: sortable interval grid ----
-  const sectionGrid = (rows: PaySummaryRow[]) => {
-    const sorted = [...rows].sort((a, b) => {
+  const sectionGrid = (rows: PaySummaryRow[], excluded: PaySummaryRow[]) => {
+    const bySort = (a: PaySummaryRow, b: PaySummaryRow) => {
       const av = a[sortKey];
       const bv = b[sortKey];
       if (typeof av === "number" && typeof bv === "number") return (av - bv) * sortDir;
       return String(av).localeCompare(String(bv)) * sortDir;
-    });
+    };
+    const sorted = [...rows].sort(bySort);
     const sec = document.createElement("div");
     sec.className = "dashboard-section";
-    sec.innerHTML = `<h4>All ${escapeHtml(flagSel.value)} intervals (${rows.length})</h4>`;
+    sec.innerHTML = `<h4>All ${escapeHtml(flagVal)} intervals (${rows.length})</h4>`;
     const wrap = document.createElement("div");
     wrap.className = "summary-table-wrap";
     const table = document.createElement("table");
@@ -247,14 +333,26 @@ export async function buildDashboardContent(
     thead.appendChild(htr);
     table.appendChild(thead);
     const tb = document.createElement("tbody");
-    for (const r of sorted) {
+    // On an excluded row the classifier judged nothing, so net/N-G/averages/HPV
+    // are 0 for want of an answer — printed they would read as computed zeros.
+    // Same rule as the workbook: those cells go blank, GROSS is geometry and
+    // stays a number (office.rs "a blank is not a zero").
+    const CLASSIFIED_COLS = new Set<SortKey>(["net", "ntg", "avg_vsh", "avg_phie", "avg_swe", "hpv"]);
+    const addRow = (r: PaySummaryRow, cls: string) => {
       const tr = document.createElement("tr");
-      tr.className = `flag-${r.flag.toLowerCase()}`;
-      tr.innerHTML = GRID_COLS.map((c) =>
-        c.num ? `<td>${fmt(r[c.key] as number, c.digits ?? 2)}</td>` : `<td>${escapeHtml(String(r[c.key]))}</td>`,
-      ).join("");
+      tr.className = cls;
+      tr.innerHTML = GRID_COLS.map((c) => {
+        if (!c.num) return `<td>${escapeHtml(String(r[c.key]))}</td>`;
+        if (cls === "row-excluded" && CLASSIFIED_COLS.has(c.key)) return "<td>—</td>";
+        return `<td>${fmt(r[c.key] as number, c.digits ?? 2)}</td>`;
+      }).join("");
       tb.appendChild(tr);
-    }
+    };
+    // Top row of the current sort is highlighted (design 1b). Excluded rows
+    // trail GREYED at the bottom, in the grid but in none of the numbers —
+    // a delivery that silently lost rows would read as complete.
+    sorted.forEach((r, i) => addRow(r, i === 0 ? "row-top" : ""));
+    [...excluded].sort(bySort).forEach((r) => addRow(r, "row-excluded"));
     table.appendChild(tb);
     wrap.appendChild(table);
     sec.appendChild(wrap);
@@ -290,6 +388,11 @@ export async function buildDashboardContent(
       const flags = new Set(allRows.map((r) => r.flag));
       statusEl.textContent = `${wellIds.length} well(s) · ${allRows.length} zone-rows across ${flags.size} flag level(s). Stats only — no FLAG curves written; run Cutoffs & Summary to persist flags.`;
       setStatus(`Field dashboard: ${allRows.length} rows over ${wellIds.length} wells`);
+      // Scope tag (design 1b): which group these numbers describe, and how many
+      // wells actually went in — set only once a Compute has made that true.
+      const group = appState.activeWellGroup.get();
+      scopeTag.textContent = `${group ? `Group: ${group.name}` : "All wells"} · ${wellIds.length} well${wellIds.length === 1 ? "" : "s"}`;
+      scopeTag.hidden = false;
       render();
     } catch (err) {
       statusEl.textContent = `Compute failed: ${err}`;
@@ -300,11 +403,9 @@ export async function buildDashboardContent(
     }
   });
 
-  flagSel.addEventListener("change", render);
-  metricSel.addEventListener("change", render);
   // Exports the same usable rows the panel shows — an uninterpreted well's zeros would read as a
   // genuine wet zone in a spreadsheet, where there is no dimmed styling to say otherwise.
-  csvBtn.addEventListener("click", () => exportCsv(rowsForFlag().rows, flagSel.value));
+  csvBtn.addEventListener("click", () => exportCsv(rowsForFlag().rows, flagVal));
 
   return { el };
 }

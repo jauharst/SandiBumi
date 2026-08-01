@@ -7,6 +7,33 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-01 — Organic increment 2: Field Dashboard (design 1b)
+
+The dashboard now matches your mockup. **Every number is the same arithmetic as before** —
+the KPI cards read the existing aggregation, they never recompute it. One behaviour
+refinement from the mockup: uninterpreted zones now appear GREYED at the bottom of the
+grid instead of vanishing with a count.
+
+- [ ] **Petrophysics ▸ Batch ▸ Field Dashboard…** — header row: "Field Dashboard" in the
+      display face, and after a Compute a sage tag saying which group and how many wells
+      the numbers describe. Export CSV and Compute are pills on the right.
+- [ ] Cutoff strip is one rounded band; **Flag and Metric are segmented pills** now
+      (active = solid terracotta). Same choices as the old dropdowns — click through
+      PAY/RESERVOIR/SAND and the metrics; everything re-renders from the held rows.
+- [ ] **Five KPI cards**: Total net (terracotta tint), Total HPV (sage tint), net-weighted
+      mean PHIE and SWE, and ZONES EXCLUDED. Check TOTAL NET and TOTAL HPV against the
+      By-zone table's Σ columns — they must agree exactly (same helpers).
+- [ ] **Uninterpreted zones are greyed at the grid's bottom** — gross keeps its number
+      (geometry), net/N-G/averages/HPV show "—" (a zero there would read as computed).
+      The footnote under the box plots says they are excluded, never averaged as zero.
+      The KPI card count, the greyed rows and the footnote must all agree.
+- [ ] CSV export still contains ONLY the interpreted rows — no dashes, no phantom zeros
+      in a spreadsheet that has no grey styling to explain them.
+- [ ] Top row of the grid (current sort) is highlighted; sorting still works from the
+      headers; the PERM no-data warning still appears when it applies.
+- [ ] Box plots: terracotta boxes, darker median (thicker than before) — still the same
+      quartiles.
+
 ## 2026-08-01 — The Organic reskin, increment 1 (your redesign handoff, foundation)
 
 Your `SandiBumi UI Redesign.zip` is now the standing design system; the handoff is banked

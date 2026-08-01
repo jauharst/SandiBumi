@@ -2733,9 +2733,13 @@ Jauhar delivered a high-fidelity redesign handoff and made it the STANDING desig
 every UI change from here works inside it. The authority is **`docs/design_organic/`**
 (README.md = the spec, organic-tokens.css = the token sheet — read values from it, never
 eyeball; the .dc.html mockups carry options 1a–1g and client skins 2a–2b). Increment 1
-(the foundation) shipped 2026-08-01; the per-screen passes (1b Field-Dashboard KPI cards,
-1c plot panels, 1d module pane, 1e LAS wizard, 1f report generator, 1g start screen) are
-queued and follow the handoff's per-screen sections.
+(the foundation) and increment 2 (1b Field Dashboard: Caprasimo header + scope tag,
+segmented Flag/Metric pills — the `.seg`/`.seg-opt` component is now the app's segmented
+control, KPI cards reading the EXISTING aggregation helpers, uninterpreted zones greyed
+in the grid with gross kept and judged cells dashed — the workbook's blank-is-not-zero
+rule) shipped 2026-08-01; the remaining per-screen passes (1c plot panels, 1d module
+pane, 1e LAS wizard, 1f report generator, 1g start screen) are queued and follow the
+handoff's per-screen sections.
 
 **The split that governs everything: chrome goes Organic, data stays dense.** The ribbon,
 dialogs, buttons, tags and panel frames take the warm rounded look; log tracks, grids,

@@ -105,13 +105,16 @@
   --s-5: 12px;
   --s-6: 16px;
 
-  /* Type scale — no half-pixel steps. */
+  /* Type scale — no half-pixel steps. 2xl is the Organic screen-title size
+     (Caprasimo surfaces); the handoff's 11.5px table cells land on --fs-sm,
+     inside its stated 11–12.5px data-grid range. */
   --fs-2xs: 9px;
   --fs-xs: 10px;
   --fs-sm: 11px;
   --fs-md: 12px;
   --fs-lg: 13px;
   --fs-xl: 16px;
+  --fs-2xl: 20px;
 
   /* Motion. Only PAINT properties are ever transitioned through these
      (background/border/colour/shadow) — never transform, width or
@@ -2570,14 +2573,46 @@ textarea {
   min-height: 0;
 }
 
+/* Header row (design 1b): Caprasimo title + scope tag, actions right-aligned. */
+.dashboard-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px 0;
+  flex-wrap: wrap;
+}
+.dashboard-title {
+  font-family: var(--font-heading);
+  font-weight: 400;
+  font-size: var(--fs-2xl);
+  letter-spacing: -0.01em;
+}
+.dash-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--fs-sm);
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  background: var(--accent2-soft);
+  color: color-mix(in srgb, var(--accent2) 70%, var(--text));
+}
+.dashboard-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+/* Cutoff strip: one rounded warm-neutral band holding the inputs and the
+   Flag/Metric segmented pills (design 1b). */
 .dashboard-controls {
   display: flex;
   align-items: flex-end;
   flex-wrap: wrap;
   gap: 10px;
-  padding: 10px 12px;
+  margin: 10px 14px 0;
+  padding: 8px 12px 10px;
   background: var(--bg-panel-alt);
-  border-bottom: 1px solid var(--border);
+  border-radius: var(--r-lg);
 }
 
 .dash-field {
@@ -2592,32 +2627,118 @@ textarea {
 }
 .dash-num,
 .dash-sel {
-  background: var(--bg-app);
+  background: var(--bg-panel);
   color: var(--text);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: var(--r-md);
-  padding: 4px 6px;
+  padding: 4px 8px;
   font-size: var(--fs-md);
   font-family: inherit;
 }
 .dash-num {
-  width: 68px;
+  width: 74px;
 }
-.dashboard-controls .btn {
-  align-self: flex-end;
+
+/* Segmented pill control (Organic): one bordered pill, options inside; the
+   active option is a solid accent pill. Buttons, not radios — same one-value
+   semantics the old <select>s had. */
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-pill);
+  background: var(--bg-panel);
+  overflow: hidden;
+}
+.seg-opt {
+  border: none;
+  background: transparent;
+  padding: 4px 12px;
+  font-size: var(--fs-md);
+  font-weight: inherit;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.seg-opt + .seg-opt {
+  border-left: 1px solid var(--border);
+}
+.seg-opt:hover {
+  background: var(--accent-soft);
+  color: var(--accent-dim);
+}
+.seg-opt[aria-pressed="true"] {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* KPI cards (design 1b): tinted rounded cards, small-caps label, the value in
+   the display face. Caprasimo numerals are one of its four sanctioned uses. */
+.dash-kpis {
+  display: flex;
+  gap: 10px;
+  padding: 12px 0 0;
+  flex-wrap: wrap;
+}
+.kpi-card {
+  flex: 1 1 120px;
+  min-width: 116px;
+  border-radius: 14px;
+  padding: 12px 16px;
+}
+.kpi-label {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.kpi-value {
+  font-family: var(--font-heading);
+  font-weight: 400;
+  font-size: 27px;
+  line-height: 1.15;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.kpi-suffix {
+  font-family: var(--font-body);
+  font-size: var(--fs-md);
+  color: var(--text-dim);
+}
+.kpi-accent {
+  background: var(--accent-soft);
+}
+.kpi-accent .kpi-label {
+  color: var(--accent-dim);
+}
+.kpi-accent .kpi-value {
+  color: color-mix(in srgb, var(--accent-dim) 65%, var(--text));
+}
+.kpi-accent2 {
+  background: var(--accent2-soft);
+}
+.kpi-accent2 .kpi-label {
+  color: color-mix(in srgb, var(--accent2) 70%, var(--text));
+}
+.kpi-accent2 .kpi-value {
+  color: color-mix(in srgb, var(--accent2) 45%, var(--text));
+}
+.kpi-neutral {
+  background: var(--bg-panel-alt);
+}
+.kpi-neutral .kpi-label {
+  color: var(--text-dim);
 }
 
 .dashboard-status {
   font-size: var(--fs-sm);
   color: var(--text-dim);
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--border);
+  padding: 6px 14px 0;
 }
 
 .dashboard-body {
   flex: 1;
   overflow: auto;
-  padding: 4px 12px 16px;
+  padding: 4px 14px 16px;
 }
 
 .dashboard-section {
@@ -2638,12 +2759,42 @@ textarea {
   color: var(--text-dim);
 }
 
+/* Interval grid (design 1b): 11px tabular-nums cells (the handoff's 11.5px
+   lands on --fs-sm — data grids stay 11–12.5px), header row on the warm
+   neutral with a 2px accent underline. */
+.dashboard-grid {
+  font-size: var(--fs-sm);
+}
+.dashboard-grid th {
+  background: var(--bg-panel-alt);
+  color: var(--text);
+  border-bottom: 2px solid var(--accent);
+}
 .dashboard-grid th.sortable {
   cursor: pointer;
   user-select: none;
 }
 .dashboard-grid th.sortable:hover {
   color: var(--accent);
+}
+/* Every row of this grid shares the selected flag, so the shared per-flag tint
+   (.summary-table tr.flag-pay) would paint the WHOLE grid — the mock shows a
+   plain grid with only the top row of the current sort highlighted. */
+.dashboard-grid tr.row-top td {
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+/* Excluded zones: in the grid, greyed, and in none of the numbers. */
+.dashboard-grid tr.row-excluded td {
+  color: var(--text-dim);
+  font-style: italic;
+  opacity: 0.8;
+}
+
+.dashboard-footnote {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  margin-top: 4px;
 }
 
 /* Box plots (inline SVG, theme-aware). */
@@ -2662,19 +2813,22 @@ textarea {
   font-size: var(--fs-2xs);
   font-variant-numeric: tabular-nums;
 }
+/* Organic box plots (design 1b): fill = accent ramp-200, stroke = ramp-700,
+   median ramp-800 at 2.2px, whiskers 1.4px. The ramp steps are mixed from the
+   two accent tokens so every client skin gets its own ramp for free. */
 .dashboard-boxplot .bp-box {
-  fill: var(--accent2-soft);
-  stroke: var(--accent);
+  fill: color-mix(in srgb, var(--accent) 22%, var(--bg-panel));
+  stroke: var(--accent-dim);
   stroke-width: 1;
 }
 .dashboard-boxplot .bp-median {
-  stroke: var(--accent);
-  stroke-width: 2;
+  stroke: color-mix(in srgb, var(--accent-dim) 70%, var(--text));
+  stroke-width: 2.2;
 }
 .dashboard-boxplot .bp-whisker,
 .dashboard-boxplot .bp-cap {
   stroke: var(--text-dim);
-  stroke-width: 1;
+  stroke-width: 1.4;
 }
 
 /* --------------------------------------------------------------------------
