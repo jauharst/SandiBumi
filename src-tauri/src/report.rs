@@ -162,9 +162,16 @@ fn note_page(section: &str, well: &str, note: &str, pw: f64, ph: f64) -> Vec<Dra
 
 /// Paginated table: fixed column widths (mm), wrapped cells, header row repeated on
 /// every page. Returns one `Vec<DrawOp>` per page.
+///
+/// `caveat` is a line about the table's own trustworthiness — today, a permeability cutoff that
+/// could not be applied. It is drawn under the header on EVERY page of the table, not only the
+/// first: a pay summary paginates, and a page read on its own must carry the reason its numbers
+/// are not comparable with the next well's.
+#[allow(clippy::too_many_arguments)]
 fn table_pages(
     section: &str,
     well: &str,
+    caveat: Option<&str>,
     cols: &[(&str, f64, Anchor)],
     rows: &[Vec<String>],
     pw: f64,
@@ -203,9 +210,24 @@ fn table_pages(
         y + h
     };
 
+    const CAVEAT_SIZE: f64 = 2.6;
+    let start_page = |ops: &mut Vec<DrawOp>| -> f64 {
+        let mut y = page_header(ops, pw, section, well);
+        if let Some(c) = caveat {
+            let max_chars = ((pw - 2.0 * MARGIN) / (CHAR_W * CAVEAT_SIZE)) as usize;
+            let lines = wrap(c, max_chars);
+            for (i, line) in lines.iter().enumerate() {
+                let ly = y + CAVEAT_SIZE + i as f64 * CAVEAT_SIZE * LINE_H_FACTOR;
+                text(ops, MARGIN, ly, CAVEAT_SIZE, Anchor::Start, false, "#8a3b2a", line.clone());
+            }
+            y += lines.len() as f64 * CAVEAT_SIZE * LINE_H_FACTOR + 2.0;
+        }
+        y
+    };
+
     let mut pages: Vec<Vec<DrawOp>> = Vec::new();
     let mut ops: Vec<DrawOp> = Vec::new();
-    let mut y = page_header(&mut ops, pw, section, well);
+    let mut y = start_page(&mut ops);
     y = header_row(&mut ops, y);
 
     for row in rows {
@@ -223,7 +245,7 @@ fn table_pages(
 
         if y + row_h > y_max {
             pages.push(std::mem::take(&mut ops));
-            y = page_header(&mut ops, pw, section, well);
+            y = start_page(&mut ops);
             y = header_row(&mut ops, y);
         }
 
@@ -382,7 +404,7 @@ fn report_pages(
             ("Method", usable * 0.38, Anchor::Start),
             ("Remarks", usable * 0.38, Anchor::Start),
         ];
-        pages.extend(table_pages("Methodology", &well_name, &m_cols, &m_rows, pw, ph, 2.7));
+        pages.extend(table_pages("Methodology", &well_name, None, &m_cols, &m_rows, pw, ph, 2.7));
 
         // 3 — per-zone parameter table (zones without params still listed)
         let mut z_rows: Vec<Vec<String>> = Vec::new();
@@ -421,7 +443,7 @@ fn report_pages(
                 ("Parameter", usable * 0.28, Anchor::Start),
                 ("Value", usable * 0.20, Anchor::End),
             ];
-            pages.extend(table_pages("Zone Parameters", &well_name, &z_cols, &z_rows, pw, ph, 2.7));
+            pages.extend(table_pages("Zone Parameters", &well_name, None, &z_cols, &z_rows, pw, ph, 2.7));
         }
 
         // 4 — pay summary (locks internally). Emit the section header unconditionally: a storage
@@ -446,6 +468,22 @@ fn report_pages(
             },
         ) {
             Ok(pay_rows) if !pay_rows.is_empty() => {
+                // A permeability cutoff this well escaped for want of data. Stated on the page
+                // rather than only in the row struct, because the deliverable is where the
+                // comparison actually gets made: without it, an uncored well's full net pay and a
+                // cored well's excluded net pay print identically and add together in a field
+                // roll-up (`docs/review_triage.md` finding 7).
+                let pay_caveat = pay_rows
+                    .iter()
+                    .any(|r| r.perm_cutoff_skipped)
+                    .then(|| {
+                        format!(
+                            "Note: the PERM ≥ {:.1} mD cutoff was NOT applied to this well — it carries no \
+                             permeability curve. Its net pay is therefore not comparable with wells where \
+                             the cutoff was applied.",
+                            spec.perm_min.unwrap_or(0.0)
+                        )
+                    });
                 let p_rows: Vec<Vec<String>> = pay_rows
                     .iter()
                     .map(|r| {
@@ -482,7 +520,7 @@ fn report_pages(
                     ("SWE", usable * 0.07, Anchor::End),
                     ("HPV (m)", usable * 0.12, Anchor::End),
                 ];
-                pages.extend(table_pages(&pay_section, &well_name, &p_cols, &p_rows, pw, ph, 2.4));
+                pages.extend(table_pages(&pay_section, &well_name, pay_caveat.as_deref(), &p_cols, &p_rows, pw, ph, 2.4));
             }
             // Ran cleanly but produced no rows: the well has no curve frame, or its zones could not
             // be read. Show the header + an explicit note rather than a blank gap.
@@ -810,6 +848,67 @@ mod tests {
         // name and identical synthetic curves, so identical bytes there is correct, not a bug.)
         let bytes: Vec<Vec<u8>> = written.iter().map(|p| std::fs::read(p).unwrap()).collect();
         assert_ne!(bytes[0], bytes[1], "the loop must re-render per well, not copy the first");
+    }
+
+    /// A permeability cutoff the well escaped for want of data is stated ON the pay page.
+    ///
+    /// The behaviour itself is unchanged and remains Jauhar's call (`docs/review_triage.md`
+    /// finding 7 — exclusion and exemption are both defensible and either changes reserves). What
+    /// is fixed is that the deliverable said nothing: an uncored well's full net pay and a cored
+    /// well's excluded net pay printed identically, and a reader comparing two reports had no way
+    /// to know one of them had never been judged.
+    #[test]
+    fn a_perm_cutoff_a_well_escaped_is_stated_on_the_pay_page() {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        db::insert_well(&conn, wid, "SANDI-NOPERM", None, None, None).unwrap();
+        let w = wid.to_string();
+        let n = 20usize;
+        let depth: Vec<f32> = (0..n).map(|i| 1000.0 + i as f32 * 0.5).collect();
+        let nan = vec![f32::NAN; n];
+        db::insert_standard_curves(
+            &conn, wid, depth.clone(), vec![50.0; n], vec![2.0; n], vec![0.25; n],
+            vec![2.4; n], nan.clone(), nan,
+        )
+        .unwrap();
+        // Pay rock, and deliberately NO PERM curve anywhere in the well.
+        for (name, v) in [("VSH", 0.2f32), ("PHIE", 0.20), ("SWE", 0.30)] {
+            equations::write_computed_curve(&conn, &w, &depth, name, &vec![v; n]).unwrap();
+        }
+
+        let dbm = Mutex::new(conn);
+        let mut spec = batch_spec();
+        spec.composite.well_id = w;
+        spec.tables_only = true;
+
+        let pay_text = |spec: &ReportSpec| -> String {
+            let (pages, _pw, _ph, _n) = report_pages(&dbm, spec).expect("render");
+            pages
+                .last()
+                .unwrap()
+                .iter()
+                .filter_map(|op| match op {
+                    DrawOp::Text { s, .. } => Some(s.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+
+        // Control first: with no cutoff requested there is nothing to say, and a note that
+        // appeared anyway would be on every report anyone ever ran.
+        spec.perm_min = None;
+        assert!(!pay_text(&spec).contains("was NOT applied"), "no cutoff requested, no note");
+
+        spec.perm_min = Some(1000.0);
+        let noted = pay_text(&spec);
+        assert!(noted.contains("was NOT applied"), "the escape must be stated: {noted}");
+        assert!(noted.contains("1000.0 mD"), "and name the cutoff it escaped: {noted}");
+        assert!(
+            noted.contains("not comparable"),
+            "and say what that costs the reader, which is the whole point: {noted}"
+        );
     }
 
     /// A well whose name sanitizes to nothing at all still gets a usable filename. `_report.pdf`
@@ -1234,7 +1333,7 @@ mod tests {
             [("A", 60.0, Anchor::Start), ("B", 100.0, Anchor::Start)];
         let rows: Vec<Vec<String>> =
             (0..200).map(|i| vec![format!("row {i}"), "some content that is short".into()]).collect();
-        let pages = table_pages("Test", "WELL-1", &cols, &rows, 210.0, 297.0, 2.7);
+        let pages = table_pages("Test", "WELL-1", None, &cols, &rows, 210.0, 297.0, 2.7);
         assert!(pages.len() > 1, "200 rows must overflow one A4 page");
         // Every page carries a header row (the shaded rect) and at least one text op.
         for p in &pages {

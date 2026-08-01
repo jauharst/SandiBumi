@@ -211,6 +211,25 @@ pub fn run_workflow_module_into(
         Computed { depth: Vec<f32>, outputs: HashMap<String, Vec<f32>> },
     }
 
+    /// Did the run answer ANYWHERE? An output map that is present but entirely MISSING is a run
+    /// that could not answer, not an interpretation.
+    ///
+    /// One helper because this decides four things that must agree: the Processing panel's item
+    /// state, whether a log-set version is allocated, whether anything is WRITTEN, and what the
+    /// result reports. Phase 2 used to write for any well whose outcome was `Computed` with a
+    /// non-empty output map — and an all-MISSING map is still non-empty — so rocktyping on a well
+    /// with porosity but no permeability reported its failure AND versioned the whole family
+    /// (RQI, PHIZ, FZI, R35, PGEOM, PSTRUC, RT, PERM_RT) into the Curve Catalog as curves blank
+    /// from top to bottom (`docs/review_triage.md` finding 10).
+    ///
+    /// The rule is not "drop blank curves" — it is **a run that reports failure must not also
+    /// version an interpretation**. A single all-MISSING output ALONGSIDE finite ones is kept, and
+    /// deliberately: a flag curve nothing triggered is a real answer, and dropping one output of a
+    /// run would leave the written set inconsistent with the one the module declares.
+    fn answered(outputs: &HashMap<String, Vec<f32>>) -> bool {
+        outputs.values().any(|v| v.iter().any(|x| x.is_finite()))
+    }
+
     let outcomes: Vec<Outcome> = req
         .well_ids
         .par_iter()
@@ -351,9 +370,7 @@ pub fn run_workflow_module_into(
                     // A run whose outputs are all MISSING (e.g. gascorr with no precalc, or a
                     // module fed an all-NaN input) did no real work — flag it Warned, not a green
                     // Ok, so the panel doesn't read as a successful correction.
-                    Outcome::Computed { outputs, .. }
-                        if outputs.values().any(|v| v.iter().any(|x| x.is_finite())) =>
-                    {
+                    Outcome::Computed { outputs, .. } if answered(outputs) => {
                         p.finish_item(well_id, crate::jobs::ItemState::Ok, None)
                     }
                     Outcome::Computed { .. } => {
@@ -378,7 +395,7 @@ pub fn run_workflow_module_into(
         .iter()
         .zip(outcomes.iter())
         .filter_map(|(w, o)| match o {
-            Outcome::Computed { outputs, .. } if !outputs.is_empty() => Some(w.clone()),
+            Outcome::Computed { outputs, .. } if answered(outputs) => Some(w.clone()),
             _ => None,
         })
         .collect();
@@ -415,7 +432,7 @@ pub fn run_workflow_module_into(
     let mut writes: Vec<equations::WellWrite> = Vec::with_capacity(succ_ids.len());
     for (well_id, o) in req.well_ids.iter().zip(outcomes.iter()) {
         if let Outcome::Computed { depth, outputs } = o {
-            if outputs.is_empty() {
+            if !answered(outputs) {
                 continue;
             }
             if let Some(set_id) = set_ids.get(well_id) {
@@ -469,6 +486,25 @@ pub fn run_workflow_module_into(
             Outcome::Computed { depth, outputs } => {
                 if outputs.is_empty() {
                     ModuleRunResult { well_id: well_id.clone(), rows_written: 0, output_curves: vec![], error: None }
+                } else if !answered(outputs) {
+                    // Every output sample MISSING (e.g. gascorr with no precalc, rocktyping with
+                    // no permeability). Checked BEFORE the set/write branches, because this well
+                    // was deliberately given no output set — reporting "no output set allocated"
+                    // would name the mechanism instead of the cause.
+                    //
+                    // A green "N samples → …" line here would be indistinguishable from a real
+                    // result and would total into History as a success; nothing is written either,
+                    // so the catalog can still tell "never run" from "ran and could not answer".
+                    let mut names: Vec<String> = outputs.keys().cloned().collect();
+                    names.sort();
+                    ModuleRunResult {
+                        well_id: well_id.clone(),
+                        rows_written: 0,
+                        output_curves: names,
+                        error: Some(
+                            "no finite output — every sample is missing (check inputs, e.g. precalc not run)".into(),
+                        ),
+                    }
                 } else if let Some(e) = &set_err {
                     ModuleRunResult { well_id: well_id.clone(), rows_written: 0, output_curves: vec![], error: Some(e.clone()) }
                 } else if !set_ids.contains_key(well_id) {
@@ -478,17 +514,7 @@ pub fn run_workflow_module_into(
                 } else {
                     let mut names: Vec<String> = outputs.keys().cloned().collect();
                     names.sort();
-                    // Every output sample MISSING (e.g. gascorr with no precalc): a green
-                    // "N samples → …" line is indistinguishable from a real result and would be
-                    // totalled into History as success, so surface it distinctly instead of a
-                    // bare success with the full depth count. Mirrors SandiMin's "no solvable
-                    // samples" error for a zero-useful run.
-                    let any_finite = outputs.values().any(|v| v.iter().any(|x| x.is_finite()));
-                    if any_finite {
-                        ModuleRunResult { well_id: well_id.clone(), rows_written: depth.len(), output_curves: names, error: None }
-                    } else {
-                        ModuleRunResult { well_id: well_id.clone(), rows_written: 0, output_curves: names, error: Some("no finite output — every sample is missing (check inputs, e.g. precalc not run)".into()) }
-                    }
+                    ModuleRunResult { well_id: well_id.clone(), rows_written: depth.len(), output_curves: names, error: None }
                 }
             }
         })
@@ -547,6 +573,23 @@ pub struct PaySummaryRow {
     /// result, which the identical `net`/`ntg`/`hpv` zeros cannot distinguish on their own.
     /// Consumers must render "—" rather than 0.00 when this is 0.
     pub n_classified: usize,
+    /// **A permeability cutoff was requested and this well escaped it**, because it carries no
+    /// PERM anywhere. Per well, so it is the same on every zone row of that well.
+    ///
+    /// Whether an uncored well should be EXCLUDED from a permeability cutoff or EXEMPTED from it
+    /// is a petrophysical judgement — exclusion is defensible (it cannot be shown to pass) and so
+    /// is exemption (a cutoff you have no data for should not silently delete a well) — and either
+    /// way it changes reserves, so the behaviour is unchanged and remains Jauhar's call
+    /// (`docs/review_triage.md` finding 7).
+    ///
+    /// What was NOT defensible is that nothing downstream could tell the exempted row from the
+    /// honest one: at the SAMPLE level a missing PERM correctly FAILS an active cutoff, but a well
+    /// with no PERM at all switched the cutoff off for itself one line earlier, so two wells of
+    /// identical rock reported 0 and full net pay with `n_classified > 0` on both — and in a field
+    /// roll-up they simply added together. **The less permeability data a well has, the more pay
+    /// it books.** This flag is what lets a reader see that, and it is the whole reason it exists.
+    #[serde(default)]
+    pub perm_cutoff_skipped: bool,
 }
 
 const SUMMARY_FLAGS: [&str; 3] = ["SAND", "RESERVOIR", "PAY"];
@@ -594,6 +637,8 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
         let swe = &columns["SWE"];
         let perm = &columns["PERM"];
         let has_perm_cut = req.perm_min.is_some() && perm.iter().any(|v| !v.is_nan());
+        // Recorded, not corrected — see `PaySummaryRow::perm_cutoff_skipped`.
+        let perm_cutoff_skipped = req.perm_min.is_some() && !has_perm_cut;
 
         // Sample thickness: forward depth difference, last sample reuses the previous step.
         let mut step = vec![0.0f32; n];
@@ -738,6 +783,7 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                     avg_swe: if sum_phie_w > 0.0 { (sum_phie_swe / sum_phie_w) as f32 } else { f32::NAN },
                     hpv: hpv as f32,
                     n_classified,
+                    perm_cutoff_skipped,
                 });
             }
         }
@@ -1294,11 +1340,16 @@ mod tests {
     /// nothing on screen saying which wells the cutoff was applied to — so the less data a well
     /// has, the more pay it books.
     ///
-    /// Pinned AS-IS, not endorsed. Whether an uncored well should be excluded or exempted is a
-    /// petrophysical decision that changes client numbers, so it is Jauhar's to make — see
-    /// docs/review_triage.md finding 7.
+    /// The BEHAVIOUR is pinned AS-IS and not endorsed: whether an uncored well should be excluded
+    /// from a permeability cutoff or exempted from it is a petrophysical decision that changes
+    /// client numbers, so it is Jauhar's to make — see `docs/review_triage.md` finding 7.
+    ///
+    /// What is fixed (2026-08-01) is the SILENCE. `perm_cutoff_skipped` now rides on every row, so
+    /// a reader — the report, the workbook, the Field Dashboard — can tell the exempted row from
+    /// the honest one instead of adding them together. That is a separate defect from which way
+    /// the rule should go, and it does not need his sign-off, because no number moved.
     #[test]
-    fn a_well_with_no_perm_at_all_quietly_escapes_an_active_perm_cutoff() {
+    fn a_well_with_no_perm_at_all_escapes_the_cutoff_but_no_longer_silently() {
         let conn = duckdb::Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
         // Identical rock. The ONLY difference is whether permeability was measured.
@@ -1347,10 +1398,21 @@ mod tests {
         );
         assert!(pay(&cut, &no_perm).hpv > 0.0, "and it books hydrocarbon volume on that exemption");
 
-        // Both wells were fully interpreted, so `n_classified` cannot be used downstream to tell
-        // the exempted rows apart from the honest ones — which is what makes this silent.
+        // Both wells were fully interpreted, so `n_classified` cannot tell the exempted row from
+        // the honest one — it is > 0 on both. That is what made the exemption silent, and it is
+        // why a SECOND discriminator was needed rather than a cleverer reading of this one.
         assert!(pay(&cut, &no_perm).n_classified > 0);
         assert!(pay(&cut, &low_perm).n_classified > 0);
+
+        // `perm_cutoff_skipped` is that discriminator. The exempted well is marked; the well that
+        // was genuinely judged is not.
+        assert!(pay(&cut, &no_perm).perm_cutoff_skipped, "the exempted well must be marked");
+        assert!(!pay(&cut, &low_perm).perm_cutoff_skipped, "the judged well must not be");
+
+        // And it means "a cutoff was requested and could not be applied" — not "this well has no
+        // permeability". With no cutoff asked for there is nothing to report, and a flag that
+        // fired anyway would appear on every report anyone ever ran without one.
+        assert!(!pay(&open, &no_perm).perm_cutoff_skipped, "no cutoff requested, nothing to say");
     }
 
     /// T-RT-05 — rocktyping on a well that has porosity but no permeability must fail by name and
@@ -1429,14 +1491,16 @@ mod tests {
         assert!(res[0].error.is_some(), "a missing permeability curve must be reported, not absorbed");
         assert_eq!(res[0].rows_written, 0, "the failed run must not report a sample count");
 
-        // The catalog half is NOT. Phase 2 writes for any well whose outcome is `Computed` with a
-        // non-empty output map, and an all-MISSING output map is still non-empty — so the whole
-        // rocktyping family is versioned into the catalog as curves that are blank end to end.
-        // T-RT-05's Expected says the catalog must gain NO FZI/RT rows. Pinned AS-IS, not endorsed
-        // — see docs/review_triage.md finding 10.
+        // And the catalog half is now honest too (`docs/review_triage.md` finding 10, fixed
+        // 2026-08-01). Phase 2 used to write for any well whose outcome was `Computed` with a
+        // non-empty output map — and an all-MISSING map is still non-empty — so the whole
+        // rocktyping family was versioned in as curves blank end to end. The cost was not corrupt
+        // values (they were honestly MISSING); it was that the catalog stopped distinguishing
+        // "this was never run" from "this was run and could not answer", and burned a log-set
+        // version recording the second as though it were an interpretation. T-RT-05's Expected
+        // says the catalog must gain no FZI/RT rows, and now it does not.
         for name in outputs {
-            assert!(written(name) > 0, "{name}: the empty curve IS written today");
-            assert_eq!(finite(name), 0, "{name}: and every sample of it is MISSING");
+            assert_eq!(written(name), 0, "{name}: a run that reported failure must not version a curve");
         }
 
         // Control: give the well a permeability and the identical call succeeds and writes the

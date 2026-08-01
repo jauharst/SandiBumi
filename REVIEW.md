@@ -7493,3 +7493,46 @@ photocopied on its own was unattributed.
 - [ ] If the pay summary runs to more than one page, check the second page too.
 - [ ] Is it small and pale enough not to compete with the table? Say if you would rather it were
       cover-only — it is one line to take back out.
+
+## Cutoffs and empty runs, from the triage (2026-08-01)
+
+Findings 8, 7 and 10.
+
+**A permeability cutoff now survives a chain that models permeability.** In Monte Carlo, adding a
+`perm_coates` step to a chain used to switch the PERM cutoff off silently — so the study most
+likely to want that cutoff was the one that never got it. The numbers looked like a cutoff that
+had been applied and simply not bitten.
+
+- [ ] Run a Monte Carlo chain that READS permeability from the project, with a PERM cutoff set
+      high enough to bite. Does the pay drop?
+- [ ] Insert a permeability model into the same chain and run it again with the same cutoff. Does
+      it bite the same way now?
+- [ ] Lower the cutoff below the modelled permeability. Does the pay come back?
+
+**A well with no permeability still escapes the PERM cutoff — but it now says so.** Whether an
+uncored well should be excluded from a permeability cutoff or exempted from it is your call and
+nothing about it has changed. What has changed is that the report and the dashboard now tell you
+which wells escaped, instead of adding their full pay in silently beside wells the cutoff was
+applied to.
+
+- [ ] Run a pay summary with a PERM cutoff over a mix of wells, some with a PERM curve and some
+      without. In the Field Dashboard, is there an orange line naming the wells with no
+      permeability?
+- [ ] Export a report for one of those wells with a PERM cutoff set. Is there a note under the pay
+      table saying the cutoff was not applied and its net pay is not comparable?
+- [ ] Export a report with no PERM cutoff at all. The note should NOT appear.
+- [ ] **Tell me which way you want the rule itself to go** — should an uncored well be excluded
+      from a permeability cutoff, or exempted from it? The flag makes either honest; only you can
+      say which is right.
+
+**A failed run no longer fills the Curve Catalog with blank curves.** Running rocktyping on a well
+with no permeability used to report the failure AND write all eight of its output curves into the
+catalog, blank from top to bottom. The catalog could then no longer tell "this was never run" from
+"this ran and could not answer".
+
+- [ ] Run rocktyping on a well with porosity but no permeability. Does it report the failure?
+- [ ] Check the Curve Catalog — are RQI/FZI/RT and the rest absent, rather than present and empty?
+- [ ] Give that well a permeability curve and run it again. Do all eight curves appear with real
+      values?
+- [ ] Check the Processing history still records the failed attempt — that is where the record of
+      "a run happened" belongs now.

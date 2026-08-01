@@ -1283,8 +1283,17 @@ pub fn run_monte_carlo(
         // never ran. Reported per well after the sweep.
         let step_err: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
-        let has_perm_cut =
-            req.perm_min.is_some() && raw_pool.get("PERM").map(|c| c.iter().any(|v| !v.is_nan())).unwrap_or(false);
+        // A permeability cutoff has to survive a chain that MODELS permeability.
+        //
+        // `raw_pool` holds only EXTERNAL inputs — mnemonics no step produces — so the moment a
+        // `perm_coates` (or any other permeability model) is inserted into the chain, PERM leaves
+        // that pool and the cutoff switched itself off silently. Exactly backwards: a study that
+        // models permeability is the study whose permeability cutoff matters
+        // (`docs/review_triage.md` finding 8). The realization pool carries produced curves, so
+        // PERM really is there when `zone_metrics` reads it.
+        let has_perm_cut = req.perm_min.is_some()
+            && (produced.contains("PERM")
+                || raw_pool.get("PERM").map(|c| c.iter().any(|v| !v.is_nan())).unwrap_or(false));
 
         // In-zone mask (union of the reported zone windows) for the physical-plausibility scan —
         // out-of-zone samples never enter the volumetrics, so they should not count either.
@@ -1883,15 +1892,18 @@ mod tests {
     /// external set, and the cutoff goes quiet. Both chains are shown here, one after the other,
     /// on the same well with the same PERM curve in the project and the same cutoff.
     ///
-    /// That is the wrong way round. A study that models permeability is exactly the study whose
-    /// permeability cutoff matters, and there is nothing in the result to say it was skipped —
-    /// the numbers look like a cutoff that was applied and happened not to bite.
+    /// That was the wrong way round — a study that models permeability is exactly the study whose
+    /// permeability cutoff matters, and there was nothing in the result to say it had been
+    /// skipped, so the numbers looked like a cutoff that was applied and happened not to bite.
     ///
-    /// Pinned AS-IS, not endorsed. Fixing it changes client numbers, so it is held for sign-off
-    /// with the rest of the audit backlog — see docs/review_triage.md finding 8. When it IS
-    /// fixed, this test fails, which is the intended alarm.
+    /// Fixed 2026-08-01 (`docs/review_triage.md` finding 8) by asking `produced` as well as
+    /// `raw_pool`. The realization pool carries produced curves, so PERM really is there when
+    /// `zone_metrics` reads it — this is not a case of turning on a cutoff with no data behind it.
+    ///
+    /// Both chains stay in the test. Chain A is the control: without it, the assertions on B
+    /// would pass just as well against a cutoff that was broken everywhere.
     #[test]
-    fn adding_a_permeability_model_to_a_chain_switches_off_the_permeability_cutoff() {
+    fn a_permeability_cutoff_survives_a_chain_that_models_permeability() {
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
         let well = seed_well(&conn);
@@ -1925,22 +1937,33 @@ mod tests {
         assert_eq!(a_cut.zones[0].net.mid, 0.0, "1 mD cannot pass a 1e9 mD cutoff — the cutoff works here");
 
         // Chain B — the SAME chain with a permeability model inserted ahead of it. PERM is now a
-        // produced curve, so it never enters the external pool `has_perm_cut` inspects.
+        // PRODUCED curve, so it never enters the external pool at all; the cutoff has to find it
+        // in `produced` instead.
         let makes_perm =
             || vec![step("vsh_gr"), step("phi_dn"), step("sw_indo"), step("perm_coates"), step("rocktyping")];
         let b_open = run(makes_perm(), None);
         let b_cut = run(makes_perm(), Some(1.0e9));
         let (bo, bc) = (&b_open.zones[0], &b_cut.zones[0]);
         assert!(bo.net.mid > 0.0, "chain B must have pay to lose");
-        assert_eq!(bo.net.mid, bc.net.mid, "the same 1e9 mD cutoff left net pay untouched");
-        assert_eq!(bo.hpv.mid, bc.hpv.mid, "and left HPV untouched");
-        assert_eq!(bo.ntg.mid, bc.ntg.mid, "and left N:G untouched");
+        assert_eq!(bc.net.mid, 0.0, "a 1e9 mD cutoff must bite in chain B exactly as in chain A");
+        assert_eq!(bc.hpv.mid, 0.0, "and take HPV with it");
+        assert_eq!(bc.ntg.mid, 0.0, "and N:G");
 
         // Stated as the comparison a user would actually make: same well, same cutoff, same
-        // project — one chain reports no pay and the other reports all of it.
-        assert!(
-            bc.net.mid > a_cut.zones[0].net.mid,
-            "modelling permeability must not be what exempts a well from the permeability cutoff"
+        // project — the two chains must now AGREE, where before one reported no pay and the other
+        // reported all of it.
+        assert_eq!(
+            bc.net.mid, a_cut.zones[0].net.mid,
+            "modelling permeability must not change whether the permeability cutoff applies"
+        );
+
+        // And the cutoff is still a cutoff rather than a switch that now deletes everything: a
+        // threshold the modelled rock CLEARS must leave the pay alone. Without this, setting
+        // `has_perm_cut` unconditionally would pass every assertion above.
+        let b_loose = run(makes_perm(), Some(1.0e-9));
+        assert_eq!(
+            b_loose.zones[0].net.mid, bo.net.mid,
+            "a cutoff the modelled permeability passes must not remove pay"
         );
     }
 

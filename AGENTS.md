@@ -2549,6 +2549,56 @@ and a mark added at one would silently miss every continuation page of a long pa
 the page most likely to be read on its own. The test asserts it on EVERY page rather than sampling
 one, because the failure mode is a page type being missed and a spot check is how it stayed missed.
 
+## Cutoffs, and what a run is allowed to claim (2026-08-01)
+
+`docs/review_triage.md` findings 8, 7 and 10 — three ways the pay engine and the module runner said
+more than they could support.
+
+**A permeability cutoff survives a chain that MODELS permeability.** `montecarlo`'s `has_perm_cut`
+asked whether PERM was in `raw_pool`, and `build_plans` fills that pool only from LogIn mnemonics
+**no step produces**. So a chain reading PERM from the project got a working cutoff, and the moment
+a `perm_coates` was inserted ahead of it PERM became a produced curve, left the external set, and
+the cutoff went quiet. Exactly backwards: a study that models permeability is the study whose
+permeability cutoff matters. It now asks `produced` as well — not turning a cutoff on with no data
+behind it, because the realization pool carries produced curves and PERM really is there when
+`zone_metrics` reads it.
+
+**A well that escapes a permeability cutoff is now marked, though it still escapes.**
+`classify_sample` is emphatic that a SAMPLE with no PERM fails an active cutoff; whether the cutoff
+is active at all was decided per WELL one line earlier, so a well carrying no permeability anywhere
+switched it off for itself. **Which way that rule should go is a petrophysical judgement and is
+unchanged** — exclusion is defensible (it cannot be shown to pass), so is exemption (a cutoff you
+have no data for should not silently delete a well), and either changes reserves.
+
+What was NOT defensible is that nothing downstream could tell the exempted row from the honest one:
+two wells of identical rock reported 0 and full net pay, `n_classified` above zero on both, and in a
+field roll-up they simply added together — **the less permeability data a well has, the more pay it
+books.** `PaySummaryRow.perm_cutoff_skipped` is the discriminator. It means "a cutoff was requested
+and could not be applied", never "this well has no permeability" — a flag that fired without a
+cutoff would appear on every report anyone ever ran. And it is surfaced **where the comparison
+happens**: the client PDF prints a note under the pay table naming the cutoff the well escaped and
+saying its net pay is not comparable, and the Field Dashboard names the escaping wells above the
+roll-up they are being summed into. A flag living only in the row struct would have fixed nothing a
+reader can see.
+
+**A run that reports failure must not also version an interpretation.** Phase 2 of
+`run_workflow_module_into` wrote for any well whose outcome was `Computed` with a non-empty output
+map — and an all-MISSING map is still non-empty — so rocktyping on a well with porosity but no
+permeability reported its failure AND versioned RQI, PHIZ, FZI, R35, PGEOM, PSTRUC, RT and PERM_RT
+into the Curve Catalog as curves blank from top to bottom. The values were honestly MISSING; the
+cost was that the catalog stopped distinguishing *"never run"* from *"ran and could not answer"*,
+burning a log-set version on the second as though it were the first.
+
+The rule is deliberately not "drop blank curves". One helper, `answered`, now decides all four
+things that have to agree: the Processing panel's item state, whether a log-set version is
+allocated, whether anything is written, and what the result reports. **A single all-MISSING output
+ALONGSIDE finite ones is still written** — a flag curve nothing triggered is a real answer, and
+dropping one output would leave the written set inconsistent with the one the module declares. The
+gate is over the whole output map, never per curve. The all-MISSING case is also checked BEFORE the
+set/write branches in the result assembly, because that well is now deliberately given no output
+set and falling through would report "no output set allocated", naming the mechanism instead of the
+cause.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under

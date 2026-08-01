@@ -890,7 +890,7 @@ math with a cited source, not a refactor I should pick. The current behaviour is
 as it is, with the step written into the assertion, so it cannot drift and cannot be changed
 silently. Your call on which it should be.
 
-### 7. A well with no permeability is EXEMPTED from the permeability cutoff — **OPEN, your call**
+### 7. A well with no permeability is EXEMPTED from the permeability cutoff — **BEHAVIOUR STILL YOURS; the SILENCE fixed 2026-08-01**
 
 Found while writing T-BATCH-08, and like finding 6 it changes numbers rather than documentation.
 
@@ -918,14 +918,35 @@ row from the honest one. In a field roll-up they simply add together.
 T-BATCH-08's own Expected says the opposite of what the code does, so that test would have been
 logged as a new failure; its instruction now carries a Known issue line pointing here.
 
-**Not fixed, deliberately.** Whether an uncored well should be excluded from a permeability cutoff
-or exempted from it is a petrophysical decision — exclusion is defensible (it cannot be shown to
-pass) and so is exemption (a cutoff you have no data for should not silently delete a well) — and
-either way it changes reserves. Pinned exactly as it is by
-`a_well_with_no_perm_at_all_quietly_escapes_an_active_perm_cutoff`, with the asymmetry written into
-the assertions so it cannot drift. Your call.
+**The behaviour is unchanged and still yours.** Whether an uncored well should be excluded from a
+permeability cutoff or exempted from it is a petrophysical decision — exclusion is defensible (it
+cannot be shown to pass) and so is exemption (a cutoff you have no data for should not silently
+delete a well) — and either way it changes reserves. The asymmetry stays written into the
+assertions of `a_well_with_no_perm_at_all_escapes_the_cutoff_but_no_longer_silently` so it cannot
+drift.
 
-### 8. The Monte Carlo PERM cutoff — the audit's wording understates the trigger
+**What WAS fixed, 2026-08-01, is the SILENCE — a separate defect from which way the rule should
+go.** `PaySummaryRow.perm_cutoff_skipped` is true exactly when a cutoff was requested and this well
+escaped it for want of data, so a reader can finally tell the exempted row from the honest one. No
+number moved, which is why this needed no sign-off.
+
+Three rules:
+
+- **It means "a cutoff was requested and could not be applied", not "this well has no
+  permeability".** With no cutoff asked for there is nothing to report, and a flag that fired
+  anyway would appear on every report anyone ever ran without one.
+- **It is surfaced where the comparison actually happens.** The client PDF prints a note under the
+  pay table naming the cutoff the well escaped and saying its net pay is not comparable; the Field
+  Dashboard names the escaping wells above the roll-up they are being summed into. A flag living
+  only in the row struct would have fixed nothing a reader can see.
+- **`n_classified` could never have carried this.** Both wells are fully interpreted, so it is
+  above zero on both — which is what made the exemption silent, and why a SECOND discriminator was
+  needed rather than a cleverer reading of the first.
+
+The Word document, the workbook and the deck do not carry it yet. The field is on every row, so
+adding it there is mechanical.
+
+### 8. The Monte Carlo PERM cutoff — the audit's wording understates the trigger — **FIXED 2026-08-01**
 
 Not a new finding: AUDIT-2026-07-21 already has it, and T-BATCH-16 carries the Known issue line.
 What writing the test refined is **when** it fires.
@@ -940,9 +961,17 @@ is not a corner case of an unusual chain — it is triggered by *adding a permea
 | `vsh_gr → phi_dn → sw_indo → rocktyping` (reads PERM from the project) | works |
 | the same chain with `perm_coates` inserted ahead of it | **silently dead** |
 
-A study that models permeability is precisely the study whose permeability cutoff matters. Pinned
-as-is by `adding_a_permeability_model_to_a_chain_switches_off_the_permeability_cutoff`, which shows
-both chains side by side so the working case is the control.
+A study that models permeability is precisely the study whose permeability cutoff matters.
+
+**Fixed 2026-08-01**: `has_perm_cut` now asks `produced` as well as `raw_pool`. This is not turning
+a cutoff on with no data behind it — the realization pool carries produced curves, so PERM really
+is there when `zone_metrics` reads it.
+
+Both chains stay in `a_permeability_cutoff_survives_a_chain_that_models_permeability`, because
+chain A is the control: without it, the assertions on B would pass just as well against a cutoff
+that was broken everywhere. A third case was added for the opposite failure — a cutoff the modelled
+permeability CLEARS must leave the pay alone, or setting `has_perm_cut` unconditionally would
+satisfy every other assertion in the test.
 
 I also asserted, wrongly, that no module reads PERM as an input — a grep for `log_in("PERM"` misses
 `rocktyping.rs` and `satheight.rs`, which sit in their own files. Because it was written as an
@@ -984,7 +1013,7 @@ fails — but correcting a published coefficient requires the paper in hand, and
 make the ordering come out right is exactly the move the provenance rules forbid. Pinned with the
 measured numbers by `the_pittman_radius_family_inverts_between_r50_and_r75_in_good_sand`.
 
-### 10. A run that fails still writes its empty curves into the catalog — **OPEN, your call**
+### 10. A run that fails still writes its empty curves into the catalog — **FIXED 2026-08-01**
 
 Found while writing T-RT-05. `all_nan_module_output_reports_error_not_success` already pins the
 honest half: an all-MISSING run reports an error and a zero sample count instead of a green ✓. What
@@ -1001,11 +1030,24 @@ eight of them. The cost is not corruption — the values are honestly MISSING �
 catalog stops distinguishing *"this was never run"* from *"this was run and could not answer"*, and
 a log-set version is burned recording the second as though it were an interpretation.
 
-**Not fixed.** Suppressing the write is a one-line filter, but it is a behaviour change for every
-module (gascorr without precalc, electrofacies with no usable curve, an equation over a missing
-input), and a blank curve is arguably the honest record that a run happened. Pinned as-is by
-`rocktyping_without_a_permeability_curve_fails_and_writes_no_curves`, which asserts both halves —
-the rows exist, and not one of them is finite.
+**Fixed 2026-08-01.** The rule chosen is not "drop blank curves" — it is **a run that reports
+failure must not also version an interpretation.** That ties the write to the error the run already
+reports, so the two can no longer disagree, and it is the same `any finite` test the Processing
+panel was already using to choose between a green tick and a warning. One helper (`answered`) now
+decides all four things that have to agree: the panel's item state, whether a log-set version is
+allocated, whether anything is WRITTEN, and what the result reports.
+
+**A single all-MISSING output ALONGSIDE finite ones is still written**, deliberately. A flag curve
+nothing triggered is a real answer, and dropping one output of a run would leave the written set
+inconsistent with the one the module declares. The gate is over the whole output map, never per
+curve.
+
+One ordering detail worth keeping: the all-MISSING case is checked BEFORE the set/write branches in
+the result assembly, because that well is now deliberately given no output set — falling through
+would report "no output set allocated for well", which names the mechanism instead of the cause.
+
+The record that a run happened is not lost. The run reports its error and the Processing history
+holds it; what the catalog now says is only what it can support.
 
 ### 11. The held legacy-multimin RECON_ERR item is already answered — **CLOSE IT**
 

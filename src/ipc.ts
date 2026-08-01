@@ -1844,6 +1844,16 @@ export interface PaySummaryRow {
    *  (VSH/PHIE/SWE resolved to all-NaN) — which produces net/ntg/hpv of exactly 0, identical to
    *  a genuine zero-net result. Render "—" rather than 0.00 when this is 0. */
   n_classified: number;
+  /** A permeability cutoff was requested and this well escaped it, because it carries no PERM
+   *  anywhere. Per well, so it is the same on every zone row of that well.
+   *
+   *  The behaviour is deliberate and unchanged — whether an uncored well should be excluded from a
+   *  permeability cutoff or exempted from it is a petrophysical call (`docs/review_triage.md`
+   *  finding 7). What this flag fixes is that nothing downstream could tell the exempted row from
+   *  the honest one: two wells of identical rock reported 0 and full net pay with `n_classified`
+   *  above zero on both, and in a field roll-up they simply added together. Show it wherever pay
+   *  from several wells is compared or summed. */
+  perm_cutoff_skipped: boolean;
 }
 
 export async function runPaySummary(req: PaySummaryRequest): Promise<PaySummaryRow[]> {
