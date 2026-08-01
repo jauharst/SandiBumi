@@ -13,14 +13,19 @@ The hairline came off every card, and the active pane states itself instead.
 
 - [ ] No panel draws its own outline any more — the doubled line in the gap, and the
       two arcs colliding at the rounded corners, are both gone.
-- [ ] **The pane you are working in carries a 2px accent edge.** Click between panels:
-      the edge follows, and nothing inside any panel shifts by a pixel while it does
-      (it is an outline, not a border, precisely so log tracks and canvases never
-      reflow on a click).
+- [ ] **The pane you are working in carries a 2px edge, in the NEUTRAL strong-border
+      colour — not the accent.** Click between panels: the edge follows, and nothing
+      inside any panel shifts by a pixel while it does (it is an outline, not a
+      border, precisely so log tracks and canvases never reflow on a click).
 - [ ] It follows the 12px corner, and stays visible across the tab strip at the top.
-- [ ] Client skins: the active edge takes each skin's accent (Halliburton red, SLB
-      blue…) — that is the interaction colour, and it is separate from the SandiBumi
-      wordmark, which stays terracotta everywhere.
+- [ ] **Check a client skin** — this is the one you flagged. The edge must read as the
+      card's own border drawn heavier, never a coloured frame: Schlumberger #a4b3cf
+      soft blue-grey rather than the deep #0033a0, Halliburton grey rather than red.
+      The accent stays for controls you act on; a pane is a surface, not a control.
+      It is also the only line on screen now, since no other card draws one — so it
+      does not need colour to be found. If it reads too faint on the cream default
+      (measured 1.5:1 against the white card, against 2.1:1 on the near-white skins),
+      one step darker is a one-line change.
 - [ ] **Worth your eye:** with no hairline, a card is now told apart from the ground by
       its fill alone, and that is a small difference on the near-white skins —
       measured 1.19:1 on the default cream, 1.11:1 on Halliburton, 1.08:1 on dark. The

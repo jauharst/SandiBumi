@@ -1054,6 +1054,15 @@ textarea {
 }
 
 /* The pane you are working in is the one thing that carries an edge.
+
+   The colour is the NEUTRAL strong-border token, never `--accent`. This asks
+   to be read as the card's own border drawn heavier — which is what it is —
+   and an accent ring instead turned into a hard saturated frame on the client
+   skins (deep #0033a0 around a whole panel on Schlumberger). The accent is
+   for controls the user acts on; a pane is a surface, not a control. It also
+   keeps the workspace quiet: with no hairline on the other cards this is the
+   only line on screen, so it does not need colour to be found.
+
    `outline` rather than a border on purpose: it costs NO layout, so panel
    content cannot shift by a pixel as focus moves between groups (a border
    would reflow every track and canvas inside on every click), and it follows
@@ -1069,7 +1078,7 @@ textarea {
    would not need this, but cannot be used — `.dv-view`, the group's parent,
    is `overflow: auto` and would clip a ring drawn outside the border box. */
 .dockview-theme-sandibumi .dv-groupview.dv-active-group {
-  outline: 2px solid var(--accent) !important;
+  outline: 2px solid var(--border-strong) !important;
   outline-offset: -2px;
 }
 
