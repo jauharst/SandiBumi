@@ -2737,6 +2737,48 @@ k must be UNCORRECTED air permeability.
 crossover, the 12 % boundary and the old table's inversion at 25 % sand side by side — so "still not
 perfectly monotone" can never be read as "the correction did not work".
 
+## The Organic design system (2026-08-01 — the standing UI mindset)
+
+Jauhar delivered a high-fidelity redesign handoff and made it the STANDING design scenario:
+every UI change from here works inside it. The authority is **`docs/design_organic/`**
+(README.md = the spec, organic-tokens.css = the token sheet — read values from it, never
+eyeball; the .dc.html mockups carry options 1a–1g and client skins 2a–2b). Increment 1
+(the foundation) shipped 2026-08-01; the per-screen passes (1b Field-Dashboard KPI cards,
+1c plot panels, 1d module pane, 1e LAS wizard, 1f report generator, 1g start screen) are
+queued and follow the handoff's per-screen sections.
+
+**The split that governs everything: chrome goes Organic, data stays dense.** The ribbon,
+dialogs, buttons, tags and panel frames take the warm rounded look; log tracks, grids,
+trees and tables keep their professional density — engineers on small screens are the
+audience, so never add air to data UI (dock gap 7px, dock inset 8–10px are deliberate).
+
+What the foundation established, and the rules that keep it coherent:
+
+- **Tokens**: default `:root` is now the Organic theme — cream ground `#f5ead8`, WHITE
+  panel cards, terracotta `#c67139` + sage `#7a8a5e`. Mapping from the handoff ramps:
+  `--border`/`--border-strong` = neutral-200/300, `--text-dim` = neutral-600,
+  `--accent-dim` = accent-700, the `-soft` pair = the 100 tints. Dark theme and the five
+  client skins keep their own colour blocks untouched.
+- **Shape is theme-INDEPENDENT** (client skins recolor, never reshape): pills
+  (`--r-pill`) for buttons, ribbon tabs, segments and chips; 12px (`--r-lg`) panel cards;
+  16px (`--r-xl`) dialogs; `--r-sm`/`--r-md` for dense inline controls unchanged.
+- **Type**: Caprasimo (weight 400 ALWAYS) on exactly four surfaces — brand wordmark,
+  screen/dialog titles, KPI numerals, start-screen wordmark — never data cells, axis
+  labels or track headers. Figtree is the body/UI face (`--font-body`, and first in
+  `--font-canvas`). **Fonts are BUNDLED** in `public/fonts/` (`figtree-var.woff2` is the
+  variable font, 300–900, so the app's base weight 500 renders true) — never a runtime
+  @import: field machines are offline, and the fallback would land on exactly the
+  machines client work happens on.
+- **Interaction**: hover is a TINT from the accent ramp (`--accent-soft`), never grey;
+  pressed is one ramp step darker (mix toward `--accent-dim`, so client skins get their
+  step for free); focus is a 2px accent outline at offset 2. Transitions stay paint-only.
+- **Load-bearing details**: `.ribbon-body` is 82px, not 80 — the card's 1px borders
+  would otherwise clip the tool captions. The unsaved-state dot goes panel-white on the
+  ACTIVE ribbon tab (`--warn` red on the terracotta pill is invisible, and that dot is
+  the only warning visible without opening the Project tab). Dock cards clip with
+  `overflow: hidden`; every floating menu is `position: fixed` and escapes — keep new
+  menus that way. The dock gap lives in `workspace.ts` (dockview theme `gap: 7`), not CSS.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under

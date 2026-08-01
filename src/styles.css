@@ -10,23 +10,51 @@
 }
 
 /* --------------------------------------------------------------------------
+   Bundled display + body faces ("Organic" redesign, 2026-08-01).
+   Self-hosted, never fetched at runtime: a field machine can be offline, so a
+   Google Fonts @import would silently fall back to Segoe on exactly the
+   machines client work happens on. figtree-var.woff2 is the VARIABLE font
+   (one file serves 300–900); Caprasimo ships in its only weight, 400.
+   -------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: "Caprasimo";
+  src: url("/fonts/caprasimo-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Figtree";
+  src: url("/fonts/figtree-var.woff2") format("woff2");
+  font-weight: 300 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* --------------------------------------------------------------------------
    Theme variables
    -------------------------------------------------------------------------- */
 
 :root {
-  --bg-app: #f2ebdc;
-  --bg-panel: #fbf7ee;
-  --bg-panel-alt: #e9dfc8;
-  --bg-hover: #f1ddc4;
-  --border: #ddd0af;
-  --border-strong: #c2ac81;
-  --text: #332a1f;
-  --text-dim: #7c6b52;
-  --accent: #b5651d;
-  --accent-dim: #8f4d15;
-  --accent-soft: #f1ddc4;
-  --accent2: #5f7350;
-  --accent2-soft: #e2e8d5;
+  /* "Organic" default theme (design handoff 2026-08-01): cream ground,
+     white panel cards, terracotta accent + sage secondary. Values are read
+     from the handoff's organic-tokens.css ramps, never eyeballed:
+     border/border-strong = neutral-200/300, text-dim = neutral-600,
+     accent-dim = accent-700, the -soft pair = the 100 tints. */
+  --bg-app: #f5ead8;
+  --bg-panel: #ffffff;
+  --bg-panel-alt: #efe9dc;
+  --bg-hover: #fff2eb;
+  --border: #eee7db;
+  --border-strong: #dcd3c4;
+  --text: #201e1d;
+  --text-dim: #82796a;
+  --accent: #c67139;
+  --accent-dim: #8c491a;
+  --accent-soft: #fff2eb;
+  --accent2: #7a8a5e;
+  --accent2-soft: #f0fae1;
   --warn: #a83e2c;
   /* Semantic QC status colours (pass / warn / fail) — deliberately NOT the brand
      --accent/--accent2/--warn tokens, so a client skin can never re-roll the meaning of the
@@ -35,10 +63,16 @@
   --qc-ok: #2e7d32;
   --qc-warn: #c07000;
   --qc-alert: #c62828;
-  --track-hd: #ece1c8;
+  --track-hd: #efe9dc;
   /* Typography tokens (theme-independent unless a branded skin overrides them): every
-     canvas ctx.font and mono field derives from these, never from per-file literals. */
-  --font-canvas: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+     canvas ctx.font and mono field derives from these, never from per-file literals.
+     Organic redesign: Figtree is the body/UI face (Segoe stays as the fallback until
+     the woff2 is parsed); Caprasimo is the DISPLAY face and is reserved for the brand
+     wordmark, screen/dialog titles and KPI numerals — never data cells, axis labels
+     or track headers (design handoff rule). */
+  --font-heading: "Caprasimo", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Figtree", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-canvas: "Figtree", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --font-mono: "Cascadia Code", Consolas, monospace;
 
   /* ------------------------------------------------------------------
@@ -52,12 +86,15 @@
      invisible on near-black.
      ------------------------------------------------------------------ */
 
-  /* Corner radius — 3 steps + a pill. Semantic, not by size:
-     sm = swatches/dots/dense inline controls, md = buttons/inputs/boxes,
-     lg = floating surfaces (dialogs, menus), pill = chips and badges. */
+  /* Corner radius — 4 steps + a pill. Semantic, not by size:
+     sm = swatches/dots/dense inline controls, md = boxes/dense menus,
+     lg = panel cards + floating surfaces, xl = dialogs, pill = chips,
+     buttons, ribbon tabs and segmented controls (Organic shape language —
+     theme-INDEPENDENT: the client skins recolor but never reshape). */
   --r-sm: 3px;
   --r-md: 5px;
-  --r-lg: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
   --r-pill: 999px;
 
   /* Spacing — 2px base, matching the existing dense petrophysics rhythm. */
@@ -88,9 +125,11 @@
      literals — several tuned to the light theme's brown (51, 42, 31) and
      left unchanged on dark, where they read as a muddy halo. Tokenising
      lets each theme set its own. */
-  --el-1: 0 2px 8px rgba(51, 42, 31, 0.2); /* tooltips, small hover cards */
-  --el-2: 0 6px 18px rgba(51, 42, 31, 0.18); /* menus, popovers */
-  --el-3: 0 12px 40px rgba(51, 42, 31, 0.28); /* dialogs, floating panels */
+  /* Warm ink-tinted shadows tuned to the cream ground (organic-tokens
+     --shadow-sm/md/lg; the ink is the handoff's neutral-900 #2e2b25). */
+  --el-1: 0 1px 2px rgba(46, 43, 37, 0.14); /* tooltips, small hover cards */
+  --el-2: 0 3px 10px rgba(46, 43, 37, 0.16); /* menus, popovers */
+  --el-3: 0 12px 32px rgba(46, 43, 37, 0.22); /* dialogs, floating panels */
 
   /* One focus ring for everything. The pattern already existed on form
      fields (.field-row input:focus) but never reached buttons. */
@@ -314,7 +353,7 @@
    where box-shadows are dropped. */
 :where(button, [role="button"]):focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline-offset: 2px;
 }
 
 /* Dialog entry. Opacity ONLY, no transform: the modal is drag-positioned
@@ -339,10 +378,10 @@ body {
   padding: 0;
   height: 100%;
   overflow: hidden;
-  /* "Segoe UI Variable Text" (Win 11) honors weight 500 for real; static Segoe UI
-     would snap 500 down to 400 and make this a no-op. Base weight raised for
+  /* Figtree is a variable font, so weight 500 renders as a true instance (the
+     reason "Segoe UI Variable Text" was chosen before it). Base weight raised for
      readability — de-emphasis now uses 400 explicitly, emphasis stays 600/700. */
-  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  font-family: var(--font-body);
   font-size: var(--fs-md);
   font-weight: 500;
   color: var(--text);
@@ -369,6 +408,12 @@ body {
   min-height: 0;
   min-width: 0;
   position: relative;
+  /* Organic: panels float as white cards on the cream ground. The 7px gap
+     BETWEEN groups is the dockview theme's `gap` (workspace.ts); this padding
+     is the inset from the window edge. Tight on purpose — engineers on small
+     screens are the audience (design 1a). */
+  padding: 0 10px 8px;
+  background: var(--bg-app);
 }
 
 /* Blank content placeholder — shown only when every real content pane is closed, so the fixed
@@ -403,7 +448,8 @@ body {
   padding: 3px 12px;
   font-size: var(--fs-sm);
   color: var(--text-dim);
-  background: var(--bg-panel-alt);
+  /* Organic: a white strip, matching the panel cards above it. */
+  background: var(--bg-panel);
   border-top: 1px solid var(--border);
   white-space: nowrap;
   overflow: hidden;
@@ -423,19 +469,23 @@ textarea {
    Ribbon (Techlog/Office style)
    -------------------------------------------------------------------------- */
 
+/* Organic chrome: the ribbon sits directly on the cream ground — the tabstrip
+   is text pills, the tool body below is a white rounded card inset from the
+   window edge (design 1a). */
 #ribbon {
-  background: var(--bg-panel);
-  border-bottom: 1px solid var(--border-strong);
+  background: transparent;
+  border-bottom: none;
+  padding: 0 10px 8px;
   user-select: none;
 }
 
 .ribbon-tabstrip {
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 0 8px;
-  background: var(--bg-panel-alt);
-  border-bottom: 1px solid var(--border);
+  gap: 4px;
+  padding: 5px 0 6px;
+  background: transparent;
+  border-bottom: none;
   /* Narrow the app and the brand + quick-access + tabs stay reachable by scroll instead of
      being clipped — the whole chrome adjusts to the window like an Office ribbon. */
   overflow-x: auto;
@@ -447,11 +497,15 @@ textarea {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-weight: 700;
-  font-size: var(--fs-md);
+  /* The wordmark is one of the four sanctioned Caprasimo surfaces (brand,
+     screen/dialog titles, KPI numerals) — weight 400 always, the face carries
+     the emphasis itself. */
+  font-family: var(--font-heading);
+  font-weight: 400;
+  font-size: var(--fs-lg);
   color: var(--accent);
   padding: 0 14px 0 4px;
-  letter-spacing: 0.4px;
+  letter-spacing: 0.2px;
 }
 
 .ribbon-logo {
@@ -464,21 +518,22 @@ textarea {
 .ribbon-tab {
   border: none;
   background: none;
-  padding: 6px 14px;
+  padding: 4px 14px;
   font-size: var(--fs-md);
   color: var(--text-dim);
   cursor: pointer;
-  border-bottom: 2px solid transparent;
+  border-radius: var(--r-pill);
 }
 
+/* Tinted hover, never grey (Organic interaction rule). */
 .ribbon-tab:hover {
-  color: var(--accent);
+  color: var(--accent-dim);
+  background: var(--accent-soft);
 }
 
 .ribbon-tab.active {
-  color: var(--text);
-  background: var(--bg-panel);
-  border-bottom-color: var(--accent);
+  color: var(--bg-panel);
+  background: var(--accent);
   font-weight: 600;
 }
 
@@ -492,19 +547,33 @@ textarea {
 .ribbon-tab.ribbon-tab-dirty::after {
   content: "";
   position: absolute;
-  top: 4px;
-  right: 4px;
+  top: 3px;
+  right: 6px;
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--warn);
 }
+/* On the active tab the pill is solid accent — --warn red on terracotta is
+   nearly invisible, and this dot is the only unsaved-work warning visible
+   without opening the Project tab. Panel-white keeps it readable there. */
+.ribbon-tab.active.ribbon-tab-dirty::after {
+  background: var(--bg-panel);
+}
 
 /* Fixed height so every tab's groups share the same bottom edge; positioning context for
-   the overflow chevrons. */
+   the overflow chevrons. 82px, not 80: the Organic card adds a 1px border top and
+   bottom, and with border-box sizing the tool groups' content box must stay 80px
+   or the small-caps captions clip. overflow:hidden clips the square overflow
+   chevrons to the rounded corners — the dropdown menus are position:fixed and
+   escape it (see .ribbon-menu). */
 .ribbon-body {
-  height: 80px;
+  height: 82px;
   position: relative;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
 }
 
 .ribbon-panel {
@@ -752,7 +821,9 @@ textarea {
 
 .dockview-theme-sandibumi {
   --dv-group-view-background-color: var(--bg-panel);
-  --dv-tabs-and-actions-container-background-color: var(--bg-panel-alt);
+  /* Organic: the panel header strip is part of the white card, not a grey
+     band — hidden-panel tabs keep the warm-neutral chip colour below. */
+  --dv-tabs-and-actions-container-background-color: var(--bg-panel);
   --dv-tabs-and-actions-container-height: 28px;
   --dv-tabs-and-actions-container-font-size: var(--fs-sm);
   --dv-activegroup-visiblepanel-tab-background-color: var(--bg-panel);
@@ -772,9 +843,19 @@ textarea {
   --dv-icon-hover-background-color: var(--bg-hover);
   --dv-floating-box-shadow: var(--el-3);
   --dv-background-color: var(--bg-app);
-  --dv-border-radius: var(--r-sm);
+  --dv-border-radius: var(--r-lg);
   height: 100%;
   width: 100%;
+}
+
+/* Organic: every dock group is a white card — 1px warm hairline, 12px radius —
+   replacing dockview's default square chrome. overflow:hidden clips the square
+   tab strip and panel content to the rounded corners; floating menus spawned
+   from a group (.dock-add-menu, context menus) are position:fixed and escape. */
+.dockview-theme-sandibumi .dv-groupview {
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
 }
 
 /* Float / maximize buttons on each dock group's tab bar. */
@@ -1640,11 +1721,15 @@ textarea {
   gap: 6px;
 }
 
+/* Organic buttons: pills. Secondary = white with a warm hairline; primary =
+   solid accent. Hover is a TINT from the accent ramp, never grey; pressed is
+   one ramp step darker (approximated by mixing toward --accent-dim, so every
+   client skin gets its own ramp step for free). */
 .btn {
-  background: var(--bg-panel-alt);
+  background: var(--bg-panel);
   color: var(--text);
   border: 1px solid var(--border-strong);
-  border-radius: var(--r-md);
+  border-radius: var(--r-pill);
   padding: 5px 14px;
   font-size: var(--fs-md);
   font-weight: 600;
@@ -1652,8 +1737,11 @@ textarea {
   transition: background 0.12s ease, border-color 0.12s ease;
 }
 .btn:hover {
-  background: var(--bg-hover);
+  background: var(--accent-soft);
   border-color: var(--accent);
+}
+.btn:active {
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg-panel));
 }
 .btn.btn-accent {
   background: var(--accent);
@@ -1661,7 +1749,12 @@ textarea {
   color: #fff;
 }
 .btn.btn-accent:hover {
-  filter: brightness(1.08);
+  background: color-mix(in srgb, var(--accent) 72%, var(--accent-dim));
+  border-color: color-mix(in srgb, var(--accent) 72%, var(--accent-dim));
+}
+.btn.btn-accent:active {
+  background: var(--accent-dim);
+  border-color: var(--accent-dim);
 }
 
 .eq-status {
@@ -1801,7 +1894,8 @@ textarea {
   flex-direction: column;
   background: var(--bg-panel);
   border: 1px solid var(--border-strong);
-  border-radius: var(--r-lg);
+  /* Dialogs sit one radius step above panel cards (Organic: cards 12, dialogs 16). */
+  border-radius: var(--r-xl);
   box-shadow: var(--el-3);
   animation: sb-dialog-in var(--dur-base) var(--ease);
 }
@@ -1812,8 +1906,8 @@ textarea {
   justify-content: space-between;
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
-  background: var(--bg-panel-alt);
-  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  background: var(--bg-panel);
+  border-radius: var(--r-xl) var(--r-xl) 0 0;
   cursor: move;
   user-select: none;
 }
@@ -2078,7 +2172,12 @@ textarea {
 
 .modal-head h3 {
   margin: 0;
-  font-size: var(--fs-lg);
+  /* Dialog titles are a sanctioned Caprasimo surface (Organic type rule):
+     display face, weight 400 always — the face carries the emphasis. */
+  font-family: var(--font-heading);
+  font-weight: 400;
+  font-size: var(--fs-xl);
+  letter-spacing: -0.01em;
   color: var(--text);
 }
 

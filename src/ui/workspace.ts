@@ -100,7 +100,9 @@ export class Workspace {
       theme: {
         name: "sandibumi",
         className: "dockview-theme-sandibumi",
-        gap: 2,
+        // Organic redesign: 7px of cream ground between the white panel cards
+        // (design 1a — tight on purpose, do not add air here).
+        gap: 7,
         dndTabIndicator: "line",
       },
       createComponent: (options) => this.createComponent(options),

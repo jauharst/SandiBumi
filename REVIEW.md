@@ -7,6 +7,33 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-01 — The Organic reskin, increment 1 (your redesign handoff, foundation)
+
+Your `SandiBumi UI Redesign.zip` is now the standing design system; the handoff is banked
+in-repo at `docs/design_organic/`. This increment is the foundation — tokens, fonts and
+chrome; the per-screen passes (dashboard KPI cards, LAS wizard step pills, report preview
+rail, start screen) come next. **No number changed anywhere** — this is look only.
+
+- [ ] The app opens on a **cream ground** with **white rounded panel cards** and visible gaps
+      between them. The active ribbon tab is a solid **terracotta pill with white text**; the
+      tool area below the tabs is a white rounded card. The brand and every dialog title are
+      in the display face (Caprasimo); everything else is Figtree.
+- [ ] Make something dirty (edit a value) with a tab other than Project active, then activate
+      **Project**: the unsaved dot must be **white on the terracotta pill** — visible, not
+      drowned. On the inactive tab it stays red.
+- [ ] Buttons are pills everywhere; hover is a **pale terracotta tint**, never grey; a dialog
+      has 16px corners and drags by its header as before.
+- [ ] Narrow the window: the ribbon overflow chevrons ‹ › still appear INSIDE the rounded
+      card and scroll the tools; nothing pokes out of the corners.
+- [ ] **Dark theme** keeps its own colours with the new shapes (pills, cards). The five client
+      skins (Pertamina/Halliburton/Schlumberger/LAPI-ITB/white) recolor the pills but keep
+      the shape — switch through them once.
+- [ ] Log tracks, grids, trees and tables kept their density — no new air in data surfaces.
+      Canvas text (track headers, axis labels) now renders in Figtree; if anything reads
+      worse at 10–11px than Segoe did, say so — the canvas face is one token.
+- [ ] Fonts are bundled (`public/fonts/`) — pull the network cable and restart: the faces
+      must not fall back.
+
 ## 2026-08-01 — Your four answers, applied (numbers moved — check these first)
 
 All four change what a run computes, so these matter more than anything else on the list. The
