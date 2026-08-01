@@ -252,6 +252,12 @@ export class Ribbon {
     // pops open on its own — the user shouldn't have to hunt for progress. Ribbon is a
     // singleton created once in main.ts, so this window listener is registered exactly once.
     window.addEventListener("sandibumi:open-processing", () => workspace.openProcessing());
+    // The start sheet's recent-project rows route through the SAME switchProject guard the
+    // Recent ▾ menu uses — a busy chain blocks a switch there exactly as it does here.
+    window.addEventListener("sandibumi:open-recent-project", (e) => {
+      const path = (e as CustomEvent<string>).detail;
+      if (typeof path === "string" && path) void this.switchProject(() => openProject(path));
+    });
     q<HTMLButtonElement>("#montecarlo-btn")?.addEventListener("click", () => workspace.openMonteCarlo());
     q<HTMLButtonElement>("#ml-btn")?.addEventListener("click", () => workspace.openMl());
     // Same workspace the core photographs use — a thin section arrives with the same problems, and

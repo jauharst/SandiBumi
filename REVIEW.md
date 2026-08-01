@@ -7,6 +7,21 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-01 — Organic increment 4: start surfaces (design 1g)
+
+- [ ] Launch the app on a slow open: the boot overlay is the identity column now — 72px
+      rounded logo, "SandiBumi" in the display face, one-line description, then the same
+      progress bar, elapsed clock and one-time notes as before. A fast open still shows
+      nothing (the 400 ms rule is untouched).
+- [ ] Close every content pane: the blank canvas is a **start sheet** — wordmark + New
+      Project / Open Project pills on the left, RECENT PROJECTS on the right with the
+      current one tagged "open now" (disabled), a missing file marked and disabled, and
+      the sessions tip card at the bottom.
+- [ ] Click a recent project row: it must go through the SAME guard as Project ▸ Recent ▾
+      — a running chain still blocks the switch with the same message.
+- [ ] New Project / Open Project on the sheet behave exactly like the ribbon tools (they
+      are the ribbon tools).
+
 ## 2026-08-01 — Organic increment 3: the module pane (design 1d)
 
 One pattern, every manifest-driven module — nothing was written per module (rule 9 holds:

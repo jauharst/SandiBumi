@@ -37,9 +37,14 @@ export function showBootOverlay(): BootOverlay {
   const build = () => {
     el = document.createElement("div");
     el.className = "boot-overlay";
+    // Organic design 1g: the launch surface is the identity column — logo,
+    // display-face wordmark, one-line description — with the open progress
+    // underneath. All static markup; every dynamic value goes in via textContent.
     el.innerHTML = `
       <div class="boot-card">
+        <img class="boot-logo" src="/logo-mark.svg" alt="" width="72" height="72" />
         <div class="boot-title">SandiBumi</div>
+        <div class="boot-desc">Multi-well petrophysical log analysis</div>
         <div class="boot-msg">Opening project…</div>
         <div class="boot-bar"><span></span></div>
         <div class="boot-time">0s</div>

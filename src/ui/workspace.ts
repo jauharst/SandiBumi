@@ -28,6 +28,7 @@ import { DbInspectorPanel } from "./dbInspectorPanel";
 import type { PlotContent } from "./plotCommon";
 import { SqlQueryPanel } from "./sqlQueryPanel";
 import { HistoryPanel } from "./historyPanel";
+import { buildStartSheet } from "./startSheet";
 import { showContextMenu, type ContextMenuEntry } from "./contextMenu";
 import { imageExportMenuEntries } from "./plotExport";
 import { forgetViewer, isWorkingPane, markActiveViewer } from "./activeViewer";
@@ -409,11 +410,9 @@ export class Workspace {
         return this.createLogView(options.id);
       case "canvas":
         return new DomPanel("dock-canvas", (host) => {
-          host.innerHTML = `
-            <div class="canvas-empty">
-              <img class="canvas-logo" src="/logo-mark.svg" alt="" width="52" height="52" />
-              <div class="canvas-hint">Open a Log View or a plot from the ribbon to get started.</div>
-            </div>`;
+          // The blank-canvas placeholder is the start sheet now (Organic design
+          // 1g): identity, New/Open, recent projects, sessions tip.
+          buildStartSheet(host);
         });
       case "wellsTops":
         return this.createWellsTops();
