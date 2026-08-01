@@ -14,9 +14,15 @@ import { buildPlateStrip } from "./plateStrip";
 import { appState, bumpDataVersion, setStatus } from "../state";
 import { recordProcess } from "../processLog";
 import { faciesColor } from "./plotCanvas";
-import { formRow, openModal } from "./modal";
+import { formRow } from "./modal";
 
 /** Mineral classifier from your own point counts (Petrophysics ▸ Petrography ▸ Mineral Classifier…).
+ *
+ *  A dock PANE, not a popup. Point counting is not a thing you do once and dismiss — you work
+ *  through a delivery plate by plate, and you need the Wells pane and the plate's own tracks
+ *  reachable while you do it. A modal covers the workspace and cannot be left open beside it.
+ *  Standing rule from Jauhar (2026-08-01): tools open as working panes; a popup only where he
+ *  asks for one.
  *
  *  Quartz against feldspar in plane light is not a colour problem, and any code claiming otherwise
  *  produces numbers with the shape of a modal analysis and none of the content. So there is no
@@ -31,17 +37,17 @@ import { formRow, openModal } from "./modal";
  *  refitted from them, seeded, on every run. A stored model blob cannot be read, argued with, or
  *  corrected; a list of clicks can be all three, and the answer stays reproducible from it.
  */
-export async function openMineralClassDialog(): Promise<void> {
+export async function buildMineralClassContent(): Promise<{ el: HTMLElement }> {
   const well = appState.selectedWell.get();
   const wrap = document.createElement("div");
-  openModal(well ? `Mineral classifier — ${well.well_name}` : "Mineral classifier", wrap, 900);
+  wrap.className = "module-pane";
 
   if (!well) {
     const none = document.createElement("div");
     none.className = "eq-note";
     none.textContent = "Select a well in the Wells pane first — plates are classified one well at a time.";
     wrap.appendChild(none);
-    return;
+    return { el: wrap };
   }
 
   const intro = document.createElement("div");
@@ -60,7 +66,7 @@ export async function openMineralClassDialog(): Promise<void> {
       "This needs numpy, Pillow, scipy and scikit-learn in the Python the app uses " +
       "(pip install numpy pillow scipy scikit-learn). Nothing else in the app is affected.";
     wrap.appendChild(warn);
-    return;
+    return { el: wrap };
   }
 
   const dsSel = document.createElement("select");
@@ -79,7 +85,7 @@ export async function openMineralClassDialog(): Promise<void> {
     none.style.color = "var(--warn)";
     none.textContent = "This well has no pictures. Import some with Data ▸ Import ▸ Images…";
     wrap.appendChild(none);
-    return;
+    return { el: wrap };
   }
 
   // ---- classes ------------------------------------------------------------
@@ -434,4 +440,5 @@ export async function openMineralClassDialog(): Promise<void> {
   saveBtn.addEventListener("click", () => void go(true));
 
   drawClasses();
+  return { el: wrap };
 }

@@ -1170,6 +1170,14 @@ textarea {
   padding: 6px 8px;
 }
 
+/* Panes converted from dialogs need the gutter a dialog got from .modal-body —
+   without it their form labels sit flush against the card edge and read as
+   clipped. Any new tool pane belongs in this list. */
+.dock-plug-qc,
+.dock-mineral-class {
+  padding: 10px 12px;
+}
+
 /* --------------------------------------------------------------------------
    Log view panel
    -------------------------------------------------------------------------- */

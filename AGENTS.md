@@ -118,6 +118,20 @@ scroll to the selected top (`LogCanvasRenderer.scrollToDepth`). Interval is clea
 BEFORE the well broadcast on well switch (order matters — followers must never see a
 foreign interval). Selected rows highlight via `.tree-selected`/`.top-selected`.
 
+**A tool opens as a WORKING PANE, never a popup** (Jauhar, 2026-08-01: *"make this module
+shown as working pane not pop up, remember dont use pop up for future except my request"*).
+This is a standing rule for all new work, not a one-off: a popup covers the workspace and
+cannot be left open beside the Wells pane, and these tools are worked through iteratively —
+point counting runs plate by plate through a whole delivery, a threshold is tuned against a
+preview, a QC scatter is read next to the log. Add a `case` in `workspace.ts::createComponent`
++ an `openX()` singleton + a `＋` menu entry, and point the ribbon button at the workspace;
+`buildMineralClassContent` / `buildPlugQcContent` are the shape to copy (return `{el, dispose?}`,
+class `module-pane`, and give the pane a padding rule beside `.dock-plug-qc` or its labels sit
+flush against the card edge). `openModal` stays for genuine interruptions — confirmations,
+refusals (`needWell.ts`), Help — and for anything Jauhar explicitly asks to be a popup.
+**Still popups and due the same conversion when he says so: Pore Area…, Condition Plates… /
+Condition Core Photos….**
+
 UX conventions (2026-07-19 fix batch, from Jauhar's click-through): dialogs are
 NON-BLOCKING — `.modal-scrim` is pointer-transparent, only Esc/✕ close (never re-add
 scrim-click-to-close or a blocking overlay). Ribbon groups with >1 button MUST wrap

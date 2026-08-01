@@ -7,6 +7,26 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-01 — Mineral Classifier is a pane, and Plug QC is proportional (your catches)
+
+- [ ] **Petrophysics ▸ Petrography ▸ Mineral Classifier…** now opens as a **working pane**,
+      not a popup — dock it, split it, leave it open beside the Wells pane while you click
+      through a delivery plate by plate. It is also in the ＋ menu as "Mineral Classifier
+      (point counts)". Everything it does is unchanged: labels, training, apply, save.
+- [ ] **Plug QC** was a pane wearing dialog-era layout — a fixed 180px label column against
+      a full-width control, in a pane with no gutter at all, so labels sat flush on the card
+      edge. It uses the same two-column form as the module panes now (labels above, controls
+      even), with the pane gutter every other tool pane has. Measured: both columns 303px,
+      everything inside the content box. The Mercury-saturation row still hides itself
+      unless an axis is the throat radius.
+- [ ] **Standing rule recorded**: tools open as working panes from now on. `openModal` stays
+      only for real interruptions — confirmations, refusals, Help — or when you ask for a
+      popup. **Still popups, and I did NOT convert them without your word: Pore Area… and
+      Condition Plates… / Condition Core Photos….** Say the word and they follow.
+- [ ] Core conditioning has not moved: **Data ▸ Tools ▾ ▸ Condition Core Photos…**. It sits
+      in a different tab from Condition Plates…, which is the same dialog for thin sections
+      — if you want them side by side in Petrography, that is a small move.
+
 ## 2026-08-01 — One edge, on the pane you are working in (your call)
 
 The hairline came off every card, and the active pane states itself instead.

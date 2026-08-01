@@ -268,9 +268,9 @@ export class Ribbon {
     q<HTMLButtonElement>("#pore-area-btn")?.addEventListener("click", () => {
       void import("./poreAreaDialog").then((m) => m.openPoreAreaDialog());
     });
-    q<HTMLButtonElement>("#mineral-class-btn")?.addEventListener("click", () => {
-      void import("./mineralClassDialog").then((m) => m.openMineralClassDialog());
-    });
+    // A working pane, not a popup: point counting runs plate by plate through a whole
+    // delivery, and the Wells pane has to stay reachable while it does.
+    q<HTMLButtonElement>("#mineral-class-btn")?.addEventListener("click", () => workspace.openMineralClass());
     q<HTMLButtonElement>("#plug-qc-btn")?.addEventListener("click", () => workspace.openPlugQc());
     q<HTMLButtonElement>("#multimin-btn")?.addEventListener("click", () => workspace.openMultimin());
     q<HTMLButtonElement>("#rtc-fit-btn")?.addEventListener("click", () => {

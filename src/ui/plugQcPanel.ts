@@ -39,7 +39,11 @@ export async function buildPlugQcContent(
   setStatus: (text: string) => void,
 ): Promise<{ el: HTMLElement; dispose: () => void }> {
   const content = document.createElement("div");
-  content.className = "mc-dialog";
+  // A pane, so it takes the pane form treatment (module-pane + the .module-args
+  // grid below) rather than the dialog-era side-label rows it was built with:
+  // a fixed 180px label column squeezed against a full-width control reads as
+  // clipped labels next to enormous selects at pane widths.
+  content.className = "module-pane";
 
   const intro = document.createElement("div");
   intro.className = "eq-note";
@@ -115,8 +119,11 @@ export async function buildPlugQcContent(
   ySel.addEventListener("change", () => {
     xSel.dataset.touched = "1";
   });
-  content.appendChild(formRow("X measurement", xSel, "Read from the ACTIVE delivery of each store"));
-  content.appendChild(formRow("Y measurement", ySel, "Read from the ACTIVE delivery of each store"));
+  const args = document.createElement("div");
+  args.className = "module-args";
+  content.appendChild(args);
+  args.appendChild(formRow("X measurement", xSel, "Read from the ACTIVE delivery of each store"));
+  args.appendChild(formRow("Y measurement", ySel, "Read from the ACTIVE delivery of each store"));
 
   // Only meaningful when one of the axes is the SCAL throat radius, so it hides itself otherwise.
   const satIn = document.createElement("input");
@@ -131,14 +138,14 @@ export async function buildPlugQcContent(
     satIn,
     "The saturation the throat radius is read at. 35% is the Kolodzie/Winland r35 convention, which is what the R35 curve predicts.",
   );
-  content.appendChild(satRow);
+  args.appendChild(satRow);
 
   const tolIn = document.createElement("input");
   tolIn.type = "number";
   tolIn.className = "form-control";
   tolIn.step = "0.01";
   tolIn.value = "0.15";
-  content.appendChild(
+  args.appendChild(
     formRow(
       "Depth tolerance",
       tolIn,
@@ -157,7 +164,7 @@ export async function buildPlugQcContent(
     o.textContent = label;
     lineSel.appendChild(o);
   }
-  content.appendChild(
+  args.appendChild(
     formRow(
       "Reference line",
       lineSel,
