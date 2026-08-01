@@ -2446,6 +2446,60 @@ The counts are refreshed when the LABELS load, not only when a click is placed: 
 after the strip is built, so annotating only on click would show every tile as uncounted each time a
 delivery was reopened.
 
+## Four ways an operation reported success having done nothing (2026-08-01)
+
+`docs/review_triage.md` findings 13, 17, 19 and 20, fixed together because they are one defect
+wearing four faces: **the honest signal existed but was gated on the failure being total.** A
+script that raised on every sample was caught; one that raised on half was not. A chain that
+reported a terminal status released the project switch; one that died did not. A backend that
+refused a non-finite constant never saw the empty field the frontend had already turned into 0.0.
+Three sample editors checked their UPDATE's row count; the fourth did not.
+
+Each was pinned AS-IS by a test written to go red when fixed, so the fix and the test rewrite are
+one action rather than two.
+
+**A partial failure is a WARNING, not an error, and not silence.** `EquationRunResult.note` is a
+third channel beside `error`: the curve WAS written and an equation guarded by a domain check
+legitimately refuses some depths, so calling that a failure trains the user to ignore the channel —
+but a holed curve with nothing on the log to prompt a second look is indistinguishable from one
+whose inputs were simply absent, which is the ordinary innocent case. **The raises are counted at
+the evaluator, never from the output**: counting MISSING output samples would flag every equation
+ever run over a washout, and a warning that always fires is one nobody reads. Samples whose inputs
+were already MISSING never reach the evaluator (the `has_nan` short-circuit), which is exactly what
+makes the count mean something — these are depths where the script had real numbers and still could
+not answer. A non-finite result (`exp(1000)`) is counted and worded separately, because telling the
+user their script threw when it did not sends them reading the wrong line. This is Rhai-specific:
+`run_python_equation` runs the whole well in one call, so a `raise` fails that well outright.
+
+**A dead chain worker releases the project switch, and the entry is still not pruned.** The chain
+registry has no prune (contrast `jobs.rs`) — `register` inserts, `set_status` mutates, nothing
+removes — so a worker that died without a terminal status left `any_active` answering true and
+Open/New/Compact Project refused for the rest of the session, each telling the user to wait for a
+job that would never finish. `catch_unwind` in `run_workflow_chain` now reports the panic on BOTH
+registries (`chain::failed` for the Builder's poll, `job.failed` for the Processing panel). The
+entry deliberately survives, because the reason is the whole point of not pruning it; what changed
+is that it reaches a terminal status. **The panic's own message is carried through** —
+`panic!("literal")` gives a `&str` and `panic!("{x}")` a `String`, anything else has no readable
+message and says so rather than printing a type name. Honest limit, recorded at the call site: a
+panic that was HOLDING the DB mutex poisons it, and no catch here rescues that.
+
+**A dialog refuses its own bad field, in the dialog.** `curveEditDialog`'s numeric helper fell back
+to a default on an unparseable value — which is safe only where the default is the identity. It is
+for `mul` (1) and `add` (0); it is not for `value`, where 0.0 gAPI over an interval looks like a
+measurement of very clean rock, and it is not for `top`, where 0 does not mean "no interval" but
+"from surface". Those three are refused by name in `var(--warn)` with focus on the first, which is
+`needWell.ts`'s rule: the user is looking at this dialog, and a refusal in a corner of the window is
+one they will not read before clicking Apply again. Passing the non-finite value down to the
+backend's existing guard was the one-character alternative and gives a message that cannot say
+which of six fields was wrong.
+
+**`update_well_field` checks its row count like its three siblings.** Without it, an edit against a
+well deleted in the Wells & Tops pane returned Ok: the cell showed the new value, the status bar
+reported the edit, and an undo entry was pushed for a change that never happened. The message
+deliberately does NOT name the well — the identity here is a UUID the user has never seen, unlike
+the depth its siblings quote — so it says what happened and what to do. A bad column stays a
+separate refusal: that is a programming error, this is a stale grid.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under

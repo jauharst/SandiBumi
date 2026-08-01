@@ -29,6 +29,10 @@ export interface EquationRunResult {
   well_id: string;
   rows_written: number;
   error: string | null;
+  /** Succeeded, but not every sample did — a Rhai script that raised on some depths. Distinct
+   *  from `error`: the curve was written and is usable, it just has holes the user should know
+   *  about (`docs/review_triage.md` finding 13). */
+  note: string | null;
 }
 
 export interface CurveCatalogEntry {

@@ -2544,20 +2544,43 @@ fn run_workflow_chain(
     // the instant Run is clicked. std::thread has no runtime-context requirement. run_chain is
     // ordinary blocking code and every captured value (Arc DB handle, Arc registry, Arc cancel
     // flag, the owned Vecs) is Send + 'static; the DB connection is already used off-thread by
-    // rayon under this same Mutex, so cross-thread use is sound. A panic inside stays on this
-    // thread (it can't abort the process); the job simply stops reporting progress.
+    // rayon under this same Mutex, so cross-thread use is sound.
+    //
+    // A panic inside stays on this thread (it can't abort the process) — but "the job simply
+    // stops reporting progress" understated it badly. The chain registry has no prune, so an
+    // entry that never reaches a terminal status stays Running forever and `chain::any_active`
+    // shuts Open/New/Compact Project for the rest of the session (review_triage finding 17). So
+    // catch it: report the panic on both registries, which tells the user AND releases the guard.
+    //
+    // Honest limit: if the panic happened while the DB mutex was held, that mutex is now poisoned
+    // and the next `lock().unwrap()` anywhere panics in turn. Catching here cannot rescue that
+    // case — it rescues every panic that was not holding the lock, and makes the rest report.
     std::thread::spawn(move || {
-        chain::run_chain(
-            &db,
-            &registry,
-            uuid,
-            &cancel,
-            &steps,
-            &well_ids,
-            output_set.as_deref(),
-            input_set.as_deref(),
-            Some(&job),
-        );
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            chain::run_chain(
+                &db,
+                &registry,
+                uuid,
+                &cancel,
+                &steps,
+                &well_ids,
+                output_set.as_deref(),
+                input_set.as_deref(),
+                Some(&job),
+            );
+        }));
+        if let Err(payload) = outcome {
+            // `panic!("literal")` carries a &str, `panic!("{x}")` a String; anything else has no
+            // readable message at all. Say so rather than printing a type name.
+            let detail = payload
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "no message".to_string());
+            let msg = format!("the workflow stopped unexpectedly ({detail}) — its results are incomplete");
+            chain::failed(&registry, uuid, msg.clone());
+            job.failed(msg);
+        }
     });
     Ok(())
 }

@@ -32,14 +32,23 @@ pub struct EquationRunResult {
     pub well_id: String,
     pub rows_written: usize,
     pub error: Option<String>,
+    /// The run succeeded but not every sample did — today, a Rhai script that raised on some
+    /// depths. Distinct from `error` on purpose: the curve WAS written and is usable, so calling
+    /// it a failure would be wrong, but saying nothing is worse. See [`run_equation`].
+    #[serde(default)]
+    pub note: Option<String>,
 }
 
 impl EquationRunResult {
-    fn success(well_id: String, rows_written: usize) -> Self {
-        Self { well_id, rows_written, error: None }
+    pub(crate) fn success(well_id: String, rows_written: usize) -> Self {
+        Self { well_id, rows_written, error: None, note: None }
     }
-    fn failed(well_id: String, error: String) -> Self {
-        Self { well_id, rows_written: 0, error: Some(error) }
+    pub(crate) fn failed(well_id: String, error: String) -> Self {
+        Self { well_id, rows_written: 0, error: Some(error), note: None }
+    }
+    fn with_note(mut self, note: Option<String>) -> Self {
+        self.note = note;
+        self
     }
 }
 
@@ -1091,6 +1100,18 @@ pub fn run_equation(
 
             let n = depth.len();
             let mut output = Vec::with_capacity(n);
+            // A Rhai error is caught per sample and written as MISSING, and the only thing that
+            // ever converted that into a reported failure was the all-MISSING guard below — which
+            // fires only when EVERY sample failed. So a script raising on half the depths produced
+            // a holed curve and reported a clean success with the full row count, indistinguishable
+            // from the innocent case where the inputs were simply absent there
+            // (`docs/review_triage.md` finding 13). Count them instead.
+            //
+            // Samples whose inputs were already MISSING never reach the evaluator (the `has_nan`
+            // short-circuit above), which is exactly what makes these counts mean something: they
+            // are depths where the script had real numbers to work with and still could not answer.
+            let mut raised = 0usize;
+            let mut non_finite = 0usize;
             for i in 0..n {
                 let mut scope = Scope::new();
                 let mut has_nan = false;
@@ -1113,7 +1134,14 @@ pub fn run_equation(
                     // picked as a predictor — where it poisons z-scores and comparison sorts.
                     // Missing is the honest reading of a non-finite result.
                     Ok(v) if (v as f32).is_finite() => output.push(v as f32),
-                    Ok(_) | Err(_) => output.push(f32::NAN),
+                    Ok(_) => {
+                        non_finite += 1;
+                        output.push(f32::NAN);
+                    }
+                    Err(_) => {
+                        raised += 1;
+                        output.push(f32::NAN);
+                    }
                 }
             }
 
@@ -1136,10 +1164,26 @@ pub fn run_equation(
                 }
                 return EquationRunResult::failed(well_id.clone(), e.to_string());
             }
+            // Reported as a WARNING rather than an error, and the curve is still written: the run
+            // did produce data, and an equation guarded by a domain check legitimately refuses
+            // some depths. What is indefensible is silence — a holed curve with nothing on the log
+            // to prompt a second look.
+            let note = match (raised, non_finite) {
+                (0, 0) => None,
+                (r, 0) => Some(format!("the script raised on {r} of {n} sample(s) — those depths are MISSING")),
+                (0, f) => {
+                    Some(format!("{f} of {n} sample(s) evaluated to a non-finite value — those depths are MISSING"))
+                }
+                (r, f) => Some(format!(
+                    "the script raised on {r} of {n} sample(s), and {f} more evaluated non-finite — those depths are MISSING"
+                )),
+            };
             if let Some(p) = progress {
-                p.finish_item(well_id, crate::jobs::ItemState::Ok, None);
+                let state =
+                    if note.is_some() { crate::jobs::ItemState::Warned } else { crate::jobs::ItemState::Ok };
+                p.finish_item(well_id, state, note.clone());
             }
-            EquationRunResult::success(well_id.clone(), n)
+            EquationRunResult::success(well_id.clone(), n).with_note(note)
         })
         .collect()
 }
@@ -1570,11 +1614,16 @@ mod tests {
     /// a clean success with the full row count. Nothing tells the user their script threw — and
     /// a curve with holes is indistinguishable from one whose inputs were simply absent there.
     ///
-    /// Pinned AS-IS, not endorsed. Counting the raises and reporting them is a real change to
-    /// the run summary, so it is Jauhar's call; if it is made, this test fails, which is the
-    /// alarm.
+    /// Fixed 2026-08-01 (`docs/review_triage.md` finding 13): the raises are counted and reported
+    /// as a WARNING beside a successful run. Not an error — the curve was written and an equation
+    /// guarded by a domain check legitimately refuses some depths — and not silence, which is what
+    /// made a half-failed script indistinguishable from absent inputs.
+    ///
+    /// The count is meaningful only because samples whose INPUTS were already MISSING never reach
+    /// the evaluator (the `has_nan` short-circuit). This test's fixture has no NaN inputs at all,
+    /// so every miss here is a genuine raise; the sibling below adds the mixed case.
     #[test]
-    fn a_script_that_raises_on_only_some_samples_still_reports_a_clean_success() {
+    fn a_script_that_raises_on_only_some_samples_says_so_without_calling_the_run_a_failure() {
         use crate::db;
         use uuid::Uuid;
         let conn = Connection::open_in_memory().unwrap();
@@ -1612,8 +1661,15 @@ mod tests {
         };
         let res = run_equation(&dbm, &eq, &[w.clone()], None);
 
-        assert!(res[0].error.is_none(), "a half-failing script reports NO error today: {:?}", res[0].error);
-        assert_eq!(res[0].rows_written, n, "and claims every sample was written");
+        assert!(res[0].error.is_none(), "the curve WAS written, so this is not a failure: {:?}", res[0].error);
+        assert_eq!(res[0].rows_written, n, "every depth still gets a row — half of them MISSING");
+        let note = res[0].note.as_deref().expect("a half-failing script must say so");
+        assert!(
+            note.contains("raised on 2 of 4"),
+            "the note must give the coverage, not just that something went wrong — 2 of 4 is a \
+             different situation from 2 of 4000: {note}"
+        );
+        assert!(note.contains("MISSING"), "and say what happened to those depths: {note}");
 
         // The written curve is half MISSING. Counted in Rust, never in SQL: DuckDB gives NaN a
         // total ordering, so `value = value` is TRUE for NaN and would count them as finite.
@@ -1639,6 +1695,61 @@ mod tests {
             res[0].error.as_ref().is_some_and(|e| e.contains("no finite output")),
             "a script that raises everywhere IS caught: {:?}",
             res[0].error
+        );
+    }
+
+    /// The control that gives the warning above its meaning: a curve with holes because its
+    /// INPUTS were missing there is the ordinary innocent case, and must stay silent.
+    ///
+    /// This is the whole reason the count is taken at the evaluator rather than from the output.
+    /// Counting MISSING output samples would flag every equation ever run over a washed-out
+    /// interval, the warning would fire constantly, and a warning that always fires is one nobody
+    /// reads — at which point the real half-failed script goes past unnoticed again.
+    #[test]
+    fn a_curve_holed_by_missing_inputs_is_not_reported_as_a_script_failure() {
+        use crate::db;
+        use uuid::Uuid;
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let wid = Uuid::new_v4();
+        db::insert_well(&conn, wid, "SANDI-EQ-HOLES", None, None, Some(0.0)).unwrap();
+        let depths = vec![1000.0f32, 1000.5, 1001.0, 1001.5];
+        // Half the GR is absent — a washout, a tool off bottom, an interval nobody logged.
+        let gr = vec![40.0f32, f32::NAN, 45.0, f32::NAN];
+        let n = depths.len();
+        db::insert_standard_curves(
+            &conn,
+            wid,
+            depths,
+            gr,
+            vec![2.0; n],
+            vec![0.25; n],
+            vec![2.4; n],
+            vec![f32::NAN; n],
+            vec![f32::NAN; n],
+        )
+        .unwrap();
+        let w = wid.to_string();
+        let dbm = Mutex::new(conn);
+
+        let eq = EquationDef {
+            equation_id: Uuid::new_v4().to_string(),
+            name: "CLEAN".into(),
+            description: None,
+            script: "gr / 100.0".into(), // cannot raise
+            input_curves: vec!["GR".into()],
+            output_curve: "CLEAN".into(),
+            output_units: None,
+            language: "rhai".into(),
+        };
+        let res = run_equation(&dbm, &eq, &[w], None);
+
+        assert!(res[0].error.is_none(), "{:?}", res[0].error);
+        assert_eq!(res[0].rows_written, n);
+        assert!(
+            res[0].note.is_none(),
+            "missing inputs are not a script failure and must not warn: {:?}",
+            res[0].note
         );
     }
 }

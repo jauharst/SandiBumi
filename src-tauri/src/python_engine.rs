@@ -392,7 +392,7 @@ pub fn run_python_equation(
         }
         return well_ids
             .iter()
-            .map(|w| EquationRunResult { well_id: w.clone(), rows_written: 0, error: Some(NO_PYTHON.into()) })
+            .map(|w| EquationRunResult::failed(w.clone(), NO_PYTHON.into()))
             .collect();
     }
 
@@ -403,7 +403,7 @@ pub fn run_python_equation(
             if let Some(p) = progress {
                 if p.is_cancelled() {
                     p.finish_item(well_id, crate::jobs::ItemState::Warned, Some("cancelled".into()));
-                    return EquationRunResult { well_id: well_id.clone(), rows_written: 0, error: Some("cancelled".into()) };
+                    return EquationRunResult::failed(well_id.clone(), "cancelled".into());
                 }
                 p.set_current(Some(format!("Python equation: well {}/{}", wi + 1, well_ids.len())));
                 p.start_item(well_id);
@@ -416,7 +416,7 @@ pub fn run_python_equation(
                         if let Some(p) = progress {
                             p.finish_item(well_id, crate::jobs::ItemState::Failed, Some(e.to_string()));
                         }
-                        return EquationRunResult { well_id: well_id.clone(), rows_written: 0, error: Some(e.to_string()) };
+                        return EquationRunResult::failed(well_id.clone(), e.to_string());
                     }
                 }
             };
@@ -424,7 +424,7 @@ pub fn run_python_equation(
                 if let Some(p) = progress {
                     p.finish_item(well_id, crate::jobs::ItemState::Failed, Some("no curve data for well".into()));
                 }
-                return EquationRunResult { well_id: well_id.clone(), rows_written: 0, error: Some("no curve data for well".into()) };
+                return EquationRunResult::failed(well_id.clone(), "no curve data for well".into());
             }
 
             let mut names: Vec<String> = vec!["depth".into()];
@@ -452,7 +452,7 @@ pub fn run_python_equation(
                         if let Some(p) = progress {
                             p.finish_item(well_id, crate::jobs::ItemState::Warned, Some(msg.clone()));
                         }
-                        return EquationRunResult { well_id: well_id.clone(), rows_written: 0, error: Some(msg) };
+                        return EquationRunResult::failed(well_id.clone(), msg);
                     }
                     let conn = db.lock().unwrap();
                     // Report the terminal state on EVERY branch, exactly as the Rhai sibling does
@@ -465,13 +465,13 @@ pub fn run_python_equation(
                             if let Some(p) = progress {
                                 p.finish_item(well_id, crate::jobs::ItemState::Ok, None);
                             }
-                            EquationRunResult { well_id: well_id.clone(), rows_written: depth.len(), error: None }
+                            EquationRunResult::success(well_id.clone(), depth.len())
                         }
                         Err(e) => {
                             if let Some(p) = progress {
                                 p.finish_item(well_id, crate::jobs::ItemState::Failed, Some(e.to_string()));
                             }
-                            EquationRunResult { well_id: well_id.clone(), rows_written: 0, error: Some(e.to_string()) }
+                            EquationRunResult::failed(well_id.clone(), e.to_string())
                         }
                     }
                 }
@@ -479,7 +479,7 @@ pub fn run_python_equation(
                     if let Some(p) = progress {
                         p.finish_item(well_id, crate::jobs::ItemState::Failed, Some(e.clone()));
                     }
-                    EquationRunResult { well_id: well_id.clone(), rows_written: 0, error: Some(e) }
+                    EquationRunResult::failed(well_id.clone(), e)
                 }
             }
         })

@@ -7413,3 +7413,47 @@ you have not.
 - [ ] Close the classifier and reopen it. Do the counts come back?
 - [ ] On a large delivery (a hundred plates or more), scroll the strip — does it stay responsive,
       loading thumbnails as you go?
+
+## Four silent successes, from the triage (2026-08-01)
+
+From `docs/review_triage.md` — findings 13, 17, 19 and 20. All four were places where something
+reported success having done nothing, or half of something.
+
+**An equation script that throws on some depths now says so.** Run a Rhai equation that raises on
+part of the interval — the run still succeeds and the curve is still written, but the summary line
+now ends with a warning naming how many samples of how many threw. A curve that is simply holed
+because its inputs were missing does NOT warn, which is the point: the warning only fires where the
+script had real numbers and could not answer.
+
+- [ ] Write an equation that throws on part of a well (e.g. `if gr > 60.0 { throw "high" } gr/100`)
+      and run it. Does the status line say how many samples raised?
+- [ ] Run one that cannot throw over an interval with washed-out GR. Does it stay quiet?
+- [ ] Does the Processing panel show that well as a warning rather than a plain tick?
+
+**A workflow chain that dies no longer locks the project.** If a chain's worker stops
+unexpectedly, it now reports a failure instead of sitting at Running forever — and Open Project,
+New Project and Compact Project work again. Previously the only way out was restarting the app.
+
+- [ ] Run a chain to completion, then Open Project. (Control — this always worked.)
+- [ ] Cancel one mid-run, then Open Project.
+- [ ] If a chain ever does die on you, check the Workflow Builder says it stopped and that the
+      results are incomplete, rather than sitting at Running.
+
+**Curve Edit refuses an empty box instead of writing 0.** Right-click a curve in a log view →
+Edit. With "Set constant" chosen, clearing the Value box used to write **0.0** over the interval —
+a perfectly normal-looking reading of very clean rock. It now refuses, in the dialog, naming the
+field.
+
+- [ ] Edit → Set constant, clear Value, press Apply. Do you get a warning in the dialog and
+      nothing written?
+- [ ] Type `abc` in Value. Same?
+- [ ] Clear Top as well. Does the message name both fields?
+- [ ] Choose Blank (erase) and clear Value. It should go through — Blank does not use Value.
+- [ ] Type a real number. Does it still apply normally?
+
+**Editing a well that has been deleted now fails.** With the Wells grid open, delete that well in
+the Wells & Tops pane, then edit one of its cells. It used to report success and push an undo
+entry for a change that never happened.
+
+- [ ] Do exactly that. Do you get "that well is no longer in the project… refresh the Wells grid"?
+- [ ] Does the ordinary case — editing a well that IS there — still work?

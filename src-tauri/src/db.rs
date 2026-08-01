@@ -4232,21 +4232,26 @@ mod inspector_tests {
         // about WHICH curves a well has, not only about where its samples are.
         assert!(update_computed_sample(&conn, &w, 1000.0, "PHIE", 0.2).is_err());
 
-        // KNOWN GAP, pinned AS-IS and not endorsed. The FOURTH editor the inspector uses —
-        // `update_well_field`, behind the Wells grid — has no such guard. It validates the
-        // COLUMN and then runs the UPDATE without checking that anything matched, so an edit
-        // against a well that is no longer there reports success and writes nothing.
+        // The FOURTH editor the inspector uses — `update_well_field`, behind the Wells grid —
+        // used to be the gap: it validated the COLUMN and then ran the UPDATE without checking
+        // that anything matched, so an edit against a well that is no longer there reported
+        // success and wrote nothing (`docs/review_triage.md` finding 20, fixed 2026-08-01).
         //
         // The route is the Wells grid left open while the well is deleted in the Wells & Tops
-        // pane. Rarer than a moved curve sample, and the same silent outcome: the cell shows
-        // the new value and an undo entry is pushed for a change that never happened. The fix
-        // is the `n == 0` check the other three already carry.
+        // pane. Rarer than a moved curve sample — a well_id does not drift the way a depth does
+        // — and the same silent outcome: the cell shows the new value and an undo entry is
+        // pushed for a change that never happened.
+        update_well_field(&conn, &w, "field_name", Some("SANDI FIELD")).expect("the well that IS there edits");
+        let e = update_well_field(&conn, "00000000-0000-0000-0000-000000000000", "field_name", Some("x"))
+            .expect_err("editing a well that does not exist must not report success");
         assert!(
-            update_well_field(&conn, "00000000-0000-0000-0000-000000000000", "field_name", Some("x")).is_ok(),
-            "pinned AS-IS, not endorsed: editing a well that does not exist reports success"
+            e.contains("no longer in the project") && e.contains("refresh"),
+            "the message must say what happened and what to do — the identity here is a UUID the \
+             user never sees, so naming it would help nobody: {e}"
         );
-        // The column check DOES work, so the gap is specifically the missing row count.
-        assert!(update_well_field(&conn, &w, "depth", Some("x")).is_err());
+        // The column check still works, and is a DIFFERENT refusal — a bad column is a
+        // programming error, a missing row is a stale grid.
+        assert!(update_well_field(&conn, &w, "depth", Some("x")).unwrap_err().contains("not editable"));
     }
 
     /// T-REP-16 step 4. Aux Data is browsable but not editable, and that is a data-integrity
@@ -5543,11 +5548,11 @@ mod inspector_tests {
 
 /// Edits one wells-table field (name/field/utm_zone as text, td/kb as f32, surface_x/y as f64).
 pub fn update_well_field(conn: &Connection, well_id: &str, field: &str, value: Option<&str>) -> Result<(), String> {
-    match field {
+    let n = match field {
         "well_name" | "field_name" | "utm_zone" => {
             let text = value.map(str::trim).filter(|s| !s.is_empty());
             conn.execute(&format!("UPDATE wells SET {field} = ?1 WHERE well_id = ?2"), params![text, well_id])
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| e.to_string())?
         }
         "td" | "kb" => {
             let num: Option<f32> = match value {
@@ -5555,7 +5560,7 @@ pub fn update_well_field(conn: &Connection, well_id: &str, field: &str, value: O
                 _ => None,
             };
             conn.execute(&format!("UPDATE wells SET {field} = ?1 WHERE well_id = ?2"), params![num, well_id])
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| e.to_string())?
         }
         "surface_x" | "surface_y" => {
             let num: Option<f64> = match value {
@@ -5563,9 +5568,18 @@ pub fn update_well_field(conn: &Connection, well_id: &str, field: &str, value: O
                 _ => None,
             };
             conn.execute(&format!("UPDATE wells SET {field} = ?1 WHERE well_id = ?2"), params![num, well_id])
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| e.to_string())?
         }
         other => return Err(format!("field '{other}' is not editable")),
+    };
+    // The same 0-row check `update_standard_sample`, `update_computed_sample` and
+    // `update_core_sample` carry. Without it an edit against a well that has since been deleted
+    // in the Wells & Tops pane returns Ok: the cell shows the new value, the status bar reports
+    // the edit, and an undo entry is pushed for a change that never happened
+    // (`docs/review_triage.md` finding 20). The message names what to DO rather than what row was
+    // missed — the identity here is a UUID the user never sees.
+    if n == 0 {
+        return Err("that well is no longer in the project — it may have been deleted; refresh the Wells grid".into());
     }
     Ok(())
 }

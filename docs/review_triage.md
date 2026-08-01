@@ -1069,7 +1069,7 @@ the same underlying gap. Your plan already flagged the UUID half as UX feedback.
 `SANDI-1_2_report.pdf`) is the obvious fix; falling back to the well id is the other. Either
 changes what lands in a client folder, which is not something to alter under you.
 
-### 13. A script that raises on only SOME samples reports a clean success — **OPEN, your call**
+### 13. A script that raises on only SOME samples reports a clean success — **FIXED 2026-08-01**
 
 A Rhai error is caught per sample and written as MISSING (`equations.rs:1116`,
 `Ok(_) | Err(_) => NAN`). The only thing that converts a script error into a reported failure is
@@ -1085,10 +1085,29 @@ everywhere and IS caught: the difference between reported and silent is only eve
 Same shape as finding 10 (a failed run still writes its empty curves): in both, the honest signal
 exists but is gated on the failure being total.
 
-**Your call because it changes the run summary.** Counting the raises and reporting "N of M
-samples failed" is the fix; whether that is a warning or an error — and whether a partially
-failed curve should be written at all — is a judgement about how you use the equation editor. If
-you make it, this test fails, which is the alarm.
+**Fixed 2026-08-01, as a WARNING beside a successful run.** The raises are counted at the
+evaluator and reported as `EquationRunResult.note` — a third channel next to `error`, surfaced by
+`summarizeRun` as "Warnings:" and by the Processing panel as `ItemState::Warned`.
+
+Three judgements, and the reasons they went this way:
+
+- **A warning, not an error.** The run did produce data, and an equation guarded by a domain check
+  legitimately refuses some depths. Calling that a failure would train the user to ignore the
+  channel.
+- **The curve is still written.** A partial answer is often the answer wanted; what was
+  indefensible was silence.
+- **Counted at the evaluator, never from the output.** Counting MISSING output samples would flag
+  every equation ever run over a washout, the warning would fire constantly, and a warning that
+  always fires is one nobody reads — at which point the real half-failed script goes past
+  unnoticed again. Samples whose inputs were already MISSING never reach the evaluator (the
+  `has_nan` short-circuit), which is exactly what makes the count mean something: these are depths
+  where the script had real numbers and still could not answer. Pinned from both sides by
+  `a_script_that_raises_on_only_some_samples_says_so_without_calling_the_run_a_failure` and its
+  control `a_curve_holed_by_missing_inputs_is_not_reported_as_a_script_failure`.
+
+A non-finite result (`exp(1000)`) is counted separately and worded separately — it is an overflow,
+not a raise, and telling the user their script threw when it did not would send them reading the
+wrong line.
 
 Worth saying what this is NOT: the Python path is fine. `run_python_equation` runs the whole
 well's array in one call, so a `raise` fails that well outright and the user's own message reaches
@@ -1166,7 +1185,7 @@ write it, or floor the HPV contribution in the pay summary. Those are different 
 whose job it is to reject a non-physical porosity, and the first changes curves you may want to
 see unclamped for QC.
 
-### 17. A chain whose worker thread dies jams the project switch for the rest of the session — **OPEN, your call**
+### 17. A chain whose worker thread dies jams the project switch for the rest of the session — **FIXED 2026-08-01**
 
 The guard T-SHELL-09 exercises is correct: `chain::register` is called at `lib.rs:2428`, BEFORE
 the worker thread is spawned at `:2468`, so the switch is already shut the instant Run is clicked
@@ -1187,12 +1206,29 @@ the app — which on a field project means paying the reopen cost again.
 
 Pinned as-is by `a_chain_that_never_reports_a_terminal_status_jams_the_guard_permanently`.
 
-**Your call because the fix is a judgement about failure semantics.** The mechanical part is easy:
-`catch_unwind` around the `run_chain` call, setting `ChainStatus::Failed` — the variant already
-exists and carries `#[allow(dead_code)]` precisely because nothing emits it. The judgement is what
-the user should then be told, and whether a chain that died mid-write should let the project be
-switched at all or should insist on a restart. Making the change fails this test, which is the
-alarm.
+**Fixed 2026-08-01.** `catch_unwind` around the `run_chain` call reports the panic on BOTH
+registries — `chain::failed` for the Workflow Builder's poll, `job.failed` for the Processing panel
+— and the `Failed` variant lost its `#[allow(dead_code)]`.
+
+Three judgements:
+
+- **The project switch OPENS.** A chain that died mid-write left a half-written log set, which is
+  bad; refusing to let the user open another project until they restart the app does not un-write
+  it, and on a field project costs them the reopen. The message says the results are incomplete,
+  which is the thing they actually need to act on.
+- **The entry is still not pruned, deliberately.** It has to survive so `get_chain_status` can say
+  WHY the run stopped. What changed is that a dead worker now reaches a terminal status, so the
+  guard opens while the reason stays readable.
+- **The panic's own message is carried through**, because "the workflow stopped unexpectedly" with
+  no detail is a bug report nobody can act on. `panic!("literal")` carries a `&str` and
+  `panic!("{x}")` a `String`; anything else has no readable message, and the note says so rather
+  than printing a type name.
+
+**One honest limit, recorded in the code.** If the panic happened while the DB mutex was held, that
+mutex is now poisoned and the next `lock().unwrap()` anywhere panics in turn — catching here cannot
+rescue that case. It rescues every panic that was not holding the lock, and makes the rest report.
+Pinned by `a_dead_chain_worker_reports_failure_and_releases_the_project_switch`, which also checks
+Completed and Cancelled still release the guard so the fix did not narrow it to one exit.
 
 ### 18. The report cover states the composite's PRINT WINDOW, not the logged interval — **OPEN, your call**
 
@@ -1223,7 +1259,7 @@ is a document-design decision, which is why this is yours. Making the change fai
 is the alarm. The correct behaviour of tables-only otherwise is pinned by
 `tables_only_drops_the_composite_pages_and_still_dates_the_cover_to_real_rock`.
 
-### 19. Curve Edit's "coerce to 0.0" is HALF fixed, and the surviving half is one line of TypeScript — **OPEN, your call**
+### 19. Curve Edit's "coerce to 0.0" is HALF fixed, and the surviving half is one line of TypeScript — **FIXED 2026-08-01**
 
 The BACKEND guard is correct and tested: `apply_op` refuses a non-finite constant outright
 (`curve_edit.rs:417`), writing nothing — pinned by
@@ -1244,11 +1280,28 @@ An empty `add` falls back to 0 and an empty `mul` to 1 — both no-ops, which is
 There is no identity for "set a constant", and 0.0 gAPI over an interval does not look like an
 error; it looks like a measurement of very clean rock.
 
-**Your call because the fix is a UI decision**: refuse Apply with a hint while the field is empty
-or unparseable, or pass the non-finite value through and let the backend's existing refusal
-surface. The second is one character (`dflt` to `NaN`, for `value` only) and gives a worse message.
+**Fixed 2026-08-01 by refusing Apply**, not by passing the non-finite value down. The one-character
+version (`dflt` to `NaN`) would have produced a backend refusal reading "value must be a number"
+with nothing saying WHICH field — and this dialog has six.
 
-### 20. The Wells grid's editor has no 0-row check, unlike the other three — **OPEN, your call**
+Three things the fix does that the narrow version would not:
+
+- **It refuses `top` and `bottom` too.** An empty Top is the same trap by another route: it does
+  not mean "no interval", it means from surface, so a Set-constant or Blank meant for 2 m of log
+  silently covers everything above it. The finding named `value` because that is where 0 is a
+  reading; the interval fields are where 0 is a different operation.
+- **`mul` and `add` keep the fallback**, because there the default really IS the identity (1 and
+  0). The worst case is an op that does nothing and reports "nothing changed" — loud, not silent.
+  That asymmetry is the finding's own sharp version, applied rather than just noted.
+- **The message lands in the DIALOG**, in `var(--warn)`, naming every offending field and focusing
+  the first. This is `needWell.ts`'s rule: the user is looking at this dialog, and a refusal in a
+  corner of the window is one they will not read before clicking Apply again.
+
+Verified in the browser: an empty Value sends **no** `edit_curve` at all and reads "Value needs a
+number — nothing was written."; an empty Top with `abc` in Value names both; `blank` accepts an
+empty Value because it does not use it; and real numbers go through unchanged.
+
+### 20. The Wells grid's editor has no 0-row check, unlike the other three — **FIXED 2026-08-01**
 
 `update_standard_sample`, `update_computed_sample` and `update_core_sample` all check the UPDATE's
 row count and return an error naming the depth when nothing matched — the fix for the audit's
@@ -1264,8 +1317,14 @@ change that never happened.
 Rarer than a moved curve sample — a well_id does not drift the way a depth does — and the same
 silent outcome. Pinned as-is in the test above.
 
-**Your call, though this one is nearly mechanical**: the `n == 0` check the other three already
-carry, with a message naming the well rather than a depth.
+**Fixed 2026-08-01** with the `n == 0` check the other three already carry.
+
+One deliberate difference in the message. The siblings name the depth, because a depth is
+something the user is looking at. The identity here is a `well_id` UUID they have never seen, so
+naming it would help nobody — the message says what happened and what to do instead ("that well is
+no longer in the project — it may have been deleted; refresh the Wells grid"). The column check
+stays a separate refusal, because a bad column is a programming error and a missing row is a stale
+grid. Both halves are asserted in the same test.
 
 ### 21. T-PETRO-02's Larionov labels are reversed, and the dropdown gives no rock age — **OPEN, and this one is worth reading**
 
