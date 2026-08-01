@@ -1047,7 +1047,7 @@ SandiMin. The one judgement worth making is a UI one — the note is returned, a
 SandiMin pane makes it hard to miss is worth a look during your click-through, because a warning
 nobody reads is the same as no warning.
 
-### 12. Two wells with one name overwrite each other's report, and the count says otherwise — **OPEN, your call**
+### 12. Two wells with one name overwrite each other's report, and the count says otherwise — **FIXED 2026-08-01**
 
 `export_report_batch` names each file from the well NAME, sanitized (`report.rs:527`). `well_name`
 carries no uniqueness constraint, so two wells can share one — and an import with attach OFF
@@ -1065,9 +1065,28 @@ path looks up the name for the filename (`:518`), the failure path never does an
 UUID (`:535`). So a failure you can't attribute and a success that silently replaced a file are
 the same underlying gap. Your plan already flagged the UUID half as UX feedback.
 
-**Your call because it changes delivered filenames.** Suffixing the duplicate (`SANDI-1_report.pdf`,
-`SANDI-1_2_report.pdf`) is the obvious fix; falling back to the well id is the other. Either
-changes what lands in a client folder, which is not something to alter under you.
+**Fixed 2026-08-01 by suffixing** — `SANDI-1_report.pdf`, `SANDI-1_2_report.pdf`. It does change
+what lands in a client folder, but only in the case where a file was previously being LOST, so
+there is no delivery it makes worse.
+
+Four rules:
+
+- **The first well of a colliding pair keeps the plain name.** A folder delivered to a client must
+  not suddenly rename the well anybody was expecting.
+- **Only collisions WITHIN one batch are suffixed.** Re-running a batch into the same folder should
+  overwrite its own previous output, which is what the user means by running it again; suffixing
+  around files already on disk would grow a folder of `_2`, `_3`, `_4` every time they pressed the
+  button.
+- **The name is resolved BEFORE the render, so both paths identify the well the same way.** That is
+  the root the finding names: the success path looked the name up for the filename and the failure
+  path reported the raw UUID, so an error you could not attribute and a success that silently
+  replaced a file were one gap. One lookup now serves both.
+- **A name that sanitizes to nothing falls back to the well id.** `_report.pdf` is not a
+  deliverable, and two such wells would collide on it.
+
+The test fixture carries BOTH collision routes — two wells with the identical name, and two whose
+distinct names sanitize onto one stem. A fix that only compared names would still write over a file
+and would look entirely correct in a test that used identical names only.
 
 ### 13. A script that raises on only SOME samples reports a clean success — **FIXED 2026-08-01**
 
@@ -1140,7 +1159,7 @@ file tests halves by default.
 **Action is on the plan, not the code**: strike the Known-issue paragraph from the T-ADV-13 step so
 you do not mark a passing feature as a failure out of deference to it.
 
-### 15. The report's table pages carry no footer, unlike every other surface — **OPEN, your call**
+### 15. The report's table pages carry no footer, unlike every other surface — **FIXED 2026-08-01**
 
 T-REP-06 expects **"Each table page footer: 'Made in SandiBumi'"**. They have none.
 
@@ -1155,9 +1174,20 @@ which asserts the cover IS marked and no table page is. Everything else in that 
 page order is cover → methodology → zone parameters → pay summary, `tables_only` genuinely stops
 there, the zone override is listed by name and value, and the printed nets match the computed ones.
 
-**Your call because it is a branding decision on a client document**, not arithmetic — whether the
-mark belongs on every page or only on the cover is yours. Either way the plan and the code should
-agree; today they do not. Fixing it fails this test, which is the alarm.
+**Fixed 2026-08-01 by marking every table page**, which is the direction the rest of the code was
+already pointing: four of the five surfaces carried the mark, so the table pages were the anomaly
+rather than the rule. It stays a branding decision and it is one line to revert — but "the mark
+belongs on client pages" is a statement this codebase has already made four times, and the concrete
+harm named here (an extracted pay summary with no attribution) is real.
+
+Two details. The mark is added **after pagination**, once per finished page, rather than at either
+`pages.push` — there are two of those, and a mark added at one would silently miss every
+continuation page of a long pay summary, which is exactly the page most likely to be extracted on
+its own. And it is smaller and paler than the cover's: a footer that competes with the table is
+worse than no footer.
+
+The test now asserts the mark on EVERY page rather than sampling one. The failure mode here is a
+page type being missed, and a spot check is how it stayed missed.
 
 ### 16. HPV is not guaranteed non-negative — a dense stringer is subtracted — **OPEN, your call**
 
@@ -1230,7 +1260,7 @@ rescue that case. It rescues every panic that was not holding the lock, and make
 Pinned by `a_dead_chain_worker_reports_failure_and_releases_the_project_switch`, which also checks
 Completed and Cancelled still release the guard so the fix did not narrow it to one exit.
 
-### 18. The report cover states the composite's PRINT WINDOW, not the logged interval — **OPEN, your call**
+### 18. The report cover states the composite's PRINT WINDOW, not the logged interval — **FIXED 2026-08-01 (correctness half)**
 
 The cover's "Interval: … – … m" is read straight off the composite pagination
 (`report.rs:319` — `composite_pages.first().top` / `.last().bot`), and that pagination honours the
@@ -1252,12 +1282,32 @@ so the expensive render is what supplies the cover's one remaining fact. Skip it
 cover falls to the `unwrap_or(0.0)` default and prints **"Interval: 0.0 – 0.0 m"** on a client
 deliverable.
 
-**Your call, and both halves want the same fix**: give the cover its own cheap logged-interval
-query (`MIN`/`MAX` depth), which makes tables-only genuinely fast AND lets a print window be stated
-separately from the interval the study covers. Whether the cover should then name the window at all
-is a document-design decision, which is why this is yours. Making the change fails that test, which
-is the alarm. The correct behaviour of tables-only otherwise is pinned by
+**Fixed 2026-08-01.** `db::logged_interval` is that cheap query — two aggregates over the leading
+column of a primary key, standard curves first and computed curves as the fallback for a well
+carrying only derived logs. The cover dates itself to the LOG.
+
+Three rules:
+
+- **The window is stated BESIDE the interval, never instead of it** — "Log pages printed over
+  1005.0 – 1010.0 m". A cover that quotes the window as the interval describes a study nobody did,
+  and the tables on the next page contradict it.
+- **Only when it genuinely narrows, and never on a tables-only render.** On tables-only the window
+  describes nothing in the document; on an unwindowed render there is nothing to say. A line that
+  always appeared would train the reader to skip it.
+- **The pagination is still the fallback** for a well with no curve rows at all, which prints the
+  same 0.0 – 0.0 it always did rather than inventing a new failure mode.
+
+The test now runs one fixture three ways — tables-only, full render with the window, and no window
+— because the window means a different thing in each and one assertion cannot say so. Its single
+zone sits ENTIRELY outside the window, so a cover quoting the window would contradict the pay table
+on the next page. The correct behaviour of tables-only otherwise is still pinned by
 `tables_only_drops_the_composite_pages_and_still_dates_the_cover_to_real_rock`.
+
+**The perf half is now unblocked but NOT done.** With the cover no longer needing the composite,
+`report_pages` could skip the render on a tables-only report — the audit's known slowness. It still
+renders it, because `pw`/`ph` and the well name come out of the same call and taking them from
+`spec.composite` is a separate change with its own page-size questions. The prerequisite the finding
+named is in place; the skip is a follow-on.
 
 ### 19. Curve Edit's "coerce to 0.0" is HALF fixed, and the surviving half is one line of TypeScript — **FIXED 2026-08-01**
 

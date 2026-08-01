@@ -5547,6 +5547,34 @@ mod inspector_tests {
 }
 
 /// Edits one wells-table field (name/field/utm_zone as text, td/kb as f32, surface_x/y as f64).
+/// The depth range the well is actually LOGGED over — `MIN`/`MAX` across its standard curves,
+/// falling back to its computed curves for a well that carries only derived logs.
+///
+/// The report cover used to read its interval off the composite PAGINATION, which honours the
+/// render's depth window — so setting a print window re-dated the whole report, including the
+/// tables the window never touched (`docs/review_triage.md` finding 18). A pay table covering every
+/// zone in the well would sit under a cover announcing 5 m, and on a tables-only render there were
+/// no log pages left to show the reader that the window was only ever a print setting.
+///
+/// Cheap on purpose: two aggregates over the leading column of a primary key. That is also what
+/// lets a tables-only report state a real interval without rendering a composite it then discards.
+pub fn logged_interval(conn: &Connection, well_id: &str) -> Option<(f32, f32)> {
+    for table in ["standard_curves", "computed_curves"] {
+        let got: Option<(Option<f32>, Option<f32>)> = conn
+            .query_row(
+                &format!("SELECT CAST(MIN(depth) AS FLOAT), CAST(MAX(depth) AS FLOAT) FROM {table} WHERE well_id = ?1"),
+                params![well_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .ok();
+        // An empty table gives one row of NULLs, not zero rows — hence the inner Options.
+        if let Some((Some(lo), Some(hi))) = got {
+            return Some((lo, hi));
+        }
+    }
+    None
+}
+
 pub fn update_well_field(conn: &Connection, well_id: &str, field: &str, value: Option<&str>) -> Result<(), String> {
     let n = match field {
         "well_name" | "field_name" | "utm_zone" => {

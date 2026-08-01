@@ -7457,3 +7457,39 @@ entry for a change that never happened.
 
 - [ ] Do exactly that. Do you get "that well is no longer in the project… refresh the Wells grid"?
 - [ ] Does the ordinary case — editing a well that IS there — still work?
+
+## Three things wrong with the report PDF, from the triage (2026-08-01)
+
+Findings 12, 15 and 18. All three were invisible to whoever exported the report.
+
+**A batch export no longer loses a well.** If two wells share a name — or two different names come
+out the same once the filename is cleaned up — the second used to overwrite the first, and the app
+still said it had written both. Now the second gets `_2` on the end and you get one file per well.
+The first one keeps the plain name.
+
+- [ ] Batch-export a report over a set of wells that includes two with the same name. Do you get
+      two files, one of them ending `_2_report.pdf`?
+- [ ] Does the count in the status line match the number of files in the folder?
+- [ ] If a well fails to render, does the error name the WELL now rather than a long id?
+
+**The cover states the interval the well is logged over.** It used to state whatever depth window
+the composite was printed at — so setting a 5 m window put "Interval: 1005.0 – 1010.0 m" on the
+cover of a report whose pay table still covered every zone in the well. If you set a print window,
+it is now stated separately underneath, as "Log pages printed over…".
+
+- [ ] Render a report with no depth window. Does the cover's interval match the well's logged
+      range?
+- [ ] Set a depth window and render again. Does the cover keep the full interval and add the
+      printed-over line?
+- [ ] Tick Tables only with a window set. The printed-over line should NOT appear — there are no
+      log pages for it to describe.
+
+**Every page carries the Made in SandiBumi mark.** The cover had it and the composite pages had
+it, but the methodology, zone-parameter and pay-summary pages did not — so a pay summary
+photocopied on its own was unattributed.
+
+- [ ] Render a report and look at the bottom of the methodology, zone-parameter and pay-summary
+      pages.
+- [ ] If the pay summary runs to more than one page, check the second page too.
+- [ ] Is it small and pale enough not to compete with the table? Say if you would rather it were
+      cover-only — it is one line to take back out.

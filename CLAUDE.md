@@ -2510,6 +2510,55 @@ deliberately does NOT name the well — the identity here is a UUID the user has
 the depth its siblings quote — so it says what happened and what to do. A bad column stays a
 separate refusal: that is a programming error, this is a stale grid.
 
+## What lands in a client folder (2026-08-01)
+
+`docs/review_triage.md` findings 12, 15 and 18 — three defects in the PDF report, all of them
+invisible to the person who exported it.
+
+**A batch never writes two wells to one file.** `well_name` carries no uniqueness constraint, and an
+import with attach OFF creates a second record under the same name by design; the filename sanitizer
+widens the collision further, because every non-alphanumeric maps to `_`, so two distinct names can
+land on one stem. When they collided the second write silently OVERWROTE the first and both paths
+were still reported as written — a 3-well batch said "wrote 3 file(s)" over 2 files on disk, and the
+report kept was the last well's under the first well's name. `unique_stem` suffixes the duplicate.
+
+**The first well of a colliding pair keeps the plain name**, so a delivered folder does not rename
+the well anybody was expecting, and **only collisions WITHIN one batch are suffixed** — re-running a
+batch into the same folder should overwrite its own previous output, and suffixing around files
+already on disk would grow a folder of `_2`, `_3`, `_4` every time the button was pressed. A name
+that sanitizes to nothing falls back to the well id, because `_report.pdf` is not a deliverable.
+
+**The well name is resolved BEFORE the render, and that is the root rather than a tidy-up.** The
+success path used to look the name up for the filename while the failure path reported the raw
+UUID, so an error nobody could attribute and a success that silently replaced a file were one gap
+with two faces. One lookup now serves both.
+
+**The cover dates itself to the LOG, not to the composite's print window.** It read the interval
+off the composite pagination, which honours the render's depth window — so setting a print window
+re-dated the whole report, including the tables the window never touched (`run_pay_summary` works
+per zone and knows nothing about it). A report rendered over 5 m carried a pay table covering every
+zone in the well, and on a **tables-only** render there were no log pages left to show the reader
+that the window was only ever a print setting. `db::logged_interval` is the replacement: two
+aggregates over the leading column of a primary key, standard curves first, computed curves as the
+fallback for a well carrying only derived logs.
+
+**A print window is stated BESIDE the interval, never instead of it**, only when it genuinely
+narrows, and never on tables-only where it describes nothing in the document. A line that always
+appeared would train the reader to skip it. The pagination remains the fallback for a well with no
+curve rows at all, which prints the same 0.0 – 0.0 it always did rather than inventing a new failure
+mode. This also unblocks the audit's tables-only slowness — the composite render was what supplied
+the cover's one remaining fact — though skipping it still needs `pw`/`ph` and the well name to come
+from somewhere else, and that is a separate change.
+
+**Every report page carries the mark.** The cover had it, every composite page had it, the Word
+document and the PowerPoint deck had it — `table_pages` and `note_page` did not, so the methodology,
+zone-parameter and pay-summary pages were the only unmarked surface in the deliverable set, and a
+reader who extracted or photocopied the pay summary got an unattributed page. It is applied **after
+pagination**, once per finished page, rather than at either `pages.push`: there are two of those,
+and a mark added at one would silently miss every continuation page of a long pay summary — exactly
+the page most likely to be read on its own. The test asserts it on EVERY page rather than sampling
+one, because the failure mode is a page type being missed and a spot check is how it stayed missed.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under
