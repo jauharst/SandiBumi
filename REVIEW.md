@@ -7,6 +7,22 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-01 — The brand stops changing colour with the skin (your catch)
+
+The wordmark was painted with `--accent`, so every client skin re-rolled it: SandiBumi
+read Halliburton red on that theme, SLB blue on the next. It is a `--brand` token now,
+theme-independent by construction and never repeated in any `[data-theme]` block.
+
+- [ ] Switch through **every** theme (Halliburton, Schlumberger, Pertamina, LAPI-ITB,
+      white, dark, default): the ribbon wordmark stays the SandiBumi terracotta — the
+      look in your image 2 — while the rest of the UI recolours as before.
+- [ ] Same on the **boot overlay** (relaunch) and the **start sheet** (close every pane).
+- [ ] The logo tile is rounded a little more (5px on the 18px ribbon mark), so its baked
+      cream square reads as an intentional logo tile on Halliburton's grey instead of a
+      bare block. The mark's own colours are untouched on every theme.
+- [ ] Switch **language to Bahasa Indonesia / Basa Sunda**: "SandiBumi" must stay
+      "SandiBumi" everywhere (the three surfaces are `data-no-i18n` now).
+
 ## 2026-08-01 — Organic increment 5: LAS import, report pane, plot surfaces, and the sweep (1e · 1f · 1c)
 
 The last handoff screens plus the harmonization pass over components the handoff never

@@ -2763,6 +2763,19 @@ gridline; log-view tracks untouched), plus the harmonization sweep (`form-run-bt
 restyles, awaiting Jauhar's word: the 1d "Preview one well" ghost button, and 1e's
 3-step mnemonic-mapping wizard (mnemonics map automatically in Rust).**
 
+**The brand is NOT the accent** (Jauhar, 2026-08-01: "sandibumi logo and color should be
+preserved anywhere"). `--brand: #c67139` is declared once at `:root` and must never appear
+in a `[data-theme]` block — dark included, where it still clears 4.5:1. The wordmark had
+been painted with `--accent`, so every client skin re-rolled it and SandiBumi read
+Halliburton red on that theme: a skin recolours the APPLICATION, never the product's own
+mark, and a client-facing screenshot showing the operator's red as our identity
+misattributes the software. Three surfaces consume it — `.ribbon-brand`, `.boot-title`,
+`.start-wordmark` — and all three are `data-no-i18n`, because the product name is no more
+translatable than a well name. The logo mark carries its own baked cream tile (`#F3D5B9`
+in the SVG) and that tile is what keeps the mark's colours intact on any ground; it is
+ROUNDED rather than removed (5px at 18px, 18–20px at 72px) so it reads as a logo tile
+instead of a bare square on a non-cream skin.
+
 **The split that governs everything: chrome goes Organic, data stays dense.** The ribbon,
 dialogs, buttons, tags and panel frames take the warm rounded look; log tracks, grids,
 trees and tables keep their professional density — engineers on small screens are the

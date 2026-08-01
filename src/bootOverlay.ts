@@ -43,7 +43,7 @@ export function showBootOverlay(): BootOverlay {
     el.innerHTML = `
       <div class="boot-card">
         <img class="boot-logo" src="/logo-mark.svg" alt="" width="72" height="72" />
-        <div class="boot-title">SandiBumi</div>
+        <div class="boot-title" data-no-i18n>SandiBumi</div>
         <div class="boot-desc">Multi-well petrophysical log analysis</div>
         <div class="boot-msg">Opening project…</div>
         <div class="boot-bar"><span></span></div>

@@ -26,6 +26,8 @@ export function buildStartSheet(host: HTMLElement): void {
   logo.height = 72;
   const word = document.createElement("div");
   word.className = "start-wordmark";
+  // The product's own name is never translated — same rule as well/curve names.
+  word.setAttribute("data-no-i18n", "");
   word.textContent = "SandiBumi";
   const desc = document.createElement("div");
   desc.className = "start-desc";

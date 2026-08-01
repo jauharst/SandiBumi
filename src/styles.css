@@ -64,6 +64,23 @@
   --qc-warn: #c07000;
   --qc-alert: #c62828;
   --track-hd: #efe9dc;
+
+  /* ------------------------------------------------------------------
+     BRAND IDENTITY — theme-independent, and deliberately NOT --accent.
+     The wordmark was painted with --accent, so every client skin re-rolled
+     it: SandiBumi read Halliburton red on that theme and SLB blue on the
+     next. A skin recolours the APPLICATION, never the product's own mark —
+     a deliverable-adjacent screenshot that shows the operator's red as our
+     identity misattributes the software. This token must never appear in a
+     [data-theme] block, dark included: #c67139 clears 4.5:1 on the dark
+     ground, so one value genuinely serves every theme.
+     The logo mark carries its own baked cream tile (#F3D5B9 in the SVG),
+     which is what keeps the mark's own colours intact on any background —
+     it is rounded rather than removed, so it reads as an intentional logo
+     tile instead of a bare square on a non-cream skin.
+     ------------------------------------------------------------------ */
+  --brand: #c67139;
+
   /* Plot-area surface (Organic design 1c): the shared PlotCanvas draws its
      data area on the warm neutral with WHITE gridlines, so the plot reads as
      a card-on-card. Follows each theme's own alt tint via var(); dark themes
@@ -464,7 +481,7 @@ body {
   font-size: 34px;
   line-height: 1.1;
   letter-spacing: -0.015em;
-  color: var(--accent);
+  color: var(--brand);
 }
 .start-desc {
   font-size: var(--fs-md);
@@ -669,7 +686,7 @@ textarea {
   font-family: var(--font-heading);
   font-weight: 400;
   font-size: var(--fs-lg);
-  color: var(--accent);
+  color: var(--brand);
   padding: 0 14px 0 4px;
   letter-spacing: 0.2px;
 }
@@ -677,7 +694,10 @@ textarea {
 .ribbon-logo {
   width: 18px;
   height: 18px;
-  border-radius: var(--r-sm);
+  /* The mark's own cream tile rounded to read as a logo tile on any skin —
+     at --r-sm it was a 3px-cornered square, invisible on the cream ground
+     and a bare block on Halliburton's grey. */
+  border-radius: 5px;
   flex: 0 0 auto;
 }
 
@@ -6322,7 +6342,7 @@ input[type="number"].num-editing:focus {
   font-size: 34px;
   line-height: 1.1;
   letter-spacing: -0.015em;
-  color: var(--accent);
+  color: var(--brand);
 }
 
 .boot-desc {
