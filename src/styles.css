@@ -1034,14 +1034,43 @@ textarea {
   width: 100%;
 }
 
-/* Organic: every dock group is a white card — 1px warm hairline, 12px radius —
-   replacing dockview's default square chrome. overflow:hidden clips the square
-   tab strip and panel content to the rounded corners; floating menus spawned
-   from a group (.dock-add-menu, context menus) are position:fixed and escape. */
+/* Organic: every dock group is a white card — 12px radius, no outline of its
+   own — replacing dockview's default square chrome. overflow:hidden clips the
+   square tab strip and panel content to the rounded corners; floating menus
+   spawned from a group (.dock-add-menu, context menus) are position:fixed and
+   escape.
+
+   NO BORDER, deliberately. Each card used to draw its own 1px hairline, so two
+   neighbours put two facing lines across a 7px gap and the rounded corners made
+   the pair read as one doubled, overlapping edge. The card is stated by its FILL
+   against the ground, and the line is spent where it carries information: on the
+   pane being worked in. Removing it also made the tab strip's clip concentric
+   with the card — with a border the strip's 12px arc sat 1px proud of the card's
+   own 11px inner arc, which was part of the same smeared corner. */
 .dockview-theme-sandibumi .dv-groupview {
-  border: 1px solid var(--border);
+  border: none;
   border-radius: var(--r-lg);
   overflow: hidden;
+}
+
+/* The pane you are working in is the one thing that carries an edge.
+   `outline` rather than a border on purpose: it costs NO layout, so panel
+   content cannot shift by a pixel as focus moves between groups (a border
+   would reflow every track and canvas inside on every click), and it follows
+   border-radius. The negative offset draws it just inside the card edge, and
+   outlines paint above descendants, so it stays visible over the tab strip.
+
+   `!important` is load-bearing and is NOT decoration: dockview writes
+   `outline: none` as an INLINE style on every group (they are tabindex="-1"
+   and it suppresses the browser focus ring), and an inline declaration beats
+   any stylesheet selector however specific. The tell, if this ever silently
+   stops working: `outline-offset` keeps applying while the shorthand does
+   not, because dockview sets only the shorthand inline. A box-shadow ring
+   would not need this, but cannot be used — `.dv-view`, the group's parent,
+   is `overflow: auto` and would clip a ring drawn outside the border box. */
+.dockview-theme-sandibumi .dv-groupview.dv-active-group {
+  outline: 2px solid var(--accent) !important;
+  outline-offset: -2px;
 }
 
 /* …but `overflow: hidden` alone does NOT round the group's TOP corners, and

@@ -7,6 +7,27 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-01 — One edge, on the pane you are working in (your call)
+
+The hairline came off every card, and the active pane states itself instead.
+
+- [ ] No panel draws its own outline any more — the doubled line in the gap, and the
+      two arcs colliding at the rounded corners, are both gone.
+- [ ] **The pane you are working in carries a 2px accent edge.** Click between panels:
+      the edge follows, and nothing inside any panel shifts by a pixel while it does
+      (it is an outline, not a border, precisely so log tracks and canvases never
+      reflow on a click).
+- [ ] It follows the 12px corner, and stays visible across the tab strip at the top.
+- [ ] Client skins: the active edge takes each skin's accent (Halliburton red, SLB
+      blue…) — that is the interaction colour, and it is separate from the SandiBumi
+      wordmark, which stays terracotta everywhere.
+- [ ] **Worth your eye:** with no hairline, a card is now told apart from the ground by
+      its fill alone, and that is a small difference on the near-white skins —
+      measured 1.19:1 on the default cream, 1.11:1 on Halliburton, 1.08:1 on dark. The
+      7px gap still reads as a groove, but if panel boundaries feel too soft to you on
+      any skin, say so: a soft shadow or a hairline on the outer edge only is a
+      one-line follow-up, and I would rather you judge it on screen than have me guess.
+
 ## 2026-08-01 — Panel top corners were square, not rounded (your catch)
 
 You were right that the corners looked unfinished — the top ones genuinely were square.

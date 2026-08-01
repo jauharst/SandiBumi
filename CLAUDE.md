@@ -2902,6 +2902,14 @@ corruption this code defends against.
   block for fixed/absolute descendants, so on the group it would trap any future
   `position: fixed` child (the menu trap above, again). Bottom corners need nothing —
   a `<canvas>`, WebGPU included, clips normally.
+- **dockview writes `outline: none` as an INLINE style on every `.dv-groupview`**
+  (they are `tabindex="-1"` and it suppresses the browser focus ring), and inline
+  beats any selector however specific — so the active-group edge needs
+  `!important`. The tell when it silently stops working: `outline-offset` keeps
+  applying while the shorthand does not, because only the shorthand is set inline.
+  A `box-shadow` ring would avoid `!important` but cannot be used — `.dv-view`,
+  the group's parent, is `overflow: auto` and clips anything drawn outside the
+  border box. `height`/`width`/`overflow` are inline on the group too.
 - `group.api.moveTo({position})` with no target group auto-creates a grid group and
   moves the panels in (the ⇱ dock-back button); the old group and its header-actions
   renderer are disposed — don't hold element refs across it.
