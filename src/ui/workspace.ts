@@ -350,7 +350,15 @@ export class Workspace {
       ["Results QC (Sw spread)", () => this.openResultsQc(group)],
       ["Plug QC (core vs petrography)", () => this.openPlugQc(group)],
       ["Mineral Classifier (point counts)", () => this.openMineralClass(group)],
+      ["Pore Area (thin sections)", () => this.openPoreArea(group)],
       ["SandiMin Solver", () => this.openMultimin(group)],
+      "sep",
+      ["Register Core Depth", () => this.openDepthReg(group)],
+      ["Condition Core Photos", () => this.openCoreCondition("core", group)],
+      ["Condition Plates", () => this.openCoreCondition("plate", group)],
+      ["Plate Details", () => this.openPlateDetails(group)],
+      ["Calibrate RtC", () => this.openRtcFit(group)],
+      ["Calibrate S Factor", () => this.openSFactorFit(group)],
       "sep",
       ["Zones", () => this.openZones(group)],
       ["Autocorrelate Tops", () => this.openAutoCorr(group)],
@@ -528,6 +536,47 @@ export class Workspace {
           "dock-mineral-class",
           () => import("./mineralClassDialog").then((m) => m.buildMineralClassContent()),
           "mineral classifier",
+        );
+      case "poreArea":
+        return this.asyncPane(
+          "dock-pore-area",
+          () => import("./poreAreaDialog").then((m) => m.buildPoreAreaContent()),
+          "pore area",
+        );
+      case "plateDetails":
+        return this.asyncPane(
+          "dock-plate-details",
+          () => import("./plateDepthDialog").then((m) => m.buildPlateDetailsContent()),
+          "plate details",
+        );
+      // One workspace, two deliveries: the panel id carries which kind it was opened for
+      // ("coreCondition:plate"), so a core photograph pane and a thin-section pane can sit side by
+      // side and a layout restore rebuilds each on its own subject. Same idea as "module:<name>".
+      case "coreCondition": {
+        const subject = options.id.endsWith(":plate") ? "plate" : "core";
+        return this.asyncPane(
+          "dock-core-condition",
+          () => import("./coreConditionDialog").then((m) => m.buildCoreConditionContent(subject)),
+          subject === "plate" ? "plate conditioning" : "core photo conditioning",
+        );
+      }
+      case "depthReg":
+        return this.asyncPane(
+          "dock-depth-reg",
+          () => import("./depthRegDialog").then((m) => m.buildDepthRegContent()),
+          "depth registration",
+        );
+      case "rtcFit":
+        return this.asyncPane(
+          "dock-rtc-fit",
+          () => import("./rtcFitDialog").then((m) => m.buildRtcFitContent()),
+          "RtC calibration",
+        );
+      case "sFactorFit":
+        return this.asyncPane(
+          "dock-sfactor-fit",
+          () => import("./sFactorFitDialog").then((m) => m.buildSFactorFitContent()),
+          "S-factor calibration",
         );
       case "multimin":
         return this.asyncPane(
@@ -1454,6 +1503,38 @@ export class Workspace {
 
   openMineralClass(group?: DockviewGroupPanel): void {
     this.openSingleton("mineralClass", "mineralClass", "Mineral Classifier", group);
+  }
+
+  openPoreArea(group?: DockviewGroupPanel): void {
+    this.openSingleton("poreArea", "poreArea", "Pore Area (thin sections)", group);
+  }
+
+  openPlateDetails(group?: DockviewGroupPanel): void {
+    this.openSingleton("plateDetails", "plateDetails", "Plate Details", group);
+  }
+
+  /** The conditioning workspace, one pane per KIND of picture: a core photograph and a thin
+   *  section are two deliveries with two recipes, and a single pane would make correcting one
+   *  mean losing the other's place. */
+  openCoreCondition(subject: "core" | "plate" = "core", group?: DockviewGroupPanel): void {
+    this.openSingleton(
+      `coreCondition:${subject}`,
+      "coreCondition",
+      subject === "plate" ? "Condition Plates" : "Condition Core Photos",
+      group,
+    );
+  }
+
+  openDepthReg(group?: DockviewGroupPanel): void {
+    this.openSingleton("depthReg", "depthReg", "Register Core Depth", group);
+  }
+
+  openRtcFit(group?: DockviewGroupPanel): void {
+    this.openSingleton("rtcFit", "rtcFit", "Calibrate RtC", group);
+  }
+
+  openSFactorFit(group?: DockviewGroupPanel): void {
+    this.openSingleton("sFactorFit", "sFactorFit", "Calibrate S Factor", group);
   }
 
   openUnconventional(group?: DockviewGroupPanel): void {

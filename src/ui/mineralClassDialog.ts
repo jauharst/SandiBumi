@@ -37,7 +37,7 @@ import { formRow } from "./modal";
  *  refitted from them, seeded, on every run. A stored model blob cannot be read, argued with, or
  *  corrected; a list of clicks can be all three, and the answer stays reproducible from it.
  */
-export async function buildMineralClassContent(): Promise<{ el: HTMLElement }> {
+export async function buildMineralClassContent(): Promise<{ el: HTMLElement; dispose?: () => void }> {
   const well = appState.selectedWell.get();
   const wrap = document.createElement("div");
   wrap.className = "module-pane";
@@ -440,5 +440,14 @@ export async function buildMineralClassContent(): Promise<{ el: HTMLElement }> {
   saveBtn.addEventListener("click", () => void go(true));
 
   drawClasses();
-  return { el: wrap };
+  // The filmstrip holds an IntersectionObserver and one object URL per thumbnail it has fetched —
+  // a delivery is hundreds of plates — and the big plate holds one more. As a popup there was no
+  // hook to release them from; the pane has one.
+  return {
+    el: wrap,
+    dispose: () => {
+      filmstrip.dispose();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    },
+  };
 }

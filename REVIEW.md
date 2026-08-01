@@ -7,6 +7,45 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-01 — Every remaining tool that popped up is now a pane (your sweep)
+
+You asked me to check whether those tools still pop up and make them panes. Six dialogs,
+seven ribbon buttons. Verified in the browser: clicking all seven opened dock tabs and
+`#modal-root` stayed empty — nothing popped up.
+
+- [ ] **Advance ▸ Petrography ▸ Pore Area…** is a pane. Tune the band, look at the mask,
+      check the agreement figure, try another reference plate — all with the plate tracks
+      and the Wells pane still visible. The tried-settings table survives while you work.
+- [ ] **Advance ▸ Petrography ▸ Plate Details…** is a pane. The scale-bar measurement (⇹ on
+      a row) still opens as its own popup and the table stays put behind it.
+- [ ] **Advance ▸ Petrography ▸ Condition Plates…** and **Advance ▸ Core Imaging ▸ Core
+      Photos…** are **two separate panes**, not one. They are two deliveries with two
+      recipes, so opening one no longer loses your place in the other — you can have both
+      docked side by side. Verified: a layout save/restore rebuilds each on its own subject.
+- [ ] **Data ▸ Core ▸ Register Depth…** is a pane, so the correlogram sits beside the log
+      view the decision is actually made from. **One behaviour change here:** Apply used to
+      close the dialog. Now it clears the proposal and refreshes the barrel table and the
+      history instead — the core has moved, and pressing Apply again on a shift computed
+      against the old depths would have doubled it.
+- [ ] **Advance ▸ Calibration ▸ Calibrate RtC…** and **Calibrate S…** are panes. The Close
+      button is gone (the dock closes a pane); the Run button is unchanged.
+- [ ] All seven are in the ＋ menu too, and re-clicking a ribbon button focuses the open pane
+      rather than opening a second copy.
+- [ ] **A leak fixed on the way past.** The plate filmstrip holds an image-loading observer
+      and one object URL per thumbnail — a delivery is hundreds of plates at about a megabyte
+      each — and neither Pore Area nor the Mineral Classifier ever released them, because a
+      popup has no "closed" hook to release them from. A pane does. If the app used to feel
+      heavier the longer you worked through a petrography delivery, this is why.
+- [ ] **Picture panes now use the pane's real width.** Form panes are capped at a readable
+      column; a filmstrip, a plate preview, a correlogram and an eight-column plate table are
+      not forms, so those five opt out. This also widens the **Mineral Classifier**, which had
+      the same squeeze. Measured: 1156px of a 1180px pane, no horizontal scrolling.
+- [ ] **Still popups on purpose** — tell me if you want any of these moved too: the naming
+      prompts (Save Layout/Session As, Open Session), the import wizards (LAS/DLIS set, SCAL,
+      Aux, Deviation, Images, Well Locations), the exports (Workbook…, Deck…) and the short
+      forms (Shift Core…, Well Header…, Data Sets…). Each of those is filled in once and
+      dismissed rather than worked beside a log.
+
 ## 2026-08-01 — Mineral Classifier is a pane, and Plug QC is proportional (your catches)
 
 - [ ] **Petrophysics ▸ Petrography ▸ Mineral Classifier…** now opens as a **working pane**,

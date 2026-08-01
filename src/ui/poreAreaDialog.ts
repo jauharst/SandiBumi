@@ -19,10 +19,16 @@ import { appState, bumpDataVersion, setStatus } from "../state";
 import { recordProcess } from "../processLog";
 import { buildColourBand } from "./colourBand";
 import { buildPlateStrip } from "./plateStrip";
-import { formRow, openModal } from "./modal";
+import { formRow } from "./modal";
 
 /**
- * Pore area from blue-dyed epoxy (Petrophysics ▸ Petrography ▸ Pore Area…).
+ * Pore area from blue-dyed epoxy (Advance ▸ Petrography ▸ Pore Area…).
+ *
+ * **A dock PANE, not a popup.** Tuning a colour band is the longest sitting job in the petrography
+ * suite: you move the band, look at the mask, check the agreement figure, try another reference
+ * plate, and compare that against what the last three settings scored. A modal covers the plate
+ * tracks and the Wells pane you are judging it against, and cannot be left open beside them.
+ * Standing rule from Jauhar (2026-08-01): tools open as working panes.
  *
  * The first real measurement taken off a plate, and deliberately the dimensionless one: an area
  * fraction needs no micrometres per pixel, so it runs on every plate rather than only the
@@ -38,17 +44,17 @@ import { formRow, openModal } from "./modal";
  * tuning a threshold means running it many times and a project full of half-judged answers is
  * worse than none.
  */
-export async function openPoreAreaDialog(): Promise<void> {
+export async function buildPoreAreaContent(): Promise<{ el: HTMLElement; dispose?: () => void }> {
   const well = appState.selectedWell.get();
   const wrap = document.createElement("div");
-  openModal(well ? `Pore area — ${well.well_name}` : "Pore area", wrap, 860);
+  wrap.className = "module-pane";
 
   if (!well) {
     const none = document.createElement("div");
     none.className = "eq-note";
     none.textContent = "Select a well in the Wells pane first — plates are measured one well at a time.";
     wrap.appendChild(none);
-    return;
+    return { el: wrap };
   }
 
   const intro = document.createElement("div");
@@ -66,7 +72,7 @@ export async function openPoreAreaDialog(): Promise<void> {
       "This needs numpy and Pillow in the Python the app uses. Install them (pip install numpy pillow) " +
       "and reopen — nothing else in the app is affected.";
     wrap.appendChild(warn);
-    return;
+    return { el: wrap };
   }
 
   const dsSel = document.createElement("select");
@@ -86,7 +92,7 @@ export async function openPoreAreaDialog(): Promise<void> {
     none.style.color = "var(--warn)";
     none.textContent = "This well has no pictures. Import some with Data ▸ Import ▸ Images…";
     wrap.appendChild(none);
-    return;
+    return { el: wrap };
   }
 
   // ---- the plate the band is tuned on -------------------------------------
@@ -952,4 +958,8 @@ export async function openPoreAreaDialog(): Promise<void> {
 
   void preview();
   void last;
+
+  // The filmstrip's observer and its thumbnail object URLs outlive the element unless they are
+  // dropped with it — a delivery is hundreds of plates at about a megabyte each.
+  return { el: wrap, dispose: () => filmstrip.dispose() };
 }

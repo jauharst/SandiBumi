@@ -7,12 +7,16 @@ import {
 } from "../ipc";
 import { setStatus } from "../state";
 import { recordProcess } from "../processLog";
-import { formRow, openModal } from "./modal";
+import { formRow } from "./modal";
 import { buildWellScope } from "./wellScope";
 import { buildFitScatter, type FitScatter } from "./fitScatter";
 import { buildCalibrationApply } from "./calibrationApply";
 
 /** IMTS S-factor calibration (Advance ▸ Calibrate S…).
+ *
+ *  A dock PANE, not a popup — the RtC calibration's argument. Picking the CEC measurement, the
+ *  clay curves and the depth tolerance is a loop against the Wells pane and the plug tables, not
+ *  a form filled once.
  *
  *  `sw_imts` defines S as a measurement — lab CEC divided by the CEC the clay model predicts —
  *  and the app shipped a placeholder for it. S multiplies the whole clay-charge term, so a wrong
@@ -23,9 +27,9 @@ import { buildCalibrationApply } from "./calibrationApply";
  *  VDCL-derived VKAOL curve and S is wrong by the ratio between those two estimates of clay,
  *  silently, because both look like clay volumes.
  */
-export async function openSFactorFitDialog(): Promise<void> {
+export async function buildSFactorFitContent(): Promise<{ el: HTMLElement; dispose: () => void }> {
   const wrap = document.createElement("div");
-  const close = openModal("Calibrate the IMTS S factor from lab CEC", wrap, 660);
+  wrap.className = "module-pane";
 
   const intro = document.createElement("div");
   intro.className = "eq-note";
@@ -188,7 +192,7 @@ export async function openSFactorFitDialog(): Promise<void> {
   wrap.appendChild(out);
 
   const actions = document.createElement("div");
-  actions.className = "modal-actions";
+  actions.className = "module-footer";
   // Rebuilt on every fit; keep a handle so its ResizeObserver and tooltip are released rather
   // than accumulating one set per run.
   let scatter: FitScatter | null = null;
@@ -197,15 +201,6 @@ export async function openSFactorFitDialog(): Promise<void> {
     scatter = null;
   };
 
-  const cancel = document.createElement("button");
-  cancel.className = "btn";
-  cancel.textContent = "Close";
-  cancel.addEventListener("click", () => {
-    dropScatter();
-    scope.dispose();
-    close();
-  });
-  actions.appendChild(cancel);
   actions.appendChild(runBtn);
   wrap.appendChild(actions);
 
@@ -353,4 +348,13 @@ export async function openSFactorFitDialog(): Promise<void> {
         runBtn.textContent = `Fit from ${scope.getWellIds().length} well(s)`;
       });
   });
+
+  // Released by the dock rather than by a Close button — see the RtC pane.
+  return {
+    el: wrap,
+    dispose: () => {
+      dropScatter();
+      scope.dispose();
+    },
+  };
 }

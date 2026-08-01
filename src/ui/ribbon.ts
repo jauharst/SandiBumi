@@ -260,39 +260,30 @@ export class Ribbon {
     });
     q<HTMLButtonElement>("#montecarlo-btn")?.addEventListener("click", () => workspace.openMonteCarlo());
     q<HTMLButtonElement>("#ml-btn")?.addEventListener("click", () => workspace.openMl());
+    // Every tool below opens as a WORKING PANE (Jauhar, 2026-08-01: "dont use pop up for future
+    // except my request"). These are all worked through iteratively — plate by plate, barrel by
+    // barrel, fit after fit — against the Wells pane and the log views a modal would cover.
     // Same workspace the core photographs use — a thin section arrives with the same problems, and
     // two dialogs would be two places for the wording and the white-balance rule to drift.
-    q<HTMLButtonElement>("#plate-condition-btn")?.addEventListener("click", () => {
-      void import("./coreConditionDialog").then((m) => m.openCoreConditionDialog("plate"));
-    });
-    q<HTMLButtonElement>("#pore-area-btn")?.addEventListener("click", () => {
-      void import("./poreAreaDialog").then((m) => m.openPoreAreaDialog());
-    });
-    // A working pane, not a popup: point counting runs plate by plate through a whole
-    // delivery, and the Wells pane has to stay reachable while it does.
+    q<HTMLButtonElement>("#plate-condition-btn")?.addEventListener("click", () =>
+      workspace.openCoreCondition("plate"),
+    );
+    q<HTMLButtonElement>("#pore-area-btn")?.addEventListener("click", () => workspace.openPoreArea());
     q<HTMLButtonElement>("#mineral-class-btn")?.addEventListener("click", () => workspace.openMineralClass());
     // Moved out of the Data ▸ Tools ▾ dropdown onto their own ribbon groups (Jauhar,
     // 2026-08-01): core depth work is one job done in sequence, core photographs are an
     // interpretation method, and plate details belong with the rest of petrography.
-    q<HTMLButtonElement>("#plate-details-btn")?.addEventListener("click", () => {
-      void import("./plateDepthDialog").then((m) => m.openPlateDepthDialog());
-    });
-    q<HTMLButtonElement>("#register-depth-btn")?.addEventListener("click", () => {
-      void import("./depthRegDialog").then((m) => m.openDepthRegDialog());
-    });
-    q<HTMLButtonElement>("#condition-core-btn")?.addEventListener("click", () => {
-      void import("./coreConditionDialog").then((m) => m.openCoreConditionDialog());
-    });
+    q<HTMLButtonElement>("#plate-details-btn")?.addEventListener("click", () => workspace.openPlateDetails());
+    q<HTMLButtonElement>("#register-depth-btn")?.addEventListener("click", () => workspace.openDepthReg());
+    q<HTMLButtonElement>("#condition-core-btn")?.addEventListener("click", () =>
+      workspace.openCoreCondition("core"),
+    );
     q<HTMLButtonElement>("#shift-core-btn")?.addEventListener("click", () => this.handleShiftCore());
     q<HTMLButtonElement>("#data-sets-btn")?.addEventListener("click", () => this.handleDataSets());
     q<HTMLButtonElement>("#plug-qc-btn")?.addEventListener("click", () => workspace.openPlugQc());
     q<HTMLButtonElement>("#multimin-btn")?.addEventListener("click", () => workspace.openMultimin());
-    q<HTMLButtonElement>("#rtc-fit-btn")?.addEventListener("click", () => {
-      void import("./rtcFitDialog").then((m) => m.openRtcFitDialog());
-    });
-    q<HTMLButtonElement>("#sfactor-fit-btn")?.addEventListener("click", () => {
-      void import("./sFactorFitDialog").then((m) => m.openSFactorFitDialog());
-    });
+    q<HTMLButtonElement>("#rtc-fit-btn")?.addEventListener("click", () => workspace.openRtcFit());
+    q<HTMLButtonElement>("#sfactor-fit-btn")?.addEventListener("click", () => workspace.openSFactorFit());
     q<HTMLButtonElement>("#dashboard-btn")?.addEventListener("click", () => workspace.openDashboard());
     q<HTMLButtonElement>("#results-qc-btn")?.addEventListener("click", () => workspace.openResultsQc());
     q<HTMLButtonElement>("#map-btn")?.addEventListener("click", () => workspace.openMap());

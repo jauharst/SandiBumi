@@ -149,8 +149,34 @@ preview, a QC scatter is read next to the log. Add a `case` in `workspace.ts::cr
 class `module-pane`, and give the pane a padding rule beside `.dock-plug-qc` or its labels sit
 flush against the card edge). `openModal` stays for genuine interruptions — confirmations,
 refusals (`needWell.ts`), Help — and for anything Jauhar explicitly asks to be a popup.
-**Still popups and due the same conversion when he says so: Pore Area…, Condition Plates… /
-Condition Core Photos….**
+**The sweep is done (2026-08-01, "check if those tools still pop up, make it panes").** Every
+ribbon TOOL is now a pane: Pore Area…, Plate Details…, Condition Plates… / Core Photos…, Register
+Depth…, Calibrate RtC… and Calibrate S… joined Mineral Classifier…, Plug QC… and SandiMin. Three
+things the conversion turned up, all worth keeping:
+
+- **A modal has no close hook**, so anything outliving the DOM leaked. `plateStrip.dispose()`
+  (an IntersectionObserver plus one object URL per thumbnail, on a delivery of hundreds) was never
+  called by Pore Area OR by the already-converted Mineral Classifier; the conditioning workspace
+  had to watch `#modal-root` with a `MutationObserver` for its own detachment. `asyncPane` hands
+  every builder a real teardown, so all three are fixed and that observer is gone. **A converted
+  pane must return a `dispose` whenever it holds an observer, an object URL or a subscription.**
+- **A pane must not close itself on success.** `depthRegDialog`'s Apply called the modal's
+  `close()`; a pane stays, so it now clears the PROPOSAL instead — the core has moved and pressing
+  Apply again on a shift computed against the old depths would double it — and refreshes the
+  barrels and the history, which is what the per-barrel path already did.
+- **`.module-pane` caps at 620px, which is right for a form column and wrong for a picture.** The
+  picture and table panes (pore area, plate details, conditioning, depth registration, mineral
+  classifier) opt out via `.dock-<x> .module-pane { max-width: none }`; the two calibration fits
+  keep the cap because they genuinely are a column of fields. A picture tool squeezed into a form
+  column in a wide pane is exactly the "not proportional" complaint.
+
+A pane that needs a well says so IN THE PANE rather than calling `requireWell` — that refusal
+exists for a click where nothing visible happens, and a pane opening IS visible.
+
+Still modal, and correctly so: naming prompts (Save Layout/Session As, Open Session), import
+wizards (LAS/DLIS set, SCAL, Aux, Deviation, Images, Well Locations), export dialogs (Workbook…,
+Deck…), and the short one-shot forms (Shift Core…, Well Header…, Data Sets…). Each is filled once
+and dismissed; none is a tool you work beside a log view.
 
 UX conventions (2026-07-19 fix batch, from Jauhar's click-through): dialogs are
 NON-BLOCKING — `.modal-scrim` is pointer-transparent, only Esc/✕ close (never re-add

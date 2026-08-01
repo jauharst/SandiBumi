@@ -1174,7 +1174,13 @@ textarea {
    without it their form labels sit flush against the card edge and read as
    clipped. Any new tool pane belongs in this list. */
 .dock-plug-qc,
-.dock-mineral-class {
+.dock-mineral-class,
+.dock-pore-area,
+.dock-plate-details,
+.dock-core-condition,
+.dock-depth-reg,
+.dock-rtc-fit,
+.dock-sfactor-fit {
   padding: 10px 12px;
 }
 
@@ -5819,6 +5825,17 @@ input[type="number"].num-editing:focus {
 .zones-pane,
 .autocorr-pane {
   max-width: 620px;
+}
+/* …but a PICTURE pane is not a form column. A filmstrip, a plate preview, a correlogram and an
+ * eight-column plate table all need the pane's real width, and capping them at a form column is
+ * what makes a docked tool look "not proportional" — a narrow strip of controls in a wide pane.
+ * These opt out; the fits keep the cap, because they genuinely are a column of fields. */
+.dock-pore-area .module-pane,
+.dock-plate-details .module-pane,
+.dock-core-condition .module-pane,
+.dock-depth-reg .module-pane,
+.dock-mineral-class .module-pane {
+  max-width: none;
 }
 
 /* --- Module pane, Organic (design 1d) -------------------------------------- */

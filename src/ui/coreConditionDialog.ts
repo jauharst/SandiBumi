@@ -21,15 +21,21 @@ import { loadCurveNames } from "./plotCommon";
 import { appState, bumpDataVersion, setStatus } from "../state";
 import { recordProcess } from "../processLog";
 import { pushUndo } from "../undo";
-import { formRow, openModal } from "./modal";
-import { requireWell } from "./needWell";
+import { formRow } from "./modal";
 
 /** Which kind of picture the workspace was opened for. */
 export type ConditionSubject = "core" | "plate";
 
 /**
- * Conditioning a picture of rock — a core slab photograph (Data ▸ Tools ▾ ▸ Condition Core Photos…)
- * or a thin section (Petrophysics ▸ Petrography ▸ Condition Plates…).
+ * Conditioning a picture of rock — a core slab photograph (Advance ▸ Core Imaging ▸ Core Photos…)
+ * or a thin section (Advance ▸ Petrography ▸ Condition Plates…).
+ *
+ * **A dock PANE, not a popup, and one pane per KIND of picture.** Conditioning is a long sitting
+ * job: crop, straighten, pick a grey, judge it, move to the next box. A modal covers the log view
+ * the result is read against, and the two subjects get their own pane because a core photograph
+ * and a thin section are two deliveries with two recipes — sharing one pane would mean correcting
+ * one loses your place in the other. Standing rule from Jauhar (2026-08-01): tools open as
+ * working panes.
  *
  * A core photograph arrives as somebody's snapshot: the box a degree off square on the bench, the
  * tray and the tape in frame, and whatever colour the core shed's lights had that afternoon. None
@@ -58,16 +64,26 @@ export type ConditionSubject = "core" | "plate";
  * **Nothing is written until Apply.** The conditioning is reversible afterwards too: the import is
  * kept the first time a recipe is baked and Reset puts the photograph back byte for byte.
  */
-export async function openCoreConditionDialog(subject: ConditionSubject = "core"): Promise<void> {
+export async function buildCoreConditionContent(
+  subject: ConditionSubject = "core",
+): Promise<{ el: HTMLElement; dispose?: () => void }> {
   const plate = subject === "plate";
   const what = plate ? "plates" : "core photos";
   const well = appState.selectedWell.get();
-  if (!well) {
-    requireWell(`Condition ${what}`);
-    return;
-  }
   const wrap = document.createElement("div");
-  openModal(`Condition ${what} — ${well.well_name}`, wrap, 1000);
+  wrap.className = "module-pane";
+
+  // A pane says this itself rather than calling `requireWell`. That refusal exists for a click
+  // where nothing visible happens — here the pane opens, so it is the place to say why it is
+  // empty, and it fills in the moment a well is selected.
+  if (!well) {
+    const none = document.createElement("div");
+    none.className = "eq-note";
+    none.textContent =
+      `Select a well in the Wells pane first — ${what} are conditioned one well at a time.`;
+    wrap.appendChild(none);
+    return { el: wrap };
+  }
 
   const intro = document.createElement("div");
   intro.className = "eq-note";
@@ -87,7 +103,7 @@ export async function openCoreConditionDialog(subject: ConditionSubject = "core"
       "This needs numpy and Pillow in the Python the app uses (pip install numpy pillow). " +
       "Nothing else in the app is affected.";
     wrap.appendChild(warn);
-    return;
+    return { el: wrap };
   }
 
   const dsSel = document.createElement("select");
@@ -114,7 +130,7 @@ export async function openCoreConditionDialog(subject: ConditionSubject = "core"
     none.style.color = "var(--warn)";
     none.textContent = "This well has no pictures. Import some with Data ▸ Import ▸ Images…";
     wrap.appendChild(none);
-    return;
+    return { el: wrap };
   }
 
   // ---- the delivery, as pictures -----------------------------------------
@@ -1334,16 +1350,15 @@ export async function openCoreConditionDialog(subject: ConditionSubject = "core"
   });
   await reload();
 
-  // Object URLs and the observer outlive the modal unless they are dropped with it.
-  const root = document.getElementById("modal-root");
-  if (root) {
-    const mo = new MutationObserver(() => {
-      if (root.contains(wrap)) return;
+  // Object URLs and the observer outlive the element unless they are dropped with it. As a modal
+  // this had to watch #modal-root for its own content being detached, because openModal offers no
+  // close hook; a pane is handed a real teardown and the whole mechanism goes away.
+  return {
+    el: wrap,
+    dispose: () => {
       for (const u of urls) URL.revokeObjectURL(u);
       urls.length = 0;
       seen.disconnect();
-      mo.disconnect();
-    });
-    mo.observe(root, { childList: true, subtree: true });
-  }
+    },
+  };
 }
