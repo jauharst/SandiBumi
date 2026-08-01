@@ -1633,6 +1633,14 @@ export interface FluidContact {
   is_tvdss: boolean;
   color: string | null;
   label: string | null;
+  /** The named fault block or segment. null = not stated. Two compartments are not in pressure
+   *  communication, so they have no reason to sit on the same contact — and pooling them into one
+   *  QC fit produces a surface neither is on. */
+  compartment?: string | null;
+  /** The markers this contact governs, sorted. EMPTY = none stated (a field-wide datum cuts across
+   *  markers). SEVERAL = stacked sands in one hydraulic unit sharing ONE contact — the case a
+   *  single marker field cannot express. */
+  zones?: string[];
 }
 
 export function listFluidContacts(): Promise<FluidContact[]> {
@@ -1649,6 +1657,8 @@ export function upsertFluidContact(c: FluidContact): Promise<void> {
     isTvdss: c.is_tvdss,
     color: c.color,
     label: c.label,
+    compartment: c.compartment ?? null,
+    zones: c.zones ?? [],
   });
 }
 
@@ -1696,6 +1706,8 @@ export interface ContactWellResidual {
 
 export interface ContactConsistency {
   contact_type: string;
+  compartment: string | null;
+  zones: string[];
   n: number;
   mean_tvdss: number;
   rms: number;
@@ -1705,9 +1717,65 @@ export interface ContactConsistency {
   error: string | null;
 }
 
-/** Check whether every well's pick of a contact type agrees on a flat TVDSS surface. */
-export function checkContactConsistency(contactType: string, flagAbs?: number): Promise<ContactConsistency> {
-  return invoke<ContactConsistency>("check_contact_consistency", { contactType, flagAbs });
+/** One QC group: a contact type, in one compartment, governing one set of markers.
+ *
+ *  All three parts of the key earn their place — two stacked sands can have two contacts, several
+ *  stacked sands can SHARE one, and two fault blocks have no reason to share anything. */
+export interface ContactGroup {
+  contact_type: string;
+  compartment: string | null;
+  zones: string[];
+  n: number;
+  /** Well-scoped contacts — the only ones the consistency check can use. */
+  n_well: number;
+}
+
+/** Every (type, compartment, marker set) in the project, so the QC can check them all. */
+export function contactGroups(): Promise<ContactGroup[]> {
+  return invoke<ContactGroup[]>("contact_groups", {});
+}
+
+/** Check whether the wells sharing ONE contact agree on a flat TVDSS surface.
+ *
+ *  The compartment and the marker set are part of the GROUP, not filters you may omit: omitting
+ *  them checks the contacts that state none, never "all of them". */
+export function checkContactConsistency(
+  contactType: string,
+  compartment?: string | null,
+  zones?: string[],
+  flagAbs?: number,
+): Promise<ContactConsistency> {
+  return invoke<ContactConsistency>("check_contact_consistency", {
+    contactType,
+    compartment: compartment ?? null,
+    zones: zones ?? [],
+    flagAbs,
+  });
+}
+
+/** One well/marker where the picked FWL and the FWL the arithmetic reads do not agree. */
+export interface FwlCheck {
+  well_id: string;
+  well_name: string;
+  zone_name: string;
+  contact_depth: number;
+  contact_is_tvdss: boolean;
+  param_value: number | null;
+  /** contact − parameter; NaN when the two cannot be compared. */
+  difference: number;
+  verdict: string;
+  can_apply: boolean;
+}
+
+/** Compares each marker-tagged FWL contact against the parameter `sw_height` computes from. */
+export function checkFwlAgreement(tolerance?: number): Promise<FwlCheck[]> {
+  return invoke<FwlCheck[]>("check_fwl_agreement", { tolerance });
+}
+
+/** Copies picked FWL contacts into `zone_params`, so the arithmetic reads what the panel draws.
+ *  An explicit, undoable copy — never a live read at calculation time. */
+export function applyFwlToZoneParams(picks: [string, string, number][]): Promise<number> {
+  return invoke<number>("apply_fwl_to_zone_params", { picks });
 }
 
 // --- Results-QC: Sw-method spread ---------------------------------------------------------------

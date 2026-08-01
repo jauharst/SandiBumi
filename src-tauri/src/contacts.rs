@@ -303,9 +303,92 @@ pub struct WellResidual {
     pub flagged: bool,
 }
 
+/// One QC group: every well-scoped contact of one TYPE, in one COMPARTMENT, governing the same set
+/// of MARKERS.
+///
+/// All three parts of the key earn their place, and each was a way of pooling surfaces that are not
+/// the same surface:
+///
+/// - **Marker**, because two stacked sands routinely have two different oil-water contacts.
+/// - **A SET of markers**, because several stacked sands in one hydraulic unit just as routinely
+///   share ONE contact. A single marker column can say the first and not the second.
+/// - **Compartment**, because two fault blocks are not in pressure communication and have no reason
+///   to sit on the same contact at all.
+///
+/// A contact stating none of them is its own group — never a member of every group. It cannot be:
+/// nothing in it says which sand or which block it belongs to, and folding it in would put a
+/// field-wide datum into a reservoir's own fit.
+#[derive(Debug, Clone, Serialize)]
+pub struct ContactGroup {
+    pub contact_type: String,
+    /// `None` = the contacts in this group state no compartment.
+    pub compartment: Option<String>,
+    /// Sorted. Empty = they state no marker; several = one contact shared across a stack.
+    pub zones: Vec<String>,
+    /// Contacts in the group, all scopes.
+    pub n: usize,
+    /// Of those, the well-scoped ones — the only ones the consistency check can use.
+    pub n_well: usize,
+}
+
+/// Normalised group key for one contact: the compartment, and its markers sorted.
+fn group_key(c: &db::FluidContact) -> (Option<String>, Vec<String>) {
+    let comp = c.compartment.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+    let mut zones: Vec<String> =
+        c.zones.iter().map(|z| z.trim().to_string()).filter(|z| !z.is_empty()).collect();
+    // Sorted, so a contact entered as [B, A] and one entered as [A, B] are the same group. Two
+    // contacts governing the same sands are the same surface however the user typed them.
+    zones.sort();
+    zones.dedup();
+    (comp, zones)
+}
+
+/// Every `(type, compartment, marker set)` combination in the project, so a QC pane can check them
+/// all rather than making the user name each one.
+pub fn contact_groups(conn: &Connection) -> Vec<ContactGroup> {
+    let contacts = db::list_fluid_contacts(conn).unwrap_or_default();
+    let mut out: Vec<ContactGroup> = Vec::new();
+    for c in &contacts {
+        // Case-insensitive on the TYPE (a user typing "owc" means OWC) but exact on the marker and
+        // compartment names, because those are data the user chose and two names differing only in
+        // case are two names as far as everything else in this project is concerned.
+        let (comp, zones) = group_key(c);
+        match out.iter_mut().find(|g| {
+            g.contact_type.eq_ignore_ascii_case(&c.contact_type)
+                && g.compartment == comp
+                && g.zones == zones
+        }) {
+            Some(g) => {
+                g.n += 1;
+                if c.well_id.is_some() {
+                    g.n_well += 1;
+                }
+            }
+            None => out.push(ContactGroup {
+                contact_type: c.contact_type.to_uppercase(),
+                compartment: comp,
+                zones,
+                n: 1,
+                n_well: usize::from(c.well_id.is_some()),
+            }),
+        }
+    }
+    out.sort_by(|a, b| {
+        a.contact_type
+            .cmp(&b.contact_type)
+            .then_with(|| a.compartment.cmp(&b.compartment))
+            .then_with(|| a.zones.cmp(&b.zones))
+    });
+    out
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ContactConsistency {
     pub contact_type: String,
+    /// The compartment this check was restricted to; `None` = the contacts stating none.
+    pub compartment: Option<String>,
+    /// The marker set this check was restricted to; empty = the contacts stating none.
+    pub zones: Vec<String>,
     pub n: usize,
     pub mean_tvdss: f32,
     pub rms: f32,
@@ -419,12 +502,32 @@ fn md_to_tvdss(conn: &Connection, well_id: &str, md: f32) -> Option<f32> {
     interp_asc(&mds, &ss, md).filter(|v| v.is_finite())
 }
 
-/// Checks whether every well-scoped contact of `contact_type` agrees on a flat TVDSS surface.
-/// MD contacts are converted to TVDSS via each well's deviation survey; a dipping plane is
-/// fitted when ≥3 wells have coordinates, otherwise the flat mean is used.
-pub fn check_contact_consistency(conn: &Connection, contact_type: &str, flag_abs: f32) -> ContactConsistency {
+/// Checks whether every well-scoped contact of `contact_type` **in one marker** agrees on a flat
+/// TVDSS surface. MD contacts are converted to TVDSS via each well's deviation survey; a dipping
+/// plane is fitted when ≥3 wells have coordinates, otherwise the flat mean is used.
+///
+/// **The compartment and the marker set are part of the GROUP, not filters you may omit.** Passing
+/// `None`/empty checks the contacts that state none — it does NOT mean "all of them". Two sands, or
+/// two fault blocks, pooled into one fit produce a surface neither is on and then flag every well
+/// as disagreeing with it, which is the exact opposite of what a QC is for.
+pub fn check_contact_consistency(
+    conn: &Connection,
+    contact_type: &str,
+    compartment: Option<&str>,
+    zones: &[String],
+    flag_abs: f32,
+) -> ContactConsistency {
+    let want_comp =
+        compartment.map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+    let mut want_zones: Vec<String> =
+        zones.iter().map(|z| z.trim().to_string()).filter(|z| !z.is_empty()).collect();
+    want_zones.sort();
+    want_zones.dedup();
+
     let none = |msg: &str| ContactConsistency {
         contact_type: contact_type.to_string(),
+        compartment: want_comp.clone(),
+        zones: want_zones.clone(),
         n: 0,
         mean_tvdss: f32::NAN,
         rms: f32::NAN,
@@ -440,10 +543,13 @@ pub fn check_contact_consistency(conn: &Connection, contact_type: &str, flag_abs
     let wmap: HashMap<String, &db::WellSummary> = wells.iter().map(|w| (w.well_id.clone(), w)).collect();
 
     let mut meta: Vec<(String, String, Option<f64>, Option<f64>, f32)> = Vec::new();
-    for c in contacts
-        .iter()
-        .filter(|c| c.contact_type.eq_ignore_ascii_case(contact_type) && c.well_id.is_some())
-    {
+    for c in contacts.iter().filter(|c| {
+        let (comp, z) = group_key(c);
+        c.contact_type.eq_ignore_ascii_case(contact_type)
+            && c.well_id.is_some()
+            && comp == want_comp
+            && z == want_zones
+    }) {
         let wid = c.well_id.clone().unwrap();
         let w = match wmap.get(&wid) {
             Some(w) => w,
@@ -479,6 +585,8 @@ pub fn check_contact_consistency(conn: &Connection, contact_type: &str, flag_abs
         .collect();
     ContactConsistency {
         contact_type: contact_type.to_string(),
+        compartment: want_comp,
+        zones: want_zones,
         n: meta.len(),
         mean_tvdss: core.mean,
         rms: core.rms,
@@ -488,9 +596,403 @@ pub fn check_contact_consistency(conn: &Connection, contact_type: &str, flag_abs
     }
 }
 
+// ---------------------------------------------------------------------------
+// The two FWLs
+// ---------------------------------------------------------------------------
+
+/// The parameter a saturation-height run reads its free-water level from.
+const FWL_PARAM: &str = "FWL";
+
+/// One well/marker where the picked FWL contact and the FWL the arithmetic uses do not agree.
+///
+/// **This is the defect the marker column exists to expose.** A free-water level lives in two
+/// places: `fluid_contacts`, where it is picked and drawn on the correlation panel, and
+/// `zone_params`, where `sw_height` actually reads it. Nothing reconciled them, so the log could
+/// show one surface while every saturation in the report was computed from another — silently, and
+/// with both numbers looking entirely reasonable.
+#[derive(Debug, Clone, Serialize)]
+pub struct FwlCheck {
+    pub well_id: String,
+    pub well_name: String,
+    pub zone_name: String,
+    /// The picked contact's depth, in the reference it declares.
+    pub contact_depth: f32,
+    pub contact_is_tvdss: bool,
+    /// What `zone_params` holds for this well and marker, if anything.
+    pub param_value: Option<f32>,
+    /// `contact - param`, NaN when there is no parameter or the two cannot be compared.
+    pub difference: f32,
+    /// What the user should do about it, in words.
+    pub verdict: String,
+    /// True when this row can be written to `zone_params` — i.e. the comparison is meaningful.
+    pub can_apply: bool,
+}
+
+/// Compares every marker-tagged FWL contact against the parameter the arithmetic reads.
+///
+/// **An MD contact is reported, never converted.** The stored parameter carries no reference of its
+/// own — `satheight.rs` documents FWL as "the same reference as the vertical-depth input", which is
+/// a property of the run, not of the number. Converting the contact to TVDSS to force a comparison
+/// would be asserting something about the parameter that nothing in the project actually says, and
+/// the failure would be silent. Saying so and stopping is the honest move.
+///
+/// **A contact with no marker is skipped**, because there is no `zone_params` row it could
+/// correspond to: the parameter is keyed by marker, and `*` is a whole-well value rather than this
+/// contact's.
+///
+/// **A contact governing SEVERAL markers produces one row per marker.** Stacked sands in one
+/// hydraulic unit share a contact, and the parameter they are computed from is per marker — so a
+/// shared contact has to be checked against, and written to, every sand it governs. Reporting one
+/// row for the contact would hide a sand whose parameter had drifted.
+pub fn check_fwl_agreement(conn: &Connection, tolerance: f32) -> Vec<FwlCheck> {
+    let contacts = db::list_fluid_contacts(conn).unwrap_or_default();
+    let wells = db::list_wells(conn).unwrap_or_default();
+    let wmap: HashMap<&str, &db::WellSummary> =
+        wells.iter().map(|w| (w.well_id.as_str(), w)).collect();
+
+    let mut out = Vec::new();
+    for c in contacts.iter().filter(|c| c.contact_type.eq_ignore_ascii_case(FWL_PARAM)) {
+        let Some(wid) = c.well_id.as_deref() else { continue };
+        let Some(w) = wmap.get(wid) else { continue };
+        let (_, zones) = group_key(c);
+        if zones.is_empty() {
+            continue;
+        }
+        let params = db::list_zone_params(conn, wid).unwrap_or_default();
+
+        for zone in &zones {
+            let param = params
+                .iter()
+                .find(|z| &z.zone_name == zone && z.param_name == FWL_PARAM)
+                .and_then(|z| z.value_num);
+
+            let mut row = FwlCheck {
+                well_id: wid.to_string(),
+                well_name: w.well_name.clone(),
+                zone_name: zone.clone(),
+                contact_depth: c.depth as f32,
+                contact_is_tvdss: c.is_tvdss,
+                param_value: param,
+                difference: f32::NAN,
+                verdict: String::new(),
+                can_apply: false,
+            };
+
+            if !c.is_tvdss {
+                row.verdict =
+                    "This contact is on MEASURED depth. The stored parameter carries no reference \
+                     of its own - a run's FWL is on whatever reference its vertical-depth input \
+                     was - so the two cannot be compared without asserting something the project \
+                     does not say. Re-pick it in TVDSS, or set the parameter by hand."
+                        .into();
+                out.push(row);
+                continue;
+            }
+
+            match param {
+                None => {
+                    row.verdict =
+                        "Picked, but nothing computes from it: this marker has no FWL parameter, \
+                         so a saturation-height run here would fall back to the module default."
+                            .into();
+                    row.can_apply = true;
+                }
+                Some(p) => {
+                    let d = row.contact_depth - p;
+                    row.difference = d;
+                    if d.abs() <= tolerance.max(0.0) {
+                        row.verdict = "Agrees with the value the arithmetic uses.".into();
+                    } else {
+                        row.verdict = format!(
+                            "DISAGREES by {d:+.2}. The correlation panel draws {:.2} and every \
+                             saturation-height run on this marker computes from {p:.2}.",
+                            row.contact_depth
+                        );
+                        row.can_apply = true;
+                    }
+                }
+            }
+            out.push(row);
+        }
+    }
+    out.sort_by(|a, b| a.well_name.cmp(&b.well_name).then_with(|| a.zone_name.cmp(&b.zone_name)));
+    out
+}
+
+/// Copies picked FWL contacts into `zone_params`, so the arithmetic reads what the panel draws.
+///
+/// **An explicit copy, never a live read.** The alternative — having `sw_height` resolve its FWL
+/// from the contact table at run time — would give the project two sources of truth reconciled
+/// invisibly at the moment of calculation, and no stored run could afterwards say which it used.
+/// This is the shape every other calibration in the app takes: fit, look, Apply, one transaction,
+/// one undo (`calibrationApply.ts`).
+///
+/// Rows are grouped per marker because `set_zone_param_batch` writes one zone at a time; the whole
+/// operation is still one call per marker rather than one per well.
+pub fn apply_fwl_to_zone_params(
+    conn: &mut Connection,
+    picks: &[(String, String, f32)],
+) -> Result<usize, String> {
+    let mut by_zone: HashMap<&str, Vec<(String, String, Option<f32>)>> = HashMap::new();
+    for (well_id, zone, depth) in picks {
+        if !depth.is_finite() {
+            return Err(format!("{zone}: a non-finite depth cannot be written as a parameter"));
+        }
+        by_zone
+            .entry(zone.as_str())
+            .or_default()
+            .push((well_id.clone(), FWL_PARAM.to_string(), Some(*depth)));
+    }
+    let mut n = 0;
+    for (zone, entries) in by_zone {
+        n += db::set_zone_param_batch(conn, zone, &entries).map_err(|e| e.to_string())?;
+    }
+    Ok(n)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        conn
+    }
+
+    /// `zone_params.well_id` is a UUID column, so a well id has to be a real UUID string.
+    fn add_well(conn: &Connection, name: &str, x: f64, y: f64) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO wells (well_id, well_name, surface_x, surface_y) VALUES (?1, ?2, ?3, ?4)",
+            duckdb::params![id, name, x, y],
+        )
+        .unwrap();
+        id
+    }
+
+    fn add_contact(conn: &Connection, well: &str, kind: &str, zones: &[&str], depth: f64) {
+        add_in(conn, well, kind, None, zones, depth);
+    }
+
+    fn add_in(
+        conn: &Connection,
+        well: &str,
+        kind: &str,
+        compartment: Option<&str>,
+        zones: &[&str],
+        depth: f64,
+    ) {
+        let z: Vec<String> = zones.iter().map(|s| s.to_string()).collect();
+        db::upsert_fluid_contact(
+            conn,
+            &uuid::Uuid::new_v4().to_string(),
+            None,
+            Some(well),
+            kind,
+            depth,
+            true,
+            None,
+            None,
+            compartment,
+            &z,
+        )
+        .unwrap();
+    }
+
+    /// The defect the marker column exists to fix. Two stacked sands each have their own oil-water
+    /// contact, and both are perfectly flat within themselves. Pooled into one plane fit they
+    /// produce a surface neither sand is on, and every well is then flagged as disagreeing with a
+    /// contact that was never there.
+    ///
+    /// Asserted from BOTH sides: each marker must come back tight AND the unfiltered pooling must
+    /// be the wide answer, or a version that had simply stopped fitting anything would pass.
+    #[test]
+    fn two_sands_are_two_contacts_and_are_never_pooled_into_one_surface() {
+        let conn = db();
+        let a = add_well(&conn, "SANDI-1", 0.0, 0.0);
+        let b = add_well(&conn, "SANDI-2", 1000.0, 0.0);
+        let c = add_well(&conn, "SANDI-3", 0.0, 1000.0);
+        // Upper sand: a flat OWC at -2000. Lower sand: a flat OWC at -2400.
+        for w in [&a, &b, &c] {
+            add_contact(&conn, w, "OWC", &["UPPER"], -2000.0);
+            add_contact(&conn, w, "OWC", &["LOWER"], -2400.0);
+        }
+
+        let upper = check_contact_consistency(&conn, "OWC", None, &["UPPER".into()], 3.0);
+        assert_eq!(upper.n, 3, "the upper sand sees only its own three picks");
+        assert!(upper.rms < 0.01, "and they are flat: rms {}", upper.rms);
+        assert!(upper.wells.iter().all(|w| !w.flagged), "so nothing is flagged");
+
+        let lower = check_contact_consistency(&conn, "OWC", None, &["LOWER".into()], 3.0);
+        assert_eq!(lower.n, 3);
+        assert!(lower.rms < 0.01, "rms {}", lower.rms);
+        assert!((lower.mean_tvdss - (-2400.0)).abs() < 0.01, "on its own surface, not a blend");
+
+        // The two groups are reported separately rather than as one.
+        let groups = contact_groups(&conn);
+        assert_eq!(groups.len(), 2, "two markers, two groups: {groups:?}");
+        assert!(groups.iter().all(|g| g.n_well == 3 && g.contact_type == "OWC"));
+
+        // The control, and the reason the marker matters: an unmarked pick is its OWN group and is
+        // never folded into a marker's fit. Add TWO at a third depth (a single pick cannot be
+        // checked against anything) and neither sand moves.
+        add_contact(&conn, &a, "OWC", &[], -2200.0);
+        add_contact(&conn, &b, "OWC", &[], -2200.0);
+        let upper2 = check_contact_consistency(&conn, "OWC", None, &["UPPER".into()], 3.0);
+        assert_eq!(upper2.n, 3, "the unmarked picks did not join the upper sand");
+        assert!((upper2.mean_tvdss - (-2000.0)).abs() < 0.01);
+        let unmarked = check_contact_consistency(&conn, "OWC", None, &[], 3.0);
+        assert_eq!(unmarked.n, 2, "they are their own group");
+        assert!((unmarked.mean_tvdss - (-2200.0)).abs() < 0.01);
+    }
+
+    /// Stacked sands in ONE hydraulic unit share one contact. That is the case a single marker
+    /// column cannot express, and it is why the markers are a link table: the contact governs a SET
+    /// of sands, and the set is what identifies it.
+    ///
+    /// The order the markers were entered in must not matter — two picks governing the same sands
+    /// are the same surface however they were typed.
+    #[test]
+    fn stacked_sands_can_share_one_contact_whatever_order_they_were_entered_in() {
+        let conn = db();
+        let a = add_well(&conn, "SANDI-1", 0.0, 0.0);
+        let b = add_well(&conn, "SANDI-2", 1000.0, 0.0);
+        add_contact(&conn, &a, "OWC", &["A", "B", "C"], -2000.0);
+        add_contact(&conn, &b, "OWC", &["C", "B", "A"], -2001.0);
+
+        let groups = contact_groups(&conn);
+        assert_eq!(groups.len(), 1, "one shared contact, one group: {groups:?}");
+        assert_eq!(groups[0].zones, vec!["A", "B", "C"], "sorted, so entry order cannot split it");
+        assert_eq!(groups[0].n_well, 2);
+
+        let g = &groups[0];
+        let chk = check_contact_consistency(&conn, "OWC", g.compartment.as_deref(), &g.zones, 3.0);
+        assert_eq!(chk.n, 2, "both wells are in the same group");
+        assert!(chk.rms < 1.0);
+
+        // And a sand OUTSIDE the shared unit is a different surface, not part of it.
+        add_contact(&conn, &a, "OWC", &["D"], -2400.0);
+        assert_eq!(contact_groups(&conn).len(), 2, "the lone sand is its own group");
+    }
+
+    /// Two fault blocks are not in pressure communication and have no reason to sit on the same
+    /// contact. Without the compartment they pool, the fit lands between them, and BOTH blocks are
+    /// flagged as disagreeing with a surface neither is on.
+    ///
+    /// Asserted from both sides: each compartment must come back tight AND the pooled version must
+    /// be visibly wrong, or an implementation that had stopped fitting anything would pass.
+    #[test]
+    fn two_compartments_are_two_contacts_even_in_the_same_sand() {
+        let conn = db();
+        let a = add_well(&conn, "SANDI-1", 0.0, 0.0);
+        let b = add_well(&conn, "SANDI-2", 100.0, 0.0);
+        let c = add_well(&conn, "SANDI-3", 5000.0, 0.0);
+        let d = add_well(&conn, "SANDI-4", 5100.0, 0.0);
+        // One sand, two blocks, 60 m apart across the fault.
+        add_in(&conn, &a, "OWC", Some("NORTH"), &["UPPER"], -2000.0);
+        add_in(&conn, &b, "OWC", Some("NORTH"), &["UPPER"], -2000.5);
+        add_in(&conn, &c, "OWC", Some("SOUTH"), &["UPPER"], -2060.0);
+        add_in(&conn, &d, "OWC", Some("SOUTH"), &["UPPER"], -2060.5);
+
+        let groups = contact_groups(&conn);
+        assert_eq!(groups.len(), 2, "one sand, two compartments, two groups: {groups:?}");
+
+        let north =
+            check_contact_consistency(&conn, "OWC", Some("NORTH"), &["UPPER".into()], 3.0);
+        assert_eq!(north.n, 2);
+        assert!(north.rms < 1.0, "the north block is flat within itself: {}", north.rms);
+        assert!((north.mean_tvdss - (-2000.25)).abs() < 0.5);
+
+        let south =
+            check_contact_consistency(&conn, "OWC", Some("SOUTH"), &["UPPER".into()], 3.0);
+        assert!((south.mean_tvdss - (-2060.25)).abs() < 0.5, "and sits on its own level");
+
+        // The control: the compartment is doing the work. Strip it and all four pool into one fit
+        // whose spread is the fault throw rather than the pick uncertainty.
+        for w in [&a, &b, &c, &d] {
+            add_contact(&conn, w, "GWC", &["UPPER"], if w == &a || w == &b { -2000.0 } else { -2060.0 });
+        }
+        let pooled = check_contact_consistency(&conn, "GWC", None, &["UPPER".into()], 3.0);
+        assert_eq!(pooled.n, 4);
+        assert!(
+            pooled.rms > 10.0,
+            "pooling two blocks gives a surface neither is on: rms {}",
+            pooled.rms
+        );
+    }
+
+    /// The two-FWL split, which is the whole reason this went in. A free-water level lives in
+    /// `fluid_contacts` (drawn on the panel) and in `zone_params` (what `sw_height` computes from).
+    /// Nothing reconciled them, so the log could show one surface while every saturation came from
+    /// another — both entirely plausible numbers.
+    #[test]
+    fn a_picked_contact_and_the_computed_one_are_compared_and_can_be_reconciled() {
+        let mut conn = db();
+        let w = add_well(&conn, "SANDI-1", 0.0, 0.0);
+        add_contact(&conn, &w, "FWL", &["UPPER"], -2000.0);
+        // The arithmetic is using a different level.
+        db::set_zone_param_batch(&mut conn, "UPPER", &[(w.clone(), "FWL".into(), Some(-2035.0))])
+            .unwrap();
+
+        let checks = check_fwl_agreement(&conn, 0.1);
+        assert_eq!(checks.len(), 1);
+        let c = &checks[0];
+        assert!((c.difference - 35.0).abs() < 0.01, "the gap is reported: {}", c.difference);
+        assert!(c.verdict.contains("DISAGREES"), "{}", c.verdict);
+        assert!(c.can_apply);
+
+        apply_fwl_to_zone_params(&mut conn, &[(w.clone(), "UPPER".into(), -2000.0)]).unwrap();
+        let after = check_fwl_agreement(&conn, 0.1);
+        assert!(after[0].verdict.starts_with("Agrees"), "{}", after[0].verdict);
+        assert!(!after[0].can_apply);
+        // And it really went where the module reads it from.
+        let p = db::list_zone_params(&conn, &w).unwrap();
+        let fwl = p.iter().find(|z| z.zone_name == "UPPER" && z.param_name == "FWL").unwrap();
+        assert!((fwl.value_num.unwrap() - (-2000.0)).abs() < 0.01);
+    }
+
+    /// An MD contact is REPORTED, never converted. The stored parameter carries no reference of its
+    /// own — `satheight.rs` documents FWL as "the same reference as the vertical-depth input",
+    /// which is a property of the run — so converting the contact to force a comparison would
+    /// assert something the project never said, and would do it silently.
+    #[test]
+    fn a_measured_depth_contact_is_refused_rather_than_converted() {
+        let conn = db();
+        let w = add_well(&conn, "SANDI-1", 0.0, 0.0);
+        db::upsert_fluid_contact(
+            &conn,
+            "c1",
+            None,
+            Some(&w),
+            "FWL",
+            2100.0,
+            false, // measured depth
+            None,
+            None,
+            None,
+            &["UPPER".to_string()],
+        )
+        .unwrap();
+        let checks = check_fwl_agreement(&conn, 0.1);
+        assert_eq!(checks.len(), 1);
+        assert!(!checks[0].can_apply, "nothing may be written from it");
+        assert!(checks[0].verdict.contains("MEASURED depth"), "{}", checks[0].verdict);
+        assert!(checks[0].difference.is_nan(), "and no difference is invented");
+    }
+
+    /// A contact with no marker has no `zone_params` row it could correspond to — the parameter is
+    /// keyed by marker, and `*` is a whole-well value rather than this contact's. Skipping it is
+    /// the honest answer; matching it to `*` would let one pick silently rewrite every zone.
+    #[test]
+    fn an_unmarked_contact_is_not_matched_against_the_whole_well_value() {
+        let mut conn = db();
+        let w = add_well(&conn, "SANDI-1", 0.0, 0.0);
+        add_contact(&conn, &w, "FWL", &[], -2000.0);
+        db::set_zone_param_batch(&mut conn, "*", &[(w.clone(), "FWL".into(), Some(-2500.0))])
+            .unwrap();
+        assert!(check_fwl_agreement(&conn, 0.1).is_empty(), "no marker, no comparison");
+    }
 
     #[test]
     fn sw_crossover_finds_known_depth() {

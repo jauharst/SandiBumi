@@ -353,6 +353,7 @@ export class Workspace {
       ["Pore Area (thin sections)", () => this.openPoreArea(group)],
       ["SandiMin Solver", () => this.openMultimin(group)],
       "sep",
+      ["Fluid Contacts (pick + QC)", () => this.openFluidContacts(group)],
       ["Register Core Depth", () => this.openDepthReg(group)],
       ["Condition Core Photos", () => this.openCoreCondition("core", group)],
       ["Photo Log (core → curves)", () => this.openCoreTrace(group)],
@@ -561,6 +562,12 @@ export class Workspace {
           subject === "plate" ? "plate conditioning" : "core photo conditioning",
         );
       }
+      case "fluidContacts":
+        return this.asyncPane(
+          "dock-fluid-contacts",
+          () => import("./fluidContactsPanel").then((m) => m.buildFluidContactsContent()),
+          "fluid contacts",
+        );
       case "coreTrace":
         return this.asyncPane(
           "dock-core-trace",
@@ -1530,6 +1537,10 @@ export class Workspace {
       subject === "plate" ? "Condition Plates" : "Condition Core Photos",
       group,
     );
+  }
+
+  openFluidContacts(group?: DockviewGroupPanel): void {
+    this.openSingleton("fluidContacts", "fluidContacts", "Fluid Contacts", group);
   }
 
   openCoreTrace(group?: DockviewGroupPanel): void {

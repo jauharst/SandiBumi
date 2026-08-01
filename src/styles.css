@@ -1179,6 +1179,7 @@ textarea {
 .dock-plate-details,
 .dock-core-condition,
 .dock-core-trace,
+.dock-fluid-contacts,
 .dock-depth-reg,
 .dock-rtc-fit,
 .dock-sfactor-fit {
@@ -5835,6 +5836,7 @@ input[type="number"].num-editing:focus {
 .dock-plate-details .module-pane,
 .dock-core-condition .module-pane,
 .dock-core-trace .module-pane,
+.dock-fluid-contacts .module-pane,
 .dock-depth-reg .module-pane,
 .dock-mineral-class .module-pane {
   max-width: none;

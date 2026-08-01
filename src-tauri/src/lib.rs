@@ -1874,6 +1874,8 @@ fn upsert_fluid_contact(
     is_tvdss: bool,
     color: Option<String>,
     label: Option<String>,
+    compartment: Option<String>,
+    zones: Option<Vec<String>>,
 ) -> Result<(), String> {
     let conn = db.0.lock().unwrap();
     db::upsert_fluid_contact(
@@ -1886,6 +1888,8 @@ fn upsert_fluid_contact(
         is_tvdss,
         color.as_deref(),
         label.as_deref(),
+        compartment.as_deref(),
+        &zones.unwrap_or_default(),
     )
     .map_err(|e| e.to_string())
 }
@@ -2450,16 +2454,53 @@ fn suggest_contacts(
     Ok(contacts::suggest_contacts(&conn, &req))
 }
 
-/// Cross-well consistency for a contact type: fits a flat-TVDSS surface through the picked
-/// contacts and flags wells that disagree. Read-only.
+/// Cross-well consistency for one contact type IN ONE MARKER: fits a flat-TVDSS surface through
+/// the picked contacts and flags wells that disagree. `zone_name` omitted checks the contacts that
+/// state no marker — it does not mean "every marker". Read-only.
 #[tauri::command]
 fn check_contact_consistency(
     db: tauri::State<DbState>,
     contact_type: String,
+    compartment: Option<String>,
+    zones: Option<Vec<String>>,
     flag_abs: Option<f32>,
 ) -> Result<contacts::ContactConsistency, String> {
     let conn = db.0.lock().unwrap();
-    Ok(contacts::check_contact_consistency(&conn, &contact_type, flag_abs.unwrap_or(3.0)))
+    Ok(contacts::check_contact_consistency(
+        &conn,
+        &contact_type,
+        compartment.as_deref(),
+        &zones.unwrap_or_default(),
+        flag_abs.unwrap_or(3.0),
+    ))
+}
+
+/// Every (contact type, marker) pair in the project, so a QC pane can check them all.
+#[tauri::command]
+fn contact_groups(db: tauri::State<DbState>) -> Result<Vec<contacts::ContactGroup>, String> {
+    let conn = db.0.lock().unwrap();
+    Ok(contacts::contact_groups(&conn))
+}
+
+/// Compares each marker-tagged FWL contact against the parameter a saturation-height run reads.
+#[tauri::command]
+fn check_fwl_agreement(
+    db: tauri::State<DbState>,
+    tolerance: Option<f32>,
+) -> Result<Vec<contacts::FwlCheck>, String> {
+    let conn = db.0.lock().unwrap();
+    Ok(contacts::check_fwl_agreement(&conn, tolerance.unwrap_or(0.1)))
+}
+
+/// Copies picked FWL contacts into `zone_params`, so the arithmetic reads what the panel draws.
+/// One transaction per marker, and undoable from the caller like any other parameter write.
+#[tauri::command]
+fn apply_fwl_to_zone_params(
+    db: tauri::State<DbState>,
+    picks: Vec<(String, String, f32)>,
+) -> Result<usize, String> {
+    let mut conn = db.0.lock().unwrap();
+    contacts::apply_fwl_to_zone_params(&mut conn, &picks)
 }
 
 /// Per-depth water-saturation envelope across the app's Sw models (Archie/Simandoux/Indonesia/
@@ -2974,6 +3015,9 @@ pub fn run() {
             autocorrelate_multi,
             suggest_contacts,
             check_contact_consistency,
+            contact_groups,
+            check_fwl_agreement,
+            apply_fwl_to_zone_params,
             sw_method_spread,
             run_query,
             export_las,

@@ -2940,6 +2940,58 @@ rock. Then, from Jauhar's UV question (2026-08-01): a fluorescence measure read 
 white-light trace, and an "unfold" that shears each slab to the bed's apparent dip before averaging,
 so a dipping contact is not smeared across the core's width. See `docs/plan_core_photo.md`.
 
+## A fluid contact is identified by three things (2026-08-01)
+
+Every calculation parameter in this app already lives at MARKER level: `zone_params`
+`(well_id, zone_name, param_name)`, where `zone_name = '*'` is the whole well and a named zone is a
+top (`db::zones_from_tops` builds one zone per marker, named after it). RHO_SH, NPHI_SH, A_CAP,
+B_QV, C0, RSF, M, N, RW, FWL, the cutoffs — all of them, resolved by `workflow::resolve_param_arrays`
+as manifest default → dialog value → `*` → named marker.
+
+**Fluid contacts were the exception, and it cost numbers.** `fluid_contacts` carried no marker at
+all, so `check_contact_consistency` pooled every contact of a type across the project. Three fixes,
+each closing a way of pooling surfaces that are not the same surface:
+
+- **`contact_zones` is a link table, not a column.** The relationship is many-to-one in BOTH
+  directions a field is built: two stacked sands can each have their own contact, and several
+  stacked sands in one hydraulic unit can SHARE one. A single column says the first and not the
+  second, and a comma-separated list in a column is not a list. No rows = no marker stated, which
+  stays a real answer — a field-wide datum cuts across markers, which is why the plane fit exists.
+- **`fluid_contacts.compartment`** names the fault block. Two compartments are not in pressure
+  communication and have no reason to sit on the same contact; pooled, the fit lands between them
+  and flags BOTH blocks. Pinned by `two_compartments_are_two_contacts_even_in_the_same_sand`, whose
+  control asserts the pooled version really is wrong (rms > 10) — otherwise an implementation that
+  had stopped fitting anything would pass.
+- **The QC group is `(type, compartment, marker SET)`**, and the markers are SORTED in `group_key`,
+  so a contact entered as [B, A] and one entered as [A, B] are one group. Passing none checks the
+  contacts that state none — it never means "all of them".
+
+`db::migrate_fluid_contact_zone` is ADD COLUMN + CREATE TABLE, no rebuild, no backup. Existing
+contacts get a NULL compartment and no marker rows: nothing in a stored contact says which sand or
+block it was picked in, and inventing the association would be worse than admitting there is none.
+
+**The two FWLs, which is the defect this was really for.** A free-water level lived in
+`fluid_contacts` (drawn on the correlation panel) AND in `zone_params` (what `sw_height` computes
+from), with nothing reconciling them — so the log could show one surface while every saturation in
+the report came from another, both entirely plausible. `contacts::check_fwl_agreement` measures the
+gap and `apply_fwl_to_zone_params` copies the pick across. Four rules:
+
+- **An explicit copy, never a live read.** Having `sw_height` resolve its FWL from the contact table
+  at run time would give the project two sources of truth reconciled invisibly at the moment of
+  calculation, and no stored run could afterwards say which it used. Same shape as every other
+  calibration here: look, Apply, one transaction, one undo.
+- **A contact governing SEVERAL markers produces one row per marker**, because the parameter is per
+  marker — one row for the contact would hide a sand whose parameter had drifted.
+- **An MD contact is reported, never converted.** The stored parameter carries no reference of its
+  own (`satheight.rs` documents FWL as "the same reference as the vertical-depth input", a property
+  of the RUN), so converting to force a comparison would assert something the project never said.
+- **A contact with no marker is skipped**, not matched against `*` — one pick must not silently
+  rewrite every zone.
+
+UI: Plot ▸ Multi-Well ▸ **Fluid Contacts…** (`fluidContactsPanel.ts`), a pane so it sits beside the
+correlation panel it is about. The stored table with per-row editing, the QC group by group, and the
+FWL reconcile with its undo.
+
 ## The launch screen (2026-08-01)
 
 `bootOverlay.ts` is a portrait launch card — artwork, mark, wordmark, edition and copyright — the

@@ -390,6 +390,13 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
         -- Scope: well_id set -> that well only; field_name set (well_id NULL) -> every well in
         -- that field; both NULL -> a global datum applied to every well. Keyed by a
         -- client-generated id so several contacts (and duplicates) may coexist freely.
+        --
+        -- `compartment` names the fault block or segment the contact belongs to, and it is the
+        -- other half of what makes a contact identifiable. Two compartments of one field routinely
+        -- sit on different contacts because they are not in pressure communication -- so pooling
+        -- them into one plane fit produces a surface neither is on and then flags every well as
+        -- disagreeing with it, which is the opposite of what a QC is for. NULL means not stated,
+        -- which stays a real answer: an undivided field has no compartments to name.
         CREATE TABLE IF NOT EXISTS fluid_contacts (
             contact_id   VARCHAR NOT NULL,
             field_name   VARCHAR,           -- field scope (NULL when well-scoped or global)
@@ -399,7 +406,22 @@ pub(crate) fn create_schema(conn: &Connection) -> DbResult<()> {
             is_tvdss     BOOLEAN NOT NULL,  -- true = depth is TVDSS (flat across wells), false = MD
             color        VARCHAR,
             label        VARCHAR,
+            compartment  VARCHAR,           -- named fault block / segment; NULL = not stated
             PRIMARY KEY (contact_id)
+        );
+
+        -- Which MARKERS a contact governs. A link table rather than a column on the contact,
+        -- because the relationship is genuinely many-to-one in BOTH the ways a field is built:
+        -- two stacked sands can each have their own contact, and several stacked sands in one
+        -- hydraulic unit can share ONE contact. A single column can say the first and not the
+        -- second, and a comma-separated list in a column is not a list, it is a bug waiting.
+        --
+        -- No rows for a contact = no marker stated, which stays a real answer: a field-wide datum
+        -- cuts across markers, and that is the whole reason the plane fit exists.
+        CREATE TABLE IF NOT EXISTS contact_zones (
+            contact_id VARCHAR NOT NULL,
+            zone_name  VARCHAR NOT NULL,
+            PRIMARY KEY (contact_id, zone_name)
         );
 
         -- Core plug measurements (routine core analysis), sparse/irregular depths that do
@@ -1254,6 +1276,36 @@ pub fn migrate_plate_scale_and_prep(conn: &Connection) -> DbResult<()> {
             conn.execute_batch(&format!("ALTER TABLE well_images ADD COLUMN {col} {ty};"))?;
         }
     }
+    Ok(())
+}
+
+/// Gives an existing project's fluid contacts a compartment and a marker link.
+///
+/// ADD COLUMN plus a CREATE TABLE — no rebuild, so unlike `migrate_point_data_sets` it needs no
+/// backup. Existing contacts get a NULL compartment and no marker rows, which is the honest answer
+/// rather than the safe-looking one: nothing in a stored contact says which sand or which fault
+/// block it was picked in, and inventing an association would be worse than admitting there is
+/// none. An unassigned contact is its own QC group, never a member of every group.
+///
+/// `compartment` must stay the LAST column — `create_schema` puts it last too, so a fresh database
+/// and a migrated one agree about column order.
+pub fn migrate_fluid_contact_zone(conn: &Connection) -> DbResult<()> {
+    let has: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM duckdb_columns()
+         WHERE table_name = 'fluid_contacts' AND column_name = 'compartment'",
+        [],
+        |r| r.get(0),
+    )?;
+    if has == 0 {
+        conn.execute_batch("ALTER TABLE fluid_contacts ADD COLUMN compartment VARCHAR;")?;
+    }
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS contact_zones (
+            contact_id VARCHAR NOT NULL,
+            zone_name  VARCHAR NOT NULL,
+            PRIMARY KEY (contact_id, zone_name)
+        );",
+    )?;
     Ok(())
 }
 
@@ -3050,13 +3102,19 @@ pub struct FluidContact {
     pub is_tvdss: bool,
     pub color: Option<String>,
     pub label: Option<String>,
+    /// The fault block or segment this contact belongs to. `None` = not stated.
+    pub compartment: Option<String>,
+    /// The markers this contact governs, sorted. EMPTY = no marker stated, which is a real answer:
+    /// a field-wide datum cuts across markers. SEVERAL = stacked sands in one hydraulic unit
+    /// sharing one contact, which a single column could not express.
+    pub zones: Vec<String>,
 }
 
 /// Every fluid contact in the project. There are few of these (one per reservoir/field),
 /// so the correlation view fetches them all and decides per well which apply.
 pub fn list_fluid_contacts(conn: &Connection) -> DbResult<Vec<FluidContact>> {
     let mut stmt = conn.prepare(
-        "SELECT contact_id, field_name, well_id, contact_type, depth, is_tvdss, color, label
+        "SELECT contact_id, field_name, well_id, contact_type, depth, is_tvdss, color, label, compartment
          FROM fluid_contacts ORDER BY depth",
     )?;
     let rows = stmt.query_map([], |row| {
@@ -3069,11 +3127,27 @@ pub fn list_fluid_contacts(conn: &Connection) -> DbResult<Vec<FluidContact>> {
             is_tvdss: row.get(5)?,
             color: row.get(6)?,
             label: row.get(7)?,
+            compartment: row.get(8)?,
+            zones: Vec::new(),
         })
     })?;
     let mut contacts = Vec::new();
     for r in rows {
         contacts.push(r?);
+    }
+    // One scan of the link table rather than a query per contact: there are few contacts, but a
+    // per-row query is how a list turns into N round trips on a field-scale project.
+    let mut zstmt = conn.prepare("SELECT contact_id, zone_name FROM contact_zones ORDER BY zone_name")?;
+    let links = zstmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+    let mut by_id: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    for l in links {
+        let (id, zone) = l?;
+        by_id.entry(id).or_default().push(zone);
+    }
+    for c in &mut contacts {
+        if let Some(z) = by_id.remove(&c.contact_id) {
+            c.zones = z;
+        }
     }
     Ok(contacts)
 }
@@ -3089,20 +3163,39 @@ pub fn upsert_fluid_contact(
     is_tvdss: bool,
     color: Option<&str>,
     label: Option<&str>,
+    compartment: Option<&str>,
+    zones: &[String],
 ) -> DbResult<()> {
     conn.execute(
-        "INSERT INTO fluid_contacts (contact_id, field_name, well_id, contact_type, depth, is_tvdss, color, label)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+        "INSERT INTO fluid_contacts (contact_id, field_name, well_id, contact_type, depth, is_tvdss, color, label, compartment)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
          ON CONFLICT (contact_id) DO UPDATE SET
              field_name = excluded.field_name, well_id = excluded.well_id,
              contact_type = excluded.contact_type, depth = excluded.depth,
-             is_tvdss = excluded.is_tvdss, color = excluded.color, label = excluded.label",
-        params![contact_id, field_name, well_id, contact_type, depth, is_tvdss, color, label],
+             is_tvdss = excluded.is_tvdss, color = excluded.color, label = excluded.label,
+             compartment = excluded.compartment",
+        params![contact_id, field_name, well_id, contact_type, depth, is_tvdss, color, label, compartment],
     )?;
+    // Replace the marker links wholesale. An upsert that only ADDED would make removing a marker
+    // impossible, and a contact silently governing a sand the user took it off is the same class
+    // of error as a parameter that cannot be cleared.
+    conn.execute("DELETE FROM contact_zones WHERE contact_id = ?1", params![contact_id])?;
+    for z in zones {
+        let z = z.trim();
+        if z.is_empty() {
+            continue;
+        }
+        conn.execute(
+            "INSERT INTO contact_zones (contact_id, zone_name) VALUES (?1, ?2)
+             ON CONFLICT (contact_id, zone_name) DO NOTHING",
+            params![contact_id, z],
+        )?;
+    }
     Ok(())
 }
 
 pub fn delete_fluid_contact(conn: &Connection, contact_id: &str) -> DbResult<()> {
+    conn.execute("DELETE FROM contact_zones WHERE contact_id = ?1", params![contact_id])?;
     conn.execute("DELETE FROM fluid_contacts WHERE contact_id = ?1", params![contact_id])?;
     Ok(())
 }

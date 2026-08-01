@@ -7,6 +7,47 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-01 — A fluid contact now knows its sand, its stack and its fault block
+
+You asked where the calculation parameters live and said they should be at marker level. **They
+already are** — RHO_SH, NPHI_SH, the RtC coefficients, M, N, RW, FWL, the cutoffs, all of them, in
+`zone_params` keyed by well and marker, with `*` for the whole well. Precedence is: the module's
+default → what you type in the dialog → the `*` value → the marker's own value.
+
+**Fluid contacts were the exception, and it was costing numbers.**
+
+- [ ] **A contact now carries the MARKERS it governs.** Two stacked sands with two different
+      oil-water contacts used to be pooled into one surface fit — which landed between them and
+      then flagged every well as disagreeing with a contact that was never there.
+- [ ] **Several sands can share ONE contact.** That was your second question, and it is why the
+      markers are a list rather than a single field: a hydraulic unit of three stacked sands is one
+      contact governing three markers, and the QC treats it as one surface. The order you type them
+      in does not matter.
+- [ ] **Compartments, named.** Two fault blocks are not in pressure communication and have no
+      reason to sit on the same contact. Give each its name and each is checked on its own.
+- [ ] Existing contacts in your projects keep working and get no marker and no compartment —
+      nothing stored says which sand or block they were picked in, and I would rather admit that
+      than invent it. Fill them in and the QC sharpens immediately.
+- [ ] **Plot ▸ Multi-Well ▸ Fluid Contacts…** — a working pane, so it sits beside the correlation
+      panel or a log view. Every stored contact in one table, editable in place: type, compartment,
+      markers, depth, TVDSS or measured, label. Add and delete, with undo on the delete.
+- [ ] **QC section** lists every contact as its own group — type, markers, compartment — and says
+      how many wells are on it, its mean level, the spread, and names any well off the surface with
+      how far. A group with only one pick says so rather than showing a blank.
+
+### The one that changes saturations
+
+- [ ] **A free-water level lived in two places and nothing checked them against each other**: the
+      contact you pick and draw, and the FWL parameter a saturation-height run actually computes
+      from. The panel could show one level while every Sw in the report came from another — both
+      perfectly plausible numbers.
+- [ ] The pane now measures the gap per well and marker, says which one the arithmetic is using,
+      and offers one button to copy your picked level across. **It is a copy, not a live link** —
+      so a run you did last month still says which number it used — and it is undoable.
+- [ ] **A contact picked on measured depth is refused rather than converted**, by name. The stored
+      parameter carries no reference of its own, so converting to force a comparison would be
+      asserting something the project never said. Re-pick in TVDSS, or set the parameter by hand.
+
 ## 2026-08-01 — A four-column core plate, its own Photo Log tool, and a launch screen
 
 From the whole-core delivery you pointed me at. Two findings before anything else:

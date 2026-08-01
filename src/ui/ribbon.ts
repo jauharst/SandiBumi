@@ -279,6 +279,9 @@ export class Ribbon {
       workspace.openCoreCondition("core"),
     );
     q<HTMLButtonElement>("#core-trace-btn")?.addEventListener("click", () => workspace.openCoreTrace());
+    q<HTMLButtonElement>("#fluid-contacts-btn")?.addEventListener("click", () =>
+      workspace.openFluidContacts(),
+    );
     q<HTMLButtonElement>("#shift-core-btn")?.addEventListener("click", () => this.handleShiftCore());
     q<HTMLButtonElement>("#data-sets-btn")?.addEventListener("click", () => this.handleDataSets());
     q<HTMLButtonElement>("#plug-qc-btn")?.addEventListener("click", () => workspace.openPlugQc());
