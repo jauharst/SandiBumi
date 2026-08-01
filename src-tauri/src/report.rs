@@ -468,19 +468,19 @@ fn report_pages(
             },
         ) {
             Ok(pay_rows) if !pay_rows.is_empty() => {
-                // A permeability cutoff this well escaped for want of data. Stated on the page
-                // rather than only in the row struct, because the deliverable is where the
-                // comparison actually gets made: without it, an uncored well's full net pay and a
-                // cored well's excluded net pay print identically and add together in a field
-                // roll-up (`docs/review_triage.md` finding 7).
+                // A permeability cutoff this well has nothing to answer with. Stated on the page
+                // rather than only in the row struct, because the deliverable is where a reader
+                // actually meets the number: every zone reports zero net pay, which on the page is
+                // indistinguishable from a wet well (`docs/review_triage.md` finding 7).
                 let pay_caveat = pay_rows
                     .iter()
-                    .any(|r| r.perm_cutoff_skipped)
+                    .any(|r| r.perm_cutoff_no_data)
                     .then(|| {
                         format!(
-                            "Note: the PERM ≥ {:.1} mD cutoff was NOT applied to this well — it carries no \
-                             permeability curve. Its net pay is therefore not comparable with wells where \
-                             the cutoff was applied.",
+                            "Note: this well carries no permeability curve, so every sample fails the \
+                             PERM ≥ {:.1} mD cutoff for want of data. The zero net pay below records an \
+                             absence of evidence, not a dry reservoir — compute or import a permeability \
+                             curve, or lift the cutoff, before reading these rows.",
                             spec.perm_min.unwrap_or(0.0)
                         )
                     });
@@ -850,15 +850,17 @@ mod tests {
         assert_ne!(bytes[0], bytes[1], "the loop must re-render per well, not copy the first");
     }
 
-    /// A permeability cutoff the well escaped for want of data is stated ON the pay page.
+    /// A permeability cutoff a well has no data for is stated ON the pay page.
     ///
-    /// The behaviour itself is unchanged and remains Jauhar's call (`docs/review_triage.md`
-    /// finding 7 — exclusion and exemption are both defensible and either changes reserves). What
-    /// is fixed is that the deliverable said nothing: an uncored well's full net pay and a cored
-    /// well's excluded net pay printed identically, and a reader comparing two reports had no way
-    /// to know one of them had never been judged.
+    /// Since 2026-08-01 the cutoff applies to every well it is asked for (`docs/review_triage.md`
+    /// finding 7, Jauhar: *"no relation between em, wells still can have perm curves"*), so a well
+    /// carrying no PERM books zero pay rather than full pay. That is the defensible answer and it
+    /// creates its own reading problem: on the page, zero pay for want of a curve looks exactly
+    /// like zero pay because the reservoir is wet. The note is what separates them, and it belongs
+    /// in the deliverable rather than only in the row struct, because the deliverable is where a
+    /// client actually meets the number.
     #[test]
-    fn a_perm_cutoff_a_well_escaped_is_stated_on_the_pay_page() {
+    fn a_perm_cutoff_the_well_has_no_data_for_is_stated_on_the_pay_page() {
         let conn = Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
         let wid = Uuid::new_v4();
@@ -899,16 +901,20 @@ mod tests {
         // Control first: with no cutoff requested there is nothing to say, and a note that
         // appeared anyway would be on every report anyone ever ran.
         spec.perm_min = None;
-        assert!(!pay_text(&spec).contains("was NOT applied"), "no cutoff requested, no note");
+        let quiet = pay_text(&spec);
+        assert!(!quiet.contains("no permeability curve"), "no cutoff requested, no note: {quiet}");
 
         spec.perm_min = Some(1000.0);
         let noted = pay_text(&spec);
-        assert!(noted.contains("was NOT applied"), "the escape must be stated: {noted}");
-        assert!(noted.contains("1000.0 mD"), "and name the cutoff it escaped: {noted}");
+        assert!(noted.contains("no permeability curve"), "the reason must be stated: {noted}");
+        assert!(noted.contains("1000.0 mD"), "and name the cutoff it could not answer: {noted}");
         assert!(
-            noted.contains("not comparable"),
-            "and say what that costs the reader, which is the whole point: {noted}"
+            noted.contains("absence of evidence"),
+            "and say what the zero below actually means, which is the whole point: {noted}"
         );
+        // The zero it is explaining must really be there — a note about a number the page does not
+        // print would be worse than no note.
+        assert!(noted.contains("PAY"), "the pay row is on the page: {noted}");
     }
 
     /// A well whose name sanitizes to nothing at all still gets a usable filename. `_report.pdf`
@@ -1233,22 +1239,29 @@ mod tests {
     }
 
     /// T-REP-06, second half. "HPV >= 0" is listed as a domain check the reader applies to the
-    /// printed table, so it is worth knowing whether it is an INVARIANT or merely true of tidy
-    /// data. It is the latter: the pay summary sums `PHIE * (1 - SWE) * h` with no floor, so the
-    /// SAND row inherits the sign of PHIE.
+    /// printed table, and until 2026-08-01 it was merely true of tidy data rather than an
+    /// invariant: the pay summary summed `PHIE * (1 - SWE) * h` with no floor, so the SAND row
+    /// inherited the sign of PHIE.
     ///
     /// The route is ordinary rather than exotic. A tight carbonate streak reads low GR, so it
     /// clears the VSH cutoff and is flagged SAND; a density porosity computed on a sandstone
     /// matrix reads slightly NEGATIVE there, which is a routine artefact of a vendor PHIE and
-    /// not a corrupt curve. Its contribution is then subtracted from the SAND row's HPV.
+    /// not a corrupt curve. Its contribution was then subtracted from the SAND row's HPV —
+    /// measured at more than 20 % below the floored answer, in the reassuring direction, while
+    /// RESERVOIR and PAY stayed byte-identical because the streak fails the porosity cutoff. The
+    /// two rows anyone checks first agreed with each other while the third quietly did not.
     ///
-    /// What this test claims is the UNDERSTATEMENT, which is reachable with ordinary numbers.
-    /// It deliberately does NOT claim the printed HPV goes negative: flipping the sign of a
-    /// whole row takes a porosity far outside anything a log would produce, and inflating the
-    /// finding that far would misrepresent it. RESERVOIR and PAY are untouched either way —
-    /// the streak fails the porosity cutoff — which is what makes this easy to miss.
+    /// Jauhar's call, 2026-08-01 (`docs/review_triage.md` finding 16): *"always limit phie to
+    /// 0.001"*. `workflow::floored_phie` applies it to every pay calculation, so a curve from ANY
+    /// source is covered — the porosity modules floor what they write, but a vendor PHIE never
+    /// passes through one, and the vendor curve is the whole scenario.
+    ///
+    /// The last assertion is the one that keeps the floor honest: a floored streak must still FAIL
+    /// the porosity cutoff. A floor set anywhere near `phie_min` would stop a dense stringer being
+    /// subtracted by quietly promoting it into reservoir instead, which is a worse answer wearing
+    /// a better-looking number.
     #[test]
-    fn a_dense_stringer_is_subtracted_from_the_sand_rows_hpv() {
+    fn a_dense_stringer_no_longer_subtracts_from_the_sand_rows_hpv() {
         let build = |phie_streak: f32| -> Vec<crate::workflow::PaySummaryRow> {
             let conn = Connection::open_in_memory().unwrap();
             db::create_schema(&conn).unwrap();
@@ -1292,30 +1305,44 @@ mod tests {
             rows.iter().find(|r| r.flag == flag).unwrap().hpv
         };
 
-        // Zero porosity is the honest floor for a tight streak: it contributes no hydrocarbon.
+        // A tight streak at zero porosity: contributes no hydrocarbon, which is the honest answer.
         let floored = build(0.0);
-        // The same streak as a vendor PHIE would actually deliver it.
+        // The same streak as a vendor PHIE actually delivers it.
         let negative = build(-0.05);
+        // And an absurd one, to show the floor does not scale with how wrong the input was.
+        let absurd = build(-5.0);
 
         assert!(hpv(&floored, "SAND") > 0.0, "control SAND HPV: {}", hpv(&floored, "SAND"));
-        assert!(
-            hpv(&negative, "SAND") < hpv(&floored, "SAND"),
-            "pinned AS-IS, not endorsed: a negative PHIE inside net sand is SUBTRACTED from HPV \
-             ({} against a floored {}). Clamping PHIE at 0 makes this line fail — that is the alarm.",
-            hpv(&negative, "SAND"), hpv(&floored, "SAND")
-        );
-        // Material, not a rounding tail: 2.5 m of streak inside a 5 m zone understates the
-        // SAND row's hydrocarbon column by more than a fifth.
-        let understated = 1.0 - hpv(&negative, "SAND") / hpv(&floored, "SAND");
-        assert!(understated > 0.20, "understated by only {:.1}%", understated * 100.0);
-
-        // RESERVOIR and PAY never see it — the streak fails the porosity cutoff — so the two
-        // rows a reader checks first agree with each other while the SAND row quietly does not.
         assert_eq!(
-            hpv(&negative, "RESERVOIR"), hpv(&floored, "RESERVOIR"),
-            "the streak must not reach the RESERVOIR row at all"
+            hpv(&negative, "SAND"),
+            hpv(&floored, "SAND"),
+            "a negative PHIE inside net sand must not be subtracted from HPV"
         );
+        assert_eq!(
+            hpv(&absurd, "SAND"),
+            hpv(&floored, "SAND"),
+            "the floor is a floor, not a proportional correction"
+        );
+
+        // "HPV >= 0" is now an invariant rather than a hope, which is what T-REP-06 asserts.
+        for rows in [&floored, &negative, &absurd] {
+            for r in rows.iter() {
+                assert!(r.hpv >= 0.0, "HPV must never be negative, was {} on {}", r.hpv, r.flag);
+            }
+        }
+
+        // RESERVOIR and PAY are untouched, as they always were — the streak fails the porosity
+        // cutoff. This was the reason the SAND-row error was easy to miss, and it stays true:
+        // the floor must NOT smuggle the streak into reservoir.
+        assert_eq!(hpv(&negative, "RESERVOIR"), hpv(&floored, "RESERVOIR"));
         assert_eq!(hpv(&negative, "PAY"), hpv(&floored, "PAY"));
+        let net = |rows: &[crate::workflow::PaySummaryRow], flag: &str| -> f32 {
+            rows.iter().find(|r| r.flag == flag).unwrap().net
+        };
+        assert!(
+            net(&negative, "SAND") > net(&negative, "RESERVOIR"),
+            "a floored streak is still 0.001 v/v and must stay well below the 0.1 porosity cutoff"
+        );
     }
 
     #[test]

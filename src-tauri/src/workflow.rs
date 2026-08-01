@@ -66,6 +66,7 @@ fn resolve_param_arrays(
     // already-declared ArgSpec range can actually be enforced. Spec defaults are trusted and not
     // re-validated; only values a user or caller supplied are checked.
     let mut bad: Vec<String> = Vec::new();
+    let mut zoned: Vec<String> = Vec::new();
     for arg in spec.args.iter().filter(|a| a.kind == ArgKind::Param) {
         let range = || match (arg.min, arg.max) {
             (Some(lo), Some(hi)) => format!("valid {lo} to {hi}"),
@@ -101,6 +102,21 @@ fn resolve_param_arrays(
             .unwrap_or(f64::NAN);
         let mut arr = vec![base; depth.len()];
 
+        // A well-scoped parameter refuses a NAMED zone override and accepts the well-wide one.
+        // The distinction is the whole rule: `*` gives the well one value, which is what a
+        // geothermal trend has, while a named zone gives it a different value part way down —
+        // and since the trend is evaluated from surface at every sample, that is a STEP at the
+        // formation top rather than a bend (see `ArgSpec::well_scope`). Only an override that
+        // would actually apply is refused; one naming a zone this well does not have is inert
+        // today and must not start failing runs.
+        if arg.well_scope {
+            for zp in zone_params.iter().filter(|z| z.param_name == arg.name && z.zone_name != "*") {
+                if zp.value_num.is_some() && zone_range.contains_key(zp.zone_name.as_str()) {
+                    zoned.push(format!("{} in zone '{}'", arg.name, zp.zone_name));
+                }
+            }
+        }
+
         // Well-wide default first, then named zones override it.
         for zp in zone_params.iter().filter(|z| z.param_name == arg.name) {
             let Some(v) = zp.value_num else { continue };
@@ -125,6 +141,19 @@ fn resolve_param_arrays(
             "parameter value(s) outside the module's declared range: {}. A common cause is \
              entering a v/v fraction as a percentage. Fix the value or clear the zone override.",
             bad.join("; ")
+        ));
+    }
+    // Refused by name with the fix, rather than ignored. Silently dropping the override would
+    // change the well's temperature — and so its Rw, and so its Sw — with nothing on the log to
+    // say why, which is the failure this whole rule exists to prevent.
+    if !zoned.is_empty() {
+        return Err(format!(
+            "these parameters describe one trend for the whole well and cannot be set per zone: \
+             {}. The trend is computed from surface at every sample, so a value that changes part \
+             way down makes the curve JUMP at that formation top instead of bending — and \
+             formation temperature reaches Sw through Rw. Set it once for the well (the '*' scope \
+             in the per-well parameter grid, which is still honoured) or clear the zone override.",
+            zoned.join("; ")
         ));
     }
     Ok(out)
@@ -573,26 +602,58 @@ pub struct PaySummaryRow {
     /// result, which the identical `net`/`ntg`/`hpv` zeros cannot distinguish on their own.
     /// Consumers must render "—" rather than 0.00 when this is 0.
     pub n_classified: usize,
-    /// **A permeability cutoff was requested and this well escaped it**, because it carries no
-    /// PERM anywhere. Per well, so it is the same on every zone row of that well.
+    /// **A permeability cutoff is active and this well carries no PERM at all**, so every sample
+    /// failed it for want of data and the zero below is an absence of evidence, not a dry zone.
+    /// Per well, so it is the same on every zone row of that well.
     ///
-    /// Whether an uncored well should be EXCLUDED from a permeability cutoff or EXEMPTED from it
-    /// is a petrophysical judgement — exclusion is defensible (it cannot be shown to pass) and so
-    /// is exemption (a cutoff you have no data for should not silently delete a well) — and either
-    /// way it changes reserves, so the behaviour is unchanged and remains Jauhar's call
-    /// (`docs/review_triage.md` finding 7).
+    /// Jauhar's call, 2026-08-01 (`docs/review_triage.md` finding 7): *"no relation between em,
+    /// wells still can have perm curves"* — whether a cutoff applies has no relation to whether
+    /// this particular well was cored, and permeability can be MODELLED where it was not measured
+    /// (`perm_coates`, `perm_timur`, the rocktyping family), so lacking a measured PERM is not a
+    /// reason to be let off. The cutoff is now active whenever it is requested.
     ///
-    /// What was NOT defensible is that nothing downstream could tell the exempted row from the
-    /// honest one: at the SAMPLE level a missing PERM correctly FAILS an active cutoff, but a well
-    /// with no PERM at all switched the cutoff off for itself one line earlier, so two wells of
-    /// identical rock reported 0 and full net pay with `n_classified > 0` on both — and in a field
-    /// roll-up they simply added together. **The less permeability data a well has, the more pay
-    /// it books.** This flag is what lets a reader see that, and it is the whole reason it exists.
+    /// That settles a rule the code used to hold in two contradictory halves. At the SAMPLE level
+    /// a missing PERM correctly FAILED an active cutoff — confirmed `[x]` in `REVIEW.md` — but a
+    /// well with no PERM anywhere switched the cutoff off for ITSELF one line earlier. Two wells
+    /// of identical rock reported 0 and full net pay with `n_classified > 0` on both, and in a
+    /// field roll-up they simply added together: **the less permeability data a well had, the more
+    /// pay it booked.** The well-level test is gone and the sample-level rule now does the work.
+    ///
+    /// The flag survives the change with its meaning inverted, because the reader's problem is
+    /// unchanged and only its direction moved. A well that books zero net pay across every zone
+    /// looks exactly like a wet well; this is what says the interpretation never had the curve the
+    /// cutoff asks about. **It means "a cutoff was requested and this well has nothing to answer it
+    /// with", never "this well has no permeability"** — with no cutoff asked for there is nothing
+    /// to report, and a flag that fired anyway would appear on every report anyone ever ran.
     #[serde(default)]
-    pub perm_cutoff_skipped: bool,
+    pub perm_cutoff_no_data: bool,
 }
 
 const SUMMARY_FLAGS: [&str; 3] = ["SAND", "RESERVOIR", "PAY"];
+
+/// PHIE as a pay calculation is allowed to read it: never negative, MISSING preserved.
+///
+/// The porosity modules already floor what they WRITE (`modules::PHIE_FLOOR`), but the motivating
+/// case never passes through one — `docs/review_triage.md` finding 16. A vendor PHIE arriving by
+/// LAS reads slightly negative over a tight carbonate streak, which is a routine artefact of a
+/// sandstone-matrix density porosity rather than a corrupt curve. That streak reads low GR, clears
+/// the VSH cutoff and is flagged SAND, and its `PHIE·(1−SWE)·h` is then SUBTRACTED from the SAND
+/// row's hydrocarbon column. Measured, that took HPV more than 20 % below the floored answer while
+/// RESERVOIR and PAY stayed byte-identical — so the two rows anyone checks first agreed with each
+/// other while the third quietly did not, and the understatement was in the reassuring direction.
+///
+/// Applied ONCE per well so every consumer downstream sees one number: `hpv`, `avg_phie` and the
+/// classifier cannot end up disagreeing about what the porosity at a depth was.
+///
+/// **`f32::max` returns the other side when one is NaN**, so the guard is load-bearing rather than
+/// defensive: without it a MISSING sample would become a real 0.001 and start counting toward
+/// `n_classified`, which is the one field that says whether the well was interpreted at all.
+///
+/// One function rather than a copy in each pay path — the cutoff SWEEP and the summary must agree
+/// at the same cutoffs, and two copies is two places for the rule to drift.
+fn floored_phie(raw: &[f32]) -> Vec<f32> {
+    raw.iter().map(|&v| if v.is_nan() { v } else { v.max(modules::PHIE_FLOOR as f32) }).collect()
+}
 
 /// Computes the pay summary per well per zone and writes FLAG_SAND / FLAG_RESERVOIR /
 /// FLAG_PAY curves. Wells without zones get a single whole-well "ALL" zone.
@@ -633,12 +694,15 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
 
         let n = depth.len();
         let vsh = &columns["VSH"];
-        let phie = &columns["PHIE"];
+        let phie_col = floored_phie(&columns["PHIE"]);
+        let phie = &phie_col;
         let swe = &columns["SWE"];
         let perm = &columns["PERM"];
-        let has_perm_cut = req.perm_min.is_some() && perm.iter().any(|v| !v.is_nan());
-        // Recorded, not corrected — see `PaySummaryRow::perm_cutoff_skipped`.
-        let perm_cutoff_skipped = req.perm_min.is_some() && !has_perm_cut;
+        // A requested cutoff is ALWAYS active — see `PaySummaryRow::perm_cutoff_no_data` for why
+        // the well-level "does this well have any PERM?" test was removed. `classify_sample` fails
+        // a sample whose PERM is missing, which is now the only rule in play.
+        let has_perm_cut = req.perm_min.is_some();
+        let perm_cutoff_no_data = has_perm_cut && !perm.iter().any(|v| !v.is_nan());
 
         // Sample thickness: forward depth difference, last sample reuses the previous step.
         let mut step = vec![0.0f32; n];
@@ -783,7 +847,7 @@ pub fn run_pay_summary(db: &Mutex<Connection>, req: &PaySummaryRequest) -> Resul
                     avg_swe: if sum_phie_w > 0.0 { (sum_phie_swe / sum_phie_w) as f32 } else { f32::NAN },
                     hpv: hpv as f32,
                     n_classified,
-                    perm_cutoff_skipped,
+                    perm_cutoff_no_data,
                 });
             }
         }
@@ -1132,7 +1196,8 @@ pub fn run_cutoff_sweep(
 
         let n = depth.len();
         let vsh = &columns["VSH"];
-        let phie = &columns["PHIE"];
+        let phie_col = floored_phie(&columns["PHIE"]);
+        let phie = &phie_col;
         let swe = &columns["SWE"];
         let perm = &columns["PERM"];
 
@@ -1326,30 +1391,29 @@ mod tests {
         well
     }
 
-    /// T-BATCH-08 (1) — the PERM cutoff has a whole-well escape hatch, and it opens the wrong way.
+    /// T-BATCH-08 (1) — a permeability cutoff applies to every well it is asked for, including the
+    /// ones with no permeability.
     ///
     /// `classify_sample` is emphatic that a SAMPLE with no PERM cannot demonstrate it passes an
-    /// active cutoff, so it fails (`classify_sample_nan_propagation` pins that). But whether the
-    /// cutoff is active at all is decided per WELL, one line earlier: `perm_min.is_some() &&
-    /// perm.iter().any(|v| !v.is_nan())`. A well carrying NO permeability anywhere therefore
-    /// switches the cutoff off for itself and reports its full pay.
+    /// active cutoff, so it fails (`classify_sample_nan_propagation` pins that, and it is a
+    /// confirmed `[x]` in REVIEW.md). Until 2026-08-01 whether the cutoff was active at all was
+    /// decided per WELL one line earlier — `perm_min.is_some() && perm.iter().any(|v| !v.is_nan())`
+    /// — so a well carrying NO permeability anywhere switched the cutoff off for itself and
+    /// reported its full pay. Two halves of one rule, disagreeing in the damaging direction: the
+    /// well that measured 1 mD against a 1000 mD cutoff was excluded while the well that measured
+    /// nothing sailed through, and in a field roll-up those rows added together.
     ///
-    /// The two halves of the same rule disagree, and the direction is the damaging one: the well
-    /// that measured permeability and measured it BELOW the cutoff is excluded, while the well
-    /// that measured none at all sails through. In a field summary those rows add together with
-    /// nothing on screen saying which wells the cutoff was applied to — so the less data a well
-    /// has, the more pay it books.
+    /// Jauhar's call, 2026-08-01 (`docs/review_triage.md` finding 7): *"no relation between em,
+    /// wells still can have perm curves"* — a cutoff's applicability has no relation to whether
+    /// this well happened to be cored, and permeability can be modelled where it was not measured.
+    /// The well-level test is gone; the sample-level rule is the only one left.
     ///
-    /// The BEHAVIOUR is pinned AS-IS and not endorsed: whether an uncored well should be excluded
-    /// from a permeability cutoff or exempted from it is a petrophysical decision that changes
-    /// client numbers, so it is Jauhar's to make — see `docs/review_triage.md` finding 7.
-    ///
-    /// What is fixed (2026-08-01) is the SILENCE. `perm_cutoff_skipped` now rides on every row, so
-    /// a reader — the report, the workbook, the Field Dashboard — can tell the exempted row from
-    /// the honest one instead of adding them together. That is a separate defect from which way
-    /// the rule should go, and it does not need his sign-off, because no number moved.
+    /// Both halves of the outcome are asserted, because the reason this needed a decision at all is
+    /// that the safe-looking half is only half: the uncored well now books zero, which on a page is
+    /// indistinguishable from a wet well. `perm_cutoff_no_data` is what separates them, and it is
+    /// asserted here rather than left to the report to remember.
     #[test]
-    fn a_well_with_no_perm_at_all_escapes_the_cutoff_but_no_longer_silently() {
+    fn a_well_with_no_perm_fails_the_cutoff_and_says_why() {
         let conn = duckdb::Connection::open_in_memory().unwrap();
         db::create_schema(&conn).unwrap();
         // Identical rock. The ONLY difference is whether permeability was measured.
@@ -1390,29 +1454,32 @@ mod tests {
         // The well that MEASURED permeability, at 1 mD, is correctly excluded.
         assert_eq!(pay(&cut, &low_perm).net, 0.0, "1 mD cannot pass a 1000 mD cutoff");
 
-        // The well that measured NONE keeps every metre of its pay — the cutoff never applied.
+        // And so is the well that measured none — it cannot be SHOWN to pass, which is the same
+        // test the sample-level rule already applied. The two halves now agree.
         assert_eq!(
             pay(&cut, &no_perm).net,
-            base_no_perm,
-            "a well with no PERM at all is exempted from the PERM cutoff rather than failing it"
+            0.0,
+            "a well with no PERM must fail an active cutoff, not be exempted from it"
         );
-        assert!(pay(&cut, &no_perm).hpv > 0.0, "and it books hydrocarbon volume on that exemption");
+        assert_eq!(pay(&cut, &no_perm).hpv, 0.0, "and it books no hydrocarbon volume on missing data");
 
-        // Both wells were fully interpreted, so `n_classified` cannot tell the exempted row from
-        // the honest one — it is > 0 on both. That is what made the exemption silent, and it is
-        // why a SECOND discriminator was needed rather than a cleverer reading of this one.
+        // Both wells were fully interpreted, so `n_classified` is > 0 on both and cannot say why
+        // either one came back at zero. It never could — which is why a SECOND discriminator was
+        // needed rather than a cleverer reading of this one.
         assert!(pay(&cut, &no_perm).n_classified > 0);
         assert!(pay(&cut, &low_perm).n_classified > 0);
 
-        // `perm_cutoff_skipped` is that discriminator. The exempted well is marked; the well that
-        // was genuinely judged is not.
-        assert!(pay(&cut, &no_perm).perm_cutoff_skipped, "the exempted well must be marked");
-        assert!(!pay(&cut, &low_perm).perm_cutoff_skipped, "the judged well must not be");
+        // `perm_cutoff_no_data` is that discriminator, and it is the whole reason a zero here is
+        // readable: the uncored well's zero means "nothing to judge with", the cored well's means
+        // "judged and failed". Identical numbers, opposite statements.
+        assert!(pay(&cut, &no_perm).perm_cutoff_no_data, "the well with no data must be marked");
+        assert!(!pay(&cut, &low_perm).perm_cutoff_no_data, "the well that was judged must not be");
 
-        // And it means "a cutoff was requested and could not be applied" — not "this well has no
-        // permeability". With no cutoff asked for there is nothing to report, and a flag that
-        // fired anyway would appear on every report anyone ever ran without one.
-        assert!(!pay(&open, &no_perm).perm_cutoff_skipped, "no cutoff requested, nothing to say");
+        // And it means "a cutoff was requested and this well has nothing to answer it with" — not
+        // "this well has no permeability". With no cutoff asked for there is nothing to report, and
+        // a flag that fired anyway would appear on every report anyone ever ran without one.
+        assert!(!pay(&open, &no_perm).perm_cutoff_no_data, "no cutoff requested, nothing to say");
+        assert_eq!(pay(&open, &no_perm).net, base_no_perm, "and with no cutoff the pay is untouched");
     }
 
     /// T-RT-05 — rocktyping on a well that has porosity but no permeability must fail by name and
@@ -1671,6 +1738,100 @@ mod tests {
         assert!(good.is_ok(), "an in-range override must pass: {good:?}");
         let arr = &good.unwrap()["SWT_IRR"];
         assert!(arr.iter().all(|v| (*v - 0.25).abs() < 1e-9), "override applied well-wide");
+    }
+
+    /// T-PREP-05 — a geothermal gradient belongs to the WELL, so a per-zone override is refused.
+    ///
+    /// `precalc` computes `SURF_TEMP + TEMP_GRAD × TVDSS` from surface at EVERY sample rather than
+    /// integrating down through the zones above it. Giving a lower zone its own gradient therefore
+    /// did not bend the temperature profile, it STEPPED it: a 0.03 °C/m well with a 0.035 override
+    /// below 1500 m jumped **10.5 °C across 100 m** where the undisturbed trend rises 3.0. Rock
+    /// temperature is continuous — a 10 °C discontinuity at a formation top is not something the
+    /// earth does — and it does not stay in FTEMP, because the Arps correction turns temperature
+    /// into Rw and Rw goes straight into Sw.
+    ///
+    /// Jauhar's call, 2026-08-01 (`docs/review_triage.md` finding 6): *"temperature is curves
+    /// only"* — the trend belongs to the well and its product is a curve, so there is no per-zone
+    /// gradient to integrate and the question of what temperature each zone STARTS at never arises.
+    ///
+    /// REFUSED rather than silently ignored, which is the half worth defending: quietly dropping
+    /// the override would change the well's temperature, and so its Sw, with nothing on the log to
+    /// say why. And refused per NAMED zone only — `*` still applies, because that gives the well
+    /// one trend, which is exactly what a geothermal gradient is. Wells in one field genuinely do
+    /// have different gradients, and the per-well parameter grid writes `*`.
+    #[test]
+    fn a_geothermal_gradient_is_refused_per_zone_and_accepted_per_well() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        db::create_schema(&conn).unwrap();
+        let id = uuid::Uuid::new_v4();
+        db::insert_well(&conn, id, "SANDI-TEMP", Some("Synthetic"), None, None).unwrap();
+        let well = id.to_string();
+        let depth: Vec<f32> = (0..5).map(|i| 1400.0 + i as f32 * 50.0).collect();
+        db::upsert_zone(&conn, &well, "LOWER", 1500.0, 2000.0).unwrap();
+
+        let spec = modules::list_modules()
+            .into_iter()
+            .find(|s| s.name == "precalc")
+            .expect("precalc is a registered module");
+        assert!(
+            spec.args.iter().find(|a| a.name == "TEMP_GRAD").expect("declared").well_scope,
+            "TEMP_GRAD must be declared well-scoped, or nothing below this line is being tested"
+        );
+
+        // Baseline: an unmodified run resolves.
+        assert!(resolve_param_arrays(&conn, &well, &spec, &HashMap::new(), &depth).is_ok());
+
+        // The override that made the step.
+        db::set_zone_param(&conn, &well, "LOWER", "TEMP_GRAD", Some(0.035), None).unwrap();
+        let err = resolve_param_arrays(&conn, &well, &spec, &HashMap::new(), &depth)
+            .expect_err("a named-zone gradient must be refused, not silently dropped");
+        assert!(err.contains("TEMP_GRAD"), "the message must name the parameter: {err}");
+        assert!(err.contains("LOWER"), "and the zone it is on: {err}");
+        assert!(err.contains('*'), "and the scope that does still work: {err}");
+
+        // Cleared, it resolves again — the guard is not blanket-blocking.
+        db::set_zone_param(&conn, &well, "LOWER", "TEMP_GRAD", None, None).unwrap();
+        assert!(resolve_param_arrays(&conn, &well, &spec, &HashMap::new(), &depth).is_ok());
+
+        // An override naming a zone this well does not have never applied and must not start
+        // failing runs — only an override that would actually bite is refused.
+        db::set_zone_param(&conn, &well, "NOT-A-ZONE-HERE", "TEMP_GRAD", Some(0.05), None).unwrap();
+        assert!(
+            resolve_param_arrays(&conn, &well, &spec, &HashMap::new(), &depth).is_ok(),
+            "an inert override must stay inert rather than becoming a new failure"
+        );
+
+        // The well-wide scope survives, and applies everywhere.
+        db::set_zone_param(&conn, &well, "*", "TEMP_GRAD", Some(0.035), None).unwrap();
+        let good = resolve_param_arrays(&conn, &well, &spec, &HashMap::new(), &depth)
+            .expect("a well-wide gradient is one trend and must be honoured");
+        assert!(
+            good["TEMP_GRAD"].iter().all(|v| (*v - 0.035).abs() < 1e-9),
+            "the '*' scope must reach every sample"
+        );
+
+        // PGRAD has the identical shape and is deliberately NOT well-scoped: a pressure step at a
+        // formation top is a pressure compartment, which is a real thing rock does. The asymmetry
+        // is the physics, and asserting it here is what stops someone "tidying" it away.
+        db::set_zone_param(&conn, &well, "LOWER", "PGRAD", Some(0.5), None).unwrap();
+        let mixed = resolve_param_arrays(&conn, &well, &spec, &HashMap::new(), &depth)
+            .expect("a per-zone pressure gradient stays legal");
+        assert!((mixed["PGRAD"][0] - 0.433).abs() < 1e-9, "above the zone, the trend default");
+        assert!((mixed["PGRAD"][4] - 0.5).abs() < 1e-9, "inside it, the override");
+    }
+
+    /// The NaN guard in `floored_phie` is load-bearing rather than defensive: `f32::max` returns
+    /// the OTHER side when one is NaN, so without it a MISSING porosity would come back as a real
+    /// 0.001 and start counting toward `n_classified` — the one field that says whether the well
+    /// was interpreted at all.
+    #[test]
+    fn flooring_phie_leaves_missing_missing() {
+        let out = floored_phie(&[-0.05, 0.0, f32::NAN, 0.25]);
+        let floor = modules::PHIE_FLOOR as f32;
+        assert_eq!(out[0], floor, "a negative porosity is floored");
+        assert_eq!(out[1], floor, "and so is a hard zero — the floor is 0.001, not 0.0");
+        assert!(out[2].is_nan(), "MISSING must stay MISSING");
+        assert_eq!(out[3], 0.25, "a real porosity is untouched");
     }
 
     /// Sweeping the VSH (sand) cutoff upward can only admit more pay, so the metric is
@@ -2354,21 +2515,20 @@ mod tests {
     /// exactly on a shared boundary from belonging to both zones and taking whichever happened to
     /// be listed last. That is pinned here, at the boundary sample itself.
     ///
-    /// **A finding, pinned as-is rather than fixed.** `precalc` computes each sample as
-    /// `SURF_TEMP + grad(i) * depth(i)` — the gradient is applied from SURFACE, not integrated
-    /// down through the zones above. So overriding the gradient in a lower zone produces a **STEP
-    /// in temperature at the zone boundary, not a kink**: here 67.0 degC at 1400 m jumps to 77.5
-    /// at 1500 m, a 10.5 degC discontinuity where the undisturbed trend would have risen 3.0.
-    /// Rock temperature is continuous, so this profile is not physical, and it feeds Rw through
-    /// the Arps correction and Rw feeds Sw. T-PREP-05's own expected result says "the FTEMP trend
-    /// **kinks**… no discontinuity artifacts" — which is not what the code does.
+    /// **The parameter under test is PGRAD, and the choice is the point.** This test used to drive
+    /// TEMP_GRAD, and doing so exposed finding 6: `precalc` computes each sample as
+    /// `intercept + grad(i) * depth(i)` from SURFACE rather than integrating down through the zones
+    /// above, so a per-zone gradient produced a STEP at the boundary rather than a kink — 10.5 degC
+    /// across 100 m where the trend rises 3.0. Rock temperature is continuous and that reaches Sw
+    /// through Rw, so as of 2026-08-01 a per-zone TEMPERATURE gradient is refused outright
+    /// (`a_geothermal_gradient_is_refused_per_zone_and_accepted_per_well`).
     ///
-    /// It is pinned rather than changed because the fix is method math: integrating per zone means
-    /// choosing what the zone's top temperature is, and that is a petrophysical decision with a
-    /// cited source, not a refactor. If it is ever integrated, this test must fail and force the
-    /// change into the open.
+    /// PRESSURE is the same arithmetic and the opposite physics: a pressure step at a formation top
+    /// is a pressure compartment, which is a real thing rock does. So PGRAD stays zoneable, and it
+    /// is the honest subject for a test of the interval-parameter model — the discontinuity it
+    /// produces is the answer rather than an artefact.
     #[test]
-    fn a_per_zone_gradient_override_reaches_exactly_its_own_samples() {
+    fn a_per_zone_pressure_gradient_reaches_exactly_its_own_samples() {
         use crate::db;
         use duckdb::Connection;
         use uuid::Uuid;
@@ -2396,17 +2556,17 @@ mod tests {
         .unwrap();
 
         // Two zones meeting at 1500 m; only the deeper one carries an override.
-        let (boundary, base_grad, deep_grad, surf) = (1500.0f32, 0.03f64, 0.035f64, 25.0f64);
+        let (boundary, base_grad, deep_grad, psurf) = (1500.0f32, 0.433f64, 0.5f64, 0.0f64);
         db::upsert_zone(&conn, &w, "SHALLOW", 1000.0, boundary).unwrap();
         db::upsert_zone(&conn, &w, "DEEP", boundary, 2100.0).unwrap();
-        db::set_zone_param(&conn, &w, "DEEP", "TEMP_GRAD", Some(deep_grad as f32), None).unwrap();
+        db::set_zone_param(&conn, &w, "DEEP", "PGRAD", Some(deep_grad as f32), None).unwrap();
 
         let dbm = Mutex::new(conn);
         let req = RunModuleRequest {
             module: "precalc".into(),
             well_ids: vec![w.clone()],
             log_inputs: HashMap::new(),
-            params: [("SURF_TEMP".to_string(), surf), ("TEMP_GRAD".to_string(), base_grad)]
+            params: [("PSURF".to_string(), psurf), ("PGRAD".to_string(), base_grad)]
                 .into_iter()
                 .collect(),
             opts: [("OPT_TU".to_string(), "degC".to_string())].into_iter().collect(),
@@ -2417,18 +2577,18 @@ mod tests {
         assert!(r[0].error.is_none(), "precalc: {:?}", r[0].error);
 
         let conn = dbm.lock().unwrap();
-        let (d, cols) = equations::fetch_curve_frame(&conn, &w, &["FTEMP".into()]).unwrap();
-        let ft = &cols["FTEMP"];
+        let (d, cols) = equations::fetch_curve_frame(&conn, &w, &["FPRESS".into()]).unwrap();
+        let fp = &cols["FPRESS"];
         assert_eq!(d.len(), n);
 
         for i in 0..n {
             let grad = if d[i] >= boundary { deep_grad } else { base_grad };
-            let expect = surf + grad * d[i] as f64;
+            let expect = psurf + grad * d[i] as f64;
             assert!(
-                (ft[i] as f64 - expect).abs() < 1e-2,
-                "sample {i} at {} m: FTEMP {} != {expect} — the {} gradient did not reach it",
+                (fp[i] as f64 - expect).abs() < 1e-2,
+                "sample {i} at {} m: FPRESS {} != {expect} — the {} gradient did not reach it",
                 d[i],
-                ft[i],
+                fp[i],
                 if d[i] >= boundary { "zone" } else { "well" }
             );
         }
@@ -2437,28 +2597,29 @@ mod tests {
         // would let SHALLOW and DEEP both claim 1500 m, and which one won would be list order.
         let at_boundary = d.iter().position(|v| *v == boundary).expect("1500 m is a sample");
         assert!(
-            (ft[at_boundary] as f64 - (surf + deep_grad * boundary as f64)).abs() < 1e-2,
+            (fp[at_boundary] as f64 - (psurf + deep_grad * boundary as f64)).abs() < 1e-2,
             "a sample exactly on the boundary must take the zone whose TOP it is"
         );
         assert!(
-            (ft[at_boundary - 1] as f64 - (surf + base_grad * (boundary - 100.0) as f64)).abs() < 1e-2,
+            (fp[at_boundary - 1] as f64 - (psurf + base_grad * (boundary - 100.0) as f64)).abs() < 1e-2,
             "and the sample above it must be untouched by that zone"
         );
 
-        // The step, recorded so the finding above cannot quietly disappear.
-        let step = ft[at_boundary] - ft[at_boundary - 1];
-        let within_zone = ft[at_boundary - 1] - ft[at_boundary - 2];
+        // The step across the boundary, which here is the ANSWER rather than an artefact — a
+        // pressure compartment. Recorded so the deliberate temperature/pressure asymmetry is
+        // visible from this end too, not only from the refusal test.
+        let step = fp[at_boundary] - fp[at_boundary - 1];
+        let within_zone = fp[at_boundary - 1] - fp[at_boundary - 2];
         assert!(
-            (step as f64 - 10.5).abs() < 1e-2 && (within_zone as f64 - 3.0).abs() < 1e-2,
-            "the boundary discontinuity changed: step {step} across the boundary against \
-             {within_zone} within the zone. Either the gradient is now integrated per zone \
-             (good — update this test and its comment) or something else moved."
+            step > 3.0 * within_zone,
+            "a zoned pressure gradient must still step at the boundary: {step} across it against \
+             {within_zone} within the zone above"
         );
 
         // The control: without the override every sample would sit on one line, so all of the
         // above would pass on a runner that ignored zone parameters entirely.
         assert!(
-            (ft[at_boundary] as f64 - (surf + base_grad * boundary as f64)).abs() > 1.0,
+            (fp[at_boundary] as f64 - (psurf + base_grad * boundary as f64)).abs() > 1.0,
             "the override never took effect — this well is still on the whole-well gradient"
         );
     }

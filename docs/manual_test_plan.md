@@ -1373,7 +1373,7 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 3. Petrophysics ▸ **VSH ▾** ▸ **VSH from Gamma Ray**; leave GR_MA at its dialog default 20 and GR_SH 120; scope to just this well; click **Run**.
 4. Display VSH in the Log View across the ZONE_A/ZONE_B boundary; open the Curve Catalog.
    **Expected:** (3) Result line "✓ <well>: N samples → VSH_GR, VSH"; History entry "Module — Ran VSH from Gamma Ray" attributed to this well (covers REVIEW.md §Round 4 "History attribution"). (4) VSH ∈ [0,1] everywhere, high in shale, low in clean sand; inside ZONE_A VSH is systematically LOWER than the same GR would give elsewhere (denominator GR_SH−GR_MA shrinks 100→60 but the numerator drops more: at GR=60, VSH=0 in ZONE_A vs 0.40 outside) with a visible step exactly at the zone boundary — proving the zone value beat the dialog value, as the pane's hint promises ("Overrides beat the value typed in a module dialog"). VSH/VSH_GR appear in the Curve Catalog with a new version. Remove the override (✕) and re-run: the step disappears.
-   **Automated coverage - pinned (pile B, 2026-07-31):** `a_per_zone_gradient_override_reaches_exactly_its_own_samples` (workflow.rs) - the same test retires this and T-PREP-05, because it is the same claim.
+   **Automated coverage - pinned (pile B, 2026-07-31; renamed 2026-08-01):** `a_per_zone_pressure_gradient_reaches_exactly_its_own_samples` (workflow.rs) - the same test retires this and T-PREP-05, because it is the same claim. It drives PGRAD rather than TEMP_GRAD since 2026-08-01: a per-zone TEMPERATURE gradient is refused now (finding 6), while pressure stays zoneable because a pressure step at a formation top is real.
 
    **Result — T-WELL-16:**
 
@@ -1510,8 +1510,9 @@ Shared preconditions: SandiBumi running via `npm run tauri dev` on a project wit
 2. In **Zones…**, override TEMP_GRAD (e.g. 0.035) for one zone. Re-run.
 3. Plot FTEMP vs depth in a log view.
    **Expected:** The FTEMP trend changes slope exactly at the zone boundary (per-zone params resolve per sample) and both segments are linear. Covers REVIEW.md §Wave E-17 items 4 and 6.
-   **Known issue — CONFIRMED 2026-07-31, and this step's original wording was wrong.** It used to say the trend "kinks… no discontinuity artifacts". It does not kink: `precalc` computes every sample as `SURF_TEMP + gradient(sample) × depth(sample)`, applying the gradient **from surface** rather than integrating down through the zones above, so a per-zone override produces a **STEP at the boundary**. Measured: a 0.03 °C/m well with 0.035 below 1500 m gives 67.0 °C at 1400 m and **77.5 °C at 1500 m** — a 10.5 °C jump where the trend would have risen 3.0. Rock temperature is continuous, so this is not physical, and it propagates through the Arps Rw correction into Sw. Pinned as-is by `a_per_zone_gradient_override_reaches_exactly_its_own_samples` (`workflow.rs`) — **step 3 will show a step; that is the current code, log it against this finding.** Fixing it means deciding what temperature each zone starts at, which is a method decision awaiting your call.
-   **Automated coverage - pinned (pile B, 2026-07-31):** `a_per_zone_gradient_override_reaches_exactly_its_own_samples` (workflow.rs). Writing it found the zone-boundary step now recorded in the Known issue below.
+   **REWRITTEN 2026-08-01 — step 2 is now a REFUSAL, and steps 2-3 as written above are obsolete.** The old wording said the trend "kinks… no discontinuity artifacts". It did not kink: `precalc` computes every sample as `SURF_TEMP + gradient(sample) × depth(sample)` from SURFACE rather than integrating down through the zones above, so a per-zone override produced a **STEP** — measured, a 0.03 °C/m well with 0.035 below 1500 m gave 67.0 °C at 1400 m and **77.5 °C at 1500 m**, a 10.5 °C jump where the trend rises 3.0. Rock temperature is continuous, and it reaches Sw through the Arps Rw correction. Jauhar's call (docs/review_triage.md finding 6): *"temperature is curves only"* — the geothermal trend belongs to the WELL, so there is no per-zone gradient to integrate.
+   **Run it this way instead.** (2) In **Zones…** override TEMP_GRAD for one NAMED zone and re-run: the run must be **refused by name**, saying TEMP_GRAD cannot be set per zone and pointing at the `*` scope. (2b) Clear it, set TEMP_GRAD on scope `*` instead, re-run: this must SUCCEED and shift the whole trend. (3) Plot FTEMP vs depth: one straight line, no step, no kink. (4) Override **PGRAD** on the same named zone and re-run: this must succeed and FPRESS must step at the boundary — a pressure compartment is a real thing rock does, and the asymmetry with temperature is deliberate.
+   **Automated coverage - pinned (pile B, 2026-07-31; rewritten 2026-08-01):** `a_geothermal_gradient_is_refused_per_zone_and_accepted_per_well` (workflow.rs) covers steps 2 and 2b plus the inert-zone-name case; `a_per_zone_pressure_gradient_reaches_exactly_its_own_samples` covers step 4 and carries the interval-parameter model's half-open-boundary claim that T-WELL-16 also rests on.
 
    **Result — T-PREP-05:**
 
@@ -2767,18 +2768,30 @@ Covers the four Rock Typing modules on the Petrophysics ribbon (`rocktyping`, `l
 4. Cross-check PR35 vs the Winland **R35** from T-RT-03 on a crossplot — same order of magnitude, correlated but not identical (different regressions).
 5. Change **APEX** to `r50`, **Run** again (version N+1): RAPEX now tracks PR50 and RT_PITT re-bins accordingly (generally one class finer or equal).
    **Expected:** Full family written; monotone ordering holds everywhere both curves are populated; RAPEX follows the chosen APEX row; invalid samples (φ∉(0,1), k≤0) blank in ALL eleven outputs.
-   **Known issue — CONFIRMED 2026-07-31, step 3's ordering does NOT hold at the r50/r75 end.**
-   PR10 > PR15 > ... > PR50 holds as written. PR75 does not: above roughly **79 mD at 25 % porosity**
-   the table returns a LARGER radius at 75 % mercury than at 50 %, which cannot happen in rock -
-   mercury enters the widest throats first. Measured at that point: PR50 2.907 um against PR75
-   2.953 um. At 1 mD the same pair is the right way round, so it is the coefficients, not a bad
-   sample. The nine rows are independent regressions with nothing forcing them to agree, and the
-   module doc already flags the full set as transcribed from Pittman 1992 and to be verified before
-   field release - this is that verification failing. It reaches the outputs: choosing APEX = r75
-   for fine rock, which the doc recommends, builds RAPEX and RT_PITT on the inverted value. Log as
-   known. Fixing it needs the paper in hand. See docs/review_triage.md finding 9.
+   **FIXED 2026-08-01 with the paper in hand** (Pittman 1992, AAPG Bull. v76 no.2, Table 1, p. 196).
+   Two rows were wrong: PR50 carried Table 1's **r45** coefficients and PR75 matched **no published
+   equation at all**. Step 3's ordering now holds in reservoir rock, and at 25 % porosity / 100 mD
+   the pair reads PR50 2.216 um against PR75 0.267 um.
 
-   **Automated coverage - pinned (pile B, 2026-07-31):** `the_pittman_radius_family_inverts_between_r50_and_r75_in_good_sand` (rocktyping.rs) pins the monotone head, the inversion above with its measured numbers, and that an invalid sample blanks all ELEVEN outputs. RAPEX, the APEX selector and the port class were already covered by `pittman_r35_matches_published_regression`, `pittman_apex_selector_switches_controlling_radius` and `pittman_missing_inputs_stay_missing`.
+   **Step 3 caveat, and it is the paper's own arithmetic rather than a bug.** The rows are
+   INDEPENDENT regressions whose porosity exponent steepens down the table (-0.385 at r10 to -2.626
+   at r75), so below about **11 % porosity** the high-saturation rows overtake the low ones and the
+   family stops falling. At 5 % porosity / 1 mD it reads r10 1.548 ... r40 0.767 then PR50 0.862 and
+   PR75 1.108, turning back UP. Nothing is clamped, because forcing the ordering would report radii
+   Pittman never published. **So run step 3 on good sand.** If your test well is tight, expect the
+   crossover, and use a LOW apex (r25-r35) there — the module doc now says so. See
+   docs/review_triage.md findings 9 and 9b.
+
+   **Automated coverage - pinned (pile B, 2026-07-31; rewritten 2026-08-01):**
+   `every_shipped_pittman_row_is_a_published_one` checks each shipped row against the full published
+   table now held in the code, plus the APEX selector;
+   `the_pittman_radius_family_falls_monotonically_through_reservoir_rock` asserts the ordering over
+   a phi/k grid and that an invalid sample blanks all ELEVEN outputs;
+   `the_published_pittman_rows_cross_over_in_tight_rock_and_that_is_the_papers_own_arithmetic` pins
+   the tight-rock crossover, the 12 % boundary, and the old table's inversion at 25 % sand so the
+   correction cannot be misread as having failed. RAPEX, the APEX selector and the port class are
+   also covered by `pittman_r35_matches_published_regression`,
+   `pittman_apex_selector_switches_controlling_radius` and `pittman_missing_inputs_stay_missing`.
 
    **Result — T-RT-08:**
 
@@ -3193,10 +3206,10 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
    value to make a test pass would put an unsourced petrophysical number in the repo. The nesting
    and HPV checks each COUNT what they compared and fail if nothing was available, so the coverage
    cannot be vacuously true. An uninterpreted row ("—") is skipped rather than read as 0 - that
-   convention exists because a 0 net is byte-identical to a genuine wet zone. **Deliberately not
-   asserted: that HPV is non-negative** - it is not guaranteed (finding 16, a dense stringer is
-   subtracted), so asserting it would either fail on correct behaviour or encode a claim the code
-   does not make. **Not covered:** the History entry, the status line, the PAYFLAG catalog version.
+   convention exists because a 0 net is byte-identical to a genuine wet zone. **HPV is non-negative
+   and that IS asserted now** (finding 16, fixed 2026-08-01: PHIE is floored at 0.001 both where a
+   porosity module writes it and where any pay path reads it, so a dense stringer can no longer be
+   subtracted). **Not covered:** the History entry, the status line, the PAYFLAG catalog version.
 
    **Result — T-BATCH-07:**
 
@@ -3216,16 +3229,21 @@ Note: several audit findings in this cluster (chain-cancel dataVersion, legacy-m
 2. Set PERM back to blank; scope to only the well with **no computed curves** ▸ Compute Summary.
 3. Scope a mix of good wells + the bare well ▸ Compute Summary.
    **Expected:** (1) PAY rows show Net = 0 / no PAY intervals — a sample with missing PERM must FAIL the cutoff, not silently pass (REVIEW.md, confirmed [x] item "with a PERM cutoff active, samples with missing PERM now FAIL the cutoff"); SAND/RESERVOIR rows are unaffected. (2) "No results — check that VSH/PHIE/SWE have been computed for the selected wells." — no crash, no misleading rows. (3) Good wells still return full rows; the bare well contributes nothing — one well's failure no longer zeroes the whole response (covers REVIEW.md §Round 4 "Per-well isolation").
-   **Known issue — CONFIRMED 2026-07-31, step 1 will NOT behave as Expected says.** The confirmed
-   REVIEW.md item is about a SAMPLE with missing PERM, and that part is true. But whether the cutoff
-   runs at all is decided per WELL: `has_perm_cut = perm_min.is_some() && perm.iter().any(|v|
-   !v.is_nan())`. A well carrying no permeability ANYWHERE makes that false and exempts itself, so
-   expect **full pay, not Net = 0**. Measured on two wells of identical rock at PERM >= 1000: the
-   well that measured 1 mD reported net 0, the well that measured nothing reported all of it. Log as
-   known, not new. Steps 2 and 3 behave as written. See docs/review_triage.md finding 7 - whether an
-   uncored well should be excluded or exempted is your call, and it changes reserves.
+   **FIXED 2026-08-01 — step 1 now behaves exactly as Expected says.** It did not before: the
+   confirmed REVIEW.md item is about a SAMPLE with missing PERM, but whether the cutoff ran at all
+   was decided per WELL, so a well carrying no permeability anywhere exempted itself and reported
+   full pay. Measured on two wells of identical rock at PERM >= 1000, the well that measured 1 mD
+   reported net 0 while the well that measured nothing reported all of it. Jauhar's call
+   (docs/review_triage.md finding 7): *"no relation between em, wells still can have perm curves"* —
+   a requested cutoff is now always active, and the sample-level rule does the work.
 
-   **Automated coverage - pinned (pile B, 2026-07-31):** `a_well_with_no_perm_at_all_quietly_escapes_an_active_perm_cutoff` and `one_unusable_well_cannot_zero_the_whole_pay_summary` (workflow.rs). The first pins the exemption above AS-IS, not as correct behaviour - when it is fixed, that test fails, which is the alarm.
+   **One thing to look at in step 1 that is new:** the pane and the report should say WHY the zero
+   is there. A well booking zero across every zone looks exactly like a wet well, so the Field
+   Dashboard names the wells with no permeability above the roll-up, and the client PDF prints a
+   note under the pay table saying the zero records an absence of evidence rather than a dry
+   reservoir. If either is missing, that is a Fail.
+
+   **Automated coverage - pinned (pile B, 2026-07-31; rewritten 2026-08-01):** `a_well_with_no_perm_fails_the_cutoff_and_says_why` and `one_unusable_well_cannot_zero_the_whole_pay_summary` (workflow.rs). The first asserts BOTH halves — the exclusion and the note — because the safe-looking half is only half.
 
    **Result — T-BATCH-08:**
 

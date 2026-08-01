@@ -56,6 +56,28 @@ pub struct ArgSpec {
     /// curve with the same mnemonic (a commercial LAS export's degF FTEMP) would silently
     /// masquerade as the degC/psi curve the module assumes.
     pub computed_only: bool,
+    /// Param only: a NAMED-zone override of this parameter is REFUSED. The `*` well-wide scope
+    /// still applies, which is the point — the parameter has one value per well, not one per zone.
+    ///
+    /// For a parameter defining a TREND against depth this is a physical statement, not a
+    /// convenience. `precalc` computes `SURF_TEMP + TEMP_GRAD × TVDSS` from surface at every
+    /// sample rather than integrating down through the zones above it, so giving a lower zone its
+    /// own gradient makes the temperature profile JUMP at the boundary instead of bending: a 0.03
+    /// °C/m well with a 0.035 override below 1500 m stepped **10.5 °C across 100 m** where the
+    /// undisturbed trend rises 3.0. Rock temperature is continuous — a 10 °C discontinuity at a
+    /// formation top is not something the earth does — and it does not stay in FTEMP, because the
+    /// Arps correction turns temperature into Rw and Rw goes straight into Sw.
+    ///
+    /// Jauhar's call, 2026-08-01 (`docs/review_triage.md` finding 6): *"temperature is curves
+    /// only"* — the geothermal trend belongs to the well and its product is a curve, so there is
+    /// no per-zone gradient to integrate and the question of what temperature each zone starts at
+    /// never arises.
+    ///
+    /// Deliberately NOT applied to `PSURF`/`PGRAD`, whose structure is identical: a pressure step
+    /// at a formation top is a pressure compartment, which is a real thing rock does. The
+    /// asymmetry is the physics, not an oversight.
+    #[serde(default)]
+    pub well_scope: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -80,6 +102,7 @@ pub(crate) fn param(name: &str, desc: &str, unit: &str, default: f64, min: f64, 
         max: Some(max),
         required: true,
         computed_only: false,
+        well_scope: false,
     }
 }
 
@@ -96,6 +119,7 @@ pub(crate) fn opt(name: &str, desc: &str, default: &str, choices: &[&str]) -> Ar
         max: None,
         required: true,
         computed_only: false,
+        well_scope: false,
     }
 }
 
@@ -124,7 +148,20 @@ pub(crate) fn log_in(name: &str, desc: &str, unit: &str, default_curve: &str, re
         max: None,
         required,
         computed_only: false,
+        well_scope: false,
     }
+}
+
+/// A [`param`] that cannot be overridden per zone (see [`ArgSpec::well_scope`]).
+///
+/// For parameters defining one trend against depth for the whole well — a geothermal gradient and
+/// its surface intercept, a bottom-hole temperature and the depth it was measured at. The `*`
+/// well-wide scope still applies, so the per-well parameter grid keeps working, which matters:
+/// wells in one field genuinely do have different gradients. What is refused is a value that
+/// changes PART WAY DOWN a well, because the trend is evaluated from surface at every sample and
+/// a mid-well change is a discontinuity rather than a bend.
+pub(crate) fn param_well(name: &str, desc: &str, unit: &str, default: f64, min: f64, max: f64) -> ArgSpec {
+    ArgSpec { well_scope: true, ..param(name, desc, unit, default, min, max) }
 }
 
 /// A [`log_in`] restricted to computed provenance (see [`ArgSpec::computed_only`]).
@@ -145,6 +182,7 @@ pub(crate) fn log_out(name: &str, desc: &str, unit: &str) -> ArgSpec {
         max: None,
         required: true,
         computed_only: false,
+        well_scope: false,
     }
 }
 
@@ -194,6 +232,29 @@ fn limit(v: f64, lo: f64, hi: f64) -> f64 {
 }
 
 const MISSING: f64 = f64::NAN;
+
+/// Lower bound on the LIMITED effective porosity every porosity module writes as `PHIE`
+/// (Jauhar, 2026-08-01: "always limit phie to 0.001" — docs/review_triage.md finding 16).
+///
+/// A shale-corrected density porosity reads slightly NEGATIVE over a tight streak — a dense
+/// carbonate stringer on a sandstone matrix is the ordinary case, not a corrupt curve. Nothing
+/// downstream treats that as an error, so the negative volume propagates: the pay summary sums
+/// `PHIE·(1−SWE)·h` over net, and the streak's contribution is SUBTRACTED from the zone's
+/// hydrocarbon column. Measured, that took a SAND row's HPV more than 20 % below the floored
+/// answer while RESERVOIR and PAY stayed byte-identical — the two rows anyone checks first agreed
+/// with each other while the third quietly did not.
+///
+/// **0.001 v/v rather than 0.0**, which is his call and not an arbitrary epsilon: a hard zero is a
+/// legitimate reading (shale has no effective porosity, and the ≥95 % VSH branch says so), so
+/// flooring at zero would make "no porosity here" and "the arithmetic went below zero"
+/// indistinguishable. 0.1 pu is below anything a log can resolve and above anything a physical
+/// interpretation would claim, so a PHIE sitting exactly on it is legible as the floor.
+///
+/// **The floor lands on `PHIE` only.** `PHIE_DEN` / `PHIE_DN` are the declared UNLIMITED twins and
+/// stay unclamped, so the negative excursion is still there to be plotted when the question is
+/// whether the matrix density is right. Clamping those too would hide the evidence for the very
+/// judgement the curve exists to support.
+pub(crate) const PHIE_FLOOR: f64 = 0.001;
 
 fn is_missing(v: f64) -> bool {
     v.is_nan()
@@ -572,7 +633,7 @@ fn phi_den(ctx: &ModuleContext) -> ModuleOutputs {
 
         if v >= 0.95 {
             phie_den[i] = 0.0;
-            phie_lim_out[i] = 0.0;
+            phie_lim_out[i] = PHIE_FLOOR as f32;
             phit_den[i] = phit_sh as f32;
             phit_lim_out[i] = phit_sh as f32;
             continue;
@@ -581,7 +642,7 @@ fn phi_den(ctx: &ModuleContext) -> ModuleOutputs {
         let pe = (rho_ma - r) / (rho_ma - rho_fl) - v * (rho_ma - rho_sh) / (rho_ma - rho_fl);
         let pt = pe + v * phit_sh;
         let phie_lim = if shale_reduced { phie_max * (1.0 - v) } else { phie_max };
-        let pe_l = limit(pe, 0.0, phie_lim);
+        let pe_l = limit(pe, PHIE_FLOOR, phie_lim);
         phie_den[i] = pe as f32;
         phit_den[i] = pt as f32;
         phie_lim_out[i] = pe_l as f32;
@@ -657,7 +718,7 @@ fn phi_dn(ctx: &ModuleContext) -> ModuleOutputs {
 
         if v >= 0.95 {
             phie_dn[i] = 0.0;
-            phie_lim_out[i] = 0.0;
+            phie_lim_out[i] = PHIE_FLOOR as f32;
             phit_dn[i] = phit_sh as f32;
             phit_lim_out[i] = phit_sh as f32;
             continue;
@@ -677,7 +738,7 @@ fn phi_dn(ctx: &ModuleContext) -> ModuleOutputs {
         let pe = phix * (1.0 - v);
         let pt = pe + v * phit_sh;
         let phie_lim = if shale_reduced { phie_max * (1.0 - v) } else { phie_max };
-        let pe_l = limit(pe, 0.0, phie_lim);
+        let pe_l = limit(pe, PHIE_FLOOR, phie_lim);
         phie_dn[i] = pe as f32;
         phit_dn[i] = pt as f32;
         phie_lim_out[i] = pe_l as f32;
@@ -862,10 +923,11 @@ fn ftemp_grad_spec() -> ModuleSpec {
             .into(),
         args: vec![
             opt("OPT_FT", "Temperature model", "GRADIENT", &["GRADIENT", "BHT"]),
-            param("TSURF", "Surface temperature", "degC", 26.7, 0.0, 50.0),
-            param("TGRAD", "Temperature gradient", "degC/m", 0.03, 0.005, 0.1),
-            param("BHT", "Bottom hole temperature", "degC", 100.0, 30.0, 250.0),
-            param("TD_BHT", "Depth of BHT measurement", "m", 2000.0, 100.0, 10000.0),
+            // All four define ONE temperature profile for the well — see ArgSpec::well_scope.
+            param_well("TSURF", "Surface temperature (whole well)", "degC", 26.7, 0.0, 50.0),
+            param_well("TGRAD", "Temperature gradient (whole well)", "degC/m", 0.03, 0.005, 0.1),
+            param_well("BHT", "Bottom hole temperature (whole well)", "degC", 100.0, 30.0, 250.0),
+            param_well("TD_BHT", "Depth of BHT measurement (whole well)", "m", 2000.0, 100.0, 10000.0),
             log_out("FTEMP", "Formation temperature", "degC"),
         ],
     }
@@ -928,8 +990,11 @@ fn precalc_spec() -> ModuleSpec {
             .into(),
         args: vec![
             opt("OPT_TU", "Temperature unit for entered params", "degF", &["degF", "degC"]),
-            param("SURF_TEMP", "Surface temperature (intercept)", "degF|degC", 77.0, -50.0, 150.0),
-            param("TEMP_GRAD", "Temperature gradient per TVDSS unit", "deg/ft|m", 0.026, 0.0005, 0.2),
+            // The geothermal trend is one trend for the well — a named-zone override would step
+            // the temperature at a formation top rather than bend it. See ArgSpec::well_scope.
+            // PSURF/PGRAD below deliberately stay per-zone: a pressure compartment is real.
+            param_well("SURF_TEMP", "Surface temperature (intercept, whole well)", "degF|degC", 77.0, -50.0, 150.0),
+            param_well("TEMP_GRAD", "Temperature gradient per TVDSS unit (whole well)", "deg/ft|m", 0.026, 0.0005, 0.2),
             param("PSURF", "Formation pressure intercept", "psi", 0.0, -500.0, 5000.0),
             param("PGRAD", "Pressure gradient per TVDSS unit", "psi/ft|m", 0.433, 0.05, 5.0),
             opt("OPT_RMF", "RMF source", "ARPS", &["ARPS", "TREND"]),
@@ -3357,11 +3422,12 @@ mod tests {
         assert!((out["PHIT_DEN"][0] as f64 - (pe + 0.2 * phit_sh)).abs() < 1e-5, "PHIT_DEN");
         assert!((out["PHIE"][0] as f64 - pe).abs() < 1e-5, "unclamped below cap");
 
-        // VSH ≥ 0.95 → shale: PHIE 0, PHIT = PHIT_SH, on both limited and unlimited curves.
+        // VSH ≥ 0.95 → shale: no effective porosity, PHIT = PHIT_SH. The LIMITED curve carries the
+        // floor (finding 16) while the unlimited twin keeps the modelled hard zero.
         // (0.95_f32 rounds to 0.9499999_f64 which is just under the threshold, so use 0.96.)
         for v in [0.96f32, 1.0] {
             let out = phi_den(&ctx_with(1, &[("RHOB", vec![2.4]), ("VSH", vec![v])], &params, &[]));
-            assert_eq!(out["PHIE"][0], 0.0, "shale PHIE=0 at VSH={v}");
+            assert_eq!(out["PHIE"][0], PHIE_FLOOR as f32, "shale PHIE floored at VSH={v}");
             assert_eq!(out["PHIE_DEN"][0], 0.0);
             assert!((out["PHIT"][0] as f64 - phit_sh).abs() < 1e-6, "shale PHIT=PHIT_SH at VSH={v}");
             assert!((out["PHIT_DEN"][0] as f64 - phit_sh).abs() < 1e-6);
@@ -3378,6 +3444,51 @@ mod tests {
         // Missing input propagates to all outputs.
         let out = phi_den(&ctx_with(1, &[("RHOB", vec![f32::NAN]), ("VSH", vec![0.2])], &params, &[]));
         assert!(out["PHIE"][0].is_nan() && out["PHIT_DEN"][0].is_nan());
+    }
+
+    /// A dense stringer must not hand a NEGATIVE porosity to anything downstream — and must still
+    /// be visible as one to anybody asking whether the matrix density is right.
+    ///
+    /// A tight carbonate streak logged against a sandstone matrix reads RHOB above RHO_MA, so the
+    /// density porosity comes out below zero. That is a routine artefact of the matrix choice, not
+    /// a corrupt curve, and nothing downstream treated it as an error: the pay summary sums
+    /// `PHIE·(1−SWE)·h`, so the streak's negative volume was SUBTRACTED from its zone's
+    /// hydrocarbon column (`docs/review_triage.md` finding 16, Jauhar 2026-08-01: *"always limit
+    /// phie to 0.001"*).
+    ///
+    /// The split is the point of the test. `PHIE` is floored, because everything downstream reads
+    /// it as a physical volume. `PHIE_DEN` is the DECLARED unlimited twin and stays negative,
+    /// because the excursion is the evidence for the judgement the curve exists to support —
+    /// clamping both would hide the reason to go and check RHO_MA.
+    #[test]
+    fn a_negative_density_porosity_is_floored_but_stays_visible_in_the_unlimited_twin() {
+        let params = [
+            ("RHO_MA", 2.645), ("RHO_SH", 2.5), ("RHO_FL", 1.0),
+            ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3),
+        ];
+        // RHOB 2.75 on a 2.645 matrix, clean: pe = (2.645−2.75)/1.645 ≈ −0.0638.
+        let out = phi_den(&ctx_with(1, &[("RHOB", vec![2.75]), ("VSH", vec![0.0])], &params, &[]));
+        assert!(out["PHIE_DEN"][0] < 0.0, "the unlimited twin must keep the artefact visible");
+        assert_eq!(out["PHIE"][0], PHIE_FLOOR as f32, "the limited curve is floored");
+        assert!(out["PHIT"][0] >= 0.0, "and PHIT follows it rather than staying negative");
+
+        // Same rock through the density-neutron route, which is the commoner one.
+        let dn_params = [
+            ("RHO_MA", 2.645), ("RHO_SH", 2.5), ("RHO_FL", 1.0), ("NPHI_SH", 0.35),
+            ("RHO_DSH", 2.65), ("RHO_W", 1.0), ("PHIE_MAX", 0.3),
+        ];
+        let dn = phi_dn(&ctx_with(
+            1,
+            &[("RHOB", vec![2.75]), ("NPHI", vec![-0.01]), ("VSH", vec![0.0])],
+            &dn_params,
+            &[],
+        ));
+        assert!(dn["PHIE_DN"][0] < 0.0, "unlimited twin negative here too");
+        assert_eq!(dn["PHIE"][0], PHIE_FLOOR as f32, "and the limited curve floored the same way");
+
+        // The floor must stay far below any porosity cutoff anyone would set, or it would stop a
+        // stringer being subtracted by quietly promoting it into reservoir instead.
+        assert!(PHIE_FLOOR < 0.01, "PHIE_FLOOR {PHIE_FLOOR} is too close to a real cutoff");
     }
 
     #[test]
@@ -3402,7 +3513,9 @@ mod tests {
         let sh = phi_dn(
             &ctx_with(1, &[("RHOB", vec![2.4]), ("NPHI", vec![0.4]), ("VSH", vec![0.97])], &params, &[]),
         );
-        assert_eq!(sh["PHIE"][0], 0.0);
+        // The limited curve carries the PHIE floor (finding 16); PHIT stays the shale's own total.
+        assert_eq!(sh["PHIE"][0], PHIE_FLOOR as f32);
+        assert_eq!(sh["PHIE_DN"][0], 0.0, "the unlimited twin keeps the modelled hard zero");
         assert!((sh["PHIT"][0] as f64 - phit_sh).abs() < 1e-6);
 
         // AVERAGE vs GAS_RMS diverge when PHID and NPHI differ (VSH 0 to isolate the combination).

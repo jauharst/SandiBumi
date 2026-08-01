@@ -861,7 +861,7 @@ The output masking in `workflow.rs` is still unconditional. It stands as written
 pinned by a test. Three of four stale is not four of four; check, don't assume in either
 direction.
 
-### 6. Overriding a temperature gradient per zone makes a STEP, not a kink — **OPEN, your call**
+### 6. Overriding a temperature gradient per zone makes a STEP, not a kink — **FIXED 2026-08-01**
 
 Found while writing T-PREP-05, and it is the first thing in this whole exercise that changes
 numbers rather than documentation.
@@ -884,13 +884,37 @@ not stay in FTEMP: the Arps correction turns temperature into Rw, and Rw goes st
 T-PREP-05's own expected result says the trend should **kink**, with *"no discontinuity
 artifacts"*. So the plan and the code disagree, and the plan is describing the physical answer.
 
-**Not fixed, deliberately.** Integrating per zone means deciding what temperature each zone
-*starts* at — carry the previous zone's value down, or re-anchor on surface — and that is method
-math with a cited source, not a refactor I should pick. The current behaviour is pinned exactly
-as it is, with the step written into the assertion, so it cannot drift and cannot be changed
-silently. Your call on which it should be.
+**Answered 2026-08-01 — "temperature is curves only."** The geothermal trend belongs to the WELL
+and its product is a curve, so there is no per-zone gradient to integrate and the question of what
+temperature each zone *starts* at never arises. That is a better answer than either of the two the
+finding offered: it removes the discontinuity by removing the thing that made it, and it needs no
+new method math.
 
-### 7. A well with no permeability is EXEMPTED from the permeability cutoff — **BEHAVIOUR STILL YOURS; the SILENCE fixed 2026-08-01**
+`ArgSpec.well_scope` (`#[serde(default)]`) marks a parameter that describes one trend for the whole
+well. `precalc`'s SURF_TEMP / TEMP_GRAD and `ftemp_grad`'s TSURF / TGRAD / BHT / TD_BHT carry it.
+
+Four rules.
+
+**A named-zone override is REFUSED by name, with the fix, not silently ignored.** Quietly dropping
+it would change the well's temperature — and so its Rw, and so its Sw — with nothing on the log to
+say why, which is the failure this whole rule exists to prevent.
+
+**The `*` well-wide scope still applies, and that distinction is the whole rule.** `*` gives the
+well ONE value, which is what a geothermal trend has; a named zone gives it a different value part
+way down, and since the trend is evaluated from surface at every sample that is a step rather than
+a bend. It also means the per-well parameter grid keeps working, which matters — wells in one field
+genuinely do have different gradients.
+
+**Only an override that would actually apply is refused.** One naming a zone the well does not have
+never did anything, and must not start failing runs.
+
+**PSURF / PGRAD are deliberately NOT well-scoped, and the asymmetry is the physics.** A pressure
+step at a formation top is a pressure compartment, which is a real thing rock does; a 10 °C step is
+not. `a_per_zone_pressure_gradient_reaches_exactly_its_own_samples` (the old T-PREP-05 test, moved
+onto pressure) is what stops someone tidying that away, and
+`a_geothermal_gradient_is_refused_per_zone_and_accepted_per_well` pins all four rules above.
+
+### 7. A well with no permeability is EXEMPTED from the permeability cutoff — **FIXED 2026-08-01**
 
 Found while writing T-BATCH-08, and like finding 6 it changes numbers rather than documentation.
 
@@ -918,30 +942,38 @@ row from the honest one. In a field roll-up they simply add together.
 T-BATCH-08's own Expected says the opposite of what the code does, so that test would have been
 logged as a new failure; its instruction now carries a Known issue line pointing here.
 
-**The behaviour is unchanged and still yours.** Whether an uncored well should be excluded from a
-permeability cutoff or exempted from it is a petrophysical decision — exclusion is defensible (it
-cannot be shown to pass) and so is exemption (a cutoff you have no data for should not silently
-delete a well) — and either way it changes reserves. The asymmetry stays written into the
-assertions of `a_well_with_no_perm_at_all_escapes_the_cutoff_but_no_longer_silently` so it cannot
-drift.
+**Answered 2026-08-01 — "no relation between em, wells still can have perm curves."** Whether a
+cutoff applies has no relation to whether this particular well was cored, and permeability can be
+MODELLED where it was not measured (`perm_coates`, `perm_timur`, the rocktyping family), so lacking
+a measured PERM is not a reason to be let off. The well-level test is gone:
 
-**What WAS fixed, 2026-08-01, is the SILENCE — a separate defect from which way the rule should
-go.** `PaySummaryRow.perm_cutoff_skipped` is true exactly when a cutoff was requested and this well
-escaped it for want of data, so a reader can finally tell the exempted row from the honest one. No
-number moved, which is why this needed no sign-off.
+```rust
+let has_perm_cut = req.perm_min.is_some();   // was: && perm.iter().any(|v| !v.is_nan())
+```
 
-Three rules:
+`classify_sample`'s rule — a sample that cannot be SHOWN to pass, fails — is now the only one in
+play, and the two halves agree. **This moves reserves**: an uncored well against an active PERM
+cutoff now books zero net pay where it used to book full.
 
-- **It means "a cutoff was requested and could not be applied", not "this well has no
-  permeability".** With no cutoff asked for there is nothing to report, and a flag that fired
-  anyway would appear on every report anyone ever ran without one.
-- **It is surfaced where the comparison actually happens.** The client PDF prints a note under the
-  pay table naming the cutoff the well escaped and saying its net pay is not comparable; the Field
-  Dashboard names the escaping wells above the roll-up they are being summed into. A flag living
-  only in the row struct would have fixed nothing a reader can see.
-- **`n_classified` could never have carried this.** Both wells are fully interpreted, so it is
-  above zero on both — which is what made the exemption silent, and why a SECOND discriminator was
-  needed rather than a cleverer reading of the first.
+**The flag survives with its meaning inverted**, because the reader's problem is unchanged and only
+its direction moved. `PaySummaryRow.perm_cutoff_no_data` (renamed from `perm_cutoff_skipped`) is
+true exactly when a cutoff is active and the well carries no PERM anywhere.
+
+Three rules, two of them unchanged from when the flag meant the opposite:
+
+- **It means "a cutoff was requested and this well has nothing to answer it with", not "this well
+  has no permeability".** With no cutoff asked for there is nothing to report, and a flag that
+  fired anyway would appear on every report anyone ever ran without one.
+- **It is surfaced where the number is READ.** A well booking zero across every zone looks exactly
+  like a wet well. The client PDF prints a note under the pay table saying the zero records an
+  absence of evidence rather than a dry reservoir; the Field Dashboard names the wells whose zeros
+  are being averaged in. A flag living only in the row struct would fix nothing a reader can see.
+- **`n_classified` could never have carried this.** The well is fully interpreted, so it is above
+  zero either way — which is what made the old exemption silent and now makes the new zero
+  ambiguous, and why a SECOND discriminator is needed rather than a cleverer reading of the first.
+
+Pinned by `a_well_with_no_perm_fails_the_cutoff_and_says_why`, which asserts BOTH halves — the
+exclusion and the note — because the safe-looking half is only half.
 
 The Word document, the workbook and the deck do not carry it yet. The field is on every row, so
 adding it there is mechanical.
@@ -978,7 +1010,7 @@ I also asserted, wrongly, that no module reads PERM as an input — a grep for `
 assertion rather than a comment, the build rejected it immediately. Worth repeating as a habit:
 **a claim about the codebase belongs in an assertion, where it can be wrong out loud.**
 
-### 9. Pittman's r50 and r75 cross over in ordinary sand — **OPEN, needs the paper**
+### 9. Pittman's r50 and r75 cross over in ordinary sand — **FIXED 2026-08-01, and it was worse than the finding said**
 
 Found while writing T-RT-08. The physics is not in question: mercury enters the widest throats
 first, so the radius quoted at 75 % saturation must be SMALLER than the one at 50 %. `PR75 < PR50`,
@@ -1007,11 +1039,60 @@ the well where it fails is a good one. It also reaches the outputs: someone sele
 in fine rock — which is exactly what the module doc recommends for fine rock — gets RAPEX and
 RT_PITT built on the inverted value.
 
-**Not fixed, deliberately.** `pittman_rx_spec`'s own doc already says the full set is transcribed
-from Pittman 1992 and flags it *verify before field release*. This is that verification, and it
-fails — but correcting a published coefficient requires the paper in hand, and inventing one to
-make the ordering come out right is exactly the move the provenance rules forbid. Pinned with the
-measured numbers by `the_pittman_radius_family_inverts_between_r50_and_r75_in_good_sand`.
+**The paper arrived 2026-08-01** (Pittman, E. D., 1992, AAPG Bulletin v. 76 no. 2, p. 191–198) and
+settles it outright. TWO rows were wrong, not one:
+
+| shipped as | carried | which is |
+|---|---|---|
+| PR50 | 0.609, 0.608, −0.974 | Table 1's **r45** |
+| PR75 | 1.243, 0.674, −1.517 | **no published equation at all** |
+
+r10 through r40 were all correct.
+
+**The mechanism is worth keeping, because it is what the fix now defends against.** Pittman
+publishes FOURTEEN rows in 5 % steps; the module writes nine. r10–r40 are contiguous, so reading
+straight down the paper works — until the first skip, after which every subsequent line is read one
+high. That put r45's coefficients under the PR50 label and left the tail free-floating. A slip
+between two ADJACENT rows would have produced a plausible number with no symptom at all; the only
+reason this one was ever noticed is that it made the family non-monotone.
+
+So the fix is not just two corrected numbers. **Table 1 now lives in the code in full
+(`PITTMAN_TABLE1`) and `PITTMAN_RX` carries no coefficients at all** — only the mnemonic and the
+saturation, with the numbers looked up. There is one copy of the paper's arithmetic in this repo
+and the shipped subset cannot drift from it. `every_shipped_pittman_row_is_a_published_one` is the
+check that was missing.
+
+Correcting the rows moved the inversion from **65 % of the paper's own sample range** (φ 3.3–28 %,
+k 0.05–998 mD) down to about 10 %.
+
+#### 9b. …but the PUBLISHED table is not monotone either, below ~11 % porosity — **NEW, and not corrected**
+
+Found while writing the test that was supposed to close 9. The published rows are fourteen
+INDEPENDENT regressions and the porosity exponent steepens down the table (−0.385 at r10 to −2.626
+at r75 — Pittman notes the porosity term is statistically insignificant through r35 and significant
+from r40). So as porosity falls, the high-saturation rows climb much faster than the low ones and
+overtake them. At 5 % porosity and 1 mD the shipped family reads:
+
+```
+r10 1.548  r15 1.238  r20 1.014  r25 0.911  r30 0.834  r35 0.775  r40 0.767   <- falls correctly
+r50 0.862 ^  r75 1.108 ^                                                       <- then turns back up
+```
+
+Measured across the paper's own sample range, the shipped set is strictly monotone at every
+permeability once porosity reaches **11.16 %**. Every inversion below that is in tight rock.
+
+**Not corrected, deliberately.** Forcing the ordering — a running minimum, a refit — would put
+radii in a client's report that Pittman never published. What shipped instead is the boundary,
+stated: the module doc now tells you to use a LOW apex (r25–r35, where Pittman's own porosity term
+is insignificant) in tight rock and treat PR50/PR75 there as extrapolation.
+`the_published_pittman_rows_cross_over_in_tight_rock_and_that_is_the_papers_own_arithmetic` pins
+both the crossover and the 12 % boundary, and asserts the old table's inversion at 25 % sand
+alongside — so "still not perfectly monotone" can never be read as "the fix did not work".
+
+**One thing for you.** The APEX doc used to recommend r50–r75 for fine rock, which is exactly the
+advice that is unsafe below 11 % porosity. It now says the opposite for tight rock. If any of your
+studies picked `r75` as APEX in a tight interval, RAPEX and RT_PITT there were built on a row that
+had turned back upward — worth a re-run.
 
 ### 10. A run that fails still writes its empty curves into the catalog — **FIXED 2026-08-01**
 
@@ -1231,7 +1312,7 @@ worse than no footer.
 The test now asserts the mark on EVERY page rather than sampling one. The failure mode here is a
 page type being missed, and a spot check is how it stayed missed.
 
-### 16. HPV is not guaranteed non-negative — a dense stringer is subtracted — **OPEN, your call**
+### 16. HPV is not guaranteed non-negative — a dense stringer is subtracted — **FIXED 2026-08-01**
 
 T-REP-06 lists **HPV ≥ 0** as a domain check. It is not an invariant. The pay summary sums
 `PHIE * (1 - SWE) * h` over net with no floor (`workflow.rs:717`), so the row inherits the sign of
@@ -1252,10 +1333,39 @@ row quietly does not. And the understatement is in the safe direction, so nothin
 Flipping the printed sign takes a porosity far outside anything a log produces, which is why the
 test claims the understatement and not a negative number.
 
-**Your call because the fix has two candidate homes**: clamp PHIE at 0 where the porosity modules
-write it, or floor the HPV contribution in the pay summary. Those are different statements about
-whose job it is to reject a non-physical porosity, and the first changes curves you may want to
-see unclamped for QC.
+**Answered 2026-08-01 — "always limit phie to 0.001."** `modules::PHIE_FLOOR`, and *always* is
+doing real work in that sentence: the finding offered two homes and the answer needs BOTH, because
+the motivating case is a **vendor** PHIE arriving by LAS, which never passes through a porosity
+module at all. So the floor is applied where the curve is written AND where a pay number is
+computed.
+
+Four rules.
+
+**0.001 v/v rather than 0.0**, which is his call and not an arbitrary epsilon. A hard zero is a
+legitimate reading — shale has no effective porosity and the ≥95 % VSH branch says so — so
+flooring at zero would make "no porosity here" and "the arithmetic went below zero"
+indistinguishable. 0.1 pu is below anything a log resolves and above anything an interpretation
+would claim, so a PHIE sitting exactly on it is legible AS the floor.
+
+**The floor lands on `PHIE`; `PHIE_DEN` and `PHIE_DN` stay unclamped.** Those are the declared
+unlimited twins, and the negative excursion is the evidence for the judgement they exist to
+support — it is how you find out RHO_MA is wrong. Clamping both would hide the reason to look.
+
+**One helper for every pay path** (`workflow::floored_phie`), used by the summary and by the cutoff
+SWEEP. The two must agree at the same cutoffs, and two copies is two places to drift. Applied once
+per well, so `hpv`, `avg_phie` and the classifier cannot end up disagreeing about the porosity at
+a depth.
+
+**The NaN guard in it is load-bearing, not defensive**: `f32::max` returns the OTHER side when one
+is NaN, so without the guard a MISSING porosity becomes a real 0.001 and starts counting toward
+`n_classified` — the one field that says whether the well was interpreted at all. Pinned by
+`flooring_phie_leaves_missing_missing`.
+
+`a_dense_stringer_no_longer_subtracts_from_the_sand_rows_hpv` asserts HPV ≥ 0 as an invariant now,
+that an absurd −5.0 lands on the same floor as −0.05 (a floor, not a proportional correction), and
+— the one that keeps the floor honest — that a floored streak still FAILS the porosity cutoff. A
+floor set anywhere near `phie_min` would stop a stringer being subtracted by quietly promoting it
+into reservoir instead, which is a worse answer wearing a better-looking number.
 
 ### 17. A chain whose worker thread dies jams the project switch for the rest of the session — **FIXED 2026-08-01**
 
@@ -1614,25 +1724,32 @@ over `driverProvider: 'embedded'` — so it is left to you.
 
 ## The findings, as of 2026-08-01
 
-Of the 25, **eighteen are now closed**: 1, 2, 3, 5, 22 and the starter half of 23 were fixed as
-they were found; 7 (the silence half), 8, 10, 12, 13, 15, 17, 18, 19, 20 and 21 were fixed on
-2026-08-01; 11 and 14 were bookkeeping and are struck; 4 and 24 and 25 are statements about the
-plan rather than defects.
+Of the 25, **twenty-two are now closed**: 1, 2, 3, 5, 22 and the starter half of 23 were fixed as
+they were found; 8, 10, 12, 13, 15, 17, 18, 19, 20 and 21 were fixed on 2026-08-01, and **6, 7, 9
+and 16 followed the same day once Jauhar answered them**; 11 and 14 were bookkeeping and are
+struck; 4, 24 and 25 are statements about the plan rather than defects.
 
-**Four still need YOU, and every one of them is a judgement rather than a bug.**
+**The four answers, and what each moved.**
 
-| # | The question | Why it is yours |
+| # | His answer | What changed |
 |---|---|---|
-| **6** | Should a per-zone temperature gradient integrate down through the zones above it (kink) or re-anchor on surface (step, today)? | Method math with a cited source. Integrating means deciding what temperature each zone STARTS at, and the answer reaches Rw through Arps and then Sw. A 0.035 override below 1500 m currently makes a **10.5 °C step across 100 m**, where the undisturbed trend rises 3.0. |
-| **7** | Should a well with no permeability be **excluded** from a PERM cutoff, or **exempted** from it (today)? | Either changes reserves. The exemption is now visible everywhere it is summed, so nothing is silent — but the direction is still unset, and it currently means the less permeability data a well has, the more pay it books. |
-| **9** | Pittman's PR75 exceeds PR50 above ~79 mD at 25 % porosity, which cannot happen in rock. | Correcting a published coefficient needs the paper in hand. Inventing one to make the ordering come out right is the move the provenance rules forbid. Someone selecting `r75` as APEX in fine rock — which the module doc recommends for fine rock — gets RAPEX and RT_PITT built on the inverted value. |
-| **16** | Should a negative PHIE be clamped where the porosity modules WRITE it, or floored where the pay summary SUMS it? | Two different statements about whose job it is to reject a non-physical porosity. Clamping at the curve changes numbers you may want to see unclamped for QC; flooring in the summary changes a reserves number. Measured cost today: a dense stringer takes a SAND row's HPV **more than 20 % below** the floored answer, while RESERVOIR and PAY stay byte-identical — so the two rows anyone checks first agree with each other while the SAND row quietly does not. |
+| **6** | *"temperature is curves only"* | The geothermal trend is a WELL property. A named-zone override of SURF_TEMP / TEMP_GRAD (and `ftemp_grad`'s four) is refused by name; `*` still applies. PSURF/PGRAD stay zoneable — a pressure compartment is real, a 10 °C step is not. |
+| **7** | *"no relation between em, wells still can have perm curves"* | A requested PERM cutoff is always active. **Moves reserves**: an uncored well now books zero net pay where it booked full. The flag survives inverted, so the zero is readable as "not measured" rather than "not pay". |
+| **9** | the paper | Two rows were wrong — PR50 carried r45's coefficients, PR75 matched nothing published. Table 1 now lives in the code in full and the shipped set carries no coefficients of its own. See **9b** below. |
+| **16** | *"always limit phie to 0.001"* | `PHIE_FLOOR`, applied both where a porosity module writes the curve and where any pay path reads it — the motivating case is a vendor PHIE that never passes a module. HPV ≥ 0 is an invariant now. The unlimited `_DEN`/`_DN` twins stay unclamped for QC. |
 
-Finding **23**'s remaining half sits just below that line: both fixes touch the read-only SQL guard,
-and rule 6 puts write discipline in your hands. Worth noting the trailing-comment one is arguably
-NOT a guard change at all — putting the wrapper's `) __sandibumi_q LIMIT n` on a new line cannot
-turn a non-SELECT into a SELECT, because the guard reads your text before the wrapping. It is one
-line and it fixes a valid query being corrupted.
+**One new finding came out of answering 9, and it is 9b above**: with the published coefficients the
+family is still not monotone below about 11 % porosity, because Pittman's rows are independent
+regressions whose porosity exponent steepens down the table. That is the paper's arithmetic, not a
+transcription error, so nothing is clamped — the module doc now states the boundary and tells you
+to use a low APEX in tight rock. **If any study picked `r75` as APEX in a tight interval, its
+RAPEX and RT_PITT are worth re-running.**
+
+**One item still sits with you**: finding **23**'s remaining half. Both fixes touch the read-only
+SQL guard, and rule 6 puts write discipline in your hands. Worth noting the trailing-comment one is
+arguably NOT a guard change at all — putting the wrapper's `) __sandibumi_q LIMIT n` on a new line
+cannot turn a non-SELECT into a SELECT, because the guard reads your text before the wrapping. It
+is one line and it fixes a valid query being corrupted.
 
 ## What to do with this
 

@@ -146,20 +146,20 @@ export async function buildDashboardContent(
         `${uninterpreted} interval(s) excluded — VSH/PHIE/SWE not computed, so no sample could be classified.`;
       body.appendChild(note);
     }
-    // Wells that escaped an active permeability cutoff for want of a PERM curve. They are NOT
-    // excluded — that is a petrophysical call, not this panel's (`docs/review_triage.md` finding
-    // 7) — but this is the surface where their pay is summed alongside pay that WAS judged, so
-    // the reader has to be told. Without it, the less permeability data a well has, the more it
-    // contributes here, and nothing on screen says so.
-    const escaped = [...new Set(rows.filter((r) => r.perm_cutoff_skipped).map((r) => r.well_name))];
-    if (escaped.length > 0) {
+    // Wells with no PERM curve against an active permeability cutoff. Every sample fails it for
+    // want of data, so they contribute a hard zero to every average and box below — which looks
+    // exactly like a well that was judged and found wet (`docs/review_triage.md` finding 7). This
+    // is the surface where that zero gets summed with real ones, so it is the surface that has to
+    // say so.
+    const noPerm = [...new Set(rows.filter((r) => r.perm_cutoff_no_data).map((r) => r.well_name))];
+    if (noPerm.length > 0) {
       const note = document.createElement("div");
       note.className = "dashboard-empty";
       note.style.color = "var(--warn)";
       note.textContent =
-        `${escaped.length} well(s) carry no permeability curve, so the PERM cutoff was not applied ` +
-        `to them: ${escaped.slice(0, 8).join(", ")}${escaped.length > 8 ? ", …" : ""}. ` +
-        `Their net pay is summed here alongside wells the cutoff was applied to.`;
+        `${noPerm.length} well(s) carry no permeability curve, so every sample fails the PERM ` +
+        `cutoff for want of data: ${noPerm.slice(0, 8).join(", ")}${noPerm.length > 8 ? ", …" : ""}. ` +
+        `Their zeros are counted in the averages below and mean "not measured", not "not pay".`;
       body.appendChild(note);
     }
     body.appendChild(sectionByZone(rows, metric));

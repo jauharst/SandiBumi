@@ -1749,7 +1749,7 @@ mod tests {
             avg_swe: 0.4,
             hpv: net * phie * 0.6,
             n_classified: n,
-            perm_cutoff_skipped: false,
+            perm_cutoff_no_data: false,
         }
     }
 

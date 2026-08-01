@@ -7,6 +7,62 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-01 — Your four answers, applied (numbers moved — check these first)
+
+All four change what a run computes, so these matter more than anything else on the list. The
+triage findings are 6, 7, 9 and 16 in `docs/review_triage.md`.
+
+**Temperature is a well property now (finding 6).**
+
+- [ ] **Pre-Calculation ▸ Zones…** — set TEMP_GRAD on a NAMED zone and Run. It must be **refused by
+      name**, naming the parameter, the zone, and telling you the `*` scope still works. Is the
+      message something you could act on without asking me?
+- [ ] Clear that, set TEMP_GRAD on scope **`*`** instead, Run. It must SUCCEED and shift the whole
+      trend. This is the route the per-well parameter grid uses, so it has to keep working.
+- [ ] Plot FTEMP vs depth: one straight line. No 10 °C step at a formation top any more.
+- [ ] **PGRAD on a named zone still works, deliberately** — FPRESS should step at the boundary,
+      because a pressure compartment is real. Set it and confirm. If you would rather pressure
+      behaved like temperature, say so; it is one flag.
+- [ ] Same rule on **Formation Temperature** (`ftemp_grad`): TSURF, TGRAD, BHT and TD_BHT are all
+      well-level now.
+
+**A permeability cutoff applies to every well it is asked for (finding 7).**
+
+- [ ] **Cutoffs & Pay Summary**, PERM ≥ something, on a well with **no PERM curve**. Net pay should
+      now be **0**, where it used to be full. This is the reserves change — confirm it is what you
+      meant.
+- [ ] That zero must not look like a wet well. The **Field Dashboard** should name the well above
+      the roll-up, and a **report** for it should print a note under the pay table saying the zero
+      records an absence of evidence. Both present?
+- [ ] With **no** PERM cutoff set, neither note appears and nothing changes.
+- [ ] A well that HAS permeability is unaffected, cutoff or not.
+
+**PHIE is floored at 0.001 (finding 16).**
+
+- [ ] Run **Porosity from Density** (or Density-Neutron) over an interval with a tight streak. The
+      `PHIE` curve must never go below 0.001 — but `PHIE_DEN` / `PHIE_DN` must still show the
+      negative excursion, because that is how you see RHO_MA is wrong. Both true?
+- [ ] Pay Summary on the same well: the SAND row's HPV should now be higher than before, and no HPV
+      anywhere may be negative.
+- [ ] A floored streak must still **fail** the porosity cutoff — it must not have crept into
+      RESERVOIR. Compare the RESERVOIR and PAY rows before and after.
+- [ ] A well with no PHIE at all still reports "not interpreted", not a column of 0.001.
+
+**Pittman's radii, corrected against the paper (finding 9).**
+
+- [ ] **Rock Typing ▸ Pittman Pore-Throat Radii**, on good sand. PR10 > PR15 > … > PR50 > PR75, all
+      the way down now. At 25 % porosity / 100 mD expect PR50 ≈ 2.22 µm and PR75 ≈ 0.27 µm (it used
+      to return 2.95 µm for PR75, which was larger than PR50 — impossible in rock).
+- [ ] **PR50 changed by about 25 %** on every well you have ever run this on: it was carrying
+      Pittman's r45 coefficients. If a study quoted PR50, it needs re-running.
+- [ ] **On TIGHT rock the family still crosses over below about 11 % porosity, and that is the
+      paper's own arithmetic** — the rows are independent regressions. Try it on a tight interval
+      and you should see PR50/PR75 turn back upward. Nothing is clamped, because clamping would
+      report radii Pittman never published. Does the module doc's advice (use r25–r35 as APEX in
+      tight rock) read clearly enough to act on?
+- [ ] **Worth checking your own studies:** anything that picked `r75` as APEX in a tight interval
+      built RAPEX and RT_PITT on a row that had turned back up.
+
 ## 2026-07-31 — A machine can now drive the real app end to end (optional)
 
 `npm run test:e2e` starts the **built** `sandibumi.exe` and drives it through Tauri's WebDriver
