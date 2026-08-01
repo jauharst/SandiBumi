@@ -2722,6 +2722,66 @@ export async function applyCoreLook(
  *  The same reason `GRAIN_D50_APP` is not `GRAIN_D50`. */
 export const CORE_LOG_PREFIX = "CPHOTO";
 
+/** One run of core inside a packed photograph — one column of a core-display plate, one row of a
+ *  core box. `start`/`end` are fractions of the ACROSS-core axis, in reading order.
+ *
+ *  The depths are the barrel's OWN, and they are all-or-nothing across a picture's lanes: a plate
+ *  carries four separate barrels with preserved intervals and part-filled columns between them,
+ *  none of which one span divided in four can express. Where none is given the picture's own
+ *  interval is shared out by lane length, which is what an equal split always did. */
+export interface Lane {
+  start: number;
+  end: number;
+  depth_top?: number | null;
+  depth_base?: number | null;
+}
+
+/** How ONE picture is laid out. Per picture, because every plate of a delivery carries different
+ *  barrels. Held as a `corelanes` document, the way the mineral classifier holds its clicks. */
+export interface PlateLayout {
+  /** The fraction of the down-core axis that is core, so a title block above the columns and a
+   *  caption below them are not read as the shallowest and deepest rock in the barrel. */
+  span?: [number, number] | null;
+  lanes: Lane[];
+}
+
+/** What a column-detection pass found in one picture. */
+export interface LaneDetection {
+  /** In reading order, WITHOUT depths — nothing in the pixels says what depth a column came from. */
+  lanes: Lane[];
+  span: [number, number];
+  /** The across-axis brightness profile the split was made from, decimated for drawing. Returned
+   *  for the reason `registration.rs` returns its whole correlogram: four clean columns and a smear
+   *  cut in four are the same answer and completely different situations. */
+  profile: number[];
+  threshold: number;
+  notes: string[];
+}
+
+/** A proposed recipe for one picture, and the measurement behind every value. */
+export interface RecipeAdvice {
+  image_id: string;
+  name: string;
+  recipe: CoreRecipe;
+  reasons: string[];
+  notes: string[];
+  error?: string | null;
+}
+
+/** Proposes where the runs of core are in one packed photograph. Proposes only. */
+export function detectCoreLanes(
+  imageId: string,
+  axis: "x" | "y",
+  reverse: boolean,
+): Promise<LaneDetection> {
+  return invoke<LaneDetection>("detect_core_lanes", { imageId, axis, reverse });
+}
+
+/** Measures a delivery and proposes conditioning for each picture, with reasons. Never applies. */
+export function recommendCoreRecipe(imageIds: string[]): Promise<RecipeAdvice[]> {
+  return invoke<RecipeAdvice[]>("recommend_core_recipe", { imageIds });
+}
+
 export interface CoreLogSpec {
   well_id: string;
   dataset: string;
@@ -2732,6 +2792,10 @@ export interface CoreLogSpec {
   /** Rows of core in one photograph, split into equal lanes and read in order. An APPROXIMATION —
    *  a real box has unequal rows and gaps — so the default is 1 and nobody gets it without asking. */
   lanes?: number;
+  /** Per-picture lay-outs, keyed by image id — the columns of a core-display plate and the barrel
+   *  each one covers. A picture named here uses its own columns; anything else falls back to
+   *  `lanes` equal lanes over its own interval. */
+  layouts?: Record<string, PlateLayout>;
   /** Depth step of the output curve, in the project's depth unit. */
   step?: number;
   /** Report how each measure tracks this curve, usually GR. It is the only thing that says whether

@@ -1,23 +1,20 @@
 import {
   applyCoreLook,
   bakeCoreImages,
-  buildCoreStrips,
-  CORE_STRIP_DATASET,
   coreImageSupport,
-  extractCoreLog,
   getWellImage,
   listImageDatasets,
   listImageRecipes,
   listWellImages,
   previewCoreImage,
+  recommendCoreRecipe,
   type CoreRecipe,
   type CorePreview,
-  type CoreLogResult,
   type CropBox,
   type ImageInfo,
   type Quad,
+  type RecipeAdvice,
 } from "../ipc";
-import { loadCurveNames } from "./plotCommon";
 import { appState, bumpDataVersion, setStatus } from "../state";
 import { recordProcess } from "../processLog";
 import { pushUndo } from "../undo";
@@ -45,9 +42,11 @@ export type ConditionSubject = "core" | "plate";
  * it. Two dialogs would be two places for the wording, the gamma and the white-balance rule to
  * drift, which is the `followCore.ts` argument.
  *
- * The one real difference is at the bottom: the proxy trace and the depth strips are core-only, and
- * not by omission. A thin section is cut from ONE plug and covers no interval, so there is no axis
- * to read a log along and nothing to stretch a strip over.
+ * The proxy trace and the depth strips used to live at the bottom of this pane and are now their
+ * own tool (Advance ▸ Core Imaging ▸ Photo Log…) — two jobs with two lifetimes, and Jauhar asked
+ * for them apart (2026-08-01). They remain core-only, and not by omission: a thin section is cut
+ * from ONE plug and covers no interval, so there is no axis to read a log along and nothing to
+ * stretch a strip over.
  *
  * **The controls are the picture wherever they can be.** A geologist judges a photograph by looking
  * at it, so the delivery is a strip of thumbnails rather than a dropdown of filenames, the crop is a
@@ -604,10 +603,11 @@ export async function buildCoreConditionContent(
   detailNote.style.margin = "2px 0 0";
   detailNote.textContent =
     "These three move a pixel's NEIGHBOURS rather than its colour, which is what makes a " +
-    "photograph readable — and what changes Read the trace. Local contrast roughly halves the " +
-    "darkness contrast between clean sand and mudstone, so an equalised box and a plain one no " +
-    "longer read on the same scale; sharpening inflates TEX and denoising suppresses it. Read a " +
-    "trace off photographs corrected for light and framing only.";
+    "photograph readable — and what changes what Photo Log reads off it. Local contrast roughly " +
+    "halves the darkness contrast between clean sand and mudstone, so an equalised box and a " +
+    "plain one no longer read on the same scale; sharpening inflates TEX and denoising suppresses " +
+    "it. Use them for the eye, and read a trace off photographs corrected for light and framing " +
+    "only.";
   sliderBox.appendChild(detailNote);
 
   /** Coloured only while one of the three is actually doing something. A warning that is always red
@@ -982,319 +982,112 @@ export async function buildCoreConditionContent(
     void runBake("reset core photo", () => bakeCoreImages([{ image_id: current, recipe: {} }]));
   });
 
-  // ---- reading a log off the photographs ----------------------------------
+  // ---- what this photograph needs -----------------------------------------
   //
-  // The second half of what a core photograph is for. A conditioned box is a picture of the rock at
-  // a known depth, and averaging its pixels down the core gives a continuous trace that can sit in a
-  // log track beside GR.
+  // The trace and the depth strips used to live here and are now their own tool (Advance ▸ Core
+  // Imaging ▸ Photo Log…). Two jobs with two lifetimes: conditioning is done once per delivery and
+  // finished, a trace is read, checked against GR, re-laid-out and read again — and Jauhar asked
+  // for them apart (2026-08-01).
   //
-  // Everything here is chosen by looking at the photograph rather than by typing: which way the
-  // depth runs, how many rows of core are in the frame, and then a drawn trace to judge.
-  // The trace and the depth strips are core-only, and not by omission: a thin section is cut from
-  // ONE plug and covers no interval, so there is no axis to read a log along and nothing to stretch
-  // a strip over — the same reason `extract_core_log` refuses a picture with no base depth.
-  const logBox = document.createElement("div");
-  logBox.hidden = plate;
-  logBox.style.borderTop = "1px solid var(--border)";
-  logBox.style.marginTop = "10px";
-  logBox.style.paddingTop = "8px";
-  wrap.appendChild(logBox);
+  // What belongs here instead is the measurement of what the picture NEEDS. Everything below is a
+  // PROPOSAL: the values land in the same sliders the user would have moved by hand, with what was
+  // measured stated beside each one, and Apply is still Apply. A recipe that arrives already baked
+  // is one nobody looked at.
+  const adviceRow = document.createElement("div");
+  adviceRow.style.display = "flex";
+  adviceRow.style.gap = "8px";
+  adviceRow.style.margin = "8px 0 4px";
+  adviceRow.style.flexWrap = "wrap";
+  wrap.appendChild(adviceRow);
 
-  const logTitle = document.createElement("div");
-  logTitle.className = "eq-note";
-  logTitle.textContent =
-    "Read a trace off these photographs \u2014 darkness, redness and texture down the core. They are " +
-    "IMAGE measures, not petrophysical properties: darkness follows shale in most clastic sections " +
-    "without being a shale volume, which is why nothing here is called VSH.";
-  logBox.appendChild(logTitle);
+  const adviseBtn = document.createElement("button");
+  adviseBtn.className = "btn";
+  adviseBtn.textContent = "Recommend conditioning";
+  adviseBtn.title =
+    "Measures this picture and proposes settings, with the reason for each. Nothing is applied " +
+    "until you press Apply.";
+  const adviseAllBtn = document.createElement("button");
+  adviseAllBtn.className = "btn";
+  adviseAllBtn.textContent = "Recommend for the delivery";
+  adviseAllBtn.title =
+    "Measures every picture and reports what each needs, then fills in this one. A run shot in " +
+    "one afternoon usually needs one answer; a delivery that does not is worth knowing about.";
+  adviceRow.append(adviseBtn, adviseAllBtn);
 
-  /** A row of buttons behaving as one choice. More legible than a dropdown for three or four
-   *  options, and it shows every option at once \u2014 which is what you want when the answer is read
-   *  off the picture above rather than remembered. */
-  const segmented = (
-    options: { value: string; label: string; title: string }[],
-    initial: string,
-    onPick: (v: string) => void
-  ): { el: HTMLElement; get: () => string } => {
-    const row = document.createElement("div");
-    row.style.display = "flex";
-    row.style.gap = "2px";
-    let value = initial;
-    const btns: HTMLButtonElement[] = [];
-    const paint = (): void => {
-      for (const b of btns) b.classList.toggle("btn-accent", b.dataset.value === value);
-    };
-    for (const o of options) {
-      const b = document.createElement("button");
-      b.className = "btn";
-      b.textContent = o.label;
-      b.title = o.title;
-      b.dataset.value = o.value;
-      b.addEventListener("click", () => {
-        value = o.value;
-        paint();
-        onPick(value);
-      });
-      btns.push(b);
-      row.appendChild(b);
+  const adviceNote = document.createElement("div");
+  adviceNote.className = "eq-note";
+  wrap.appendChild(adviceNote);
+
+  /** Shows one picture's advice and loads its recipe into the controls, without applying it. */
+  const takeAdvice = (a: RecipeAdvice): void => {
+    if (a.error) {
+      adviceNote.textContent = a.error;
+      adviceNote.style.color = "var(--warn)";
+      return;
     }
-    paint();
-    return { el: row, get: () => value };
-  };
-
-  const axisPick = segmented(
-    [
-      { value: "x", label: "\u2192 across", title: "Depth runs along the width of the picture \u2014 a core box laid out left to right." },
-      { value: "y", label: "\u2193 down", title: "Depth runs down the picture \u2014 a single vertical strip." },
-    ],
-    "x",
-    () => {}
-  );
-  logBox.appendChild(formRow("Depth runs", axisPick.el, "Read it off the photograph above."));
-
-  const revChk = document.createElement("input");
-  revChk.type = "checkbox";
-  const revLabel = document.createElement("label");
-  revLabel.appendChild(revChk);
-  revLabel.appendChild(document.createTextNode(" Deepest end first (the box is the other way round)"));
-  revLabel.style.display = "block";
-  logBox.appendChild(revLabel);
-
-  const lanePick = segmented(
-    [1, 2, 3, 4, 5, 6].map((n) => ({
-      value: String(n),
-      label: String(n),
-      title:
-        n === 1
-          ? "One run of core in the frame."
-          : `${n} rows of core, read top to bottom. Equal lanes are an approximation \u2014 a real box has unequal rows and gaps \u2014 so for a careful job crop to one row and run this per row.`,
-    })),
-    "1",
-    () => {}
-  );
-  logBox.appendChild(formRow("Rows of core", lanePick.el, "How many runs of core are laid out in one photograph."));
-
-  const cmpSel = document.createElement("select");
-  cmpSel.className = "form-control";
-  {
-    const none = document.createElement("option");
-    none.value = "";
-    none.textContent = "\u2014 none: do not check \u2014";
-    cmpSel.appendChild(none);
-    const names = await loadCurveNames().catch(() => [] as string[]);
-    for (const n of names) {
-      const o = document.createElement("option");
-      o.value = n;
-      o.textContent = n;
-      cmpSel.appendChild(o);
-    }
-    // GR by default where the well has it: a trace nobody thought to check is exactly the one that
-    // ships, and darkness against GR is the check this measure exists to pass.
-    if (names.includes("GR")) cmpSel.value = "GR";
-  }
-  logBox.appendChild(
-    formRow(
-      "Check against",
-      cmpSel,
-      "Reports how each measure tracks a real log over the same interval. It is the only thing that " +
-        "says whether the trace is about the rock \u2014 and a strongly NEGATIVE darkness usually means " +
-        "the depth axis is the other way round."
-    )
-  );
-
-  const readBtn = document.createElement("button");
-  readBtn.className = "btn btn-accent";
-  readBtn.textContent = "Read the trace";
-  const writeBtn = document.createElement("button");
-  writeBtn.className = "btn";
-  writeBtn.textContent = "Save as curves";
-  writeBtn.disabled = true;
-  // The strip uses the SAME lay-out as the trace, which is why it lives beside it rather than in a
-  // dialog of its own: one statement of how the box is laid out, two things read off it.
-  const stripBtn = document.createElement("button");
-  stripBtn.className = "btn";
-  stripBtn.textContent = "Build depth strips";
-  stripBtn.title =
-    "Cuts every box into its rows and stacks them into one tall picture per box, with the core " +
-    "running down it. Put an image track on it in depth mode to see it beside the logs. Building " +
-    "again into the same name replaces the last one.";
-
-  // Where the strips land. Visible and editable rather than fixed, because a white-light delivery
-  // and a UV one both want strips and one name would have the second quietly replace the first —
-  // the same box, twice, and only the second light left.
-  const stripTarget = document.createElement("input");
-  stripTarget.className = "form-control";
-  stripTarget.style.maxWidth = "12rem";
-  stripTarget.title = "The picture dataset the strips are written to.";
-  /** `CORE STRIP`, plus whatever the source delivery is called beyond "CORE PHOTO" — so a delivery
-   *  named CORE PHOTO UV suggests CORE STRIP UV without the user having to think about it. */
-  const suggestTarget = (): void => {
-    const src = dsSel.value.toUpperCase();
-    const extra = src.replace(/CORE|PHOTO|PHOTOS|SLAB/g, "").replace(/\s+/g, " ").trim();
-    stripTarget.value = extra ? `${CORE_STRIP_DATASET} ${extra}` : CORE_STRIP_DATASET;
-  };
-  suggestTarget();
-  dsSel.addEventListener("change", suggestTarget);
-
-  const readRow = document.createElement("div");
-  readRow.style.display = "flex";
-  readRow.style.gap = "8px";
-  readRow.style.margin = "6px 0";
-  readRow.style.flexWrap = "wrap";
-  readRow.append(readBtn, writeBtn, stripBtn, stripTarget);
-  logBox.appendChild(readRow);
-
-  const trace = document.createElement("canvas");
-  trace.style.width = "100%";
-  trace.style.height = "220px";
-  trace.style.background = "var(--bg-panel-alt)";
-  trace.style.borderRadius = "var(--r-sm)";
-  trace.hidden = true;
-  logBox.appendChild(trace);
-
-  const logNote = document.createElement("div");
-  logNote.className = "eq-note";
-  logBox.appendChild(logNote);
-
-  /** Draws the measures as three tracks down depth, the way they will look in a log view.
-   *
-   *  A table of percentiles cannot say whether a trace has bedding in it, and bedding is the whole
-   *  question. Each track is scaled to its OWN range \u2014 darkness, redness and texture are three
-   *  different quantities and one shared axis would flatten two of them to a line. */
-  const drawTrace = (res: CoreLogResult): void => {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const w = Math.max(1, Math.round(trace.clientWidth * dpr));
-    const h = Math.max(1, Math.round(220 * dpr));
-    if (trace.width !== w || trace.height !== h) {
-      trace.width = w;
-      trace.height = h;
-    }
-    const ctx = trace.getContext("2d");
-    if (!ctx) return;
-    ctx.clearRect(0, 0, w, h);
-    const d = res.preview_depth;
-    if (d.length < 2) return;
-    const pad = 18 * dpr;
-    const cols = res.curves.length;
-    const cw = (w - pad * (cols + 1)) / cols;
-    const dmin = d[0];
-    const dmax = d[d.length - 1];
-    const colours = ["#5a5a5a", "#a83e2c", "#5f7350"];
-    ctx.font = `${11 * dpr}px sans-serif`;
-    ctx.textBaseline = "top";
-    for (let k = 0; k < cols; k++) {
-      const cv = res.curves[k];
-      const x0 = pad + k * (cw + pad);
-      const fin = cv.preview.filter((v) => Number.isFinite(v));
-      if (!fin.length) continue;
-      let lo = Math.min(...fin);
-      let hi = Math.max(...fin);
-      if (hi - lo < 1e-9) {
-        lo -= 0.5;
-        hi += 0.5;
-      }
-      ctx.strokeStyle = "rgba(128,128,128,0.35)";
-      ctx.strokeRect(x0, pad, cw, h - pad * 1.6);
-      ctx.fillStyle = "var(--text)";
-      ctx.fillStyle = colours[k % colours.length];
-      ctx.fillText(cv.name.replace("CPHOTO_", ""), x0, 2 * dpr);
-      ctx.beginPath();
-      for (let i = 0; i < cv.preview.length; i++) {
-        const v = cv.preview[i];
-        if (!Number.isFinite(v)) continue;
-        const x = x0 + ((v - lo) / (hi - lo)) * cw;
-        const y = pad + ((d[i] - dmin) / Math.max(1e-9, dmax - dmin)) * (h - pad * 1.6);
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      ctx.strokeStyle = colours[k % colours.length];
-      ctx.lineWidth = 1 * dpr;
-      ctx.stroke();
-    }
-    ctx.fillStyle = "rgba(128,128,128,0.9)";
-    ctx.fillText(`${dmin.toFixed(1)}`, 2 * dpr, pad);
-    ctx.fillText(`${dmax.toFixed(1)}`, 2 * dpr, h - pad);
-  };
-
-  const describeRun = (res: CoreLogResult): string => {
-    const bits = res.curves.map((c) =>
-      Number.isFinite(c.correlation)
-        ? `${c.name.replace("CPHOTO_", "")} ${c.correlation >= 0 ? "+" : ""}${c.correlation.toFixed(2)}`
-        : `${c.name.replace("CPHOTO_", "")} \u2014`
-    );
-    const head =
-      `${res.samples} sample(s) from ${res.photographs} photograph(s), ` +
-      `${res.depth_min.toFixed(1)} to ${res.depth_max.toFixed(1)}.`;
-    const agree = cmpSel.value ? ` Against ${cmpSel.value}: ${bits.join(", ")}.` : "";
-    return head + agree + (res.notes.length ? " " + res.notes.join(" ") : "") +
-      (res.skipped.length ? ` Left out: ${res.skipped.join("; ")}` : "");
-  };
-
-  const buildSpec = (write: boolean) => ({
-    well_id: well.well_id,
-    dataset: dsSel.value,
-    axis: axisPick.get() as "x" | "y",
-    reverse: revChk.checked,
-    lanes: Number(lanePick.get()) || 1,
-    compare_curve: cmpSel.value || null,
-    write,
-  });
-
-  const runRead = async (write: boolean): Promise<void> => {
-    readBtn.disabled = true;
-    writeBtn.disabled = true;
-    logNote.textContent = write ? "Saving\u2026" : "Reading\u2026";
-    try {
-      const res = await extractCoreLog(buildSpec(write));
-      trace.hidden = false;
-      drawTrace(res);
-      logNote.textContent =
-        (write ? `Saved ${res.written.join(", ")}. ` : "") + describeRun(res);
-      if (write) {
-        setStatus(`Read ${res.written.length} curve(s) off ${dsSel.value}`);
-        recordProcess("Edit", `Core photo log on ${dsSel.value}: ${res.written.join(", ")}`, well.well_name);
-        bumpDataVersion();
-      }
-      writeBtn.disabled = false;
-    } catch (e) {
-      logNote.textContent = String(e);
-    } finally {
-      readBtn.disabled = false;
+    adviceNote.style.color = "";
+    // The FRAMING is the user's and is never touched: a rotation, a crop and four dragged corners
+    // are statements about where the rock is in the frame, and no measurement of colour has an
+    // opinion about them. Same split `colour_only` makes on the backend.
+    const keep = recipeOf(current);
+    recipes.set(current, { ...a.recipe, rotate_deg: keep.rotate_deg, quad: keep.quad, crop: keep.crop });
+    pickedColour.delete(current);
+    syncControls();
+    void render();
+    adviceNote.innerHTML = "";
+    const head = document.createElement("div");
+    head.innerHTML = "<b>Proposed, not applied.</b> Look at the picture, then press Apply.";
+    adviceNote.appendChild(head);
+    for (const line of [...a.reasons, ...a.notes]) {
+      const d = document.createElement("div");
+      d.textContent = "• " + line;
+      adviceNote.appendChild(d);
     }
   };
 
-  readBtn.addEventListener("click", () => void runRead(false));
-  writeBtn.addEventListener("click", () => void runRead(true));
-
-  stripBtn.addEventListener("click", () => {
+  const runAdvice = (all: boolean): void => {
+    if (!current) return;
     void (async () => {
-      stripBtn.disabled = true;
-      logNote.textContent = "Building…";
+      adviseBtn.disabled = true;
+      adviseAllBtn.disabled = true;
+      adviceNote.style.color = "";
+      adviceNote.textContent = "Measuring…";
       try {
-        const res = await buildCoreStrips({
-          well_id: well.well_id,
-          dataset: dsSel.value,
-          axis: axisPick.get() as "x" | "y",
-          reverse: revChk.checked,
-          lanes: Number(lanePick.get()) || 1,
-          target: stripTarget.value.trim() || null,
-        });
-        logNote.textContent =
-          `${res.built} strip(s) in ${res.dataset}. ` +
-          res.notes.join(" ") +
-          (res.skipped.length ? ` Left out: ${res.skipped.join("; ")}` : "");
-        setStatus(`${res.built} depth strip(s) built in ${res.dataset}`);
-        recordProcess("Edit", `Depth strips from ${dsSel.value} into ${res.dataset}`, well.well_name);
-        // A new picture delivery: the Wells pane, the layout editor's dataset list and any open log
-        // view all need to hear about it.
-        bumpDataVersion();
+        const ids = all ? plates.map((p) => p.image_id) : [current];
+        const out = await recommendCoreRecipe(ids);
+        const mine = out.find((a) => a.image_id === current) ?? out[0];
+        if (!mine) {
+          adviceNote.textContent = "Nothing to measure.";
+          return;
+        }
+        takeAdvice(mine);
+        if (all && out.length > 1) {
+          // A delivery that needs ONE answer is the normal case and worth confirming; a delivery
+          // that does not is worth knowing before a look is copied across it.
+          const casts = out.filter((a) => a.recipe.gain).length;
+          const spread = out.filter((a) => Math.abs(a.recipe.exposure ?? 0) > 0.3).length;
+          const extra = document.createElement("div");
+          extra.style.marginTop = "6px";
+          extra.textContent =
+            `Across ${out.length} picture(s): ${casts} carry a colour cast worth correcting and ` +
+            `${spread} are more than a third of a stop off. ` +
+            (casts <= 1 && spread <= 1
+              ? "That is one lamp and one afternoon — Apply this look to the whole run."
+              : "They were not all shot under the same light, so a single look copied across the " +
+                "run will be wrong on some of them.");
+          adviceNote.appendChild(extra);
+        }
       } catch (e) {
-        logNote.textContent = String(e);
+        adviceNote.style.color = "var(--warn)";
+        adviceNote.textContent = String(e);
       } finally {
-        stripBtn.disabled = false;
+        adviseBtn.disabled = false;
+        adviseAllBtn.disabled = false;
       }
     })();
-  });
+  };
+  adviseBtn.addEventListener("click", () => runAdvice(false));
+  adviseAllBtn.addEventListener("click", () => runAdvice(true));
 
   // ---- loading ------------------------------------------------------------
   const select = (id: string): void => {

@@ -2246,6 +2246,30 @@ async fn extract_core_log(
     coreimage::extract_core_log(&conn, &spec)
 }
 
+/// Proposes where the runs of core are inside one packed photograph — the columns of a core-display
+/// plate, the rows of a core box. Proposes only: the lay-out lands in an editable table.
+#[tauri::command]
+async fn detect_core_lanes(
+    db: tauri::State<'_, DbState>,
+    image_id: String,
+    axis: String,
+    reverse: bool,
+) -> Result<coreimage::LaneDetection, String> {
+    let conn = db.0.lock().unwrap();
+    coreimage::detect_core_lanes(&conn, &image_id, &axis, reverse)
+}
+
+/// Measures a delivery and proposes conditioning for each picture, with the reason for every value.
+/// Decodes every picture, so it stays off the event loop.
+#[tauri::command]
+async fn recommend_core_recipe(
+    db: tauri::State<'_, DbState>,
+    image_ids: Vec<String>,
+) -> Result<Vec<coreimage::RecipeAdvice>, String> {
+    let conn = db.0.lock().unwrap();
+    coreimage::recommend_core_recipe(&conn, &image_ids)
+}
+
 /// Cuts a core-photograph delivery into rows and stacks each box into one depth-registered strip.
 /// Decodes and re-encodes every picture in the delivery, so it stays off the event loop.
 #[tauri::command]
@@ -2925,6 +2949,8 @@ pub fn run() {
             bake_core_images,
             apply_core_look,
             extract_core_log,
+            detect_core_lanes,
+            recommend_core_recipe,
             build_core_strips,
             list_image_recipes,
             set_image_delivery_details,

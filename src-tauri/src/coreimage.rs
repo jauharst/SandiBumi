@@ -445,6 +445,64 @@ pub const LOG_PREFIX: &str = "CPHOTO";
 /// The three measures, in the order they are reported.
 const MEASURES: [&str; 3] = ["DARK", "RED", "TEX"];
 
+/// One run of core inside a packed photograph — one COLUMN of a core-display plate, or one row of
+/// a core box.
+///
+/// `start`/`end` are fractions of the ACROSS-core axis, in reading order. Fractions rather than
+/// pixels for the reason every other geometry in this app is: the stored copy is capped at a long
+/// edge, so a pixel span belongs to whichever copy it was measured on and nothing in the number
+/// says which.
+///
+/// **The depths are the barrel's own, and they are optional ALL-OR-NOTHING.** A core-display plate
+/// carries four columns that are four separate barrels, each labelled with its own top and base,
+/// and between them there are preserved intervals, lost core and part-filled last columns — none of
+/// which a single span divided into four equal parts can express. Where they are given they are
+/// used; where none is given the picture's own interval is divided across the lanes by LENGTH,
+/// which is exactly what an equal split has always done. A list where SOME lanes carry depths is
+/// refused rather than half-guessed: the missing ones could only be filled in by assuming the core
+/// is continuous, which is the assumption the whole field exists to avoid.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq)]
+pub struct Lane {
+    pub start: f32,
+    pub end: f32,
+    #[serde(default)]
+    pub depth_top: Option<f32>,
+    #[serde(default)]
+    pub depth_base: Option<f32>,
+}
+
+impl Lane {
+    /// Fraction of the across axis this lane covers, never negative.
+    fn width(&self) -> f32 {
+        (self.end - self.start).max(0.0)
+    }
+    /// This lane's own interval, when it declared one.
+    fn interval(&self) -> Option<(f32, f32)> {
+        match (self.depth_top, self.depth_base) {
+            (Some(t), Some(b)) if t.is_finite() && b.is_finite() && b > t => Some((t, b)),
+            _ => None,
+        }
+    }
+    fn declares_depth(&self) -> bool {
+        self.depth_top.is_some() || self.depth_base.is_some()
+    }
+}
+
+/// How ONE picture is laid out: which part of it is core, and where the runs of core are inside it.
+///
+/// Per picture rather than per run, because every plate of a core-display delivery carries a
+/// different set of barrels. Held by the caller (a `corelanes` document, the way the mineral
+/// classifier holds its clicks) and passed in, so this module never grows document plumbing.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
+pub struct PlateLayout {
+    /// The fraction of the DOWN-core axis that is core, once the header, the footer and the depth
+    /// ruler are excluded. `None` reads the picture end to end, which is what a cropped photograph
+    /// wants and what a delivered plate does not.
+    #[serde(default)]
+    pub span: Option<[f32; 2]>,
+    pub lanes: Vec<Lane>,
+}
+
 /// One run of the proxy-log extraction over a well's live photograph delivery.
 #[derive(Debug, Clone, Deserialize)]
 pub struct CoreLogSpec {
@@ -465,6 +523,11 @@ pub struct CoreLogSpec {
     /// per row. The default is 1, so nobody gets the approximation without asking.
     #[serde(default = "default_lanes")]
     pub lanes: u32,
+    /// Per-picture lay-outs, keyed by image id. A picture named here uses its OWN columns and their
+    /// own depths; anything else falls back to `lanes` equal lanes over the picture's own interval,
+    /// so a delivery of ordinary core-box photographs behaves exactly as it always did.
+    #[serde(default)]
+    pub layouts: std::collections::HashMap<String, PlateLayout>,
     /// Depth step of the output curve, in the project's depth unit.
     #[serde(default = "default_step")]
     pub step: f32,
@@ -523,15 +586,17 @@ pub struct CoreLogResult {
     pub notes: Vec<String>,
 }
 
+/// One picture's answer: an array per LANE, not one concatenated run. Rust places each lane on its
+/// own interval, which it can only do if they arrive apart.
 #[derive(Deserialize)]
 struct ScanRow {
     image_id: String,
     #[serde(default)]
-    dark: Vec<f32>,
+    dark: Vec<Vec<f32>>,
     #[serde(default)]
-    red: Vec<f32>,
+    red: Vec<Vec<f32>>,
     #[serde(default)]
-    tex: Vec<f32>,
+    tex: Vec<Vec<f32>>,
     #[serde(default)]
     error: Option<String>,
 }
@@ -540,6 +605,101 @@ struct ScanRow {
 struct ScanOut {
     #[serde(default)]
     results: Vec<ScanRow>,
+}
+
+/// What one picture will be read as: which part of it is core, and one interval per run of core.
+///
+/// Split out so the two rules that matter can be pinned without a Python subprocess:
+///
+/// **A lane list is all-or-nothing on depths.** Half a plate labelled and half inferred would place
+/// the unlabelled barrels by assuming the core is continuous — the assumption a plate with a
+/// preserved interval in it already disproves.
+///
+/// **Where no lane declares a depth the picture's own interval is divided by lane LENGTH**, not
+/// into equal parts. On equal lanes those are the same number, which is what keeps every
+/// pre-existing core-box run byte-identical; on a detected lay-out, where the last column is a
+/// part-filled barrel, dividing by length is the only one of the two that is still true.
+fn plan_lanes(
+    info: &crate::db::ImageInfo,
+    spec: &CoreLogSpec,
+) -> Result<(Option<[f32; 2]>, Vec<(Lane, (f32, f32))>), String> {
+    let layout = spec.layouts.get(&info.image_id);
+    let lanes: Vec<Lane> = match layout.filter(|l| !l.lanes.is_empty()) {
+        Some(l) => l.lanes.clone(),
+        None => {
+            let n = spec.lanes.max(1);
+            (0..n)
+                .map(|k| Lane {
+                    start: k as f32 / n as f32,
+                    end: (k + 1) as f32 / n as f32,
+                    depth_top: None,
+                    depth_base: None,
+                })
+                .collect()
+        }
+    };
+    if lanes.iter().all(|l| l.width() <= 0.0) {
+        return Err("its columns have no width".to_string());
+    }
+
+    let declaring = lanes.iter().filter(|l| l.declares_depth()).count();
+    if declaring > 0 && declaring < lanes.len() {
+        return Err(format!(
+            "{} of its {} columns carry a depth and the rest do not - fill the others in, or clear \
+             them all and let the picture's own interval be divided across them. Placing the blank \
+             ones would mean assuming the core runs on without a break",
+            declaring,
+            lanes.len()
+        ));
+    }
+
+    // Reading order. With no per-lane depths the ORDER is what places the barrels, so a picture
+    // laid out deepest-first is read from the far lane back; where each lane carries its own depths
+    // the order carries no information and is left alone.
+    let mut lanes = lanes;
+    if spec.reverse && !lanes.iter().any(Lane::declares_depth) {
+        lanes.reverse();
+    }
+
+    let planned: Vec<(Lane, (f32, f32))> = if declaring > 0 {
+        let mut out = Vec::with_capacity(lanes.len());
+        for (k, l) in lanes.iter().enumerate() {
+            match l.interval() {
+                Some(iv) => out.push((*l, iv)),
+                None => {
+                    return Err(format!(
+                        "column {} has a top and base that do not make an interval",
+                        k + 1
+                    ))
+                }
+            }
+        }
+        out
+    } else {
+        // The picture's own interval, shared out by length.
+        let base = info
+            .depth_base
+            .filter(|b| b.is_finite() && *b > info.depth_top)
+            .ok_or_else(|| {
+                "no base depth, so it covers no interval - a photograph anchored at one depth has \
+                 no axis to read a log along. Give it a base in Plate Details, or give each column \
+                 its own depths"
+                    .to_string()
+            })?;
+        let total: f32 = lanes.iter().map(|l| l.width()).sum();
+        if !(total > 0.0) {
+            return Err("its columns have no width".to_string());
+        }
+        let mut at = info.depth_top;
+        let mut out = Vec::with_capacity(lanes.len());
+        for l in &lanes {
+            let d = (base - info.depth_top) * l.width() / total;
+            out.push((*l, (at, at + d)));
+            at += d;
+        }
+        out
+    };
+    Ok((layout.and_then(|l| l.span), planned))
 }
 
 /// How many samples one photograph should give up, from its own depth span.
@@ -571,20 +731,23 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
 
     let mut res = CoreLogResult::default();
     let mut wanted = Vec::new();
+    // Every picture's lay-out is resolved BEFORE anything is decoded, so a plate that cannot be
+    // planned is named here rather than after a subprocess has read a hundred megabytes.
+    let mut plans: std::collections::HashMap<String, (Option<[f32; 2]>, Vec<(Lane, (f32, f32))>)> =
+        std::collections::HashMap::new();
     for info in &all {
-        match info.depth_base.filter(|b| b.is_finite() && *b > info.depth_top) {
-            Some(_) => wanted.push(info.clone()),
-            None => res.skipped.push(format!(
-                "{}: no base depth, so it covers no interval - a photograph anchored at one depth \
-                 has no axis to read a log along. Give it a base in Plate Details.",
-                info.name
-            )),
+        match plan_lanes(info, spec) {
+            Ok(plan) => {
+                plans.insert(info.image_id.clone(), plan);
+                wanted.push(info.clone());
+            }
+            Err(why) => res.skipped.push(format!("{}: {}", info.name, why)),
         }
     }
     if wanted.is_empty() {
         return Err(
             "no photograph in this delivery covers a depth interval - set a base depth in Plate \
-             Details, or these are point samples rather than core runs"
+             Details, or give each column its own depths in the column table"
                 .to_string(),
         );
     }
@@ -595,20 +758,29 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
 
     for batch in wanted.chunks(CHUNK) {
         let mut blobs = Vec::with_capacity(batch.len());
+        let mut spans = Vec::with_capacity(batch.len());
+        let mut lane_spans = Vec::with_capacity(batch.len());
         let mut counts = Vec::with_capacity(batch.len());
         for info in batch {
             // The CONDITIONED copy: `get_well_image`, not `get_well_image_source`.
             let (_, bytes) = crate::db::get_well_image(conn, &info.image_id).map_err(|e| e.to_string())?;
             blobs.push(bytes);
-            let span = info.depth_base.unwrap_or(info.depth_top) - info.depth_top;
-            counts.push(sample_count(span, spec.step));
+            let (span, planned) = &plans[&info.image_id];
+            spans.push(span.map(|s| vec![s[0], s[1]]));
+            lane_spans.push(planned.iter().map(|(l, _)| vec![l.start, l.end]).collect::<Vec<_>>());
+            // Each lane is sampled from ITS OWN interval, so a 3 ft barrel and a 1 ft part-filled
+            // one do not come back at the same sampling.
+            counts.push(
+                planned.iter().map(|(_, (t, b))| sample_count(b - t, spec.step)).collect::<Vec<_>>(),
+            );
         }
         let header = serde_json::json!({
             "axis": if spec.axis.eq_ignore_ascii_case("y") { "y" } else { "x" },
             "reverse": spec.reverse,
-            "lanes": lanes,
             "ids": batch.iter().map(|i| i.image_id.clone()).collect::<Vec<_>>(),
             "sizes": blobs.iter().map(|b| b.len()).collect::<Vec<_>>(),
+            "spans": spans,
+            "lane_spans": lane_spans,
             "counts": counts,
         });
         let out: ScanOut = {
@@ -638,21 +810,29 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
                 res.skipped.push(format!("{}: {}", info.name, e));
                 continue;
             }
-            let n = row.dark.len();
-            if n == 0 {
+            if row.dark.iter().all(Vec::is_empty) {
                 res.skipped.push(format!("{}: nothing to read", info.name));
                 continue;
             }
-            let top = info.depth_top;
-            let base = info.depth_base.unwrap_or(top);
-            for i in 0..n {
-                // Each sample sits at the MIDDLE of the slab it averaged, so a curve read at 2 cm
-                // is not shifted a centimetre shallow against the log it is compared with.
-                depths.push(top + (i as f32 + 0.5) / n as f32 * (base - top));
+            // One lane at a time, each placed on ITS OWN interval. That is the whole point of the
+            // lane table: a plate carrying four barrels with a preserved gap between two of them is
+            // four separate stretches of depth, and reading it as one continuous run would smear
+            // every sample below the gap.
+            let (_, planned) = &plans[&info.image_id];
+            for (k, (_, (top, base))) in planned.iter().enumerate() {
+                let n = row.dark.get(k).map(Vec::len).unwrap_or(0);
+                if n == 0 {
+                    continue;
+                }
+                for i in 0..n {
+                    // Each sample sits at the MIDDLE of the slab it averaged, so a curve read at
+                    // 2 cm is not shifted a centimetre shallow against the log it is compared with.
+                    depths.push(top + (i as f32 + 0.5) / n as f32 * (base - top));
+                }
+                cols[0].extend_from_slice(&row.dark[k]);
+                cols[1].extend_from_slice(&row.red[k]);
+                cols[2].extend_from_slice(&row.tex[k]);
             }
-            cols[0].extend_from_slice(&row.dark);
-            cols[1].extend_from_slice(&row.red);
-            cols[2].extend_from_slice(&row.tex);
             res.photographs += 1;
         }
     }
@@ -731,11 +911,25 @@ pub fn extract_core_log(conn: &Connection, spec: &CoreLogSpec) -> Result<CoreLog
             ));
         }
     }
-    if lanes > 1 {
+    let laid_out = wanted.iter().filter(|i| spec.layouts.contains_key(&i.image_id)).count();
+    let barrelled = wanted
+        .iter()
+        .filter(|i| plans[&i.image_id].1.iter().any(|(l, _)| l.declares_depth()))
+        .count();
+    if barrelled > 0 {
         res.notes.push(format!(
-            "Split into {lanes} equal lanes. A real core box has unequal rows and gaps between \
-             them, so this is an approximation - for a careful job, crop to one row at a time in \
-             Condition Core Photos and run this per row."
+            "{barrelled} photograph(s) were read as separate barrels, each on the depths you gave \
+             it. Nothing was assumed to run on between them, so a preserved interval or a lost \
+             length of core is a GAP in the curve rather than depth smeared across it."
+        ));
+    }
+    if lanes > 1 && laid_out < wanted.len() {
+        res.notes.push(format!(
+            "{} photograph(s) were split into {lanes} EQUAL lanes over one continuous interval. A \
+             real core box has unequal rows and gaps between them, so that is an approximation - \
+             use Detect columns to measure where the runs of core actually are, and give each one \
+             its own depths.",
+            wanted.len() - laid_out
         ));
     }
 
@@ -874,6 +1068,587 @@ fn resample_onto(src_depth: &[f32], src: &[f32], frame: &[f32]) -> Vec<f32> {
     }
     out
 }
+
+// ---------------------------------------------------------------------------
+// Finding the runs of core in a packed plate
+// ---------------------------------------------------------------------------
+
+/// A column narrower than this fraction of the picture is not a run of core. It is the depth
+/// ruler, a plate border or the edge of a caption box.
+///
+/// In PIXELS it would say what the scan can resolve; as a FRACTION it says what a run of core looks
+/// like on a page — the `min_pore_px` argument turned the other way round. Round on purpose: it is
+/// a starting point for a lay-out the user then adjusts, not a measurement.
+const MIN_LANE_FRAC: f32 = 0.02;
+
+/// What a detection pass found in one picture.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct LaneDetection {
+    /// In reading order, WITHOUT depths — those are the user's to supply, because nothing in the
+    /// pixels says what depth a column of rock is from.
+    pub lanes: Vec<Lane>,
+    /// The part of the down-core axis that is core, so the title block above and the caption below
+    /// are not read as the shallowest and deepest rock in the barrel.
+    pub span: [f32; 2],
+    /// The across-axis profile the decision was made from, decimated for drawing. Returned for the
+    /// same reason `registration.rs` returns its whole correlogram: four clean columns and a smear
+    /// the threshold happened to cut in four are the same answer and completely different
+    /// situations, and only the profile tells them apart.
+    pub profile: Vec<f32>,
+    /// Where the split fell on that profile, so it can be drawn as a line rather than described.
+    pub threshold: f32,
+    pub notes: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct DetectOut {
+    #[serde(default)]
+    lanes: Vec<[f32; 2]>,
+    #[serde(default)]
+    span: [f32; 2],
+    #[serde(default)]
+    profile: Vec<f32>,
+    #[serde(default)]
+    threshold: f32,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+/// Proposes where the runs of core are in ONE picture.
+///
+/// **It proposes and never applies.** The lay-out lands in an editable table and the user accepts
+/// it — the same discipline `registration.rs` follows, and for the same reason: a plate whose
+/// columns are separated by a pale grout line and a plate whose core is simply pale look identical
+/// to a threshold and completely different to a person.
+///
+/// **The depths are NOT guessed.** A column's position in the frame says nothing about what depth
+/// the rock came from; the plate states it in a caption this does not read. Detection finds the
+/// columns, the user types the barrels.
+///
+/// Reads the CONDITIONED copy, like the scan does, so what is detected is what will be measured.
+pub fn detect_core_lanes(
+    conn: &Connection,
+    image_id: &str,
+    axis: &str,
+    reverse: bool,
+) -> Result<LaneDetection, String> {
+    let python = find_python().ok_or("no Python interpreter found (see SANDIBUMI_PYTHON)")?;
+    let (_, bytes) = crate::db::get_well_image(conn, image_id).map_err(|e| e.to_string())?;
+    let header = serde_json::json!({
+        "axis": if axis.eq_ignore_ascii_case("y") { "y" } else { "x" },
+        "reverse": reverse,
+        "size": bytes.len(),
+        "min_frac": MIN_LANE_FRAC,
+    });
+
+    let mut cmd = Command::new(&python);
+    cmd.args(["-c", DETECT_RUNNER]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    hide_console(&mut cmd);
+    let mut child = cmd.spawn().map_err(|e| format!("failed to start python: {e}"))?;
+    {
+        let stdin = child.stdin.as_mut().ok_or("failed to open python stdin")?;
+        stdin.write_all(header.to_string().as_bytes()).map_err(|e| e.to_string())?;
+        stdin.write_all(b"\n").map_err(|e| e.to_string())?;
+        stdin.write_all(&bytes).map_err(|e| e.to_string())?;
+    }
+    let output = child.wait_with_output().map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr);
+        let last = err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("detection failed");
+        return Err(last.trim().to_string());
+    }
+    let out: DetectOut =
+        serde_json::from_slice(&output.stdout).map_err(|e| format!("bad detection result: {e}"))?;
+    if let Some(e) = out.error {
+        return Err(e);
+    }
+
+    let mut res = LaneDetection {
+        lanes: out
+            .lanes
+            .iter()
+            .map(|s| Lane { start: s[0], end: s[1], depth_top: None, depth_base: None })
+            .collect(),
+        span: out.span,
+        profile: out.profile,
+        threshold: out.threshold,
+        notes: Vec::new(),
+    };
+    if res.lanes.is_empty() {
+        res.notes.push(
+            "No run of core could be told from the background. If the picture is a cropped core \
+             box rather than a plate, one lane over the whole frame is the right answer and the \
+             table above already says so."
+                .into(),
+        );
+    } else {
+        res.notes.push(format!(
+            "Found {} run(s) of core. Now give each one the depths its caption states - nothing in \
+             the picture says what depth a column of rock came from, so this cannot guess them.",
+            res.lanes.len()
+        ));
+    }
+    // A run of core is a solid block; a plate whose columns are pale or whose background is grey
+    // fragments into slivers, and that is worth saying before the user trusts the table.
+    let widths: Vec<f32> = res.lanes.iter().map(Lane::width).collect();
+    if widths.len() > 1 {
+        let max = widths.iter().copied().fold(0.0f32, f32::max);
+        let min = widths.iter().copied().fold(f32::MAX, f32::min);
+        if max > 0.0 && min / max < 0.5 {
+            res.notes.push(format!(
+                "The runs are uneven - the narrowest is {:.0}% of the widest. On a plate whose \
+                 columns are the same width that means the split caught something else as well, or \
+                 cut one column in two. Check them against the picture before reading a trace.",
+                min / max * 100.0
+            ));
+        }
+    }
+    Ok(res)
+}
+
+const DETECT_RUNNER: &str = r#"
+import sys, io, json
+import numpy as np
+from PIL import Image
+
+hdr = json.loads(sys.stdin.buffer.readline())
+blob = sys.stdin.buffer.read(hdr["size"])
+
+def otsu(v):
+    # Two populations, one threshold, chosen without anybody typing a number: the split that
+    # minimises the variance inside each side. A plate's page and a plate's rock are exactly the
+    # two-population case this is for, and it re-derives itself on every picture, so a delivery
+    # shot under a dim lamp is not measured against another delivery's brightness.
+    lo, hi = float(v.min()), float(v.max())
+    if not (hi > lo):
+        return (lo + hi) / 2.0
+    counts, edges = np.histogram(v, bins=64, range=(lo, hi))
+    counts = counts.astype(np.float64)
+    mids = (edges[:-1] + edges[1:]) / 2.0
+    total = counts.sum()
+    if total <= 0:
+        return (lo + hi) / 2.0
+    w0 = np.cumsum(counts) / total
+    m0 = np.cumsum(counts * mids)
+    grand = m0[-1]
+    best, at = -1.0, (lo + hi) / 2.0
+    for k in range(len(mids) - 1):
+        if w0[k] <= 0 or w0[k] >= 1:
+            continue
+        mu0 = m0[k] / (w0[k] * total)
+        mu1 = (grand - m0[k]) / ((1 - w0[k]) * total)
+        between = w0[k] * (1 - w0[k]) * (mu0 - mu1) ** 2
+        if between > best:
+            best, at = between, float(edges[k + 1])
+    return at
+
+def runs(mask, min_len):
+    out, start = [], None
+    for i, on in enumerate(mask):
+        if on and start is None:
+            start = i
+        elif not on and start is not None:
+            if i - start >= min_len:
+                out.append((start, i))
+            start = None
+    if start is not None and len(mask) - start >= min_len:
+        out.append((start, len(mask)))
+    return out
+
+try:
+    im = Image.open(io.BytesIO(blob))
+    im.load()
+    a = np.asarray(im.convert("RGB"), dtype=np.float32) / np.float32(255.0)
+    if hdr.get("axis", "x") == "x":
+        a = np.transpose(a, (1, 0, 2))
+    if hdr.get("reverse"):
+        a = a[::-1]
+    lum = (a * np.asarray([0.2126, 0.7152, 0.0722], dtype=np.float32)).sum(axis=2)
+    h, w = lum.shape
+
+    # Core is DARKER than the page it is printed on and than the bench it is photographed against,
+    # so the across-axis profile of mean brightness is the thing to split. Mean rather than any
+    # texture measure because printed text and ruler ticks are textured too, and they are exactly
+    # what must not be read as rock.
+    prof = lum.mean(axis=0)
+    t = otsu(prof)
+    min_len = max(2, int(round(float(hdr.get("min_frac", 0.02)) * w)))
+    cols = runs(prof < t, min_len)
+
+    span = [0.0, 1.0]
+    if cols:
+        # Down-axis window, measured INSIDE the columns that were found: a title block spans the
+        # whole page, so measuring it over the full width would include the ruler and the margins
+        # and find nothing.
+        band = np.concatenate([lum[:, x0:x1] for x0, x1 in cols], axis=1)
+        rprof = band.mean(axis=1)
+        rt = otsu(rprof)
+        rows = runs(rprof < rt, max(2, int(round(0.02 * h))))
+        if rows:
+            # The LONGEST run, not the union: a caption box below the columns is also darker than
+            # the page, and unioning would stretch the barrel down into it.
+            y0, y1 = max(rows, key=lambda r: r[1] - r[0])
+            span = [y0 / h, y1 / h]
+
+    sys.stdout.write(json.dumps({
+        "lanes": [[x0 / w, x1 / w] for x0, x1 in cols],
+        "span": span,
+        # Decimated for drawing; the shape is what matters, not every column of a 4000px scan.
+        "profile": [float(x) for x in prof[:: max(1, w // 400)]],
+        "threshold": float(t),
+    }))
+except Exception as exc:
+    sys.stdout.write(json.dumps({"error": str(exc)}))
+"#;
+
+// ---------------------------------------------------------------------------
+// What this photograph needs doing to it
+// ---------------------------------------------------------------------------
+
+/// A proposed recipe for one picture, and why.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct RecipeAdvice {
+    pub image_id: String,
+    pub name: String,
+    pub recipe: CoreRecipe,
+    /// One line per setting, naming what was measured and what it implies. A recipe with no reasons
+    /// is a number nobody can argue with.
+    pub reasons: Vec<String>,
+    /// Measured and reported rather than acted on.
+    pub notes: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct AdviceRow {
+    image_id: String,
+    #[serde(default)]
+    neutral: Option<[f32; 3]>,
+    #[serde(default)]
+    neutral_frac: f32,
+    #[serde(default)]
+    median: f32,
+    #[serde(default)]
+    p5: f32,
+    #[serde(default)]
+    p95: f32,
+    #[serde(default)]
+    clipped_hi: f32,
+    #[serde(default)]
+    clipped_lo: f32,
+    #[serde(default)]
+    gradient: f32,
+    #[serde(default)]
+    saturation: f32,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct AdviceOut {
+    #[serde(default)]
+    results: Vec<AdviceRow>,
+}
+
+/// A mid-grey target for the median of a core photograph. Round, and deliberately below the 0.5 a
+/// grey card would sit at: rock is darker than a card, and pushing a slab up to card-grey blows out
+/// the tray and the labels around it.
+const TARGET_MEDIAN: f32 = 0.45;
+/// The spread between the 5th and 95th percentile a readable photograph has. Round again.
+const TARGET_SPREAD: f32 = 0.55;
+
+/// Measures a delivery and proposes conditioning for each picture.
+///
+/// **It proposes; it never applies.** Every value lands in the same controls the user would have
+/// moved by hand, with the measurement that produced it stated beside it, and Apply is still Apply.
+/// A recipe that arrives already baked is one nobody looked at.
+///
+/// **It reads the picture AS DELIVERED** — the kept import where there is one — because the advice
+/// is about what the photograph needs, and measuring an already-corrected copy would recommend
+/// correcting it twice.
+///
+/// **Detail is never recommended.** Clarity, Sharpen and Denoise rearrange a pixel's neighbours,
+/// which is what `CPHOTO_TEX` and `CPHOTO_DARK` are read from — local contrast roughly halves the
+/// darkness contrast the trace exists to measure. Where the picture would benefit the advice SAYS
+/// so and leaves the slider alone, so a user reaching for it does so knowing the cost. That is the
+/// difference between a photograph made readable for the eye and one still measurable.
+pub fn recommend_core_recipe(
+    conn: &Connection,
+    image_ids: &[String],
+) -> Result<Vec<RecipeAdvice>, String> {
+    let python = find_python().ok_or("no Python interpreter found (see SANDIBUMI_PYTHON)")?;
+    let mut out = Vec::with_capacity(image_ids.len());
+
+    for batch in image_ids.chunks(CHUNK) {
+        let mut blobs = Vec::with_capacity(batch.len());
+        let mut names = Vec::with_capacity(batch.len());
+        for id in batch {
+            // The import, not the conditioned copy: advice about a picture already corrected would
+            // correct it a second time.
+            let bytes = match crate::db::get_well_image_source(conn, id) {
+                Ok((_, b)) if !b.is_empty() => b,
+                _ => crate::db::get_well_image(conn, id).map_err(|e| e.to_string())?.1,
+            };
+            blobs.push(bytes);
+            names.push(id.clone());
+        }
+        let header = serde_json::json!({
+            "ids": names,
+            "sizes": blobs.iter().map(|b| b.len()).collect::<Vec<_>>(),
+        });
+        let mut cmd = Command::new(&python);
+        cmd.args(["-c", ADVISE_RUNNER]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        hide_console(&mut cmd);
+        let mut child = cmd.spawn().map_err(|e| format!("failed to start python: {e}"))?;
+        {
+            let stdin = child.stdin.as_mut().ok_or("failed to open python stdin")?;
+            stdin.write_all(header.to_string().as_bytes()).map_err(|e| e.to_string())?;
+            stdin.write_all(b"\n").map_err(|e| e.to_string())?;
+            for b in &blobs {
+                stdin.write_all(b).map_err(|e| e.to_string())?;
+            }
+        }
+        let output = child.wait_with_output().map_err(|e| e.to_string())?;
+        if !output.status.success() {
+            let err = String::from_utf8_lossy(&output.stderr);
+            let last = err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("advice failed");
+            return Err(last.trim().to_string());
+        }
+        let parsed: AdviceOut =
+            serde_json::from_slice(&output.stdout).map_err(|e| format!("bad advice result: {e}"))?;
+        for row in parsed.results {
+            out.push(advise_from(row));
+        }
+    }
+    Ok(out)
+}
+
+/// Turns one picture's measurements into a recipe and the reasons for it.
+///
+/// Split out of the subprocess call so the rules can be pinned without Pillow: every threshold here
+/// decides what a user is told about their own core photographs, and "it looked right on one plate"
+/// is not a test.
+fn advise_from(row: AdviceRow) -> RecipeAdvice {
+    let mut a = RecipeAdvice { image_id: row.image_id.clone(), name: String::new(), ..Default::default() };
+    if let Some(e) = row.error {
+        a.error = Some(e);
+        return a;
+    }
+
+    // ---- is this even a white-light photograph? -----------------------------
+    //
+    // A UV plate is a different measurement, not a badly exposed one, and every rule below is
+    // wrong on it. It is SUPPOSED to be nearly black — the dark is unlit rock, and "correcting"
+    // the exposure to a mid-grey median would lift the background until the fluorescence stopped
+    // standing out, which is the one thing the plate exists to show. There is also nothing neutral
+    // in the frame to balance against, by construction: a UV lamp is not white light, so a white
+    // balance would be an attempt to make a monochromatic source look like daylight.
+    //
+    // The test is the pair, not either half: very dark AND with essentially no neutral surface. A
+    // white-light photograph of dark rock still has a tray, a card or a page in it; a genuinely
+    // under-exposed one has the same, only dimmer.
+    if row.median.is_finite() && row.median < 0.20 && row.neutral_frac < 0.01 {
+        a.notes.push(format!(
+            "This looks like a UV plate rather than a white-light photograph - median brightness \
+             {:.2} and almost nothing neutral in the frame. No exposure or white balance is \
+             proposed, and that is deliberate: a UV plate is meant to be dark, the background IS \
+             the answer, and lifting it would drown the fluorescence it exists to show. A UV lamp \
+             is not white light, so there is nothing for a white balance to make neutral. \
+             CPHOTO_RED and CPHOTO_DARK read off this plate describe the fluorescence, not the \
+             lithology - keep the two lights in separate deliveries and read each for what it \
+             measures.",
+            row.median
+        ));
+        return a;
+    }
+
+    // ---- white balance ------------------------------------------------------
+    //
+    // The neutral is the brightest UNCLIPPED, LEAST COLOURED part of the picture: the tray, the
+    // scale card, the white putty, the page a plate is printed on. Not grey-world — averaging the
+    // whole frame to grey would treat a genuinely red-stained core as a colour cast and scrub the
+    // stain out, which is the same trap the thin-section correction avoids by anchoring on the
+    // matrix rather than on the mean.
+    match row.neutral {
+        Some(n) if row.neutral_frac >= 0.005 => {
+            let max = n[0].max(n[1]).max(n[2]);
+            if max > 1e-3 {
+                let gain = [max / n[0].max(1e-3), max / n[1].max(1e-3), max / n[2].max(1e-3)];
+                // Normalised so the LARGEST gain is 1: it can then only darken, and no channel is
+                // pushed past white and clipped, which would distort the hue of exactly the
+                // brightest pixels. The same rule the picked white balance follows.
+                let g = gain[0].max(gain[1]).max(gain[2]);
+                let gain = [gain[0] / g, gain[1] / g, gain[2] / g];
+                let spread = 1.0 - gain[0].min(gain[1]).min(gain[2]);
+                if spread > 0.02 {
+                    a.recipe.gain = Some(gain);
+                    a.reasons.push(format!(
+                        "White balance from the neutral {:.1}% of the picture, which reads \
+                         ({:.0}, {:.0}, {:.0}) rather than a grey - a {:.0}% cast. The correction \
+                         only darkens, so nothing is pushed past white.",
+                        row.neutral_frac * 100.0,
+                        n[0] * 255.0,
+                        n[1] * 255.0,
+                        n[2] * 255.0,
+                        spread * 100.0
+                    ));
+                } else {
+                    a.reasons.push(
+                        "The light is already neutral - the brightest unclipped part of the \
+                         picture is within 2% of grey, so no white balance is proposed."
+                            .into(),
+                    );
+                }
+            }
+        }
+        _ => a.notes.push(
+            "No neutral surface to balance against: almost nothing in this frame is both bright \
+             and uncoloured. Photograph the tray, a grey card or a strip of white putty in the \
+             frame, or pick a patch by hand - a white balance guessed from rock would take the \
+             rock's own colour out of it."
+                .into(),
+        ),
+    }
+
+    // ---- exposure -----------------------------------------------------------
+    if row.median.is_finite() && row.median > 1e-3 {
+        let stops = (TARGET_MEDIAN / row.median).log2();
+        if stops.abs() > 0.15 {
+            // Clamped: past a stop and a half in either direction the picture is not
+            // under-exposed, it is a photograph of something else, and lifting it that far only
+            // amplifies the noise.
+            let stops = stops.clamp(-1.5, 1.5);
+            a.recipe.exposure = (stops * 100.0).round() / 100.0;
+            a.reasons.push(format!(
+                "Exposure {:+.2} stops: the picture's median brightness is {:.2} against the {:.2} \
+                 a readable slab sits at.",
+                a.recipe.exposure, row.median, TARGET_MEDIAN
+            ));
+        }
+    }
+    if row.clipped_hi > 0.02 {
+        a.notes.push(format!(
+            "{:.0}% of the picture is pure white and cannot be recovered - a blown highlight has \
+             no detail left in it to bring back. Nothing here fixes that; it is a re-photograph.",
+            row.clipped_hi * 100.0
+        ));
+    }
+    if row.clipped_lo > 0.02 {
+        a.notes.push(format!(
+            "{:.0}% of the picture is pure black. Anything read there is a measurement of the \
+             shadow rather than of the rock.",
+            row.clipped_lo * 100.0
+        ));
+    }
+
+    // ---- contrast -----------------------------------------------------------
+    let spread = row.p95 - row.p5;
+    if spread.is_finite() && spread > 1e-3 && spread < TARGET_SPREAD * 0.8 {
+        // A flat photograph, which is what an old print or a scan through glass looks like. The
+        // proposal is proportional to how flat and capped well short of the maximum, because
+        // contrast applied hard is how a mudstone becomes pure black.
+        let want = ((TARGET_SPREAD / spread - 1.0) * 0.6).clamp(0.0, 0.6);
+        a.recipe.contrast = (want * 100.0).round() / 100.0;
+        a.reasons.push(format!(
+            "Contrast +{:.2}: the picture uses only {:.2} of the brightness range between its 5th \
+             and 95th percentile, against about {:.2} for a photograph with the rock's own \
+             variation still in it. This is the usual signature of an old print or a scan.",
+            a.recipe.contrast, spread, TARGET_SPREAD
+        ));
+    }
+
+    // ---- saturation ---------------------------------------------------------
+    if row.saturation.is_finite() && row.saturation < 0.06 {
+        a.notes.push(format!(
+            "This frame is nearly colourless (mean saturation {:.2}). If it is a UV plate that is \
+             right and CPHOTO_RED will say little about it; if it is a white-light photograph, the \
+             colour is gone and no slider brings it back.",
+            row.saturation
+        ));
+    }
+
+    // ---- and the one thing it will not do -----------------------------------
+    if row.gradient.is_finite() && row.gradient > 0.12 {
+        a.notes.push(format!(
+            "One end of this picture is {:.0}% brighter than the other - a lamp to one side. \
+             Clarity would even that out and make it far easier to READ, and it is deliberately \
+             not proposed: local contrast flattens roughly half of the long-wavelength darkness \
+             variation that CPHOTO_DARK measures, so a trace read off an equalised box and one \
+             read off a plain box are no longer on the same scale. Use it for the eye, not before \
+             a trace.",
+            row.gradient * 100.0
+        ));
+    }
+
+    if a.reasons.is_empty() && a.notes.is_empty() {
+        a.reasons.push(
+            "Nothing to change: the light is neutral, the exposure is where it should be and the \
+             picture uses its brightness range."
+                .into(),
+        );
+    }
+    a
+}
+
+const ADVISE_RUNNER: &str = r#"
+import sys, io, json
+import numpy as np
+from PIL import Image
+
+hdr = json.loads(sys.stdin.buffer.readline())
+blobs = [sys.stdin.buffer.read(n) for n in hdr["sizes"]]
+
+results = []
+for i, ident in enumerate(hdr["ids"]):
+    row = {"image_id": ident}
+    try:
+        im = Image.open(io.BytesIO(blobs[i]))
+        im.load()
+        im.thumbnail((900, 900))
+        a = np.asarray(im.convert("RGB"), dtype=np.float32) / np.float32(255.0)
+        lum = (a * np.asarray([0.2126, 0.7152, 0.0722], dtype=np.float32)).sum(axis=2)
+        flat = a.reshape(-1, 3)
+        fl = lum.reshape(-1)
+
+        row["median"] = float(np.median(fl))
+        row["p5"] = float(np.percentile(fl, 5))
+        row["p95"] = float(np.percentile(fl, 95))
+        row["clipped_hi"] = float((fl >= 0.99).mean())
+        row["clipped_lo"] = float((fl <= 0.01).mean())
+
+        mx = flat.max(axis=1)
+        mn = flat.min(axis=1)
+        sat = np.where(mx > 1e-6, (mx - mn) / np.maximum(mx, 1e-6), 0.0)
+        row["saturation"] = float(sat.mean())
+
+        # The neutral patch: bright, not clipped, and barely coloured. Both conditions matter - the
+        # brightest pixels alone would be the blown specular on a wet slab, and the least coloured
+        # alone would be the shadow under the tray.
+        ok = (fl > np.percentile(fl, 80)) & (fl < 0.99) & (sat < 0.12)
+        row["neutral_frac"] = float(ok.mean())
+        if ok.sum() >= 32:
+            # MEDIAN, not mean: one dust speck or one label is not the surface that was pointed at.
+            row["neutral"] = [float(x) for x in np.median(flat[ok], axis=0)]
+
+        # How much brighter one end is than the other, along the LONG axis - which is the way a
+        # core box is lit from one side. Fifths rather than the extreme rows, so a dark border does
+        # not read as a gradient.
+        if lum.shape[0] >= lum.shape[1]:
+            band = lum
+        else:
+            band = lum.T
+        n = band.shape[0]
+        k = max(1, n // 5)
+        first, last = float(band[:k].mean()), float(band[-k:].mean())
+        hi = max(first, last)
+        row["gradient"] = float(abs(first - last) / hi) if hi > 1e-6 else 0.0
+    except Exception as exc:
+        row["error"] = str(exc)
+    results.append(row)
+
+sys.stdout.write(json.dumps({"results": results}))
+"#;
 
 /// The dataset depth strips are written to, unless the caller names another.
 pub const STRIP_DATASET: &str = "CORE STRIP";
@@ -1168,14 +1943,15 @@ from PIL import Image
 hdr = json.loads(sys.stdin.buffer.readline())
 blobs = [sys.stdin.buffer.read(n) for n in hdr["sizes"]]
 axis = hdr.get("axis", "x")
-lanes = max(1, int(hdr.get("lanes") or 1))
 reverse = bool(hdr.get("reverse"))
 
 results = []
 for i, ident in enumerate(hdr["ids"]):
     row = {"image_id": ident}
     try:
-        want = int(hdr["counts"][i])
+        counts = hdr["counts"][i]
+        spans = hdr["lane_spans"][i]
+        window = hdr["spans"][i]
         im = Image.open(io.BytesIO(blobs[i]))
         im.load()
         a = np.asarray(im.convert("RGB"), dtype=np.float32) / np.float32(255.0)
@@ -1184,41 +1960,54 @@ for i, ident in enumerate(hdr["ids"]):
         if axis == "x":
             a = np.transpose(a, (1, 0, 2))
         if reverse:
-            # BOTH axes, which is a 180-degree rotation of the frame - because that is what
-            # "photographed deepest end first" physically is. Reversing only the down-core axis
-            # mirrors each row but leaves the ROWS in their original order, so on a four-row box
-            # the deepest row would still be read first and the trace would come back interleaved:
-            # each row internally right, the rows themselves upside down. On a single-lane strip the
-            # two are identical, which is exactly why this went unnoticed - and a per-slab mean or
-            # standard deviation does not care which way the across-core axis runs, so reversing it
-            # as well changes nothing except the lane order it is about to be cut into.
-            a = a[::-1, ::-1]
-        # Lanes are cut on the ACROSS axis and stacked in order, which is what turns a four-row core
-        # box into one continuous trace.
+            # The DOWN-core axis only. The lane ORDER is the caller's job: it hands the spans over
+            # already in reading order, having reversed them itself where the order is what places
+            # the barrels. That is equivalent to the 180-degree rotation this used to do, because a
+            # per-slab mean or standard deviation does not care which way the ACROSS-core axis runs
+            # - and it is the only version that survives explicit lane spans, which are stated on
+            # the picture as the user sees it and would point at the wrong column in a mirrored one.
+            a = a[::-1]
         h, w = a.shape[0], a.shape[1]
-        edge = w // lanes
-        parts = [a[:, k * edge:(k + 1) * edge] for k in range(lanes)] if lanes > 1 else [a]
-        a = np.concatenate(parts, axis=0) if lanes > 1 else a
+        # The window is the part of the DOWN-core axis that is actually core. A delivered plate
+        # carries a title block above the columns and a caption below them, and read end to end
+        # those become the shallowest and deepest samples of the barrel.
+        if window:
+            lo = int(round(max(0.0, min(1.0, float(window[0]))) * h))
+            hi = int(round(max(0.0, min(1.0, float(window[1]))) * h))
+            if hi - lo >= 2:
+                a = a[lo:hi]
+                h = a.shape[0]
 
-        n = a.shape[0]
-        want = max(1, min(want, n))
-        # Slab edges, so every pixel belongs to exactly one sample and none is counted twice.
-        edges = np.linspace(0, n, want + 1).astype(np.int64)
         lum = (a * np.asarray([0.2126, 0.7152, 0.0722], dtype=np.float32)).sum(axis=2)
         # Normalised redness: (R-G)/(R+G). Illumination cancels in the ratio, so it survives an
         # uneven lamp far better than a raw channel would.
         denom = a[:, :, 0] + a[:, :, 1] + np.float32(1e-6)
         red = (a[:, :, 0] - a[:, :, 1]) / denom
 
+        # Each lane is read SEPARATELY and returned separately, because each is its own barrel with
+        # its own depths. Concatenating them here would throw away the one thing the caller needs to
+        # place them.
         dark, redv, tex = [], [], []
-        for k in range(want):
-            lo, hi = edges[k], max(edges[k] + 1, edges[k + 1])
-            sl = lum[lo:hi]
-            dark.append(float(1.0 - sl.mean()))
-            redv.append(float(red[lo:hi].mean()))
-            # Spread ACROSS the core within the slab: laminated or conglomeratic rock scatters,
-            # a clean massive sand does not.
-            tex.append(float(sl.std()))
+        for k, sp in enumerate(spans):
+            x0 = int(round(max(0.0, min(1.0, float(sp[0]))) * w))
+            x1 = int(round(max(0.0, min(1.0, float(sp[1]))) * w))
+            if x1 - x0 < 1:
+                dark.append([]); redv.append([]); tex.append([])
+                continue
+            want = max(1, min(int(counts[k]), h))
+            # Slab edges, so every pixel belongs to exactly one sample and none is counted twice.
+            edges = np.linspace(0, h, want + 1).astype(np.int64)
+            L, R = lum[:, x0:x1], red[:, x0:x1]
+            d, rv, tx = [], [], []
+            for s in range(want):
+                lo, hi = edges[s], max(edges[s] + 1, edges[s + 1])
+                sl = L[lo:hi]
+                d.append(float(1.0 - sl.mean()))
+                rv.append(float(R[lo:hi].mean()))
+                # Spread ACROSS the core within the slab: laminated or conglomeratic rock scatters,
+                # a clean massive sand does not.
+                tx.append(float(sl.std()))
+            dark.append(d); redv.append(rv); tex.append(tx)
         row["dark"] = dark
         row["red"] = redv
         row["tex"] = tex
@@ -1493,6 +2282,290 @@ sys.stdout.write(json.dumps({"results": results}))
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A stand-in picture, so the lane rules can be pinned without a database or Pillow.
+    fn plate(top: f32, base: Option<f32>) -> crate::db::ImageInfo {
+        crate::db::ImageInfo {
+            image_id: "i1".into(),
+            dataset: "CORE PHOTO".into(),
+            set_name: "RAW".into(),
+            depth_top: top,
+            depth_base: base,
+            name: "PLATE 1a".into(),
+            caption: None,
+            mime: "image/jpeg".into(),
+            width: 1000,
+            height: 1400,
+            src_width: None,
+            src_height: None,
+            source_path: None,
+            printable: true,
+            bytes: 1,
+            fov_um: None,
+            prepared: String::new(),
+            stain: String::new(),
+        }
+    }
+
+    fn spec_with(lanes: u32, layout: Option<PlateLayout>) -> CoreLogSpec {
+        let mut layouts = std::collections::HashMap::new();
+        if let Some(l) = layout {
+            layouts.insert("i1".to_string(), l);
+        }
+        CoreLogSpec {
+            well_id: "w1".into(),
+            dataset: "CORE PHOTO".into(),
+            axis: "y".into(),
+            reverse: false,
+            lanes,
+            layouts,
+            step: 0.02,
+            compare_curve: None,
+            write: false,
+        }
+    }
+
+    /// The four columns of a core-display plate are four BARRELS, and the whole reason the lane
+    /// table carries depths is that they need not run on from each other. A plate with a preserved
+    /// interval between column two and column three must come back as two stretches of depth with a
+    /// gap, never as twelve continuous feet.
+    #[test]
+    fn each_column_of_a_plate_keeps_its_own_barrel_depths() {
+        let lane = |a: f32, b: f32, t: f32, base: f32| Lane {
+            start: a,
+            end: b,
+            depth_top: Some(t),
+            depth_base: Some(base),
+        };
+        let layout = PlateLayout {
+            span: Some([0.15, 0.92]),
+            lanes: vec![
+                lane(0.20, 0.35, 2485.0, 2488.0),
+                lane(0.40, 0.55, 2488.0, 2491.0),
+                // The gap: 2491-2494 was preserved and never photographed.
+                lane(0.60, 0.75, 2494.0, 2497.0),
+                // A part-filled last barrel — shorter rock in a full-width column.
+                lane(0.80, 0.95, 2497.0, 2498.0),
+            ],
+        };
+        let (span, planned) = plan_lanes(&plate(2485.0, Some(2498.0)), &spec_with(4, Some(layout)))
+            .expect("a fully labelled plate plans");
+        assert_eq!(span, Some([0.15, 0.92]), "the header and footer are excluded from the read");
+        let got: Vec<(f32, f32)> = planned.iter().map(|(_, iv)| *iv).collect();
+        assert_eq!(
+            got,
+            vec![(2485.0, 2488.0), (2488.0, 2491.0), (2494.0, 2497.0), (2497.0, 2498.0)],
+            "every barrel is placed where it was labelled and the preserved interval stays a gap"
+        );
+        // The gap is the point: nothing is placed between 2491 and 2494.
+        assert!(
+            !got.iter().any(|(t, b)| *t < 2494.0 && *b > 2491.0),
+            "no sample may be placed across the preserved interval"
+        );
+        // And the part-filled column is a 1 ft barrel, not a quarter of the plate's span.
+        assert!((got[3].1 - got[3].0 - 1.0).abs() < 1e-4, "a short column is a short barrel");
+    }
+
+    /// Half a plate labelled is refused rather than half-inferred. The only way to place an
+    /// unlabelled column between two labelled ones is to assume the core runs on without a break —
+    /// which is exactly what a plate carrying a preserved interval disproves, so the app must not
+    /// assume it on the user's behalf.
+    #[test]
+    fn a_half_labelled_plate_is_refused_rather_than_guessed() {
+        let layout = PlateLayout {
+            span: None,
+            lanes: vec![
+                Lane { start: 0.0, end: 0.25, depth_top: Some(2485.0), depth_base: Some(2488.0) },
+                Lane { start: 0.25, end: 0.5, depth_top: None, depth_base: None },
+            ],
+        };
+        let err = plan_lanes(&plate(2485.0, Some(2491.0)), &spec_with(2, Some(layout)))
+            .expect_err("a mixed lane list is refused");
+        assert!(err.contains("1 of its 2 columns"), "the refusal counts them: {err}");
+        assert!(err.contains("without a break"), "and says why guessing is not on offer: {err}");
+    }
+
+    /// The fall-back must stay byte-identical for every core-box run that existed before lanes did:
+    /// equal lanes over one interval, divided in equal parts, read in order.
+    #[test]
+    fn equal_lanes_over_one_interval_are_unchanged() {
+        let (span, planned) = plan_lanes(&plate(100.0, Some(104.0)), &spec_with(4, None)).unwrap();
+        assert_eq!(span, None);
+        let got: Vec<(f32, f32)> = planned.iter().map(|(_, iv)| *iv).collect();
+        assert_eq!(got, vec![(100.0, 101.0), (101.0, 102.0), (102.0, 103.0), (103.0, 104.0)]);
+        assert!((planned[0].0.start - 0.0).abs() < 1e-6 && (planned[3].0.end - 1.0).abs() < 1e-6);
+    }
+
+    /// A box photographed deepest-end-first is read from the far lane back — the ORDER is what
+    /// places the barrels when nothing else does. Where each lane carries its own depths the order
+    /// carries no information and must be left alone, or a labelled plate would be silently
+    /// re-ordered by a checkbox that no longer means anything for it.
+    #[test]
+    fn reversing_an_unlabelled_plate_reorders_it_and_a_labelled_one_is_left_alone() {
+        let mut spec = spec_with(2, None);
+        spec.reverse = true;
+        let (_, planned) = plan_lanes(&plate(100.0, Some(102.0)), &spec).unwrap();
+        assert!(
+            (planned[0].0.start - 0.5).abs() < 1e-6,
+            "the far lane is read first, so it takes the shallow interval"
+        );
+        assert_eq!(planned[0].1, (100.0, 101.0));
+
+        let layout = PlateLayout {
+            span: None,
+            lanes: vec![
+                Lane { start: 0.0, end: 0.5, depth_top: Some(100.0), depth_base: Some(101.0) },
+                Lane { start: 0.5, end: 1.0, depth_top: Some(101.0), depth_base: Some(102.0) },
+            ],
+        };
+        let mut spec = spec_with(2, Some(layout));
+        spec.reverse = true;
+        let (_, planned) = plan_lanes(&plate(100.0, Some(102.0)), &spec).unwrap();
+        assert!((planned[0].0.start - 0.0).abs() < 1e-6, "a labelled plate keeps its stated order");
+        assert_eq!(planned[0].1, (100.0, 101.0));
+    }
+
+    /// A picture with no base depth used to be refused outright. It still is when nothing states
+    /// where its core came from — but a plate whose columns each carry their own barrel has said
+    /// so, and must be readable without also typing an envelope nobody uses.
+    #[test]
+    fn a_plate_whose_columns_carry_depths_needs_no_interval_of_its_own() {
+        let layout = PlateLayout {
+            span: None,
+            lanes: vec![Lane {
+                start: 0.0,
+                end: 1.0,
+                depth_top: Some(2485.0),
+                depth_base: Some(2488.0),
+            }],
+        };
+        let (_, planned) = plan_lanes(&plate(2485.0, None), &spec_with(1, Some(layout))).unwrap();
+        assert_eq!(planned[0].1, (2485.0, 2488.0));
+
+        let err = plan_lanes(&plate(2485.0, None), &spec_with(1, None)).expect_err("otherwise no");
+        assert!(err.contains("no base depth"), "{err}");
+    }
+
+    /// The advisor's job is to hand back settings a user can argue with. Two rules are pinned here
+    /// because both are silent when wrong: a white balance must be normalised so it can only
+    /// DARKEN (pushing a channel past white clips exactly the brightest pixels and twists their
+    /// hue), and local contrast must never be proposed, however much the picture would benefit —
+    /// it flattens the very darkness variation `CPHOTO_DARK` is read from.
+    #[test]
+    fn the_advisor_only_darkens_and_never_reaches_for_local_contrast() {
+        let a = advise_from(AdviceRow {
+            image_id: "i1".into(),
+            // A strongly blue-cast neutral: the red channel is the one that has to come down.
+            neutral: Some([0.60, 0.72, 0.90]),
+            neutral_frac: 0.10,
+            median: 0.30,
+            p5: 0.20,
+            p95: 0.45,
+            clipped_hi: 0.0,
+            clipped_lo: 0.0,
+            // One end of the box half again as bright as the other — the case Clarity is for.
+            gradient: 0.35,
+            saturation: 0.20,
+            error: None,
+        });
+        let g = a.recipe.gain.expect("a cast that large is corrected");
+        assert!(g.iter().all(|x| *x <= 1.0 + 1e-6), "no gain above 1: {g:?}");
+        assert!((g.iter().copied().fold(0.0f32, f32::max) - 1.0).abs() < 1e-6, "one channel is 1");
+        // Blue is the channel the cast has over-represented, so blue is the one pulled down and the
+        // weakest channel keeps its 1. Written out because the arithmetic reads the other way at a
+        // glance — the gain is the RECIPROCAL of how bright the channel already is.
+        assert!(g[2] < g[0], "the strongest channel is the one pulled down: {g:?}");
+        assert!((g[0] - 1.0).abs() < 1e-6, "and the weakest keeps its 1: {g:?}");
+
+        assert_eq!(a.recipe.clarity, 0.0, "local contrast is never proposed");
+        assert_eq!(a.recipe.sharpen, 0.0);
+        assert_eq!(a.recipe.denoise, 0.0);
+        assert!(
+            a.notes.iter().any(|n| n.contains("Clarity") && n.contains("CPHOTO_DARK")),
+            "but the gradient is named, with what using it would cost: {:?}",
+            a.notes
+        );
+        assert!(a.recipe.exposure > 0.0, "an under-exposed picture is lifted");
+        assert!(a.recipe.contrast > 0.0, "and a flat one is opened up");
+        assert!(a.reasons.len() >= 3, "every value carries its reason: {:?}", a.reasons);
+    }
+
+    /// A UV plate is a different measurement, not a badly exposed one. Every white-light rule is
+    /// wrong on it — and wrong in the direction that destroys the answer, because lifting the
+    /// exposure to a mid-grey median drowns the fluorescence the plate exists to show. Pinned
+    /// because the advisor would otherwise hand out confident, damaging advice on half of a
+    /// delivery that ships both lights.
+    #[test]
+    fn a_uv_plate_is_recognised_rather_than_corrected_like_a_dark_one() {
+        let uv = advise_from(AdviceRow {
+            image_id: "i1".into(),
+            neutral: None,
+            neutral_frac: 0.0,
+            median: 0.07,
+            p5: 0.01,
+            p95: 0.35,
+            clipped_hi: 0.0,
+            clipped_lo: 0.10,
+            gradient: 0.0,
+            saturation: 0.55,
+            error: None,
+        });
+        assert!(uv.recipe.is_identity(), "nothing is proposed for a UV plate: {:?}", uv.recipe);
+        assert!(
+            uv.notes.iter().any(|n| n.contains("UV plate") && n.contains("drown")),
+            "and it says why: {:?}",
+            uv.notes
+        );
+
+        // The control: an under-exposed WHITE-LIGHT photograph is just as dark but still has a tray
+        // or a card in the frame, and that one does get lifted. Without this the test above would
+        // pass on an advisor that had simply given up on every dark picture.
+        let dim = advise_from(AdviceRow {
+            neutral: Some([0.55, 0.55, 0.55]),
+            neutral_frac: 0.08,
+            ..AdviceRow {
+                image_id: "i2".into(),
+                neutral: None,
+                neutral_frac: 0.0,
+                median: 0.07,
+                p5: 0.01,
+                p95: 0.35,
+                clipped_hi: 0.0,
+                clipped_lo: 0.10,
+                gradient: 0.0,
+                saturation: 0.55,
+                error: None,
+            }
+        });
+        assert!(dim.recipe.exposure > 0.5, "a dim white-light frame is still lifted: {:?}", dim.recipe);
+    }
+
+    /// A white balance guessed off rock would take the rock's own colour out of it — a red-stained
+    /// core photographed with nothing neutral in frame would be "corrected" until the stain was
+    /// gone. So with no neutral surface the advisor declines and says what to photograph.
+    #[test]
+    fn with_nothing_neutral_in_frame_the_advisor_declines_to_balance() {
+        let a = advise_from(AdviceRow {
+            image_id: "i1".into(),
+            neutral: None,
+            neutral_frac: 0.0,
+            median: 0.45,
+            p5: 0.15,
+            p95: 0.75,
+            clipped_hi: 0.0,
+            clipped_lo: 0.0,
+            gradient: 0.0,
+            saturation: 0.3,
+            error: None,
+        });
+        assert!(a.recipe.gain.is_none(), "nothing is invented");
+        assert!(a.recipe.is_identity(), "and nothing else was needed: {:?}", a.recipe);
+        assert!(
+            a.notes.iter().any(|n| n.contains("grey card") || n.contains("white putty")),
+            "the fix is named: {:?}",
+            a.notes
+        );
+    }
 
     /// A recipe that changes nothing must be recognisable without decoding a picture, because that
     /// is what decides between baking a second JPEG pass and restoring the import.
@@ -1903,6 +2976,7 @@ mod tests {
             axis: "y".into(),
             reverse: false,
             lanes: 1,
+            layouts: Default::default(),
             step: 0.05,
             compare_curve: Some("GR".into()),
             write: false,
@@ -2016,6 +3090,7 @@ mod tests {
             axis: "x".into(),
             reverse,
             lanes: 4,
+            layouts: Default::default(),
             step: 0.5,
             compare_curve: None,
             write: false,
@@ -2130,6 +3205,7 @@ mod tests {
                     axis: axis.into(),
                     reverse: false,
                     lanes,
+                    layouts: Default::default(),
                     step: 0.1,
                     compare_curve: None,
                     write: false,
@@ -2319,6 +3395,7 @@ mod tests {
             axis: "y".into(),
             reverse,
             lanes: 1,
+            layouts: Default::default(),
             step: 0.05,
             compare_curve: Some("GR".into()),
             write: false,

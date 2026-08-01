@@ -7,6 +7,55 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-01 — A four-column core plate, its own Photo Log tool, and a launch screen
+
+From the whole-core delivery you pointed me at. Two findings before anything else:
+
+- **It arrives as PDF**, one file per core, pages alternating white light (plate `1a`) and UV
+  (plate `1b`). Nothing in the app can import a PDF yet — that is the first thing standing
+  between this suite and your rock, and it is the next increment I would do. Plan in
+  `docs/plan_core_photo.md`.
+- **Each page is four columns of core, each its own barrel**, with `PRESERVED` gaps printed
+  between them and a short last column where recovery ran out. Splitting that into four equal
+  parts of one span — all the old "rows of core" setting could do — puts every sample below the
+  first gap at the wrong depth.
+
+- [ ] **Advance ▸ Core Imaging ▸ Photo Log…** is a NEW tool: reading the trace and building depth
+      strips moved out of Condition Core Photos, as you asked. Conditioning is done once per
+      delivery; a trace is read, checked against GR and read again.
+- [ ] **Detect columns** measures where the runs of core are and proposes them — it does not
+      apply anything, and it never guesses a depth, because nothing in the picture says what depth
+      a column of rock came from. The proposal lands in a table you edit, drawn over the picture.
+- [ ] **Each column takes its own depth top and base.** A preserved interval stays a GAP in the
+      curve instead of depth smeared across it, and a part-filled last column is a short barrel
+      rather than a quarter of the plate.
+- [ ] **Half a plate labelled is refused, as you type**, not after a run: placing the blank
+      columns would mean assuming the core runs on without a break, which is exactly what the
+      preserved interval on the same page disproves. Fill them all in, or clear them all.
+- [ ] The column table is saved with the project, so working through a delivery plate by plate
+      does not mean retyping it. The filmstrip tile says which plates are done.
+- [ ] Nothing changed for an ordinary core-box photograph: with no column table it is still
+      equal lanes over the picture's own interval, read in order.
+- [ ] **Condition Core Photos gains "Recommend conditioning"** — it measures the picture and
+      proposes a white balance, exposure and contrast, with the measurement behind each one
+      written out. Nothing is applied; Apply is still Apply, and your crop, rotation and corners
+      are never touched. "Recommend for the delivery" also tells you whether the run was shot
+      under one light or not, which is the question behind "apply this look to the whole run".
+- [ ] **It will not recommend Clarity, Sharpen or Denoise** even where the picture would clearly
+      benefit — it says so instead, and says what it would cost: local contrast roughly halves the
+      darkness contrast the trace is reading. Use them for the eye, not before a trace.
+- [ ] **A UV plate is recognised and left alone.** It is meant to be dark and there is nothing
+      neutral in it to balance against, so exposure and white balance are declined by name — a
+      lift would drown the fluorescence the plate exists to show. A dim white-light frame with a
+      tray in it still gets lifted, so it is not just giving up on dark pictures.
+- [ ] **A launch screen**: portrait card, artwork in our own colours, the mark, "SandiBumi 2026 ·
+      v0.1.0" and the copyright. It only fills the wait that already exists — it appears after
+      0.4 s so a fast open never flashes it, and it disappears the instant the project is open.
+      It cannot make a start slower.
+- [ ] Your UV question is answered as a plan rather than as code: `docs/plan_core_photo.md` §4
+      covers a fluorescence measure off the UV plate, a discrete sand/shale curve, and the
+      "unfold" shear for dipping beds — with three questions for you at the end.
+
 ## 2026-08-01 — Every remaining tool that popped up is now a pane (your sweep)
 
 You asked me to check whether those tools still pop up and make them panes. Six dialogs,

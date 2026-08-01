@@ -355,6 +355,7 @@ export class Workspace {
       "sep",
       ["Register Core Depth", () => this.openDepthReg(group)],
       ["Condition Core Photos", () => this.openCoreCondition("core", group)],
+      ["Photo Log (core → curves)", () => this.openCoreTrace(group)],
       ["Condition Plates", () => this.openCoreCondition("plate", group)],
       ["Plate Details", () => this.openPlateDetails(group)],
       ["Calibrate RtC", () => this.openRtcFit(group)],
@@ -560,6 +561,12 @@ export class Workspace {
           subject === "plate" ? "plate conditioning" : "core photo conditioning",
         );
       }
+      case "coreTrace":
+        return this.asyncPane(
+          "dock-core-trace",
+          () => import("./coreTraceDialog").then((m) => m.buildCoreTraceContent()),
+          "photo log",
+        );
       case "depthReg":
         return this.asyncPane(
           "dock-depth-reg",
@@ -1523,6 +1530,10 @@ export class Workspace {
       subject === "plate" ? "Condition Plates" : "Condition Core Photos",
       group,
     );
+  }
+
+  openCoreTrace(group?: DockviewGroupPanel): void {
+    this.openSingleton("coreTrace", "coreTrace", "Photo Log (core → curves)", group);
   }
 
   openDepthReg(group?: DockviewGroupPanel): void {

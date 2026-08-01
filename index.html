@@ -378,13 +378,24 @@
                  depth strips all produce evidence. They sit with the other in-house methods. -->
             <div class="ribbon-group">
               <div class="ribbon-btn-row">
-                <button id="condition-core-btn" class="ribbon-btn" title="Straighten, crop and colour-correct a core slab photograph, read CPHOTO darkness/redness/texture traces off it, and build depth strips for the log view — judged on the picture, and always reversible">
+                <button id="condition-core-btn" class="ribbon-btn" title="Straighten, crop and colour-correct a core slab photograph, and have the app measure what it needs and say why — judged on the picture, and always reversible">
                   <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                     <rect x="2.5" y="4.5" width="15" height="11" rx="1.5"/>
                     <path d="M2.5 12.5 6.5 9l3 2.5L13 7.5l4.5 4"/>
                     <circle cx="6.5" cy="7.5" r="1.1" fill="currentColor" stroke="none"/>
                   </svg>
                   <span class="ribbon-label">Core Photos…</span>
+                </button>
+                <!-- Its own tool, not a section of the conditioning workspace (Jauhar, 2026-08-01):
+                     conditioning is done once per delivery and finished, a trace is read, checked
+                     against GR, re-laid-out and read again. -->
+                <button id="core-trace-btn" class="ribbon-btn" title="Read CPHOTO darkness/redness/texture down the core and build depth strips. Handles a packed core-display plate: detect the columns, give each barrel its own depths.">
+                  <svg class="ribbon-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="2.5" y="3" width="4" height="14" rx="1"/>
+                    <path d="M10 3.5c1.6 1.8-1.6 3.4 0 5.2s-1.6 3.4 0 5.2 -1.6 2.1 0 2.6"/>
+                    <path d="M14.5 3.5c1.6 1.8-1.6 3.4 0 5.2s-1.6 3.4 0 5.2 -1.6 2.1 0 2.6"/>
+                  </svg>
+                  <span class="ribbon-label">Photo Log…</span>
                 </button>
               </div>
               <span class="ribbon-group-caption">Core Imaging</span>

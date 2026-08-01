@@ -1178,6 +1178,7 @@ textarea {
 .dock-pore-area,
 .dock-plate-details,
 .dock-core-condition,
+.dock-core-trace,
 .dock-depth-reg,
 .dock-rtc-fit,
 .dock-sfactor-fit {
@@ -5833,6 +5834,7 @@ input[type="number"].num-editing:focus {
 .dock-pore-area .module-pane,
 .dock-plate-details .module-pane,
 .dock-core-condition .module-pane,
+.dock-core-trace .module-pane,
 .dock-depth-reg .module-pane,
 .dock-mineral-class .module-pane {
   max-width: none;
@@ -6406,10 +6408,13 @@ input[type="number"].num-editing:focus {
   background: var(--bg-app);
 }
 
+/* A PORTRAIT launch card — artwork above, identity below — the shape every subsurface
+   application uses, and the one that reads as "the product is starting" rather than as a dialog.
+   Fixed width rather than a viewport fraction: a splash is a poster, and a poster that reflows
+   with the window is not one. */
 .boot-card {
-  min-width: 320px;
-  max-width: 68vw;
-  padding: 30px 36px;
+  width: 380px;
+  overflow: hidden;
   text-align: center;
   background: var(--bg-panel);
   border: 1px solid var(--border);
@@ -6417,16 +6422,47 @@ input[type="number"].num-editing:focus {
   box-shadow: var(--el-3);
 }
 
+/* The artwork is in the BRAND's colours and never the accent, so a client skin cannot re-roll the
+   launch screen into the operator's own palette — the same rule the wordmark follows. */
+.boot-art {
+  height: 168px;
+  border-bottom: 1px solid var(--border);
+}
+.boot-art svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.boot-body {
+  padding: 18px 30px 16px;
+}
+
 /* Organic 1g: the launch identity — rounded logo, display-face wordmark. */
 .boot-logo {
-  border-radius: 20px;
-  margin-bottom: 8px;
+  border-radius: 14px;
+  margin-bottom: 6px;
+}
+
+.boot-foot {
+  margin-top: 16px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+.boot-version {
+  font-weight: 600;
+  color: var(--text);
+}
+.boot-copy {
+  margin-top: 2px;
 }
 
 .boot-title {
   font-family: var(--font-heading);
   font-weight: 400;
-  font-size: 34px;
+  font-size: 30px;
   line-height: 1.1;
   letter-spacing: -0.015em;
   color: var(--brand);

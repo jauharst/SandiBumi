@@ -2859,6 +2859,101 @@ What the foundation established, and the rules that keep it coherent:
   `overflow: hidden`; every floating menu is `position: fixed` and escapes — keep new
   menus that way. The dock gap lives in `workspace.ts` (dockview theme `gap: 7`), not CSS.
 
+## A packed core-display plate, and the conversion as its own tool (2026-08-01)
+
+A whole-core delivery is not a folder of core-box photographs. It is a **core-display plate**: four
+COLUMNS of core side by side on a page, each column a separate barrel labelled with its own top and
+base, with preserved intervals and part-filled last columns between them, a depth ruler down the
+left, a title block above and a caption below. Read as one continuous span divided into four equal
+parts — all the old lane count could do — every sample below the first gap lands at the wrong depth.
+
+**`extract_core_log` now reads LANES, and a lane is a barrel.** `Lane {start, end, depth_top,
+depth_base}` carries fractions of the across-core axis plus the barrel's own interval;
+`PlateLayout {span, lanes}` adds the fraction of the down-core axis that is core, so the title block
+is not read as the shallowest rock in the well. Both are per PICTURE (`CoreLogSpec.layouts`, keyed
+by image id), because every plate of a delivery carries different barrels, and they are held by the
+frontend as a `corelanes` document — the `platelabels` precedent: a list anyone can read and correct
+beats a blob.
+
+Four rules, all in `plan_lanes`, which is deliberately split out so they can be pinned without a
+Python subprocess:
+
+- **Depths are ALL-OR-NOTHING across a picture's lanes.** Half a plate labelled is REFUSED, because
+  the only way to place the unlabelled columns is to assume the core runs on without a break — which
+  is exactly what the preserved interval on the same plate disproves. The dialog says so as you
+  type, not after a run.
+- **With no depths the picture's interval is shared out by lane LENGTH**, not into equal parts. On
+  equal lanes those are the same number, which is what keeps every pre-set-era core-box run
+  byte-identical; on a detected lay-out with a part-filled last column, only the length version is
+  still true.
+- **`reverse` flips the down axis and reverses the lane ORDER, rather than mirroring the frame.**
+  The old 180° rotation was equivalent for these three measures (a per-slab mean or standard
+  deviation does not care which way the across axis runs) and is the version that survives explicit
+  spans, which are stated on the picture as the user sees it. The order is only reversed where no
+  lane carries depths — where they do, the order carries no information and reversing it would
+  silently re-order a labelled plate.
+- **A plate whose columns carry depths needs no interval of its own.** It has already said where its
+  rock is; requiring an envelope nobody uses would be a second place to get it wrong.
+
+**`detect_core_lanes` proposes and never applies.** The split is Otsu on the picture's own
+across-axis mean brightness — core is darker than the page it is printed on and the bench it is shot
+against, and mean rather than any texture measure because printed captions and ruler ticks are
+textured too. The whole PROFILE comes back and is drawn, the `registration.rs` rule: four clean
+columns and a smear the threshold happened to cut in four are the same answer and completely
+different situations. **The DEPTHS are never guessed** — nothing in the pixels says what depth a
+column of rock came from.
+
+**The conversion is its own tool** (Jauhar, 2026-08-01: *"for core image conversion to log, separate
+it from core photos tools, it should have independent tools"*). `coreTraceDialog.ts` → Advance ▸
+Core Imaging ▸ **Photo Log…**; conditioning keeps `coreConditionDialog.ts`. Two jobs with two
+lifetimes: conditioning is done once per delivery and finished, a trace is read, checked against GR,
+re-laid-out and read again.
+
+**`recommend_core_recipe` measures a picture and proposes conditioning, with the reason for every
+value.** Read off the IMPORT, never the conditioned copy (advice about an already-corrected picture
+would correct it twice); the values land in the same sliders the user would have moved and Apply is
+still Apply. Five rules:
+
+- **The neutral is the brightest UNCLIPPED, LEAST COLOURED part of the frame**, never grey-world.
+  Averaging the whole picture to grey would treat a genuinely red-stained core as a cast and scrub
+  the stain out — the trap the thin-section correction avoids by anchoring on the matrix.
+- **The gain is normalised so the largest is 1**, so it can only DARKEN: pushing a channel past
+  white clips exactly the brightest pixels and twists their hue. A blue cast pulls BLUE down, which
+  reads backwards at a glance — the gain is the reciprocal of how bright the channel already is.
+- **With nothing neutral in frame it declines and names the fix** rather than balancing off rock.
+- **Detail is NEVER recommended.** Clarity, Sharpen and Denoise rearrange a pixel's neighbours,
+  which is what the trace is read from — local contrast roughly halves the darkness contrast
+  `CPHOTO_DARK` measures. Where the picture would benefit the advice SAYS so and leaves the slider
+  alone, so a user reaching for it knows the cost.
+- **A UV plate is recognised and left alone.** Very dark AND with essentially no neutral surface, it
+  is a different measurement rather than a badly exposed one: it is MEANT to be dark, the background
+  IS the answer, and lifting the exposure to a mid-grey median drowns the fluorescence the plate
+  exists to show. A UV lamp is not white light, so there is nothing to make neutral. The control
+  test — a dim white-light frame with a tray in it still gets lifted — is what stops the rule
+  degenerating into "give up on dark pictures".
+
+**Not built, and named**: the delivery arrives as **PDF** (one file per core, pages alternating
+white-light plate `Na` and UV plate `Nb`), which nothing in the app can import — the same class of
+barrier as the petrography workbook, and it is the first thing between this suite and a client's
+rock. Then, from Jauhar's UV question (2026-08-01): a fluorescence measure read off the UV plate
+(`CPHOTO_FLUOR`, an inferred-show indicator, NOT a pay flag), a DISCRETE sand/shale curve off the
+white-light trace, and an "unfold" that shears each slab to the bed's apparent dip before averaging,
+so a dipping contact is not smeared across the core's width. See `docs/plan_core_photo.md`.
+
+## The launch screen (2026-08-01)
+
+`bootOverlay.ts` is a portrait launch card — artwork, mark, wordmark, edition and copyright — the
+shape every subsurface application uses. **It never delays the launch** (Jauhar: *"dont make start
+longer, its filler while waiting"*): it appears only after `SHOW_AFTER_MS` so a fast open cannot
+flash it, and `finish()` removes it the instant the database is live. There is deliberately no
+minimum display time, which is what turns a splash from a courtesy into an obstacle.
+
+The version line reads from `package.json`, so a bump cannot leave the launch screen claiming an
+older build; the YEAR is the edition, the way IP 2018 and Petrel 2024 are. The artwork is INLINE SVG
+in the BRAND's own colours — a launch screen that waits on an asset is the one screen that must
+never fail to appear, and a client skin must not re-roll the product's identity (the
+brand-is-not-accent rule).
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under

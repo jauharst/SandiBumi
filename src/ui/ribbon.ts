@@ -278,6 +278,7 @@ export class Ribbon {
     q<HTMLButtonElement>("#condition-core-btn")?.addEventListener("click", () =>
       workspace.openCoreCondition("core"),
     );
+    q<HTMLButtonElement>("#core-trace-btn")?.addEventListener("click", () => workspace.openCoreTrace());
     q<HTMLButtonElement>("#shift-core-btn")?.addEventListener("click", () => this.handleShiftCore());
     q<HTMLButtonElement>("#data-sets-btn")?.addEventListener("click", () => this.handleDataSets());
     q<HTMLButtonElement>("#plug-qc-btn")?.addEventListener("click", () => workspace.openPlugQc());
