@@ -1612,6 +1612,28 @@ over `driverProvider: 'embedded'` — so it is left to you.
 
 ---
 
+## The findings, as of 2026-08-01
+
+Of the 25, **eighteen are now closed**: 1, 2, 3, 5, 22 and the starter half of 23 were fixed as
+they were found; 7 (the silence half), 8, 10, 12, 13, 15, 17, 18, 19, 20 and 21 were fixed on
+2026-08-01; 11 and 14 were bookkeeping and are struck; 4 and 24 and 25 are statements about the
+plan rather than defects.
+
+**Four still need YOU, and every one of them is a judgement rather than a bug.**
+
+| # | The question | Why it is yours |
+|---|---|---|
+| **6** | Should a per-zone temperature gradient integrate down through the zones above it (kink) or re-anchor on surface (step, today)? | Method math with a cited source. Integrating means deciding what temperature each zone STARTS at, and the answer reaches Rw through Arps and then Sw. A 0.035 override below 1500 m currently makes a **10.5 °C step across 100 m**, where the undisturbed trend rises 3.0. |
+| **7** | Should a well with no permeability be **excluded** from a PERM cutoff, or **exempted** from it (today)? | Either changes reserves. The exemption is now visible everywhere it is summed, so nothing is silent — but the direction is still unset, and it currently means the less permeability data a well has, the more pay it books. |
+| **9** | Pittman's PR75 exceeds PR50 above ~79 mD at 25 % porosity, which cannot happen in rock. | Correcting a published coefficient needs the paper in hand. Inventing one to make the ordering come out right is the move the provenance rules forbid. Someone selecting `r75` as APEX in fine rock — which the module doc recommends for fine rock — gets RAPEX and RT_PITT built on the inverted value. |
+| **16** | Should a negative PHIE be clamped where the porosity modules WRITE it, or floored where the pay summary SUMS it? | Two different statements about whose job it is to reject a non-physical porosity. Clamping at the curve changes numbers you may want to see unclamped for QC; flooring in the summary changes a reserves number. Measured cost today: a dense stringer takes a SAND row's HPV **more than 20 % below** the floored answer, while RESERVOIR and PAY stay byte-identical — so the two rows anyone checks first agree with each other while the SAND row quietly does not. |
+
+Finding **23**'s remaining half sits just below that line: both fixes touch the read-only SQL guard,
+and rule 6 puts write discipline in your hands. Worth noting the trailing-comment one is arguably
+NOT a guard change at all — putting the wrapper's `) __sandibumi_q LIMIT n` on a new line cannot
+turn a non-SELECT into a SELECT, because the guard reads your text before the wrapping. It is one
+line and it fixes a valid query being corrupted.
+
 ## What to do with this
 
 **Work `manual_test_plan.md` for the mature app, and read the top 21 sections of `REVIEW.md`
