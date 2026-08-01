@@ -2599,6 +2599,39 @@ set/write branches in the result assembly, because that well is now deliberately
 set and falling through would report "no output set allocated", naming the mechanism instead of the
 cause.
 
+## A dropdown that says which Larionov it is (2026-08-01)
+
+`docs/review_triage.md` finding 21, plus the bookkeeping of 11 and 14.
+
+`ArgSpec` gained `choice_labels` (`#[serde(default)]`, parallel to `choices`, empty means "show the
+id") and `opt_labelled` builds them. Only `vsh_gr` uses it so far, because that is the one the
+finding proved was dangerous.
+
+**The IDS are unchanged, and every LABEL leads with its own id.** `choices` are stored in
+`params_json` on every saved run, so renaming one would orphan every run that used it, and a label
+that REPLACED the id would leave a user reading a stored run unable to match the two. The label is
+a superset of what was there before, never a substitute.
+
+**Why this option and not the others.** `OPT_GR`'s choices were the bare strings `LARINOV1`,
+`LARINOV2`, `LARINOV3`, `STIEBER1..3` — no rock age, no coefficient, no tooltip — so the only place
+a user was told which is which was the manual test plan, and the plan had the two Larionov
+attributions the wrong way round. `LARINOV1` is `0.33·(2^(2·IGR) − 1)`, published for Mesozoic and
+older rocks, giving 0.330 at IGR 0.5; `LARINOV2` is `0.083·(2^(3.7·IGR) − 1)`, the Tertiary /
+unconsolidated set, giving 0.216. Picking the wrong one returns a shale volume more than half again
+too high through the whole intermediate-GR interval — which is exactly where the VSH cutoff decides
+net pay, on a curve that looks entirely normal at both endpoints with nothing downstream able to
+catch it.
+
+**`LARINOV3` is stated by its coefficients rather than attributed.** Nothing in the repo cites a
+source for `0.127·(3.15^(2·IGR) − 1)`, and inventing a rock age to make the dropdown look complete
+would read exactly as authoritative as the two that are real.
+
+**The label and the arithmetic are pinned to each other.**
+`every_vsh_gr_transform_lands_on_its_published_coefficient` ties the code to the closed forms;
+`the_vsh_gr_labels_agree_with_the_coefficients_they_describe` ties the closed forms to what the user
+is told. Between them the loop closes — and it needs to, because a label claiming Tertiary above a
+Mesozoic coefficient set is the same defect moved one layer out, and just as invisible.
+
 ## Provenance discipline (2026-07-31)
 
 The repo is intended to be **licensed**, and its author runs consulting studies under

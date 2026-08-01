@@ -3501,9 +3501,19 @@ Deferred / needs your call (see the summary I sent):
 - Report "Tables only" still computes the composite geometry (efficiency, not correctness) — a truly safe
   fix must reproduce the cover interval exactly, which needs the same expensive fetch. Held.
 - Low-value polish left: MC histogram theme-repaint; ml/wellScope dataVersion subscribe.
-- **6 findings that WOULD change interpretation numbers** await your sign-off (perm_coates default 100→70;
-  phi_son OPT_CP DT_SH>100 gate; log_predict masked-fill survival; legacy-multimin RECON_ERR at 3 tools;
-  MC PERM cutoff when chain-produced; MC MASK/computed_only parity).
+- **4 findings that WOULD change interpretation numbers** await your sign-off (perm_coates default 100→70;
+  phi_son OPT_CP DT_SH>100 gate; log_predict masked-fill survival; MC MASK/computed_only parity).
+  - ~~legacy-multimin RECON_ERR at 3 tools~~ — **CLOSED 2026-08-01, it never needed your sign-off**
+    (`docs/review_triage.md` finding 11). Legacy `multimin` is retired and refuses to start; the
+    concern is inherited linear algebra rather than a bug — with as many equations as components the
+    solve reproduces the measurements whatever the endpoints are — and SandiMin already DETECTS the
+    condition (`dof == 0`) and returns `dof_note` saying RECON is forced to ~0 and to add an input
+    log. Pinned by `an_exactly_determined_model_hides_a_wrong_endpoint_and_only_the_dof_note_says_so`.
+    The one thing still worth your eye is a UI question: does the SandiMin pane make that note hard
+    to miss? A warning nobody reads is the same as no warning.
+  - ~~MC PERM cutoff when chain-produced~~ — **FIXED 2026-08-01** (finding 8). Not a judgement call
+    after all: the cutoff was reading an external-input pool that a chain-produced PERM never enters,
+    so adding a permeability model switched it off. The realization pool has the values.
 
 ## Round 3 — Feature Wave B chain (2026-07-22): fluid contacts, ML leaderboard, well-diagram, rock typing + SHF
 
@@ -7536,3 +7546,40 @@ catalog, blank from top to bottom. The catalog could then no longer tell "this w
       values?
 - [ ] Check the Processing history still records the failed attempt — that is where the record of
       "a run happened" belongs now.
+
+## The VSH dropdown now says which Larionov is which (2026-08-01)
+
+Finding 21, and the bookkeeping of 11 and 14.
+
+**The two Larionov options are the ones that matter.** They differ by a digit in their name and by
+more than half again in their answer at mid-range gamma — 0.330 against 0.216 at IGR 0.5 — which is
+right where the VSH cutoff decides net pay. The dropdown used to show bare ids, and the manual test
+plan (the only other place it was written down) had the rock ages the wrong way round.
+
+- [ ] Open **Petrophysics ▸ VSH ▾ ▸ VSH from Gamma Ray**. Does the method dropdown read
+      `LARINOV1 — Larionov, Mesozoic and older` and `LARINOV2 — Larionov, Tertiary / unconsolidated`?
+- [ ] Mahakam is Miocene, so `LARINOV2` should be the one you reach for. Does the label make that
+      obvious without looking anything up?
+- [ ] Run with one, then re-open the pane. Does it come back on the same choice?
+- [ ] Hover a saved run in the Curve Catalog — the tooltip lists params. Is the stored value still
+      the bare id (`LARINOV2`), so an old run still reads correctly?
+- [ ] Every other module's option dropdowns should be unchanged (bare ids). Check one, e.g. Porosity
+      ▸ Density-Neutron.
+- [ ] `LARINOV3` deliberately claims no rock age — it shows its coefficient instead, because nothing
+      in the repo cites a source for that form. Say if you know one and I will label it properly.
+
+**Two plan corrections, no code:**
+
+- [ ] T-PETRO-02 step 1 now names the right rock age, and its Expected line pairs 0.33 with
+      Larionov-older rather than Larionov-Tertiary.
+- [ ] T-ADV-13's "Mark **Fail — known**" instruction is struck. Saturation-Height on a deviated well
+      really does measure from the survey now, so following the old paragraph would have logged a
+      working feature as broken.
+
+**One item left your sign-off list:** legacy-multimin RECON_ERR. It never needed a decision — the
+module is retired and refuses to start, and SandiMin already detects the exactly-determined case and
+returns a note saying RECON is forced to zero. The one thing worth your eye:
+
+- [ ] Run SandiMin with only RHOB + NPHI (plus unity) so it is exactly determined. Is the `dof` note
+      hard to miss in the pane, or does it sit somewhere you would scroll past? A warning nobody
+      reads is the same as no warning.

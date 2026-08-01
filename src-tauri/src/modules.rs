@@ -33,8 +33,19 @@ pub struct ArgSpec {
     pub kind: ArgKind,
     /// Default numeric value (Param), default choice (Option), or default curve mnemonic (LogIn).
     pub default: String,
-    /// Valid choices for Option args.
+    /// Valid choices for Option args. **These are stored in `params_json` on every saved run, so
+    /// they must never be renamed** — that is what `choice_labels` is for.
     pub choices: Vec<String>,
+    /// Optional display text, parallel to `choices`. Empty means "show the id".
+    ///
+    /// `OPT_GR`'s choices are the bare strings `LARINOV1`, `LARINOV2`, … with no rock age, no
+    /// coefficient and no tooltip, so the only place a user was told which is which was the manual
+    /// test plan — and the plan had them the wrong way round (`docs/review_triage.md` finding 21).
+    /// Picking the wrong one returns 0.33 where 0.216 belongs: a shale volume more than half again
+    /// too high through the whole intermediate-GR interval, which is exactly where the VSH cutoff
+    /// decides net pay. The curve looks entirely normal and nothing downstream can catch it.
+    #[serde(default)]
+    pub choice_labels: Vec<String>,
     /// Validation range for Param args.
     pub min: Option<f64>,
     pub max: Option<f64>,
@@ -64,6 +75,7 @@ pub(crate) fn param(name: &str, desc: &str, unit: &str, default: f64, min: f64, 
         kind: ArgKind::Param,
         default: default.to_string(),
         choices: vec![],
+        choice_labels: vec![],
         min: Some(min),
         max: Some(max),
         required: true,
@@ -79,11 +91,24 @@ pub(crate) fn opt(name: &str, desc: &str, default: &str, choices: &[&str]) -> Ar
         kind: ArgKind::Option,
         default: default.into(),
         choices: choices.iter().map(|s| s.to_string()).collect(),
+        choice_labels: Vec::new(),
         min: None,
         max: None,
         required: true,
         computed_only: false,
     }
+}
+
+/// [`opt`] with display text per choice — same ids on the wire, a readable dropdown on screen.
+pub(crate) fn opt_labelled(
+    name: &str,
+    desc: &str,
+    default: &str,
+    choices: &[(&str, &str)],
+) -> ArgSpec {
+    let mut a = opt(name, desc, default, &choices.iter().map(|(id, _)| *id).collect::<Vec<_>>());
+    a.choice_labels = choices.iter().map(|(_, label)| (*label).to_string()).collect();
+    a
 }
 
 pub(crate) fn log_in(name: &str, desc: &str, unit: &str, default_curve: &str, required: bool) -> ArgSpec {
@@ -94,6 +119,7 @@ pub(crate) fn log_in(name: &str, desc: &str, unit: &str, default_curve: &str, re
         kind: ArgKind::LogIn,
         default: default_curve.into(),
         choices: vec![],
+        choice_labels: vec![],
         min: None,
         max: None,
         required,
@@ -114,6 +140,7 @@ pub(crate) fn log_out(name: &str, desc: &str, unit: &str) -> ArgSpec {
         kind: ArgKind::LogOut,
         default: String::new(),
         choices: vec![],
+        choice_labels: vec![],
         min: None,
         max: None,
         required: true,
@@ -304,11 +331,33 @@ fn vsh_gr_spec() -> ModuleSpec {
               (Stieber, Larionov, Clavier). VSH is the result limited to 0–1."
             .into(),
         args: vec![
-            opt(
+            // Labels, not renamed ids: the id is what `params_json` stores on every saved run, and
+            // it is what the label leads with so a user reading a stored run still recognises it.
+            //
+            // The two Larionov forms are the reason this exists. They differ only by a digit in
+            // their name and by a factor of more than 1.5 in their answer at mid-range gamma —
+            // 0.330 against 0.216 at IGR 0.5 — which lands squarely where the VSH cutoff decides
+            // net pay, on a curve that looks entirely normal. The rock-age attributions are the
+            // published ones (Larionov 1969) and are pinned against the closed forms by
+            // `every_vsh_gr_transform_lands_on_its_published_coefficient`.
+            //
+            // LARINOV3 is stated by its coefficients rather than attributed: nothing in the repo
+            // cites a source for that form, and inventing one is the move the provenance rules
+            // forbid.
+            opt_labelled(
                 "OPT_GR",
                 "VSH from gamma ray method",
                 "LINEAR",
-                &["LINEAR", "STIEBER1", "STIEBER2", "STIEBER3", "LARINOV1", "LARINOV2", "LARINOV3", "CLAVIER"],
+                &[
+                    ("LINEAR", "LINEAR — VSH = IGR"),
+                    ("STIEBER1", "STIEBER1 — Stieber, IGR/(3−2·IGR)"),
+                    ("STIEBER2", "STIEBER2 — Stieber, IGR/(2−IGR)"),
+                    ("STIEBER3", "STIEBER3 — Stieber, IGR/(4−3·IGR)"),
+                    ("LARINOV1", "LARINOV1 — Larionov, Mesozoic and older"),
+                    ("LARINOV2", "LARINOV2 — Larionov, Tertiary / unconsolidated"),
+                    ("LARINOV3", "LARINOV3 — 0.127·(3.15^(2·IGR) − 1)"),
+                    ("CLAVIER", "CLAVIER — Clavier et al."),
+                ],
             ),
             param("GR_MA", "Gamma ray matrix (clean)", "gapi", 20.0, 0.0, 200.0),
             param("GR_SH", "Gamma ray shale", "gapi", 120.0, 0.0, 1000.0),
@@ -3399,6 +3448,52 @@ mod tests {
         assert!((vsh[1] - 0.5).abs() < 1e-5);
         assert!((vsh[2] - 1.0).abs() < 1e-5); // limited from 1.3
         assert!((out["VSH_GR"][2] - 1.3).abs() < 1e-5); // unlimited
+    }
+
+    /// The dropdown LABEL and the arithmetic must agree about which Larionov is which.
+    ///
+    /// The test above ties the code to the closed forms; this ties the closed forms to what the
+    /// user is told. Between them the loop is closed, and it needs to be: the manual plan had the
+    /// two rock-age attributions the wrong way round, and the dropdown was the only other place a
+    /// user could learn which is which (`docs/review_triage.md` finding 21). A label claiming
+    /// Tertiary above a coefficient set published for Mesozoic rock is the same defect moved one
+    /// layer out — and just as invisible, because the curve looks entirely normal.
+    #[test]
+    fn the_vsh_gr_labels_agree_with_the_coefficients_they_describe() {
+        let spec = list_modules().into_iter().find(|m| m.name == "vsh_gr").unwrap();
+        let arg = spec.args.iter().find(|a| a.name == "OPT_GR").unwrap();
+        assert_eq!(arg.choices.len(), arg.choice_labels.len(), "every choice needs a label, or none do");
+
+        // Every label leads with its own id. The id is what `params_json` stores, so it is what a
+        // user reading a saved run has in front of them — a label that replaced it would leave
+        // them unable to match the two.
+        for (id, l) in arg.choices.iter().zip(&arg.choice_labels) {
+            assert!(l.starts_with(id), "{l} must lead with {id}");
+        }
+        let label = |id: &str| -> &str {
+            let i = arg.choices.iter().position(|c| c == id).expect(id);
+            arg.choice_labels[i].as_str()
+        };
+
+        // At mid-range IGR the older-rock set is the STEEPER one. That is the fact the two labels
+        // encode, and getting it backwards is worth more than half again in shale volume.
+        let v = 0.5f64;
+        let older = 0.33 * (2.0f64.powf(2.0 * v) - 1.0); // 0.330
+        let tertiary = 0.083 * (2.0f64.powf(3.7 * v) - 1.0); // 0.216
+        assert!(older > tertiary, "sanity: {older} vs {tertiary}");
+        assert!(label("LARINOV1").contains("Mesozoic and older"), "{}", label("LARINOV1"));
+        assert!(label("LARINOV2").contains("Tertiary"), "{}", label("LARINOV2"));
+        assert!(!label("LARINOV1").contains("Tertiary"), "both must not claim Tertiary");
+
+        // LARINOV3 claims no rock age, because nothing in the repo cites a source for that form.
+        // Inventing an attribution to make the dropdown look complete is the move the provenance
+        // rules forbid — it would read exactly as authoritative as the two that are real.
+        assert!(
+            !label("LARINOV3").contains("Mesozoic") && !label("LARINOV3").contains("Tertiary"),
+            "{}",
+            label("LARINOV3")
+        );
+        assert!(label("LARINOV3").contains("0.127"), "it states its coefficient instead: {}", label("LARINOV3"));
     }
 
     /// T-PETRO-02. Every `OPT_GR` transform at the same mid-range gamma ray, against the

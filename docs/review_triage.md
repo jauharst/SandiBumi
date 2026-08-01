@@ -1049,7 +1049,7 @@ would report "no output set allocated for well", which names the mechanism inste
 The record that a run happened is not lost. The run reports its error and the Processing history
 holds it; what the catalog now says is only what it can support.
 
-### 11. The held legacy-multimin RECON_ERR item is already answered — **CLOSE IT**
+### 11. The held legacy-multimin RECON_ERR item is already answered — **CLOSED 2026-08-01**
 
 `REVIEW.md` lists "legacy-multimin RECON_ERR at 3 tools" among the findings **awaiting your
 sign-off because they would change interpretation numbers**. It does not need your sign-off. It
@@ -1176,7 +1176,7 @@ the summary — verified, not assumed, by
 `a_python_raise_in_one_well_leaves_the_rest_of_the_batch_intact`. This is specific to Rhai's
 per-sample evaluation.
 
-### 14. T-ADV-13 tells you to expect a failure that was fixed — **PLAN IS STALE, no code change needed**
+### 14. T-ADV-13 tells you to expect a failure that was fixed — **PLAN CORRECTED 2026-08-01, no code change needed**
 
 The step says the TVD dropdown on SW — Saturation-Height is a false affordance, that no producer
 for a TVD curve exists anywhere in the app, and that you should **"Mark Fail — known"**.
@@ -1418,7 +1418,7 @@ no longer in the project — it may have been deleted; refresh the Wells grid").
 stays a separate refusal, because a bad column is a programming error and a missing row is a stale
 grid. Both halves are asserted in the same test.
 
-### 21. T-PETRO-02's Larionov labels are reversed, and the dropdown gives no rock age — **OPEN, and this one is worth reading**
+### 21. T-PETRO-02's Larionov labels are reversed, and the dropdown gives no rock age — **BOTH FIXED 2026-08-01**
 
 The CODE is right. `modules.rs:349-350`:
 
@@ -1444,10 +1444,25 @@ Now pinned by `every_vsh_gr_transform_lands_on_its_published_coefficient`, which
 eight transforms by hand at IGR 0.5 and asserts each lands on its published closed form, so the
 mapping cannot drift again without failing.
 
-**Two calls, and they are separable.** Correcting the plan text is free. Labelling the dropdown
-(`LARINOV1 — Larionov, Mesozoic and older`, `LARINOV2 — Larionov, Tertiary`) is a small UI change
-that would make the option self-describing — but the option IDs are stored in `params_json` on
-every saved run, so the ids themselves must not be renamed.
+**Both calls made 2026-08-01, and they were separable.** The plan text is corrected in place (step
+1 and the Expected line both name the right rock age; the correction block stays as the record).
+And `ArgSpec` gained `choice_labels`, so the dropdown is self-describing: `LARINOV1 — Larionov,
+Mesozoic and older`, `LARINOV2 — Larionov, Tertiary / unconsolidated`. **The ids are unchanged and
+every label LEADS with its own id**, because `params_json` stores the id on every saved run and a
+user reading a stored run has to be able to match the two.
+
+Two details:
+
+- **`LARINOV3` is stated by its coefficients, not attributed.** Nothing in the repo cites a source
+  for `0.127·(3.15^(2·IGR) − 1)`, and inventing a rock age to make the dropdown look complete would
+  read exactly as authoritative as the two that are real — the move the provenance rules forbid.
+- **The label and the arithmetic are pinned to each other** by
+  `the_vsh_gr_labels_agree_with_the_coefficients_they_describe`. The older test ties the code to the
+  closed forms; this ties the closed forms to what the user is told. A label claiming Tertiary over
+  a Mesozoic coefficient set is the same defect one layer out, and just as invisible.
+
+`opt_labelled` is available to every other module with an option dropdown; only `vsh_gr` uses it so
+far, because it is the one the finding proved was dangerous.
 
 **A second correction to the same Expected line.** It says "endpoints 0 and 1 unchanged". At pure
 shale that is true for LINEAR, all three Stieber forms and Clavier (which cancels exactly), but

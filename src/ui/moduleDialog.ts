@@ -60,12 +60,20 @@ export async function buildModuleContent(
   const optSelects = new Map<string, HTMLSelectElement>();
   const paramInputs = new Map<string, HTMLInputElement>();
 
-  const fillSelect = (select: HTMLSelectElement, names: string[], selected: string) => {
+  /** `labels` is parallel to `names` and optional — a missing or short entry shows the id, which
+   *  is what every un-labelled module still does. The VALUE is always the id, because it is what
+   *  `params_json` stores on every saved run (`docs/review_triage.md` finding 21). */
+  const fillSelect = (
+    select: HTMLSelectElement,
+    names: string[],
+    selected: string,
+    labels?: string[]
+  ) => {
     select.innerHTML = "";
-    for (const name of names) {
+    for (const [i, name] of names.entries()) {
       const option = document.createElement("option");
       option.value = name;
-      option.textContent = name;
+      option.textContent = labels?.[i] || name;
       if (name === selected) option.selected = true;
       select.appendChild(option);
     }
@@ -103,7 +111,7 @@ export async function buildModuleContent(
     } else if (arg.kind === "option") {
       const select = document.createElement("select");
       select.className = "form-control";
-      fillSelect(select, arg.choices, arg.default);
+      fillSelect(select, arg.choices, arg.default, arg.choice_labels);
       optSelects.set(arg.name, select);
       content.appendChild(formRow(arg.name, select, arg.desc));
     } else if (arg.kind === "param") {

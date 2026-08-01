@@ -693,7 +693,14 @@ export interface ArgSpec {
   unit: string;
   kind: ArgKind;
   default: string;
+  /** Option ids. **Stored in `params_json` on every saved run — never render-and-submit anything
+   *  else as the value.** */
   choices: string[];
+  /** Display text parallel to `choices`; empty or short means "show the id". Exists because a
+   *  dropdown of bare ids (`LARINOV1`, `LARINOV2`, …) carries no rock age and no coefficient, and
+   *  picking the wrong Larionov returns a shale volume more than half again too high right where
+   *  the VSH cutoff decides net pay (`docs/review_triage.md` finding 21). */
+  choice_labels?: string[];
   min: number | null;
   max: number | null;
   required: boolean;

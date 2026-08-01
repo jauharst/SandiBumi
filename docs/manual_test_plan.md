@@ -1844,12 +1844,13 @@ Shared preconditions for all tests: SandiBumi running via `npm run tauri dev`; a
 **Preconditions:** T-01 passed.
 **Steps:**
 
-1. In the same pane change `OPT_GR` to **LARINOV1** (Larionov Tertiary); Run.
+1. In the same pane change `OPT_GR` to **LARINOV1** (Larionov, Mesozoic and older — corrected
+   2026-07-31, see the note under the Expected line); Run.
 2. Repeat for **LARINOV2**, **STIEBER1**, **CLAVIER** (four more runs, same Output cons `INTERP`).
 3. Open Curve Catalog and inspect the versioned-run list under Constellations; hover a version row.
-   **Expected:** Each re-run lands as version N+1 (never overwrites; catalog list shows "vsh_gr · \<timestamp>" per run, hover tooltip lists params so you can tell which OPT_GR each version used). Domain: at intermediate GR every nonlinear VSH < the LINEAR VSH (all corrections concave — e.g. linear 0.50 → Larionov-Tertiary ≈0.33, Larionov-older ≈0.22); endpoints 0 and 1 unchanged; all limited VSH stay 0–1.
+   **Expected:** Each re-run lands as version N+1 (never overwrites; catalog list shows "vsh_gr · \<timestamp>" per run, hover tooltip lists params so you can tell which OPT_GR each version used). Domain: at intermediate GR every nonlinear VSH < the LINEAR VSH (all corrections concave — e.g. linear 0.50 → Larionov-older (`LARINOV1`) ≈0.33, Larionov-Tertiary (`LARINOV2`) ≈0.22); endpoints 0 and 1 unchanged; all limited VSH stay 0–1.
 
-   **THE LARIONOV LABELS ABOVE ARE REVERSED — READ THIS BEFORE PICKING ONE (2026-07-31, finding 21).** Step 1 calls `LARINOV1` "Larionov Tertiary" and the Expected line pairs Tertiary with ≈0.33 and older-rocks with ≈0.22. Both are backwards relative to what the code computes. `LARINOV1` is `0.33*(2^(2*IGR) - 1)` — Larionov for **older rocks, Mesozoic and older**, giving **0.330** at IGR 0.5. `LARINOV2` is `0.083*(2^(3.7*IGR) - 1)` — Larionov for **Tertiary / unconsolidated**, giving **0.216**. The code matches the published coefficient sets; the labels in this step do not. Mahakam Delta is Miocene, so the transform you almost certainly want is **LARINOV2**, and picking LARINOV1 on the label above would overstate shale volume by more than half through the whole intermediate-GR interval — where the VSH cutoff decides net pay, with nothing on the log to show for it. The dropdown itself gives no rock age either; it shows the bare option ids.
+   **THE LARIONOV LABELS WERE REVERSED HERE — CORRECTED IN THE TEXT ABOVE 2026-07-31, finding 21.** Step 1 used to call `LARINOV1` "Larionov Tertiary" and the Expected line paired Tertiary with ≈0.33 and older-rocks with ≈0.22. Both were backwards relative to what the code computes. **The dropdown now states the rock age itself** (2026-08-01) — `LARINOV1 — Larionov, Mesozoic and older`, `LARINOV2 — Larionov, Tertiary / unconsolidated` — so the plan is no longer the only place this is written down, and `the_vsh_gr_labels_agree_with_the_coefficients_they_describe` keeps the two from drifting apart again. The option **ids are unchanged**, because they are stored in `params_json` on every saved run. `LARINOV1` is `0.33*(2^(2*IGR) - 1)` — Larionov for **older rocks, Mesozoic and older**, giving **0.330** at IGR 0.5. `LARINOV2` is `0.083*(2^(3.7*IGR) - 1)` — Larionov for **Tertiary / unconsolidated**, giving **0.216**. The code matches the published coefficient sets; the labels in this step do not. Mahakam Delta is Miocene, so the transform you almost certainly want is **LARINOV2**, and picking LARINOV1 on the label above would overstate shale volume by more than half through the whole intermediate-GR interval — where the VSH cutoff decides net pay, with nothing on the log to show for it.
 
    **A second correction to the Expected line: "endpoints 0 and 1 unchanged" does not hold for the Larionov forms, and that is not a defect.** They are empirical fits that were never normalized to close at pure shale: at IGR 1, LARINOV1 stops at **0.99**, LARINOV2 at **0.9957**, and LARINOV3 **overshoots to 1.133**. LINEAR, all three Stieber forms and Clavier do land on exactly 1.0 (Clavier cancels exactly, 1.7 − sqrt(0.49) = 1.0). VSH clamps every one of them into 0–1; VSH_GR keeps the raw value. That difference is what the two outputs are for, so read VSH for the answer and VSH_GR when you want to see the transform's own behaviour.
 
@@ -2434,7 +2435,7 @@ Shared preconditions: project open in `npm run tauri dev` with at least one Maha
 
 **Notes:**
 
-### T-ADV-13 — Saturation-Height on a DEVIATED well: TVD input is a no-op
+### T-ADV-13 — Saturation-Height on a DEVIATED well: height is measured from the survey
 
 **Tool/panel:** SW — Saturation-Height pane, TVD input (satheight.rs; workflow.rs input resolution)
 **Preconditions:** a deviated well with its deviation survey imported (Data ▸ Import Data ▾ ▸ deviation import) but no TVD channel in the source LAS; T-ADV-12 parameters known.
@@ -2444,9 +2445,9 @@ Shared preconditions: project open in `npm run tauri dev` with at least one Maha
 2. **Run**, then read HAFWL at one depth in the strongly deviated section.
 3. By hand compute FWL − MD and FWL − trueTVD (from the survey) at that depth and compare with HAFWL.
    **Expected:** (desired behaviour) HAFWL = FWL − trueTVD, i.e. the height honours the deviation survey.
-   **Known issue:** AUDIT-2026-07-21 "sw_height's TVD input has no producer anywhere in the app — the deviated-well fix (marked DONE, unit-tested) is a no-op in real use" — NOT yet fixed. Expect HAFWL = FWL − MD exactly (the TVD dropdown is a false affordance: no curve named TVD exists, the module silently falls back to measured depth, overstating height ≈ 1/cos(inc) and understating SWH in the deviated section). Mark **Fail — known**, log against the audit finding.
+   **Known issue — SUPERSEDED, kept only as the record (do NOT act on it).** AUDIT-2026-07-21 said "sw_height's TVD input has no producer anywhere in the app — the deviated-well fix (marked DONE, unit-tested) is a no-op in real use", and told you to expect HAFWL = FWL − MD and to mark **Fail — known**. That instruction is struck (2026-07-31, `docs/review_triage.md` finding 14): following it would log a working feature as a failure.
 
-   **THE KNOWN ISSUE ABOVE IS OUT OF DATE — IGNORE IT (2026-07-31).** The producer it says does not exist does: `ingest::materialize_tvd_curves` resamples the deviation survey onto the log depth grid and writes TVD/TVDSS as fetchable curves, on every deviation import. Expect the step to **PASS** — HAFWL = FWL − trueTVD, the desired behaviour. Do not mark Fail out of deference to the paragraph above.
+   **WHY IT IS OUT OF DATE.** The producer it says does not exist does: `ingest::materialize_tvd_curves` resamples the deviation survey onto the log depth grid and writes TVD/TVDSS as fetchable curves, on every deviation import. Expect the step to **PASS** — HAFWL = FWL − trueTVD, the desired behaviour. Do not mark Fail out of deference to the paragraph above.
 
    **Automated coverage - pinned (pile B, 2026-07-31):** `a_deviated_wells_height_is_measured_from_the_survey_not_along_hole` (workflow.rs) runs the whole path — imports a survey (vertical to 1000 m, building to 60° by 2000 m), runs sw_height through the real input resolution, reads HAFWL back from the database — and it lands on FWL − TVD at every sample, more than 500 m above the along-hole answer at TD. It also pins the fallback: a well with **no** survey still measures along hole, which is correct for a vertical well.
 
