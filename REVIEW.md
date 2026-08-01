@@ -7,6 +7,40 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-01 — Organic increment 5: LAS import, report pane, plot surfaces, and the sweep (1e · 1f · 1c)
+
+The last handoff screens plus the harmonization pass over components the handoff never
+named. Nothing functional changed anywhere in this batch.
+
+**Import LAS (1e).**
+- [ ] Import a delivery: the set dialog now lists the picked files as a rail (up to six,
+      then "+N more"), and carries the footer line "Every import is versioned with
+      provenance — re-importing never overwrites RAW." Set-name suggestion unchanged
+      (blso*_fprooh → FPROOH).
+- [ ] Deliberate deviation: the mockup's 3-step wizard with a mnemonic-mapping table is a
+      FEATURE (the app maps mnemonics in Rust, automatically) — not built. Want a manual
+      mapping step? That's its own increment, and worth discussing first.
+
+**Report pane (1f).**
+- [ ] **Render** is the one primary pill; Save PDF / Word / PNG / Template / Batch are
+      secondary pills. The rendered page now floats on the neutral rail with a soft
+      shadow — the page itself stays white, since what you preview is the paper.
+
+**Plot surfaces (1c).**
+- [ ] Histogram, crossplot, Pickett, the calibration QC scatters and the correlation
+      strips now draw their data area on the warm neutral with **white gridlines** —
+      card-on-card, like the mockup. Points, axes, overlays: identical.
+- [ ] **Dark theme**: plot areas keep dark surfaces and dark gridlines (no white glare).
+      Client skins take their own alt tint automatically. Check one plot in dark and one
+      in a client skin.
+- [ ] The log view's tracks are NOT touched — this is the plot suite only.
+
+**Harmonization sweep (components the handoff never named).**
+- [ ] Every remaining primary action button in the app (Composite, Cutoffs, Map apply,
+      Monte Carlo, Pickett picks, Zones add…) is a pill now — one shared rule, no
+      per-dialog change. Layout Properties buttons match. The crash/startup dialog is
+      16px like every other dialog, its buttons pills.
+
 ## 2026-08-01 — Organic increment 4: start surfaces (design 1g)
 
 - [ ] Launch the app on a slow open: the boot overlay is the identity column now — 72px

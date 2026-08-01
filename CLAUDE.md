@@ -2750,11 +2750,18 @@ in the grid with gross kept and judged cells dashed — the workbook's blank-is-
 rule) shipped 2026-08-01, and increment 3 (1d module pane: initial chip + Caprasimo
 title + in-pane Help off spec.doc, `wellScope` restyled as the RUN ON segmented pill —
 shared, so every batch dialog inherited it, args in a responsive 2-col grid with units
-RIGHT of numeric inputs, sage zone-precedence callout, "Run <short>" footer; deliberate
-deviation: the mockup's "Preview one well" ghost is a FEATURE, not a restyle, and waits
-for Jauhar's word) shipped the same day; the remaining per-screen passes (1c plot
-panels, 1e LAS wizard, 1f report generator, 1g start screen) are queued and follow the
-handoff's per-screen sections.
+RIGHT of numeric inputs, sage zone-precedence callout, "Run <short>" footer) shipped the
+same day. Increments 4–5 (2026-08-01) closed the set: 1g start surfaces (boot overlay =
+identity column; the blank canvas is `startSheet.ts` — New/Open ARE the ribbon tools by
+id-click, recent rows route through the ribbon's switchProject guard via the
+`sandibumi:open-recent-project` event), 1e import rail + provenance footer on
+`importSetDialog`, 1f report buttons (Render primary, saves secondary) + page-on-rail
+preview, 1c plot surfaces via the `--plot-bg`/`--plot-grid` tokens read by
+`plotCanvas.readTheme` (warm neutral area, WHITE gridlines on light; dark overrides the
+gridline; log-view tracks untouched), plus the harmonization sweep (`form-run-btn`,
+`lp-btn`, guard dialogs → pills/16px). **Deliberate deviations, both FEATURES not
+restyles, awaiting Jauhar's word: the 1d "Preview one well" ghost button, and 1e's
+3-step mnemonic-mapping wizard (mnemonics map automatically in Rust).**
 
 **The split that governs everything: chrome goes Organic, data stays dense.** The ribbon,
 dialogs, buttons, tags and panel frames take the warm rounded look; log tracks, grids,

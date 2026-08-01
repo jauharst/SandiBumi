@@ -64,6 +64,12 @@
   --qc-warn: #c07000;
   --qc-alert: #c62828;
   --track-hd: #efe9dc;
+  /* Plot-area surface (Organic design 1c): the shared PlotCanvas draws its
+     data area on the warm neutral with WHITE gridlines, so the plot reads as
+     a card-on-card. Follows each theme's own alt tint via var(); dark themes
+     override the gridline (white would glare on near-black). */
+  --plot-bg: var(--bg-panel-alt);
+  --plot-grid: #ffffff;
   /* Typography tokens (theme-independent unless a branded skin overrides them): every
      canvas ctx.font and mono field derives from these, never from per-file literals.
      Organic redesign: Figtree is the body/UI face (Segoe stays as the fallback until
@@ -149,6 +155,7 @@
 }
 
 :root[data-theme="dark"] {
+  --plot-grid: #3d3223;
   --bg-app: #1c1610;
   --bg-panel: #241d15;
   --bg-panel-alt: #2e2519;
@@ -183,6 +190,7 @@
      #ffffff (~2:1 contrast) in the Results-QC scorecard of a client deliverable.
      An explicit theme choice must ignore the OS preference entirely. */
   :root:not([data-theme]) {
+    --plot-grid: #3d3223;
     --bg-app: #1c1610;
     --bg-panel: #241d15;
     --bg-panel-alt: #2e2519;
@@ -560,6 +568,46 @@ body {
   padding: 8px 12px;
   font-size: var(--fs-sm);
   color: var(--text-dim);
+}
+
+/* --- Import LAS set dialog (Organic design 1e) ----------------------------- */
+.import-file-list {
+  background: var(--bg-panel-alt);
+  border-radius: var(--r-lg);
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+.import-file-count {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+.import-file-row {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--text);
+  padding: 2px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.import-file-more {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  padding-top: 2px;
+}
+.import-prov-note {
+  background: var(--accent2-soft);
+  color: color-mix(in srgb, var(--accent2) 60%, var(--text));
+  border-radius: 10px;
+  padding: 7px 12px;
+  font-size: var(--fs-sm);
+  margin: 10px 0 4px;
 }
 
 #status-bar {
@@ -2253,21 +2301,24 @@ textarea {
   justify-content: center;
 }
 
+/* Organic harmonization: the dialog-action twin of .btn — pill, white ground,
+   tinted hover, ramp-step press. */
 .lp-btn {
   font-family: inherit;
   font-size: var(--fs-md);
   font-weight: 500;
-  padding: 6px 12px;
-  border-radius: var(--r-md);
+  padding: 6px 14px;
+  border-radius: var(--r-pill);
   border: 1px solid var(--border-strong);
-  background: var(--bg-panel-alt);
+  background: var(--bg-panel);
   color: var(--text);
   cursor: pointer;
 }
 
 .lp-btn:hover {
   border-color: var(--accent);
-  color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-dim);
 }
 
 .lp-btn.primary {
@@ -2277,7 +2328,8 @@ textarea {
 }
 
 .lp-btn.primary:hover {
-  filter: brightness(1.08);
+  background: color-mix(in srgb, var(--accent) 72%, var(--accent-dim));
+  border-color: color-mix(in srgb, var(--accent) 72%, var(--accent-dim));
   color: #fff;
 }
 
@@ -2520,18 +2572,24 @@ textarea {
   border-color: var(--accent);
 }
 
+/* Organic harmonization: every remaining primary action (composite, cutoffs,
+   map, Monte Carlo, Pickett picks…) goes pill in one rule — no TS churn. */
 .form-run-btn {
   background: var(--accent);
   color: #fff;
   border: none;
-  border-radius: var(--r-md);
+  border-radius: var(--r-pill);
   padding: 6px 18px;
   font-size: var(--fs-md);
+  font-weight: 600;
   cursor: pointer;
   margin-top: 6px;
 }
 
 .form-run-btn:hover {
+  background: color-mix(in srgb, var(--accent) 72%, var(--accent-dim));
+}
+.form-run-btn:active {
   background: var(--accent-dim);
 }
 
@@ -3879,20 +3937,23 @@ textarea {
   background-clip: content-box;
 }
 
-/* Composite log preview: scrollable page surface inside the export dialog. */
+/* Composite log preview: scrollable page surface inside the export dialog.
+   Organic 1f: the neutral rail the rendered page floats on — the page itself
+   stays white, so what is previewed is the paper. */
 .composite-preview {
   margin-top: 8px;
   max-height: 46vh;
   overflow: auto;
   background: var(--bg-panel-alt);
-  padding: 8px;
-  border-radius: var(--r-md);
+  padding: 10px;
+  border-radius: var(--r-lg);
   display: flex;
   justify-content: center;
 }
 .composite-preview svg {
   max-width: 100%;
   background: #fff;
+  box-shadow: var(--el-1);
 }
 
 /* ---------- Workflow Builder dialog ---------- */
@@ -5490,7 +5551,9 @@ input[type="number"].num-editing:focus {
   background: var(--bg-panel);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: var(--r-lg);
+  /* Dialog-tier radius (Organic: cards 12, dialogs 16) — this is the crash/
+     startup dialog family, and it should not look like a foreign app's. */
+  border-radius: var(--r-xl);
   box-shadow: var(--el-3);
   max-width: 420px;
   padding: 16px 18px;
@@ -5781,6 +5844,10 @@ input[type="number"].num-editing:focus {
 .guard-confirm-title {
   font-weight: 600;
   margin-bottom: 6px;
+}
+.guard-confirm-row button {
+  border-radius: var(--r-pill);
+  padding: 5px 14px;
 }
 .guard-confirm button.primary {
   background: var(--accent);
