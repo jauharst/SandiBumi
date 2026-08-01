@@ -2892,6 +2892,16 @@ corruption this code defends against.
   the active tab's content).
 - Any CSS `display` rule overrides the `hidden` attribute — always pair with
   `[hidden] { display: none }` (this bit us twice: ribbon panels, ribbon menus).
+- **A rounded `overflow: hidden` group does NOT round its TOP corners.** dockview
+  puts a `transform` on `.dv-tabs-container` to scroll the tab strip, and a
+  COMPOSITED descendant (transform or will-change) is not clipped by an ancestor's
+  border-radius — measured: a plain child and a scrolling child clip correctly, a
+  transformed one leaks. So the tab strip painted square corners over every panel
+  card. Fix is `clip-path` on `.dv-tabs-and-actions-container`, which is not subject
+  to it. Keep it SCOPED to the strip: clip-path also makes an element a containing
+  block for fixed/absolute descendants, so on the group it would trap any future
+  `position: fixed` child (the menu trap above, again). Bottom corners need nothing —
+  a `<canvas>`, WebGPU included, clips normally.
 - `group.api.moveTo({position})` with no target group auto-creates a grid group and
   moves the panels in (the ⇱ dock-back button); the old group and its header-actions
   renderer are disposed — don't hold element refs across it.

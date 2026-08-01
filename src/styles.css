@@ -1044,6 +1044,30 @@ textarea {
   overflow: hidden;
 }
 
+/* …but `overflow: hidden` alone does NOT round the group's TOP corners, and
+   every panel read as an unfinished square-topped box because of it.
+   dockview puts a `transform` on `.dv-tabs-container` (that is how the tab
+   strip scrolls), and a COMPOSITED descendant — anything carrying transform
+   or will-change — is not clipped by an ancestor's border-radius. Measured
+   in the browser rather than assumed: with a rounded `overflow: hidden`
+   parent, a plain child and a SCROLLING child are both clipped correctly, a
+   transformed child and a will-change child both leak. So the tab strip
+   painted its own square corners straight over the card's rounded ones.
+
+   `clip-path` is not subject to that, so the strip clips itself. Scoped to
+   the strip rather than put on the whole group ON PURPOSE: clip-path also
+   makes an element a containing block for fixed/absolute descendants, and on
+   the group that would quietly trap any future `position: fixed` child —
+   the trap this codebase already hit twice with menus. Nothing inside the
+   strip needs to escape (the ＋ add-panel menu is appended to <body>, like
+   every other floating menu here).
+
+   The BOTTOM corners need nothing: the content side holds no transformed
+   element, and a <canvas> — WebGPU log view included — is clipped normally. */
+.dockview-theme-sandibumi .dv-tabs-and-actions-container {
+  clip-path: inset(0 round var(--r-lg) var(--r-lg) 0 0);
+}
+
 /* Float / maximize buttons on each dock group's tab bar. */
 .dock-group-actions {
   display: flex;

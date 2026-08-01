@@ -7,6 +7,25 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-01 — Panel top corners were square, not rounded (your catch)
+
+You were right that the corners looked unfinished — the top ones genuinely were square.
+The cards carry a 12px radius, but dockview puts a `transform` on the tab strip so it
+can scroll, and a composited element like that is NOT clipped by its parent's rounded
+corners. The strip painted its own square corners straight over the card.
+
+- [ ] Every panel — Wells, Tops, Processing, Log View, Inspector, and any you open —
+      should now show a clean 12px round at **all four** corners, with the cream ground
+      visible through them. The top two are the ones that changed.
+- [ ] Check it after **splitting** a window and after **dragging a panel** into another
+      group: new groups get the same treatment.
+- [ ] The ＋ add-panel menu, right-click menus and dialogs must still open normally and
+      must NOT be cut off by a panel edge (the fix is deliberately scoped to the tab
+      strip so nothing that needs to escape a panel can be trapped by it).
+- [ ] Bottom corners needed no change — measured as already correct, including under the
+      log view's WebGPU canvas. If any bottom corner still looks square to you, say so:
+      that would be a different cause and I'd want to see which panel.
+
 ## 2026-08-01 — The brand stops changing colour with the skin (your catch)
 
 The wordmark was painted with `--accent`, so every client skin re-rolled it: SandiBumi
