@@ -6,7 +6,7 @@ import {
   type RunModuleRequest,
 } from "../ipc";
 import { appState } from "../state";
-import { formRow } from "./modal";
+import { formRow, openModal } from "./modal";
 import { buildWellScope } from "./wellScope";
 
 export interface ModulePaneCallbacks {
@@ -46,14 +46,42 @@ export async function buildModuleContent(
   const content = document.createElement("div");
   content.className = "module-pane";
 
-  // The method narration/formula used to sit here as a paragraph. It moved to the on-demand
-  // Help tool (the ? in the quick-access bar → "Help — <this module>"), which reads spec.doc,
-  // so the form stays uncluttered and the same text is the seed for the future HTML help library.
+  // --- Header (design 1d): icon chip + display-face title + Help on the right.
+  // The chip shows the module's initial — the manifest carries no icon, and a
+  // hand-kept icon registry would break rule 9 (new modules need no UI work).
+  // The Help button surfaces spec.doc in the same modal the ribbon ? uses; the
+  // pane already holds the spec, so no workspace wiring is needed.
+  const shortName = (spec.title.split("—")[0] ?? "").trim() || spec.name.toUpperCase();
+  const head = document.createElement("div");
+  head.className = "module-head";
+  const chip = document.createElement("span");
+  chip.className = "module-chip";
+  chip.textContent = (shortName[0] ?? "?").toUpperCase();
+  const titleEl = document.createElement("span");
+  titleEl.className = "module-title";
+  titleEl.textContent = spec.title;
+  const helpBtn = document.createElement("button");
+  helpBtn.type = "button";
+  helpBtn.className = "btn module-help";
+  helpBtn.textContent = "? Help";
+  helpBtn.addEventListener("click", () => {
+    const body = document.createElement("p");
+    body.className = "help-body";
+    body.textContent = spec.doc || "Documentation for this module is unavailable.";
+    openModal(`Help — ${spec.title}`, body, 480);
+  });
+  head.append(chip, titleEl, helpBtn);
+  content.appendChild(head);
 
   // --- Well selection (scope, not a checklist) ---
   // The scope resolves against live state at run time (group / ★ pinned / selection / all), so a
   // 2000-well field never needs a well-by-well checklist here.
   content.appendChild(scope.el);
+
+  // Labeled fields live in a responsive two-column grid (design 1d); at narrow
+  // pane widths it collapses to one column on its own.
+  const argsGrid = document.createElement("div");
+  argsGrid.className = "module-args";
 
   // --- Args from manifest ---
   const logSelects = new Map<string, HTMLSelectElement>();
@@ -107,13 +135,13 @@ export async function buildModuleContent(
       select.className = "form-control";
       fillLogSelect(select, arg, arg.default);
       logSelects.set(arg.name, select);
-      content.appendChild(formRow(`${arg.name} ${arg.required ? "" : "(optional)"}`, select, arg.desc));
+      argsGrid.appendChild(formRow(`${arg.name} ${arg.required ? "" : "(optional)"}`, select, arg.desc));
     } else if (arg.kind === "option") {
       const select = document.createElement("select");
       select.className = "form-control";
       fillSelect(select, arg.choices, arg.default, arg.choice_labels);
       optSelects.set(arg.name, select);
-      content.appendChild(formRow(arg.name, select, arg.desc));
+      argsGrid.appendChild(formRow(arg.name, select, arg.desc));
     } else if (arg.kind === "param") {
       const input = document.createElement("input");
       input.className = "form-control";
@@ -123,8 +151,19 @@ export async function buildModuleContent(
       if (arg.min !== null) input.min = String(arg.min);
       if (arg.max !== null) input.max = String(arg.max);
       paramInputs.set(arg.name, input);
-      const unit = arg.unit ? ` [${arg.unit}]` : "";
-      content.appendChild(formRow(`${arg.name}${unit}`, input, arg.desc));
+      // The unit sits to the RIGHT of the input (design 1d), no longer inside
+      // the label — the value and its unit read as one fact.
+      let control: HTMLElement = input;
+      if (arg.unit) {
+        const wrap = document.createElement("div");
+        wrap.className = "input-unit";
+        const u = document.createElement("span");
+        u.className = "unit-suffix";
+        u.textContent = arg.unit;
+        wrap.append(input, u);
+        control = wrap;
+      }
+      argsGrid.appendChild(formRow(arg.name, control, arg.desc));
     }
   }
 
@@ -151,7 +190,7 @@ export async function buildModuleContent(
     }
   };
   rebuildMaskOptions("");
-  content.appendChild(
+  argsGrid.appendChild(
     formRow("Mask (optional)", maskSelect, "Flag curve (=1 bad) to blank out of every output — e.g. BADHOLE."),
   );
 
@@ -162,7 +201,7 @@ export async function buildModuleContent(
   inSetLatest.value = "";
   inSetLatest.textContent = "(latest values)";
   inSetSelect.appendChild(inSetLatest);
-  content.appendChild(
+  argsGrid.appendChild(
     formRow(
       "Input cons",
       inSetSelect,
@@ -210,13 +249,22 @@ export async function buildModuleContent(
       .catch(() => {});
   };
   refreshConsPickers();
-  content.appendChild(
+  argsGrid.appendChild(
     formRow(
       "Output cons",
       setInput,
       "Outputs are versioned into this constellation — a re-run becomes version N+1, never overwriting. Pick an existing one or type a new name. Manage versions in the Curve Catalog.",
     ),
   );
+  content.appendChild(argsGrid);
+
+  // --- Zone-override callout (design 1d): the precedence rule, stated where
+  // the whole-well defaults are being typed rather than in a help page.
+  const callout = document.createElement("div");
+  callout.className = "module-callout";
+  callout.textContent =
+    "Values here are the whole-well defaults — per-zone parameters from the Zones pane take precedence inside their zones.";
+  content.appendChild(callout);
 
   // --- Outputs note ---
   const outputs = spec.args.filter((a) => a.kind === "log_out").map((a) => a.name);
@@ -225,14 +273,17 @@ export async function buildModuleContent(
   outNote.textContent = `Outputs: ${outputs.join(", ")}`;
   content.appendChild(outNote);
 
-  // --- Run ---
+  // --- Footer (design 1d): primary pill naming the module, last-run status
+  // right-aligned beside it.
   const runBtn = document.createElement("button");
-  runBtn.className = "form-run-btn";
-  runBtn.textContent = "Run";
+  runBtn.className = "btn btn-accent";
+  runBtn.textContent = `Run ${shortName}`;
   const resultBox = document.createElement("div");
-  resultBox.className = "modal-result";
-  content.appendChild(runBtn);
-  content.appendChild(resultBox);
+  resultBox.className = "modal-result module-status";
+  const footer = document.createElement("div");
+  footer.className = "module-footer";
+  footer.append(runBtn, resultBox);
+  content.appendChild(footer);
 
   // --- Persistent-pane refresh: keep the pickers current without touching user choices.
   // Data changes (imports, module runs — including this pane's own) refresh the well list
@@ -308,7 +359,7 @@ export async function buildModuleContent(
     // Live progress and the per-well ✓/⚠/✗ breakdown now live in the Processing panel (this
     // run reports into the shared job registry). Surface that panel and keep only a one-line
     // outcome here, so the form isn't a second, redundant results log.
-    resultBox.className = "modal-result";
+    resultBox.className = "modal-result module-status";
     resultBox.textContent = `Running ${spec.name} on ${wellIds.length} well(s)… see the Processing panel for progress.`;
     window.dispatchEvent(new Event("sandibumi:open-processing"));
     try {

@@ -2737,8 +2737,13 @@ eyeball; the .dc.html mockups carry options 1a–1g and client skins 2a–2b). I
 segmented Flag/Metric pills — the `.seg`/`.seg-opt` component is now the app's segmented
 control, KPI cards reading the EXISTING aggregation helpers, uninterpreted zones greyed
 in the grid with gross kept and judged cells dashed — the workbook's blank-is-not-zero
-rule) shipped 2026-08-01; the remaining per-screen passes (1c plot panels, 1d module
-pane, 1e LAS wizard, 1f report generator, 1g start screen) are queued and follow the
+rule) shipped 2026-08-01, and increment 3 (1d module pane: initial chip + Caprasimo
+title + in-pane Help off spec.doc, `wellScope` restyled as the RUN ON segmented pill —
+shared, so every batch dialog inherited it, args in a responsive 2-col grid with units
+RIGHT of numeric inputs, sage zone-precedence callout, "Run <short>" footer; deliberate
+deviation: the mockup's "Preview one well" ghost is a FEATURE, not a restyle, and waits
+for Jauhar's word) shipped the same day; the remaining per-screen passes (1c plot
+panels, 1e LAS wizard, 1f report generator, 1g start screen) are queued and follow the
 handoff's per-screen sections.
 
 **The split that governs everything: chrome goes Organic, data stays dense.** The ribbon,

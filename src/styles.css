@@ -4791,11 +4791,13 @@ textarea {
   padding: 1px 4px;
 }
 
+/* Organic (design 1d): the scope reads RUN ON — small-caps label, the modes as
+   a segmented pill (the .seg shape shared with the dashboard), the live count
+   as a tag. One control, every batch dialog inherits the look. */
 .well-scope {
   margin: 8px 0 12px;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
+  padding: 8px 10px;
+  border-radius: var(--r-lg);
   background: var(--bg-panel-alt);
 }
 .well-scope-head {
@@ -4805,43 +4807,52 @@ textarea {
   gap: 8px;
 }
 .well-scope-label {
-  font-size: var(--fs-md);
-  font-weight: 600;
-  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
 }
 .well-scope-modes {
   display: inline-flex;
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-pill);
+  background: var(--bg-panel);
   overflow: hidden;
 }
 .well-scope-mode {
   border: none;
   border-right: 1px solid var(--border);
-  background: var(--bg-panel);
+  background: transparent;
   color: var(--text-dim);
   font-size: var(--fs-md);
-  padding: 3px 9px;
+  padding: 3px 11px;
   cursor: pointer;
 }
 .well-scope-mode:last-child {
   border-right: none;
 }
 .well-scope-mode:hover {
-  background: var(--bg-hover);
+  background: var(--accent-soft);
+  color: var(--accent-dim);
 }
 .well-scope-mode-active {
   background: var(--accent);
   color: #fff;
+  font-weight: 600;
 }
 .well-scope-count {
   margin-left: auto;
-  font-size: var(--fs-md);
+  font-size: var(--fs-sm);
   font-weight: 600;
-  color: var(--accent);
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  background: var(--accent-soft);
+  color: var(--accent-dim);
   cursor: default;
 }
 .well-scope-count-zero {
+  background: color-mix(in srgb, var(--warn) 14%, var(--bg-panel));
   color: var(--warn);
 }
 .well-scope-detail {
@@ -5540,6 +5551,115 @@ input[type="number"].num-editing:focus {
 .zones-pane,
 .autocorr-pane {
   max-width: 620px;
+}
+
+/* --- Module pane, Organic (design 1d) -------------------------------------- */
+.module-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.module-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent-dim);
+  font-family: var(--font-heading);
+  font-weight: 400;
+  font-size: var(--fs-xl);
+}
+.module-title {
+  font-family: var(--font-heading);
+  font-weight: 400;
+  font-size: var(--fs-2xl);
+  letter-spacing: -0.01em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.module-help {
+  margin-left: auto;
+  flex: 0 0 auto;
+  font-size: var(--fs-sm);
+  padding: 3px 12px;
+}
+
+/* Labeled fields in a responsive two-column grid: label ABOVE its control
+   (11px/700 small caps), so the 180px side-label never squeezes a half-width
+   column. Collapses to one column in a narrow pane on its own. */
+.module-args {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px 14px;
+  margin-bottom: 10px;
+}
+.module-args .form-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  margin-bottom: 0;
+  min-width: 0;
+}
+.module-args .form-label {
+  flex: none;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.module-args .form-control {
+  width: 100%;
+  min-width: 0;
+}
+
+/* A numeric value and its unit read as one fact: unit to the RIGHT of the input. */
+.input-unit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.input-unit .form-control {
+  flex: 1;
+  min-width: 0;
+}
+.unit-suffix {
+  flex: 0 0 auto;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+
+/* Sage callout: the zone-precedence rule, stated beside the fields it governs. */
+.module-callout {
+  background: var(--accent2-soft);
+  color: color-mix(in srgb, var(--accent2) 60%, var(--text));
+  border-radius: var(--r-lg);
+  padding: 8px 12px;
+  font-size: var(--fs-sm);
+  margin-bottom: 10px;
+}
+
+.module-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+}
+.module-status {
+  margin-top: 0; /* .modal-result's 10px would misalign it inside the flex footer */
+  margin-left: auto;
+  text-align: right;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
 }
 
 /* --- P1-b crash safe-mode + unsaved indicators ----------------------------- */

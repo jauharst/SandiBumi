@@ -7,6 +7,29 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
 **wrong**, tell me directly (like your 540-well notes) and I'll fix it and log it in
 **ROADMAP.md §4 (Field-review backlog)**.
 
+## 2026-08-01 — Organic increment 3: the module pane (design 1d)
+
+One pattern, every manifest-driven module — nothing was written per module (rule 9 holds:
+a new module still needs zero frontend work). **Same runner, same validation, same
+defaults**; only the form changed shape.
+
+- [ ] Open any module (e.g. **Petrophysics ▸ VSH**): header shows a 34px initial chip +
+      the title in the display face + a **? Help** button on the right that opens the
+      module's method note. The dockview tab title is unchanged.
+- [ ] The well scope now reads **RUN ON** with the modes as a segmented pill and the live
+      well count as a tag — this control is shared, so EVERY batch dialog (cutoffs,
+      exports, fits, Monte Carlo…) picked up the same look. Spot-check two others.
+- [ ] Parameters sit in a **two-column grid**, labels in small caps above each field, and
+      a numeric parameter's **unit sits to the right of its input** (it used to be inside
+      the label). Narrow the pane: the grid collapses to one column.
+- [ ] The sage callout states the precedence rule: values here are whole-well defaults,
+      Zones-pane parameters win inside their zones.
+- [ ] Footer: **Run VSH** (the module's short name) as a solid pill, last-run status
+      right-aligned beside it. Out-of-range values still refuse by name before any run.
+- [ ] Deliberate deviation from the mockup: **no "Preview one well" ghost button** — that
+      is a new feature (a run that writes nothing), not a restyle. Say the word if you
+      want it and it becomes its own increment.
+
 ## 2026-08-01 — Organic increment 2: Field Dashboard (design 1b)
 
 The dashboard now matches your mockup. **Every number is the same arithmetic as before** —
