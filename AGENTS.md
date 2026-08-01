@@ -118,6 +118,17 @@ scroll to the selected top (`LogCanvasRenderer.scrollToDepth`). Interval is clea
 BEFORE the well broadcast on well switch (order matters — followers must never see a
 foreign interval). Selected rows highlight via `.tree-selected`/`.top-selected`.
 
+**Ribbon homes, reorganised 2026-08-01** on Jauhar's call, after "where is core cond. menu?"
+— five tools were buried in the Data ▸ Tools ▾ dropdown and are now labelled buttons in
+groups of their own. **Data ▸ Core**: Register Depth… / Shift Core… / Data Sets… (core depth
+work is one job done in sequence, so the tools sit together). **Advance ▸ Core Imaging**:
+Core Photos… (conditioning, the CPHOTO traces and depth strips are an interpretation method,
+not a data-management chore, so they sit with the other in-house methods). **Advance ▸
+Petrography** gains Plate Details…, beside Condition Plates… / Pore Area… / Mineral
+Classifier… / Plug QC…. Note the Petrography group is in the **Advance** tab, not
+Petrophysics — older notes here said otherwise and were wrong. A dropdown is for a long tail
+of rarely-used items; anything in a workflow gets a button.
+
 **A tool opens as a WORKING PANE, never a popup** (Jauhar, 2026-08-01: *"make this module
 shown as working pane not pop up, remember dont use pop up for future except my request"*).
 This is a standing rule for all new work, not a one-off: a popup covers the workspace and
@@ -779,7 +790,7 @@ fixed here.
 
 ## Core-to-log depth registration (2026-07-31)
 
-`registration.rs` (Data ▸ Tools ▾ ▸ **Register Depth…**, `depthRegDialog.ts`) proposes the constant
+`registration.rs` (Data ▸ Core ▸ **Register Depth…**, `depthRegDialog.ts`) proposes the constant
 shift that puts a well's core back on the log's depth scale. Until now the only tool was a number
 typed into Shift Core — you had to already know the answer. Five rules.
 
@@ -1081,11 +1092,11 @@ a core photograph the thin sections' magnification. Its undo restores plate by p
 plates need not have agreed before and writing one value back across the delivery would invent a
 uniformity that was not there.
 
-Data ▸ Tools ▾ ▸ **Plate Details…** (renamed from Plate Depths…, same dialog).
+Advance ▸ Petrography ▸ **Plate Details…** (renamed from Plate Depths…, same dialog).
 
 ## Pore area from blue-dyed epoxy (2026-07-31 — Part 2 A1)
 
-`petrography.rs` (Petrophysics ▸ Petrography ▸ **Pore Area…**, `poreAreaDialog.ts`) is the first
+`petrography.rs` (Advance ▸ Petrography ▸ **Pore Area…**, `poreAreaDialog.ts`) is the first
 measurement taken off a plate, and deliberately the **dimensionless** one: an area fraction needs no
 micrometres per pixel, so it runs on every plate rather than only the calibrated ones. The
 deliverable is an area fraction per plate, which estimates volume fraction by the Delesse relation.
@@ -1236,7 +1247,7 @@ Sets, Shift Core, Well header.
 
 ## Mineral classifier (2026-07-31 — Part 2 family A3)
 
-`petrography.rs` `run_plate_classifier` + `mineralClassDialog.ts` (Petrophysics ▸ Petrography ▸
+`petrography.rs` `run_plate_classifier` + `mineralClassDialog.ts` (Advance ▸ Petrography ▸
 **Mineral Classifier…**). Quartz against feldspar in plane light is not a colour problem, so this
 family is a supervised classifier and never a colour rule — `docs/plan_image_analysis.md` §2.1 A3.
 
@@ -1455,7 +1466,7 @@ browser, not by the compiler.
 
 ## Plug QC — checking a measurement against an independent one (2026-07-31)
 
-`plugqc.rs` + `plugQcPanel.ts` (Petrophysics ▸ Petrography ▸ **Plug QC…**, also in the workspace
+`plugqc.rs` + `plugQcPanel.ts` (Advance ▸ Petrography ▸ **Plug QC…**, also in the workspace
 ＋ menu) plot two measurements made on the SAME plug against each other. The petrography numbers
 were the first measurements this app produced that nothing else in it could check: an area fraction
 estimating a volume fraction by the Delesse relation is a *claim*, and the only test of it is the
@@ -2045,7 +2056,7 @@ quarter when corrected onto their own. Its orphan plate pins the refusal above.
 
 ## Core slab photographs: conditioning, and a trace read off them (2026-07-31)
 
-`coreimage.rs` + `coreConditionDialog.ts` (Data ▸ Tools ▾ ▸ **Condition Core Photos…**) are ROADMAP
+`coreimage.rs` + `coreConditionDialog.ts` (Advance ▸ Core Imaging ▸ **Core Photos…**) are ROADMAP
 C2 item (7)'s first two halves. A core photograph arrives as somebody's snapshot — the box a degree
 off square on the bench, the tray and the tape in frame, and whatever colour the core shed's lights
 had that afternoon. None of that is the rock and all of it goes into a report.
@@ -2375,7 +2386,7 @@ box's two lights reduced to whichever was built last.
 ## A thin section is a picture too (2026-08-01)
 
 The conditioning workspace built for core slab photographs now serves plates as well
-(Petrophysics ▸ Petrography ▸ **Condition Plates…**), and Pore Area's colour band is a colour rather
+(Advance ▸ Petrography ▸ **Condition Plates…**), and Pore Area's colour band is a colour rather
 than four numbers. Jauhar's rule from the core work — "geologist see image not text" — applied to the
 petrography side, which is where it matters most, because a colour threshold is the one setting that
 genuinely cannot be judged from a number.

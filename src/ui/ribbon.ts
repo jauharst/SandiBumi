@@ -271,6 +271,20 @@ export class Ribbon {
     // A working pane, not a popup: point counting runs plate by plate through a whole
     // delivery, and the Wells pane has to stay reachable while it does.
     q<HTMLButtonElement>("#mineral-class-btn")?.addEventListener("click", () => workspace.openMineralClass());
+    // Moved out of the Data ▸ Tools ▾ dropdown onto their own ribbon groups (Jauhar,
+    // 2026-08-01): core depth work is one job done in sequence, core photographs are an
+    // interpretation method, and plate details belong with the rest of petrography.
+    q<HTMLButtonElement>("#plate-details-btn")?.addEventListener("click", () => {
+      void import("./plateDepthDialog").then((m) => m.openPlateDepthDialog());
+    });
+    q<HTMLButtonElement>("#register-depth-btn")?.addEventListener("click", () => {
+      void import("./depthRegDialog").then((m) => m.openDepthRegDialog());
+    });
+    q<HTMLButtonElement>("#condition-core-btn")?.addEventListener("click", () => {
+      void import("./coreConditionDialog").then((m) => m.openCoreConditionDialog());
+    });
+    q<HTMLButtonElement>("#shift-core-btn")?.addEventListener("click", () => this.handleShiftCore());
+    q<HTMLButtonElement>("#data-sets-btn")?.addEventListener("click", () => this.handleDataSets());
     q<HTMLButtonElement>("#plug-qc-btn")?.addEventListener("click", () => workspace.openPlugQc());
     q<HTMLButtonElement>("#multimin-btn")?.addEventListener("click", () => workspace.openMultimin());
     q<HTMLButtonElement>("#rtc-fit-btn")?.addEventListener("click", () => {
@@ -407,37 +421,6 @@ export class Ribbon {
           label: "Autocorrelate Tops…",
           doc: "Propagate a top from the selected well to other wells by matching a log's shape (GR by default)",
           onPick: () => this.workspace.openAutoCorr(),
-        },
-        {
-          label: "Register Depth…",
-          doc: "Find the core-to-log depth shift by matching a core measurement against a log, with the correlogram to judge it by (proposes; you accept)",
-          onPick: () => {
-            void import("./depthRegDialog").then((m) => m.openDepthRegDialog());
-          },
-        },
-        {
-          label: "Plate Details…",
-          doc: "Re-register pictures already imported — shift a whole delivery, or correct one plate's depth, name or caption (undoable)",
-          onPick: () => {
-            void import("./plateDepthDialog").then((m) => m.openPlateDepthDialog());
-          },
-        },
-        {
-          label: "Condition Core Photos…",
-          doc: "Straighten, crop and colour-correct a core slab photograph, judged on the picture rather than on numbers — the import is kept, so it is always reversible",
-          onPick: () => {
-            void import("./coreConditionDialog").then((m) => m.openCoreConditionDialog());
-          },
-        },
-        {
-          label: "Shift Core…",
-          doc: "Shift the selected well's core plugs by a constant depth you already know (core-to-log alignment; undoable)",
-          onPick: () => this.handleShiftCore(),
-        },
-        {
-          label: "Data Sets…",
-          doc: "Every core, SCAL, survey and point-data delivery imported for the selected well — switch which one is active, or delete one",
-          onPick: () => this.handleDataSets(),
         },
         {
           label: "Well Header…",

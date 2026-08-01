@@ -23,9 +23,25 @@ Marks: **`[x]` = confirmed done** (works as described); `[ ]` = not yet checked.
       only for real interruptions — confirmations, refusals, Help — or when you ask for a
       popup. **Still popups, and I did NOT convert them without your word: Pore Area… and
       Condition Plates… / Condition Core Photos….** Say the word and they follow.
-- [ ] Core conditioning has not moved: **Data ▸ Tools ▾ ▸ Condition Core Photos…**. It sits
-      in a different tab from Condition Plates…, which is the same dialog for thin sections
-      — if you want them side by side in Petrography, that is a small move.
+## 2026-08-01 — Five tools come out of the Tools ▾ dropdown (your call)
+
+You asked where the core conditioning menu was — it was buried in Data ▸ Tools ▾, which is
+the answer to the question. Nothing is hidden in a dropdown any more if it is part of a
+workflow.
+
+- [ ] **Data ▸ Core** (new group): **Register Depth… · Shift Core… · Data Sets…** — the core
+      depth job in the order you do it, all three as labelled buttons.
+- [ ] **Advance ▸ Core Imaging** (new group): **Core Photos…** — conditioning, the CPHOTO
+      darkness/redness/texture traces and the depth strips. It is in Advance because reading
+      a log off a photograph is an interpretation method, not data management, and it sits
+      next to Petrography so the imaging work is together.
+- [ ] **Advance ▸ Petrography** gains **Plate Details…**, beside Condition Plates…, Pore
+      Area…, Mineral Classifier… and Plug QC….
+- [ ] All five must be GONE from Data ▸ Tools ▾ — that menu now holds Autocorrelate Tops…,
+      Well Header… and Compact Project… only. Check nothing you use daily is still in there.
+- [ ] Every moved button opens exactly what it opened before — same dialogs, same panes.
+- [ ] Note for the record: the Petrography group is in the **Advance** tab. My notes had said
+      Petrophysics, which was simply wrong; they are corrected.
 
 ## 2026-08-01 — One edge, on the pane you are working in (your call)
 
