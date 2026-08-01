@@ -279,30 +279,98 @@ pub fn rt_cutoff(ctx: &ModuleContext) -> ModuleOutputs {
 }
 
 // --------------------------------------------------------------------------------------------
-// Pittman full pore-throat aperture table (Wave B item 8, increment 2) — Pittman (1992, AAPG
-// Bulletin v76) regressed the pore-throat radius at mercury saturations 10..75 % against φ and k
-// for a sandstone set. Each rX is log10 rX = C0 + C1·log10 k + C2·log10 φ, k in mD, φ in PERCENT,
-// rX in µm. The r35 row (0.255, 0.565, −0.523) matches ref_rocktyping_shf.md, which anchors the
-// transcription; the FULL nine-row set is from the paper's table and is flagged verify-before-
-// release (same policy as PGS 3.5 / Swanson / Lucia). Pittman's "apex" — the rX that best predicts
-// k for a given rock family (coarse rocks apex near r25–r35, finer near r50–r75) — is selectable.
+// Pittman pore-throat aperture table (Wave B item 8, increment 2) — Pittman, E. D., 1992,
+// "Relationship of Porosity and Permeability to Various Parameters Derived from Mercury
+// Injection-Capillary Pressure Curves for Sandstone": AAPG Bulletin v. 76, no. 2, p. 191–198,
+// **Table 1** (p. 196). Each rX is log10 rX = C0 + C1·log10 k + C2·log10 φ, k = uncorrected air
+// permeability in mD, φ in PERCENT, rX in µm; 202 samples from 14 formations, Ordovician to
+// Tertiary. Pittman's "apex" — the rX that best predicts k for a given rock family (coarse rocks
+// apex near r25–r35, finer near r50–r75) — is selectable.
+//
+// **VERIFIED against the paper 2026-08-01** (docs/review_triage.md finding 9), which is what the
+// old "verify before field release" note asked for. It failed, in two places:
+//
+//   - the row shipped as PR50 carried (0.609, 0.608, −0.974), which is Table 1's **r45**;
+//   - the row shipped as PR75 carried (1.243, 0.674, −1.517), which matches **no published
+//     equation at all**.
+//
+// The mechanism is worth keeping, because it is what PITTMAN_TABLE1 below now defends against.
+// Pittman publishes FOURTEEN rows in 5 % steps; this module writes nine of them. r10–r40 are
+// contiguous, so reading straight down the paper works — until the first skip, after which every
+// subsequent row is one line high. That put r45's coefficients under the PR50 label and left the
+// tail free-floating. The consequence was a family that INVERTED: PR75 came back larger than PR50
+// above ~79 mD at 25 % porosity, i.e. a wider throat at higher mercury saturation, which cannot
+// happen in rock (mercury enters the widest throats first). With the published coefficients the
+// r50 − r75 gap in log space is −1.102 + 0.017·log k + 1.421·log φ%, which stays negative until
+// k ≈ 10^6 mD — so the ordering now holds everywhere a real rock lives.
 // --------------------------------------------------------------------------------------------
 
-/// (mnemonic, C0, C1, C2) for each mercury-saturation radius; ordered by saturation 10..75 %.
-const PITTMAN_RX: [(&str, f64, f64, f64); 9] = [
-    ("PR10", 0.459, 0.500, -0.385),
-    ("PR15", 0.333, 0.509, -0.344),
-    ("PR20", 0.218, 0.519, -0.303),
-    ("PR25", 0.204, 0.531, -0.350),
-    ("PR30", 0.215, 0.547, -0.420),
-    ("PR35", 0.255, 0.565, -0.523),
-    ("PR40", 0.360, 0.582, -0.680),
-    ("PR50", 0.609, 0.608, -0.974),
-    ("PR75", 1.243, 0.674, -1.517),
+/// Pittman (1992) Table 1 **in full and in publication order**: (Hg saturation %, C0, C1, C2, R).
+///
+/// The module writes a nine-row subset (`PITTMAN_RX`), but the whole table lives here so it can be
+/// diffed against p. 196 line by line — a subset transcribed by hand is exactly what produced the
+/// r45-under-the-PR50-label error above, and `every_shipped_pittman_row_matches_the_published_table`
+/// is the check that would have caught it. **Do not edit a row without the paper open.**
+///
+/// R is the paper's own correlation coefficient. It falls steadily with saturation (0.926 at r20,
+/// 0.820 at r75) and Pittman states outright that "the accuracy would diminish above the 55th
+/// percentile" (p. 195) — which is why the r75 row is the weakest thing in this module, even now
+/// that it is right. Rows through r35 are marked in the paper as having a statistically
+/// insignificant porosity term; a regression on permeability alone gives essentially the same
+/// answer there.
+#[rustfmt::skip]
+const PITTMAN_TABLE1: [(u32, f64, f64, f64, f64); 14] = [
+    (10, 0.459, 0.500, -0.385, 0.901),
+    (15, 0.333, 0.509, -0.344, 0.919),
+    (20, 0.218, 0.519, -0.303, 0.926),
+    (25, 0.204, 0.531, -0.350, 0.926),
+    (30, 0.215, 0.547, -0.420, 0.923),
+    (35, 0.255, 0.565, -0.523, 0.918),
+    (40, 0.360, 0.582, -0.680, 0.918),
+    (45, 0.609, 0.608, -0.974, 0.913),
+    (50, 0.778, 0.626, -1.205, 0.908),
+    (55, 0.948, 0.632, -1.426, 0.900),
+    (60, 1.096, 0.648, -1.666, 0.893),
+    (65, 1.372, 0.643, -1.979, 0.876),
+    (70, 1.664, 0.627, -2.314, 0.862),
+    (75, 1.880, 0.609, -2.626, 0.820),
 ];
 
-/// Mercury saturation (%) of each PITTMAN_RX row, for the APEX selector ("r35" → 35).
-const PITTMAN_PCT: [u32; 9] = [10, 15, 20, 25, 30, 35, 40, 50, 75];
+/// (mnemonic, Hg saturation %) for each radius this module WRITES, ordered by saturation.
+///
+/// **Deliberately carries no coefficients.** They are looked up from `PITTMAN_TABLE1`, so the
+/// paper's numbers exist in exactly one place in this repo and the shipped subset cannot drift
+/// from the table the way it did before 2026-08-01. That drift is the entire content of finding 9:
+/// a second hand-copied list is a second thing to get wrong, and getting it wrong here is silent.
+///
+/// The five published saturations this module does not write (r45, r55, r60, r65, r70) are absent
+/// from the OUTPUT set only. Adding one is a line here plus a `log_out` — never a re-reading of
+/// the paper.
+const PITTMAN_RX: [(&str, u32); 9] = [
+    ("PR10", 10),
+    ("PR15", 15),
+    ("PR20", 20),
+    ("PR25", 25),
+    ("PR30", 30),
+    ("PR35", 35),
+    ("PR40", 40),
+    ("PR50", 50),
+    ("PR75", 75),
+];
+
+/// Table 1 coefficients for one mercury saturation, or a NaN triple if it was never published.
+///
+/// NaN rather than a panic: release builds are `panic = "abort"`, so an `expect` here would take
+/// the whole app down over a typo in a constant. NaN coefficients yield a NaN radius, which is
+/// MISSING — the module's own convention for "no answer" — and
+/// `every_shipped_pittman_row_is_a_published_one` makes sure the case cannot arise.
+fn pittman_coef(pct: u32) -> (f64, f64, f64) {
+    PITTMAN_TABLE1
+        .iter()
+        .find(|r| r.0 == pct)
+        .map(|r| (r.1, r.2, r.3))
+        .unwrap_or((f64::NAN, f64::NAN, f64::NAN))
+}
 
 /// Pore-throat radius (µm) for one Pittman row from k (mD) and φ (PERCENT).
 fn pittman_radius(coef: (f64, f64, f64), k: f64, phi_pct: f64) -> f64 {
@@ -313,7 +381,7 @@ fn pittman_radius(coef: (f64, f64, f64), k: f64, phi_pct: f64) -> f64 {
 /// Index into PITTMAN_RX for an APEX option like "r35" (default r35); parses the trailing digits.
 fn pittman_apex_idx(apex: &str) -> usize {
     let pct: u32 = apex.trim_start_matches(['r', 'R']).parse().unwrap_or(35);
-    PITTMAN_PCT.iter().position(|&p| p == pct).unwrap_or(5)
+    PITTMAN_RX.iter().position(|&(_, p)| p == pct).unwrap_or(5)
 }
 
 pub fn pittman_rx_spec() -> ModuleSpec {
@@ -328,8 +396,20 @@ pub fn pittman_rx_spec() -> ModuleSpec {
               2.5–10, mega ≥10 µm → 1..5). Pick APEX = the rX that best correlates with k for your \
               rock family (coarse rocks apex near r25–r35, finer near r50–r75); r35 is the common \
               default and matches the Winland concept. Samples with φ∉(0,1) or k≤0 stay MISSING. \
-              NOTE: the coefficient table is transcribed from Pittman 1992 (r35 cross-checks the \
-              reference doc) — verify the full set against the paper before field release."
+              Coefficients are Pittman (1992, AAPG Bull. v76 no.2 p191–198) Table 1, verified \
+              against the paper. Two cautions, both the paper's own arithmetic rather than this \
+              implementation's. (1) The correlation coefficient falls with saturation (0.926 at \
+              r20 down to 0.820 at r75) and Pittman states the accuracy diminishes above the 55th \
+              percentile, so PR75 is the weakest row of the family. (2) The rows are INDEPENDENT \
+              regressions whose porosity exponent steepens from -0.385 at r10 to -2.626 at r75, so \
+              in TIGHT rock the high-saturation rows overtake the low ones: below about 11 % \
+              porosity the family stops falling monotonically and PR50/PR75 turn back upward \
+              (at 5 % porosity, 1 mD: PR40 = 0.77 um but PR50 = 0.86 and PR75 = 1.11). Use a LOW \
+              APEX in tight rock — r25-r35, where Pittman's own porosity term is statistically \
+              insignificant — and treat PR50/PR75 there as extrapolation. Nothing is clamped, \
+              because forcing the ordering would report radii the paper never published. k is \
+              UNCORRECTED air permeability; feeding a Klinkenberg-corrected k gives throats that \
+              are too small."
             .into(),
         args: vec![
             opt(
@@ -361,6 +441,8 @@ pub fn pittman_rx(ctx: &ModuleContext) -> ModuleOutputs {
     let apex_idx = pittman_apex_idx(ctx.o("APEX"));
 
     let n = ctx.n;
+    // Resolved from the published table ONCE, not per sample.
+    let coefs: Vec<(f64, f64, f64)> = PITTMAN_RX.iter().map(|&(_, pct)| pittman_coef(pct)).collect();
     let mut radii: Vec<Vec<f32>> = (0..9).map(|_| vec![f32::NAN; n]).collect();
     let mut rapex = vec![f32::NAN; n];
     let mut rt = vec![f32::NAN; n];
@@ -372,8 +454,8 @@ pub fn pittman_rx(ctx: &ModuleContext) -> ModuleOutputs {
             continue; // leave MISSING
         }
         let phi_pct = phi * 100.0;
-        for (j, &(_, c0, c1, c2)) in PITTMAN_RX.iter().enumerate() {
-            radii[j][i] = pittman_radius((c0, c1, c2), k, phi_pct) as f32;
+        for (j, &coef) in coefs.iter().enumerate() {
+            radii[j][i] = pittman_radius(coef, k, phi_pct) as f32;
         }
         let ap = radii[apex_idx][i] as f64;
         rapex[i] = ap as f32;
@@ -467,24 +549,143 @@ mod tests {
         ModuleContext { n, logs, params: HashMap::new(), opts, depth_unit: Default::default() }
     }
 
-    /// T-RT-08 — the Pittman family, the APEX selector, and the ordering claim that does NOT hold.
+    /// Every row this module writes is Pittman (1992) Table 1, checked coefficient by coefficient.
     ///
-    /// The physics is not in doubt: mercury enters the widest throats first, so the radius quoted
-    /// at a higher saturation must be the smaller one, and r75 < r50 always. The plan's Expected
-    /// says the monotone ordering "holds everywhere both curves are populated".
+    /// This is the test that was missing, and its absence is the whole of finding 9. The nine
+    /// shipped rows were transcribed by hand out of a fourteen-row published table, and a hand
+    /// transcription of a SUBSET has a failure mode a full copy does not: skip a row and every
+    /// line below it is read one high. That is exactly what happened — r45's coefficients shipped
+    /// under the PR50 label — and the only reason it was ever noticed is that it made the family
+    /// non-monotone. A slip between two ADJACENT rows would have produced a plausible number with
+    /// no symptom at all.
     ///
-    /// It does not. The nine rows are nine INDEPENDENT regressions, not a nested family, so
-    /// nothing in the arithmetic makes them agree. PR50 − PR75 in log space is
-    /// `−0.634 − 0.066·log k + 0.543·log φ%`, which changes sign at about **79 mD at 25 % porosity**
-    /// — ordinary reservoir sand, not a corner. Above that the transcribed table reports a LARGER
-    /// throat at 75 % mercury than at 50 %, which cannot happen in rock.
-    ///
-    /// The module's own doc already flags the full set as transcribed and "verify before field
-    /// release". This is that verification, and the r50/r75 pair fails it. Pinned AS-IS because
-    /// correcting a coefficient needs the 1992 paper in hand, not a guess — see
-    /// docs/review_triage.md finding 9.
+    /// So the paper's table lives in the code and the shipped set is derived from it here, rather
+    /// than the two being kept in step by whoever reads them next.
     #[test]
-    fn the_pittman_radius_family_inverts_between_r50_and_r75_in_good_sand() {
+    fn every_shipped_pittman_row_is_a_published_one() {
+        for &(name, pct) in PITTMAN_RX.iter() {
+            assert_eq!(
+                name,
+                format!("PR{pct}"),
+                "the mnemonic must name its own saturation, or the APEX selector points at the wrong row"
+            );
+            let (c0, c1, c2) = pittman_coef(pct);
+            assert!(
+                c0.is_finite() && c1.is_finite() && c2.is_finite(),
+                "{name} claims saturation {pct} %, which is not a row of Table 1 — the module would \
+                 write an all-MISSING curve under a name that looks like a published one"
+            );
+        }
+        // The apex selector must land on the row it names, for every choice the spec offers.
+        for (i, &(_, pct)) in PITTMAN_RX.iter().enumerate() {
+            assert_eq!(pittman_apex_idx(&format!("r{pct}")), i, "APEX r{pct} must select PR{pct}");
+        }
+
+        // Table 1 itself, guarded against a careless edit: 14 rows, 5 % apart, 10 through 75.
+        assert_eq!(PITTMAN_TABLE1.len(), 14);
+        for (i, r) in PITTMAN_TABLE1.iter().enumerate() {
+            assert_eq!(r.0, 10 + 5 * i as u32, "Table 1 is in 5 % steps from r10");
+            assert!((0.8..=0.93).contains(&r.4), "R out of the published range at r{}", r.0);
+        }
+        // The published correlation weakens monotonically past r25 — the reason the module doc
+        // tells the user to prefer a lower APEX, and the reason r75 is the row to distrust.
+        assert!(PITTMAN_TABLE1[13].4 < PITTMAN_TABLE1[3].4, "R must fall from r25 to r75");
+    }
+
+    /// The published rows cross over in TIGHT rock, and that is the paper's arithmetic — found
+    /// 2026-08-01 while verifying finding 9, and not the same defect it was verifying.
+    ///
+    /// Table 1 is fourteen INDEPENDENT regressions, not a nested family, so nothing in it enforces
+    /// the ordering the physics requires. The porosity exponent steepens steadily down the table
+    /// (−0.385 at r10 to −2.626 at r75) — Pittman notes the porosity term is statistically
+    /// insignificant through r35 and significant from r40 — so as porosity falls the
+    /// high-saturation rows climb much faster than the low ones and eventually overtake them. At
+    /// 5 % porosity and 1 mD the shipped family reads
+    ///
+    /// ```text
+    ///   r10 1.548  r15 1.238  r20 1.014  r25 0.911  r30 0.834  r35 0.775  r40 0.767
+    ///   r50 0.862 ↑  r75 1.108 ↑
+    /// ```
+    ///
+    /// i.e. it falls correctly to r40 and then turns back up. Measured over the paper's own sample
+    /// range (φ 3.3–28 %, k 0.05–998 mD) the shipped set is strictly monotone at every
+    /// permeability once porosity reaches **11.16 %**, and every inversion below that is in tight
+    /// rock.
+    ///
+    /// **Not corrected, and deliberately.** Forcing the family monotone — a running minimum, or a
+    /// refit — would put numbers in a client's report that Pittman never published, which is the
+    /// move the provenance rules exist to prevent. What is recorded instead is where the published
+    /// equations stop agreeing with the physics, so the module doc can tell a user to pick a lower
+    /// APEX in tight rock rather than leaving them to discover it from a curve.
+    ///
+    /// The scale of the improvement is asserted alongside, because "still not perfectly monotone"
+    /// must not be read as "the fix did not work": the mis-transcribed table inverted across
+    /// ordinary 25 % sand, this one only below 11 % porosity.
+    #[test]
+    fn the_published_pittman_rows_cross_over_in_tight_rock_and_that_is_the_papers_own_arithmetic() {
+        let family = |k: f64, phi_pct: f64| -> Vec<f64> {
+            PITTMAN_RX.iter().map(|&(_, pct)| pittman_radius(pittman_coef(pct), k, phi_pct)).collect()
+        };
+        let monotone = |k: f64, phi_pct: f64| -> bool {
+            let r = family(k, phi_pct);
+            (0..r.len() - 1).all(|w| r[w] > r[w + 1])
+        };
+        // The paper's own sample range.
+        let ks: Vec<f64> = (0..=86).map(|i| 10f64.powf(-1.3 + 0.05 * i as f64)).collect();
+
+        // Tight rock: the ordering fails, and it fails upward from r40.
+        assert!(!monotone(1.0, 5.0), "at 5 % porosity the published rows must be recorded as crossing");
+        let t = family(1.0, 5.0);
+        assert!(t[..7].windows(2).all(|w| w[0] > w[1]), "r10..r40 still falls correctly");
+        assert!(t[7] > t[6] && t[8] > t[7], "and r50, r75 turn back up — the coefficients, not a slip");
+
+        // Reservoir rock: the ordering holds at every permeability the paper sampled. 12 % is the
+        // stated boundary rounded up from a measured 11.16 %.
+        for i in 120..=280 {
+            let phi = i as f64 / 10.0;
+            assert!(
+                ks.iter().all(|&k| monotone(k, phi)),
+                "the family must be monotone throughout reservoir rock, and was not at phi {phi} %"
+            );
+        }
+        // And it is genuinely broken just below that, so the boundary is real rather than a
+        // conservative guess nobody checked.
+        assert!(ks.iter().any(|&k| !monotone(k, 11.0)), "11 % must still show a crossover");
+
+        // The correction's worth, measured: the mis-transcribed PR75 row (1.243, 0.674, −1.517)
+        // against the published (1.880, 0.609, −2.626) at ordinary 25 % sand, 100 mD.
+        let old_pr75 = pittman_radius((1.243, 0.674, -1.517), 100.0, 25.0);
+        let pr50 = pittman_radius(pittman_coef(50), 100.0, 25.0);
+        assert!(old_pr75 > pr50, "the old table inverted here — that is what was fixed");
+        assert!(
+            pittman_radius(pittman_coef(75), 100.0, 25.0) < pr50,
+            "and the published one does not"
+        );
+    }
+
+    /// T-RT-08 — the Pittman family, the APEX selector, and the ordering the physics requires.
+    ///
+    /// Mercury enters the widest throats first, so the radius quoted at a HIGHER saturation must be
+    /// the SMALLER one: r10 > r15 > … > r75, everywhere both are populated. The plan's Expected
+    /// says so, and until 2026-08-01 the code did not deliver it — the mis-transcribed r75 row came
+    /// back LARGER than r50 above about 79 mD at 25 % porosity, measured then at 2.953 µm against
+    /// 2.907 µm. With Table 1's published coefficients the pair is 2.216 µm against 0.267 µm.
+    ///
+    /// The ordering is asserted over a GRID rather than at one point, because these are nine
+    /// independent regressions and nothing in the arithmetic guarantees they agree — a coefficient
+    /// slip shows up as a crossover somewhere in the φ–k plane, not necessarily at whichever
+    /// sample a test happened to pick. The grid spans every permeability the paper sampled
+    /// (k 0.05–998 mD), which is the region where the regressions are evidence rather than
+    /// extrapolation.
+    ///
+    /// Porosity is bounded at 12 % here and that is NOT a convenience: below about 11 % the
+    /// published rows genuinely do cross, which is Pittman's own arithmetic rather than a
+    /// transcription problem, and
+    /// `the_published_pittman_rows_cross_over_in_tight_rock_and_that_is_the_papers_own_arithmetic`
+    /// is where that is recorded and bounded. Widening this grid downward without reading that
+    /// test first will look like a regression and is not one.
+    #[test]
+    fn the_pittman_radius_family_falls_monotonically_through_reservoir_rock() {
         // Good sand: φ = 25 %, k = 100 mD. Plus the two invalid shapes the doc promises to skip.
         let phi = vec![0.25f32, 0.25, 1.0, 0.25];
         let perm = vec![100.0f32, 1.0, 100.0, -5.0];
@@ -495,14 +696,12 @@ mod tests {
             assert!(out.contains_key(name), "missing output {name}");
         }
 
-        // The head of the family IS monotone in good sand, which is what makes the tail's failure
-        // a transcription question rather than a wholesale problem with the method.
+        let names = ["PR10", "PR15", "PR20", "PR25", "PR30", "PR35", "PR40", "PR50", "PR75"];
         let at = |name: &str| out[name][0] as f64;
-        let head = ["PR10", "PR15", "PR20", "PR25", "PR30", "PR35", "PR40", "PR50"];
-        for pair in head.windows(2) {
+        for pair in names.windows(2) {
             assert!(
                 at(pair[0]) > at(pair[1]),
-                "{} ({}) must exceed {} ({})",
+                "{} ({}) must exceed {} ({}) — mercury enters the widest throats first",
                 pair[0],
                 at(pair[0]),
                 pair[1],
@@ -510,16 +709,39 @@ mod tests {
             );
         }
 
-        // The tail does not. Pinned with the measured numbers so it cannot drift unnoticed.
-        assert!(
-            at("PR75") > at("PR50"),
-            "the inversion this test exists to record has gone — re-read finding 9 before deleting it"
-        );
-        assert!((at("PR50") - 2.907).abs() < 0.01, "PR50 {}", at("PR50"));
-        assert!((at("PR75") - 2.953).abs() < 0.01, "PR75 {}", at("PR75"));
+        // The pair that used to invert, pinned at its published values.
+        assert!((at("PR50") - 2.216).abs() < 0.01, "PR50 {}", at("PR50"));
+        assert!((at("PR75") - 0.267).abs() < 0.01, "PR75 {}", at("PR75"));
 
-        // At 1 mD the same pair is the right way round, which locates the problem in the
-        // coefficients rather than in any one sample.
+        // And across reservoir rock generally, not just at one convenient sample: every
+        // permeability the paper sampled, at porosities from 12 % up.
+        let family = |k: f64, phi_pct: f64| -> Vec<f64> {
+            PITTMAN_RX.iter().map(|&(_, pct)| pittman_radius(pittman_coef(pct), k, phi_pct)).collect()
+        };
+        for &phi_pct in &[12.0f64, 15.0, 20.0, 25.0, 28.0] {
+            for &k in &[0.05f64, 1.0, 10.0, 100.0, 998.0] {
+                let r = family(k, phi_pct);
+                for w in 0..r.len() - 1 {
+                    assert!(
+                        r[w] > r[w + 1],
+                        "{} ({}) <= {} ({}) at phi {phi_pct} %, k {k} mD",
+                        PITTMAN_RX[w].0,
+                        r[w],
+                        PITTMAN_RX[w + 1].0,
+                        r[w + 1]
+                    );
+                }
+            }
+        }
+
+        // BELOW about 11 % porosity the published rows cross over, and that is Pittman's own
+        // arithmetic rather than a second transcription error — see the test below, which pins it.
+        // Asserted here too so the boundary of the claim above cannot quietly drift upward.
+        let tight = family(1.0, 5.0);
+        assert!(tight[7] > tight[6], "at 5 % porosity PR50 must already have turned back up");
+
+        // At 1 mD too — the low-permeability end, where the old table happened to look right and
+        // so hid the fault.
         let low_k = |name: &str| out[name][1] as f64;
         assert!(low_k("PR50") > low_k("PR75"), "at 1 mD the ordering holds: {} vs {}", low_k("PR50"), low_k("PR75"));
 
