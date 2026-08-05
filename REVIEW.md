@@ -8443,7 +8443,27 @@ the two apart.
       no depth at all — which looks like a clean read of plugs that never had depths. That silent
       version is what this replaces.
 - [ ] If a caption carries an interval (`2103.4 m to 2104.1 m`) the FIRST depth is used and the run
-      tells you to look. Say if you would rather it took the mid-point or the top.
+      names it as a duplicate — see the next section, which is your answer to this.
+
+### A plug sits at one depth — Intake, import result (2026-08-05)
+
+Your call: *"it should be 1 plug number only, should warn user if duplicate"*. So a caption naming
+two depths is a duplicate rather than an interval to choose an end of, and — the part that turned
+out to matter more — **two samples at one depth cannot both be stored**. An array holds one vector
+per depth, so the second is refused by the database with a message naming nothing you typed. The
+run now names the depth instead.
+
+- [ ] Import a block file whose captions repeat a depth. The result names that depth and the line
+      goes red, rather than reporting a sample count that the failed write contradicts.
+- [ ] A caption carrying two rows under it gets the same warning — that is two plugs at one depth,
+      arrived at from inside one caption instead of across two.
+- [ ] A DEPTH column with a repeated depth is caught by the same rule, with no Block layout needed.
+- [ ] **The control, and the one worth a minute:** a clean delivery says nothing at all, and a
+      multi-well file where two WELLS share a depth also says nothing. A warning that fires on good
+      files is one you would rightly start ignoring.
+- [ ] Known gap, so you are not surprised by it: the Block/Wide layout has no preview, so this
+      warning arrives WITH the import result rather than before it. Tell me if you want a preview
+      step there and I will add the probe command.
 
 ### A minimum bed thickness — Photo Log ▸ Sand / shale, third box
 

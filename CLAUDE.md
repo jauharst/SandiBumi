@@ -3530,6 +3530,43 @@ and it is worse than a refusal: read without the block flag the captions parse a
 every bin, so the all-MISSING rule drops them silently and both blocks import with no depth at all —
 which looks like a clean read of a delivery whose plugs simply never had depths.
 
+### A plug sits at one depth (2026-08-05)
+
+The open question was what a caption naming an INTERVAL should do — first, mid-point or top. Jauhar
+settled it by rejecting the premise: *"it should be 1 plug number only, should warn user if
+duplicate"*. A caption keys one plug and a plug sits at one depth, so a second depth is a
+**duplicate**, not a range to choose an end of. The first is still used — discarding the block over
+a caption a laboratory very likely typed twice would lose real data — and the run says so.
+
+**The stakes are `array_logs`'s PRIMARY KEY** `(well_id, set_name, curve_name, depth)`: ONE stored
+vector per depth, so a second sample at the same depth is a constraint violation that fails the
+whole curve's write, with a raw engine message naming nothing the user put in the file. Every case
+below imports cleanly right up to the moment it does not.
+
+Three shapes, one rule, and the row-level check is the general one:
+
+- **Two captions claiming one plug** — reported as a CAPTION problem, because that is where the fix
+  is. `read_label_keys` returns `LabelKeys.repeated`.
+- **One caption carrying several rows** — the same collision from inside a single caption, and the
+  likelier delivery mistake of the pair. A caption check cannot see it; a row check can. This is
+  what the existing label-line fixture had been describing all along: two rows under `PLUG 12`,
+  both keyed 4633.5, i.e. a file that could never have been stored.
+- **A DEPTH column with repeats** — caught by the same row check, with no second rule.
+
+**Each is reported ONCE.** The row-level scan SKIPS depths the caption check already explained, so
+two blocks at one depth get one message naming the cause rather than two describing it from both
+ends. **Grouped by the file's own well column**, because two WELLS sampled at one depth is entirely
+ordinary — a check that ignored the well would fire on every multi-well delivery, which is the
+fastest way to train a user to ignore the message. The control in
+`a_plug_sits_at_one_depth_and_a_duplicate_is_named` pins the silence on a clean file for the same
+reason.
+
+**Honest limit, recorded rather than papered over**: the WIDE/BLOCK path has no preview command, so
+these notes ride back with the import RESULT, beside the engine's complaint rather than ahead of it.
+Still the difference between a constraint error and a sentence naming the duplicated depth — but a
+genuine pre-commit gate needs a probe command the panel does not have. The result line goes
+`var(--warn)` when a duplicate is named, because it contradicts the sample count printed next to it.
+
 ### A minimum bed thickness for `CPHOTO_LITH` (`coreimage.rs`)
 
 `lith_min_bed`, **no default** (`param_open`'s rule): a minimum bed thickness is a statement about

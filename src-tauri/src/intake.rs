@@ -554,9 +554,12 @@ const LABEL_DEPTH_UNITS: [&str; 8] = ["FT", "FEET", "FOOT", "M", "MTR", "METER",
 /// identifies a depth AS a depth, and a delivery that omits it has genuinely not said where the
 /// rock is.
 ///
-/// Returns the depth and how many DIFFERENT numbers carried a unit. More than one is reported by
-/// the caller rather than resolved: `2103.4 m to 2103.7 m` is a range, and picking an end is a
-/// judgement about what a block's depth means, not a parsing question.
+/// Returns the depth and how many DIFFERENT numbers carried a unit. **A caption names ONE plug and
+/// a plug sits at one depth** (Jauhar, 2026-08-05: *"it should be 1 plug number only, should warn
+/// user if duplicate"*), so a second depth is not a range to pick an end from — it is a duplicate,
+/// and the caller reports it rather than resolving it. The first is used so the block still imports
+/// and can be checked against the delivery; discarding it would lose a block over a caption a
+/// laboratory very likely typed twice.
 ///
 /// The decimal convention is `parse_number`'s, so a European label line reads the same way a
 /// European data row does — the comma-decimal lesson from the plate workbooks, where a seventh of
@@ -614,7 +617,7 @@ fn read_label_keys(
     bins: &[usize],
     decimal: Option<&str>,
     sep: char,
-) -> (Vec<Option<f64>>, usize, usize) {
+) -> LabelKeys {
     let numeric_fraction = |r: &[String]| -> f32 {
         if bins.is_empty() {
             return 0.0;
@@ -625,6 +628,7 @@ fn read_label_keys(
     let mut keys: Vec<Option<f64>> = Vec::with_capacity(table.len());
     let mut kept: Vec<Vec<String>> = Vec::with_capacity(table.len());
     let (mut labels, mut ranged) = (0usize, 0usize);
+    let (mut seen, mut repeated): (Vec<f64>, Vec<f64>) = (Vec::new(), Vec::new());
     let mut current: Option<f64> = None;
     for r in table.drain(..) {
         // Half the axis columns reading as numbers is a sample; a line of words with one depth on
@@ -637,6 +641,16 @@ fn read_label_keys(
                 if n > 1 {
                     ranged += 1;
                 }
+                // A depth that keys a SECOND block is two captions claiming one plug. Reported
+                // once however many times it recurs — the user needs the depth to go and look at,
+                // not a count of how often the laboratory repeated it.
+                if seen.iter().any(|s| (*s - d).abs() < 1e-9) {
+                    if !repeated.iter().any(|s| (*s - d).abs() < 1e-9) {
+                        repeated.push(d);
+                    }
+                } else {
+                    seen.push(d);
+                }
             }
             // A non-data line is dropped whether or not it yielded a depth: it is a caption, a
             // rule, or a blank — never a sample of nothing.
@@ -646,7 +660,19 @@ fn read_label_keys(
         kept.push(r);
     }
     *table = kept;
-    (keys, labels, ranged)
+    LabelKeys { keys, labels, ranged, repeated }
+}
+
+/// What the captions of a stacked file said, beyond the per-row keys themselves.
+struct LabelKeys {
+    /// The depth each surviving row belongs to; `None` above the first caption.
+    keys: Vec<Option<f64>>,
+    /// Captions that yielded a depth.
+    labels: usize,
+    /// Captions naming MORE than one depth — a duplicate, not a range. See `depth_from_label`.
+    ranged: usize,
+    /// Depths that keyed more than one block, first occurrence order.
+    repeated: Vec<f64>,
 }
 
 /// Splits a delimited file into a table, honouring the same options the long path uses.
@@ -778,9 +804,15 @@ pub fn read_wide(path: &str, opts: &TableOptions, roles: &[String], block: bool)
     // because a file that repeats its header has already said where each block starts and reading
     // captions as well would be a second, weaker answer to a question already settled.
     let mut label_keys: Vec<Option<f64>> = Vec::new();
+    // Hoisted: the row-level clash check below skips depths already explained here, so a file with
+    // two blocks at one depth gets ONE message naming the cause rather than two describing it from
+    // both ends.
+    let mut caption_dupes: Vec<f64> = Vec::new();
     if block && blocks_joined == 0 {
-        let (keys, labels, ranged) = read_label_keys(&mut table, &bins, decimal, sep);
-        label_keys = keys;
+        let found = read_label_keys(&mut table, &bins, decimal, sep);
+        let (labels, ranged) = (found.labels, found.ranged);
+        label_keys = found.keys;
+        caption_dupes = found.repeated;
         if labels == 0 {
             notes.push(
                 "BLOCK was chosen but no repeated header was found and no line above a block \
@@ -798,9 +830,21 @@ pub fn read_wide(path: &str, opts: &TableOptions, roles: &[String], block: bool)
             ));
             if ranged > 0 {
                 notes.push(format!(
-                    "{ranged} label line(s) carry more than one depth with a unit — an interval, \
-                     probably. The FIRST is used and the rest are ignored: choosing an end of a \
-                     range is a judgement about what a block's depth means, so check those blocks."
+                    "{ranged} label line(s) name more than one depth. A caption keys ONE plug and \
+                     a plug sits at one depth, so the second is a duplicate rather than an \
+                     interval to choose an end of — the FIRST is used and the rest ignored. Check \
+                     those captions against the delivery."
+                ));
+            }
+            if !caption_dupes.is_empty() {
+                let list =
+                    caption_dupes.iter().map(|d| format!("{d:.2}")).collect::<Vec<_>>().join(", ");
+                notes.push(format!(
+                    "{} depth(s) key more than one block: {list}. Two blocks at one depth are two \
+                     measurements of the same plug, and a stored array holds ONE vector per depth \
+                     — they cannot both be kept. Correct the captions, or split the file, before \
+                     importing.",
+                    caption_dupes.len()
                 ));
             }
             if orphan > 0 {
@@ -843,6 +887,61 @@ pub fn read_wide(path: &str, opts: &TableOptions, roles: &[String], block: bool)
     if short > 0 {
         notes.push(format!(
             "{short} row(s) were shorter than the header row; their missing bins are MISSING rather than zero"
+        ));
+    }
+
+    // **A plug sits at one depth, so two samples cannot share one.** `array_logs` is keyed
+    // (well, set, curve, depth) and holds ONE vector per depth, so a second sample at the same
+    // depth is a primary-key collision that fails the whole curve's write — with a raw engine
+    // message naming nothing the user would recognise. Named here instead, with the depth to go
+    // and look at.
+    //
+    // The wide path has no separate preview: this rides back with the import result, beside the
+    // engine's own complaint rather than ahead of it. That is still the difference between a
+    // constraint error and a sentence saying which depth was delivered twice — but a genuine
+    // pre-commit gate for WIDE/BLOCK would need a probe command the panel does not have yet.
+    //
+    // Counted over ROWS rather than captions so it catches the case a caption check cannot see:
+    // one block carrying several rows. That is the same collision reached from inside a single
+    // caption instead of across two, and it is the likelier delivery mistake of the pair.
+    //
+    // Grouped by the file's own well column, because two WELLS sampled at the same depth is
+    // entirely ordinary — a check that ignored the well would fire on every multi-well delivery.
+    let mut clashes: Vec<(Option<String>, f64)> = Vec::new();
+    let mut seen: Vec<(Option<String>, f64)> = Vec::new();
+    for r in &rows {
+        let Some(d) = r.depth else { continue };
+        // Already explained, by name, as two captions claiming one plug.
+        if caption_dupes.iter().any(|c| (*c - d).abs() < 1e-9) {
+            continue;
+        }
+        let key = r.well_name.as_ref().map(|n| n.trim().to_uppercase());
+        let hit = |v: &[(Option<String>, f64)]| {
+            v.iter().any(|(w, s)| *w == key && (*s - d).abs() < 1e-9)
+        };
+        let (in_seen, in_clash) = (hit(&seen), hit(&clashes));
+        if in_seen {
+            if !in_clash {
+                clashes.push((key, d));
+            }
+        } else {
+            seen.push((key, d));
+        }
+    }
+    if !clashes.is_empty() {
+        let list = clashes
+            .iter()
+            .map(|(w, d)| match w {
+                Some(w) => format!("{w} {d:.2}"),
+                None => format!("{d:.2}"),
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        notes.push(format!(
+            "{} depth(s) carry more than one sample: {list}. A plug sits at one depth and only \
+             one measurement can be stored there, so the rest would be refused. Give them their \
+             own depths, or split the file, before importing.",
+            clashes.len()
         ));
     }
     if blocks_joined > 0 {
@@ -1553,6 +1652,14 @@ mod tests {
         assert_eq!(probe.rows.len(), 3, "the captions are keys, not samples");
         assert_eq!(probe.rows[0].depth, Some(4633.5), "the number with the unit, never the plug number");
         assert_eq!(probe.rows[1].depth, Some(4633.5), "and every row of a block takes its block's depth");
+        // Which makes this fixture a file that could not actually be stored: two samples at one
+        // depth is a primary-key collision in `array_logs`. The warning is the point — it says so
+        // here, in the preview, rather than as an engine error part way through a commit.
+        assert!(
+            probe.notes.iter().any(|n| n.contains("carry more than one sample") && n.contains("4633.50")),
+            "two rows under one caption are two plugs at one depth, and it is named: {:?}",
+            probe.notes
+        );
         // The comma-decimal lesson from the plate workbooks: `4640,0` is one number, not two.
         assert_eq!(probe.rows[2].depth, Some(4640.0), "a comma decimal reads as one number");
         assert!(
@@ -1594,9 +1701,11 @@ mod tests {
         );
         assert_eq!(depth_from_label(&cells("PLUG 12  4633.5"), None, ' ').0, None, "no unit, no depth");
         assert_eq!(depth_from_label(&cells("CORE DESCRIPTION"), None, ' ').0, None);
-        // An interval names two depths; the first is used and the caller is told to look.
+        // A caption naming two depths is a DUPLICATE, not a range to choose an end of: a caption
+        // keys one plug and a plug sits at one depth. The first is used so the block still
+        // imports, and both are seen so the caller can say there were two.
         let (d, n) = depth_from_label(&cells("BOX 3  2103.4 m to 2104.1 m"), None, ' ');
-        assert_eq!((d, n), (Some(2103.4), 2), "both are seen, so the ambiguity can be reported");
+        assert_eq!((d, n), (Some(2103.4), 2), "both are seen, so the duplicate can be reported");
         // A bare letter is not a unit: on a line naming a facies code, `F` is not evidence.
         assert_eq!(depth_from_label(&cells("PLUG 12 4633.5 F"), None, ' ').0, None);
         // The comma-decimal trap. A comma-delimited file splits `4640,0 ft` into two cells, and
@@ -1605,6 +1714,80 @@ mod tests {
         let split = vec!["PLUG 13  4640".to_string(), "0 ft".to_string()];
         assert_eq!(depth_from_label(&split, None, ',').0, Some(4640.0), "reassembled as written");
         assert_eq!(depth_from_label(&split, None, ' ').0, Some(0.0), "and this is what a space would have given");
+    }
+
+    /// **A plug sits at one depth, and a duplicate is named before anything is stored.** Jauhar,
+    /// 2026-08-05: *"it should be 1 plug number only, should warn user if duplicate"*.
+    ///
+    /// The stakes are `array_logs`'s PRIMARY KEY (well, set, curve, depth): one stored vector per
+    /// depth, so a second sample at the same depth is a constraint violation that fails the whole
+    /// curve's write with an engine message naming nothing the user put in the file. Every case
+    /// below imports cleanly right up to the moment it does not.
+    ///
+    /// Two captions claiming one plug and one caption carrying two rows are the same collision
+    /// reached from opposite directions, so both are caught — but each is reported ONCE, by the
+    /// message that names its own fix, rather than twice from both ends.
+    #[test]
+    fn a_plug_sits_at_one_depth_and_a_duplicate_is_named() {
+        let write = |name: &str, body: &str| {
+            let p = std::env::temp_dir().join(name);
+            std::fs::write(&p, body).unwrap();
+            p
+        };
+        let dupe_note = |p: &std::path::Path, roles: &[String], block: bool| -> Vec<String> {
+            read_wide(p.to_str().unwrap(), &TableOptions::default(), roles, block)
+                .expect("read")
+                .notes
+                .into_iter()
+                .filter(|n| n.contains("key more than one block") || n.contains("carry more than one sample"))
+                .collect()
+        };
+
+        // Two blocks claiming one plug. Named as a CAPTION problem, because that is where the fix
+        // is — and only once: the row-level check skips a depth already explained.
+        let two_blocks = write(
+            "sandi_dupe_blocks.csv",
+            "1,2,4\nPLUG 12  4633.5 ft\n0.9,0.7,0.5\nPLUG 13  4633.5 ft\n0.8,0.6,0.4\n",
+        );
+        let n = dupe_note(&two_blocks, &[], true);
+        assert_eq!(n.len(), 1, "one message, not the same fault described twice: {n:?}");
+        assert!(n[0].contains("key more than one block") && n[0].contains("4633.50"), "{n:?}");
+
+        // One caption, two rows — the case a caption check cannot see, and the likelier mistake.
+        let two_rows =
+            write("sandi_dupe_rows.csv", "1,2,4\nPLUG 12  4633.5 ft\n0.9,0.7,0.5\n0.88,0.68,0.48\n");
+        let n = dupe_note(&two_rows, &[], true);
+        assert_eq!(n.len(), 1, "{n:?}");
+        assert!(n[0].contains("carry more than one sample") && n[0].contains("4633.50"), "{n:?}");
+
+        // The control. A clean delivery must say nothing at all — a warning that fires on good
+        // files is one nobody reads, and this whole family lives or dies on being believed.
+        let clean = write(
+            "sandi_dupe_clean.csv",
+            "1,2,4\nPLUG 12  4633.5 ft\n0.9,0.7,0.5\nPLUG 13  4640.0 ft\n0.8,0.6,0.4\n",
+        );
+        assert!(dupe_note(&clean, &[], true).is_empty(), "a clean file is silent");
+
+        // Two WELLS sampled at one depth is entirely ordinary, and the check is grouped by well so
+        // it stays quiet. Without the grouping this would fire on every multi-well delivery, which
+        // is the fastest way to train a user to ignore the message.
+        let roles: Vec<String> =
+            ["WELL", "DEPTH", "", "", ""].iter().map(|s| s.to_string()).collect();
+        let two_wells = write(
+            "sandi_dupe_wells.csv",
+            "WELL,DEPTH,1,2,4\nSANDI-1,2000.0,0.9,0.7,0.5\nSANDI-2,2000.0,0.8,0.6,0.4\n",
+        );
+        assert!(dupe_note(&two_wells, &roles, false).is_empty(), "two wells may share a depth");
+
+        // ...and the same file with ONE well repeated is the collision again, now via a depth
+        // COLUMN rather than a caption. Same rule, so it is caught without a second check.
+        let one_well = write(
+            "sandi_dupe_one_well.csv",
+            "WELL,DEPTH,1,2,4\nSANDI-1,2000.0,0.9,0.7,0.5\nSANDI-1,2000.0,0.8,0.6,0.4\n",
+        );
+        let n = dupe_note(&one_well, &roles, false);
+        assert_eq!(n.len(), 1, "{n:?}");
+        assert!(n[0].contains("SANDI-1 2000.00"), "the well is named alongside the depth: {n:?}");
     }
 
     /// **An import never eats a delivery already there.** Jauhar, 2026-08-05: *"dont eat it, thats
